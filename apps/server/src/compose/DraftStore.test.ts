@@ -3,6 +3,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
+import * as Events from "../events/Events.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 import * as TokenCipher from "../settings/TokenCipher.ts";
@@ -11,7 +12,7 @@ import * as SlotStore from "./SlotStore.ts";
 
 const layerTest = Layer.mergeAll(DraftStore.layer, SlotStore.layer).pipe(
   Layer.provideMerge(SettingsStore.layer),
-  Layer.provideMerge(Layer.mergeAll(Sqlite.layerMemory, TokenCipher.layerTest)),
+  Layer.provideMerge(Layer.mergeAll(Sqlite.layerMemory, TokenCipher.layerTest, Events.layer)),
 );
 
 describe("DraftStore", () => {
@@ -67,6 +68,46 @@ describe("DraftStore", () => {
       // Due only once the slot time has passed.
       expect(yield* drafts.due(DateTime.formatIso(now))).toHaveLength(0);
       expect(yield* drafts.due(second!)).toHaveLength(1);
+    }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect("media rows follow their block, keep order, and go with the draft", () =>
+    Effect.gen(function* () {
+      const store = yield* DraftStore.DraftStore;
+      const d = yield* store.create({
+        blocks: [{ text: "a" }, { text: "b", replySettings: "following" }],
+        quoteUrl: "https://x.com/levelsio/status/1",
+      });
+      expect(d.blocks[1]?.replySettings).toBe("following");
+      expect(d.quoteUrl).toBe("https://x.com/levelsio/status/1");
+      yield* store.mediaInsert(d.id, { id: "m1", blockIndex: 0, path: "/m/1.png", kind: "image", alt: "" });
+      const two = yield* store.mediaInsert(d.id, {
+        id: "m2",
+        blockIndex: 0,
+        path: "/m/2.png",
+        kind: "image",
+        alt: "",
+      });
+      expect(two.media.map((m) => [m.id, m.position])).toEqual([
+        ["m1", 0],
+        ["m2", 1],
+      ]);
+      // The editor reorders and captions; the list comes back sorted by block then position.
+      const moved = yield* store.update(d.id, {
+        media: [
+          { id: "m1", blockIndex: 1, alt: "first", position: 0 },
+          { id: "m2", blockIndex: 0, alt: "", position: 0 },
+        ],
+      });
+      expect(moved.media.map((m) => [m.id, m.blockIndex, m.alt])).toEqual([
+        ["m2", 0, ""],
+        ["m1", 1, "first"],
+      ]);
+      expect(yield* store.mediaRemove(d.id, "m2")).toBe("/m/2.png");
+      expect(yield* store.mediaRemove(d.id, "nope")).toBeNull();
+      expect((yield* store.list)[0]?.media.map((m) => m.id)).toEqual(["m1"]);
+      yield* store.remove(d.id);
+      expect(yield* store.mediaRemove(d.id, "m1")).toBeNull();
     }).pipe(Effect.provide(layerTest)),
   );
 });

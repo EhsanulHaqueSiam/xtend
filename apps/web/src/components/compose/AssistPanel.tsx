@@ -1,17 +1,87 @@
-import { useAtomSet } from "@effect/atom-react";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import type { XPost } from "@xtend/contracts";
 import * as Cause from "effect/Cause";
 import * as Exit from "effect/Exit";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 
+import { fmtWhen } from "../../lib/time";
 import {
   assistContinueAtom,
   assistHookAtom,
   assistRewriteAtom,
   assistThreadIdeasAtom,
   assistVoiceMatchAtom,
+  composeContextAtom,
 } from "../../state/compose";
+import { useQuoteLabel } from "../../state/costs";
+import { searchAtom } from "../../state/library";
 import { Button } from "../ui/button";
-import { inputClass } from "./ThreadEditor";
+import { inputClass, splitBlocks } from "./ThreadEditor";
+
+const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** Where the draft would land (next free slot, best hours) and three library posts like its first line. */
+export function ComposeContext({
+  firstLine,
+  onUse,
+}: {
+  readonly firstLine: string;
+  readonly onUse: (blocks: ReadonlyArray<string>) => void;
+}) {
+  const context = useAtomValue(composeContextAtom);
+  const search = useAtomSet(searchAtom, { mode: "promiseExit" });
+  const query = firstLine.trim().slice(0, 80);
+  const price = useQuoteLabel({ kind: "search", query });
+  const [similar, setSimilar] = useState<ReadonlyArray<XPost> | string | null>(null);
+  const ctx = AsyncResult.getOrElse(context, () => null);
+  return (
+    <section className="flex flex-col gap-1.5 rounded-md border border-border bg-card p-2 text-xs">
+      <p className="font-mono text-2xs text-muted-foreground">
+        Next slot: {ctx === null ? "…" : ctx.nextSlot === null ? "no slots set" : fmtWhen(ctx.nextSlot)}
+        {ctx !== null && ctx.bestHours.length > 0
+          ? ` · best hours: ${ctx.bestHours.map((b) => `${DAYS[b.weekday]} ${b.hour}:00`).join(", ")}`
+          : ""}
+      </p>
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="xs"
+          disabled={query === ""}
+          onClick={async () => {
+            setSimilar("Searching…");
+            const exit = await search({ query, mode: "top" });
+            setSimilar(Exit.isFailure(exit) ? failText(exit.cause) : exit.value.items.slice(0, 3));
+          }}
+        >
+          Find similar posts ({price})
+        </Button>
+      </div>
+      {typeof similar === "string" ? (
+        <p className="text-2xs text-muted-foreground">{similar}</p>
+      ) : similar !== null ? (
+        <ul className="flex flex-col divide-y divide-border">
+          {similar.length === 0 ? (
+            <li className="py-1 text-2xs text-muted-foreground">Nothing similar found.</li>
+          ) : null}
+          {similar.map((p) => (
+            <li key={p.postId} className="flex items-start gap-2 py-1.5">
+              <div className="min-w-0 flex-1">
+                <p className="text-2xs text-muted-foreground">
+                  @{p.author.handle} · {p.metrics.likes} likes
+                </p>
+                <p className="line-clamp-3 whitespace-pre-wrap">{p.text}</p>
+              </div>
+              <Button variant="ghost" size="xs" onClick={() => onUse(splitBlocks(p.text))}>
+                Use
+              </Button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
+  );
+}
 
 /** One assist answer, flattened so the panel renders every task the same way. */
 interface Suggestion {

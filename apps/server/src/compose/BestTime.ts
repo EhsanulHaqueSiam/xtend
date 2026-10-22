@@ -1,23 +1,31 @@
-import { ComposeError, type Heatmap } from "@xtend/contracts";
+import { ComposeError, type ComposeContext, type Heatmap } from "@xtend/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
+import * as DesktopChannel from "../desktop/DesktopChannel.ts";
 import * as ObservationStore from "../observations/ObservationStore.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
+import * as SlotStore from "./SlotStore.ts";
 
 /** Below this many observed posts the heatmap is noise, so no slot suggestion is made. */
 const MIN_POSTS = 10;
 
 export class BestTime extends Context.Service<
   BestTime,
-  { readonly heatmap: Effect.Effect<Heatmap, ComposeError> }
+  {
+    readonly heatmap: Effect.Effect<Heatmap, ComposeError>;
+    /** What Compose shows beside a draft: the slot it would take, the best hours, and whether a desktop can post media. */
+    readonly context: Effect.Effect<ComposeContext, ComposeError>;
+  }
 >()("xtend/compose/BestTime") {}
 
 const make = Effect.gen(function* () {
   const observations = yield* ObservationStore.ObservationStore;
   const settings = yield* SettingsStore.SettingsStore;
+  const slots = yield* SlotStore.SlotStore;
+  const desktop = yield* DesktopChannel.DesktopChannel;
 
   const heatmap = Effect.gen(function* () {
     const { handle, timeZone } = yield* settings.get;
@@ -46,7 +54,13 @@ const make = Effect.gen(function* () {
     return { cells, posts: posts.length, best } satisfies Heatmap;
   }).pipe(Effect.mapError((e) => new ComposeError({ operation: "heatmap", detail: e.message })));
 
-  return BestTime.of({ heatmap });
+  const context = Effect.gen(function* () {
+    const nextSlot = yield* slots.nextFree(yield* DateTime.now);
+    const { best } = yield* heatmap;
+    return { nextSlot, bestHours: best, desktopConnected: yield* desktop.connected };
+  });
+
+  return BestTime.of({ heatmap, context });
 });
 
 export const layer = Layer.effect(BestTime, make);

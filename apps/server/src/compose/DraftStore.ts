@@ -2,10 +2,12 @@ import {
   ComposeError,
   type Draft,
   type DraftBlock,
+  type DraftMedia,
   type DraftPatch,
   type DraftPoll,
   type DraftStatus,
   type QueueRun,
+  ReplySettings,
 } from "@xtend/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -14,7 +16,13 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 
-const BlocksJson = Schema.fromJsonString(Schema.Array(Schema.Struct({ text: Schema.String })));
+import * as Events from "../events/Events.ts";
+
+const BlocksJson = Schema.fromJsonString(
+  Schema.Array(
+    Schema.Struct({ text: Schema.String, replySettings: Schema.optional(ReplySettings) }),
+  ),
+);
 const decodeBlocks = Schema.decodeUnknownSync(BlocksJson);
 const encodeBlocks = Schema.encodeSync(BlocksJson);
 const PollJson = Schema.fromJsonString(
@@ -38,6 +46,10 @@ interface DraftRow {
   readonly hide_link_previews: number;
   readonly thread_delay_seconds: number;
   readonly source: string | null;
+  readonly quote_url: string | null;
+  readonly reply_to_post_id: string | null;
+  readonly article_id: string | null;
+  readonly link_preview_note: string | null;
   readonly scheduled_at: string | null;
   readonly post_ids_json: string;
   readonly error: string | null;
@@ -56,7 +68,26 @@ interface RunRow {
   readonly detail: string;
 }
 
-const toDraft = (r: DraftRow): Draft => ({
+interface MediaRow {
+  readonly id: string;
+  readonly draft_id: string;
+  readonly block_index: number;
+  readonly path: string;
+  readonly kind: DraftMedia["kind"];
+  readonly alt: string;
+  readonly position: number;
+}
+
+const toMedia = (m: MediaRow): DraftMedia => ({
+  id: m.id,
+  blockIndex: m.block_index,
+  path: m.path,
+  kind: m.kind,
+  alt: m.alt,
+  position: m.position,
+});
+
+const toDraft = (r: DraftRow, media: ReadonlyArray<MediaRow>): Draft => ({
   id: r.id,
   kind: r.kind,
   status: r.status,
@@ -66,8 +97,13 @@ const toDraft = (r: DraftRow): Draft => ({
   replySettings: r.reply_settings,
   poll: r.poll_json === null ? null : decodePoll(r.poll_json),
   hideLinkPreviews: r.hide_link_previews === 1,
+  linkPreviewNote: r.link_preview_note,
   threadDelaySeconds: r.thread_delay_seconds,
   source: r.source,
+  quoteUrl: r.quote_url,
+  replyToPostId: r.reply_to_post_id,
+  articleId: r.article_id,
+  media: media.filter((m) => m.draft_id === r.id).map(toMedia),
   scheduledAt: r.scheduled_at,
   postIds: decodeIds(r.post_ids_json),
   error: r.error,
@@ -94,6 +130,8 @@ export interface DraftOutcome {
   readonly error?: string | null;
   readonly attempts?: number;
   readonly postedAt?: string | null;
+  readonly articleId?: string | null;
+  readonly linkPreviewNote?: string | null;
 }
 
 export class DraftStore extends Context.Service<
@@ -122,11 +160,19 @@ export class DraftStore extends Context.Service<
     ) => Effect.Effect<ReadonlyArray<Draft>, ComposeError>;
     readonly logRun: (run: Omit<QueueRun, "id" | "at">) => Effect.Effect<void, ComposeError>;
     readonly runs: (draftId: string) => Effect.Effect<ReadonlyArray<QueueRun>, ComposeError>;
+    /** Records a stored file as the last attachment of its block. The file itself is Media's job. */
+    readonly mediaInsert: (
+      draftId: string,
+      media: Omit<DraftMedia, "position">,
+    ) => Effect.Effect<Draft, ComposeError>;
+    /** Removes the row and returns the file path to delete, or null when there was no such row. */
+    readonly mediaRemove: (draftId: string, id: string) => Effect.Effect<string | null, ComposeError>;
   }
 >()("xtend/compose/DraftStore") {}
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+  const events = yield* Events.Events;
   const now = Effect.map(DateTime.now, DateTime.formatIso);
   const fail = (operation: string) => (cause: unknown) =>
     new ComposeError({ operation, detail: String(cause).slice(0, 300) });
@@ -139,15 +185,36 @@ const make = Effect.gen(function* () {
     return row;
   });
 
+  const mediaOf = (draftId: string) =>
+    sql<MediaRow>`SELECT * FROM draft_media WHERE draft_id = ${draftId} ORDER BY block_index, position`;
+
+  const draftById = Effect.fn("DraftStore.draftById")(function* (id: string) {
+    return toDraft(yield* rowById(id), yield* mediaOf(id));
+  });
+
   const get = Effect.fn("DraftStore.get")(
     function* (id: string) {
-      return toDraft(yield* rowById(id));
+      return yield* draftById(id);
     },
     Effect.mapError(fail("get")),
   );
 
+  // One media query for the whole page rather than one per draft.
+  const withMedia = (rows: ReadonlyArray<DraftRow>) =>
+    rows.length === 0
+      ? Effect.succeed([])
+      : Effect.map(
+          sql<MediaRow>`SELECT * FROM draft_media WHERE draft_id IN ${sql.in(rows.map((r) => r.id))} ORDER BY block_index, position`,
+          (media) => rows.map((r) => toDraft(r, media)),
+        );
+
+  const statusChanged = (id: string, before: DraftStatus, after: DraftStatus) =>
+    before === after
+      ? Effect.void
+      : events.publish({ type: "draft_status_changed", payload: { draftId: id, status: after } });
+
   const list = sql<DraftRow>`SELECT * FROM drafts ORDER BY updated_at DESC LIMIT 200`.pipe(
-    Effect.map((rows) => rows.map(toDraft)),
+    Effect.flatMap(withMedia),
     Effect.mapError(fail("list")),
   );
 
@@ -175,7 +242,10 @@ const make = Effect.gen(function* () {
         patch.blocks !== undefined ||
         patch.body !== undefined ||
         patch.title !== undefined ||
-        patch.poll !== undefined;
+        patch.poll !== undefined ||
+        patch.quoteUrl !== undefined ||
+        patch.replyToPostId !== undefined ||
+        patch.media !== undefined;
       const blocks: ReadonlyArray<DraftBlock> = patch.blocks ?? decodeBlocks(r.blocks_json);
       const poll: DraftPoll | null =
         patch.poll === undefined
@@ -195,13 +265,23 @@ const make = Effect.gen(function* () {
           hide_link_previews = ${(patch.hideLinkPreviews ?? r.hide_link_previews === 1) ? 1 : 0},
           thread_delay_seconds = ${patch.threadDelaySeconds ?? r.thread_delay_seconds},
           source = ${patch.source === undefined ? r.source : patch.source},
+          quote_url = ${patch.quoteUrl === undefined ? r.quote_url : patch.quoteUrl},
+          reply_to_post_id = ${patch.replyToPostId === undefined ? r.reply_to_post_id : patch.replyToPostId},
           attempts = ${edited ? 0 : r.attempts},
           post_ids_json = ${edited ? "[]" : r.post_ids_json},
+          article_id = ${edited ? null : r.article_id},
           error = ${edited ? null : r.error},
           updated_at = ${at}
         WHERE id = ${id}
       `;
-      return toDraft(yield* rowById(id));
+      for (const m of patch.media ?? [])
+        yield* sql`
+          UPDATE draft_media SET block_index = ${m.blockIndex}, alt = ${m.alt}, position = ${m.position}
+          WHERE id = ${m.id} AND draft_id = ${id}
+        `;
+      const next = yield* draftById(id);
+      yield* statusChanged(id, r.status, next.status);
+      return next;
     },
     Effect.mapError(fail("update")),
   );
@@ -214,6 +294,7 @@ const make = Effect.gen(function* () {
         WHERE id = ${id} AND status IN ('draft', 'queued', 'failed', 'suggested')
         RETURNING id
       `;
+      if (rows.length === 1) yield* statusChanged(id, "queued", "posting");
       return rows.length === 1;
     },
     Effect.mapError(fail("claim")),
@@ -239,10 +320,14 @@ const make = Effect.gen(function* () {
           error = ${o.error === undefined ? r.error : o.error},
           attempts = ${o.attempts ?? r.attempts},
           posted_at = ${o.postedAt === undefined ? r.posted_at : o.postedAt},
+          article_id = ${o.articleId === undefined ? r.article_id : o.articleId},
+          link_preview_note = ${o.linkPreviewNote === undefined ? r.link_preview_note : o.linkPreviewNote},
           updated_at = ${at}
         WHERE id = ${id}
       `;
-      return toDraft(yield* rowById(id));
+      const next = yield* draftById(id);
+      yield* statusChanged(id, r.status, next.status);
+      return next;
     },
     Effect.mapError(fail("setOutcome")),
   );
@@ -250,6 +335,7 @@ const make = Effect.gen(function* () {
   const remove = Effect.fn("DraftStore.remove")(
     function* (id: string) {
       yield* sql`DELETE FROM drafts WHERE id = ${id}`;
+      yield* sql`DELETE FROM draft_media WHERE draft_id = ${id}`;
     },
     Effect.mapError(fail("remove")),
   );
@@ -259,7 +345,7 @@ const make = Effect.gen(function* () {
       const rows = yield* sql<DraftRow>`
         SELECT * FROM drafts WHERE status = 'queued' AND scheduled_at <= ${at} ORDER BY scheduled_at ASC
       `;
-      return rows.map(toDraft);
+      return yield* withMedia(rows);
     },
     Effect.mapError(fail("due")),
   );
@@ -269,7 +355,7 @@ const make = Effect.gen(function* () {
       const rows = yield* sql<DraftRow>`
         SELECT * FROM drafts WHERE status = ${status} ORDER BY scheduled_at ASC, updated_at DESC LIMIT 200
       `;
-      return rows.map(toDraft);
+      return yield* withMedia(rows);
     },
     Effect.mapError(fail("byStatus")),
   );
@@ -282,7 +368,7 @@ const make = Effect.gen(function* () {
            OR (status = 'posted' AND posted_at >= ${from} AND posted_at < ${to})
         ORDER BY COALESCE(posted_at, scheduled_at) ASC LIMIT 200
       `;
-      return rows.map(toDraft);
+      return yield* withMedia(rows);
     },
     Effect.mapError(fail("inRange")),
   );
@@ -308,6 +394,30 @@ const make = Effect.gen(function* () {
     Effect.mapError(fail("runs")),
   );
 
+  const mediaInsert = Effect.fn("DraftStore.mediaInsert")(
+    function* (draftId: string, m: Omit<DraftMedia, "position">) {
+      const [count] = yield* sql<{ n: number }>`
+        SELECT COUNT(*) AS n FROM draft_media WHERE draft_id = ${draftId} AND block_index = ${m.blockIndex}
+      `;
+      yield* sql`
+        INSERT INTO draft_media (id, draft_id, block_index, path, kind, alt, position)
+        VALUES (${m.id}, ${draftId}, ${m.blockIndex}, ${m.path}, ${m.kind}, ${m.alt}, ${count?.n ?? 0})
+      `;
+      return yield* draftById(draftId);
+    },
+    Effect.mapError(fail("mediaAdd")),
+  );
+
+  const mediaRemove = Effect.fn("DraftStore.mediaRemove")(
+    function* (draftId: string, id: string) {
+      const rows = yield* sql<{ path: string }>`
+        DELETE FROM draft_media WHERE id = ${id} AND draft_id = ${draftId} RETURNING path
+      `;
+      return rows[0]?.path ?? null;
+    },
+    Effect.mapError(fail("mediaRemove")),
+  );
+
   return DraftStore.of({
     list,
     get,
@@ -322,7 +432,10 @@ const make = Effect.gen(function* () {
     inRange,
     logRun,
     runs,
+    mediaInsert,
+    mediaRemove,
   });
 });
 
+/** Events comes from the foundation layer; this layer only depends on it. */
 export const layer = Layer.effect(DraftStore, make);

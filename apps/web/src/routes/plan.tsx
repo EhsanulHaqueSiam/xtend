@@ -92,7 +92,7 @@ function PlanScreen() {
     refreshReady();
   };
   const open = (d: Draft) =>
-    navigate({ to: "/compose", search: { draft: d.id, inspire: undefined } });
+    navigate({ to: "/compose", search: { draft: d.id, inspire: undefined, reply: undefined } });
 
   return (
     <div className="flex h-full flex-col">

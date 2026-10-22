@@ -50,8 +50,15 @@ export function Queue({
   const [expanded, setExpanded] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<string | null>(null);
   const rates = useRates();
+  // Blocks with media go through the x.com session, which treg does not bill.
   const draftCostUsd = (d: Draft) =>
-    rates === null ? 0 : d.blocks.reduce((sum, b) => sum + postCostUsd(rates, b.text), 0);
+    rates === null
+      ? 0
+      : d.blocks.reduce(
+          (sum, b, i) =>
+            sum + (d.media.some((m) => m.blockIndex === i) ? 0 : postCostUsd(rates, b.text)),
+          0,
+        );
   if (drafts.length === 0)
     return <Empty>Nothing queued. Add a draft from Compose or the shelf.</Empty>;
   return (
@@ -68,6 +75,15 @@ export function Queue({
                 <span className={statusTone[d.status]}>{d.status}</span>
                 <span>{d.scheduledAt === null ? "no time" : fmtWhen(d.scheduledAt)}</span>
                 <span>{d.blocks.length} posts</span>
+                {d.media.length > 0 ? (
+                  <span className="text-info-foreground">
+                    {d.media.some((m) => m.kind === "video")
+                      ? "video"
+                      : `${d.media.length} ${d.media.length === 1 ? "image" : "images"}`}
+                    {" via session"}
+                  </span>
+                ) : null}
+                {d.kind === "article" ? <span>article</span> : null}
                 <span>{usd(draftCostUsd(d))}</span>
                 {d.attempts > 0 ? <span>{d.attempts} attempts</span> : null}
               </p>

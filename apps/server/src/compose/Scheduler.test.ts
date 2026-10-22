@@ -3,6 +3,7 @@ import { XApiError } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
+import * as Events from "../events/Events.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 import * as TokenCipher from "../settings/TokenCipher.ts";
@@ -10,6 +11,8 @@ import * as XClient from "../x/XClient.ts";
 import * as DraftStore from "./DraftStore.ts";
 import * as Publisher from "./Publisher.ts";
 import * as Scheduler from "./Scheduler.ts";
+import * as SessionPosting from "./SessionPosting.ts";
+import { articlesStub, desktopStub } from "./testStubs.ts";
 
 // Records createPost calls; fails when the text contains "boom".
 const calls: Array<XClient.CreatePostInput> = [];
@@ -50,8 +53,17 @@ const xStub = Layer.succeed(XClient.XClient)({
 
 const layerTest = Scheduler.layerService.pipe(
   Layer.provideMerge(Publisher.layer),
-  Layer.provideMerge(Layer.mergeAll(DraftStore.layer, SettingsStore.layer)),
-  Layer.provideMerge(Layer.mergeAll(Sqlite.layerMemory, xStub, TokenCipher.layerTest)),
+  Layer.provideMerge(Layer.mergeAll(DraftStore.layer, SessionPosting.layer, articlesStub)),
+  Layer.provideMerge(SettingsStore.layer),
+  Layer.provideMerge(
+    Layer.mergeAll(
+      Sqlite.layerMemory,
+      xStub,
+      TokenCipher.layerTest,
+      Events.layer,
+      desktopStub([], () => Effect.die("no desktop in this test")),
+    ),
+  ),
 );
 
 describe("Scheduler", () => {

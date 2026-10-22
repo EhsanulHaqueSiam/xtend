@@ -1,4 +1,4 @@
-import { Compose_METHODS, type DraftPatch } from "@xtend/contracts";
+import { Compose_METHODS, type DraftPatch, type MediaKind } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 
 import { clientRuntime, XtendClient } from "../rpc/client";
@@ -73,5 +73,52 @@ export const assistVoiceMatchAtom = clientRuntime.fn<ReadonlyArray<string>>()(
   Effect.fnUntraced(function* (blocks) {
     const client = yield* XtendClient;
     return yield* client[Compose_METHODS.assistVoiceMatch]({ blocks });
+  }),
+);
+
+export const mediaAddAtom = clientRuntime.fn<{
+  readonly draftId: string;
+  readonly blockIndex: number;
+  readonly kind: MediaKind;
+  readonly name: string;
+  readonly base64: string;
+}>()(
+  Effect.fnUntraced(function* (input) {
+    const client = yield* XtendClient;
+    return yield* client[Compose_METHODS.mediaAdd](input);
+  }),
+);
+
+export const mediaRemoveAtom = clientRuntime.fn<{ readonly draftId: string; readonly id: string }>()(
+  Effect.fnUntraced(function* (input) {
+    const client = yield* XtendClient;
+    return yield* client[Compose_METHODS.mediaRemove](input);
+  }),
+);
+
+/** Paid: one cover image from the model in `composeQuoteAtom`. */
+export const generateCoverAtom = clientRuntime.fn<{
+  readonly draftId: string;
+  readonly prompt: string;
+}>()(
+  Effect.fnUntraced(function* (input) {
+    const client = yield* XtendClient;
+    return yield* client[Compose_METHODS.generateCover](input);
+  }),
+);
+
+/** Article and cover prices; the only place the editor learns them. */
+export const composeQuoteAtom = clientRuntime.atom(
+  Effect.gen(function* () {
+    const client = yield* XtendClient;
+    return yield* client[Compose_METHODS.quote]({});
+  }),
+);
+
+/** Next free slot, best hours and whether a desktop can post media; refreshed when the editor opens. */
+export const composeContextAtom = clientRuntime.atom(
+  Effect.gen(function* () {
+    const client = yield* XtendClient;
+    return yield* client[Compose_METHODS.context]({});
   }),
 );

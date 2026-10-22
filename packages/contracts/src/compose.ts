@@ -28,8 +28,39 @@ export const ReplySettings = Schema.Literals([
 ]);
 export type ReplySettings = typeof ReplySettings.Type;
 
-export const DraftBlock = Schema.Struct({ text: Schema.String });
+/** A block's own reply control wins over the draft's. */
+export const DraftBlock = Schema.Struct({
+  text: Schema.String,
+  replySettings: Schema.optional(ReplySettings),
+});
 export type DraftBlock = typeof DraftBlock.Type;
+
+export const MediaKind = Schema.Literals(["image", "video"]);
+export type MediaKind = typeof MediaKind.Type;
+
+/** One file under `<baseDir>/media/<draftId>/`, attached to block `blockIndex` at `position`. */
+export const DraftMedia = Schema.Struct({
+  id: Schema.String,
+  blockIndex: NonNegativeInt,
+  path: Schema.String,
+  kind: MediaKind,
+  alt: Schema.String,
+  position: NonNegativeInt,
+});
+export type DraftMedia = typeof DraftMedia.Type;
+
+/** What the editor may change on attached media: where it sits and its alt text. Files come in through mediaAdd. */
+export const DraftMediaPatch = Schema.Struct({
+  id: Schema.String,
+  blockIndex: NonNegativeInt,
+  alt: Schema.String,
+  position: NonNegativeInt,
+});
+export type DraftMediaPatch = typeof DraftMediaPatch.Type;
+
+/** 15 MB per file; X refuses larger images anyway. */
+export const MEDIA_MAX_BYTES = 15 * 1024 * 1024;
+export const MEDIA_MAX_IMAGES = 4;
 
 export const DraftPoll = Schema.Struct({
   options: Schema.Array(Schema.String).check(Schema.isMinLength(2), Schema.isMaxLength(4)),
@@ -50,6 +81,11 @@ export const DraftPatch = Schema.Struct({
   threadDelaySeconds: Schema.optional(NonNegativeInt),
   /** URL of the post that inspired a suggested draft. */
   source: Schema.optional(Schema.NullOr(Schema.String)),
+  /** x.com status link appended to the first post; a real quote once treg exposes quote_tweet_id. */
+  quoteUrl: Schema.optional(Schema.NullOr(Schema.String)),
+  /** The first post goes out as a reply to this post. */
+  replyToPostId: Schema.optional(Schema.NullOr(XId)),
+  media: Schema.optional(Schema.Array(DraftMediaPatch)),
 });
 export type DraftPatch = typeof DraftPatch.Type;
 
@@ -64,10 +100,17 @@ export const Draft = Schema.Struct({
   blocks: Schema.Array(DraftBlock),
   replySettings: ReplySettings,
   poll: Schema.NullOr(DraftPoll),
-  /** Stored only; X's API has no switch for it yet. */
+  /** X's API has no switch for it; after posting the desktop removes the card through the session. */
   hideLinkPreviews: Schema.Boolean,
+  /** What happened to the hide request at publish time: requested through the session, or why not. */
+  linkPreviewNote: Schema.NullOr(Schema.String),
   threadDelaySeconds: NonNegativeInt,
   source: Schema.NullOr(Schema.String),
+  quoteUrl: Schema.NullOr(Schema.String),
+  replyToPostId: Schema.NullOr(XId),
+  /** X's article draft id once created; publish retries reuse it. */
+  articleId: Schema.NullOr(Schema.String),
+  media: Schema.Array(DraftMedia),
   /** When the scheduler should post it. Set by queue, schedule and retry backoff. */
   scheduledAt: Schema.NullOr(IsoDateTime),
   postIds: Schema.Array(XId),
@@ -109,6 +152,22 @@ export const VoiceMatch = Schema.Struct({
 });
 export type VoiceMatch = typeof VoiceMatch.Type;
 
+/** Prices the service pays for things outside the X rate card: X Articles and the cover model. */
+export const ComposeQuote = Schema.Struct({
+  articleUsd: Schema.Number,
+  coverUsd: Schema.Number,
+  coverModel: Schema.String,
+});
+export type ComposeQuote = typeof ComposeQuote.Type;
+
+/** What the assist panel shows beside a draft: where it would land and whether the desktop can post media. */
+export const ComposeContext = Schema.Struct({
+  nextSlot: Schema.NullOr(IsoDateTime),
+  bestHours: Schema.Array(Schema.Struct({ weekday: Schema.Int, hour: Schema.Int })),
+  desktopConnected: Schema.Boolean,
+});
+export type ComposeContext = typeof ComposeContext.Type;
+
 export class ComposeError extends Schema.TaggedError<ComposeError>()("ComposeError", {
   operation: Schema.String,
   detail: Schema.String,
@@ -129,6 +188,11 @@ export const Compose_METHODS = {
   assistThreadIdeas: "compose.assistThreadIdeas",
   assistContinue: "compose.assistContinue",
   assistVoiceMatch: "compose.assistVoiceMatch",
+  mediaAdd: "compose.mediaAdd",
+  mediaRemove: "compose.mediaRemove",
+  generateCover: "compose.generateCover",
+  quote: "compose.quote",
+  context: "compose.context",
 } as const;
 
 const DraftId = Schema.Struct({ id: Schema.String });
@@ -180,6 +244,41 @@ export const ComposeRpcGroup = RpcGroup.make(
   Rpc.make(Compose_METHODS.assistVoiceMatch, {
     payload: Blocks,
     success: VoiceMatch,
+    error: ComposeError,
+  }),
+  /** Stores one file (base64, at most MEDIA_MAX_BYTES) under the base dir and returns the draft with it attached. */
+  Rpc.make(Compose_METHODS.mediaAdd, {
+    payload: Schema.Struct({
+      draftId: Schema.String,
+      blockIndex: NonNegativeInt,
+      kind: MediaKind,
+      /** Original file name; only its extension is kept. */
+      name: Schema.String,
+      base64: Schema.String,
+      alt: Schema.optional(Schema.String),
+    }),
+    success: Draft,
+    error: ComposeError,
+  }),
+  Rpc.make(Compose_METHODS.mediaRemove, {
+    payload: Schema.Struct({ draftId: Schema.String, id: Schema.String }),
+    success: Draft,
+    error: ComposeError,
+  }),
+  /** Paid: one image from the cover model in `compose.quote`, attached to the article as its cover. */
+  Rpc.make(Compose_METHODS.generateCover, {
+    payload: Schema.Struct({ draftId: Schema.String, prompt: Schema.String }),
+    success: Draft,
+    error: ComposeError,
+  }),
+  Rpc.make(Compose_METHODS.quote, {
+    payload: Schema.Struct({}),
+    success: ComposeQuote,
+    error: ComposeError,
+  }),
+  Rpc.make(Compose_METHODS.context, {
+    payload: Schema.Struct({}),
+    success: ComposeContext,
     error: ComposeError,
   }),
 );
