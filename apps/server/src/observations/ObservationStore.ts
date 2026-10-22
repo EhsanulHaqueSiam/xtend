@@ -11,6 +11,8 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import * as Events from "../events/Events.ts";
+
 const DEFAULT_LIST_LIMIT = 50;
 
 interface ObservedPostRow {
@@ -82,6 +84,7 @@ export class ObservationStore extends Context.Service<
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+  const events = yield* Events.Events;
 
   const record = Effect.fn("ObservationStore.record")(
     function* (batch: ObservationBatch) {
@@ -122,6 +125,10 @@ const make = Effect.gen(function* () {
           { discard: true },
         ),
       );
+      yield* events.publish({
+        type: "observation_recorded",
+        payload: { posts: batch.posts.length, source: batch.source },
+      });
       return { posts: batch.posts.length };
     },
     Effect.mapError((cause) => new ObservationStoreError({ operation: "record", cause })),
@@ -156,4 +163,5 @@ const make = Effect.gen(function* () {
   return ObservationStore.of({ record, listRecent });
 });
 
-export const layer = Layer.effect(ObservationStore, make);
+// Events is memoized by reference, so every layer that provides it shares one hub.
+export const layer = Layer.effect(ObservationStore, make).pipe(Layer.provide(Events.layer));

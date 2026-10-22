@@ -5,6 +5,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 
+import * as Events from "../events/Events.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 
 export class BudgetExceeded extends Schema.TaggedError<BudgetExceeded>()("BudgetExceeded", {
@@ -42,6 +43,7 @@ export class Budget extends Context.Service<
 
 const make = Effect.gen(function* () {
   const settings = yield* SettingsStore.SettingsStore;
+  const events = yield* Events.Events;
   const gate = yield* Semaphore.make(1);
   // Reservations in flight. One process owns the budget, so memory is the ledger.
   let reserved = 0;
@@ -80,6 +82,11 @@ const make = Effect.gen(function* () {
             costUsd,
           })
           .pipe(Effect.ignore);
+        if (costUsd > 0)
+          yield* events.publish({
+            type: "spend_changed",
+            payload: { costUsd, purpose: request.purpose },
+          });
       }),
     );
 
@@ -101,4 +108,5 @@ const make = Effect.gen(function* () {
   return Budget.of({ spend });
 });
 
-export const layer = Layer.effect(Budget, make);
+// Events is memoized by reference, so every layer that provides it shares one hub.
+export const layer = Layer.effect(Budget, make).pipe(Layer.provide(Events.layer));

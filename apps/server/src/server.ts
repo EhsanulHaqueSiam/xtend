@@ -54,12 +54,14 @@ const layerRoutes = Layer.mergeAll(
 
 // Foundation every area builds on: settings and spend, the X client, the assistant.
 // Area layers (compose, analyze, ...) go in layerAreas and may depend on all of these.
-const layerFoundation = Layer.mergeAll(Assist.layer, XClient.layer, Events.layer).pipe(
+const layerFoundation = Layer.mergeAll(Assist.layer, XClient.layer).pipe(
   Layer.provideMerge(Budget.layer),
   Layer.provideMerge(Layer.mergeAll(ObservationStore.layer, SettingsStore.layer)),
   Layer.provideMerge(Layer.mergeAll(TokenCipher.layer, ServiceAuth.layer)),
   Layer.provideMerge(Sqlite.layerConfig),
   Layer.provideMerge(NodeHttpClient.layerUndici),
+  // Lowest so stores and the budget can publish; it needs nothing itself.
+  Layer.provideMerge(Events.layer),
 );
 
 const layerAreas = Layer.mergeAll(
