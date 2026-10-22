@@ -10,6 +10,15 @@ import {
   ObservationStoreError,
 } from "./observation.ts";
 import { ServerInfo } from "./server.ts";
+import { ComposeRpcGroup } from "./compose.ts";
+import { PlanRpcGroup } from "./plan.ts";
+import { AnalyzeRpcGroup } from "./analyze.ts";
+import { ScoresRpcGroup } from "./scores.ts";
+import { LibraryRpcGroup } from "./library.ts";
+import { EngageRpcGroup } from "./engage.ts";
+import { LeadsRpcGroup } from "./leads.ts";
+import { AutomateRpcGroup } from "./automate.ts";
+
 import { Settings, SettingsError, SettingsUpdate, SpendSummary } from "./settings.ts";
 
 export const WS_PATH = "/ws";
@@ -72,4 +81,13 @@ export const CoreRpcGroup = RpcGroup.make(
 );
 
 /** The whole wire surface. Area groups are merged in as arguments here. */
-export const WsRpcGroup = CoreRpcGroup.merge();
+export const WsRpcGroup = CoreRpcGroup.merge(
+  ComposeRpcGroup,
+  PlanRpcGroup,
+  AnalyzeRpcGroup,
+  ScoresRpcGroup,
+  LibraryRpcGroup,
+  EngageRpcGroup,
+  LeadsRpcGroup,
+  AutomateRpcGroup,
+);

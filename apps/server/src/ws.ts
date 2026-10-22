@@ -4,6 +4,14 @@ import * as Layer from "effect/Layer";
 import { HttpRouter } from "effect/http";
 import { RpcSerialization, RpcServer } from "effect/rpc";
 
+import * as ComposeHandlers from "./compose/ComposeHandlers.ts";
+import * as PlanHandlers from "./plan/PlanHandlers.ts";
+import * as AnalyzeHandlers from "./analyze/AnalyzeHandlers.ts";
+import * as ScoresHandlers from "./scores/ScoresHandlers.ts";
+import * as LibraryHandlers from "./library/LibraryHandlers.ts";
+import * as EngageHandlers from "./engage/EngageHandlers.ts";
+import * as LeadsHandlers from "./leads/LeadsHandlers.ts";
+import * as AutomateHandlers from "./automate/AutomateHandlers.ts";
 import * as ServerConfig from "./config.ts";
 import * as ObservationStore from "./observations/ObservationStore.ts";
 import * as SettingsStore from "./settings/SettingsStore.ts";
@@ -31,7 +39,17 @@ const layerCoreHandlers = CoreRpcGroup.toLayer(
 );
 
 /** Every area's handler layer, merged. Add a line here when a new RpcGroup joins WsRpcGroup. */
-const layerHandlers = Layer.mergeAll(layerCoreHandlers);
+const layerHandlers = Layer.mergeAll(
+  layerCoreHandlers,
+  ComposeHandlers.layerHandlers,
+  PlanHandlers.layerHandlers,
+  AnalyzeHandlers.layerHandlers,
+  ScoresHandlers.layerHandlers,
+  LibraryHandlers.layerHandlers,
+  EngageHandlers.layerHandlers,
+  LeadsHandlers.layerHandlers,
+  AutomateHandlers.layerHandlers,
+);
 
 export const layerRoute = HttpRouter.add(
   "GET",

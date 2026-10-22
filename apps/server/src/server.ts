@@ -10,6 +10,15 @@ import { HttpRouter } from "effect/http";
 import * as NodeHttpClient from "@effect/platform-node/NodeHttpClient";
 
 import * as Assist from "./ai/Assist.ts";
+import * as ComposeHandlers from "./compose/ComposeHandlers.ts";
+import * as PlanHandlers from "./plan/PlanHandlers.ts";
+import * as AnalyzeHandlers from "./analyze/AnalyzeHandlers.ts";
+import * as ScoresHandlers from "./scores/ScoresHandlers.ts";
+import * as LibraryHandlers from "./library/LibraryHandlers.ts";
+import * as EngageHandlers from "./engage/EngageHandlers.ts";
+import * as LeadsHandlers from "./leads/LeadsHandlers.ts";
+import * as AutomateHandlers from "./automate/AutomateHandlers.ts";
+
 import * as ServerConfig from "./config.ts";
 import * as ServerHttp from "./http.ts";
 import * as ObservationStore from "./observations/ObservationStore.ts";
@@ -43,7 +52,16 @@ const layerFoundation = Layer.mergeAll(Assist.layer, XClient.layer).pipe(
   Layer.provideMerge(NodeHttpClient.layerUndici),
 );
 
-const layerAreas = Layer.empty;
+const layerAreas = Layer.mergeAll(
+  ComposeHandlers.layer,
+  PlanHandlers.layer,
+  AnalyzeHandlers.layer,
+  ScoresHandlers.layer,
+  LibraryHandlers.layer,
+  EngageHandlers.layer,
+  LeadsHandlers.layer,
+  AutomateHandlers.layer,
+);
 
 const layerServices = layerAreas.pipe(Layer.provideMerge(layerFoundation));
 
