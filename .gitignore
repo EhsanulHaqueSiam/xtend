@@ -1,0 +1,15 @@
+node_modules
+.DS_Store
+*.log
+*.tsbuildinfo
+apps/*/dist
+packages/*/dist
+dist-electron/
+.electron-runtime/
+.vite-plus
+.vitest-*
+.tanstack
+.env
+.env.local
+.corvid/
+.plans/

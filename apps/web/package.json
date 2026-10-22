@@ -1,0 +1,36 @@
+{
+  "name": "@corvid/web",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vp dev",
+    "build": "vp build",
+    "preview": "vp preview",
+    "typecheck": "tsc-rs --noEmit",
+    "test": "vp test run --passWithNoTests"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.9.0",
+    "@corvid/contracts": "workspace:*",
+    "@effect/atom-react": "catalog:",
+    "@tanstack/react-router": "catalog:",
+    "class-variance-authority": "^0.7.1",
+    "effect": "catalog:",
+    "lucide-react": "^0.564.0",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "tailwind-merge": "^3.7.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "catalog:",
+    "@tanstack/router-plugin": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "@vitest/browser-playwright": "5.0.5",
+    "playwright": "1.60.0",
+    "tailwindcss": "catalog:",
+    "vite-plus": "catalog:"
+  }
+}

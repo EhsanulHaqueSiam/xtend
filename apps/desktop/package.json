@@ -1,0 +1,25 @@
+{
+  "name": "@corvid/desktop",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "dist-electron/main.cjs",
+  "scripts": {
+    "dev": "CORVID_DESKTOP_DEV=1 vp pack --watch",
+    "build": "vp pack",
+    "start": "electron .",
+    "typecheck": "tsc-rs --noEmit",
+    "test": "vp test run --passWithNoTests"
+  },
+  "dependencies": {
+    "@corvid/contracts": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "@types/node": "catalog:",
+    "electron": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "productName": "Corvid"
+}

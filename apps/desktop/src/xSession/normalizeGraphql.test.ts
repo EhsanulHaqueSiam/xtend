@@ -1,0 +1,140 @@
+import { describe, expect, it } from "@effect/vitest";
+
+import { normalizeGraphqlResponse, sourceFromOperation, xDateToIso } from "./normalizeGraphql.ts";
+
+const tweet = (id: string, overrides: Record<string, unknown> = {}) => ({
+  __typename: "Tweet",
+  rest_id: id,
+  core: {
+    user_results: {
+      result: {
+        rest_id: "44196397",
+        is_blue_verified: true,
+        core: { screen_name: "levelsio", name: "Pieter Levels" },
+        legacy: { followers_count: 621000 },
+      },
+    },
+  },
+  views: { count: "1100000" },
+  legacy: {
+    full_text: "Shipped the thing.",
+    created_at: "Wed Oct 22 04:00:00 +0000 2026",
+    favorite_count: 9800,
+    retweet_count: 1200,
+    reply_count: 412,
+    quote_count: 40,
+    bookmark_count: 900,
+    entities: { urls: [] },
+  },
+  ...overrides,
+});
+
+describe("normalizeGraphqlResponse", () => {
+  it("finds tweets anywhere in a timeline response and reads the 2025 user shape", () => {
+    const body = {
+      data: {
+        home: {
+          home_timeline_urt: {
+            instructions: [
+              {
+                entries: [
+                  { content: { itemContent: { tweet_results: { result: tweet("1") } } } },
+                  {
+                    content: {
+                      itemContent: {
+                        tweet_results: {
+                          result: { __typename: "TweetWithVisibilityResults", tweet: tweet("2") },
+                        },
+                      },
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      },
+    };
+    const posts = normalizeGraphqlResponse(body);
+    expect(posts.map((p) => p.postId)).toEqual(["1", "2"]);
+    expect(posts[0]).toMatchObject({
+      author: {
+        userId: "44196397",
+        handle: "levelsio",
+        name: "Pieter Levels",
+        followers: 621000,
+        verified: true,
+      },
+      text: "Shipped the thing.",
+      createdAt: "2026-10-22T04:00:00.000Z",
+      metrics: {
+        views: 1100000,
+        likes: 9800,
+        reposts: 1200,
+        replies: 412,
+        quotes: 40,
+        bookmarks: 900,
+      },
+      isReply: false,
+      hasMedia: false,
+      hasLink: false,
+    });
+  });
+
+  it("reads the legacy user shape, long text, media, links and replies", () => {
+    const body = tweet("3", {
+      core: {
+        user_results: {
+          result: {
+            rest_id: "10",
+            legacy: { screen_name: "old_shape", name: "Old", followers_count: 5 },
+          },
+        },
+      },
+      note_tweet: { note_tweet_results: { result: { text: "The whole long post." } } },
+      views: {},
+      legacy: {
+        full_text: "The whole long…",
+        created_at: "Wed Oct 22 04:00:00 +0000 2026",
+        in_reply_to_status_id_str: "2",
+        favorite_count: 1,
+        retweet_count: 0,
+        reply_count: 0,
+        quote_count: 0,
+        bookmark_count: 0,
+        entities: { urls: [{ expanded_url: "https://example.com" }] },
+        extended_entities: { media: [{ type: "photo" }] },
+      },
+    });
+    const [post] = normalizeGraphqlResponse(body);
+    expect(post).toMatchObject({
+      author: { handle: "old_shape", name: "Old", followers: 5, verified: false },
+      text: "The whole long post.",
+      isReply: true,
+      hasMedia: true,
+      hasLink: true,
+      metrics: { views: null },
+    });
+  });
+
+  it("drops tweets without an author or a valid date instead of guessing", () => {
+    expect(normalizeGraphqlResponse(tweet("4", { core: {} }))).toEqual([]);
+    expect(
+      normalizeGraphqlResponse(tweet("5", { legacy: { created_at: "nope", favorite_count: 1 } })),
+    ).toEqual([]);
+  });
+
+  it("maps operation names to sources", () => {
+    expect(sourceFromOperation("https://x.com/i/api/graphql/abc/HomeTimeline?x=1")).toBe("home");
+    expect(sourceFromOperation("https://x.com/i/api/graphql/abc/HomeLatestTimeline")).toBe("home");
+    expect(sourceFromOperation("https://x.com/i/api/graphql/abc/UserTweets")).toBe("profile");
+    expect(sourceFromOperation("https://x.com/i/api/graphql/abc/TweetDetail")).toBe("detail");
+    expect(sourceFromOperation("https://x.com/i/api/graphql/abc/SearchTimeline")).toBe("search");
+    expect(sourceFromOperation("https://x.com/i/api/graphql/abc/Bookmarks")).toBe("other");
+  });
+
+  it("parses X's date format", () => {
+    expect(xDateToIso("Wed Oct 22 04:00:00 +0000 2026")).toBe("2026-10-22T04:00:00.000Z");
+    expect(xDateToIso("garbage")).toBeUndefined();
+  });
+});
