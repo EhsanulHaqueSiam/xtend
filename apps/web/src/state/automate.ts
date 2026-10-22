@@ -1,4 +1,4 @@
-import { Automate_METHODS, type RuleInput, type RuleRunStatus } from "@xtend/contracts";
+import { Automate_METHODS, type RuleInput } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 
 import { clientRuntime, XtendClient } from "../rpc/client";
@@ -48,4 +48,3 @@ export const previewAtom = clientRuntime.fn<void>()(
   }),
 );
 
-export type { RuleRunStatus };
