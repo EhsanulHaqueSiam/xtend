@@ -22,6 +22,16 @@ const isXHost = (url: string) => {
   }
 };
 
+/** Only web URLs leave the app; a page must not be able to launch file: or custom-scheme handlers. */
+const openExternalWeb = (url: string) => {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === "https:" || parsed.protocol === "http:") {
+      void shell.openExternal(parsed.toString());
+    }
+  } catch {}
+};
+
 /** Chromium's UA minus the Electron and app tokens, so x.com serves its normal desktop site. */
 const browserUserAgent = (ua: string) =>
   ua
@@ -69,14 +79,14 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
     if (isXHost(url)) {
       void session.webContents.loadURL(url);
     } else {
-      void shell.openExternal(url);
+      openExternalWeb(url);
     }
     return { action: "deny" };
   });
   session.webContents.on("will-navigate", (event, url) => {
     if (isXHost(url)) return;
     event.preventDefault();
-    void shell.openExternal(url);
+    openExternalWeb(url);
   });
 
   const detachCapture = attachSessionCapture(session.webContents, {
