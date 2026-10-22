@@ -1,18 +1,24 @@
 import { useAtomValue } from "@effect/atom-react";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import {
   BarChart3,
+  Bell,
+  Bookmark,
   BookOpen,
   CalendarDays,
+  Compass,
   Gauge,
   Home,
+  List,
+  Mail,
   MessageSquareReply,
   PanelLeftClose,
   PanelLeftOpen,
   PenLine,
   Radar,
   Settings,
+  User,
   Users,
   Workflow,
   type LucideIcon,
@@ -21,8 +27,8 @@ import { useEffect, useState, type ReactNode } from "react";
 
 import { isElectron } from "../env";
 import { cn } from "../lib/utils";
-import { serverInfoAtom } from "../state/observations";
-import { spendAtom } from "../state/settings";
+import { connectionAtom, queuedCountAtom, spendLiveAtom } from "../state/shell";
+import { shellBridge } from "./shell/bridge";
 import { Button } from "./ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
@@ -34,6 +40,30 @@ interface NavItem {
   readonly icon: LucideIcon;
   readonly exact?: boolean;
 }
+
+interface XItem {
+  readonly path: string;
+  readonly label: string;
+  readonly icon: LucideIcon;
+}
+
+/** x.com pages: the desktop steers the session view, a browser opens a tab. */
+const X_PAGES: ReadonlyArray<XItem> = [
+  { path: "/home", label: "Home", icon: Home },
+  { path: "/explore", label: "Explore", icon: Compass },
+  { path: "/notifications", label: "Notifications", icon: Bell },
+  { path: "/messages", label: "Messages", icon: Mail },
+  { path: "/i/bookmarks", label: "Bookmarks", icon: Bookmark },
+  { path: "/i/lists", label: "Lists", icon: List },
+  { path: "/i/profile", label: "Profile", icon: User },
+];
+
+const openX = (path: string) => {
+  const url = `https://x.com${path}`;
+  const bridge = shellBridge();
+  if (bridge?.navigateSession !== undefined) bridge.navigateSession(url);
+  else window.open(url, "_blank", "noopener");
+};
 
 const PRIMARY: ReadonlyArray<NavItem> = [
   { to: "/", label: "Home", icon: Home, exact: true },
@@ -51,13 +81,25 @@ const SUITE: ReadonlyArray<NavItem> = [
   { to: "/scores", label: "Scores", icon: Gauge },
 ];
 
-/** Bottom-left strip from the spec: where the service is and what this month cost. */
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
+
+/** Bottom-left strip from the spec: where the service is, what waits in the queue, what this month cost. */
 function StatusStrip({ collapsed }: { readonly collapsed: boolean }) {
-  const info = useAtomValue(serverInfoAtom);
-  const spend = useAtomValue(spendAtom);
-  const connected = AsyncResult.isSuccess(info);
+  const connection = useAtomValue(connectionAtom);
+  const spend = useAtomValue(spendLiveAtom);
+  const queued = useAtomValue(queuedCountAtom);
+  const mode =
+    connection === "disconnected"
+      ? "offline"
+      : LOCAL_HOSTS.has(window.location.hostname)
+        ? "local"
+        : "remote";
   const month = AsyncResult.getOrElse(
-    AsyncResult.map(spend, (s) => `$${s.monthUsd.toFixed(2)} / mo`),
+    AsyncResult.map(spend, (s) => `$${s.monthUsd.toFixed(2)}`),
+    () => null,
+  );
+  const queue = AsyncResult.getOrElse(
+    AsyncResult.map(queued, (n) => `${n} queued`),
     () => null,
   );
   return (
@@ -67,18 +109,61 @@ function StatusStrip({ collapsed }: { readonly collapsed: boolean }) {
         "flex items-center gap-2 px-[var(--sidebar-row-content-inset)] py-1.5 font-mono text-2xs text-sidebar-muted-foreground hover:text-sidebar-foreground",
         collapsed && "justify-center px-0",
       )}
-      title={connected ? "service: local" : "service unreachable"}
+      title={`service: ${mode}${queue === null ? "" : `, ${queue}`}${month === null ? "" : `, ${month} this month`}`}
     >
       <span
-        className={cn("size-1.5 shrink-0 rounded-full", connected ? "bg-success" : "bg-error")}
+        className={cn(
+          "size-1.5 shrink-0 rounded-full",
+          connection === "connected"
+            ? "bg-success"
+            : connection === "connecting"
+              ? "bg-warning"
+              : "bg-error",
+        )}
       />
       {collapsed ? null : (
         <>
-          <span className="truncate">{connected ? "local" : "offline"}</span>
-          {month !== null ? <span className="ml-auto shrink-0">{month}</span> : null}
+          <span className="truncate">{mode}</span>
+          {queue !== null ? <span className="ml-auto shrink-0">{queue}</span> : null}
+          {month !== null ? <span className="shrink-0">{month}</span> : null}
         </>
       )}
     </Link>
+  );
+}
+
+/** A sidebar row that runs an action instead of routing. */
+function ActionRow({
+  item,
+  collapsed,
+  onClick,
+}: {
+  readonly item: XItem;
+  readonly collapsed: boolean;
+  readonly onClick: () => void;
+}) {
+  const Icon = item.icon;
+  const button = (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "no-drag flex w-full cursor-pointer items-center gap-[var(--sidebar-control-gap)] overflow-hidden rounded-[var(--control-radius)] text-left text-sm text-sidebar-muted-foreground outline-hidden ring-ring hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-inset [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-[var(--sidebar-icon-color)] hover:[&>svg]:text-sidebar-foreground",
+        collapsed
+          ? "size-8 justify-center p-0"
+          : "h-8 px-[var(--sidebar-row-content-inset)] py-1.5",
+      )}
+    >
+      <Icon />
+      {collapsed ? null : <span className="truncate">{item.label}</span>}
+    </button>
+  );
+  if (!collapsed) return button;
+  return (
+    <Tooltip>
+      <TooltipTrigger render={button} />
+      <TooltipPopup side="right">{item.label}</TooltipPopup>
+    </Tooltip>
   );
 }
 
@@ -145,6 +230,7 @@ function NavGroup({
 
 export function AppSidebar({ children }: { readonly children: ReactNode }) {
   const [open, setOpen] = useState(readStoredOpen);
+  const navigate = useNavigate();
   useEffect(() => {
     try {
       window.localStorage.setItem(SIDEBAR_OPEN_KEY, String(open));
@@ -195,7 +281,35 @@ export function AppSidebar({ children }: { readonly children: ReactNode }) {
           </Tooltip>
         </div>
         <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto pb-2">
+          <div className="px-[var(--sidebar-content-inset)] pb-1">
+            <Button
+              size="sm"
+              className={cn("no-drag w-full", collapsed && "size-8 p-0")}
+              aria-label="Post"
+              onClick={() => void navigate({ href: "/compose" })}
+            >
+              <PenLine />
+              {collapsed ? null : "Post"}
+            </Button>
+          </div>
           <NavGroup items={PRIMARY} collapsed={collapsed} />
+          <div className="flex flex-col gap-0.5 px-[var(--sidebar-content-inset)]">
+            {collapsed ? (
+              <div className="mx-auto my-2 h-px w-6 bg-sidebar-border" />
+            ) : (
+              <div className="px-[var(--sidebar-row-content-inset)] pt-3 pb-1 text-2xs font-medium tracking-wide text-sidebar-muted-foreground/70 uppercase">
+                X
+              </div>
+            )}
+            {X_PAGES.map((item) => (
+              <ActionRow
+                key={item.path}
+                item={item}
+                collapsed={collapsed}
+                onClick={() => openX(item.path)}
+              />
+            ))}
+          </div>
           <NavGroup label="Suite" items={SUITE} collapsed={collapsed} />
         </nav>
         <div className="border-t border-sidebar-border px-[var(--sidebar-content-inset)] py-2">

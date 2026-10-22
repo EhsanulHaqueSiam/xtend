@@ -10,6 +10,7 @@ import { HttpRouter } from "effect/http";
 import * as NodeHttpClient from "@effect/platform-node/NodeHttpClient";
 
 import * as Assist from "./ai/Assist.ts";
+import * as Events from "./events/Events.ts";
 import * as ServiceAuth from "./auth/ServiceAuth.ts";
 import * as Budget from "./budget/Budget.ts";
 import * as Costs from "./costs/Costs.ts";
@@ -53,7 +54,7 @@ const layerRoutes = Layer.mergeAll(
 
 // Foundation every area builds on: settings and spend, the X client, the assistant.
 // Area layers (compose, analyze, ...) go in layerAreas and may depend on all of these.
-const layerFoundation = Layer.mergeAll(Assist.layer, XClient.layer).pipe(
+const layerFoundation = Layer.mergeAll(Assist.layer, XClient.layer, Events.layer).pipe(
   Layer.provideMerge(Budget.layer),
   Layer.provideMerge(Layer.mergeAll(ObservationStore.layer, SettingsStore.layer)),
   Layer.provideMerge(Layer.mergeAll(TokenCipher.layer, ServiceAuth.layer)),
