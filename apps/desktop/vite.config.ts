@@ -15,6 +15,8 @@ export default defineConfig({
       sourcemap: true,
       outExtensions: () => ({ js: ".cjs" }),
       external: isMainProcessExternal,
+      // Electron loads this as CommonJS; workspace and ESM-only packages must be inlined.
+      noExternal: [/^@xtend\//, /^effect(\/|$)/, /^zod(\/|$)/],
       ...(launchAfterPack ? { onSuccess: "node scripts/dev-electron.mjs" } : {}),
     },
   ],

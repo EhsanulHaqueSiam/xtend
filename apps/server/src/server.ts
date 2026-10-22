@@ -7,6 +7,9 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { HttpRouter } from "effect/http";
 
+import * as ClaudeAgent from "./agent/ClaudeAgent.ts";
+import * as DesktopChannel from "./agent/DesktopChannel.ts";
+import * as ThreadStore from "./agent/ThreadStore.ts";
 import * as ServerConfig from "./config.ts";
 import * as ServerHttp from "./http.ts";
 import * as ObservationStore from "./observations/ObservationStore.ts";
@@ -30,7 +33,12 @@ const layerRoutes = Layer.mergeAll(
   ServerHttp.layerWebRoute,
 );
 
-const layerServices = ObservationStore.layer.pipe(Layer.provideMerge(Sqlite.layerConfig));
+const layerServices = ClaudeAgent.layer.pipe(
+  Layer.provideMerge(
+    Layer.mergeAll(ThreadStore.layer, DesktopChannel.layer, ObservationStore.layer),
+  ),
+  Layer.provideMerge(Sqlite.layerConfig),
+);
 
 const layerApplication = HttpRouter.serve(layerRoutes).pipe(
   Layer.tap(() =>

@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { BrowserWindow, ipcMain, shell, WebContentsView, type Rectangle } from "electron";
 
 import { SESSION_VIEW_BOUNDS_CHANNEL } from "../ipc/channels.ts";
+import { startDesktopCommands } from "../service/DesktopCommands.ts";
 import { attachSessionCapture } from "../xSession/SessionCapture.ts";
 
 const X_HOSTS = new Set(["x.com", "www.x.com", "twitter.com", "www.twitter.com", "mobile.x.com"]);
@@ -89,12 +90,18 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
     openExternalWeb(url);
   });
 
-  const detachCapture = attachSessionCapture(session.webContents, {
+  const capture = attachSessionCapture(session.webContents, {
     serviceUrl: options.serviceUrl,
     // shortcut: viewer handle unknown until the session reads it from X; batches carry null, upgrade when accounts land.
     viewerHandle: () => null,
     log: options.log,
   });
+
+  const stopCommands = startDesktopCommands(
+    options.serviceUrl,
+    { sessionScreenshot: capture.screenshot },
+    options.log,
+  );
 
   const onBounds = (event: Electron.IpcMainEvent, bounds: unknown) => {
     if (event.sender !== window.webContents) return;
@@ -104,7 +111,8 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
 
   window.on("closed", () => {
     ipcMain.off(SESSION_VIEW_BOUNDS_CHANNEL, onBounds);
-    detachCapture();
+    stopCommands();
+    capture.detach();
   });
 
   void session.webContents.loadURL(X_HOME);

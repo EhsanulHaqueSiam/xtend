@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import {
   BarChart3,
   BookOpen,
+  Bot,
   CalendarDays,
   Gauge,
   Home,
@@ -34,6 +35,7 @@ interface NavItem {
 const PRIMARY: ReadonlyArray<NavItem> = [
   { to: "/", label: "Home", icon: Home, exact: true },
   { to: "/seen", label: "Seen", icon: Radar },
+  { to: "/agent", label: "Agent", icon: Bot },
 ];
 
 const SUITE: ReadonlyArray<NavItem> = [
