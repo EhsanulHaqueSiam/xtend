@@ -62,7 +62,11 @@ export const layerDevTokenRoute = Layer.unwrap(
     return HttpRouter.add("POST", "/api/auth/dev-token", (request) =>
       Effect.gen(function* () {
         const auth = yield* ServiceAuth.ServiceAuth;
-        if (request.headers["origin"] !== devUrl.origin)
+        // Origin is a browser promise and the dev proxy sits on this machine, so both must hold.
+        const remote = Option.getOrElse(request.remoteAddress, () => "");
+        const loopback =
+          remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
+        if (!loopback || request.headers["origin"] !== devUrl.origin)
           return HttpServerResponse.text("forbidden", { status: 403 });
         return yield* HttpServerResponse.json({ token: auth.token });
       }),
