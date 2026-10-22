@@ -28,7 +28,7 @@ const make = Effect.gen(function* () {
     const now = DateTime.formatIso(yield* DateTime.now);
     const due = yield* drafts.due(now);
     return yield* Effect.forEach(due, (d) =>
-      publisher.post(d, { purpose: "plan.scheduler", retry: true }),
+      publisher.post(d.id, { purpose: "plan.scheduler", retry: true }),
     );
   });
 
@@ -36,7 +36,7 @@ const make = Effect.gen(function* () {
     const draft = yield* drafts.get(id);
     if (draft.status !== "queued")
       return yield* new ComposeError({ operation: "runNow", detail: `Draft is ${draft.status}` });
-    return yield* publisher.post(draft, { purpose: "plan.runNow", retry: true });
+    return yield* publisher.post(id, { purpose: "plan.runNow", retry: true });
   });
 
   return Scheduler.of({ tick, runNow });
@@ -48,6 +48,7 @@ export const layerService = Layer.effect(Scheduler, make);
 const layerLoop = Layer.effectDiscard(
   Effect.gen(function* () {
     const scheduler = yield* Scheduler;
+    yield* (yield* DraftStore.DraftStore).failInterrupted;
     yield* scheduler.tick.pipe(
       Effect.catch((e) => Effect.logWarning("Scheduler tick failed", e)),
       Effect.repeat(Schedule.spaced(TICK)),

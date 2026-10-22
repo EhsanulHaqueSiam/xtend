@@ -4,11 +4,14 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import * as Sqlite from "../persistence/Sqlite.ts";
+import * as SettingsStore from "../settings/SettingsStore.ts";
+import * as TokenCipher from "../settings/TokenCipher.ts";
 import * as DraftStore from "./DraftStore.ts";
 import * as SlotStore from "./SlotStore.ts";
 
 const layerTest = Layer.mergeAll(DraftStore.layer, SlotStore.layer).pipe(
-  Layer.provideMerge(Sqlite.layerMemory),
+  Layer.provideMerge(SettingsStore.layer),
+  Layer.provideMerge(Layer.mergeAll(Sqlite.layerMemory, TokenCipher.layerTest)),
 );
 
 describe("DraftStore", () => {
@@ -31,6 +34,20 @@ describe("DraftStore", () => {
       expect(yield* store.list).toHaveLength(1);
       yield* store.remove(created.id);
       expect(yield* store.list).toHaveLength(0);
+    }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect("a library suggestion is a real draft with its source, listed on the Ready shelf", () =>
+    Effect.gen(function* () {
+      const store = yield* DraftStore.DraftStore;
+      const d = yield* store.create({
+        blocks: [{ text: "inspired" }],
+        status: "suggested",
+        source: "https://x.com/levelsio/status/1",
+      });
+      const ready = yield* store.byStatus("suggested");
+      expect(ready.map((r) => r.id)).toEqual([d.id]);
+      expect(ready[0]?.source).toBe("https://x.com/levelsio/status/1");
     }).pipe(Effect.provide(layerTest)),
   );
 

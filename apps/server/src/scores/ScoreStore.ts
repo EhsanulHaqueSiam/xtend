@@ -22,6 +22,7 @@ interface SampleRow {
   readonly tier: Tier;
   readonly followers: number;
   readonly sampled: number;
+  readonly pages: number;
   readonly bot_share: number;
   readonly top_followers_json: string;
   readonly bot_json: string;
@@ -34,6 +35,7 @@ const toSample = (r: SampleRow): ScoreSample => ({
   tier: r.tier,
   followers: r.followers,
   sampled: r.sampled,
+  pages: r.pages,
   botShare: r.bot_share,
   topFollowers: Schema.decodeUnknownSync(TopFollowersJson)(r.top_followers_json),
   bot: Schema.decodeUnknownSync(BotJson)(r.bot_json),
@@ -63,12 +65,12 @@ const make = Effect.gen(function* () {
   const saveSample = Effect.fn("ScoreStore.saveSample")(
     function* (s: ScoreSample) {
       yield* sql`
-        INSERT INTO score_samples (handle, day, at, score, tier, followers, sampled, bot_share, top_followers_json, bot_json)
-        VALUES (${s.handle}, ${s.at.slice(0, 10)}, ${s.at}, ${s.score}, ${s.tier}, ${s.followers}, ${s.sampled}, ${s.botShare},
+        INSERT INTO score_samples (handle, day, at, score, tier, followers, sampled, pages, bot_share, top_followers_json, bot_json)
+        VALUES (${s.handle}, ${s.at.slice(0, 10)}, ${s.at}, ${s.score}, ${s.tier}, ${s.followers}, ${s.sampled}, ${s.pages}, ${s.botShare},
                 ${Schema.encodeSync(TopFollowersJson)(s.topFollowers)}, ${Schema.encodeSync(BotJson)(s.bot)})
         ON CONFLICT(handle, day) DO UPDATE SET
           at = excluded.at, score = excluded.score, tier = excluded.tier, followers = excluded.followers,
-          sampled = excluded.sampled, bot_share = excluded.bot_share,
+          sampled = excluded.sampled, pages = excluded.pages, bot_share = excluded.bot_share,
           top_followers_json = excluded.top_followers_json, bot_json = excluded.bot_json
       `;
     },
@@ -126,14 +128,14 @@ const make = Effect.gen(function* () {
       const count = yield* sql<{ n: number }>`SELECT COUNT(*) AS n FROM watch`;
       if ((count[0]?.n ?? 0) >= 100)
         return yield* new ScoresError({ operation: "watchAdd", detail: "watchlist is full (100)" });
-      yield* sql`INSERT OR IGNORE INTO watch (handle, added_at) VALUES (${handle}, ${at})`;
+      yield* sql`INSERT OR IGNORE INTO watch (handle, added_at) VALUES (${handle.toLowerCase()}, ${at})`;
     },
     Effect.mapError(fail("watchAdd")),
   );
 
   const watchRemove = Effect.fn("ScoreStore.watchRemove")(
     function* (handle: string) {
-      yield* sql`DELETE FROM watch WHERE handle = ${handle}`;
+      yield* sql`DELETE FROM watch WHERE handle = ${handle.toLowerCase()}`;
     },
     Effect.mapError(fail("watchRemove")),
   );

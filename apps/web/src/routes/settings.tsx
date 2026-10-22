@@ -98,8 +98,31 @@ function SettingsForm({ current }: { readonly current: SettingsShape }) {
           min={0}
           step={1}
           defaultValue={current.monthlyBudgetUsd}
-          onChange={(e) => setDraft((d) => ({ ...d, monthlyBudgetUsd: Number(e.target.value) }))}
+          onChange={(e) => {
+            const value = Number(e.target.value);
+            if (Number.isFinite(value) && value >= 0)
+              setDraft((d) => ({ ...d, monthlyBudgetUsd: value }));
+          }}
         />
+      </Field>
+      <Field
+        label="Time zone"
+        hint="IANA name. Posting slots, the calendar and the best-time heatmap are all in this zone."
+      >
+        <input
+          className={inputClass}
+          list="xtend-zones"
+          defaultValue={current.timeZone}
+          onChange={(e) => {
+            const value = e.target.value.trim();
+            setDraft((d) => ({ ...d, timeZone: value === "" ? current.timeZone : value }));
+          }}
+        />
+        <datalist id="xtend-zones">
+          {Intl.supportedValuesOf("timeZone").map((z) => (
+            <option key={z} value={z} />
+          ))}
+        </datalist>
       </Field>
       <Field
         label="Voice notes"

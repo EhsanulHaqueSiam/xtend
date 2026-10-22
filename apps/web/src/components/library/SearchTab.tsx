@@ -4,18 +4,11 @@ import { useNavigate } from "@tanstack/react-router";
 import { Lightbulb, Search } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { useQuoteLabel } from "../../state/costs";
 import { savePostAtom, searchAtom } from "../../state/library";
 import { Button } from "../ui/button";
 import { SaveButton } from "./SaveButton";
-import {
-  Empty,
-  ErrorLine,
-  PostRow,
-  SEARCH_COST_USD,
-  errorMessage,
-  inputClass,
-  usd,
-} from "./shared";
+import { Empty, ErrorLine, PostRow, errorMessage, inputClass } from "./shared";
 
 /** "Use as inspiration" saves the post so Compose can read it back by id, then opens the composer. */
 export function InspireButton({ post }: { readonly post: XPost }) {
@@ -76,6 +69,7 @@ function SearchResults({
 export function SearchTab({ initialQuery }: { readonly initialQuery: string }) {
   const search = useAtomSet(searchAtom, { mode: "promise" });
   const [query, setQuery] = useState(initialQuery);
+  const searchQuote = useQuoteLabel({ kind: "search", query });
   const [mode, setMode] = useState<XSearchMode>("top");
   const [exclude, setExclude] = useState("");
   const [items, setItems] = useState<ReadonlyArray<XPost>>([]);
@@ -102,8 +96,9 @@ export function SearchTab({ initialQuery }: { readonly initialQuery: string }) {
 
   // A `?q=` link (Scores sends them) searches on arrival.
   useEffect(() => {
+    // eslint-disable-next-line react/set-state-in-effect -- the search is the effect; its busy flag is its output.
     if (initialQuery !== "") void run();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react/exhaustive-effect-dependencies -- once per arrival, not per keystroke.
   }, [initialQuery]);
 
   return (
@@ -124,7 +119,7 @@ export function SearchTab({ initialQuery }: { readonly initialQuery: string }) {
             onChange={(e) => setQuery(e.target.value)}
           />
           <Button type="submit" size="sm" disabled={busy}>
-            <Search /> Search ({usd(SEARCH_COST_USD)})
+            <Search /> Search ({searchQuote})
           </Button>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-2xs text-muted-foreground">
@@ -165,7 +160,7 @@ export function SearchTab({ initialQuery }: { readonly initialQuery: string }) {
                   disabled={busy}
                   onClick={() => void run(cursor)}
                 >
-                  Load more ({usd(SEARCH_COST_USD)})
+                  Load more ({searchQuote})
                 </Button>
               </div>
             ) : null}

@@ -3,6 +3,7 @@ import * as Rpc from "effect/rpc/Rpc";
 import * as RpcGroup from "effect/rpc/RpcGroup";
 
 import { IsoDateTime, NonNegativeInt } from "./baseSchemas.ts";
+import { hasLink, type RateCard } from "./costs.ts";
 
 /** Automate screen contracts: schemas, errors, method names and the RPC group. Owned by the automate area. */
 
@@ -83,30 +84,19 @@ export const RulePreview = Schema.Struct({
 });
 export type RulePreview = typeof RulePreview.Type;
 
-const X_COST_USD = {
-  post: 0.015,
-  postWithLink: 0.2,
-  like: 0.015,
-  repost: 0.015,
-  dm: 0.015,
-  delete: 0.01,
-};
-// Same test as XClient.postCostUsd; duplicated so the rule form can price a draft without a round trip.
-const hasLink = (text: string) => /https?:\/\/\S+|\b[a-z0-9-]+\.[a-z]{2,}\b/i.test(text);
-
-/** Cost of one firing of `action`. auto_delete is per post; the engine multiplies. */
-export const actionCostUsd = (action: Action): number => {
+/** Cost of one firing of `action` at the service's rates. auto_delete is per post; the engine multiplies. */
+export const actionCostUsd = (rates: RateCard, action: Action): number => {
   switch (action.kind) {
     case "auto_plug":
-      return hasLink(action.text) ? X_COST_USD.postWithLink : X_COST_USD.post;
+      return hasLink(action.text) ? rates.postWithLink : rates.post;
     case "auto_dm":
-      return X_COST_USD.dm;
+      return rates.dm;
     case "auto_retweet":
-      return X_COST_USD.repost;
+      return rates.repost;
     case "auto_like":
-      return X_COST_USD.like;
+      return rates.like;
     case "auto_delete":
-      return X_COST_USD.delete;
+      return rates.delete;
     case "clean_profile":
       return 0;
   }

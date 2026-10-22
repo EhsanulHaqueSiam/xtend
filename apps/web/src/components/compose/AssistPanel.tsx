@@ -177,6 +177,7 @@ export function AssistPanel({
         <div className="flex flex-col divide-y divide-border">
           <p className="pb-1 text-2xs text-muted-foreground">{title}</p>
           {items.map((s, i) => (
+            // eslint-disable-next-line react/no-array-index-key -- suggestions are unkeyed model output.
             <div key={i} className="flex items-start gap-2 py-2">
               <div className="min-w-0 flex-1">
                 <p className="whitespace-pre-wrap text-sm">{s.text}</p>

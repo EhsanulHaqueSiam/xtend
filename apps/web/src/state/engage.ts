@@ -48,10 +48,19 @@ export const addKeywordsAtom = clientRuntime.fn<ReadonlyArray<string>>()(
   }),
 );
 
+/** Free: session mentions plus what earlier refreshes fetched. */
 export const mentionsAtom = clientRuntime.atom(
   Effect.gen(function* () {
     const client = yield* XtendClient;
     return yield* client[Engage_METHODS.mentions]({});
+  }),
+);
+
+/** Paid: one page of mentions newer than the last stored one. Refresh mentionsAtom after it. */
+export const refreshMentionsAtom = clientRuntime.fn<void>()(
+  Effect.fnUntraced(function* () {
+    const client = yield* XtendClient;
+    return yield* client[Engage_METHODS.mentions]({ refresh: true });
   }),
 );
 

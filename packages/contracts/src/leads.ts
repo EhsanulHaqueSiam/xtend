@@ -124,14 +124,6 @@ export const NewFollower = Schema.Struct({
 });
 export type NewFollower = typeof NewFollower.Type;
 
-/** X prices the leads screen quotes before a paid click. Search and profile reads are treg scraper rates. */
-export const LEADS_COST_USD = {
-  search: 0.00075,
-  profile: 0.00022,
-  followersPage: 0.001,
-  dm: 0.015,
-} as const;
-
 export class LeadsError extends Schema.TaggedError<LeadsError>()("LeadsError", {
   operation: Schema.String,
   detail: Schema.String,

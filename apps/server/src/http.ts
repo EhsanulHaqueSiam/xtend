@@ -5,8 +5,12 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 
+import * as ServiceAuth from "./auth/ServiceAuth.ts";
 import * as ServerConfig from "./config.ts";
 import * as ObservationStore from "./observations/ObservationStore.ts";
+
+/** Name of the meta tag the packaged web app reads its token from. */
+const TOKEN_META = "xtend-token";
 
 export const layerHealthRoute = HttpRouter.add(
   "GET",
@@ -24,7 +28,8 @@ export const layerHealthRoute = HttpRouter.add(
 export const layerObservationsRoute = HttpRouter.add(
   "POST",
   "/api/observations",
-  Effect.gen(function* () {
+  ServiceAuth.guarded(
+    Effect.gen(function* () {
     const batch = yield* HttpServerRequest.schemaBodyJson(ObservationBatch);
     const store = yield* ObservationStore.ObservationStore;
     const result = yield* store.record(batch);
@@ -40,6 +45,28 @@ export const layerObservationsRoute = HttpRouter.add(
         HttpServerResponse.json({ error: error._tag, message: error.message }, { status: 500 }),
     }),
   ),
+  ),
+);
+
+/**
+ * Hands the token to the Vite dev server's page and nobody else: the route only
+ * exists when a dev URL is configured and only answers that origin. POST because
+ * browsers always send Origin on POST and may omit it on same-origin GET.
+ */
+export const layerDevTokenRoute = Layer.unwrap(
+  Effect.gen(function* () {
+    const config = yield* ServerConfig.ServerConfig;
+    const devUrl = config.devUrl;
+    if (devUrl === undefined) return Layer.empty;
+    return HttpRouter.add("POST", "/api/auth/dev-token", (request) =>
+      Effect.gen(function* () {
+        const auth = yield* ServiceAuth.ServiceAuth;
+        if (request.headers["origin"] !== devUrl.origin)
+          return HttpServerResponse.text("forbidden", { status: 403 });
+        return yield* HttpServerResponse.json({ token: auth.token });
+      }),
+    );
+  }),
 );
 
 /** Dev redirects to Vite; packaged builds serve `apps/web/dist` with SPA fallback. */
@@ -66,6 +93,16 @@ export const layerWebRoute = Layer.unwrap(
       );
     }
     const indexPath = path.join(staticDir, "index.html");
+    const auth = yield* ServiceAuth.ServiceAuth;
+    // The packaged app is served by the service itself, so the token rides in the page.
+    const index = yield* fs.readFileString(indexPath).pipe(
+      Effect.map((html) =>
+        html.replace("</head>", `<meta name="${TOKEN_META}" content="${auth.token}" /></head>`),
+      ),
+      Effect.orElseSucceed(() => null),
+    );
+    if (index === null)
+      return HttpRouter.add("GET", "*", HttpServerResponse.text("No web UI built.", { status: 404 }));
     return HttpRouter.add("GET", "*", (request) =>
       Effect.gen(function* () {
         const requested = path.normalize(
@@ -73,11 +110,13 @@ export const layerWebRoute = Layer.unwrap(
         );
         // normalize() keeps "../" escapes inside staticDir from reaching the filesystem.
         const candidate = requested.startsWith(staticDir) ? requested : indexPath;
-        const isFile = yield* fs.stat(candidate).pipe(
-          Effect.map((s) => s.type === "File"),
-          Effect.orElseSucceed(() => false),
-        );
-        return yield* HttpServerResponse.file(isFile ? candidate : indexPath);
+        const isFile =
+          candidate !== indexPath &&
+          (yield* fs.stat(candidate).pipe(
+            Effect.map((s) => s.type === "File"),
+            Effect.orElseSucceed(() => false),
+          ));
+        return isFile ? yield* HttpServerResponse.file(candidate) : HttpServerResponse.html(index);
       }).pipe(Effect.orElseSucceed(() => HttpServerResponse.text("Not found", { status: 404 }))),
     );
   }),

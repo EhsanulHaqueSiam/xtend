@@ -1,10 +1,15 @@
-import { EngageError, type SentReply } from "@xtend/contracts";
+import { EngageError, type SentReply, XPost } from "@xtend/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
+
+const PostJson = Schema.fromJsonString(XPost);
+const decodePost = Schema.decodeUnknownSync(PostJson);
+const encodePost = Schema.encodeSync(PostJson);
 
 interface SentRow {
   readonly id: number;
@@ -44,6 +49,11 @@ export class EngageStore extends Context.Service<
     readonly repliedPostIds: Effect.Effect<ReadonlySet<string>, EngageError>;
     readonly handledMentionIds: Effect.Effect<ReadonlySet<string>, EngageError>;
     readonly markHandled: (postId: string) => Effect.Effect<void, EngageError>;
+    /** Mentions fetched from X so far, newest first. */
+    readonly apiMentions: Effect.Effect<ReadonlyArray<XPost>, EngageError>;
+    /** Highest mention id fetched; the next refresh asks X for newer ones only. */
+    readonly latestApiMentionId: Effect.Effect<string | null, EngageError>;
+    readonly storeApiMentions: (posts: ReadonlyArray<XPost>) => Effect.Effect<void, EngageError>;
   }
 >()("xtend/engage/EngageStore") {}
 
@@ -103,6 +113,28 @@ const make = Effect.gen(function* () {
     yield* sql`INSERT OR IGNORE INTO handled_mentions (post_id, at) VALUES (${postId}, ${at})`;
   }, Effect.mapError(storeError));
 
+  const apiMentions = sql<{ post_json: string }>`
+    SELECT post_json FROM api_mentions ORDER BY CAST(post_id AS INTEGER) DESC LIMIT 200
+  `.pipe(
+    Effect.map((rows) => rows.map((r) => decodePost(r.post_json))),
+    Effect.mapError(storeError),
+  );
+
+  const latestApiMentionId = sql<{ post_id: string }>`
+    SELECT post_id FROM api_mentions ORDER BY CAST(post_id AS INTEGER) DESC LIMIT 1
+  `.pipe(
+    Effect.map((rows) => rows[0]?.post_id ?? null),
+    Effect.mapError(storeError),
+  );
+
+  const storeApiMentions = Effect.fn("EngageStore.storeApiMentions")(function* (
+    posts: ReadonlyArray<XPost>,
+  ) {
+    const at = yield* now;
+    for (const p of posts)
+      yield* sql`INSERT OR REPLACE INTO api_mentions (post_id, post_json, fetched_at) VALUES (${p.postId}, ${encodePost(p)}, ${at})`;
+  }, Effect.mapError(storeError));
+
   return EngageStore.of({
     recordReply,
     sentList,
@@ -110,6 +142,9 @@ const make = Effect.gen(function* () {
     repliedPostIds,
     handledMentionIds,
     markHandled,
+    apiMentions,
+    latestApiMentionId,
+    storeApiMentions,
   });
 });
 

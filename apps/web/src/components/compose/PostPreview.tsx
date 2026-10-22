@@ -11,6 +11,7 @@ export function PostPreview({
   return (
     <div className="rounded-md border border-border bg-card">
       {blocks.map((text, i) => (
+        // eslint-disable-next-line react/no-array-index-key -- blocks are plain strings; position is their identity.
         <div key={i} className="flex gap-3 px-4 py-3">
           <div className="flex flex-col items-center">
             <div className="size-10 shrink-0 rounded-full bg-muted" />

@@ -27,12 +27,18 @@ describe("rankTarget", () => {
     expect(fresh.score).toBeGreaterThan(old.score);
   });
 
-  it("lifts the score with replies and followers", () => {
+  it("lifts the score with followers and damps it with replies", () => {
     const quiet = rankTarget(post(60, 1000, 0, 0), now);
     const busy = rankTarget(post(60, 1000, 50, 0), now);
     const big = rankTarget(post(60, 1000, 0, 99_990), now);
-    expect(busy.score).toBeCloseTo(quiet.score * 2);
+    expect(busy.score).toBeCloseTo(quiet.score / 2);
     expect(big.score).toBeCloseTo(quiet.score * 5);
+  });
+
+  it("bands reach by views per hour", () => {
+    expect(rankTarget(post(60, 50, 0, 0), now).reach).toBe("under 100/h");
+    expect(rankTarget(post(60, 5000, 0, 0), now).reach).toBe("1k to 10k/h");
+    expect(rankTarget(post(60, 20_000, 0, 0), now).reach).toBe("10k+/h");
   });
 
   it("never divides by a zero age and tolerates null views", () => {

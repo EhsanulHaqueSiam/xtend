@@ -1,5 +1,11 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
-import type { Draft, DraftPatch, DraftPoll, ReplySettings } from "@xtend/contracts";
+import {
+  type Draft,
+  type DraftPatch,
+  type DraftPoll,
+  postCostUsd,
+  type ReplySettings,
+} from "@xtend/contracts";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
@@ -9,14 +15,10 @@ import { useEffect, useRef, useState } from "react";
 import { AssistPanel, failText } from "../components/compose/AssistPanel";
 import { DraftsList, fmtWhen, statusTone } from "../components/compose/DraftsList";
 import { PostPreview } from "../components/compose/PostPreview";
-import {
-  inputClass,
-  postCostUsd,
-  splitBlocks,
-  ThreadEditor,
-} from "../components/compose/ThreadEditor";
+import { inputClass, splitBlocks, ThreadEditor } from "../components/compose/ThreadEditor";
 import { PageHeader } from "../components/PageHeader";
 import { Button } from "../components/ui/button";
+import { localInputToInstant } from "../lib/time";
 import {
   createDraftAtom,
   deleteDraftAtom,
@@ -24,6 +26,8 @@ import {
   postNowAtom,
   updateDraftAtom,
 } from "../state/compose";
+import { useRates } from "../state/costs";
+import { savedPostAtom } from "../state/library";
 import { queueAtom, scheduleAtom } from "../state/plan";
 import { settingsAtom } from "../state/settings";
 
@@ -62,6 +66,7 @@ const fromDraft = (d: Draft): Editor => ({
 });
 
 const toPatch = (e: Editor): DraftPatch => ({ ...e, blocks: e.blocks.map((text) => ({ text })) });
+const sourceUrl = (postId: string) => `https://x.com/i/web/status/${postId}`;
 
 const isBlank = (e: Editor) =>
   e.kind === "thread"
@@ -69,6 +74,21 @@ const isBlank = (e: Editor) =>
     : e.title.trim() === "" && e.body.trim() === "";
 
 const usd = (n: number) => `$${n.toFixed(3)}`;
+
+/** The Library post a new draft was started from; shown beside the editor, linked on the draft. */
+function Inspiration({ postId }: { readonly postId: string }) {
+  const saved = useAtomValue(savedPostAtom(postId));
+  const post = AsyncResult.getOrElse(saved, () => null);
+  if (post === null) return null;
+  return (
+    <div className="flex flex-col gap-1 rounded-md border border-border bg-card p-2 text-xs">
+      <span className="text-2xs text-muted-foreground">
+        Inspired by @{post.post.author.handle}
+      </span>
+      <p className="whitespace-pre-wrap text-foreground/90">{post.post.text}</p>
+    </div>
+  );
+}
 const POLL_DURATIONS = [
   [60, "1 hour"],
   [360, "6 hours"],
@@ -132,6 +152,7 @@ function Options({ editor, onChange }: { editor: Editor; onChange: (e: Editor) =
       {poll !== null ? (
         <div className="flex flex-col gap-1 pl-2">
           {poll.options.map((o, i) => (
+            // eslint-disable-next-line react/no-array-index-key -- options are plain strings; position is their identity.
             <div key={i} className="flex gap-1">
               <input
                 className={inputClass}
@@ -218,8 +239,20 @@ function Options({ editor, onChange }: { editor: Editor; onChange: (e: Editor) =
   );
 }
 
+/** A new `?inspire=` remounts the editor, so a fresh draft starts without an effect. */
 function ComposeScreen() {
-  const { draft: draftParam } = Route.useSearch();
+  const { draft: draftParam, inspire } = Route.useSearch();
+  return <ComposeEditor key={inspire ?? ""} draftParam={draftParam} inspire={inspire} />;
+}
+
+function ComposeEditor({
+  draftParam,
+  inspire,
+}: {
+  readonly draftParam: string | undefined;
+  readonly inspire: string | undefined;
+}) {
+  const rates = useRates();
   const navigate = useNavigate();
   const drafts = useAtomValue(draftsAtom);
   const refresh = useAtomRefresh(draftsAtom);
@@ -227,6 +260,10 @@ function ComposeScreen() {
   const handle = AsyncResult.getOrElse(
     AsyncResult.map(settings, (s) => s.handle),
     () => null,
+  );
+  const zone = AsyncResult.getOrElse(
+    AsyncResult.map(settings, (s) => s.timeZone),
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone,
   );
   const create = useAtomSet(createDraftAtom, { mode: "promise" });
   const update = useAtomSet(updateDraftAtom, { mode: "promise" });
@@ -261,12 +298,14 @@ function ComposeScreen() {
     setNotice(null);
   };
 
-  // Deep link from Plan ("edit"): open once the list is loaded.
+  // Deep link from Plan ("edit"): open once the list is loaded, then drop the param.
   useEffect(() => {
     if (draftParam === undefined || !AsyncResult.isSuccess(drafts)) return;
     const d = drafts.value.find((x) => x.id === draftParam);
+    // eslint-disable-next-line react/set-state-in-effect -- the editor state is this effect's output.
     if (d !== undefined && d.id !== selected?.id) open(d);
-    navigate({ to: "/compose", search: { draft: undefined }, replace: true });
+    navigate({ to: "/compose", search: { draft: undefined, inspire }, replace: true });
+    // eslint-disable-next-line react/exhaustive-effect-dependencies -- runs once per deep link, not per selection.
   }, [draftParam, drafts]);
 
   // Autosave: one row per editor session, created on the first non-blank change.
@@ -278,7 +317,10 @@ function ComposeScreen() {
     try {
       const d =
         selected === null
-          ? await create(toPatch(editor))
+          ? await create({
+              ...toPatch(editor),
+              ...(inspire === undefined ? {} : { source: sourceUrl(inspire) }),
+            })
           : await update({ id: selected.id, patch: toPatch(editor) });
       lastSaved.current = json;
       setSelected(d);
@@ -289,6 +331,7 @@ function ComposeScreen() {
     }
   };
   useEffect(() => {
+    // eslint-disable-next-line react/exhaustive-effect-dependencies -- debounced on content only; `save` is rebuilt each render.
     const t = setTimeout(save, 600);
     return () => clearTimeout(t);
   }, [editor, selected?.id]);
@@ -296,11 +339,14 @@ function ComposeScreen() {
   const act = async (what: "queue" | "schedule" | "post") => {
     const d = (await save()) ?? selected;
     if (d === null) return;
+    // The picker's wall time is in the account zone, whatever the browser's.
+    const at = localInputToInstant(zone, when);
+    if (what === "schedule" && at === null) return;
     const exit =
       what === "queue"
         ? await queue(d.id)
         : what === "schedule"
-          ? await schedule({ id: d.id, at: new Date(when).toISOString() })
+          ? await schedule({ id: d.id, at: at!.toISOString() })
           : await postNow(d.id);
     setConfirm(null);
     if (Exit.isFailure(exit)) {
@@ -320,11 +366,13 @@ function ComposeScreen() {
   };
 
   const blocks = editor.blocks;
-  const costs = blocks.map(postCostUsd);
+  const costs = rates === null ? [] : blocks.map((b) => postCostUsd(rates, b));
   const total = costs.reduce((a, b) => a + b, 0);
-  const linkCount = costs.filter((c) => c === 0.2).length;
+  const linkCount = rates === null ? 0 : costs.filter((c) => c === rates.postWithLink).length;
   const isArticle = editor.kind === "article";
-  const canSend = !isArticle && !isBlank(editor) && selected?.status !== "posted";
+  // Posted is final; a draft mid-publish belongs to the publisher.
+  const locked = selected?.status === "posted" || selected?.status === "posting";
+  const canSend = !isArticle && !isBlank(editor) && !locked && rates !== null;
 
   return (
     <div className="flex h-full flex-col">
@@ -402,8 +450,10 @@ function ComposeScreen() {
             <div className="flex flex-wrap items-center gap-2 rounded-md border border-warning/40 bg-warning-surface px-3 py-2 text-xs">
               <span>
                 Post {blocks.length} {blocks.length === 1 ? "post" : "posts"} now for {usd(total)}
-                {linkCount > 0 ? ` (${linkCount} with a link at $0.20)` : ""}. This charges your
-                treg balance.
+                {linkCount > 0 && rates !== null
+                  ? ` (${linkCount} with a link at ${usd(rates.postWithLink)})`
+                  : ""}
+                . This charges your treg balance.
               </span>
               <Button size="xs" onClick={() => act("post")}>
                 Confirm and post
@@ -421,6 +471,7 @@ function ComposeScreen() {
                 value={when}
                 onChange={(e) => setWhen(e.target.value)}
               />
+              <span className="text-2xs text-muted-foreground">{zone}</span>
               <Button size="xs" disabled={when === ""} onClick={() => act("schedule")}>
                 Schedule
               </Button>
@@ -441,6 +492,11 @@ function ComposeScreen() {
           ) : null}
           {selected?.status === "failed" && notice === null ? (
             <p className="text-xs text-error-foreground">Failed: {selected.error}</p>
+          ) : null}
+          {locked ? (
+            <p className="text-xs text-muted-foreground">
+              This draft is {selected?.status}; start a new draft to change it.
+            </p>
           ) : null}
           {isArticle ? (
             <div className="flex flex-col gap-2">
@@ -463,18 +519,21 @@ function ComposeScreen() {
             </div>
           ) : (
             <>
-              <ThreadEditor
-                blocks={blocks}
-                active={active}
-                onChange={(b) => setEditor({ ...editor, blocks: b })}
-                onFocus={setActive}
-              />
+              <fieldset disabled={locked} className="contents">
+                <ThreadEditor
+                  blocks={blocks}
+                  active={active}
+                  onChange={(b) => setEditor({ ...editor, blocks: b })}
+                  onFocus={setActive}
+                />
+              </fieldset>
               <p className="font-mono text-2xs text-muted-foreground">
-                {blocks.length} {blocks.length === 1 ? "post" : "posts"} x $0.015 = {usd(total)}
-                {linkCount > 0 ? (
+                {blocks.length} {blocks.length === 1 ? "post" : "posts"} x{" "}
+                {rates === null ? "…" : usd(rates.post)} = {usd(total)}
+                {linkCount > 0 && rates !== null ? (
                   <span className="text-warning-foreground">
                     {" "}
-                    · {linkCount} with a link billed at $0.20
+                    · {linkCount} with a link billed at {usd(rates.postWithLink)}
                   </span>
                 ) : null}
               </p>
@@ -483,6 +542,7 @@ function ComposeScreen() {
           )}
         </main>
         <aside className="flex w-96 shrink-0 flex-col gap-3 overflow-y-auto border-l border-border p-3">
+          {inspire !== undefined ? <Inspiration postId={inspire} /> : null}
           {isArticle ? null : (
             <>
               <PostPreview blocks={blocks} name={handle ?? "You"} handle={handle} />
@@ -511,6 +571,7 @@ function ComposeScreen() {
 export const Route = createFileRoute("/compose")({
   validateSearch: (s: Record<string, unknown>) => ({
     draft: typeof s.draft === "string" ? s.draft : undefined,
+    inspire: typeof s.inspire === "string" ? s.inspire : undefined,
   }),
   component: ComposeScreen,
 });

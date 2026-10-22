@@ -20,13 +20,13 @@ const make = Effect.gen(function* () {
   const settings = yield* SettingsStore.SettingsStore;
 
   const heatmap = Effect.gen(function* () {
-    const { handle } = yield* settings.get;
+    const { handle, timeZone } = yield* settings.get;
     const { posts } =
       handle === null
         ? { posts: [] }
         : yield* observations.listRecent({ authorHandle: handle, limit: 200 });
-    const zone = DateTime.zoneMakeLocal();
-    const cells = new Array<number>(168).fill(0);
+    const zone = SettingsStore.zoneOf(timeZone);
+    const cells = Array.from({ length: 168 }, () => 0);
     for (const p of posts) {
       const { weekDay, hour } = DateTime.toParts(
         DateTime.setZone(DateTime.makeUnsafe(p.createdAt), zone),

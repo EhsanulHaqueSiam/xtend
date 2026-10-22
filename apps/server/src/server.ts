@@ -10,6 +10,9 @@ import { HttpRouter } from "effect/http";
 import * as NodeHttpClient from "@effect/platform-node/NodeHttpClient";
 
 import * as Assist from "./ai/Assist.ts";
+import * as ServiceAuth from "./auth/ServiceAuth.ts";
+import * as Budget from "./budget/Budget.ts";
+import * as Costs from "./costs/Costs.ts";
 import * as ComposeHandlers from "./compose/ComposeHandlers.ts";
 import * as PlanHandlers from "./plan/PlanHandlers.ts";
 import * as AnalyzeHandlers from "./analyze/AnalyzeHandlers.ts";
@@ -24,6 +27,7 @@ import * as ServerHttp from "./http.ts";
 import * as ObservationStore from "./observations/ObservationStore.ts";
 import * as Sqlite from "./persistence/Sqlite.ts";
 import * as SettingsStore from "./settings/SettingsStore.ts";
+import * as TokenCipher from "./settings/TokenCipher.ts";
 import * as XClient from "./x/XClient.ts";
 import * as Ws from "./ws.ts";
 
@@ -39,6 +43,7 @@ const layerHttpServer = Layer.unwrap(
 
 const layerRoutes = Layer.mergeAll(
   ServerHttp.layerHealthRoute,
+  ServerHttp.layerDevTokenRoute,
   ServerHttp.layerObservationsRoute,
   Ws.layerRoute,
   ServerHttp.layerWebRoute,
@@ -47,7 +52,9 @@ const layerRoutes = Layer.mergeAll(
 // Foundation every area builds on: settings and spend, the X client, the assistant.
 // Area layers (compose, analyze, ...) go in layerAreas and may depend on all of these.
 const layerFoundation = Layer.mergeAll(Assist.layer, XClient.layer).pipe(
+  Layer.provideMerge(Budget.layer),
   Layer.provideMerge(Layer.mergeAll(ObservationStore.layer, SettingsStore.layer)),
+  Layer.provideMerge(Layer.mergeAll(TokenCipher.layer, ServiceAuth.layer)),
   Layer.provideMerge(Sqlite.layerConfig),
   Layer.provideMerge(NodeHttpClient.layerUndici),
 );
@@ -63,7 +70,9 @@ const layerAreas = Layer.mergeAll(
   AutomateHandlers.layer,
 );
 
-const layerServices = layerAreas.pipe(Layer.provideMerge(layerFoundation));
+const layerServices = Layer.mergeAll(layerAreas, Costs.layer).pipe(
+  Layer.provideMerge(layerFoundation),
+);
 
 const layerApplication = HttpRouter.serve(layerRoutes).pipe(
   Layer.tap(() =>

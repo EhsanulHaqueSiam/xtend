@@ -12,8 +12,8 @@ import { PageHeader } from "../components/PageHeader";
 import { Calendar, emptySlotCount } from "../components/plan/Calendar";
 import { Queue } from "../components/plan/Queue";
 import { Slots } from "../components/plan/Slots";
-import { dayKey, weekStart } from "../components/plan/ui";
 import { Button } from "../components/ui/button";
+import { dayStartIn, weekStartIn } from "../lib/time";
 import { draftsAtom } from "../state/compose";
 import {
   calendarAtom,
@@ -27,25 +27,34 @@ import {
   slotsAtom,
   unscheduleAtom,
 } from "../state/plan";
+import { settingsAtom } from "../state/settings";
 
 const TABS = ["Calendar", "Queue", "Slots"] as const;
-const monthDay = new Intl.DateTimeFormat("en", { month: "short", day: "numeric" });
 
 function PlanScreen() {
   const [tab, setTab] = useState<(typeof TABS)[number]>("Calendar");
   // Read once per mount; the nudge and "today" only need to be right to the minute.
   const [now] = useState(() => new Date());
-  const [start, setStart] = useState(() => weekStart(now));
+  // Weeks are laid out in the account's zone; until Settings answers, the browser's.
+  const settings = useAtomValue(settingsAtom);
+  const zone = AsyncResult.getOrElse(
+    AsyncResult.map(settings, (s) => s.timeZone),
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone,
+  );
+  const monthDay = new Intl.DateTimeFormat("en", { month: "short", day: "numeric", timeZone: zone });
+  const [offsetWeeks, setOffsetWeeks] = useState(0);
+  const start = dayStartIn(zone, weekStartIn(zone, now), offsetWeeks * 7);
+  const range = `${start.toISOString()}|${dayStartIn(zone, start, 7).toISOString()}`;
   const [notice, setNotice] = useState<string | null>(null);
   const navigate = useNavigate();
 
   const slots = useAtomValue(slotsAtom);
-  const week = useAtomValue(calendarAtom(dayKey(start)));
+  const week = useAtomValue(calendarAtom(range));
   const drafts = useAtomValue(draftsAtom);
   const ready = useAtomValue(readyAtom);
   const heatmap = useAtomValue(heatmapAtom);
   const refreshSlots = useAtomRefresh(slotsAtom);
-  const refreshWeek = useAtomRefresh(calendarAtom(dayKey(start)));
+  const refreshWeek = useAtomRefresh(calendarAtom(range));
   const refreshDrafts = useAtomRefresh(draftsAtom);
   const refreshReady = useAtomRefresh(readyAtom);
 
@@ -64,7 +73,7 @@ function PlanScreen() {
   const queued = allDrafts
     .filter((d) => d.status === "queued" || d.status === "failed")
     .sort((a, b) => (a.scheduledAt ?? "").localeCompare(b.scheduledAt ?? ""));
-  const empties = emptySlotCount(start, now, slotList, weekList);
+  const empties = emptySlotCount(zone, start, now, slotList, weekList);
 
   /** Every draft action refetches the lists it can move a draft between. */
   const act = async (exit: Promise<Exit.Exit<Draft, unknown>>, done: (d: Draft) => string) => {
@@ -78,12 +87,8 @@ function PlanScreen() {
     refreshDrafts();
     refreshReady();
   };
-  const open = (d: Draft) => navigate({ to: "/compose", search: { draft: d.id } });
-  const moveWeek = (days: number) => {
-    const next = new Date(start);
-    next.setDate(start.getDate() + days);
-    setStart(next);
-  };
+  const open = (d: Draft) =>
+    navigate({ to: "/compose", search: { draft: d.id, inspire: undefined } });
 
   return (
     <div className="flex h-full flex-col">
@@ -96,13 +101,13 @@ function PlanScreen() {
         }
         actions={
           <>
-            <Button variant="ghost" size="xs" onClick={() => moveWeek(-7)}>
+            <Button variant="ghost" size="xs" onClick={() => setOffsetWeeks((w) => w - 1)}>
               ‹
             </Button>
-            <Button variant="ghost" size="xs" onClick={() => setStart(weekStart(now))}>
-              Week of {monthDay.format(start)}
+            <Button variant="ghost" size="xs" onClick={() => setOffsetWeeks(0)}>
+              Week of {monthDay.format(start)} · {zone}
             </Button>
-            <Button variant="ghost" size="xs" onClick={() => moveWeek(7)}>
+            <Button variant="ghost" size="xs" onClick={() => setOffsetWeeks((w) => w + 1)}>
               ›
             </Button>
           </>
@@ -125,6 +130,7 @@ function PlanScreen() {
         ) : null}
         {tab === "Calendar" ? (
           <Calendar
+            zone={zone}
             start={start}
             now={now}
             slots={slotList}

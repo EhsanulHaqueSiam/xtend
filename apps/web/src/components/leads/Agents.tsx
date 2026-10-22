@@ -1,5 +1,5 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
-import { LEADS_COST_USD, type SignalAgent, type SignalAgentInput } from "@xtend/contracts";
+import type { SignalAgent, SignalAgentInput } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 
@@ -10,7 +10,8 @@ import {
   suggestAgentsAtom,
   upsertAgentAtom,
 } from "../../state/leads";
-import { Empty, ErrorText, errorText, inputClass, Section, usd } from "../analyze/ui";
+import { useRates, usd } from "../../state/costs";
+import { Empty, ErrorText, errorText, inputClass, Section } from "../analyze/ui";
 import { Button } from "../ui/button";
 import { ago, useAction } from "./ui";
 
@@ -25,6 +26,7 @@ const blank: SignalAgentInput = {
 
 /** Signal agents: saved searches the service runs on a schedule and files into people. */
 export function Agents() {
+  const rates = useRates();
   const agents = useAtomValue(agentsAtom);
   const [editing, setEditing] = useState<SignalAgentInput | null>(null);
   return (
@@ -44,7 +46,7 @@ export function Agents() {
         onFailure: (f) => <ErrorText>{errorText(f.cause)}</ErrorText>,
         onSuccess: ({ value }) =>
           value.length === 0 ? (
-            <Empty>No agents yet. Each run is one search ({usd(LEADS_COST_USD.search)}).</Empty>
+            <Empty>No agents yet. Each run is one search ({usd(rates?.searchPage ?? 0)}).</Empty>
           ) : (
             value.map((a) => <AgentCard key={a.id} agent={a} onEdit={() => setEditing(a)} />)
           ),
@@ -60,6 +62,7 @@ function AgentCard({
   readonly agent: SignalAgent;
   readonly onEdit: () => void;
 }) {
+  const rates = useRates();
   const refresh = useAtomRefresh(agentsAtom);
   const refreshPeople = useAtomRefresh(peopleAtom(null));
   const runAgent = useAtomSet(runAgentAtom, { mode: "promise" });
@@ -87,7 +90,7 @@ function AgentCard({
               )
             }
           >
-            {busy ? "Running…" : `Run now (${usd(LEADS_COST_USD.search)})`}
+            {busy ? "Running…" : `Run now (${usd(rates?.searchPage ?? 0)})`}
           </Button>
           <Button size="xs" variant="ghost-muted" onClick={onEdit}>
             Edit
@@ -129,6 +132,7 @@ function AgentForm({
   readonly initial: SignalAgentInput;
   readonly onDone: () => void;
 }) {
+  const rates = useRates();
   const refresh = useAtomRefresh(agentsAtom);
   const upsert = useAtomSet(upsertAgentAtom, { mode: "promise" });
   const { busy, error, run } = useAction();
@@ -196,7 +200,7 @@ function AgentForm({
             Cancel
           </Button>
           <span className="font-mono text-2xs text-muted-foreground">
-            {usd(LEADS_COST_USD.search)} per run
+            {usd(rates?.searchPage ?? 0)} per run
           </span>
         </div>
         {error !== null ? <ErrorText>{error}</ErrorText> : null}

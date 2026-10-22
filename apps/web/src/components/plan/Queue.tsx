@@ -1,13 +1,13 @@
 import { useAtomValue } from "@effect/atom-react";
-import type { Draft } from "@xtend/contracts";
+import { type Draft, postCostUsd } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 
+import { useRates, usd } from "../../state/costs";
 import { runsAtom } from "../../state/plan";
 import { Empty, errorText } from "../analyze/ui";
 import { draftTitle, fmtWhen, statusTone } from "../compose/DraftsList";
 import { Button } from "../ui/button";
-import { draftCostUsd, usd } from "./ui";
 
 function Runs({ id }: { readonly id: string }) {
   const runs = useAtomValue(runsAtom(id));
@@ -49,6 +49,9 @@ export function Queue({
 }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<string | null>(null);
+  const rates = useRates();
+  const draftCostUsd = (d: Draft) =>
+    rates === null ? 0 : d.blocks.reduce((sum, b) => sum + postCostUsd(rates, b.text), 0);
   if (drafts.length === 0)
     return <Empty>Nothing queued. Add a draft from Compose or the shelf.</Empty>;
   return (

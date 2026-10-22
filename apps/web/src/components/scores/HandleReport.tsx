@@ -2,8 +2,9 @@ import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 
-import { reportAtom, RUN_COST, runScoreAtom } from "../../state/scores";
-import { Empty, ErrorText, errorText, inputClass, usd } from "../analyze/ui";
+import { useQuoteLabel } from "../../state/costs";
+import { reportAtom, runScoreAtom } from "../../state/scores";
+import { Empty, ErrorText, errorText, inputClass } from "../analyze/ui";
 import { Button } from "../ui/button";
 import { ReportCard } from "./ReportCard";
 
@@ -19,6 +20,7 @@ export function HandleReport({
   const refresh = useAtomRefresh(reportAtom(handle));
   const run = useAtomSet(runScoreAtom, { mode: "promise" });
   const runState = useAtomValue(runScoreAtom);
+  const quote = useQuoteLabel({ kind: "scoreRun", handle });
   const [error, setError] = useState<string | null>(null);
 
   const score = async () => {
@@ -33,7 +35,7 @@ export function HandleReport({
 
   const button = (
     <Button size="xs" variant="outline" disabled={runState.waiting} onClick={() => void score()}>
-      {runState.waiting ? "Scoring…" : `Score (${usd(RUN_COST)})`}
+      {runState.waiting ? "Scoring…" : `Score (${quote})`}
     </Button>
   );
 
@@ -77,7 +79,7 @@ export function HandlePicker({ botOnly }: { readonly botOnly?: boolean }) {
       </form>
       <p className="text-2xs text-muted-foreground">
         Opening is free and shows stored samples. Scoring reads the profile and up to 5 follower
-        pages for {usd(RUN_COST)}.
+        pages; the button shows the price.
       </p>
       {handle === null ? null : <HandleReport handle={handle} botOnly={botOnly ?? false} />}
     </div>

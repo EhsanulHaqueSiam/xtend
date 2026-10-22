@@ -2,7 +2,6 @@ import {
   type AgentRun,
   type AgentSuggestion,
   type Candidate,
-  LEADS_COST_USD,
   LeadsError,
   type SignalAgent,
   type SignalAgentInput,
@@ -189,7 +188,7 @@ const make = Effect.gen(function* () {
       }
       const inserted = yield* people.addMany(scored, `agent:${agent.name}`);
       // shortcut: XClient does not report whether the search was served from cache, so the quoted rate is logged.
-      return { at, found: found.length, inserted, costUsd: LEADS_COST_USD.search };
+      return { at, found: found.length, inserted, costUsd: XClient.RATE_CARD.searchPage };
     });
 
   const record = (

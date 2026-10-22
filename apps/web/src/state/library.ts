@@ -36,6 +36,16 @@ export const swipeFileAtom = Atom.family((query: string) =>
   ),
 );
 
+/** One saved post by X id; Compose reads the inspiration it was opened with. */
+export const savedPostAtom = Atom.family((postId: string) =>
+  clientRuntime.atom(
+    Effect.gen(function* () {
+      const client = yield* XtendClient;
+      return yield* client[Library_METHODS.getSavedPost]({ postId });
+    }),
+  ),
+);
+
 export const collectionPostsAtom = Atom.family((collectionId: number) =>
   clientRuntime.atom(
     Effect.gen(function* () {

@@ -10,7 +10,7 @@ import { Empty, ErrorText, errorText, fmt, Section } from "./ui";
 function Engagers() {
   const result = useAtomValue(engagersAtom);
   return (
-    <Section title="Top engagers seen this session">
+    <Section title="Accounts you see most">
       {AsyncResult.match(result, {
         onInitial: () => <Empty>Loading…</Empty>,
         onFailure: (f) => <ErrorText>{errorText(f.cause)}</ErrorText>,

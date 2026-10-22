@@ -33,8 +33,9 @@ export const ScoreSample = Schema.Struct({
   score: Schema.Number,
   tier: Tier,
   followers: NonNegativeInt,
-  /** How many followers the run sampled; the score is over these. */
+  /** How many followers the run read, over how many pages. The score is over the top SCORE_TOP_K of them by reach. */
   sampled: NonNegativeInt,
+  pages: NonNegativeInt,
   botShare: Schema.Number,
   topFollowers: Schema.Array(TopFollower),
   bot: BotReport,

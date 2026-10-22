@@ -1,4 +1,6 @@
 import {
+  hasLink,
+  type RateCard,
   XApiError,
   type XFollower,
   type XPost,
@@ -25,8 +27,11 @@ const ENDPOINTS = {
   own: "x",
 } as const;
 
-/** X's prices, as treg bills them. Shown before any write and summed into the budget. */
-const X_COST_USD = {
+/**
+ * The one rate card: X's prices as treg bills them plus treg's scraper rates.
+ * Every quote a client shows and every budget reservation starts here.
+ */
+export const RATE_CARD: RateCard = {
   post: 0.015,
   postWithLink: 0.2,
   like: 0.015,
@@ -36,11 +41,14 @@ const X_COST_USD = {
   delete: 0.01,
   readPage: 0.005,
   profile: 0.01,
-} as const;
+  searchPage: 0.00075,
+  scraperProfile: 0.00022,
+  followersPage: 0.001,
+  trending: 0.001,
+};
 
-const hasLink = (text: string) => /https?:\/\/\S+|\b[a-z0-9-]+\.[a-z]{2,}\b/i.test(text);
 export const postCostUsd = (text: string) =>
-  hasLink(text) ? X_COST_USD.postWithLink : X_COST_USD.post;
+  hasLink(text) ? RATE_CARD.postWithLink : RATE_CARD.post;
 
 type Json = Record<string, unknown>;
 const obj = (v: unknown): Json => (typeof v === "object" && v !== null ? (v as Json) : {});
@@ -48,20 +56,24 @@ const arr = (v: unknown): ReadonlyArray<unknown> => (Array.isArray(v) ? v : []);
 const str = (v: unknown, fallback = ""): string => (typeof v === "string" ? v : fallback);
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 const int = (v: unknown): number => Math.max(0, Math.trunc(num(v) ?? 0));
-const isoFromUtc = (seconds: unknown): string =>
-  DateTime.formatIso(DateTime.makeUnsafe((num(seconds) ?? 0) * 1000));
+const isoFromUtc = (seconds: unknown): string | null =>
+  num(seconds) === null ? null : DateTime.formatIso(DateTime.makeUnsafe(num(seconds)! * 1000));
 // X's "Wed Oct 22 10:00:00 +0000 2026" form; DateTime parses it like Date does.
 const isoFromText = (text: string): string | null =>
   DateTime.make(text).pipe((o) => (o._tag === "Some" ? DateTime.formatIso(o.value) : null));
 
-const postFromAnyapi = (row: Json, fallbackHandle: string): XPost => {
+// A post with no id or date cannot be ranked, scheduled against or charted, so it is dropped
+// rather than stored at the epoch.
+const postFromAnyapi = (row: Json, fallbackHandle: string): XPost | null => {
   const text = str(row.text);
-  const handle = str(row.authorUsername ?? row.authorHandle) || fallbackHandle;
+  const handle = (str(row.authorUsername ?? row.authorHandle) || fallbackHandle).toLowerCase();
+  const createdAt = isoFromUtc(row.createdUtc) ?? isoFromText(str(row.createdAt));
+  if (str(row.id) === "" || createdAt === null) return null;
   return {
     postId: str(row.id),
     url: str(row.url) || `https://x.com/${handle}/status/${str(row.id)}`,
     text,
-    createdAt: isoFromUtc(row.createdUtc),
+    createdAt,
     lang: typeof row.lang === "string" ? row.lang : null,
     isReply: row.isReply === true,
     isRepost: text.startsWith("RT @"),
@@ -88,7 +100,7 @@ const postFromAnyapi = (row: Json, fallbackHandle: string): XPost => {
 
 const profileFromAnyapi = (d: Json): XProfile => ({
   userId: str(d.id),
-  handle: str(d.handle),
+  handle: str(d.handle).toLowerCase(),
   name: str(d.displayName) || str(d.handle),
   bio: str(d.bio),
   followers: int(d.followers),
@@ -96,14 +108,14 @@ const profileFromAnyapi = (d: Json): XProfile => ({
   posts: int(d.tweets),
   verified: d.verified === true,
   avatarUrl: str(d.avatarUrl).replace("_normal", "_400x400") || null,
-  createdAt: num(d.createdUtc) === null ? null : isoFromUtc(d.createdUtc),
+  createdAt: isoFromUtc(d.createdUtc),
   location: str(d.location) || null,
   website: str(d.website) || null,
 });
 
 const followerFromTikhub = (row: Json): XFollower | null => {
   const legacy = obj(row.legacy);
-  const handle = str(row.screen_name ?? legacy.screen_name);
+  const handle = str(row.screen_name ?? legacy.screen_name).toLowerCase();
   if (handle === "") return null;
   return {
     userId: str(row.rest_id ?? row.id ?? row.user_id),
@@ -127,6 +139,18 @@ export interface SearchOptions {
 export interface Page<A> {
   readonly items: ReadonlyArray<A>;
   readonly nextCursor: string | null;
+  /** Served from the read cache: nothing was charged. */
+  readonly fromCache: boolean;
+}
+
+/** Cache probes for the reads a screen is about to pay for; `costs.quote` uses them. */
+export interface CacheProbes {
+  readonly search: (query: string, mode?: XSearchMode) => Effect.Effect<boolean>;
+  readonly profile: (handle: string) => Effect.Effect<boolean>;
+  readonly userPosts: (handle: string) => Effect.Effect<boolean>;
+  readonly followers: (handle: string) => Effect.Effect<boolean>;
+  readonly trending: (country: string) => Effect.Effect<boolean>;
+  readonly mentions: Effect.Effect<boolean>;
 }
 
 export interface CreatePostInput {
@@ -188,45 +212,77 @@ export class XClient extends Context.Service<
       readonly sinceId?: string;
       readonly purpose: string;
     }) => Effect.Effect<ReadonlyArray<XPost>, XApiError>;
+    readonly cached: CacheProbes;
   }
 >()("xtend/x/XClient") {}
 
 export const make = Effect.gen(function* () {
   const treg = yield* Treg.Treg;
 
+  const clean = (handle: string) => handle.replace(/^@/, "").toLowerCase();
+  const posts = (rows: ReadonlyArray<unknown>, fallbackHandle: string) =>
+    rows.flatMap((row) => {
+      const p = postFromAnyapi(obj(row), fallbackHandle);
+      return p === null ? [] : [p];
+    });
+
+  // Each read is a call builder plus a parser so the cache probe and the call share one key.
+  const searchCall = (query: string, options: Omit<SearchOptions, "purpose">): Treg.TregCall => ({
+    endpoint: ENDPOINTS.searchPosts,
+    body: {
+      query,
+      limit: options.limit ?? 20,
+      queryType: options.mode === "latest" ? "Latest" : "Top",
+      ...(options.cursor === undefined ? {} : { cursor: options.cursor }),
+    },
+    purpose: "",
+    cacheFor: Duration.minutes(30),
+    expectedCostUsd: RATE_CARD.searchPage,
+  });
+  const profileCall = (handle: string): Treg.TregCall => ({
+    endpoint: ENDPOINTS.profile,
+    body: { handle: clean(handle) },
+    purpose: "",
+    cacheFor: Duration.hours(6),
+    expectedCostUsd: RATE_CARD.scraperProfile,
+  });
+  const userPostsCall = (handle: string, cursor?: string): Treg.TregCall => ({
+    endpoint: ENDPOINTS.userPosts,
+    body: { handle: clean(handle), ...(cursor === undefined ? {} : { cursor }) },
+    purpose: "",
+    cacheFor: Duration.hours(1),
+    expectedCostUsd: RATE_CARD.searchPage,
+  });
+  const followersCall = (handle: string, cursor?: string): Treg.TregCall => ({
+    endpoint: ENDPOINTS.followers,
+    query: { screen_name: clean(handle), cursor },
+    purpose: "",
+    cacheFor: Duration.hours(12),
+    expectedCostUsd: RATE_CARD.followersPage,
+  });
+  const trendingCall = (country: string): Treg.TregCall => ({
+    endpoint: ENDPOINTS.trending,
+    query: { country },
+    purpose: "",
+    cacheFor: Duration.minutes(30),
+    expectedCostUsd: RATE_CARD.trending,
+  });
+
   const searchPosts = Effect.fn("XClient.searchPosts")(function* (
     query: string,
     options: SearchOptions,
   ) {
-    const response = yield* treg.call({
-      endpoint: ENDPOINTS.searchPosts,
-      body: {
-        query,
-        limit: options.limit ?? 20,
-        queryType: options.mode === "latest" ? "Latest" : "Top",
-        ...(options.cursor === undefined ? {} : { cursor: options.cursor }),
-      },
-      purpose: options.purpose,
-      cacheFor: Duration.minutes(30),
-      expectedCostUsd: 0.00075,
-    });
+    const response = yield* treg.call({ ...searchCall(query, options), purpose: options.purpose });
     const data = obj(obj(obj(response.body).output).data);
     return {
-      items: arr(data.items)
-        .map((row) => postFromAnyapi(obj(row), ""))
-        .filter((p) => p.postId !== ""),
+      items: posts(arr(data.items), ""),
       nextCursor: str(data.nextCursor) || null,
+      fromCache: response.cached,
     };
   });
 
   const profile = Effect.fn("XClient.profile")(function* (handle: string, purpose: string) {
-    const response = yield* treg.call({
-      endpoint: ENDPOINTS.profile,
-      body: { handle: handle.replace(/^@/, "") },
-      purpose,
-      cacheFor: Duration.hours(6),
-      expectedCostUsd: 0.00022,
-    });
+    const response = yield* treg.call({ ...profileCall(handle), purpose });
     const output = obj(obj(response.body).output);
     return output.found === true ? profileFromAnyapi(obj(output.data)) : null;
   });
@@ -235,20 +291,15 @@ export const make = Effect.gen(function* () {
     handle: string,
     options: { readonly cursor?: string; readonly purpose: string },
   ) {
-    const clean = handle.replace(/^@/, "");
     const response = yield* treg.call({
-      endpoint: ENDPOINTS.userPosts,
-      body: { handle: clean, ...(options.cursor === undefined ? {} : { cursor: options.cursor }) },
+      ...userPostsCall(handle, options.cursor),
       purpose: options.purpose,
-      cacheFor: Duration.hours(1),
-      expectedCostUsd: 0.00075,
     });
     const data = obj(obj(obj(response.body).output).data);
     return {
-      items: arr(data.tweets)
-        .map((row) => postFromAnyapi(obj(row), clean))
-        .filter((p) => p.postId !== ""),
+      items: posts(arr(data.tweets), clean(handle)),
       nextCursor: str(data.nextCursor) || null,
+      fromCache: response.cached,
     };
   });
 
@@ -257,11 +308,8 @@ export const make = Effect.gen(function* () {
     options: { readonly cursor?: string; readonly purpose: string },
   ) {
     const response = yield* treg.call({
-      endpoint: ENDPOINTS.followers,
-      query: { screen_name: handle.replace(/^@/, ""), cursor: options.cursor },
+      ...followersCall(handle, options.cursor),
       purpose: options.purpose,
-      cacheFor: Duration.hours(12),
-      expectedCostUsd: 0.001,
     });
     const data = obj(obj(response.body).data);
     return {
@@ -270,17 +318,12 @@ export const make = Effect.gen(function* () {
         return f === null ? [] : [f];
       }),
       nextCursor: data.more_users === true ? str(data.next_cursor) || null : null,
+      fromCache: response.cached,
     };
   });
 
   const trending = Effect.fn("XClient.trending")(function* (country: string, purpose: string) {
-    const response = yield* treg.call({
-      endpoint: ENDPOINTS.trending,
-      query: { country },
-      purpose,
-      cacheFor: Duration.minutes(30),
-      expectedCostUsd: 0.001,
-    });
+    const response = yield* treg.call({ ...trendingCall(country), purpose });
     return arr(obj(obj(response.body).data).trends).map((row): XTrend => {
       const t = obj(row);
       return { name: str(t.name), context: str(t.context) || null, postCount: num(t.tweet_count) };
@@ -290,13 +333,15 @@ export const make = Effect.gen(function* () {
   const own = (path: string, input: Omit<Treg.TregCall, "endpoint">) =>
     treg.call({ ...input, endpoint: `${ENDPOINTS.own}/${path}` });
 
+  const meCall: Omit<Treg.TregCall, "endpoint"> = {
+    query: { "user.fields": "id,name,username" },
+    purpose: "",
+    cacheFor: Duration.hours(24),
+    expectedCostUsd: RATE_CARD.profile,
+  };
+
   const me = Effect.fn("XClient.me")(function* (purpose: string) {
-    const response = yield* own("2/users/me", {
-      query: { "user.fields": "id,name,username" },
-      purpose,
-      cacheFor: Duration.hours(24),
-      expectedCostUsd: X_COST_USD.profile,
-    }).pipe(
+    const response = yield* own("2/users/me", { ...meCall, purpose }).pipe(
       Effect.catchTag("XApiError", (e) =>
         e.reason === "provider" ? Effect.succeed(null) : Effect.fail(e),
       ),
@@ -305,7 +350,7 @@ export const make = Effect.gen(function* () {
     const data = obj(obj(response.body).data);
     return str(data.id) === ""
       ? null
-      : { userId: str(data.id), handle: str(data.username), name: str(data.name) };
+      : { userId: str(data.id), handle: str(data.username).toLowerCase(), name: str(data.name) };
   });
 
   const createPost = Effect.fn("XClient.createPost")(function* (input: CreatePostInput) {
@@ -333,7 +378,7 @@ export const make = Effect.gen(function* () {
     yield* own(`2/tweets/${postId}`, {
       method: "DELETE",
       purpose,
-      expectedCostUsd: X_COST_USD.delete,
+      expectedCostUsd: RATE_CARD.delete,
     });
   });
 
@@ -357,7 +402,7 @@ export const make = Effect.gen(function* () {
       method: "POST",
       body: { tweet_id: postId },
       purpose,
-      expectedCostUsd: X_COST_USD.like,
+      expectedCostUsd: RATE_CARD.like,
     });
   });
 
@@ -367,7 +412,7 @@ export const make = Effect.gen(function* () {
       method: "POST",
       body: { tweet_id: postId },
       purpose,
-      expectedCostUsd: X_COST_USD.repost,
+      expectedCostUsd: RATE_CARD.repost,
     });
   });
 
@@ -380,8 +425,22 @@ export const make = Effect.gen(function* () {
       method: "POST",
       body: { text },
       purpose,
-      expectedCostUsd: X_COST_USD.dm,
+      expectedCostUsd: RATE_CARD.dm,
     });
+  });
+
+  const mentionsCall = (userId: string, sinceId?: string): Treg.TregCall => ({
+    endpoint: `${ENDPOINTS.own}/2/users/${userId}/mentions`,
+    query: {
+      "tweet.fields": "id,text,created_at,public_metrics,author_id,lang",
+      expansions: "author_id",
+      "user.fields": "id,name,username,public_metrics,verified",
+      max_results: 50,
+      since_id: sinceId,
+    },
+    purpose: "",
+    cacheFor: Duration.minutes(5),
+    expectedCostUsd: RATE_CARD.readPage,
   });
 
   const mentions = Effect.fn("XClient.mentions")(function* (options: {
@@ -389,30 +448,24 @@ export const make = Effect.gen(function* () {
     readonly purpose: string;
   }) {
     const id = yield* requireUserId(options.purpose);
-    const response = yield* own(`2/users/${id}/mentions`, {
-      query: {
-        "tweet.fields": "id,text,created_at,public_metrics,author_id,lang",
-        expansions: "author_id",
-        "user.fields": "id,name,username,public_metrics,verified",
-        max_results: 50,
-        since_id: options.sinceId,
-      },
+    const response = yield* treg.call({
+      ...mentionsCall(id, options.sinceId),
       purpose: options.purpose,
-      cacheFor: Duration.minutes(5),
-      expectedCostUsd: X_COST_USD.readPage,
     });
     const body = obj(response.body);
     const users = new Map(arr(obj(body.includes).users).map((u) => [str(obj(u).id), obj(u)]));
-    return arr(body.data).map((row): XPost => {
+    return arr(body.data).flatMap((row): Array<XPost> => {
       const t = obj(row);
       const u = users.get(str(t.author_id)) ?? {};
       const m = obj(t.public_metrics);
-      const handle = str(u.username);
-      return {
+      const handle = str(u.username).toLowerCase();
+      const createdAt = isoFromText(str(t.created_at));
+      if (str(t.id) === "" || createdAt === null) return [];
+      return [{
         postId: str(t.id),
         url: `https://x.com/${handle}/status/${str(t.id)}`,
         text: str(t.text),
-        createdAt: str(t.created_at),
+        createdAt,
         lang: str(t.lang) || null,
         isReply: true,
         isRepost: false,
@@ -434,9 +487,24 @@ export const make = Effect.gen(function* () {
           quotes: int(m.quote_count),
           bookmarks: int(m.bookmark_count),
         },
-      };
+      }];
     });
   });
+
+  const cached: CacheProbes = {
+    search: (query, mode) => treg.isCached(searchCall(query, mode === undefined ? {} : { mode })),
+    profile: (handle) => treg.isCached(profileCall(handle)),
+    userPosts: (handle) => treg.isCached(userPostsCall(handle)),
+    followers: (handle) => treg.isCached(followersCall(handle)),
+    trending: (country) => treg.isCached(trendingCall(country)),
+    // The mentions key needs the user id, so a cold `me` means a cold mentions page too.
+    mentions: Effect.gen(function* () {
+      const meCached = yield* treg.isCached({ ...meCall, endpoint: `${ENDPOINTS.own}/2/users/me` });
+      if (!meCached) return false;
+      const m = yield* me("costs.quote").pipe(Effect.orElseSucceed(() => null));
+      return m === null ? false : yield* treg.isCached(mentionsCall(m.userId));
+    }),
+  };
 
   return XClient.of({
     searchPosts,
@@ -451,6 +519,7 @@ export const make = Effect.gen(function* () {
     repost,
     sendDm,
     mentions,
+    cached,
   });
 });
 

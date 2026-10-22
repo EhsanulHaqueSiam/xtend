@@ -6,7 +6,15 @@ import { IsoDateTime, NonNegativeInt, XId } from "./baseSchemas.ts";
 
 /** Compose screen contracts: drafts, assist calls and the RPC group. Owned by the compose area. */
 
-export const DraftStatus = Schema.Literals(["draft", "queued", "posted", "failed", "suggested"]);
+/** `posting` is a claim: whoever sets it (scheduler or Post now) is the only publisher of that draft. */
+export const DraftStatus = Schema.Literals([
+  "draft",
+  "queued",
+  "posting",
+  "posted",
+  "failed",
+  "suggested",
+]);
 export type DraftStatus = typeof DraftStatus.Type;
 
 export const DraftKind = Schema.Literals(["thread", "article"]);
@@ -40,6 +48,8 @@ export const DraftPatch = Schema.Struct({
   poll: Schema.optional(Schema.NullOr(DraftPoll)),
   hideLinkPreviews: Schema.optional(Schema.Boolean),
   threadDelaySeconds: Schema.optional(NonNegativeInt),
+  /** URL of the post that inspired a suggested draft. */
+  source: Schema.optional(Schema.NullOr(Schema.String)),
 });
 export type DraftPatch = typeof DraftPatch.Type;
 
@@ -57,6 +67,7 @@ export const Draft = Schema.Struct({
   /** Stored only; X's API has no switch for it yet. */
   hideLinkPreviews: Schema.Boolean,
   threadDelaySeconds: NonNegativeInt,
+  source: Schema.NullOr(Schema.String),
   /** When the scheduler should post it. Set by queue, schedule and retry backoff. */
   scheduledAt: Schema.NullOr(IsoDateTime),
   postIds: Schema.Array(XId),

@@ -51,8 +51,3 @@ export const trendingAtom = Atom.family((country: string) =>
     }),
   ),
 );
-
-/** Profile read plus FOLLOWER_PAGES follower pages. Mirrors the service's Scores.ts. */
-export const RUN_COST = 0.00022 + 5 * 0.001;
-/** One trending read; the service caches it for 30 minutes. */
-export const TRENDING_COST = 0.001;

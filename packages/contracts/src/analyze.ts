@@ -35,7 +35,7 @@ export const ProfileSnapshot = Schema.Struct({
 });
 export type ProfileSnapshot = typeof ProfileSnapshot.Type;
 
-/** Average views per hour of week over the cached posts. weekday 0 is Sunday, hours are UTC. */
+/** Average views per hour of week over the cached posts. weekday 0 is Sunday, hours are in the account time zone. */
 export const HeatmapCell = Schema.Struct({
   weekday: Schema.Int,
   hour: Schema.Int,
@@ -51,16 +51,39 @@ export const Theme = Schema.Struct({
 });
 export type Theme = typeof Theme.Type;
 
+/** Totals over the posts published in the last `days` days. */
+export const AnalyzeWindow = Schema.Struct({
+  days: Schema.Int,
+  posts: NonNegativeInt,
+  views: NonNegativeInt,
+  likes: NonNegativeInt,
+  replies: NonNegativeInt,
+  reposts: NonNegativeInt,
+  /** Total engagements over total views, so big posts weigh what they are worth. */
+  engagementRate: Schema.Number,
+});
+export type AnalyzeWindow = typeof AnalyzeWindow.Type;
+
+/** The service does the maths; the UI only renders these. */
 export const AnalyzeData = Schema.Struct({
   handle: Schema.NullOr(XHandle),
   fetchedAt: Schema.NullOr(IsoDateTime),
+  /** Own posts only; reposts are dropped at refresh. */
   posts: Schema.Array(AccountPost),
   snapshots: Schema.Array(ProfileSnapshot),
   heatmap: Schema.Array(HeatmapCell),
+  timeZone: Schema.String,
+  windows: Schema.Array(AnalyzeWindow),
+  /** Lifetime views of the posts published on each day, last 30 days. X exposes no per-day impressions. */
+  viewsByPostDay: Schema.Array(
+    Schema.Struct({ day: Schema.String, posts: NonNegativeInt, views: NonNegativeInt }),
+  ),
+  /** Follower change against the newest snapshot at least 30 days old; null until one exists. */
+  followerDelta30d: Schema.NullOr(Schema.Struct({ delta: Schema.Int, sinceDay: Schema.String })),
 });
 export type AnalyzeData = typeof AnalyzeData.Type;
 
-/** An author the session saw, ranked by reach and how often they showed up. */
+/** An account the session view showed most, ranked by reach and sightings. Not engagement data: the session carries none. */
 export const Engager = Schema.Struct({
   handle: XHandle,
   name: Schema.String,

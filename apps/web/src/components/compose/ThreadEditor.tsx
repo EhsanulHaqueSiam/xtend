@@ -1,3 +1,4 @@
+import { hasLink, LINK_PATTERN } from "@xtend/contracts";
 import { ArrowDown, ArrowUp, Plus, X } from "lucide-react";
 import type { ClipboardEvent } from "react";
 
@@ -8,10 +9,8 @@ const POST_LIMIT = 280;
 export const inputClass =
   "w-full rounded-md border border-input bg-background px-2.5 py-1.5 font-mono text-xs text-foreground outline-hidden placeholder:text-placeholder focus-visible:ring-2 focus-visible:ring-ring";
 
-// Same rule XClient.postCostUsd uses, so the cost line matches what the service will charge.
-const LINK = /https?:\/\/\S+|\b[a-z0-9-]+\.[a-z]{2,}\b/gi;
-const hasLink = (text: string) => new RegExp(LINK.source, "i").test(text);
-export const postCostUsd = (text: string) => (hasLink(text) ? 0.2 : 0.015);
+// The contract's link rule, so the counter and the price agree with what the service charges.
+const LINK = new RegExp(LINK_PATTERN.source, "gi");
 
 /** X counts every link as 23 characters whatever its length. shortcut: CJK and emoji weights ignored, add when a user hits it. */
 const charCount = (text: string) => [...text.replace(LINK, "x".repeat(23))].length;
@@ -55,6 +54,8 @@ export function ThreadEditor({
         const over = count > POST_LIMIT;
         return (
           <div
+            // Blocks are plain strings; their position is their identity.
+            // eslint-disable-next-line react/no-array-index-key
             key={i}
             className={cn("rounded-md border border-border bg-card", i === active && "border-ring")}
           >

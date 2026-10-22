@@ -171,7 +171,8 @@ export const LibraryRpcGroup = RpcGroup.make(
   }),
   Rpc.make(Library_METHODS.suggestedDraftSave, {
     payload: Schema.Struct({ text: Schema.String, source: Schema.String }),
-    success: Schema.Struct({ id: Schema.Int }),
+    /** The id of a real Compose draft with status `suggested`. */
+    success: Schema.Struct({ id: Schema.String }),
     error: LibraryError,
   }),
   Rpc.make(Library_METHODS.trends, {

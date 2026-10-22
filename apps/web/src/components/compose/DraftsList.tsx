@@ -1,23 +1,20 @@
 import type { Draft } from "@xtend/contracts";
 import { Trash2 } from "lucide-react";
 
+import { fmtWhen } from "../../lib/time";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
+
+export { fmtWhen };
 
 export const draftTitle = (d: Draft) =>
   (d.kind === "article" ? d.title : (d.blocks[0]?.text ?? "")).split("\n")[0]?.trim() || "Untitled";
 
-const when = new Intl.DateTimeFormat("en", {
-  month: "short",
-  day: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-});
-export const fmtWhen = (iso: string) => when.format(new Date(iso));
 
 export const statusTone: Record<Draft["status"], string> = {
   draft: "text-muted-foreground",
   queued: "text-info-foreground",
+  posting: "text-info-foreground",
   posted: "text-success-foreground",
   failed: "text-error-foreground",
   suggested: "text-warning-foreground",

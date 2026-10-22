@@ -71,7 +71,7 @@ const toPick = (r: PickRow): Pick => ({
 const storeError = (cause: unknown) =>
   new LibraryError({ operation: "store", detail: String(cause).slice(0, 300) });
 
-/** Saved posts, collections, daily picks and suggested drafts. SQL only; no X or model calls. */
+/** Saved posts, collections and daily picks. SQL only; no X or model calls. */
 export class LibraryStore extends Context.Service<
   LibraryStore,
   {
@@ -110,10 +110,6 @@ export class LibraryStore extends Context.Service<
       postId: string,
       blocks: ReadonlyArray<string>,
     ) => Effect.Effect<void, LibraryError>;
-    readonly suggestedDraftSave: (
-      text: string,
-      source: string,
-    ) => Effect.Effect<{ readonly id: number }, LibraryError>;
   }
 >()("xtend/library/LibraryStore") {}
 
@@ -268,17 +264,6 @@ const make = Effect.gen(function* () {
     yield* sql`UPDATE picks SET draft_json = ${encodeBlocks(blocks)} WHERE post_id = ${postId}`;
   }, Effect.mapError(storeError));
 
-  const suggestedDraftSave = Effect.fn("LibraryStore.suggestedDraftSave")(function* (
-    text: string,
-    source: string,
-  ) {
-    const at = yield* now;
-    const rows = yield* sql<{ id: number }>`
-        INSERT INTO suggested_drafts (text, source, created_at) VALUES (${text}, ${source}, ${at}) RETURNING id
-      `;
-    return { id: rows[0]!.id };
-  }, Effect.mapError(storeError));
-
   return LibraryStore.of({
     save,
     savedList,
@@ -296,7 +281,6 @@ const make = Effect.gen(function* () {
     pickSetWhy,
     pickDraftGet,
     pickSetDraft,
-    suggestedDraftSave,
   });
 });
 

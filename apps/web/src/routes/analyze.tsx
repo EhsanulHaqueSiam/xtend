@@ -9,14 +9,13 @@ import { BestTime } from "../components/analyze/BestTime";
 import { Competitors } from "../components/analyze/Competitors";
 import { Overview } from "../components/analyze/Overview";
 import { PostsTable } from "../components/analyze/PostsTable";
-import { Empty, ErrorText, errorText, Tabs, usd } from "../components/analyze/ui";
+import { Empty, ErrorText, errorText, Tabs } from "../components/analyze/ui";
 import { PageHeader } from "../components/PageHeader";
 import { Button } from "../components/ui/button";
 import { analyzeDataAtom, refreshAnalyzeAtom } from "../state/analyze";
+import { useQuoteLabel } from "../state/costs";
 
 const TABS = ["Overview", "Posts", "Audience", "Best time", "Competitors", "Ask"] as const;
-/** Profile read plus up to 5 timeline pages. Mirrors POST_PAGES in the service. */
-const REFRESH_COST = 0.00022 + 5 * 0.00075;
 
 function AnalyzeScreen() {
   const [tab, setTab] = useState<(typeof TABS)[number]>("Overview");
@@ -24,6 +23,7 @@ function AnalyzeScreen() {
   const refreshData = useAtomRefresh(analyzeDataAtom);
   const refresh = useAtomSet(refreshAnalyzeAtom, { mode: "promise" });
   const refreshState = useAtomValue(refreshAnalyzeAtom);
+  const refreshQuote = useQuoteLabel({ kind: "analyzeRefresh" });
   const [error, setError] = useState<string | null>(null);
   const fetchedAt = AsyncResult.getOrElse(
     AsyncResult.map(data, (d) => d.fetchedAt),
@@ -56,7 +56,7 @@ function AnalyzeScreen() {
             disabled={refreshState.waiting}
             onClick={() => void runRefresh()}
           >
-            {refreshState.waiting ? "Refreshing…" : `Refresh posts (${usd(REFRESH_COST)})`}
+            {refreshState.waiting ? "Refreshing…" : `Refresh posts (${refreshQuote})`}
           </Button>
         }
       />
@@ -76,7 +76,7 @@ function AnalyzeScreen() {
             ) : tab === "Audience" ? (
               <Audience posts={value.posts} />
             ) : tab === "Best time" ? (
-              <BestTime heatmap={value.heatmap} />
+              <BestTime heatmap={value.heatmap} zone={value.timeZone} />
             ) : tab === "Competitors" ? (
               <Competitors posts={value.posts} />
             ) : (

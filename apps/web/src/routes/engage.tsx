@@ -4,21 +4,22 @@ import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 
-import { ErrorText, errorText, Tabs, usd } from "../components/analyze/ui";
+import { ErrorText, errorText, Tabs } from "../components/analyze/ui";
 import { Inbox } from "../components/engage/Inbox";
 import { Mentions } from "../components/engage/Mentions";
 import { Targets } from "../components/engage/Targets";
 import { PageHeader } from "../components/PageHeader";
 import { Button } from "../components/ui/button";
-import { addKeywordsAtom, findKeywordsAtom, mentionsAtom, targetsAtom } from "../state/engage";
+import { useQuoteLabel } from "../state/costs";
+import {
+  addKeywordsAtom,
+  findKeywordsAtom,
+  mentionsAtom,
+  refreshMentionsAtom,
+  targetsAtom,
+} from "../state/engage";
 
 const TABS = ["Targets", "Mentions", "Inbox", "DM follow-ups"] as const;
-/** Up to 5 keyword searches, one page each. Mirrors Engage.targets in the service. */
-const TARGETS_COST = 5 * 0.00075;
-/** One own-timeline page plus a model call. */
-const FIND_COST = 0.00075;
-/** X's mentions endpoint; session mentions are free. */
-const MENTIONS_COST = 0.005;
 
 type Suggestions = { keywords: ReadonlyArray<string>; handles: ReadonlyArray<string> };
 
@@ -26,8 +27,13 @@ function EngageScreen() {
   const [tab, setTab] = useState<(typeof TABS)[number]>("Targets");
   const refreshTargets = useAtomRefresh(targetsAtom);
   const refreshMentions = useAtomRefresh(mentionsAtom);
+  const fetchMentions = useAtomSet(refreshMentionsAtom, { mode: "promiseExit" });
+  const fetchState = useAtomValue(refreshMentionsAtom);
   const find = useAtomSet(findKeywordsAtom, { mode: "promiseExit" });
   const findState = useAtomValue(findKeywordsAtom);
+  const targetsQuote = useQuoteLabel({ kind: "engageTargets" });
+  const findQuote = useQuoteLabel({ kind: "findKeywords" });
+  const mentionsQuote = useQuoteLabel({ kind: "mentions" });
   const addKeywords = useAtomSet(addKeywordsAtom, { mode: "promise" });
   const [found, setFound] = useState<Suggestions | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -42,6 +48,12 @@ function EngageScreen() {
     const exit = await find();
     if (Exit.isFailure(exit)) setError(errorText(exit.cause));
     else setFound(exit.value);
+  };
+  const runFetchMentions = async () => {
+    setError(null);
+    const exit = await fetchMentions();
+    if (Exit.isFailure(exit)) setError(errorText(exit.cause));
+    else refreshMentions();
   };
 
   return (
@@ -58,15 +70,20 @@ function EngageScreen() {
                 disabled={findState.waiting}
                 onClick={() => void runFind()}
               >
-                {findState.waiting ? "Finding…" : `Find keywords (${usd(FIND_COST)})`}
+                {findState.waiting ? "Finding…" : `Find keywords (${findQuote} + model)`}
               </Button>
               <Button size="sm" variant="outline" onClick={refreshTargets}>
-                Refresh targets ({usd(TARGETS_COST)})
+                Refresh targets ({targetsQuote})
               </Button>
             </>
           ) : tab === "Mentions" ? (
-            <Button size="sm" variant="outline" onClick={refreshMentions}>
-              Refresh mentions ({usd(MENTIONS_COST)})
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={fetchState.waiting}
+              onClick={() => void runFetchMentions()}
+            >
+              {fetchState.waiting ? "Fetching…" : `Fetch new mentions (${mentionsQuote})`}
             </Button>
           ) : undefined
         }

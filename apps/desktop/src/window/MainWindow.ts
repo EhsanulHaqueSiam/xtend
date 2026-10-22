@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 import { BrowserWindow, ipcMain, shell, WebContentsView, type Rectangle } from "electron";
+import * as Schema from "effect/Schema";
 
 import { SESSION_VIEW_BOUNDS_CHANNEL } from "../ipc/channels.ts";
 import { attachSessionCapture } from "../xSession/SessionCapture.ts";
@@ -12,44 +13,79 @@ const X_HOME = "https://x.com/home";
 export interface MainWindowOptions {
   readonly appUrl: string;
   readonly serviceUrl: string;
+  readonly serviceToken: string;
+  /** Where unacknowledged observation batches wait for the service. */
+  readonly queueDir: string;
   /** One-time cookie import: a JSON array of {name, value, domain} written by the user; deleted after import. */
   readonly importCookiesPath?: string | undefined;
   readonly log: (message: string, detail?: unknown) => void;
 }
 
+const CookieFile = Schema.fromJsonString(
+  Schema.Array(
+    Schema.Struct({
+      name: Schema.NonEmptyString,
+      value: Schema.String,
+      domain: Schema.NonEmptyString,
+    }),
+  ),
+);
+const decodeCookieFile = Schema.decodeUnknownResult(CookieFile);
+
 /**
  * Seeds the X session from cookies exported out of another browser, so the
- * user does not have to sign in twice. The file is removed once read; the
- * values live only in the session partition afterwards.
+ * user does not have to sign in twice. The file is removed before anything
+ * is set, so a failure half-way never leaves the session token on disk.
  */
 async function importCookies(
   session: Electron.Session,
   file: string,
   log: MainWindowOptions["log"],
 ): Promise<void> {
-  let entries: Array<{ name: string; value: string; domain: string }>;
+  let text: string;
   try {
-    entries = JSON.parse(fs.readFileSync(file, "utf8"));
+    text = fs.readFileSync(file, "utf8");
   } catch (error) {
     log("cookie import unreadable", String(error));
     return;
+  } finally {
+    fs.rmSync(file, { force: true });
   }
-  for (const cookie of entries) {
-    await session.cookies.set({
-      url: `https://${cookie.domain.replace(/^\./, "")}/`,
-      name: cookie.name,
-      value: cookie.value,
-      domain: cookie.domain,
-      path: "/",
-      secure: true,
-      httpOnly: cookie.name === "auth_token",
-      sameSite: "no_restriction",
-      expirationDate: Date.now() / 1000 + 365 * 86400,
-    });
+  const decoded = decodeCookieFile(text);
+  if (decoded._tag === "Failure") {
+    log("cookie import rejected", String(decoded.failure));
+    return;
   }
-  fs.rmSync(file, { force: true });
-  log("cookie import done", { count: entries.length });
+  let count = 0;
+  for (const cookie of decoded.success) {
+    try {
+      // eslint-disable-next-line no-await-in-loop -- one at a time so a rejected cookie is logged by name.
+      await session.cookies.set({
+        url: `https://${cookie.domain.replace(/^\./, "")}/`,
+        name: cookie.name,
+        value: cookie.value,
+        domain: cookie.domain,
+        path: "/",
+        secure: true,
+        httpOnly: cookie.name === "auth_token",
+        sameSite: "no_restriction",
+        expirationDate: Date.now() / 1000 + 365 * 86400,
+      });
+      count++;
+    } catch (error) {
+      log("cookie import skipped one", { name: cookie.name, error: String(error) });
+    }
+  }
+  log("cookie import done", { count });
 }
+
+/** x.com may ask for notifications; nothing else (camera, geolocation, clipboard reads) has a reason to. */
+const allowNotificationsOnly = (session: Electron.Session) => {
+  session.setPermissionRequestHandler((_contents, permission, callback) =>
+    callback(permission === "notifications"),
+  );
+  session.setPermissionCheckHandler((_contents, permission) => permission === "notifications");
+};
 
 const isXHost = (url: string) => {
   try {
@@ -101,11 +137,25 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
     },
   });
 
+  // The app renderer is ours, but a `_blank` link in it must not open a window carrying the preload.
+  const appOrigin = new URL(options.appUrl).origin;
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    openExternalWeb(url);
+    return { action: "deny" };
+  });
+  window.webContents.on("will-navigate", (event, url) => {
+    if (new URL(url).origin === appOrigin) return;
+    event.preventDefault();
+    openExternalWeb(url);
+  });
+  allowNotificationsOnly(window.webContents.session);
+
   // The session view is a sibling native view, not an iframe: X's frame-busting
   // never sees it, and its cookies live in their own persistent partition.
   const session = new WebContentsView({
     webPreferences: { partition: "persist:x-session", contextIsolation: true, sandbox: true },
   });
+  allowNotificationsOnly(session.webContents.session);
   session.setBackgroundColor("#000000");
   session.webContents.setUserAgent(browserUserAgent(session.webContents.getUserAgent()));
   session.setBounds({ x: 0, y: 0, width: 0, height: 0 });
@@ -128,8 +178,8 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
 
   const detachCapture = attachSessionCapture(session.webContents, {
     serviceUrl: options.serviceUrl,
-    // shortcut: viewer handle unknown until the session reads it from X; batches carry null, upgrade when accounts land.
-    viewerHandle: () => null,
+    serviceToken: options.serviceToken,
+    queueDir: options.queueDir,
     log: options.log,
   });
 

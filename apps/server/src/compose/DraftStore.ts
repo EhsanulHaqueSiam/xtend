@@ -37,6 +37,7 @@ interface DraftRow {
   readonly poll_json: string | null;
   readonly hide_link_previews: number;
   readonly thread_delay_seconds: number;
+  readonly source: string | null;
   readonly scheduled_at: string | null;
   readonly post_ids_json: string;
   readonly error: string | null;
@@ -66,6 +67,7 @@ const toDraft = (r: DraftRow): Draft => ({
   poll: r.poll_json === null ? null : decodePoll(r.poll_json),
   hideLinkPreviews: r.hide_link_previews === 1,
   threadDelaySeconds: r.thread_delay_seconds,
+  source: r.source,
   scheduledAt: r.scheduled_at,
   postIds: decodeIds(r.post_ids_json),
   error: r.error,
@@ -102,6 +104,13 @@ export class DraftStore extends Context.Service<
     readonly create: (patch: DraftPatch) => Effect.Effect<Draft, ComposeError>;
     readonly update: (id: string, patch: DraftPatch) => Effect.Effect<Draft, ComposeError>;
     readonly setOutcome: (id: string, outcome: DraftOutcome) => Effect.Effect<Draft, ComposeError>;
+    /**
+     * Moves the draft to `posting` in one statement, so of two publishers racing for it
+     * exactly one gets true. Posted and already-posting drafts cannot be claimed.
+     */
+    readonly claim: (id: string) => Effect.Effect<boolean, ComposeError>;
+    /** Drafts left in `posting` by a crash become failed on restart; X may have part of the thread. */
+    readonly failInterrupted: Effect.Effect<void, ComposeError>;
     readonly remove: (id: string) => Effect.Effect<void, ComposeError>;
     /** Queued drafts whose scheduled time is at or before `now`, oldest first. */
     readonly due: (now: string) => Effect.Effect<ReadonlyArray<Draft>, ComposeError>;
@@ -155,7 +164,18 @@ const make = Effect.gen(function* () {
   const update = Effect.fn("DraftStore.update")(
     function* (id: string, patch: DraftPatch) {
       const r = yield* rowById(id);
+      if (r.status === "posted" || r.status === "posting")
+        return yield* new ComposeError({
+          operation: "update",
+          detail: `Draft is ${r.status}; start a new draft to change it`,
+        });
       const at = yield* now;
+      // New content means a new thread: a retry must not resume at the old post ids.
+      const edited =
+        patch.blocks !== undefined ||
+        patch.body !== undefined ||
+        patch.title !== undefined ||
+        patch.poll !== undefined;
       const blocks: ReadonlyArray<DraftBlock> = patch.blocks ?? decodeBlocks(r.blocks_json);
       const poll: DraftPoll | null =
         patch.poll === undefined
@@ -174,6 +194,10 @@ const make = Effect.gen(function* () {
           poll_json = ${poll === null ? null : encodePoll(poll)},
           hide_link_previews = ${(patch.hideLinkPreviews ?? r.hide_link_previews === 1) ? 1 : 0},
           thread_delay_seconds = ${patch.threadDelaySeconds ?? r.thread_delay_seconds},
+          source = ${patch.source === undefined ? r.source : patch.source},
+          attempts = ${edited ? 0 : r.attempts},
+          post_ids_json = ${edited ? "[]" : r.post_ids_json},
+          error = ${edited ? null : r.error},
           updated_at = ${at}
         WHERE id = ${id}
       `;
@@ -181,6 +205,27 @@ const make = Effect.gen(function* () {
     },
     Effect.mapError(fail("update")),
   );
+
+  const claim = Effect.fn("DraftStore.claim")(
+    function* (id: string) {
+      const at = yield* now;
+      const rows = yield* sql<{ id: string }>`
+        UPDATE drafts SET status = 'posting', updated_at = ${at}
+        WHERE id = ${id} AND status IN ('draft', 'queued', 'failed', 'suggested')
+        RETURNING id
+      `;
+      return rows.length === 1;
+    },
+    Effect.mapError(fail("claim")),
+  );
+
+  const failInterrupted = Effect.gen(function* () {
+    const at = yield* now;
+    yield* sql`
+      UPDATE drafts SET status = 'failed', error = 'interrupted by a service restart', updated_at = ${at}
+      WHERE status = 'posting'
+    `;
+  }).pipe(Effect.mapError(fail("failInterrupted")));
 
   const setOutcome = Effect.fn("DraftStore.setOutcome")(
     function* (id: string, o: DraftOutcome) {
@@ -269,6 +314,8 @@ const make = Effect.gen(function* () {
     create,
     update,
     setOutcome,
+    claim,
+    failInterrupted,
     remove,
     due,
     byStatus,

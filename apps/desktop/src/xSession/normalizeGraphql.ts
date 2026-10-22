@@ -51,14 +51,14 @@ function readAuthor(tweet: Json): ObservedPost["author"] | undefined {
   }
   return {
     userId,
-    handle,
+    handle: handle.toLowerCase(),
     name: name ?? handle,
     followers: asNullableCount(legacy.followers_count),
     verified: user.is_blue_verified === true || legacy.verified === true,
   };
 }
 
-function readPost(tweet: Json): ObservedPost | undefined {
+function readPost(tweet: Json, promoted: boolean): ObservedPost | undefined {
   const postId = asString(tweet.rest_id);
   const legacy = isRecord(tweet.legacy) ? tweet.legacy : undefined;
   if (postId === undefined || !X_ID.test(postId) || legacy === undefined) return undefined;
@@ -89,6 +89,9 @@ function readPost(tweet: Json): ObservedPost | undefined {
     text,
     createdAt,
     isReply: typeof legacy.in_reply_to_status_id_str === "string",
+    // A retweet is a wrapper whose author is the reposter; the original rides inside it and is read on its own.
+    isRepost: isRecord(legacy.retweeted_status_result),
+    isPromoted: promoted,
     hasMedia: media.length > 0,
     hasLink: urls.length > 0,
     metrics: {
@@ -104,27 +107,44 @@ function readPost(tweet: Json): ObservedPost | undefined {
 
 export function normalizeGraphqlResponse(body: unknown): ReadonlyArray<ObservedPost> {
   const found = new Map<string, ObservedPost>();
-  const stack: Array<unknown> = [body];
+  // An ad is marked on the timeline item (promotedMetadata), above the tweet; the flag travels down.
+  const stack: Array<{ node: unknown; promoted: boolean }> = [{ node: body, promoted: false }];
   while (stack.length > 0) {
-    const node = stack.pop();
+    const { node, promoted } = stack.pop()!;
     // Children are pushed in reverse so pops follow document order: timeline order is the feed order.
     if (Array.isArray(node)) {
-      for (let i = node.length - 1; i >= 0; i--) stack.push(node[i]);
+      for (let i = node.length - 1; i >= 0; i--) stack.push({ node: node[i], promoted });
       continue;
     }
     if (!isRecord(node)) continue;
+    const inAd = promoted || isRecord(node.promotedMetadata);
     if (node.__typename === "Tweet") {
-      const post = readPost(node);
+      const post = readPost(node, inAd);
       // The first sighting in a response is the outer post; a quoted copy of
       // the same id deeper down carries the same numbers.
       if (post !== undefined && !found.has(post.postId)) found.set(post.postId, post);
     }
     // TweetWithVisibilityResults wraps the tweet; quoted and retweeted posts nest inside legacy.
     const values = Object.values(node);
-    for (let i = values.length - 1; i >= 0; i--) stack.push(values[i]);
+    for (let i = values.length - 1; i >= 0; i--) stack.push({ node: values[i], promoted: inAd });
   }
   return [...found.values()];
 }
+
+/** The logged-in handle, from the `Viewer` operation x.com runs on every load. */
+export function readViewerHandle(body: unknown): string | undefined {
+  if (!isRecord(body) || !isRecord(body.data) || !isRecord(body.data.viewer)) return undefined;
+  const results = body.data.viewer.user_results;
+  const user = isRecord(results) && isRecord(results.result) ? results.result : undefined;
+  if (user === undefined) return undefined;
+  const core = isRecord(user.core) ? user.core : {};
+  const legacy = isRecord(user.legacy) ? user.legacy : {};
+  const handle = asString(core.screen_name) ?? asString(legacy.screen_name);
+  return handle !== undefined && X_HANDLE.test(handle) ? handle.toLowerCase() : undefined;
+}
+
+export const isViewerOperation = (url: string): boolean =>
+  /\/i\/api\/graphql\/[^/]+\/Viewer(\?|$)/.test(url);
 
 /** Which surface a GraphQL operation belongs to, from the operation name in its URL. */
 export function sourceFromOperation(url: string): ObservationSource {

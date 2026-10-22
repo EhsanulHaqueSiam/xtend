@@ -73,8 +73,16 @@ export class RuleStore extends Context.Service<
     readonly upsert: (input: RuleInput) => Effect.Effect<Rule, AutomateError>;
     readonly remove: (id: number) => Effect.Effect<void, AutomateError>;
     readonly firedSubjects: (ruleId: number) => Effect.Effect<ReadonlySet<string>, AutomateError>;
-    /** Marks the subject handled and appends the run row; ok runs add their cost to the rule's month. */
+    /**
+     * Appends the run row. Only an ok run marks the subject fired and adds its cost to the
+     * rule's month; skipped, failed and dry runs leave the subject open for the next tick.
+     */
     readonly recordRun: (input: RunInput) => Effect.Effect<RuleRun, AutomateError>;
+    /** Marks subjects a once-per-tick action covered without a run row each. */
+    readonly markFired: (
+      ruleId: number,
+      subjectIds: ReadonlyArray<string>,
+    ) => Effect.Effect<void, AutomateError>;
     readonly runs: (filter: {
       readonly ruleId?: number | undefined;
       readonly status?: RuleRunStatus | undefined;
@@ -159,8 +167,10 @@ const make = Effect.gen(function* () {
     function* (input: RunInput) {
       const at = yield* now;
       const m = yield* month;
-      yield* sql`INSERT OR IGNORE INTO rule_fired (rule_id, subject_id, at) VALUES (${input.ruleId}, ${input.subjectId}, ${at})`;
-      if (input.status === "ok" && input.costUsd > 0)
+      if (input.status === "ok")
+        yield* sql`INSERT OR IGNORE INTO rule_fired (rule_id, subject_id, at) VALUES (${input.ruleId}, ${input.subjectId}, ${at})`;
+      // Failed runs carry what X charged before the failure; it still counts against the rule.
+      if (input.costUsd > 0)
         yield* sql`
           UPDATE rules SET
             spent_usd_month = CASE WHEN spent_month = ${m} THEN spent_usd_month + ${input.costUsd} ELSE ${input.costUsd} END,
@@ -173,6 +183,15 @@ const make = Effect.gen(function* () {
       return toRun(rows[0]!);
     },
     Effect.mapError(fail("recordRun")),
+  );
+
+  const markFired = Effect.fn("RuleStore.markFired")(
+    function* (ruleId: number, subjectIds: ReadonlyArray<string>) {
+      const at = yield* now;
+      for (const id of subjectIds)
+        yield* sql`INSERT OR IGNORE INTO rule_fired (rule_id, subject_id, at) VALUES (${ruleId}, ${id}, ${at})`;
+    },
+    Effect.mapError(fail("markFired")),
   );
 
   const runs = Effect.fn("RuleStore.runs")(
@@ -189,7 +208,7 @@ const make = Effect.gen(function* () {
     Effect.mapError(fail("runsList")),
   );
 
-  return RuleStore.of({ list, get, upsert, remove, firedSubjects, recordRun, runs });
+  return RuleStore.of({ list, get, upsert, remove, firedSubjects, recordRun, markFired, runs });
 });
 
 export const layer = Layer.effect(RuleStore, make);

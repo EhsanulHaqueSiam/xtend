@@ -9,11 +9,6 @@ import { Button } from "../ui/button";
 export const inputClass =
   "w-full rounded-md border border-input bg-background px-2.5 py-1.5 font-mono text-xs text-foreground outline-hidden placeholder:text-placeholder focus-visible:ring-2 focus-visible:ring-ring";
 
-/** Treg's price for one X search page. Mirrors SEARCH_COST_USD in the service. */
-export const SEARCH_COST_USD = 0.00075;
-/** Treg's price for one trends read. Mirrors XClient.trending. */
-export const TRENDS_COST_USD = 0.001;
-export const usd = (n: number) => `$${n.toFixed(5).replace(/0+$/, "").replace(/\.$/, "")}`;
 
 const compact = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
 export const fmt = (n: number | null) => (n === null ? "–" : compact.format(n));

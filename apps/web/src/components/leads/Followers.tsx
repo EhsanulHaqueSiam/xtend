@@ -1,14 +1,16 @@
 import { useAtomRefresh, useAtomSet } from "@effect/atom-react";
-import { LEADS_COST_USD, type NewFollower } from "@xtend/contracts";
+import type { NewFollower } from "@xtend/contracts";
 import { useState } from "react";
 
 import { addPersonAtom, newFollowersAtom, peopleAtom } from "../../state/leads";
-import { Empty, ErrorText, fmt, usd } from "../analyze/ui";
+import { useRates, usd } from "../../state/costs";
+import { Empty, ErrorText, fmt } from "../analyze/ui";
 import { Button } from "../ui/button";
 import { useAction } from "./ui";
 
 /** Followers gained since the last check. One followers page per check, paid up front. */
 export function Followers() {
+  const rates = useRates();
   const check = useAtomSet(newFollowersAtom, { mode: "promise" });
   const add = useAtomSet(addPersonAtom, { mode: "promise" });
   const refreshPeople = useAtomRefresh(peopleAtom(null));
@@ -43,7 +45,7 @@ export function Followers() {
           disabled={busy}
           onClick={() => void run(() => check().then(setResult))}
         >
-          {busy ? "Checking…" : `Check new followers (${usd(LEADS_COST_USD.followersPage)})`}
+          {busy ? "Checking…" : `Check new followers (${usd(rates?.followersPage ?? 0)})`}
         </Button>
         {result !== null ? (
           <span className="font-mono text-2xs text-muted-foreground">

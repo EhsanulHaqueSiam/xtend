@@ -25,6 +25,8 @@ const batch = (observedAt: string, likes: number): ObservationBatch => ({
       text: "Shipped the thing.",
       createdAt: "2026-10-22T09:00:00.000Z",
       isReply: false,
+      isRepost: false,
+      isPromoted: false,
       hasMedia: false,
       hasLink: false,
       metrics: { views: 1000, likes, reposts: 2, replies: 1, quotes: 0, bookmarks: 3 },
@@ -44,20 +46,39 @@ describe("ObservationStore", () => {
       const { posts } = yield* store.listRecent({});
       expect(posts).toHaveLength(1);
       expect(posts[0]?.metrics.likes).toBe(9);
-      expect(posts[0]?.observations).toBe(3);
+      expect(posts[0]?.observations).toBe(2);
       expect(posts[0]?.firstSeenAt).toBe("2026-10-22T10:00:00.000Z");
       expect(posts[0]?.lastSeenAt).toBe("2026-10-22T11:00:00.000Z");
     }).pipe(Effect.provide(layerTest)),
   );
 
-  it.effect("filters by author handle", () =>
+  it.effect("filters by author handle, case-insensitively", () =>
     Effect.gen(function* () {
       const store = yield* ObservationStore.ObservationStore;
       yield* store.record(batch("2026-10-22T10:00:00.000Z", 5));
-      const hit = yield* store.listRecent({ authorHandle: "levelsio" });
+      const hit = yield* store.listRecent({ authorHandle: "LevelsIO" });
       const miss = yield* store.listRecent({ authorHandle: "nobody" });
       expect(hit.posts).toHaveLength(1);
+      expect(hit.posts[0]?.author.handle).toBe("levelsio");
       expect(miss.posts).toHaveLength(0);
+    }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect("keeps repost wrappers and ads out of the feed", () =>
+    Effect.gen(function* () {
+      const store = yield* ObservationStore.ObservationStore;
+      const b = batch("2026-10-22T10:00:00.000Z", 5);
+      const own = b.posts[0]!;
+      yield* store.record({
+        ...b,
+        posts: [
+          own,
+          { ...own, postId: "2", isRepost: true },
+          { ...own, postId: "3", isPromoted: true },
+        ],
+      });
+      const { posts } = yield* store.listRecent({});
+      expect(posts.map((p) => p.postId)).toEqual(["1"]);
     }).pipe(Effect.provide(layerTest)),
   );
 });

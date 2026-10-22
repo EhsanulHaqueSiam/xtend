@@ -1,22 +1,18 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
-import type { ReplyTarget } from "@xtend/contracts";
+import { postCostUsd, type ReplyTarget } from "@xtend/contracts";
 import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { BadgeCheck } from "lucide-react";
 import { useState } from "react";
 
+import { useRates, usd } from "../../state/costs";
 import { draftReplyAtom, likeAtom, sendReplyAtom, targetsAtom } from "../../state/engage";
-import { Empty, ErrorText, errorText, fmt, usd } from "../analyze/ui";
-import { inputClass, postCostUsd } from "../compose/ThreadEditor";
+import { Empty, ErrorText, errorText, fmt } from "../analyze/ui";
+import { inputClass } from "../compose/ThreadEditor";
 import { Button } from "../ui/button";
-
-const LIKE_COST = 0.015;
 
 const age = (minutes: number) =>
   minutes < 60 ? `${Math.round(minutes)} min` : `${(minutes / 60).toFixed(1)} h`;
-
-/** Score is views per hour of the reply's parent; a reply sees a slice of that. */
-const reach = (score: number) => `${fmt(score * 0.5)} to ${fmt(score * 1.5)}`;
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
@@ -38,6 +34,7 @@ function TargetRow({ target }: { readonly target: ReplyTarget }) {
   const [busy, setBusy] = useState<"draft" | "reply" | "like" | null>(null);
   const [notice, setNotice] = useState<{ tone: "error" | "ok"; text: string } | null>(null);
   const [done, setDone] = useState<"replied" | "skipped" | null>(target.replied ? "replied" : null);
+  const rates = useRates();
 
   const fail = (cause: Parameters<typeof errorText>[0]) =>
     setNotice({ tone: "error", text: errorText(cause) });
@@ -70,7 +67,7 @@ function TargetRow({ target }: { readonly target: ReplyTarget }) {
     const exit = await like(post.postId);
     setBusy(null);
     if (Exit.isFailure(exit)) return fail(exit.cause);
-    setNotice({ tone: "ok", text: `Liked for ${usd(LIKE_COST)}` });
+    setNotice({ tone: "ok", text: `Liked for ${usd(rates?.like ?? 0)}` });
   };
 
   if (done === "skipped") return null;
@@ -102,7 +99,7 @@ function TargetRow({ target }: { readonly target: ReplyTarget }) {
         <Metric label="velocity" value={`${fmt(target.viewsPerHour)}/h`} />
         <Metric label="replies" value={fmt(post.metrics.replies)} />
         <Metric label="likes" value={fmt(post.metrics.likes)} />
-        <Metric label="expected reach" value={reach(target.score)} />
+        <Metric label="reach" value={target.reach} />
         {done === "replied" ? (
           <span className="font-mono text-2xs text-success-foreground">replied</span>
         ) : null}
@@ -147,13 +144,20 @@ function TargetRow({ target }: { readonly target: ReplyTarget }) {
         </Button>
         <Button
           size="xs"
-          disabled={busy !== null || text.trim() === "" || done === "replied"}
+          disabled={busy !== null || text.trim() === "" || done === "replied" || rates === null}
           onClick={() => void onReply()}
         >
-          {busy === "reply" ? "Replying…" : `Reply · ${usd(postCostUsd(text))}`}
+          {busy === "reply"
+            ? "Replying…"
+            : `Reply · ${rates === null ? "…" : usd(postCostUsd(rates, text))}`}
         </Button>
-        <Button variant="ghost" size="xs" disabled={busy !== null} onClick={() => void onLike()}>
-          {busy === "like" ? "Liking…" : `Like · ${usd(LIKE_COST)}`}
+        <Button
+          variant="ghost"
+          size="xs"
+          disabled={busy !== null || rates === null}
+          onClick={() => void onLike()}
+        >
+          {busy === "like" ? "Liking…" : `Like · ${rates === null ? "…" : usd(rates.like)}`}
         </Button>
         <Button variant="ghost-muted" size="xs" onClick={() => setDone("skipped")}>
           Skip

@@ -7,6 +7,7 @@ import Migration0003 from "./Migrations/003_Compose.ts";
 import Migration0004 from "./Migrations/004_Analyze.ts";
 import Migration0005 from "./Migrations/005_Library.ts";
 import Migration0006 from "./Migrations/006_Leads.ts";
+import Migration0007 from "./Migrations/007_Hardening.ts";
 
 const migrationEntries = [
   [1, "Observations", Migration0001],
@@ -15,6 +16,7 @@ const migrationEntries = [
   [4, "Analyze", Migration0004],
   [5, "Library", Migration0005],
   [6, "Leads", Migration0006],
+  [7, "Hardening", Migration0007],
 ] as const;
 
 const run = Migrator.make({});

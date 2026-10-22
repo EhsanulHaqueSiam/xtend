@@ -15,12 +15,13 @@ export class Publisher extends Context.Service<
   Publisher,
   {
     /**
-     * Posts block 1 then each block as a reply to the previous one, recording ids as it goes.
-     * Marks the draft posted, or failed with X's detail; with `retry` a failure requeues it
-     * with backoff until MAX_ATTEMPTS.
+     * Claims the draft, then posts block 1 and each block as a reply to the previous one,
+     * recording ids as it goes. Marks the draft posted, or failed with X's detail; with
+     * `retry` a failure requeues it with backoff until MAX_ATTEMPTS. Fails without posting
+     * when another publisher holds the draft.
      */
     readonly post: (
-      draft: Draft,
+      id: string,
       options: { readonly purpose: string; readonly retry: boolean },
     ) => Effect.Effect<Draft, ComposeError>;
   }
@@ -52,16 +53,25 @@ const make = Effect.gen(function* () {
   });
 
   const post = Effect.fn("Publisher.post")(function* (
-    draft: Draft,
+    id: string,
     options: { readonly purpose: string; readonly retry: boolean },
   ) {
+    if (!(yield* drafts.claim(id)))
+      return yield* new ComposeError({
+        operation: "post",
+        detail: "Draft is already posting or posted",
+      });
+    // Read after the claim so the editor's last autosave is what goes out.
+    const draft = yield* drafts.get(id);
     const attempt = draft.attempts + 1;
     const failure =
       draft.kind === "article"
         ? "Articles cannot be posted yet: needs treg article endpoint"
         : draft.blocks.length === 0 || draft.blocks.every((b) => b.text.trim() === "")
           ? "Nothing to post"
-          : null;
+          : draft.poll !== null && draft.poll.options.some((o) => o.trim() === "")
+            ? "Poll has a blank option"
+            : null;
     const outcome =
       failure !== null
         ? failure

@@ -7,8 +7,12 @@ import * as Stream from "effect/Stream";
 
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
+import * as Budget from "../budget/Budget.ts";
 import * as ServerConfig from "../config.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
+
+/** Reserved before every model call; one structured call lands well under this and the actual cost settles it. */
+const EXPECTED_CALL_USD = 0.05;
 
 export class AssistError extends Schema.TaggedError<AssistError>()("AssistError", {
   task: Schema.String,
@@ -49,6 +53,7 @@ export class Assist extends Context.Service<
 const make = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;
   const settings = yield* SettingsStore.SettingsStore;
+  const budget = yield* Budget.Budget;
 
   const generate = Effect.fn("Assist.generate")(function* <A>(request: AssistRequest<A>) {
     const current = yield* settings.get.pipe(Effect.orElseSucceed(() => null));
@@ -75,18 +80,12 @@ const make = Effect.gen(function* () {
 
     let output: unknown = undefined;
     let error: string | null = null;
-    yield* Stream.fromAsyncIterable(run, (cause) => cause).pipe(
+    let costUsd = 0;
+    const consume = Stream.fromAsyncIterable(run, (cause) => cause).pipe(
       Stream.runForEach((message: SDKMessage) =>
-        Effect.gen(function* () {
+        Effect.sync(() => {
           if (message.type !== "result") return;
-          yield* settings
-            .recordSpend({
-              provider: "claude",
-              endpoint: "agent-sdk",
-              purpose: request.task,
-              costUsd: message.total_cost_usd ?? 0,
-            })
-            .pipe(Effect.ignore);
+          costUsd = message.total_cost_usd ?? 0;
           if (message.is_error) {
             error =
               "errors" in message && message.errors.length > 0
@@ -102,7 +101,23 @@ const make = Effect.gen(function* () {
           error ??= String(cause).slice(0, 300);
         }),
       ),
+      Effect.map(() => ({ value: undefined, costUsd })),
     );
+    yield* budget
+      .spend(
+        {
+          expectedUsd: EXPECTED_CALL_USD,
+          provider: "claude",
+          endpoint: "agent-sdk",
+          purpose: request.task,
+        },
+        consume,
+      )
+      .pipe(
+        Effect.catchTag("BudgetExceeded", (e) =>
+          Effect.fail(new AssistError({ task: request.task, reason: "budget", detail: e.message })),
+        ),
+      );
 
     if (error !== null)
       return yield* new AssistError({ task: request.task, reason: "model", detail: error });

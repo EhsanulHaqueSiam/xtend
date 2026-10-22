@@ -19,6 +19,7 @@ import { EngageRpcGroup } from "./engage.ts";
 import { LeadsRpcGroup } from "./leads.ts";
 import { AutomateRpcGroup } from "./automate.ts";
 
+import { CostAction, CostQuoteResult, Costs_METHODS } from "./costs.ts";
 import { Settings, SettingsError, SettingsUpdate, SpendSummary } from "./settings.ts";
 
 export const WS_PATH = "/ws";
@@ -67,6 +68,13 @@ const SpendSummaryRpc = Rpc.make(WS_METHODS.spendSummary, {
   error: SettingsError,
 });
 
+/** The rate card plus a priced quote per action; the only place a client learns a price. */
+const CostsQuoteRpc = Rpc.make(Costs_METHODS.quote, {
+  payload: Schema.Struct({ actions: Schema.Array(CostAction) }),
+  success: CostQuoteResult,
+  error: SettingsError,
+});
+
 /**
  * Each suite area owns its own RpcGroup in its contract file and is merged
  * here, so adding a screen never edits another screen's handlers.
@@ -78,6 +86,7 @@ export const CoreRpcGroup = RpcGroup.make(
   SettingsGetRpc,
   SettingsUpdateRpc,
   SpendSummaryRpc,
+  CostsQuoteRpc,
 );
 
 /** The whole wire surface. Area groups are merged in as arguments here. */

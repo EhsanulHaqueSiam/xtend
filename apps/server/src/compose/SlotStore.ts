@@ -5,6 +5,8 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import * as SettingsStore from "../settings/SettingsStore.ts";
+
 interface SlotRow {
   readonly id: number;
   readonly weekday_mask: number;
@@ -17,11 +19,15 @@ const toSlot = (r: SlotRow): Slot => ({
   minuteOfDay: r.minute_of_day,
 });
 
-/** Slot times in the service's local time zone for the 60 days after `after`, ascending. */
-const slotTimesAfter = (slots: ReadonlyArray<SlotInput>, after: DateTime.Utc): Array<string> => {
+/** Slot times in the account's zone for the 60 days after `after`, ascending UTC. */
+export const slotTimesAfter = (
+  slots: ReadonlyArray<SlotInput>,
+  after: DateTime.Utc,
+  zone: DateTime.TimeZone,
+): Array<string> => {
   const out: Array<string> = [];
   const afterMillis = DateTime.toEpochMillis(after);
-  let day = DateTime.setZone(after, DateTime.zoneMakeLocal()).pipe(DateTime.startOf("day"));
+  let day = DateTime.setZone(after, zone).pipe(DateTime.startOf("day"));
   for (let d = 0; d < 60; d++) {
     const weekday = DateTime.toParts(day).weekDay;
     for (const slot of slots) {
@@ -52,8 +58,10 @@ export class SlotStore extends Context.Service<
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+  const settings = yield* SettingsStore.SettingsStore;
   const fail = (operation: string) => (cause: unknown) =>
     new ComposeError({ operation, detail: String(cause).slice(0, 300) });
+  const zone = Effect.map(settings.get, (s) => SettingsStore.zoneOf(s.timeZone));
 
   const list = sql<SlotRow>`SELECT * FROM slots ORDER BY minute_of_day ASC`.pipe(
     Effect.map((rows) => rows.map(toSlot)),
@@ -62,9 +70,13 @@ const make = Effect.gen(function* () {
 
   const replace = Effect.fn("SlotStore.replace")(
     function* (slots: ReadonlyArray<SlotInput>) {
-      yield* sql`DELETE FROM slots`;
-      for (const s of slots)
-        yield* sql`INSERT INTO slots (weekday_mask, minute_of_day) VALUES (${s.weekdayMask}, ${s.minuteOfDay})`;
+      yield* sql.withTransaction(
+        Effect.gen(function* () {
+          yield* sql`DELETE FROM slots`;
+          for (const s of slots)
+            yield* sql`INSERT INTO slots (weekday_mask, minute_of_day) VALUES (${s.weekdayMask}, ${s.minuteOfDay})`;
+        }),
+      );
       return yield* list;
     },
     Effect.mapError(fail("slotsSet")),
@@ -77,7 +89,7 @@ const make = Effect.gen(function* () {
         SELECT scheduled_at FROM drafts WHERE status = 'queued' AND scheduled_at IS NOT NULL
       `;
       const held = new Set(taken.map((r) => r.scheduled_at));
-      return slotTimesAfter(slots, after).find((t) => !held.has(t)) ?? null;
+      return slotTimesAfter(slots, after, yield* zone).find((t) => !held.has(t)) ?? null;
     },
     Effect.mapError(fail("nextFree")),
   );

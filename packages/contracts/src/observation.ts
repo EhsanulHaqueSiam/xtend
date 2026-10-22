@@ -32,6 +32,10 @@ export const ObservedPost = Schema.Struct({
   text: Schema.String,
   createdAt: IsoDateTime,
   isReply: Schema.Boolean,
+  /** The outer retweet wrapper; the author is the reposter, not the writer. */
+  isRepost: Schema.Boolean,
+  /** An ad X slotted into the timeline. */
+  isPromoted: Schema.Boolean,
   hasMedia: Schema.Boolean,
   hasLink: Schema.Boolean,
   metrics: PostMetrics,

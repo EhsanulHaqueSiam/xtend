@@ -6,7 +6,9 @@ import { useState } from "react";
 
 import { saveSuggestedDraftAtom, trendIdeasAtom, trendsAtom } from "../../state/library";
 import { Button } from "../ui/button";
-import { Empty, ErrorLine, TRENDS_COST_USD, errorMessage, fmt, inputClass, usd } from "./shared";
+import { useQuoteLabel } from "../../state/costs";
+import { TREND_COUNTRIES } from "../scores/Trending";
+import { Empty, ErrorLine, errorMessage, fmt, inputClass } from "./shared";
 
 function IdeaRow({ idea }: { readonly idea: TrendIdea }) {
   const saveDraft = useAtomSet(saveSuggestedDraftAtom, { mode: "promise" });
@@ -68,7 +70,8 @@ function TrendList({ country }: { readonly country: string }) {
 }
 
 export function TrendsTab() {
-  const [country, setCountry] = useState("UnitedStates");
+  const [country, setCountry] = useState<string>(TREND_COUNTRIES[0]);
+  const trendsQuote = useQuoteLabel({ kind: "trending", country });
   const [applied, setApplied] = useState<string | null>(null);
   const ideasFor = useAtomSet(trendIdeasAtom, { mode: "promise" });
   const [ideas, setIdeas] = useState<ReadonlyArray<TrendIdea> | null>(null);
@@ -97,14 +100,20 @@ export function TrendsTab() {
           setApplied(country);
         }}
       >
-        <input
+        <select
           className={`${inputClass} max-w-48`}
           aria-label="Country"
           value={country}
           onChange={(e) => setCountry(e.target.value)}
-        />
-        <Button type="submit" variant="outline" size="sm" disabled={country.trim() === ""}>
-          Load trends ({usd(TRENDS_COST_USD)})
+        >
+          {TREND_COUNTRIES.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+        <Button type="submit" variant="outline" size="sm">
+          Load trends ({trendsQuote})
         </Button>
         <Button
           size="sm"

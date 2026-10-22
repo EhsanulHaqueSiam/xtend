@@ -7,6 +7,7 @@ import * as XClient from "./XClient.ts";
 
 // A treg stub that answers the search endpoint with one anyapi-shaped row.
 const tregStub = Layer.succeed(Treg.Treg)({
+  isCached: () => Effect.succeed(false),
   call: (input) =>
     Effect.succeed({
       status: 200,
@@ -72,8 +73,10 @@ describe("XClient", () => {
     }).pipe(Effect.provide(layer)),
   );
 
-  it("prices a post with a link at X's URL rate", () => {
+  it("prices a post with a link at X's URL rate, but not one that merely names Node.js", () => {
     expect(XClient.postCostUsd("plain text")).toBe(0.015);
     expect(XClient.postCostUsd("see xtend.app")).toBe(0.2);
+    expect(XClient.postCostUsd("https://x.com/a")).toBe(0.2);
+    expect(XClient.postCostUsd("I ship Node.js and React.tsx things")).toBe(0.015);
   });
 });

@@ -12,8 +12,10 @@ export const ReplyTarget = Schema.Struct({
   keyword: Schema.String,
   ageMinutes: Schema.Finite,
   viewsPerHour: Schema.Finite,
-  /** Expected reach: views per hour, boosted by reply velocity and author size. */
+  /** Ranking only: views per hour times author reach, damped by how crowded the replies already are. */
   score: Schema.Finite,
+  /** Views-per-hour band the post is in; what a reply can expect to be seen under. */
+  reach: Schema.Literals(["under 100/h", "100 to 1k/h", "1k to 10k/h", "10k+/h"]),
   replied: Schema.Boolean,
 });
 export type ReplyTarget = typeof ReplyTarget.Type;
@@ -91,8 +93,9 @@ export const EngageRpcGroup = RpcGroup.make(
     }),
     error: Schema.Union([EngageError, XApiError]),
   }),
+  /** Session mentions and the mentions already fetched are free; `refresh` pays for one page of newer ones. */
   Rpc.make(Engage_METHODS.mentions, {
-    payload: Schema.Struct({}),
+    payload: Schema.Struct({ refresh: Schema.optional(Schema.Boolean) }),
     success: Schema.Struct({
       mentions: Schema.Array(Mention),
       /** Set when X's own-account mentions call failed; session mentions still list. */

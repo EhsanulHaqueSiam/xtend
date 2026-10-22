@@ -7,7 +7,6 @@ import {
   type RulePreview,
   type RuleRun,
   type SettingsError,
-  type Trigger,
   type XApiError,
 } from "@xtend/contracts";
 import * as Context from "effect/Context";
@@ -26,6 +25,11 @@ const OWN_POSTS_LIMIT = 200;
 const BEST_WINDOW_DAYS = 7;
 const EVERGREEN_POOL = 10;
 const DAY_MS = 86_400_000;
+/** A threshold rule watches posts this fresh (or newer than the rule), never the whole back catalogue. */
+const THRESHOLD_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/** Actions that act on the account, not on the subject: one firing per tick however many subjects matched. */
+const perTick = (action: Action) => action.kind === "auto_delete" || action.kind === "auto_retweet";
 
 type EvalError = XApiError | ObservationStoreError | SettingsError | AutomateError;
 
@@ -67,6 +71,8 @@ const make = Effect.gen(function* () {
       ? cause
       : new AutomateError({ operation, detail: String(cause).slice(0, 200), cause });
   const nowMs = Effect.map(DateTime.now, DateTime.toEpochMillis);
+  // Subjects being fired right now, so the minute tick and Run now cannot both act on one.
+  const inFlight = new Set<string>();
 
   const ownHandle = Effect.flatMap(settings.get, ({ handle }) =>
     handle === null
@@ -101,12 +107,19 @@ const make = Effect.gen(function* () {
     return [...byId.values()];
   });
 
-  const subjects = (trigger: Trigger): Effect.Effect<ReadonlyArray<Subject>, EvalError> => {
+  const subjects = (rule: Rule): Effect.Effect<ReadonlyArray<Subject>, EvalError> => {
+    const trigger = rule.trigger;
     switch (trigger.kind) {
       case "post_crosses_threshold":
-        return Effect.map(ownPosts, (posts) =>
+        return Effect.map(Effect.all([ownPosts, nowMs]), ([posts, ms]) =>
           posts
-            .filter((p) => p[trigger.metric] >= trigger.threshold)
+            .filter((p) => {
+              const created = Date.parse(p.createdAt);
+              return (
+                (created >= Date.parse(rule.createdAt) || created >= ms - THRESHOLD_WINDOW_MS) &&
+                p[trigger.metric] >= trigger.threshold
+              );
+            })
             .map((p) => ({
               id: p.postId,
               postId: p.postId,
@@ -114,9 +127,8 @@ const make = Effect.gen(function* () {
             })),
         );
       case "schedule":
-        return Effect.map(nowMs, (ms) => {
-          // Slots are wall-clock on the machine running the service.
-          const local = DateTime.setZone(DateTime.makeUnsafe(ms), DateTime.zoneMakeLocal());
+        return Effect.map(Effect.all([nowMs, settings.get]), ([ms, { timeZone }]) => {
+          const local = DateTime.setZone(DateTime.makeUnsafe(ms), SettingsStore.zoneOf(timeZone));
           const parts = DateTime.toParts(local);
           const hhmm = `${String(parts.hour).padStart(2, "0")}:${String(parts.minute).padStart(2, "0")}`;
           if (!trigger.weekdays.includes(parts.weekDay) || hhmm < trigger.time) return [];
@@ -133,7 +145,7 @@ const make = Effect.gen(function* () {
           const { posts } = yield* observations.listRecent({ limit: OWN_POSTS_LIMIT });
           const byUser = new Map<string, Subject>();
           for (const p of posts) {
-            if (!p.isReply || p.author.handle.toLowerCase() === handle.toLowerCase()) continue;
+            if (!p.isReply || p.author.handle === handle) continue;
             byUser.set(p.author.userId, {
               id: p.author.userId,
               postId: p.postId,
@@ -173,16 +185,28 @@ const make = Effect.gen(function* () {
       return posts.filter((p) => Date.parse(p.createdAt) < before && p.views < maxViews);
     });
 
+  /** What a failed action already cost: X bills each call that went through before the one that failed. */
+  interface PerformFailure {
+    readonly error: XApiError;
+    readonly costUsd: number;
+  }
+
   /** The X call for one subject, or the reason it cannot run. Resolved before the budget check so previews can price it. */
   interface Plan {
     readonly costUsd: number;
     readonly detail: string;
-    readonly perform: Effect.Effect<void, XApiError> | null;
+    /** Succeeds with what was spent. */
+    readonly perform: Effect.Effect<number, PerformFailure> | null;
   }
   const skip = (detail: string): Plan => ({ costUsd: 0, detail, perform: null });
+  const single = (cost: number, call: Effect.Effect<unknown, XApiError>) =>
+    call.pipe(
+      Effect.as(cost),
+      Effect.mapError((error): PerformFailure => ({ error, costUsd: 0 })),
+    );
 
   const plan = (action: Action, s: Subject, purpose: string): Effect.Effect<Plan, EvalError> => {
-    const cost = actionCostUsd(action);
+    const cost = actionCostUsd(XClient.RATE_CARD, action);
     switch (action.kind) {
       case "auto_plug":
         return Effect.succeed(
@@ -191,7 +215,8 @@ const make = Effect.gen(function* () {
             : {
                 costUsd: cost,
                 detail: `reply to ${s.postId}`,
-                perform: Effect.asVoid(
+                perform: single(
+                  cost,
                   x.createPost({ text: action.text, replyToPostId: s.postId, purpose }),
                 ),
               },
@@ -200,7 +225,11 @@ const make = Effect.gen(function* () {
         return Effect.succeed(
           s.postId === undefined
             ? skip("auto_like needs a post")
-            : { costUsd: cost, detail: `like ${s.postId}`, perform: x.like(s.postId, purpose) },
+            : {
+                costUsd: cost,
+                detail: `like ${s.postId}`,
+                perform: single(cost, x.like(s.postId, purpose)),
+              },
         );
       case "auto_dm": {
         const e = s.engager;
@@ -210,7 +239,10 @@ const make = Effect.gen(function* () {
             : {
                 costUsd: cost,
                 detail: `DM ${e.name}`,
-                perform: x.sendDm(e.userId, action.template.replaceAll("{name}", e.name), purpose),
+                perform: single(
+                  cost,
+                  x.sendDm(e.userId, action.template.replaceAll("{name}", e.name), purpose),
+                ),
               },
         );
       }
@@ -221,7 +253,7 @@ const make = Effect.gen(function* () {
             : {
                 costUsd: cost,
                 detail: `repost ${best.postId} (${best.views} views)`,
-                perform: x.repost(best.postId, purpose),
+                perform: single(cost, x.repost(best.postId, purpose)),
               },
         );
       case "clean_profile":
@@ -233,8 +265,15 @@ const make = Effect.gen(function* () {
             : {
                 costUsd: cost * stale.length,
                 detail: `delete ${stale.length} posts`,
-                perform: Effect.forEach(stale, (p) => x.deletePost(p.postId, purpose), {
-                  discard: true,
+                perform: Effect.gen(function* () {
+                  let spent = 0;
+                  for (const p of stale) {
+                    yield* x
+                      .deletePost(p.postId, purpose)
+                      .pipe(Effect.mapError((error): PerformFailure => ({ error, costUsd: spent })));
+                    spent += cost;
+                  }
+                  return spent;
                 }),
               },
         );
@@ -244,7 +283,7 @@ const make = Effect.gen(function* () {
   const pending = (rule: Rule) =>
     Effect.gen(function* () {
       const fired = yield* rules.firedSubjects(rule.id);
-      const found = yield* subjects(rule.trigger);
+      const found = yield* subjects(rule);
       return found.filter((s) => !fired.has(s.id));
     });
 
@@ -266,8 +305,10 @@ const make = Effect.gen(function* () {
     return out;
   }).pipe(Effect.mapError(fail("preview")));
 
-  const fire = (rule: Rule, s: Subject) =>
+  const fire = (stale: Rule, s: Subject) =>
     Effect.gen(function* () {
+      // Re-read the rule: earlier subjects in this batch already moved its monthly spend.
+      const rule = yield* rules.get(stale.id);
       const p = yield* plan(rule.action, s, `automate.${rule.name}`);
       const base = { ruleId: rule.id, subjectId: s.id, costUsd: p.costUsd };
       if (p.perform === null)
@@ -279,30 +320,25 @@ const make = Effect.gen(function* () {
           detail: `rule budget: $${rule.spentUsdMonth.toFixed(3)} spent of $${rule.budgetUsdMonth}`,
           costUsd: 0,
         });
-      if (yield* settings.wouldExceedBudget(p.costUsd))
-        return yield* rules.recordRun({
-          ...base,
-          status: "skipped",
-          detail: "monthly budget reached; raise it in Settings",
-          costUsd: 0,
-        });
       if (rule.dryRun)
         return yield* rules.recordRun({ ...base, status: "dry_run", detail: `would ${p.detail}` });
       const outcome = yield* Effect.result(p.perform);
-      return outcome._tag === "Success"
-        ? yield* rules.recordRun({ ...base, status: "ok", detail: p.detail })
-        : yield* rules.recordRun({
-            ...base,
-            status: "failed",
-            detail: `${p.detail}: ${outcome.failure.message}`,
-            costUsd: 0,
-          });
+      if (outcome._tag === "Success")
+        return yield* rules.recordRun({ ...base, status: "ok", detail: p.detail, costUsd: outcome.success });
+      // The monthly budget (Budget service, inside XClient) refusing is a skip, not a failure.
+      const { error, costUsd } = outcome.failure;
+      return yield* rules.recordRun({
+        ...base,
+        status: error.reason === "budget" ? "skipped" : "failed",
+        detail: `${p.detail}: ${error.message}`,
+        costUsd,
+      });
     });
 
   const runRule = Effect.fn("AutomationEngine.runRule")(
     function* (id: number) {
       const rule = yield* rules.get(id);
-      const due = yield* pending(rule).pipe(
+      const found = yield* pending(rule).pipe(
         Effect.catch((cause) =>
           Effect.flatMap(nowMs, (ms) =>
             rules
@@ -317,7 +353,19 @@ const make = Effect.gen(function* () {
           ),
         ),
       );
-      return yield* Effect.forEach(due, (s) => fire(rule, s));
+      const free = found.filter((s) => !inFlight.has(`${rule.id}:${s.id}`));
+      const due = perTick(rule.action) ? free.slice(0, 1) : free;
+      for (const s of due) inFlight.add(`${rule.id}:${s.id}`);
+      const runs = yield* Effect.forEach(due, (s) => fire(rule, s)).pipe(
+        Effect.ensuring(Effect.sync(() => due.forEach((s) => inFlight.delete(`${rule.id}:${s.id}`)))),
+      );
+      // One account-level firing covered every subject that matched this tick.
+      if (perTick(rule.action) && runs[0]?.status === "ok")
+        yield* rules.markFired(
+          rule.id,
+          free.map((s) => s.id),
+        );
+      return runs;
     },
     Effect.mapError(fail("runRule")),
   );

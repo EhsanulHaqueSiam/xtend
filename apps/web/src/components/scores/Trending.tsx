@@ -2,11 +2,21 @@ import { useAtomValue } from "@effect/atom-react";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 
-import { TRENDING_COST, trendingAtom } from "../../state/scores";
-import { Empty, ErrorText, errorText, fmt, inputClass, Section, usd } from "../analyze/ui";
+import { useQuoteLabel } from "../../state/costs";
+import { trendingAtom } from "../../state/scores";
+import { Empty, ErrorText, errorText, fmt, inputClass, Section } from "../analyze/ui";
 import { Button } from "../ui/button";
 
-const COUNTRIES = ["US", "GB", "IN", "BD", "DE", "JP", "BR"] as const;
+/** The scraper's country names; Library's trends tab uses the same list. */
+export const TREND_COUNTRIES = [
+  "UnitedStates",
+  "UnitedKingdom",
+  "India",
+  "Bangladesh",
+  "Germany",
+  "Japan",
+  "Brazil",
+] as const;
 
 function Trends({ country }: { readonly country: string }) {
   const trends = useAtomValue(trendingAtom(country));
@@ -46,8 +56,9 @@ function Trends({ country }: { readonly country: string }) {
 
 /** X trending topics by country; the atom only mounts (and pays) after the Load click. */
 export function Trending() {
-  const [country, setCountry] = useState<string>("US");
+  const [country, setCountry] = useState<string>(TREND_COUNTRIES[0]);
   const [loaded, setLoaded] = useState<string | null>(null);
+  const quote = useQuoteLabel({ kind: "trending", country });
   return (
     <Section
       title="Trending on X"
@@ -58,14 +69,14 @@ export function Trending() {
             value={country}
             onChange={(e) => setCountry(e.target.value)}
           >
-            {COUNTRIES.map((c) => (
+            {TREND_COUNTRIES.map((c) => (
               <option key={c} value={c}>
                 {c}
               </option>
             ))}
           </select>
           <Button size="xs" variant="outline" onClick={() => setLoaded(country)}>
-            Load ({usd(TRENDING_COST)})
+            Load ({quote})
           </Button>
         </div>
       }

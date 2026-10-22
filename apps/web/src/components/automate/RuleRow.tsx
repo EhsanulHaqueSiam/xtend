@@ -2,6 +2,7 @@ import { actionCostUsd, type Rule } from "@xtend/contracts";
 import { useState } from "react";
 
 import { cn } from "../../lib/utils";
+import { useRates } from "../../state/costs";
 import { usd } from "../analyze/ui";
 import { Button } from "../ui/button";
 import { describeAction, describeTrigger } from "./describe";
@@ -22,7 +23,8 @@ export function RuleRow({
   readonly onDelete: () => void;
 }) {
   const [confirm, setConfirm] = useState<"run" | "delete" | null>(null);
-  const cost = actionCostUsd(rule.action);
+  const rates = useRates();
+  const cost = rates === null ? 0 : actionCostUsd(rates, rule.action);
   const askFirst = !rule.dryRun;
   return (
     <div className="flex flex-col gap-1.5 border-t border-border py-2 first:border-t-0">

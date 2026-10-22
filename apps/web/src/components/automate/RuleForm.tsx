@@ -2,6 +2,7 @@ import { actionCostUsd, type Action, type RuleInput, type Trigger } from "@xtend
 import { useState } from "react";
 
 import { cn } from "../../lib/utils";
+import { useRates } from "../../state/costs";
 import { inputClass, usd } from "../analyze/ui";
 import { Button } from "../ui/button";
 
@@ -66,7 +67,8 @@ export function RuleForm({
   // Delete actions default to ask-first: switching to auto_delete turns dry run on.
   const setAction = (a: Action) =>
     setRule({ ...rule, action: a, dryRun: a.kind === "auto_delete" ? true : rule.dryRun });
-  const cost = actionCostUsd(action);
+  const rates = useRates();
+  const cost = rates === null ? null : actionCostUsd(rates, action);
 
   return (
     <div className="flex flex-col gap-2 rounded-md border border-border bg-card p-3 text-xs">
@@ -247,7 +249,7 @@ export function RuleForm({
       </Row>
       <div className="flex items-center justify-between gap-2 border-t border-border pt-2">
         <span className="font-mono text-muted-foreground">
-          {usd(cost)} per fire{action.kind === "auto_delete" ? " per post" : ""}
+          {cost === null ? "…" : usd(cost)} per fire{action.kind === "auto_delete" ? " per post" : ""}
           {rule.dryRun ? " · dry run, nothing charged" : ""}
         </span>
         <span className="flex gap-1">

@@ -9,8 +9,15 @@ import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
+
+import * as TokenCipher from "./TokenCipher.ts";
+
+/** The stored zone as a DateTime zone; falls back to the machine's zone if the id went stale. */
+export const zoneOf = (timeZone: string): DateTime.TimeZone =>
+  Option.getOrElse(DateTime.zoneMakeNamed(timeZone), DateTime.zoneMakeLocal);
 
 const Keywords = Schema.fromJsonString(Schema.Array(Schema.String));
 const decodeKeywords = Schema.decodeUnknownSync(Keywords);
@@ -23,6 +30,7 @@ interface SettingsRow {
   readonly session_posting_enabled: number;
   readonly voice_notes: string;
   readonly keywords_json: string;
+  readonly time_zone: string | null;
 }
 
 interface SpendRow {
@@ -49,7 +57,10 @@ export class SettingsStore extends Context.Service<
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+  const cipher = yield* TokenCipher.TokenCipher;
   const now = Effect.map(DateTime.now, DateTime.formatIso);
+  // The service machine's zone until the user picks one; every conversion the service does uses this.
+  const defaultZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   const row = sql<SettingsRow>`SELECT * FROM settings WHERE id = 1`.pipe(
     Effect.map((rows) => rows[0]!),
@@ -62,6 +73,7 @@ const make = Effect.gen(function* () {
     sessionPostingEnabled: r.session_posting_enabled === 1,
     voiceNotes: r.voice_notes,
     keywords: decodeKeywords(r.keywords_json),
+    timeZone: r.time_zone ?? defaultZone,
   });
 
   const get = row.pipe(
@@ -70,7 +82,7 @@ const make = Effect.gen(function* () {
   );
 
   const tregToken = row.pipe(
-    Effect.map((r) => r.treg_token),
+    Effect.map((r) => (r.treg_token === null ? null : cipher.decrypt(r.treg_token))),
     Effect.mapError((cause) => new SettingsError({ operation: "get", cause })),
   );
 
@@ -78,14 +90,24 @@ const make = Effect.gen(function* () {
     function* (patch: SettingsUpdate) {
       const current = yield* row;
       const at = yield* now;
+      const handle = patch.handle === undefined ? current.handle : patch.handle;
+      const token =
+        patch.tregToken === undefined
+          ? current.treg_token
+          : patch.tregToken === null
+            ? null
+            : cipher.encrypt(patch.tregToken);
+      if (patch.timeZone !== undefined && DateTime.zoneMakeNamed(patch.timeZone)._tag === "None")
+        return yield* Effect.fail(`unknown time zone ${patch.timeZone}`);
       yield* sql`
         UPDATE settings SET
-          handle = ${patch.handle === undefined ? current.handle : patch.handle},
-          treg_token = ${patch.tregToken === undefined ? current.treg_token : patch.tregToken},
+          handle = ${handle === null ? null : handle.toLowerCase()},
+          treg_token = ${token},
           monthly_budget_usd = ${patch.monthlyBudgetUsd ?? current.monthly_budget_usd},
           session_posting_enabled = ${patch.sessionPostingEnabled === undefined ? current.session_posting_enabled : patch.sessionPostingEnabled ? 1 : 0},
           voice_notes = ${patch.voiceNotes ?? current.voice_notes},
           keywords_json = ${patch.keywords === undefined ? current.keywords_json : encodeKeywords(patch.keywords)},
+          time_zone = ${patch.timeZone ?? current.time_zone},
           updated_at = ${at}
         WHERE id = 1
       `;

@@ -4,6 +4,8 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import * as Sqlite from "../persistence/Sqlite.ts";
+import * as SettingsStore from "../settings/SettingsStore.ts";
+import * as TokenCipher from "../settings/TokenCipher.ts";
 import * as XClient from "../x/XClient.ts";
 import * as DraftStore from "./DraftStore.ts";
 import * as Publisher from "./Publisher.ts";
@@ -36,12 +38,20 @@ const xStub = Layer.succeed(XClient.XClient)({
   repost: unused,
   sendDm: unused,
   mentions: unused,
+  cached: {
+    search: unused,
+    profile: unused,
+    userPosts: unused,
+    followers: unused,
+    trending: unused,
+    mentions: Effect.succeed(false),
+  },
 });
 
 const layerTest = Scheduler.layerService.pipe(
   Layer.provideMerge(Publisher.layer),
-  Layer.provideMerge(DraftStore.layer),
-  Layer.provideMerge(Layer.mergeAll(Sqlite.layerMemory, xStub)),
+  Layer.provideMerge(Layer.mergeAll(DraftStore.layer, SettingsStore.layer)),
+  Layer.provideMerge(Layer.mergeAll(Sqlite.layerMemory, xStub, TokenCipher.layerTest)),
 );
 
 describe("Scheduler", () => {

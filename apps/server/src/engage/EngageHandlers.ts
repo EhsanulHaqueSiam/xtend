@@ -19,7 +19,7 @@ export const layerHandlers = EngageRpcGroup.toLayer(
       [Engage_METHODS.reply]: ({ post, text }) => engage.reply(post, text),
       [Engage_METHODS.like]: ({ postId }) => engage.like(postId),
       [Engage_METHODS.findKeywords]: () => engage.findKeywords,
-      [Engage_METHODS.mentions]: () => engage.mentions,
+      [Engage_METHODS.mentions]: ({ refresh }) => engage.mentions(refresh === true),
       [Engage_METHODS.mentionHandled]: ({ postId }) => store.markHandled(postId),
       [Engage_METHODS.inbox]: () =>
         Effect.all({ sent: store.sentList, followUps: store.followUps }),

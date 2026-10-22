@@ -1,5 +1,5 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
-import { type Candidate, LEADS_COST_USD, type LeadList } from "@xtend/contracts";
+import type { Candidate, LeadList } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 
@@ -11,7 +11,8 @@ import {
   listsAtom,
   peopleAtom,
 } from "../../state/leads";
-import { Empty, ErrorText, errorText, fmt, inputClass, Section, usd } from "../analyze/ui";
+import { useRates, usd } from "../../state/costs";
+import { Empty, ErrorText, errorText, fmt, inputClass, Section } from "../analyze/ui";
 import { Button } from "../ui/button";
 import { People } from "./People";
 import { useAction } from "./ui";
@@ -107,6 +108,7 @@ function ListPicker({
 
 /** Search criteria, a paid preview, then one click to add every match to the list. */
 function Builder({ listId }: { readonly listId: number }) {
+  const rates = useRates();
   const preview = useAtomSet(listPreviewAtom, { mode: "promise" });
   const addAll = useAtomSet(listAddAllAtom, { mode: "promise" });
   const refreshPeople = useAtomRefresh(peopleAtom(listId));
@@ -123,9 +125,11 @@ function Builder({ listId }: { readonly listId: number }) {
 
   // A bio keyword needs a profile read per author; the preview quotes the worst case.
   const quote =
-    bioKeyword.trim() === ""
-      ? usd(LEADS_COST_USD.search)
-      : `up to ${usd(LEADS_COST_USD.search + 50 * LEADS_COST_USD.profile)}`;
+    rates === null
+      ? "…"
+      : bioKeyword.trim() === ""
+        ? usd(rates.searchPage)
+        : `up to ${usd(rates.searchPage + 50 * rates.scraperProfile)}`;
 
   const runPreview = () =>
     run(() =>

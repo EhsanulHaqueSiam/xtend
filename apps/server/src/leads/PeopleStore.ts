@@ -85,7 +85,10 @@ export class PeopleStore extends Context.Service<
       listId?: number,
     ) => Effect.Effect<number, LeadsError>;
     readonly update: (patch: PersonUpdate) => Effect.Effect<Person, LeadsError>;
-    readonly setUserId: (id: number, userId: string) => Effect.Effect<void, LeadsError>;
+    readonly setProfile: (
+      id: number,
+      profile: { readonly userId: string; readonly bio: string; readonly followers: number },
+    ) => Effect.Effect<void, LeadsError>;
     readonly logActivity: (
       personId: number,
       kind: Activity["kind"],
@@ -155,7 +158,7 @@ const make = Effect.gen(function* () {
       const at = yield* now;
       const inserted = yield* sql<{ id: number }>`
         INSERT INTO people (handle, name, user_id, followers, bio, score, source, first_seen, last_activity)
-        VALUES (${c.handle}, ${c.name}, ${c.userId}, ${c.followers}, ${c.bio}, ${c.score ?? null}, ${source}, ${at}, ${at})
+        VALUES (${c.handle.toLowerCase()}, ${c.name}, ${c.userId}, ${c.followers}, ${c.bio}, ${c.score ?? null}, ${source}, ${at}, ${at})
         ON CONFLICT(handle) DO NOTHING RETURNING id`;
       const id =
         inserted[0]?.id ??
@@ -204,11 +207,14 @@ const make = Effect.gen(function* () {
     Effect.mapError(fail("update")),
   );
 
-  const setUserId = Effect.fn("PeopleStore.setUserId")(
-    function* (id: number, userId: string) {
-      yield* sql`UPDATE people SET user_id = ${userId} WHERE id = ${id}`;
+  const setProfile = Effect.fn("PeopleStore.setProfile")(
+    function* (
+      id: number,
+      profile: { readonly userId: string; readonly bio: string; readonly followers: number },
+    ) {
+      yield* sql`UPDATE people SET user_id = ${profile.userId}, bio = ${profile.bio}, followers = ${profile.followers} WHERE id = ${id}`;
     },
-    Effect.mapError(fail("setUserId")),
+    Effect.mapError(fail("setProfile")),
   );
 
   const logActivity = Effect.fn("PeopleStore.logActivity")(
@@ -255,7 +261,7 @@ const make = Effect.gen(function* () {
       const fresh = new Set<string>();
       for (const f of followers) {
         const rows = yield* sql<{ user_id: string }>`
-          INSERT INTO followers_seen (user_id, handle, first_seen_at) VALUES (${f.userId}, ${f.handle}, ${at})
+          INSERT INTO followers_seen (user_id, handle, first_seen_at) VALUES (${f.userId}, ${f.handle.toLowerCase()}, ${at})
           ON CONFLICT(user_id) DO NOTHING RETURNING user_id`;
         if (rows[0] !== undefined) fresh.add(rows[0].user_id);
       }
@@ -278,7 +284,7 @@ const make = Effect.gen(function* () {
     add,
     addMany,
     update,
-    setUserId,
+    setProfile,
     logActivity,
     knownHandles: handles("all"),
     ignoredHandles: handles("ignored"),

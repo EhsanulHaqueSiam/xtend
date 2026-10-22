@@ -21,6 +21,8 @@ import * as EngageStore from "./EngageStore.ts";
 import { rankTarget } from "./ranking.ts";
 
 const MAX_TARGETS = 30;
+/** Keywords one targets refresh searches; Costs prices a refresh from it. */
+export const MAX_KEYWORDS = 5;
 
 const assistError = (e: Assist.AssistError) =>
   new EngageError({ operation: "assist", detail: e.message });
@@ -47,7 +49,7 @@ export class Engage extends Context.Service<
     readonly reply: (post: XPost, text: string) => Effect.Effect<SentReply, EngageError>;
     readonly like: (postId: string) => Effect.Effect<void, XApiError>;
     readonly findKeywords: Effect.Effect<KeywordSuggestions, EngageError | XApiError>;
-    readonly mentions: Effect.Effect<MentionsResult, EngageError>;
+    readonly mentions: (refresh: boolean) => Effect.Effect<MentionsResult, EngageError>;
   }
 >()("xtend/engage/Engage") {}
 
@@ -66,7 +68,7 @@ const make = Effect.gen(function* () {
     const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
     const seen = new Set<string>();
     const all: Array<ReplyTarget> = [];
-    for (const keyword of keywords.slice(0, 5)) {
+    for (const keyword of keywords.slice(0, MAX_KEYWORDS)) {
       // shortcut: XClient caches search pages for 30 min, not the 15 the screen asks for; upgrade when XClient takes a cacheFor option.
       const page = yield* x.searchPosts(keyword, { mode: "latest", purpose: "engage.targets" });
       for (const post of page.items) {
@@ -133,16 +135,23 @@ const make = Effect.gen(function* () {
       .pipe(Effect.mapError(assistError));
   });
 
-  const mentions = Effect.gen(function* () {
+  const mentions = Effect.fn("Engage.mentions")(function* (refresh: boolean) {
     const { handle } = yield* current;
     const handled = yield* store.handledMentionIds;
-    const api = yield* x.mentions({ purpose: "engage.mentions" }).pipe(
-      Effect.map((posts) => ({ posts, error: null })),
-      Effect.catchTag("XApiError", (e) =>
-        Effect.succeed({ posts: [] as ReadonlyArray<XPost>, error: e.message }),
-      ),
-    );
-    const tag = handle === null ? null : `@${handle.toLowerCase()}`;
+    // Only an explicit refresh pays X, and only for mentions newer than the last one stored.
+    const apiError = refresh
+      ? yield* Effect.gen(function* () {
+          const sinceId = yield* store.latestApiMentionId;
+          const fresh = yield* x.mentions({
+            purpose: "engage.mentions",
+            ...(sinceId === null ? {} : { sinceId }),
+          });
+          yield* store.storeApiMentions(fresh);
+          return null;
+        }).pipe(Effect.catchTag("XApiError", (e) => Effect.succeed(e.message)))
+      : null;
+    const api = { posts: yield* store.apiMentions, error: apiError };
+    const tag = handle === null ? null : `@${handle}`;
     const observed =
       tag === null
         ? []

@@ -19,16 +19,21 @@ export const Settings = Schema.Struct({
   voiceNotes: Schema.String,
   /** Niche keywords the library, leads and engage screens search by default. */
   keywords: Schema.Array(Schema.String),
+  /** IANA zone every slot, calendar and heatmap is expressed in. Defaults to the service machine's zone. */
+  timeZone: Schema.String,
 });
 export type Settings = typeof Settings.Type;
 
 export const SettingsUpdate = Schema.Struct({
   handle: Schema.optional(Schema.NullOr(XHandle)),
   tregToken: Schema.optional(Schema.NullOr(Schema.String)),
-  monthlyBudgetUsd: Schema.optional(Schema.Number),
+  monthlyBudgetUsd: Schema.optional(
+    Schema.Number.check(Schema.isFinite(), Schema.isGreaterThanOrEqualTo(0)),
+  ),
   sessionPostingEnabled: Schema.optional(Schema.Boolean),
   voiceNotes: Schema.optional(Schema.String),
   keywords: Schema.optional(Schema.Array(Schema.String)),
+  timeZone: Schema.optional(Schema.String.check(Schema.isMinLength(1))),
 });
 export type SettingsUpdate = typeof SettingsUpdate.Type;
 

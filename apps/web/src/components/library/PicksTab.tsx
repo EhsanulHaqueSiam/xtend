@@ -14,7 +14,8 @@ import {
 import { Button } from "../ui/button";
 import { SaveButton } from "./SaveButton";
 import { InspireButton } from "./SearchTab";
-import { Empty, ErrorLine, PostRow, SEARCH_COST_USD, errorMessage, usd } from "./shared";
+import { useQuoteLabel } from "../../state/costs";
+import { Empty, ErrorLine, PostRow, errorMessage } from "./shared";
 
 function PickRow({ pick }: { readonly pick: Pick }) {
   const why = useAtomSet(pickWhyAtom, { mode: "promise" });
@@ -111,6 +112,7 @@ function PickRow({ pick }: { readonly pick: Pick }) {
 }
 
 export function PicksTab() {
+  const picksQuote = useQuoteLabel({ kind: "picksFetch" });
   const state = useAtomValue(picksAtom);
   const refresh = useAtomRefresh(picksAtom);
   const fetch = useAtomSet(fetchPicksAtom, { mode: "promise" });
@@ -150,7 +152,7 @@ export function PicksTab() {
               onClick={() => void run()}
             >
               Fetch {value.pending.length} keyword{value.pending.length === 1 ? "" : "s"} for{" "}
-              {usd(value.pending.length * SEARCH_COST_USD)}
+              {picksQuote}
             </Button>
           ) : (
             <span className="ml-auto">fetched today</span>

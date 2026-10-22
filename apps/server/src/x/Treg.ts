@@ -10,6 +10,7 @@ import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import { HttpClient, HttpClientRequest } from "effect/http";
 
+import * as Budget from "../budget/Budget.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 
 const TREG_BASE = "https://treg.to";
@@ -48,25 +49,36 @@ export interface TregResponse {
  */
 export class Treg extends Context.Service<
   Treg,
-  { readonly call: (input: TregCall) => Effect.Effect<TregResponse, XApiError> }
+  {
+    readonly call: (input: TregCall) => Effect.Effect<TregResponse, XApiError>;
+    /** True when `call` with this input would be served from x_cache right now. */
+    readonly isCached: (input: TregCall) => Effect.Effect<boolean>;
+  }
 >()("xtend/x/Treg") {}
 
-const costOf = (headers: Record<string, string>, body: unknown): number => {
+/** What treg says it charged, or the quoted price when it says nothing; a silent call must not read as free. */
+export const costOf = (
+  headers: Record<string, string>,
+  body: unknown,
+  expected: number,
+): { readonly costUsd: number; readonly source: "header" | "body" | "quote" } => {
   const header = headers["x-treg-cost-usd"] ?? headers["x-treg-cost"];
-  if (header !== undefined && Number.isFinite(Number(header))) return Number(header);
+  if (header !== undefined && Number.isFinite(Number(header)))
+    return { costUsd: Number(header), source: "header" };
   if (typeof body === "object" && body !== null) {
     const cost =
       (body as { costUsd?: unknown; cost_usd?: unknown }).costUsd ??
       (body as { cost_usd?: unknown }).cost_usd;
-    if (typeof cost === "number") return cost;
+    if (typeof cost === "number") return { costUsd: cost, source: "body" };
   }
-  return 0;
+  return { costUsd: expected, source: "quote" };
 };
 
 const make = Effect.gen(function* () {
   const http = yield* HttpClient.HttpClient;
   const sql = yield* SqlClient.SqlClient;
   const settings = yield* SettingsStore.SettingsStore;
+  const budget = yield* Budget.Budget;
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
 
@@ -105,36 +117,13 @@ const make = Effect.gen(function* () {
       `;
     }).pipe(Effect.ignore);
 
-  const call = Effect.fn("Treg.call")(function* (input: TregCall) {
-    const key = cacheKey(input);
-    if (input.cacheFor !== undefined) {
-      const cached = yield* readCache(key, input.cacheFor);
-      if (cached !== null) return { status: 200, body: cached, costUsd: 0, cached: true };
-    }
+  const isCached = (input: TregCall) =>
+    input.cacheFor === undefined
+      ? Effect.succeed(false)
+      : Effect.map(readCache(cacheKey(input), input.cacheFor), (hit) => hit !== null);
 
-    const expected = input.expectedCostUsd ?? 0;
-    if (
-      expected > 0 &&
-      (yield* settings.wouldExceedBudget(expected).pipe(Effect.orElseSucceed(() => false)))
-    ) {
-      return yield* new XApiError({
-        endpoint: input.endpoint,
-        reason: "budget",
-        status: null,
-        detail: "monthly budget reached; raise it in Settings",
-      });
-    }
-
-    const auth = yield* token;
-    if (auth === null) {
-      return yield* new XApiError({
-        endpoint: input.endpoint,
-        reason: "no_token",
-        status: null,
-        detail: "no treg token: paste one in Settings or run `treg login`",
-      });
-    }
-
+  // The HTTP exchange itself; what it cost comes back with the response so the budget can settle it.
+  const exchange = Effect.fn("Treg.exchange")(function* (input: TregCall, auth: string) {
     const method = input.method ?? (input.body === undefined ? "GET" : "POST");
     const url = new URL(`/call/${input.endpoint}`, TREG_BASE);
     for (const [k, v] of Object.entries(input.query ?? {})) {
@@ -158,24 +147,58 @@ const make = Effect.gen(function* () {
     );
     const text = yield* response.text.pipe(Effect.orElseSucceed(() => ""));
     const body: unknown = yield* decodeJson(text).pipe(Effect.orElseSucceed(() => text));
-    const costUsd = costOf(response.headers, body);
-    yield* settings
-      .recordSpend({ provider: "treg", endpoint: input.endpoint, purpose: input.purpose, costUsd })
-      .pipe(Effect.ignore);
+    const cost = costOf(response.headers, body, input.expectedCostUsd ?? 0);
+    if (cost.source === "quote" && cost.costUsd > 0)
+      yield* Effect.logDebug("treg sent no cost; charged the quote").pipe(
+        Effect.annotateLogs({ endpoint: input.endpoint, costUsd: cost.costUsd }),
+      );
+    return { value: { status: response.status, text, body, costUsd: cost.costUsd }, costUsd: cost.costUsd };
+  });
 
-    if (response.status >= 400) {
+  const call = Effect.fn("Treg.call")(function* (input: TregCall) {
+    const key = cacheKey(input);
+    if (input.cacheFor !== undefined) {
+      const cached = yield* readCache(key, input.cacheFor);
+      if (cached !== null) return { status: 200, body: cached, costUsd: 0, cached: true };
+    }
+
+    const auth = yield* token;
+    if (auth === null) {
+      return yield* new XApiError({
+        endpoint: input.endpoint,
+        reason: "no_token",
+        status: null,
+        detail: "no treg token: paste one in Settings or run `treg login`",
+      });
+    }
+
+    const expected = input.expectedCostUsd ?? 0;
+    const { status, text, body, costUsd } = yield* budget
+      .spend(
+        { expectedUsd: expected, provider: "treg", endpoint: input.endpoint, purpose: input.purpose },
+        exchange(input, auth),
+      )
+      .pipe(
+        Effect.catchTag("BudgetExceeded", (e) =>
+          Effect.fail(
+            new XApiError({ endpoint: input.endpoint, reason: "budget", status: null, detail: e.message }),
+          ),
+        ),
+      );
+
+    if (status >= 400) {
       return yield* new XApiError({
         endpoint: input.endpoint,
         reason: "provider",
-        status: response.status,
+        status,
         detail: text.slice(0, 500),
       });
     }
     if (input.cacheFor !== undefined) yield* writeCache(key, body);
-    return { status: response.status, body, costUsd, cached: false };
+    return { status, body, costUsd, cached: false };
   });
 
-  return Treg.of({ call });
+  return Treg.of({ call, isCached });
 });
 
 export const layer = Layer.effect(Treg, make);

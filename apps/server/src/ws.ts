@@ -1,4 +1,4 @@
-import { CoreRpcGroup, WS_METHODS, WS_PATH, WsRpcGroup } from "@xtend/contracts";
+import { CoreRpcGroup, Costs_METHODS, WS_METHODS, WS_PATH, WsRpcGroup } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { HttpRouter } from "effect/http";
@@ -12,7 +12,9 @@ import * as LibraryHandlers from "./library/LibraryHandlers.ts";
 import * as EngageHandlers from "./engage/EngageHandlers.ts";
 import * as LeadsHandlers from "./leads/LeadsHandlers.ts";
 import * as AutomateHandlers from "./automate/AutomateHandlers.ts";
+import * as ServiceAuth from "./auth/ServiceAuth.ts";
 import * as ServerConfig from "./config.ts";
+import * as Costs from "./costs/Costs.ts";
 import * as ObservationStore from "./observations/ObservationStore.ts";
 import * as SettingsStore from "./settings/SettingsStore.ts";
 
@@ -22,6 +24,7 @@ const layerCoreHandlers = CoreRpcGroup.toLayer(
     const config = yield* ServerConfig.ServerConfig;
     const observations = yield* ObservationStore.ObservationStore;
     const settings = yield* SettingsStore.SettingsStore;
+    const costs = yield* Costs.Costs;
     return CoreRpcGroup.of({
       [WS_METHODS.serverInfo]: () =>
         Effect.succeed({
@@ -34,6 +37,7 @@ const layerCoreHandlers = CoreRpcGroup.toLayer(
       [WS_METHODS.settingsGet]: () => settings.get,
       [WS_METHODS.settingsUpdate]: (patch) => settings.update(patch),
       [WS_METHODS.spendSummary]: () => settings.spendSummary,
+      [Costs_METHODS.quote]: ({ actions }) => costs.quote(actions),
     });
   }),
 );
@@ -54,10 +58,12 @@ const layerHandlers = Layer.mergeAll(
 export const layerRoute = HttpRouter.add(
   "GET",
   WS_PATH,
-  Effect.gen(function* () {
-    const httpEffect = yield* RpcServer.toHttpEffectWebsocket(WsRpcGroup).pipe(
-      Effect.provide(layerHandlers.pipe(Layer.provideMerge(RpcSerialization.layerJson))),
-    );
-    return yield* httpEffect;
-  }),
+  ServiceAuth.guarded(
+    Effect.gen(function* () {
+      const httpEffect = yield* RpcServer.toHttpEffectWebsocket(WsRpcGroup).pipe(
+        Effect.provide(layerHandlers.pipe(Layer.provideMerge(RpcSerialization.layerJson))),
+      );
+      return yield* httpEffect;
+    }),
+  ),
 );

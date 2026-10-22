@@ -1,6 +1,7 @@
 import {
   type AccountPost,
   type AnalyzeData,
+  type AnalyzeWindow,
   AnalyzeError,
   AskAnswer,
   CompetitorReport,
@@ -22,8 +23,8 @@ import * as SettingsStore from "../settings/SettingsStore.ts";
 import * as XClient from "../x/XClient.ts";
 import * as AnalyticsStore from "./AnalyticsStore.ts";
 
-/** Pages of own posts one refresh reads; the UI quotes POST_PAGES * 0.00075 before the click. */
-const POST_PAGES = 5;
+/** Pages of own posts one refresh reads; Costs prices a refresh from it. */
+export const POST_PAGES = 5;
 const MAX_POSTS = 100;
 
 const ThemesJson = Schema.fromJsonString(Schema.Array(Theme));
@@ -54,16 +55,61 @@ const toAccountPost = (p: XPost): AccountPost => ({
   bookmarks: p.metrics.bookmarks,
 });
 
+const DAY_MS = 86_400_000;
+const engagements = (p: AccountPost) => p.likes + p.reposts + p.replies + p.quotes + p.bookmarks;
 const engagementRate = (p: AccountPost): number =>
-  p.views === null || p.views === 0
-    ? 0
-    : (p.likes + p.reposts + p.replies + p.quotes + p.bookmarks) / p.views;
+  p.views === null || p.views === 0 ? 0 : engagements(p) / p.views;
 
-/** Hour-of-week cells with at least one post; the UI fills the empty ones. */
-const heatmapOf = (posts: ReadonlyArray<AccountPost>): ReadonlyArray<HeatmapCell> => {
+const windowOf = (posts: ReadonlyArray<AccountPost>, days: number): AnalyzeWindow => {
+  const views = posts.reduce((s, p) => s + (p.views ?? 0), 0);
+  return {
+    days,
+    posts: posts.length,
+    views,
+    likes: posts.reduce((s, p) => s + p.likes, 0),
+    replies: posts.reduce((s, p) => s + p.replies, 0),
+    reposts: posts.reduce((s, p) => s + p.reposts, 0),
+    engagementRate: views === 0 ? 0 : posts.reduce((s, p) => s + engagements(p), 0) / views,
+  };
+};
+
+/** Everything the Overview shows, computed once here so every client agrees. */
+export const summarize = (
+  posts: ReadonlyArray<AccountPost>,
+  snapshots: ReadonlyArray<AnalyzeData["snapshots"][number]>,
+  nowMs: number,
+): Pick<AnalyzeData, "windows" | "viewsByPostDay" | "followerDelta30d"> => {
+  const within = (days: number) =>
+    posts.filter((p) => nowMs - Date.parse(p.createdAt) < days * DAY_MS);
+  const byDay = new Map<string, { posts: number; views: number }>();
+  for (const p of within(30)) {
+    const day = p.createdAt.slice(0, 10);
+    const cell = byDay.get(day) ?? { posts: 0, views: 0 };
+    byDay.set(day, { posts: cell.posts + 1, views: cell.views + (p.views ?? 0) });
+  }
+  const latest = snapshots.at(-1);
+  const cutoff = DateTime.formatIsoDate(DateTime.makeUnsafe(nowMs - 30 * DAY_MS));
+  const earlier = snapshots.toReversed().find((s) => s.day <= cutoff);
+  return {
+    windows: [windowOf(within(7), 7), windowOf(within(30), 30)],
+    viewsByPostDay: [...byDay]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([day, c]) => ({ day, posts: c.posts, views: c.views })),
+    followerDelta30d:
+      latest === undefined || earlier === undefined
+        ? null
+        : { delta: latest.followers - earlier.followers, sinceDay: earlier.day },
+  };
+};
+
+/** Hour-of-week cells with at least one post, in the account's zone; the UI fills the empty ones. */
+const heatmapOf = (
+  posts: ReadonlyArray<AccountPost>,
+  zone: DateTime.TimeZone,
+): ReadonlyArray<HeatmapCell> => {
   const cells = new Map<number, { posts: number; views: number }>();
   for (const p of posts) {
-    const d = DateTime.toPartsUtc(DateTime.makeUnsafe(p.createdAt));
+    const d = DateTime.toParts(DateTime.setZone(DateTime.makeUnsafe(p.createdAt), zone));
     const key = d.weekDay * 24 + d.hour;
     const cell = cells.get(key) ?? { posts: 0, views: 0 };
     cells.set(key, { posts: cell.posts + 1, views: cell.views + (p.views ?? 0) });
@@ -105,10 +151,8 @@ const make = Effect.gen(function* () {
   const store = yield* AnalyticsStore.AnalyticsStore;
   const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 
-  const handle = settings.get.pipe(
-    Effect.map((s) => s.handle),
-    Effect.mapError(fail("settings")),
-  );
+  const current = settings.get.pipe(Effect.mapError(fail("settings")));
+  const handle = Effect.map(current, (s) => s.handle);
   const requireHandle = Effect.flatMap(handle, (h) =>
     h === null
       ? Effect.fail(
@@ -126,19 +170,38 @@ const make = Effect.gen(function* () {
           purpose,
           ...(cursor === null ? {} : { cursor }),
         });
-        posts.push(...result.items.map(toAccountPost));
+        // Reposts are someone else's post wearing this handle; they are not the account's performance.
+        posts.push(...result.items.filter((p) => !p.isRepost).map(toAccountPost));
         cursor = result.nextCursor;
         if (cursor === null) break;
       }
       return posts.slice(0, MAX_POSTS);
     });
 
-  const data = Effect.gen(function* () {
-    const h = yield* handle;
-    if (h === null) return { handle: null, fetchedAt: null, posts: [], snapshots: [], heatmap: [] };
+  const data: Effect.Effect<AnalyzeData, AnalyzeError> = Effect.gen(function* () {
+    const { handle: h, timeZone } = yield* current;
+    const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
+    if (h === null)
+      return {
+        handle: null,
+        fetchedAt: null,
+        posts: [],
+        snapshots: [],
+        heatmap: [],
+        timeZone,
+        ...summarize([], [], nowMs),
+      };
     const { posts, fetchedAt } = yield* store.listPosts(h);
     const snapshots = yield* store.listSnapshots(h);
-    return { handle: h, fetchedAt, posts, snapshots, heatmap: heatmapOf(posts) };
+    return {
+      handle: h,
+      fetchedAt,
+      posts,
+      snapshots,
+      heatmap: heatmapOf(posts, SettingsStore.zoneOf(timeZone)),
+      timeZone,
+      ...summarize(posts, snapshots, nowMs),
+    };
   });
 
   const refresh = Effect.gen(function* () {
@@ -207,7 +270,8 @@ const make = Effect.gen(function* () {
   }).pipe(Effect.mapError(fail("competitors")));
 
   const competitorFetch = Effect.fn("Analytics.competitorFetch")(
-    function* (h: string) {
+    function* (input: string) {
+      const h = input.toLowerCase();
       const purpose = "analyze.competitors";
       const profile = yield* x.profile(h, purpose);
       const posts = yield* userPosts(h, 1, purpose);

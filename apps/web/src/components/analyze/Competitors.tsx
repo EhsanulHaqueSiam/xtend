@@ -4,12 +4,27 @@ import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 
 import { competitorsAtom, fetchCompetitorAtom } from "../../state/analyze";
+import { useQuoteLabel } from "../../state/costs";
 import { watchAddAtom, watchListAtom, watchRemoveAtom } from "../../state/scores";
 import { Button } from "../ui/button";
-import { Empty, ErrorText, errorText, fmt, inputClass, Section, Stat, usd } from "./ui";
+import { Empty, ErrorText, errorText, fmt, inputClass, Section, Stat } from "./ui";
 
-/** One profile page plus one posts page. */
-const FETCH_COST = 0.00022 + 0.00075;
+function FetchButton({
+  handle,
+  label,
+  onClick,
+}: {
+  readonly handle: string;
+  readonly label: string;
+  readonly onClick: () => void;
+}) {
+  const quote = useQuoteLabel({ kind: "competitorFetch", handle });
+  return (
+    <Button size="xs" variant="outline" onClick={onClick}>
+      {label} ({quote})
+    </Button>
+  );
+}
 
 function Report({ report, myAvg }: { report: CompetitorReport; myAvg: number }) {
   return (
@@ -90,7 +105,8 @@ export function Competitors({ posts }: { readonly posts: ReadonlyArray<AccountPo
           </Button>
         </form>
         <p className="pt-1 text-2xs text-muted-foreground">
-          Adding is free. Fetching a handle costs {usd(FETCH_COST)}. The list is shared with Scores.
+          Adding is free. Fetching a handle reads its profile and one posts page. The list is
+          shared with Scores.
         </p>
         {error !== null ? <ErrorText>{error}</ErrorText> : null}
       </Section>
@@ -109,13 +125,11 @@ export function Competitors({ posts }: { readonly posts: ReadonlyArray<AccountPo
                   title={`@${w.handle}`}
                   actions={
                     <div className="flex gap-1">
-                      <Button
-                        size="xs"
-                        variant="outline"
+                      <FetchButton
+                        handle={w.handle}
+                        label={report === undefined ? "Fetch" : "Refetch"}
                         onClick={() => void run(() => fetchOne(w.handle))}
-                      >
-                        {report === undefined ? "Fetch" : "Refetch"} ({usd(FETCH_COST)})
-                      </Button>
+                      />
                       <Button
                         size="xs"
                         variant="ghost-muted"

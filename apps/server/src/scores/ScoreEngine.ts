@@ -2,6 +2,8 @@ import type { BotReport, Tier, TopFollower, XFollower } from "@xtend/contracts";
 import * as DateTime from "effect/DateTime";
 
 const DAY_MS = 86_400_000;
+/** The score sums the K biggest followers by reach, so runs of different sample sizes compare. */
+export const SCORE_TOP_K = 100;
 
 /**
  * Sorsa-style points: who follows you, not how many. Reach counts on a log
@@ -12,14 +14,15 @@ export const pointsFor = (f: XFollower): number =>
   (f.verified ? 2 : 1) *
   (f.following > 0 && f.followers / f.following < 0.2 ? 0.25 : 1);
 
+// Calibrated for K = 100: an average top follower at 1k reach is 3 points, at 100k verified 10.
 export const tierFor = (score: number): Tier =>
-  score >= 2000
+  score >= 900
     ? "Supreme"
-    : score >= 1000
+    : score >= 600
       ? "Significant"
-      : score >= 500
+      : score >= 400
         ? "Credible"
-        : score >= 100
+        : score >= 200
           ? "Noted"
           : "Unknown";
 
@@ -43,7 +46,10 @@ export const score = (
   account: { readonly followers: number; readonly following: number },
   now: DateTime.DateTime,
 ): ScoreResult => {
-  const scored = followers.map((f) => ({ ...f, points: pointsFor(f) }));
+  const scored = [...followers]
+    .sort((a, b) => b.followers - a.followers)
+    .slice(0, SCORE_TOP_K)
+    .map((f) => Object.assign({ points: pointsFor(f) }, f));
   const total = scored.reduce((sum, f) => sum + f.points, 0);
   const suspicious = followers.filter((f) => isSuspicious(f, now));
   return {

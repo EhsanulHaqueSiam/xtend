@@ -1,5 +1,5 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
-import { LEADS_COST_USD, type Person, type Stage } from "@xtend/contracts";
+import type { Person, Stage } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 
@@ -12,7 +12,8 @@ import {
   sendDmAtom,
   updatePersonAtom,
 } from "../../state/leads";
-import { Empty, ErrorText, errorText, fmt, inputClass, usd } from "../analyze/ui";
+import { useRates, usd } from "../../state/costs";
+import { Empty, ErrorText, errorText, fmt, inputClass } from "../analyze/ui";
 import { Button } from "../ui/button";
 import { ago, STAGES, StagePill, useAction } from "./ui";
 
@@ -122,6 +123,7 @@ function PersonPanel({
   readonly listId: number | null;
   readonly onClose: () => void;
 }) {
+  const rates = useRates();
   const data = useAtomValue(personAtom(id));
   const refresh = useAtomRefresh(personAtom(id));
   const refreshList = useAtomRefresh(peopleAtom(listId));
@@ -173,7 +175,7 @@ function PersonPanel({
                   )
                 }
               >
-                fetch profile ({usd(LEADS_COST_USD.profile)})
+                fetch profile ({usd(rates?.scraperProfile ?? 0)})
               </button>
             </p>
             <textarea
@@ -216,7 +218,7 @@ function PersonPanel({
                   )
                 }
               >
-                Send DM ({usd(LEADS_COST_USD.dm)})
+                Send DM ({usd(rates?.dm ?? 0)})
               </Button>
             </div>
             {error !== null ? <ErrorText>{error}</ErrorText> : null}

@@ -1,6 +1,12 @@
 import { describe, expect, it } from "@effect/vitest";
 
-import { normalizeGraphqlResponse, sourceFromOperation, xDateToIso } from "./normalizeGraphql.ts";
+import {
+  isViewerOperation,
+  normalizeGraphqlResponse,
+  readViewerHandle,
+  sourceFromOperation,
+  xDateToIso,
+} from "./normalizeGraphql.ts";
 
 const tweet = (id: string, overrides: Record<string, unknown> = {}) => ({
   __typename: "Tweet",
@@ -122,6 +128,57 @@ describe("normalizeGraphqlResponse", () => {
     expect(
       normalizeGraphqlResponse(tweet("5", { legacy: { created_at: "nope", favorite_count: 1 } })),
     ).toEqual([]);
+  });
+
+  it("flags retweet wrappers and promoted items, and lowercases handles", () => {
+    const original = tweet("7", {
+      core: {
+        user_results: {
+          result: {
+            rest_id: "9",
+            core: { screen_name: "SomeOne", name: "Someone" },
+            legacy: { followers_count: 5 },
+          },
+        },
+      },
+    });
+    const wrapper = tweet("8", {
+      legacy: {
+        full_text: "RT @SomeOne: Shipped the thing.",
+        created_at: "Wed Oct 22 05:00:00 +0000 2026",
+        retweeted_status_result: { result: original },
+      },
+    });
+    const body = {
+      entries: [
+        { content: { itemContent: { tweet_results: { result: wrapper } } } },
+        {
+          content: {
+            itemContent: {
+              promotedMetadata: { advertiser_results: {} },
+              tweet_results: { result: tweet("3") },
+            },
+          },
+        },
+      ],
+    };
+    const posts = normalizeGraphqlResponse(body);
+    expect(posts.map((p) => [p.postId, p.isRepost, p.isPromoted])).toEqual([
+      ["8", true, false],
+      ["7", false, false],
+      ["3", false, true],
+    ]);
+    expect(posts[1]?.author.handle).toBe("someone");
+  });
+
+  it("reads the viewer handle from the Viewer operation", () => {
+    expect(isViewerOperation("https://x.com/i/api/graphql/abc/Viewer?variables=%7B%7D")).toBe(true);
+    expect(isViewerOperation("https://x.com/i/api/graphql/abc/HomeTimeline")).toBe(false);
+    const body = {
+      data: { viewer: { user_results: { result: { core: { screen_name: "LevelsIO" } } } } },
+    };
+    expect(readViewerHandle(body)).toBe("levelsio");
+    expect(readViewerHandle({ data: {} })).toBeUndefined();
   });
 
   it("maps operation names to sources", () => {

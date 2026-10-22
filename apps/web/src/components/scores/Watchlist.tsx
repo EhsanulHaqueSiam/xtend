@@ -2,15 +2,29 @@ import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 
-import {
-  RUN_COST,
-  runScoreAtom,
-  watchAddAtom,
-  watchListAtom,
-  watchRemoveAtom,
-} from "../../state/scores";
-import { Empty, ErrorText, errorText, fmt, inputClass, Section, signed, usd } from "../analyze/ui";
+import { useQuoteLabel } from "../../state/costs";
+import { runScoreAtom, watchAddAtom, watchListAtom, watchRemoveAtom } from "../../state/scores";
+import { Empty, ErrorText, errorText, fmt, inputClass, Section, signed } from "../analyze/ui";
 import { Button } from "../ui/button";
+
+function ScoreButton({
+  handle,
+  label,
+  disabled,
+  onClick,
+}: {
+  readonly handle: string;
+  readonly label: string;
+  readonly disabled: boolean;
+  readonly onClick: () => void;
+}) {
+  const quote = useQuoteLabel({ kind: "scoreRun", handle });
+  return (
+    <Button size="micro" variant="outline" disabled={disabled} onClick={onClick}>
+      {label} ({quote})
+    </Button>
+  );
+}
 
 /** Watched handles with score, tier and 7-day change; shared with Analyze's Competitors tab. */
 export function Watchlist({ onOpen }: { readonly onOpen: (handle: string) => void }) {
@@ -56,7 +70,7 @@ export function Watchlist({ onOpen }: { readonly onOpen: (handle: string) => voi
           </Button>
         </form>
         <p className="pt-1 text-2xs text-muted-foreground">
-          Adding is free. Scoring a handle costs {usd(RUN_COST)}.
+          Adding is free. Scoring a handle reads its profile and up to 5 follower pages.
         </p>
         {error !== null ? <ErrorText>{error}</ErrorText> : null}
       </Section>
@@ -100,14 +114,12 @@ export function Watchlist({ onOpen }: { readonly onOpen: (handle: string) => voi
                     </td>
                     <td className="py-1 text-right">
                       <div className="flex justify-end gap-1">
-                        <Button
-                          size="micro"
-                          variant="outline"
+                        <ScoreButton
+                          handle={w.handle}
+                          label={w.score === null ? "Score" : "Rescore"}
                           disabled={scoreState.waiting}
                           onClick={() => void run(() => score(w.handle))}
-                        >
-                          {w.score === null ? "Score" : "Rescore"} ({usd(RUN_COST)})
-                        </Button>
+                        />
                         <Button
                           size="micro"
                           variant="ghost-muted"

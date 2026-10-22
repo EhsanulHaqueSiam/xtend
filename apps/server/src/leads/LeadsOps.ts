@@ -1,6 +1,5 @@
 import {
   type Candidate,
-  LEADS_COST_USD,
   LeadsError,
   type ListCriteria,
   type NewFollower,
@@ -26,7 +25,7 @@ const DmDraft = Schema.Struct({ text: Schema.String });
 export class LeadsOps extends Context.Service<
   LeadsOps,
   {
-    /** Cached 6h by XClient; also backfills the person's user id for DMs. */
+    /** Cached 6h by XClient; writes the user id, bio and follower count back onto the person. */
     readonly profile: (personId: number) => Effect.Effect<XProfile | null, LeadsError | XApiError>;
     readonly draftDm: (personId: number) => Effect.Effect<string, LeadsError | XApiError>;
     readonly sendDm: (
@@ -51,13 +50,14 @@ const make = Effect.gen(function* () {
   const assist = yield* Assist.Assist;
   const settings = yield* SettingsStore.SettingsStore;
   const people = yield* PeopleStore.PeopleStore;
+  const rates = XClient.RATE_CARD;
   const assistFail = (operation: string) => (e: Assist.AssistError) =>
     new LeadsError({ operation, detail: e.message, cause: e });
 
   const profile = Effect.fn("LeadsOps.profile")(function* (personId: number) {
     const person = yield* people.get(personId);
     const found = yield* x.profile(person.handle, "leads.profile");
-    if (found !== null && person.userId === null) yield* people.setUserId(personId, found.userId);
+    if (found !== null) yield* people.setProfile(personId, found);
     return found;
   });
 
@@ -119,7 +119,7 @@ const make = Effect.gen(function* () {
       });
     }
     const keyword = criteria.bioKeyword?.trim().toLowerCase() ?? "";
-    if (keyword === "") return { matches: authors, costUsd: LEADS_COST_USD.search };
+    if (keyword === "") return { matches: authors, costUsd: rates.searchPage };
     const withBio = yield* Effect.forEach(authors, (a) =>
       Effect.map(x.profile(a.handle, "leads.listPreview"), (p): Array<Candidate> =>
         p === null || !p.bio.toLowerCase().includes(keyword)
@@ -129,7 +129,7 @@ const make = Effect.gen(function* () {
     );
     return {
       matches: withBio.flat(),
-      costUsd: LEADS_COST_USD.search + authors.length * LEADS_COST_USD.profile,
+      costUsd: rates.searchPage + authors.length * rates.scraperProfile,
     };
   });
 
@@ -151,8 +151,8 @@ const make = Effect.gen(function* () {
     return {
       followers: page.items
         .filter((f) => fresh.has(f.userId))
-        .map((f): NewFollower => ({ ...f, inPeople: known.has(f.handle.toLowerCase()) })),
-      costUsd: LEADS_COST_USD.followersPage,
+        .map((f): NewFollower => Object.assign({ inPeople: known.has(f.handle) }, f)),
+      costUsd: rates.followersPage,
     };
   });
 
