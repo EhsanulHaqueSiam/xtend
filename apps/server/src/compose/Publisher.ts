@@ -8,7 +8,7 @@ import * as Layer from "effect/Layer";
 import * as XClient from "../x/XClient.ts";
 import * as DraftStore from "./DraftStore.ts";
 
-export const MAX_ATTEMPTS = 3;
+const MAX_ATTEMPTS = 3;
 const RETRY_BACKOFF = Duration.minutes(5);
 
 export class Publisher extends Context.Service<

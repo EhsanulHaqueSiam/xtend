@@ -7,7 +7,15 @@ import { useEffect, useState } from "react";
 import { savePostAtom, searchAtom } from "../../state/library";
 import { Button } from "../ui/button";
 import { SaveButton } from "./SaveButton";
-import { Empty, ErrorLine, PostRow, errorMessage, inputClass } from "./shared";
+import {
+  Empty,
+  ErrorLine,
+  PostRow,
+  SEARCH_COST_USD,
+  errorMessage,
+  inputClass,
+  usd,
+} from "./shared";
 
 /** "Use as inspiration" saves the post so Compose can read it back by id, then opens the composer. */
 export function InspireButton({ post }: { readonly post: XPost }) {
@@ -34,7 +42,7 @@ const excluded = (text: string, words: ReadonlyArray<string>) => {
 };
 
 /** Renders the list of search results with the exclusion filter applied client-side. */
-export function SearchResults({
+function SearchResults({
   items,
   exclude,
 }: {
@@ -116,7 +124,7 @@ export function SearchTab({ initialQuery }: { readonly initialQuery: string }) {
             onChange={(e) => setQuery(e.target.value)}
           />
           <Button type="submit" size="sm" disabled={busy}>
-            <Search /> Search
+            <Search /> Search ({usd(SEARCH_COST_USD)})
           </Button>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-2xs text-muted-foreground">
@@ -157,7 +165,7 @@ export function SearchTab({ initialQuery }: { readonly initialQuery: string }) {
                   disabled={busy}
                   onClick={() => void run(cursor)}
                 >
-                  Load more
+                  Load more ({usd(SEARCH_COST_USD)})
                 </Button>
               </div>
             ) : null}

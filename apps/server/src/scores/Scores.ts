@@ -9,7 +9,7 @@ import * as ScoreEngine from "./ScoreEngine.ts";
 import * as ScoreStore from "./ScoreStore.ts";
 
 /** Pages of followers one run reads; the UI quotes FOLLOWER_PAGES * 0.001 before the click. */
-export const FOLLOWER_PAGES = 5;
+const FOLLOWER_PAGES = 5;
 
 export class Scores extends Context.Service<
   Scores,

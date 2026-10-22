@@ -20,7 +20,7 @@ import * as XClient from "../x/XClient.ts";
 import * as LibraryStore from "./LibraryStore.ts";
 
 /** Treg's price for one search page; the picks tab shows it before the first fetch of the day. */
-export const SEARCH_COST_USD = 0.00075;
+const SEARCH_COST_USD = 0.00075;
 const MAX_PICK_KEYWORDS = 5;
 
 export interface PicksState {

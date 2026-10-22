@@ -18,10 +18,7 @@ const toSlot = (r: SlotRow): Slot => ({
 });
 
 /** Slot times in the service's local time zone for the 60 days after `after`, ascending. */
-export const slotTimesAfter = (
-  slots: ReadonlyArray<SlotInput>,
-  after: DateTime.Utc,
-): Array<string> => {
+const slotTimesAfter = (slots: ReadonlyArray<SlotInput>, after: DateTime.Utc): Array<string> => {
   const out: Array<string> = [];
   const afterMillis = DateTime.toEpochMillis(after);
   let day = DateTime.setZone(after, DateTime.zoneMakeLocal()).pipe(DateTime.startOf("day"));

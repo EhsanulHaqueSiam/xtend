@@ -9,15 +9,21 @@ import { Button } from "../ui/button";
 export const inputClass =
   "w-full rounded-md border border-input bg-background px-2.5 py-1.5 font-mono text-xs text-foreground outline-hidden placeholder:text-placeholder focus-visible:ring-2 focus-visible:ring-ring";
 
+/** Treg's price for one X search page. Mirrors SEARCH_COST_USD in the service. */
+export const SEARCH_COST_USD = 0.00075;
+/** Treg's price for one trends read. Mirrors XClient.trending. */
+export const TRENDS_COST_USD = 0.001;
+export const usd = (n: number) => `$${n.toFixed(5).replace(/0+$/, "").replace(/\.$/, "")}`;
+
 const compact = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
 export const fmt = (n: number | null) => (n === null ? "–" : compact.format(n));
 
-export const engagementRate = (m: XPost["metrics"]): string => {
+const engagementRate = (m: XPost["metrics"]): string => {
   if (m.views === null || m.views === 0) return "–";
   return `${(((m.likes + m.reposts + m.replies + m.quotes + m.bookmarks) / m.views) * 100).toFixed(2)}%`;
 };
 
-export const ago = (iso: string, nowMs = Date.now()) => {
+const ago = (iso: string, nowMs = Date.now()) => {
   const minutes = Math.max(0, Math.round((nowMs - Date.parse(iso)) / 60_000));
   if (minutes < 60) return `${minutes}m`;
   if (minutes < 60 * 24) return `${Math.round(minutes / 60)}h`;
@@ -57,7 +63,7 @@ export function TabBar<T extends string>({
   );
 }
 
-export function Metric({ label, value, tone }: { label: string; value: string; tone?: "success" }) {
+function Metric({ label, value, tone }: { label: string; value: string; tone?: "success" }) {
   return (
     <span className="inline-flex items-baseline gap-1 text-2xs text-muted-foreground">
       {label}

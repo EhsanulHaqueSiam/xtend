@@ -14,10 +14,7 @@ import {
 import { Button } from "../ui/button";
 import { SaveButton } from "./SaveButton";
 import { InspireButton } from "./SearchTab";
-import { Empty, ErrorLine, PostRow, errorMessage } from "./shared";
-
-/** Treg's price for one search page, one per keyword per day. */
-const SEARCH_COST_USD = 0.00075;
+import { Empty, ErrorLine, PostRow, SEARCH_COST_USD, errorMessage, usd } from "./shared";
 
 function PickRow({ pick }: { readonly pick: Pick }) {
   const why = useAtomSet(pickWhyAtom, { mode: "promise" });
@@ -85,8 +82,8 @@ function PickRow({ pick }: { readonly pick: Pick }) {
       ) : null}
       {blocks !== null ? (
         <div className="mt-2 flex flex-col gap-1.5 border-l-2 border-success pl-2">
-          {blocks.map((b, i) => (
-            <p key={i} className="whitespace-pre-wrap text-sm">
+          {blocks.map((b) => (
+            <p key={b} className="whitespace-pre-wrap text-sm">
               {b}
             </p>
           ))}
@@ -152,8 +149,8 @@ export function PicksTab() {
               disabled={busy || value.keywords.length === 0}
               onClick={() => void run()}
             >
-              Fetch {value.pending.length} keyword{value.pending.length === 1 ? "" : "s"} for $
-              {(value.pending.length * SEARCH_COST_USD).toFixed(5)}
+              Fetch {value.pending.length} keyword{value.pending.length === 1 ? "" : "s"} for{" "}
+              {usd(value.pending.length * SEARCH_COST_USD)}
             </Button>
           ) : (
             <span className="ml-auto">fetched today</span>

@@ -23,7 +23,7 @@ import * as XClient from "../x/XClient.ts";
 import * as AnalyticsStore from "./AnalyticsStore.ts";
 
 /** Pages of own posts one refresh reads; the UI quotes POST_PAGES * 0.00075 before the click. */
-export const POST_PAGES = 5;
+const POST_PAGES = 5;
 const MAX_POSTS = 100;
 
 const ThemesJson = Schema.fromJsonString(Schema.Array(Theme));
@@ -32,7 +32,7 @@ const CompetitorJson = Schema.fromJsonString(CompetitorReport);
 // shortcut: a thread is guessed from "1/" or the thread emoji in the text; the scraper has no self-reply flag.
 const looksLikeThread = (text: string) => /🧵|(^|\s|\()1\/\d*/.test(text);
 
-export const toAccountPost = (p: XPost): AccountPost => ({
+const toAccountPost = (p: XPost): AccountPost => ({
   postId: p.postId,
   url: p.url,
   text: p.text,
@@ -54,13 +54,13 @@ export const toAccountPost = (p: XPost): AccountPost => ({
   bookmarks: p.metrics.bookmarks,
 });
 
-export const engagementRate = (p: AccountPost): number =>
+const engagementRate = (p: AccountPost): number =>
   p.views === null || p.views === 0
     ? 0
     : (p.likes + p.reposts + p.replies + p.quotes + p.bookmarks) / p.views;
 
 /** Hour-of-week cells with at least one post; the UI fills the empty ones. */
-export const heatmapOf = (posts: ReadonlyArray<AccountPost>): ReadonlyArray<HeatmapCell> => {
+const heatmapOf = (posts: ReadonlyArray<AccountPost>): ReadonlyArray<HeatmapCell> => {
   const cells = new Map<number, { posts: number; views: number }>();
   for (const p of posts) {
     const d = DateTime.toPartsUtc(DateTime.makeUnsafe(p.createdAt));

@@ -24,7 +24,7 @@ export const tierFor = (score: number): Tier =>
           : "Unknown";
 
 /** Tiny accounts following everyone, or blank accounts younger than 90 days. */
-export const isSuspicious = (f: XFollower, now: DateTime.DateTime): boolean =>
+const isSuspicious = (f: XFollower, now: DateTime.DateTime): boolean =>
   (f.followers < 50 && f.following > 10 * f.followers) ||
   (f.bio === "" &&
     f.createdAt !== null &&

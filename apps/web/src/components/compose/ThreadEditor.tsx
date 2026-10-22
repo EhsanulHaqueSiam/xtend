@@ -4,17 +4,17 @@ import type { ClipboardEvent } from "react";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 
-export const POST_LIMIT = 280;
+const POST_LIMIT = 280;
 export const inputClass =
   "w-full rounded-md border border-input bg-background px-2.5 py-1.5 font-mono text-xs text-foreground outline-hidden placeholder:text-placeholder focus-visible:ring-2 focus-visible:ring-ring";
 
 // Same rule XClient.postCostUsd uses, so the cost line matches what the service will charge.
 const LINK = /https?:\/\/\S+|\b[a-z0-9-]+\.[a-z]{2,}\b/gi;
-export const hasLink = (text: string) => new RegExp(LINK.source, "i").test(text);
+const hasLink = (text: string) => new RegExp(LINK.source, "i").test(text);
 export const postCostUsd = (text: string) => (hasLink(text) ? 0.2 : 0.015);
 
 /** X counts every link as 23 characters whatever its length. shortcut: CJK and emoji weights ignored, add when a user hits it. */
-export const charCount = (text: string) => [...text.replace(LINK, "x".repeat(23))].length;
+const charCount = (text: string) => [...text.replace(LINK, "x".repeat(23))].length;
 
 /** Plain text pasted with blank lines between posts becomes one block per paragraph. */
 export const splitBlocks = (text: string) =>

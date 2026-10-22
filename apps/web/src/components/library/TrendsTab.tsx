@@ -6,7 +6,7 @@ import { useState } from "react";
 
 import { saveSuggestedDraftAtom, trendIdeasAtom, trendsAtom } from "../../state/library";
 import { Button } from "../ui/button";
-import { Empty, ErrorLine, errorMessage, fmt, inputClass } from "./shared";
+import { Empty, ErrorLine, TRENDS_COST_USD, errorMessage, fmt, inputClass, usd } from "./shared";
 
 function IdeaRow({ idea }: { readonly idea: TrendIdea }) {
   const saveDraft = useAtomSet(saveSuggestedDraftAtom, { mode: "promise" });
@@ -45,16 +45,38 @@ function IdeaRow({ idea }: { readonly idea: TrendIdea }) {
   );
 }
 
+/** Mounted only after Load: reading the atom is the paid call. */
+function TrendList({ country }: { readonly country: string }) {
+  const trends = useAtomValue(trendsAtom(country));
+  return AsyncResult.match(trends, {
+    onInitial: () => <Empty>Loading trends…</Empty>,
+    onFailure: (f) => <ErrorLine>{String(f.cause)}</ErrorLine>,
+    onSuccess: ({ value }) => (
+      <ol className="flex flex-col divide-y divide-border">
+        {value.slice(0, 30).map((t, i) => (
+          <li key={t.name} className="flex items-baseline gap-2 py-1.5 text-sm">
+            <span className="w-5 font-mono text-2xs text-muted-foreground">{i + 1}</span>
+            <span className="truncate">{t.name}</span>
+            <span className="ml-auto shrink-0 font-mono text-2xs text-muted-foreground">
+              {t.postCount === null ? (t.context ?? "") : `${fmt(t.postCount)} posts`}
+            </span>
+          </li>
+        ))}
+      </ol>
+    ),
+  });
+}
+
 export function TrendsTab() {
   const [country, setCountry] = useState("UnitedStates");
-  const [applied, setApplied] = useState("UnitedStates");
-  const trends = useAtomValue(trendsAtom(applied));
+  const [applied, setApplied] = useState<string | null>(null);
   const ideasFor = useAtomSet(trendIdeasAtom, { mode: "promise" });
   const [ideas, setIdeas] = useState<ReadonlyArray<TrendIdea> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const generate = async () => {
+    if (applied === null) return;
     setBusy(true);
     setError(null);
     try {
@@ -81,39 +103,29 @@ export function TrendsTab() {
           value={country}
           onChange={(e) => setCountry(e.target.value)}
         />
-        <Button type="submit" variant="outline" size="sm">
-          Load
+        <Button type="submit" variant="outline" size="sm" disabled={country.trim() === ""}>
+          Load trends ({usd(TRENDS_COST_USD)})
         </Button>
         <Button
           size="sm"
           className="ml-auto"
-          disabled={busy || !AsyncResult.isSuccess(trends)}
+          disabled={busy || applied === null}
           onClick={() => void generate()}
         >
-          <Sparkles /> Ideas from trends
+          <Sparkles /> Ideas from trends (model call)
         </Button>
       </form>
       {error !== null ? <ErrorLine>{error}</ErrorLine> : null}
       <div className="flex min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto grid w-full max-w-5xl grid-cols-1 gap-4 px-3 py-3 md:grid-cols-[1fr_1.4fr]">
           <div>
-            {AsyncResult.match(trends, {
-              onInitial: () => <Empty>Loading trends…</Empty>,
-              onFailure: (f) => <ErrorLine>{String(f.cause)}</ErrorLine>,
-              onSuccess: ({ value }) => (
-                <ol className="flex flex-col divide-y divide-border">
-                  {value.slice(0, 30).map((t, i) => (
-                    <li key={t.name} className="flex items-baseline gap-2 py-1.5 text-sm">
-                      <span className="w-5 font-mono text-2xs text-muted-foreground">{i + 1}</span>
-                      <span className="truncate">{t.name}</span>
-                      <span className="ml-auto shrink-0 font-mono text-2xs text-muted-foreground">
-                        {t.postCount === null ? (t.context ?? "") : `${fmt(t.postCount)} posts`}
-                      </span>
-                    </li>
-                  ))}
-                </ol>
-              ),
-            })}
+            {applied === null ? (
+              <p className="text-sm text-muted-foreground">
+                Load the trends for a country. Cached for 30 minutes.
+              </p>
+            ) : (
+              <TrendList country={applied} />
+            )}
           </div>
           <div className="flex flex-col gap-2">
             {ideas === null ? (

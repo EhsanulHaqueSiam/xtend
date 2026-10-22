@@ -32,14 +32,14 @@ export const readyAtom = clientRuntime.atom(
   }),
 );
 
-/** Drafts in a month; key is "YYYY-MM" so the calendar refetches when the user moves. */
-export const calendarAtom = Atom.family((month: string) =>
+/** Queued and posted drafts in the 7 days from `day` (a local "YYYY-MM-DD"); the calendar refetches when the user moves. */
+export const calendarAtom = Atom.family((day: string) =>
   clientRuntime.atom(
     Effect.gen(function* () {
       const client = yield* XtendClient;
-      const from = new Date(`${month}-01T00:00:00`);
+      const from = new Date(`${day}T00:00:00`);
       const to = new Date(from);
-      to.setMonth(to.getMonth() + 1);
+      to.setDate(to.getDate() + 7);
       return (yield* client[Plan_METHODS.calendar]({
         from: from.toISOString(),
         to: to.toISOString(),
