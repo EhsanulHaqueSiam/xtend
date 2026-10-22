@@ -7,13 +7,15 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { HttpRouter } from "effect/http";
 
-import * as ClaudeAgent from "./agent/ClaudeAgent.ts";
-import * as DesktopChannel from "./agent/DesktopChannel.ts";
-import * as ThreadStore from "./agent/ThreadStore.ts";
+import * as NodeHttpClient from "@effect/platform-node/NodeHttpClient";
+
+import * as Assist from "./ai/Assist.ts";
 import * as ServerConfig from "./config.ts";
 import * as ServerHttp from "./http.ts";
 import * as ObservationStore from "./observations/ObservationStore.ts";
 import * as Sqlite from "./persistence/Sqlite.ts";
+import * as SettingsStore from "./settings/SettingsStore.ts";
+import * as XClient from "./x/XClient.ts";
 import * as Ws from "./ws.ts";
 
 const layerHttpServer = Layer.unwrap(
@@ -33,12 +35,17 @@ const layerRoutes = Layer.mergeAll(
   ServerHttp.layerWebRoute,
 );
 
-const layerServices = ClaudeAgent.layer.pipe(
-  Layer.provideMerge(
-    Layer.mergeAll(ThreadStore.layer, DesktopChannel.layer, ObservationStore.layer),
-  ),
+// Foundation every area builds on: settings and spend, the X client, the assistant.
+// Area layers (compose, analyze, ...) go in layerAreas and may depend on all of these.
+const layerFoundation = Layer.mergeAll(Assist.layer, XClient.layer).pipe(
+  Layer.provideMerge(Layer.mergeAll(ObservationStore.layer, SettingsStore.layer)),
   Layer.provideMerge(Sqlite.layerConfig),
+  Layer.provideMerge(NodeHttpClient.layerUndici),
 );
+
+const layerAreas = Layer.empty;
+
+const layerServices = layerAreas.pipe(Layer.provideMerge(layerFoundation));
 
 const layerApplication = HttpRouter.serve(layerRoutes).pipe(
   Layer.tap(() =>

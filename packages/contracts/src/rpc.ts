@@ -3,20 +3,6 @@ import * as Rpc from "effect/rpc/Rpc";
 import * as RpcGroup from "effect/rpc/RpcGroup";
 
 import {
-  DesktopCommand,
-  DesktopCommandResult,
-  ThreadBusyError,
-  ThreadEventRecord,
-  ThreadNotFoundError,
-  ThreadsCreateInput,
-  ThreadsEventsInput,
-  ThreadsEventsResult,
-  ThreadsListResult,
-  ThreadsSendInput,
-  ThreadStoreError,
-  ThreadSummary,
-} from "./agent.ts";
-import {
   ObservationBatch,
   ObservationListRecentInput,
   ObservationListRecentResult,
@@ -24,6 +10,7 @@ import {
   ObservationStoreError,
 } from "./observation.ts";
 import { ServerInfo } from "./server.ts";
+import { Settings, SettingsError, SettingsUpdate, SpendSummary } from "./settings.ts";
 
 export const WS_PATH = "/ws";
 
@@ -31,13 +18,9 @@ export const WS_METHODS = {
   serverInfo: "server.info",
   observationsRecord: "observations.record",
   observationsListRecent: "observations.listRecent",
-  threadsList: "threads.list",
-  threadsCreate: "threads.create",
-  threadsSend: "threads.send",
-  threadsEvents: "threads.events",
-  threadsSubscribe: "threads.subscribe",
-  desktopSubscribeCommands: "desktop.subscribeCommands",
-  desktopCompleteCommand: "desktop.completeCommand",
+  settingsGet: "settings.get",
+  settingsUpdate: "settings.update",
+  spendSummary: "spend.summary",
 } as const;
 
 const ServerInfoRpc = Rpc.make(WS_METHODS.serverInfo, {
@@ -57,58 +40,36 @@ const ObservationsListRecentRpc = Rpc.make(WS_METHODS.observationsListRecent, {
   error: ObservationStoreError,
 });
 
-const ThreadsListRpc = Rpc.make(WS_METHODS.threadsList, {
+const SettingsGetRpc = Rpc.make(WS_METHODS.settingsGet, {
   payload: Schema.Struct({}),
-  success: ThreadsListResult,
-  error: ThreadStoreError,
+  success: Settings,
+  error: SettingsError,
 });
 
-const ThreadsCreateRpc = Rpc.make(WS_METHODS.threadsCreate, {
-  payload: ThreadsCreateInput,
-  success: ThreadSummary,
-  error: ThreadStoreError,
+const SettingsUpdateRpc = Rpc.make(WS_METHODS.settingsUpdate, {
+  payload: SettingsUpdate,
+  success: Settings,
+  error: SettingsError,
 });
 
-const ThreadsSendRpc = Rpc.make(WS_METHODS.threadsSend, {
-  payload: ThreadsSendInput,
-  success: Schema.Struct({}),
-  error: Schema.Union([ThreadStoreError, ThreadNotFoundError, ThreadBusyError]),
-});
-
-const ThreadsEventsRpc = Rpc.make(WS_METHODS.threadsEvents, {
-  payload: ThreadsEventsInput,
-  success: ThreadsEventsResult,
-  error: ThreadStoreError,
-});
-
-/** Replays history after `afterSequence`, then stays open for live events. */
-const ThreadsSubscribeRpc = Rpc.make(WS_METHODS.threadsSubscribe, {
-  payload: ThreadsEventsInput,
-  success: ThreadEventRecord,
-  error: ThreadStoreError,
-  stream: true,
-});
-
-const DesktopSubscribeCommandsRpc = Rpc.make(WS_METHODS.desktopSubscribeCommands, {
+const SpendSummaryRpc = Rpc.make(WS_METHODS.spendSummary, {
   payload: Schema.Struct({}),
-  success: DesktopCommand,
-  stream: true,
+  success: SpendSummary,
+  error: SettingsError,
 });
 
-const DesktopCompleteCommandRpc = Rpc.make(WS_METHODS.desktopCompleteCommand, {
-  payload: DesktopCommandResult,
-  success: Schema.Struct({}),
-});
-
-export const WsRpcGroup = RpcGroup.make(
+/**
+ * Each suite area owns its own RpcGroup in its contract file and is merged
+ * here, so adding a screen never edits another screen's handlers.
+ */
+export const CoreRpcGroup = RpcGroup.make(
   ServerInfoRpc,
   ObservationsRecordRpc,
   ObservationsListRecentRpc,
-  ThreadsListRpc,
-  ThreadsCreateRpc,
-  ThreadsSendRpc,
-  ThreadsEventsRpc,
-  ThreadsSubscribeRpc,
-  DesktopSubscribeCommandsRpc,
-  DesktopCompleteCommandRpc,
+  SettingsGetRpc,
+  SettingsUpdateRpc,
+  SpendSummaryRpc,
 );
+
+/** The whole wire surface. Area groups are merged in as arguments here. */
+export const WsRpcGroup = CoreRpcGroup.merge();

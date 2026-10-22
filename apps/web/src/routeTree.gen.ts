@@ -19,7 +19,6 @@ import { Route as EngageRouteImport } from './routes/engage'
 import { Route as ComposeRouteImport } from './routes/compose'
 import { Route as AutomateRouteImport } from './routes/automate'
 import { Route as AnalyzeRouteImport } from './routes/analyze'
-import { Route as AgentRouteImport } from './routes/agent'
 import { Route as IndexRouteImport } from './routes/index'
 
 const SettingsRoute = SettingsRouteImport.update({
@@ -72,11 +71,6 @@ const AnalyzeRoute = AnalyzeRouteImport.update({
   path: '/analyze',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AgentRoute = AgentRouteImport.update({
-  id: '/agent',
-  path: '/agent',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -85,7 +79,6 @@ const IndexRoute = IndexRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/agent': typeof AgentRoute
   '/analyze': typeof AnalyzeRoute
   '/automate': typeof AutomateRoute
   '/compose': typeof ComposeRoute
@@ -99,7 +92,6 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/agent': typeof AgentRoute
   '/analyze': typeof AnalyzeRoute
   '/automate': typeof AutomateRoute
   '/compose': typeof ComposeRoute
@@ -114,7 +106,6 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/agent': typeof AgentRoute
   '/analyze': typeof AnalyzeRoute
   '/automate': typeof AutomateRoute
   '/compose': typeof ComposeRoute
@@ -130,7 +121,6 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/agent'
     | '/analyze'
     | '/automate'
     | '/compose'
@@ -144,7 +134,6 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/agent'
     | '/analyze'
     | '/automate'
     | '/compose'
@@ -158,7 +147,6 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
-    | '/agent'
     | '/analyze'
     | '/automate'
     | '/compose'
@@ -173,7 +161,6 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  AgentRoute: typeof AgentRoute
   AnalyzeRoute: typeof AnalyzeRoute
   AutomateRoute: typeof AutomateRoute
   ComposeRoute: typeof ComposeRoute
@@ -258,13 +245,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AnalyzeRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/agent': {
-      id: '/agent'
-      path: '/agent'
-      fullPath: '/agent'
-      preLoaderRoute: typeof AgentRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/': {
       id: '/'
       path: '/'
@@ -277,7 +257,6 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  AgentRoute: AgentRoute,
   AnalyzeRoute: AnalyzeRoute,
   AutomateRoute: AutomateRoute,
   ComposeRoute: ComposeRoute,

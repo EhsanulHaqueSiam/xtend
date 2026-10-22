@@ -14,16 +14,10 @@ export interface SessionCaptureOptions {
   readonly log: (message: string, detail?: unknown) => void;
 }
 
-export interface SessionCapture {
-  /** PNG of the current viewport, base64, through the same debugger session. */
-  readonly screenshot: () => Promise<string>;
-  readonly detach: () => void;
-}
-
 export function attachSessionCapture(
   contents: Electron.WebContents,
   options: SessionCaptureOptions,
-): SessionCapture {
+): () => void {
   const pending = new Map<string, string>();
   const debug = contents.debugger;
 
@@ -81,34 +75,21 @@ export function attachSessionCapture(
     }
   };
 
-  const screenshot = async () => {
-    const result = (await debug.sendCommand("Page.captureScreenshot", { format: "png" })) as {
-      data: string;
-    };
-    return result.data;
-  };
-
   try {
     debug.attach("1.3");
   } catch (error) {
     options.log("debugger attach failed", { error: String(error) });
-    return {
-      screenshot: () => Promise.reject(new Error("debugger not attached")),
-      detach: () => {},
-    };
+    return () => {};
   }
   debug.on("message", onMessage);
   void debug.sendCommand("Network.enable").catch((error: unknown) => {
     options.log("Network.enable failed", { error: String(error) });
   });
 
-  return {
-    screenshot,
-    detach: () => {
-      debug.off("message", onMessage);
-      if (debug.isAttached()) debug.detach();
-      pending.clear();
-    },
+  return () => {
+    debug.off("message", onMessage);
+    if (debug.isAttached()) debug.detach();
+    pending.clear();
   };
 }
 
