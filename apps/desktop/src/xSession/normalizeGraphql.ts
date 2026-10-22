@@ -143,6 +143,10 @@ export function readViewerHandle(body: unknown): string | undefined {
   return handle !== undefined && X_HANDLE.test(handle) ? handle.toLowerCase() : undefined;
 }
 
+/** The composer's own write; its response carries the new post. */
+export const isCreateTweetOperation = (url: string): boolean =>
+  /\/i\/api\/graphql\/[^/]+\/CreateTweet(\?|$)/.test(url);
+
 export const isViewerOperation = (url: string): boolean =>
   /\/i\/api\/graphql\/[^/]+\/Viewer(\?|$)/.test(url);
 

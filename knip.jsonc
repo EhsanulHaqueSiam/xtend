@@ -8,6 +8,7 @@
       "entry": [
         "src/main.ts",
         "src/preload.ts",
+        "src/overlay/overlayPreload.ts",
         "scripts/dev-electron.mjs",
         "scripts/cdp-screenshot.mjs",
       ],

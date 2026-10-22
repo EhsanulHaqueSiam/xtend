@@ -50,6 +50,7 @@ const openWindow = () =>
     serviceUrl,
     serviceToken: readServiceToken(),
     queueDir: path.join(baseDir, "observation-queue"),
+    sessionUrlFile: path.join(baseDir, "session-url"),
     importCookiesPath: process.env.XTEND_IMPORT_COOKIES,
     log,
   });

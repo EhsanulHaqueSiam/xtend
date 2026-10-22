@@ -1,10 +1,11 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import type { ObservationBatch } from "@xtend/contracts";
+import type { ObservationBatch, ObservedPost } from "@xtend/contracts";
 import type * as Electron from "electron";
 
 import {
+  isCreateTweetOperation,
   isGraphqlUrl,
   isViewerOperation,
   normalizeGraphqlResponse,
@@ -27,6 +28,10 @@ export interface SessionCaptureOptions {
   /** Batches the service did not acknowledge wait here until it is back. */
   readonly queueDir: string;
   readonly log: (message: string, detail?: unknown) => void;
+  /** Every batch the normalizer recognized, before it is sent; the overlay feeds on it. */
+  readonly onPosts?: (posts: ReadonlyArray<ObservedPost>, viewerHandle: string | null) => void;
+  /** The id x.com returned for a post the session just created (CreateTweet). */
+  readonly onCreatedPost?: (postId: string) => void;
 }
 
 export function attachSessionCapture(
@@ -82,6 +87,8 @@ export function attachSessionCapture(
     }
     const posts = normalizeGraphqlResponse(body);
     if (posts.length === 0) return;
+    if (isCreateTweetOperation(url)) options.onCreatedPost?.(posts[0]!.postId);
+    options.onPosts?.(posts, viewerHandle);
     await send({
       viewerHandle,
       source: sourceFromOperation(url),
