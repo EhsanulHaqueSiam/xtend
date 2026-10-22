@@ -20,7 +20,8 @@ Xtend is a desktop-first X (Twitter) growth suite: the X web app lives in the mi
 ## Where code lives
 
 - `packages/contracts` - Effect Schema contracts and the RPC group. Anything that crosses the wire is typed here first.
-- `apps/server` - the service. Effect-heavy. Read `docs/internals/effect-services.md` in T3 Code (vendored reference at `~/Work/ref/t3code`) before adding server code; the same rules apply here.
+- `apps/server` - the service. Effect-heavy. Foundation services every screen uses: `x/Treg.ts` (the only HTTP door to treg: token, budget, read cache, spend log), `x/XClient.ts` (typed X reads and writes, every call names its `purpose`), `ai/Assist.ts` (one structured-output model call; screens pass instructions, input and an output schema), `settings/SettingsStore.ts` (handle, token, budget, voice notes, keywords, spend).
+- Each suite area (compose, plan, analyze, scores, library, engage, leads, automate) owns `packages/contracts/src/<area>.ts` (schemas, method names, its RpcGroup, merged into `WsRpcGroup`), `apps/server/src/<area>/<Area>Handlers.ts` (`layer` for its services, `layerHandlers` for its rpcs, both pre-merged in `server.ts` and `ws.ts`), one migration per area pair, and its own routes, components and state files in `apps/web`. Adding a screen never edits another screen's files. Read `docs/internals/effect-services.md` in T3 Code (vendored reference at `~/Work/ref/t3code`) before adding server code; the same rules apply here.
 - `apps/web` - React, Vite, TanStack Router, Tailwind 4, `@effect/atom-react`. The desktop wraps it.
 - `apps/desktop` - Electron. Creates the window, runs or connects to the service, embeds the session view, captures observations.
 
@@ -45,5 +46,7 @@ Xtend is a desktop-first X (Twitter) growth suite: the X web app lives in the mi
 
 - Commit plans, research or agent scratch files. Keep them outside the worktree.
 - Add a dependency for a few lines.
-- Add X API or treg calls outside `apps/server/src/x/`.
+- Add X API or treg calls outside `apps/server/src/x/`. Never call a provider or hold a token anywhere but `x/Treg.ts`.
+- Build a chat-style agent. AI lives inside screens as assist actions through `ai/Assist.ts`.
+- Run a paid action without showing its cost first. `XClient.postCostUsd` and X's rate card are the source.
 - Touch `~/.xtend` from a dev server. Point dev at `<repo>/.xtend`.

@@ -1,4 +1,6 @@
+import { useAtomValue } from "@effect/atom-react";
 import { Link } from "@tanstack/react-router";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
 import {
   BarChart3,
   BookOpen,
@@ -19,6 +21,8 @@ import { useEffect, useState, type ReactNode } from "react";
 
 import { isElectron } from "../env";
 import { cn } from "../lib/utils";
+import { serverInfoAtom } from "../state/observations";
+import { spendAtom } from "../state/settings";
 import { Button } from "./ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
@@ -46,6 +50,37 @@ const SUITE: ReadonlyArray<NavItem> = [
   { to: "/automate", label: "Automate", icon: Workflow },
   { to: "/scores", label: "Scores", icon: Gauge },
 ];
+
+/** Bottom-left strip from the spec: where the service is and what this month cost. */
+function StatusStrip({ collapsed }: { readonly collapsed: boolean }) {
+  const info = useAtomValue(serverInfoAtom);
+  const spend = useAtomValue(spendAtom);
+  const connected = AsyncResult.isSuccess(info);
+  const month = AsyncResult.getOrElse(
+    AsyncResult.map(spend, (s) => `$${s.monthUsd.toFixed(2)} / mo`),
+    () => null,
+  );
+  return (
+    <Link
+      to="/settings"
+      className={cn(
+        "flex items-center gap-2 px-[var(--sidebar-row-content-inset)] py-1.5 font-mono text-2xs text-sidebar-muted-foreground hover:text-sidebar-foreground",
+        collapsed && "justify-center px-0",
+      )}
+      title={connected ? "service: local" : "service unreachable"}
+    >
+      <span
+        className={cn("size-1.5 shrink-0 rounded-full", connected ? "bg-success" : "bg-error")}
+      />
+      {collapsed ? null : (
+        <>
+          <span className="truncate">{connected ? "local" : "offline"}</span>
+          {month !== null ? <span className="ml-auto shrink-0">{month}</span> : null}
+        </>
+      )}
+    </Link>
+  );
+}
 
 function readStoredOpen(): boolean {
   try {
@@ -164,6 +199,7 @@ export function AppSidebar({ children }: { readonly children: ReactNode }) {
           <NavGroup label="Suite" items={SUITE} collapsed={collapsed} />
         </nav>
         <div className="border-t border-sidebar-border px-[var(--sidebar-content-inset)] py-2">
+          <StatusStrip collapsed={collapsed} />
           <NavRow
             item={{ to: "/settings", label: "Settings", icon: Settings }}
             collapsed={collapsed}
