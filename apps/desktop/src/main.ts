@@ -16,7 +16,13 @@ const remoteDebugPort = process.env.XTEND_REMOTE_DEBUG;
 if (remoteDebugPort !== undefined)
   app.commandLine.appendSwitch("remote-debugging-port", remoteDebugPort);
 
-const openWindow = () => createMainWindow({ appUrl, serviceUrl, log });
+const openWindow = () =>
+  createMainWindow({
+    appUrl,
+    serviceUrl,
+    importCookiesPath: process.env.XTEND_IMPORT_COOKIES,
+    log,
+  });
 
 void app.whenReady().then(() => {
   openWindow();

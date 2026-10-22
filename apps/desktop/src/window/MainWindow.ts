@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import * as path from "node:path";
 
 import { BrowserWindow, ipcMain, shell, WebContentsView, type Rectangle } from "electron";
@@ -11,7 +12,43 @@ const X_HOME = "https://x.com/home";
 export interface MainWindowOptions {
   readonly appUrl: string;
   readonly serviceUrl: string;
+  /** One-time cookie import: a JSON array of {name, value, domain} written by the user; deleted after import. */
+  readonly importCookiesPath?: string | undefined;
   readonly log: (message: string, detail?: unknown) => void;
+}
+
+/**
+ * Seeds the X session from cookies exported out of another browser, so the
+ * user does not have to sign in twice. The file is removed once read; the
+ * values live only in the session partition afterwards.
+ */
+async function importCookies(
+  session: Electron.Session,
+  file: string,
+  log: MainWindowOptions["log"],
+): Promise<void> {
+  let entries: Array<{ name: string; value: string; domain: string }>;
+  try {
+    entries = JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch (error) {
+    log("cookie import unreadable", String(error));
+    return;
+  }
+  for (const cookie of entries) {
+    await session.cookies.set({
+      url: `https://${cookie.domain.replace(/^\./, "")}/`,
+      name: cookie.name,
+      value: cookie.value,
+      domain: cookie.domain,
+      path: "/",
+      secure: true,
+      httpOnly: cookie.name === "auth_token",
+      sameSite: "no_restriction",
+      expirationDate: Date.now() / 1000 + 365 * 86400,
+    });
+  }
+  fs.rmSync(file, { force: true });
+  log("cookie import done", { count: entries.length });
 }
 
 const isXHost = (url: string) => {
@@ -107,7 +144,12 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
     detachCapture();
   });
 
-  void session.webContents.loadURL(X_HOME);
+  const importPath = options.importCookiesPath;
+  void (
+    importPath === undefined
+      ? Promise.resolve()
+      : importCookies(session.webContents.session, importPath, options.log)
+  ).then(() => session.webContents.loadURL(X_HOME));
   void window.loadURL(options.appUrl);
   return window;
 }

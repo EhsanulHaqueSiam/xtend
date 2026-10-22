@@ -47,4 +47,3 @@ export const previewAtom = clientRuntime.fn<void>()(
     return yield* client[Automate_METHODS.preview]({});
   }),
 );
-
