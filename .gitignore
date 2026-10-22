@@ -11,5 +11,5 @@ dist-electron/
 .tanstack
 .env
 .env.local
-.corvid/
+.xtend/
 .plans/

@@ -1,4 +1,4 @@
-import type { ObservationBatch } from "@corvid/contracts";
+import type { ObservationBatch } from "@xtend/contracts";
 import type * as Electron from "electron";
 
 import { isGraphqlUrl, normalizeGraphqlResponse, sourceFromOperation } from "./normalizeGraphql.ts";

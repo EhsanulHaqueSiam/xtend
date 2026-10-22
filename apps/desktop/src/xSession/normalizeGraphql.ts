@@ -1,4 +1,4 @@
-import type { ObservationSource, ObservedPost } from "@corvid/contracts";
+import type { ObservationSource, ObservedPost } from "@xtend/contracts";
 
 /**
  * Turns one X GraphQL response body into observed posts. X nests tweets

@@ -1,22 +1,22 @@
 {
-  "name": "corvid",
+  "name": "xtend",
   "version": "0.0.1",
   "private": true,
   "bin": {
-    "corvid": "./dist/bin.mjs"
+    "xtend": "./dist/bin.mjs"
   },
   "type": "module",
   "scripts": {
-    "dev": "node --watch --watch-path=src --watch-path=../../packages src/bin.ts --base-dir ../../.corvid --dev-url http://localhost:5820",
+    "dev": "node --watch --watch-path=src --watch-path=../../packages src/bin.ts --base-dir ../../.xtend --dev-url http://localhost:5820",
     "build": "vp pack",
     "start": "node dist/bin.mjs",
     "typecheck": "tsc-rs --noEmit",
     "test": "vp test run"
   },
   "dependencies": {
-    "@corvid/contracts": "workspace:*",
     "@effect/platform-node": "catalog:",
     "@effect/sql-sqlite-node": "catalog:",
+    "@xtend/contracts": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {

@@ -1,6 +1,6 @@
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { PortSchema } from "@corvid/contracts";
+import { PortSchema } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -20,7 +20,7 @@ const hostFlag = Flag.String("host").pipe(
   Flag.optional,
 );
 const baseDirFlag = Flag.String("base-dir").pipe(
-  Flag.withDescription("Data directory. Defaults to ~/.corvid (CORVID_HOME)."),
+  Flag.withDescription("Data directory. Defaults to ~/.xtend (XTEND_HOME)."),
   Flag.optional,
 );
 const devUrlFlag = Flag.String("dev-url").pipe(
@@ -29,13 +29,13 @@ const devUrlFlag = Flag.String("dev-url").pipe(
   Flag.optional,
 );
 
-const serve = Command.make("corvid", {
+const serve = Command.make("xtend", {
   port: portFlag,
   host: hostFlag,
   baseDir: baseDirFlag,
   devUrl: devUrlFlag,
 }).pipe(
-  Command.withDescription("Run the Corvid service."),
+  Command.withDescription("Run the Xtend service."),
   Command.withHandler((flags) =>
     Effect.gen(function* () {
       const config = yield* ServerConfig.resolve({

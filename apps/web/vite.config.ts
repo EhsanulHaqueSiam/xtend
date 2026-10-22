@@ -9,7 +9,7 @@ import "vite-plus/test/config";
 import { defineConfig } from "vite-plus";
 
 const WEB_PORT = 5820;
-const SERVICE_PORT = Number(process.env.CORVID_PORT ?? 4820);
+const SERVICE_PORT = Number(process.env.XTEND_PORT ?? 4820);
 
 const unitTestProject = {
   extends: true,

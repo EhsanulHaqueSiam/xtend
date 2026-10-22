@@ -1,9 +1,9 @@
 ---
-name: test-corvid-app
-description: Verify Corvid's web and desktop UI through T3 Code's Browser panel against isolated dev state. Use for browser verification of a change and for seeding observation fixtures.
+name: test-xtend-app
+description: Verify Xtend's web and desktop UI through T3 Code's Browser panel against isolated dev state. Use for browser verification of a change and for seeding observation fixtures.
 ---
 
-# Test the Corvid app
+# Test the Xtend app
 
 Use T3 Code's built-in Browser panel (`preview_status`, `preview_open`, `preview_navigate`,
 `preview_snapshot`) for verification. If its tools are absent, explain the blocker and stop;
@@ -17,8 +17,8 @@ Reuse this task's healthy dev processes. Otherwise, from the repository root:
 pnpm dev
 ```
 
-This runs the service on `http://127.0.0.1:4820` with state in the gitignored `<repo>/.corvid`
-and the web app on `http://localhost:5820`. Never point a dev service at `~/.corvid`.
+This runs the service on `http://127.0.0.1:4820` with state in the gitignored `<repo>/.xtend`
+and the web app on `http://localhost:5820`. Never point a dev service at `~/.xtend`.
 
 The desktop shell needs the dev web server running first:
 

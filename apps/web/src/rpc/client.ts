@@ -1,4 +1,4 @@
-import { WS_PATH, WsRpcGroup } from "@corvid/contracts";
+import { WS_PATH, WsRpcGroup } from "@xtend/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -10,9 +10,7 @@ import * as Socket from "effect/socket/Socket";
 const makeClient = RpcClient.make(WsRpcGroup);
 type Client = Effect.Success<typeof makeClient>;
 
-export class CorvidClient extends Context.Service<CorvidClient, Client>()(
-  "corvid/web/CorvidClient",
-) {}
+export class XtendClient extends Context.Service<XtendClient, Client>()("xtend/web/XtendClient") {}
 
 // Same origin as the page: Vite proxies /ws in dev, the service serves both in prod,
 // and a remote browser reaches whatever host it loaded the UI from.
@@ -31,7 +29,7 @@ const layerProtocol = RpcClient.layerProtocolSocket({ retryTransientErrors: true
   Layer.provide(RpcSerialization.layerJson),
 );
 
-const layerClient = Layer.effect(CorvidClient, makeClient).pipe(Layer.provide(layerProtocol));
+const layerClient = Layer.effect(XtendClient, makeClient).pipe(Layer.provide(layerProtocol));
 
 /** One runtime for the whole UI; every atom that talks to the service builds on it. */
 export const clientRuntime = Atom.runtime(layerClient);

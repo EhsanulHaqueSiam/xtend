@@ -1,6 +1,6 @@
 # Architecture
 
-Corvid keeps the user's X session in the desktop and everything else in a service. Clients
+Xtend keeps the user's X session in the desktop and everything else in a service. Clients
 control the service over WebSocket RPC; the service never holds X cookies.
 
 ## Ownership boundaries

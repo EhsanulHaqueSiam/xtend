@@ -22,7 +22,7 @@ import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
-const SIDEBAR_OPEN_KEY = "corvid:sidebar-open";
+const SIDEBAR_OPEN_KEY = "xtend:sidebar-open";
 
 interface NavItem {
   readonly to: string;
@@ -139,7 +139,7 @@ export function AppSidebar({ children }: { readonly children: ReactNode }) {
         >
           {open ? (
             <span className="flex-1 truncate px-[var(--sidebar-row-content-inset)] text-sm font-semibold tracking-tight">
-              Corvid
+              Xtend
             </span>
           ) : null}
           <Tooltip>

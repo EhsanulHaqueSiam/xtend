@@ -1,18 +1,18 @@
 {
-  "name": "@corvid/desktop",
+  "name": "@xtend/desktop",
   "version": "0.0.1",
   "private": true,
   "type": "module",
   "main": "dist-electron/main.cjs",
   "scripts": {
-    "dev": "CORVID_DESKTOP_DEV=1 vp pack --watch",
+    "dev": "XTEND_DESKTOP_DEV=1 vp pack --watch",
     "build": "vp pack",
     "start": "electron .",
     "typecheck": "tsc-rs --noEmit",
     "test": "vp test run --passWithNoTests"
   },
   "dependencies": {
-    "@corvid/contracts": "workspace:*",
+    "@xtend/contracts": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {
@@ -21,5 +21,5 @@
     "electron": "catalog:",
     "vite-plus": "catalog:"
   },
-  "productName": "Corvid"
+  "productName": "Xtend"
 }

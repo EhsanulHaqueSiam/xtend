@@ -12,8 +12,8 @@ const child = spawn(electronBinary, [appDir], {
   stdio: "inherit",
   env: {
     ...process.env,
-    CORVID_DEV_URL: process.env.CORVID_DEV_URL ?? "http://localhost:5820",
-    CORVID_SERVICE_URL: process.env.CORVID_SERVICE_URL ?? "http://127.0.0.1:4820",
+    XTEND_DEV_URL: process.env.XTEND_DEV_URL ?? "http://localhost:5820",
+    XTEND_SERVICE_URL: process.env.XTEND_SERVICE_URL ?? "http://127.0.0.1:4820",
   },
 });
 child.on("exit", (code) => process.exit(code ?? 0));

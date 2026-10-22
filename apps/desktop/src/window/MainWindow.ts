@@ -36,8 +36,8 @@ const openExternalWeb = (url: string) => {
 const browserUserAgent = (ua: string) =>
   ua
     .replace(/ Electron\/\S+/, "")
-    .replace(/ corvid\/\S+/i, "")
-    .replace(/ @corvid\/\S+/i, "");
+    .replace(/ xtend\/\S+/i, "")
+    .replace(/ @xtend\/\S+/i, "");
 
 const isBounds = (value: unknown): value is Rectangle =>
   typeof value === "object" &&
@@ -53,7 +53,7 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
     minWidth: 900,
     minHeight: 600,
     backgroundColor: "#000000",
-    title: "Corvid",
+    title: "Xtend",
     ...(process.platform === "darwin"
       ? { titleBarStyle: "hiddenInset" as const, trafficLightPosition: { x: 14, y: 14 } }
       : {}),

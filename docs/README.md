@@ -1,10 +1,10 @@
-# Corvid docs
+# Xtend docs
 
-## Using Corvid
+## Using Xtend
 
 User guides arrive with the first usable release.
 
-## Working on Corvid
+## Working on Xtend
 
 Start with the [development runbook](./operations/development.md) and `AGENTS.md`.
 

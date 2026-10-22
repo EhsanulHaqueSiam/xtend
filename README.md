@@ -1,4 +1,4 @@
-# Corvid
+# Xtend
 
 X, with a second brain. A desktop app that embeds x.com and adds analytics, a scheduler, a viral library, engagement targets, lead lists, automations and account scores around it. A headless service owns the data; the Electron app and a web app are clients.
 

@@ -1,12 +1,10 @@
-# Corvid
+# Xtend
 
-Corvid is a desktop-first X (Twitter) growth suite: the X web app lives in the middle of the window, and a local service adds analytics, a composer with a queue, a viral library, engagement targets, lead lists, automations and account scores around it. The architecture copies T3 Code: a headless Node service owns data and all X calls; thin web and Electron clients connect to it over WebSocket RPC.
-
-Working name. The product name is not decided.
+Xtend is a desktop-first X (Twitter) growth suite: the X web app lives in the middle of the window, and a local service adds analytics, a composer with a queue, a viral library, engagement targets, lead lists, automations and account scores around it. The architecture copies T3 Code: a headless Node service owns data and all X calls; thin web and Electron clients connect to it over WebSocket RPC.
 
 ## Glossary
 
-- **service** means the headless `corvid` process in `apps/server`: SQLite, scheduler, automations, treg and X calls, agent runs.
+- **service** means the headless `xtend` process in `apps/server`: SQLite, scheduler, automations, treg and X calls, agent runs.
 - **client** means the web UI (`apps/web`) or the Electron shell (`apps/desktop`) that wraps it.
 - **session view** means the logged-in x.com `WebContentsView` the desktop embeds. It is the only place the user's X session exists; the service never holds X cookies.
 - **observation** means a post, author or metric row the desktop read from the session view's own traffic and sent to the service. Observations are passive: nothing is replayed to X.
@@ -39,7 +37,7 @@ Working name. The product name is not decided.
 ## Dev
 
 - `pnpm i` installs. `pnpm dev` runs the service and the web app. `pnpm dev:desktop` builds the Electron main and launches it against the dev web server.
-- Service state lives in `~/.corvid` by default; `--base-dir` overrides it. Dev runs use `<repo>/.corvid`, which is gitignored.
+- Service state lives in `~/.xtend` by default; `--base-dir` overrides it. Dev runs use `<repo>/.xtend`, which is gitignored.
 - `vp run typecheck` (tsc-rs), `vp test run <files>`, `vp lint`, `vp fmt`. Do not run repo-wide checks unless asked.
 - Backend behaviour ships with a focused test beside it. Visual changes ship with a screenshot.
 
@@ -48,4 +46,4 @@ Working name. The product name is not decided.
 - Commit plans, research or agent scratch files. Keep them outside the worktree.
 - Add a dependency for a few lines.
 - Add X API or treg calls outside `apps/server/src/x/`.
-- Touch `~/.corvid` from a dev server. Point dev at `<repo>/.corvid`.
+- Touch `~/.xtend` from a dev server. Point dev at `<repo>/.xtend`.

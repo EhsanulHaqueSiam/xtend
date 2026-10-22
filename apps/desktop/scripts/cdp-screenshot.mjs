@@ -1,9 +1,9 @@
-// Screenshots every page of a running desktop started with CORVID_REMOTE_DEBUG=<port>.
+// Screenshots every page of a running desktop started with XTEND_REMOTE_DEBUG=<port>.
 // For headless hosts where screencapture has no display. Usage:
-//   node scripts/cdp-screenshot.mjs 9223 /tmp/corvid
+//   node scripts/cdp-screenshot.mjs 9223 /tmp/xtend
 import { writeFile } from "node:fs/promises";
 
-const [port = "9223", prefix = "/tmp/corvid"] = process.argv.slice(2);
+const [port = "9223", prefix = "/tmp/xtend"] = process.argv.slice(2);
 const CALL_TIMEOUT_MS = 5_000;
 const targets = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
 

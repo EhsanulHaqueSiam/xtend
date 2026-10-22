@@ -1,4 +1,4 @@
-import { ObservationBatch } from "@corvid/contracts";
+import { ObservationBatch } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -13,7 +13,7 @@ export const layerHealthRoute = HttpRouter.add(
   "/api/health",
   Effect.gen(function* () {
     const config = yield* ServerConfig.ServerConfig;
-    return yield* HttpServerResponse.json({ name: "corvid", version: config.version });
+    return yield* HttpServerResponse.json({ name: "xtend", version: config.version });
   }),
 );
 

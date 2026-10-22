@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import type { ObservationBatch } from "@corvid/contracts";
+import type { ObservationBatch } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 

@@ -19,7 +19,7 @@ export class ServerConfig extends Context.Service<
     readonly staticDir: string | undefined;
     readonly devUrl: URL | undefined;
   }
->()("corvid/config/ServerConfig") {}
+>()("xtend/config/ServerConfig") {}
 
 export const layer = (config: ServerConfig["Service"]) => Layer.succeed(ServerConfig)(config);
 
@@ -35,7 +35,7 @@ export const resolve = Effect.fn("ServerConfig.resolve")(function* (options: Res
   const path = yield* Path.Path;
   const homeDir = process.env.HOME ?? process.env.USERPROFILE ?? ".";
   const baseDir = path.resolve(
-    options.baseDir ?? process.env.CORVID_HOME ?? path.join(homeDir, ".corvid"),
+    options.baseDir ?? process.env.XTEND_HOME ?? path.join(homeDir, ".xtend"),
   );
   const staticDir = path.resolve(import.meta.dirname, "..", "..", "web", "dist");
   return ServerConfig.of({
@@ -43,7 +43,7 @@ export const resolve = Effect.fn("ServerConfig.resolve")(function* (options: Res
     port: options.port ?? DEFAULT_PORT,
     host: options.host ?? "127.0.0.1",
     baseDir,
-    dbPath: path.join(baseDir, "corvid.sqlite"),
+    dbPath: path.join(baseDir, "xtend.sqlite"),
     staticDir: options.devUrl === undefined ? staticDir : undefined,
     devUrl: options.devUrl,
   });

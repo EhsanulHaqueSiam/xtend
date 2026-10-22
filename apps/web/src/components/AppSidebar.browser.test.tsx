@@ -5,7 +5,7 @@ import { render } from "../../test/render";
 import { AppSidebar } from "./AppSidebar";
 
 it("collapses to icons and remembers the choice", async () => {
-  window.localStorage.removeItem("corvid:sidebar-open");
+  window.localStorage.removeItem("xtend:sidebar-open");
   await using screen = await render(
     <AppSidebar>
       <div>content</div>
@@ -15,7 +15,7 @@ it("collapses to icons and remembers the choice", async () => {
 
   await userEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
   await expect.element(screen.getByText("Compose")).not.toBeInTheDocument();
-  expect(window.localStorage.getItem("corvid:sidebar-open")).toBe("false");
+  expect(window.localStorage.getItem("xtend:sidebar-open")).toBe("false");
 
   await userEvent.click(screen.getByRole("button", { name: "Expand sidebar" }));
   await expect.element(screen.getByText("Compose")).toBeVisible();

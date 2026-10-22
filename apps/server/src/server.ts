@@ -36,7 +36,7 @@ const layerApplication = HttpRouter.serve(layerRoutes).pipe(
   Layer.tap(() =>
     Effect.gen(function* () {
       const config = yield* ServerConfig.ServerConfig;
-      yield* Effect.log(`corvid service listening on http://${config.host}:${config.port}`);
+      yield* Effect.log(`xtend service listening on http://${config.host}:${config.port}`);
     }),
   ),
   Layer.provideMerge(layerServices),

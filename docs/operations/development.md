@@ -10,7 +10,7 @@ pnpm i
 pnpm dev
 ```
 
-`pnpm dev` runs the service (port 4820, state in the gitignored `<repo>/.corvid`) and the web
+`pnpm dev` runs the service (port 4820, state in the gitignored `<repo>/.xtend`) and the web
 app (port 5820). The web app proxies `/ws` and `/api` to the service, so one origin works over
 localhost and over the network alike.
 
@@ -19,8 +19,8 @@ dev web server. It expects `pnpm dev` to be running.
 
 ## State
 
-The service keeps everything under one base directory: `~/.corvid` by default, `--base-dir`
-to override, `CORVID_HOME` as the environment equivalent. Dev always passes an explicit
+The service keeps everything under one base directory: `~/.xtend` by default, `--base-dir`
+to override, `XTEND_HOME` as the environment equivalent. Dev always passes an explicit
 `--base-dir` so a development server never touches the real data.
 
 ## Checks

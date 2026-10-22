@@ -1,4 +1,4 @@
-import { WS_METHODS, WS_PATH, WsRpcGroup } from "@corvid/contracts";
+import { WS_METHODS, WS_PATH, WsRpcGroup } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { HttpRouter } from "effect/http";
@@ -15,7 +15,7 @@ const layerHandlers = WsRpcGroup.toLayer(
     return WsRpcGroup.of({
       [WS_METHODS.serverInfo]: () =>
         Effect.succeed({
-          name: "corvid" as const,
+          name: "xtend" as const,
           version: config.version,
           baseDir: config.baseDir,
         }),

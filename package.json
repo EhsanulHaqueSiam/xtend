@@ -1,12 +1,12 @@
 {
-  "name": "@corvid/monorepo",
+  "name": "@xtend/monorepo",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vp run --filter @corvid/contracts --filter @corvid/web --filter corvid --parallel dev",
-    "dev:server": "vp run --filter corvid dev",
-    "dev:web": "vp run --filter @corvid/web dev",
-    "dev:desktop": "vp run --filter @corvid/desktop dev",
+    "dev": "vp run --filter @xtend/contracts --filter @xtend/web --filter xtend --parallel dev",
+    "dev:server": "vp run --filter xtend dev",
+    "dev:web": "vp run --filter @xtend/web dev",
+    "dev:desktop": "vp run --filter @xtend/desktop dev",
     "build": "vp run --filter './apps/*' build",
     "typecheck": "vp run -r --cache --concurrency-limit 4 typecheck",
     "tc": "vp run -r --cache --concurrency-limit 4 typecheck",

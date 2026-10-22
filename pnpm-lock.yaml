@@ -253,7 +253,7 @@ importers:
 
   apps/desktop:
     dependencies:
-      '@corvid/contracts':
+      '@xtend/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
       effect:
@@ -275,7 +275,7 @@ importers:
 
   apps/server:
     dependencies:
-      '@corvid/contracts':
+      '@xtend/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
       '@effect/platform-node':
@@ -303,7 +303,7 @@ importers:
       '@base-ui/react':
         specifier: ^1.9.0
         version: 1.9.0(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      '@corvid/contracts':
+      '@xtend/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
       '@effect/atom-react':

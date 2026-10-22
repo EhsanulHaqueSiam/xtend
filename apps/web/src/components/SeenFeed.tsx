@@ -1,5 +1,5 @@
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
-import type { ObservedPostSummary } from "@corvid/contracts";
+import type { ObservedPostSummary } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { BadgeCheck, RefreshCw } from "lucide-react";
 

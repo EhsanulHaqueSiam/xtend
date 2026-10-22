@@ -5,7 +5,7 @@ import {
   type ObservationRecordResult,
   ObservationStoreError,
   type ObservedPostSummary,
-} from "@corvid/contracts";
+} from "@xtend/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -74,7 +74,7 @@ export class ObservationStore extends Context.Service<
       input: ObservationListRecentInput,
     ) => Effect.Effect<ObservationListRecentResult, ObservationStoreError>;
   }
->()("corvid/observations/ObservationStore") {}
+>()("xtend/observations/ObservationStore") {}
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
