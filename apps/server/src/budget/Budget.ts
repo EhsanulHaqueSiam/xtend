@@ -47,7 +47,10 @@ const make = Effect.gen(function* () {
   let reserved = 0;
 
   const reserve = (request: SpendRequest) =>
-    Semaphore.withPermits(gate, 1)(
+    Semaphore.withPermits(
+      gate,
+      1,
+    )(
       Effect.gen(function* () {
         // A settings failure must not unlock spending: treat it as over budget.
         const over = yield* settings
@@ -63,7 +66,10 @@ const make = Effect.gen(function* () {
     );
 
   const settle = (request: SpendRequest, costUsd: number) =>
-    Semaphore.withPermits(gate, 1)(
+    Semaphore.withPermits(
+      gate,
+      1,
+    )(
       Effect.gen(function* () {
         reserved -= request.expectedUsd;
         yield* settings

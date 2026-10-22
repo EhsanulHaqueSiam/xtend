@@ -75,9 +75,10 @@ export const layer = Layer.effect(
     const path = yield* Path.Path;
     const file = path.join(config.baseDir, TOKEN_FILE);
     yield* fs.makeDirectory(config.baseDir, { recursive: true });
-    const existing = yield* fs
-      .readFileString(file)
-      .pipe(Effect.map((s) => s.trim()), Effect.orElseSucceed(() => ""));
+    const existing = yield* fs.readFileString(file).pipe(
+      Effect.map((s) => s.trim()),
+      Effect.orElseSucceed(() => ""),
+    );
     const token = existing !== "" ? existing : NodeCrypto.randomBytes(32).toString("hex");
     if (existing === "") {
       yield* fs.writeFileString(file, token + "\n", { mode: 0o600 });

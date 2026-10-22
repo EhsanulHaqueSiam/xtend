@@ -249,7 +249,8 @@ export function RuleForm({
       </Row>
       <div className="flex items-center justify-between gap-2 border-t border-border pt-2">
         <span className="font-mono text-muted-foreground">
-          {cost === null ? "…" : usd(cost)} per fire{action.kind === "auto_delete" ? " per post" : ""}
+          {cost === null ? "…" : usd(cost)} per fire
+          {action.kind === "auto_delete" ? " per post" : ""}
           {rule.dryRun ? " · dry run, nothing charged" : ""}
         </span>
         <span className="flex gap-1">

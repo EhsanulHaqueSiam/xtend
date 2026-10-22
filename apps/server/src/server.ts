@@ -21,6 +21,8 @@ import * as LibraryHandlers from "./library/LibraryHandlers.ts";
 import * as EngageHandlers from "./engage/EngageHandlers.ts";
 import * as LeadsHandlers from "./leads/LeadsHandlers.ts";
 import * as AutomateHandlers from "./automate/AutomateHandlers.ts";
+import * as DesktopHandlers from "./desktop/DesktopHandlers.ts";
+import * as EventsHandlers from "./events/EventsHandlers.ts";
 
 import * as ServerConfig from "./config.ts";
 import * as ServerHttp from "./http.ts";
@@ -68,6 +70,8 @@ const layerAreas = Layer.mergeAll(
   EngageHandlers.layer,
   LeadsHandlers.layer,
   AutomateHandlers.layer,
+  DesktopHandlers.layer,
+  EventsHandlers.layer,
 );
 
 const layerServices = Layer.mergeAll(layerAreas, Costs.layer).pipe(

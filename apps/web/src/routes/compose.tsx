@@ -82,9 +82,7 @@ function Inspiration({ postId }: { readonly postId: string }) {
   if (post === null) return null;
   return (
     <div className="flex flex-col gap-1 rounded-md border border-border bg-card p-2 text-xs">
-      <span className="text-2xs text-muted-foreground">
-        Inspired by @{post.post.author.handle}
-      </span>
+      <span className="text-2xs text-muted-foreground">Inspired by @{post.post.author.handle}</span>
       <p className="whitespace-pre-wrap text-foreground/90">{post.post.text}</p>
     </div>
   );

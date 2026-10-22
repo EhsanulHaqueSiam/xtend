@@ -18,18 +18,31 @@ const post = (postId: string, ageMs: number, views: number): XPost => ({
   postId,
   url: `https://x.com/siam/status/${postId}`,
   text: "t",
-  createdAt: DateTime.formatIso(DateTime.subtractDuration(DateTime.nowUnsafe(), Duration.millis(ageMs))),
+  createdAt: DateTime.formatIso(
+    DateTime.subtractDuration(DateTime.nowUnsafe(), Duration.millis(ageMs)),
+  ),
   lang: null,
   isReply: false,
   isRepost: false,
   hasMedia: false,
   hasLink: false,
-  author: { userId: "1", handle: "siam", name: "Siam", followers: 10, verified: false, avatarUrl: null },
+  author: {
+    userId: "1",
+    handle: "siam",
+    name: "Siam",
+    followers: 10,
+    verified: false,
+    avatarUrl: null,
+  },
   metrics: { views, likes: 0, reposts: 0, replies: 0, quotes: 0, bookmarks: 0 },
 });
 
 // Own timeline: one post from last week, one from 2 hours ago, one from 30 hours ago; all over threshold.
-const timeline = [post("old", 7 * 24 * HOUR, 5000), post("fresh", 2 * HOUR, 5000), post("day", 30 * HOUR, 5000)];
+const timeline = [
+  post("old", 7 * 24 * HOUR, 5000),
+  post("fresh", 2 * HOUR, 5000),
+  post("day", 30 * HOUR, 5000),
+];
 const liked: Array<string> = [];
 const deleted: Array<string> = [];
 let failLikes = false;
@@ -44,13 +57,17 @@ const layerTest = AutomationEngine.layer.pipe(
         userPosts: () => Effect.succeed({ items: timeline, nextCursor: null, fromCache: true }),
         like: (id) =>
           failLikes
-            ? Effect.fail(new XApiError({ endpoint: "x", reason: "provider", status: 500, detail: "down" }))
+            ? Effect.fail(
+                new XApiError({ endpoint: "x", reason: "provider", status: 500, detail: "down" }),
+              )
             : Effect.sync(() => {
                 liked.push(id);
               }),
         deletePost: (id) =>
           deleted.length === 1
-            ? Effect.fail(new XApiError({ endpoint: "x", reason: "provider", status: 500, detail: "down" }))
+            ? Effect.fail(
+                new XApiError({ endpoint: "x", reason: "provider", status: 500, detail: "down" }),
+              )
             : Effect.sync(() => {
                 deleted.push(id);
               }),

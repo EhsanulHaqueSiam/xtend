@@ -9,7 +9,6 @@ import { Button } from "../ui/button";
 export const inputClass =
   "w-full rounded-md border border-input bg-background px-2.5 py-1.5 font-mono text-xs text-foreground outline-hidden placeholder:text-placeholder focus-visible:ring-2 focus-visible:ring-ring";
 
-
 const compact = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
 export const fmt = (n: number | null) => (n === null ? "–" : compact.format(n));
 

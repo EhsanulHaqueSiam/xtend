@@ -15,7 +15,9 @@ import { RpcSerialization, RpcServer } from "effect/rpc";
 import * as ServiceAuth from "./ServiceAuth.ts";
 
 const TOKEN = "t".repeat(64);
-const Ping = RpcGroup.make(Rpc.make("ping", { payload: Schema.Struct({}), success: Schema.String }));
+const Ping = RpcGroup.make(
+  Rpc.make("ping", { payload: Schema.Struct({}), success: Schema.String }),
+);
 
 // The same guard the real /ws and /api/observations routes use, around a one-method RPC server.
 const routes = Layer.mergeAll(

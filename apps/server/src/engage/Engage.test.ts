@@ -40,7 +40,9 @@ const layerTest = Engage.layer.pipe(
       xClientStub({
         mentions: ({ sinceId }) => {
           apiCalls.push(sinceId);
-          return Effect.succeed(sinceId === undefined ? [mention("10"), mention("12")] : [mention("15")]);
+          return Effect.succeed(
+            sinceId === undefined ? [mention("10"), mention("12")] : [mention("15")],
+          );
         },
       }),
     ),
@@ -54,9 +56,16 @@ describe("Engage.mentions", () => {
       const engage = yield* Engage.Engage;
       expect((yield* engage.mentions(false)).mentions).toEqual([]);
       expect(apiCalls).toEqual([]);
-      expect((yield* engage.mentions(true)).mentions.map((m) => m.post.postId)).toEqual(["12", "10"]);
+      expect((yield* engage.mentions(true)).mentions.map((m) => m.post.postId)).toEqual([
+        "12",
+        "10",
+      ]);
       expect((yield* engage.mentions(false)).mentions).toHaveLength(2);
-      expect((yield* engage.mentions(true)).mentions.map((m) => m.post.postId)).toEqual(["15", "12", "10"]);
+      expect((yield* engage.mentions(true)).mentions.map((m) => m.post.postId)).toEqual([
+        "15",
+        "12",
+        "10",
+      ]);
       expect(apiCalls).toEqual([undefined, "12"]);
     }).pipe(Effect.provide(layerTest)),
   );

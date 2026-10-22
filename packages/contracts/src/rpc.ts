@@ -18,6 +18,8 @@ import { LibraryRpcGroup } from "./library.ts";
 import { EngageRpcGroup } from "./engage.ts";
 import { LeadsRpcGroup } from "./leads.ts";
 import { AutomateRpcGroup } from "./automate.ts";
+import { DesktopRpcGroup } from "./desktop.ts";
+import { EventsRpcGroup } from "./events.ts";
 
 import { CostAction, CostQuoteResult, Costs_METHODS } from "./costs.ts";
 import { Settings, SettingsError, SettingsUpdate, SpendSummary } from "./settings.ts";
@@ -99,4 +101,6 @@ export const WsRpcGroup = CoreRpcGroup.merge(
   EngageRpcGroup,
   LeadsRpcGroup,
   AutomateRpcGroup,
+  DesktopRpcGroup,
+  EventsRpcGroup,
 );

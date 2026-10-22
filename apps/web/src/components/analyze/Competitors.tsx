@@ -105,8 +105,8 @@ export function Competitors({ posts }: { readonly posts: ReadonlyArray<AccountPo
           </Button>
         </form>
         <p className="pt-1 text-2xs text-muted-foreground">
-          Adding is free. Fetching a handle reads its profile and one posts page. The list is
-          shared with Scores.
+          Adding is free. Fetching a handle reads its profile and one posts page. The list is shared
+          with Scores.
         </p>
         {error !== null ? <ErrorText>{error}</ErrorText> : null}
       </Section>

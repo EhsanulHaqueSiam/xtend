@@ -52,9 +52,10 @@ export const layer = Layer.effect(
     const path = yield* Path.Path;
     const file = path.join(config.baseDir, KEY_FILE);
     yield* fs.makeDirectory(config.baseDir, { recursive: true });
-    const existing = yield* fs
-      .readFileString(file)
-      .pipe(Effect.map((s) => s.trim()), Effect.orElseSucceed(() => ""));
+    const existing = yield* fs.readFileString(file).pipe(
+      Effect.map((s) => s.trim()),
+      Effect.orElseSucceed(() => ""),
+    );
     if (existing.length === 64) return make(Buffer.from(existing, "hex"));
     const key = NodeCrypto.randomBytes(32);
     yield* fs.writeFileString(file, key.toString("hex") + "\n", { mode: 0o600 });

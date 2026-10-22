@@ -14,19 +14,24 @@ const layerTest = SettingsStore.layer.pipe(
 );
 
 describe("SettingsStore", () => {
-  it.effect("lowercases the handle, defaults the zone and keeps the treg token encrypted at rest", () =>
-    Effect.gen(function* () {
-      const store = yield* SettingsStore.SettingsStore;
-      const sql = yield* SqlClient.SqlClient;
-      const initial = yield* store.get;
-      expect(initial.timeZone).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
-      const updated = yield* store.update({ handle: "EhsanulHaqueSiam", tregToken: "trg_secret" });
-      expect(updated.handle).toBe("ehsanulhaquesiam");
-      expect(updated.tregTokenSet).toBe(true);
-      const rows = yield* sql<{ treg_token: string }>`SELECT treg_token FROM settings`;
-      expect(rows[0]?.treg_token).not.toContain("trg_secret");
-      expect(yield* store.tregToken).toBe("trg_secret");
-    }).pipe(Effect.provide(layerTest)),
+  it.effect(
+    "lowercases the handle, defaults the zone and keeps the treg token encrypted at rest",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* SettingsStore.SettingsStore;
+        const sql = yield* SqlClient.SqlClient;
+        const initial = yield* store.get;
+        expect(initial.timeZone).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
+        const updated = yield* store.update({
+          handle: "EhsanulHaqueSiam",
+          tregToken: "trg_secret",
+        });
+        expect(updated.handle).toBe("ehsanulhaquesiam");
+        expect(updated.tregTokenSet).toBe(true);
+        const rows = yield* sql<{ treg_token: string }>`SELECT treg_token FROM settings`;
+        expect(rows[0]?.treg_token).not.toContain("trg_secret");
+        expect(yield* store.tregToken).toBe("trg_secret");
+      }).pipe(Effect.provide(layerTest)),
   );
 
   it("rejects a negative or non-finite budget at the contract", () => {

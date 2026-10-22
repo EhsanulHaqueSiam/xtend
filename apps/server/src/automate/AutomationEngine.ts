@@ -270,7 +270,9 @@ const make = Effect.gen(function* () {
                   for (const p of stale) {
                     yield* x
                       .deletePost(p.postId, purpose)
-                      .pipe(Effect.mapError((error): PerformFailure => ({ error, costUsd: spent })));
+                      .pipe(
+                        Effect.mapError((error): PerformFailure => ({ error, costUsd: spent })),
+                      );
                     spent += cost;
                   }
                   return spent;
@@ -324,7 +326,12 @@ const make = Effect.gen(function* () {
         return yield* rules.recordRun({ ...base, status: "dry_run", detail: `would ${p.detail}` });
       const outcome = yield* Effect.result(p.perform);
       if (outcome._tag === "Success")
-        return yield* rules.recordRun({ ...base, status: "ok", detail: p.detail, costUsd: outcome.success });
+        return yield* rules.recordRun({
+          ...base,
+          status: "ok",
+          detail: p.detail,
+          costUsd: outcome.success,
+        });
       // The monthly budget (Budget service, inside XClient) refusing is a skip, not a failure.
       const { error, costUsd } = outcome.failure;
       return yield* rules.recordRun({
@@ -357,7 +364,9 @@ const make = Effect.gen(function* () {
       const due = perTick(rule.action) ? free.slice(0, 1) : free;
       for (const s of due) inFlight.add(`${rule.id}:${s.id}`);
       const runs = yield* Effect.forEach(due, (s) => fire(rule, s)).pipe(
-        Effect.ensuring(Effect.sync(() => due.forEach((s) => inFlight.delete(`${rule.id}:${s.id}`)))),
+        Effect.ensuring(
+          Effect.sync(() => due.forEach((s) => inFlight.delete(`${rule.id}:${s.id}`))),
+        ),
       );
       // One account-level firing covered every subject that matched this tick.
       if (perTick(rule.action) && runs[0]?.status === "ok")

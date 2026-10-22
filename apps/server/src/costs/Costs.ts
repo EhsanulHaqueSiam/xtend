@@ -73,9 +73,8 @@ const make = Effect.gen(function* () {
           if (handle === null) return paid(usd);
           return yield* read(
             usd,
-            Effect.map(
-              Effect.all([x.cached.profile(handle), x.cached.userPosts(handle)]),
-              (hits) => hits.every(Boolean),
+            Effect.map(Effect.all([x.cached.profile(handle), x.cached.userPosts(handle)]), (hits) =>
+              hits.every(Boolean),
             ),
           );
         });

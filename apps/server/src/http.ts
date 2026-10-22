@@ -1,5 +1,6 @@
 import { ObservationBatch } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
@@ -30,21 +31,21 @@ export const layerObservationsRoute = HttpRouter.add(
   "/api/observations",
   ServiceAuth.guarded(
     Effect.gen(function* () {
-    const batch = yield* HttpServerRequest.schemaBodyJson(ObservationBatch);
-    const store = yield* ObservationStore.ObservationStore;
-    const result = yield* store.record(batch);
-    return yield* HttpServerResponse.json(result);
-  }).pipe(
-    Effect.catchTags({
-      SchemaError: (error) =>
-        HttpServerResponse.json(
-          { error: "invalid_batch", message: error.message },
-          { status: 400 },
-        ),
-      ObservationStoreError: (error) =>
-        HttpServerResponse.json({ error: error._tag, message: error.message }, { status: 500 }),
-    }),
-  ),
+      const batch = yield* HttpServerRequest.schemaBodyJson(ObservationBatch);
+      const store = yield* ObservationStore.ObservationStore;
+      const result = yield* store.record(batch);
+      return yield* HttpServerResponse.json(result);
+    }).pipe(
+      Effect.catchTags({
+        SchemaError: (error) =>
+          HttpServerResponse.json(
+            { error: "invalid_batch", message: error.message },
+            { status: 400 },
+          ),
+        ObservationStoreError: (error) =>
+          HttpServerResponse.json({ error: error._tag, message: error.message }, { status: 500 }),
+      }),
+    ),
   ),
 );
 
@@ -94,15 +95,24 @@ export const layerWebRoute = Layer.unwrap(
     }
     const indexPath = path.join(staticDir, "index.html");
     const auth = yield* ServiceAuth.ServiceAuth;
-    // The packaged app is served by the service itself, so the token rides in the page.
-    const index = yield* fs.readFileString(indexPath).pipe(
-      Effect.map((html) =>
-        html.replace("</head>", `<meta name="${TOKEN_META}" content="${auth.token}" /></head>`),
-      ),
-      Effect.orElseSucceed(() => null),
-    );
-    if (index === null)
-      return HttpRouter.add("GET", "*", HttpServerResponse.text("No web UI built.", { status: 404 }));
+    const plainIndex = yield* fs.readFileString(indexPath).pipe(Effect.orElseSucceed(() => null));
+    // The packaged app is served by the service itself, so the token rides in the page, but
+    // only to a browser on this machine: a Tailnet-bound service must not hand it to the LAN.
+    // Remote browsers get it from the connect flow instead.
+    const withToken =
+      plainIndex === null
+        ? null
+        : plainIndex.replace(
+            "</head>",
+            `<meta name="${TOKEN_META}" content="${auth.token}" /></head>`,
+          );
+    const index = plainIndex;
+    if (index === null || withToken === null)
+      return HttpRouter.add(
+        "GET",
+        "*",
+        HttpServerResponse.text("No web UI built.", { status: 404 }),
+      );
     return HttpRouter.add("GET", "*", (request) =>
       Effect.gen(function* () {
         const requested = path.normalize(
@@ -116,7 +126,11 @@ export const layerWebRoute = Layer.unwrap(
             Effect.map((s) => s.type === "File"),
             Effect.orElseSucceed(() => false),
           ));
-        return isFile ? yield* HttpServerResponse.file(candidate) : HttpServerResponse.html(index);
+        if (isFile) return yield* HttpServerResponse.file(candidate);
+        const remote = Option.getOrElse(request.remoteAddress, () => "");
+        const loopback =
+          remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
+        return HttpServerResponse.html(loopback ? withToken : index);
       }).pipe(Effect.orElseSucceed(() => HttpServerResponse.text("Not found", { status: 404 }))),
     );
   }),

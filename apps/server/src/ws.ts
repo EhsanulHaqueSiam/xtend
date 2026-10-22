@@ -12,6 +12,9 @@ import * as LibraryHandlers from "./library/LibraryHandlers.ts";
 import * as EngageHandlers from "./engage/EngageHandlers.ts";
 import * as LeadsHandlers from "./leads/LeadsHandlers.ts";
 import * as AutomateHandlers from "./automate/AutomateHandlers.ts";
+import * as DesktopHandlers from "./desktop/DesktopHandlers.ts";
+import * as EventsHandlers from "./events/EventsHandlers.ts";
+
 import * as ServiceAuth from "./auth/ServiceAuth.ts";
 import * as ServerConfig from "./config.ts";
 import * as Costs from "./costs/Costs.ts";
@@ -53,6 +56,8 @@ const layerHandlers = Layer.mergeAll(
   EngageHandlers.layerHandlers,
   LeadsHandlers.layerHandlers,
   AutomateHandlers.layerHandlers,
+  DesktopHandlers.layerHandlers,
+  EventsHandlers.layerHandlers,
 );
 
 export const layerRoute = HttpRouter.add(

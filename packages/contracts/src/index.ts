@@ -13,3 +13,5 @@ export * from "./library.ts";
 export * from "./engage.ts";
 export * from "./leads.ts";
 export * from "./automate.ts";
+export * from "./desktop.ts";
+export * from "./events.ts";

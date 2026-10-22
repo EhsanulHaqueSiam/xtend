@@ -461,33 +461,35 @@ export const make = Effect.gen(function* () {
       const handle = str(u.username).toLowerCase();
       const createdAt = isoFromText(str(t.created_at));
       if (str(t.id) === "" || createdAt === null) return [];
-      return [{
-        postId: str(t.id),
-        url: `https://x.com/${handle}/status/${str(t.id)}`,
-        text: str(t.text),
-        createdAt,
-        lang: str(t.lang) || null,
-        isReply: true,
-        isRepost: false,
-        hasMedia: false,
-        hasLink: hasLink(str(t.text)),
-        author: {
-          userId: str(t.author_id),
-          handle,
-          name: str(u.name) || handle,
-          followers: num(obj(u.public_metrics).followers_count),
-          verified: u.verified === true,
-          avatarUrl: null,
+      return [
+        {
+          postId: str(t.id),
+          url: `https://x.com/${handle}/status/${str(t.id)}`,
+          text: str(t.text),
+          createdAt,
+          lang: str(t.lang) || null,
+          isReply: true,
+          isRepost: false,
+          hasMedia: false,
+          hasLink: hasLink(str(t.text)),
+          author: {
+            userId: str(t.author_id),
+            handle,
+            name: str(u.name) || handle,
+            followers: num(obj(u.public_metrics).followers_count),
+            verified: u.verified === true,
+            avatarUrl: null,
+          },
+          metrics: {
+            views: num(m.impression_count),
+            likes: int(m.like_count),
+            reposts: int(m.retweet_count),
+            replies: int(m.reply_count),
+            quotes: int(m.quote_count),
+            bookmarks: int(m.bookmark_count),
+          },
         },
-        metrics: {
-          views: num(m.impression_count),
-          likes: int(m.like_count),
-          reposts: int(m.retweet_count),
-          replies: int(m.reply_count),
-          quotes: int(m.quote_count),
-          bookmarks: int(m.bookmark_count),
-        },
-      }];
+      ];
     });
   });
 

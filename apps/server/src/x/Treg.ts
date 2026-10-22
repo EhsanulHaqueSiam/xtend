@@ -152,7 +152,10 @@ const make = Effect.gen(function* () {
       yield* Effect.logDebug("treg sent no cost; charged the quote").pipe(
         Effect.annotateLogs({ endpoint: input.endpoint, costUsd: cost.costUsd }),
       );
-    return { value: { status: response.status, text, body, costUsd: cost.costUsd }, costUsd: cost.costUsd };
+    return {
+      value: { status: response.status, text, body, costUsd: cost.costUsd },
+      costUsd: cost.costUsd,
+    };
   });
 
   const call = Effect.fn("Treg.call")(function* (input: TregCall) {
@@ -175,13 +178,23 @@ const make = Effect.gen(function* () {
     const expected = input.expectedCostUsd ?? 0;
     const { status, text, body, costUsd } = yield* budget
       .spend(
-        { expectedUsd: expected, provider: "treg", endpoint: input.endpoint, purpose: input.purpose },
+        {
+          expectedUsd: expected,
+          provider: "treg",
+          endpoint: input.endpoint,
+          purpose: input.purpose,
+        },
         exchange(input, auth),
       )
       .pipe(
         Effect.catchTag("BudgetExceeded", (e) =>
           Effect.fail(
-            new XApiError({ endpoint: input.endpoint, reason: "budget", status: null, detail: e.message }),
+            new XApiError({
+              endpoint: input.endpoint,
+              reason: "budget",
+              status: null,
+              detail: e.message,
+            }),
           ),
         ),
       );

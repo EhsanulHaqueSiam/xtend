@@ -38,7 +38,9 @@ describe("ScoreEngine", () => {
     const big = Array.from({ length: ScoreEngine.SCORE_TOP_K }, (_, i) =>
       follower({ userId: `b${i}`, followers: 10_000 }),
     );
-    const small = Array.from({ length: 300 }, (_, i) => follower({ userId: `s${i}`, followers: 10 }));
+    const small = Array.from({ length: 300 }, (_, i) =>
+      follower({ userId: `s${i}`, followers: 10 }),
+    );
     const base = ScoreEngine.score(big, { followers: 1, following: 1 }, now);
     const padded = ScoreEngine.score([...small, ...big], { followers: 1, following: 1 }, now);
     expect(padded.score).toBe(base.score);

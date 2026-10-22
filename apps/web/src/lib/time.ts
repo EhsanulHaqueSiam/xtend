@@ -68,7 +68,13 @@ const instantIn = (zone: string, year: number, month: number, day: number, minut
 export const localInputToInstant = (zone: string, value: string) => {
   const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value);
   if (m === null) return null;
-  return instantIn(zone, Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4]) * 60 + Number(m[5]));
+  return instantIn(
+    zone,
+    Number(m[1]),
+    Number(m[2]),
+    Number(m[3]),
+    Number(m[4]) * 60 + Number(m[5]),
+  );
 };
 
 /** Midnight of the instant's day in the zone, moved by `days`. */

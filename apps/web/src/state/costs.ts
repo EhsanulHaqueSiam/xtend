@@ -27,8 +27,7 @@ const quoteFamily = Atom.family((key: string) =>
     }),
   ),
 );
-const quoteAtom = (actions: ReadonlyArray<CostAction>) =>
-  quoteFamily(encodeActions(actions));
+const quoteAtom = (actions: ReadonlyArray<CostAction>) => quoteFamily(encodeActions(actions));
 
 export const usd = (n: number) => `$${n.toFixed(5).replace(/0+$/, "").replace(/\.$/, "")}`;
 

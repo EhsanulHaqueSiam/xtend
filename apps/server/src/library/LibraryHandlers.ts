@@ -32,12 +32,10 @@ export const layerHandlers = LibraryRpcGroup.toLayer(
       [Library_METHODS.pickDraft]: ({ postId }) => library.pickDraft(postId),
       // A suggestion is a real Compose draft, so the Ready shelf and the editor see it.
       [Library_METHODS.suggestedDraftSave]: ({ text, source }) =>
-        drafts
-          .create({ blocks: [{ text }], status: "suggested", source })
-          .pipe(
-            Effect.map((d) => ({ id: d.id })),
-            Effect.mapError((e) => new LibraryError({ operation: "store", detail: e.message })),
-          ),
+        drafts.create({ blocks: [{ text }], status: "suggested", source }).pipe(
+          Effect.map((d) => ({ id: d.id })),
+          Effect.mapError((e) => new LibraryError({ operation: "store", detail: e.message })),
+        ),
       [Library_METHODS.trends]: ({ country }) => library.trends(country),
       [Library_METHODS.trendIdeas]: ({ country }) => library.trendIdeas(country),
     });

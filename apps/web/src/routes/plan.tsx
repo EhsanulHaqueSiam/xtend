@@ -41,7 +41,11 @@ function PlanScreen() {
     AsyncResult.map(settings, (s) => s.timeZone),
     () => Intl.DateTimeFormat().resolvedOptions().timeZone,
   );
-  const monthDay = new Intl.DateTimeFormat("en", { month: "short", day: "numeric", timeZone: zone });
+  const monthDay = new Intl.DateTimeFormat("en", {
+    month: "short",
+    day: "numeric",
+    timeZone: zone,
+  });
   const [offsetWeeks, setOffsetWeeks] = useState(0);
   const start = dayStartIn(zone, weekStartIn(zone, now), offsetWeeks * 7);
   const range = `${start.toISOString()}|${dayStartIn(zone, start, 7).toISOString()}`;
