@@ -59,6 +59,7 @@ export function RunsLog({
               <th className="py-1 text-left font-normal">Status</th>
               <th className="py-1 text-left font-normal">Detail</th>
               <th className="py-1 text-left font-normal">Subject</th>
+              <th className="py-1 text-left font-normal">X id</th>
               <th className="py-1 text-right font-normal">Cost</th>
             </tr>
           </thead>
@@ -79,6 +80,9 @@ export function RunsLog({
                 </td>
                 <td className="max-w-40 truncate py-1 pr-2 font-mono text-muted-foreground">
                   {r.subjectId}
+                </td>
+                <td className="max-w-40 truncate py-1 pr-2 font-mono text-muted-foreground">
+                  {r.xId ?? ""}
                 </td>
                 <td className="py-1 text-right font-mono">{usd(r.costUsd)}</td>
               </tr>

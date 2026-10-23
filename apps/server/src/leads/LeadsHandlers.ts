@@ -2,16 +2,22 @@ import { Leads_METHODS, LeadsRpcGroup } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
+import * as Treg from "../x/Treg.ts";
 import * as LeadsOps from "./LeadsOps.ts";
 import * as PeopleStore from "./PeopleStore.ts";
 import * as SignalAgents from "./SignalAgents.ts";
+import * as XExtra from "./XExtra.ts";
 
 /** Services this area adds to the application. Merged into layerAreas in server.ts. */
 export const layer = Layer.mergeAll(
   SignalAgents.layerScheduler,
   SignalAgents.layer,
   LeadsOps.layer,
-).pipe(Layer.provideMerge(PeopleStore.layer));
+).pipe(
+  Layer.provideMerge(
+    Layer.mergeAll(PeopleStore.layer, XExtra.layer.pipe(Layer.provide(Treg.layer))),
+  ),
+);
 
 /** RPC handlers for LeadsRpcGroup. Merged into the WebSocket route in ws.ts. */
 export const layerHandlers = LeadsRpcGroup.toLayer(
@@ -32,12 +38,20 @@ export const layerHandlers = LeadsRpcGroup.toLayer(
       [Leads_METHODS.listCreate]: ({ name }) => people.createList(name),
       [Leads_METHODS.listPreview]: (criteria) => ops.listPreview(criteria),
       [Leads_METHODS.listAddAll]: ({ listId, people: rows }) =>
-        Effect.map(people.addMany(rows, `list:${listId}`, listId), (inserted) => ({ inserted })),
+        Effect.map(people.addMany(rows, `list:${listId}`, listId), (ids) => ({
+          inserted: ids.filter((id) => id !== null).length,
+        })),
       [Leads_METHODS.agentsList]: () => agents.list,
       [Leads_METHODS.agentUpsert]: (input) => agents.upsert(input),
       [Leads_METHODS.agentRun]: ({ id }) => agents.run(id),
       [Leads_METHODS.agentSuggest]: () => agents.suggest,
       [Leads_METHODS.newFollowers]: () => ops.newFollowers,
+      [Leads_METHODS.engagersQuote]: ({ via }) =>
+        Effect.succeed({ costUsd: XExtra.engagersCostUsd(via) }),
+      [Leads_METHODS.engagers]: ({ postId, via }) => ops.engagers(postId, via),
+      [Leads_METHODS.latestPost]: ({ id }) => ops.latestPost(id),
+      [Leads_METHODS.draftReply]: ({ id }) => ops.draftReply(id),
+      [Leads_METHODS.sendReply]: ({ id, postId, text }) => ops.sendReply(id, postId, text),
     });
   }),
 );

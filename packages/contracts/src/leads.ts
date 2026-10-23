@@ -3,7 +3,8 @@ import * as Rpc from "effect/rpc/Rpc";
 import * as RpcGroup from "effect/rpc/RpcGroup";
 
 import { IsoDateTime, NonNegativeInt, XHandle, XId } from "./baseSchemas.ts";
-import { XApiError, XFollower, XProfile } from "./x.ts";
+import { Tier } from "./scores.ts";
+import { XApiError, XFollower, XPost, XProfile } from "./x.ts";
 
 /** Leads screen contracts: schemas, errors, method names and the RPC group. Owned by the leads area. */
 
@@ -23,6 +24,8 @@ export const Person = Schema.Struct({
   stage: Stage,
   notes: Schema.String,
   score: Schema.NullOr(Score),
+  /** Scores' tier labels over the 0-100 person score. */
+  tier: Schema.NullOr(Tier),
   /** Where the row came from: "list:<name>", "agent:<name>", "followers", "manual". */
   source: Schema.String,
   firstSeen: IsoDateTime,
@@ -101,6 +104,14 @@ export const SignalAgentInput = Schema.Struct({
   intervalMinutes: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
   enabled: Schema.Boolean,
   scoringPrompt: Schema.String,
+  /** Only posts in this language (X's two-letter code); null keeps every language. */
+  lang: Schema.NullOr(Schema.String),
+  /** Drop authors that look like bots (tiny follow-everyone accounts, blank bios, accounts under 90 days). Costs one profile read per new author. */
+  excludeBots: Schema.Boolean,
+  /** Publish a lead_found event for new people at or above this score; null never notifies. */
+  notifyMinScore: Schema.NullOr(Score),
+  /** List new people are filed into, besides the people table. */
+  listId: Schema.NullOr(Schema.Int),
 });
 export type SignalAgentInput = typeof SignalAgentInput.Type;
 
@@ -121,7 +132,18 @@ export type AgentSuggestion = typeof AgentSuggestion.Type;
 export const NewFollower = Schema.Struct({
   ...XFollower.fields,
   inPeople: Schema.Boolean,
+  score: Score,
+  tier: Tier,
 });
+
+export const EngagementVia = Schema.Literals(["like", "repost"]);
+export type EngagementVia = typeof EngagementVia.Type;
+
+export const EngagersInput = Schema.Struct({ postId: XId, via: EngagementVia });
+export type EngagersInput = typeof EngagersInput.Type;
+
+export const PersonReplyDraft = Schema.Struct({ post: XPost, text: Schema.String });
+export type PersonReplyDraft = typeof PersonReplyDraft.Type;
 export type NewFollower = typeof NewFollower.Type;
 
 export class LeadsError extends Schema.TaggedError<LeadsError>()("LeadsError", {
@@ -153,6 +175,11 @@ export const Leads_METHODS = {
   agentRun: "leads.agentRun",
   agentSuggest: "leads.agentSuggest",
   newFollowers: "leads.newFollowers",
+  engagersQuote: "leads.engagersQuote",
+  engagers: "leads.engagers",
+  latestPost: "leads.latestPost",
+  draftReply: "leads.draftReply",
+  sendReply: "leads.sendReply",
 } as const;
 
 export const LeadsRpcGroup = RpcGroup.make(
@@ -230,6 +257,32 @@ export const LeadsRpcGroup = RpcGroup.make(
   Rpc.make(Leads_METHODS.newFollowers, {
     payload: Schema.Struct({}),
     success: Schema.Struct({ followers: Schema.Array(NewFollower), costUsd: Schema.Number }),
+    error: LeadsOrX,
+  }),
+  Rpc.make(Leads_METHODS.engagersQuote, {
+    payload: Schema.Struct({ via: EngagementVia }),
+    success: Schema.Struct({ costUsd: Schema.Number }),
+    error: LeadsError,
+  }),
+  /** Who liked or reposted a post, as candidates for a list. */
+  Rpc.make(Leads_METHODS.engagers, {
+    payload: EngagersInput,
+    success: Schema.Struct({ matches: Schema.Array(Candidate), costUsd: Schema.Number }),
+    error: LeadsOrX,
+  }),
+  Rpc.make(Leads_METHODS.latestPost, {
+    payload: Schema.Struct({ id: Schema.Int }),
+    success: Schema.NullOr(XPost),
+    error: LeadsOrX,
+  }),
+  Rpc.make(Leads_METHODS.draftReply, {
+    payload: Schema.Struct({ id: Schema.Int }),
+    success: PersonReplyDraft,
+    error: LeadsOrX,
+  }),
+  Rpc.make(Leads_METHODS.sendReply, {
+    payload: Schema.Struct({ id: Schema.Int, postId: XId, text: Schema.String }),
+    success: Schema.Struct({ postId: XId }),
     error: LeadsOrX,
   }),
 );

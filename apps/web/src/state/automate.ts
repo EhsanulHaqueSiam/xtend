@@ -47,3 +47,41 @@ export const previewAtom = clientRuntime.fn<void>()(
     return yield* client[Automate_METHODS.preview]({});
   }),
 );
+
+/** Ask-first requests waiting for a click. Refresh after approving, dismissing or any run. */
+export const pendingAtom = clientRuntime.atom(
+  Effect.gen(function* () {
+    const client = yield* XtendClient;
+    return yield* client[Automate_METHODS.pendingList]({});
+  }),
+);
+
+/** Performs the queued action now. Paid at the cost the request shows. */
+export const approvePendingAtom = clientRuntime.fn<number>()(
+  Effect.fnUntraced(function* (id) {
+    const client = yield* XtendClient;
+    return yield* client[Automate_METHODS.pendingApprove]({ id });
+  }),
+);
+
+export const dismissPendingAtom = clientRuntime.fn<number>()(
+  Effect.fnUntraced(function* (id) {
+    const client = yield* XtendClient;
+    return yield* client[Automate_METHODS.pendingDismiss]({ id });
+  }),
+);
+
+/** Replays one rule over the last 7 days of stored data. Free. */
+export const dryRun7dAtom = clientRuntime.fn<number>()(
+  Effect.fnUntraced(function* (id) {
+    const client = yield* XtendClient;
+    return yield* client[Automate_METHODS.dryRun7d]({ id });
+  }),
+);
+
+export const webhookInfoAtom = clientRuntime.fn<number>()(
+  Effect.fnUntraced(function* (id) {
+    const client = yield* XtendClient;
+    return yield* client[Automate_METHODS.webhookInfo]({ id });
+  }),
+);

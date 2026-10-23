@@ -63,6 +63,7 @@ export function Followers() {
           <thead className="text-2xs text-muted-foreground">
             <tr>
               <th className="py-1 text-left font-normal">Follower</th>
+              <th className="py-1 text-right font-normal">Score</th>
               <th className="py-1 text-right font-normal">Followers</th>
               <th className="py-1 pl-3 text-left font-normal">Bio</th>
               <th className="py-1 text-right font-normal" />
@@ -86,6 +87,9 @@ export function Followers() {
                     {f.verified ? (
                       <span className="font-mono text-2xs text-muted-foreground"> ✓</span>
                     ) : null}
+                  </td>
+                  <td className="py-1 text-right font-mono text-2xs">
+                    {f.score} <span className="text-muted-foreground">{f.tier}</span>
                   </td>
                   <td className="py-1 text-right font-mono text-2xs">{fmt(f.followers)}</td>
                   <td className="max-w-md truncate py-1 pl-3 text-muted-foreground">{f.bio}</td>

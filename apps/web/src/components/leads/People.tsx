@@ -1,18 +1,21 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
-import type { Person, Stage } from "@xtend/contracts";
+import type { Person, Stage, XPost } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 
 import { cn } from "../../lib/utils";
 import {
   draftDmAtom,
+  draftReplyAtom,
+  latestPostAtom,
   peopleAtom,
   personAtom,
   personProfileAtom,
   sendDmAtom,
+  sendReplyAtom,
   updatePersonAtom,
 } from "../../state/leads";
-import { useRates, usd } from "../../state/costs";
+import { useQuoteLabel, useRates, usd } from "../../state/costs";
 import { Empty, ErrorText, errorText, fmt, inputClass } from "../analyze/ui";
 import { Button } from "../ui/button";
 import { ago, STAGES, StagePill, useAction } from "./ui";
@@ -85,7 +88,10 @@ function PeopleTable({
               <td className="max-w-xs truncate py-1 pr-2">
                 @{p.handle} <span className="text-muted-foreground">{p.name}</span>
               </td>
-              <td className="py-1 text-right font-mono text-2xs">{fmt(p.score)}</td>
+              <td className="py-1 text-right font-mono text-2xs">
+                {fmt(p.score)}
+                {p.tier !== null ? <span className="text-muted-foreground"> {p.tier}</span> : null}
+              </td>
               <td className="py-1 text-right font-mono text-2xs">{fmt(p.followers)}</td>
               <td className="max-w-32 truncate py-1 pl-3 font-mono text-2xs text-muted-foreground">
                 {p.source}
@@ -156,7 +162,10 @@ function PersonPanel({
               </Button>
             </div>
             <div className="flex gap-3 font-mono text-2xs text-muted-foreground">
-              <span>score {fmt(person.score)}</span>
+              <span>
+                score {fmt(person.score)}
+                {person.tier !== null ? ` ${person.tier}` : ""}
+              </span>
               <span>{fmt(person.followers)} followers</span>
               <StagePill stage={person.stage} />
             </div>
@@ -222,6 +231,7 @@ function PersonPanel({
               </Button>
             </div>
             {error !== null ? <ErrorText>{error}</ErrorText> : null}
+            <Reply id={id} handle={person.handle} onSent={() => void (refresh(), refreshList())} />
             <ul className="flex flex-col gap-0.5 border-t border-border pt-2">
               {activity.length === 0 ? (
                 <li className="text-muted-foreground">No activity yet.</li>
@@ -241,5 +251,93 @@ function PersonPanel({
         ),
       })}
     </aside>
+  );
+}
+
+/** Their latest post, an AI draft, and a reply through the X connection; every paid step is priced on its button. */
+function Reply({
+  id,
+  handle,
+  onSent,
+}: {
+  readonly id: number;
+  readonly handle: string;
+  readonly onSent: () => void;
+}) {
+  const loadPost = useAtomSet(latestPostAtom, { mode: "promise" });
+  const draft = useAtomSet(draftReplyAtom, { mode: "promise" });
+  const send = useAtomSet(sendReplyAtom, { mode: "promise" });
+  const { busy, error, run } = useAction();
+  const [post, setPost] = useState<XPost | null | undefined>(undefined);
+  const [text, setText] = useState("");
+  const [sentId, setSentId] = useState<string | null>(null);
+  const postQuote = useQuoteLabel({ kind: "userPosts", handle });
+  const replyQuote = useQuoteLabel({ kind: "post", text });
+  return (
+    <div className="flex flex-col gap-1.5 border-t border-border pt-2">
+      <div className="flex items-center justify-between">
+        <span className="font-medium">Reply to their latest post</span>
+        <Button
+          size="xs"
+          variant="ghost-muted"
+          disabled={busy}
+          onClick={() => void run(() => loadPost(id).then(setPost))}
+        >
+          Load post ({postQuote})
+        </Button>
+      </div>
+      {post === null ? (
+        <p className="text-muted-foreground">No recent post found.</p>
+      ) : post !== undefined ? (
+        <p className="line-clamp-3 text-muted-foreground">{post.text}</p>
+      ) : null}
+      {post !== undefined && post !== null ? (
+        <>
+          <textarea
+            className={inputClass}
+            rows={3}
+            placeholder="Reply text"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+          />
+          <div className="flex gap-1.5">
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={busy}
+              onClick={() =>
+                void run(() =>
+                  draft(id).then((d) => {
+                    setPost(d.post);
+                    setText(d.text);
+                  }),
+                )
+              }
+            >
+              Draft with AI
+            </Button>
+            <Button
+              size="xs"
+              disabled={busy || text.trim() === ""}
+              onClick={() =>
+                void run(() =>
+                  send({ id, postId: post.postId, text }).then((r) => {
+                    setSentId(r.postId);
+                    setText("");
+                    onSent();
+                  }),
+                )
+              }
+            >
+              Reply ({replyQuote})
+            </Button>
+          </div>
+        </>
+      ) : null}
+      {sentId !== null ? (
+        <p className="font-mono text-2xs text-success-foreground">replied, post {sentId}</p>
+      ) : null}
+      {error !== null ? <ErrorText>{error}</ErrorText> : null}
+    </div>
   );
 }

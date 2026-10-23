@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import {
   agentsAtom,
+  listsAtom,
   peopleAtom,
   runAgentAtom,
   suggestAgentsAtom,
@@ -22,6 +23,10 @@ const blank: SignalAgentInput = {
   intervalMinutes: 30,
   enabled: true,
   scoringPrompt: "",
+  lang: null,
+  excludeBots: false,
+  notifyMinScore: null,
+  listId: null,
 };
 
 /** Signal agents: saved searches the service runs on a schedule and files into people. */
@@ -111,6 +116,10 @@ function AgentCard({
       <p className="text-xs">
         search <span className="font-mono">{agent.query}</span>
         {agent.minFollowers > 0 ? ` · min followers ${agent.minFollowers}` : ""}
+        {agent.lang !== null ? ` · lang ${agent.lang}` : ""}
+        {agent.excludeBots ? " · bots dropped" : ""}
+        {agent.notifyMinScore !== null ? ` · notify at ${agent.notifyMinScore}+` : ""}
+        {agent.listId !== null ? ` · into list ${agent.listId}` : ""}
         {agent.scoringPrompt !== "" ? " · scored by AI" : ""}
       </p>
       <p className="pt-1 font-mono text-2xs text-muted-foreground">
@@ -137,6 +146,7 @@ function AgentForm({
   const upsert = useAtomSet(upsertAgentAtom, { mode: "promise" });
   const { busy, error, run } = useAction();
   const [a, setA] = useState(initial);
+  const lists = AsyncResult.getOrElse(useAtomValue(listsAtom), () => []);
   const valid = a.name.trim() !== "" && a.query.trim() !== "" && a.intervalMinutes >= 1;
   const num = (v: string) => Number(v.replace(/\D/g, "")) || 0;
   return (
@@ -185,6 +195,57 @@ function AgentForm({
           value={a.query}
           onChange={(e) => setA({ ...a, query: e.target.value })}
         />
+        <div className="flex items-center gap-1.5 font-mono text-2xs text-muted-foreground">
+          <input
+            className={inputClass + " w-16"}
+            placeholder="lang"
+            maxLength={2}
+            value={a.lang ?? ""}
+            onChange={(e) =>
+              setA({
+                ...a,
+                lang: e.target.value.trim() === "" ? null : e.target.value.trim().toLowerCase(),
+              })
+            }
+          />
+          <label className="flex items-center gap-1">
+            <input
+              type="checkbox"
+              checked={a.excludeBots}
+              onChange={(e) => setA({ ...a, excludeBots: e.target.checked })}
+            />
+            drop bots ({usd(rates?.scraperProfile ?? 0)} per author)
+          </label>
+          <label className="flex items-center gap-1">
+            notify at score
+            <input
+              className={inputClass + " w-14"}
+              inputMode="numeric"
+              placeholder="off"
+              value={a.notifyMinScore ?? ""}
+              onChange={(e) =>
+                setA({
+                  ...a,
+                  notifyMinScore: e.target.value === "" ? null : Math.min(100, num(e.target.value)),
+                })
+              }
+            />
+          </label>
+          <select
+            className={inputClass + " w-auto"}
+            value={a.listId ?? ""}
+            onChange={(e) =>
+              setA({ ...a, listId: e.target.value === "" ? null : Number(e.target.value) })
+            }
+          >
+            <option value="">no list</option>
+            {lists.map((l) => (
+              <option key={l.id} value={l.id}>
+                into {l.name}
+              </option>
+            ))}
+          </select>
+        </div>
         <textarea
           className={inputClass}
           rows={2}

@@ -2,10 +2,14 @@ import * as Schema from "effect/Schema";
 import * as Rpc from "effect/rpc/Rpc";
 import * as RpcGroup from "effect/rpc/RpcGroup";
 
-import { IsoDateTime, NonNegativeInt } from "./baseSchemas.ts";
+import { IsoDateTime, NonNegativeInt, XId } from "./baseSchemas.ts";
 import { hasLink, type RateCard } from "./costs.ts";
+import { Score } from "./leads.ts";
 
 /** Automate screen contracts: schemas, errors, method names and the RPC group. Owned by the automate area. */
+
+export const EngagementKind = Schema.Literals(["like", "repost"]);
+export type EngagementKind = typeof EngagementKind.Type;
 
 export const Trigger = Schema.Union([
   Schema.Struct({
@@ -22,8 +26,25 @@ export const Trigger = Schema.Union([
   }),
   Schema.Struct({ kind: Schema.Literal("new_engager") }),
   Schema.Struct({ kind: Schema.Literal("keyword_post"), query: Schema.String }),
+  /** Someone liked or reposted one given post; polled by the engine with dedupe. */
+  Schema.Struct({ kind: Schema.Literal("post_engaged"), postId: XId, via: EngagementKind }),
+  Schema.Struct({ kind: Schema.Literal("new_follower") }),
+  /** A signal agent filed a person at or above this score. */
+  Schema.Struct({ kind: Schema.Literal("agent_match"), minScore: Score }),
+  /** A signed POST to the rule's webhook URL. */
+  Schema.Struct({ kind: Schema.Literal("webhook") }),
 ]);
 export type Trigger = typeof Trigger.Type;
+
+/** Every field optional; an unset condition always passes. */
+export const Conditions = Schema.Struct({
+  withinHours: Schema.optional(NonNegativeInt),
+  link: Schema.optional(Schema.Literals(["has", "none"])),
+  notInListId: Schema.optional(Schema.Int),
+  notReply: Schema.optional(Schema.Boolean),
+  minAuthorFollowers: Schema.optional(NonNegativeInt),
+});
+export type Conditions = typeof Conditions.Type;
 
 export const Action = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("auto_plug"), text: Schema.String }),
@@ -37,6 +58,11 @@ export const Action = Schema.Union([
     maxViews: NonNegativeInt,
   }),
   Schema.Struct({ kind: Schema.Literal("auto_like") }),
+  Schema.Struct({ kind: Schema.Literal("unrepost") }),
+  Schema.Struct({ kind: Schema.Literal("add_to_list"), listId: Schema.Int }),
+  /** OS notification through a `rule_fired` event; `{name}` becomes the engager's name. */
+  Schema.Struct({ kind: Schema.Literal("notify"), message: Schema.String }),
+  Schema.Struct({ kind: Schema.Literal("follow") }),
 ]);
 export type Action = typeof Action.Type;
 
@@ -45,8 +71,16 @@ export const RuleInput = Schema.Struct({
   name: Schema.String,
   enabled: Schema.Boolean,
   trigger: Trigger,
+  conditions: Conditions,
+  /** Minutes a subject must be old before the action runs. */
+  waitMinutes: NonNegativeInt,
   action: Action,
+  budgetUsdDay: Schema.Number,
   budgetUsdMonth: Schema.Number,
+  /** Schedule the inverse action (unlike, unrepost, unfollow, delete) this many hours after a success. */
+  undoAfterHours: Schema.NullOr(NonNegativeInt),
+  /** Queue a pending request instead of acting; the Needs-you tab approves it. */
+  askFirst: Schema.Boolean,
   dryRun: Schema.Boolean,
 });
 export type RuleInput = typeof RuleInput.Type;
@@ -54,12 +88,13 @@ export type RuleInput = typeof RuleInput.Type;
 export const Rule = Schema.Struct({
   ...RuleInput.fields,
   id: Schema.Int,
+  spentUsdDay: Schema.Number,
   spentUsdMonth: Schema.Number,
   createdAt: IsoDateTime,
 });
 export type Rule = typeof Rule.Type;
 
-export const RuleRunStatus = Schema.Literals(["ok", "failed", "skipped", "dry_run"]);
+export const RuleRunStatus = Schema.Literals(["ok", "failed", "skipped", "dry_run", "pending"]);
 export type RuleRunStatus = typeof RuleRunStatus.Type;
 
 export const RuleRun = Schema.Struct({
@@ -71,6 +106,8 @@ export const RuleRun = Schema.Struct({
   status: RuleRunStatus,
   detail: Schema.String,
   costUsd: Schema.Number,
+  /** The X id the action produced or acted on: the new post, the liked post, the followed user. */
+  xId: Schema.NullOr(Schema.String),
 });
 export type RuleRun = typeof RuleRun.Type;
 
@@ -84,6 +121,33 @@ export const RulePreview = Schema.Struct({
 });
 export type RulePreview = typeof RulePreview.Type;
 
+export const PendingStatus = Schema.Literals(["pending", "approved", "dismissed"]);
+
+/** An ask-first rule waiting for a click. */
+export const PendingRequest = Schema.Struct({
+  id: Schema.Int,
+  ruleId: Schema.Int,
+  ruleName: Schema.String,
+  subjectId: Schema.String,
+  description: Schema.String,
+  costUsd: Schema.Number,
+  createdAt: IsoDateTime,
+  status: PendingStatus,
+});
+export type PendingRequest = typeof PendingRequest.Type;
+
+/** What a rule would have done over the last 7 days of observed posts, engagers and followers. */
+export const DryRunReport = Schema.Struct({
+  fired: Schema.Array(
+    Schema.Struct({ at: IsoDateTime, description: Schema.String, costUsd: Schema.Number }),
+  ),
+  totalUsd: Schema.Number,
+});
+export type DryRunReport = typeof DryRunReport.Type;
+
+export const WebhookInfo = Schema.Struct({ path: Schema.String, secret: Schema.String });
+export type WebhookInfo = typeof WebhookInfo.Type;
+
 /** Cost of one firing of `action` at the service's rates. auto_delete is per post; the engine multiplies. */
 export const actionCostUsd = (rates: RateCard, action: Action): number => {
   switch (action.kind) {
@@ -96,8 +160,13 @@ export const actionCostUsd = (rates: RateCard, action: Action): number => {
     case "auto_like":
       return rates.like;
     case "auto_delete":
+    case "unrepost":
       return rates.delete;
+    case "follow":
+      return rates.follow;
     case "clean_profile":
+    case "add_to_list":
+    case "notify":
       return 0;
   }
 };
@@ -119,7 +188,14 @@ export const Automate_METHODS = {
   ruleRunNow: "automate.ruleRunNow",
   preview: "automate.preview",
   runsList: "automate.runsList",
+  pendingList: "automate.pendingList",
+  pendingApprove: "automate.pendingApprove",
+  pendingDismiss: "automate.pendingDismiss",
+  dryRun7d: "automate.dryRun7d",
+  webhookInfo: "automate.webhookInfo",
 } as const;
+
+const IdPayload = Schema.Struct({ id: Schema.Int });
 
 export const AutomateRpcGroup = RpcGroup.make(
   Rpc.make(Automate_METHODS.rulesList, {
@@ -133,12 +209,12 @@ export const AutomateRpcGroup = RpcGroup.make(
     error: AutomateError,
   }),
   Rpc.make(Automate_METHODS.ruleDelete, {
-    payload: Schema.Struct({ id: Schema.Int }),
+    payload: IdPayload,
     success: Schema.Void,
     error: AutomateError,
   }),
   Rpc.make(Automate_METHODS.ruleRunNow, {
-    payload: Schema.Struct({ id: Schema.Int }),
+    payload: IdPayload,
     success: Schema.Array(RuleRun),
     error: AutomateError,
   }),
@@ -153,6 +229,31 @@ export const AutomateRpcGroup = RpcGroup.make(
       status: Schema.optional(RuleRunStatus),
     }),
     success: Schema.Array(RuleRun),
+    error: AutomateError,
+  }),
+  Rpc.make(Automate_METHODS.pendingList, {
+    payload: Schema.Struct({}),
+    success: Schema.Array(PendingRequest),
+    error: AutomateError,
+  }),
+  Rpc.make(Automate_METHODS.pendingApprove, {
+    payload: IdPayload,
+    success: RuleRun,
+    error: AutomateError,
+  }),
+  Rpc.make(Automate_METHODS.pendingDismiss, {
+    payload: IdPayload,
+    success: Schema.Void,
+    error: AutomateError,
+  }),
+  Rpc.make(Automate_METHODS.dryRun7d, {
+    payload: IdPayload,
+    success: DryRunReport,
+    error: AutomateError,
+  }),
+  Rpc.make(Automate_METHODS.webhookInfo, {
+    payload: IdPayload,
+    success: WebhookInfo,
     error: AutomateError,
   }),
 );

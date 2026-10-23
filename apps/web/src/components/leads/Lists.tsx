@@ -1,11 +1,13 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
-import type { Candidate, LeadList } from "@xtend/contracts";
+import type { Candidate, EngagementVia, LeadList } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 
 import { cn } from "../../lib/utils";
 import {
   createListAtom,
+  engagersAtom,
+  engagersQuoteAtom,
   listAddAllAtom,
   listPreviewAtom,
   listsAtom,
@@ -38,6 +40,7 @@ export function Lists() {
         ) : (
           <>
             <Builder listId={selected} />
+            <EngagementBuilder listId={selected} />
             <People listId={selected} />
           </>
         )}
@@ -199,6 +202,99 @@ function Builder({ listId }: { readonly listId: number }) {
               size="xs"
               disabled={busy || result.matches.length === 0 || added !== null}
               onClick={() => void runAdd(result.matches)}
+            >
+              Add all to list
+            </Button>
+          </div>
+          <ul className="max-h-48 overflow-y-auto text-xs">
+            {result.matches.map((m) => (
+              <li key={m.handle} className="flex gap-2 border-t border-border py-0.5">
+                <span className="w-40 shrink-0 truncate">@{m.handle}</span>
+                <span className="w-12 shrink-0 text-right font-mono text-2xs">
+                  {fmt(m.followers)}
+                </span>
+                <span className="truncate text-muted-foreground">{m.bio || m.name}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </Section>
+  );
+}
+
+/** Who liked or reposted one post, priced by the service before the fetch, then one click into the list. */
+function EngagementBuilder({ listId }: { readonly listId: number }) {
+  const fetchEngagers = useAtomSet(engagersAtom, { mode: "promise" });
+  const addAll = useAtomSet(listAddAllAtom, { mode: "promise" });
+  const refreshPeople = useAtomRefresh(peopleAtom(listId));
+  const refreshLists = useAtomRefresh(listsAtom);
+  const { busy, error, run } = useAction();
+  const [postId, setPostId] = useState("");
+  const [via, setVia] = useState<EngagementVia>("repost");
+  const quote = AsyncResult.getOrElse(useAtomValue(engagersQuoteAtom(via)), () => null);
+  const [result, setResult] = useState<{
+    readonly matches: ReadonlyArray<Candidate>;
+    readonly costUsd: number;
+  } | null>(null);
+  const [added, setAdded] = useState<number | null>(null);
+  return (
+    <Section
+      title="Build from engagement"
+      actions={
+        <Button
+          size="xs"
+          variant="outline"
+          disabled={busy || postId.trim() === ""}
+          onClick={() =>
+            void run(() =>
+              fetchEngagers({ postId: postId.trim(), via }).then((r) => {
+                setResult(r);
+                setAdded(null);
+              }),
+            )
+          }
+        >
+          {busy ? "Fetching…" : `Fetch (${quote === null ? "…" : usd(quote)})`}
+        </Button>
+      }
+    >
+      <div className="flex gap-1.5">
+        <input
+          className={inputClass}
+          placeholder="Post id, e.g. 1835124037934367098"
+          value={postId}
+          onChange={(e) => setPostId(e.target.value.replace(/\D/g, ""))}
+        />
+        <select
+          className={inputClass + " w-auto"}
+          value={via}
+          onChange={(e) => setVia(e.target.value as EngagementVia)}
+        >
+          <option value="repost">who reposted (scraper)</option>
+          <option value="like">who liked (X API, first 20)</option>
+        </select>
+      </div>
+      {error !== null ? <ErrorText>{error}</ErrorText> : null}
+      {result !== null ? (
+        <div className="flex flex-col gap-1 pt-2">
+          <div className="flex items-center justify-between font-mono text-2xs text-muted-foreground">
+            <span>
+              {result.matches.length} people · cost {usd(result.costUsd)}
+              {added !== null ? ` · added ${added}` : ""}
+            </span>
+            <Button
+              size="xs"
+              disabled={busy || result.matches.length === 0 || added !== null}
+              onClick={() =>
+                void run(() =>
+                  addAll({ listId, people: result.matches }).then((r) => {
+                    setAdded(r.inserted);
+                    refreshPeople();
+                    refreshLists();
+                  }),
+                )
+              }
             >
               Add all to list
             </Button>

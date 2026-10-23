@@ -1,9 +1,12 @@
 import {
   type Candidate,
+  type EngagementVia,
   LeadsError,
   type ListCriteria,
   type NewFollower,
+  type PersonReplyDraft,
   type XApiError,
+  type XPost,
   type XProfile,
 } from "@xtend/contracts";
 import * as Context from "effect/Context";
@@ -15,11 +18,13 @@ import * as Assist from "../ai/Assist.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 import * as XClient from "../x/XClient.ts";
 import * as PeopleStore from "./PeopleStore.ts";
+import * as XExtra from "./XExtra.ts";
 
 const PREVIEW_LIMIT = 50;
 const DM_CONTEXT_POSTS = 5;
 
 const DmDraft = Schema.Struct({ text: Schema.String });
+const ReplyText = Schema.Struct({ text: Schema.String });
 
 /** The leads operations that touch X or the assistant: profiles, DMs, list building, follower diffs. */
 export class LeadsOps extends Context.Service<
@@ -42,6 +47,24 @@ export class LeadsOps extends Context.Service<
       { readonly followers: ReadonlyArray<NewFollower>; readonly costUsd: number },
       LeadsError | XApiError
     >;
+    /** Who liked or reposted a post, minus people already ignored. */
+    readonly engagers: (
+      postId: string,
+      via: EngagementVia,
+    ) => Effect.Effect<
+      { readonly matches: ReadonlyArray<Candidate>; readonly costUsd: number },
+      LeadsError | XApiError
+    >;
+    /** The person's newest original post (cached 1h by XClient), to reply to from their page. */
+    readonly latestPost: (personId: number) => Effect.Effect<XPost | null, LeadsError | XApiError>;
+    readonly draftReply: (
+      personId: number,
+    ) => Effect.Effect<PersonReplyDraft, LeadsError | XApiError>;
+    readonly sendReply: (
+      personId: number,
+      postId: string,
+      text: string,
+    ) => Effect.Effect<{ readonly postId: string }, LeadsError | XApiError>;
   }
 >()("xtend/leads/LeadsOps") {}
 
@@ -50,6 +73,7 @@ const make = Effect.gen(function* () {
   const assist = yield* Assist.Assist;
   const settings = yield* SettingsStore.SettingsStore;
   const people = yield* PeopleStore.PeopleStore;
+  const extra = yield* XExtra.XExtra;
   const rates = XClient.RATE_CARD;
   const assistFail = (operation: string) => (e: Assist.AssistError) =>
     new LeadsError({ operation, detail: e.message, cause: e });
@@ -151,12 +175,71 @@ const make = Effect.gen(function* () {
     return {
       followers: page.items
         .filter((f) => fresh.has(f.userId))
-        .map((f): NewFollower => Object.assign({ inPeople: known.has(f.handle) }, f)),
+        .map((f): NewFollower => {
+          const score = PeopleStore.lightScore(f);
+          return Object.assign(
+            { inPeople: known.has(f.handle), score, tier: PeopleStore.tierOf(score) },
+            f,
+          );
+        }),
       costUsd: rates.followersPage,
     };
   });
 
-  return LeadsOps.of({ profile, draftDm, sendDm, listPreview, newFollowers });
+  const engagers = Effect.fn("LeadsOps.engagers")(function* (postId: string, via: EngagementVia) {
+    const ignored = yield* people.ignoredHandles;
+    const { matches, costUsd } = yield* extra.engagers(postId, via, "leads.engagers");
+    return { matches: matches.filter((m) => !ignored.has(m.handle)), costUsd };
+  });
+
+  const latestPost = Effect.fn("LeadsOps.latestPost")(function* (personId: number) {
+    const person = yield* people.get(personId);
+    const page = yield* x.userPosts(person.handle, { purpose: "leads.latestPost" });
+    return page.items.find((p) => !p.isReply && !p.isRepost) ?? page.items[0] ?? null;
+  });
+
+  const draftReply = Effect.fn("LeadsOps.draftReply")(function* (personId: number) {
+    const post = yield* latestPost(personId);
+    if (post === null)
+      return yield* new LeadsError({
+        operation: "draftReply",
+        detail: "no recent post to reply to",
+        cause: null,
+      });
+    const draft = yield* assist
+      .generate({
+        task: "leads.draftReply",
+        instructions:
+          "Write a reply (under 240 characters) to this post that adds something: a specific observation, a question or a short related experience. Warm, no flattery, no pitch, no links, no hashtags.",
+        input: { author: post.author.handle, post: post.text },
+        output: ReplyText,
+      })
+      .pipe(Effect.mapError(assistFail("draftReply")));
+    return { post, text: draft.text };
+  });
+
+  const sendReply = Effect.fn("LeadsOps.sendReply")(function* (
+    personId: number,
+    postId: string,
+    text: string,
+  ) {
+    const created = yield* x.createPost({ text, replyToPostId: postId, purpose: "leads.reply" });
+    yield* people.logActivity(personId, "replied", text.slice(0, 140));
+    yield* people.update({ id: personId, stage: "contacted" });
+    return { postId: created.postId };
+  });
+
+  return LeadsOps.of({
+    profile,
+    draftDm,
+    sendDm,
+    listPreview,
+    newFollowers,
+    engagers,
+    latestPost,
+    draftReply,
+    sendReply,
+  });
 });
 
 export const layer = Layer.effect(LeadsOps, make);

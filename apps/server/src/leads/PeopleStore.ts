@@ -7,6 +7,7 @@ import {
   type PersonAdd,
   type PersonUpdate,
   type Stage,
+  type Tier,
 } from "@xtend/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -14,7 +15,32 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import { tierFor } from "../scores/ScoreEngine.ts";
+
 const LIST_LIMIT = 200;
+
+/**
+ * A 0-100 lead score from what a search row or follower page already knows:
+ * reach on a log scale, verified and a filled bio. The AI score from an agent
+ * replaces it when present; the Scores screen's follower-based score is a
+ * different, paid measurement.
+ */
+export const lightScore = (p: {
+  readonly followers: number | null;
+  readonly verified?: boolean;
+  readonly bio: string;
+}): number =>
+  Math.min(
+    100,
+    Math.round(
+      Math.log10(Math.max(p.followers ?? 0, 10)) * 14 +
+        (p.verified === true ? 15 : 0) +
+        (p.bio.trim() === "" ? 0 : 10),
+    ),
+  );
+
+/** Scores' tier bands are calibrated 0-1000; the person score is 0-100. */
+export const tierOf = (score: number): Tier => tierFor(score * 10);
 
 interface PersonRow {
   readonly id: number;
@@ -26,6 +52,7 @@ interface PersonRow {
   readonly stage: Stage;
   readonly notes: string;
   readonly score: number | null;
+  readonly tier: Tier | null;
   readonly source: string;
   readonly first_seen: string;
   readonly last_activity: string;
@@ -56,6 +83,7 @@ const toPerson = (r: PersonRow): Person => ({
   stage: r.stage,
   notes: r.notes,
   score: r.score,
+  tier: r.tier,
   source: r.source,
   firstSeen: r.first_seen,
   lastActivity: r.last_activity,
@@ -78,12 +106,12 @@ export class PeopleStore extends Context.Service<
     readonly activity: (personId: number) => Effect.Effect<ReadonlyArray<Activity>, LeadsError>;
     /** Insert or return the existing row for the handle; appends a "found" activity on insert. */
     readonly add: (input: PersonAdd) => Effect.Effect<Person, LeadsError>;
-    /** Bulk add that skips handles already present. Returns how many were new. */
+    /** Bulk add that skips handles already present. One entry per input: the new id, or null when it existed. */
     readonly addMany: (
       people: ReadonlyArray<Candidate>,
       source: string,
       listId?: number,
-    ) => Effect.Effect<number, LeadsError>;
+    ) => Effect.Effect<ReadonlyArray<number | null>, LeadsError>;
     readonly update: (patch: PersonUpdate) => Effect.Effect<Person, LeadsError>;
     readonly setProfile: (
       id: number,
@@ -96,6 +124,12 @@ export class PeopleStore extends Context.Service<
     ) => Effect.Effect<void, LeadsError>;
     readonly knownHandles: Effect.Effect<ReadonlySet<string>, LeadsError>;
     readonly ignoredHandles: Effect.Effect<ReadonlySet<string>, LeadsError>;
+    readonly listHandles: (listId: number) => Effect.Effect<ReadonlySet<string>, LeadsError>;
+    /** People an agent filed since `sinceIso` with a score at or above `minScore`; the agent_match trigger. */
+    readonly agentMatches: (
+      minScore: number,
+      sinceIso: string,
+    ) => Effect.Effect<ReadonlyArray<Person>, LeadsError>;
     readonly lists: Effect.Effect<ReadonlyArray<LeadList>, LeadsError>;
     readonly createList: (name: string) => Effect.Effect<LeadList, LeadsError>;
     /** Records follower ids; returns the ids that were not seen before. */
@@ -156,9 +190,10 @@ const make = Effect.gen(function* () {
   const insertOne = (c: Candidate, source: string, listId?: number) =>
     Effect.gen(function* () {
       const at = yield* now;
+      const score = c.score ?? lightScore(c);
       const inserted = yield* sql<{ id: number }>`
-        INSERT INTO people (handle, name, user_id, followers, bio, score, source, first_seen, last_activity)
-        VALUES (${c.handle.toLowerCase()}, ${c.name}, ${c.userId}, ${c.followers}, ${c.bio}, ${c.score ?? null}, ${source}, ${at}, ${at})
+        INSERT INTO people (handle, name, user_id, followers, bio, score, tier, source, first_seen, last_activity)
+        VALUES (${c.handle.toLowerCase()}, ${c.name}, ${c.userId}, ${c.followers}, ${c.bio}, ${score}, ${tierOf(score)}, ${source}, ${at}, ${at})
         ON CONFLICT(handle) DO NOTHING RETURNING id`;
       const id =
         inserted[0]?.id ??
@@ -184,10 +219,9 @@ const make = Effect.gen(function* () {
 
   const addMany = Effect.fn("PeopleStore.addMany")(
     function* (people: ReadonlyArray<Candidate>, source: string, listId?: number) {
-      const ids = yield* sql.withTransaction(
+      return yield* sql.withTransaction(
         Effect.forEach(people, (c) => insertOne(c, source, listId)),
       );
-      return ids.filter((id) => id !== null).length;
     },
     Effect.mapError(fail("addMany")),
   );
@@ -210,9 +244,23 @@ const make = Effect.gen(function* () {
   const setProfile = Effect.fn("PeopleStore.setProfile")(
     function* (
       id: number,
-      profile: { readonly userId: string; readonly bio: string; readonly followers: number },
+      profile: {
+        readonly userId: string;
+        readonly bio: string;
+        readonly followers: number;
+        readonly verified?: boolean;
+      },
     ) {
-      yield* sql`UPDATE people SET user_id = ${profile.userId}, bio = ${profile.bio}, followers = ${profile.followers} WHERE id = ${id}`;
+      // An AI score from an agent stays; a light score is recomputed from the fuller profile.
+      const current = yield* byId(id);
+      const score =
+        current.source.startsWith("agent:") && current.score !== null
+          ? current.score
+          : lightScore(profile);
+      yield* sql`
+        UPDATE people SET user_id = ${profile.userId}, bio = ${profile.bio}, followers = ${profile.followers},
+          score = ${score}, tier = ${tierOf(score)}
+        WHERE id = ${id}`;
     },
     Effect.mapError(fail("setProfile")),
   );
@@ -230,6 +278,25 @@ const make = Effect.gen(function* () {
           : yield* sql<{ handle: string }>`SELECT handle FROM people WHERE stage = 'ignored'`;
       return new Set(rows.map((r) => r.handle.toLowerCase()));
     }).pipe(Effect.mapError(fail("handles")));
+
+  const listHandles = Effect.fn("PeopleStore.listHandles")(
+    function* (listId: number) {
+      const rows = yield* sql<{ handle: string }>`
+        SELECT p.handle FROM people p JOIN list_members m ON m.person_id = p.id WHERE m.list_id = ${listId}`;
+      return new Set(rows.map((r) => r.handle));
+    },
+    Effect.mapError(fail("listHandles")),
+  );
+
+  const agentMatches = Effect.fn("PeopleStore.agentMatches")(
+    function* (minScore: number, sinceIso: string) {
+      const rows = yield* sql<PersonRow>`
+        SELECT * FROM people WHERE source LIKE 'agent:%' AND score >= ${minScore} AND first_seen >= ${sinceIso}
+        ORDER BY id DESC LIMIT ${LIST_LIMIT}`;
+      return rows.map(toPerson);
+    },
+    Effect.mapError(fail("agentMatches")),
+  );
 
   const lists = sql<ListRow>`
     SELECT l.*, (SELECT COUNT(*) FROM list_members m WHERE m.list_id = l.id) AS members
@@ -288,6 +355,8 @@ const make = Effect.gen(function* () {
     logActivity,
     knownHandles: handles("all"),
     ignoredHandles: handles("ignored"),
+    listHandles,
+    agentMatches,
     lists,
     createList,
     markFollowersSeen,

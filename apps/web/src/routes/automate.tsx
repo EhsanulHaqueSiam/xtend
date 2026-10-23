@@ -6,6 +6,7 @@ import { useState } from "react";
 
 import { Empty, ErrorText, errorText, Tabs } from "../components/analyze/ui";
 import { DryRun } from "../components/automate/DryRun";
+import { NeedsYou } from "../components/automate/NeedsYou";
 import { emptyRule, RuleForm } from "../components/automate/RuleForm";
 import { RuleRow } from "../components/automate/RuleRow";
 import { RunsLog } from "../components/automate/RunsLog";
@@ -13,13 +14,14 @@ import { PageHeader } from "../components/PageHeader";
 import { Button } from "../components/ui/button";
 import {
   deleteRuleAtom,
+  pendingAtom,
   rulesAtom,
   runRuleNowAtom,
   runsAtom,
   upsertRuleAtom,
 } from "../state/automate";
 
-const TABS = ["Rules", "Dry run", "Runs"] as const;
+const TABS = ["Rules", "Needs you", "Dry run", "Runs"] as const;
 
 function AutomateScreen() {
   const [tab, setTab] = useState<(typeof TABS)[number]>("Rules");
@@ -27,6 +29,11 @@ function AutomateScreen() {
   const runs = useAtomValue(runsAtom);
   const refreshRules = useAtomRefresh(rulesAtom);
   const refreshRuns = useAtomRefresh(runsAtom);
+  const refreshPending = useAtomRefresh(pendingAtom);
+  const pendingCount = AsyncResult.getOrElse(
+    AsyncResult.map(useAtomValue(pendingAtom), (p) => p.length),
+    () => 0,
+  );
   const upsert = useAtomSet(upsertRuleAtom, { mode: "promise" });
   const remove = useAtomSet(deleteRuleAtom, { mode: "promise" });
   const runNow = useAtomSet(runRuleNowAtom, { mode: "promise" });
@@ -45,6 +52,7 @@ function AutomateScreen() {
       await work();
       refreshRules();
       refreshRuns();
+      refreshPending();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -61,7 +69,7 @@ function AutomateScreen() {
     <div className="flex h-full flex-col">
       <PageHeader
         title="Automate"
-        detail={`${enabledCount} of ${ruleList.length} rules on · $${spent.toFixed(3)} spent this month`}
+        detail={`${enabledCount} of ${ruleList.length} rules on · $${spent.toFixed(3)} spent this month${pendingCount > 0 ? ` · ${pendingCount} need you` : ""}`}
         actions={
           <Button size="sm" variant="outline" onClick={() => setEditing("new")}>
             New rule
@@ -108,8 +116,10 @@ function AutomateScreen() {
                 </div>
               ),
           })
+        ) : tab === "Needs you" ? (
+          <NeedsYou />
         ) : tab === "Dry run" ? (
-          <DryRun />
+          <DryRun rules={ruleList} />
         ) : (
           AsyncResult.match(runs, {
             onInitial: () => <Empty>Loading runs…</Empty>,

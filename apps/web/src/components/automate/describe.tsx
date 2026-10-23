@@ -1,4 +1,4 @@
-import type { Action, RuleRunStatus, Trigger } from "@xtend/contracts";
+import type { Action, Conditions, RuleRunStatus, Trigger } from "@xtend/contracts";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
@@ -12,8 +12,27 @@ export const describeTrigger = (t: Trigger): string => {
       return "when someone new engages with me";
     case "keyword_post":
       return `when a post matches "${t.query}"`;
+    case "post_engaged":
+      return `when someone ${t.via === "like" ? "likes" : "reposts"} post ${t.postId}`;
+    case "new_follower":
+      return "when someone follows me";
+    case "agent_match":
+      return `when an agent finds someone scoring ${t.minScore}+`;
+    case "webhook":
+      return "when the webhook URL is called";
   }
 };
+
+export const describeConditions = (c: Conditions): string =>
+  [
+    c.withinHours !== undefined ? `within ${c.withinHours}h` : null,
+    c.link === "has" ? "has a link" : c.link === "none" ? "no link" : null,
+    c.notReply === true ? "not a reply" : null,
+    c.minAuthorFollowers !== undefined ? `author ${c.minAuthorFollowers}+ followers` : null,
+    c.notInListId !== undefined ? `not in list ${c.notInListId}` : null,
+  ]
+    .filter((s) => s !== null)
+    .join(", ");
 
 export const describeAction = (a: Action): string => {
   switch (a.kind) {
@@ -29,6 +48,14 @@ export const describeAction = (a: Action): string => {
       return `delete posts older than ${a.olderThanDays}d with under ${a.maxViews} views`;
     case "auto_like":
       return "like the post";
+    case "unrepost":
+      return "undo the repost";
+    case "add_to_list":
+      return `add them to list ${a.listId}`;
+    case "notify":
+      return `notify me: "${a.message}"`;
+    case "follow":
+      return "follow them";
   }
 };
 
@@ -37,4 +64,5 @@ export const statusTone: Record<RuleRunStatus, string> = {
   failed: "text-error-foreground",
   skipped: "text-muted-foreground",
   dry_run: "text-warning-foreground",
+  pending: "text-warning-foreground",
 };

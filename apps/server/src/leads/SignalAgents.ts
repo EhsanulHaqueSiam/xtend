@@ -15,12 +15,28 @@ import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import * as Assist from "../ai/Assist.ts";
+import * as Events from "../events/Events.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 import * as XClient from "../x/XClient.ts";
 import * as PeopleStore from "./PeopleStore.ts";
 
 const TICK = "60 seconds";
 const SEARCH_LIMIT = 50;
+const NEW_ACCOUNT_MS = 90 * 86_400_000;
+
+/** The scores bot check: tiny follow-everyone accounts, blank bios, accounts under 90 days. */
+const looksLikeBot = (
+  p: {
+    readonly followers: number;
+    readonly following: number;
+    readonly bio: string;
+    readonly createdAt: string | null;
+  },
+  nowMs: number,
+): boolean =>
+  (p.followers < 50 && p.following > 10 * p.followers) ||
+  p.bio.trim() === "" ||
+  (p.createdAt !== null && nowMs - Date.parse(p.createdAt) < NEW_ACCOUNT_MS);
 
 interface AgentRow {
   readonly id: number;
@@ -31,6 +47,10 @@ interface AgentRow {
   readonly last_run: string | null;
   readonly enabled: number;
   readonly scoring_prompt: string;
+  readonly lang: string | null;
+  readonly exclude_bots: number;
+  readonly notify_min_score: number | null;
+  readonly list_id: number | null;
 }
 
 interface RunRow {
@@ -84,6 +104,7 @@ const make = Effect.gen(function* () {
   const assist = yield* Assist.Assist;
   const settings = yield* SettingsStore.SettingsStore;
   const people = yield* PeopleStore.PeopleStore;
+  const events = yield* Events.Events;
   const now = Effect.map(DateTime.now, DateTime.formatIso);
   const fail = (operation: string) => (cause: unknown) =>
     cause instanceof LeadsError
@@ -104,6 +125,10 @@ const make = Effect.gen(function* () {
       intervalMinutes: r.interval_minutes,
       enabled: r.enabled === 1,
       scoringPrompt: r.scoring_prompt,
+      lang: r.lang,
+      excludeBots: r.exclude_bots === 1,
+      notifyMinScore: r.notify_min_score,
+      listId: r.list_id,
       lastRun: run,
     }));
 
@@ -122,15 +147,17 @@ const make = Effect.gen(function* () {
   const upsert = Effect.fn("SignalAgents.upsert")(
     function* (a: SignalAgentInput) {
       const enabled = a.enabled ? 1 : 0;
+      const bots = a.excludeBots ? 1 : 0;
       const rows =
         a.id === undefined
           ? yield* sql<{ id: number }>`
-              INSERT INTO agents (name, query, min_followers, interval_minutes, enabled, scoring_prompt)
-              VALUES (${a.name}, ${a.query}, ${a.minFollowers}, ${a.intervalMinutes}, ${enabled}, ${a.scoringPrompt})
+              INSERT INTO agents (name, query, min_followers, interval_minutes, enabled, scoring_prompt, lang, exclude_bots, notify_min_score, list_id)
+              VALUES (${a.name}, ${a.query}, ${a.minFollowers}, ${a.intervalMinutes}, ${enabled}, ${a.scoringPrompt}, ${a.lang}, ${bots}, ${a.notifyMinScore}, ${a.listId})
               RETURNING id`
           : yield* sql<{ id: number }>`
               UPDATE agents SET name = ${a.name}, query = ${a.query}, min_followers = ${a.minFollowers},
-                interval_minutes = ${a.intervalMinutes}, enabled = ${enabled}, scoring_prompt = ${a.scoringPrompt}
+                interval_minutes = ${a.intervalMinutes}, enabled = ${enabled}, scoring_prompt = ${a.scoringPrompt},
+                lang = ${a.lang}, exclude_bots = ${bots}, notify_min_score = ${a.notifyMinScore}, list_id = ${a.listId}
               WHERE id = ${a.id} RETURNING id`;
       return yield* toAgent(yield* byId(rows[0]!.id));
     },
@@ -141,6 +168,7 @@ const make = Effect.gen(function* () {
   const runAgent = (agent: AgentRow) =>
     Effect.gen(function* () {
       const at = yield* now;
+      const nowMs = Date.parse(at);
       const known = yield* people.knownHandles;
       const page = yield* x.searchPosts(agent.query, {
         mode: "latest",
@@ -152,6 +180,7 @@ const make = Effect.gen(function* () {
         const key = p.author.handle.toLowerCase();
         if (known.has(key) || byHandle.has(key)) continue;
         if ((p.author.followers ?? 0) < agent.min_followers) continue;
+        if (agent.lang !== null && p.lang !== agent.lang) continue;
         byHandle.set(key, {
           post: p.text,
           candidate: {
@@ -163,7 +192,28 @@ const make = Effect.gen(function* () {
           },
         });
       }
-      const found = [...byHandle.values()];
+      let found = [...byHandle.values()];
+      let costUsd = XClient.RATE_CARD.searchPage;
+      // The bot check needs following, bio and account age, which only a profile has.
+      if (agent.exclude_bots === 1) {
+        costUsd += found.length * XClient.RATE_CARD.scraperProfile;
+        const profiled = yield* Effect.forEach(found, (f) =>
+          Effect.map(x.profile(f.candidate.handle, `leads.agent.${agent.name}`), (p) =>
+            p === null || looksLikeBot(p, nowMs)
+              ? null
+              : {
+                  post: f.post,
+                  candidate: {
+                    ...f.candidate,
+                    userId: p.userId,
+                    followers: p.followers,
+                    bio: p.bio,
+                  },
+                },
+          ),
+        );
+        found = profiled.filter((f) => f !== null);
+      }
       let scored: ReadonlyArray<Candidate> = [];
       if (found.length > 0) {
         const { keywords } = yield* settings.get;
@@ -183,12 +233,22 @@ const make = Effect.gen(function* () {
         const byScore = new Map(scores.map((s) => [s.handle.toLowerCase(), s]));
         scored = found.map((f) => {
           const s = byScore.get(f.candidate.handle.toLowerCase());
-          return { ...f.candidate, score: s?.score ?? null, bio: s?.reason ?? "" };
+          return { ...f.candidate, score: s?.score ?? null, bio: s?.reason || f.candidate.bio };
         });
       }
-      const inserted = yield* people.addMany(scored, `agent:${agent.name}`);
-      // shortcut: XClient does not report whether the search was served from cache, so the quoted rate is logged.
-      return { at, found: found.length, inserted, costUsd: XClient.RATE_CARD.searchPage };
+      const ids = yield* people.addMany(scored, `agent:${agent.name}`, agent.list_id ?? undefined);
+      const min = agent.notify_min_score;
+      if (min !== null)
+        for (const [i, id] of ids.entries()) {
+          const c = scored[i]!;
+          if (id !== null && c.score !== undefined && c.score !== null && c.score >= min)
+            yield* events.publish({
+              type: "lead_found",
+              payload: { personId: id, handle: c.handle, score: c.score, agent: agent.name },
+            });
+        }
+      // shortcut: XClient does not report whether a read was served from cache, so the quoted rates are logged.
+      return { at, found: found.length, inserted: ids.filter((id) => id !== null).length, costUsd };
     });
 
   const record = (

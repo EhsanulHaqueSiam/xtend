@@ -1,6 +1,7 @@
 import {
   Leads_METHODS,
   type Candidate,
+  type EngagementVia,
   type ListCriteria,
   type PersonAdd,
   type PersonUpdate,
@@ -128,5 +129,50 @@ export const newFollowersAtom = clientRuntime.fn<void>()(
   Effect.fnUntraced(function* () {
     const client = yield* XtendClient;
     return yield* client[Leads_METHODS.newFollowers]({});
+  }),
+);
+
+/** What one engagement fetch costs; the service prices it, the client only shows it. */
+export const engagersQuoteAtom = Atom.family((via: EngagementVia) =>
+  clientRuntime.atom(
+    Effect.gen(function* () {
+      const client = yield* XtendClient;
+      return (yield* client[Leads_METHODS.engagersQuote]({ via })).costUsd;
+    }),
+  ),
+);
+
+export const engagersAtom = clientRuntime.fn<{
+  readonly postId: string;
+  readonly via: EngagementVia;
+}>()(
+  Effect.fnUntraced(function* (input) {
+    const client = yield* XtendClient;
+    return yield* client[Leads_METHODS.engagers](input);
+  }),
+);
+
+export const latestPostAtom = clientRuntime.fn<number>()(
+  Effect.fnUntraced(function* (id) {
+    const client = yield* XtendClient;
+    return yield* client[Leads_METHODS.latestPost]({ id });
+  }),
+);
+
+export const draftReplyAtom = clientRuntime.fn<number>()(
+  Effect.fnUntraced(function* (id) {
+    const client = yield* XtendClient;
+    return yield* client[Leads_METHODS.draftReply]({ id });
+  }),
+);
+
+export const sendReplyAtom = clientRuntime.fn<{
+  readonly id: number;
+  readonly postId: string;
+  readonly text: string;
+}>()(
+  Effect.fnUntraced(function* (input) {
+    const client = yield* XtendClient;
+    return yield* client[Leads_METHODS.sendReply](input);
   }),
 );
