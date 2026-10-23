@@ -35,6 +35,7 @@ import {
   SLOT_CHANNEL,
   SLOT_CLOSE_CHANNEL,
   SLOT_OPEN_CHANNEL,
+  type ColumnRects,
   type OverlayAction,
   type SessionDownload,
   type SessionFind,
@@ -290,13 +291,16 @@ export function createMainWindow(options: MainWindowOptions) {
   let current: SlotOpen | null = null;
   let lastRoute = "/";
   let column: Rect | null = null;
+  let sidebar: Rect | null = null;
   const slotState = (): SlotState => ({ kind: current?.kind ?? null, route: lastRoute });
   const toApp = (channel: string, value: unknown) => {
     if (!appContents.isDestroyed()) appContents.send(channel, value);
   };
   const applyBounds = () => {
     const { width, height } = window.getContentBounds();
-    view.setBounds(current === null ? EMPTY : slotBounds(current, { width, height }, column));
+    view.setBounds(
+      current === null ? EMPTY : slotBounds(current, { width, height }, column, sidebar),
+    );
   };
   const setSlot = (next: SlotOpen | null) => {
     if (next === current) return;
@@ -513,14 +517,14 @@ export function createMainWindow(options: MainWindowOptions) {
     from<unknown>(contents, COLUMN_RECT_CHANNEL, (value) => {
       // The preload measures in x.com CSS pixels; the window's are those times the zoom.
       const zoom = contents.getZoomFactor();
-      column = isRect(value)
-        ? {
-            x: value.x * zoom,
-            y: value.y * zoom,
-            width: value.width * zoom,
-            height: value.height * zoom,
-          }
-        : null;
+      const scaled = (r: unknown): Rect | null =>
+        isRect(r)
+          ? { x: r.x * zoom, y: r.y * zoom, width: r.width * zoom, height: r.height * zoom }
+          : null;
+      const rects =
+        typeof value === "object" && value !== null ? (value as Partial<ColumnRects>) : {};
+      column = scaled(rects.column);
+      sidebar = scaled(rects.sidebar);
       applyBounds();
     }),
     from<undefined>(contents, POINTER_DOWN_CHANNEL, () => setSlot(dismiss(current))),

@@ -12,6 +12,7 @@ import {
   POINTER_DOWN_CHANNEL,
   type OverlayAction,
   type OverlayData,
+  type ColumnRects,
   type OverlayPost,
   type Rect,
 } from "../ipc/channels.ts";
@@ -28,6 +29,7 @@ import {
   primaryColumn,
   railTail,
   railTemplate,
+  sidebarColumn,
   sidebarFirstCard,
 } from "./xDom.ts";
 
@@ -222,7 +224,7 @@ const mountChips = () => {
       if ((e.target as HTMLElement).closest("[data-act]") === null) return;
       e.preventDefault();
       const text = composerText(toolbar)?.innerText.trim() ?? "";
-      const route = text === "" ? "/compose" : `/compose?text=${encodeURIComponent(text)}`;
+      const route = text === "" ? "/compose?new=1" : `/compose?text=${encodeURIComponent(text)}`;
       send({ type: "openSlot", slot: { kind: "center", route } });
     });
     post.before(host);
@@ -274,15 +276,21 @@ const renderGlance = () => {
   mountToday();
 };
 
-// Column rect: main places the center and bar slots over X's primary column. X remounts
-// the column on route changes, so every scan re-finds it; the observer follows size changes
-// and the resize listener the position.
-let column: HTMLElement | null = null;
+// Column rects: main places the center and bar slots over X's primary column, and wide slots
+// (Compose) over the right column too. X remounts both on route changes, so every scan re-finds
+// them; the observer follows size changes and the resize listener the position.
+const tracked: { column: HTMLElement | null; sidebar: HTMLElement | null } = {
+  column: null,
+  sidebar: null,
+};
 let lastColumn = "";
+const box = (el: HTMLElement | null): Rect | null => {
+  if (el === null || !el.isConnected) return null;
+  const r = el.getBoundingClientRect();
+  return { x: r.x, y: r.y, width: r.width, height: r.height };
+};
 const reportColumn = () => {
-  const box = column?.isConnected ? column.getBoundingClientRect() : null;
-  const value: Rect | null =
-    box === null ? null : { x: box.x, y: box.y, width: box.width, height: box.height };
+  const value: ColumnRects = { column: box(tracked.column), sidebar: box(tracked.sidebar) };
   const key = JSON.stringify(value);
   if (key === lastColumn) return;
   lastColumn = key;
@@ -290,11 +298,11 @@ const reportColumn = () => {
 };
 const columnObserver = new ResizeObserver(reportColumn);
 const trackColumn = () => {
-  const found = primaryColumn(document);
-  if (found !== column) {
+  const found = { column: primaryColumn(document), sidebar: sidebarColumn(document) };
+  if (found.column !== tracked.column || found.sidebar !== tracked.sidebar) {
     columnObserver.disconnect();
-    column = found;
-    if (column !== null) columnObserver.observe(column);
+    Object.assign(tracked, found);
+    for (const el of [tracked.column, tracked.sidebar]) if (el !== null) columnObserver.observe(el);
   }
   reportColumn();
 };

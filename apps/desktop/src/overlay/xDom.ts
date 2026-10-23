@@ -61,6 +61,10 @@ export function articleAuthorHandle(article: Element): string | null {
 export const articleHoverTargets = (article: Element): ReadonlyArray<HTMLElement> =>
   Array.from(article.querySelectorAll<HTMLElement>(`${AVATAR}, ${USER_NAME}`));
 
+/** X's right column (search, trends); wide slots such as Compose cover it. Null on narrow windows. */
+export const sidebarColumn = (root: ParentNode): HTMLElement | null =>
+  root.querySelector<HTMLElement>(SIDEBAR);
+
 /** X's "Home" rail item: the Xtend item is a clone of it, so it inherits X's styles and icon-only collapse. */
 export const railTemplate = (root: ParentNode): HTMLAnchorElement | null =>
   root.querySelector<HTMLAnchorElement>(RAIL_HOME);

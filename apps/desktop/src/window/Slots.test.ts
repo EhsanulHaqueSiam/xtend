@@ -1,6 +1,6 @@
 import { expect, it } from "vite-plus/test";
 
-import { close, dismiss, slotBounds } from "./Slots.ts";
+import { close, dismiss, isWide, slotBounds } from "./Slots.ts";
 
 const win = { width: 1440, height: 920 };
 const column = { x: 420, y: -300, width: 600, height: 4000 };
@@ -26,6 +26,26 @@ it("puts center and bar over X's column, or a centered 600px column without one"
   });
   expect(slotBounds({ kind: "center", route: "/plan" }, { width: 500, height: 600 }, null)).toEqual(
     { x: 0, y: 0, width: 500, height: 600 },
+  );
+});
+
+it("stretches wide routes over X's right column when X shows one", () => {
+  const sidebar = { x: 1020, y: 0, width: 380, height: 920 };
+  expect(isWide("/compose?draft=1")).toBe(true);
+  expect(isWide("/compose?tab=queued&new=1")).toBe(true);
+  // The drafts list and other pages keep X's right column visible.
+  expect(isWide("/compose?tab=queued")).toBe(false);
+  expect(isWide("/composer?new=1")).toBe(false);
+  expect(slotBounds({ kind: "center", route: "/compose?new=1" }, win, column, sidebar)).toEqual({
+    x: 420,
+    y: 0,
+    width: 980,
+    height: 920,
+  });
+  // Other pages keep X's column; without X's right column (a narrow window) Compose does too.
+  expect(slotBounds({ kind: "center", route: "/plan" }, win, column, sidebar).width).toBe(600);
+  expect(slotBounds({ kind: "center", route: "/compose?new=1" }, win, column, null).width).toBe(
+    600,
   );
 });
 

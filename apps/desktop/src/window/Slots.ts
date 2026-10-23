@@ -35,6 +35,15 @@ const rect = (x: number, y: number, width: number, height: number): Rect => ({
   height: Math.round(height),
 });
 
+/**
+ * Pages that bring a companion column: the slot also covers X's right column, where the page
+ * draws its preview and assist cards while X's trends sit underneath. Compose only does while
+ * a draft is open; its list leaves X's right column alone.
+ */
+const COMPOSER = /[?&](draft|new|text|inspire|reply)=/;
+export const isWide = (route: string) =>
+  route.split(/[?#]/)[0] === "/compose" && COMPOSER.test(route);
+
 /** A toast times itself out in the app; every other slot goes on pointer-down in x.com or Esc. */
 export const dismiss = (current: SlotOpen | null): SlotOpen | null =>
   current?.kind === "toast" ? current : null;
@@ -47,13 +56,24 @@ export const close = (current: SlotOpen | null, kind?: SlotKind): SlotOpen | nul
  * Bounds for an open slot, in window CSS pixels. `column` is X's primary
  * column when the page has one; otherwise a 600px column centered in the
  * window stands in, so DMs and settings pages still get a center slot.
+ * `sidebar` is X's right column; wide routes stretch over it when X shows one.
  */
-export function slotBounds(slot: SlotOpen, window: Size, column: Rect | null): Rect {
+export function slotBounds(
+  slot: SlotOpen,
+  window: Size,
+  column: Rect | null,
+  sidebar: Rect | null = null,
+): Rect {
   const columnWidth = Math.min(column?.width ?? FALLBACK_COLUMN_WIDTH, window.width);
   const columnX = column?.x ?? (window.width - columnWidth) / 2;
   switch (slot.kind) {
-    case "center":
-      return rect(columnX, 0, columnWidth, window.height);
+    case "center": {
+      const right =
+        sidebar !== null && column !== null && isWide(slot.route)
+          ? Math.min(sidebar.x + sidebar.width, window.width)
+          : columnX + columnWidth;
+      return rect(columnX, 0, right - columnX, window.height);
+    }
     case "bar":
       return rect(columnX, 0, columnWidth, BAR_HEIGHT);
     case "palette":

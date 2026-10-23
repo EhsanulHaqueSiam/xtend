@@ -32,7 +32,7 @@ export const OVERLAY_HIDE_CHANNEL = "xtend:overlay-hide";
 export const OVERLAY_GLANCE_CHANNEL = "xtend:overlay-glance";
 // Overlay preload -> main
 export const OVERLAY_ACTION_CHANNEL = "xtend:overlay-action";
-/** X's primary column rect in x.com CSS pixels, null while the page has none (DMs, settings). */
+/** X's primary and right column rects in x.com CSS pixels (`ColumnRects`). */
 export const COLUMN_RECT_CHANNEL = "xtend:column-rect";
 /** Any pointerdown in x.com; main closes the open slot on it. */
 export const POINTER_DOWN_CHANNEL = "xtend:pointer-down";
@@ -42,6 +42,12 @@ export interface Rect {
   readonly y: number;
   readonly width: number;
   readonly height: number;
+}
+
+/** Each is null while the page has none: DMs and settings have no primary column, narrow windows no right one. */
+export interface ColumnRects {
+  readonly column: Rect | null;
+  readonly sidebar: Rect | null;
 }
 
 /** Where the xtend view is drawn over x.com; see window/Slots.ts for the geometry. */

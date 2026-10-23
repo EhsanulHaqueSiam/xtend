@@ -12,6 +12,7 @@ import {
   primaryColumn,
   railTail,
   railTemplate,
+  sidebarColumn,
   sidebarFirstCard,
 } from "./xDom.ts";
 
@@ -86,6 +87,7 @@ it("finds the rail template and tail, the composer text from its toolbar, and th
   const toolbars = composerToolbars(document);
   expect(toolbars).toHaveLength(1);
   expect(composerText(toolbars[0]!)?.textContent).toBe("hello x");
+  expect(sidebarColumn(document)?.getAttribute("data-testid")).toBe("sidebarColumn");
   expect(sidebarFirstCard(document)?.className).toBe("card");
   expect(sidebarFirstCard(document)?.querySelector("aside")).not.toBeNull();
 });
