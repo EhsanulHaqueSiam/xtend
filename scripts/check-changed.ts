@@ -92,6 +92,15 @@ for (const p of affected) {
 if (code.length > 0 || files.some((f) => f.endsWith("package.json") || f === "knip.jsonc")) {
   steps.push({ name: "knip", cwd: root, args: ["exec", "knip"] });
 }
+// Root scripts/ belong to no package; their tests run under the root config, as in `pnpm test`.
+const rootTests = [...tests].filter((file) => file.startsWith("scripts/"));
+if (rootTests.length > 0) {
+  steps.push({
+    name: "test scripts",
+    cwd: root,
+    args: ["exec", "vp", "test", "run", ...rootTests],
+  });
+}
 for (const p of packages) {
   const own = [...tests]
     .filter((file) => owner(file) === p)
