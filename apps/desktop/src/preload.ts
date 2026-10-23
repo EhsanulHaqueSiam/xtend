@@ -8,19 +8,21 @@ import {
   OPEN_EXTERNAL_CHANNEL,
   REMOTE_CHECK_CHANNEL,
   REMOTE_SET_CHANNEL,
-  OPEN_ROUTE_CHANNEL,
   SESSION_DOWNLOAD_CHANNEL,
   SESSION_FIND_CHANNEL,
   SESSION_FIND_RESULT_CHANNEL,
   SESSION_NAVIGATE_CHANNEL,
   SESSION_URL_CHANNEL,
-  SESSION_VIEW_BOUNDS_CHANNEL,
-  SESSION_VIEW_HIDDEN_CHANNEL,
   SHORTCUT_CHANNEL,
+  SLOT_CHANNEL,
+  SLOT_CLOSE_CHANNEL,
+  SLOT_OPEN_CHANNEL,
   type SessionDownload,
   type SessionFind,
   type SessionFindResult,
-  type SessionNavigation,
+  type SlotClose,
+  type SlotOpen,
+  type SlotState,
 } from "./ipc/channels.ts";
 
 /** Subscribes `cb` to a main -> renderer channel; returns the unsubscribe. */
@@ -32,9 +34,6 @@ const listen =
     return () => ipcRenderer.off(channel, handler);
   };
 
-const navigate = (navigation: SessionNavigation) =>
-  ipcRenderer.send(SESSION_NAVIGATE_CHANNEL, navigation);
-
 // Synchronous so the page sees the token at module load, like a meta tag would.
 const info = (ipcRenderer.sendSync(BRIDGE_INFO_CHANNEL) ?? {}) as Partial<BridgeInfo>;
 
@@ -45,22 +44,20 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   serviceMode: info.serviceMode ?? "none",
   remote: info.remote ?? null,
   accountId: info.accountId ?? 1,
+  slot: info.slot ?? { kind: null, route: "/" },
   checkRemote: (config: unknown) => ipcRenderer.invoke(REMOTE_CHECK_CHANNEL, config),
   setRemote: (config: unknown) => ipcRenderer.send(REMOTE_SET_CHANNEL, config),
   selectAccount: (id: number) => ipcRenderer.send(ACCOUNT_SELECT_CHANNEL, id),
-  setSessionViewBounds: (bounds: unknown) => ipcRenderer.send(SESSION_VIEW_BOUNDS_CHANNEL, bounds),
-  setSessionViewHidden: (hidden: boolean) => ipcRenderer.send(SESSION_VIEW_HIDDEN_CHANNEL, hidden),
-  navigateSession: (url: string) => navigate({ action: "url", url }),
-  sessionBack: () => navigate({ action: "back" }),
-  sessionForward: () => navigate({ action: "forward" }),
-  sessionReload: () => navigate({ action: "reload" }),
+  openSlot: (slot: SlotOpen) => ipcRenderer.send(SLOT_OPEN_CHANNEL, slot),
+  closeSlot: (close?: SlotClose) => ipcRenderer.send(SLOT_CLOSE_CHANNEL, close),
+  navigateSession: (url: string) => ipcRenderer.send(SESSION_NAVIGATE_CHANNEL, url),
   sessionFind: (find: SessionFind) => ipcRenderer.send(SESSION_FIND_CHANNEL, find),
   openExternal: (url: string) => ipcRenderer.send(OPEN_EXTERNAL_CHANNEL, url),
+  onSlot: listen<SlotState>(SLOT_CHANNEL),
   onSessionUrl: listen<string>(SESSION_URL_CHANNEL),
   onSessionFindResult: listen<SessionFindResult>(SESSION_FIND_RESULT_CHANNEL),
   onSessionDownload: listen<SessionDownload>(SESSION_DOWNLOAD_CHANNEL),
   onShortcut: listen<string>(SHORTCUT_CHANNEL),
-  onOpenRoute: listen<string>(OPEN_ROUTE_CHANNEL),
 });
 
 // Single-letter shortcuts must not fire while the user types in the app.

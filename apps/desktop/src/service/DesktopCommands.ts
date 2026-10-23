@@ -3,7 +3,6 @@ import {
   type DesktopCommand,
   type DesktopCommandResult,
   Library_METHODS,
-  type Settings,
   WS_METHODS,
   WS_PATH,
   WsRpcGroup,
@@ -33,8 +32,6 @@ export interface DesktopCommandsOptions {
   readonly navigate: (url: string) => void;
   /** Resolves with the id of the next post the session creates (from the CreateTweet response). */
   readonly nextCreatedPost: () => Promise<string>;
-  /** Settings as read on each connect, for the desktop-side toggles (hideXRail). */
-  readonly onSettings: (settings: Settings) => void;
   readonly log: (message: string, detail?: unknown) => void;
 }
 
@@ -87,7 +84,6 @@ export function attachDesktopCommands(
   const serve = Effect.gen(function* () {
     const current = yield* makeClient;
     client = current;
-    options.onSettings(yield* current[WS_METHODS.settingsGet]({}));
     options.log("desktop commands connected");
     yield* current[Desktop_METHODS.subscribeCommands]({}).pipe(
       Stream.runForEach((request) =>

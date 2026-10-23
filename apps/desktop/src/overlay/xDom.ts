@@ -11,6 +11,14 @@ const ACTION_ROW = 'div[role="group"]';
 const USER_NAME = 'div[data-testid="User-Name"]';
 const AVATAR = 'div[data-testid^="Tweet-User-Avatar"]';
 const STATUS_ID = /\/status\/(\d+)/;
+const PRIMARY_COLUMN = 'div[data-testid="primaryColumn"]';
+
+/** Main pads X's rail below the macOS traffic lights; the window has no title bar of its own. */
+export const BANNER_INSET_CSS = 'header[role="banner"] > div > div { padding-top: 28px; }';
+
+/** X's main column (timeline, post, profile); the center and bar slots are drawn over it. Null on DMs and settings. */
+export const primaryColumn = (root: ParentNode): HTMLElement | null =>
+  root.querySelector<HTMLElement>(PRIMARY_COLUMN);
 
 export const findArticles = (root: ParentNode): ReadonlyArray<HTMLElement> =>
   Array.from(root.querySelectorAll<HTMLElement>(ARTICLE));

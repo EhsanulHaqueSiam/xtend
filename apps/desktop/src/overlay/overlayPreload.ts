@@ -1,14 +1,17 @@
 import { ipcRenderer } from "electron";
 
 import {
+  COLUMN_RECT_CHANNEL,
   EDITING_CHANNEL,
   OVERLAY_ACTION_CHANNEL,
   OVERLAY_DATA_CHANNEL,
   OVERLAY_HIDE_CHANNEL,
   OVERLAY_TOGGLE_CHANNEL,
+  POINTER_DOWN_CHANNEL,
   type OverlayAction,
   type OverlayData,
   type OverlayPost,
+  type Rect,
 } from "../ipc/channels.ts";
 import {
   X_DOM_VERSION,
@@ -18,11 +21,13 @@ import {
   articlePostId,
   findArticles,
   isDmPath,
+  primaryColumn,
 } from "./xDom.ts";
 
 /**
- * Session view preload: draws the metrics strip and hover card over x.com's
- * posts. Runs in the isolated world, so x.com's scripts never see it; every
+ * x.com preload: draws the metrics strip and hover card over x.com's posts
+ * and tells main where X's primary column is, so the xtend view can sit over
+ * it. Runs in the isolated world, so x.com's scripts never see it; every
  * number comes from the main process, which got it from the capture. Markup
  * lives in closed shadow roots so x.com's CSS and ours never meet.
  */
@@ -114,7 +119,7 @@ const mountStrip = (article: HTMLElement, postId: string, post: OverlayPost) => 
     send(
       act === "save"
         ? { type: "save", postId }
-        : { type: "openRoute", href: `/compose?reply=${postId}` },
+        : { type: "openSlot", slot: { kind: "center", route: `/compose?reply=${postId}` } },
     );
   });
   root.append(style, body);
@@ -127,9 +132,36 @@ const applyVisibility = () => {
   for (const { host } of state.strips.values()) host.hidden = !visible;
 };
 
+// Column rect: main places the center and bar slots over X's primary column. X remounts
+// the column on route changes, so every scan re-finds it; the observer follows size changes
+// and the resize listener the position.
+let column: HTMLElement | null = null;
+let lastColumn = "";
+const reportColumn = () => {
+  const box = column?.isConnected ? column.getBoundingClientRect() : null;
+  const value: Rect | null =
+    box === null ? null : { x: box.x, y: box.y, width: box.width, height: box.height };
+  const key = JSON.stringify(value);
+  if (key === lastColumn) return;
+  lastColumn = key;
+  ipcRenderer.send(COLUMN_RECT_CHANNEL, value);
+};
+const columnObserver = new ResizeObserver(reportColumn);
+const trackColumn = () => {
+  const found = primaryColumn(document);
+  if (found !== column) {
+    columnObserver.disconnect();
+    column = found;
+    if (column !== null) columnObserver.observe(column);
+  }
+  reportColumn();
+};
+window.addEventListener("resize", reportColumn);
+
 let scanQueued = false;
 const scan = () => {
   scanQueued = false;
+  trackColumn();
   for (const article of findArticles(document)) {
     const postId = articlePostId(article);
     if (postId === null) continue;
@@ -185,7 +217,7 @@ const card = (() => {
   // Score numbers come only from the Scores screen: nothing is fetched on hover.
   body.addEventListener("click", (e) => {
     if ((e.target as HTMLElement).dataset.act !== "report") return;
-    send({ type: "openRoute", href: `/scores?handle=${shownHandle}` });
+    send({ type: "openSlot", slot: { kind: "center", route: `/scores?handle=${shownHandle}` } });
     pinned = false;
     hide();
   });
@@ -254,6 +286,8 @@ const isEditable = (target: EventTarget | null) =>
   (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
 window.addEventListener("focusin", (e) => ipcRenderer.send(EDITING_CHANNEL, isEditable(e.target)));
 window.addEventListener("focusout", () => ipcRenderer.send(EDITING_CHANNEL, false));
+// Capture phase: x.com stops propagation on some of its own controls, and main must still hear it.
+window.addEventListener("pointerdown", () => ipcRenderer.send(POINTER_DOWN_CHANNEL), true);
 
 window.addEventListener("DOMContentLoaded", () => {
   new MutationObserver(queueScan).observe(document.body, { childList: true, subtree: true });

@@ -10,35 +10,41 @@ import {
   shell,
   WebContentsView,
   type MenuItemConstructorOptions,
-  type Rectangle,
 } from "electron";
 import * as Schema from "effect/Schema";
 
 import {
   BRIDGE_INFO_CHANNEL,
   type BridgeInfo,
+  COLUMN_RECT_CHANNEL,
   EDITING_CHANNEL,
   OPEN_EXTERNAL_CHANNEL,
-  OPEN_ROUTE_CHANNEL,
   OVERLAY_ACTION_CHANNEL,
   OVERLAY_TOGGLE_CHANNEL,
+  POINTER_DOWN_CHANNEL,
+  type Rect,
   SESSION_DOWNLOAD_CHANNEL,
   SESSION_FIND_CHANNEL,
   SESSION_FIND_RESULT_CHANNEL,
   SESSION_NAVIGATE_CHANNEL,
   SESSION_URL_CHANNEL,
-  SESSION_VIEW_BOUNDS_CHANNEL,
-  SESSION_VIEW_HIDDEN_CHANNEL,
   SHORTCUT_CHANNEL,
+  SLOT_CHANNEL,
+  SLOT_CLOSE_CHANNEL,
+  SLOT_OPEN_CHANNEL,
   type OverlayAction,
   type SessionDownload,
   type SessionFind,
-  type SessionNavigation,
   type ShortcutKey,
+  type SlotClose,
+  type SlotOpen,
+  type SlotState,
 } from "../ipc/channels.ts";
 import { createOverlayFeed } from "../overlay/OverlayFeed.ts";
+import { BANNER_INSET_CSS } from "../overlay/xDom.ts";
 import { attachDesktopCommands } from "../service/DesktopCommands.ts";
 import { attachSessionCapture } from "../xSession/SessionCapture.ts";
+import { close, dismiss, EMPTY, slotBounds } from "./Slots.ts";
 
 const X_HOSTS = new Set(["x.com", "www.x.com", "twitter.com", "www.twitter.com", "mobile.x.com"]);
 const X_HOME = "https://x.com/home";
@@ -48,17 +54,15 @@ const OAUTH_HOSTS = new Set(["accounts.google.com", "appleid.apple.com"]);
 const sessionPartition = (accountId: number) =>
   accountId === 1 ? "persist:x-session" : `persist:x-session-${accountId}`;
 const ZOOM_STEP = 0.5;
-/** One rule hides X's left rail; the primary column keeps its own width. */
-const HIDE_RAIL_CSS = 'header[role="banner"] { display: none !important; }';
 
 export interface MainWindowOptions {
   readonly appUrl: string;
   readonly serviceUrl: string;
   readonly serviceToken: string;
-  /** Which account's x.com session the view opens; one cookie partition per account. */
+  /** Which account's x.com session the window opens; one cookie partition per account. */
   readonly accountId: number;
   /** What the app page learns about its service through the preload. */
-  readonly bridgeInfo: BridgeInfo;
+  readonly bridgeInfo: Omit<BridgeInfo, "slot">;
   /** Where unacknowledged observation batches wait for the service. */
   readonly queueDir: string;
   /** The last session URL, restored on launch. */
@@ -163,14 +167,38 @@ const browserUserAgent = (ua: string) =>
     .replace(/ xtend\/\S+/i, "")
     .replace(/ @xtend\/\S+/i, "");
 
-const isBounds = (value: unknown): value is Rectangle =>
+const isRect = (value: unknown): value is Rect =>
   typeof value === "object" &&
   value !== null &&
   ["x", "y", "width", "height"].every(
     (k) => typeof (value as Record<string, unknown>)[k] === "number",
   );
 
-const EMPTY: Rectangle = { x: 0, y: 0, width: 0, height: 0 };
+const SLOT_KINDS = new Set(["center", "popover", "sheet", "palette", "bar", "toast"]);
+const isSlotKind = (value: unknown): value is SlotOpen["kind"] =>
+  typeof value === "string" && SLOT_KINDS.has(value);
+const isSlotOpen = (value: unknown): value is SlotOpen => {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    isSlotKind(v.kind) &&
+    typeof v.route === "string" &&
+    v.route.startsWith("/") &&
+    (v.anchor === undefined || isRect(v.anchor))
+  );
+};
+
+/** The slot a key press opens; palette and the bars toggle, so the same key closes them again. */
+const SLOT_FOR_KEY: Record<Exclude<ShortcutKey, "overlayToggle">, SlotOpen> = {
+  palette: { kind: "palette", route: "/palette" },
+  compose: { kind: "center", route: "/compose" },
+  plan: { kind: "center", route: "/plan" },
+  analyze: { kind: "center", route: "/analyze" },
+  engage: { kind: "center", route: "/engage" },
+  library: { kind: "center", route: "/library" },
+  find: { kind: "bar", route: "/bar/find" },
+  address: { kind: "bar", route: "/bar/address" },
+};
 
 /** The app shortcut a key press stands for, if any. Single letters only count outside text fields. */
 function shortcutFor(input: Electron.Input, editing: boolean): ShortcutKey | undefined {
@@ -179,6 +207,7 @@ function shortcutFor(input: Electron.Input, editing: boolean): ShortcutKey | und
   if (mod && !input.shift && !input.alt) {
     if (input.code === "KeyK") return "palette";
     if (input.code === "KeyF") return "find";
+    if (input.code === "KeyL") return "address";
     return undefined;
   }
   if (input.alt && !mod && !input.shift && input.code === "KeyO") return "overlayToggle";
@@ -207,12 +236,13 @@ const useSystemSpellcheckLanguages = (session: Electron.Session) => {
   if (preferred.length > 0) session.setSpellCheckerLanguages(preferred);
 };
 
-export function createMainWindow(options: MainWindowOptions): BrowserWindow {
-  // Answer the preload's synchronous bridge-info request, and only for this window.
-  const onBridgeInfo = (event: Electron.IpcMainEvent) => {
-    if (event.sender === window.webContents) event.returnValue = options.bridgeInfo;
-  };
-  ipcMain.on(BRIDGE_INFO_CHANNEL, onBridgeInfo);
+/**
+ * x.com is the window itself; the React app lives in one child view that
+ * main moves between slots over it. Returns the window plus `openSlot`, so
+ * deep links can land on a screen.
+ */
+export function createMainWindow(options: MainWindowOptions) {
+  const partition = sessionPartition(options.accountId);
   const window = new BrowserWindow({
     width: 1440,
     height: 920,
@@ -224,43 +254,78 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
       ? { titleBarStyle: "hiddenInset" as const, trafficLightPosition: { x: 14, y: 14 } }
       : {}),
     webPreferences: {
-      preload: path.join(import.meta.dirname, "preload.cjs"),
-      contextIsolation: true,
-      sandbox: true,
-    },
-  });
-  const partition = sessionPartition(options.accountId);
-
-  // The app renderer is ours, but a `_blank` link in it must not open a window carrying the preload.
-  const appOrigin = new URL(options.appUrl).origin;
-  window.webContents.setWindowOpenHandler(({ url }) => {
-    openExternalWeb(url);
-    return { action: "deny" };
-  });
-  window.webContents.on("will-navigate", (event, url) => {
-    if (new URL(url).origin === appOrigin) return;
-    event.preventDefault();
-    openExternalWeb(url);
-  });
-  allowNotificationsOnly(window.webContents.session);
-
-  // The session view is a sibling native view, not an iframe: X's frame-busting
-  // never sees it, and its cookies live in their own persistent partition.
-  const session = new WebContentsView({
-    webPreferences: {
       partition,
       preload: path.join(import.meta.dirname, "overlayPreload.cjs"),
       contextIsolation: true,
       sandbox: true,
     },
   });
-  const contents = session.webContents;
+  const contents = window.webContents;
   allowNotificationsOnly(contents.session);
   useSystemSpellcheckLanguages(contents.session);
-  session.setBackgroundColor("#000000");
   contents.setUserAgent(browserUserAgent(contents.getUserAgent()));
-  session.setBounds(EMPTY);
-  window.contentView.addChildView(session);
+  contents.on("page-title-updated", (event) => event.preventDefault());
+  if (process.platform === "darwin") {
+    contents.on("dom-ready", () => void contents.insertCSS(BANNER_INSET_CSS));
+  }
+
+  // The app view is transparent: popover, sheet and toast pages draw their own frame and shadow.
+  const view = new WebContentsView({
+    webPreferences: {
+      preload: path.join(import.meta.dirname, "preload.cjs"),
+      contextIsolation: true,
+      sandbox: true,
+    },
+  });
+  const appContents = view.webContents;
+  view.setBackgroundColor("#00000000");
+  view.setBounds(EMPTY);
+  window.contentView.addChildView(view);
+  allowNotificationsOnly(appContents.session);
+
+  // Slot state. The view is never destroyed: hidden means empty bounds, so its socket and atoms stay warm.
+  let current: SlotOpen | null = null;
+  let lastRoute = "/";
+  let column: Rect | null = null;
+  const slotState = (): SlotState => ({ kind: current?.kind ?? null, route: lastRoute });
+  const toApp = (channel: string, value: unknown) => {
+    if (!appContents.isDestroyed()) appContents.send(channel, value);
+  };
+  const applyBounds = () => {
+    const { width, height } = window.getContentBounds();
+    view.setBounds(current === null ? EMPTY : slotBounds(current, { width, height }, column));
+  };
+  const setSlot = (next: SlotOpen | null) => {
+    if (next === current) return;
+    current = next;
+    if (next !== null) lastRoute = next.route;
+    applyBounds();
+    toApp(SLOT_CHANNEL, slotState());
+    if (next === null) return contents.focus();
+    // The address bar prefills from this; the app may have missed the navigation while hidden.
+    toApp(SESSION_URL_CHANNEL, contents.getURL());
+    appContents.focus();
+  };
+  window.on("resize", applyBounds);
+
+  // Answer the preload's synchronous bridge-info request, and only for this view.
+  const onBridgeInfo = (event: Electron.IpcMainEvent) => {
+    if (event.sender === appContents)
+      event.returnValue = { ...options.bridgeInfo, slot: slotState() } satisfies BridgeInfo;
+  };
+  ipcMain.on(BRIDGE_INFO_CHANNEL, onBridgeInfo);
+
+  // The app renderer is ours, but a `_blank` link in it must not open a window carrying the preload.
+  const appOrigin = new URL(options.appUrl).origin;
+  appContents.setWindowOpenHandler(({ url }) => {
+    openExternalWeb(url);
+    return { action: "deny" };
+  });
+  appContents.on("will-navigate", (event, url) => {
+    if (new URL(url).origin === appOrigin) return;
+    event.preventDefault();
+    openExternalWeb(url);
+  });
 
   // Stay on X inside the app; sign-in providers get a popup on the same partition; everything else goes to the default browser.
   contents.setWindowOpenHandler(({ url }) => {
@@ -285,10 +350,6 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
     openExternalWeb(url);
   });
 
-  // Browser chrome the native view lacks: the app window draws the bar, main does the work.
-  const toApp = (channel: string, value: unknown) => {
-    if (!window.isDestroyed()) window.webContents.send(channel, value);
-  };
   const navigateSession = (url: string) => {
     if (isXHost(url)) void contents.loadURL(url);
   };
@@ -352,11 +413,13 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
     Menu.buildFromTemplate(items).popup({ window });
   });
 
-  // Shortcuts: whichever view has the key reports it; the app decides what it means.
+  // Shortcuts: main turns them into slots itself, and tells the app which key it was.
   const editing = new WeakMap<Electron.WebContents, boolean>();
   const handleShortcut = (key: ShortcutKey) => {
     toApp(SHORTCUT_CHANNEL, key);
-    if (key === "overlayToggle") contents.send(OVERLAY_TOGGLE_CHANNEL);
+    if (key === "overlayToggle") return contents.send(OVERLAY_TOGGLE_CHANNEL);
+    const slot = SLOT_FOR_KEY[key];
+    setSlot(key === "palette" && current?.kind === "palette" ? null : slot);
   };
   contents.on("before-input-event", (event, input) => {
     const key = shortcutFor(input, editing.get(contents) === true);
@@ -364,9 +427,13 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
       event.preventDefault();
       return handleShortcut(key);
     }
+    if (input.type !== "keyDown") return;
+    if (input.key === "Escape" && current !== null && current.kind !== "toast") {
+      event.preventDefault();
+      return setSlot(dismiss(current));
+    }
     const mod = process.platform === "darwin" ? input.meta : input.control;
-    if (input.type !== "keyDown" || !mod || input.alt) return;
-    // Zoom, back and forward only ever apply to the x.com view, never the app.
+    if (!mod || input.alt) return;
     const zoom = contents.getZoomLevel();
     if (input.key === "=" || input.key === "+") contents.setZoomLevel(zoom + ZOOM_STEP);
     else if (input.key === "-") contents.setZoomLevel(zoom - ZOOM_STEP);
@@ -376,10 +443,10 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
     else return;
     event.preventDefault();
   });
-  // The app's own DOM handles its letters and ⌘K; only the keys it cannot see come through here.
-  window.webContents.on("before-input-event", (event, input) => {
+  // The app's own DOM handles its letters, ⌘K and Esc; only the keys it cannot act on come through here.
+  appContents.on("before-input-event", (event, input) => {
     const key = shortcutFor(input, true);
-    if (key !== "find" && key !== "overlayToggle") return;
+    if (key !== "find" && key !== "address" && key !== "overlayToggle") return;
     event.preventDefault();
     handleShortcut(key);
   });
@@ -397,27 +464,15 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
       createdListeners.clear();
     },
   });
-  let railHidden = false;
   const commands = attachDesktopCommands(contents, {
     serviceUrl: options.serviceUrl,
     serviceToken: options.serviceToken,
     navigate: navigateSession,
     nextCreatedPost: () => new Promise((resolve) => createdListeners.add(resolve)),
-    onSettings: (settings) => {
-      // The settings column is not in the contract yet; honour it once it is.
-      const hide = "hideXRail" in settings && settings.hideXRail === true;
-      if (hide === railHidden) return;
-      railHidden = hide;
-      if (hide) void contents.insertCSS(HIDE_RAIL_CSS);
-      else void contents.removeInsertedCSS(HIDE_RAIL_CSS);
-    },
     log: options.log,
   });
 
-  // IPC from the app window and the overlay; each handler checks its sender.
-  let bounds = EMPTY;
-  let hidden = false;
-  const applyBounds = () => session.setBounds(hidden ? EMPTY : bounds);
+  // IPC from the app view and the x.com preload; each handler checks its sender.
   const from = <T>(sender: Electron.WebContents, channel: string, handler: (value: T) => void) => {
     const listener = (event: Electron.IpcMainEvent, value: T) => {
       if (event.sender === sender) handler(value);
@@ -425,23 +480,16 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
     ipcMain.on(channel, listener);
     return () => ipcMain.off(channel, listener);
   };
-  const appContents = window.webContents;
   const offIpc = [
-    from<unknown>(appContents, SESSION_VIEW_BOUNDS_CHANNEL, (value) => {
-      bounds = isBounds(value) ? value : EMPTY;
-      applyBounds();
-      // The slot mounts after the bar subscribed; this replays the URL the bar missed.
-      if (isBounds(value)) toApp(SESSION_URL_CHANNEL, contents.getURL());
+    from<unknown>(appContents, SLOT_OPEN_CHANNEL, (value) => {
+      if (isSlotOpen(value)) setSlot(value);
     }),
-    from<boolean>(appContents, SESSION_VIEW_HIDDEN_CHANNEL, (value) => {
-      hidden = value === true;
-      applyBounds();
+    from<SlotClose | undefined>(appContents, SLOT_CLOSE_CHANNEL, (value) => {
+      const kind = value?.kind;
+      setSlot(close(current, isSlotKind(kind) ? kind : undefined));
     }),
-    from<SessionNavigation>(appContents, SESSION_NAVIGATE_CHANNEL, (nav) => {
-      if (nav.action === "url") navigateSession(nav.url);
-      else if (nav.action === "back") contents.navigationHistory.goBack();
-      else if (nav.action === "forward") contents.navigationHistory.goForward();
-      else contents.reload();
+    from<unknown>(appContents, SESSION_NAVIGATE_CHANNEL, (url) => {
+      if (typeof url === "string") navigateSession(url);
     }),
     from<SessionFind>(appContents, SESSION_FIND_CHANNEL, (find) => {
       if (find === null || find.text === "") contents.stopFindInPage("clearSelection");
@@ -450,8 +498,22 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
     from<string>(appContents, OPEN_EXTERNAL_CHANNEL, openExternalWeb),
     from<boolean>(appContents, EDITING_CHANNEL, (v) => editing.set(appContents, v === true)),
     from<boolean>(contents, EDITING_CHANNEL, (v) => editing.set(contents, v === true)),
+    from<unknown>(contents, COLUMN_RECT_CHANNEL, (value) => {
+      // The preload measures in x.com CSS pixels; the window's are those times the zoom.
+      const zoom = contents.getZoomFactor();
+      column = isRect(value)
+        ? {
+            x: value.x * zoom,
+            y: value.y * zoom,
+            width: value.width * zoom,
+            height: value.height * zoom,
+          }
+        : null;
+      applyBounds();
+    }),
+    from<undefined>(contents, POINTER_DOWN_CHANNEL, () => setSlot(dismiss(current))),
     from<OverlayAction>(contents, OVERLAY_ACTION_CHANNEL, (action) => {
-      if (action.type === "openRoute") return toApp(OPEN_ROUTE_CHANNEL, action.href);
+      if (action.type === "openSlot") return setSlot(action.slot);
       const post = overlay.get(action.postId);
       if (post === undefined) return;
       commands.save({
@@ -475,6 +537,7 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
     for (const off of offIpc) off();
     detachCapture();
     commands.detach();
+    appContents.close();
   });
 
   let startUrl = X_HOME;
@@ -488,6 +551,16 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
       ? Promise.resolve()
       : importCookies(contents.session, importPath, options.log)
   ).then(() => contents.loadURL(startUrl));
-  void window.loadURL(options.appUrl);
-  return window;
+  void appContents.loadURL(options.appUrl);
+
+  return {
+    window,
+    openSlot: (slot: SlotOpen) => setSlot(slot),
+    /** Dev only: x.com and the slot view as separate images (a window capture omits child views) plus where the slot sits. */
+    capture: async () => ({
+      x: await window.capturePage(),
+      slot: current === null ? null : await appContents.capturePage(),
+      bounds: view.getBounds(),
+    }),
+  };
 }

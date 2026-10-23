@@ -7,12 +7,13 @@ import {
   articlePostId,
   findArticles,
   isDmPath,
+  primaryColumn,
 } from "./xDom.ts";
 
 // Trimmed by hand from x.com/jack/status/20 on 2026-10-23 (X_DOM_VERSION 2026-10):
 // the wrappers between the landmarks are dropped, the landmarks and their order are real.
 const FIXTURE = `
-<div>
+<div data-testid="primaryColumn">
   <article data-testid="tweet" role="article">
     <div data-testid="Tweet-User-Avatar">
       <div data-testid="UserAvatar-Container-jack"><a role="link" href="/jack"></a></div>
@@ -42,6 +43,7 @@ it("reads the post id, author, action row and hover targets from a real article"
   document.body.innerHTML = FIXTURE;
   const articles = findArticles(document);
   expect(articles).toHaveLength(1);
+  expect(primaryColumn(document)?.contains(articles[0]!)).toBe(true);
   const article = articles[0]!;
   // The quotes link also contains /status/ but wraps no <time>; the quoted post has a time but no link.
   expect(articlePostId(article)).toBe("20");

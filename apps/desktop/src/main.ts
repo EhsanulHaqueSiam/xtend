@@ -6,7 +6,6 @@ import { app, BrowserWindow, ipcMain } from "electron";
 import { autoUpdater } from "electron-updater";
 
 import {
-  OPEN_ROUTE_CHANNEL,
   ACCOUNT_SELECT_CHANNEL,
   REMOTE_CHECK_CHANNEL,
   REMOTE_SET_CHANNEL,
@@ -84,20 +83,17 @@ const openSocket = (url: string) =>
     ws.addEventListener("error", () => resolve(false));
   });
 
-let window: BrowserWindow | undefined;
+let main: ReturnType<typeof createMainWindow> | undefined;
 let serviceMode: ServiceMode = "none";
 let accountId = 1;
-let pendingRoute: string | null = null;
 
-const openRoute = (route: string) => {
-  if (window === undefined || window.webContents.isLoading()) pendingRoute = route;
-  else window.webContents.send(OPEN_ROUTE_CHANNEL, route);
-};
+/** A screen asked for from outside (deep link) opens in the center slot. */
+const openRoute = (route: string) => main?.openSlot({ kind: "center", route });
 
 const openWindow = () => {
-  if (window !== undefined && !window.isDestroyed()) return window.show();
+  if (main !== undefined && !main.window.isDestroyed()) return main.window.show();
   const serviceToken = readServiceToken();
-  window = createMainWindow({
+  main = createMainWindow({
     appUrl,
     serviceUrl,
     serviceToken,
@@ -108,12 +104,22 @@ const openWindow = () => {
     importCookiesPath: process.env.XTEND_IMPORT_COOKIES,
     log,
   });
-  window.webContents.once("did-finish-load", () => {
-    if (pendingRoute !== null) openRoute(pendingRoute);
-    pendingRoute = null;
-  });
-  window.on("closed", () => (window = undefined));
+  main.window.on("closed", () => (main = undefined));
 };
+
+// Dev only: `kill -USR2 <pid>` writes <ts>.png (x.com), <ts>-slot.png and <ts>.json (slot bounds) to
+// XTEND_SHOT_DIR, for agents without a screen; compose them with any image tool.
+const shotDir = process.env.XTEND_SHOT_DIR;
+if (shotDir !== undefined && !app.isPackaged) {
+  process.on("SIGUSR2", () => {
+    void main?.capture().then(({ x, slot, bounds }) => {
+      const base = path.join(shotDir, String(Date.now()));
+      fs.writeFileSync(`${base}.png`, x.toPNG());
+      if (slot !== null) fs.writeFileSync(`${base}-slot.png`, slot.toPNG());
+      fs.writeFileSync(`${base}.json`, JSON.stringify(bounds));
+    });
+  });
+}
 
 // xtend://compose?text=... and xtend://report?handle=... open the app on that screen.
 if (app.isPackaged) app.setAsDefaultProtocolClient("xtend");
@@ -164,10 +170,10 @@ void app.whenReady().then(async () => {
   ipcMain.on(ACCOUNT_SELECT_CHANNEL, (_event, id: unknown) => {
     if (typeof id !== "number" || !Number.isInteger(id) || id === accountId) return;
     accountId = id;
-    const old = window;
-    window = undefined;
+    const old = main;
+    main = undefined;
     openWindow();
-    old?.close();
+    old?.window.close();
   });
 
   createTray(openWindow);
