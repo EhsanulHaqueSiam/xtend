@@ -9,30 +9,31 @@ import {
   postCostUsd,
   type ReplySettings,
 } from "@xtend/contracts";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
 import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { Plus } from "lucide-react";
+import { ArrowLeft, CalendarClock } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { AssistPanel, ComposeContext, failText } from "../components/compose/AssistPanel";
-import { DraftsList, fmtWhen, statusTone } from "../components/compose/DraftsList";
+import { COMPOSE_TABS, type ComposeTab, DraftsHome, tabOf } from "../components/compose/DraftsHome";
+import { fmtWhen, statusTone } from "../components/compose/DraftsList";
 import { PostPreview, quotedPostId } from "../components/compose/PostPreview";
 import {
-  inputClass,
   MediaList,
   REPLY_OPTIONS,
   splitBlocks,
   ThreadEditor,
 } from "../components/compose/ThreadEditor";
-import { PageHeader } from "../components/PageHeader";
-import { Button } from "../components/ui/button";
+import { shellBridge } from "../components/shell/bridge";
+import { Companion } from "../components/shell/Companion";
+import { SubTabs, XCard, xInput, xMeta, xPill, xPillSm, xPillSolid } from "../components/x";
+import { cn } from "../lib/utils";
 import { localInputToInstant } from "../lib/time";
 import {
   composeContextAtom,
   composeQuoteAtom,
   createDraftAtom,
-  deleteDraftAtom,
   draftsAtom,
   generateCoverAtom,
   mediaAddAtom,
@@ -126,10 +127,9 @@ function Inspiration({ postId }: { readonly postId: string }) {
   const post = AsyncResult.getOrElse(saved, () => null);
   if (post === null) return null;
   return (
-    <div className="flex flex-col gap-1 rounded-md border border-border bg-card p-2 text-xs">
-      <span className="text-2xs text-muted-foreground">Inspired by @{post.post.author.handle}</span>
-      <p className="whitespace-pre-wrap text-foreground/90">{post.post.text}</p>
-    </div>
+    <XCard title={`Inspired by @${post.post.author.handle}`}>
+      <p className="whitespace-pre-wrap px-4 pb-3 text-[15px] leading-5">{post.post.text}</p>
+    </XCard>
   );
 }
 
@@ -148,15 +148,14 @@ function ReplyTarget({ postId }: { readonly postId: string }) {
         ? null
         : { handle: observed.author.handle, text: observed.text };
   return (
-    <div className="flex flex-col gap-1 rounded-md border border-border bg-card p-2 text-xs">
-      <span className="text-2xs text-muted-foreground">
-        Replying to {target === null ? `post ${postId}` : `@${target.handle}`}
-      </span>
+    <XCard title={target === null ? "Replying" : `Replying to @${target.handle}`}>
       {target !== null ? (
-        <p className="line-clamp-6 whitespace-pre-wrap text-foreground/90">{target.text}</p>
+        <p className="line-clamp-6 whitespace-pre-wrap px-4 pb-3 text-[15px] leading-5">
+          {target.text}
+        </p>
       ) : (
         <a
-          className="text-info-foreground"
+          className="block truncate px-4 pb-3 text-[15px] text-primary"
           href={sourceUrl(postId)}
           target="_blank"
           rel="noreferrer"
@@ -164,7 +163,7 @@ function ReplyTarget({ postId }: { readonly postId: string }) {
           {sourceUrl(postId)}
         </a>
       )}
-    </div>
+    </XCard>
   );
 }
 
@@ -176,37 +175,15 @@ const POLL_DURATIONS = [
   [10080, "7 days"],
 ] as const;
 
-function Tab({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: string;
-}) {
-  return (
-    <Button
-      variant="ghost"
-      size="xs"
-      data-active={active || undefined}
-      className="data-active:bg-accent"
-      onClick={onClick}
-    >
-      {children}
-    </Button>
-  );
-}
-
 function Options({ editor, onChange }: { editor: Editor; onChange: (e: Editor) => void }) {
   const poll = editor.poll;
   const quoteBad = editor.quoteUrl.trim() !== "" && quotedPostId(editor.quoteUrl) === null;
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-border bg-card p-2 text-xs">
+    <div className="flex flex-col text-[15px] [&>label]:border-t [&>label]:border-border [&>label]:px-4 [&>label]:py-3">
       <label className="flex items-center justify-between gap-2">
-        <span className="text-muted-foreground">Who can reply (default for every post)</span>
+        <span>Who can reply to every post</span>
         <select
-          className={inputClass + " w-auto"}
+          className={cn(xInput, "w-auto")}
           value={editor.replySettings}
           onChange={(e) => onChange({ ...editor, replySettings: e.target.value as ReplySettings })}
         >
@@ -217,25 +194,25 @@ function Options({ editor, onChange }: { editor: Editor; onChange: (e: Editor) =
           ))}
         </select>
       </label>
-      <label className="flex flex-col gap-1">
-        <span className="text-muted-foreground">
-          Quote post (x.com status link, posted as a link in the first post at the link price)
-        </span>
+      <label className="flex flex-col gap-1.5">
+        <span>Quote a post</span>
+        <span className={xMeta}>An x.com link, posted in the first post at the link price.</span>
         <input
-          className={inputClass}
+          className={xInput}
           aria-label="Quote post link"
           placeholder="https://x.com/handle/status/123"
           value={editor.quoteUrl}
           onChange={(e) => onChange({ ...editor, quoteUrl: e.target.value })}
         />
         {quoteBad ? (
-          <span className="text-2xs text-error-foreground">Not an x.com status link</span>
+          <span className="text-[13px] text-[#f4212e]">Not an x.com status link</span>
         ) : null}
       </label>
       <label className="flex items-center justify-between gap-2">
-        <span className="text-muted-foreground">Poll on first post</span>
+        <span>Poll on the first post</span>
         <input
           type="checkbox"
+          className="size-4 accent-[#1d9bf0]"
           checked={poll !== null}
           onChange={(e) =>
             onChange({
@@ -246,12 +223,12 @@ function Options({ editor, onChange }: { editor: Editor; onChange: (e: Editor) =
         />
       </label>
       {poll !== null ? (
-        <div className="flex flex-col gap-1 pl-2">
+        <div className="flex flex-col gap-2 px-4 pb-3">
           {poll.options.map((o, i) => (
             // eslint-disable-next-line react/no-array-index-key -- options are plain strings; position is their identity.
             <div key={i} className="flex gap-1">
               <input
-                className={inputClass}
+                className={xInput}
                 placeholder={`Option ${i + 1}`}
                 value={o}
                 maxLength={25}
@@ -266,9 +243,10 @@ function Options({ editor, onChange }: { editor: Editor; onChange: (e: Editor) =
                 }
               />
               {poll.options.length > 2 ? (
-                <Button
-                  variant="ghost-muted"
-                  size="xs"
+                <button
+                  type="button"
+                  className={cn(xPill, xPillSm)}
+                  aria-label={`Remove option ${i + 1}`}
                   onClick={() =>
                     onChange({
                       ...editor,
@@ -276,24 +254,24 @@ function Options({ editor, onChange }: { editor: Editor; onChange: (e: Editor) =
                     })
                   }
                 >
-                  x
-                </Button>
+                  Remove
+                </button>
               ) : null}
             </div>
           ))}
           <div className="flex items-center justify-between gap-2">
-            <Button
-              variant="ghost"
-              size="xs"
+            <button
+              type="button"
+              className="cursor-pointer text-[15px] text-primary disabled:opacity-50"
               disabled={poll.options.length >= 4}
               onClick={() =>
                 onChange({ ...editor, poll: { ...poll, options: [...poll.options, ""] } })
               }
             >
               Add option
-            </Button>
+            </button>
             <select
-              className={inputClass + " w-auto"}
+              className={cn(xInput, "w-auto")}
               value={poll.durationMinutes}
               onChange={(e) =>
                 onChange({ ...editor, poll: { ...poll, durationMinutes: Number(e.target.value) } })
@@ -309,21 +287,25 @@ function Options({ editor, onChange }: { editor: Editor; onChange: (e: Editor) =
         </div>
       ) : null}
       <label className="flex items-center justify-between gap-2">
-        <span className="text-muted-foreground">
-          Hide link preview (removed through your x.com session after posting)
+        <span>
+          Hide link previews
+          <span className={cn(xMeta, "block")}>
+            Removed through your x.com session after posting.
+          </span>
         </span>
         <input
           type="checkbox"
+          className="size-4 accent-[#1d9bf0]"
           checked={editor.hideLinkPreviews}
           onChange={(e) => onChange({ ...editor, hideLinkPreviews: e.target.checked })}
         />
       </label>
       <label className="flex items-center justify-between gap-2">
-        <span className="text-muted-foreground">Seconds between thread posts</span>
+        <span>Seconds between thread posts</span>
         <input
           type="number"
           min={0}
-          className={inputClass + " w-20"}
+          className={cn(xInput, "w-20")}
           value={editor.threadDelaySeconds}
           onChange={(e) =>
             onChange({
@@ -337,16 +319,67 @@ function Options({ editor, onChange }: { editor: Editor; onChange: (e: Editor) =
   );
 }
 
-/** A new `?inspire=`, `?reply=` or `?text=` remounts the editor, so a fresh draft starts without an effect. */
+/** Every search key, so links into Compose spell out only what they mean. */
+const composeSearch = (search: Partial<ComposeSearch>): ComposeSearch => ({
+  draft: undefined,
+  inspire: undefined,
+  reply: undefined,
+  text: undefined,
+  new: undefined,
+  tab: undefined,
+  ...search,
+});
+
+/**
+ * Compose is drafts first: the list of drafts as X posts, and the composer once a draft, a
+ * new thread, a reply, an inspiration or carried-over text is in the URL. A new `?inspire=`,
+ * `?reply=`, `?text=` or `?draft=` remounts the composer, so it starts without an effect.
+ */
 function ComposeScreen() {
-  const { draft: draftParam, inspire, reply, text } = Route.useSearch();
+  const search = Route.useSearch();
+  const navigate = useNavigate();
+  const settings = useAtomValue(settingsAtom);
+  const handle = AsyncResult.getOrElse(
+    AsyncResult.map(settings, (s) => s.handle),
+    () => null,
+  );
+  const router = useRouter();
+  // In x.com main owns the slot, and the slot's width follows the route (the composer gets
+  // X's right column), so moves between the list and the composer go through main.
+  const go = (next: Partial<ComposeSearch>) => {
+    const search = composeSearch(next);
+    const bridge = shellBridge();
+    if (bridge === undefined) return void navigate({ to: "/compose", search });
+    bridge.openSlot({
+      kind: "center",
+      route: router.buildLocation({ to: "/compose", search }).href,
+    });
+  };
+  const editing =
+    search.draft !== undefined ||
+    search.new === true ||
+    search.inspire !== undefined ||
+    search.reply !== undefined ||
+    search.text !== undefined;
+  if (!editing) {
+    return (
+      <DraftsHome
+        tab={search.tab ?? "drafts"}
+        handle={handle}
+        onTab={(tab) => go({ tab })}
+        onOpen={(draft) => go({ draft })}
+        onNew={() => go({ new: true })}
+      />
+    );
+  }
   return (
     <ComposeEditor
-      key={`${inspire ?? ""}|${reply ?? ""}|${text ?? ""}`}
-      draftParam={draftParam}
-      inspire={inspire}
-      reply={reply}
-      text={text}
+      key={`${search.draft ?? ""}|${search.inspire ?? ""}|${search.reply ?? ""}|${search.text ?? ""}`}
+      draftParam={search.draft}
+      inspire={search.inspire}
+      reply={search.reply}
+      text={search.text}
+      onBack={(tab) => go({ tab })}
     />
   );
 }
@@ -356,15 +389,17 @@ function ComposeEditor({
   inspire,
   reply,
   text,
+  onBack,
 }: {
   readonly draftParam: string | undefined;
   readonly inspire: string | undefined;
   readonly reply: string | undefined;
   /** Text carried over from X's composer by the Schedule chip. */
   readonly text: string | undefined;
+  /** Back to the list, on the tab the draft now lives under. */
+  readonly onBack: (tab: ComposeTab) => void;
 }) {
   const rates = useRates();
-  const navigate = useNavigate();
   const drafts = useAtomValue(draftsAtom);
   const refresh = useAtomRefresh(draftsAtom);
   const refreshContext = useAtomRefresh(composeContextAtom);
@@ -385,7 +420,6 @@ function ComposeEditor({
   );
   const create = useAtomSet(createDraftAtom, { mode: "promise" });
   const update = useAtomSet(updateDraftAtom, { mode: "promise" });
-  const remove = useAtomSet(deleteDraftAtom, { mode: "promise" });
   const queue = useAtomSet(queueAtom, { mode: "promiseExit" });
   const schedule = useAtomSet(scheduleAtom, { mode: "promiseExit" });
   const postNow = useAtomSet(postNowAtom, { mode: "promiseExit" });
@@ -417,23 +451,14 @@ function ComposeEditor({
     setConfirm(null);
     setNotice(null);
   };
-  const fresh = () => {
-    setSelected(null);
-    setEditor(empty);
-    lastSaved.current = JSON.stringify(empty);
-    setActive(0);
-    setConfirm(null);
-    setNotice(null);
-  };
 
-  // Deep link from Plan ("edit"): open once the list is loaded, then drop the param.
+  // ?draft= opens that draft once the list has it; the param stays, so reloads land here too.
   useEffect(() => {
-    if (draftParam === undefined || !AsyncResult.isSuccess(drafts)) return;
+    if (draftParam === undefined || selected !== null || !AsyncResult.isSuccess(drafts)) return;
     const d = drafts.value.find((x) => x.id === draftParam);
     // eslint-disable-next-line react/set-state-in-effect -- the editor state is this effect's output.
-    if (d !== undefined && d.id !== selected?.id) open(d);
-    navigate({ to: "/compose", search: { draft: undefined, inspire, reply, text }, replace: true });
-    // eslint-disable-next-line react/exhaustive-effect-dependencies -- runs once per deep link, not per selection.
+    if (d !== undefined) open(d);
+    // eslint-disable-next-line react/exhaustive-effect-dependencies -- runs until the deep-linked draft is open.
   }, [draftParam, drafts]);
 
   // Autosave: one row per editor session, created on the first non-blank change.
@@ -563,258 +588,187 @@ function ComposeEditor({
   const canSend = !isBlank(editor) && !locked && rates !== null && !quoteBad;
   const sessionBlocked = hasMedia && (!sessionPosting || context?.desktopConnected === false);
 
+  const waiting = draftParam !== undefined && selected === null;
+  const nextSlot = context?.nextSlot ?? null;
+  const title =
+    selected === null
+      ? reply !== undefined
+        ? "Reply"
+        : isArticle
+          ? "New article"
+          : "New thread"
+      : isArticle
+        ? "Edit article"
+        : "Edit thread";
+
   return (
     <div className="flex h-full flex-col">
-      <PageHeader
-        title="Compose"
-        detail={
-          selected === null ? (
-            reply === undefined ? (
-              "new draft"
-            ) : (
-              "reply"
-            )
-          ) : (
-            <span className={statusTone[selected.status]}>{selected.status}</span>
-          )
-        }
-        actions={
-          <>
-            <Button variant="ghost" size="sm" disabled={!canSend} onClick={() => act("queue")}>
-              Add to queue
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={!canSend}
-              onClick={() => setConfirm(confirm === "schedule" ? null : "schedule")}
-            >
-              Schedule
-            </Button>
-            <Button
-              size="sm"
-              disabled={!canSend}
-              onClick={() => setConfirm(confirm === "post" ? null : "post")}
-            >
-              Post now
-            </Button>
-          </>
-        }
-      />
-      <div className="flex min-h-0 flex-1">
-        <aside className="flex w-60 shrink-0 flex-col border-r border-border">
-          <div className="flex items-center justify-between px-2 py-1.5">
-            <span className="text-2xs text-muted-foreground">Drafts</span>
-            <Button variant="ghost-muted" size="icon-xs" aria-label="New draft" onClick={fresh}>
-              <Plus />
-            </Button>
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            {AsyncResult.match(drafts, {
-              onInitial: () => <p className="px-3 py-4 text-2xs text-muted-foreground">Loading…</p>,
-              onFailure: (f) => (
-                <p className="px-3 py-4 text-2xs text-error-foreground">{failText(f.cause)}</p>
-              ),
-              onSuccess: ({ value }) => (
-                <DraftsList
-                  drafts={value}
-                  selectedId={selected?.id ?? null}
-                  onOpen={open}
-                  onDelete={async (id) => {
-                    await remove(id);
-                    if (selected?.id === id) fresh();
-                    refresh();
-                  }}
-                />
-              ),
-            })}
-          </div>
-        </aside>
-        <main className="flex min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
-          <div className="flex items-center gap-1">
-            <Tab active={!isArticle} onClick={() => setEditor({ ...editor, kind: "thread" })}>
-              Thread
-            </Tab>
-            <Tab active={isArticle} onClick={() => setEditor({ ...editor, kind: "article" })}>
-              Article
-            </Tab>
-          </div>
-          {confirm === "post" ? (
-            <div className="flex flex-wrap items-center gap-2 rounded-md border border-warning/40 bg-warning-surface px-3 py-2 text-xs">
-              <span>
-                {isArticle
-                  ? `Publish this article now for ${quote === null ? "…" : usd(quote.articleUsd * 2)} (draft and publish, ${quote === null ? "…" : usd(quote.articleUsd)} each).`
-                  : `Post ${blocks.length} ${blocks.length === 1 ? "post" : "posts"} now for ${usd(total)}${
-                      linkCount > 0 && rates !== null
-                        ? ` (${linkCount} with a link at ${usd(rates.postWithLink)})`
-                        : ""
-                    }${sessionCount > 0 ? ` (${sessionCount} with media through your x.com session, free)` : ""}.`}{" "}
-                This charges your treg balance.
-              </span>
-              <Button size="xs" onClick={() => act("post")}>
-                Confirm and post
-              </Button>
-              <Button variant="ghost" size="xs" onClick={() => setConfirm(null)}>
-                Cancel
-              </Button>
-            </div>
-          ) : null}
-          {confirm === "schedule" ? (
-            <div className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-xs">
-              <input
-                type="datetime-local"
-                className={inputClass + " w-auto"}
-                value={when}
-                onChange={(e) => setWhen(e.target.value)}
-              />
-              <span className="text-2xs text-muted-foreground">{zone}</span>
-              <Button size="xs" disabled={when === ""} onClick={() => act("schedule")}>
-                Schedule
-              </Button>
-              <Button variant="ghost" size="xs" onClick={() => setConfirm(null)}>
-                Cancel
-              </Button>
-            </div>
-          ) : null}
-          {notice !== null ? (
-            <p
-              className={
-                "text-xs " +
-                (notice.startsWith("Failed") ? "text-error-foreground" : "text-success-foreground")
-              }
-            >
-              {notice}
-            </p>
-          ) : null}
-          {selected?.status === "failed" && notice === null ? (
-            <p className="text-xs text-error-foreground">Failed: {selected.error}</p>
-          ) : null}
-          {locked ? (
-            <p className="text-xs text-muted-foreground">
-              This draft is {selected?.status}; start a new draft to change it.
-              {selected?.linkPreviewNote === null ? "" : ` ${selected?.linkPreviewNote}`}
-            </p>
-          ) : null}
-          {sessionBlocked ? (
-            <p className="text-xs text-warning-foreground">
-              {sessionPosting
-                ? "Media posts go through your x.com session, but no desktop is connected."
-                : "Media posts go through your x.com session, enable Session posting in Settings."}
-            </p>
-          ) : null}
-          {isArticle ? (
-            <div className="flex flex-col gap-2">
-              <input
-                className={inputClass}
-                placeholder="Article title"
-                value={editor.title}
-                onChange={(e) => setEditor({ ...editor, title: e.target.value })}
-              />
-              <textarea
-                className={inputClass + " min-h-80"}
-                placeholder="Body (markdown)"
-                value={editor.body}
-                onChange={(e) => setEditor({ ...editor, body: e.target.value })}
-              />
-              <div className="flex flex-col gap-2 rounded-md border border-border bg-card p-2 text-xs">
-                <span className="text-muted-foreground">Cover</span>
-                {cover !== undefined ? (
-                  <MediaList
-                    media={[cover]}
-                    previews={previews}
-                    onChange={(m) =>
-                      setEditor({
-                        ...editor,
-                        media: [...media.filter((x) => x.id !== cover.id), ...m],
-                      })
-                    }
-                    onRemove={removeMedia}
-                  />
-                ) : null}
-                <div className="flex gap-1.5">
-                  <input
-                    className={inputClass}
-                    placeholder="Describe the cover image"
-                    value={coverPrompt}
-                    onChange={(e) => setCoverPrompt(e.target.value)}
-                  />
-                  <Button
-                    variant="outline"
-                    size="xs"
-                    disabled={coverPrompt.trim() === "" || cover !== undefined || quote === null}
-                    onClick={async () => {
-                      const d = selected ?? (await save(true));
-                      if (d === null) return;
-                      setNotice("Generating cover…");
-                      const exit = await generateCover({ draftId: d.id, prompt: coverPrompt });
-                      if (Exit.isFailure(exit)) setNotice(`Failed: ${failText(exit.cause)}`);
-                      else {
-                        takeMedia(exit.value);
-                        setNotice("Cover generated");
-                      }
-                    }}
-                  >
-                    Generate cover (
-                    {quote === null ? "…" : `${usd(quote.coverUsd)}, ${quote.coverModel}`})
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="xs"
-                    disabled={cover !== undefined}
-                    onClick={() => {
-                      const input = document.createElement("input");
-                      input.type = "file";
-                      input.accept = "image/*";
-                      input.addEventListener("change", () => addFiles(0, [...(input.files ?? [])]));
-                      input.click();
-                    }}
-                  >
-                    Upload cover
-                  </Button>
-                </div>
-                <p className="text-2xs text-muted-foreground">
-                  Published through X Articles via treg (
-                  {quote === null ? "…" : usd(quote.articleUsd)} per request). Unverified against
-                  the live API; the first publish may fail.
-                </p>
-              </div>
-            </div>
-          ) : (
-            <>
-              <fieldset disabled={locked} className="contents">
-                <ThreadEditor
-                  blocks={blocks}
-                  media={media}
+      <div className="flex h-[53px] shrink-0 items-center gap-6 border-b border-border px-4">
+        <button
+          type="button"
+          aria-label="Back to drafts"
+          className="-ml-2 flex size-9 cursor-pointer items-center justify-center rounded-full hover:bg-accent"
+          onClick={() => onBack(selected === null ? "drafts" : tabOf(selected.status))}
+        >
+          <ArrowLeft className="size-5" />
+        </button>
+        <h2 className="flex-1 text-xl font-bold">{title}</h2>
+        {selected !== null ? (
+          <span className={cn("text-[13px]", statusTone[selected.status])}>
+            {selected.status === "queued" && selected.scheduledAt !== null
+              ? `Queued · ${fmtWhen(selected.scheduledAt)}`
+              : selected.status}
+          </span>
+        ) : null}
+      </div>
+      {locked ? null : (
+        <SubTabs
+          tabs={[
+            { id: "thread", label: "Thread" },
+            { id: "article", label: "Article" },
+          ]}
+          value={editor.kind}
+          onChange={(kind) => setEditor({ ...editor, kind })}
+        />
+      )}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {notice !== null ? (
+          <p
+            role="status"
+            className={cn(
+              "border-b border-border px-4 py-2 text-[13px]",
+              notice.startsWith("Failed") ? "text-[#f4212e]" : "text-[#00ba7c]",
+            )}
+          >
+            {notice}
+          </p>
+        ) : null}
+        {selected?.status === "failed" && notice === null ? (
+          <p className="border-b border-border px-4 py-2 text-[13px] text-[#f4212e]">
+            Failed: {selected.error}
+          </p>
+        ) : null}
+        {locked ? (
+          <p className={cn(xMeta, "border-b border-border px-4 py-2")}>
+            This draft is {selected?.status}; start a new draft to change it.
+            {selected?.linkPreviewNote === null ? "" : ` ${selected?.linkPreviewNote}`}
+          </p>
+        ) : null}
+        {sessionBlocked ? (
+          <p className="border-b border-border px-4 py-2 text-[13px] text-[#ffd400]">
+            {sessionPosting
+              ? "Media posts go through your x.com session, but no desktop is connected."
+              : "Media posts go through your x.com session, enable Session posting in Settings."}
+          </p>
+        ) : null}
+        {waiting ? (
+          <p className={cn(xMeta, "px-4 py-8 text-center")}>
+            {AsyncResult.isSuccess(drafts) ? "This draft no longer exists." : "Loading…"}
+          </p>
+        ) : isArticle ? (
+          <div className="flex flex-col gap-3 px-4 py-3">
+            <input
+              className="w-full bg-transparent text-2xl font-extrabold outline-hidden placeholder:text-placeholder"
+              placeholder="Title"
+              value={editor.title}
+              onChange={(e) => setEditor({ ...editor, title: e.target.value })}
+            />
+            <textarea
+              className="min-h-80 w-full resize-none bg-transparent text-[17px] leading-6 outline-hidden placeholder:text-placeholder"
+              placeholder="Write in markdown"
+              value={editor.body}
+              onChange={(e) => setEditor({ ...editor, body: e.target.value })}
+            />
+            <div className="flex flex-col gap-2 border-t border-border pt-3">
+              <span className="text-[15px] font-bold">Cover</span>
+              {cover !== undefined ? (
+                <MediaList
+                  media={[cover]}
                   previews={previews}
-                  active={active}
-                  onChange={(b) => setEditor({ ...editor, blocks: b })}
-                  onFocus={setActive}
-                  onAddFiles={addFiles}
-                  onMediaChange={(m) => setEditor((e) => ({ ...e, media: m }))}
-                  onRemoveMedia={removeMedia}
+                  onChange={(m) =>
+                    setEditor({
+                      ...editor,
+                      media: [...media.filter((x) => x.id !== cover.id), ...m],
+                    })
+                  }
+                  onRemove={removeMedia}
                 />
-              </fieldset>
-              <p className="font-mono text-2xs text-muted-foreground">
-                {blocks.length} {blocks.length === 1 ? "post" : "posts"} x{" "}
-                {rates === null ? "…" : usd(rates.post)} = {usd(total)}
-                {linkCount > 0 && rates !== null ? (
-                  <span className="text-warning-foreground">
-                    {" "}
-                    · {linkCount} with a link billed at {usd(rates.postWithLink)}
-                  </span>
-                ) : null}
-                {sessionCount > 0 ? (
-                  <span> · {sessionCount} with media via session, free</span>
-                ) : null}
+              ) : null}
+              <input
+                className={xInput}
+                placeholder="Describe the cover image"
+                value={coverPrompt}
+                onChange={(e) => setCoverPrompt(e.target.value)}
+              />
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className={cn(xPill, xPillSm)}
+                  disabled={coverPrompt.trim() === "" || cover !== undefined || quote === null}
+                  onClick={async () => {
+                    const d = selected ?? (await save(true));
+                    if (d === null) return;
+                    setNotice("Generating cover…");
+                    const exit = await generateCover({ draftId: d.id, prompt: coverPrompt });
+                    if (Exit.isFailure(exit)) setNotice(`Failed: ${failText(exit.cause)}`);
+                    else {
+                      takeMedia(exit.value);
+                      setNotice("Cover generated");
+                    }
+                  }}
+                >
+                  Generate · {quote === null ? "…" : `${usd(quote.coverUsd)}, ${quote.coverModel}`}
+                </button>
+                <button
+                  type="button"
+                  className={cn(xPill, xPillSm)}
+                  disabled={cover !== undefined}
+                  onClick={() => {
+                    const input = document.createElement("input");
+                    input.type = "file";
+                    input.accept = "image/*";
+                    input.addEventListener("change", () => addFiles(0, [...(input.files ?? [])]));
+                    input.click();
+                  }}
+                >
+                  Upload
+                </button>
+              </div>
+              <p className={xMeta}>
+                Published through X Articles via treg (
+                {quote === null ? "…" : usd(quote.articleUsd)} per request). Unverified against the
+                live API; the first publish may fail.
               </p>
-              <Options editor={editor} onChange={setEditor} />
-            </>
-          )}
-        </main>
-        <aside className="flex w-96 shrink-0 flex-col gap-3 overflow-y-auto border-l border-border p-3">
+            </div>
+          </div>
+        ) : (
+          <fieldset disabled={locked} className="min-w-0">
+            <ThreadEditor
+              blocks={blocks}
+              media={media}
+              previews={previews}
+              active={active}
+              avatar={(handle ?? "you").slice(0, 1).toUpperCase()}
+              onChange={(b) => setEditor({ ...editor, blocks: b })}
+              onFocus={setActive}
+              onAddFiles={addFiles}
+              onMediaChange={(m) => setEditor((e) => ({ ...e, media: m }))}
+              onRemoveMedia={removeMedia}
+            />
+          </fieldset>
+        )}
+        {waiting || isArticle ? null : (
+          <details className="border-t border-border">
+            <summary className="cursor-pointer px-4 py-3 text-[15px] text-primary hover:bg-primary/5">
+              More options
+            </summary>
+            <Options editor={editor} onChange={setEditor} />
+          </details>
+        )}
+        <Companion>
           {inspire !== undefined ? <Inspiration postId={inspire} /> : null}
           {editor.replyToPostId !== null ? <ReplyTarget postId={editor.replyToPostId} /> : null}
-          {isArticle ? null : (
+          {isArticle || waiting ? null : (
             <>
               <PostPreview
                 blocks={blocks}
@@ -824,10 +778,6 @@ function ComposeEditor({
                 name={handle ?? "You"}
                 handle={handle}
                 avatarUrl={null}
-              />
-              <ComposeContext
-                firstLine={blocks[0]?.text.split("\n")[0] ?? ""}
-                onUse={(b) => setEditor({ ...editor, blocks: b.map((text) => ({ text })) })}
               />
               <AssistPanel
                 blocks={blocks.map((b) => b.text)}
@@ -852,20 +802,123 @@ function ComposeEditor({
                   setEditor({ ...editor, blocks: b.flatMap(splitBlocks).map((text) => ({ text })) })
                 }
               />
+              <ComposeContext
+                firstLine={blocks[0]?.text.split("\n")[0] ?? ""}
+                onUse={(b) => setEditor({ ...editor, blocks: b.map((text) => ({ text })) })}
+              />
             </>
           )}
-        </aside>
+        </Companion>
       </div>
+      {confirm === "post" ? (
+        <div className="shrink-0 border-t border-border px-4 py-3 text-[15px] leading-5">
+          <p>
+            {isArticle
+              ? `Publish this article now for ${quote === null ? "…" : usd(quote.articleUsd * 2)} (draft and publish, ${quote === null ? "…" : usd(quote.articleUsd)} each).`
+              : `Post ${blocks.length} ${blocks.length === 1 ? "post" : "posts"} now for ${usd(total)}${
+                  linkCount > 0 && rates !== null
+                    ? ` (${linkCount} with a link at ${usd(rates.postWithLink)})`
+                    : ""
+                }${sessionCount > 0 ? ` (${sessionCount} with media through your x.com session, free)` : ""}.`}{" "}
+            This charges your treg balance.
+          </p>
+          <div className="mt-2.5 flex gap-2">
+            <button type="button" className={cn(xPillSolid, xPillSm)} onClick={() => act("post")}>
+              Confirm and post
+            </button>
+            <button type="button" className={cn(xPill, xPillSm)} onClick={() => setConfirm(null)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : confirm === "schedule" ? (
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border px-4 py-3">
+          <input
+            type="datetime-local"
+            aria-label="Post at"
+            className={cn(xInput, "w-auto")}
+            value={when}
+            onChange={(e) => setWhen(e.target.value)}
+          />
+          <span className={xMeta}>{zone}</span>
+          <span className="flex-1" />
+          <button
+            type="button"
+            className={cn(xPillSolid, xPillSm)}
+            disabled={when === ""}
+            onClick={() => act("schedule")}
+          >
+            Schedule
+          </button>
+          <button type="button" className={cn(xPill, xPillSm)} onClick={() => setConfirm(null)}>
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <div className="flex shrink-0 items-center gap-2 border-t border-border px-4 py-2.5">
+          <p className={cn(xMeta, "min-w-0 flex-1")}>
+            {isArticle ? (
+              "Article"
+            ) : (
+              <>
+                <span className="text-foreground">
+                  {blocks.length} {blocks.length === 1 ? "post" : "posts"}
+                </span>{" "}
+                · {rates === null ? "…" : usd(total)} to post
+                {linkCount > 0 ? (
+                  <span className="block">{linkCount} with a link, billed higher</span>
+                ) : null}
+                {sessionCount > 0 ? (
+                  <span className="block">{sessionCount} with media via your session, free</span>
+                ) : null}
+              </>
+            )}
+          </p>
+          <button
+            type="button"
+            className={xPill}
+            disabled={!canSend}
+            onClick={() => setConfirm("post")}
+          >
+            Post now
+          </button>
+          <button
+            type="button"
+            className={cn(xPill, "px-2.5")}
+            aria-label="Schedule"
+            disabled={!canSend}
+            onClick={() => setConfirm("schedule")}
+          >
+            <CalendarClock className="size-[18px]" />
+          </button>
+          <button
+            type="button"
+            className={xPillSolid}
+            disabled={!canSend}
+            onClick={() => act("queue")}
+          >
+            Queue
+            {nextSlot !== null ? (
+              <span className="font-normal text-[#536471]">· {fmtWhen(nextSlot)}</span>
+            ) : null}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
-export const Route = createFileRoute("/compose")({
-  validateSearch: (s: Record<string, unknown>) => ({
-    draft: typeof s.draft === "string" ? s.draft : undefined,
-    inspire: typeof s.inspire === "string" ? s.inspire : undefined,
-    reply: typeof s.reply === "string" ? s.reply : undefined,
-    text: typeof s.text === "string" ? s.text : undefined,
-  }),
-  component: ComposeScreen,
+const isTab = (value: unknown): value is ComposeTab => COMPOSE_TABS.some((tab) => tab === value);
+
+const validateSearch = (s: Record<string, unknown>) => ({
+  draft: typeof s.draft === "string" ? s.draft : undefined,
+  inspire: typeof s.inspire === "string" ? s.inspire : undefined,
+  reply: typeof s.reply === "string" ? s.reply : undefined,
+  text: typeof s.text === "string" ? s.text : undefined,
+  // `?new=1` parses as the number 1.
+  new: s.new === true || s.new === 1 || s.new === "1" ? (true as const) : undefined,
+  tab: isTab(s.tab) ? s.tab : undefined,
 });
+type ComposeSearch = ReturnType<typeof validateSearch>;
+
+export const Route = createFileRoute("/compose")({ validateSearch, component: ComposeScreen });

@@ -2,12 +2,13 @@ import { Menu } from "@base-ui/react/menu";
 import { useAtomMount, useAtomValue } from "@effect/atom-react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { ArrowLeft } from "lucide-react";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 
 import type { SlotKind } from "../../desktopBridge";
 import { cn } from "../../lib/utils";
 import { sessionUrlAtom, slotAtom } from "../../state/shell";
 import { shellBridge } from "./bridge";
+import { CompanionTarget } from "./Companion";
 import { GlanceSync } from "./GlanceSync";
 
 interface Tab {
@@ -44,13 +45,34 @@ const Underline = () => (
   <span className="absolute bottom-0 left-1/2 h-1 w-14 -translate-x-1/2 rounded-sm bg-primary" />
 );
 
-/** Center pages: X's page header and tab row, hairlines on both sides like X's column. */
+// Main stretches the center slot over X's right column for pages with a companion (see
+// apps/desktop/src/window/Slots.ts), so a view this wide has room for one.
+const WIDE_QUERY = "(min-width: 820px)";
+const subscribeWide = (onChange: () => void) => {
+  const query = window.matchMedia(WIDE_QUERY);
+  query.addEventListener("change", onChange);
+  return () => query.removeEventListener("change", onChange);
+};
+const isWideView = () => window.matchMedia(WIDE_QUERY).matches;
+
+/**
+ * Center pages: X's page header and tab row, hairlines on both sides like X's column. In a
+ * wide slot the column keeps X's 600px and the rest becomes the companion column.
+ */
 function CenterFrame({ children }: { readonly children: ReactNode }) {
   const pathname = useLocation({ select: (location) => location.pathname });
   const open = (route: string) => shellBridge()?.openSlot({ kind: "center", route });
   const moreOn = MORE.some((tab) => isOn(pathname, tab));
-  return (
-    <div className="flex h-full flex-col border-x border-border bg-background">
+  const wide = useSyncExternalStore(subscribeWide, isWideView);
+  const [companion, setCompanion] = useState<HTMLElement | null>(null);
+  const column = (
+    <div
+      className={cn(
+        "flex h-full min-w-0 flex-1 flex-col border-x border-border bg-background",
+        // shortcut: X's column is 600px whenever it shows its right column; measure it if that changes.
+        wide && "w-[600px] flex-none",
+      )}
+    >
       <header className="flex h-[53px] shrink-0 items-center gap-6 bg-black/65 px-4 backdrop-blur-md">
         <button
           type="button"
@@ -102,6 +124,21 @@ function CenterFrame({ children }: { readonly children: ReactNode }) {
       </nav>
       <div className="min-h-0 flex-1">{children}</div>
     </div>
+  );
+  // One tree shape either way: moving the column would remount the page and drop its state.
+  return (
+    <CompanionTarget value={wide ? companion : null}>
+      <div className="flex h-full">
+        {column}
+        {wide ? (
+          // Covers X's own right column; 30px is X's gap between the two.
+          <aside
+            ref={setCompanion}
+            className="flex h-full min-w-0 flex-1 flex-col gap-4 overflow-y-auto bg-background py-3 pr-2 pl-[30px] [scrollbar-width:none]"
+          />
+        ) : null}
+      </div>
+    </CompanionTarget>
   );
 }
 

@@ -22,6 +22,7 @@ it("shows the count per block and splits pasted text into blocks", async () => {
       media={[]}
       previews={{}}
       active={0}
+      avatar="S"
       onChange={onChange}
       onFocus={() => {}}
       onAddFiles={() => {}}
@@ -29,8 +30,8 @@ it("shows the count per block and splits pasted text into blocks", async () => {
       onRemoveMedia={() => {}}
     />,
   );
-  await expect.element(screen.getByText("281/280")).toBeVisible();
-  await expect.element(screen.getByText("0/280")).toBeVisible();
+  // The post being written shows X's remaining count; the over-limit one goes negative.
+  await expect.element(screen.getByLabelText("Characters left")).toHaveTextContent("-1");
 
   // The browser's own paste needs clipboard permission; a synthetic event carries the same data.
   const data = new DataTransfer();

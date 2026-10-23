@@ -26,22 +26,28 @@ tests) keeps the sidebar because it has no bridge.
 `apps/desktop/src/window/Slots.ts` is pure geometry and dismissal rules, tested in
 `Slots.test.ts`. Main owns the open slot; the app only asks for "route R in slot S".
 
-| kind      | bounds                                                                           | closes on                              |
-| --------- | -------------------------------------------------------------------------------- | -------------------------------------- |
-| `center`  | X's primary column, full height; fallback a 600px column centered in the window  | pointer-down in x.com, Esc, back arrow |
-| `popover` | 340x320 below the anchor's left edge, flips above without room, clamped, 8px gap | pointer-down, Esc                      |
-| `sheet`   | 680x480 bottom-center                                                            | pointer-down, Esc                      |
-| `palette` | 640x420 top-center at y=80                                                       | pointer-down, Esc, ⌘K again            |
-| `bar`     | column x and width, y 0, height 44                                               | pointer-down, Esc, Enter in the bar    |
-| `toast`   | 360x64 bottom-center, 24px margin                                                | the app's own `closeSlot` only         |
+| kind      | bounds                                                                                                                                  | closes on                              |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| `center`  | X's primary column, full height; fallback a 600px column centered in the window. Wide routes (the composer) also cover X's right column | pointer-down in x.com, Esc, back arrow |
+| `popover` | 340x320 below the anchor's left edge, flips above without room, clamped, 8px gap                                                        | pointer-down, Esc                      |
+| `sheet`   | 680x480 bottom-center                                                                                                                   | pointer-down, Esc                      |
+| `palette` | 640x420 top-center at y=80                                                                                                              | pointer-down, Esc, ⌘K again            |
+| `bar`     | column x and width, y 0, height 44                                                                                                      | pointer-down, Esc, Enter in the bar    |
+| `toast`   | 360x64 bottom-center, 24px margin                                                                                                       | the app's own `closeSlot` only         |
 
 One slot is open at a time. Opening a slot focuses the xtend view; closing it focuses x.com.
 Main resends the current x.com URL on every open, so the address bar prefills correctly.
 
-The column rect comes from the x.com preload: a `ResizeObserver` on
-`div[data-testid="primaryColumn"]` plus the window resize event, re-found on every mutation
-scan because X remounts the column on route changes. Main multiplies it by the zoom factor.
-On pages without the column (DMs, settings) the fallback column is used.
+The column rects come from the x.com preload: a `ResizeObserver` on
+`div[data-testid="primaryColumn"]` and `div[data-testid="sidebarColumn"]` plus the window
+resize event, re-found on every mutation scan because X remounts both on route changes. Main
+multiplies them by the zoom factor. On pages without the primary column (DMs, settings) the
+fallback column is used.
+
+`isWide` in `Slots.ts` decides which routes get X's right column too: Compose while a draft is
+open (`draft`, `new`, `text`, `inspire` or `reply` in the query), not its list. Without a right
+column (a narrow window) a wide route falls back to the column. Inside the app, Compose moves
+between its list and the composer through `openSlot`, so main resizes on the way.
 
 ## Channels
 
@@ -107,7 +113,20 @@ navigates to the slot's route whenever a slot opens.
 
 - `center`: X's page header (back arrow calls `closeSlot`, "Xtend") and tab row (Plan, Compose,
   Engage, Leads, Library, Scores, More: Analyze, Automate, Seen, Settings). Tabs call
-  `openSlot` so main stays the source of truth. Hairlines left and right.
+  `openSlot` so main stays the source of truth. Hairlines left and right. When the view is
+  wider than the column, the frame keeps the column at X's 600px and puts an `<aside>` over X's
+  right column; a page's `<Companion>` (`components/shell/Companion.tsx`) portals its cards into
+  it, and renders them under the page anywhere else.
+
+Pages drawn inside x.com use X's control shapes from `apps/web/src/components/x.tsx`: pill
+buttons, the grey action row with a blue hover, right-column cards and the second-level tab row.
+
+Compose is drafts first. `/compose` lists every draft as the X post it will become, under tabs
+for drafts, queued, automatic (suggested drafts from Library and Automate plus ask-first
+automation requests, approved at the price they show), failed and posted, with X's
+"What's happening?" box on top. Opening one, or the box, goes to X's thread composer, with the
+preview, assist and context cards in the companion column.
+
 - `palette`: `/palette` renders `PaletteBody`; a pick opens the center slot, which replaces the
   palette.
 - `bar`: `/bar/find` and `/bar/address`.

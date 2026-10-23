@@ -94,7 +94,14 @@ function PlanScreen() {
   const open = (d: Draft) =>
     navigate({
       to: "/compose",
-      search: { draft: d.id, inspire: undefined, reply: undefined, text: undefined },
+      search: {
+        draft: d.id,
+        inspire: undefined,
+        reply: undefined,
+        text: undefined,
+        new: undefined,
+        tab: undefined,
+      },
     });
 
   return (

@@ -6,12 +6,13 @@ import {
   MEDIA_MAX_IMAGES,
   type ReplySettings,
 } from "@xtend/contracts";
-import { ArrowDown, ArrowUp, Film, Image, Plus, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Film, Globe, Image, Plus, X } from "lucide-react";
 import type { ClipboardEvent, DragEvent } from "react";
 import { useRef, useState } from "react";
 
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
+import { xIconButton } from "../x";
 
 const POST_LIMIT = 280;
 export const inputClass =
@@ -131,11 +132,50 @@ export function MediaList({
   );
 }
 
+/** X's character ring: fills blue, turns yellow in the last 20 and red past the limit. */
+function CountRing({ count }: { readonly count: number }) {
+  const radius = 9;
+  const length = 2 * Math.PI * radius;
+  const left = POST_LIMIT - count;
+  const color = left < 0 ? "#f4212e" : left <= 20 ? "#ffd400" : "#1d9bf0";
+  return (
+    <span className="flex items-center gap-1.5">
+      <svg viewBox="0 0 22 22" className="size-5" aria-hidden="true">
+        <circle cx="11" cy="11" r={radius} fill="none" stroke="var(--border)" strokeWidth="2" />
+        <circle
+          cx="11"
+          cy="11"
+          r={radius}
+          fill="none"
+          stroke={color}
+          strokeWidth="2"
+          strokeDasharray={`${length * Math.min(count / POST_LIMIT, 1)} ${length}`}
+          transform="rotate(-90 11 11)"
+        />
+      </svg>
+      <span
+        className={cn(
+          "text-[13px] tabular-nums",
+          left < 0 ? "text-[#f4212e]" : "text-muted-foreground",
+        )}
+        aria-label="Characters left"
+      >
+        {left}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * X's thread composer: one row per post with the avatar and the connector line, the post being
+ * written in X's 20px type with its tools, the others quieter until clicked.
+ */
 export function ThreadEditor({
   blocks,
   media,
   previews,
   active,
+  avatar,
   onChange,
   onFocus,
   onAddFiles,
@@ -146,6 +186,8 @@ export function ThreadEditor({
   readonly media: ReadonlyArray<DraftMedia>;
   readonly previews: Readonly<Record<string, string>>;
   readonly active: number;
+  /** The account's initials in the avatar circle. */
+  readonly avatar: string;
   readonly onChange: (blocks: ReadonlyArray<DraftBlock>) => void;
   readonly onFocus: (index: number) => void;
   readonly onAddFiles: (index: number, files: ReadonlyArray<File>) => void;
@@ -172,8 +214,13 @@ export function ThreadEditor({
     );
     onMediaChange(media.map((m) => ({ ...m, blockIndex: order.indexOf(m.blockIndex) })));
   };
+  const insertAfter = (i: number) => {
+    onChange([...blocks.slice(0, i + 1), { text: "" }, ...blocks.slice(i + 1)]);
+    onMediaChange(shiftBlocks(media, i, 1));
+    onFocus(i + 1);
+  };
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col">
       <input
         ref={picker}
         type="file"
@@ -187,7 +234,7 @@ export function ThreadEditor({
       />
       {blocks.map(({ text, replySettings }, i) => {
         const count = charCount(text);
-        const over = count > POST_LIMIT;
+        const on = i === active;
         const here = media.filter((m) => m.blockIndex === i);
         const full = here.some((m) => m.kind === "video") || here.length >= MEDIA_MAX_IMAGES;
         return (
@@ -195,123 +242,157 @@ export function ThreadEditor({
             // Blocks are plain strings; their position is their identity.
             // eslint-disable-next-line react/no-array-index-key
             key={i}
-            className={cn("rounded-md border border-border bg-card", i === active && "border-ring")}
+            className={cn(
+              "flex gap-3 px-4 pt-3 transition-opacity duration-150",
+              !on && "opacity-60 hover:opacity-90",
+            )}
           >
-            <textarea
-              aria-label={`Post ${i + 1}`}
-              className="w-full resize-none bg-transparent px-3 pt-2.5 text-sm leading-relaxed outline-hidden placeholder:text-placeholder"
-              rows={Math.max(2, Math.ceil(count / 60))}
-              placeholder={i === 0 ? "Start with the hook" : "Next post"}
-              value={text}
-              onFocus={() => onFocus(i)}
-              onChange={(e) => set(i, e.target.value)}
-              onPaste={(e) => paste(i, e)}
-            />
-            <MediaList
-              media={here}
-              previews={previews}
-              onChange={(next) =>
-                onMediaChange([...media.filter((m) => m.blockIndex !== i), ...next])
-              }
-              onRemove={onRemoveMedia}
-            />
-            <div className="flex items-center gap-0.5 px-2 pb-1.5">
-              <span
+            <div className="flex flex-col items-center">
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-[#333639] text-sm font-bold text-foreground">
+                {avatar}
+              </div>
+              {i < blocks.length - 1 ? <div className="mt-1 w-0.5 flex-1 bg-[#333639]" /> : null}
+            </div>
+            <div className="min-w-0 flex-1 pb-3">
+              <textarea
+                aria-label={`Post ${i + 1}`}
                 className={cn(
-                  "font-mono text-2xs",
-                  over ? "text-error-foreground" : "text-muted-foreground",
+                  "w-full resize-none bg-transparent text-foreground outline-hidden placeholder:text-placeholder",
+                  on ? "pt-1.5 text-xl leading-6" : "pt-2 text-[15px] leading-5",
                 )}
-              >
-                {count}/{POST_LIMIT}
-                {hasLink(text) ? " · link" : ""}
-              </span>
-              <select
-                aria-label={`Who can reply to post ${i + 1}`}
-                className="ml-2 mr-auto rounded-md border border-input bg-background px-1 py-0.5 text-2xs text-muted-foreground"
-                value={replySettings ?? ""}
-                onChange={(e) =>
-                  onChange(
-                    blocks.map((b, j) =>
-                      j === i
-                        ? e.target.value === ""
-                          ? { text: b.text }
-                          : { ...b, replySettings: e.target.value as ReplySettings }
-                        : b,
-                    ),
-                  )
+                rows={Math.max(on ? 2 : 1, Math.ceil(count / (on ? 45 : 60)))}
+                placeholder={i === 0 ? "What's happening?" : "Add another post"}
+                value={text}
+                onFocus={() => onFocus(i)}
+                onChange={(e) => set(i, e.target.value)}
+                onPaste={(e) => paste(i, e)}
+              />
+              <MediaList
+                media={here}
+                previews={previews}
+                onChange={(next) =>
+                  onMediaChange([...media.filter((m) => m.blockIndex !== i), ...next])
                 }
-              >
-                <option value="">Reply: draft default</option>
-                {REPLY_OPTIONS.map(([v, label]) => (
-                  <option key={v} value={v}>
-                    Reply: {label}
-                  </option>
-                ))}
-              </select>
-              <Button
-                variant="ghost-muted"
-                size="icon-xs"
-                aria-label="Add media"
-                disabled={full}
-                onClick={() => {
-                  pickFor.current = i;
-                  picker.current?.click();
-                }}
-              >
-                <Image />
-              </Button>
-              <Button
-                variant="ghost-muted"
-                size="icon-xs"
-                aria-label="Move up"
-                disabled={i === 0}
-                onClick={() => moveBlock(i, i - 1)}
-              >
-                <ArrowUp />
-              </Button>
-              <Button
-                variant="ghost-muted"
-                size="icon-xs"
-                aria-label="Move down"
-                disabled={i === blocks.length - 1}
-                onClick={() => moveBlock(i, i + 1)}
-              >
-                <ArrowDown />
-              </Button>
-              <Button
-                variant="ghost-muted"
-                size="icon-xs"
-                aria-label="Add post below"
-                onClick={() => {
-                  onChange([...blocks.slice(0, i + 1), { text: "" }, ...blocks.slice(i + 1)]);
-                  onMediaChange(shiftBlocks(media, i, 1));
-                }}
-              >
-                <Plus />
-              </Button>
-              <Button
-                variant="ghost-muted"
-                size="icon-xs"
-                aria-label="Remove post"
-                disabled={blocks.length === 1}
-                onClick={() => {
-                  for (const m of here) onRemoveMedia(m.id);
-                  onChange(blocks.filter((_, j) => j !== i));
-                  onMediaChange(
-                    shiftBlocks(
-                      media.filter((m) => m.blockIndex !== i),
-                      i,
-                      -1,
-                    ),
-                  );
-                }}
-              >
-                <X />
-              </Button>
+                onRemove={onRemoveMedia}
+              />
+              {on ? (
+                <>
+                  <label className="-ml-2 mt-1 inline-flex cursor-pointer items-center gap-1 rounded-full px-2 py-1 text-sm font-bold text-primary hover:bg-primary/10">
+                    <Globe className="size-4" />
+                    <select
+                      aria-label={`Who can reply to post ${i + 1}`}
+                      className="cursor-pointer appearance-none bg-transparent outline-hidden"
+                      value={replySettings ?? ""}
+                      onChange={(e) =>
+                        onChange(
+                          blocks.map((b, j) =>
+                            j === i
+                              ? e.target.value === ""
+                                ? { text: b.text }
+                                : { ...b, replySettings: e.target.value as ReplySettings }
+                              : b,
+                          ),
+                        )
+                      }
+                    >
+                      <option value="">Draft default can reply</option>
+                      {REPLY_OPTIONS.map(([v, label]) => (
+                        <option key={v} value={v}>
+                          {label} can reply
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="-ml-2 mt-2 flex items-center border-t border-border pt-2">
+                    <button
+                      type="button"
+                      className={xIconButton}
+                      aria-label="Add media"
+                      disabled={full}
+                      onClick={() => {
+                        pickFor.current = i;
+                        picker.current?.click();
+                      }}
+                    >
+                      <Image />
+                    </button>
+                    {/* Order and removal only mean something once there is a thread. */}
+                    {blocks.length > 1 ? (
+                      <>
+                        <button
+                          type="button"
+                          className={xIconButton}
+                          aria-label="Move up"
+                          disabled={i === 0}
+                          onClick={() => moveBlock(i, i - 1)}
+                        >
+                          <ArrowUp />
+                        </button>
+                        <button
+                          type="button"
+                          className={xIconButton}
+                          aria-label="Move down"
+                          disabled={i === blocks.length - 1}
+                          onClick={() => moveBlock(i, i + 1)}
+                        >
+                          <ArrowDown />
+                        </button>
+                        <button
+                          type="button"
+                          className={xIconButton}
+                          aria-label="Remove post"
+                          disabled={blocks.length === 1}
+                          onClick={() => {
+                            for (const m of here) onRemoveMedia(m.id);
+                            onChange(blocks.filter((_, j) => j !== i));
+                            onMediaChange(
+                              shiftBlocks(
+                                media.filter((m) => m.blockIndex !== i),
+                                i,
+                                -1,
+                              ),
+                            );
+                          }}
+                        >
+                          <X />
+                        </button>
+                      </>
+                    ) : null}
+                    <span className="flex-1" />
+                    {hasLink(text) ? (
+                      <span className="mr-3 text-[13px] text-muted-foreground">link</span>
+                    ) : null}
+                    <CountRing count={count} />
+                    <span className="mx-3 h-7 w-px bg-border" />
+                    <button
+                      type="button"
+                      className={cn(xIconButton, "size-7 border border-border [&_svg]:size-4")}
+                      aria-label="Add post below"
+                      onClick={() => insertAfter(i)}
+                    >
+                      <Plus />
+                    </button>
+                  </div>
+                </>
+              ) : count > POST_LIMIT ? (
+                <p className="mt-1 text-[13px] text-[#f4212e]">{POST_LIMIT - count} characters</p>
+              ) : null}
             </div>
           </div>
         );
       })}
+      <button
+        type="button"
+        className="flex cursor-pointer items-center gap-3 px-4 pt-1 pb-3 text-left text-[15px] text-muted-foreground hover:text-foreground"
+        onClick={() => insertAfter(blocks.length - 1)}
+      >
+        <span className="flex w-10 justify-center">
+          <span className="flex size-6 items-center justify-center rounded-full border border-[#333639]">
+            <Plus className="size-3.5" />
+          </span>
+        </span>
+        Add another post
+      </button>
     </div>
   );
 }

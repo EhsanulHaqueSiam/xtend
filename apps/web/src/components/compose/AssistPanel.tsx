@@ -14,10 +14,13 @@ import {
   assistVoiceMatchAtom,
   composeContextAtom,
 } from "../../state/compose";
+import { Sparkles } from "lucide-react";
+
+import { cn } from "../../lib/utils";
 import { useQuoteLabel } from "../../state/costs";
 import { searchAtom } from "../../state/library";
-import { Button } from "../ui/button";
-import { inputClass, splitBlocks } from "./ThreadEditor";
+import { xAction, XCard, xMeta, xPill, xPillSm, xPillSolid } from "../x";
+import { splitBlocks } from "./ThreadEditor";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -36,18 +39,26 @@ export function ComposeContext({
   const [similar, setSimilar] = useState<ReadonlyArray<XPost> | string | null>(null);
   const ctx = AsyncResult.getOrElse(context, () => null);
   return (
-    <section className="flex flex-col gap-1.5 rounded-md border border-border bg-card p-2 text-xs">
-      <p className="font-mono text-2xs text-muted-foreground">
-        Next slot:{" "}
-        {ctx === null ? "…" : ctx.nextSlot === null ? "no slots set" : fmtWhen(ctx.nextSlot)}
-        {ctx !== null && ctx.bestHours.length > 0
-          ? ` · best hours: ${ctx.bestHours.map((b) => `${DAYS[b.weekday]} ${b.hour}:00`).join(", ")}`
-          : ""}
-      </p>
-      <div className="flex items-center gap-2">
-        <Button
-          variant="outline"
-          size="xs"
+    <XCard title="Context">
+      <div className="px-4 pb-3">
+        <p className={xMeta}>Next slot</p>
+        <p className="text-[15px] font-bold">
+          {ctx === null ? "…" : ctx.nextSlot === null ? "No slots set" : fmtWhen(ctx.nextSlot)}
+        </p>
+      </div>
+      {ctx !== null && ctx.bestHours.length > 0 ? (
+        <div className="px-4 pb-3">
+          <p className={xMeta}>Best hours</p>
+          <p className="text-[15px]">
+            {ctx.bestHours.map((b) => `${DAYS[b.weekday]} ${b.hour}:00`).join(", ")}
+          </p>
+        </div>
+      ) : null}
+      <div className="px-4 pb-3">
+        <p className={xMeta}>Similar posts</p>
+        <button
+          type="button"
+          className="cursor-pointer text-[15px] text-primary hover:underline disabled:pointer-events-none disabled:opacity-50"
           disabled={query === ""}
           onClick={async () => {
             setSimilar("Searching…");
@@ -55,32 +66,36 @@ export function ComposeContext({
             setSimilar(Exit.isFailure(exit) ? failText(exit.cause) : exit.value.items.slice(0, 3));
           }}
         >
-          Find similar posts ({price})
-        </Button>
+          Find similar · {price}
+        </button>
       </div>
       {typeof similar === "string" ? (
-        <p className="text-2xs text-muted-foreground">{similar}</p>
+        <p className={cn(xMeta, "px-4 pb-3")}>{similar}</p>
       ) : similar !== null ? (
-        <ul className="flex flex-col divide-y divide-border">
+        <ul className="flex flex-col">
           {similar.length === 0 ? (
-            <li className="py-1 text-2xs text-muted-foreground">Nothing similar found.</li>
+            <li className={cn(xMeta, "px-4 pb-3")}>Nothing similar found.</li>
           ) : null}
           {similar.map((p) => (
-            <li key={p.postId} className="flex items-start gap-2 py-1.5">
+            <li key={p.postId} className="flex items-start gap-2 border-t border-border px-4 py-3">
               <div className="min-w-0 flex-1">
-                <p className="text-2xs text-muted-foreground">
+                <p className={xMeta}>
                   @{p.author.handle} · {p.metrics.likes} likes
                 </p>
-                <p className="line-clamp-3 whitespace-pre-wrap">{p.text}</p>
+                <p className="line-clamp-3 whitespace-pre-wrap text-sm">{p.text}</p>
               </div>
-              <Button variant="ghost" size="xs" onClick={() => onUse(splitBlocks(p.text))}>
+              <button
+                type="button"
+                className={cn(xPill, xPillSm)}
+                onClick={() => onUse(splitBlocks(p.text))}
+              >
                 Use
-              </Button>
+              </button>
             </li>
           ))}
         </ul>
       ) : null}
-    </section>
+    </XCard>
   );
 }
 
@@ -144,127 +159,127 @@ export function AssistPanel({
   const first = blocks[0] ?? "";
   const current = blocks[active] ?? "";
 
+  const action = (label: string, disabled: boolean, onClick: () => void, icon = false) => (
+    <button
+      type="button"
+      className={xAction}
+      disabled={busy !== null || disabled}
+      onClick={onClick}
+    >
+      {icon ? <Sparkles /> : null}
+      {label}
+    </button>
+  );
+
   return (
-    <section className="flex flex-col gap-2 rounded-md border border-border bg-card p-2">
-      <div className="flex flex-wrap items-center gap-1.5">
-        <Button
-          variant="outline"
-          size="xs"
-          disabled={busy !== null || first.trim() === ""}
-          onClick={() =>
+    <XCard title="Assist">
+      <div className="-mt-1 flex flex-wrap gap-0.5 px-2.5 pb-2">
+        {action(
+          "Improve hook",
+          first.trim() === "",
+          () =>
             run(
               "Improve hook",
               () => hook(blocks),
               (r) => r.alternatives.map((a) => ({ text: a.text, note: a.reason, blocks: [] })),
               (s) => onReplaceBlock(0, s.text),
-            )
-          }
-        >
-          Improve hook
-        </Button>
-        <Button
-          variant="outline"
-          size="xs"
-          disabled={busy !== null || current.trim() === ""}
-          onClick={() =>
-            run(
-              `Rewrite post ${active + 1}`,
-              () => rewrite(current),
-              (r) => r.variants.map((text) => ({ text, blocks: [] })),
-              (s) => onReplaceBlock(active, s.text),
-            )
-          }
-        >
-          Rewrite
-        </Button>
-        <Button
-          variant="outline"
-          size="xs"
-          disabled={busy !== null || first.trim() === ""}
-          onClick={() =>
-            run(
-              "Continue thread",
-              () => cont(blocks),
-              (r) => [{ text: r.blocks.join("\n\n"), blocks: r.blocks }],
-              (s) => onInsertAfter(blocks.length - 1, s.blocks),
-            )
-          }
-        >
-          Continue thread
-        </Button>
-        <Button
-          variant="outline"
-          size="xs"
-          disabled={busy !== null || first.trim() === ""}
-          onClick={() =>
-            run(
-              "Voice match",
-              () => voice(blocks),
-              (r) => [
-                {
-                  text: `${Math.round(r.score * 100)}% match against ${r.samples} recent posts`,
-                  note: r.note,
-                  blocks: [],
-                },
-              ],
-              () => {},
-            )
-          }
-        >
-          Voice match
-        </Button>
+            ),
+          true,
+        )}
+        {action("Rewrite", current.trim() === "", () =>
+          run(
+            `Rewrite post ${active + 1}`,
+            () => rewrite(current),
+            (r) => r.variants.map((text) => ({ text, blocks: [] })),
+            (s) => onReplaceBlock(active, s.text),
+          ),
+        )}
+        {action("Continue thread", first.trim() === "", () =>
+          run(
+            "Continue thread",
+            () => cont(blocks),
+            (r) => [{ text: r.blocks.join("\n\n"), blocks: r.blocks }],
+            (s) => onInsertAfter(blocks.length - 1, s.blocks),
+          ),
+        )}
+        {action("Voice match", first.trim() === "", () =>
+          run(
+            "Voice match",
+            () => voice(blocks),
+            (r) => [
+              {
+                text: `${Math.round(r.score * 100)}% match against ${r.samples} recent posts`,
+                note: r.note,
+                blocks: [],
+              },
+            ],
+            () => {},
+          ),
+        )}
       </div>
-      <div className="flex gap-1.5">
+      <form
+        className="mx-4 mb-3 flex h-10 items-center rounded-full border border-border pr-1 pl-4 focus-within:border-primary"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (topic.trim() === "" || busy !== null) return;
+          void run(
+            "Thread ideas",
+            () => ideas(topic),
+            (r) =>
+              r.outlines.map((o) => ({
+                text: o.hook,
+                note: o.beats.join(" · "),
+                blocks: [o.hook, ...o.beats],
+              })),
+            (s) => onReplaceAll(s.blocks),
+          );
+        }}
+      >
         <input
-          className={inputClass}
+          className="min-w-0 flex-1 bg-transparent text-[15px] outline-hidden placeholder:text-placeholder"
           placeholder="Topic for thread ideas"
           value={topic}
           onChange={(e) => setTopic(e.target.value)}
         />
-        <Button
-          variant="outline"
-          size="xs"
+        <button
+          type="submit"
+          className={cn(xPill, xPillSm)}
           disabled={busy !== null || topic.trim() === ""}
-          onClick={() =>
-            run(
-              "Thread ideas",
-              () => ideas(topic),
-              (r) =>
-                r.outlines.map((o) => ({
-                  text: o.hook,
-                  note: o.beats.join(" · "),
-                  blocks: [o.hook, ...o.beats],
-                })),
-              (s) => onReplaceAll(s.blocks),
-            )
-          }
         >
           Ideas
-        </Button>
-      </div>
-      {busy !== null ? <p className="text-2xs text-muted-foreground">{busy}…</p> : null}
-      {error !== null ? <p className="text-2xs text-error-foreground">{error}</p> : null}
+        </button>
+      </form>
+      {busy !== null ? <p className={cn(xMeta, "px-4 pb-3")}>{busy}…</p> : null}
+      {error !== null ? <p className="px-4 pb-3 text-[13px] text-[#f4212e]">{error}</p> : null}
       {items.length > 0 ? (
-        <div className="flex flex-col divide-y divide-border">
-          <p className="pb-1 text-2xs text-muted-foreground">{title}</p>
+        <div className="flex flex-col">
+          <p className={cn(xMeta, "flex items-center gap-1.5 px-4 pb-2 text-primary")}>
+            <Sparkles className="size-3.5" />
+            {title}
+          </p>
           {items.map((s, i) => (
             // eslint-disable-next-line react/no-array-index-key -- suggestions are unkeyed model output.
-            <div key={i} className="flex items-start gap-2 py-2">
-              <div className="min-w-0 flex-1">
-                <p className="whitespace-pre-wrap text-sm">{s.text}</p>
-                {s.note !== undefined ? (
-                  <p className="mt-0.5 text-2xs text-muted-foreground">{s.note}</p>
-                ) : null}
-              </div>
+            <div key={i} className="border-t border-border px-4 py-3">
+              <p className="whitespace-pre-wrap text-[15px] leading-5">{s.text}</p>
+              {s.note !== undefined ? <p className={cn(xMeta, "mt-1")}>{s.note}</p> : null}
               {title !== "Voice match" ? (
-                <Button variant="ghost" size="xs" onClick={() => use(s)}>
-                  Use
-                </Button>
+                <div className="mt-2 flex gap-2">
+                  <button type="button" className={cn(xPillSolid, xPillSm)} onClick={() => use(s)}>
+                    Use
+                  </button>
+                  <button
+                    type="button"
+                    className={cn(xPill, xPillSm)}
+                    onClick={() => setItems(items.filter((x) => x !== s))}
+                  >
+                    Dismiss
+                  </button>
+                </div>
               ) : null}
             </div>
           ))}
         </div>
       ) : null}
-    </section>
+    </XCard>
   );
 }
