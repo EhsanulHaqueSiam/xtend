@@ -48,6 +48,7 @@ const layerRoutes = Layer.mergeAll(
   ServerHttp.layerHealthRoute,
   ServerHttp.layerDevTokenRoute,
   ServerHttp.layerObservationsRoute,
+  ServerHttp.layerWebhookRoute,
   Ws.layerRoute,
   ServerHttp.layerWebRoute,
 );

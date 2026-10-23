@@ -7,6 +7,8 @@ import * as Path from "effect/Path";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 
 import * as ServiceAuth from "./auth/ServiceAuth.ts";
+import * as RuleStore from "./automate/RuleStore.ts";
+import * as Webhooks from "./automate/Webhooks.ts";
 import * as ServerConfig from "./config.ts";
 import * as ObservationStore from "./observations/ObservationStore.ts";
 
@@ -139,3 +141,30 @@ export const layerWebRoute = Layer.unwrap(
     );
   }),
 );
+
+/**
+ * External senders (a release pipeline, a blog) start a rule from here. No service
+ * token: the per-rule HMAC secret is the credential, and the body is read raw so
+ * the signature covers exactly the bytes the sender signed.
+ */
+export const layerWebhookRoute = HttpRouter.add("POST", "/api/webhooks/:ruleId", (request) =>
+  Effect.gen(function* () {
+    const params = yield* HttpRouter.params;
+    const ruleId = Number(params["ruleId"]);
+    if (!Number.isInteger(ruleId) || ruleId <= 0)
+      return yield* HttpServerResponse.json({ error: "bad_rule" }, { status: 404 });
+    const body = yield* request.text;
+    const signature = request.headers["x-xtend-signature"] ?? null;
+    const result = yield* Webhooks.handleWebhook(ruleId, signature, body);
+    return yield* HttpServerResponse.json(result);
+  }).pipe(
+    Effect.catchTags({
+      AutomateError: (error) =>
+        HttpServerResponse.json(
+          { error: error._tag, message: error.message },
+          { status: error.detail === "bad signature" ? 401 : 404 },
+        ),
+    }),
+    Effect.orElseSucceed(() => HttpServerResponse.text("bad request", { status: 400 })),
+  ),
+).pipe(Layer.provide(RuleStore.layer));
