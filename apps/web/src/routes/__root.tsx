@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import { createRootRoute, Outlet, useNavigate } from "@tanstack/react-router";
+import { createRootRoute, Outlet } from "@tanstack/react-router";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useEffect } from "react";
 
@@ -7,7 +7,9 @@ import { AppSidebar } from "../components/AppSidebar";
 import { CommandPalette } from "../components/shell/CommandPalette";
 import { ShellHotkeys } from "../components/shell/ShellHotkeys";
 import { ShellNotifications } from "../components/shell/ShellNotifications";
+import { SlotShell } from "../components/shell/SlotShell";
 import { TooltipProvider } from "../components/ui/tooltip";
+import { isElectron } from "../env";
 import { setDisplayZone } from "../lib/time";
 import { settingsAtom } from "../state/settings";
 import { connectionAtom } from "../state/shell";
@@ -16,13 +18,6 @@ import { connectionAtom } from "../state/shell";
 function ZoneSync() {
   const settings = useAtomValue(settingsAtom);
   if (AsyncResult.isSuccess(settings)) setDisplayZone(settings.value.timeZone);
-  return null;
-}
-
-/** Routes the desktop asks for: overlay actions and xtend:// deep links, whichever screen is up. */
-function DesktopRoutes() {
-  const navigate = useNavigate();
-  useEffect(() => window.desktopBridge?.onOpenRoute((href) => void navigate({ href })), [navigate]);
   return null;
 }
 
@@ -64,19 +59,21 @@ function Reconnecting({ children }: { readonly children: React.ReactNode }) {
   );
 }
 
+// The desktop draws this view in a slot over x.com; standalone (hosted tier, browser tests) keeps the sidebar.
+const Shell = isElectron ? SlotShell : AppSidebar;
+
 export const Route = createRootRoute({
   component: () => (
     <TooltipProvider delay={300}>
       <ZoneSync />
-      <DesktopRoutes />
       <ShellHotkeys />
       <ShellNotifications />
-      <CommandPalette />
-      <AppSidebar>
+      {isElectron ? null : <CommandPalette />}
+      <Shell>
         <Reconnecting>
           <Outlet />
         </Reconnecting>
-      </AppSidebar>
+      </Shell>
     </TooltipProvider>
   ),
 });

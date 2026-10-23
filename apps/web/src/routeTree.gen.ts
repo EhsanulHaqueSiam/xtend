@@ -13,6 +13,7 @@ import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SeenRouteImport } from './routes/seen'
 import { Route as ScoresRouteImport } from './routes/scores'
 import { Route as PlanRouteImport } from './routes/plan'
+import { Route as PaletteRouteImport } from './routes/palette'
 import { Route as LibraryRouteImport } from './routes/library'
 import { Route as LeadsRouteImport } from './routes/leads'
 import { Route as EngageRouteImport } from './routes/engage'
@@ -20,6 +21,8 @@ import { Route as ComposeRouteImport } from './routes/compose'
 import { Route as AutomateRouteImport } from './routes/automate'
 import { Route as AnalyzeRouteImport } from './routes/analyze'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as BarFindRouteImport } from './routes/bar.find'
+import { Route as BarAddressRouteImport } from './routes/bar.address'
 
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
@@ -39,6 +42,11 @@ const ScoresRoute = ScoresRouteImport.update({
 const PlanRoute = PlanRouteImport.update({
   id: '/plan',
   path: '/plan',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PaletteRoute = PaletteRouteImport.update({
+  id: '/palette',
+  path: '/palette',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LibraryRoute = LibraryRouteImport.update({
@@ -76,6 +84,16 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const BarFindRoute = BarFindRouteImport.update({
+  id: '/bar/find',
+  path: '/bar/find',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BarAddressRoute = BarAddressRouteImport.update({
+  id: '/bar/address',
+  path: '/bar/address',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -85,10 +103,13 @@ export interface FileRoutesByFullPath {
   '/engage': typeof EngageRoute
   '/leads': typeof LeadsRoute
   '/library': typeof LibraryRoute
+  '/palette': typeof PaletteRoute
   '/plan': typeof PlanRoute
   '/scores': typeof ScoresRoute
   '/seen': typeof SeenRoute
   '/settings': typeof SettingsRoute
+  '/bar/address': typeof BarAddressRoute
+  '/bar/find': typeof BarFindRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -98,10 +119,13 @@ export interface FileRoutesByTo {
   '/engage': typeof EngageRoute
   '/leads': typeof LeadsRoute
   '/library': typeof LibraryRoute
+  '/palette': typeof PaletteRoute
   '/plan': typeof PlanRoute
   '/scores': typeof ScoresRoute
   '/seen': typeof SeenRoute
   '/settings': typeof SettingsRoute
+  '/bar/address': typeof BarAddressRoute
+  '/bar/find': typeof BarFindRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -112,10 +136,13 @@ export interface FileRoutesById {
   '/engage': typeof EngageRoute
   '/leads': typeof LeadsRoute
   '/library': typeof LibraryRoute
+  '/palette': typeof PaletteRoute
   '/plan': typeof PlanRoute
   '/scores': typeof ScoresRoute
   '/seen': typeof SeenRoute
   '/settings': typeof SettingsRoute
+  '/bar/address': typeof BarAddressRoute
+  '/bar/find': typeof BarFindRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -127,10 +154,13 @@ export interface FileRouteTypes {
     | '/engage'
     | '/leads'
     | '/library'
+    | '/palette'
     | '/plan'
     | '/scores'
     | '/seen'
     | '/settings'
+    | '/bar/address'
+    | '/bar/find'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -140,10 +170,13 @@ export interface FileRouteTypes {
     | '/engage'
     | '/leads'
     | '/library'
+    | '/palette'
     | '/plan'
     | '/scores'
     | '/seen'
     | '/settings'
+    | '/bar/address'
+    | '/bar/find'
   id:
     | '__root__'
     | '/'
@@ -153,10 +186,13 @@ export interface FileRouteTypes {
     | '/engage'
     | '/leads'
     | '/library'
+    | '/palette'
     | '/plan'
     | '/scores'
     | '/seen'
     | '/settings'
+    | '/bar/address'
+    | '/bar/find'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -167,10 +203,13 @@ export interface RootRouteChildren {
   EngageRoute: typeof EngageRoute
   LeadsRoute: typeof LeadsRoute
   LibraryRoute: typeof LibraryRoute
+  PaletteRoute: typeof PaletteRoute
   PlanRoute: typeof PlanRoute
   ScoresRoute: typeof ScoresRoute
   SeenRoute: typeof SeenRoute
   SettingsRoute: typeof SettingsRoute
+  BarAddressRoute: typeof BarAddressRoute
+  BarFindRoute: typeof BarFindRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -201,6 +240,13 @@ declare module '@tanstack/react-router' {
       path: '/plan'
       fullPath: '/plan'
       preLoaderRoute: typeof PlanRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/palette': {
+      id: '/palette'
+      path: '/palette'
+      fullPath: '/palette'
+      preLoaderRoute: typeof PaletteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/library': {
@@ -252,6 +298,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/bar/find': {
+      id: '/bar/find'
+      path: '/bar/find'
+      fullPath: '/bar/find'
+      preLoaderRoute: typeof BarFindRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/bar/address': {
+      id: '/bar/address'
+      path: '/bar/address'
+      fullPath: '/bar/address'
+      preLoaderRoute: typeof BarAddressRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -263,10 +323,13 @@ const rootRouteChildren: RootRouteChildren = {
   EngageRoute: EngageRoute,
   LeadsRoute: LeadsRoute,
   LibraryRoute: LibraryRoute,
+  PaletteRoute: PaletteRoute,
   PlanRoute: PlanRoute,
   ScoresRoute: ScoresRoute,
   SeenRoute: SeenRoute,
   SettingsRoute: SettingsRoute,
+  BarAddressRoute: BarAddressRoute,
+  BarFindRoute: BarFindRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -215,6 +215,27 @@ html.electron.electron-mac {
   --desktop-window-controls-inset: 84px;
 }
 
+/*
+ * In a slot the app is drawn over x.com and borrows X's tokens. The page stays
+ * transparent: popover, sheet and toast frames draw their own shape and shadow.
+ */
+html.slot {
+  --background: #000000;
+  --foreground: #e7e9ea;
+  --muted-foreground: #71767b;
+  --placeholder: #71767b;
+  --border: #2f3336;
+  --input: #2f3336;
+  --primary: #1d9bf0;
+  --ring: #1d9bf0;
+  --card: #000000;
+  --accent: rgb(231 233 234 / 10%);
+  --success: #00ba7c;
+}
+html.slot body {
+  background: transparent;
+}
+
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--app-scrollbar-thumb) transparent;

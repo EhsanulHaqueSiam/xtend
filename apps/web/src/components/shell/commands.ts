@@ -34,12 +34,3 @@ export const SCREENS: ReadonlyArray<Screen> = [
   { to: "/scores", label: "Scores", icon: Gauge },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
-
-/** Desktop bridge shortcut names (ROUND2.md contract 1) that map to a screen. */
-export const BRIDGE_SCREENS: Readonly<Record<string, string>> = {
-  compose: "/compose",
-  plan: "/plan",
-  analyze: "/analyze",
-  engage: "/engage",
-  library: "/library",
-};

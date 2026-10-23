@@ -13,7 +13,7 @@ const router = getRouter(isElectron ? createHashHistory() : createBrowserHistory
 const registry = AtomRegistry.make();
 
 if (isElectron) {
-  document.documentElement.classList.add("electron");
+  document.documentElement.classList.add("electron", "slot");
   if (window.desktopBridge?.platform === "darwin")
     document.documentElement.classList.add("electron-mac");
 }
