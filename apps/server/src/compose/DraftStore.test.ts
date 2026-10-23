@@ -80,7 +80,13 @@ describe("DraftStore", () => {
       });
       expect(d.blocks[1]?.replySettings).toBe("following");
       expect(d.quoteUrl).toBe("https://x.com/levelsio/status/1");
-      yield* store.mediaInsert(d.id, { id: "m1", blockIndex: 0, path: "/m/1.png", kind: "image", alt: "" });
+      yield* store.mediaInsert(d.id, {
+        id: "m1",
+        blockIndex: 0,
+        path: "/m/1.png",
+        kind: "image",
+        alt: "",
+      });
       const two = yield* store.mediaInsert(d.id, {
         id: "m2",
         blockIndex: 0,

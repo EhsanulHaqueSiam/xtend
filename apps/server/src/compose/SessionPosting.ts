@@ -30,9 +30,7 @@ const make = Effect.gen(function* () {
   const desktop = yield* DesktopChannel.DesktopChannel;
   const settings = yield* SettingsStore.SettingsStore;
   const fail = (operation: string) => (cause: { readonly message: string }) =>
-    cause instanceof ComposeError
-      ? cause
-      : new ComposeError({ operation, detail: cause.message });
+    cause instanceof ComposeError ? cause : new ComposeError({ operation, detail: cause.message });
 
   const requireEnabled = Effect.gen(function* () {
     const { sessionPostingEnabled } = yield* settings.get;

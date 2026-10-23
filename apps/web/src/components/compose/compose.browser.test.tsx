@@ -35,9 +35,12 @@ it("shows the count per block and splits pasted text into blocks", async () => {
   // The browser's own paste needs clipboard permission; a synthetic event carries the same data.
   const data = new DataTransfer();
   data.setData("text/plain", "first\n\nsecond");
-  screen.getByLabelText("Post 2").element().dispatchEvent(
-    new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }),
-  );
+  screen
+    .getByLabelText("Post 2")
+    .element()
+    .dispatchEvent(
+      new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }),
+    );
   expect(onChange).toHaveBeenLastCalledWith([
     { text: "x".repeat(281) },
     { text: "first" },
@@ -69,7 +72,7 @@ it("renders an unsaved quote as the bare link X will receive", async () => {
   await using screen = await render(<QuoteCard url="https://x.com/levelsio/status/99" />, {
     router: false,
   });
-  await expect.element(screen.getByTestId("quote-link")).toHaveTextContent(
-    "https://x.com/levelsio/status/99",
-  );
+  await expect
+    .element(screen.getByTestId("quote-link"))
+    .toHaveTextContent("https://x.com/levelsio/status/99");
 });

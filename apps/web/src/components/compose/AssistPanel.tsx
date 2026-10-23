@@ -38,7 +38,8 @@ export function ComposeContext({
   return (
     <section className="flex flex-col gap-1.5 rounded-md border border-border bg-card p-2 text-xs">
       <p className="font-mono text-2xs text-muted-foreground">
-        Next slot: {ctx === null ? "…" : ctx.nextSlot === null ? "no slots set" : fmtWhen(ctx.nextSlot)}
+        Next slot:{" "}
+        {ctx === null ? "…" : ctx.nextSlot === null ? "no slots set" : fmtWhen(ctx.nextSlot)}
         {ctx !== null && ctx.bestHours.length > 0
           ? ` · best hours: ${ctx.bestHours.map((b) => `${DAYS[b.weekday]} ${b.hour}:00`).join(", ")}`
           : ""}

@@ -116,9 +116,7 @@ const toBase64 = (file: File) =>
   new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.addEventListener("error", () => reject(reader.error));
-    reader.addEventListener("load", () =>
-      resolve((reader.result as string).split(",")[1] ?? ""),
-    );
+    reader.addEventListener("load", () => resolve((reader.result as string).split(",")[1] ?? ""));
     reader.readAsDataURL(file);
   });
 
@@ -140,7 +138,9 @@ function ReplyTarget({ postId }: { readonly postId: string }) {
   const saved = useAtomValue(savedPostAtom(postId));
   const recent = useAtomValue(recentPostsAtom);
   const fromLibrary = AsyncResult.getOrElse(saved, () => null);
-  const observed = AsyncResult.getOrElse(recent, () => null)?.posts.find((p) => p.postId === postId);
+  const observed = AsyncResult.getOrElse(recent, () => null)?.posts.find(
+    (p) => p.postId === postId,
+  );
   const target =
     fromLibrary !== null
       ? { handle: fromLibrary.post.author.handle, text: fromLibrary.post.text }
@@ -155,7 +155,12 @@ function ReplyTarget({ postId }: { readonly postId: string }) {
       {target !== null ? (
         <p className="line-clamp-6 whitespace-pre-wrap text-foreground/90">{target.text}</p>
       ) : (
-        <a className="text-info-foreground" href={sourceUrl(postId)} target="_blank" rel="noreferrer">
+        <a
+          className="text-info-foreground"
+          href={sourceUrl(postId)}
+          target="_blank"
+          rel="noreferrer"
+        >
           {sourceUrl(postId)}
         </a>
       )}
@@ -710,7 +715,10 @@ function ComposeEditor({
                     media={[cover]}
                     previews={previews}
                     onChange={(m) =>
-                      setEditor({ ...editor, media: [...media.filter((x) => x.id !== cover.id), ...m] })
+                      setEditor({
+                        ...editor,
+                        media: [...media.filter((x) => x.id !== cover.id), ...m],
+                      })
                     }
                     onRemove={removeMedia}
                   />
@@ -738,7 +746,8 @@ function ComposeEditor({
                       }
                     }}
                   >
-                    Generate cover ({quote === null ? "…" : `${usd(quote.coverUsd)}, ${quote.coverModel}`})
+                    Generate cover (
+                    {quote === null ? "…" : `${usd(quote.coverUsd)}, ${quote.coverModel}`})
                   </Button>
                   <Button
                     variant="outline"
@@ -756,8 +765,9 @@ function ComposeEditor({
                   </Button>
                 </div>
                 <p className="text-2xs text-muted-foreground">
-                  Published through X Articles via treg ({quote === null ? "…" : usd(quote.articleUsd)}{" "}
-                  per request). Unverified against the live API; the first publish may fail.
+                  Published through X Articles via treg (
+                  {quote === null ? "…" : usd(quote.articleUsd)} per request). Unverified against
+                  the live API; the first publish may fail.
                 </p>
               </div>
             </div>
@@ -785,7 +795,9 @@ function ComposeEditor({
                     · {linkCount} with a link billed at {usd(rates.postWithLink)}
                   </span>
                 ) : null}
-                {sessionCount > 0 ? <span> · {sessionCount} with media via session, free</span> : null}
+                {sessionCount > 0 ? (
+                  <span> · {sessionCount} with media via session, free</span>
+                ) : null}
               </p>
               <Options editor={editor} onChange={setEditor} />
             </>
@@ -813,7 +825,10 @@ function ComposeEditor({
                 blocks={blocks.map((b) => b.text)}
                 active={active}
                 onReplaceBlock={(i, text) =>
-                  setEditor({ ...editor, blocks: blocks.map((b, j) => (j === i ? { ...b, text } : b)) })
+                  setEditor({
+                    ...editor,
+                    blocks: blocks.map((b, j) => (j === i ? { ...b, text } : b)),
+                  })
                 }
                 onInsertAfter={(i, texts) =>
                   setEditor({

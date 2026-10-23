@@ -166,7 +166,10 @@ export class DraftStore extends Context.Service<
       media: Omit<DraftMedia, "position">,
     ) => Effect.Effect<Draft, ComposeError>;
     /** Removes the row and returns the file path to delete, or null when there was no such row. */
-    readonly mediaRemove: (draftId: string, id: string) => Effect.Effect<string | null, ComposeError>;
+    readonly mediaRemove: (
+      draftId: string,
+      id: string,
+    ) => Effect.Effect<string | null, ComposeError>;
   }
 >()("xtend/compose/DraftStore") {}
 

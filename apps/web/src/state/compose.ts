@@ -89,7 +89,10 @@ export const mediaAddAtom = clientRuntime.fn<{
   }),
 );
 
-export const mediaRemoveAtom = clientRuntime.fn<{ readonly draftId: string; readonly id: string }>()(
+export const mediaRemoveAtom = clientRuntime.fn<{
+  readonly draftId: string;
+  readonly id: string;
+}>()(
   Effect.fnUntraced(function* (input) {
     const client = yield* XtendClient;
     return yield* client[Compose_METHODS.mediaRemove](input);

@@ -23,12 +23,14 @@ const layerTest = Publisher.layer.pipe(
       Sqlite.layerMemory,
       TokenCipher.layerTest,
       Events.layer,
-      desktopStub(desktopCalls, (command) =>
-        Effect.succeed(
-          command.type === "sessionPost"
-            ? { type: "sessionPost", postId: `s${desktopCalls.length}` }
-            : { type: command.type },
-        ) as never,
+      desktopStub(
+        desktopCalls,
+        (command) =>
+          Effect.succeed(
+            command.type === "sessionPost"
+              ? { type: "sessionPost", postId: `s${desktopCalls.length}` }
+              : { type: command.type },
+          ) as never,
       ),
       xClientStub({
         createPost: (input) =>
@@ -111,7 +113,13 @@ describe("Publisher", () => {
         blocks: [{ text: "look" }, { text: "plain" }],
         quoteUrl: "https://x.com/levelsio/status/7",
       });
-      yield* drafts.mediaInsert(d.id, { id: "m", blockIndex: 0, path: "/m/a.png", kind: "image", alt: "" });
+      yield* drafts.mediaInsert(d.id, {
+        id: "m",
+        blockIndex: 0,
+        path: "/m/a.png",
+        kind: "image",
+        alt: "",
+      });
 
       const off = yield* publisher.post(d.id, { purpose: "compose.postNow", retry: false });
       expect(off.status).toBe("failed");

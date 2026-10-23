@@ -40,7 +40,11 @@ export class Articles extends Context.Service<
       prompt: string,
       purpose: string,
     ) => Effect.Effect<Draft, ComposeError>;
-    readonly quote: { readonly articleUsd: number; readonly coverUsd: number; readonly coverModel: string };
+    readonly quote: {
+      readonly articleUsd: number;
+      readonly coverUsd: number;
+      readonly coverModel: string;
+    };
   }
 >()("xtend/compose/Articles") {}
 
@@ -104,7 +108,12 @@ const make = Effect.gen(function* () {
       let finished: Json | null = null;
       for (let i = 0; i < 45 && finished === null; i++) {
         yield* Effect.sleep(Duration.seconds(2));
-        const r = yield* treg.call({ endpoint: COVER.poll, query: { id: taskId }, purpose, expectedCostUsd: 0 });
+        const r = yield* treg.call({
+          endpoint: COVER.poll,
+          query: { id: taskId },
+          purpose,
+          expectedCostUsd: 0,
+        });
         const status = str(obj(r.body).status);
         if (status === "succeeded") finished = obj(r.body);
         else if (status === "failed" || status === "canceled")
@@ -114,18 +123,31 @@ const make = Effect.gen(function* () {
           });
       }
       if (finished === null)
-        return yield* new ComposeError({ operation: "generateCover", detail: "cover generation timed out" });
+        return yield* new ComposeError({
+          operation: "generateCover",
+          detail: "cover generation timed out",
+        });
       const output = finished.output;
       const url = Array.isArray(output) ? str(output[0]) : str(output);
       if (url === "")
-        return yield* new ComposeError({ operation: "generateCover", detail: "no image in the result" });
+        return yield* new ComposeError({
+          operation: "generateCover",
+          detail: "no image in the result",
+        });
       // A public, expiring CDN link with no credential; the only download outside x/Treg.ts.
       const bytes = yield* http.get(url).pipe(
         Effect.flatMap((r) => r.arrayBuffer),
         Effect.map((b) => new Uint8Array(b)),
         Effect.scoped,
       );
-      return yield* media.add({ draftId: draft.id, blockIndex: 0, kind: "image", ext: "webp", bytes, alt: prompt });
+      return yield* media.add({
+        draftId: draft.id,
+        blockIndex: 0,
+        kind: "image",
+        ext: "webp",
+        bytes,
+        alt: prompt,
+      });
     },
     Effect.mapError(fail("generateCover")),
   );

@@ -114,7 +114,11 @@ export function PostPreview({
                         className="flex h-24 items-center justify-center overflow-hidden rounded-md bg-muted text-2xs text-muted-foreground"
                       >
                         {previews[m.id] !== undefined && m.kind === "image" ? (
-                          <img src={previews[m.id]} alt={m.alt} className="h-full w-full object-cover" />
+                          <img
+                            src={previews[m.id]}
+                            alt={m.alt}
+                            className="h-full w-full object-cover"
+                          />
                         ) : (
                           m.kind
                         )}
@@ -122,7 +126,9 @@ export function PostPreview({
                     ))}
                 </div>
               ) : null}
-              {i === 0 && quoteUrl !== null && quoteUrl !== "" ? <QuoteCard url={quoteUrl} /> : null}
+              {i === 0 && quoteUrl !== null && quoteUrl !== "" ? (
+                <QuoteCard url={quoteUrl} />
+              ) : null}
             </div>
           </div>
         ))}

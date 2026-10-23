@@ -54,7 +54,8 @@ const renumber = (media: ReadonlyArray<DraftMedia>) => {
 };
 const shiftBlocks = (media: ReadonlyArray<DraftMedia>, after: number, delta: number) => {
   const out: Array<DraftMedia> = [];
-  for (const m of media) out.push(m.blockIndex > after ? { ...m, blockIndex: m.blockIndex + delta } : m);
+  for (const m of media)
+    out.push(m.blockIndex > after ? { ...m, blockIndex: m.blockIndex + delta } : m);
   return out;
 };
 
@@ -159,11 +160,7 @@ export function ThreadEditor({
     const pieces = splitBlocks(e.clipboardData.getData("text/plain"));
     if (pieces.length < 2) return;
     e.preventDefault();
-    onChange([
-      ...blocks.slice(0, i),
-      ...pieces.map((text) => ({ text })),
-      ...blocks.slice(i + 1),
-    ]);
+    onChange([...blocks.slice(0, i), ...pieces.map((text) => ({ text })), ...blocks.slice(i + 1)]);
   };
   // Media rows point at a block index, so moving a block moves its attachments with it.
   const moveBlock = (from: number, to: number) => {
@@ -192,8 +189,7 @@ export function ThreadEditor({
         const count = charCount(text);
         const over = count > POST_LIMIT;
         const here = media.filter((m) => m.blockIndex === i);
-        const full =
-          here.some((m) => m.kind === "video") || here.length >= MEDIA_MAX_IMAGES;
+        const full = here.some((m) => m.kind === "video") || here.length >= MEDIA_MAX_IMAGES;
         return (
           <div
             // Blocks are plain strings; their position is their identity.

@@ -8,7 +8,8 @@ import { eventsAtom } from "../../state/shell";
 const text = (event: XtendEvent): string | null => {
   const p = event.payload;
   const str = (k: string) => (typeof p[k] === "string" ? (p[k] as string) : undefined);
-  if (event.type === "mention_arrived") return `@${str("handle") ?? "someone"}: ${str("text") ?? "mentioned you"}`;
+  if (event.type === "mention_arrived")
+    return `@${str("handle") ?? "someone"}: ${str("text") ?? "mentioned you"}`;
   if (event.type === "lead_found") return `Lead found: @${str("handle") ?? "unknown"}`;
   return null;
 };

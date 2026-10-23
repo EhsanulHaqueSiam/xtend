@@ -123,9 +123,10 @@ const make = Effect.gen(function* () {
     const result =
       failure !== null
         ? { error: failure, ids: [] as ReadonlyArray<string> }
-        : yield* (draft.kind === "article"
-            ? postArticle(draft, options.purpose)
-            : postBlocks(draft, options.purpose)
+        : yield* (
+            draft.kind === "article"
+              ? postArticle(draft, options.purpose)
+              : postBlocks(draft, options.purpose)
           ).pipe(
             Effect.map((ids) => ({ error: null, ids })),
             Effect.catch((e) => Effect.succeed({ error: e.message, ids: [] })),
