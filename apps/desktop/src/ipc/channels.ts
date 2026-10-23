@@ -12,6 +12,8 @@ export const REMOTE_CHECK_CHANNEL = "xtend:remote-check";
 export const BRIDGE_INFO_CHANNEL = "xtend:bridge-info";
 export const SLOT_OPEN_CHANNEL = "xtend:slot-open";
 export const SLOT_CLOSE_CHANNEL = "xtend:slot-close";
+/** The app's summary for the Today card and composer chips; main forwards it to the overlay preload. */
+export const GLANCE_CHANNEL = "xtend:glance";
 
 // Main -> app view
 export const SESSION_URL_CHANNEL = "xtend:session-url";
@@ -27,6 +29,7 @@ export const EDITING_CHANNEL = "xtend:editing";
 export const OVERLAY_DATA_CHANNEL = "xtend:overlay-data";
 export const OVERLAY_TOGGLE_CHANNEL = "xtend:overlay-toggle";
 export const OVERLAY_HIDE_CHANNEL = "xtend:overlay-hide";
+export const OVERLAY_GLANCE_CHANNEL = "xtend:overlay-glance";
 // Overlay preload -> main
 export const OVERLAY_ACTION_CHANNEL = "xtend:overlay-action";
 /** X's primary column rect in x.com CSS pixels, null while the page has none (DMs, settings). */
@@ -119,6 +122,21 @@ export interface OverlayData {
   readonly posts: Readonly<Record<string, OverlayPost>>;
   /** Mean views and engagement rate over the viewer's own observed posts; null until one was seen. */
   readonly ownAverage: { readonly views: number; readonly er: number } | null;
+}
+
+/**
+ * What the native injections show without a server call: the app view already
+ * holds the atoms and formats the labels in the account zone.
+ */
+export interface Glance {
+  readonly queued: number;
+  /** "Today 21:40" style label of the next queued draft; null with an empty queue. */
+  readonly nextScheduled: string | null;
+  /** Label of the next posting slot; null without slots. */
+  readonly bestTime: string | null;
+  readonly mentions: number;
+  readonly spendTodayUsd: number;
+  readonly connected: boolean;
 }
 
 export type OverlayAction =

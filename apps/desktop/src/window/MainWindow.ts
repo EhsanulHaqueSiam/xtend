@@ -18,6 +18,9 @@ import {
   type BridgeInfo,
   COLUMN_RECT_CHANNEL,
   EDITING_CHANNEL,
+  GLANCE_CHANNEL,
+  type Glance,
+  OVERLAY_GLANCE_CHANNEL,
   OPEN_EXTERNAL_CHANNEL,
   OVERLAY_ACTION_CHANNEL,
   OVERLAY_TOGGLE_CHANNEL,
@@ -364,6 +367,11 @@ export function createMainWindow(options: MainWindowOptions) {
     }
   };
   contents.on("did-navigate", onUrlChange);
+  // A full load starts a fresh preload that has not seen the app's last glance.
+  let glance: Glance | null = null;
+  contents.on("did-finish-load", () => {
+    if (glance !== null) contents.send(OVERLAY_GLANCE_CHANNEL, glance);
+  });
   contents.on("did-navigate-in-page", onUrlChange);
   contents.on("found-in-page", (_event, result) =>
     toApp(SESSION_FIND_RESULT_CHANNEL, {
@@ -497,6 +505,10 @@ export function createMainWindow(options: MainWindowOptions) {
     }),
     from<string>(appContents, OPEN_EXTERNAL_CHANNEL, openExternalWeb),
     from<boolean>(appContents, EDITING_CHANNEL, (v) => editing.set(appContents, v === true)),
+    from<Glance>(appContents, GLANCE_CHANNEL, (value) => {
+      glance = value;
+      contents.send(OVERLAY_GLANCE_CHANNEL, glance);
+    }),
     from<boolean>(contents, EDITING_CHANNEL, (v) => editing.set(contents, v === true)),
     from<unknown>(contents, COLUMN_RECT_CHANNEL, (value) => {
       // The preload measures in x.com CSS pixels; the window's are those times the zoom.

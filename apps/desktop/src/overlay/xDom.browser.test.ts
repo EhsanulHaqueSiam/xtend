@@ -5,9 +5,14 @@ import {
   articleAuthorHandle,
   articleHoverTargets,
   articlePostId,
+  composerText,
+  composerToolbars,
   findArticles,
   isDmPath,
   primaryColumn,
+  railTail,
+  railTemplate,
+  sidebarFirstCard,
 } from "./xDom.ts";
 
 // Trimmed by hand from x.com/jack/status/20 on 2026-10-23 (X_DOM_VERSION 2026-10):
@@ -53,6 +58,44 @@ it("reads the post id, author, action row and hover targets from a real article"
     "Tweet-User-Avatar",
     "User-Name",
   ]);
+});
+
+// Trimmed from x.com/home on 2026-10-23: the rail, the inline composer and the right column.
+const CHROME = `
+<header role="banner"><nav role="navigation">
+  <a href="/home" aria-label="Home" role="link" data-testid="AppTabBar_Home_Link"><div><div><svg></svg></div><div dir="ltr"><span>Home</span></div></div></a>
+  <a href="/i/grok" aria-label="Grok" role="link"><span>Grok</span></a>
+  <a href="/i/premium_sign_up" aria-label="Premium" role="link" data-testid="premium-signup-tab"><span>Premium</span></a>
+  <a href="/siam" aria-label="Profile" role="link" data-testid="AppTabBar_Profile_Link"><span>Profile</span></a>
+  <button data-testid="AppTabBar_More_Menu" aria-label="More menu items"></button>
+</nav></header>
+<div data-testid="primaryColumn">
+  <div><div data-testid="tweetTextarea_0_label"><div data-testid="tweetTextarea_0RichTextInputContainer"><span>What’s happening?</span><div data-testid="tweetTextarea_0" contenteditable="true" role="textbox">hello x</div></div></div>
+    <div data-testid="toolBar"><nav role="navigation"></nav><div><button data-testid="tweetButtonInline">Post</button></div></div>
+  </div>
+</div>
+<div data-testid="sidebarColumn"><div><div><div>
+  <div class="card"><aside aria-label="Subscribe to Premium" role="complementary"></aside></div>
+  <div class="card"><section role="region" aria-labelledby="t"><h1 id="t">Trending now</h1></section></div>
+</div></div></div></div>`;
+
+it("finds the rail template and tail, the composer text from its toolbar, and the first sidebar card", () => {
+  document.body.innerHTML = CHROME;
+  expect(railTemplate(document)?.getAttribute("aria-label")).toBe("Home");
+  expect(railTail(document)?.getAttribute("data-testid")).toBe("premium-signup-tab");
+  const toolbars = composerToolbars(document);
+  expect(toolbars).toHaveLength(1);
+  expect(composerText(toolbars[0]!)?.textContent).toBe("hello x");
+  expect(sidebarFirstCard(document)?.className).toBe("card");
+  expect(sidebarFirstCard(document)?.querySelector("aside")).not.toBeNull();
+});
+
+it("without Premium the Xtend item still goes before Profile, and a bare sidebar yields no card", () => {
+  document.body.innerHTML = CHROME.replace(/<a [^>]*premium-signup-tab[^>]*>.*?<\/a>/, "");
+  expect(railTail(document)?.getAttribute("data-testid")).toBe("AppTabBar_Profile_Link");
+  document.body.innerHTML = `<div data-testid="sidebarColumn"><aside></aside></div>`;
+  expect(sidebarFirstCard(document)).toBeNull();
+  expect(railTemplate(document)).toBeNull();
 });
 
 it("yields null rather than a guess when the landmarks are gone", () => {
