@@ -56,6 +56,21 @@ export const layerObservationsRoute = HttpRouter.add(
  * exists when a dev URL is configured and only answers that origin. POST because
  * browsers always send Origin on POST and may omit it on same-origin GET.
  */
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/**
+ * A browser on this machine that addressed the service by a loopback name.
+ * The Host check defeats DNS rebinding: a page at evil.example resolving to
+ * 127.0.0.1 still arrives from loopback, but with its own Host, and must not
+ * be handed the token.
+ */
+const isLocalBrowser = (request: HttpServerRequest.HttpServerRequest): boolean => {
+  const remote = Option.getOrElse(request.remoteAddress, () => "");
+  const loopback = remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
+  const host = (request.headers["host"] ?? "").replace(/:\d+$/, "");
+  return loopback && LOCAL_HOSTS.has(host);
+};
+
 export const layerDevTokenRoute = Layer.unwrap(
   Effect.gen(function* () {
     const config = yield* ServerConfig.ServerConfig;
@@ -65,10 +80,7 @@ export const layerDevTokenRoute = Layer.unwrap(
       Effect.gen(function* () {
         const auth = yield* ServiceAuth.ServiceAuth;
         // Origin is a browser promise and the dev proxy sits on this machine, so both must hold.
-        const remote = Option.getOrElse(request.remoteAddress, () => "");
-        const loopback =
-          remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
-        if (!loopback || request.headers["origin"] !== devUrl.origin)
+        if (!isLocalBrowser(request) || request.headers["origin"] !== devUrl.origin)
           return HttpServerResponse.text("forbidden", { status: 403 });
         return yield* HttpServerResponse.json({ token: auth.token });
       }),
@@ -133,10 +145,7 @@ export const layerWebRoute = Layer.unwrap(
             Effect.orElseSucceed(() => false),
           ));
         if (isFile) return yield* HttpServerResponse.file(candidate);
-        const remote = Option.getOrElse(request.remoteAddress, () => "");
-        const loopback =
-          remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
-        return HttpServerResponse.html(loopback ? withToken : index);
+        return HttpServerResponse.html(isLocalBrowser(request) ? withToken : index);
       }).pipe(Effect.orElseSucceed(() => HttpServerResponse.text("Not found", { status: 404 }))),
     );
   }),
