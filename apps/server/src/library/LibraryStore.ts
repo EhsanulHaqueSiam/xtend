@@ -18,6 +18,8 @@ import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import type * as Statement from "effect/sql/Statement";
 
+import { CURRENT_ACCOUNT } from "../persistence/account.ts";
+
 const PostJson = Schema.fromJsonString(XPost);
 const decodePost = Schema.decodeUnknownSync(PostJson);
 const encodePost = Schema.encodeSync(PostJson);
@@ -173,7 +175,7 @@ const make = Effect.gen(function* () {
     SELECT s.id, s.post_json, s.note, s.saved_at,
       (SELECT group_concat(cp.collection_id) FROM collection_posts cp WHERE cp.saved_id = s.id) AS collection_ids
     FROM saved_posts s
-    ${where}
+    ${where} AND s.account_id = ${sql.literal(CURRENT_ACCOUNT)}
     ORDER BY s.id DESC LIMIT ${limit}
   `;
 
@@ -230,7 +232,7 @@ const make = Effect.gen(function* () {
   const collectionsList = sql<CollectionRow>`
     SELECT c.id, c.name, c.built_in, c.created_at,
       (SELECT COUNT(*) FROM collection_posts cp WHERE cp.collection_id = c.id) AS posts
-    FROM collections c ORDER BY c.built_in DESC, c.name
+    FROM collections c WHERE c.account_id = ${sql.literal(CURRENT_ACCOUNT)} ORDER BY c.built_in DESC, c.name
   `.pipe(
     Effect.map((rows) => rows.map(toCollection)),
     Effect.mapError(storeError),
@@ -335,7 +337,7 @@ const make = Effect.gen(function* () {
     const band = filters.authorBand === undefined ? null : BAND_RANGE[filters.authorBand];
     const rows = yield* sql<LibraryRow>`
       SELECT post_json, format, hook_pattern, last_seen_at FROM library_posts
-      WHERE 1 = 1
+      WHERE account_id = ${sql.literal(CURRENT_ACCOUNT)}
         ${filters.minViews === undefined ? sql`` : sql`AND views >= ${filters.minViews}`}
         ${filters.format === undefined ? sql`` : sql`AND format = ${filters.format}`}
         ${filters.year === undefined ? sql`` : sql`AND year = ${filters.year}`}
@@ -357,13 +359,13 @@ const make = Effect.gen(function* () {
   const undetected = Effect.fn("LibraryStore.undetected")(function* (limit: number) {
     const rows = yield* sql<LibraryRow>`
       SELECT post_json, format, hook_pattern, last_seen_at FROM library_posts
-      WHERE hook_pattern IS NULL ORDER BY views DESC LIMIT ${limit}
+      WHERE hook_pattern IS NULL AND account_id = ${sql.literal(CURRENT_ACCOUNT)} ORDER BY views DESC LIMIT ${limit}
     `;
     return rows.map(toLibraryPost);
   }, Effect.mapError(storeError));
 
   const undetectedCount = sql<{ n: number }>`
-    SELECT COUNT(*) AS n FROM library_posts WHERE hook_pattern IS NULL
+    SELECT COUNT(*) AS n FROM library_posts WHERE hook_pattern IS NULL AND account_id = ${sql.literal(CURRENT_ACCOUNT)}
   `.pipe(
     Effect.map((rows) => rows[0]!.n),
     Effect.mapError(storeError),

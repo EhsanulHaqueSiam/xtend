@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import { createRootRoute, Outlet } from "@tanstack/react-router";
+import { createRootRoute, Outlet, useNavigate } from "@tanstack/react-router";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useEffect } from "react";
 
@@ -16,6 +16,13 @@ import { connectionAtom } from "../state/shell";
 function ZoneSync() {
   const settings = useAtomValue(settingsAtom);
   if (AsyncResult.isSuccess(settings)) setDisplayZone(settings.value.timeZone);
+  return null;
+}
+
+/** Routes the desktop asks for: overlay actions and xtend:// deep links, whichever screen is up. */
+function DesktopRoutes() {
+  const navigate = useNavigate();
+  useEffect(() => window.desktopBridge?.onOpenRoute((href) => void navigate({ href })), [navigate]);
   return null;
 }
 
@@ -61,6 +68,7 @@ export const Route = createRootRoute({
   component: () => (
     <TooltipProvider delay={300}>
       <ZoneSync />
+      <DesktopRoutes />
       <ShellHotkeys />
       <ShellNotifications />
       <CommandPalette />

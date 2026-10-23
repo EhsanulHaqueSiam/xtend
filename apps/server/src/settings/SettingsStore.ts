@@ -13,6 +13,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import { CURRENT_ACCOUNT } from "../persistence/account.ts";
 import * as TokenCipher from "./TokenCipher.ts";
 
 /** The stored zone as a DateTime zone; falls back to the machine's zone if the id went stale. */
@@ -111,6 +112,12 @@ const make = Effect.gen(function* () {
           updated_at = ${at}
         WHERE id = 1
       `;
+      // The handle is also the current account's handle; the switcher shows the same value.
+      if (patch.handle !== undefined)
+        yield* sql`
+          UPDATE accounts SET handle = ${handle === null ? null : handle.toLowerCase()}
+          WHERE id = ${sql.literal(CURRENT_ACCOUNT)}
+        `;
       return toSettings(yield* row);
     },
     Effect.mapError((cause) => new SettingsError({ operation: "update", cause })),

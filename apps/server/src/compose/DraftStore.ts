@@ -16,6 +16,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import { CURRENT_ACCOUNT } from "../persistence/account.ts";
 import * as Events from "../events/Events.ts";
 
 const BlocksJson = Schema.fromJsonString(
@@ -216,10 +217,11 @@ const make = Effect.gen(function* () {
       ? Effect.void
       : events.publish({ type: "draft_status_changed", payload: { draftId: id, status: after } });
 
-  const list = sql<DraftRow>`SELECT * FROM drafts ORDER BY updated_at DESC LIMIT 200`.pipe(
-    Effect.flatMap(withMedia),
-    Effect.mapError(fail("list")),
-  );
+  const list =
+    sql<DraftRow>`SELECT * FROM drafts WHERE account_id = ${sql.literal(CURRENT_ACCOUNT)} ORDER BY updated_at DESC LIMIT 200`.pipe(
+      Effect.flatMap(withMedia),
+      Effect.mapError(fail("list")),
+    );
 
   const create = Effect.fn("DraftStore.create")(
     function* (patch: DraftPatch) {
@@ -356,7 +358,7 @@ const make = Effect.gen(function* () {
   const byStatus = Effect.fn("DraftStore.byStatus")(
     function* (status: DraftStatus) {
       const rows = yield* sql<DraftRow>`
-        SELECT * FROM drafts WHERE status = ${status} ORDER BY scheduled_at ASC, updated_at DESC LIMIT 200
+        SELECT * FROM drafts WHERE status = ${status} AND account_id = ${sql.literal(CURRENT_ACCOUNT)} ORDER BY scheduled_at ASC, updated_at DESC LIMIT 200
       `;
       return yield* withMedia(rows);
     },
@@ -367,8 +369,9 @@ const make = Effect.gen(function* () {
     function* (from: string, to: string) {
       const rows = yield* sql<DraftRow>`
         SELECT * FROM drafts
-        WHERE (status = 'queued' AND scheduled_at >= ${from} AND scheduled_at < ${to})
-           OR (status = 'posted' AND posted_at >= ${from} AND posted_at < ${to})
+        WHERE account_id = ${sql.literal(CURRENT_ACCOUNT)} AND (
+          (status = 'queued' AND scheduled_at >= ${from} AND scheduled_at < ${to})
+          OR (status = 'posted' AND posted_at >= ${from} AND posted_at < ${to}))
         ORDER BY COALESCE(posted_at, scheduled_at) ASC LIMIT 200
       `;
       return yield* withMedia(rows);

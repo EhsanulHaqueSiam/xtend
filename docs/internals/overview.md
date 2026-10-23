@@ -46,7 +46,12 @@ How each client gets it:
 
 - **Desktop**: reads `<base dir>/auth-token`, where the base dir is `--base-dir`, then
   `XTEND_HOME`, then `~/.xtend`, in the same order the service resolves it. `XTEND_SERVICE_TOKEN`
-  overrides the file. The capture pipeline sends it as `Authorization: Bearer`.
+  overrides the file, and a remote service's token comes from the desktop's own config. The
+  capture pipeline sends it as `Authorization: Bearer`, and the preload hands it to the web app.
+- **HTTP API, CLI, MCP**: `POST /api/rpc/<method>` with the bearer token; see
+  [api.md](../operations/api.md).
+- **Remote browser**: opens the service URL once with `?token=`; the client keeps it in
+  sessionStorage and strips it from the address bar.
 - **Packaged web app**: the service serves `index.html` itself and injects
   `<meta name="xtend-token">`; the client reads the tag and opens `/ws?token=`.
 - **Web dev server**: the page POSTs `/api/auth/dev-token`, which the service only serves when a
@@ -58,6 +63,30 @@ so a copied database does not leak it.
 
 Remote debugging (`XTEND_REMOTE_DEBUG`) is honoured only in unpackaged desktop builds: with the
 port open, any local process can attach to the x.com target and read its cookies.
+
+## Service supervision
+
+The desktop makes sure a service answers before it opens its window
+(`apps/desktop/src/service/ServiceSupervisor.ts`): a remote URL is only probed, a loaded
+`com.xtend.service` launchd agent is waited for, and otherwise the service runs as a child of
+the desktop (Electron as Node, `XTEND_SUPERVISOR=child`), restarted with backoff and killed on
+quit. `xtend service install` writes the launchd agent so schedules fire with the app closed.
+The service reports `supervisor` in `server.info`; Settings shows it together with how the
+desktop reached the service (child, launchd, remote, none).
+
+The desktop keeps its own `config.json` in userData with the remote service URL and token, so
+a window can point at a Mac mini or VPS without the local DB knowing. Changing it relaunches
+the app.
+
+## Accounts
+
+`accounts` plus `settings.current_account_id` (migration 014). Every per-account table has an
+`account_id`; reads compare it with `(SELECT current_account_id FROM settings)` and an insert
+trigger stamps new rows with the current account, so a switch is one UPDATE. Selecting an
+account also sets `settings.handle`, which every handle-scoped screen reads. The desktop
+opens one session partition per account (`persist:x-session-<id>`; account 1 keeps the
+original `persist:x-session` so an existing login survives) and rebuilds the window on a
+switch. Scheduled work (queued drafts, agent and rule ticks) runs for the current account.
 
 ## Money
 

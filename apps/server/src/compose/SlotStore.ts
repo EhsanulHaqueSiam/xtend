@@ -5,6 +5,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import { CURRENT_ACCOUNT } from "../persistence/account.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 
 interface SlotRow {
@@ -63,16 +64,17 @@ const make = Effect.gen(function* () {
     new ComposeError({ operation, detail: String(cause).slice(0, 300) });
   const zone = Effect.map(settings.get, (s) => SettingsStore.zoneOf(s.timeZone));
 
-  const list = sql<SlotRow>`SELECT * FROM slots ORDER BY minute_of_day ASC`.pipe(
-    Effect.map((rows) => rows.map(toSlot)),
-    Effect.mapError(fail("slots")),
-  );
+  const list =
+    sql<SlotRow>`SELECT * FROM slots WHERE account_id = ${sql.literal(CURRENT_ACCOUNT)} ORDER BY minute_of_day ASC`.pipe(
+      Effect.map((rows) => rows.map(toSlot)),
+      Effect.mapError(fail("slots")),
+    );
 
   const replace = Effect.fn("SlotStore.replace")(
     function* (slots: ReadonlyArray<SlotInput>) {
       yield* sql.withTransaction(
         Effect.gen(function* () {
-          yield* sql`DELETE FROM slots`;
+          yield* sql`DELETE FROM slots WHERE account_id = ${sql.literal(CURRENT_ACCOUNT)}`;
           for (const s of slots)
             yield* sql`INSERT INTO slots (weekday_mask, minute_of_day) VALUES (${s.weekdayMask}, ${s.minuteOfDay})`;
         }),
@@ -86,7 +88,7 @@ const make = Effect.gen(function* () {
     function* (after: DateTime.Utc) {
       const slots = yield* list;
       const taken = yield* sql<{ scheduled_at: string }>`
-        SELECT scheduled_at FROM drafts WHERE status = 'queued' AND scheduled_at IS NOT NULL
+        SELECT scheduled_at FROM drafts WHERE status = 'queued' AND scheduled_at IS NOT NULL AND account_id = ${sql.literal(CURRENT_ACCOUNT)}
       `;
       const held = new Set(taken.map((r) => r.scheduled_at));
       return slotTimesAfter(slots, after, yield* zone).find((t) => !held.has(t)) ?? null;

@@ -15,6 +15,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import { CURRENT_ACCOUNT } from "../persistence/account.ts";
 import { tierFor } from "../scores/ScoreEngine.ts";
 
 const LIST_LIMIT = 200;
@@ -159,7 +160,7 @@ const make = Effect.gen(function* () {
       const rows =
         listId === undefined
           ? yield* sql<PersonRow>`
-              SELECT * FROM people ORDER BY last_activity DESC LIMIT ${LIST_LIMIT}`
+              SELECT * FROM people WHERE account_id = ${sql.literal(CURRENT_ACCOUNT)} ORDER BY last_activity DESC LIMIT ${LIST_LIMIT}`
           : yield* sql<PersonRow>`
               SELECT p.* FROM people p JOIN list_members m ON m.person_id = p.id
               WHERE m.list_id = ${listId} ORDER BY p.last_activity DESC LIMIT ${LIST_LIMIT}`;
@@ -274,8 +275,12 @@ const make = Effect.gen(function* () {
     Effect.gen(function* () {
       const rows =
         where === "all"
-          ? yield* sql<{ handle: string }>`SELECT handle FROM people`
-          : yield* sql<{ handle: string }>`SELECT handle FROM people WHERE stage = 'ignored'`;
+          ? yield* sql<{
+              handle: string;
+            }>`SELECT handle FROM people WHERE account_id = ${sql.literal(CURRENT_ACCOUNT)}`
+          : yield* sql<{
+              handle: string;
+            }>`SELECT handle FROM people WHERE stage = 'ignored' AND account_id = ${sql.literal(CURRENT_ACCOUNT)}`;
       return new Set(rows.map((r) => r.handle.toLowerCase()));
     }).pipe(Effect.mapError(fail("handles")));
 
@@ -291,7 +296,7 @@ const make = Effect.gen(function* () {
   const agentMatches = Effect.fn("PeopleStore.agentMatches")(
     function* (minScore: number, sinceIso: string) {
       const rows = yield* sql<PersonRow>`
-        SELECT * FROM people WHERE source LIKE 'agent:%' AND score >= ${minScore} AND first_seen >= ${sinceIso}
+        SELECT * FROM people WHERE source LIKE 'agent:%' AND score >= ${minScore} AND first_seen >= ${sinceIso} AND account_id = ${sql.literal(CURRENT_ACCOUNT)}
         ORDER BY id DESC LIMIT ${LIST_LIMIT}`;
       return rows.map(toPerson);
     },
@@ -300,7 +305,7 @@ const make = Effect.gen(function* () {
 
   const lists = sql<ListRow>`
     SELECT l.*, (SELECT COUNT(*) FROM list_members m WHERE m.list_id = l.id) AS members
-    FROM lists l ORDER BY l.id DESC`.pipe(
+    FROM lists l WHERE l.account_id = ${sql.literal(CURRENT_ACCOUNT)} ORDER BY l.id DESC`.pipe(
     Effect.map((rows) =>
       rows.map((r): LeadList => ({
         id: r.id,
@@ -336,7 +341,8 @@ const make = Effect.gen(function* () {
       if (fresh.size === 0) {
         const last = yield* sql<{ user_id: string }>`
           SELECT user_id FROM followers_seen
-          WHERE first_seen_at = (SELECT MAX(first_seen_at) FROM followers_seen)`;
+          WHERE account_id = ${sql.literal(CURRENT_ACCOUNT)}
+            AND first_seen_at = (SELECT MAX(first_seen_at) FROM followers_seen WHERE account_id = ${sql.literal(CURRENT_ACCOUNT)})`;
         for (const r of last) fresh.add(r.user_id);
       }
       return fresh;

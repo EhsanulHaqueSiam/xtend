@@ -17,6 +17,10 @@ localhost and over the network alike.
 `pnpm dev:desktop` bundles the Electron main process in watch mode and launches it against the
 dev web server. It expects `pnpm dev` to be running.
 
+`pnpm build:desktop` builds the web app, the service bundle and the Electron main, then runs
+electron-builder for macOS into `apps/desktop/release`. Signing and notarization are off until
+the environment variables listed in `apps/desktop/electron-builder.yml` exist.
+
 ## State
 
 The service keeps everything under one base directory: `~/.xtend` by default, `--base-dir`

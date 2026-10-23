@@ -4,6 +4,8 @@ import "vite-plus/test/config";
 import { defineConfig, type UserConfig } from "vite-plus";
 
 const isMainProcessExternal = (id: string) => id === "electron" || id.startsWith("electron/");
+/** The main bundle carries every dependency (electron-updater included), so the packaged app ships no node_modules. */
+const isMainProcessInlined = (id: string) => !isMainProcessExternal(id) && !id.startsWith("node:");
 const launchAfterPack = process.env.XTEND_DESKTOP_DEV === "1";
 
 type PackConfig = Exclude<NonNullable<UserConfig["pack"]>, ReadonlyArray<unknown>>;
@@ -63,6 +65,7 @@ export default defineConfig({
     },
     {
       ...packDefaults,
+      noExternal: isMainProcessInlined,
       entry: { main: "src/main.ts" },
       ...(launchAfterPack ? { onSuccess: "node scripts/dev-electron.mjs" } : {}),
     },

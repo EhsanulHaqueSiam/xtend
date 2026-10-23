@@ -1,4 +1,4 @@
-import { useAtomValue } from "@effect/atom-react";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import {
@@ -27,6 +27,7 @@ import { useEffect, useState, type ReactNode } from "react";
 
 import { isElectron } from "../env";
 import { cn } from "../lib/utils";
+import { accountsAtom, selectAccountAtom, switchAccount } from "../state/accounts";
 import { connectionAtom, queuedCountAtom, spendLiveAtom } from "../state/shell";
 import { shellBridge } from "./shell/bridge";
 import { Button } from "./ui/button";
@@ -129,6 +130,49 @@ function StatusStrip({ collapsed }: { readonly collapsed: boolean }) {
         </>
       )}
     </Link>
+  );
+}
+
+/** Which X account the suite is about; switching reloads every screen on that account's data. */
+function AccountSwitcher({ collapsed }: { readonly collapsed: boolean }) {
+  const accounts = useAtomValue(accountsAtom);
+  const select = useAtomSet(selectAccountAtom, { mode: "promise" });
+  if (!AsyncResult.isSuccess(accounts) || accounts.value.accounts.length < 2) return null;
+  const { accounts: list, currentId } = accounts.value;
+  const current = list.find((a) => a.id === currentId) ?? list[0]!;
+  const change = (id: number) => void select(id).then(() => switchAccount(id));
+  if (collapsed)
+    return (
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              aria-label={`Account: ${current.label}. Switch to next`}
+              className="no-drag mx-auto flex size-8 items-center justify-center rounded-[var(--control-radius)] font-mono text-xs text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+              onClick={() => change(list[(list.indexOf(current) + 1) % list.length]!.id)}
+            />
+          }
+        >
+          {current.label.slice(0, 1).toUpperCase()}
+        </TooltipTrigger>
+        <TooltipPopup side="right">{current.label}</TooltipPopup>
+      </Tooltip>
+    );
+  return (
+    <select
+      aria-label="Account"
+      className="no-drag h-8 w-full rounded-[var(--control-radius)] border border-sidebar-border bg-sidebar px-2 font-mono text-xs text-sidebar-foreground outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+      value={currentId}
+      onChange={(e) => change(Number(e.target.value))}
+    >
+      {list.map((a) => (
+        <option key={a.id} value={a.id}>
+          {a.label}
+          {a.handle !== null ? ` @${a.handle}` : ""}
+        </option>
+      ))}
+    </select>
   );
 }
 
@@ -281,6 +325,9 @@ export function AppSidebar({ children }: { readonly children: ReactNode }) {
           </Tooltip>
         </div>
         <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto pb-2">
+          <div className="px-[var(--sidebar-content-inset)] pb-1">
+            <AccountSwitcher collapsed={collapsed} />
+          </div>
           <div className="px-[var(--sidebar-content-inset)] pb-1">
             <Button
               size="sm"

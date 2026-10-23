@@ -57,6 +57,7 @@ const layerTest = Articles.layer.pipe(
         dbPath: ":memory:",
         staticDir: undefined,
         devUrl: undefined,
+        supervisor: "none",
       }),
     ),
   ),

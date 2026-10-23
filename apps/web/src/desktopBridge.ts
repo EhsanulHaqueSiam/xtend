@@ -30,8 +30,35 @@ export interface SessionDownload {
   readonly state: "started" | "completed" | "failed";
 }
 
+export type ServiceMode = "child" | "launchd" | "remote" | "none";
+
+interface RemoteConfig {
+  readonly url: string;
+  readonly token: string;
+}
+
+export interface Reachability {
+  readonly health: boolean;
+  readonly version: string | null;
+  readonly auth: boolean;
+  readonly error: string | null;
+}
+
 export interface DesktopBridge {
   readonly platform: NodeJS.Platform;
+  /** The service token the desktop holds; the page uses it instead of asking the service. */
+  readonly serviceToken: string;
+  /** How the desktop found its service: spawned child, launchd agent, remote URL, or something else local. */
+  readonly serviceMode: ServiceMode;
+  /** The remote service the desktop is pointed at, if any. */
+  readonly remote: RemoteConfig | null;
+  /** The account whose session partition the window opened. */
+  readonly accountId: number;
+  readonly checkRemote: (config: RemoteConfig) => Promise<Reachability>;
+  /** Saves the remote (null returns to the local service) and relaunches the app. */
+  readonly setRemote: (config: RemoteConfig | null) => void;
+  /** Rebuilds the window on the account's own session partition. */
+  readonly selectAccount: (id: number) => void;
   /** Where the x.com session view should be drawn, in CSS pixels of the app window. Null hides it. */
   readonly setSessionViewBounds: (bounds: SessionViewBounds | null) => void;
   /** Hides the native view without unloading it, for while a palette or modal draws over its area. */

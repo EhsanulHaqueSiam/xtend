@@ -15,6 +15,8 @@ import {
 import * as Schema from "effect/Schema";
 
 import {
+  BRIDGE_ARG,
+  type BridgeInfo,
   EDITING_CHANNEL,
   OPEN_EXTERNAL_CHANNEL,
   OPEN_ROUTE_CHANNEL,
@@ -42,7 +44,9 @@ const X_HOSTS = new Set(["x.com", "www.x.com", "twitter.com", "www.twitter.com",
 const X_HOME = "https://x.com/home";
 /** Sign-in providers x.com opens in a popup; they share the session partition so the cookie lands in it. */
 const OAUTH_HOSTS = new Set(["accounts.google.com", "appleid.apple.com"]);
-const SESSION_PARTITION = "persist:x-session";
+/** Account 1 keeps the partition name from before multi-account, so an existing login survives the upgrade. */
+const sessionPartition = (accountId: number) =>
+  accountId === 1 ? "persist:x-session" : `persist:x-session-${accountId}`;
 const ZOOM_STEP = 0.5;
 /** One rule hides X's left rail; the primary column keeps its own width. */
 const HIDE_RAIL_CSS = 'header[role="banner"] { display: none !important; }';
@@ -51,6 +55,10 @@ export interface MainWindowOptions {
   readonly appUrl: string;
   readonly serviceUrl: string;
   readonly serviceToken: string;
+  /** Which account's x.com session the view opens; one cookie partition per account. */
+  readonly accountId: number;
+  /** What the app page learns about its service through the preload. */
+  readonly bridgeInfo: BridgeInfo;
   /** Where unacknowledged observation batches wait for the service. */
   readonly queueDir: string;
   /** The last session URL, restored on launch. */
@@ -214,8 +222,10 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
       preload: path.join(import.meta.dirname, "preload.cjs"),
       contextIsolation: true,
       sandbox: true,
+      additionalArguments: [`${BRIDGE_ARG}${JSON.stringify(options.bridgeInfo)}`],
     },
   });
+  const partition = sessionPartition(options.accountId);
 
   // The app renderer is ours, but a `_blank` link in it must not open a window carrying the preload.
   const appOrigin = new URL(options.appUrl).origin;
@@ -234,7 +244,7 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
   // never sees it, and its cookies live in their own persistent partition.
   const session = new WebContentsView({
     webPreferences: {
-      partition: SESSION_PARTITION,
+      partition,
       preload: path.join(import.meta.dirname, "overlayPreload.cjs"),
       contextIsolation: true,
       sandbox: true,
@@ -257,7 +267,7 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
           width: 520,
           height: 680,
           parent: window,
-          webPreferences: { partition: SESSION_PARTITION, contextIsolation: true, sandbox: true },
+          webPreferences: { partition, contextIsolation: true, sandbox: true },
         },
       };
     }

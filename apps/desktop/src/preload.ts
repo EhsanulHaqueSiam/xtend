@@ -1,8 +1,13 @@
 import { contextBridge, ipcRenderer } from "electron";
 
 import {
+  ACCOUNT_SELECT_CHANNEL,
+  BRIDGE_ARG,
+  type BridgeInfo,
   EDITING_CHANNEL,
   OPEN_EXTERNAL_CHANNEL,
+  REMOTE_CHECK_CHANNEL,
+  REMOTE_SET_CHANNEL,
   OPEN_ROUTE_CHANNEL,
   SESSION_DOWNLOAD_CHANNEL,
   SESSION_FIND_CHANNEL,
@@ -30,9 +35,20 @@ const listen =
 const navigate = (navigation: SessionNavigation) =>
   ipcRenderer.send(SESSION_NAVIGATE_CHANNEL, navigation);
 
+const info = JSON.parse(
+  process.argv.find((a) => a.startsWith(BRIDGE_ARG))?.slice(BRIDGE_ARG.length) ?? "{}",
+) as Partial<BridgeInfo>;
+
 /** Mirrors `DesktopBridge` in apps/web/src/desktopBridge.ts. */
 contextBridge.exposeInMainWorld("desktopBridge", {
   platform: process.platform,
+  serviceToken: info.serviceToken ?? "",
+  serviceMode: info.serviceMode ?? "none",
+  remote: info.remote ?? null,
+  accountId: info.accountId ?? 1,
+  checkRemote: (config: unknown) => ipcRenderer.invoke(REMOTE_CHECK_CHANNEL, config),
+  setRemote: (config: unknown) => ipcRenderer.send(REMOTE_SET_CHANNEL, config),
+  selectAccount: (id: number) => ipcRenderer.send(ACCOUNT_SELECT_CHANNEL, id),
   setSessionViewBounds: (bounds: unknown) => ipcRenderer.send(SESSION_VIEW_BOUNDS_CHANNEL, bounds),
   setSessionViewHidden: (hidden: boolean) => ipcRenderer.send(SESSION_VIEW_HIDDEN_CHANNEL, hidden),
   navigateSession: (url: string) => navigate({ action: "url", url }),

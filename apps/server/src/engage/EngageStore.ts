@@ -7,6 +7,8 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import { CURRENT_ACCOUNT } from "../persistence/account.ts";
+
 const PostJson = Schema.fromJsonString(XPost);
 const decodePost = Schema.decodeUnknownSync(PostJson);
 const encodePost = Schema.encodeSync(PostJson);
@@ -91,9 +93,7 @@ const make = Effect.gen(function* () {
   }, Effect.mapError(storeError));
 
   // followers_seen is the leads area's table; reading it here beats a second follower snapshot.
-  const sentList = Effect.fn("EngageStore.sentList")(function* (
-    engagerIds: ReadonlyArray<string>,
-  ) {
+  const sentList = Effect.fn("EngageStore.sentList")(function* (engagerIds: ReadonlyArray<string>) {
     const engagers = engagerIds.length === 0 ? sql`` : sql`OR f.user_id IN ${sql.in(engagerIds)}`;
     const rows = yield* sql<SentRow>`
       SELECT r.*, (
@@ -101,7 +101,7 @@ const make = Effect.gen(function* () {
         WHERE f.first_seen_at >= r.at AND f.first_seen_at < datetime(r.at, '+1 day')
           AND (f.handle = r.target_handle ${engagers})
       ) AS attributed_followers
-      FROM replies_sent r ORDER BY r.id DESC LIMIT 200
+      FROM replies_sent r WHERE r.account_id = ${sql.literal(CURRENT_ACCOUNT)} ORDER BY r.id DESC LIMIT 200
     `;
     return rows.map(toSent);
   }, Effect.mapError(storeError));
@@ -114,7 +114,7 @@ const make = Effect.gen(function* () {
     // author's answer would cost a read per target, upgrade when the inbox gets a refresh button.
     const rows = yield* sql<SentRow>`
       SELECT r.*, 0 AS attributed_followers FROM replies_sent r
-      WHERE r.post_id IS NOT NULL AND r.at < ${cutoff}
+      WHERE r.post_id IS NOT NULL AND r.at < ${cutoff} AND r.account_id = ${sql.literal(CURRENT_ACCOUNT)}
         AND NOT EXISTS (
           SELECT 1 FROM replies_sent later
           WHERE later.target_post_id = r.target_post_id AND later.id > r.id
@@ -125,7 +125,7 @@ const make = Effect.gen(function* () {
   }).pipe(Effect.mapError(storeError));
 
   const repliedPostIds = sql<{ target_post_id: string }>`
-    SELECT DISTINCT target_post_id FROM replies_sent WHERE post_id IS NOT NULL
+    SELECT DISTINCT target_post_id FROM replies_sent WHERE post_id IS NOT NULL AND account_id = ${sql.literal(CURRENT_ACCOUNT)}
   `.pipe(
     Effect.map((rows) => new Set(rows.map((r) => r.target_post_id))),
     Effect.mapError(storeError),
@@ -142,14 +142,14 @@ const make = Effect.gen(function* () {
   }, Effect.mapError(storeError));
 
   const apiMentions = sql<{ post_json: string }>`
-    SELECT post_json FROM api_mentions ORDER BY CAST(post_id AS INTEGER) DESC LIMIT 200
+    SELECT post_json FROM api_mentions WHERE account_id = ${sql.literal(CURRENT_ACCOUNT)} ORDER BY CAST(post_id AS INTEGER) DESC LIMIT 200
   `.pipe(
     Effect.map((rows) => rows.map((r) => decodePost(r.post_json))),
     Effect.mapError(storeError),
   );
 
   const latestApiMentionId = sql<{ post_id: string }>`
-    SELECT post_id FROM api_mentions ORDER BY CAST(post_id AS INTEGER) DESC LIMIT 1
+    SELECT post_id FROM api_mentions WHERE account_id = ${sql.literal(CURRENT_ACCOUNT)} ORDER BY CAST(post_id AS INTEGER) DESC LIMIT 1
   `.pipe(
     Effect.map((rows) => rows[0]?.post_id ?? null),
     Effect.mapError(storeError),
@@ -178,7 +178,7 @@ const make = Effect.gen(function* () {
   }, Effect.mapError(storeError));
 
   const repliesByAuthor = sql<{ target_handle: string; n: number }>`
-    SELECT target_handle, COUNT(*) AS n FROM replies_sent WHERE post_id IS NOT NULL GROUP BY target_handle
+    SELECT target_handle, COUNT(*) AS n FROM replies_sent WHERE post_id IS NOT NULL AND account_id = ${sql.literal(CURRENT_ACCOUNT)} GROUP BY target_handle
   `.pipe(
     Effect.map((rows) => new Map(rows.map((r) => [r.target_handle, r.n]))),
     Effect.mapError(storeError),

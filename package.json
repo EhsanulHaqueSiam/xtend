@@ -8,6 +8,7 @@
     "dev:web": "vp run --filter @xtend/web dev",
     "dev:desktop": "vp run --filter @xtend/desktop dev",
     "build": "vp run --filter './apps/*' build",
+    "build:desktop": "vp run --filter @xtend/web --filter xtend --filter @xtend/desktop build && pnpm --filter @xtend/desktop dist",
     "typecheck": "vp run -r --cache --concurrency-limit 4 typecheck",
     "tc": "vp run -r --cache --concurrency-limit 4 typecheck",
     "lint": "vp lint --report-unused-disable-directives",

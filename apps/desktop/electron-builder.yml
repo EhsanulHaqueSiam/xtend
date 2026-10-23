@@ -1,0 +1,39 @@
+# Packaging for macOS. Signing and notarization are off until the credentials exist:
+#   CSC_LINK / CSC_KEY_PASSWORD      Developer ID Application certificate (.p12) and its password
+#   APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID   notarytool login; then set mac.notarize: true
+#   GH_TOKEN                          lets `electron-builder --publish always` upload a release
+appId: com.xtend.desktop
+productName: Xtend
+directories:
+  output: release
+  buildResources: build
+# The main bundle inlines every dependency, so only the built files travel.
+files:
+  - dist-electron/**
+  - package.json
+# Mirrors the repo layout: the service finds the web app at ../../web/dist from its own file.
+extraResources:
+  - from: ../web/dist
+    to: apps/web/dist
+  - from: ../server/dist
+    to: apps/server/dist
+npmRebuild: false
+mac:
+  category: public.app-category.productivity
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  notarize: false
+protocols:
+  - name: Xtend
+    schemes: [xtend]
+publish:
+  - provider: github
+    owner: EhsanulHaqueSiam
+    repo: xtend

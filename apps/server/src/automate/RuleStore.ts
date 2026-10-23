@@ -17,6 +17,8 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import { CURRENT_ACCOUNT } from "../persistence/account.ts";
+
 const RUNS_LIMIT = 200;
 
 const TriggerJson = Schema.fromJsonString(Trigger);
@@ -235,7 +237,8 @@ const make = Effect.gen(function* () {
 
   const list = Effect.gen(function* () {
     const at = yield* now;
-    const rows = yield* sql<RuleRow>`SELECT * FROM rules ORDER BY id DESC`;
+    const rows =
+      yield* sql<RuleRow>`SELECT * FROM rules WHERE account_id = ${sql.literal(CURRENT_ACCOUNT)} ORDER BY id DESC`;
     return rows.map((r) => toRule(r, at));
   }).pipe(Effect.mapError(fail("rulesList")));
 

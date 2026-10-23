@@ -1,7 +1,10 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as Schema from "effect/Schema";
+import { ServiceSupervisor } from "@xtend/contracts";
 
 import packageJson from "../package.json" with { type: "json" };
 
@@ -18,6 +21,8 @@ export class ServerConfig extends Context.Service<
     /** Built web app, served when no dev URL is set. */
     readonly staticDir: string | undefined;
     readonly devUrl: URL | undefined;
+    /** Who restarts the process: set by the desktop (child) or the launchd plist. */
+    readonly supervisor: ServiceSupervisor;
   }
 >()("xtend/config/ServerConfig") {}
 
@@ -46,5 +51,8 @@ export const resolve = Effect.fn("ServerConfig.resolve")(function* (options: Res
     dbPath: path.join(baseDir, "xtend.sqlite"),
     staticDir: options.devUrl === undefined ? staticDir : undefined,
     devUrl: options.devUrl,
+    supervisor: Schema.decodeUnknownOption(ServiceSupervisor)(process.env.XTEND_SUPERVISOR).pipe(
+      Option.getOrElse(() => "none" as const),
+    ),
   });
 });

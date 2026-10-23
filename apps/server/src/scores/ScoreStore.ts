@@ -15,6 +15,8 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import { CURRENT_ACCOUNT } from "../persistence/account.ts";
+
 const TopFollowersJson = Schema.fromJsonString(Schema.Array(TopFollower));
 const CategoriesJson = Schema.fromJsonString(Schema.Array(CategoryCount));
 const BotJson = Schema.fromJsonString(BotReport);
@@ -217,6 +219,7 @@ const make = Effect.gen(function* () {
     FROM watch w
     LEFT JOIN score_samples s ON s.handle = w.handle
       AND s.day = (SELECT MAX(day) FROM score_samples WHERE handle = w.handle)
+    WHERE w.account_id = ${sql.literal(CURRENT_ACCOUNT)}
     ORDER BY w.added_at DESC
   `.pipe(
     Effect.map((rows) =>
@@ -237,7 +240,9 @@ const make = Effect.gen(function* () {
 
   const watchAdd = Effect.fn("ScoreStore.watchAdd")(
     function* (handle: string, at: string) {
-      const count = yield* sql<{ n: number }>`SELECT COUNT(*) AS n FROM watch`;
+      const count = yield* sql<{
+        n: number;
+      }>`SELECT COUNT(*) AS n FROM watch WHERE account_id = ${sql.literal(CURRENT_ACCOUNT)}`;
       if ((count[0]?.n ?? 0) >= 100)
         return yield* new ScoresError({ operation: "watchAdd", detail: "watchlist is full (100)" });
       yield* sql`INSERT OR IGNORE INTO watch (handle, added_at) VALUES (${handle.toLowerCase()}, ${at})`;

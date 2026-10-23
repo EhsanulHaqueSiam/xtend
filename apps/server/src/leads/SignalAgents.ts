@@ -14,6 +14,7 @@ import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import { CURRENT_ACCOUNT } from "../persistence/account.ts";
 import * as Assist from "../ai/Assist.ts";
 import * as Events from "../events/Events.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
@@ -139,10 +140,11 @@ const make = Effect.gen(function* () {
       ),
     );
 
-  const list = sql<AgentRow>`SELECT * FROM agents ORDER BY id DESC`.pipe(
-    Effect.flatMap((rows) => Effect.forEach(rows, toAgent)),
-    Effect.mapError(fail("agentsList")),
-  );
+  const list =
+    sql<AgentRow>`SELECT * FROM agents WHERE account_id = ${sql.literal(CURRENT_ACCOUNT)} ORDER BY id DESC`.pipe(
+      Effect.flatMap((rows) => Effect.forEach(rows, toAgent)),
+      Effect.mapError(fail("agentsList")),
+    );
 
   const upsert = Effect.fn("SignalAgents.upsert")(
     function* (a: SignalAgentInput) {
@@ -291,7 +293,7 @@ const make = Effect.gen(function* () {
 
   const tick = Effect.gen(function* () {
     const due = yield* sql<AgentRow>`
-      SELECT * FROM agents WHERE enabled = 1
+      SELECT * FROM agents WHERE enabled = 1 AND account_id = ${sql.literal(CURRENT_ACCOUNT)}
       AND (last_run IS NULL OR last_run <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-' || interval_minutes || ' minutes'))`;
     yield* Effect.forEach(due, (a) => run(a.id), { discard: true });
   }).pipe(Effect.mapError(fail("agentTick")));

@@ -14,6 +14,7 @@ import * as LeadsHandlers from "./leads/LeadsHandlers.ts";
 import * as AutomateHandlers from "./automate/AutomateHandlers.ts";
 import * as DesktopHandlers from "./desktop/DesktopHandlers.ts";
 import * as EventsHandlers from "./events/EventsHandlers.ts";
+import * as AccountsHandlers from "./accounts/AccountsHandlers.ts";
 
 import * as ServiceAuth from "./auth/ServiceAuth.ts";
 import * as ServerConfig from "./config.ts";
@@ -34,6 +35,8 @@ const layerCoreHandlers = CoreRpcGroup.toLayer(
           name: "xtend" as const,
           version: config.version,
           baseDir: config.baseDir,
+          host: config.host,
+          supervisor: config.supervisor,
         }),
       [WS_METHODS.observationsRecord]: (batch) => observations.record(batch),
       [WS_METHODS.observationsListRecent]: (input) => observations.listRecent(input),
@@ -45,8 +48,8 @@ const layerCoreHandlers = CoreRpcGroup.toLayer(
   }),
 );
 
-/** Every area's handler layer, merged. Add a line here when a new RpcGroup joins WsRpcGroup. */
-const layerHandlers = Layer.mergeAll(
+/** Every area's handler layer, merged. Add a line here when a new RpcGroup joins WsRpcGroup. The HTTP bridge dispatches into the same layer. */
+export const layerHandlers = Layer.mergeAll(
   layerCoreHandlers,
   ComposeHandlers.layerHandlers,
   PlanHandlers.layerHandlers,
@@ -58,6 +61,7 @@ const layerHandlers = Layer.mergeAll(
   AutomateHandlers.layerHandlers,
   DesktopHandlers.layerHandlers,
   EventsHandlers.layerHandlers,
+  AccountsHandlers.layerHandlers,
 );
 
 export const layerRoute = HttpRouter.add(

@@ -24,6 +24,7 @@ import * as LeadsHandlers from "./leads/LeadsHandlers.ts";
 import * as AutomateHandlers from "./automate/AutomateHandlers.ts";
 import * as DesktopHandlers from "./desktop/DesktopHandlers.ts";
 import * as EventsHandlers from "./events/EventsHandlers.ts";
+import * as AccountsHandlers from "./accounts/AccountsHandlers.ts";
 
 import * as ServerConfig from "./config.ts";
 import * as ServerHttp from "./http.ts";
@@ -33,6 +34,7 @@ import * as SettingsStore from "./settings/SettingsStore.ts";
 import * as TokenCipher from "./settings/TokenCipher.ts";
 import * as XClient from "./x/XClient.ts";
 import * as Ws from "./ws.ts";
+import * as HttpRpc from "./rpc/HttpRpc.ts";
 
 const layerHttpServer = Layer.unwrap(
   Effect.gen(function* () {
@@ -50,6 +52,7 @@ const layerRoutes = Layer.mergeAll(
   ServerHttp.layerObservationsRoute,
   ServerHttp.layerWebhookRoute,
   Ws.layerRoute,
+  HttpRpc.layerRoute,
   ServerHttp.layerWebRoute,
 );
 
@@ -76,6 +79,7 @@ const layerAreas = Layer.mergeAll(
   AutomateHandlers.layer,
   DesktopHandlers.layer,
   EventsHandlers.layer,
+  AccountsHandlers.layer,
 );
 
 const layerServices = Layer.mergeAll(layerAreas, Costs.layer).pipe(

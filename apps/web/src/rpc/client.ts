@@ -12,19 +12,36 @@ type Client = Effect.Success<typeof makeClient>;
 
 export class XtendClient extends Context.Service<XtendClient, Client>()("xtend/web/XtendClient") {}
 
+const TOKEN_KEY = "xtend:token";
+
 /**
- * The service token: a packaged build has it in the page the service served;
- * the Vite dev server asks the service, which answers only that origin.
+ * The service token, in order: the desktop already holds it; the Vite dev
+ * server asks the service, which answers only that origin; a packaged build
+ * has it in the page the service served; a remote browser brings it once as
+ * `?token=` and keeps it for the tab.
  */
 const serviceToken = Effect.gen(function* () {
+  const fromDesktop = window.desktopBridge?.serviceToken;
+  if (fromDesktop !== undefined && fromDesktop !== "") return fromDesktop;
+  if (import.meta.env.DEV) {
+    const { token } = yield* Effect.promise(() =>
+      fetch("/api/auth/dev-token", { method: "POST" }).then(
+        (r) => r.json() as Promise<{ token: string }>,
+      ),
+    );
+    return token;
+  }
   const meta = document.querySelector<HTMLMetaElement>('meta[name="xtend-token"]')?.content;
   if (meta !== undefined && meta !== "") return meta;
-  const { token } = yield* Effect.promise(() =>
-    fetch("/api/auth/dev-token", { method: "POST" }).then(
-      (r) => r.json() as Promise<{ token: string }>,
-    ),
-  );
-  return token;
+  const url = new URL(window.location.href);
+  const param = url.searchParams.get("token");
+  if (param !== null) {
+    window.sessionStorage.setItem(TOKEN_KEY, param);
+    url.searchParams.delete("token");
+    window.history.replaceState(null, "", url);
+    return param;
+  }
+  return window.sessionStorage.getItem(TOKEN_KEY) ?? "";
 });
 
 // Same origin as the page: Vite proxies /ws in dev, the service serves both in prod,

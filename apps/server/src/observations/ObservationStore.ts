@@ -11,6 +11,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import { CURRENT_ACCOUNT } from "../persistence/account.ts";
 import * as Events from "../events/Events.ts";
 
 const DEFAULT_LIST_LIMIT = 50;
@@ -151,7 +152,7 @@ const make = Effect.gen(function* () {
         JOIN observed_authors a ON a.user_id = p.author_id
         JOIN post_metrics m ON m.post_id = p.post_id
           AND m.observed_at = (SELECT MAX(observed_at) FROM post_metrics WHERE post_id = p.post_id)
-        WHERE p.is_repost = 0 AND p.is_promoted = 0 ${authorFilter}
+        WHERE p.is_repost = 0 AND p.is_promoted = 0 AND p.account_id = ${sql.literal(CURRENT_ACCOUNT)} ${authorFilter}
         ORDER BY p.last_seen_at DESC, p.created_at DESC
         LIMIT ${limit}
       `;

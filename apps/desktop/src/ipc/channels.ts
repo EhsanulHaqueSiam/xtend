@@ -6,6 +6,12 @@ export const SESSION_VIEW_HIDDEN_CHANNEL = "xtend:session-view-hidden";
 export const SESSION_NAVIGATE_CHANNEL = "xtend:session-navigate";
 export const SESSION_FIND_CHANNEL = "xtend:session-find";
 export const OPEN_EXTERNAL_CHANNEL = "xtend:open-external";
+export const ACCOUNT_SELECT_CHANNEL = "xtend:account-select";
+export const REMOTE_SET_CHANNEL = "xtend:remote-set";
+/** invoke: checks a remote service's health and token from the main process (no CORS, no leaked token). */
+export const REMOTE_CHECK_CHANNEL = "xtend:remote-check";
+/** Passed to the app preload through additionalArguments so the page can read it synchronously. */
+export const BRIDGE_ARG = "--xtend-bridge=";
 
 // Main -> app window
 export const SESSION_URL_CHANNEL = "xtend:session-url";
@@ -43,6 +49,14 @@ export interface SessionFindResult {
 export interface SessionDownload {
   readonly name: string;
   readonly state: "started" | "completed" | "failed";
+}
+
+/** What the main process tells the app window about its service at load time. */
+export interface BridgeInfo {
+  readonly serviceToken: string;
+  readonly serviceMode: "child" | "launchd" | "remote" | "none";
+  readonly remote: { readonly url: string; readonly token: string } | null;
+  readonly accountId: number;
 }
 
 export type ShortcutKey =

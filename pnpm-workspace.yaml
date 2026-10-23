@@ -5,6 +5,8 @@ packages:
 allowBuilds:
   # No install script since Electron 44; apps/desktop ensure:electron runs install.js.
   electron: false
+  # Windows installer tooling; the macOS build never runs it.
+  electron-winstaller: false
   esbuild: true
   tsc-rs: true
 

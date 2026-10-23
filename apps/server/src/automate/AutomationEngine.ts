@@ -20,6 +20,7 @@ import * as Schedule from "effect/Schedule";
 import * as SqlClient from "effect/sql/SqlClient";
 import type { SqlError } from "effect/sql/SqlError";
 
+import { CURRENT_ACCOUNT } from "../persistence/account.ts";
 import * as Events from "../events/Events.ts";
 import * as PeopleStore from "../leads/PeopleStore.ts";
 import * as XExtra from "../leads/XExtra.ts";
@@ -203,7 +204,7 @@ const make = Effect.gen(function* () {
   const followerSubjects = (sinceIso: string) =>
     Effect.map(
       sql<{ user_id: string; handle: string; first_seen_at: string }>`
-        SELECT user_id, handle, first_seen_at FROM followers_seen WHERE first_seen_at >= ${sinceIso} ORDER BY first_seen_at DESC`,
+        SELECT user_id, handle, first_seen_at FROM followers_seen WHERE first_seen_at >= ${sinceIso} AND account_id = ${sql.literal(CURRENT_ACCOUNT)} ORDER BY first_seen_at DESC`,
       (rows) =>
         rows.map((r): Subject => ({
           id: r.user_id,

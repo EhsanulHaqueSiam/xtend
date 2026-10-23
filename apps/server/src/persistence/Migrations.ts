@@ -14,8 +14,9 @@ import Migration0010 from "./Migrations/010_Posting.ts";
 import Migration0011 from "./Migrations/011_Intelligence.ts";
 import Migration0012 from "./Migrations/012_LibraryEngage.ts";
 import Migration0013 from "./Migrations/013_LeadsAutomate.ts";
+import Migration0014 from "./Migrations/014_Accounts.ts";
 
-const migrationEntries = [
+export const migrationEntries = [
   [1, "Observations", Migration0001],
   [2, "Foundation", Migration0002],
   [3, "Compose", Migration0003],
@@ -29,6 +30,7 @@ const migrationEntries = [
   [11, "Intelligence", Migration0011],
   [12, "LibraryEngage", Migration0012],
   [13, "LeadsAutomate", Migration0013],
+  [14, "Accounts", Migration0014],
 ] as const;
 
 const run = Migrator.make({});

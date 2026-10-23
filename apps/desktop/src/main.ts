@@ -2,13 +2,21 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, ipcMain } from "electron";
+import { autoUpdater } from "electron-updater";
 
+import {
+  OPEN_ROUTE_CHANNEL,
+  ACCOUNT_SELECT_CHANNEL,
+  REMOTE_CHECK_CHANNEL,
+  REMOTE_SET_CHANNEL,
+} from "./ipc/channels.ts";
+import { checkRemote, readRemote, RemoteConfig, writeRemote } from "./service/remote.ts";
+import { superviseService } from "./service/ServiceSupervisor.ts";
+import { deepLinkToRoute, type ServiceMode } from "./service/supervision.ts";
+import { createTray } from "./tray.ts";
 import { createMainWindow } from "./window/MainWindow.ts";
-
-// shortcut: the desktop expects a running service; it will supervise one itself when packaging lands.
-const serviceUrl = process.env.XTEND_SERVICE_URL ?? "http://127.0.0.1:4820";
-const appUrl = process.env.XTEND_DEV_URL ?? serviceUrl;
+import * as Schema from "effect/Schema";
 
 const log = (message: string, detail?: unknown) => {
   // Main-process diagnostics go to the launcher's terminal.
@@ -23,18 +31,38 @@ const baseDir = path.resolve(
     path.join(os.homedir(), ".xtend"),
 );
 
+// The desktop's own config (which service to use) lives in userData, never in the service DB.
+const configFile = path.join(app.getPath("userData"), "config.json");
+const remote = readRemote(configFile);
+const serviceUrl = process.env.XTEND_SERVICE_URL ?? remote?.url ?? "http://127.0.0.1:4820";
+const appUrl = process.env.XTEND_DEV_URL ?? serviceUrl;
+
 // The service writes auth-token on first start; sharing its base dir is how the desktop is trusted.
 const readServiceToken = (): string => {
   const override = process.env.XTEND_SERVICE_TOKEN;
   if (override !== undefined && override !== "") return override;
+  if (remote !== null) return remote.token;
   try {
     return fs.readFileSync(path.join(baseDir, "auth-token"), "utf8").trim();
   } catch (error) {
-    log("no service token; start the service once with this base dir", {
-      baseDir,
-      error: String(error),
-    });
+    log("no service token yet", { baseDir, error: String(error) });
     return "";
+  }
+};
+
+/** The current account from the service, so the session view opens the right partition. */
+const currentAccountId = async (token: string): Promise<number> => {
+  try {
+    const response = await fetch(new URL("/api/rpc/accounts.list", serviceUrl), {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: "{}",
+      signal: AbortSignal.timeout(3_000),
+    });
+    const list = (await response.json()) as { currentId?: number };
+    return list.currentId ?? 1;
+  } catch {
+    return 1;
   }
 };
 
@@ -44,24 +72,117 @@ const remoteDebugPort = process.env.XTEND_REMOTE_DEBUG;
 if (remoteDebugPort !== undefined && !app.isPackaged)
   app.commandLine.appendSwitch("remote-debugging-port", remoteDebugPort);
 
-const openWindow = () =>
-  createMainWindow({
+const decodeRemote = Schema.decodeUnknownResult(Schema.NullOr(RemoteConfig));
+
+const openSocket = (url: string) =>
+  new Promise<boolean>((resolve) => {
+    const ws = new WebSocket(url);
+    ws.addEventListener("open", () => {
+      ws.close();
+      resolve(true);
+    });
+    ws.addEventListener("error", () => resolve(false));
+  });
+
+let window: BrowserWindow | undefined;
+let serviceMode: ServiceMode = "none";
+let accountId = 1;
+let pendingRoute: string | null = null;
+
+const openRoute = (route: string) => {
+  if (window === undefined || window.webContents.isLoading()) pendingRoute = route;
+  else window.webContents.send(OPEN_ROUTE_CHANNEL, route);
+};
+
+const openWindow = () => {
+  if (window !== undefined && !window.isDestroyed()) return window.show();
+  const serviceToken = readServiceToken();
+  window = createMainWindow({
     appUrl,
     serviceUrl,
-    serviceToken: readServiceToken(),
+    serviceToken,
+    accountId,
+    bridgeInfo: { serviceToken, serviceMode, remote, accountId },
     queueDir: path.join(baseDir, "observation-queue"),
     sessionUrlFile: path.join(baseDir, "session-url"),
     importCookiesPath: process.env.XTEND_IMPORT_COOKIES,
     log,
   });
+  window.webContents.once("did-finish-load", () => {
+    if (pendingRoute !== null) openRoute(pendingRoute);
+    pendingRoute = null;
+  });
+  window.on("closed", () => (window = undefined));
+};
 
-void app.whenReady().then(() => {
+// xtend://compose?text=... and xtend://report?handle=... open the app on that screen.
+if (app.isPackaged) app.setAsDefaultProtocolClient("xtend");
+const handleDeepLink = (url: string) => {
+  const route = deepLinkToRoute(url);
+  log("deep link", { url, route });
+  if (route === null) return;
+  openWindow();
+  openRoute(route);
+};
+if (!app.requestSingleInstanceLock()) app.quit();
+app.on("second-instance", (_event, argv) => {
+  const link = argv.find((a) => a.startsWith("xtend://"));
+  if (link !== undefined) handleDeepLink(link);
+  else openWindow();
+});
+app.on("open-url", (event, url) => {
+  event.preventDefault();
+  handleDeepLink(url);
+});
+
+void app.whenReady().then(async () => {
+  const supervision = await superviseService({
+    serviceUrl,
+    baseDir,
+    devUrl: process.env.XTEND_DEV_URL,
+    log,
+  });
+  serviceMode = supervision.mode;
+  app.on("before-quit", supervision.stop);
+  accountId = await currentAccountId(readServiceToken());
+
+  ipcMain.handle(REMOTE_CHECK_CHANNEL, (_event, config: unknown) => {
+    const decoded = decodeRemote(config);
+    if (decoded._tag === "Failure" || decoded.success === null)
+      return { health: false, version: null, auth: false, error: "url and token required" };
+    return checkRemote(decoded.success, { fetch, openSocket });
+  });
+  // Changing the service means a different token, base dir and account: a relaunch is the honest reload.
+  ipcMain.on(REMOTE_SET_CHANNEL, (_event, config: unknown) => {
+    const decoded = decodeRemote(config);
+    if (decoded._tag === "Failure") return;
+    writeRemote(configFile, decoded.success);
+    app.relaunch();
+    app.quit();
+  });
+  // The session partition is fixed at view creation, so a switch rebuilds the window on the new one.
+  ipcMain.on(ACCOUNT_SELECT_CHANNEL, (_event, id: unknown) => {
+    if (typeof id !== "number" || !Number.isInteger(id) || id === accountId) return;
+    accountId = id;
+    const old = window;
+    window = undefined;
+    openWindow();
+    old?.close();
+  });
+
+  createTray(openWindow);
   openWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) openWindow();
   });
+
+  if (app.isPackaged) {
+    autoUpdater.on("error", (error) => log("updater", String(error)));
+    void autoUpdater.checkForUpdatesAndNotify();
+  }
 });
 
+// The tray keeps the app alive on macOS; elsewhere closing the window quits.
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });

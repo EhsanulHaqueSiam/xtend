@@ -13,3 +13,4 @@ dist-electron/
 .env.local
 .xtend/
 .plans/
+apps/desktop/release/
