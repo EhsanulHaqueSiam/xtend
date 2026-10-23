@@ -1,48 +1,46 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 
-import { CollectionsTab, SwipeTab } from "../components/library/CollectionsTab";
+import { ArchiveTab } from "../components/library/ArchiveTab";
+import { CollectionsTab } from "../components/library/CollectionsTab";
 import { PicksTab } from "../components/library/PicksTab";
 import { SearchTab } from "../components/library/SearchTab";
 import { TabBar } from "../components/library/shared";
+import { SwipeTab } from "../components/library/SwipeTab";
 import { TrendsTab } from "../components/library/TrendsTab";
 import { PageHeader } from "../components/PageHeader";
 
 const TABS = [
-  { id: "picks", label: "Daily picks" },
+  { id: "picks", label: "Picks" },
   { id: "search", label: "Search" },
+  { id: "archive", label: "Archive" },
+  { id: "trends", label: "Trends" },
   { id: "collections", label: "Collections" },
   { id: "swipe", label: "Swipe file" },
-  { id: "trends", label: "Trends" },
 ] as const;
 type Tab = (typeof TABS)[number]["id"];
 
 function LibraryScreen() {
-  const q = Route.useSearch().q ?? "";
-  // A `?q=` link (Scores sends them) lands on Search; otherwise the day's picks.
-  const [tab, setTab] = useState<Tab>(q === "" ? "picks" : "search");
+  const { q } = Route.useSearch();
+  const [tab, setTab] = useState<Tab>(q === undefined ? "picks" : "search");
   return (
     <div className="flex h-full flex-col">
-      <PageHeader title="Library" detail="viral posts, picks, collections, swipe file, trends" />
+      <PageHeader title="Library" />
       <TabBar tabs={TABS} active={tab} onChange={setTab} />
-      {tab === "picks" ? (
-        <PicksTab />
-      ) : tab === "search" ? (
-        <SearchTab initialQuery={q} />
-      ) : tab === "collections" ? (
-        <CollectionsTab />
-      ) : tab === "swipe" ? (
-        <SwipeTab />
-      ) : (
-        <TrendsTab />
-      )}
+      {tab === "picks" ? <PicksTab /> : null}
+      {tab === "search" ? <SearchTab initialQuery={q ?? ""} /> : null}
+      {tab === "archive" ? <ArchiveTab /> : null}
+      {tab === "trends" ? <TrendsTab /> : null}
+      {tab === "collections" ? <CollectionsTab /> : null}
+      {tab === "swipe" ? <SwipeTab /> : null}
     </div>
   );
 }
 
+/** `?q=` prefills and runs a search; Scores and the shell palette link here. */
 export const Route = createFileRoute("/library")({
-  validateSearch: (s: Record<string, unknown>) => ({
-    q: typeof s.q === "string" ? s.q : undefined,
+  validateSearch: (search: Record<string, unknown>) => ({
+    q: typeof search.q === "string" && search.q !== "" ? search.q : undefined,
   }),
   component: LibraryScreen,
 });

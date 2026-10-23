@@ -2,11 +2,22 @@ import { Engage_METHODS, EngageRpcGroup } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
+import { layerDaily } from "../library/DailyJobs.ts";
+import * as Treg from "../x/Treg.ts";
 import * as Engage from "./Engage.ts";
 import * as EngageStore from "./EngageStore.ts";
 
+const layerService = Engage.layer.pipe(
+  Layer.provideMerge(EngageStore.layer),
+  Layer.provide(Treg.layer),
+);
+
+const layerJobs = layerDaily([
+  { name: "engage.niche", at: "03:00", run: Effect.flatMap(Engage.Engage, (e) => e.nicheRebuild) },
+]).pipe(Layer.provide(layerService));
+
 /** Services this area adds to the application. Merged into layerAreas in server.ts. */
-export const layer = Engage.layer.pipe(Layer.provideMerge(EngageStore.layer));
+export const layer = Layer.merge(layerService, layerJobs);
 
 /** RPC handlers for EngageRpcGroup. Merged into the WebSocket route in ws.ts. */
 export const layerHandlers = EngageRpcGroup.toLayer(
@@ -21,8 +32,10 @@ export const layerHandlers = EngageRpcGroup.toLayer(
       [Engage_METHODS.findKeywords]: () => engage.findKeywords,
       [Engage_METHODS.mentions]: ({ refresh }) => engage.mentions(refresh === true),
       [Engage_METHODS.mentionHandled]: ({ postId }) => store.markHandled(postId),
-      [Engage_METHODS.inbox]: () =>
-        Effect.all({ sent: store.sentList, followUps: store.followUps }),
+      [Engage_METHODS.inbox]: () => engage.inbox,
+      [Engage_METHODS.nicheProfile]: () => store.nicheGet,
+      [Engage_METHODS.nicheRebuild]: () => engage.nicheRebuild,
+      [Engage_METHODS.dms]: ({ load }) => engage.dms(load),
     });
   }),
 );

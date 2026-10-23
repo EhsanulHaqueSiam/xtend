@@ -1,4 +1,4 @@
-import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { postCostUsd, type ReplyTarget } from "@xtend/contracts";
 import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
@@ -6,7 +6,14 @@ import { BadgeCheck } from "lucide-react";
 import { useState } from "react";
 
 import { useRates, usd } from "../../state/costs";
-import { draftReplyAtom, likeAtom, sendReplyAtom, targetsAtom } from "../../state/engage";
+import {
+  draftReplyAtom,
+  likeAtom,
+  nicheAtom,
+  rebuildNicheAtom,
+  sendReplyAtom,
+  targetsAtom,
+} from "../../state/engage";
 import { Empty, ErrorText, errorText, fmt } from "../analyze/ui";
 import { inputClass } from "../compose/ThreadEditor";
 import { Button } from "../ui/button";
@@ -89,7 +96,11 @@ function TargetRow({ target }: { readonly target: ReplyTarget }) {
         </a>
         <span className="font-mono text-2xs text-muted-foreground">· {age(target.ageMinutes)}</span>
         <span className="ml-auto shrink-0 font-mono text-2xs text-muted-foreground">
-          {fmt(post.author.followers)} followers · {target.keyword}
+          {fmt(post.author.followers)} followers
+          {target.authorScore === null ? "" : ` · score ${Math.round(target.authorScore)}`}
+          {target.repliesToAuthor > 0 ? ` · you replied ${target.repliesToAuthor}x` : ""}
+          {" · "}
+          {target.keyword}
         </span>
       </div>
       <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/90">
@@ -167,20 +178,55 @@ function TargetRow({ target }: { readonly target: ReplyTarget }) {
   );
 }
 
+/** Who the user replies to and about what; rebuilt nightly at 03:00 or on demand. */
+function NicheLine() {
+  const result = useAtomValue(nicheAtom);
+  const refresh = useAtomRefresh(nicheAtom);
+  const rebuild = useAtomSet(rebuildNicheAtom, { mode: "promiseExit" });
+  const state = useAtomValue(rebuildNicheAtom);
+  const niche = AsyncResult.getOrElse(result, () => null);
+  if (niche === null) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-2xs text-muted-foreground">
+      <span className="text-foreground">niche</span>
+      {niche.handles.length === 0 ? (
+        <span>no reply history yet</span>
+      ) : (
+        niche.handles.map((h) => (
+          <span key={h.handle}>
+            @{h.handle} ({h.replies})
+          </span>
+        ))
+      )}
+      {niche.topics.length > 0 ? <span>· {niche.topics.join(", ")}</span> : null}
+      <Button
+        variant="ghost"
+        size="xs"
+        className="ml-auto"
+        disabled={state.waiting}
+        onClick={() => void rebuild().then(refresh)}
+      >
+        {state.waiting ? "Rebuilding…" : "Rebuild niche"}
+      </Button>
+    </div>
+  );
+}
+
 export function Targets() {
   const result = useAtomValue(targetsAtom);
-  return AsyncResult.match(result, {
-    onInitial: () => <Empty>Connecting to the service…</Empty>,
-    onFailure: (f) => <ErrorText>{errorText(f.cause)}</ErrorText>,
-    onSuccess: ({ value }) =>
-      value.length === 0 ? (
-        <Empty>No targets. Add keywords in Settings or use Find keywords, then refresh.</Empty>
-      ) : (
-        <div className="flex flex-col gap-2">
-          {value.map((t) => (
-            <TargetRow key={t.post.postId} target={t} />
-          ))}
-        </div>
-      ),
-  });
+  return (
+    <div className="flex flex-col gap-2">
+      <NicheLine />
+      {AsyncResult.match(result, {
+        onInitial: () => <Empty>Connecting to the service…</Empty>,
+        onFailure: (f) => <ErrorText>{errorText(f.cause)}</ErrorText>,
+        onSuccess: ({ value }) =>
+          value.length === 0 ? (
+            <Empty>No targets. Add keywords in Settings or use Find keywords, then refresh.</Empty>
+          ) : (
+            value.map((t) => <TargetRow key={t.post.postId} target={t} />)
+          ),
+      })}
+    </div>
+  );
 }

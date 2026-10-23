@@ -1,5 +1,6 @@
-import { Library_METHODS, type XPost, type XSearchMode } from "@xtend/contracts";
+import { Library_METHODS, LibraryFilters, type XPost, type XSearchMode } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import * as Atom from "effect/reactivity/Atom";
 
 import { clientRuntime, XtendClient } from "../rpc/client";
@@ -151,5 +152,53 @@ export const trendIdeasAtom = clientRuntime.fn<string>()(
   Effect.fnUntraced(function* (country) {
     const client = yield* XtendClient;
     return yield* client[Library_METHODS.trendIdeas]({ country });
+  }),
+);
+
+// Keyed by the JSON of the filters so equal filter sets share one query.
+const FiltersJson = Schema.fromJsonString(LibraryFilters);
+const decodeFilters = Schema.decodeSync(FiltersJson);
+export const encodeFilters = Schema.encodeSync(FiltersJson);
+export const browseAtom = Atom.family((key: string) =>
+  clientRuntime.atom(
+    Effect.gen(function* () {
+      const client = yield* XtendClient;
+      return yield* client[Library_METHODS.browse](decodeFilters(key));
+    }),
+  ),
+);
+
+export const detectPatternsAtom = clientRuntime.fn<void>()(
+  Effect.fnUntraced(function* () {
+    const client = yield* XtendClient;
+    return yield* client[Library_METHODS.detectPatterns]({});
+  }),
+);
+
+export const writeInFormatAtom = clientRuntime.fn<string>()(
+  Effect.fnUntraced(function* (postId) {
+    const client = yield* XtendClient;
+    return yield* client[Library_METHODS.writeInFormat]({ postId });
+  }),
+);
+
+export const staffPicksAtom = clientRuntime.atom(
+  Effect.gen(function* () {
+    const client = yield* XtendClient;
+    return yield* client[Library_METHODS.staffPicks]({});
+  }),
+);
+
+export const fetchStaffPicksAtom = clientRuntime.fn<void>()(
+  Effect.fnUntraced(function* () {
+    const client = yield* XtendClient;
+    return yield* client[Library_METHODS.staffPicksFetch]({});
+  }),
+);
+
+export const generateReadyAtom = clientRuntime.fn<string>()(
+  Effect.fnUntraced(function* (country) {
+    const client = yield* XtendClient;
+    return yield* client[Library_METHODS.generateReady]({ country });
   }),
 );

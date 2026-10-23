@@ -77,3 +77,25 @@ export const inboxAtom = clientRuntime.atom(
     return yield* client[Engage_METHODS.inbox]({});
   }),
 );
+
+export const nicheAtom = clientRuntime.atom(
+  Effect.gen(function* () {
+    const client = yield* XtendClient;
+    return yield* client[Engage_METHODS.nicheProfile]({});
+  }),
+);
+
+export const rebuildNicheAtom = clientRuntime.fn<void>()(
+  Effect.fnUntraced(function* () {
+    const client = yield* XtendClient;
+    return yield* client[Engage_METHODS.nicheRebuild]({});
+  }),
+);
+
+/** `load: false` only returns X's quote for one DM page; `load: true` pays for it. */
+export const dmsAtom = clientRuntime.fn<boolean>()(
+  Effect.fnUntraced(function* (load) {
+    const client = yield* XtendClient;
+    return yield* client[Engage_METHODS.dms]({ load });
+  }),
+);

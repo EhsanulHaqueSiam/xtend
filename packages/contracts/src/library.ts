@@ -38,6 +38,64 @@ export const Pick = Schema.Struct({
 });
 export type Pick = typeof Pick.Type;
 
+/** What a post is made of; `thread` is the model's call, the other three come from the post's flags. */
+export const PostFormat = Schema.Literals(["text", "media", "link", "thread"]);
+export type PostFormat = typeof PostFormat.Type;
+
+export const HookPattern = Schema.Literals([
+  "contrarian claim",
+  "list",
+  "story",
+  "question",
+  "number hook",
+  "how-to",
+  "announcement",
+  "other",
+]);
+export type HookPattern = typeof HookPattern.Type;
+
+/** Author follower bands the archive filters by. */
+export const AuthorBand = Schema.Literals(["under 10k", "10k to 100k", "100k to 1M", "1M+"]);
+export type AuthorBand = typeof AuthorBand.Type;
+
+/** A post the library has seen in a search or a pick, with metrics as of the last time it was seen. */
+export const LibraryPost = Schema.Struct({
+  post: XPost,
+  format: PostFormat,
+  /** Null until a detection batch has looked at it. */
+  hookPattern: Schema.NullOr(HookPattern),
+  lastSeenAt: IsoDateTime,
+});
+export type LibraryPost = typeof LibraryPost.Type;
+
+export const LibraryFilters = Schema.Struct({
+  minViews: Schema.optional(NonNegativeInt),
+  format: Schema.optional(PostFormat),
+  year: Schema.optional(Schema.Int),
+  authorBand: Schema.optional(AuthorBand),
+  lang: Schema.optional(Schema.String),
+  hookPattern: Schema.optional(HookPattern),
+});
+export type LibraryFilters = typeof LibraryFilters.Type;
+
+/** A curated evergreen post; text is empty until a `from:handle` search has seen it. */
+export const StaffPick = Schema.Struct({
+  handle: Schema.String,
+  postId: XId,
+  topic: Schema.Literals(["building", "marketing", "AI"]),
+  post: Schema.NullOr(XPost),
+});
+export type StaffPick = typeof StaffPick.Type;
+
+export const ReadyPost = Schema.Struct({
+  draftId: Schema.String,
+  text: Schema.String,
+  basis: Schema.String,
+  /** 0 to 100, the model's own judgement of how close the draft is to the user's voice. */
+  voiceMatch: Schema.Int,
+});
+export type ReadyPost = typeof ReadyPost.Type;
+
 export const TrendIdea = Schema.Struct({
   trend: Schema.String,
   angle: Schema.String,
@@ -72,6 +130,12 @@ export const Library_METHODS = {
   suggestedDraftSave: "library.suggestedDraftSave",
   trends: "library.trends",
   trendIdeas: "library.trendIdeas",
+  browse: "library.browse",
+  detectPatterns: "library.detectPatterns",
+  writeInFormat: "library.writeInFormat",
+  staffPicks: "library.staffPicks",
+  staffPicksFetch: "library.staffPicksFetch",
+  generateReady: "library.generateReady",
 } as const;
 
 const SearchResult = Schema.Struct({
@@ -183,6 +247,40 @@ export const LibraryRpcGroup = RpcGroup.make(
   Rpc.make(Library_METHODS.trendIdeas, {
     payload: Schema.Struct({ country: Schema.String }),
     success: Schema.Array(TrendIdea),
+    error: Schema.Union([LibraryError, XApiError]),
+  }),
+  Rpc.make(Library_METHODS.browse, {
+    payload: LibraryFilters,
+    success: Schema.Array(LibraryPost),
+    error: LibraryError,
+  }),
+  /** One model call over the next 20 posts without a hook pattern; returns how many it labelled. */
+  Rpc.make(Library_METHODS.detectPatterns, {
+    payload: Schema.Struct({}),
+    success: Schema.Struct({ detected: NonNegativeInt, remaining: NonNegativeInt }),
+    error: LibraryError,
+  }),
+  /** Writes a post in the user's voice with the same format and hook pattern, saved as a suggested draft. */
+  Rpc.make(Library_METHODS.writeInFormat, {
+    payload: Schema.Struct({ postId: XId }),
+    success: Schema.Struct({ id: Schema.String, text: Schema.String }),
+    error: LibraryError,
+  }),
+  Rpc.make(Library_METHODS.staffPicks, {
+    payload: Schema.Struct({}),
+    success: Schema.Array(StaffPick),
+    error: LibraryError,
+  }),
+  /** One `from:handle` search per curated handle whose posts are still unseen. */
+  Rpc.make(Library_METHODS.staffPicksFetch, {
+    payload: Schema.Struct({}),
+    success: Schema.Array(StaffPick),
+    error: Schema.Union([LibraryError, XApiError]),
+  }),
+  /** Three posts in the user's voice from today's trends and picks, filed as suggested drafts. */
+  Rpc.make(Library_METHODS.generateReady, {
+    payload: Schema.Struct({ country: Schema.String }),
+    success: Schema.Array(ReadyPost),
     error: Schema.Union([LibraryError, XApiError]),
   }),
 );

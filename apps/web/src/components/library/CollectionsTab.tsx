@@ -64,7 +64,7 @@ function SavedRow({
   );
 }
 
-function SavedList({
+export function SavedList({
   result,
   onChange,
 }: {
@@ -194,46 +194,6 @@ export function CollectionsTab() {
         ) : (
           <CollectionPosts collection={open} />
         )}
-      </div>
-    </div>
-  );
-}
-
-/** Every saved post regardless of collection, filtered by text. */
-export function SwipeTab() {
-  const [query, setQuery] = useState("");
-  const [applied, setApplied] = useState("");
-  const posts = useAtomValue(swipeFileAtom(applied));
-  const refresh = useAtomRefresh(swipeFileAtom(applied));
-  const refreshAll = useAtomRefresh(swipeFileAtom(""));
-  return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <form
-        className="flex gap-2 border-b border-border px-3 py-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          setApplied(query.trim());
-        }}
-      >
-        <input
-          className={inputClass}
-          aria-label="Filter saved posts"
-          placeholder="filter saved posts by text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        <Button type="submit" variant="outline" size="sm">
-          Filter
-        </Button>
-      </form>
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        <SavedList
-          result={posts}
-          onChange={() => {
-            refresh();
-            refreshAll();
-          }}
-        />
       </div>
     </div>
   );

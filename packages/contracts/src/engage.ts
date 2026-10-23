@@ -2,7 +2,7 @@ import * as Schema from "effect/Schema";
 import * as Rpc from "effect/rpc/Rpc";
 import * as RpcGroup from "effect/rpc/RpcGroup";
 
-import { IsoDateTime, XId } from "./baseSchemas.ts";
+import { IsoDateTime, NonNegativeInt, XId } from "./baseSchemas.ts";
 import { XApiError, XPost } from "./x.ts";
 
 /** Engage screen contracts: schemas, errors, method names and the RPC group. Owned by the engage area. */
@@ -17,6 +17,10 @@ export const ReplyTarget = Schema.Struct({
   /** Views-per-hour band the post is in; what a reply can expect to be seen under. */
   reach: Schema.Literals(["under 100/h", "100 to 1k/h", "1k to 10k/h", "10k+/h"]),
   replied: Schema.Boolean,
+  /** The author's latest Scores sample, when one exists. */
+  authorScore: Schema.NullOr(Schema.Number),
+  /** Replies the user already sent to this author. */
+  repliesToAuthor: NonNegativeInt,
 });
 export type ReplyTarget = typeof ReplyTarget.Type;
 
@@ -33,6 +37,8 @@ export const SentReply = Schema.Struct({
   postId: Schema.NullOr(XId),
   error: Schema.NullOr(Schema.String),
   at: IsoDateTime,
+  /** New followers within 24 h of the reply who are its author or engaged with the user since. */
+  attributedFollowers: NonNegativeInt,
 });
 export type SentReply = typeof SentReply.Type;
 
@@ -43,6 +49,23 @@ export const Mention = Schema.Struct({
   handled: Schema.Boolean,
 });
 export type Mention = typeof Mention.Type;
+
+export const NicheProfile = Schema.Struct({
+  /** Accounts the user replies to most, from the session capture and replies sent here. */
+  handles: Schema.Array(Schema.Struct({ handle: Schema.String, replies: NonNegativeInt })),
+  topics: Schema.Array(Schema.String),
+  updatedAt: Schema.NullOr(IsoDateTime),
+});
+export type NicheProfile = typeof NicheProfile.Type;
+
+export const DmEvent = Schema.Struct({
+  id: Schema.String,
+  eventType: Schema.String,
+  text: Schema.String,
+  senderId: Schema.NullOr(Schema.String),
+  createdAt: Schema.NullOr(Schema.String),
+});
+export type DmEvent = typeof DmEvent.Type;
 
 export class EngageError extends Schema.TaggedError<EngageError>()("EngageError", {
   operation: Schema.Literals(["store", "assist", "settings"]),
@@ -62,6 +85,9 @@ export const Engage_METHODS = {
   mentions: "engage.mentions",
   mentionHandled: "engage.mentionHandled",
   inbox: "engage.inbox",
+  nicheProfile: "engage.nicheProfile",
+  nicheRebuild: "engage.nicheRebuild",
+  dms: "engage.dms",
 } as const;
 
 export const EngageRpcGroup = RpcGroup.make(
@@ -113,6 +139,28 @@ export const EngageRpcGroup = RpcGroup.make(
     success: Schema.Struct({
       sent: Schema.Array(SentReply),
       followUps: Schema.Array(SentReply),
+      /** Replies and quotes to the user's own posts that the session saw. */
+      incoming: Schema.Array(Mention),
+    }),
+    error: EngageError,
+  }),
+  Rpc.make(Engage_METHODS.nicheProfile, {
+    payload: Schema.Struct({}),
+    success: NicheProfile,
+    error: EngageError,
+  }),
+  Rpc.make(Engage_METHODS.nicheRebuild, {
+    payload: Schema.Struct({}),
+    success: NicheProfile,
+    error: EngageError,
+  }),
+  /** `load: false` is free and only returns the quote; `load: true` pays X for one page of DM events. */
+  Rpc.make(Engage_METHODS.dms, {
+    payload: Schema.Struct({ load: Schema.Boolean }),
+    success: Schema.Struct({
+      events: Schema.Array(DmEvent),
+      error: Schema.NullOr(Schema.String),
+      quoteUsd: Schema.Number,
     }),
     error: EngageError,
   }),

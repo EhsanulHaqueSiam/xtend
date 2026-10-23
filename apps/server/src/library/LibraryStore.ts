@@ -1,4 +1,15 @@
-import { type Collection, LibraryError, type Pick, type SavedPost, XPost } from "@xtend/contracts";
+import {
+  type AuthorBand,
+  type Collection,
+  type HookPattern,
+  LibraryError,
+  type LibraryFilters,
+  type LibraryPost,
+  type Pick,
+  type PostFormat,
+  type SavedPost,
+  XPost,
+} from "@xtend/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -41,6 +52,31 @@ interface PickRow {
   readonly why_it_works: string | null;
   readonly draft_json: string | null;
 }
+
+interface LibraryRow {
+  readonly post_json: string;
+  readonly format: PostFormat;
+  readonly hook_pattern: HookPattern | null;
+  readonly last_seen_at: string;
+}
+
+const toLibraryPost = (r: LibraryRow): LibraryPost => ({
+  post: decodePost(r.post_json),
+  format: r.format,
+  hookPattern: r.hook_pattern,
+  lastSeenAt: r.last_seen_at,
+});
+
+/** Format from the post's own flags; only `thread` needs the model. */
+const formatOf = (post: XPost): PostFormat =>
+  post.hasMedia ? "media" : post.hasLink ? "link" : "text";
+
+const BAND_RANGE: Record<AuthorBand, readonly [number, number]> = {
+  "under 10k": [0, 10_000],
+  "10k to 100k": [10_000, 100_000],
+  "100k to 1M": [100_000, 1_000_000],
+  "1M+": [1_000_000, Number.MAX_SAFE_INTEGER],
+};
 
 const toSaved = (r: SavedRow): SavedPost => ({
   id: r.id,
@@ -109,6 +145,22 @@ export class LibraryStore extends Context.Service<
     readonly pickSetDraft: (
       postId: string,
       blocks: ReadonlyArray<string>,
+    ) => Effect.Effect<void, LibraryError>;
+    /** Adds posts to the archive or refreshes their metrics; a detected format and pattern survive. */
+    readonly upsertPosts: (posts: ReadonlyArray<XPost>) => Effect.Effect<void, LibraryError>;
+    readonly browse: (
+      filters: LibraryFilters,
+    ) => Effect.Effect<ReadonlyArray<LibraryPost>, LibraryError>;
+    readonly libraryPost: (postId: string) => Effect.Effect<LibraryPost | null, LibraryError>;
+    /** Archive posts no detection batch has labelled yet, most viewed first. */
+    readonly undetected: (limit: number) => Effect.Effect<ReadonlyArray<LibraryPost>, LibraryError>;
+    readonly undetectedCount: Effect.Effect<number, LibraryError>;
+    readonly setPatterns: (
+      labels: ReadonlyArray<{
+        readonly postId: string;
+        readonly format: PostFormat;
+        readonly hookPattern: HookPattern;
+      }>,
     ) => Effect.Effect<void, LibraryError>;
   }
 >()("xtend/library/LibraryStore") {}
@@ -264,7 +316,77 @@ const make = Effect.gen(function* () {
     yield* sql`UPDATE picks SET draft_json = ${encodeBlocks(blocks)} WHERE post_id = ${postId}`;
   }, Effect.mapError(storeError));
 
+  const upsertPosts = Effect.fn("LibraryStore.upsertPosts")(function* (
+    posts: ReadonlyArray<XPost>,
+  ) {
+    const at = yield* now;
+    for (const post of posts) {
+      yield* sql`
+        INSERT INTO library_posts (post_id, post_json, author_followers, views, lang, year, format, first_seen_at, last_seen_at)
+        VALUES (${post.postId}, ${encodePost(post)}, ${post.author.followers}, ${post.metrics.views}, ${post.lang}, ${Number(post.createdAt.slice(0, 4))}, ${formatOf(post)}, ${at}, ${at})
+        ON CONFLICT(post_id) DO UPDATE SET
+          post_json = excluded.post_json, author_followers = excluded.author_followers,
+          views = excluded.views, last_seen_at = excluded.last_seen_at
+      `;
+    }
+  }, Effect.mapError(storeError));
+
+  const browse = Effect.fn("LibraryStore.browse")(function* (filters: LibraryFilters) {
+    const band = filters.authorBand === undefined ? null : BAND_RANGE[filters.authorBand];
+    const rows = yield* sql<LibraryRow>`
+      SELECT post_json, format, hook_pattern, last_seen_at FROM library_posts
+      WHERE 1 = 1
+        ${filters.minViews === undefined ? sql`` : sql`AND views >= ${filters.minViews}`}
+        ${filters.format === undefined ? sql`` : sql`AND format = ${filters.format}`}
+        ${filters.year === undefined ? sql`` : sql`AND year = ${filters.year}`}
+        ${band === null ? sql`` : sql`AND author_followers >= ${band[0]} AND author_followers < ${band[1]}`}
+        ${filters.lang === undefined ? sql`` : sql`AND lang = ${filters.lang}`}
+        ${filters.hookPattern === undefined ? sql`` : sql`AND hook_pattern = ${filters.hookPattern}`}
+      ORDER BY views DESC LIMIT 200
+    `;
+    return rows.map(toLibraryPost);
+  }, Effect.mapError(storeError));
+
+  const libraryPost = Effect.fn("LibraryStore.libraryPost")(function* (postId: string) {
+    const rows = yield* sql<LibraryRow>`
+      SELECT post_json, format, hook_pattern, last_seen_at FROM library_posts WHERE post_id = ${postId}
+    `;
+    return rows.length === 0 ? null : toLibraryPost(rows[0]!);
+  }, Effect.mapError(storeError));
+
+  const undetected = Effect.fn("LibraryStore.undetected")(function* (limit: number) {
+    const rows = yield* sql<LibraryRow>`
+      SELECT post_json, format, hook_pattern, last_seen_at FROM library_posts
+      WHERE hook_pattern IS NULL ORDER BY views DESC LIMIT ${limit}
+    `;
+    return rows.map(toLibraryPost);
+  }, Effect.mapError(storeError));
+
+  const undetectedCount = sql<{ n: number }>`
+    SELECT COUNT(*) AS n FROM library_posts WHERE hook_pattern IS NULL
+  `.pipe(
+    Effect.map((rows) => rows[0]!.n),
+    Effect.mapError(storeError),
+  );
+
+  const setPatterns = Effect.fn("LibraryStore.setPatterns")(function* (
+    labels: ReadonlyArray<{
+      readonly postId: string;
+      readonly format: PostFormat;
+      readonly hookPattern: HookPattern;
+    }>,
+  ) {
+    for (const l of labels)
+      yield* sql`UPDATE library_posts SET format = ${l.format}, hook_pattern = ${l.hookPattern} WHERE post_id = ${l.postId}`;
+  }, Effect.mapError(storeError));
+
   return LibraryStore.of({
+    upsertPosts,
+    browse,
+    libraryPost,
+    undetected,
+    undetectedCount,
+    setPatterns,
     save,
     savedList,
     savedSetNote,

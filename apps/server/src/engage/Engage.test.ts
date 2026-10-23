@@ -4,10 +4,12 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import * as Assist from "../ai/Assist.ts";
+import * as Events from "../events/Events.ts";
 import * as ObservationStore from "../observations/ObservationStore.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 import * as TokenCipher from "../settings/TokenCipher.ts";
+import * as Treg from "../x/Treg.ts";
 import { xClientStub } from "../testing/xClientStub.ts";
 import * as Engage from "./Engage.ts";
 import * as EngageStore from "./EngageStore.ts";
@@ -28,10 +30,21 @@ const mention = (postId: string): XPost => ({
 
 const apiCalls: Array<string | undefined> = [];
 const assistStub = Layer.succeed(Assist.Assist)({ generate: () => Effect.die("no model here") });
+const tregStub = Layer.succeed(Treg.Treg)({
+  call: () => Effect.die("no treg here"),
+  isCached: () => Effect.succeed(false),
+});
 
 const layerTest = Engage.layer.pipe(
   Layer.provideMerge(
-    Layer.mergeAll(EngageStore.layer, ObservationStore.layer, SettingsStore.layer, assistStub),
+    Layer.mergeAll(
+      EngageStore.layer,
+      ObservationStore.layer,
+      SettingsStore.layer,
+      assistStub,
+      tregStub,
+      Events.layer,
+    ),
   ),
   Layer.provideMerge(
     Layer.mergeAll(

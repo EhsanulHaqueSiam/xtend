@@ -3,11 +3,35 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import * as DraftStore from "../compose/DraftStore.ts";
+import { layerDaily } from "./DailyJobs.ts";
 import * as Library from "./Library.ts";
 import * as LibraryStore from "./LibraryStore.ts";
 
+/** Trends country for the ready-to-post job; the Trends tab lets the user pick others by hand. */
+const READY_COUNTRY = "UnitedStates";
+
+// DraftStore is compose's; Effect memoizes layers by reference, so this is the same store.
+const layerService = Library.layer.pipe(
+  Layer.provideMerge(LibraryStore.layer),
+  Layer.provide(DraftStore.layer),
+);
+
+const layerJobs = layerDaily([
+  { name: "library.picks", at: "08:00", run: Effect.flatMap(Library.Library, (l) => l.picksFetch) },
+  {
+    name: "library.detect",
+    at: "08:10",
+    run: Effect.flatMap(Library.Library, (l) => l.detectPatterns),
+  },
+  {
+    name: "library.ready",
+    at: "08:30",
+    run: Effect.flatMap(Library.Library, (l) => l.generateReady(READY_COUNTRY)),
+  },
+]).pipe(Layer.provide(layerService));
+
 /** Services this area adds to the application. Merged into layerAreas in server.ts. */
-export const layer = Library.layer.pipe(Layer.provideMerge(LibraryStore.layer));
+export const layer = Layer.merge(layerService, layerJobs);
 
 /** RPC handlers for LibraryRpcGroup. Merged into the WebSocket route in ws.ts. */
 export const layerHandlers = LibraryRpcGroup.toLayer(
@@ -38,6 +62,12 @@ export const layerHandlers = LibraryRpcGroup.toLayer(
         ),
       [Library_METHODS.trends]: ({ country }) => library.trends(country),
       [Library_METHODS.trendIdeas]: ({ country }) => library.trendIdeas(country),
+      [Library_METHODS.browse]: (filters) => store.browse(filters),
+      [Library_METHODS.detectPatterns]: () => library.detectPatterns,
+      [Library_METHODS.writeInFormat]: ({ postId }) => library.writeInFormat(postId),
+      [Library_METHODS.staffPicks]: () => library.staffPicks,
+      [Library_METHODS.staffPicksFetch]: () => library.staffPicksFetch,
+      [Library_METHODS.generateReady]: ({ country }) => library.generateReady(country),
     });
   }),
 );

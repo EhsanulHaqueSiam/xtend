@@ -14,13 +14,15 @@ const reachBand = (viewsPerHour: number): ReplyTarget["reach"] =>
 
 /**
  * Ranking for reply targets: views per hour since it was posted, lifted by
- * author size and damped by replies already there (a crowded thread buries
- * a new reply). Not a reach estimate; `reach` is.
+ * author size (and by the author's Scores sample when one exists; the scale
+ * tops out near 1000) and damped by replies already there (a crowded thread
+ * buries a new reply). Not a reach estimate; `reach` is.
  */
-export const rankTarget = (post: XPost, nowMs: number) => {
+export const rankTarget = (post: XPost, nowMs: number, authorScore: number | null = null) => {
   const ageMinutes = Math.max(1, (nowMs - Date.parse(post.createdAt)) / 60_000);
   const viewsPerHour = ((post.metrics.views ?? 0) / ageMinutes) * 60;
   const followers = post.author.followers ?? 0;
-  const score = (viewsPerHour * Math.log10(10 + followers)) / (1 + post.metrics.replies / 50);
+  const lift = Math.log10(10 + followers) * (authorScore === null ? 1 : 1 + authorScore / 1000);
+  const score = (viewsPerHour * lift) / (1 + post.metrics.replies / 50);
   return { ageMinutes, viewsPerHour, score, reach: reachBand(viewsPerHour) };
 };

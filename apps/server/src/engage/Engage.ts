@@ -1,6 +1,8 @@
 import {
+  type DmEvent,
   EngageError,
   type Mention,
+  type NicheProfile,
   type ReplyDraft,
   type ReplyTarget,
   type SentReply,
@@ -11,13 +13,18 @@ import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 
 import * as Assist from "../ai/Assist.ts";
+import * as Events from "../events/Events.ts";
 import * as ObservationStore from "../observations/ObservationStore.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
+import * as Treg from "../x/Treg.ts";
 import * as XClient from "../x/XClient.ts";
+import { DM_EVENTS_QUOTE_USD, fetchDmEvents } from "./DmEvents.ts";
 import * as EngageStore from "./EngageStore.ts";
+import { matchIncoming, observedToPost } from "./inbox.ts";
 import { rankTarget } from "./ranking.ts";
 
 const MAX_TARGETS = 30;
@@ -39,6 +46,25 @@ export interface MentionsResult {
   readonly apiError: string | null;
 }
 
+export interface InboxResult {
+  readonly sent: ReadonlyArray<SentReply>;
+  readonly followUps: ReadonlyArray<SentReply>;
+  readonly incoming: ReadonlyArray<Mention>;
+}
+
+export interface DmsResult {
+  readonly events: ReadonlyArray<DmEvent>;
+  readonly error: string | null;
+  readonly quoteUsd: number;
+}
+
+/** Handles a reply opens with, lowercased: "@a @b text" gives a and b. */
+const leadingHandles = (text: string) =>
+  (text.match(/^(?:@\w+\s*)+/)?.[0] ?? "")
+    .split(/\s+/)
+    .filter((t) => t !== "")
+    .map((t) => t.slice(1).toLowerCase());
+
 /** Reply targets, AI reply drafts, X writes and mentions. Persistence is EngageStore. */
 export class Engage extends Context.Service<
   Engage,
@@ -50,6 +76,10 @@ export class Engage extends Context.Service<
     readonly like: (postId: string) => Effect.Effect<void, XApiError>;
     readonly findKeywords: Effect.Effect<KeywordSuggestions, EngageError | XApiError>;
     readonly mentions: (refresh: boolean) => Effect.Effect<MentionsResult, EngageError>;
+    readonly inbox: Effect.Effect<InboxResult, EngageError>;
+    /** Who the user replies to and what about; rebuilt nightly and on demand. */
+    readonly nicheRebuild: Effect.Effect<NicheProfile, EngageError>;
+    readonly dms: (load: boolean) => Effect.Effect<DmsResult, EngageError>;
   }
 >()("xtend/engage/Engage") {}
 
@@ -59,24 +89,48 @@ const make = Effect.gen(function* () {
   const settings = yield* SettingsStore.SettingsStore;
   const observations = yield* ObservationStore.ObservationStore;
   const store = yield* EngageStore.EngageStore;
+  const events = yield* Events.Events;
+  const treg = yield* Treg.Treg;
+  // Incoming rows already announced; a row seen for the first time publishes mention_arrived.
+  const announced = yield* Ref.make(new Set<string>());
 
   const current = settings.get.pipe(Effect.mapError(settingsError));
+  const observedError = (e: { readonly message: string }) =>
+    new EngageError({ operation: "store", detail: e.message });
 
   const targets = Effect.gen(function* () {
     const { keywords } = yield* current;
     const replied = yield* store.repliedPostIds;
+    const history = yield* store.repliesByAuthor;
     const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
     const seen = new Set<string>();
-    const all: Array<ReplyTarget> = [];
+    const found: Array<{ post: XPost; keyword: string }> = [];
     for (const keyword of keywords.slice(0, MAX_KEYWORDS)) {
       // shortcut: XClient caches search pages for 30 min, not the 15 the screen asks for; upgrade when XClient takes a cacheFor option.
       const page = yield* x.searchPosts(keyword, { mode: "latest", purpose: "engage.targets" });
       for (const post of page.items) {
         if (seen.has(post.postId) || post.isRepost) continue;
         seen.add(post.postId);
-        all.push({ post, keyword, ...rankTarget(post, nowMs), replied: replied.has(post.postId) });
+        found.push({ post, keyword });
       }
     }
+    const scores = yield* store.authorScores(found.map((f) => f.post.author.handle));
+    const all = found.map(({ post, keyword }): ReplyTarget => {
+      const handle = post.author.handle.toLowerCase();
+      const authorScore = scores.get(handle) ?? null;
+      const rank = rankTarget(post, nowMs, authorScore);
+      return {
+        post,
+        keyword,
+        ageMinutes: rank.ageMinutes,
+        viewsPerHour: rank.viewsPerHour,
+        score: rank.score,
+        reach: rank.reach,
+        replied: replied.has(post.postId),
+        authorScore,
+        repliesToAuthor: history.get(handle) ?? 0,
+      };
+    });
     return all.sort((a, b) => b.score - a.score).slice(0, MAX_TARGETS);
   });
 
@@ -147,6 +201,8 @@ const make = Effect.gen(function* () {
             ...(sinceId === null ? {} : { sinceId }),
           });
           yield* store.storeApiMentions(fresh);
+          if (fresh.length > 0)
+            yield* events.publish({ type: "mention_arrived", payload: { count: fresh.length } });
           return null;
         }).pipe(Effect.catchTag("XApiError", (e) => Effect.succeed(e.message)))
       : null;
@@ -157,9 +213,9 @@ const make = Effect.gen(function* () {
         ? []
         : (yield* observations
             .listRecent({ limit: 200 })
-            .pipe(
-              Effect.mapError((e) => new EngageError({ operation: "store", detail: e.message })),
-            )).posts.filter((p) => p.text.toLowerCase().includes(tag));
+            .pipe(Effect.mapError(observedError))).posts.filter((p) =>
+            p.text.toLowerCase().includes(tag),
+          );
     const seen = new Set(api.posts.map((p) => p.postId));
     const list: Array<Mention> = api.posts.map((post) => ({
       post,
@@ -168,29 +224,82 @@ const make = Effect.gen(function* () {
     }));
     for (const p of observed) {
       if (seen.has(p.postId)) continue;
-      list.push({
-        source: "session",
-        handled: handled.has(p.postId),
-        post: {
-          postId: p.postId,
-          url: `https://x.com/${p.author.handle}/status/${p.postId}`,
-          text: p.text,
-          createdAt: p.createdAt,
-          lang: null,
-          isReply: p.isReply,
-          isRepost: false,
-          hasMedia: p.hasMedia,
-          hasLink: p.hasLink,
-          author: { ...p.author, avatarUrl: null },
-          metrics: p.metrics,
-        },
-      });
+      list.push({ source: "session", handled: handled.has(p.postId), post: observedToPost(p) });
     }
     list.sort((a, b) => b.post.createdAt.localeCompare(a.post.createdAt));
     return { mentions: list, apiError: api.error } satisfies MentionsResult;
   });
 
-  return Engage.of({ targets, draftReply, reply, like, findKeywords, mentions });
+  const inbox = Effect.gen(function* () {
+    const { handle } = yield* current;
+    const handled = yield* store.handledMentionIds;
+    const posts =
+      handle === null
+        ? []
+        : matchIncoming(
+            (yield* observations.listRecent({ limit: 200 }).pipe(Effect.mapError(observedError)))
+              .posts,
+            handle,
+          );
+    const fresh = yield* Ref.modify(announced, (set) => {
+      const unseen = posts.filter((p) => !set.has(p.postId));
+      return [unseen.length, new Set([...set, ...unseen.map((p) => p.postId)])];
+    });
+    if (fresh > 0) yield* events.publish({ type: "mention_arrived", payload: { count: fresh } });
+    const incoming = posts
+      .map((post): Mention => ({ post, source: "session", handled: handled.has(post.postId) }))
+      .sort((a, b) => b.post.createdAt.localeCompare(a.post.createdAt));
+    const engagerIds = [...new Set(posts.map((p) => p.author.userId))];
+    return {
+      sent: yield* store.sentList(engagerIds),
+      followUps: yield* store.followUps,
+      incoming,
+    } satisfies InboxResult;
+  });
+
+  const nicheRebuild = Effect.gen(function* () {
+    const { handle, keywords } = yield* current;
+    const counts = new Map(yield* store.repliesByAuthor);
+    if (handle !== null) {
+      const own = yield* observations
+        .listRecent({ limit: 200, authorHandle: handle })
+        .pipe(Effect.mapError(observedError));
+      for (const p of own.posts) {
+        if (!p.isReply) continue;
+        for (const h of leadingHandles(p.text)) {
+          if (h !== handle.toLowerCase()) counts.set(h, (counts.get(h) ?? 0) + 1);
+        }
+      }
+    }
+    const handles = [...counts]
+      .map(([h, replies]) => ({ handle: h, replies }))
+      .sort((a, b) => b.replies - a.replies)
+      .slice(0, 10);
+    return yield* store.nicheSet({ handles, topics: keywords });
+  });
+
+  const dms = Effect.fn("Engage.dms")(function* (load: boolean) {
+    const result = load
+      ? yield* fetchDmEvents("engage.dms").pipe(
+          Effect.map((events) => ({ events, error: null })),
+          Effect.catchTag("XApiError", (e) => Effect.succeed({ events: [], error: e.message })),
+          Effect.provideService(Treg.Treg, treg),
+        )
+      : { events: [], error: null };
+    return { ...result, quoteUsd: DM_EVENTS_QUOTE_USD } satisfies DmsResult;
+  });
+
+  return Engage.of({
+    targets,
+    draftReply,
+    reply,
+    like,
+    findKeywords,
+    mentions,
+    inbox,
+    nicheRebuild,
+    dms,
+  });
 });
 
 export const layer = Layer.effect(Engage, make);

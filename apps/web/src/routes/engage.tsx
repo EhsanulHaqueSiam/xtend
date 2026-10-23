@@ -5,6 +5,7 @@ import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 
 import { ErrorText, errorText, Tabs } from "../components/analyze/ui";
+import { Dms } from "../components/engage/Dms";
 import { Inbox } from "../components/engage/Inbox";
 import { Mentions } from "../components/engage/Mentions";
 import { Targets } from "../components/engage/Targets";
@@ -19,7 +20,7 @@ import {
   targetsAtom,
 } from "../state/engage";
 
-const TABS = ["Targets", "Mentions", "Inbox", "DM follow-ups"] as const;
+const TABS = ["Targets", "Mentions", "Inbox", "Sent", "Follow-ups", "DMs"] as const;
 
 type Suggestions = { keywords: ReadonlyArray<string>; handles: ReadonlyArray<string> };
 
@@ -124,9 +125,13 @@ function EngageScreen() {
         ) : tab === "Mentions" ? (
           <Mentions />
         ) : tab === "Inbox" ? (
+          <Inbox view="incoming" />
+        ) : tab === "Sent" ? (
           <Inbox view="sent" />
-        ) : (
+        ) : tab === "Follow-ups" ? (
           <Inbox view="followUps" />
+        ) : (
+          <Dms />
         )}
       </div>
     </div>

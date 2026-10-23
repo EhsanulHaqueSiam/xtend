@@ -114,6 +114,7 @@ export function SearchTab({ initialQuery }: { readonly initialQuery: string }) {
           <input
             className={inputClass}
             aria-label="Search query"
+            data-shortcut="search"
             placeholder="keyword from:handle min_faves:200 since:2026-10-01"
             value={query}
             onChange={(e) => setQuery(e.target.value)}

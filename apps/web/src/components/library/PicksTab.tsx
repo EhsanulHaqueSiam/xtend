@@ -1,21 +1,106 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
-import type { Pick } from "@xtend/contracts";
+import type { Pick, StaffPick } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { Sparkles, Wand2 } from "lucide-react";
 import { useState } from "react";
 
 import {
   fetchPicksAtom,
+  fetchStaffPicksAtom,
+  generateReadyAtom,
   pickDraftAtom,
   pickWhyAtom,
   saveSuggestedDraftAtom,
   picksAtom,
+  staffPicksAtom,
 } from "../../state/library";
 import { Button } from "../ui/button";
 import { SaveButton } from "./SaveButton";
 import { InspireButton } from "./SearchTab";
-import { useQuoteLabel } from "../../state/costs";
+import { useQuoteLabel, useRates, usd } from "../../state/costs";
+import { TREND_COUNTRIES } from "../scores/Trending";
 import { Empty, ErrorLine, PostRow, errorMessage } from "./shared";
+
+/** The curated evergreen posts; text arrives with one `from:handle` search per author. */
+function StaffPicks() {
+  const result = useAtomValue(staffPicksAtom);
+  const refresh = useAtomRefresh(staffPicksAtom);
+  const fetch = useAtomSet(fetchStaffPicksAtom, { mode: "promise" });
+  const rates = useRates();
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const picks = AsyncResult.getOrElse(result, (): ReadonlyArray<StaffPick> => []);
+  const missing = new Set(picks.filter((p) => p.post === null).map((p) => p.handle)).size;
+  return (
+    <div className="border-t border-border">
+      <div className="flex flex-wrap items-center gap-2 px-3 py-2 text-2xs text-muted-foreground">
+        <span>Staff picks: {picks.length} evergreen posts on building, marketing and AI</span>
+        {missing > 0 ? (
+          <Button
+            size="xs"
+            variant="outline"
+            className="ml-auto"
+            disabled={busy || rates === null}
+            onClick={async () => {
+              setBusy(true);
+              setError(null);
+              try {
+                await fetch();
+                refresh();
+              } catch (e) {
+                setError(errorMessage(e));
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {busy
+              ? "Fetching…"
+              : `Fetch text for ${missing} authors (${rates === null ? "…" : usd(rates.searchPage * missing)})`}
+          </Button>
+        ) : null}
+      </div>
+      {error !== null ? <ErrorLine>{error}</ErrorLine> : null}
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-0.5 px-2 pb-2">
+        {picks.map((p) =>
+          p.post === null ? (
+            <div
+              key={p.postId}
+              className="flex items-center gap-2 px-3 py-1.5 font-mono text-2xs text-muted-foreground"
+            >
+              <span className="rounded-sm border border-border px-1">{p.topic}</span>
+              <a
+                href={`https://x.com/${p.handle}/status/${p.postId}`}
+                target="_blank"
+                rel="noreferrer"
+                className="hover:text-foreground"
+              >
+                @{p.handle}/{p.postId}
+              </a>
+              <span>text not fetched</span>
+            </div>
+          ) : (
+            <PostRow
+              key={p.postId}
+              post={p.post}
+              badge={
+                <span className="rounded-sm border border-border px-1 font-mono text-2xs text-muted-foreground">
+                  {p.topic}
+                </span>
+              }
+              actions={
+                <>
+                  <SaveButton post={p.post} />
+                  <InspireButton post={p.post} />
+                </>
+              }
+            />
+          ),
+        )}
+      </div>
+    </div>
+  );
+}
 
 function PickRow({ pick }: { readonly pick: Pick }) {
   const why = useAtomSet(pickWhyAtom, { mode: "promise" });
@@ -116,21 +201,33 @@ export function PicksTab() {
   const state = useAtomValue(picksAtom);
   const refresh = useAtomRefresh(picksAtom);
   const fetch = useAtomSet(fetchPicksAtom, { mode: "promise" });
+  const generate = useAtomSet(generateReadyAtom, { mode: "promise" });
+  const trendingQuote = useQuoteLabel({ kind: "trending", country: TREND_COUNTRIES[0] });
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<"picks" | "ready" | null>(null);
 
-  const run = async () => {
-    setBusy(true);
+  const call = async (which: "picks" | "ready", work: () => Promise<string | null>) => {
+    setBusy(which);
     setError(null);
     try {
-      await fetch();
-      refresh();
+      setError(await work());
     } catch (e) {
       setError(errorMessage(e));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
+  const run = () =>
+    call("picks", async () => {
+      await fetch();
+      refresh();
+      return null;
+    });
+  const runReady = () =>
+    call("ready", async () => {
+      const posts = await generate(TREND_COUNTRIES[0]);
+      return `Filed ${posts.length} suggested drafts in Compose: ${posts.map((p) => `${p.basis} (voice ${p.voiceMatch})`).join(", ")}.`;
+    });
 
   return AsyncResult.match(state, {
     onInitial: () => <Empty>Loading…</Empty>,
@@ -144,19 +241,28 @@ export function PicksTab() {
               ? "no keywords (set them in Settings)"
               : value.keywords.join(", ")}
           </span>
-          {value.pending.length > 0 ? (
+          <span className="ml-auto flex items-center gap-1.5">
             <Button
               size="xs"
-              className="ml-auto"
-              disabled={busy || value.keywords.length === 0}
-              onClick={() => void run()}
+              variant="outline"
+              disabled={busy !== null}
+              onClick={() => void runReady()}
             >
-              Fetch {value.pending.length} keyword{value.pending.length === 1 ? "" : "s"} for{" "}
-              {picksQuote}
+              <Wand2 /> {busy === "ready" ? "Writing…" : `Ready-to-post x3 (${trendingQuote} + model)`}
             </Button>
-          ) : (
-            <span className="ml-auto">fetched today</span>
-          )}
+            {value.pending.length > 0 ? (
+              <Button
+                size="xs"
+                disabled={busy !== null || value.keywords.length === 0}
+                onClick={() => void run()}
+              >
+                Fetch {value.pending.length} keyword{value.pending.length === 1 ? "" : "s"} for{" "}
+                {picksQuote}
+              </Button>
+            ) : (
+              <span>fetched today · runs daily at 08:00, ready-to-post at 08:30</span>
+            )}
+          </span>
         </div>
         {error !== null ? <ErrorLine>{error}</ErrorLine> : null}
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -169,6 +275,7 @@ export function PicksTab() {
               ))}
             </div>
           )}
+          <StaffPicks />
         </div>
       </div>
     ),

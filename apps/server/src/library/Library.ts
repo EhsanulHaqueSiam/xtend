@@ -1,6 +1,10 @@
 import {
+  HookPattern,
   LibraryError,
   type Pick,
+  PostFormat,
+  type ReadyPost,
+  StaffPick,
   type TrendIdea,
   type XApiError,
   type XPost,
@@ -15,11 +19,29 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
 import * as Assist from "../ai/Assist.ts";
+import * as DraftStore from "../compose/DraftStore.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 import * as XClient from "../x/XClient.ts";
 import * as LibraryStore from "./LibraryStore.ts";
+import staffPicksJson from "./staffPicks.json" with { type: "json" };
 
 export const MAX_PICK_KEYWORDS = 5;
+/** Posts one pattern detection call labels. */
+const DETECT_BATCH = 20;
+const READY_COUNT = 3;
+
+const StaffPickEntry = Schema.Struct({
+  handle: Schema.String,
+  postId: Schema.String,
+  topic: StaffPick.fields.topic,
+});
+const STAFF_PICKS = Schema.decodeUnknownSync(Schema.Array(StaffPickEntry))(staffPicksJson);
+
+const Labels = Schema.Struct({
+  labels: Schema.Array(
+    Schema.Struct({ postId: Schema.String, format: PostFormat, hookPattern: HookPattern }),
+  ),
+});
 
 export interface PicksState {
   readonly day: string;
@@ -50,6 +72,18 @@ export class Library extends Context.Service<
     readonly trendIdeas: (
       country: string,
     ) => Effect.Effect<ReadonlyArray<TrendIdea>, LibraryError | XApiError>;
+    readonly detectPatterns: Effect.Effect<
+      { readonly detected: number; readonly remaining: number },
+      LibraryError
+    >;
+    readonly writeInFormat: (
+      postId: string,
+    ) => Effect.Effect<{ readonly id: string; readonly text: string }, LibraryError>;
+    readonly staffPicks: Effect.Effect<ReadonlyArray<StaffPick>, LibraryError>;
+    readonly staffPicksFetch: Effect.Effect<ReadonlyArray<StaffPick>, LibraryError | XApiError>;
+    readonly generateReady: (
+      country: string,
+    ) => Effect.Effect<ReadonlyArray<ReadyPost>, LibraryError | XApiError>;
   }
 >()("xtend/library/Library") {}
 
@@ -58,6 +92,7 @@ const make = Effect.gen(function* () {
   const assist = yield* Assist.Assist;
   const settings = yield* SettingsStore.SettingsStore;
   const store = yield* LibraryStore.LibraryStore;
+  const drafts = yield* DraftStore.DraftStore;
 
   const today = Effect.map(DateTime.now, (d) => DateTime.formatIso(d).slice(0, 10));
   const keywords = settings.get.pipe(
@@ -70,11 +105,13 @@ const make = Effect.gen(function* () {
     readonly mode: XSearchMode;
     readonly cursor?: string | undefined;
   }) {
-    return yield* x.searchPosts(input.query, {
+    const page = yield* x.searchPosts(input.query, {
       mode: input.mode,
       ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
       purpose: "library.search",
     });
+    yield* store.upsertPosts(page.items).pipe(Effect.orElseSucceed(() => undefined));
+    return page;
   });
 
   const picksState = Effect.fn("Library.picksState")(function* (day: string) {
@@ -102,6 +139,7 @@ const make = Effect.gen(function* () {
         purpose: "library.picks",
       });
       yield* store.picksRecord({ day, keyword, posts: page.items });
+      yield* store.upsertPosts(page.items);
     }
     return yield* picksState(day);
   });
@@ -168,7 +206,110 @@ const make = Effect.gen(function* () {
     return ideas;
   });
 
-  return Library.of({ search, picksGet, picksFetch, pickWhy, pickDraft, trends, trendIdeas });
+  const detectPatterns = Effect.gen(function* () {
+    const batch = yield* store.undetected(DETECT_BATCH);
+    if (batch.length > 0) {
+      const { labels } = yield* assist
+        .generate({
+          task: "library.detectPatterns",
+          instructions:
+            "For each post, return its format (thread when the text is clearly the first post of a thread, otherwise keep the given format) and the hook pattern of its first line: contrarian claim, list, story, question, number hook, how-to, announcement, or other. One label per postId, no post skipped.",
+          input: batch.map((p) => ({ postId: p.post.postId, format: p.format, text: p.post.text })),
+          output: Labels,
+        })
+        .pipe(Effect.mapError(assistError));
+      const known = new Set(batch.map((p) => p.post.postId));
+      yield* store.setPatterns(labels.filter((l) => known.has(l.postId)));
+    }
+    return { detected: batch.length, remaining: yield* store.undetectedCount };
+  });
+
+  const draftError = (e: { readonly message: string }) =>
+    new LibraryError({ operation: "store", detail: e.message });
+
+  const writeInFormat = Effect.fn("Library.writeInFormat")(function* (postId: string) {
+    const entry = yield* store.libraryPost(postId);
+    if (entry === null)
+      return yield* new LibraryError({ operation: "store", detail: "Post not in the archive." });
+    const pattern = entry.hookPattern ?? "other";
+    const { text } = yield* assist
+      .generate({
+        task: "library.writeInFormat",
+        instructions: `Write one new post in the user's voice on a topic from their keywords, using the same format (${entry.format}) and the same hook pattern (${pattern}) as the example. Do not reuse the example's topic or wording. Under 280 characters.`,
+        input: { example: entry.post.text, format: entry.format, hookPattern: pattern },
+        output: Schema.Struct({ text: Schema.String }),
+      })
+      .pipe(Effect.mapError(assistError));
+    const draft = yield* drafts
+      .create({ blocks: [{ text }], status: "suggested", source: `format:${pattern}:${postId}` })
+      .pipe(Effect.mapError(draftError));
+    return { id: draft.id, text };
+  });
+
+  const staffPicks = Effect.forEach(STAFF_PICKS, (s) =>
+    Effect.map(
+      store.libraryPost(s.postId),
+      (entry): StaffPick => ({ ...s, post: entry?.post ?? null }),
+    ),
+  );
+
+  // One search per handle still missing a post; a pick whose id the search does not return stays empty.
+  const staffPicksFetch = Effect.gen(function* () {
+    const current = yield* staffPicks;
+    const handles = new Set(current.filter((s) => s.post === null).map((s) => s.handle));
+    for (const handle of handles) {
+      const page = yield* x.searchPosts(`from:${handle}`, { mode: "top", purpose: "library.staffPicks" });
+      yield* store.upsertPosts(page.items);
+    }
+    return yield* staffPicks;
+  });
+
+  const generateReady = Effect.fn("Library.generateReady")(function* (country: string) {
+    const list = yield* trends(country);
+    const picks = yield* store.picksForDay(yield* today);
+    const { posts } = yield* assist
+      .generate({
+        task: "library.generateReady",
+        instructions: `Write exactly ${READY_COUNT} posts the user could publish today, each built on one of the trends or picks given, in the user's voice, under 280 characters, no hashtags. For each give the basis (the trend name or the pick's author handle) and voiceMatch, 0 to 100, your honest estimate of how close the text is to the user's voice notes and past tone.`,
+        input: {
+          trends: list.slice(0, 15).map((t) => t.name),
+          picks: picks.slice(0, 10).map((p) => ({ author: p.post.author.handle, text: p.post.text })),
+        },
+        output: Schema.Struct({
+          posts: Schema.Array(
+            Schema.Struct({ text: Schema.String, basis: Schema.String, voiceMatch: Schema.Int }),
+          ),
+        }),
+      })
+      .pipe(Effect.mapError(assistError));
+    return yield* Effect.forEach(posts.slice(0, READY_COUNT), (p) =>
+      drafts
+        .create({
+          blocks: [{ text: p.text }],
+          status: "suggested",
+          source: `ready-to-post: ${p.basis} (voice ${p.voiceMatch})`,
+        })
+        .pipe(
+          Effect.map((d): ReadyPost => ({ draftId: d.id, ...p })),
+          Effect.mapError(draftError),
+        ),
+    );
+  });
+
+  return Library.of({
+    search,
+    picksGet,
+    picksFetch,
+    pickWhy,
+    pickDraft,
+    trends,
+    trendIdeas,
+    detectPatterns,
+    writeInFormat,
+    staffPicks,
+    staffPicksFetch,
+    generateReady,
+  });
 });
 
 export const layer = Layer.effect(Library, make);
