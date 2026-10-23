@@ -63,7 +63,7 @@ const layerFoundation = Layer.mergeAll(Assist.layer, XClient.layer).pipe(
   Layer.provideMerge(Layer.mergeAll(ObservationStore.layer, SettingsStore.layer)),
   Layer.provideMerge(Layer.mergeAll(TokenCipher.layer, ServiceAuth.layer)),
   Layer.provideMerge(Sqlite.layerConfig),
-  Layer.provideMerge(NodeHttpClient.layerUndici),
+  Layer.provideMerge(NodeHttpClient.layerNodeHttp),
   // Lowest so stores and the budget can publish; it needs nothing itself.
   Layer.provideMerge(Events.layer),
 );

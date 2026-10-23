@@ -78,7 +78,7 @@ const withApi = <A, E>(effect: Effect.Effect<A, E, Api.Api>) =>
     const token = yield* Api.readToken(config.baseDir);
     const url = process.env.XTEND_SERVICE_URL ?? `http://127.0.0.1:${config.port}`;
     return yield* effect.pipe(
-      Effect.provide(Api.layer({ url, token }).pipe(Layer.provide(NodeHttpClient.layerUndici))),
+      Effect.provide(Api.layer({ url, token }).pipe(Layer.provide(NodeHttpClient.layerNodeHttp))),
     );
   });
 

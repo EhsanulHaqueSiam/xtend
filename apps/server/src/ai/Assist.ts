@@ -1,4 +1,4 @@
-import { query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -64,7 +64,18 @@ const make = Effect.gen(function* () {
     const jsonSchema = Schema.toJsonSchemaDocument(request.output).schema;
     const prompt = `${request.instructions}\n\nInput:\n${encodeJson(request.input)}`;
 
-    const run = query({
+    // Loaded on the first model call, not at start: the packaged app and the CLI ship without
+    // the SDK's per-platform binaries, and everything but assist must still run there.
+    const sdk = yield* Effect.tryPromise({
+      try: () => import("@anthropic-ai/claude-agent-sdk"),
+      catch: () =>
+        new AssistError({
+          task: request.task,
+          reason: "model",
+          detail: "AI assist is not included in this build of Xtend.",
+        }),
+    });
+    const run = sdk.query({
       prompt,
       options: {
         cwd: config.baseDir,
