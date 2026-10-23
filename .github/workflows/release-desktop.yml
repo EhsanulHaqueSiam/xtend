@@ -1,7 +1,7 @@
 name: Release desktop
 
-# A v* tag builds the macOS app and publishes a draft GitHub release with the dmg, the zip and
-# latest-mac.yml for the updater. A manual run builds the same files as a workflow artifact only.
+# A v* tag builds the macOS app, checks it, then publishes a draft GitHub release with the dmg,
+# the zip and latest-mac.yml for the updater. A manual run builds the same files as a workflow artifact only.
 # Unsigned until the signing secrets exist; see apps/desktop/electron-builder.yml.
 on:
   push:
@@ -26,23 +26,27 @@ jobs:
         working-directory: apps/desktop
         run: npm pkg set version="${GITHUB_REF_NAME#v}"
 
-      - run: pnpm build
-      - run: pnpm --filter @xtend/desktop verify:bundles
-
-      - name: Package
-        working-directory: apps/desktop
+      # The local entry point: build, verify the preloads, package. The desktop `dist` script drops
+      # an empty CSC_LINK, which would otherwise send electron-builder after a missing certificate.
+      - name: Build and package
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          PUBLISH: ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
+        run: pnpm dist:desktop:dmg --publish never
+
+      - name: Check the packaged apps
+        run: pnpm release:smoke
+
+      # Only a build that passed the smoke check becomes a release. latest-mac.yml, the zips and
+      # their blockmaps are what electron-updater reads from it.
+      - name: Publish a draft release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # An empty CSC_LINK would make electron-builder look for a certificate that is not there.
-          if [ -z "$CSC_LINK" ]; then
-            unset CSC_LINK CSC_KEY_PASSWORD
-            export CSC_IDENTITY_AUTO_DISCOVERY=false
-          fi
-          pnpm exec electron-builder --mac --publish "$PUBLISH"
+          gh release create "$GITHUB_REF_NAME" --draft --title "Xtend ${GITHUB_REF_NAME#v}" --generate-notes \
+            apps/desktop/release/*.dmg apps/desktop/release/*.zip apps/desktop/release/*.blockmap \
+            apps/desktop/release/latest-mac.yml
 
       - uses: actions/upload-artifact@v7
         with:
