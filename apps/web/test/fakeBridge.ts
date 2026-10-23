@@ -15,6 +15,7 @@ export function installFakeBridge(slot: SlotState = { kind: null, route: "/" }) 
     selectAccount: () => {},
     openSlot: (s) => calls.push(`open ${s.kind} ${s.route}`),
     closeSlot: (c) => calls.push(`close ${c?.kind ?? "*"}`),
+    pushGlance: () => {},
     navigateSession: (url) => calls.push(`navigate ${url}`),
     sessionFind: (find) =>
       calls.push(

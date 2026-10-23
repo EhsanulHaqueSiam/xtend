@@ -8,6 +8,7 @@ import type { SlotKind } from "../../desktopBridge";
 import { cn } from "../../lib/utils";
 import { sessionUrlAtom, slotAtom } from "../../state/shell";
 import { shellBridge } from "./bridge";
+import { GlanceSync } from "./GlanceSync";
 
 interface Tab {
   readonly to: string;
@@ -130,6 +131,14 @@ export function SlotShell({ children }: { readonly children: ReactNode }) {
   }, [navigate, slot]);
   // Hidden is invisible, so which frame it keeps does not matter; center is the common one.
   const kind = slot.kind ?? "center";
-  if (kind === "center") return <CenterFrame>{children}</CenterFrame>;
-  return <div className={PANEL[kind]}>{children}</div>;
+  return (
+    <>
+      <GlanceSync />
+      {kind === "center" ? (
+        <CenterFrame>{children}</CenterFrame>
+      ) : (
+        <div className={PANEL[kind]}>{children}</div>
+      )}
+    </>
+  );
 }

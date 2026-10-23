@@ -337,15 +337,16 @@ function Options({ editor, onChange }: { editor: Editor; onChange: (e: Editor) =
   );
 }
 
-/** A new `?inspire=` or `?reply=` remounts the editor, so a fresh draft starts without an effect. */
+/** A new `?inspire=`, `?reply=` or `?text=` remounts the editor, so a fresh draft starts without an effect. */
 function ComposeScreen() {
-  const { draft: draftParam, inspire, reply } = Route.useSearch();
+  const { draft: draftParam, inspire, reply, text } = Route.useSearch();
   return (
     <ComposeEditor
-      key={`${inspire ?? ""}|${reply ?? ""}`}
+      key={`${inspire ?? ""}|${reply ?? ""}|${text ?? ""}`}
       draftParam={draftParam}
       inspire={inspire}
       reply={reply}
+      text={text}
     />
   );
 }
@@ -354,10 +355,13 @@ function ComposeEditor({
   draftParam,
   inspire,
   reply,
+  text,
 }: {
   readonly draftParam: string | undefined;
   readonly inspire: string | undefined;
   readonly reply: string | undefined;
+  /** Text carried over from X's composer by the Schedule chip. */
+  readonly text: string | undefined;
 }) {
   const rates = useRates();
   const navigate = useNavigate();
@@ -389,7 +393,11 @@ function ComposeEditor({
   const mediaRemove = useAtomSet(mediaRemoveAtom, { mode: "promiseExit" });
   const generateCover = useAtomSet(generateCoverAtom, { mode: "promiseExit" });
 
-  const initial: Editor = reply === undefined ? empty : { ...empty, replyToPostId: reply };
+  const initial: Editor = {
+    ...empty,
+    replyToPostId: reply ?? null,
+    blocks: [{ text: text ?? "" }],
+  };
   const [selected, setSelected] = useState<Draft | null>(null);
   const [editor, setEditor] = useState<Editor>(initial);
   const [previews, setPreviews] = useState<Record<string, string>>({});
@@ -424,7 +432,7 @@ function ComposeEditor({
     const d = drafts.value.find((x) => x.id === draftParam);
     // eslint-disable-next-line react/set-state-in-effect -- the editor state is this effect's output.
     if (d !== undefined && d.id !== selected?.id) open(d);
-    navigate({ to: "/compose", search: { draft: undefined, inspire, reply }, replace: true });
+    navigate({ to: "/compose", search: { draft: undefined, inspire, reply, text }, replace: true });
     // eslint-disable-next-line react/exhaustive-effect-dependencies -- runs once per deep link, not per selection.
   }, [draftParam, drafts]);
 
@@ -857,6 +865,7 @@ export const Route = createFileRoute("/compose")({
     draft: typeof s.draft === "string" ? s.draft : undefined,
     inspire: typeof s.inspire === "string" ? s.inspire : undefined,
     reply: typeof s.reply === "string" ? s.reply : undefined,
+    text: typeof s.text === "string" ? s.text : undefined,
   }),
   component: ComposeScreen,
 });

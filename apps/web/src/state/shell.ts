@@ -86,13 +86,17 @@ export const sessionUrlAtom = Atom.keepAlive(
 );
 
 /** Drafts waiting in the queue; refetched whenever a draft changes status. */
-export const queuedCountAtom = clientRuntime.atom((get) =>
+export const queuedDraftsAtom = clientRuntime.atom((get) =>
   Effect.gen(function* () {
     get(eventsOfTypeAtom("draft_status_changed"));
     const client = yield* XtendClient;
     const { drafts } = yield* client[Compose_METHODS.draftsList]({});
-    return drafts.filter((d) => d.status === "queued").length;
+    return drafts.filter((d) => d.status === "queued");
   }),
+);
+
+export const queuedCountAtom = Atom.make((get) =>
+  AsyncResult.map(get(queuedDraftsAtom), (drafts) => drafts.length),
 );
 
 /** Spend summary that follows spend_changed events. */

@@ -47,6 +47,16 @@ interface SessionDownload {
   readonly state: "started" | "completed" | "failed";
 }
 
+/** What the x.com injections (Today card, composer chip) show; the app computes and formats it. */
+export interface Glance {
+  readonly queued: number;
+  readonly nextScheduled: string | null;
+  readonly bestTime: string | null;
+  readonly mentions: number;
+  readonly spendTodayUsd: number;
+  readonly connected: boolean;
+}
+
 export type ServiceMode = "child" | "launchd" | "remote" | "none";
 
 interface RemoteConfig {
@@ -82,6 +92,8 @@ export interface DesktopBridge {
   readonly openSlot: (slot: SlotOpen) => void;
   /** Hides the view. With a kind, only when that kind is the open one. */
   readonly closeSlot: (close?: { readonly kind?: SlotKind }) => void;
+  /** Hands main the summary the x.com injections draw; main forwards it to the overlay preload. */
+  readonly pushGlance: (glance: Glance) => void;
   /** Loads an x.com URL in the window; other hosts are ignored. */
   readonly navigateSession: (url: string) => void;
   /** Drives find-in-page on x.com; null stops it and clears highlights. */
