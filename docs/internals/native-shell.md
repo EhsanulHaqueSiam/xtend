@@ -49,17 +49,43 @@ On pages without the column (DMs, settings) the fallback column is used.
 
 - x.com preload -> main: `xtend:column-rect` (`Rect | null`), `xtend:pointer-down`,
   `xtend:overlay-action` (`save` or `openSlot`), `xtend:editing`.
+- main -> x.com preload: `xtend:overlay-data`, `xtend:overlay-toggle`, `xtend:overlay-hide`,
+  `xtend:overlay-glance` (resent after every full load).
 - app view -> main: `xtend:slot-open` (`{ kind, route, anchor? }`), `xtend:slot-close`
   (`{ kind? }`: a named kind only closes itself, so a stale close cannot hide a newer slot),
   `xtend:session-navigate` (url), `xtend:session-find`, `xtend:open-external`,
-  `xtend:editing`, plus the account and remote channels.
+  `xtend:editing`, `xtend:glance` (`Glance`), plus the account and remote channels.
 - main -> app view: `xtend:slot` (`{ kind | null, route }`), `xtend:session-url`,
   `xtend:session-find-result`, `xtend:session-download`, `xtend:shortcut`.
 
 The bridge the app sees (`apps/web/src/desktopBridge.ts`): `slot` (state at load), `onSlot`,
-`openSlot`, `closeSlot`, `navigateSession`, `sessionFind`, `openExternal`, `onSessionUrl`,
+`openSlot`, `closeSlot`, `pushGlance`, `navigateSession`, `sessionFind`, `openExternal`, `onSessionUrl`,
 `onSessionFindResult`, `onSessionDownload`, `onShortcut`, `checkRemote`, `setRemote`,
 `selectAccount`.
+
+## Native injections
+
+`apps/desktop/src/overlay/overlayPreload.ts` adds Xtend to X's own chrome. Every X selector
+lives in `xDom.ts` with its fixture test; a missing landmark drops that one injection.
+
+| injection   | where                                                      | does                                                                |
+| ----------- | ---------------------------------------------------------- | ------------------------------------------------------------------- |
+| metrics row | after each post's action row                               | views, ER, views/h, followers, vs your average; Save, Reply with AI |
+| rail item   | X's Home item cloned, before Premium (or Profile, or More) | opens the center slot on `/plan`                                    |
+| Schedule    | composer toolbar, before Post, in every composer           | opens `/compose?text=` with what was typed                          |
+| Today card  | right column, above the first card (Premium or Trending)   | queue, mentions, spend, service; each row opens a tab               |
+
+The rail item is a plain clone so it inherits X's styles and icon-only collapse; everything
+else sits in a closed shadow root styled with X's tokens (system font, 13px `#71767b` rows,
+`#2f3336` hairlines, 16px card radius). Each added element carries `data-xtend`, and a
+pointer-down whose composed path holds one does not dismiss the open slot. The Schedule chip
+acts on pointer-down because focusing a collapsed composer makes X remount its toolbar before
+a click would land.
+
+The Today card and the chip's best time come from the app view, not the server:
+`GlanceSync` (`apps/web/src/components/shell/GlanceSync.tsx`) derives a `Glance` from queued
+drafts, slots, stored mentions and the spend summary, all free, formats times in the account
+zone (`lib/glance.ts`) and pushes it through the bridge whenever it changes.
 
 ## Shortcuts
 
@@ -102,4 +128,6 @@ With `XTEND_SHOT_DIR` set on an unpackaged build, `kill -USR2 <electron pid>` wr
 (the slot's bounds). A window capture does not include child views, so compose them, e.g.
 `magick x.png slot.png -geometry +X+Y -composite out.png`. Keys injected through the DevTools
 protocol skip Electron's `before-input-event`, so shortcuts cannot be driven through CDP; the
-bridge (`window.desktopBridge.openSlot(...)` evaluated in the app view) can.
+bridge (`window.desktopBridge.openSlot(...)` evaluated in the app view) can. Without a display
+session, CDP mouse events right after a load or a layout change are dropped; evaluating
+`document.elementFromPoint(x, y)` just before `Input.dispatchMouseEvent` makes them land.
