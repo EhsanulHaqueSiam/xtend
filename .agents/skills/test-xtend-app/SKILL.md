@@ -28,7 +28,7 @@ pnpm dev:desktop
 
 ## Seed observations
 
-The web UI shows what the desktop session view observed. Without the desktop, post a batch
+The web UI shows what the desktop's x.com session observed. Without the desktop, post a batch
 to the service directly; the body is the `ObservationBatch` schema from `packages/contracts`:
 
 ```sh

@@ -1,12 +1,13 @@
 # Xtend
 
-Xtend is a desktop-first X (Twitter) growth suite: the X web app lives in the middle of the window, and a local service adds analytics, a composer with a queue, a viral library, engagement targets, lead lists, automations and account scores around it. The architecture copies T3 Code: a headless Node service owns data and all X calls; thin web and Electron clients connect to it over WebSocket RPC.
+Xtend is a desktop-first X (Twitter) growth suite: x.com is the window, and a local service adds analytics, a composer with a queue, a viral library, engagement targets, lead lists, automations and account scores drawn into it where X would draw them. The architecture copies T3 Code: a headless Node service owns data and all X calls; thin web and Electron clients connect to it over WebSocket RPC.
 
 ## Glossary
 
 - **service** means the headless `xtend` process in `apps/server`: SQLite, scheduler, automations, treg and X calls, agent runs.
 - **client** means the web UI (`apps/web`) or the Electron shell (`apps/desktop`) that wraps it.
-- **session view** means the logged-in x.com `WebContentsView` the desktop embeds. It is the only place the user's X session exists; the service never holds X cookies.
+- **session view** means the logged-in x.com web contents of the desktop window. It is the only place the user's X session exists; the service never holds X cookies.
+- **slot** means where the desktop draws the app's `WebContentsView` over x.com (center column, popover, sheet, palette, bar, toast). See `docs/internals/native-shell.md`.
 - **observation** means a post, author or metric row the desktop read from the session view's own traffic and sent to the service. Observations are passive: nothing is replayed to X.
 - **account** means one connected X handle. All data is scoped to an account.
 
@@ -23,7 +24,7 @@ Xtend is a desktop-first X (Twitter) growth suite: the X web app lives in the mi
 - `apps/server` - the service. Effect-heavy. Foundation services every screen uses: `x/Treg.ts` (the only HTTP door to treg: token, budget, read cache, spend log), `x/XClient.ts` (typed X reads and writes, every call names its `purpose`), `ai/Assist.ts` (one structured-output model call; screens pass instructions, input and an output schema), `settings/SettingsStore.ts` (handle, token, budget, voice notes, keywords, spend).
 - Each suite area (compose, plan, analyze, scores, library, engage, leads, automate) owns `packages/contracts/src/<area>.ts` (schemas, method names, its RpcGroup, merged into `WsRpcGroup`), `apps/server/src/<area>/<Area>Handlers.ts` (`layer` for its services, `layerHandlers` for its rpcs, both pre-merged in `server.ts` and `ws.ts`), one migration per area pair, and its own routes, components and state files in `apps/web`. Adding a screen never edits another screen's files. Read `docs/internals/effect-services.md` in T3 Code (vendored reference at `~/Work/ref/t3code`) before adding server code; the same rules apply here.
 - `apps/web` - React, Vite, TanStack Router, Tailwind 4, `@effect/atom-react`. The desktop wraps it.
-- `apps/desktop` - Electron. Creates the window, runs or connects to the service, embeds the session view, captures observations.
+- `apps/desktop` - Electron. Opens x.com as the window, runs or connects to the service, draws the app view in slots, captures observations.
 
 ## Conventions
 
