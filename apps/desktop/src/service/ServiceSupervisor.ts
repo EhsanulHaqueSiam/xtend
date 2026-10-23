@@ -76,6 +76,8 @@ export async function superviseService(options: SupervisorOptions): Promise<Supe
     return { mode: decision.mode, stop: () => {} };
   }
 
+  // First launch: the state dir does not exist yet, and the log lives in it.
+  fs.mkdirSync(options.baseDir, { recursive: true });
   const logFile = fs.openSync(path.join(options.baseDir, "service.log"), "a");
   let child: ChildProcess.ChildProcess | undefined;
   let stopping = false;
@@ -108,7 +110,6 @@ export async function superviseService(options: SupervisorOptions): Promise<Supe
       setTimeout(start, restart.delayMs);
     });
   };
-  fs.mkdirSync(options.baseDir, { recursive: true });
   start();
   if (!(await waitForHealth(options.serviceUrl, Date.now() + START_TIMEOUT_MS)))
     options.log("service child did not answer in time; see service.log", options.baseDir);
