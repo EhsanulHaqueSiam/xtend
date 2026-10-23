@@ -5,9 +5,12 @@ import {
   RouterProvider,
   type AnyRouter,
 } from "@tanstack/react-router";
+import { RegistryProvider } from "@effect/atom-react";
 import { act as reactAct, createContext, use, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { page, utils, type Locator, type LocatorSelectors } from "vite-plus/test/browser";
+
+import { fakeServiceValues, type FakeService } from "./fakeService";
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
@@ -34,6 +37,11 @@ export interface RenderOptions {
   readonly container?: HTMLElement;
   /** Initial location of the test router, or `false` to render without one. */
   readonly router?: string | false;
+  /**
+   * Answers for the rpcs the tree makes. Atoms then run against this fake in a registry of
+   * their own; without it they use the real socket client.
+   */
+  readonly service?: FakeService;
 }
 
 /** Queries are scoped to the container; use `page` for portals such as menus and dialogs. */
@@ -68,15 +76,23 @@ function createTestRouter(path: string): AnyRouter {
  */
 export async function render(
   ui: ReactNode,
-  { container = document.createElement("div"), router: path = "/" }: RenderOptions = {},
+  { container = document.createElement("div"), router: path = "/", service }: RenderOptions = {},
 ): Promise<Screen> {
   if (!container.isConnected) document.body.append(container);
   const root = createRoot(container);
   const router = path === false ? undefined : createTestRouter(path);
   // The router element is created once so a rerender updates the tree instead of remounting it.
   const routerElement = router && <RouterProvider router={router} />;
-  const wrap = (node: ReactNode) =>
+  // Created once like the router: a new registry would drop every atom's state on rerender.
+  const values = service === undefined ? undefined : fakeServiceValues(service);
+  const routed = (node: ReactNode) =>
     routerElement ? <RoutedUi value={node}>{routerElement}</RoutedUi> : node;
+  const wrap = (node: ReactNode) =>
+    values === undefined ? (
+      routed(node)
+    ) : (
+      <RegistryProvider initialValues={values}>{routed(node)}</RegistryProvider>
+    );
 
   let mounted = true;
   const unmount = async () => {
