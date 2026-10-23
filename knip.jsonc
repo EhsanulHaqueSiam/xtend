@@ -2,7 +2,13 @@
   "$schema": "https://unpkg.com/knip@6/schema.json",
   // A shell builtin in the desktop `dist` script, not a package binary.
   "ignoreBinaries": ["unset"],
+  // TypeScript finds these types beside ci-changes.cjs by name; nothing imports them.
+  "ignoreFiles": [".github/scripts/ci-changes.d.cts"],
   "workspaces": {
+    // t3.json runs the worktree setup; nothing imports it.
+    ".": {
+      "entry": ["scripts/setup-worktree.ts"],
+    },
     "apps/web": {
       "entry": ["src/routes/**/*.tsx"],
     },

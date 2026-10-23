@@ -38,6 +38,7 @@ Xtend is a desktop-first X (Twitter) growth suite: x.com is the window, and a lo
 
 ## Dev
 
+- In a T3 worktree, `scripts/setup-worktree.ts` installs in the background (`t3.json`). While `.t3/setup-running` names a live PID, wait for it and do not install yourself. It ends with `.t3/setup-done` or `.t3/setup-failed` (with the error tail). With no marker at all, setup never ran here, so run `pnpm i`.
 - `pnpm i` installs. `pnpm dev` runs the service and the web app. `pnpm dev:desktop` builds the Electron main and launches it against the dev web server.
 - Service state lives in `~/.xtend` by default; `--base-dir` overrides it. Dev runs use `<repo>/.xtend`, which is gitignored.
 - `pnpm check:changed` before you hand work back: it checks only what you changed. Otherwise `vp run typecheck` (tsc-rs), `vp test run <files>`, `vp lint`, `vp fmt`. Do not run repo-wide checks unless asked.
