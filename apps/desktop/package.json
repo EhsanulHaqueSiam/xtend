@@ -10,7 +10,7 @@
     "start": "electron .",
     "typecheck": "tsc-rs --noEmit",
     "test": "vp test run --passWithNoTests",
-    "dist": "electron-builder --mac",
+    "dist": "[ -n \"$CSC_LINK\" ] || { unset CSC_LINK CSC_KEY_PASSWORD; export CSC_IDENTITY_AUTO_DISCOVERY=false; }; electron-builder --mac",
     "dist:dir": "electron-builder --dir",
     "ensure:electron": "node -e \"require('electron')\"",
     "verify:bundles": "node scripts/verify-bundles.mjs",

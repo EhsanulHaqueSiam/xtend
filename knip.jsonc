@@ -1,5 +1,7 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
+  // A shell builtin in the desktop `dist` script, not a package binary.
+  "ignoreBinaries": ["unset"],
   "workspaces": {
     "apps/web": {
       "entry": ["src/routes/**/*.tsx"],

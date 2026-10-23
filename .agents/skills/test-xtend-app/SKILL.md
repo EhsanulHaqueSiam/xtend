@@ -17,17 +17,20 @@ Reuse this task's healthy dev processes. Otherwise, from the repository root:
 pnpm dev
 ```
 
-This runs the service on `http://127.0.0.1:4820` with state in the gitignored `<repo>/.xtend`
-and the web app on `http://localhost:5820`. Never point a dev service at `~/.xtend`.
+This runs the service and the web app on this checkout's port pair, with state in the gitignored
+`<repo>/.xtend`, and prints both URLs. The main checkout gets `http://127.0.0.1:4820` and
+`http://localhost:5820` while they are free; a worktree gets a pair of its own. The examples
+below use the defaults: substitute the printed ports. Never point a dev service at `~/.xtend`.
 
-The desktop shell needs the dev web server running first:
+The desktop shell needs `pnpm dev` running first and connects to the pair it printed:
 
 ```sh
 pnpm dev:desktop
 ```
 
 On a host without a display (the Mac mini over ssh), start it with `XTEND_REMOTE_DEBUG=9223`
-and drive it with `node apps/desktop/scripts/cdp.mjs shot|eval|click|type`. A dev desktop
+(another free port when a second dev desktop holds 9223) and drive it with
+`node apps/desktop/scripts/cdp.mjs shot|eval|click|type`. A dev desktop
 started with `XTEND_SHOT_DIR` also writes a capture on `kill -USR2 <pid>`.
 
 ## Seed observations
