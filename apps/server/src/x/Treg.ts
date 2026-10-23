@@ -147,7 +147,13 @@ const make = Effect.gen(function* () {
     );
     const text = yield* response.text.pipe(Effect.orElseSucceed(() => ""));
     const body: unknown = yield* decodeJson(text).pipe(Effect.orElseSucceed(() => text));
-    const cost = costOf(response.headers, body, input.expectedCostUsd ?? 0);
+    // A 5xx or a treg-side refusal (502 "whose_error: treg") is never billed, so the quote
+    // fallback applies only to answers the provider actually served.
+    const cost = costOf(
+      response.headers,
+      body,
+      response.status >= 500 ? 0 : (input.expectedCostUsd ?? 0),
+    );
     if (cost.source === "quote" && cost.costUsd > 0)
       yield* Effect.logDebug("treg sent no cost; charged the quote").pipe(
         Effect.annotateLogs({ endpoint: input.endpoint, costUsd: cost.costUsd }),
