@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "prepare": "vp config --no-agent",
     "dev": "vp run --filter @xtend/contracts --filter @xtend/web --filter xtend --parallel dev",
     "dev:server": "vp run --filter xtend dev",
     "dev:web": "vp run --filter @xtend/web dev",
@@ -11,6 +12,7 @@
     "build:desktop": "vp run --filter @xtend/web --filter xtend --filter @xtend/desktop build && pnpm --filter @xtend/desktop dist",
     "typecheck": "vp run -r --cache --concurrency-limit 4 typecheck",
     "tc": "vp run -r --cache --concurrency-limit 4 typecheck",
+    "check:changed": "node scripts/check-changed.ts",
     "lint": "vp lint --report-unused-disable-directives",
     "knip": "knip",
     "test": "vp run -r test",
