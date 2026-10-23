@@ -14,3 +14,5 @@ dist-electron/
 .xtend/
 .plans/
 apps/desktop/release/
+dist-cli/
+.t3/

@@ -1,4 +1,6 @@
-# Packaging for macOS. Signing and notarization are off until the credentials exist:
+# Packaging for macOS (dmg, zip) and Linux (AppImage, x64; runs on Arch and any glibc distro).
+# Linux builds need no signing and update through latest-linux.yml. macOS signing and
+# notarization are off until the credentials exist:
 #   CSC_LINK / CSC_KEY_PASSWORD      Developer ID Application certificate (.p12) and its password
 #   APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID   notarytool login; then set mac.notarize: true
 #   GH_TOKEN                          lets `electron-builder --publish always` upload a release
@@ -30,6 +32,14 @@ mac:
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   notarize: false
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+  category: Network
+  executableName: xtend
+  artifactName: ${productName}-${version}-${arch}.${ext}
+  synopsis: X with growth tools built in
 protocols:
   - name: Xtend
     schemes: [xtend]

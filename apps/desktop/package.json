@@ -11,6 +11,7 @@
     "typecheck": "tsc-rs --noEmit",
     "test": "vp test run --passWithNoTests",
     "dist": "[ -n \"$CSC_LINK\" ] || { unset CSC_LINK CSC_KEY_PASSWORD; export CSC_IDENTITY_AUTO_DISCOVERY=false; }; electron-builder --mac",
+    "dist:linux": "electron-builder --linux AppImage --x64",
     "dist:dir": "electron-builder --dir",
     "ensure:electron": "node -e \"require('electron')\"",
     "verify:bundles": "node scripts/verify-bundles.mjs",

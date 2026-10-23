@@ -1,0 +1,91 @@
+name: Desktop preview
+
+# A pull request that touches the app gets an unsigned macOS build (arm64 dmg and zip) and a
+# Linux AppImage, each checked with the release smoke tests and uploaded as workflow artifacts,
+# with the links in the run summary. A manual run builds one or both from any branch.
+# macOS runner minutes count ten times on a private repo; drop the macos job here if that bites.
+on:
+  pull_request:
+    paths:
+      - "apps/**"
+      - "packages/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "scripts/release-smoke.ts"
+      - ".github/actions/setup/**"
+      - ".github/workflows/desktop-preview.yml"
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Which build
+        type: choice
+        options: [both, macos, linux]
+        default: both
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-preview-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    name: macOS preview
+    if: github.event_name == 'pull_request' || inputs.platform != 'linux'
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup
+      # The version names the files after the PR, so two previews never look alike.
+      - name: Preview version
+        env:
+          SUFFIX: ${{ github.event.pull_request.number && format('pr.{0}', github.event.pull_request.number) || 'preview' }}
+        working-directory: apps/desktop
+        run: npm pkg set version="$(node -p 'require("./package.json").version')-${SUFFIX}.${GITHUB_RUN_NUMBER}"
+      - run: pnpm dist:desktop:dmg:arm64 --publish never
+      - run: pnpm release:smoke
+      - uses: actions/upload-artifact@v7
+        id: upload
+        with:
+          name: xtend-macos-preview
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+          retention-days: 14
+          if-no-files-found: error
+      - name: Summary
+        env:
+          URL: ${{ steps.upload.outputs.artifact-url }}
+        run: |
+          echo "macOS arm64 preview, unsigned (right-click Open the first time): $URL" >> "$GITHUB_STEP_SUMMARY"
+
+  linux:
+    name: Linux preview
+    if: github.event_name == 'pull_request' || inputs.platform != 'macos'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup
+      - name: Preview version
+        env:
+          SUFFIX: ${{ github.event.pull_request.number && format('pr.{0}', github.event.pull_request.number) || 'preview' }}
+        working-directory: apps/desktop
+        run: npm pkg set version="$(node -p 'require("./package.json").version')-${SUFFIX}.${GITHUB_RUN_NUMBER}"
+      - run: pnpm dist:desktop:appimage --publish never
+      - run: pnpm release:smoke
+      - uses: actions/upload-artifact@v7
+        id: upload
+        with:
+          name: xtend-linux-preview
+          path: apps/desktop/release/*.AppImage
+          retention-days: 14
+          if-no-files-found: error
+      - name: Summary
+        env:
+          URL: ${{ steps.upload.outputs.artifact-url }}
+        run: |
+          echo "Linux AppImage preview (chmod +x, then run it): $URL" >> "$GITHUB_STEP_SUMMARY"

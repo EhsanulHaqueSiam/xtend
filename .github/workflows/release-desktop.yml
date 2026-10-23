@@ -1,8 +1,10 @@
-name: Release desktop
+name: Release
 
-# A v* tag builds the macOS app, checks it, then publishes a draft GitHub release with the dmg,
-# the zip and latest-mac.yml for the updater. A manual run builds the same files as a workflow artifact only.
-# Unsigned until the signing secrets exist; see apps/desktop/electron-builder.yml.
+# A v* tag builds the macOS app (dmg, zip), the Linux AppImage and the CLI tarball, checks each
+# with the release smoke tests, and only then publishes one draft GitHub release with all of them
+# plus latest-mac.yml and latest-linux.yml for the updater. A manual run builds the same files as
+# workflow artifacts only. macOS builds are unsigned until the signing secrets exist; see
+# apps/desktop/electron-builder.yml.
 on:
   push:
     tags:
@@ -10,7 +12,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   mac:
@@ -23,8 +25,9 @@ jobs:
 
       - name: Take the version from the tag
         if: startsWith(github.ref, 'refs/tags/v')
-        working-directory: apps/desktop
-        run: npm pkg set version="${GITHUB_REF_NAME#v}"
+        run: |
+          (cd apps/desktop && npm pkg set version="${GITHUB_REF_NAME#v}")
+          (cd apps/server && npm pkg set version="${GITHUB_REF_NAME#v}")
 
       # The local entry point: build, verify the preloads, package. The desktop `dist` script drops
       # an empty CSC_LINK, which would otherwise send electron-builder after a missing certificate.
@@ -37,22 +40,63 @@ jobs:
       - name: Check the packaged apps
         run: pnpm release:smoke
 
-      # Only a build that passed the smoke check becomes a release. latest-mac.yml, the zips and
-      # their blockmaps are what electron-updater reads from it.
-      - name: Publish a draft release
-        if: startsWith(github.ref, 'refs/tags/v')
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release create "$GITHUB_REF_NAME" --draft --title "Xtend ${GITHUB_REF_NAME#v}" --generate-notes \
-            apps/desktop/release/*.dmg apps/desktop/release/*.zip apps/desktop/release/*.blockmap \
-            apps/desktop/release/latest-mac.yml
-
       - uses: actions/upload-artifact@v7
         with:
           name: xtend-macos
           path: |
             apps/desktop/release/*.dmg
             apps/desktop/release/*.zip
+            apps/desktop/release/*.blockmap
             apps/desktop/release/latest-mac.yml
           if-no-files-found: error
+
+  linux:
+    name: Linux AppImage and CLI
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup
+
+      - name: Take the version from the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          (cd apps/desktop && npm pkg set version="${GITHUB_REF_NAME#v}")
+          (cd apps/server && npm pkg set version="${GITHUB_REF_NAME#v}")
+
+      - name: Build and package
+        run: pnpm dist:desktop:appimage --publish never
+      - name: Check the packaged app
+        run: pnpm release:smoke
+      - name: Pack and check the CLI
+        run: pnpm cli:pack --check
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: xtend-linux
+          path: |
+            apps/desktop/release/*.AppImage
+            apps/desktop/release/latest-linux.yml
+            dist-cli/*.tgz
+          if-no-files-found: error
+
+  publish:
+    name: Draft release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [mac, linux]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+      # Only builds that passed their smoke checks get here.
+      - name: Publish a draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft \
+            --title "Xtend ${GITHUB_REF_NAME#v}" --generate-notes artifacts/*
