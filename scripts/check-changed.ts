@@ -1,13 +1,16 @@
 // The fast local version of CI for this branch's changes: format and lint of the changed
-// files, typecheck of the packages they belong to (all of them when contracts changed),
-// knip when code or a manifest changed, and the test files beside the changed files.
-// CI still runs everything.
+// files, typecheck of the packages they reach, knip when code or a manifest changed, and the
+// test files beside the changed files. Packages come from .github/scripts/ci-changes.cjs, the
+// mapping CI gates its jobs by: contracts, a manifest or a root config reach every package.
+// CI runs the full suites of the jobs the change reaches.
 //   pnpm check:changed          against the merge base with origin/main
 //   pnpm check:changed <ref>    against the merge base with <ref>
 // Uncommitted and untracked files count.
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
+
+import { decide, readWorkspace } from "../.github/scripts/ci-changes.cjs";
 
 const root = NodePath.resolve(import.meta.dirname, "..");
 const CODE = /\.[cm]?[jt]sx?$/;
@@ -29,35 +32,26 @@ if (base.status !== 0) {
   );
   process.exit(1);
 }
-const files = [
+const changed = [
   ...new Set([
     ...git("diff", "--name-only", "--no-renames", base.stdout.trim(), "--"),
     ...git("ls-files", "--others", "--exclude-standard"),
   ]),
-]
-  .filter((file) => NodeFS.existsSync(NodePath.join(root, file)))
-  .sort();
-if (files.length === 0) {
+].sort();
+if (changed.length === 0) {
   console.log("check:changed: nothing changed.");
   process.exit(0);
 }
+// Deleted files cannot be formatted or linted, but still count for typecheck and knip:
+// removing a module can break its importers or leave an export unused.
+const files = changed.filter((file) => NodeFS.existsSync(NodePath.join(root, file)));
 
-// Workspace packages by directory: apps/* and packages/*.
-const packages = ["apps", "packages"].flatMap((group) =>
-  NodeFS.readdirSync(NodePath.join(root, group)).flatMap((name) => {
-    const manifest = NodePath.join(root, group, name, "package.json");
-    if (!NodeFS.existsSync(manifest)) return [];
-    const pkg = JSON.parse(NodeFS.readFileSync(manifest, "utf8")) as { name: string };
-    return [{ dir: `${group}/${name}`, name: pkg.name }];
-  }),
-);
+const packages = readWorkspace();
 const owner = (file: string) => packages.find((p) => file.startsWith(`${p.dir}/`));
+const reached = new Set(decide(changed, packages).affected);
+const affected = packages.filter((p) => reached.has(p.name));
 
 const code = files.filter((file) => CODE.test(file));
-// Every app imports contracts, so a contract change is checked everywhere.
-const affected = files.some((file) => file.startsWith("packages/contracts/"))
-  ? packages
-  : packages.filter((p) => files.some((file) => owner(file) === p));
 
 // Changed test files and the ones beside a changed source file (foo.ts -> foo.test.ts, foo.browser.test.tsx).
 const tests = new Set(code.filter((file) => TEST.test(file)));
@@ -74,13 +68,15 @@ interface Step {
   readonly cwd: string;
   readonly args: ReadonlyArray<string>;
 }
-const steps: Array<Step> = [
-  {
+const steps: Array<Step> = [];
+// No files would make fmt check the whole repo.
+if (files.length > 0) {
+  steps.push({
     name: "format",
     cwd: root,
     args: ["exec", "vp", "fmt", "--check", "--no-error-on-unmatched-pattern", ...files],
-  },
-];
+  });
+}
 if (code.length > 0) steps.push({ name: "lint", cwd: root, args: ["exec", "vp", "lint", ...code] });
 for (const p of affected) {
   steps.push({
@@ -89,7 +85,7 @@ for (const p of affected) {
     args: ["run", "typecheck"],
   });
 }
-if (code.length > 0 || files.some((f) => f.endsWith("package.json") || f === "knip.jsonc")) {
+if (changed.some((f) => CODE.test(f) || f.endsWith("package.json") || f === "knip.jsonc")) {
   steps.push({ name: "knip", cwd: root, args: ["exec", "knip"] });
 }
 // Root scripts/ belong to no package; their tests run under the root config, as in `pnpm test`.
@@ -99,6 +95,15 @@ if (rootTests.length > 0) {
     name: "test scripts",
     cwd: root,
     args: ["exec", "vp", "test", "run", ...rootTests],
+  });
+}
+// .github/scripts tests run under node --test, as in `pnpm test`.
+const githubTests = [...tests].filter((file) => file.startsWith(".github/"));
+if (githubTests.length > 0) {
+  steps.push({
+    name: "test .github/scripts",
+    cwd: root,
+    args: ["exec", "node", "--test", ...githubTests],
   });
 }
 for (const p of packages) {

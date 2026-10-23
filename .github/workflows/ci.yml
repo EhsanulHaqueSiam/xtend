@@ -16,6 +16,56 @@ concurrency:
 # Runners are pinned: ubuntu-latest moved to 26.04 before Playwright supported it, and every
 # run failed at the browser install.
 jobs:
+  # Skips the jobs a change cannot affect: docs alone run only `check`, root scripts alone skip
+  # `build`. .github/scripts/ci-changes.cjs maps the changed paths to jobs. A pull request is
+  # diffed against its base, a push to main against the commit before it. Detection fails open:
+  # when the base cannot be read (a force push), everything runs.
+  changes:
+    name: Changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      build: ${{ steps.detect.outputs.build }}
+      test: ${{ steps.detect.outputs.test }}
+    steps:
+      # A pull request checks out GitHub's merge commit; depth 2 brings its base as HEAD^1.
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+
+      - name: Detect affected jobs
+        id: detect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -uo pipefail
+
+          decide() {
+            node .github/scripts/ci-changes.cjs "$@" | tee -a "$GITHUB_OUTPUT"
+            exit "${PIPESTATUS[0]}"
+          }
+
+          fail_open() {
+            echo "$* Running every job."
+            decide
+          }
+
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            base=HEAD^1
+          else
+            base=$BEFORE_SHA
+            git fetch --quiet --no-tags --depth=1 --filter=blob:none origin "$base" \
+              || fail_open "Could not fetch ${base}."
+          fi
+
+          # --no-renames lists a rename as its old and new path: moving a file out of a package
+          # changes that package just like editing it.
+          git diff --name-only --no-renames "$base" HEAD > "$RUNNER_TEMP/changed-paths" \
+            || fail_open "Could not diff against ${base}."
+          decide --paths "$RUNNER_TEMP/changed-paths"
+
+  # No `needs`: it formats every file, docs included, so every change runs it.
   check:
     name: Format, lint, unused code
     runs-on: ubuntu-24.04
@@ -27,8 +77,13 @@ jobs:
       - run: pnpm lint
       - run: pnpm knip
 
+  # A job skipped by its `if` reports success, so it still passes as a required check.
+  # `!cancelled()` replaces the implicit success(): when `changes` fails, its outputs are empty,
+  # not 'false', and the job runs instead of skipping.
   build:
     name: Build, typecheck, desktop smoke
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.build != 'false' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -57,6 +112,8 @@ jobs:
 
   test:
     name: Test
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.test != 'false' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
