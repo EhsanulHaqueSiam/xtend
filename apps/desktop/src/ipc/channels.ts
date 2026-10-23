@@ -10,8 +10,8 @@ export const ACCOUNT_SELECT_CHANNEL = "xtend:account-select";
 export const REMOTE_SET_CHANNEL = "xtend:remote-set";
 /** invoke: checks a remote service's health and token from the main process (no CORS, no leaked token). */
 export const REMOTE_CHECK_CHANNEL = "xtend:remote-check";
-/** Passed to the app preload through additionalArguments so the page can read it synchronously. */
-export const BRIDGE_ARG = "--xtend-bridge=";
+/** sendSync from the app preload: bridge info (incl. the service token) must not ride in argv, which `ps` shows. */
+export const BRIDGE_INFO_CHANNEL = "xtend:bridge-info";
 
 // Main -> app window
 export const SESSION_URL_CHANNEL = "xtend:session-url";

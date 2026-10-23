@@ -15,7 +15,7 @@ import {
 import * as Schema from "effect/Schema";
 
 import {
-  BRIDGE_ARG,
+  BRIDGE_INFO_CHANNEL,
   type BridgeInfo,
   EDITING_CHANNEL,
   OPEN_EXTERNAL_CHANNEL,
@@ -208,6 +208,11 @@ const useSystemSpellcheckLanguages = (session: Electron.Session) => {
 };
 
 export function createMainWindow(options: MainWindowOptions): BrowserWindow {
+  // Answer the preload's synchronous bridge-info request, and only for this window.
+  const onBridgeInfo = (event: Electron.IpcMainEvent) => {
+    if (event.sender === window.webContents) event.returnValue = options.bridgeInfo;
+  };
+  ipcMain.on(BRIDGE_INFO_CHANNEL, onBridgeInfo);
   const window = new BrowserWindow({
     width: 1440,
     height: 920,
@@ -222,7 +227,6 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
       preload: path.join(import.meta.dirname, "preload.cjs"),
       contextIsolation: true,
       sandbox: true,
-      additionalArguments: [`${BRIDGE_ARG}${JSON.stringify(options.bridgeInfo)}`],
     },
   });
   const partition = sessionPartition(options.accountId);
@@ -467,6 +471,7 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
   ];
 
   window.on("closed", () => {
+    ipcMain.off(BRIDGE_INFO_CHANNEL, onBridgeInfo);
     for (const off of offIpc) off();
     detachCapture();
     commands.detach();

@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 
 import {
   ACCOUNT_SELECT_CHANNEL,
-  BRIDGE_ARG,
+  BRIDGE_INFO_CHANNEL,
   type BridgeInfo,
   EDITING_CHANNEL,
   OPEN_EXTERNAL_CHANNEL,
@@ -35,9 +35,8 @@ const listen =
 const navigate = (navigation: SessionNavigation) =>
   ipcRenderer.send(SESSION_NAVIGATE_CHANNEL, navigation);
 
-const info = JSON.parse(
-  process.argv.find((a) => a.startsWith(BRIDGE_ARG))?.slice(BRIDGE_ARG.length) ?? "{}",
-) as Partial<BridgeInfo>;
+// Synchronous so the page sees the token at module load, like a meta tag would.
+const info = (ipcRenderer.sendSync(BRIDGE_INFO_CHANNEL) ?? {}) as Partial<BridgeInfo>;
 
 /** Mirrors `DesktopBridge` in apps/web/src/desktopBridge.ts. */
 contextBridge.exposeInMainWorld("desktopBridge", {
