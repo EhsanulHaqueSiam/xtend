@@ -1,5 +1,5 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
-import type { AccountPost, CompetitorReport } from "@xtend/contracts";
+import type { AccountPost, CompetitorReport, NonPublic } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 
@@ -26,7 +26,17 @@ function FetchButton({
   );
 }
 
-function Report({ report, myAvg }: { report: CompetitorReport; myAvg: number }) {
+function Report({
+  report,
+  myAvg,
+  myImpressions,
+}: {
+  report: CompetitorReport;
+  myAvg: number;
+  myImpressions: number | null;
+}) {
+  // Only own posts have impressions; they are the honest side of the comparison when present.
+  const mine = myImpressions ?? myAvg;
   return (
     <>
       <div className="grid grid-cols-4 gap-x-4">
@@ -35,8 +45,12 @@ function Report({ report, myAvg }: { report: CompetitorReport; myAvg: number }) 
         <Stat label="Their avg views" value={fmt(report.avgViews)} />
         <Stat
           label="You vs them"
-          value={report.avgViews === 0 ? "–" : `${((myAvg / report.avgViews) * 100).toFixed(0)}%`}
-          sub={`your avg ${fmt(myAvg)}`}
+          value={report.avgViews === 0 ? "–" : `${((mine / report.avgViews) * 100).toFixed(0)}%`}
+          sub={
+            myImpressions === null
+              ? `your avg ${fmt(myAvg)} views`
+              : `your avg ${fmt(myImpressions)} impressions`
+          }
         />
       </div>
       <ul className="flex flex-col gap-0.5 text-xs">
@@ -55,7 +69,13 @@ function Report({ report, myAvg }: { report: CompetitorReport; myAvg: number }) 
   );
 }
 
-export function Competitors({ posts }: { readonly posts: ReadonlyArray<AccountPost> }) {
+export function Competitors({
+  posts,
+  nonPublic,
+}: {
+  readonly posts: ReadonlyArray<AccountPost>;
+  readonly nonPublic: NonPublic;
+}) {
   const watch = useAtomValue(watchListAtom);
   const refreshWatch = useAtomRefresh(watchListAtom);
   const reports = useAtomValue(competitorsAtom);
@@ -67,6 +87,10 @@ export function Competitors({ posts }: { readonly posts: ReadonlyArray<AccountPo
   const [error, setError] = useState<string | null>(null);
   const myAvg =
     posts.length === 0 ? 0 : posts.reduce((s, p) => s + (p.views ?? 0), 0) / posts.length;
+  const myImpressions =
+    nonPublic.byPost.length === 0
+      ? null
+      : nonPublic.byPost.reduce((s, r) => s + r.impressions, 0) / nonPublic.byPost.length;
   const byHandle = new Map(
     AsyncResult.getOrElse(reports, () => []).map((r) => [r.handle, r] as const),
   );
@@ -143,7 +167,7 @@ export function Competitors({ posts }: { readonly posts: ReadonlyArray<AccountPo
                   {report === undefined ? (
                     <Empty>Not fetched yet.</Empty>
                   ) : (
-                    <Report report={report} myAvg={myAvg} />
+                    <Report report={report} myAvg={myAvg} myImpressions={myImpressions} />
                   )}
                 </Section>
               );

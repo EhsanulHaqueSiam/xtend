@@ -10,12 +10,24 @@ import { XFollower, XTrend } from "./x.ts";
 export const Tier = Schema.Literals(["Unknown", "Noted", "Credible", "Significant", "Supreme"]);
 export type Tier = typeof Tier.Type;
 
+/** Who a follower is, from a curated seed list first and bio and name heuristics second. */
+export const FollowerCategory = Schema.Literals(["kol", "project", "fund", "person"]);
+export type FollowerCategory = typeof FollowerCategory.Type;
+
 /** A follower with the points it contributed to the score. */
 export const TopFollower = Schema.Struct({
   ...XFollower.fields,
   points: Schema.Number,
+  category: FollowerCategory,
 });
 export type TopFollower = typeof TopFollower.Type;
+
+export const CategoryCount = Schema.Struct({
+  category: FollowerCategory,
+  count: NonNegativeInt,
+  points: Schema.Number,
+});
+export type CategoryCount = typeof CategoryCount.Type;
 
 export const BotReport = Schema.Struct({
   /** 0..1 share of sampled followers that look like bots. */
@@ -38,23 +50,55 @@ export const ScoreSample = Schema.Struct({
   pages: NonNegativeInt,
   botShare: Schema.Number,
   topFollowers: Schema.Array(TopFollower),
+  /** The scored top K split by category. */
+  categories: Schema.Array(CategoryCount),
   bot: BotReport,
 });
 export type ScoreSample = typeof ScoreSample.Type;
+
+/** Who moved the score: the scored set of the latest sample against the one before it. */
+export const ScoreDiff = Schema.Struct({
+  sinceAt: IsoDateTime,
+  joined: Schema.Array(TopFollower),
+  left: Schema.Array(TopFollower),
+  changed: Schema.Array(Schema.Struct({ ...TopFollower.fields, previousPoints: Schema.Number })),
+});
+export type ScoreDiff = typeof ScoreDiff.Type;
+
+/** A day the handle's name or bio differed from the snapshot before it. */
+export const ProfileChange = Schema.Struct({
+  day: Schema.String,
+  name: Schema.String,
+  bio: Schema.String,
+  followers: NonNegativeInt,
+});
+export type ProfileChange = typeof ProfileChange.Type;
 
 export const ScoreReport = Schema.Struct({
   handle: XHandle,
   latest: Schema.NullOr(ScoreSample),
   history: Schema.Array(Schema.Struct({ at: IsoDateTime, score: Schema.Number })),
+  /** Null until two samples exist. */
+  moved: Schema.NullOr(ScoreDiff),
+  profileHistory: Schema.Array(ProfileChange),
 });
 export type ScoreReport = typeof ScoreReport.Type;
+
+/** Score change against the newest sample at least N days old. */
+export const ScoreChange = Schema.Struct({
+  d1: Schema.NullOr(Schema.Number),
+  d7: Schema.NullOr(Schema.Number),
+  d14: Schema.NullOr(Schema.Number),
+  d30: Schema.NullOr(Schema.Number),
+});
+export type ScoreChange = typeof ScoreChange.Type;
 
 export const WatchEntry = Schema.Struct({
   handle: XHandle,
   addedAt: IsoDateTime,
   score: Schema.NullOr(Schema.Number),
   tier: Schema.NullOr(Tier),
-  change7d: Schema.NullOr(Schema.Number),
+  change: ScoreChange,
 });
 export type WatchEntry = typeof WatchEntry.Type;
 
@@ -85,7 +129,11 @@ export const ScoresRpcGroup = RpcGroup.make(
     error: ScoresError,
   }),
   Rpc.make(Scores_METHODS.run, {
-    payload: HandlePayload,
+    payload: Schema.Struct({
+      handle: XHandle,
+      /** Follower pages to read, 1 to 10; default 5. */
+      pages: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 10 }))),
+    }),
     success: ScoreReport,
     error: ScoresError,
   }),

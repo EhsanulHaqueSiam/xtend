@@ -13,7 +13,8 @@ import { settingsAtom } from "../state/settings";
 const TABS = ["Mine", "Watchlist", "Report", "Trending", "Bot check"] as const;
 
 function ScoresScreen() {
-  const [tab, setTab] = useState<(typeof TABS)[number]>("Mine");
+  const { handle: wanted } = Route.useSearch();
+  const [tab, setTab] = useState<(typeof TABS)[number]>(wanted === undefined ? "Mine" : "Report");
   const [picked, setPicked] = useState<string | null>(null);
   const settings = useAtomValue(settingsAtom);
   const handle = AsyncResult.getOrElse(
@@ -53,7 +54,7 @@ function ScoresScreen() {
             </>
           )
         ) : tab === "Report" ? (
-          <HandlePicker />
+          <HandlePicker initial={wanted ?? null} />
         ) : tab === "Trending" ? (
           <Trending />
         ) : (
@@ -64,4 +65,10 @@ function ScoresScreen() {
   );
 }
 
-export const Route = createFileRoute("/scores")({ component: ScoresScreen });
+export const Route = createFileRoute("/scores")({
+  // The palette and the overlay open /scores?handle=<h> straight on a report.
+  validateSearch: (s: Record<string, unknown>) => ({
+    handle: typeof s.handle === "string" && s.handle !== "" ? s.handle.toLowerCase() : undefined,
+  }),
+  component: ScoresScreen,
+});

@@ -14,11 +14,14 @@ export const reportAtom = Atom.family((handle: string) =>
   ),
 );
 
-/** Paid: up to 5 follower pages plus the profile. Refresh reportAtom(handle) after it resolves. */
-export const runScoreAtom = clientRuntime.fn<string>()(
-  Effect.fnUntraced(function* (handle) {
+/** Paid: `pages` follower pages (default 5) plus the profile. Refresh reportAtom(handle) after it resolves. */
+export const runScoreAtom = clientRuntime.fn<{
+  readonly handle: string;
+  readonly pages?: number;
+}>()(
+  Effect.fnUntraced(function* (input) {
     const client = yield* XtendClient;
-    return yield* client[Scores_METHODS.run]({ handle });
+    return yield* client[Scores_METHODS.run](input);
   }),
 );
 

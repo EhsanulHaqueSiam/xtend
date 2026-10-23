@@ -1,21 +1,22 @@
-import type { ScoreReport, TopFollower, XFollower } from "@xtend/contracts";
+import type { FollowerCategory, ScoreReport, TopFollower, XFollower } from "@xtend/contracts";
 import { BadgeCheck } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { Empty, fmt, LineChart, pct, Section, Stat } from "../analyze/ui";
+import { Empty, fmt, LineChart, pct, Section, signed, Stat } from "../analyze/ui";
 
-const BUCKETS: ReadonlyArray<{ label: string; min: number; max: number }> = [
-  { label: "1000+ followers", min: 1000, max: Infinity },
-  { label: "100 to 999", min: 100, max: 1000 },
-  { label: "Under 100", min: 0, max: 100 },
+const CATEGORIES: ReadonlyArray<{ category: FollowerCategory; label: string }> = [
+  { category: "kol", label: "KOLs" },
+  { category: "project", label: "Projects" },
+  { category: "fund", label: "Funds" },
+  { category: "person", label: "People" },
 ];
 
 /** Mirrors tierFor in the service's ScoreEngine. */
 const TIERS = [
-  ["Noted", 100],
-  ["Credible", 500],
-  ["Significant", 1000],
-  ["Supreme", 2000],
+  ["Noted", 200],
+  ["Credible", 400],
+  ["Significant", 600],
+  ["Supreme", 900],
 ] as const;
 const nextTier = (score: number) => TIERS.find(([, min]) => score < min);
 
@@ -79,7 +80,56 @@ function BotCheck({ s }: { readonly s: NonNullable<ScoreReport["latest"]> }) {
   );
 }
 
-/** The Sorsa-style report card: score, tier, who the top followers are, bot check, history. */
+/** Joined, left and re-weighted followers between the two latest samples. */
+function Moved({ moved }: { readonly moved: NonNullable<ScoreReport["moved"]> }) {
+  const lists = [
+    { label: "Joined", rows: moved.joined.slice(0, 10), delta: (f: TopFollower) => f.points },
+    { label: "Left", rows: moved.left.slice(0, 10), delta: (f: TopFollower) => -f.points },
+  ] as const;
+  const changed = moved.changed.slice(0, 10);
+  return (
+    <Section title={`Who moved your score since ${moved.sinceAt.slice(0, 10)}`}>
+      {moved.joined.length + moved.left.length + changed.length === 0 ? (
+        <p className="text-xs text-muted-foreground">Same scored set as last time.</p>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          {lists.map(({ label, rows, delta }) => (
+            <div key={label}>
+              <p className="pb-1 text-2xs text-muted-foreground">
+                {label} ({label === "Joined" ? moved.joined.length : moved.left.length})
+              </p>
+              <ul className="flex flex-col gap-1">
+                {rows.map((f) => (
+                  <li key={f.userId} className="flex items-center gap-1 text-xs">
+                    <Handle f={f} />
+                    <span className="ml-auto shrink-0 font-mono text-2xs text-muted-foreground">
+                      {signed(delta(f))} pts
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+          <div>
+            <p className="pb-1 text-2xs text-muted-foreground">Changed ({moved.changed.length})</p>
+            <ul className="flex flex-col gap-1">
+              {changed.map((f) => (
+                <li key={f.userId} className="flex items-center gap-1 text-xs">
+                  <Handle f={f} />
+                  <span className="ml-auto shrink-0 font-mono text-2xs text-muted-foreground">
+                    {f.previousPoints.toFixed(1)} to {f.points.toFixed(1)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+    </Section>
+  );
+}
+
+/** The Sorsa-style report card: score, tier, who the top followers are by category, what moved, bot check, history. */
 export function ReportCard({
   report,
   actions,
@@ -133,14 +183,15 @@ export function ReportCard({
         )}
       </Section>
       {s === null ? null : (
-        <Section title="Top followers">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            {BUCKETS.map((b) => {
-              const of = s.topFollowers.filter((f) => f.followers >= b.min && f.followers < b.max);
+        <Section title="Top followers by category">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            {CATEGORIES.map((b) => {
+              const of = s.topFollowers.filter((f) => f.category === b.category);
+              const total = s.categories.find((c) => c.category === b.category);
               return (
-                <div key={b.label}>
+                <div key={b.category} data-testid={`category-${b.category}`}>
                   <p className="pb-1 text-2xs text-muted-foreground">
-                    {b.label} ({of.length})
+                    {b.label} ({total?.count ?? 0} scored, {fmt(total?.points ?? 0)} pts)
                   </p>
                   {of.length === 0 ? (
                     <p className="text-xs text-muted-foreground">none in top 20</p>
@@ -157,12 +208,32 @@ export function ReportCard({
           </div>
         </Section>
       )}
+      {report.moved === null ? null : <Moved moved={report.moved} />}
       {s === null ? null : <BotCheck s={s} />}
       <Section title="Score history">
         <LineChart
           points={report.history.map((h) => ({ label: h.at.slice(0, 10), value: h.score }))}
         />
       </Section>
+      {report.profileHistory.length === 0 ? null : (
+        <Section title="Name and bio history">
+          <ol className="flex flex-col gap-1">
+            {report.profileHistory
+              .toReversed()
+              .slice(0, 20)
+              .map((c) => (
+                <li key={c.day} className="flex gap-2 text-xs">
+                  <span className="shrink-0 font-mono text-2xs text-muted-foreground">{c.day}</span>
+                  <span className="shrink-0 font-medium">{c.name}</span>
+                  <span className="truncate text-muted-foreground">{c.bio}</span>
+                  <span className="ml-auto shrink-0 font-mono text-2xs text-muted-foreground">
+                    {fmt(c.followers)}
+                  </span>
+                </li>
+              ))}
+          </ol>
+        </Section>
+      )}
     </div>
   );
 }

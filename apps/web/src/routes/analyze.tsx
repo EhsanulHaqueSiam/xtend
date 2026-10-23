@@ -72,13 +72,13 @@ function AnalyzeScreen() {
             ) : tab === "Overview" ? (
               <Overview data={value} />
             ) : tab === "Posts" ? (
-              <PostsTable posts={value.posts} />
+              <PostsTable posts={value.posts} nonPublic={value.nonPublic} />
             ) : tab === "Audience" ? (
               <Audience posts={value.posts} />
             ) : tab === "Best time" ? (
               <BestTime heatmap={value.heatmap} zone={value.timeZone} />
             ) : tab === "Competitors" ? (
-              <Competitors posts={value.posts} />
+              <Competitors posts={value.posts} nonPublic={value.nonPublic} />
             ) : (
               <Ask />
             ),

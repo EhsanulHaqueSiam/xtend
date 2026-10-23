@@ -64,9 +64,50 @@ export const AnalyzeWindow = Schema.Struct({
 });
 export type AnalyzeWindow = typeof AnalyzeWindow.Type;
 
+/** X's private per-post metrics, one row per post per fetch day. Only the connected account's own posts have them. */
+export const PostAnalytics = Schema.Struct({
+  postId: XId,
+  day: Schema.String,
+  impressions: NonNegativeInt,
+  profileVisits: NonNegativeInt,
+  linkClicks: NonNegativeInt,
+  follows: NonNegativeInt,
+  likes: NonNegativeInt,
+  replies: NonNegativeInt,
+  reposts: NonNegativeInt,
+});
+export type PostAnalytics = typeof PostAnalytics.Type;
+
+/** The nightly non-public job: its last outcome and the newest row per post. */
+export const NonPublic = Schema.Struct({
+  lastRun: Schema.NullOr(
+    Schema.Struct({
+      at: IsoDateTime,
+      posts: NonNegativeInt,
+      /** The XApiError message when the job failed; "provider" means the treg X connection is down. */
+      error: Schema.NullOr(Schema.String),
+    }),
+  ),
+  byPost: Schema.Array(PostAnalytics),
+});
+export type NonPublic = typeof NonPublic.Type;
+
+/** What the desktop overlay shows under each own post. `vsAverage` is impressions over the 30-day mean. */
+export const PostStripEntry = Schema.Struct({
+  postId: XId,
+  impressions: NonNegativeInt,
+  er: Schema.Number,
+  profileVisits: NonNegativeInt,
+  follows: NonNegativeInt,
+  vsAverage: Schema.NullOr(Schema.Number),
+});
+export type PostStripEntry = typeof PostStripEntry.Type;
+
 /** The service does the maths; the UI only renders these. */
 export const AnalyzeData = Schema.Struct({
   handle: Schema.NullOr(XHandle),
+  /** From the newest profile snapshot; the compose preview wants it. */
+  avatarUrl: Schema.NullOr(Schema.String),
   fetchedAt: Schema.NullOr(IsoDateTime),
   /** Own posts only; reposts are dropped at refresh. */
   posts: Schema.Array(AccountPost),
@@ -80,6 +121,7 @@ export const AnalyzeData = Schema.Struct({
   ),
   /** Follower change against the newest snapshot at least 30 days old; null until one exists. */
   followerDelta30d: Schema.NullOr(Schema.Struct({ delta: Schema.Int, sinceDay: Schema.String })),
+  nonPublic: NonPublic,
 });
 export type AnalyzeData = typeof AnalyzeData.Type;
 
@@ -125,6 +167,8 @@ export const Analyze_METHODS = {
   competitors: "analyze.competitors",
   competitorFetch: "analyze.competitorFetch",
   ask: "analyze.ask",
+  refreshNonPublic: "analyze.refreshNonPublic",
+  postStrip: "analyze.postStrip",
 } as const;
 
 export const AnalyzeRpcGroup = RpcGroup.make(
@@ -161,6 +205,17 @@ export const AnalyzeRpcGroup = RpcGroup.make(
   Rpc.make(Analyze_METHODS.ask, {
     payload: Schema.Struct({ question: Schema.String }),
     success: AskAnswer,
+    error: AnalyzeError,
+  }),
+  /** Paid: one analytics read per own post of the last 30 days. Runs nightly too. */
+  Rpc.make(Analyze_METHODS.refreshNonPublic, {
+    payload: Schema.Struct({}),
+    success: AnalyzeData,
+    error: AnalyzeError,
+  }),
+  Rpc.make(Analyze_METHODS.postStrip, {
+    payload: Schema.Struct({ postIds: Schema.Array(XId) }),
+    success: Schema.Array(PostStripEntry),
     error: AnalyzeError,
   }),
 );

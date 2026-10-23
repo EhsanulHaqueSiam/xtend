@@ -1,24 +1,99 @@
-import type { AccountPost, PostKind } from "@xtend/contracts";
+import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
+import type { AccountPost, NonPublic, PostAnalytics, PostKind } from "@xtend/contracts";
 import { useState } from "react";
 
 import { cn } from "../../lib/utils";
-import { engagementRate, fmt, pct, Section, Stat } from "./ui";
+import { analyzeDataAtom, refreshNonPublicAtom } from "../../state/analyze";
+import { usd, useRates } from "../../state/costs";
+import { Button } from "../ui/button";
+import { engagementRate, ErrorText, fmt, pct, Section, Stat } from "./ui";
 
 const COLUMNS = ["date", "views", "likes", "replies", "reposts", "bookmarks", "er"] as const;
 type Column = (typeof COLUMNS)[number];
+/** X's private metrics, shown once the nightly job has rows. */
+const PRIVATE_COLUMNS = ["impressions", "profileVisits", "linkClicks", "follows"] as const;
+const PRIVATE_LABELS = {
+  impressions: "impr",
+  profileVisits: "visits",
+  linkClicks: "clicks",
+  follows: "follows",
+};
 
 const valueOf = (p: AccountPost, c: Column): number =>
   c === "date" ? new Date(p.createdAt).getTime() : c === "er" ? engagementRate(p) : (p[c] ?? 0);
 
 const KINDS: ReadonlyArray<PostKind> = ["text", "media", "link", "reply", "thread"];
+const DAY_MS = 86_400_000;
 
-export function PostsTable({ posts }: { readonly posts: ReadonlyArray<AccountPost> }) {
+/** Last run, its error, and the paid refresh: one analytics read per own post of the last 30 days. */
+function NonPublicStatus({
+  nonPublic,
+  posts30d,
+}: {
+  readonly nonPublic: NonPublic;
+  readonly posts30d: number;
+}) {
+  const rates = useRates();
+  const refresh = useAtomSet(refreshNonPublicAtom, { mode: "promise" });
+  const state = useAtomValue(refreshNonPublicAtom);
+  const refreshData = useAtomRefresh(analyzeDataAtom);
+  const [error, setError] = useState<string | null>(null);
+  const run = async () => {
+    setError(null);
+    try {
+      await refresh();
+      refreshData();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+  const last = nonPublic.lastRun;
+  return (
+    <Section
+      title="Non-public metrics"
+      actions={
+        <Button size="xs" variant="outline" disabled={state.waiting} onClick={() => void run()}>
+          {state.waiting
+            ? "Fetching…"
+            : `Fetch now (${rates === null ? "…" : usd(rates.readPage * posts30d)})`}
+        </Button>
+      }
+    >
+      <p className="text-2xs text-muted-foreground">
+        {last === null
+          ? "Runs nightly at 03:00 in your time zone. Impressions, profile visits, link clicks and follows per post need the treg X connection."
+          : last.error === null
+            ? `Last run ${last.at.slice(0, 16).replace("T", " ")}: ${last.posts} posts.`
+            : `Last run ${last.at.slice(0, 16).replace("T", " ")} failed: needs the treg X connection (${last.error}).`}
+      </p>
+      {error !== null ? <ErrorText>{error}</ErrorText> : null}
+    </Section>
+  );
+}
+
+export function PostsTable({
+  posts,
+  nonPublic,
+}: {
+  readonly posts: ReadonlyArray<AccountPost>;
+  readonly nonPublic: NonPublic;
+}) {
   const [sort, setSort] = useState<Column>("date");
   const [desc, setDesc] = useState(true);
   const byEr = [...posts].sort((a, b) => engagementRate(b) - engagementRate(a));
   const best = new Set(byEr.slice(0, 5).map((p) => p.postId));
   const worst = new Set(byEr.slice(-5).map((p) => p.postId));
   const sorted = [...posts].sort((a, b) => (valueOf(b, sort) - valueOf(a, sort)) * (desc ? 1 : -1));
+  const privateByPost = new Map(nonPublic.byPost.map((r) => [r.postId, r]));
+  const hasPrivate = privateByPost.size > 0;
+  const gained = nonPublic.byPost
+    .filter((r) => r.follows > 0)
+    .sort((a, b) => b.follows - a.follows)
+    .slice(0, 20);
+  const byId = new Map(posts.map((p) => [p.postId, p]));
+  // The 30-day cut is what the service applies; the count only prices the button.
+  const [nowMs] = useState(() => Date.now());
+  const posts30d = posts.filter((p) => nowMs - Date.parse(p.createdAt) < 30 * DAY_MS).length;
 
   const toggle = (c: Column) => {
     if (c === sort) setDesc((d) => !d);
@@ -40,6 +115,26 @@ export function PostsTable({ posts }: { readonly posts: ReadonlyArray<AccountPos
           })}
         </div>
       </Section>
+      <NonPublicStatus nonPublic={nonPublic} posts30d={posts30d} />
+      {gained.length === 0 ? null : (
+        <Section title="Posts that gained followers">
+          <ul className="flex flex-col gap-0.5 text-xs">
+            {gained.map((r) => (
+              <li key={r.postId} className="flex gap-2">
+                <span className="w-16 shrink-0 text-right font-mono">+{fmt(r.follows)}</span>
+                <a
+                  href={byId.get(r.postId)?.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="truncate hover:underline"
+                >
+                  {byId.get(r.postId)?.text ?? r.postId}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
       <Section title={`${posts.length} posts`}>
         <table className="w-full text-xs">
           <thead className="text-2xs text-muted-foreground">
@@ -58,6 +153,13 @@ export function PostsTable({ posts }: { readonly posts: ReadonlyArray<AccountPos
                   </button>
                 </th>
               ))}
+              {hasPrivate
+                ? PRIVATE_COLUMNS.map((c) => (
+                    <th key={c} className="py-1 text-right font-normal uppercase">
+                      {PRIVATE_LABELS[c]}
+                    </th>
+                  ))
+                : null}
             </tr>
           </thead>
           <tbody>
@@ -85,6 +187,13 @@ export function PostsTable({ posts }: { readonly posts: ReadonlyArray<AccountPos
                 <td className="py-1 text-right font-mono">{fmt(p.reposts)}</td>
                 <td className="py-1 text-right font-mono">{fmt(p.bookmarks)}</td>
                 <td className="py-1 text-right font-mono">{pct(engagementRate(p))}</td>
+                {hasPrivate
+                  ? PRIVATE_COLUMNS.map((c) => (
+                      <td key={c} className="py-1 text-right font-mono">
+                        {fmt(privateByPost.get(p.postId)?.[c satisfies keyof PostAnalytics])}
+                      </td>
+                    ))
+                  : null}
               </tr>
             ))}
           </tbody>

@@ -1,11 +1,15 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
+import type { ScoreChange } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 
 import { useQuoteLabel } from "../../state/costs";
 import { runScoreAtom, watchAddAtom, watchListAtom, watchRemoveAtom } from "../../state/scores";
+import { cn } from "../../lib/utils";
 import { Empty, ErrorText, errorText, fmt, inputClass, Section, signed } from "../analyze/ui";
 import { Button } from "../ui/button";
+
+const WINDOWS = ["d1", "d7", "d14", "d30"] as const satisfies ReadonlyArray<keyof ScoreChange>;
 
 function ScoreButton({
   handle,
@@ -26,7 +30,7 @@ function ScoreButton({
   );
 }
 
-/** Watched handles with score, tier and 7-day change; shared with Analyze's Competitors tab. */
+/** Watched handles with score, tier and change over 1 to 30 days, sortable by any window; shared with Analyze's Competitors tab. */
 export function Watchlist({ onOpen }: { readonly onOpen: (handle: string) => void }) {
   const watch = useAtomValue(watchListAtom);
   const refreshWatch = useAtomRefresh(watchListAtom);
@@ -35,6 +39,7 @@ export function Watchlist({ onOpen }: { readonly onOpen: (handle: string) => voi
   const score = useAtomSet(runScoreAtom, { mode: "promise" });
   const scoreState = useAtomValue(runScoreAtom);
   const [handle, setHandle] = useState("");
+  const [sortBy, setSortBy] = useState<keyof ScoreChange | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const run = async (work: () => Promise<unknown>) => {
@@ -87,13 +92,28 @@ export function Watchlist({ onOpen }: { readonly onOpen: (handle: string) => voi
                   <th className="py-1 text-left font-normal">Handle</th>
                   <th className="py-1 text-right font-normal">Score</th>
                   <th className="py-1 text-left font-normal pl-3">Tier</th>
-                  <th className="py-1 text-right font-normal">7d</th>
+                  {WINDOWS.map((w) => (
+                    <th key={w} className="py-1 text-right font-normal">
+                      <button
+                        type="button"
+                        className={cn("cursor-pointer", w === sortBy && "text-foreground")}
+                        onClick={() => setSortBy((s) => (s === w ? null : w))}
+                      >
+                        {w.slice(1)}d{w === sortBy ? " v" : ""}
+                      </button>
+                    </th>
+                  ))}
                   <th className="py-1 text-right font-normal">Added</th>
                   <th />
                 </tr>
               </thead>
               <tbody>
-                {value.map((w) => (
+                {(sortBy === null
+                  ? value
+                  : [...value].sort(
+                      (a, b) => (b.change[sortBy] ?? -Infinity) - (a.change[sortBy] ?? -Infinity),
+                    )
+                ).map((w) => (
                   <tr key={w.handle} className="border-b border-border/50">
                     <td className="py-1">
                       <button
@@ -106,9 +126,11 @@ export function Watchlist({ onOpen }: { readonly onOpen: (handle: string) => voi
                     </td>
                     <td className="py-1 text-right font-mono text-2xs">{fmt(w.score)}</td>
                     <td className="py-1 pl-3 font-mono text-2xs">{w.tier ?? "–"}</td>
-                    <td className="py-1 text-right font-mono text-2xs">
-                      {w.change7d === null ? "–" : signed(w.change7d)}
-                    </td>
+                    {WINDOWS.map((k) => (
+                      <td key={k} className="py-1 text-right font-mono text-2xs">
+                        {w.change[k] === null ? "–" : signed(w.change[k])}
+                      </td>
+                    ))}
                     <td className="py-1 text-right font-mono text-2xs text-muted-foreground">
                       {w.addedAt.slice(0, 10)}
                     </td>
@@ -118,7 +140,7 @@ export function Watchlist({ onOpen }: { readonly onOpen: (handle: string) => voi
                           handle={w.handle}
                           label={w.score === null ? "Score" : "Rescore"}
                           disabled={scoreState.waiting}
-                          onClick={() => void run(() => score(w.handle))}
+                          onClick={() => void run(() => score({ handle: w.handle }))}
                         />
                         <Button
                           size="micro"

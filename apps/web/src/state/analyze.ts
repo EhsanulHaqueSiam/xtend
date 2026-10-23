@@ -18,6 +18,14 @@ export const refreshAnalyzeAtom = clientRuntime.fn<void>()(
   }),
 );
 
+/** Paid: X's private metrics for the last 30 days of own posts. Refresh analyzeDataAtom after it resolves. */
+export const refreshNonPublicAtom = clientRuntime.fn<void>()(
+  Effect.fnUntraced(function* () {
+    const client = yield* XtendClient;
+    return yield* client[Analyze_METHODS.refreshNonPublic]({});
+  }),
+);
+
 export const engagersAtom = clientRuntime.atom(
   Effect.gen(function* () {
     const client = yield* XtendClient;

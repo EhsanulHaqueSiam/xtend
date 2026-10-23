@@ -38,7 +38,7 @@ const toPost = (r: PostRow): AccountPost => ({
   bookmarks: r.bookmarks,
 });
 
-/** Cached own posts, daily profile snapshots and a JSON cache for Assist and competitor results. */
+/** Cached own posts, the daily profile snapshots ScoreStore writes, and a JSON cache for Assist and competitor results. */
 export class AnalyticsStore extends Context.Service<
   AnalyticsStore,
   {
@@ -53,10 +53,6 @@ export class AnalyticsStore extends Context.Service<
       { readonly posts: ReadonlyArray<AccountPost>; readonly fetchedAt: string | null },
       AnalyzeError
     >;
-    readonly saveSnapshot: (
-      handle: string,
-      snapshot: ProfileSnapshot,
-    ) => Effect.Effect<void, AnalyzeError>;
     readonly listSnapshots: (
       handle: string,
     ) => Effect.Effect<ReadonlyArray<ProfileSnapshot>, AnalyzeError>;
@@ -104,18 +100,6 @@ const make = Effect.gen(function* () {
     Effect.mapError(fail("listPosts")),
   );
 
-  const saveSnapshot = Effect.fn("AnalyticsStore.saveSnapshot")(
-    function* (handle: string, s: ProfileSnapshot) {
-      yield* sql`
-        INSERT INTO profile_snapshots (handle, day, followers, following, posts)
-        VALUES (${handle}, ${s.day}, ${s.followers}, ${s.following}, ${s.posts})
-        ON CONFLICT(handle, day) DO UPDATE SET
-          followers = excluded.followers, following = excluded.following, posts = excluded.posts
-      `;
-    },
-    Effect.mapError(fail("saveSnapshot")),
-  );
-
   const listSnapshots = Effect.fn("AnalyticsStore.listSnapshots")(
     function* (handle: string) {
       return yield* sql<ProfileSnapshot>`
@@ -149,7 +133,6 @@ const make = Effect.gen(function* () {
   return AnalyticsStore.of({
     replacePosts,
     listPosts,
-    saveSnapshot,
     listSnapshots,
     cacheGet,
     cacheSet,

@@ -35,32 +35,6 @@ describe("AnalyticsStore", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
-  it.effect("keeps one profile snapshot per day", () =>
-    Effect.gen(function* () {
-      const store = yield* AnalyticsStore.AnalyticsStore;
-      yield* store.saveSnapshot("siam", {
-        day: "2026-10-21",
-        followers: 100,
-        following: 10,
-        posts: 5,
-      });
-      yield* store.saveSnapshot("siam", {
-        day: "2026-10-22",
-        followers: 110,
-        following: 10,
-        posts: 6,
-      });
-      yield* store.saveSnapshot("siam", {
-        day: "2026-10-22",
-        followers: 120,
-        following: 10,
-        posts: 6,
-      });
-      const snapshots = yield* store.listSnapshots("siam");
-      expect(snapshots.map((s) => s.followers)).toEqual([100, 120]);
-    }).pipe(Effect.provide(layerTest)),
-  );
-
   it.effect("caches analysis bodies by key", () =>
     Effect.gen(function* () {
       const store = yield* AnalyticsStore.AnalyticsStore;

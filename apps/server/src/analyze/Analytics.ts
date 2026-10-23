@@ -7,6 +7,7 @@ import {
   CompetitorReport,
   type Engager,
   type HeatmapCell,
+  type PostStripEntry,
   Theme,
   type XPost,
 } from "@xtend/contracts";
@@ -22,6 +23,7 @@ import * as ScoreStore from "../scores/ScoreStore.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 import * as XClient from "../x/XClient.ts";
 import * as AnalyticsStore from "./AnalyticsStore.ts";
+import * as PostAnalytics from "./PostAnalytics.ts";
 
 /** Pages of own posts one refresh reads; Costs prices a refresh from it. */
 export const POST_PAGES = 5;
@@ -136,6 +138,12 @@ export class Analytics extends Context.Service<
     readonly competitors: Effect.Effect<ReadonlyArray<CompetitorReport>, AnalyzeError>;
     readonly competitorFetch: (handle: string) => Effect.Effect<CompetitorReport, AnalyzeError>;
     readonly ask: (question: string) => Effect.Effect<AskAnswer, AnalyzeError>;
+    /** Paid: X's private metrics for the last 30 days of own posts, then `data`. */
+    readonly refreshNonPublic: Effect.Effect<AnalyzeData, AnalyzeError>;
+    /** The overlay's own-post strip; posts without a stored analytics row are left out. */
+    readonly postStrip: (
+      postIds: ReadonlyArray<string>,
+    ) => Effect.Effect<ReadonlyArray<PostStripEntry>, AnalyzeError>;
   }
 >()("xtend/analyze/Analytics") {}
 
@@ -149,6 +157,7 @@ const make = Effect.gen(function* () {
   const observations = yield* ObservationStore.ObservationStore;
   const scoreStore = yield* ScoreStore.ScoreStore;
   const store = yield* AnalyticsStore.AnalyticsStore;
+  const postAnalytics = yield* PostAnalytics.PostAnalytics;
   const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 
   const current = settings.get.pipe(Effect.mapError(fail("settings")));
@@ -181,26 +190,32 @@ const make = Effect.gen(function* () {
   const data: Effect.Effect<AnalyzeData, AnalyzeError> = Effect.gen(function* () {
     const { handle: h, timeZone } = yield* current;
     const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
+    const nonPublic = yield* postAnalytics.current;
     if (h === null)
       return {
         handle: null,
+        avatarUrl: null,
         fetchedAt: null,
         posts: [],
         snapshots: [],
         heatmap: [],
         timeZone,
         ...summarize([], [], nowMs),
+        nonPublic,
       };
     const { posts, fetchedAt } = yield* store.listPosts(h);
     const snapshots = yield* store.listSnapshots(h);
+    const { avatarUrl } = yield* scoreStore.profileHistory(h).pipe(Effect.mapError(fail("data")));
     return {
       handle: h,
+      avatarUrl,
       fetchedAt,
       posts,
       snapshots,
       heatmap: heatmapOf(posts, SettingsStore.zoneOf(timeZone)),
       timeZone,
       ...summarize(posts, snapshots, nowMs),
+      nonPublic,
     };
   });
 
@@ -208,13 +223,7 @@ const make = Effect.gen(function* () {
     const h = yield* requireHandle;
     const profile = yield* x.profile(h, "analyze.refresh");
     const at = yield* nowIso;
-    if (profile !== null)
-      yield* store.saveSnapshot(h, {
-        day: at.slice(0, 10),
-        followers: profile.followers,
-        following: profile.following,
-        posts: profile.posts,
-      });
+    if (profile !== null) yield* scoreStore.saveProfile(profile, at.slice(0, 10));
     yield* store.replacePosts(h, yield* userPosts(h, POST_PAGES, "analyze.refresh"), at);
     return yield* data;
   }).pipe(Effect.mapError(fail("refresh")));
@@ -326,7 +335,36 @@ const make = Effect.gen(function* () {
     Effect.mapError(fail("ask")),
   );
 
-  return Analytics.of({ data, refresh, engagers, themes, competitors, competitorFetch, ask });
+  const refreshNonPublic = Effect.andThen(postAnalytics.refresh, data);
+
+  const postStrip = Effect.fn("Analytics.postStrip")(function* (postIds: ReadonlyArray<string>) {
+    const { byPost } = yield* postAnalytics.current;
+    const mean =
+      byPost.length === 0 ? null : byPost.reduce((s, r) => s + r.impressions, 0) / byPost.length;
+    const wanted = new Set(postIds);
+    return byPost
+      .filter((r) => wanted.has(r.postId))
+      .map((r): PostStripEntry => ({
+        postId: r.postId,
+        impressions: r.impressions,
+        er: r.impressions === 0 ? 0 : (r.likes + r.replies + r.reposts) / r.impressions,
+        profileVisits: r.profileVisits,
+        follows: r.follows,
+        vsAverage: mean === null || mean === 0 ? null : r.impressions / mean,
+      }));
+  });
+
+  return Analytics.of({
+    data,
+    refresh,
+    engagers,
+    themes,
+    competitors,
+    competitorFetch,
+    ask,
+    refreshNonPublic,
+    postStrip,
+  });
 });
 
 export const layer = Layer.effect(Analytics, make);

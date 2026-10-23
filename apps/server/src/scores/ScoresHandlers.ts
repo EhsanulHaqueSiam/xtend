@@ -16,7 +16,7 @@ export const layerHandlers = ScoresRpcGroup.toLayer(
     const store = yield* ScoreStore.ScoreStore;
     return ScoresRpcGroup.of({
       [Scores_METHODS.report]: ({ handle }) => scores.report(handle),
-      [Scores_METHODS.run]: ({ handle }) => scores.run(handle),
+      [Scores_METHODS.run]: ({ handle, pages }) => scores.run(handle, pages),
       [Scores_METHODS.watchList]: () => store.watchList,
       [Scores_METHODS.watchAdd]: ({ handle }) =>
         Effect.gen(function* () {

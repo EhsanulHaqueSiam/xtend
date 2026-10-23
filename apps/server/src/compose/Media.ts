@@ -35,11 +35,7 @@ export class Media extends Context.Service<
 >()("xtend/compose/Media") {}
 
 /** The X rule: one video alone, or up to four images. */
-const roomFor = (
-  existing: Draft["media"],
-  blockIndex: number,
-  kind: MediaKind,
-): string | null => {
+const roomFor = (existing: Draft["media"], blockIndex: number, kind: MediaKind): string | null => {
   const here = existing.filter((m) => m.blockIndex === blockIndex);
   if (here.some((m) => m.kind === "video")) return "This post already has a video";
   if (kind === "video" && here.length > 0) return "A video cannot share a post with images";

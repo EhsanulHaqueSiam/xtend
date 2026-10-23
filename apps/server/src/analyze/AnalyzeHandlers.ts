@@ -3,11 +3,15 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import * as ScoreStore from "../scores/ScoreStore.ts";
+import * as Treg from "../x/Treg.ts";
 import * as Analytics from "./Analytics.ts";
 import * as AnalyticsStore from "./AnalyticsStore.ts";
+import * as PostAnalytics from "./PostAnalytics.ts";
 
 /** Services this area adds to the application. Merged into layerAreas in server.ts. */
+// Treg is provided here as XClient does it: Effect memoizes the layer, so both share the one door.
 export const layer = Analytics.layer.pipe(
+  Layer.provideMerge(PostAnalytics.layer.pipe(Layer.provide(Treg.layer))),
   Layer.provideMerge(Layer.mergeAll(AnalyticsStore.layer, ScoreStore.layer)),
 );
 
@@ -23,6 +27,8 @@ export const layerHandlers = AnalyzeRpcGroup.toLayer(
       [Analyze_METHODS.competitors]: () => analytics.competitors,
       [Analyze_METHODS.competitorFetch]: ({ handle }) => analytics.competitorFetch(handle),
       [Analyze_METHODS.ask]: ({ question }) => analytics.ask(question),
+      [Analyze_METHODS.refreshNonPublic]: () => analytics.refreshNonPublic,
+      [Analyze_METHODS.postStrip]: ({ postIds }) => analytics.postStrip(postIds),
     });
   }),
 );

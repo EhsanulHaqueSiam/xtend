@@ -2,7 +2,7 @@ import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 
-import { useQuoteLabel } from "../../state/costs";
+import { usd, useQuoteLabel, useRates } from "../../state/costs";
 import { reportAtom, runScoreAtom } from "../../state/scores";
 import { Empty, ErrorText, errorText, inputClass } from "../analyze/ui";
 import { Button } from "../ui/button";
@@ -20,13 +20,20 @@ export function HandleReport({
   const refresh = useAtomRefresh(reportAtom(handle));
   const run = useAtomSet(runScoreAtom, { mode: "promise" });
   const runState = useAtomValue(runScoreAtom);
-  const quote = useQuoteLabel({ kind: "scoreRun", handle });
+  const defaultQuote = useQuoteLabel({ kind: "scoreRun", handle });
+  const rates = useRates();
+  const [pages, setPages] = useState(5);
   const [error, setError] = useState<string | null>(null);
+  // The service only quotes the default run; other page counts are priced from its rate card.
+  const quote =
+    pages === 5 || rates === null
+      ? defaultQuote
+      : usd(rates.scraperProfile + pages * rates.followersPage);
 
   const score = async () => {
     setError(null);
     try {
-      await run(handle);
+      await run({ handle, pages });
       refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -34,9 +41,22 @@ export function HandleReport({
   };
 
   const button = (
-    <Button size="xs" variant="outline" disabled={runState.waiting} onClick={() => void score()}>
-      {runState.waiting ? "Scoring…" : `Score (${quote})`}
-    </Button>
+    <div className="flex items-center gap-2">
+      <label className="flex items-center gap-1 font-mono text-2xs text-muted-foreground">
+        <input
+          type="range"
+          min={1}
+          max={10}
+          value={pages}
+          aria-label="Follower pages"
+          onChange={(e) => setPages(Number(e.target.value))}
+        />
+        {pages} pages
+      </label>
+      <Button size="xs" variant="outline" disabled={runState.waiting} onClick={() => void score()}>
+        {runState.waiting ? "Scoring…" : `Score (${quote})`}
+      </Button>
+    </div>
   );
 
   return (
@@ -53,10 +73,16 @@ export function HandleReport({
   );
 }
 
-/** Handle input that renders HandleReport once submitted. */
-export function HandlePicker({ botOnly }: { readonly botOnly?: boolean }) {
-  const [draft, setDraft] = useState("");
-  const [handle, setHandle] = useState<string | null>(null);
+/** Handle input that renders HandleReport once submitted, or straight away for `initial`. */
+export function HandlePicker({
+  botOnly,
+  initial = null,
+}: {
+  readonly botOnly?: boolean;
+  readonly initial?: string | null;
+}) {
+  const [draft, setDraft] = useState(initial ?? "");
+  const [handle, setHandle] = useState<string | null>(initial);
   return (
     <div className="flex flex-col gap-3">
       <form
@@ -78,8 +104,8 @@ export function HandlePicker({ botOnly }: { readonly botOnly?: boolean }) {
         </Button>
       </form>
       <p className="text-2xs text-muted-foreground">
-        Opening is free and shows stored samples. Scoring reads the profile and up to 5 follower
-        pages; the button shows the price.
+        Opening is free and shows stored samples. Scoring reads the profile and the follower pages
+        on the slider; the button shows the price.
       </p>
       {handle === null ? null : <HandleReport handle={handle} botOnly={botOnly ?? false} />}
     </div>
