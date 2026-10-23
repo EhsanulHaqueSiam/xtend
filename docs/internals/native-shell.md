@@ -131,3 +131,4 @@ protocol skip Electron's `before-input-event`, so shortcuts cannot be driven thr
 bridge (`window.desktopBridge.openSlot(...)` evaluated in the app view) can. Without a display
 session, CDP mouse events right after a load or a layout change are dropped; evaluating
 `document.elementFromPoint(x, y)` just before `Input.dispatchMouseEvent` makes them land.
+`apps/desktop/scripts/cdp.mjs click` does both.

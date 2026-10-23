@@ -40,7 +40,8 @@ Xtend is a desktop-first X (Twitter) growth suite: x.com is the window, and a lo
 
 - `pnpm i` installs. `pnpm dev` runs the service and the web app. `pnpm dev:desktop` builds the Electron main and launches it against the dev web server.
 - Service state lives in `~/.xtend` by default; `--base-dir` overrides it. Dev runs use `<repo>/.xtend`, which is gitignored.
-- `vp run typecheck` (tsc-rs), `vp test run <files>`, `vp lint`, `vp fmt`. Do not run repo-wide checks unless asked.
+- `pnpm check:changed` before you hand work back: it checks only what you changed. Otherwise `vp run typecheck` (tsc-rs), `vp test run <files>`, `vp lint`, `vp fmt`. Do not run repo-wide checks unless asked.
+- Screen tests render against a fake service: `render(ui, { service })`. See `docs/operations/development.md#screen-tests`.
 - Backend behaviour ships with a focused test beside it. Visual changes ship with a screenshot.
 
 ## Do not

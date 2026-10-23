@@ -26,6 +26,10 @@ The desktop shell needs the dev web server running first:
 pnpm dev:desktop
 ```
 
+On a host without a display (the Mac mini over ssh), start it with `XTEND_REMOTE_DEBUG=9223`
+and drive it with `node apps/desktop/scripts/cdp.mjs shot|eval|click|type`. A dev desktop
+started with `XTEND_SHOT_DIR` also writes a capture on `kill -USR2 <pid>`.
+
 ## Seed observations
 
 The web UI shows what the desktop's x.com session observed. Without the desktop, post a batch
