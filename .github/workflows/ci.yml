@@ -13,24 +13,76 @@ concurrency:
   group: ci-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Runners are pinned: ubuntu-latest moved to 26.04 before Playwright supported it, and every
+# run failed at the browser install.
 jobs:
   check:
-    name: Lint, typecheck, test
-    runs-on: ubuntu-latest
+    name: Format, lint, unused code
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup
+      - run: pnpm fmt:check
+      - run: pnpm lint
+      - run: pnpm knip
+
+  build:
+    name: Build, typecheck, desktop smoke
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 12.14.0
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 26.11.1
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm fmt:check
-      - run: pnpm lint
+      - uses: ./.github/actions/setup
       - run: pnpm typecheck
-      - run: pnpm exec playwright install --with-deps chromium
-        working-directory: apps/web
+      - run: pnpm build
+      - name: Verify preload bundles
+        run: pnpm --filter @xtend/desktop verify:bundles
+
+      - name: Resolve Electron version
+        id: electron
+        run: echo "version=$(node -p "require('./apps/desktop/node_modules/electron/package.json').version")" >> "$GITHUB_OUTPUT"
+      - name: Cache Electron download
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/electron
+          key: electron-${{ runner.os }}-${{ runner.arch }}-${{ steps.electron.outputs.version }}
+      # pnpm-workspace.yaml disables Electron's install script; this fetches the binary.
+      - run: pnpm --filter @xtend/desktop ensure:electron
+
+      - name: Install a virtual display
+        run: command -v xvfb-run || (sudo apt-get update && sudo apt-get install -y xvfb)
+      - name: Desktop smoke test
+        run: xvfb-run -a pnpm --filter @xtend/desktop smoke-test
+
+  test:
+    name: Test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup
+
+      # Web and desktop both run *.browser.test.* files in headless Chromium.
+      - name: Resolve Playwright version
+        id: playwright
+        run: echo "version=$(node -p "require('./apps/web/node_modules/playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+      - name: Cache Chromium
+        id: chromium
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-shell-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
+      - name: Install Chromium
+        if: steps.chromium.outputs.cache-hit != 'true'
+        run: node apps/web/node_modules/playwright/cli.js install --only-shell chromium
+      # The runner image usually has every library already; apt only runs when one is missing.
+      - name: Install missing Chromium libraries
+        run: |
+          browser=$(find "$HOME/.cache/ms-playwright" -name chrome-headless-shell -type f -print -quit)
+          test -n "$browser"
+          if ldd "$browser" | grep '=> not found'; then
+            sudo node apps/web/node_modules/playwright/cli.js install-deps chromium
+          fi
+
       - run: pnpm test

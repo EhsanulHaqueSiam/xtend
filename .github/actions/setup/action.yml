@@ -1,0 +1,17 @@
+name: Setup
+description: pnpm and Node at the repo's pinned versions, then the workspace dependencies from cache.
+runs:
+  using: composite
+  steps:
+    # Reads the version from package.json "packageManager".
+    - uses: pnpm/action-setup@v4
+
+    - uses: actions/setup-node@v5
+      with:
+        # Same pin as mise.toml.
+        node-version: 26.11.1
+        cache: pnpm
+
+    - name: Install dependencies
+      shell: bash
+      run: pnpm install --frozen-lockfile
