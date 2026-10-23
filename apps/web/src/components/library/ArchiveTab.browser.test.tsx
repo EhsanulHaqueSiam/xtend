@@ -27,7 +27,12 @@ it("builds the filter set from the bar and clears it", async () => {
   await userEvent.selectOptions(screen.getByLabelText("format"), "thread");
   await userEvent.selectOptions(screen.getByLabelText("author size"), "1M+");
   await userEvent.selectOptions(screen.getByLabelText("hook"), "number hook");
-  expect(last).toEqual({ minViews: 5000, format: "thread", authorBand: "1M+", hookPattern: "number hook" });
+  expect(last).toEqual({
+    minViews: 5000,
+    format: "thread",
+    authorBand: "1M+",
+    hookPattern: "number hook",
+  });
 
   await userEvent.selectOptions(screen.getByLabelText("format"), "");
   expect(last).toEqual({ minViews: 5000, authorBand: "1M+", hookPattern: "number hook" });

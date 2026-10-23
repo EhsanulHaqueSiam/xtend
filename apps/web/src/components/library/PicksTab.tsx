@@ -248,7 +248,8 @@ export function PicksTab() {
               disabled={busy !== null}
               onClick={() => void runReady()}
             >
-              <Wand2 /> {busy === "ready" ? "Writing…" : `Ready-to-post x3 (${trendingQuote} + model)`}
+              <Wand2 />{" "}
+              {busy === "ready" ? "Writing…" : `Ready-to-post x3 (${trendingQuote} + model)`}
             </Button>
             {value.pending.length > 0 ? (
               <Button

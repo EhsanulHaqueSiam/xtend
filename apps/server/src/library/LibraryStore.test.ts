@@ -76,32 +76,34 @@ describe("LibraryStore", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
-  it.effect("archives every post it sees and filters by views, format, year, author band and language", () =>
-    Effect.gen(function* () {
-      const store = yield* LibraryStore.LibraryStore;
-      yield* store.upsertPosts([
-        post("1", 50_000, { hasMedia: true, followers: 2_000_000 }),
-        post("2", 900, { hasLink: true, createdAt: "2025-03-01T00:00:00.000Z", lang: "de" }),
-        post("3", 10, { followers: 500 }),
-      ]);
-      // Seen again with fresh metrics: one row, metrics refreshed, label kept.
-      yield* store.setPatterns([{ postId: "3", format: "thread", hookPattern: "list" }]);
-      yield* store.upsertPosts([post("3", 20, { followers: 500 })]);
+  it.effect(
+    "archives every post it sees and filters by views, format, year, author band and language",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* LibraryStore.LibraryStore;
+        yield* store.upsertPosts([
+          post("1", 50_000, { hasMedia: true, followers: 2_000_000 }),
+          post("2", 900, { hasLink: true, createdAt: "2025-03-01T00:00:00.000Z", lang: "de" }),
+          post("3", 10, { followers: 500 }),
+        ]);
+        // Seen again with fresh metrics: one row, metrics refreshed, label kept.
+        yield* store.setPatterns([{ postId: "3", format: "thread", hookPattern: "list" }]);
+        yield* store.upsertPosts([post("3", 20, { followers: 500 })]);
 
-      const ids = (filters: Parameters<typeof store.browse>[0]) =>
-        Effect.map(store.browse(filters), (rows) => rows.map((r) => r.post.postId));
-      expect(yield* ids({})).toEqual(["1", "2", "3"]);
-      expect(yield* ids({ minViews: 500 })).toEqual(["1", "2"]);
-      expect(yield* ids({ format: "media" })).toEqual(["1"]);
-      expect(yield* ids({ format: "thread" })).toEqual(["3"]);
-      expect(yield* ids({ year: 2025 })).toEqual(["2"]);
-      expect(yield* ids({ authorBand: "1M+" })).toEqual(["1"]);
-      expect(yield* ids({ authorBand: "under 10k" })).toEqual(["3"]);
-      expect(yield* ids({ lang: "de" })).toEqual(["2"]);
-      expect(yield* ids({ hookPattern: "list" })).toEqual(["3"]);
-      expect((yield* store.libraryPost("3"))?.post.metrics.views).toBe(20);
-      expect(yield* store.undetectedCount).toBe(2);
-      expect((yield* store.undetected(1)).map((r) => r.post.postId)).toEqual(["1"]);
-    }).pipe(Effect.provide(layerTest)),
+        const ids = (filters: Parameters<typeof store.browse>[0]) =>
+          Effect.map(store.browse(filters), (rows) => rows.map((r) => r.post.postId));
+        expect(yield* ids({})).toEqual(["1", "2", "3"]);
+        expect(yield* ids({ minViews: 500 })).toEqual(["1", "2"]);
+        expect(yield* ids({ format: "media" })).toEqual(["1"]);
+        expect(yield* ids({ format: "thread" })).toEqual(["3"]);
+        expect(yield* ids({ year: 2025 })).toEqual(["2"]);
+        expect(yield* ids({ authorBand: "1M+" })).toEqual(["1"]);
+        expect(yield* ids({ authorBand: "under 10k" })).toEqual(["3"]);
+        expect(yield* ids({ lang: "de" })).toEqual(["2"]);
+        expect(yield* ids({ hookPattern: "list" })).toEqual(["3"]);
+        expect((yield* store.libraryPost("3"))?.post.metrics.views).toBe(20);
+        expect(yield* store.undetectedCount).toBe(2);
+        expect((yield* store.undetected(1)).map((r) => r.post.postId)).toEqual(["1"]);
+      }).pipe(Effect.provide(layerTest)),
   );
 });

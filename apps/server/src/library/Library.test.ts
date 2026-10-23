@@ -23,7 +23,14 @@ const post = (postId: string, text: string): XPost => ({
   isRepost: false,
   hasMedia: false,
   hasLink: false,
-  author: { userId: "1", handle: "naval", name: "Naval", followers: 1, verified: true, avatarUrl: null },
+  author: {
+    userId: "1",
+    handle: "naval",
+    name: "Naval",
+    followers: 1,
+    verified: true,
+    avatarUrl: null,
+  },
   metrics: { views: 100, likes: 5, reposts: 2, replies: 1, quotes: 0, bookmarks: 3 },
 });
 
@@ -77,7 +84,10 @@ describe("Library", () => {
       requests.length = 0;
       const store = yield* LibraryStore.LibraryStore;
       const library = yield* Library.Library;
-      yield* store.upsertPosts([post("1", "Nobody needs a cofounder."), post("2", "1/ Ten lessons")]);
+      yield* store.upsertPosts([
+        post("1", "Nobody needs a cofounder."),
+        post("2", "1/ Ten lessons"),
+      ]);
 
       expect(yield* library.detectPatterns).toEqual({ detected: 2, remaining: 0 });
       expect(requests).toHaveLength(1);

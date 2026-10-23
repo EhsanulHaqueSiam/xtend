@@ -247,10 +247,10 @@ const make = Effect.gen(function* () {
   });
 
   const staffPicks = Effect.forEach(STAFF_PICKS, (s) =>
-    Effect.map(
-      store.libraryPost(s.postId),
-      (entry): StaffPick => ({ ...s, post: entry?.post ?? null }),
-    ),
+    Effect.map(store.libraryPost(s.postId), (entry): StaffPick => ({
+      ...s,
+      post: entry?.post ?? null,
+    })),
   );
 
   // One search per handle still missing a post; a pick whose id the search does not return stays empty.
@@ -258,7 +258,10 @@ const make = Effect.gen(function* () {
     const current = yield* staffPicks;
     const handles = new Set(current.filter((s) => s.post === null).map((s) => s.handle));
     for (const handle of handles) {
-      const page = yield* x.searchPosts(`from:${handle}`, { mode: "top", purpose: "library.staffPicks" });
+      const page = yield* x.searchPosts(`from:${handle}`, {
+        mode: "top",
+        purpose: "library.staffPicks",
+      });
       yield* store.upsertPosts(page.items);
     }
     return yield* staffPicks;
@@ -273,7 +276,9 @@ const make = Effect.gen(function* () {
         instructions: `Write exactly ${READY_COUNT} posts the user could publish today, each built on one of the trends or picks given, in the user's voice, under 280 characters, no hashtags. For each give the basis (the trend name or the pick's author handle) and voiceMatch, 0 to 100, your honest estimate of how close the text is to the user's voice notes and past tone.`,
         input: {
           trends: list.slice(0, 15).map((t) => t.name),
-          picks: picks.slice(0, 10).map((p) => ({ author: p.post.author.handle, text: p.post.text })),
+          picks: picks
+            .slice(0, 10)
+            .map((p) => ({ author: p.post.author.handle, text: p.post.text })),
         },
         output: Schema.Struct({
           posts: Schema.Array(

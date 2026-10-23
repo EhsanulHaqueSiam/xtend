@@ -79,7 +79,9 @@ export function FilterBar({
         min={0}
         placeholder="min views"
         value={value.minViews ?? ""}
-        onChange={(e) => set("minViews", e.target.value === "" ? undefined : Number(e.target.value))}
+        onChange={(e) =>
+          set("minViews", e.target.value === "" ? undefined : Number(e.target.value))
+        }
       />
       <Select
         label="format"
@@ -99,7 +101,12 @@ export function FilterBar({
         options={AuthorBand.literals}
         onChange={(v) => set("authorBand", v)}
       />
-      <Select label="language" value={value.lang} options={LANGS} onChange={(v) => set("lang", v)} />
+      <Select
+        label="language"
+        value={value.lang}
+        options={LANGS}
+        onChange={(v) => set("lang", v)}
+      />
       <Select
         label="hook"
         value={value.hookPattern}
@@ -151,7 +158,9 @@ function ArchiveRow({ entry }: { readonly entry: LibraryPost }) {
           >
             <PenLine /> {busy ? "Writing…" : "Write mine in this format (model)"}
           </Button>
-          {status !== null ? <span className="text-2xs text-muted-foreground">{status}</span> : null}
+          {status !== null ? (
+            <span className="text-2xs text-muted-foreground">{status}</span>
+          ) : null}
         </>
       }
     />

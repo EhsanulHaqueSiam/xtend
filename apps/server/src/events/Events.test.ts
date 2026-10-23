@@ -10,7 +10,11 @@ describe("Events", () => {
     Effect.gen(function* () {
       const events = yield* Events.Events;
       yield* events.publish({ type: "spend_changed" });
-      const collected = yield* events.stream.pipe(Stream.take(1), Stream.runCollect, Effect.forkChild({ startImmediately: true }));
+      const collected = yield* events.stream.pipe(
+        Stream.take(1),
+        Stream.runCollect,
+        Effect.forkChild({ startImmediately: true }),
+      );
       yield* events.publish({ type: "lead_found", payload: { handle: "levelsio" } });
       const seen = yield* Fiber.join(collected);
       expect(seen.map((e) => e.type)).toEqual(["lead_found"]);

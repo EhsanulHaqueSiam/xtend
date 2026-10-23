@@ -11,7 +11,9 @@ const obj = (v: unknown): Json => (typeof v === "object" && v !== null ? (v as J
 const str = (v: unknown): string | null => (typeof v === "string" ? v : null);
 
 /** One page of the user's DM history through the team's own X tool. Own-account: needs the X connection. */
-export const fetchDmEvents = (purpose: string): Effect.Effect<ReadonlyArray<DmEvent>, XApiError, Treg.Treg> =>
+export const fetchDmEvents = (
+  purpose: string,
+): Effect.Effect<ReadonlyArray<DmEvent>, XApiError, Treg.Treg> =>
   Effect.gen(function* () {
     const treg = yield* Treg.Treg;
     const response = yield* treg.call({
