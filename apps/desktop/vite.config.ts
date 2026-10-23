@@ -27,7 +27,7 @@ const unitTestProject = {
   test: {
     name: "unit",
     environment: "node",
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "scripts/**/*.test.mjs"],
     exclude: ["src/**/*.browser.test.ts"],
   },
 } satisfies TestProjectInlineConfiguration;

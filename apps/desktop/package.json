@@ -11,7 +11,10 @@
     "typecheck": "tsc-rs --noEmit",
     "test": "vp test run --passWithNoTests",
     "dist": "electron-builder --mac",
-    "dist:dir": "electron-builder --dir"
+    "dist:dir": "electron-builder --dir",
+    "ensure:electron": "node -e \"require('electron')\"",
+    "verify:bundles": "node scripts/verify-bundles.mjs",
+    "smoke-test": "node scripts/smoke-test.mjs"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",

@@ -30,6 +30,10 @@ const baseDir = path.resolve(
     path.join(os.homedir(), ".xtend"),
 );
 
+// Smoke runs and tests keep their window config, sessions and cookies apart from the user's.
+const userDataOverride = process.env.XTEND_USER_DATA;
+if (userDataOverride !== undefined && !app.isPackaged) app.setPath("userData", userDataOverride);
+
 // The desktop's own config (which service to use) lives in userData, never in the service DB.
 const configFile = path.join(app.getPath("userData"), "config.json");
 const remote = readRemote(configFile);
@@ -65,7 +69,7 @@ const currentAccountId = async (token: string): Promise<number> => {
   }
 };
 
-// Headless verification: scripts/cdp-screenshot.mjs reads every page through this port.
+// Headless verification: scripts/cdp.mjs drives every page through this port.
 // Dev builds only: any local process could attach to the x.com target and read its cookies.
 const remoteDebugPort = process.env.XTEND_REMOTE_DEBUG;
 if (remoteDebugPort !== undefined && !app.isPackaged)
