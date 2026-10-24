@@ -9,7 +9,7 @@ import { PageHeader } from "../PageHeader";
 import { Empty } from "../ui/layout";
 import { xPill, xPillSm } from "../x";
 import { SavedPosts } from "./CollectionsTab";
-import { AppLink } from "./XLink";
+import { AppLink } from "./shared";
 
 /** Every saved post with its metrics frozen at save time, searchable by text and note. */
 export function SwipeTab() {

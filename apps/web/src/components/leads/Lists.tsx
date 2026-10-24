@@ -1,4 +1,3 @@
-import { Popover } from "@base-ui/react/popover";
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import type { Candidate, EngagementVia, LeadList } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
@@ -20,10 +19,12 @@ import {
 import { errorText, fmt } from "../analyze/ui";
 import { ErrorLine, pill, pillSolid } from "../engage/triage";
 import { PageHeader } from "../PageHeader";
+import { Field, inputClass } from "../ui/field";
 import { Cost, Empty, PageBody, Section } from "../ui/layout";
+import { Popover } from "../ui/popover";
 import { xIconButton } from "../x";
 import { PeopleSplit } from "./People";
-import { Field, field, useAction } from "./ui";
+import { useAction } from "./ui";
 
 type Builder = "search" | "engagement";
 
@@ -129,48 +130,52 @@ function ListSwitcher({
 }) {
   const [open, setOpen] = useState(false);
   return (
-    <Popover.Root open={open} onOpenChange={setOpen}>
-      <Popover.Trigger className="no-drag flex min-w-0 cursor-pointer items-baseline gap-1.5 rounded-[var(--control-radius)] text-[13.5px] text-foreground outline-hidden transition-colors duration-150 hover:text-foreground/80 focus-visible:ring-2 focus-visible:ring-ring">
-        <span className="truncate">{current.name}</span>
-        <span className="font-mono text-2xs text-muted-foreground tabular-nums">
-          {current.members}
-        </span>
-        <ChevronDown className="size-3.5 self-center text-muted-foreground" />
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Positioner side="bottom" align="start" sideOffset={6} className="z-50">
-          <Popover.Popup className="w-64 origin-[var(--transform-origin)] rounded-[var(--radius)] border border-white/13 bg-surface-raised p-1 outline-hidden transition-[opacity,scale] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] data-[ending-style]:scale-[0.97] data-[ending-style]:opacity-0 data-[starting-style]:scale-[0.97] data-[starting-style]:opacity-0">
-            <div className="max-h-72 overflow-y-auto">
-              {lists.map((l) => (
-                <button
-                  key={l.id}
-                  type="button"
-                  data-active={l.id === current.id}
-                  className="flex w-full cursor-pointer items-center gap-2 rounded-[calc(var(--radius)-4px)] px-2 py-1.5 text-left text-sm text-muted-foreground outline-hidden hover:bg-white/7 hover:text-foreground focus-visible:bg-white/7 data-[active=true]:text-foreground"
-                  onClick={() => {
-                    onPick(l.id);
-                    setOpen(false);
-                  }}
-                >
-                  <span className="truncate">{l.name}</span>
-                  <span className="ml-auto font-mono text-2xs text-muted-foreground tabular-nums">
-                    {l.members}
-                  </span>
-                </button>
-              ))}
-            </div>
-            <div className="mt-1 border-t border-border p-1 pt-2">
-              <NewList
-                onCreated={(id) => {
-                  onPick(id);
-                  setOpen(false);
-                }}
-              />
-            </div>
-          </Popover.Popup>
-        </Popover.Positioner>
-      </Popover.Portal>
-    </Popover.Root>
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      align="start"
+      className="w-64 p-1"
+      trigger={
+        <button
+          type="button"
+          className="no-drag flex min-w-0 cursor-pointer items-baseline gap-1.5 rounded-[var(--control-radius)] text-[13.5px] text-foreground outline-hidden transition-colors duration-150 hover:text-foreground/80 focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <span className="truncate">{current.name}</span>
+          <span className="font-mono text-2xs text-muted-foreground tabular-nums">
+            {current.members}
+          </span>
+          <ChevronDown className="size-3.5 self-center text-muted-foreground" />
+        </button>
+      }
+    >
+      <div className="max-h-72 overflow-y-auto">
+        {lists.map((l) => (
+          <button
+            key={l.id}
+            type="button"
+            data-active={l.id === current.id}
+            className="flex w-full cursor-pointer items-center gap-2 rounded-[calc(var(--radius)-4px)] px-2 py-1.5 text-left text-sm text-muted-foreground outline-hidden hover:bg-white/7 hover:text-foreground focus-visible:bg-white/7 data-[active=true]:text-foreground"
+            onClick={() => {
+              onPick(l.id);
+              setOpen(false);
+            }}
+          >
+            <span className="truncate">{l.name}</span>
+            <span className="ml-auto font-mono text-2xs text-muted-foreground tabular-nums">
+              {l.members}
+            </span>
+          </button>
+        ))}
+      </div>
+      <div className="mt-1 border-t border-border p-1 pt-2">
+        <NewList
+          onCreated={(id) => {
+            onPick(id);
+            setOpen(false);
+          }}
+        />
+      </div>
+    </Popover>
   );
 }
 
@@ -197,7 +202,7 @@ function NewList({ onCreated }: { readonly onCreated: (id: number) => void }) {
     >
       <div className="flex gap-1.5">
         <input
-          className={cn(field, "h-7 min-w-0 flex-1 py-0")}
+          className={cn(inputClass, "h-7 flex-1 py-0")}
           placeholder="New list"
           aria-label="New list name"
           value={name}
@@ -360,7 +365,7 @@ function SearchBuilder({ listId }: { readonly listId: number }) {
         >
           <Field label="Search">
             <input
-              className={field}
+              className={inputClass}
               placeholder='"typefully alternative"'
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -368,7 +373,7 @@ function SearchBuilder({ listId }: { readonly listId: number }) {
           </Field>
           <Field label="Min followers">
             <input
-              className={field}
+              className={inputClass}
               placeholder="any"
               inputMode="numeric"
               value={minFollowers}
@@ -377,7 +382,7 @@ function SearchBuilder({ listId }: { readonly listId: number }) {
           </Field>
           <Field label="Bio contains">
             <input
-              className={field}
+              className={inputClass}
               placeholder="anything"
               value={bioKeyword}
               onChange={(e) => setBio(e.target.value)}
@@ -428,7 +433,7 @@ function EngagementBuilder({ listId }: { readonly listId: number }) {
         >
           <Field label="Post">
             <input
-              className={field}
+              className={inputClass}
               placeholder="Post URL or id"
               value={post}
               onChange={(e) => setPost(e.target.value)}
@@ -436,7 +441,7 @@ function EngagementBuilder({ listId }: { readonly listId: number }) {
           </Field>
           <Field label="Who">
             <select
-              className={cn(field, "bg-background")}
+              className={cn(inputClass, "bg-background")}
               value={via}
               onChange={(e) => setVia(e.target.value === "like" ? "like" : "repost")}
             >

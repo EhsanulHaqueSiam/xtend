@@ -2,7 +2,7 @@ import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import type { Person, Stage, XPost } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { useState, type ReactNode } from "react";
+import { useState, type ReactElement, type ReactNode } from "react";
 import { TextMorph } from "torph/react";
 
 import { fmtWhen } from "../../lib/time";
@@ -20,24 +20,22 @@ import {
   updatePersonAtom,
 } from "../../state/leads";
 import { errorText, fmt } from "../analyze/ui";
-import {
-  ago,
-  type Column,
-  ErrorLine,
-  ListHead,
-  ListRow,
-  OpenOnX,
-  pill,
-  pillSolidPriced,
-  Props,
-  RowTitle,
-  Split,
-  useSelection,
-} from "../engage/triage";
+import { ago, ErrorLine, pill, pillSolid } from "../engage/triage";
 import { HeaderTabs, PageHeader } from "../PageHeader";
 import { sectionHref } from "../shell/sections";
+import { inputClass } from "../ui/field";
 import { Cost, Empty, PageBody, Section } from "../ui/layout";
-import { field, STAGES, StageText, useAction } from "./ui";
+import {
+  type Column,
+  DetailSplit,
+  ListHead,
+  ListRow,
+  Props,
+  RowTitle,
+  useSelection,
+} from "../ui/split";
+import { OpenOnX, profileUrl } from "../ui/x-link";
+import { STAGES, StageText, useAction } from "./ui";
 
 const COLUMNS: ReadonlyArray<Column<Person>> = [
   { label: "Score", className: "w-10", cell: (p) => fmt(p.score) },
@@ -131,7 +129,7 @@ export function PeopleSplit({
 }: {
   readonly listId: number | null;
   readonly stage?: StageFilter;
-  readonly aside?: ReactNode;
+  readonly aside?: ReactElement | null;
   readonly onPick?: () => void;
   readonly empty: ReactNode;
 }) {
@@ -153,7 +151,7 @@ export function PeopleSplit({
       </PageBody>
     ),
     onSuccess: () => (
-      <Split
+      <DetailSplit
         detailKey={aside !== null ? "aside" : selected}
         list={
           people.length === 0 ? (
@@ -245,7 +243,7 @@ function PersonPanel({
             <TextMorph duration={250}>{profile.busy ? "Fetching…" : "Fetch profile"}</TextMorph>
             {rates === null ? <Cost label="…" /> : <Cost usd={rates.scraperProfile} />}
           </button>
-          <OpenOnX url={`https://x.com/${person.handle}`} />
+          <OpenOnX href={profileUrl(person.handle)} />
         </div>
         {profile.error !== null ? (
           <p className="mt-2 text-xs text-error-foreground">{profile.error}</p>
@@ -292,7 +290,7 @@ function PersonPanel({
       </Section>
       <Section title="Notes">
         <textarea
-          className={cn(field, "min-h-16 resize-y")}
+          className={cn(inputClass, "min-h-16 resize-y leading-relaxed")}
           placeholder="What you know about them"
           value={notes ?? person.notes}
           onChange={(e) => setNotes(e.target.value)}
@@ -356,7 +354,7 @@ function DirectMessage({
       }
     >
       <textarea
-        className={cn(field, "min-h-20 resize-y")}
+        className={cn(inputClass, "min-h-20 resize-y leading-relaxed")}
         placeholder="Write a DM, or draft one"
         value={text}
         onChange={(e) => {
@@ -367,7 +365,7 @@ function DirectMessage({
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
         <button
           type="button"
-          className={pillSolidPriced}
+          className={pillSolid}
           disabled={send.busy || draft.busy || text.trim() === "" || noUserId || rates === null}
           onClick={() =>
             void send.run(() =>
@@ -380,7 +378,7 @@ function DirectMessage({
           }
         >
           <TextMorph duration={250}>{send.busy ? "Sending…" : sent ? "Sent" : "Send DM"}</TextMorph>
-          {rates === null ? <Cost label="…" /> : <Cost usd={rates.dm} />}
+          {rates === null ? <Cost tone="solid" label="…" /> : <Cost tone="solid" usd={rates.dm} />}
         </button>
         <button
           type="button"
@@ -449,7 +447,7 @@ function Reply({
             {post.text}
           </p>
           <textarea
-            className={cn(field, "mt-3 min-h-20 resize-y")}
+            className={cn(inputClass, "mt-3 min-h-20 resize-y leading-relaxed")}
             placeholder="Write a reply, or draft one"
             value={text}
             maxLength={280}
@@ -461,7 +459,7 @@ function Reply({
           <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
             <button
               type="button"
-              className={pillSolidPriced}
+              className={pillSolid}
               disabled={busy || text.trim() === ""}
               onClick={() =>
                 void run(() =>
@@ -474,7 +472,7 @@ function Reply({
               }
             >
               <TextMorph duration={250}>{sentId !== null ? "Replied" : "Reply"}</TextMorph>
-              <Cost label={replyQuote} />
+              <Cost tone="solid" label={replyQuote} />
             </button>
             <button
               type="button"

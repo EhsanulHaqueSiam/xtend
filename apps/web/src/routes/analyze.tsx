@@ -9,9 +9,10 @@ import { BestTime } from "../components/analyze/BestTime";
 import { Competitors } from "../components/analyze/Competitors";
 import { Overview } from "../components/analyze/Overview";
 import { Posts } from "../components/analyze/PostsTable";
-import { errorText, NoHandle } from "../components/analyze/ui";
+import { errorText } from "../components/analyze/ui";
 import { useSection } from "../components/shell/sections";
 import { Empty } from "../components/ui/layout";
+import { NoHandle } from "../components/ui/no-handle";
 import { analyzeDataAtom } from "../state/analyze";
 
 /** Each section is its own page over the same loaded data; the sidebar switches between them. */
@@ -35,7 +36,7 @@ function AnalyzeScreen() {
       if (value.handle === null)
         return (
           <AnalyzePage data={value}>
-            <NoHandle />
+            <NoHandle subject="Analyze needs" />
           </AnalyzePage>
         );
       switch (section) {

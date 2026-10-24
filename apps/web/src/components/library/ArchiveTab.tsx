@@ -10,8 +10,11 @@ import {
   encodeFilters,
   writeInFormatAtom,
 } from "../../state/library";
+import { useQuoteLabel } from "../../state/costs";
 import { PageHeader } from "../PageHeader";
-import { Empty } from "../ui/layout";
+import { compactInputClass } from "../ui/field";
+import { Cost, Empty } from "../ui/layout";
+import { DetailSplit } from "../ui/split";
 import { xPill, xPillSm } from "../x";
 import {
   FormatTabs,
@@ -21,11 +24,10 @@ import {
   type FormatFilter,
   type SortKey,
 } from "./controls";
-import { DetailSplit, PostGrid } from "./PostCard";
+import { PostGrid } from "./PostCard";
 import { DraftBlock, InspectorGroup, PostInspector } from "./PostInspector";
 import { RemixButton, SaveButton, useSavedIds } from "./SaveButton";
-import { ErrorLine, ModelCost, causeMessage, controlClass, errorMessage } from "./shared";
-import { AppLink } from "./XLink";
+import { AppLink, ErrorLine, causeMessage, errorMessage } from "./shared";
 
 const THIS_YEAR = new Date().getFullYear();
 const YEARS = Array.from({ length: 6 }, (_, i) => THIS_YEAR - i);
@@ -49,7 +51,7 @@ function Select<T extends string>({
     <select
       aria-label={label}
       className={cn(
-        controlClass,
+        compactInputClass,
         "w-auto cursor-pointer",
         value === undefined && "text-muted-foreground",
       )}
@@ -86,7 +88,7 @@ export function FilterBar({
   return (
     <div className="flex flex-wrap items-center gap-1.5 border-b border-border px-6 py-2.5">
       <input
-        className={cn(controlClass, "w-24 font-mono tabular-nums")}
+        className={cn(compactInputClass, "w-24 font-mono tabular-nums")}
         aria-label="Min views"
         type="number"
         min={0}
@@ -149,6 +151,7 @@ function ArchiveInspector({
   readonly onClose: () => void;
 }) {
   const write = useAtomSet(writeInFormatAtom, { mode: "promise" });
+  const assistQuote = useQuoteLabel({ kind: "assist" });
   const [draft, setDraft] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -168,7 +171,7 @@ function ArchiveInspector({
           <RemixButton post={entry.post} />
         </div>
       </InspectorGroup>
-      <InspectorGroup title="Write mine in this format" aside={<ModelCost />}>
+      <InspectorGroup title="Write mine in this format" aside={<Cost label={assistQuote} />}>
         {draft === null ? (
           <button
             type="button"
@@ -220,6 +223,7 @@ export function ArchiveTab() {
   const refresh = useAtomRefresh(browseAtom(key));
   const detect = useAtomSet(detectPatternsAtom, { mode: "promise" });
   const saved = useSavedIds();
+  const assistQuote = useQuoteLabel({ kind: "assist" });
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -279,12 +283,16 @@ export function ArchiveTab() {
               onClick={() => void runDetect()}
             >
               {busy ? "Detecting" : "Detect hooks"}
-              <span className="font-mono text-2xs text-muted-foreground">20 posts · model</span>
+              {/* One model call labels the batch of 20. */}
+              <Cost label={`20 posts · ${assistQuote}`} />
             </button>
           </>
         }
       />
       <DetailSplit
+        closable
+        label="Selected post"
+        detailKey={selected}
         detail={
           entry === undefined ? null : (
             <ArchiveInspector
@@ -295,8 +303,7 @@ export function ArchiveTab() {
             />
           )
         }
-      >
-        {AsyncResult.match(result, {
+        list={AsyncResult.match(result, {
           onInitial: () => <Empty>Loading the archive</Empty>,
           onFailure: (f) => <ErrorLine className="py-4">{causeMessage(f.cause)}</ErrorLine>,
           onSuccess: ({ value }) =>
@@ -338,7 +345,7 @@ export function ArchiveTab() {
               />
             ),
         })}
-      </DetailSplit>
+      />
     </>
   );
 }

@@ -21,16 +21,14 @@ import { PageHeader } from "../PageHeader";
 import { sectionHref } from "../shell/sections";
 import { Button } from "../ui/button";
 import { Empty, table } from "../ui/layout";
+import { DetailSplit } from "../ui/split";
 import { RuleDetail } from "./RuleDetail";
 import { RuleRow } from "./RuleRow";
 
 /** Where a rule's runs live: the Runs section filtered to it. */
-export const runsOf = (ruleId: number) => `${sectionHref("/automate", "runs")}&rule=${ruleId}`;
+const runsOf = (ruleId: number) => `${sectionHref("/automate", "runs")}&rule=${ruleId}`;
 
-/**
- * Rules: the list fills the page; opening a rule (or New rule) adds its detail
- * column on the right, which takes the whole page when the split gets narrow.
- */
+/** Rules: the list fills the page; opening a rule (or New rule) adds its detail column. */
 export function Rules() {
   const rules = useAtomValue(rulesAtom);
   const runs = useAtomValue(runsAtom);
@@ -79,7 +77,7 @@ export function Rules() {
   const toggle = (rule: Rule) => void act(() => upsert({ ...rule, enabled: !rule.enabled }));
 
   return (
-    <div className="@container flex h-full flex-col">
+    <div className="flex h-full flex-col">
       <PageHeader
         title="Rules"
         detail={`${enabledCount} of ${list.length} on · ${usd(spent)} this month`}
@@ -103,99 +101,95 @@ export function Rules() {
         }
       />
       <ErrorBar>{error}</ErrorBar>
-      <div className="flex min-h-0 flex-1">
-        <div
-          className={cn(
-            "@container/list min-w-0 flex-1 overflow-y-auto",
-            showDetail && "hidden @2xl:block",
-          )}
-        >
-          {AsyncResult.match(rules, {
-            onInitial: () => <Empty>Connecting to the service.</Empty>,
-            onFailure: (f) => (
-              <Empty>
-                <span className="text-error-foreground">{errorText(f.cause)}</span>
+      <DetailSplit
+        closable
+        label={current === null ? "New rule" : current.name}
+        list={AsyncResult.match(rules, {
+          onInitial: () => <Empty>Connecting to the service.</Empty>,
+          onFailure: (f) => (
+            <Empty>
+              <span className="text-error-foreground">{errorText(f.cause)}</span>
+            </Empty>
+          ),
+          onSuccess: ({ value }) =>
+            value.length === 0 ? (
+              <Empty
+                action={
+                  open === "new" ? undefined : (
+                    <Button size="sm" variant="outline" onClick={() => setOpen("new")}>
+                      <Plus />
+                      New rule
+                    </Button>
+                  )
+                }
+              >
+                No rules yet. A new rule starts as a dry run.
               </Empty>
+            ) : (
+              <table className={table.root}>
+                <thead>
+                  <tr>
+                    <th className={cn(table.th, "w-0 pr-1")}>
+                      <span className="sr-only">On</span>
+                    </th>
+                    <th className={table.th}>Rule</th>
+                    <th className={cn(table.th, "text-right")}>Per fire</th>
+                    <th className={cn(table.th, "hidden text-right @2xl/list:table-cell")}>
+                      Today
+                    </th>
+                    <th className={cn(table.th, "hidden text-right @2xl/list:table-cell")}>
+                      This month
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {value.map((rule) => (
+                    <RuleRow
+                      key={rule.id}
+                      rule={rule}
+                      selected={rule.id === open}
+                      busy={busy}
+                      onSelect={() => setOpen(rule.id === open ? null : rule.id)}
+                      onToggle={() => toggle(rule)}
+                    />
+                  ))}
+                </tbody>
+              </table>
             ),
-            onSuccess: ({ value }) =>
-              value.length === 0 ? (
-                <Empty
-                  action={
-                    open === "new" ? undefined : (
-                      <Button size="sm" variant="outline" onClick={() => setOpen("new")}>
-                        <Plus />
-                        New rule
-                      </Button>
-                    )
-                  }
-                >
-                  No rules yet. A new rule starts as a dry run.
-                </Empty>
-              ) : (
-                <table className={table.root}>
-                  <thead>
-                    <tr>
-                      <th className={cn(table.th, "w-0 pr-1")}>
-                        <span className="sr-only">On</span>
-                      </th>
-                      <th className={table.th}>Rule</th>
-                      <th className={cn(table.th, "text-right")}>Per fire</th>
-                      <th className={cn(table.th, "hidden text-right @2xl/list:table-cell")}>
-                        Today
-                      </th>
-                      <th className={cn(table.th, "hidden text-right @2xl/list:table-cell")}>
-                        This month
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {value.map((rule) => (
-                      <RuleRow
-                        key={rule.id}
-                        rule={rule}
-                        selected={rule.id === open}
-                        busy={busy}
-                        onSelect={() => setOpen(rule.id === open ? null : rule.id)}
-                        onToggle={() => toggle(rule)}
-                      />
-                    ))}
-                  </tbody>
-                </table>
-              ),
-          })}
-        </div>
-        {showDetail ? (
-          <RuleDetail
-            rule={current}
-            runs={current === null ? [] : runList.filter((r) => r.ruleId === current.id)}
-            busy={busy}
-            saving={doing === "save"}
-            running={doing === "run"}
-            formKey={`${open}:${saves}`}
-            className="w-full @2xl:w-[380px] @2xl:shrink-0 @2xl:border-l @2xl:border-border"
-            onClose={() => setOpen(null)}
-            onSave={save}
-            onToggle={() => current !== null && toggle(current)}
-            onRunNow={() => {
-              if (current === null) return;
-              const id = current.id;
-              void act(async () => {
-                await runNow(id);
-                await navigate({ href: runsOf(id) });
-              }, "run");
-            }}
-            onShowRuns={() => current !== null && void navigate({ href: runsOf(current.id) })}
-            onDelete={() => {
-              if (current === null) return;
-              const id = current.id;
-              void act(async () => {
-                await remove(id);
-                setOpen(null);
-              });
-            }}
-          />
-        ) : null}
-      </div>
+        })}
+        detail={
+          showDetail ? (
+            <RuleDetail
+              rule={current}
+              runs={current === null ? [] : runList.filter((r) => r.ruleId === current.id)}
+              busy={busy}
+              saving={doing === "save"}
+              running={doing === "run"}
+              formKey={`${open}:${saves}`}
+              onClose={() => setOpen(null)}
+              onSave={save}
+              onToggle={() => current !== null && toggle(current)}
+              onRunNow={() => {
+                if (current === null) return;
+                const id = current.id;
+                void act(async () => {
+                  await runNow(id);
+                  await navigate({ href: runsOf(id) });
+                }, "run");
+              }}
+              onShowRuns={() => current !== null && void navigate({ href: runsOf(current.id) })}
+              onDelete={() => {
+                if (current === null) return;
+                const id = current.id;
+                void act(async () => {
+                  await remove(id);
+                  setOpen(null);
+                });
+              }}
+            />
+          ) : null
+        }
+      />
     </div>
   );
 }

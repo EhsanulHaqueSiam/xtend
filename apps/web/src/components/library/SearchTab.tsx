@@ -7,12 +7,14 @@ import { cn } from "../../lib/utils";
 import { useQuoteLabel } from "../../state/costs";
 import { searchAtom } from "../../state/library";
 import { HeaderTabs, PageHeader } from "../PageHeader";
+import { compactInputClass } from "../ui/field";
 import { Cost, Empty } from "../ui/layout";
+import { DetailSplit } from "../ui/split";
 import { xPill } from "../x";
-import { DetailSplit, PostGrid } from "./PostCard";
+import { PostGrid } from "./PostCard";
 import { InspectorGroup, PostInspector } from "./PostInspector";
 import { RemixButton, SaveButton, useSavedIds } from "./SaveButton";
-import { ErrorLine, controlClass, errorMessage } from "./shared";
+import { ErrorLine, errorMessage } from "./shared";
 
 const MODES = [
   { id: "top", label: "Top" },
@@ -101,7 +103,7 @@ export function SearchTab({ initialQuery }: { readonly initialQuery: string }) {
           />
         </label>
         <input
-          className={cn(controlClass, "h-8 w-44")}
+          className={cn(compactInputClass, "h-8 w-44")}
           aria-label="Exclude words"
           placeholder="exclude words"
           value={exclude}
@@ -114,6 +116,9 @@ export function SearchTab({ initialQuery }: { readonly initialQuery: string }) {
       </form>
       {error !== null ? <ErrorLine>{error}</ErrorLine> : null}
       <DetailSplit
+        closable
+        label="Selected post"
+        detailKey={selected}
         detail={
           post === undefined ? null : (
             <PostInspector post={post} onClose={() => setSelected(null)}>
@@ -126,36 +131,39 @@ export function SearchTab({ initialQuery }: { readonly initialQuery: string }) {
             </PostInspector>
           )
         }
-      >
-        {!searched ? (
-          <Empty>Find posts worth saving. X's own search syntax works here.</Empty>
-        ) : visible.length === 0 ? (
-          <Empty>
-            {items.length === 0
-              ? "No results."
-              : `All ${items.length} results hold an excluded word.`}
-          </Empty>
-        ) : (
-          <PostGrid
-            items={visible.map((p) => ({ key: p.postId, post: p }))}
-            selected={selected}
-            onSelect={setSelected}
-          />
-        )}
-        {searched && cursor !== null ? (
-          <div className="flex justify-center pb-6">
-            <button
-              type="button"
-              className={xPill}
-              disabled={busy}
-              onClick={() => void run(cursor)}
-            >
-              {busy ? "Loading" : "Load more"}
-              <Cost label={searchQuote} />
-            </button>
-          </div>
-        ) : null}
-      </DetailSplit>
+        list={
+          <>
+            {!searched ? (
+              <Empty>Find posts worth saving. X's own search syntax works here.</Empty>
+            ) : visible.length === 0 ? (
+              <Empty>
+                {items.length === 0
+                  ? "No results."
+                  : `All ${items.length} results hold an excluded word.`}
+              </Empty>
+            ) : (
+              <PostGrid
+                items={visible.map((p) => ({ key: p.postId, post: p }))}
+                selected={selected}
+                onSelect={setSelected}
+              />
+            )}
+            {searched && cursor !== null ? (
+              <div className="flex justify-center pb-6">
+                <button
+                  type="button"
+                  className={xPill}
+                  disabled={busy}
+                  onClick={() => void run(cursor)}
+                >
+                  {busy ? "Loading" : "Load more"}
+                  <Cost label={searchQuote} />
+                </button>
+              </div>
+            ) : null}
+          </>
+        }
+      />
     </>
   );
 }

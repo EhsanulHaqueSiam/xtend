@@ -11,9 +11,12 @@ import { useState } from "react";
 
 import { PageHeader } from "../components/PageHeader";
 import { Button } from "../components/ui/button";
+import { Field, inputClass } from "../components/ui/field";
 import { PageBody, Section, Stat } from "../components/ui/layout";
+import { Switch } from "../components/ui/switch";
 import type { Reachability, ServiceMode } from "../desktopBridge";
 import { isElectron } from "../env";
+import { cn } from "../lib/utils";
 import {
   accountsAtom,
   createAccountAtom,
@@ -36,53 +39,8 @@ function Row({ label, children }: { readonly label: string; readonly children: R
   );
 }
 
-/** One setting: its name and a short note on the left, the control on the right. */
-function Field({
-  label,
-  hint,
-  children,
-}: {
-  readonly label: string;
-  readonly hint?: string;
-  readonly children: React.ReactNode;
-}) {
-  return (
-    <label className="grid grid-cols-[220px_minmax(0,1fr)] items-start gap-6 border-b border-border py-3 text-sm last:border-b-0">
-      <span className="flex flex-col gap-0.5 pt-1.5">
-        <span className="text-foreground">{label}</span>
-        {hint !== undefined ? <span className="text-xs text-muted-foreground">{hint}</span> : null}
-      </span>
-      <span className="max-w-md">{children}</span>
-    </label>
-  );
-}
-
-/** An on/off setting as a switch; `checked` is controlled by the caller. */
-function Toggle({
-  checked,
-  onChange,
-  label,
-}: {
-  readonly checked: boolean;
-  readonly onChange: (next: boolean) => void;
-  readonly label: string;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      className="relative mt-1 h-[18px] w-[30px] cursor-pointer rounded-full bg-white/13 transition-colors duration-150 aria-checked:bg-success"
-      onClick={() => onChange(!checked)}
-    >
-      <span className="absolute top-[2px] left-[2px] size-[14px] rounded-full bg-foreground transition-transform duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] in-aria-checked:translate-x-3" />
-    </button>
-  );
-}
-
-const inputClass =
-  "w-full rounded-[var(--control-radius)] border border-white/13 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground outline-hidden placeholder:text-placeholder focus-visible:border-white/30";
+// Settings reads as a list of values, so its fields are mono.
+const settingsInput = cn(inputClass, "font-mono text-xs");
 
 function SettingsForm({ current }: { readonly current: SettingsShape }) {
   const update = useAtomSet(updateSettingsAtom, { mode: "promise" });
@@ -102,11 +60,12 @@ function SettingsForm({ current }: { readonly current: SettingsShape }) {
     <>
       <Section title="X account">
         <Field
+          wide
           label="Handle"
           hint="Taken from your X session when empty. Scores, analytics and mentions are about it."
         >
           <input
-            className={inputClass}
+            className={settingsInput}
             placeholder="handle without @"
             defaultValue={current.handle ?? ""}
             onChange={(e) => {
@@ -118,6 +77,7 @@ function SettingsForm({ current }: { readonly current: SettingsShape }) {
       </Section>
       <Section title="treg and budget">
         <Field
+          wide
           label="treg token"
           hint={
             current.tregTokenSet
@@ -126,7 +86,7 @@ function SettingsForm({ current }: { readonly current: SettingsShape }) {
           }
         >
           <input
-            className={inputClass}
+            className={settingsInput}
             type="password"
             placeholder="treg token"
             value={tregToken}
@@ -134,11 +94,12 @@ function SettingsForm({ current }: { readonly current: SettingsShape }) {
           />
         </Field>
         <Field
+          wide
           label="Monthly budget (USD)"
           hint="Paid calls stop before this month's spend would pass it."
         >
           <input
-            className={inputClass}
+            className={settingsInput}
             type="number"
             min={0}
             step={1}
@@ -157,11 +118,12 @@ function SettingsForm({ current }: { readonly current: SettingsShape }) {
       </Section>
       <Section title="Time and voice">
         <Field
+          wide
           label="Time zone"
           hint="IANA name. Posting slots, the calendar and the best-time heatmap are all in this zone."
         >
           <input
-            className={inputClass}
+            className={settingsInput}
             list="xtend-zones"
             defaultValue={current.timeZone}
             onChange={(e) => {
@@ -176,22 +138,24 @@ function SettingsForm({ current }: { readonly current: SettingsShape }) {
           </datalist>
         </Field>
         <Field
+          wide
           label="Voice notes"
           hint="One paragraph on what you post about and how you sound. The assistant writes in this voice."
         >
           <textarea
-            className={inputClass}
+            className={settingsInput}
             rows={3}
             defaultValue={current.voiceNotes}
             onChange={(e) => setDraft((d) => ({ ...d, voiceNotes: e.target.value }))}
           />
         </Field>
         <Field
+          wide
           label="Keywords"
           hint="Comma separated. Library, Engage and Leads search these by default."
         >
           <input
-            className={inputClass}
+            className={settingsInput}
             defaultValue={current.keywords.join(", ")}
             onChange={(e) =>
               setDraft((d) => ({
@@ -208,10 +172,12 @@ function SettingsForm({ current }: { readonly current: SettingsShape }) {
       {isElectron ? (
         <Section title="Desktop">
           <Field
+            wide
             label="Post media through X"
             hint="Off by default. When on, posts with media go through your X session instead of the API."
           >
-            <Toggle
+            <Switch
+              className="mt-1"
               label="Post media through the x.com session"
               checked={draft.sessionPostingEnabled ?? current.sessionPostingEnabled}
               onChange={(next) => setDraft((d) => ({ ...d, sessionPostingEnabled: next }))}
@@ -244,10 +210,11 @@ function DailyJobsField({
   const call = useQuoteLabel({ kind: "assist" });
   return (
     <Field
+      wide
       label="Daily Library jobs"
       hint={`Each morning: picks for your keywords (${searches} in searches), hook detection and three ready posts (${call} per model call).`}
     >
-      <Toggle label="Daily Library jobs" checked={checked} onChange={onChange} />
+      <Switch className="mt-1" label="Daily Library jobs" checked={checked} onChange={onChange} />
     </Field>
   );
 }
@@ -257,8 +224,12 @@ function XSkinField() {
   const skin = useAtomValue(xSkinAtom);
   const setSkin = useAtomSet(xSkinAtom);
   return (
-    <Field label="Clean X" hint="Hide X's own sidebar, right column and Grok prompts inside Xtend.">
-      <Toggle label="Clean X" checked={skin} onChange={setSkin} />
+    <Field
+      wide
+      label="Clean X"
+      hint="Hide X's own sidebar, right column and Grok prompts inside Xtend."
+    >
+      <Switch className="mt-1" label="Clean X" checked={skin} onChange={setSkin} />
     </Field>
   );
 }
@@ -329,11 +300,12 @@ function RemoteService() {
   return (
     <>
       <Field
+        wide
         label="Service URL"
         hint="http://<tailnet ip or host>:4820 of a service started with --host."
       >
         <input
-          className={inputClass}
+          className={settingsInput}
           placeholder="http://mac-mini:4820"
           value={url}
           onChange={(e) => {
@@ -342,9 +314,9 @@ function RemoteService() {
           }}
         />
       </Field>
-      <Field label="Service token" hint="auth-token from that machine's data directory.">
+      <Field wide label="Service token" hint="auth-token from that machine's data directory.">
         <input
-          className={inputClass}
+          className={settingsInput}
           type="password"
           value={token}
           onChange={(e) => {
@@ -434,12 +406,16 @@ function AccountRows({ list }: { readonly list: AccountList }) {
       <div className="flex max-w-xl items-end gap-2 pt-3">
         <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm">
           <span className="text-muted-foreground">New account label</span>
-          <input className={inputClass} value={label} onChange={(e) => setLabel(e.target.value)} />
+          <input
+            className={settingsInput}
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+          />
         </label>
         <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm">
           <span className="text-muted-foreground">Handle</span>
           <input
-            className={inputClass}
+            className={settingsInput}
             placeholder="optional"
             value={handle}
             onChange={(e) => setHandle(e.target.value)}

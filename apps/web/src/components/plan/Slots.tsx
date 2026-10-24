@@ -4,9 +4,9 @@ import { useState, type ReactNode } from "react";
 import { TextMorph } from "torph/react";
 
 import { cn } from "../../lib/utils";
-import { fieldClass } from "../compose/ThreadEditor";
 import { Companion } from "../shell/Companion";
 import { Button } from "../ui/button";
+import { compactInputClass } from "../ui/field";
 import { table } from "../ui/layout";
 import { XCard } from "../x";
 import { DAYS, hhmm } from "./ui";
@@ -104,10 +104,7 @@ export function Slots({
                 <input
                   type="time"
                   aria-label="Slot time"
-                  className={cn(
-                    fieldClass,
-                    "h-7 w-auto py-0 font-mono text-xs tabular-nums [color-scheme:dark]",
-                  )}
+                  className={cn(compactInputClass, "w-auto font-mono tabular-nums")}
                   value={hhmm(s.minuteOfDay)}
                   onChange={(e) => {
                     const [h = 0, m = 0] = e.target.value.split(":").map(Number);

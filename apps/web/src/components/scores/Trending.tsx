@@ -7,10 +7,11 @@ import { cn } from "../../lib/utils";
 import { useQuoteLabel } from "../../state/costs";
 import { trendingAtom } from "../../state/scores";
 import { PageHeader } from "../PageHeader";
+import { compactInputClass } from "../ui/field";
 import { Cost, Empty, PageBody, table } from "../ui/layout";
 import { xPill, xPillSm } from "../x";
-import { ErrorLine, causeMessage, controlClass, fmt } from "../library/shared";
-import { XLink } from "../library/XLink";
+import { ErrorLine, causeMessage, fmt } from "../library/shared";
+import { XLink } from "../ui/x-link";
 
 /** The scraper's country names; Library's trends section uses the same list. */
 export const TREND_COUNTRIES = [
@@ -36,7 +37,7 @@ export function CountrySelect({
   return (
     <select
       aria-label="Country"
-      className={cn(controlClass, "w-auto cursor-pointer")}
+      className={cn(compactInputClass, "w-auto cursor-pointer")}
       value={value}
       onChange={(e) => onChange(e.target.value)}
     >

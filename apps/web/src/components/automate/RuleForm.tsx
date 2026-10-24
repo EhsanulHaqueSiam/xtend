@@ -14,10 +14,11 @@ import { TextMorph } from "torph/react";
 import { cn } from "../../lib/utils";
 import { usd, useRates } from "../../state/costs";
 import { listsAtom } from "../../state/leads";
-import { fieldClass } from "../analyze/ui";
 import { Button } from "../ui/button";
+import { compactInputClass } from "../ui/field";
 import { Cost } from "../ui/layout";
-import { Prop, PropGroup, Switch } from "./controls";
+import { Switch } from "../ui/switch";
+import { Prop, PropGroup } from "./controls";
 
 const TRIGGERS: Record<Trigger["kind"], { label: string; init: Trigger }> = {
   post_crosses_threshold: {
@@ -74,7 +75,7 @@ const money = (v: string) => Math.max(0, Number(v) || 0);
 // Values read as text until hovered or focused, as in an inspector's properties list.
 const field = (width: string) =>
   cn(
-    fieldClass,
+    compactInputClass,
     "border-transparent bg-transparent text-right font-mono [text-align-last:right]",
     width,
   );

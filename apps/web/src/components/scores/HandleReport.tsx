@@ -3,15 +3,16 @@ import { useNavigate } from "@tanstack/react-router";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 
-import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
 import { useQuoteLabel, useRates } from "../../state/costs";
 import { reportAtom, runScoreAtom } from "../../state/scores";
 import { settingsAtom } from "../../state/settings";
 import { PageHeader } from "../PageHeader";
+import { compactInputClass } from "../ui/field";
 import { Cost, Empty, PageBody } from "../ui/layout";
+import { NoHandle } from "../ui/no-handle";
 import { xPill, xPillSm } from "../x";
-import { ErrorLine, causeMessage, controlClass, errorMessage } from "../library/shared";
+import { ErrorLine, causeMessage, errorMessage } from "../library/shared";
 import { ReportCard } from "./ReportCard";
 
 const DEFAULT_PAGES = 5;
@@ -79,7 +80,7 @@ function ScoreControls({
 }
 
 /** The stored report for one handle (free) with the paid score run beside the score. */
-export function HandleReport({
+function HandleReport({
   handle,
   botOnly = false,
 }: {
@@ -104,7 +105,6 @@ export function HandleReport({
 /** The user's own score; the handle comes from the signed-in X session. */
 export function MineSection() {
   const settings = useAtomValue(settingsAtom);
-  const navigate = useNavigate();
   const handle = AsyncResult.getOrElse(
     AsyncResult.map(settings, (s) => s.handle),
     () => null,
@@ -118,23 +118,7 @@ export function MineSection() {
           onFailure: (f) => <ErrorLine className="py-4">{causeMessage(f.cause)}</ErrorLine>,
           onSuccess: ({ value }) =>
             value.handle === null ? (
-              <Empty
-                action={
-                  isElectron ? (
-                    <button
-                      type="button"
-                      className={cn(xPill, xPillSm)}
-                      onClick={() => void navigate({ to: "/x" })}
-                    >
-                      Open X
-                    </button>
-                  ) : undefined
-                }
-              >
-                {isElectron
-                  ? "Your handle comes from the X session. Sign in to X and it fills in."
-                  : "Your handle comes from the X session in the desktop app."}
-              </Empty>
+              <NoHandle subject="Your own score needs" />
             ) : (
               <HandleReport handle={value.handle} />
             ),
@@ -173,7 +157,7 @@ export function ReportSection({
             }}
           >
             <input
-              className={cn(controlClass, "w-44 font-mono @max-[40rem]:w-32")}
+              className={cn(compactInputClass, "w-44 font-mono @max-[40rem]:w-32")}
               aria-label="Handle"
               placeholder="@handle"
               value={draft}

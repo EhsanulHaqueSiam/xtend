@@ -8,10 +8,12 @@ import { TextMorph } from "torph/react";
 import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
 import { engagersAtom, themesAtom } from "../../state/analyze";
+import { useQuoteLabel } from "../../state/costs";
 import { Button } from "../ui/button";
-import { Section } from "../ui/layout";
+import { Cost, Section } from "../ui/layout";
+import { profileUrl, XLink } from "../ui/x-link";
 import { AnalyzePage, RefreshPosts } from "./AnalyzePage";
-import { errorText, fmt, insetTable, ModelCall, Note, XLink } from "./ui";
+import { errorText, fmt, insetTable, Note } from "./ui";
 
 function Engagers() {
   const result = useAtomValue(engagersAtom);
@@ -50,8 +52,8 @@ function Engagers() {
                   <tr key={e.handle} className={t.row}>
                     <td className={cn(t.td, "max-w-0")}>
                       <XLink
-                        href={`https://x.com/${e.handle}`}
-                        className="flex min-w-0 items-center gap-1.5"
+                        href={profileUrl(e.handle)}
+                        className="flex min-w-0 items-center gap-1.5 hover:underline"
                       >
                         <span className="truncate font-medium">{e.name}</span>
                         {e.verified ? (
@@ -77,6 +79,7 @@ function Engagers() {
 function Themes({ data }: { readonly data: AnalyzeData }) {
   const result = useAtomValue(themesAtom);
   const run = useAtomSet(themesAtom);
+  const quote = useQuoteLabel({ kind: "assist" });
   const byId = new Map(data.posts.map((p) => [p.postId, p]));
   const noPosts = data.posts.length === 0;
   return (
@@ -91,7 +94,7 @@ function Themes({ data }: { readonly data: AnalyzeData }) {
           onClick={() => run()}
         >
           <TextMorph duration={250}>{result.waiting ? "Analyzing" : "Analyze themes"}</TextMorph>
-          <ModelCall />
+          <Cost label={quote} />
         </Button>
       }
     >
@@ -119,7 +122,10 @@ function Themes({ data }: { readonly data: AnalyzeData }) {
                     const p = byId.get(id);
                     return p === undefined ? null : (
                       <li key={id} className="border-b border-border py-1.5">
-                        <XLink href={p.url} className="block truncate text-foreground/90">
+                        <XLink
+                          href={p.url}
+                          className="block truncate text-foreground/90 hover:underline"
+                        >
                           {p.text}
                         </XLink>
                       </li>

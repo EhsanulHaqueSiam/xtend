@@ -6,7 +6,7 @@ import { cn } from "../../lib/utils";
 import { LineChart } from "../analyze/ui";
 import { Empty, Section, Stat, table } from "../ui/layout";
 import { fmt } from "../library/shared";
-import { XLink, profileUrl } from "../library/XLink";
+import { profileUrl, XLink } from "../ui/x-link";
 
 const CATEGORIES: ReadonlyArray<{ category: FollowerCategory; label: string }> = [
   { category: "kol", label: "KOLs" },
@@ -25,7 +25,7 @@ const TIERS = [
 const TOP = TIERS[TIERS.length - 1]![1];
 const nextTier = (score: number) => TIERS.find(([, min]) => score < min);
 
-export const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
+const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
 const signedPts = (n: number) => `${n > 0 ? "+" : ""}${n.toFixed(1)}`;
 
 type Sample = NonNullable<ScoreReport["latest"]>;

@@ -18,10 +18,8 @@ import { TextMorph } from "torph/react";
 import { AssistPanel, ComposeContext, failText } from "../components/compose/AssistPanel";
 import { COMPOSE_TABS, type ComposeTab, DraftsHome, tabOf } from "../components/compose/DraftsHome";
 import { fmtWhen, postCosts, sumUsd } from "../components/compose/DraftsList";
-import { Popover } from "../components/compose/overlay";
 import { PostPreview, quotedPostId } from "../components/compose/PostPreview";
 import {
-  fieldClass,
   MediaList,
   REPLY_OPTIONS,
   splitBlocks,
@@ -31,7 +29,10 @@ import { HeaderTabs, PageHeader } from "../components/PageHeader";
 import { Companion } from "../components/shell/Companion";
 import { sectionLabel, useSection } from "../components/shell/sections";
 import { Button } from "../components/ui/button";
+import { compactInputClass, inputClass } from "../components/ui/field";
 import { Cost, PageBody } from "../components/ui/layout";
+import { Popover } from "../components/ui/popover";
+import { XLink } from "../components/ui/x-link";
 import { XCard } from "../components/x";
 import { cn } from "../lib/utils";
 import { localInputToInstant } from "../lib/time";
@@ -169,14 +170,12 @@ function ReplyTarget({ postId }: { readonly postId: string }) {
           {target.text}
         </p>
       ) : (
-        <a
+        <XLink
           className="block truncate font-mono text-2xs text-muted-foreground hover:text-foreground"
           href={sourceUrl(postId)}
-          target="_blank"
-          rel="noreferrer"
         >
           {sourceUrl(postId)}
-        </a>
+        </XLink>
       )}
     </XCard>
   );
@@ -215,7 +214,7 @@ function Options({ editor, onChange }: { editor: Editor; onChange: (e: Editor) =
       <label className={row}>
         <span>Who can reply to every post</span>
         <select
-          className={cn(fieldClass, "h-7 w-auto py-0 text-xs")}
+          className={cn(compactInputClass, "w-auto")}
           value={editor.replySettings}
           onChange={(e) => onChange({ ...editor, replySettings: e.target.value as ReplySettings })}
         >
@@ -232,7 +231,7 @@ function Options({ editor, onChange }: { editor: Editor; onChange: (e: Editor) =
           <span className="text-xs text-muted-foreground">rides on the first post as a link</span>
         </span>
         <input
-          className={fieldClass}
+          className={inputClass}
           aria-label="Quote post link"
           placeholder="https://x.com/handle/status/123"
           value={editor.quoteUrl}
@@ -262,7 +261,7 @@ function Options({ editor, onChange }: { editor: Editor; onChange: (e: Editor) =
             // eslint-disable-next-line react/no-array-index-key -- options are plain strings; position is their identity.
             <div key={i} className="flex gap-1">
               <input
-                className={fieldClass}
+                className={inputClass}
                 placeholder={`Option ${i + 1}`}
                 value={o}
                 maxLength={25}
@@ -306,7 +305,7 @@ function Options({ editor, onChange }: { editor: Editor; onChange: (e: Editor) =
             </Button>
             <select
               aria-label="Poll length"
-              className={cn(fieldClass, "h-7 w-auto py-0 text-xs")}
+              className={cn(compactInputClass, "w-auto")}
               value={poll.durationMinutes}
               onChange={(e) =>
                 onChange({ ...editor, poll: { ...poll, durationMinutes: Number(e.target.value) } })
@@ -340,7 +339,7 @@ function Options({ editor, onChange }: { editor: Editor; onChange: (e: Editor) =
         <input
           type="number"
           min={0}
-          className={cn(fieldClass, "h-7 w-20 py-0 text-right font-mono text-xs")}
+          className={cn(compactInputClass, "w-20 text-right font-mono")}
           value={editor.threadDelaySeconds}
           onChange={(e) =>
             onChange({
@@ -748,7 +747,7 @@ function ComposeEditor({
                   <input
                     type="datetime-local"
                     aria-label="Post at"
-                    className={cn(fieldClass, "font-mono text-xs [color-scheme:dark]")}
+                    className={cn(inputClass, "font-mono text-xs")}
                     value={when}
                     onChange={(e) => setWhen(e.target.value)}
                   />
@@ -856,7 +855,7 @@ function ComposeEditor({
                   ) : null}
                   <div className="flex gap-1.5">
                     <input
-                      className={fieldClass}
+                      className={inputClass}
                       aria-label="Cover prompt"
                       placeholder="Describe the cover image"
                       value={coverPrompt}

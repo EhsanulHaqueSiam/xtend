@@ -10,21 +10,19 @@ import { errorText } from "../analyze/ui";
 import { PageHeader } from "../PageHeader";
 import { sectionHref } from "../shell/sections";
 import { Empty, PageBody, Section } from "../ui/layout";
-import { MentionTriage } from "./Mentions";
 import {
-  ago,
   type Column,
-  ErrorLine,
+  DetailSplit,
   ListHead,
   ListRow,
-  OpenOnX,
-  pill,
   Props,
   RowText,
   RowTitle,
-  Split,
   useSelection,
-} from "./triage";
+} from "../ui/split";
+import { OpenOnX } from "../ui/x-link";
+import { MentionTriage } from "./Mentions";
+import { ago, ErrorLine, pill } from "./triage";
 
 /** Replies and quotes to the user's posts that the session saw. */
 export function Incoming() {
@@ -141,7 +139,7 @@ function ReplyList({
   const { selected, select } = useSelection(rows.map((r) => r.id));
   const current = rows.find((r) => r.id === selected) ?? null;
   return (
-    <Split
+    <DetailSplit
       detailKey={selected}
       list={
         <>
@@ -179,9 +177,9 @@ function ReplyDetail({
         <p className="text-[12.5px] text-muted-foreground">{fmtWhen(reply.at)}</p>
         <p className="mt-3 text-sm leading-relaxed break-words whitespace-pre-wrap">{reply.text}</p>
         <div className="mt-4 flex flex-wrap items-center gap-1.5">
-          <OpenOnX url={reply.targetUrl} label={followUp ? "Reply again on X" : "Their post"} />
+          <OpenOnX href={reply.targetUrl} label={followUp ? "Reply again on X" : "Their post"} />
           {reply.postId !== null ? (
-            <OpenOnX url={`https://x.com/i/status/${reply.postId}`} label="Your reply" />
+            <OpenOnX href={`https://x.com/i/status/${reply.postId}`} label="Your reply" />
           ) : null}
         </div>
       </Section>

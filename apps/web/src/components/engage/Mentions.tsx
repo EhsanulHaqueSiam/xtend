@@ -12,23 +12,20 @@ import { settingsAtom } from "../../state/settings";
 import { errorText, fmt } from "../analyze/ui";
 import { HeaderTabs, PageHeader } from "../PageHeader";
 import { Cost, Empty, PageBody, Section } from "../ui/layout";
-import { ReplyBox, useWork } from "./ReplyBox";
+import { NoHandle } from "../ui/no-handle";
 import {
-  ago,
   type Column,
-  ErrorLine,
+  DetailSplit,
   ListHead,
   ListRow,
-  NoHandle,
-  OpenOnX,
-  pill,
-  PostHead,
   Props,
   RowText,
   RowTitle,
-  Split,
   useSelection,
-} from "./triage";
+} from "../ui/split";
+import { OpenOnX } from "../ui/x-link";
+import { ReplyBox, useWork } from "./ReplyBox";
+import { ago, ErrorLine, pill, PostHead } from "./triage";
 
 const COLUMNS: ReadonlyArray<Column<Mention>> = [
   { label: "Likes", className: "w-14", cell: (m) => fmt(m.post.metrics.likes) },
@@ -171,7 +168,7 @@ function MentionList({
   const work = useWork();
   const current = mentions.find((m) => m.post.postId === selected) ?? null;
   return (
-    <Split
+    <DetailSplit
       detailKey={selected}
       list={
         <>
@@ -268,7 +265,7 @@ function MentionDetail({
             >
               <TextMorph duration={250}>{mention.handled ? "Handled" : "Mark handled"}</TextMorph>
             </button>
-            <OpenOnX url={post.url} />
+            <OpenOnX href={post.url} />
           </>
         }
       />

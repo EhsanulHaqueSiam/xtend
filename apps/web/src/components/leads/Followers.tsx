@@ -8,23 +8,21 @@ import { useRates, usd } from "../../state/costs";
 import { addPersonAtom, newFollowersAtom, peopleAtom } from "../../state/leads";
 import { settingsAtom } from "../../state/settings";
 import { fmt } from "../analyze/ui";
+import { ErrorLine, pill, pillSolid } from "../engage/triage";
+import { PageHeader } from "../PageHeader";
+import { Cost, Empty, PageBody, Section } from "../ui/layout";
+import { NoHandle } from "../ui/no-handle";
 import {
   type Column,
-  ErrorLine,
+  DetailSplit,
   ListHead,
   ListRow,
-  NoHandle,
-  OpenOnX,
-  pill,
-  pillSolid,
   Props,
   RowText,
   RowTitle,
-  Split,
   useSelection,
-} from "../engage/triage";
-import { PageHeader } from "../PageHeader";
-import { Cost, Empty, PageBody, Section } from "../ui/layout";
+} from "../ui/split";
+import { OpenOnX, profileUrl } from "../ui/x-link";
 import { useAction } from "./ui";
 
 /** A follower as the list shows it: in People once it was there or added here. */
@@ -120,7 +118,7 @@ function FollowerList({
   const { selected, select } = useSelection(followers.map((f) => f.userId));
   const current = followers.find((f) => f.userId === selected) ?? null;
   return (
-    <Split
+    <DetailSplit
       detailKey={selected}
       list={
         <>
@@ -200,7 +198,7 @@ function FollowerDetail({
           >
             <TextMorph duration={250}>{inPeople ? "In people" : "Add to people"}</TextMorph>
           </button>
-          <OpenOnX url={`https://x.com/${f.handle}`} />
+          <OpenOnX href={profileUrl(f.handle)} />
         </div>
         {error !== null ? <p className="mt-2 text-xs text-error-foreground">{error}</p> : null}
       </Section>

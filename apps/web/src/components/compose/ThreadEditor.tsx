@@ -11,14 +11,9 @@ import { useRef, useState } from "react";
 
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
+import { compactInputClass } from "../ui/field";
 
 const POST_LIMIT = 280;
-export const inputClass =
-  "w-full rounded-md border border-input bg-background px-2.5 py-1.5 font-mono text-xs text-foreground outline-hidden placeholder:text-placeholder focus-visible:ring-2 focus-visible:ring-ring";
-
-/** Text fields in Compose and Plan: a hairline control on the black canvas. */
-export const fieldClass =
-  "w-full rounded-[var(--control-radius)] border border-white/13 bg-transparent px-2.5 py-1.5 text-[13px] text-foreground outline-hidden transition-[border-color] duration-150 placeholder:text-placeholder focus-visible:border-white/30";
 
 // The contract's link rule, so the counter and the price agree with what the service charges.
 const LINK = new RegExp(LINK_PATTERN.source, "gi");
@@ -111,7 +106,7 @@ export function MediaList({
           </div>
           {m.kind === "image" ? (
             <input
-              className={cn(fieldClass, "h-7 px-2 text-xs")}
+              className={compactInputClass}
               aria-label="Alt text"
               placeholder="Alt text"
               value={m.alt}

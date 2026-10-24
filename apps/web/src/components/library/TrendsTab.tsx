@@ -11,7 +11,7 @@ import { PageHeader } from "../PageHeader";
 import { CountrySelect, TREND_COUNTRIES, TrendTable, countryLabel } from "../scores/Trending";
 import { Cost, Empty, PageBody } from "../ui/layout";
 import { xPill, xPillSm } from "../x";
-import { ErrorLine, ModelCost, causeMessage, errorMessage } from "./shared";
+import { ErrorLine, causeMessage, errorMessage } from "./shared";
 
 const button = cn(xPill, xPillSm);
 
@@ -68,6 +68,7 @@ function TrendList({ country }: { readonly country: string }) {
 export function TrendsTab() {
   const [country, setCountry] = useState<string>(TREND_COUNTRIES[0]);
   const trendsQuote = useQuoteLabel({ kind: "trending", country });
+  const assistQuote = useQuoteLabel({ kind: "assist" });
   const [applied, setApplied] = useState<string | null>(null);
   const ideasFor = useAtomSet(trendIdeasAtom, { mode: "promise" });
   const [ideas, setIdeas] = useState<ReadonlyArray<TrendIdea> | null>(null);
@@ -101,7 +102,7 @@ export function TrendsTab() {
       onClick={() => void generate()}
     >
       {busy ? "Writing" : ideas === null ? "Write 5 ideas" : "Write 5 more"}
-      <ModelCost />
+      <Cost label={assistQuote} />
     </button>
   );
 

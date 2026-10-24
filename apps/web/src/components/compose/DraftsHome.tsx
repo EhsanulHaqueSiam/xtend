@@ -6,17 +6,16 @@ import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { Plus } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
-import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
 import { approvePendingAtom, dismissPendingAtom, pendingAtom } from "../../state/automate";
 import { deleteDraftAtom, draftsAtom } from "../../state/compose";
 import { usd } from "../../state/costs";
 import { queueAtom, unscheduleAtom } from "../../state/plan";
-import { xNavigate, xPanelOpenAtom } from "../../state/x";
 import { PageHeader } from "../PageHeader";
 import { sectionLabel, SECTIONS, type SectionId } from "../shell/sections";
 import { Button } from "../ui/button";
 import { Cost, Empty, PageBody, table } from "../ui/layout";
+import { useOpenOnX } from "../ui/x-link";
 import { failText } from "./AssistPanel";
 import { draftTitle, fmtWhen, sumUsd, useDraftCost } from "./DraftsList";
 
@@ -85,16 +84,6 @@ const subline = (d: Draft): { readonly text: string; readonly tone?: string } | 
       : first.split("\n").slice(1).join(" ").trim() || (d.blocks[1]?.text ?? "").trim();
   return rest === "" ? null : { text: rest.replace(/\s+/g, " ") };
 };
-
-/** On the desktop the post opens in the x.com panel beside Compose; in a browser, a new tab. */
-function useOpenOnX() {
-  const setPanel = useAtomSet(xPanelOpenAtom);
-  return (url: string) => {
-    if (!isElectron) return void window.open(url, "_blank", "noreferrer");
-    xNavigate(url);
-    setPanel(true);
-  };
-}
 
 type RowAction = "queue" | "unschedule" | "delete";
 

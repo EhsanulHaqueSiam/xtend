@@ -31,14 +31,6 @@ const quoteAtom = (actions: ReadonlyArray<CostAction>) => quoteFamily(encodeActi
 
 export const usd = (n: number) => `$${n.toFixed(5).replace(/0+$/, "").replace(/\.$/, "")}`;
 
-/** The quote for one action, `{ usd, cached }`; null until it arrives. */
-export function useQuote(
-  action: CostAction,
-): { readonly usd: number; readonly cached: boolean } | null {
-  const quotes = useAtomValue(quoteAtom([action]));
-  return AsyncResult.getOrElse(quotes, () => null)?.[0] ?? null;
-}
-
 /** "($0.00075)" or "(cached, free)" for a button label; "…" until the quote arrives. */
 export function useQuoteLabel(action: CostAction): string {
   const quotes = useAtomValue(quoteAtom([action]));

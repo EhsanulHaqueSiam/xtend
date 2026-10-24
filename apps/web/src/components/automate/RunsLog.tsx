@@ -7,7 +7,8 @@ import { useState, type ReactNode } from "react";
 import { cn } from "../../lib/utils";
 import { rulesAtom, runsAtom } from "../../state/automate";
 import { usd } from "../../state/costs";
-import { errorText, fieldClass, when } from "../analyze/ui";
+import { errorText, when } from "../analyze/ui";
+import { compactInputClass } from "../ui/field";
 import { HeaderTabs, PageHeader } from "../PageHeader";
 import { sectionHref } from "../shell/sections";
 import { Button } from "../ui/button";
@@ -52,7 +53,7 @@ function RunsPage({ children }: { readonly children: ReactNode }) {
   );
 }
 
-export function RunsLog({
+function RunsLog({
   runs,
   rules,
   initialRuleId = null,
@@ -89,7 +90,7 @@ export function RunsLog({
         actions={
           <select
             aria-label="Rule"
-            className={cn(fieldClass, "w-36")}
+            className={cn(compactInputClass, "w-36")}
             value={ruleId ?? ""}
             onChange={(e) => setRuleId(e.target.value === "" ? null : Number(e.target.value))}
           >

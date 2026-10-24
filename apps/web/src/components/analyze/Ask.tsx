@@ -6,10 +6,12 @@ import { TextMorph } from "torph/react";
 
 import { cn } from "../../lib/utils";
 import { askAtom } from "../../state/analyze";
+import { useQuoteLabel } from "../../state/costs";
 import { Button } from "../ui/button";
-import { Section } from "../ui/layout";
+import { inputClass } from "../ui/field";
+import { Cost, Section } from "../ui/layout";
 import { AnalyzePage, RefreshPosts } from "./AnalyzePage";
-import { errorText, fieldClass, ModelCall, Note } from "./ui";
+import { errorText, Note } from "./ui";
 
 /** Picking one fills the box; asking stays a separate, priced click. */
 const EXAMPLES = [
@@ -22,6 +24,7 @@ const EXAMPLES = [
 export function Ask({ data }: { readonly data: AnalyzeData }) {
   const result = useAtomValue(askAtom);
   const ask = useAtomSet(askAtom);
+  const quote = useQuoteLabel({ kind: "assist" });
   const [question, setQuestion] = useState("");
   const input = useRef<HTMLInputElement>(null);
   const submit = (q: string) => {
@@ -42,7 +45,7 @@ export function Ask({ data }: { readonly data: AnalyzeData }) {
           <input
             ref={input}
             aria-label="Question"
-            className={cn(fieldClass, "h-8 flex-1 text-[13px]")}
+            className={cn(inputClass, "h-8 flex-1 py-0")}
             placeholder="Ask about your posts and audience"
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
@@ -53,7 +56,7 @@ export function Ask({ data }: { readonly data: AnalyzeData }) {
             disabled={result.waiting || question.trim() === ""}
           >
             <TextMorph duration={250}>{result.waiting ? "Asking" : "Ask"}</TextMorph>
-            <ModelCall />
+            <Cost label={quote} />
           </Button>
         </form>
         {data.posts.length === 0 ? (
@@ -98,7 +101,7 @@ export function Ask({ data }: { readonly data: AnalyzeData }) {
                 {value.followUps.slice(0, 3).map((f) => (
                   <Button key={f} size="sm" variant="outline" onClick={() => submit(f)}>
                     {f}
-                    <ModelCall />
+                    <Cost label={quote} />
                   </Button>
                 ))}
               </div>

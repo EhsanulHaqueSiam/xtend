@@ -10,13 +10,13 @@ import { X } from "lucide-react";
 import { useState } from "react";
 import { TextMorph } from "torph/react";
 
-import { cn } from "../../lib/utils";
 import { webhookInfoAtom } from "../../state/automate";
 import { usd, useRates } from "../../state/costs";
 import { when } from "../analyze/ui";
 import { Button } from "../ui/button";
 import { Cost } from "../ui/layout";
-import { Prop, PropGroup, Switch } from "./controls";
+import { Switch } from "../ui/switch";
+import { Prop, PropGroup } from "./controls";
 import { statusLabel, statusTone } from "./describe";
 import { emptyRule, RuleForm } from "./RuleForm";
 import { budget, RuleModes } from "./RuleRow";
@@ -195,9 +195,8 @@ function RuleState({
 }
 
 /**
- * The right-hand column of Rules: the open rule's state and actions over its
- * editor, or the editor alone for a new rule. Below the split width it takes
- * the list's place.
+ * The detail column of Rules (`DetailSplit`, closable): the open rule's state
+ * and actions over its editor, or the editor alone for a new rule.
  */
 export function RuleDetail({
   rule,
@@ -212,7 +211,6 @@ export function RuleDetail({
   onRunNow,
   onShowRuns,
   onDelete,
-  className,
 }: {
   /** null while creating a rule. */
   readonly rule: Rule | null;
@@ -229,13 +227,10 @@ export function RuleDetail({
   readonly onRunNow: () => void;
   readonly onShowRuns: () => void;
   readonly onDelete: () => void;
-  readonly className?: string;
 }) {
   return (
-    <aside
-      aria-label={rule === null ? "New rule" : rule.name}
-      className={cn("flex min-h-0 flex-col overflow-y-auto", className)}
-    >
+    // At least the column's height, so the editor's actions sit at its foot.
+    <div className="flex min-h-full flex-col">
       <div className="flex items-center gap-2 pt-4 pr-3 pl-5">
         <h2 className="min-w-0 flex-1 truncate text-[15px] font-semibold tracking-tight">
           {rule === null ? "New rule" : rule.name}
@@ -263,6 +258,6 @@ export function RuleDetail({
         onSave={onSave}
         onCancel={onClose}
       />
-    </aside>
+    </div>
   );
 }

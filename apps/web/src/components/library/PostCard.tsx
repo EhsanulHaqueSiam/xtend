@@ -3,10 +3,9 @@ import { ArrowUpRight } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
-import { PageBody } from "../ui/layout";
+import { XLink } from "../ui/x-link";
 import { QuickSave, RemixButton, useSavedIds } from "./SaveButton";
 import { ago, erLabel, fmt, formatOf } from "./shared";
-import { XLink } from "./XLink";
 
 /** A post as a card in the grid: what every Library list maps its rows to. */
 export interface CardItem {
@@ -151,27 +150,6 @@ export function PostGrid({
           }
         />
       ))}
-    </div>
-  );
-}
-
-/**
- * The scrolling list beside the selected item's detail column. Under 46rem of
- * screen the detail takes the whole width instead, until it is closed.
- * Needs a `@container` ancestor: the screen root.
- */
-export function DetailSplit({
-  detail,
-  children,
-}: {
-  readonly detail: ReactNode;
-  readonly children: ReactNode;
-}) {
-  const open = detail !== null && detail !== undefined && detail !== false;
-  return (
-    <div className="flex min-h-0 flex-1">
-      <PageBody className={cn(open && "@max-[46rem]:hidden")}>{children}</PageBody>
-      {open ? detail : null}
     </div>
   );
 }

@@ -3,10 +3,11 @@ import { ArrowUpRight, BadgeCheck, X } from "lucide-react";
 import { useEffect, type ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
+import { Props } from "../ui/split";
+import { XLink } from "../ui/x-link";
 import { xIconButton } from "../x";
 import { Avatar } from "./PostCard";
 import { ago, erLabel, fmt, formatOf } from "./shared";
-import { XLink } from "./XLink";
 
 const isEditable = (target: EventTarget | null) =>
   target instanceof HTMLElement &&
@@ -45,8 +46,9 @@ export function DraftBlock({ children }: { readonly children: ReactNode }) {
 }
 
 /**
- * The selected post beside the grid: author, the full text, every number,
- * then the section's own groups (`children`). Escape or the cross closes it.
+ * The selected post in the grid's detail column (`DetailSplit`, closable):
+ * author, the full text, the section's own groups (`children`), then every
+ * number. Escape or the cross closes it.
  */
 export function PostInspector({
   post,
@@ -86,10 +88,7 @@ export function PostInspector({
     ...facts,
   ];
   return (
-    <aside
-      aria-label="Selected post"
-      className="flex w-[22rem] shrink-0 flex-col overflow-y-auto border-l border-border pb-6 @max-[46rem]:w-full @max-[46rem]:border-l-0"
-    >
+    <div className="pb-6">
       <div className="flex items-start gap-2.5 px-5 pt-4">
         <Avatar author={post.author} className="mt-0.5 size-7" />
         <div className="min-w-0 flex-1">
@@ -121,19 +120,8 @@ export function PostInspector({
       </p>
       {children}
       <InspectorGroup title="Numbers">
-        <dl className="grid grid-cols-[1fr_auto] border-t border-border">
-          {rows.map(([k, v]) => (
-            <div key={k} className="contents">
-              <dt className="border-b border-border py-1.5 text-[12.5px] text-muted-foreground">
-                {k}
-              </dt>
-              <dd className="border-b border-border py-1.5 text-right font-mono text-xs tabular-nums">
-                {v}
-              </dd>
-            </div>
-          ))}
-        </dl>
+        <Props rows={rows} />
       </InspectorGroup>
-    </aside>
+    </div>
   );
 }

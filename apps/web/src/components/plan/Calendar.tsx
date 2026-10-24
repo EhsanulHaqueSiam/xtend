@@ -3,7 +3,7 @@ import type { Draft, Slot } from "@xtend/contracts";
 import { dayKeyIn, dayStartIn, hhmm, minuteIn, partsIn } from "../../lib/time";
 import { cn } from "../../lib/utils";
 import { draftTitle } from "../compose/DraftsList";
-import { Menu, MenuItem } from "../compose/overlay";
+import { Menu, MenuItem } from "../ui/menu";
 import { DAYS, slotsOn, StatusDot } from "./ui";
 
 interface Event {

@@ -8,9 +8,9 @@ import { useRates } from "../../state/costs";
 import { draftReplyAtom, likeAtom, sendReplyAtom } from "../../state/engage";
 import { cn } from "../../lib/utils";
 import { errorText } from "../analyze/ui";
+import { inputClass } from "../ui/field";
 import { Cost, Section } from "../ui/layout";
-import { xInput } from "../x";
-import { pill, pillSolidPriced } from "./triage";
+import { pill, pillSolid } from "./triage";
 
 /** What the user did with one post here: drafts, the reply text, and what already went out. */
 export interface Work {
@@ -112,7 +112,7 @@ export function ReplyBox({
       }
     >
       <textarea
-        className={cn(xInput, "min-h-24 resize-y text-[13.5px] leading-relaxed")}
+        className={cn(inputClass, "min-h-24 resize-y px-3 py-2 text-[13.5px] leading-relaxed")}
         value={text}
         maxLength={280}
         placeholder="Write a reply, or draft one"
@@ -122,7 +122,7 @@ export function ReplyBox({
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
         <button
           type="button"
-          className={pillSolidPriced}
+          className={pillSolid}
           disabled={busy !== null || replied || text.trim() === "" || rates === null}
           onClick={() => void onReply()}
         >
@@ -130,9 +130,9 @@ export function ReplyBox({
             {replied ? "Replied" : busy === "reply" ? "Replying…" : "Reply"}
           </TextMorph>
           {replied ? null : rates === null ? (
-            <Cost label="…" />
+            <Cost tone="solid" label="…" />
           ) : (
-            <Cost usd={postCostUsd(rates, text)} />
+            <Cost tone="solid" usd={postCostUsd(rates, text)} />
           )}
         </button>
         <button

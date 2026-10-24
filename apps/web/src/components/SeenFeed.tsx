@@ -1,4 +1,4 @@
-import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import type { ObservedPostSummary } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { BadgeCheck, RefreshCw } from "lucide-react";
@@ -6,10 +6,10 @@ import { BadgeCheck, RefreshCw } from "lucide-react";
 import { isElectron } from "../env";
 import { cn } from "../lib/utils";
 import { recentPostsAtom } from "../state/observations";
-import { xNavigate, xPanelOpenAtom } from "../state/x";
 import { PageHeader } from "./PageHeader";
 import { Button } from "./ui/button";
 import { Empty, PageBody, table } from "./ui/layout";
+import { useOpenOnX } from "./ui/x-link";
 
 const compact = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
 const fmt = (n: number | null) => (n === null ? "–" : compact.format(n));
@@ -22,16 +22,6 @@ function engagementRate(post: ObservedPostSummary): string {
 
 const statusUrl = (post: ObservedPostSummary) =>
   `https://x.com/${post.author.handle}/status/${post.postId}`;
-
-/** On the desktop the post opens in the X panel beside the table; in a browser, a new tab. */
-function useOpenPost() {
-  const setPanel = useAtomSet(xPanelOpenAtom);
-  return (post: ObservedPostSummary) => {
-    if (!isElectron) return void window.open(statusUrl(post), "_blank", "noreferrer");
-    xNavigate(statusUrl(post));
-    setPanel(true);
-  };
-}
 
 function PostRow({
   post,
@@ -73,7 +63,7 @@ function PostRow({
 export function SeenFeed() {
   const result = useAtomValue(recentPostsAtom);
   const refresh = useAtomRefresh(recentPostsAtom);
-  const open = useOpenPost();
+  const openOnX = useOpenOnX();
   const count = AsyncResult.getOrElse(
     AsyncResult.map(result, (value) => value.posts.length),
     () => null,
@@ -119,7 +109,7 @@ export function SeenFeed() {
                 </thead>
                 <tbody>
                   {value.posts.map((post) => (
-                    <PostRow key={post.postId} post={post} onOpen={open} />
+                    <PostRow key={post.postId} post={post} onOpen={(p) => openOnX(statusUrl(p))} />
                   ))}
                 </tbody>
               </table>

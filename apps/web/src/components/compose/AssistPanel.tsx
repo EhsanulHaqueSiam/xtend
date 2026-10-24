@@ -19,9 +19,10 @@ import {
 import { useQuoteLabel } from "../../state/costs";
 import { searchAtom } from "../../state/library";
 import { Button } from "../ui/button";
+import { compactInputClass } from "../ui/field";
 import { Cost } from "../ui/layout";
 import { XCard } from "../x";
-import { fieldClass, splitBlocks } from "./ThreadEditor";
+import { splitBlocks } from "./ThreadEditor";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -286,7 +287,7 @@ export function AssistPanel({
           }}
         >
           <input
-            className={cn(fieldClass, "h-7 w-36 py-0 text-xs")}
+            className={cn(compactInputClass, "w-36")}
             aria-label="Topic for thread ideas"
             placeholder="Thread ideas on…"
             value={topic}

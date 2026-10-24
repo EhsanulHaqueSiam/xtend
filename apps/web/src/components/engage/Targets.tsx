@@ -18,23 +18,21 @@ import { settingsAtom } from "../../state/settings";
 import { errorText, fmt } from "../analyze/ui";
 import { PageHeader } from "../PageHeader";
 import { Cost, Empty, PageBody, Section } from "../ui/layout";
-import { xAction } from "../x";
-import { type Patch, ReplyBox, useWork, type Work } from "./ReplyBox";
+import { NoHandle } from "../ui/no-handle";
 import {
   type Column,
-  ErrorLine,
+  DetailSplit,
   ListHead,
   ListRow,
-  NoHandle,
-  OpenOnX,
-  pill,
-  PostHead,
   Props,
   RowText,
   RowTitle,
-  Split,
   useSelection,
-} from "./triage";
+} from "../ui/split";
+import { OpenOnX } from "../ui/x-link";
+import { xAction } from "../x";
+import { type Patch, ReplyBox, useWork, type Work } from "./ReplyBox";
+import { ErrorLine, pill, PostHead } from "./triage";
 
 const age = (minutes: number) =>
   minutes < 60 ? `${Math.round(minutes)}m` : `${(minutes / 60).toFixed(1)}h`;
@@ -64,6 +62,7 @@ export function Targets() {
   const find = useAtomSet(findKeywordsAtom, { mode: "promiseExit" });
   const finding = useAtomValue(findKeywordsAtom).waiting;
   const findQuote = useQuoteLabel({ kind: "findKeywords" });
+  const assistQuote = useQuoteLabel({ kind: "assist" });
   const targetsQuote = useQuoteLabel({ kind: "engageTargets" });
   const [found, setFound] = useState<Suggestions | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -103,7 +102,8 @@ export function Targets() {
               onClick={() => void runFind()}
             >
               <TextMorph duration={250}>{finding ? "Finding…" : "Find keywords"}</TextMorph>
-              <Cost label={`${findQuote} + model`} />
+              {/* One page of your posts, then one model call over it. */}
+              <Cost label={`${findQuote} + ${assistQuote}`} />
             </button>
             <button type="button" className={pill} disabled={result.waiting} onClick={refresh}>
               Refresh
@@ -190,7 +190,7 @@ function TargetsBody({
   const work = useWork();
   const current = targets.find((t) => t.post.postId === selected) ?? null;
   return (
-    <Split
+    <DetailSplit
       detailKey={selected}
       list={
         <>
@@ -261,7 +261,7 @@ function TargetDetail({
         meta={`${age(target.ageMinutes)} · ${target.keyword}`}
         actions={
           <>
-            <OpenOnX url={post.url} />
+            <OpenOnX href={post.url} />
             <button type="button" className={xAction} onClick={onSkip}>
               Skip
             </button>

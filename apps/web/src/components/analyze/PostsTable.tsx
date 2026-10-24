@@ -17,8 +17,9 @@ import { useRates } from "../../state/costs";
 import { HeaderTabs } from "../PageHeader";
 import { Button } from "../ui/button";
 import { Cost, Empty, Section, Stat, table } from "../ui/layout";
+import { useOpenOnX, XLink } from "../ui/x-link";
 import { AnalyzePage, NotLoaded } from "./AnalyzePage";
-import { engagementRate, errorText, fmt, insetTable, pct, useOpenOnX, when, XLink } from "./ui";
+import { engagementRate, errorText, fmt, insetTable, pct, when } from "./ui";
 
 // `hide` drops the less telling columns first as the page narrows (the X panel takes its share).
 const COLUMNS = [
@@ -303,7 +304,7 @@ export function Posts({ data }: { readonly data: AnalyzeData }) {
                       {post === undefined ? (
                         <span className="font-mono text-xs text-muted-foreground">{r.postId}</span>
                       ) : (
-                        <XLink href={post.url} className="block truncate">
+                        <XLink href={post.url} className="block truncate hover:underline">
                           {post.text || "(no text)"}
                         </XLink>
                       )}

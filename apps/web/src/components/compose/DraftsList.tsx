@@ -17,15 +17,6 @@ export { fmtWhen };
 export const draftTitle = (d: Draft) =>
   (d.kind === "article" ? d.title : (d.blocks[0]?.text ?? "")).split("\n")[0]?.trim() || "Untitled";
 
-export const statusTone: Record<Draft["status"], string> = {
-  draft: "text-muted-foreground",
-  queued: "text-info-foreground",
-  posting: "text-info-foreground",
-  posted: "text-success-foreground",
-  failed: "text-error-foreground",
-  suggested: "text-warning-foreground",
-};
-
 /**
  * What each post of a thread costs at treg's rates. A quoted link rides on the first post at
  * the link price; a post with media goes through the x.com session, which treg does not bill.

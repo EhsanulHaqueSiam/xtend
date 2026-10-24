@@ -3,7 +3,7 @@ import { actionCostUsd, type Rule } from "@xtend/contracts";
 import { cn } from "../../lib/utils";
 import { usd, useRates } from "../../state/costs";
 import { table } from "../ui/layout";
-import { Switch } from "./controls";
+import { Switch } from "../ui/switch";
 import { describeRule } from "./describe";
 
 /** Budgets are whole cents; spend keeps its fractions. */

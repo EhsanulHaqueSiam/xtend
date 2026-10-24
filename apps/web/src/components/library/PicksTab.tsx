@@ -19,6 +19,8 @@ import {
 import { PageHeader } from "../PageHeader";
 import { TREND_COUNTRIES } from "../scores/Trending";
 import { Cost, Empty, Section } from "../ui/layout";
+import { DetailSplit } from "../ui/split";
+import { profileUrl, XLink } from "../ui/x-link";
 import { xPill, xPillSm, xPillSolid } from "../x";
 import {
   FormatTabs,
@@ -30,11 +32,10 @@ import {
   type FormatFilter,
   type SortKey,
 } from "./controls";
-import { DetailSplit, PostGrid } from "./PostCard";
+import { PostGrid } from "./PostCard";
 import { DraftBlock, InspectorGroup, PostInspector } from "./PostInspector";
 import { RemixButton, SaveButton, useSavedIds } from "./SaveButton";
-import { ErrorLine, ModelCost, causeMessage, errorMessage } from "./shared";
-import { AppLink, XLink, profileUrl } from "./XLink";
+import { AppLink, ErrorLine, causeMessage, errorMessage } from "./shared";
 
 const button = cn(xPill, xPillSm);
 const solid = cn(xPillSolid, xPillSm);
@@ -50,6 +51,7 @@ function useRuns() {
   const generate = useAtomSet(generateReadyAtom, { mode: "promise" });
   const picksQuote = useQuoteLabel({ kind: "picksFetch" });
   const trendingQuote = useQuoteLabel({ kind: "trending", country: TREND_COUNTRIES[0] });
+  const assistQuote = useQuoteLabel({ kind: "assist" });
   const [busy, setBusy] = useState<"picks" | "ready" | null>(null);
   const [notice, setNotice] = useState<{ readonly text: string; readonly error: boolean } | null>(
     null,
@@ -99,9 +101,8 @@ function useRuns() {
       }
     >
       {busy === "ready" ? "Writing" : "Write 3 ready posts"}
-      <span className="font-mono text-2xs text-muted-foreground">
-        <Cost label={trendingQuote} /> + model
-      </span>
+      {/* One trends read, then one model call writes all three. */}
+      <Cost label={`${trendingQuote} + ${assistQuote}`} />
     </button>
   );
   return { fetchButton, readyButton, notice };
@@ -120,6 +121,7 @@ function PickInspector({
   const why = useAtomSet(pickWhyAtom, { mode: "promise" });
   const draft = useAtomSet(pickDraftAtom, { mode: "promise" });
   const saveDraft = useAtomSet(saveSuggestedDraftAtom, { mode: "promise" });
+  const assistQuote = useQuoteLabel({ kind: "assist" });
   const [whyText, setWhyText] = useState(pick.whyItWorks);
   const [blocks, setBlocks] = useState<ReadonlyArray<string> | null>(null);
   const [filed, setFiled] = useState(false);
@@ -146,7 +148,10 @@ function PickInspector({
           <RemixButton post={pick.post} />
         </div>
       </InspectorGroup>
-      <InspectorGroup title="Why it works" aside={whyText === null ? <ModelCost /> : undefined}>
+      <InspectorGroup
+        title="Why it works"
+        aside={whyText === null ? <Cost label={assistQuote} /> : undefined}
+      >
         {whyText !== null ? (
           <p className="text-[13px] leading-relaxed whitespace-pre-wrap text-foreground/80">
             {whyText}
@@ -162,7 +167,7 @@ function PickInspector({
           </button>
         )}
       </InspectorGroup>
-      <InspectorGroup title="Ready to post" aside={<ModelCost />}>
+      <InspectorGroup title="Ready to post" aside={<Cost label={assistQuote} />}>
         {blocks === null ? (
           <button
             type="button"
@@ -366,90 +371,100 @@ export function PicksTab() {
           </>
         }
       />
-      <DetailSplit detail={detail}>
-        {AsyncResult.match(state, {
-          onInitial: () => <Empty>Loading picks</Empty>,
-          onFailure: (f) => <ErrorLine className="py-4">{causeMessage(f.cause)}</ErrorLine>,
-          onSuccess: ({ value: day }) =>
-            day.picks.length === 0 ? (
-              day.keywords.length === 0 ? (
-                <Empty
-                  action={
-                    <AppLink href="/settings" className={button}>
-                      Set keywords
-                    </AppLink>
-                  }
-                >
-                  Picks are the top posts of the week for your keywords.
-                </Empty>
-              ) : (
-                <Empty
-                  action={
-                    <div className="flex flex-wrap justify-center gap-1.5">
-                      {day.pending.length > 0 ? runs.fetchButton(day.pending.length, false) : null}
-                      {runs.readyButton}
-                    </div>
-                  }
-                >
-                  No picks yet today for {day.keywords.join(", ")}.
-                </Empty>
-              )
-            ) : (
-              <>
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-6 pt-4">
-                  <p className="min-w-0 flex-1 truncate text-[13px] text-muted-foreground">
-                    <span className="font-mono text-2xs tabular-nums">{day.day}</span>
-                    <span className="px-2 text-white/20">/</span>
-                    {day.keywords.length === 0 ? (
-                      <AppLink href="/settings" className="hover:text-foreground">
-                        no keywords set
-                      </AppLink>
-                    ) : (
-                      <span className="text-foreground/80">{day.keywords.join(", ")}</span>
-                    )}
-                  </p>
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    {runs.readyButton}
-                    {day.pending.length > 0 ? (
-                      runs.fetchButton(day.pending.length, false)
-                    ) : day.keywords.length > 0 ? (
-                      <FetchedLabel />
-                    ) : null}
-                  </div>
-                </div>
-                {shownPicks.length === 0 ? (
-                  <Empty>No {format === "link" ? "link" : format} picks today.</Empty>
+      <DetailSplit
+        closable
+        label="Selected post"
+        detailKey={selected}
+        detail={detail}
+        list={
+          <>
+            {AsyncResult.match(state, {
+              onInitial: () => <Empty>Loading picks</Empty>,
+              onFailure: (f) => <ErrorLine className="py-4">{causeMessage(f.cause)}</ErrorLine>,
+              onSuccess: ({ value: day }) =>
+                day.picks.length === 0 ? (
+                  day.keywords.length === 0 ? (
+                    <Empty
+                      action={
+                        <AppLink href="/settings" className={button}>
+                          Set keywords
+                        </AppLink>
+                      }
+                    >
+                      Picks are the top posts of the week for your keywords.
+                    </Empty>
+                  ) : (
+                    <Empty
+                      action={
+                        <div className="flex flex-wrap justify-center gap-1.5">
+                          {day.pending.length > 0
+                            ? runs.fetchButton(day.pending.length, false)
+                            : null}
+                          {runs.readyButton}
+                        </div>
+                      }
+                    >
+                      No picks yet today for {day.keywords.join(", ")}.
+                    </Empty>
+                  )
                 ) : (
-                  <PostGrid
-                    items={shownPicks.map((p) => ({
-                      key: `pick:${p.post.postId}`,
-                      post: p.post,
-                      tag: p.keyword,
-                    }))}
-                    selected={selected}
-                    onSelect={setSelected}
-                  />
+                  <>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-6 pt-4">
+                      <p className="min-w-0 flex-1 truncate text-[13px] text-muted-foreground">
+                        <span className="font-mono text-2xs tabular-nums">{day.day}</span>
+                        <span className="px-2 text-white/20">/</span>
+                        {day.keywords.length === 0 ? (
+                          <AppLink href="/settings" className="hover:text-foreground">
+                            no keywords set
+                          </AppLink>
+                        ) : (
+                          <span className="text-foreground/80">{day.keywords.join(", ")}</span>
+                        )}
+                      </p>
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        {runs.readyButton}
+                        {day.pending.length > 0 ? (
+                          runs.fetchButton(day.pending.length, false)
+                        ) : day.keywords.length > 0 ? (
+                          <FetchedLabel />
+                        ) : null}
+                      </div>
+                    </div>
+                    {shownPicks.length === 0 ? (
+                      <Empty>No {format === "link" ? "link" : format} picks today.</Empty>
+                    ) : (
+                      <PostGrid
+                        items={shownPicks.map((p) => ({
+                          key: `pick:${p.post.postId}`,
+                          post: p.post,
+                          tag: p.keyword,
+                        }))}
+                        selected={selected}
+                        onSelect={setSelected}
+                      />
+                    )}
+                  </>
+                ),
+            })}
+            {runs.notice !== null ? (
+              <p
+                className={cn(
+                  "px-6 pb-4 text-xs",
+                  runs.notice.error ? "text-error-foreground" : "text-muted-foreground",
                 )}
-              </>
-            ),
-        })}
-        {runs.notice !== null ? (
-          <p
-            className={cn(
-              "px-6 pb-4 text-xs",
-              runs.notice.error ? "text-error-foreground" : "text-muted-foreground",
-            )}
-          >
-            {runs.notice.text}
-          </p>
-        ) : null}
-        <StaffPicks
-          picks={staffPicks}
-          shown={shownStaff}
-          selected={selected}
-          onSelect={setSelected}
-        />
-      </DetailSplit>
+              >
+                {runs.notice.text}
+              </p>
+            ) : null}
+            <StaffPicks
+              picks={staffPicks}
+              shown={shownStaff}
+              selected={selected}
+              onSelect={setSelected}
+            />
+          </>
+        }
+      />
     </>
   );
 }

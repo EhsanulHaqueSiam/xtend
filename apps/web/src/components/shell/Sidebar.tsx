@@ -1,4 +1,3 @@
-import { Menu } from "@base-ui/react/menu";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { Link, useLocation, useNavigate, useRouter } from "@tanstack/react-router";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
@@ -18,6 +17,7 @@ import {
   spendLiveAtom,
 } from "../../state/shell";
 import { xNavigate, xUnreadAtom, xUrlAtom } from "../../state/x";
+import { Menu, MenuItem } from "../ui/menu";
 import { isSectionRoute, SECTIONS } from "./sections";
 
 const or = <A, B>(result: AsyncResult.AsyncResult<A, unknown>, fallback: B): A | B =>
@@ -172,30 +172,27 @@ function AccountMenu() {
       <span className="truncate text-xs text-sidebar-muted-foreground">@{label}</span>
     );
   return (
-    <Menu.Root>
-      <Menu.Trigger className="no-drag flex cursor-pointer items-center gap-1 rounded-[var(--control-radius)] px-1.5 py-0.5 text-xs text-sidebar-muted-foreground outline-hidden hover:text-sidebar-foreground">
-        {label === null || label === undefined ? (current?.label ?? "Account") : `@${label}`}
-        <ChevronDown className="size-3" />
-      </Menu.Trigger>
-      <Menu.Portal>
-        <Menu.Positioner side="bottom" align="end" sideOffset={4} className="z-50">
-          <Menu.Popup className="min-w-44 origin-[var(--transform-origin)] rounded-[var(--radius)] border border-white/13 bg-surface-raised p-1 outline-hidden transition-[opacity,scale] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] data-[ending-style]:scale-[0.97] data-[ending-style]:opacity-0 data-[starting-style]:scale-[0.97] data-[starting-style]:opacity-0">
-            {list.map((a) => (
-              <Menu.Item
-                key={a.id}
-                className="flex cursor-pointer items-center gap-2 rounded-[calc(var(--radius)-4px)] px-2 py-1.5 text-sm text-muted-foreground outline-hidden data-highlighted:bg-white/7 data-highlighted:text-foreground"
-                onClick={() => void select(a.id).then(() => switchAccount(a.id))}
-              >
-                <span className="truncate">{a.label}</span>
-                {a.handle !== null ? (
-                  <span className="ml-auto font-mono text-2xs">@{a.handle}</span>
-                ) : null}
-              </Menu.Item>
-            ))}
-          </Menu.Popup>
-        </Menu.Positioner>
-      </Menu.Portal>
-    </Menu.Root>
+    <Menu
+      align="end"
+      trigger={
+        <button
+          type="button"
+          className="no-drag flex cursor-pointer items-center gap-1 rounded-[var(--control-radius)] px-1.5 py-0.5 text-xs text-sidebar-muted-foreground outline-hidden hover:text-sidebar-foreground"
+        >
+          {label === null || label === undefined ? (current?.label ?? "Account") : `@${label}`}
+          <ChevronDown className="size-3" />
+        </button>
+      }
+    >
+      {list.map((a) => (
+        <MenuItem key={a.id} onClick={() => void select(a.id).then(() => switchAccount(a.id))}>
+          <span className="truncate">{a.label}</span>
+          {a.handle !== null ? (
+            <span className="ml-auto font-mono text-2xs">@{a.handle}</span>
+          ) : null}
+        </MenuItem>
+      ))}
+    </Menu>
   );
 }
 

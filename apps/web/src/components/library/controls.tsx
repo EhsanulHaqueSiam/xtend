@@ -1,4 +1,3 @@
-import { Menu } from "@base-ui/react/menu";
 import type { PostFormat, XPost } from "@xtend/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { Check, ChevronDown, Search } from "lucide-react";
@@ -7,7 +6,7 @@ import { useState } from "react";
 import { useQuoteLabel } from "../../state/costs";
 import { HeaderTabs } from "../PageHeader";
 import { Cost } from "../ui/layout";
-import { menuItemClass, menuPopupClass } from "./menu";
+import { Menu, MenuItem } from "../ui/menu";
 import { engagement, formatOf } from "./shared";
 
 /** Header controls the Library sections share: format filter, sort, and Search X. */
@@ -23,7 +22,7 @@ const FORMAT_LABELS: Record<FormatFilter, string> = {
 };
 
 /** The formats a list of plain posts can tell apart; threads need the archive's labels. */
-export const POST_FORMATS = [
+const POST_FORMATS = [
   "all",
   "media",
   "text",
@@ -97,24 +96,25 @@ export function SortMenu({
   readonly onChange: (next: SortKey) => void;
 }) {
   return (
-    <Menu.Root>
-      <Menu.Trigger className="inline-flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-[var(--control-radius)] px-2 text-[13px] text-muted-foreground outline-hidden transition-colors duration-150 hover:bg-white/[0.05] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[popup-open]:text-foreground">
-        {SORTS.find((s) => s.id === value)?.label}
-        <ChevronDown className="size-3.5" />
-      </Menu.Trigger>
-      <Menu.Portal>
-        <Menu.Positioner side="bottom" align="end" sideOffset={4} className="z-50">
-          <Menu.Popup className={menuPopupClass}>
-            {SORTS.map((s) => (
-              <Menu.Item key={s.id} className={menuItemClass} onClick={() => onChange(s.id)}>
-                {s.label}
-                {s.id === value ? <Check className="ml-auto size-3.5" /> : null}
-              </Menu.Item>
-            ))}
-          </Menu.Popup>
-        </Menu.Positioner>
-      </Menu.Portal>
-    </Menu.Root>
+    <Menu
+      align="end"
+      trigger={
+        <button
+          type="button"
+          className="inline-flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-[var(--control-radius)] px-2 text-[13px] text-muted-foreground outline-hidden transition-colors duration-150 hover:bg-white/[0.05] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[popup-open]:text-foreground"
+        >
+          {SORTS.find((s) => s.id === value)?.label}
+          <ChevronDown className="size-3.5" />
+        </button>
+      }
+    >
+      {SORTS.map((s) => (
+        <MenuItem key={s.id} onClick={() => onChange(s.id)}>
+          {s.label}
+          {s.id === value ? <Check className="ml-auto size-3.5" /> : null}
+        </MenuItem>
+      ))}
+    </Menu>
   );
 }
 

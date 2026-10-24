@@ -8,9 +8,10 @@ import { cn } from "../../lib/utils";
 import { useQuoteLabel } from "../../state/costs";
 import { runScoreAtom, watchAddAtom, watchListAtom, watchRemoveAtom } from "../../state/scores";
 import { PageHeader } from "../PageHeader";
+import { compactInputClass } from "../ui/field";
 import { Cost, Empty, PageBody, table } from "../ui/layout";
 import { xIconButton, xPill, xPillSm } from "../x";
-import { ErrorLine, causeMessage, controlClass, errorMessage, fmt } from "../library/shared";
+import { ErrorLine, causeMessage, errorMessage, fmt } from "../library/shared";
 
 const WINDOWS = ["d1", "d7", "d14", "d30"] as const satisfies ReadonlyArray<keyof ScoreChange>;
 
@@ -99,7 +100,7 @@ export function Watchlist({ onOpen }: { readonly onOpen: (handle: string) => voi
             }}
           >
             <input
-              className={cn(controlClass, "w-40 font-mono @max-[40rem]:w-28")}
+              className={cn(compactInputClass, "w-40 font-mono @max-[40rem]:w-28")}
               aria-label="Handle to watch"
               placeholder="@handle"
               value={handle}

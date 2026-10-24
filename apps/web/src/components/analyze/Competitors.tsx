@@ -8,9 +8,11 @@ import { competitorsAtom, fetchCompetitorAtom } from "../../state/analyze";
 import { useQuoteLabel } from "../../state/costs";
 import { watchAddAtom, watchListAtom, watchRemoveAtom } from "../../state/scores";
 import { Button } from "../ui/button";
+import { compactInputClass } from "../ui/field";
 import { Cost, Empty, table } from "../ui/layout";
+import { XLink } from "../ui/x-link";
 import { AnalyzePage } from "./AnalyzePage";
-import { ErrorBar, errorText, fieldClass, fmt, when, XLink } from "./ui";
+import { ErrorBar, errorText, fmt, when } from "./ui";
 
 function FetchButton({
   handle,
@@ -47,7 +49,7 @@ function TopPosts({ report }: { readonly report: CompetitorReport }) {
           <span className="w-12 shrink-0 text-right font-mono text-xs text-muted-foreground tabular-nums">
             {fmt(p.views)}
           </span>
-          <XLink href={p.url} className="min-w-0 truncate text-foreground/90">
+          <XLink href={p.url} className="min-w-0 truncate text-foreground/90 hover:underline">
             {p.text}
           </XLink>
         </li>
@@ -109,7 +111,7 @@ export function Competitors({ data }: { readonly data: AnalyzeData }) {
         >
           <input
             aria-label="Handle to watch"
-            className={cn(fieldClass, "w-36 font-mono")}
+            className={cn(compactInputClass, "w-36 font-mono")}
             placeholder="@handle"
             value={handle}
             onChange={(e) => setHandle(e.target.value)}

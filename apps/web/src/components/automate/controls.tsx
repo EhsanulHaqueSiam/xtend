@@ -2,38 +2,6 @@ import type { ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
 
-/** On or off. The knob slides 150ms on a click; nothing else moves. */
-export function Switch({
-  checked,
-  onChange,
-  label,
-  disabled,
-}: {
-  readonly checked: boolean;
-  readonly onChange: (checked: boolean) => void;
-  /** Names the switch for screen readers when no label element wraps it. */
-  readonly label?: string;
-  readonly disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      disabled={disabled}
-      // Rows that open on click hold switches; flipping one must not open the row too.
-      onClick={(e) => {
-        e.stopPropagation();
-        onChange(!checked);
-      }}
-      className="group relative inline-flex h-[18px] w-[30px] shrink-0 cursor-pointer items-center rounded-[9px] bg-white/13 outline-hidden transition-[background-color] duration-150 focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60 aria-checked:bg-success"
-    >
-      <span className="size-3.5 translate-x-0.5 rounded-full bg-foreground transition-[translate] duration-150 ease-[cubic-bezier(.23,1,.32,1)] group-aria-checked:translate-x-[14px]" />
-    </button>
-  );
-}
-
 /** A small label over a group of properties, as in the inspector. */
 export function PropGroup({
   title,

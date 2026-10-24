@@ -7,7 +7,7 @@ import { cn } from "../../lib/utils";
 import { runsAtom } from "../../state/plan";
 import { failText } from "../compose/AssistPanel";
 import { draftTitle, fmtWhen, useDraftCost } from "../compose/DraftsList";
-import { Popover } from "../compose/overlay";
+import { Popover } from "../ui/popover";
 import { Button } from "../ui/button";
 import { Cost, Empty, table } from "../ui/layout";
 import { StatusDot } from "./ui";

@@ -8,7 +8,8 @@ import { TextMorph } from "torph/react";
 import { cn } from "../../lib/utils";
 import { dryRun7dAtom, previewAtom, rulesAtom } from "../../state/automate";
 import { usd } from "../../state/costs";
-import { ErrorBar, fieldClass, insetTable, Note, when } from "../analyze/ui";
+import { ErrorBar, insetTable, Note, when } from "../analyze/ui";
+import { compactInputClass } from "../ui/field";
 import { PageHeader } from "../PageHeader";
 import { sectionHref } from "../shell/sections";
 import { Button } from "../ui/button";
@@ -133,7 +134,7 @@ export function DryRun() {
               <>
                 <select
                   aria-label="Rule"
-                  className={cn(fieldClass, "w-48")}
+                  className={cn(compactInputClass, "w-48")}
                   value={ruleId ?? ""}
                   onChange={(e) => {
                     setPicked(Number(e.target.value));

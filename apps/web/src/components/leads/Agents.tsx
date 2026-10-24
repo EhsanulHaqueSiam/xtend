@@ -16,24 +16,22 @@ import {
   upsertAgentAtom,
 } from "../../state/leads";
 import { errorText } from "../analyze/ui";
+import { ago, ErrorLine, pill, pillSolid } from "../engage/triage";
+import { PageHeader } from "../PageHeader";
+import { Field, inputClass } from "../ui/field";
+import { Cost, Empty, PageBody, Section } from "../ui/layout";
 import {
-  ago,
   type Column,
-  ErrorLine,
+  DetailSplit,
   ListHead,
   ListRow,
-  pill,
-  pillSolid,
   Props,
   RowText,
   RowTitle,
-  Split,
   useSelection,
-} from "../engage/triage";
-import { PageHeader } from "../PageHeader";
-import { Cost, Empty, PageBody, Section } from "../ui/layout";
+} from "../ui/split";
 import { xAction } from "../x";
-import { Field, field, useAction } from "./ui";
+import { useAction } from "./ui";
 
 const blank: SignalAgentInput = {
   name: "",
@@ -130,7 +128,7 @@ export function AgentsSection() {
           </PageBody>
         ),
         onSuccess: () => (
-          <Split
+          <DetailSplit
             detailKey={draft !== null ? "new" : selected}
             list={
               <>
@@ -342,7 +340,7 @@ function AgentForm({
       >
         <Field label="Name">
           <input
-            className={field}
+            className={inputClass}
             placeholder="Typefully switchers"
             value={a.name}
             onChange={(e) => setA({ ...a, name: e.target.value })}
@@ -350,7 +348,7 @@ function AgentForm({
         </Field>
         <Field label="Search">
           <textarea
-            className={cn(field, "min-h-14 resize-y font-mono text-xs")}
+            className={cn(inputClass, "min-h-14 resize-y font-mono text-xs leading-relaxed")}
             placeholder='"typefully alternative" OR "tweet hunter"'
             value={a.query}
             onChange={(e) => setA({ ...a, query: e.target.value })}
@@ -359,7 +357,7 @@ function AgentForm({
         <Field label="Every">
           <span className="flex items-center gap-2">
             <input
-              className={cn(field, "w-16")}
+              className={cn(inputClass, "w-16")}
               inputMode="numeric"
               value={a.intervalMinutes}
               onChange={(e) => setA({ ...a, intervalMinutes: num(e.target.value) })}
@@ -369,7 +367,7 @@ function AgentForm({
         </Field>
         <Field label="Min followers">
           <input
-            className={field}
+            className={inputClass}
             inputMode="numeric"
             placeholder="any"
             value={a.minFollowers || ""}
@@ -378,7 +376,7 @@ function AgentForm({
         </Field>
         <Field label="Language">
           <input
-            className={cn(field, "w-16")}
+            className={cn(inputClass, "w-16")}
             placeholder="any"
             maxLength={2}
             value={a.lang ?? ""}
@@ -404,7 +402,7 @@ function AgentForm({
         </Field>
         <Field label="Notify at">
           <input
-            className={cn(field, "w-16")}
+            className={cn(inputClass, "w-16")}
             inputMode="numeric"
             placeholder="off"
             value={a.notifyMinScore ?? ""}
@@ -418,7 +416,7 @@ function AgentForm({
         </Field>
         <Field label="Into list">
           <select
-            className={cn(field, "bg-background")}
+            className={cn(inputClass, "bg-background")}
             value={a.listId ?? ""}
             onChange={(e) =>
               setA({ ...a, listId: e.target.value === "" ? null : Number(e.target.value) })
@@ -434,7 +432,7 @@ function AgentForm({
         </Field>
         <Field label="Scoring">
           <textarea
-            className={cn(field, "min-h-16 resize-y")}
+            className={cn(inputClass, "min-h-16 resize-y leading-relaxed")}
             placeholder="Optional: what makes a match worth your time"
             value={a.scoringPrompt}
             onChange={(e) => setA({ ...a, scoringPrompt: e.target.value })}

@@ -1,4 +1,3 @@
-import { Menu } from "@base-ui/react/menu";
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import type { XPost } from "@xtend/contracts";
 import { useNavigate } from "@tanstack/react-router";
@@ -9,8 +8,8 @@ import { TextMorph } from "torph/react";
 
 import { cn } from "../../lib/utils";
 import { collectionsAtom, savePostAtom, swipeFileAtom } from "../../state/library";
+import { Menu, MenuItem } from "../ui/menu";
 import { xPill, xPillSm, xPillSolid } from "../x";
-import { menuItemClass, menuPopupClass } from "./menu";
 import { errorMessage } from "./shared";
 
 const small = "[&_svg]:size-3.5";
@@ -90,30 +89,26 @@ export function SaveButton({
   const label = savedTo !== null ? `Saved to ${savedTo}` : saved ? "Saved" : "Save";
   return (
     <span className="inline-flex min-w-0 items-center gap-2">
-      <Menu.Root>
-        <Menu.Trigger
-          className={cn(saved || savedTo !== null ? xPill : xPillSolid, xPillSm, small)}
-        >
-          <Bookmark />
-          <TextMorph duration={250}>{label}</TextMorph>
-          <ChevronDown className="opacity-60" />
-        </Menu.Trigger>
-        <Menu.Portal>
-          <Menu.Positioner side="bottom" align="start" sideOffset={4} className="z-50">
-            <Menu.Popup className={menuPopupClass}>
-              <Menu.Item className={menuItemClass} onClick={() => run(null, "Swipe file")}>
-                Swipe file
-              </Menu.Item>
-              {list.map((c) => (
-                <Menu.Item key={c.id} className={menuItemClass} onClick={() => run(c.id, c.name)}>
-                  <span className="truncate">{c.name}</span>
-                  <span className="ml-auto font-mono text-2xs tabular-nums">{c.posts}</span>
-                </Menu.Item>
-              ))}
-            </Menu.Popup>
-          </Menu.Positioner>
-        </Menu.Portal>
-      </Menu.Root>
+      <Menu
+        trigger={
+          <button
+            type="button"
+            className={cn(saved || savedTo !== null ? xPill : xPillSolid, xPillSm, small)}
+          >
+            <Bookmark />
+            <TextMorph duration={250}>{label}</TextMorph>
+            <ChevronDown className="opacity-60" />
+          </button>
+        }
+      >
+        <MenuItem onClick={() => run(null, "Swipe file")}>Swipe file</MenuItem>
+        {list.map((c) => (
+          <MenuItem key={c.id} onClick={() => run(c.id, c.name)}>
+            <span className="truncate">{c.name}</span>
+            <span className="ml-auto font-mono text-2xs tabular-nums">{c.posts}</span>
+          </MenuItem>
+        ))}
+      </Menu>
       {error !== null ? (
         <span className="truncate text-2xs text-error-foreground">{error}</span>
       ) : null}

@@ -16,12 +16,14 @@ import {
   swipeFileAtom,
 } from "../../state/library";
 import { PageHeader } from "../PageHeader";
+import { compactInputClass, inputClass } from "../ui/field";
 import { Empty } from "../ui/layout";
+import { DetailSplit } from "../ui/split";
 import { xAction, xIconButton, xPill, xPillSm } from "../x";
-import { DetailSplit, PostGrid } from "./PostCard";
+import { PostGrid } from "./PostCard";
 import { InspectorGroup, PostInspector } from "./PostInspector";
 import { RemixButton, SaveButton } from "./SaveButton";
-import { ErrorLine, causeMessage, controlClass, errorMessage, inputClass } from "./shared";
+import { ErrorLine, causeMessage, errorMessage } from "./shared";
 
 /** The selected saved post: its note, more collections, remix, remove. */
 function SavedInspector({
@@ -97,6 +99,9 @@ export function SavedPosts({
   const open = rows.find((s) => String(s.id) === selected);
   return (
     <DetailSplit
+      closable
+      label="Selected post"
+      detailKey={selected}
       detail={
         open === undefined ? null : (
           <SavedInspector
@@ -107,8 +112,7 @@ export function SavedPosts({
           />
         )
       }
-    >
-      {AsyncResult.match(result, {
+      list={AsyncResult.match(result, {
         onInitial: () => <Empty>Loading saved posts</Empty>,
         onFailure: (f) => <ErrorLine className="py-4">{causeMessage(f.cause)}</ErrorLine>,
         onSuccess: ({ value }) =>
@@ -128,7 +132,7 @@ export function SavedPosts({
             />
           ),
       })}
-    </DetailSplit>
+    />
   );
 }
 
@@ -185,7 +189,7 @@ function CollectionRow({
           <input
             ref={(el) => el?.focus()}
             aria-label="Collection name"
-            className={cn(controlClass, "w-full")}
+            className={cn(compactInputClass, "w-full")}
             value={editing}
             onChange={(e) => setEditing(e.target.value)}
             onBlur={() => setEditing(null)}
@@ -268,7 +272,7 @@ export function CollectionsTab() {
             }}
           >
             <input
-              className={cn(controlClass, "w-40 @max-[44rem]:w-28")}
+              className={cn(compactInputClass, "w-40 @max-[44rem]:w-28")}
               aria-label="New collection"
               placeholder="New collection"
               value={name}
