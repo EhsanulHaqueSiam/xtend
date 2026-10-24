@@ -69,6 +69,7 @@ function fakeService(): FakeService {
         tregTokenSet: true,
         monthlyBudgetUsd: 50,
         sessionPostingEnabled: false,
+        dailyLibraryJobs: false,
         voiceNotes: "",
         keywords: [],
         timeZone: "UTC",

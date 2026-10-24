@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import { cn } from "../../lib/utils";
 import { useQuoteLabel, useRates } from "../../state/costs";
+import { settingsAtom } from "../../state/settings";
 import {
   fetchPicksAtom,
   fetchStaffPicksAtom,
@@ -288,6 +289,19 @@ function StaffPicks({
 }
 
 /** Today's top posts for the user's keywords, and the staff picks under them. */
+
+/** Today's picks are in; the morning run is named only when it is turned on in Settings. */
+function FetchedLabel() {
+  const daily = AsyncResult.getOrElse(
+    AsyncResult.map(useAtomValue(settingsAtom), (v) => v.dailyLibraryJobs),
+    () => false,
+  );
+  return (
+    <span className="font-mono text-2xs text-muted-foreground">
+      {daily ? "fetched · daily 08:00" : "fetched today"}
+    </span>
+  );
+}
 export function PicksTab() {
   const state = useAtomValue(picksAtom);
   const staff = useAtomValue(staffPicksAtom);
@@ -399,9 +413,7 @@ export function PicksTab() {
                     {day.pending.length > 0 ? (
                       runs.fetchButton(day.pending.length, false)
                     ) : day.keywords.length > 0 ? (
-                      <span className="font-mono text-2xs text-muted-foreground">
-                        fetched · daily 08:00
-                      </span>
+                      <FetchedLabel />
                     ) : null}
                   </div>
                 </div>

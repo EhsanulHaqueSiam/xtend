@@ -21,6 +21,7 @@ import {
   switchAccount,
 } from "../state/accounts";
 import { serverInfoAtom } from "../state/observations";
+import { useQuoteLabel } from "../state/costs";
 import { settingsAtom, spendAtom, updateSettingsAtom } from "../state/settings";
 import { xSkinAtom } from "../state/x";
 
@@ -149,6 +150,10 @@ function SettingsForm({ current }: { readonly current: SettingsShape }) {
             }}
           />
         </Field>
+        <DailyJobsField
+          checked={draft.dailyLibraryJobs ?? current.dailyLibraryJobs}
+          onChange={(next) => setDraft((d) => ({ ...d, dailyLibraryJobs: next }))}
+        />
       </Section>
       <Section title="Time and voice">
         <Field
@@ -224,6 +229,26 @@ function SettingsForm({ current }: { readonly current: SettingsShape }) {
         </div>
       ) : null}
     </>
+  );
+}
+
+/** The Library's morning jobs spend with nobody clicking, so they are off until turned on here. */
+function DailyJobsField({
+  checked,
+  onChange,
+}: {
+  readonly checked: boolean;
+  readonly onChange: (next: boolean) => void;
+}) {
+  const searches = useQuoteLabel({ kind: "picksFetch" });
+  const call = useQuoteLabel({ kind: "assist" });
+  return (
+    <Field
+      label="Daily Library jobs"
+      hint={`Each morning: picks for your keywords (${searches} in searches), hook detection and three ready posts (${call} per model call).`}
+    >
+      <Toggle label="Daily Library jobs" checked={checked} onChange={onChange} />
+    </Field>
   );
 }
 

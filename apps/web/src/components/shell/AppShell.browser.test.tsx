@@ -17,6 +17,7 @@ const settings = {
   tregTokenSet: false,
   monthlyBudgetUsd: 20,
   sessionPostingEnabled: false,
+  dailyLibraryJobs: false,
   voiceNotes: "",
   keywords: [],
   timeZone: "UTC",

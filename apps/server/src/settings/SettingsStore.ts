@@ -29,6 +29,7 @@ interface SettingsRow {
   readonly treg_token: string | null;
   readonly monthly_budget_usd: number;
   readonly session_posting_enabled: number;
+  readonly daily_library_jobs: number;
   readonly voice_notes: string;
   readonly keywords_json: string;
   readonly time_zone: string | null;
@@ -72,6 +73,7 @@ const make = Effect.gen(function* () {
     tregTokenSet: r.treg_token !== null,
     monthlyBudgetUsd: r.monthly_budget_usd,
     sessionPostingEnabled: r.session_posting_enabled === 1,
+    dailyLibraryJobs: r.daily_library_jobs === 1,
     voiceNotes: r.voice_notes,
     keywords: decodeKeywords(r.keywords_json),
     timeZone: r.time_zone ?? defaultZone,
@@ -106,6 +108,7 @@ const make = Effect.gen(function* () {
           treg_token = ${token},
           monthly_budget_usd = ${patch.monthlyBudgetUsd ?? current.monthly_budget_usd},
           session_posting_enabled = ${patch.sessionPostingEnabled === undefined ? current.session_posting_enabled : patch.sessionPostingEnabled ? 1 : 0},
+          daily_library_jobs = ${patch.dailyLibraryJobs === undefined ? current.daily_library_jobs : patch.dailyLibraryJobs ? 1 : 0},
           voice_notes = ${patch.voiceNotes ?? current.voice_notes},
           keywords_json = ${patch.keywords === undefined ? current.keywords_json : encodeKeywords(patch.keywords)},
           time_zone = ${patch.timeZone ?? current.time_zone},
