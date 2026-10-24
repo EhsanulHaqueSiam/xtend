@@ -9,9 +9,11 @@ import { cn } from "../../lib/utils";
 import { agentsAtom, paletteOpenAtom, runAgentAtom } from "../../state/shell";
 import { xNavigate } from "../../state/x";
 import { SCREENS } from "./commands";
+import { SECTIONS } from "./sections";
 
 interface Command {
   readonly id: string;
+  readonly group: "Actions" | "Go to" | "Sections" | "X";
   readonly label: string;
   readonly hint?: string;
   readonly icon: LucideIcon;
@@ -57,18 +59,46 @@ function PaletteBody({
     };
     const handle = HANDLE.exec(query)?.[1];
     const fixed: Array<Command> = [
-      ...SCREENS.map((s) => ({ id: s.to, label: `Go to ${s.label}`, icon: s.icon, run: to(s.to) })),
+      ...SCREENS.map((s) => ({
+        id: s.to,
+        group: "Go to" as const,
+        label: s.label,
+        icon: s.icon,
+        run: to(s.to),
+      })),
       ...(isElectron
         ? X_PAGES.map((p) => ({
             id: `x:${p.path}`,
-            label: `X ${p.label}`,
+            group: "X" as const,
+            label: p.label,
             icon: Twitter,
             run: onX(p.path),
           }))
         : []),
-      { id: "schedule", label: "Schedule this", icon: CalendarClock, run: to("/compose") },
+      // Sections only once something is typed, so the empty palette stays short.
+      ...(query.trim() === ""
+        ? []
+        : SCREENS.flatMap((screen) =>
+            screen.to in SECTIONS
+              ? SECTIONS[screen.to as keyof typeof SECTIONS].map((section) => ({
+                  id: `${screen.to}?tab=${section.id}`,
+                  group: "Sections" as const,
+                  label: `${screen.label}: ${section.label}`,
+                  icon: screen.icon,
+                  run: to(`${screen.to}?tab=${section.id}`),
+                }))
+              : [],
+          )),
+      {
+        id: "schedule",
+        group: "Actions",
+        label: "Schedule this",
+        icon: CalendarClock,
+        run: to("/compose"),
+      },
       ...AsyncResult.getOrElse(agents, () => []).map((agent) => ({
         id: `agent:${agent.id}`,
+        group: "Actions" as const,
         label: `Run agent ${agent.name}`,
         hint: "paid search",
         icon: Bot,
@@ -79,6 +109,7 @@ function PaletteBody({
     if (handle !== undefined) {
       dynamic.push({
         id: "report",
+        group: "Actions",
         label: `Report on @${handle}`,
         icon: Gauge,
         run: to(`/scores?handle=${encodeURIComponent(handle)}`),
@@ -86,6 +117,7 @@ function PaletteBody({
       if (isElectron)
         dynamic.push({
           id: "profile",
+          group: "X",
           label: `Open @${handle} on X`,
           icon: AtSign,
           run: onX(`/${handle}`),
@@ -94,6 +126,7 @@ function PaletteBody({
     if (query.trim() !== "")
       dynamic.push({
         id: "search",
+        group: "Actions",
         label: `Search library for "${query.trim()}"`,
         icon: Search,
         run: to(`/library?q=${encodeURIComponent(query.trim())}`),
@@ -118,7 +151,7 @@ function PaletteBody({
         value={query}
         placeholder="Type a command, @handle or search"
         aria-label="Command"
-        className="w-full shrink-0 border-b border-border bg-transparent px-3 py-2.5 text-sm text-foreground outline-hidden placeholder:text-placeholder"
+        className="w-full shrink-0 border-b border-border bg-transparent px-4 py-3 text-sm text-foreground outline-hidden placeholder:text-placeholder"
         onChange={(e) => {
           setQuery(e.target.value);
           setCursor(0);
@@ -136,29 +169,39 @@ function PaletteBody({
           }
         }}
       />
-      <ul role="listbox" className="min-h-0 flex-1 overflow-y-auto py-1">
+      <ul role="listbox" className="min-h-0 flex-1 overflow-y-auto p-1.5">
         {commands.length === 0 ? (
-          <li className="px-3 py-2 text-xs text-muted-foreground">No commands</li>
+          <li className="px-2.5 py-2 text-xs text-muted-foreground">No commands</li>
         ) : null}
         {commands.map((command, index) => {
           const Icon = command.icon;
+          // A group's name goes above its first command; the list keeps its order.
+          const heading = index === 0 || commands[index - 1]?.group !== command.group;
           return (
-            <li
-              key={command.id}
-              role="option"
-              aria-selected={index === selected}
-              className={cn(
-                "flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm text-muted-foreground",
-                index === selected && "bg-accent/60 text-foreground",
-              )}
-              onMouseEnter={() => setCursor(index)}
-              onClick={() => pick(command)}
-            >
-              <Icon className="size-4 shrink-0" />
-              <span className="truncate">{command.label}</span>
-              {command.hint !== undefined ? (
-                <span className="ml-auto font-mono text-2xs">{command.hint}</span>
+            <li key={command.id} role="presentation">
+              {heading ? (
+                <div className="px-2.5 pt-2 pb-1 text-xs text-muted-foreground">
+                  {command.group}
+                </div>
               ) : null}
+              <div
+                role="option"
+                aria-selected={index === selected}
+                className={cn(
+                  "flex h-[34px] cursor-pointer items-center gap-2.5 rounded-[var(--control-radius)] px-2.5 text-sm text-muted-foreground",
+                  index === selected && "bg-white/[0.07] text-foreground",
+                )}
+                onMouseEnter={() => setCursor(index)}
+                onClick={() => pick(command)}
+              >
+                <Icon className="size-4 shrink-0" />
+                <span className="truncate">{command.label}</span>
+                {command.hint !== undefined ? (
+                  <span className="ml-auto font-mono text-2xs text-muted-foreground">
+                    {command.hint}
+                  </span>
+                ) : null}
+              </div>
             </li>
           );
         })}

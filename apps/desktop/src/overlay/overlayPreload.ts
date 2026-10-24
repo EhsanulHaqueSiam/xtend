@@ -7,6 +7,7 @@ import {
   OVERLAY_GLANCE_CHANNEL,
   OVERLAY_HIDE_CHANNEL,
   OVERLAY_TOGGLE_CHANNEL,
+  OVERLAY_VIEWER_CHANNEL,
   type OverlayAction,
   type OverlayData,
   type OverlayPost,
@@ -21,6 +22,7 @@ import {
   composerToolbars,
   findArticles,
   isDmPath,
+  viewerHandleFromNav,
 } from "./xDom.ts";
 
 /**
@@ -182,9 +184,19 @@ const renderGlance = () => {
   for (const chip of state.chips) chip.body.innerHTML = chipsHtml();
 };
 
+// Who is signed in, for observations and the service's handle; sent once per change.
+let viewer: string | null = null;
+const reportViewer = () => {
+  const handle = viewerHandleFromNav(document);
+  if (handle === null || handle === viewer) return;
+  viewer = handle;
+  ipcRenderer.send(OVERLAY_VIEWER_CHANNEL, handle);
+};
+
 let scanQueued = false;
 const scan = () => {
   scanQueued = false;
+  reportViewer();
   mountChips();
   for (const article of findArticles(document)) {
     const postId = articlePostId(article);

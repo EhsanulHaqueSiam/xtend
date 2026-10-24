@@ -23,6 +23,7 @@ import {
   OVERLAY_ACTION_CHANNEL,
   OVERLAY_GLANCE_CHANNEL,
   OVERLAY_TOGGLE_CHANNEL,
+  OVERLAY_VIEWER_CHANNEL,
   type OverlayAction,
   SESSION_DOWNLOAD_CHANNEL,
   type SessionDownload,
@@ -343,6 +344,7 @@ export function createMainWindow(options: MainWindowOptions) {
 
     const overlay = createOverlayFeed(contents);
     const createdListeners = new Set<(postId: string) => void>();
+    let navViewer: string | null = null;
     const detachCapture = attachSessionCapture(contents, {
       serviceUrl: options.serviceUrl,
       serviceToken: options.serviceToken,
@@ -353,6 +355,7 @@ export function createMainWindow(options: MainWindowOptions) {
         for (const listener of createdListeners) listener(postId);
         createdListeners.clear();
       },
+      fallbackViewer: () => navViewer,
     });
     const commands = attachDesktopCommands(contents, {
       serviceUrl: options.serviceUrl,
@@ -384,11 +387,21 @@ export function createMainWindow(options: MainWindowOptions) {
       });
     };
     ipcMain.on(OVERLAY_ACTION_CHANNEL, onAction);
+    const onViewer = (event: Electron.IpcMainEvent, handle: unknown) => {
+      if (
+        event.sender === contents &&
+        typeof handle === "string" &&
+        /^[a-z0-9_]{1,15}$/.test(handle)
+      )
+        navViewer = handle;
+    };
+    ipcMain.on(OVERLAY_VIEWER_CHANNEL, onViewer);
 
     return {
       applySkin,
       detach: () => {
         ipcMain.off(OVERLAY_ACTION_CHANNEL, onAction);
+        ipcMain.off(OVERLAY_VIEWER_CHANNEL, onViewer);
         detachCapture();
         commands.detach();
       },

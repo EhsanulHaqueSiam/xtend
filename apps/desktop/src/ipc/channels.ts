@@ -27,6 +27,8 @@ export const OVERLAY_HIDE_CHANNEL = "xtend:overlay-hide";
 export const OVERLAY_GLANCE_CHANNEL = "xtend:overlay-glance";
 // Overlay preload -> main
 export const OVERLAY_ACTION_CHANNEL = "xtend:overlay-action";
+/** The signed-in handle read from X's nav (string), when the capture has not seen it. */
+export const OVERLAY_VIEWER_CHANNEL = "xtend:overlay-viewer";
 
 export interface SessionDownload {
   readonly name: string;

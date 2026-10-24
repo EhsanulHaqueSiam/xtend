@@ -85,6 +85,7 @@ it("opens routes sent from x.com beside it, and turns the skin on at start", asy
 it("opens the palette on ⌘K sent from inside x.com", async () => {
   await using screen = await render(shell(), { router: "/x", service });
   bridge.emitShortcut("palette");
-  await expect.element(screen.getByRole("dialog", { name: "Command palette" })).toBeVisible();
-  await expect.element(screen.getByText("X Notifications")).toBeVisible();
+  const palette = screen.getByRole("dialog", { name: "Command palette" });
+  await expect.element(palette).toBeVisible();
+  await expect.element(palette.getByRole("option", { name: "Notifications" })).toBeVisible();
 });

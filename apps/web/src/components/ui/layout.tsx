@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
+import { usd as formatUsd } from "../../state/costs";
 
 /**
  * The shapes every screen is built from, so the tools read as one app:
@@ -65,13 +66,14 @@ export function Empty({
   );
 }
 
-const usd = (n: number) => (n === 0 ? "free" : n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`);
-
-/** A price, shown next to every paid action before it runs. */
-export function Cost({ usd: amount }: { readonly usd: number }) {
-  return (
-    <span className="font-mono text-2xs text-muted-foreground tabular-nums">{usd(amount)}</span>
-  );
+/**
+ * A price, shown next to every paid action before it runs: a rate-card amount
+ * (exact, the same formatting as the quote labels), or a quote label from
+ * `useQuoteLabel` such as "cached, free".
+ */
+export function Cost(props: { readonly usd: number } | { readonly label: string }) {
+  const text = "label" in props ? props.label : props.usd === 0 ? "free" : formatUsd(props.usd);
+  return <span className="font-mono text-2xs text-muted-foreground tabular-nums">{text}</span>;
 }
 
 /** A number with its label: label small and muted, value in mono. */

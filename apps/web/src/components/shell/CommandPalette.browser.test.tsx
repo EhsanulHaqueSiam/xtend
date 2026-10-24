@@ -15,12 +15,13 @@ it("opens on ⌘K, filters commands and closes on Escape", async () => {
   expect(page.getByRole("dialog").query()).toBeNull();
 
   await userEvent.keyboard("{Meta>}k{/Meta}");
-  await expect.element(page.getByRole("dialog", { name: "Command palette" })).toBeVisible();
-  await expect.element(page.getByText("Go to Compose")).toBeVisible();
+  const palette = page.getByRole("dialog", { name: "Command palette" });
+  await expect.element(palette).toBeVisible();
+  await expect.element(palette.getByRole("option", { name: "Compose" })).toBeVisible();
 
   await userEvent.type(page.getByRole("textbox", { name: "Command" }), "pla");
-  await expect.element(page.getByText("Go to Plan")).toBeVisible();
-  expect(page.getByText("Go to Compose").query()).toBeNull();
+  await expect.element(palette.getByRole("option", { name: "Plan", exact: true })).toBeVisible();
+  expect(palette.getByRole("option", { name: "Compose" }).query()).toBeNull();
 
   await userEvent.keyboard("{Escape}");
   expect(page.getByRole("dialog").query()).toBeNull();
