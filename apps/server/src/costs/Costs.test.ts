@@ -6,6 +6,7 @@ import * as Sqlite from "../persistence/Sqlite.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 import * as TokenCipher from "../settings/TokenCipher.ts";
 import { xClientStub } from "../testing/xClientStub.ts";
+import * as Assist from "../ai/Assist.ts";
 import * as XClient from "../x/XClient.ts";
 import * as Costs from "./Costs.ts";
 
@@ -40,6 +41,7 @@ describe("Costs", () => {
         { kind: "search", query: "warm" },
         { kind: "trending", country: "UnitedStates" },
         { kind: "scoreRun", handle: "levelsio" },
+        { kind: "assist" },
       ]);
       expect(rates).toEqual(XClient.RATE_CARD);
       expect(quotes.map((q) => q.usd)).toEqual([
@@ -49,8 +51,9 @@ describe("Costs", () => {
         0,
         0,
         rates.scraperProfile + 5 * rates.followersPage,
+        Assist.EXPECTED_CALL_USD,
       ]);
-      expect(quotes.map((q) => q.cached)).toEqual([false, false, false, true, true, false]);
+      expect(quotes.map((q) => q.cached)).toEqual([false, false, false, true, true, false, false]);
     }).pipe(Effect.provide(layerTest)),
   );
 });
