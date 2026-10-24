@@ -1,125 +1,204 @@
-import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
-import type { Mention, SentReply } from "@xtend/contracts";
+import { useAtomValue } from "@effect/atom-react";
+import { useNavigate } from "@tanstack/react-router";
+import type { SentReply } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 
-import { inboxAtom, markHandledAtom } from "../../state/engage";
-import { fmtWhen } from "../compose/DraftsList";
-import { Empty, ErrorText, errorText } from "../analyze/ui";
-import { Button } from "../ui/button";
+import { isElectron } from "../../env";
+import { fmtWhen } from "../../lib/time";
+import { inboxAtom } from "../../state/engage";
+import { errorText } from "../analyze/ui";
+import { PageHeader } from "../PageHeader";
+import { sectionHref } from "../shell/sections";
+import { Empty, PageBody, Section } from "../ui/layout";
+import { MentionTriage } from "./Mentions";
+import {
+  ago,
+  type Column,
+  ErrorLine,
+  ListHead,
+  ListRow,
+  OpenOnX,
+  pill,
+  Props,
+  RowText,
+  RowTitle,
+  Split,
+  useSelection,
+} from "./triage";
 
-function Row({ reply }: { reply: SentReply }) {
-  return (
-    <tr className="border-t border-border align-top">
-      <td className="py-1.5 pr-3 font-mono text-2xs text-muted-foreground whitespace-nowrap">
-        {fmtWhen(reply.at)}
-      </td>
-      <td className="py-1.5 pr-3 text-xs whitespace-nowrap">
-        <a href={reply.targetUrl} target="_blank" rel="noreferrer" className="hover:underline">
-          @{reply.targetHandle}
-        </a>
-      </td>
-      <td className="py-1.5 pr-3 text-xs text-foreground/90">{reply.text}</td>
-      <td
-        className="py-1.5 pr-3 font-mono text-2xs text-muted-foreground whitespace-nowrap"
-        title="New followers within 24 h who are this author or replied to you"
-      >
-        {reply.attributedFollowers > 0 ? `+${reply.attributedFollowers} followers` : ""}
-      </td>
-      <td className="py-1.5 font-mono text-2xs whitespace-nowrap">
-        {reply.error !== null ? (
-          <span className="text-error-foreground" title={reply.error}>
-            failed
-          </span>
-        ) : (
-          <span className="text-success-foreground">sent</span>
-        )}
-      </td>
-    </tr>
-  );
-}
-
-function Table({ rows, empty }: { rows: ReadonlyArray<SentReply>; empty: string }) {
-  if (rows.length === 0) return <Empty>{empty}</Empty>;
-  return (
-    <table className="w-full">
-      <tbody>
-        {rows.map((r) => (
-          <Row key={r.id} reply={r} />
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
-function IncomingRow({ mention, onHandled }: { mention: Mention; onHandled: () => void }) {
-  const { post } = mention;
-  return (
-    <article className="flex flex-col gap-1 rounded-lg px-3 py-2 hover:bg-accent/60">
-      <div className="flex min-w-0 items-center gap-1.5 text-sm">
-        <span className="truncate font-medium">{post.author.name}</span>
-        <a
-          href={post.url}
-          target="_blank"
-          rel="noreferrer"
-          className="truncate text-muted-foreground hover:underline"
-        >
-          @{post.author.handle}
-        </a>
-        <span className="font-mono text-2xs text-muted-foreground">
-          · {fmtWhen(post.createdAt)} · {post.isReply ? "reply" : "quote"}
-        </span>
-        {mention.handled ? (
-          <span className="ml-auto font-mono text-2xs text-success-foreground">handled</span>
-        ) : (
-          <Button variant="ghost" size="xs" className="ml-auto" onClick={onHandled}>
-            Mark handled
-          </Button>
-        )}
-      </div>
-      <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/90">
-        {post.text}
-      </p>
-    </article>
-  );
-}
-
-/** Replies and quotes to the user's posts the session saw, replies sent from here, and follow-ups. */
-export function Inbox({ view }: { view: "incoming" | "sent" | "followUps" }) {
+/** Replies and quotes to the user's posts that the session saw. */
+export function Incoming() {
   const result = useAtomValue(inboxAtom);
-  const refresh = useAtomRefresh(inboxAtom);
-  const markHandled = useAtomSet(markHandledAtom, { mode: "promise" });
-  return AsyncResult.match(result, {
-    onInitial: () => <Empty>Connecting to the service…</Empty>,
-    onFailure: (f) => <ErrorText>{errorText(f.cause)}</ErrorText>,
-    onSuccess: ({ value }) =>
-      view === "incoming" ? (
-        value.incoming.length === 0 ? (
-          <Empty>
-            No incoming replies or quotes yet. They appear as you browse x.com in the desktop app.
-          </Empty>
-        ) : (
-          <div className="flex flex-col gap-0.5">
-            {value.incoming.map((m) => (
-              <IncomingRow
-                key={m.post.postId}
-                mention={m}
-                onHandled={async () => {
-                  await markHandled(m.post.postId);
-                  refresh();
-                }}
-              />
-            ))}
-          </div>
-        )
-      ) : view === "sent" ? (
-        <Table rows={value.sent} empty="No replies sent yet." />
-      ) : (
+  return (
+    <MentionTriage
+      title="Inbox"
+      noHandle="The inbox needs"
+      result={AsyncResult.map(result, (v) => v.incoming)}
+      kind={(m) => (m.post.isReply ? "reply" : "quote")}
+      top={null}
+      actions={undefined}
+      empty={
+        isElectron
+          ? "No replies or quotes yet. They arrive as you browse x.com."
+          : "No replies or quotes yet. The desktop app collects them as you browse x.com."
+      }
+    />
+  );
+}
+
+const COLUMNS: ReadonlyArray<Column<SentReply>> = [
+  {
+    label: "Followers",
+    className: "hidden w-20 @lg:block",
+    cell: (r) => (r.attributedFollowers > 0 ? `+${r.attributedFollowers}` : ""),
+  },
+  {
+    label: "Status",
+    className: "w-16",
+    cell: (r) =>
+      r.error !== null ? <span className="text-error-foreground">failed</span> : "sent",
+  },
+  { label: "Sent", className: "w-12", cell: (r) => ago(r.at) },
+];
+
+/** Replies sent from here, or the ones worth a second touch: older than two days, nothing since. */
+export function SentReplies({ view }: { readonly view: "sent" | "followUps" }) {
+  const result = useAtomValue(inboxAtom);
+  const rows = AsyncResult.getOrElse(
+    AsyncResult.map(result, (v) => (view === "sent" ? v.sent : v.followUps)),
+    () => [],
+  );
+  const gained = rows.reduce((n, r) => n + r.attributedFollowers, 0);
+  return (
+    <>
+      <PageHeader
+        title={view === "sent" ? "Sent" : "Follow-ups"}
+        detail={
+          !AsyncResult.isSuccess(result)
+            ? undefined
+            : view === "sent"
+              ? `${rows.length} sent${gained > 0 ? ` · +${gained} followers` : ""}`
+              : `${rows.length} due`
+        }
+      />
+      {AsyncResult.match(result, {
+        onInitial: () => (
+          <PageBody>
+            <Empty>Loading…</Empty>
+          </PageBody>
+        ),
+        onFailure: (f) => (
+          <PageBody>
+            <ErrorLine>{errorText(f.cause)}</ErrorLine>
+          </PageBody>
+        ),
+        onSuccess: () =>
+          rows.length === 0 ? (
+            <PageBody>
+              {view === "sent" ? (
+                <NothingSent />
+              ) : (
+                <Empty>
+                  Nothing to follow up on. Replies older than two days with nothing from you since
+                  show up here.
+                </Empty>
+              )}
+            </PageBody>
+          ) : (
+            <ReplyList rows={rows} followUp={view === "followUps"} />
+          ),
+      })}
+    </>
+  );
+}
+
+function NothingSent() {
+  const navigate = useNavigate();
+  return (
+    <Empty
+      action={
+        <button
+          type="button"
+          className={pill}
+          onClick={() => void navigate({ href: sectionHref("/engage", "targets") })}
+        >
+          Targets
+        </button>
+      }
+    >
+      No replies sent yet. Pick a target and reply from there.
+    </Empty>
+  );
+}
+
+function ReplyList({
+  rows,
+  followUp,
+}: {
+  readonly rows: ReadonlyArray<SentReply>;
+  readonly followUp: boolean;
+}) {
+  const { selected, select } = useSelection(rows.map((r) => r.id));
+  const current = rows.find((r) => r.id === selected) ?? null;
+  return (
+    <Split
+      detailKey={selected}
+      list={
         <>
-          <p className="pb-1 text-2xs text-muted-foreground">
-            Replies older than two days with nothing from you since. Worth a second touch.
-          </p>
-          <Table rows={value.followUps} empty="Nothing to follow up on." />
+          <ListHead label="Reply" columns={COLUMNS} />
+          {rows.map((r) => (
+            <ListRow
+              key={r.id}
+              selected={r.id === selected}
+              onSelect={() => select(r.id)}
+              item={r}
+              columns={COLUMNS}
+            >
+              <RowTitle name={`@${r.targetHandle}`} meta={fmtWhen(r.at)} />
+              <RowText>{r.text}</RowText>
+            </ListRow>
+          ))}
         </>
-      ),
-  });
+      }
+      detail={current === null ? null : <ReplyDetail reply={current} followUp={followUp} />}
+    />
+  );
+}
+
+function ReplyDetail({
+  reply,
+  followUp,
+}: {
+  readonly reply: SentReply;
+  readonly followUp: boolean;
+}) {
+  return (
+    <>
+      <Section>
+        <p className="truncate text-sm font-semibold">To @{reply.targetHandle}</p>
+        <p className="text-[12.5px] text-muted-foreground">{fmtWhen(reply.at)}</p>
+        <p className="mt-3 text-sm leading-relaxed break-words whitespace-pre-wrap">{reply.text}</p>
+        <div className="mt-4 flex flex-wrap items-center gap-1.5">
+          <OpenOnX url={reply.targetUrl} label={followUp ? "Reply again on X" : "Their post"} />
+          {reply.postId !== null ? (
+            <OpenOnX url={`https://x.com/i/status/${reply.postId}`} label="Your reply" />
+          ) : null}
+        </div>
+      </Section>
+      <Section title="Numbers">
+        <Props
+          rows={[
+            ["Status", reply.error !== null ? "failed" : "sent"],
+            [
+              "New followers, 24 h",
+              reply.attributedFollowers > 0 ? `+${reply.attributedFollowers}` : "0",
+            ],
+          ]}
+        />
+        {reply.error !== null ? (
+          <p className="mt-3 text-xs break-words text-error-foreground">{reply.error}</p>
+        ) : null}
+      </Section>
+    </>
+  );
 }

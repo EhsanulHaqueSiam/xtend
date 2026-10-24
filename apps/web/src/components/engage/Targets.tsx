@@ -1,180 +1,328 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
-import { postCostUsd, type ReplyTarget } from "@xtend/contracts";
+import { Link } from "@tanstack/react-router";
+import type { ReplyTarget } from "@xtend/contracts";
 import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { BadgeCheck } from "lucide-react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
+import { TextMorph } from "torph/react";
 
-import { useRates, usd } from "../../state/costs";
+import { useQuoteLabel } from "../../state/costs";
 import {
-  draftReplyAtom,
-  likeAtom,
+  addKeywordsAtom,
+  findKeywordsAtom,
   nicheAtom,
   rebuildNicheAtom,
-  sendReplyAtom,
   targetsAtom,
 } from "../../state/engage";
-import { Empty, ErrorText, errorText, fmt } from "../analyze/ui";
-import { inputClass } from "../compose/ThreadEditor";
-import { Button } from "../ui/button";
+import { settingsAtom } from "../../state/settings";
+import { errorText, fmt } from "../analyze/ui";
+import { PageHeader } from "../PageHeader";
+import { Cost, Empty, PageBody, Section } from "../ui/layout";
+import { xAction } from "../x";
+import { type Patch, ReplyBox, useWork, type Work } from "./ReplyBox";
+import {
+  type Column,
+  ErrorLine,
+  ListHead,
+  ListRow,
+  NoHandle,
+  OpenOnX,
+  pill,
+  PostHead,
+  Props,
+  RowText,
+  RowTitle,
+  Split,
+  useSelection,
+} from "./triage";
 
 const age = (minutes: number) =>
-  minutes < 60 ? `${Math.round(minutes)} min` : `${(minutes / 60).toFixed(1)} h`;
+  minutes < 60 ? `${Math.round(minutes)}m` : `${(minutes / 60).toFixed(1)}h`;
 
-function Metric({ label, value }: { label: string; value: string }) {
+const COLUMNS: ReadonlyArray<Column<ReplyTarget>> = [
+  { label: "Views/h", className: "w-16", cell: (t) => fmt(t.viewsPerHour) },
+  {
+    label: "Replies",
+    className: "hidden w-16 @lg:block",
+    cell: (t) => fmt(t.post.metrics.replies),
+  },
+  {
+    label: "Followers",
+    className: "hidden w-18 @xl:block",
+    cell: (t) => fmt(t.post.author.followers),
+  },
+  { label: "Age", className: "w-12", cell: (t) => age(t.ageMinutes) },
+];
+
+type Suggestions = { keywords: ReadonlyArray<string>; handles: ReadonlyArray<string> };
+
+/** Posts worth replying to, ranked by the service; the selected one opens with its numbers and a reply. */
+export function Targets() {
+  const result = useAtomValue(targetsAtom);
+  const refresh = useAtomRefresh(targetsAtom);
+  const settings = AsyncResult.getOrElse(useAtomValue(settingsAtom), () => null);
+  const find = useAtomSet(findKeywordsAtom, { mode: "promiseExit" });
+  const finding = useAtomValue(findKeywordsAtom).waiting;
+  const findQuote = useQuoteLabel({ kind: "findKeywords" });
+  const targetsQuote = useQuoteLabel({ kind: "engageTargets" });
+  const [found, setFound] = useState<Suggestions | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  // Skipping only hides a target for this visit, as it always has.
+  const [skipped, setSkipped] = useState<ReadonlySet<string>>(new Set());
+
+  const targets = AsyncResult.getOrElse(
+    AsyncResult.map(result, (all) => all.filter((t) => !skipped.has(t.post.postId))),
+    () => [],
+  );
+  const noHandle = settings !== null && settings.handle === null;
+
+  const runFind = async () => {
+    setError(null);
+    const exit = await find();
+    if (Exit.isFailure(exit)) setError(errorText(exit.cause));
+    else setFound(exit.value);
+  };
+
   return (
-    <span className="inline-flex items-baseline gap-1 font-mono text-2xs text-muted-foreground">
-      {label}
-      <span className="font-medium text-foreground">{value}</span>
-    </span>
+    <>
+      <PageHeader
+        title="Targets"
+        detail={
+          result.waiting && AsyncResult.isSuccess(result)
+            ? "refreshing"
+            : AsyncResult.isSuccess(result)
+              ? `${targets.length} targets`
+              : undefined
+        }
+        actions={
+          <>
+            <button
+              type="button"
+              className={pill}
+              disabled={finding || noHandle}
+              onClick={() => void runFind()}
+            >
+              <TextMorph duration={250}>{finding ? "Finding…" : "Find keywords"}</TextMorph>
+              <Cost label={`${findQuote} + model`} />
+            </button>
+            <button type="button" className={pill} disabled={result.waiting} onClick={refresh}>
+              Refresh
+              <Cost label={targetsQuote} />
+            </button>
+          </>
+        }
+      />
+      {AsyncResult.match(result, {
+        onInitial: () => (
+          <PageBody>
+            <Empty>Loading targets…</Empty>
+          </PageBody>
+        ),
+        onFailure: (f) => (
+          <PageBody>
+            <ErrorLine>{errorText(f.cause)}</ErrorLine>
+          </PageBody>
+        ),
+        onSuccess: () => (
+          <TargetsBody
+            targets={targets}
+            top={
+              <>
+                {error !== null ? <ErrorLine>{error}</ErrorLine> : null}
+                {found !== null ? (
+                  <Found
+                    found={found}
+                    onDone={() => {
+                      setFound(null);
+                      refresh();
+                    }}
+                    onDismiss={() => setFound(null)}
+                  />
+                ) : null}
+                <NicheLine />
+              </>
+            }
+            empty={
+              noHandle && settings.keywords.length === 0 ? (
+                <NoHandle subject="Finding keywords needs" />
+              ) : settings !== null && settings.keywords.length === 0 ? (
+                <Empty
+                  action={
+                    <Link to="/settings" className={pill}>
+                      Settings
+                    </Link>
+                  }
+                >
+                  No keywords yet. Find some from your posts, or add your own in Settings.
+                </Empty>
+              ) : (
+                <Empty
+                  action={
+                    <Link to="/settings" className={pill}>
+                      Edit keywords
+                    </Link>
+                  }
+                >
+                  Nothing matches your keywords right now.
+                </Empty>
+              )
+            }
+            onSkip={(id) => setSkipped((s) => new Set(s).add(id))}
+          />
+        ),
+      })}
+    </>
   );
 }
 
-/** One target with its draft panel. State is per row so drafting several in a row works. */
-function TargetRow({ target }: { readonly target: ReplyTarget }) {
-  const { post } = target;
-  const draft = useAtomSet(draftReplyAtom, { mode: "promiseExit" });
-  const send = useAtomSet(sendReplyAtom, { mode: "promiseExit" });
-  const like = useAtomSet(likeAtom, { mode: "promiseExit" });
-  const [drafts, setDrafts] = useState<ReadonlyArray<string>>([]);
-  const [text, setText] = useState("");
-  const [busy, setBusy] = useState<"draft" | "reply" | "like" | null>(null);
-  const [notice, setNotice] = useState<{ tone: "error" | "ok"; text: string } | null>(null);
-  const [done, setDone] = useState<"replied" | "skipped" | null>(target.replied ? "replied" : null);
-  const rates = useRates();
-
-  const fail = (cause: Parameters<typeof errorText>[0]) =>
-    setNotice({ tone: "error", text: errorText(cause) });
-
-  const onDraft = async () => {
-    setBusy("draft");
-    setNotice(null);
-    const exit = await draft(post);
-    setBusy(null);
-    if (Exit.isFailure(exit)) return fail(exit.cause);
-    const list = exit.value.map((d) => d.text);
-    setDrafts(list);
-    setText(list[0] ?? "");
-  };
-
-  const onReply = async () => {
-    setBusy("reply");
-    setNotice(null);
-    const exit = await send({ post, text });
-    setBusy(null);
-    if (Exit.isFailure(exit)) return fail(exit.cause);
-    // The service records a failed X write on the row instead of throwing; surface it here.
-    if (exit.value.error !== null) setNotice({ tone: "error", text: exit.value.error });
-    else setDone("replied");
-  };
-
-  const onLike = async () => {
-    setBusy("like");
-    setNotice(null);
-    const exit = await like(post.postId);
-    setBusy(null);
-    if (Exit.isFailure(exit)) return fail(exit.cause);
-    setNotice({ tone: "ok", text: `Liked for ${usd(rates?.like ?? 0)}` });
-  };
-
-  if (done === "skipped") return null;
-
+function TargetsBody({
+  targets,
+  top,
+  empty,
+  onSkip,
+}: {
+  readonly targets: ReadonlyArray<ReplyTarget>;
+  readonly top: ReactNode;
+  readonly empty: ReactNode;
+  readonly onSkip: (postId: string) => void;
+}) {
+  const { selected, select } = useSelection(targets.map((t) => t.post.postId));
+  const work = useWork();
+  const current = targets.find((t) => t.post.postId === selected) ?? null;
   return (
-    <article className="flex flex-col gap-2 rounded-lg border border-border bg-card px-3 py-2.5">
-      <div className="flex min-w-0 items-center gap-1.5 text-sm">
-        <span className="truncate font-medium">{post.author.name}</span>
-        {post.author.verified ? (
-          <BadgeCheck className="size-3.5 shrink-0 text-info-foreground" />
-        ) : null}
-        <a
-          href={post.url}
-          target="_blank"
-          rel="noreferrer"
-          className="truncate text-muted-foreground hover:underline"
-        >
-          @{post.author.handle}
-        </a>
-        <span className="font-mono text-2xs text-muted-foreground">· {age(target.ageMinutes)}</span>
-        <span className="ml-auto shrink-0 font-mono text-2xs text-muted-foreground">
-          {fmt(post.author.followers)} followers
-          {target.authorScore === null ? "" : ` · score ${Math.round(target.authorScore)}`}
-          {target.repliesToAuthor > 0 ? ` · you replied ${target.repliesToAuthor}x` : ""}
-          {" · "}
-          {target.keyword}
-        </span>
-      </div>
-      <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/90">
-        {post.text}
-      </p>
-      <div className="flex flex-wrap gap-x-3.5 gap-y-1">
-        <Metric label="velocity" value={`${fmt(target.viewsPerHour)}/h`} />
-        <Metric label="replies" value={fmt(post.metrics.replies)} />
-        <Metric label="likes" value={fmt(post.metrics.likes)} />
-        <Metric label="reach" value={target.reach} />
-        {done === "replied" ? (
-          <span className="font-mono text-2xs text-success-foreground">replied</span>
-        ) : null}
-      </div>
-      {drafts.length > 0 ? (
-        <div className="flex flex-col gap-1.5">
-          <div className="flex gap-1">
-            {drafts.map((d, i) => (
-              <Button
-                key={d}
-                variant="ghost"
-                size="xs"
-                data-active={d === text || undefined}
-                className="data-active:bg-accent"
-                onClick={() => setText(d)}
-              >
-                {String.fromCharCode(65 + i)}
-              </Button>
-            ))}
-          </div>
-          <textarea
-            className={inputClass + " min-h-20"}
-            value={text}
-            maxLength={280}
-            onChange={(e) => setText(e.target.value)}
+    <Split
+      detailKey={selected}
+      list={
+        <>
+          {top}
+          {targets.length === 0 ? (
+            empty
+          ) : (
+            <>
+              <ListHead label="Post" columns={COLUMNS} />
+              {targets.map((t) => {
+                const replied = t.replied || work.get(t.post.postId).replied;
+                return (
+                  <ListRow
+                    key={t.post.postId}
+                    selected={t.post.postId === selected}
+                    onSelect={() => select(t.post.postId)}
+                    item={t}
+                    columns={COLUMNS}
+                  >
+                    <RowTitle
+                      name={t.post.author.name}
+                      meta={`@${t.post.author.handle} · ${t.keyword}`}
+                      mark={
+                        replied ? (
+                          <span className="text-success-foreground">replied</span>
+                        ) : undefined
+                      }
+                    />
+                    <RowText>{t.post.text}</RowText>
+                  </ListRow>
+                );
+              })}
+            </>
+          )}
+        </>
+      }
+      detail={
+        current === null ? null : (
+          <TargetDetail
+            key={current.post.postId}
+            target={current}
+            work={work.get(current.post.postId, { replied: current.replied })}
+            patch={work.patch(current.post.postId, { replied: current.replied })}
+            onSkip={() => onSkip(current.post.postId)}
           />
-        </div>
-      ) : null}
-      {notice !== null ? (
-        <p
-          className={
-            "text-xs " +
-            (notice.tone === "error" ? "text-error-foreground" : "text-success-foreground")
-          }
-        >
-          {notice.text}
+        )
+      }
+    />
+  );
+}
+
+function TargetDetail({
+  target,
+  work,
+  patch,
+  onSkip,
+}: {
+  readonly target: ReplyTarget;
+  readonly work: Work;
+  readonly patch: Patch;
+  readonly onSkip: () => void;
+}) {
+  const { post } = target;
+  return (
+    <>
+      <PostHead
+        post={post}
+        meta={`${age(target.ageMinutes)} · ${target.keyword}`}
+        actions={
+          <>
+            <OpenOnX url={post.url} />
+            <button type="button" className={xAction} onClick={onSkip}>
+              Skip
+            </button>
+          </>
+        }
+      />
+      <Section title="Numbers">
+        <Props
+          rows={[
+            ["Views per hour", fmt(target.viewsPerHour)],
+            ["Reach", target.reach],
+            ["Views", fmt(post.metrics.views)],
+            ["Likes", fmt(post.metrics.likes)],
+            ["Replies", fmt(post.metrics.replies)],
+            ["Author followers", fmt(post.author.followers)],
+            ["Author score", target.authorScore === null ? "–" : Math.round(target.authorScore)],
+            ["Your replies to them", target.repliesToAuthor],
+          ]}
+        />
+      </Section>
+      <ReplyBox post={post} work={work} patch={patch} />
+    </>
+  );
+}
+
+/** Keywords and handles the model suggested from the user's posts, one click into Settings. */
+function Found({
+  found,
+  onDone,
+  onDismiss,
+}: {
+  readonly found: Suggestions;
+  readonly onDone: () => void;
+  readonly onDismiss: () => void;
+}) {
+  const addKeywords = useAtomSet(addKeywordsAtom, { mode: "promise" });
+  return (
+    <Section
+      title="Suggested keywords"
+      aside={
+        <>
+          <button
+            type="button"
+            className={pill}
+            onClick={() => void addKeywords(found.keywords).then(onDone)}
+          >
+            Add all
+          </button>
+          <button type="button" className={xAction} onClick={onDismiss}>
+            Dismiss
+          </button>
+        </>
+      }
+    >
+      <p className="font-mono text-xs">{found.keywords.join(" · ")}</p>
+      {found.handles.length > 0 ? (
+        <p className="mt-1 font-mono text-2xs text-muted-foreground">
+          {found.handles.map((h) => `@${h}`).join(" ")}
         </p>
       ) : null}
-      <div className="flex flex-wrap items-center gap-1.5">
-        <Button variant="outline" size="xs" disabled={busy !== null} onClick={() => void onDraft()}>
-          {busy === "draft" ? "Drafting…" : drafts.length > 0 ? "Regenerate" : "Draft replies"}
-        </Button>
-        <Button
-          size="xs"
-          disabled={busy !== null || text.trim() === "" || done === "replied" || rates === null}
-          onClick={() => void onReply()}
-        >
-          {busy === "reply"
-            ? "Replying…"
-            : `Reply · ${rates === null ? "…" : usd(postCostUsd(rates, text))}`}
-        </Button>
-        <Button
-          variant="ghost"
-          size="xs"
-          disabled={busy !== null || rates === null}
-          onClick={() => void onLike()}
-        >
-          {busy === "like" ? "Liking…" : `Like · ${rates === null ? "…" : usd(rates.like)}`}
-        </Button>
-        <Button variant="ghost-muted" size="xs" onClick={() => setDone("skipped")}>
-          Skip
-        </Button>
-      </div>
-    </article>
+    </Section>
   );
 }
 
@@ -183,50 +331,26 @@ function NicheLine() {
   const result = useAtomValue(nicheAtom);
   const refresh = useAtomRefresh(nicheAtom);
   const rebuild = useAtomSet(rebuildNicheAtom, { mode: "promiseExit" });
-  const state = useAtomValue(rebuildNicheAtom);
+  const rebuilding = useAtomValue(rebuildNicheAtom).waiting;
   const niche = AsyncResult.getOrElse(result, () => null);
   if (niche === null) return null;
   return (
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-2xs text-muted-foreground">
-      <span className="text-foreground">niche</span>
-      {niche.handles.length === 0 ? (
-        <span>no reply history yet</span>
-      ) : (
-        niche.handles.map((h) => (
-          <span key={h.handle}>
-            @{h.handle} ({h.replies})
-          </span>
-        ))
-      )}
-      {niche.topics.length > 0 ? <span>· {niche.topics.join(", ")}</span> : null}
-      <Button
-        variant="ghost"
-        size="xs"
-        className="ml-auto"
-        disabled={state.waiting}
+    <div className="flex h-10 items-center gap-3 border-b border-border px-6 text-xs">
+      <span className="shrink-0 font-medium text-foreground/80">Niche</span>
+      <span className="min-w-0 flex-1 truncate font-mono text-2xs text-muted-foreground">
+        {niche.handles.length === 0
+          ? "no reply history yet"
+          : niche.handles.map((h) => `@${h.handle} ${h.replies}`).join(" · ")}
+        {niche.topics.length > 0 ? `  ·  ${niche.topics.join(", ")}` : ""}
+      </span>
+      <button
+        type="button"
+        className={xAction}
+        disabled={rebuilding}
         onClick={() => void rebuild().then(refresh)}
       >
-        {state.waiting ? "Rebuilding…" : "Rebuild niche"}
-      </Button>
-    </div>
-  );
-}
-
-export function Targets() {
-  const result = useAtomValue(targetsAtom);
-  return (
-    <div className="flex flex-col gap-2">
-      <NicheLine />
-      {AsyncResult.match(result, {
-        onInitial: () => <Empty>Connecting to the service…</Empty>,
-        onFailure: (f) => <ErrorText>{errorText(f.cause)}</ErrorText>,
-        onSuccess: ({ value }) =>
-          value.length === 0 ? (
-            <Empty>No targets. Add keywords in Settings or use Find keywords, then refresh.</Empty>
-          ) : (
-            value.map((t) => <TargetRow key={t.post.postId} target={t} />)
-          ),
-      })}
+        {rebuilding ? "Rebuilding…" : "Rebuild"}
+      </button>
     </div>
   );
 }

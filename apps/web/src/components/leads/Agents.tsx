@@ -1,8 +1,12 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
-import type { SignalAgent, SignalAgentInput } from "@xtend/contracts";
+import type { AgentSuggestion, SignalAgent, SignalAgentInput } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
+import { TextMorph } from "torph/react";
 
+import { fmtWhen } from "../../lib/time";
+import { cn } from "../../lib/utils";
+import { useRates, usd } from "../../state/costs";
 import {
   agentsAtom,
   listsAtom,
@@ -11,10 +15,25 @@ import {
   suggestAgentsAtom,
   upsertAgentAtom,
 } from "../../state/leads";
-import { useRates, usd } from "../../state/costs";
-import { Empty, ErrorText, errorText, inputClass, Section } from "../analyze/ui";
-import { Button } from "../ui/button";
-import { ago, useAction } from "./ui";
+import { errorText } from "../analyze/ui";
+import {
+  ago,
+  type Column,
+  ErrorLine,
+  ListHead,
+  ListRow,
+  pill,
+  pillSolid,
+  Props,
+  RowText,
+  RowTitle,
+  Split,
+  useSelection,
+} from "../engage/triage";
+import { PageHeader } from "../PageHeader";
+import { Cost, Empty, PageBody, Section } from "../ui/layout";
+import { xAction } from "../x";
+import { Field, field, useAction } from "./ui";
 
 const blank: SignalAgentInput = {
   name: "",
@@ -29,65 +48,212 @@ const blank: SignalAgentInput = {
   listId: null,
 };
 
-/** Signal agents: saved searches the service runs on a schedule and files into people. */
-export function Agents() {
-  const rates = useRates();
-  const agents = useAtomValue(agentsAtom);
-  const [editing, setEditing] = useState<SignalAgentInput | null>(null);
-  return (
-    <div className="flex flex-col gap-3">
-      {editing !== null ? (
-        <AgentForm initial={editing} onDone={() => setEditing(null)} />
+const COLUMNS: ReadonlyArray<Column<SignalAgent>> = [
+  {
+    label: "Every",
+    className: "w-16",
+    cell: (a) => (a.enabled ? `${a.intervalMinutes}m` : "paused"),
+  },
+  { label: "Found", className: "hidden w-14 @lg:block", cell: (a) => a.lastRun?.found ?? "–" },
+  { label: "New", className: "hidden w-12 @lg:block", cell: (a) => a.lastRun?.inserted ?? "–" },
+  {
+    label: "Spent",
+    className: "hidden w-18 @xl:block",
+    cell: (a) => (a.lastRun === null ? "–" : usd(a.lastRun.costUsd)),
+  },
+  {
+    label: "Last run",
+    className: "w-16",
+    cell: (a) =>
+      a.lastRun === null ? (
+        <span className="text-muted-foreground">never</span>
+      ) : a.lastRun.error !== null ? (
+        <span className="text-error-foreground">failed</span>
       ) : (
-        <div className="flex gap-1.5">
-          <Button size="xs" variant="outline" onClick={() => setEditing(blank)}>
-            New agent
-          </Button>
-          <Suggest onPick={setEditing} />
-        </div>
-      )}
-      {AsyncResult.match(agents, {
-        onInitial: () => <Empty>Loading agents…</Empty>,
-        onFailure: (f) => <ErrorText>{errorText(f.cause)}</ErrorText>,
-        onSuccess: ({ value }) =>
-          value.length === 0 ? (
-            <Empty>No agents yet. Each run is one search ({usd(rates?.searchPage ?? 0)}).</Empty>
-          ) : (
-            value.map((a) => <AgentCard key={a.id} agent={a} onEdit={() => setEditing(a)} />)
-          ),
+        ago(a.lastRun.at)
+      ),
+  },
+];
+
+/** Signal agents: saved searches the service runs on a schedule and files into people. */
+export function AgentsSection() {
+  const rates = useRates();
+  const result = useAtomValue(agentsAtom);
+  const agents = AsyncResult.getOrElse(result, () => []);
+  const suggest = useAtomSet(suggestAgentsAtom, { mode: "promise" });
+  const suggesting = useAction();
+  const [suggestions, setSuggestions] = useState<ReadonlyArray<AgentSuggestion>>([]);
+  // A new agent's form takes the detail column until it is saved or dropped.
+  const [draft, setDraft] = useState<SignalAgentInput | null>(null);
+  const lists = AsyncResult.getOrElse(useAtomValue(listsAtom), () => []);
+  const listName = (id: number) => lists.find((l) => l.id === id)?.name ?? `list ${id}`;
+  const { selected, select } = useSelection(agents.map((a) => a.id));
+  const current = agents.find((a) => a.id === selected) ?? null;
+  const running = agents.filter((a) => a.enabled).length;
+
+  return (
+    <>
+      <PageHeader
+        title="Agents"
+        detail={
+          AsyncResult.isSuccess(result) && agents.length > 0
+            ? `${running} of ${agents.length} running`
+            : undefined
+        }
+        actions={
+          <>
+            <button
+              type="button"
+              className={pill}
+              disabled={suggesting.busy}
+              onClick={() => void suggesting.run(() => suggest().then(setSuggestions))}
+            >
+              <TextMorph duration={250}>
+                {suggesting.busy ? "Thinking…" : "Suggest with AI"}
+              </TextMorph>
+            </button>
+            <button type="button" className={pillSolid} onClick={() => setDraft(blank)}>
+              New agent
+            </button>
+          </>
+        }
+      />
+      {AsyncResult.match(result, {
+        onInitial: () => (
+          <PageBody>
+            <Empty>Loading agents…</Empty>
+          </PageBody>
+        ),
+        onFailure: (f) => (
+          <PageBody>
+            <ErrorLine>{errorText(f.cause)}</ErrorLine>
+          </PageBody>
+        ),
+        onSuccess: () => (
+          <Split
+            detailKey={draft !== null ? "new" : selected}
+            list={
+              <>
+                {suggesting.error !== null ? <ErrorLine>{suggesting.error}</ErrorLine> : null}
+                {suggestions.length > 0 ? (
+                  <Section
+                    title="Suggested agents"
+                    aside={
+                      <button type="button" className={xAction} onClick={() => setSuggestions([])}>
+                        Dismiss
+                      </button>
+                    }
+                  >
+                    <ul className="border-t border-border">
+                      {suggestions.map((s) => (
+                        <li
+                          key={s.name}
+                          className="flex items-center gap-3 border-b border-border py-1.5 text-[13px]"
+                        >
+                          <span className="shrink-0 font-medium">{s.name}</span>
+                          <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
+                            {s.query}
+                          </span>
+                          <button
+                            type="button"
+                            className={xAction}
+                            onClick={() => setDraft({ ...blank, ...s })}
+                          >
+                            Use
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </Section>
+                ) : null}
+                {agents.length === 0 ? (
+                  <Empty
+                    action={
+                      draft === null ? (
+                        <button type="button" className={pill} onClick={() => setDraft(blank)}>
+                          New agent
+                        </button>
+                      ) : undefined
+                    }
+                  >
+                    No agents yet. Each run is one search
+                    {rates === null ? "" : ` (${usd(rates.searchPage)})`}.
+                  </Empty>
+                ) : (
+                  <>
+                    <ListHead label="Agent" columns={COLUMNS} />
+                    {agents.map((a) => (
+                      <ListRow
+                        key={a.id}
+                        selected={draft === null && a.id === selected}
+                        onSelect={() => {
+                          select(a.id);
+                          setDraft(null);
+                        }}
+                        muted={!a.enabled}
+                        item={a}
+                        columns={COLUMNS}
+                      >
+                        <RowTitle
+                          name={a.name}
+                          meta={a.listId === null ? "" : `into ${listName(a.listId)}`}
+                        />
+                        <RowText>
+                          <span className="font-mono text-xs">{a.query}</span>
+                        </RowText>
+                      </ListRow>
+                    ))}
+                  </>
+                )}
+              </>
+            }
+            detail={
+              draft !== null ? (
+                <AgentForm
+                  key={JSON.stringify(draft)}
+                  title="New agent"
+                  initial={draft}
+                  onSaved={(id) => {
+                    setDraft(null);
+                    select(id);
+                  }}
+                  onCancel={() => setDraft(null)}
+                />
+              ) : current === null ? null : (
+                <AgentPanel key={current.id} agent={current} />
+              )
+            }
+          />
+        ),
       })}
-    </div>
+    </>
   );
 }
 
-function AgentCard({
-  agent,
-  onEdit,
-}: {
-  readonly agent: SignalAgent;
-  readonly onEdit: () => void;
-}) {
+/** The selected agent: run it, pause it, its last run, and its settings in place. */
+function AgentPanel({ agent }: { readonly agent: SignalAgent }) {
   const rates = useRates();
   const refresh = useAtomRefresh(agentsAtom);
   const refreshPeople = useAtomRefresh(peopleAtom(null));
   const runAgent = useAtomSet(runAgentAtom, { mode: "promise" });
   const upsert = useAtomSet(upsertAgentAtom, { mode: "promise" });
-  const { busy, error, run } = useAction();
+  const running = useAction();
+  const toggling = useAction();
   const last = agent.lastRun;
   return (
-    <Section
-      title={agent.name}
-      actions={
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono text-2xs text-muted-foreground">
-            {agent.enabled ? `every ${agent.intervalMinutes} min` : "paused"}
-          </span>
-          <Button
-            size="xs"
-            variant="ghost-muted"
-            disabled={busy}
+    <>
+      <Section>
+        <p className="truncate text-sm font-semibold">{agent.name}</p>
+        <p className="font-mono text-xs text-muted-foreground">
+          {agent.enabled ? `every ${agent.intervalMinutes} min` : "paused"}
+        </p>
+        <div className="mt-4 flex flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            className={pill}
+            disabled={running.busy || rates === null}
             onClick={() =>
-              void run(() =>
+              void running.run(() =>
                 runAgent(agent.id).then(() => {
                   refresh();
                   refreshPeople();
@@ -95,51 +261,59 @@ function AgentCard({
               )
             }
           >
-            {busy ? "Running…" : `Run now (${usd(rates?.searchPage ?? 0)})`}
-          </Button>
-          <Button size="xs" variant="ghost-muted" onClick={onEdit}>
-            Edit
-          </Button>
-          <Button
-            size="xs"
-            variant="ghost-muted"
-            disabled={busy}
+            <TextMorph duration={250}>{running.busy ? "Running…" : "Run now"}</TextMorph>
+            {rates === null ? <Cost label="…" /> : <Cost usd={rates.searchPage} />}
+          </button>
+          <button
+            type="button"
+            className={pill}
+            disabled={toggling.busy}
             onClick={() =>
-              void run(() => upsert({ ...agent, enabled: !agent.enabled }).then(refresh))
+              void toggling.run(() => upsert({ ...agent, enabled: !agent.enabled }).then(refresh))
             }
           >
-            {agent.enabled ? "Pause" : "Resume"}
-          </Button>
+            <TextMorph duration={250}>{agent.enabled ? "Pause" : "Resume"}</TextMorph>
+          </button>
         </div>
-      }
-    >
-      <p className="text-xs">
-        search <span className="font-mono">{agent.query}</span>
-        {agent.minFollowers > 0 ? ` · min followers ${agent.minFollowers}` : ""}
-        {agent.lang !== null ? ` · lang ${agent.lang}` : ""}
-        {agent.excludeBots ? " · bots dropped" : ""}
-        {agent.notifyMinScore !== null ? ` · notify at ${agent.notifyMinScore}+` : ""}
-        {agent.listId !== null ? ` · into list ${agent.listId}` : ""}
-        {agent.scoringPrompt !== "" ? " · scored by AI" : ""}
-      </p>
-      <p className="pt-1 font-mono text-2xs text-muted-foreground">
-        {last === null
-          ? "never run"
-          : last.error !== null
-            ? `last run ${ago(last.at)} ago · failed: ${last.error}`
-            : `last run ${ago(last.at)} ago · ${last.found} found · ${last.inserted} new · ${usd(last.costUsd)}`}
-      </p>
-      {error !== null ? <ErrorText>{error}</ErrorText> : null}
-    </Section>
+        {(running.error ?? toggling.error) !== null ? (
+          <p className="mt-2 text-xs text-error-foreground">{running.error ?? toggling.error}</p>
+        ) : null}
+      </Section>
+      <Section title="Last run">
+        {last === null ? (
+          <p className="text-[13px] text-muted-foreground">Never run.</p>
+        ) : (
+          <>
+            <Props
+              rows={[
+                ["When", fmtWhen(last.at)],
+                ["Found", last.found],
+                ["New people", last.inserted],
+                ["Spent", usd(last.costUsd)],
+              ]}
+            />
+            {last.error !== null ? (
+              <p className="mt-2 text-xs break-words text-error-foreground">{last.error}</p>
+            ) : null}
+          </>
+        )}
+      </Section>
+      <AgentForm key={agent.id} title="Settings" initial={agent} onSaved={() => undefined} />
+    </>
   );
 }
 
+/** An agent's settings as a property list; Save writes them, Revert drops the edits. */
 function AgentForm({
+  title,
   initial,
-  onDone,
+  onSaved,
+  onCancel,
 }: {
+  readonly title: string;
   readonly initial: SignalAgentInput;
-  readonly onDone: () => void;
+  readonly onSaved: (id: number) => void;
+  readonly onCancel?: () => void;
 }) {
   const rates = useRates();
   const refresh = useAtomRefresh(agentsAtom);
@@ -148,57 +322,64 @@ function AgentForm({
   const [a, setA] = useState(initial);
   const lists = AsyncResult.getOrElse(useAtomValue(listsAtom), () => []);
   const valid = a.name.trim() !== "" && a.query.trim() !== "" && a.intervalMinutes >= 1;
+  const dirty = JSON.stringify(a) !== JSON.stringify(initial);
+  // A new agent (blank or suggested) saves as soon as it is valid; a saved one once it changed.
+  const canSave = valid && (initial.id === undefined || dirty);
   const num = (v: string) => Number(v.replace(/\D/g, "")) || 0;
   return (
-    <Section title={initial.id === undefined ? "New agent" : `Edit ${initial.name}`}>
+    <Section title={title}>
       <form
-        className="flex flex-col gap-1.5"
         onSubmit={(e) => {
           e.preventDefault();
           if (valid)
             void run(() =>
-              upsert(a).then(() => {
+              upsert(a).then((saved) => {
                 refresh();
-                onDone();
+                onSaved(saved.id);
               }),
             );
         }}
       >
-        <div className="flex gap-1.5">
+        <Field label="Name">
           <input
-            className={inputClass}
-            placeholder="Name"
+            className={field}
+            placeholder="Typefully switchers"
             value={a.name}
             onChange={(e) => setA({ ...a, name: e.target.value })}
           />
-          <input
-            className={inputClass + " w-28"}
-            placeholder="min followers"
-            inputMode="numeric"
-            value={a.minFollowers || ""}
-            onChange={(e) => setA({ ...a, minFollowers: num(e.target.value) })}
+        </Field>
+        <Field label="Search">
+          <textarea
+            className={cn(field, "min-h-14 resize-y font-mono text-xs")}
+            placeholder='"typefully alternative" OR "tweet hunter"'
+            value={a.query}
+            onChange={(e) => setA({ ...a, query: e.target.value })}
           />
-          <label className="flex shrink-0 items-center gap-1 font-mono text-2xs text-muted-foreground">
-            every
+        </Field>
+        <Field label="Every">
+          <span className="flex items-center gap-2">
             <input
-              className={inputClass + " w-14"}
+              className={cn(field, "w-16")}
               inputMode="numeric"
               value={a.intervalMinutes}
               onChange={(e) => setA({ ...a, intervalMinutes: num(e.target.value) })}
             />
-            min
-          </label>
-        </div>
-        <input
-          className={inputClass}
-          placeholder='Search: "typefully alternative" OR "tweet hunter"'
-          value={a.query}
-          onChange={(e) => setA({ ...a, query: e.target.value })}
-        />
-        <div className="flex items-center gap-1.5 font-mono text-2xs text-muted-foreground">
+            <span className="text-[13px] text-muted-foreground">min</span>
+          </span>
+        </Field>
+        <Field label="Min followers">
           <input
-            className={inputClass + " w-16"}
-            placeholder="lang"
+            className={field}
+            inputMode="numeric"
+            placeholder="any"
+            value={a.minFollowers || ""}
+            onChange={(e) => setA({ ...a, minFollowers: num(e.target.value) })}
+          />
+        </Field>
+        <Field label="Language">
+          <input
+            className={cn(field, "w-16")}
+            placeholder="any"
             maxLength={2}
             value={a.lang ?? ""}
             onChange={(e) =>
@@ -208,96 +389,77 @@ function AgentForm({
               })
             }
           />
-          <label className="flex items-center gap-1">
+        </Field>
+        <Field label="Drop bots">
+          <span className="flex min-h-9 items-center gap-2">
             <input
               type="checkbox"
+              className="size-3.5 cursor-pointer accent-foreground"
               checked={a.excludeBots}
               onChange={(e) => setA({ ...a, excludeBots: e.target.checked })}
             />
-            drop bots ({usd(rates?.scraperProfile ?? 0)} per author)
-          </label>
-          <label className="flex items-center gap-1">
-            notify at score
-            <input
-              className={inputClass + " w-14"}
-              inputMode="numeric"
-              placeholder="off"
-              value={a.notifyMinScore ?? ""}
-              onChange={(e) =>
-                setA({
-                  ...a,
-                  notifyMinScore: e.target.value === "" ? null : Math.min(100, num(e.target.value)),
-                })
-              }
-            />
-          </label>
+            <span className="text-[13px] text-muted-foreground">per new author</span>
+            {rates === null ? <Cost label="…" /> : <Cost usd={rates.scraperProfile} />}
+          </span>
+        </Field>
+        <Field label="Notify at">
+          <input
+            className={cn(field, "w-16")}
+            inputMode="numeric"
+            placeholder="off"
+            value={a.notifyMinScore ?? ""}
+            onChange={(e) =>
+              setA({
+                ...a,
+                notifyMinScore: e.target.value === "" ? null : Math.min(100, num(e.target.value)),
+              })
+            }
+          />
+        </Field>
+        <Field label="Into list">
           <select
-            className={inputClass + " w-auto"}
+            className={cn(field, "bg-background")}
             value={a.listId ?? ""}
             onChange={(e) =>
               setA({ ...a, listId: e.target.value === "" ? null : Number(e.target.value) })
             }
           >
-            <option value="">no list</option>
+            <option value="">none</option>
             {lists.map((l) => (
               <option key={l.id} value={l.id}>
-                into {l.name}
+                {l.name}
               </option>
             ))}
           </select>
-        </div>
-        <textarea
-          className={inputClass}
-          rows={2}
-          placeholder="Scoring prompt (optional): what makes a match worth your time"
-          value={a.scoringPrompt}
-          onChange={(e) => setA({ ...a, scoringPrompt: e.target.value })}
-        />
-        <div className="flex items-center gap-1.5">
-          <Button size="xs" type="submit" disabled={busy || !valid}>
-            Save
-          </Button>
-          <Button size="xs" variant="ghost-muted" onClick={onDone}>
-            Cancel
-          </Button>
-          <span className="font-mono text-2xs text-muted-foreground">
-            {usd(rates?.searchPage ?? 0)} per run
+        </Field>
+        <Field label="Scoring">
+          <textarea
+            className={cn(field, "min-h-16 resize-y")}
+            placeholder="Optional: what makes a match worth your time"
+            value={a.scoringPrompt}
+            onChange={(e) => setA({ ...a, scoringPrompt: e.target.value })}
+          />
+        </Field>
+        <div className="mt-3 flex items-center gap-1.5">
+          <button type="submit" className={pillSolid} disabled={busy || !canSave}>
+            {busy ? "Saving…" : "Save"}
+          </button>
+          {onCancel !== undefined ? (
+            <button type="button" className={xAction} onClick={onCancel}>
+              Cancel
+            </button>
+          ) : dirty ? (
+            <button type="button" className={xAction} onClick={() => setA(initial)}>
+              Revert
+            </button>
+          ) : null}
+          <span className="ml-auto flex items-baseline gap-1.5 text-xs text-muted-foreground">
+            per run
+            {rates === null ? <Cost label="…" /> : <Cost usd={rates.searchPage} />}
           </span>
         </div>
-        {error !== null ? <ErrorText>{error}</ErrorText> : null}
+        {error !== null ? <p className="mt-2 text-xs text-error-foreground">{error}</p> : null}
       </form>
     </Section>
-  );
-}
-
-/** AI proposes agents from the voice profile and keywords; picking one opens it in the form. */
-function Suggest({ onPick }: { readonly onPick: (a: SignalAgentInput) => void }) {
-  const suggest = useAtomSet(suggestAgentsAtom, { mode: "promise" });
-  const { busy, error, run } = useAction();
-  const [items, setItems] = useState<
-    ReadonlyArray<{ name: string; query: string; scoringPrompt: string }>
-  >([]);
-  return (
-    <>
-      <Button
-        size="xs"
-        variant="outline"
-        disabled={busy}
-        onClick={() => void run(() => suggest().then(setItems))}
-      >
-        {busy ? "Thinking…" : "Suggest with AI"}
-      </Button>
-      {items.map((s) => (
-        <Button
-          key={s.name}
-          size="xs"
-          variant="ghost-muted"
-          onClick={() => onPick({ ...blank, ...s })}
-        >
-          {s.name}
-        </Button>
-      ))}
-      {error !== null ? <ErrorText>{error}</ErrorText> : null}
-    </>
   );
 }

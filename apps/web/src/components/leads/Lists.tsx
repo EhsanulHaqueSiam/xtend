@@ -1,9 +1,13 @@
+import { Popover } from "@base-ui/react/popover";
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import type { Candidate, EngagementVia, LeadList } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
+import { ChevronDown, X } from "lucide-react";
 import { useState } from "react";
+import { TextMorph } from "torph/react";
 
 import { cn } from "../../lib/utils";
+import { useRates, usd } from "../../state/costs";
 import {
   createListAtom,
   engagersAtom,
@@ -13,118 +17,319 @@ import {
   listsAtom,
   peopleAtom,
 } from "../../state/leads";
-import { useRates, usd } from "../../state/costs";
-import { Empty, ErrorText, errorText, fmt, inputClass, Section } from "../analyze/ui";
-import { Button } from "../ui/button";
-import { People } from "./People";
-import { useAction } from "./ui";
+import { errorText, fmt } from "../analyze/ui";
+import { ErrorLine, pill, pillSolid } from "../engage/triage";
+import { PageHeader } from "../PageHeader";
+import { Cost, Empty, PageBody, Section } from "../ui/layout";
+import { xIconButton } from "../x";
+import { PeopleSplit } from "./People";
+import { Field, field, useAction } from "./ui";
 
-/** Lists on the left, the selected list's people on the right, with a search builder to fill it. */
-export function Lists() {
-  const lists = useAtomValue(listsAtom);
-  const [selected, setSelected] = useState<number | null>(null);
-  return (
-    <div className="flex gap-3">
-      <div className="flex w-56 shrink-0 flex-col gap-2">
-        {AsyncResult.match(lists, {
-          onInitial: () => <Empty>Loading lists…</Empty>,
-          onFailure: (f) => <ErrorText>{errorText(f.cause)}</ErrorText>,
-          onSuccess: ({ value }) => (
-            <ListPicker lists={value} selected={selected} onSelect={setSelected} />
-          ),
-        })}
-      </div>
-      <div className="flex min-w-0 flex-1 flex-col gap-3">
-        {selected === null ? (
-          <Empty>Pick a list, or create one.</Empty>
-        ) : (
-          <>
-            <Builder listId={selected} />
-            <EngagementBuilder listId={selected} />
-            <People listId={selected} />
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
+type Builder = "search" | "engagement";
 
-function ListPicker({
-  lists,
-  selected,
-  onSelect,
-}: {
-  readonly lists: ReadonlyArray<LeadList>;
-  readonly selected: number | null;
-  readonly onSelect: (id: number) => void;
-}) {
-  const refresh = useAtomRefresh(listsAtom);
-  const create = useAtomSet(createListAtom, { mode: "promise" });
-  const [name, setName] = useState("");
-  const { busy, error, run } = useAction();
-  const submit = () =>
-    run(() =>
-      create(name.trim()).then((l) => {
-        setName("");
-        refresh();
-        onSelect(l.id);
-      }),
-    );
+/** One list's people, a switcher for the others in the header, and the builders that fill it. */
+export function ListsSection() {
+  const result = useAtomValue(listsAtom);
+  const lists = AsyncResult.getOrElse(result, () => []);
+  const [picked, setPicked] = useState<number | null>(null);
+  const [builder, setBuilder] = useState<Builder | null>(null);
+  const current = lists.find((l) => l.id === picked) ?? lists[0] ?? null;
+
   return (
     <>
-      <form
-        className="flex gap-1"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (name.trim() !== "") void submit();
-        }}
-      >
-        <input
-          className={inputClass}
-          placeholder="New list"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-        <Button size="xs" variant="outline" type="submit" disabled={busy || name.trim() === ""}>
-          Add
-        </Button>
-      </form>
-      {error !== null ? <ErrorText>{error}</ErrorText> : null}
-      {lists.length === 0 ? <Empty>No lists yet.</Empty> : null}
-      {lists.map((l) => (
-        <button
-          key={l.id}
-          type="button"
-          className={cn(
-            "flex cursor-pointer items-center justify-between rounded-md px-2 py-1 text-left text-xs hover:bg-accent/60",
-            l.id === selected && "bg-accent",
-          )}
-          onClick={() => onSelect(l.id)}
-        >
-          <span className="truncate">{l.name}</span>
-          <span className="font-mono text-2xs text-muted-foreground">{l.members}</span>
-        </button>
-      ))}
+      <PageHeader
+        title="Lists"
+        tabs={
+          current === null ? undefined : (
+            <ListSwitcher
+              lists={lists}
+              current={current}
+              onPick={(id) => {
+                setPicked(id);
+                setBuilder(null);
+              }}
+            />
+          )
+        }
+        actions={
+          current === null ? undefined : (
+            <button
+              type="button"
+              className={cn(pill, "aria-pressed:bg-white/[0.06]")}
+              aria-pressed={builder !== null}
+              onClick={() => setBuilder((b) => (b === null ? "search" : null))}
+            >
+              Add people
+            </button>
+          )
+        }
+      />
+      {AsyncResult.match(result, {
+        onInitial: () => (
+          <PageBody>
+            <Empty>Loading lists…</Empty>
+          </PageBody>
+        ),
+        onFailure: (f) => (
+          <PageBody>
+            <ErrorLine>{errorText(f.cause)}</ErrorLine>
+          </PageBody>
+        ),
+        onSuccess: () =>
+          current === null ? (
+            <PageBody>
+              <Empty action={<NewList onCreated={setPicked} />}>
+                No lists yet. Name one, then fill it from a search or a post's engagement.
+              </Empty>
+            </PageBody>
+          ) : (
+            <PeopleSplit
+              key={current.id}
+              listId={current.id}
+              aside={
+                builder === null ? null : (
+                  <BuilderPanel
+                    listId={current.id}
+                    mode={builder}
+                    onMode={setBuilder}
+                    onClose={() => setBuilder(null)}
+                  />
+                )
+              }
+              onPick={() => setBuilder(null)}
+              empty={
+                <Empty
+                  action={
+                    builder === null ? (
+                      <button type="button" className={pill} onClick={() => setBuilder("search")}>
+                        Add people
+                      </button>
+                    ) : undefined
+                  }
+                >
+                  No one in {current.name} yet.
+                </Empty>
+              }
+            />
+          ),
+      })}
     </>
   );
 }
 
-/** Search criteria, a paid preview, then one click to add every match to the list. */
-function Builder({ listId }: { readonly listId: number }) {
-  const rates = useRates();
-  const preview = useAtomSet(listPreviewAtom, { mode: "promise" });
+/** The open list's name in the header; its popover lists the others and makes new ones. */
+function ListSwitcher({
+  lists,
+  current,
+  onPick,
+}: {
+  readonly lists: ReadonlyArray<LeadList>;
+  readonly current: LeadList;
+  readonly onPick: (id: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger className="no-drag flex min-w-0 cursor-pointer items-baseline gap-1.5 rounded-[var(--control-radius)] text-[13.5px] text-foreground outline-hidden transition-colors duration-150 hover:text-foreground/80 focus-visible:ring-2 focus-visible:ring-ring">
+        <span className="truncate">{current.name}</span>
+        <span className="font-mono text-2xs text-muted-foreground tabular-nums">
+          {current.members}
+        </span>
+        <ChevronDown className="size-3.5 self-center text-muted-foreground" />
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Positioner side="bottom" align="start" sideOffset={6} className="z-50">
+          <Popover.Popup className="w-64 origin-[var(--transform-origin)] rounded-[var(--radius)] border border-white/13 bg-surface-raised p-1 outline-hidden transition-[opacity,scale] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] data-[ending-style]:scale-[0.97] data-[ending-style]:opacity-0 data-[starting-style]:scale-[0.97] data-[starting-style]:opacity-0">
+            <div className="max-h-72 overflow-y-auto">
+              {lists.map((l) => (
+                <button
+                  key={l.id}
+                  type="button"
+                  data-active={l.id === current.id}
+                  className="flex w-full cursor-pointer items-center gap-2 rounded-[calc(var(--radius)-4px)] px-2 py-1.5 text-left text-sm text-muted-foreground outline-hidden hover:bg-white/7 hover:text-foreground focus-visible:bg-white/7 data-[active=true]:text-foreground"
+                  onClick={() => {
+                    onPick(l.id);
+                    setOpen(false);
+                  }}
+                >
+                  <span className="truncate">{l.name}</span>
+                  <span className="ml-auto font-mono text-2xs text-muted-foreground tabular-nums">
+                    {l.members}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <div className="mt-1 border-t border-border p-1 pt-2">
+              <NewList
+                onCreated={(id) => {
+                  onPick(id);
+                  setOpen(false);
+                }}
+              />
+            </div>
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
+/** A name and Enter: lists are free, only filling them costs. */
+function NewList({ onCreated }: { readonly onCreated: (id: number) => void }) {
+  const refresh = useAtomRefresh(listsAtom);
+  const create = useAtomSet(createListAtom, { mode: "promise" });
+  const [name, setName] = useState("");
+  const { busy, error, run } = useAction();
+  return (
+    <form
+      className="flex w-full max-w-72 flex-col gap-1.5"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (name.trim() === "") return;
+        void run(() =>
+          create(name.trim()).then((l) => {
+            setName("");
+            refresh();
+            onCreated(l.id);
+          }),
+        );
+      }}
+    >
+      <div className="flex gap-1.5">
+        <input
+          className={cn(field, "h-7 min-w-0 flex-1 py-0")}
+          placeholder="New list"
+          aria-label="New list name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+        <button type="submit" className={pill} disabled={busy || name.trim() === ""}>
+          Create
+        </button>
+      </div>
+      {error !== null ? <p className="text-xs text-error-foreground">{error}</p> : null}
+    </form>
+  );
+}
+
+/** The detail column while adding people: a search, or who engaged with one post. */
+function BuilderPanel({
+  listId,
+  mode,
+  onMode,
+  onClose,
+}: {
+  readonly listId: number;
+  readonly mode: Builder;
+  readonly onMode: (mode: Builder) => void;
+  readonly onClose: () => void;
+}) {
+  const modes = [
+    { id: "search", label: "From a search" },
+    { id: "engagement", label: "From a post" },
+  ] as const;
+  return (
+    <>
+      <div className="flex h-11 items-center gap-4 border-b border-border px-6">
+        <div
+          className="flex min-w-0 flex-1 items-center gap-4"
+          role="group"
+          aria-label="Add people"
+        >
+          {modes.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              aria-pressed={m.id === mode}
+              className="cursor-pointer text-[13px] text-muted-foreground transition-colors duration-150 hover:text-foreground aria-pressed:text-foreground"
+              onClick={() => onMode(m.id)}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          className={cn(xIconButton, "-mr-2")}
+          aria-label="Close"
+          onClick={onClose}
+        >
+          <X />
+        </button>
+      </div>
+      {mode === "search" ? (
+        <SearchBuilder key="search" listId={listId} />
+      ) : (
+        <EngagementBuilder key="engagement" listId={listId} />
+      )}
+    </>
+  );
+}
+
+type Found = { readonly matches: ReadonlyArray<Candidate>; readonly costUsd: number };
+
+/** What a builder found, what it cost, and one click to put everyone in the list. */
+function Matches({ listId, found }: { readonly listId: number; readonly found: Found }) {
   const addAll = useAtomSet(listAddAllAtom, { mode: "promise" });
   const refreshPeople = useAtomRefresh(peopleAtom(listId));
   const refreshLists = useAtomRefresh(listsAtom);
   const { busy, error, run } = useAction();
+  const [added, setAdded] = useState<number | null>(null);
+  return (
+    <Section
+      title={`${found.matches.length} found`}
+      aside={
+        <>
+          <span className="font-mono text-2xs text-muted-foreground">
+            spent {usd(found.costUsd)}
+          </span>
+          <button
+            type="button"
+            className={pillSolid}
+            disabled={busy || found.matches.length === 0 || added !== null}
+            onClick={() =>
+              void run(() =>
+                addAll({ listId, people: found.matches }).then((r) => {
+                  setAdded(r.inserted);
+                  refreshPeople();
+                  refreshLists();
+                }),
+              )
+            }
+          >
+            <TextMorph duration={250}>
+              {added === null ? "Add all to list" : `Added ${added}`}
+            </TextMorph>
+          </button>
+        </>
+      }
+    >
+      {error !== null ? <p className="mb-2 text-xs text-error-foreground">{error}</p> : null}
+      <ul className="max-h-96 overflow-y-auto border-t border-border">
+        {found.matches.map((m) => (
+          <li key={m.handle} className="border-b border-border py-1.5 text-[13px]">
+            <div className="flex items-baseline gap-2">
+              <span className="min-w-0 flex-1 truncate">@{m.handle}</span>
+              <span className="font-mono text-xs tabular-nums">{fmt(m.followers)}</span>
+            </div>
+            <p className="truncate text-xs text-muted-foreground">{m.bio || m.name}</p>
+          </li>
+        ))}
+      </ul>
+    </Section>
+  );
+}
+
+/** Search criteria, a paid preview, then everyone it matched into the list. */
+function SearchBuilder({ listId }: { readonly listId: number }) {
+  const rates = useRates();
+  const preview = useAtomSet(listPreviewAtom, { mode: "promise" });
+  const { busy, error, run } = useAction();
   const [query, setQuery] = useState("");
   const [minFollowers, setMin] = useState("");
   const [bioKeyword, setBio] = useState("");
-  const [result, setResult] = useState<{
-    readonly matches: ReadonlyArray<Candidate>;
-    readonly costUsd: number;
-  } | null>(null);
-  const [added, setAdded] = useState<number | null>(null);
+  const [found, setFound] = useState<Found | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   // A bio keyword needs a profile read per author; the preview quotes the worst case.
   const quote =
@@ -134,184 +339,122 @@ function Builder({ listId }: { readonly listId: number }) {
         ? usd(rates.searchPage)
         : `up to ${usd(rates.searchPage + 50 * rates.scraperProfile)}`;
 
-  const runPreview = () =>
-    run(() =>
-      preview({
-        query,
-        ...(minFollowers === "" ? {} : { minFollowers: Number(minFollowers) }),
-        ...(bioKeyword.trim() === "" ? {} : { bioKeyword }),
-      }).then((r) => {
-        setResult(r);
-        setAdded(null);
-      }),
-    );
-
-  const runAdd = (people: ReadonlyArray<Candidate>) =>
-    run(() =>
-      addAll({ listId, people }).then((r) => {
-        setAdded(r.inserted);
-        refreshPeople();
-        refreshLists();
-      }),
-    );
-
   return (
-    <Section
-      title="Build from search"
-      actions={
-        <Button
-          size="xs"
-          variant="outline"
-          disabled={busy || query.trim() === ""}
-          onClick={() => void runPreview()}
+    <>
+      <Section>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (query.trim() === "") return;
+            void run(() =>
+              preview({
+                query,
+                ...(minFollowers === "" ? {} : { minFollowers: Number(minFollowers) }),
+                ...(bioKeyword.trim() === "" ? {} : { bioKeyword }),
+              }).then((r) => {
+                setFound(r);
+                setAttempt((n) => n + 1);
+              }),
+            );
+          }}
         >
-          {busy ? "Searching…" : `Preview (${quote})`}
-        </Button>
-      }
-    >
-      <div className="flex gap-1.5">
-        <input
-          className={inputClass}
-          placeholder='"typefully alternative" OR "schedule tweets"'
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        <input
-          className={inputClass + " w-28"}
-          placeholder="min followers"
-          inputMode="numeric"
-          value={minFollowers}
-          onChange={(e) => setMin(e.target.value.replace(/\D/g, ""))}
-        />
-        <input
-          className={inputClass + " w-36"}
-          placeholder="bio contains"
-          value={bioKeyword}
-          onChange={(e) => setBio(e.target.value)}
-        />
-      </div>
-      {error !== null ? <ErrorText>{error}</ErrorText> : null}
-      {result !== null ? (
-        <div className="flex flex-col gap-1 pt-2">
-          <div className="flex items-center justify-between font-mono text-2xs text-muted-foreground">
-            <span>
-              {result.matches.length} matches · cost {usd(result.costUsd)}
-              {added !== null ? ` · added ${added}` : ""}
-            </span>
-            <Button
-              size="xs"
-              disabled={busy || result.matches.length === 0 || added !== null}
-              onClick={() => void runAdd(result.matches)}
-            >
-              Add all to list
-            </Button>
+          <Field label="Search">
+            <input
+              className={field}
+              placeholder='"typefully alternative"'
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </Field>
+          <Field label="Min followers">
+            <input
+              className={field}
+              placeholder="any"
+              inputMode="numeric"
+              value={minFollowers}
+              onChange={(e) => setMin(e.target.value.replace(/\D/g, ""))}
+            />
+          </Field>
+          <Field label="Bio contains">
+            <input
+              className={field}
+              placeholder="anything"
+              value={bioKeyword}
+              onChange={(e) => setBio(e.target.value)}
+            />
+          </Field>
+          <div className="mt-3 flex items-center gap-1.5">
+            <button type="submit" className={pill} disabled={busy || query.trim() === ""}>
+              <TextMorph duration={250}>{busy ? "Searching…" : "Preview"}</TextMorph>
+              <Cost label={quote} />
+            </button>
           </div>
-          <ul className="max-h-48 overflow-y-auto text-xs">
-            {result.matches.map((m) => (
-              <li key={m.handle} className="flex gap-2 border-t border-border py-0.5">
-                <span className="w-40 shrink-0 truncate">@{m.handle}</span>
-                <span className="w-12 shrink-0 text-right font-mono text-2xs">
-                  {fmt(m.followers)}
-                </span>
-                <span className="truncate text-muted-foreground">{m.bio || m.name}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-    </Section>
+          {error !== null ? <p className="mt-2 text-xs text-error-foreground">{error}</p> : null}
+        </form>
+      </Section>
+      {/* A new result starts with its own Add all. */}
+      {found !== null ? <Matches key={attempt} listId={listId} found={found} /> : null}
+    </>
   );
 }
 
-/** Who liked or reposted one post, priced by the service before the fetch, then one click into the list. */
+/** A post's id from its URL or the bare id. */
+const postIdOf = (v: string) => v.match(/status\/(\d+)/)?.[1] ?? v.replace(/\D/g, "");
+
+/** Who reposted or liked one post, priced by the service before the fetch, then into the list. */
 function EngagementBuilder({ listId }: { readonly listId: number }) {
   const fetchEngagers = useAtomSet(engagersAtom, { mode: "promise" });
-  const addAll = useAtomSet(listAddAllAtom, { mode: "promise" });
-  const refreshPeople = useAtomRefresh(peopleAtom(listId));
-  const refreshLists = useAtomRefresh(listsAtom);
   const { busy, error, run } = useAction();
-  const [postId, setPostId] = useState("");
+  const [post, setPost] = useState("");
   const [via, setVia] = useState<EngagementVia>("repost");
   const quote = AsyncResult.getOrElse(useAtomValue(engagersQuoteAtom(via)), () => null);
-  const [result, setResult] = useState<{
-    readonly matches: ReadonlyArray<Candidate>;
-    readonly costUsd: number;
-  } | null>(null);
-  const [added, setAdded] = useState<number | null>(null);
+  const [found, setFound] = useState<Found | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const postId = postIdOf(post.trim());
   return (
-    <Section
-      title="Build from engagement"
-      actions={
-        <Button
-          size="xs"
-          variant="outline"
-          disabled={busy || postId.trim() === ""}
-          onClick={() =>
+    <>
+      <Section>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (postId === "") return;
             void run(() =>
-              fetchEngagers({ postId: postId.trim(), via }).then((r) => {
-                setResult(r);
-                setAdded(null);
+              fetchEngagers({ postId, via }).then((r) => {
+                setFound(r);
+                setAttempt((n) => n + 1);
               }),
-            )
-          }
+            );
+          }}
         >
-          {busy ? "Fetching…" : `Fetch (${quote === null ? "…" : usd(quote)})`}
-        </Button>
-      }
-    >
-      <div className="flex gap-1.5">
-        <input
-          className={inputClass}
-          placeholder="Post id, e.g. 1835124037934367098"
-          value={postId}
-          onChange={(e) => setPostId(e.target.value.replace(/\D/g, ""))}
-        />
-        <select
-          className={inputClass + " w-auto"}
-          value={via}
-          onChange={(e) => setVia(e.target.value as EngagementVia)}
-        >
-          <option value="repost">who reposted (scraper)</option>
-          <option value="like">who liked (X API, first 20)</option>
-        </select>
-      </div>
-      {error !== null ? <ErrorText>{error}</ErrorText> : null}
-      {result !== null ? (
-        <div className="flex flex-col gap-1 pt-2">
-          <div className="flex items-center justify-between font-mono text-2xs text-muted-foreground">
-            <span>
-              {result.matches.length} people · cost {usd(result.costUsd)}
-              {added !== null ? ` · added ${added}` : ""}
-            </span>
-            <Button
-              size="xs"
-              disabled={busy || result.matches.length === 0 || added !== null}
-              onClick={() =>
-                void run(() =>
-                  addAll({ listId, people: result.matches }).then((r) => {
-                    setAdded(r.inserted);
-                    refreshPeople();
-                    refreshLists();
-                  }),
-                )
-              }
+          <Field label="Post">
+            <input
+              className={field}
+              placeholder="Post URL or id"
+              value={post}
+              onChange={(e) => setPost(e.target.value)}
+            />
+          </Field>
+          <Field label="Who">
+            <select
+              className={cn(field, "bg-background")}
+              value={via}
+              onChange={(e) => setVia(e.target.value === "like" ? "like" : "repost")}
             >
-              Add all to list
-            </Button>
+              <option value="repost">reposted it (scraper)</option>
+              <option value="like">liked it (X API, first 20)</option>
+            </select>
+          </Field>
+          <div className="mt-3 flex items-center gap-1.5">
+            <button type="submit" className={pill} disabled={busy || postId === ""}>
+              <TextMorph duration={250}>{busy ? "Fetching…" : "Fetch"}</TextMorph>
+              {quote === null ? <Cost label="…" /> : <Cost usd={quote} />}
+            </button>
           </div>
-          <ul className="max-h-48 overflow-y-auto text-xs">
-            {result.matches.map((m) => (
-              <li key={m.handle} className="flex gap-2 border-t border-border py-0.5">
-                <span className="w-40 shrink-0 truncate">@{m.handle}</span>
-                <span className="w-12 shrink-0 text-right font-mono text-2xs">
-                  {fmt(m.followers)}
-                </span>
-                <span className="truncate text-muted-foreground">{m.bio || m.name}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-    </Section>
+          {error !== null ? <p className="mt-2 text-xs text-error-foreground">{error}</p> : null}
+        </form>
+      </Section>
+      {/* A new result starts with its own Add all. */}
+      {found !== null ? <Matches key={attempt} listId={listId} found={found} /> : null}
+    </>
   );
 }

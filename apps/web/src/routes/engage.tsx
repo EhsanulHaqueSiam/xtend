@@ -1,139 +1,29 @@
-import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { createFileRoute } from "@tanstack/react-router";
-import * as Exit from "effect/Exit";
-import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { useState } from "react";
 
-import { ErrorText, errorText, Tabs } from "../components/analyze/ui";
 import { Dms } from "../components/engage/Dms";
-import { Inbox } from "../components/engage/Inbox";
+import { Incoming, SentReplies } from "../components/engage/Inbox";
 import { Mentions } from "../components/engage/Mentions";
 import { Targets } from "../components/engage/Targets";
-import { PageHeader } from "../components/PageHeader";
-import { Button } from "../components/ui/button";
-import { useQuoteLabel } from "../state/costs";
-import {
-  addKeywordsAtom,
-  findKeywordsAtom,
-  mentionsAtom,
-  refreshMentionsAtom,
-  targetsAtom,
-} from "../state/engage";
+import { useSection } from "../components/shell/sections";
 
-const TABS = ["Targets", "Mentions", "Inbox", "Sent", "Follow-ups", "DMs"] as const;
-
-type Suggestions = { keywords: ReadonlyArray<string>; handles: ReadonlyArray<string> };
-
+/** Engage's sections are rows in the sidebar; each one draws its own header and triage list. */
 function EngageScreen() {
-  const [tab, setTab] = useState<(typeof TABS)[number]>("Targets");
-  const refreshTargets = useAtomRefresh(targetsAtom);
-  const refreshMentions = useAtomRefresh(mentionsAtom);
-  const fetchMentions = useAtomSet(refreshMentionsAtom, { mode: "promiseExit" });
-  const fetchState = useAtomValue(refreshMentionsAtom);
-  const find = useAtomSet(findKeywordsAtom, { mode: "promiseExit" });
-  const findState = useAtomValue(findKeywordsAtom);
-  const targetsQuote = useQuoteLabel({ kind: "engageTargets" });
-  const findQuote = useQuoteLabel({ kind: "findKeywords" });
-  const mentionsQuote = useQuoteLabel({ kind: "mentions" });
-  const addKeywords = useAtomSet(addKeywordsAtom, { mode: "promise" });
-  const [found, setFound] = useState<Suggestions | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const mentions = useAtomValue(mentionsAtom);
-  const unhandled = AsyncResult.getOrElse(
-    AsyncResult.map(mentions, (v) => v.mentions.filter((m) => !m.handled).length),
-    () => null,
-  );
-
-  const runFind = async () => {
-    setError(null);
-    const exit = await find();
-    if (Exit.isFailure(exit)) setError(errorText(exit.cause));
-    else setFound(exit.value);
-  };
-  const runFetchMentions = async () => {
-    setError(null);
-    const exit = await fetchMentions();
-    if (Exit.isFailure(exit)) setError(errorText(exit.cause));
-    else refreshMentions();
-  };
-
+  const section = useSection("/engage");
   return (
     <div className="flex h-full flex-col">
-      <PageHeader
-        title="Engage"
-        detail={unhandled === null ? undefined : `${unhandled} unhandled mentions`}
-        actions={
-          tab === "Targets" ? (
-            <>
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={findState.waiting}
-                onClick={() => void runFind()}
-              >
-                {findState.waiting ? "Finding…" : `Find keywords (${findQuote} + model)`}
-              </Button>
-              <Button size="sm" variant="outline" onClick={refreshTargets}>
-                Refresh targets ({targetsQuote})
-              </Button>
-            </>
-          ) : tab === "Mentions" ? (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={fetchState.waiting}
-              onClick={() => void runFetchMentions()}
-            >
-              {fetchState.waiting ? "Fetching…" : `Fetch new mentions (${mentionsQuote})`}
-            </Button>
-          ) : undefined
-        }
-      />
-      <Tabs tabs={TABS} active={tab} onChange={setTab} />
-      <div className="mx-auto flex w-full max-w-4xl flex-col gap-3 overflow-y-auto px-4 py-3">
-        {error !== null ? <ErrorText>{error}</ErrorText> : null}
-        {found !== null && tab === "Targets" ? (
-          <div className="flex flex-col gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs">
-            <div className="flex items-center justify-between">
-              <span className="font-medium">Suggested keywords</span>
-              <div className="flex gap-1">
-                <Button
-                  size="xs"
-                  onClick={async () => {
-                    await addKeywords(found.keywords);
-                    setFound(null);
-                    refreshTargets();
-                  }}
-                >
-                  Add all to keywords
-                </Button>
-                <Button variant="ghost" size="xs" onClick={() => setFound(null)}>
-                  Dismiss
-                </Button>
-              </div>
-            </div>
-            <p className="font-mono text-2xs">{found.keywords.join(" · ")}</p>
-            {found.handles.length > 0 ? (
-              <p className="font-mono text-2xs text-muted-foreground">
-                handles: {found.handles.map((h) => `@${h}`).join(" ")}
-              </p>
-            ) : null}
-          </div>
-        ) : null}
-        {tab === "Targets" ? (
-          <Targets />
-        ) : tab === "Mentions" ? (
-          <Mentions />
-        ) : tab === "Inbox" ? (
-          <Inbox view="incoming" />
-        ) : tab === "Sent" ? (
-          <Inbox view="sent" />
-        ) : tab === "Follow-ups" ? (
-          <Inbox view="followUps" />
-        ) : (
-          <Dms />
-        )}
-      </div>
+      {section === "targets" ? (
+        <Targets />
+      ) : section === "mentions" ? (
+        <Mentions />
+      ) : section === "inbox" ? (
+        <Incoming />
+      ) : section === "sent" ? (
+        <SentReplies view="sent" />
+      ) : section === "follow-ups" ? (
+        <SentReplies view="followUps" />
+      ) : (
+        <Dms />
+      )}
     </div>
   );
 }
