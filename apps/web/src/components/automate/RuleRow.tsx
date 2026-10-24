@@ -1,139 +1,86 @@
-import { useAtomSet } from "@effect/atom-react";
-import { actionCostUsd, type Rule, type WebhookInfo } from "@xtend/contracts";
-import { useState } from "react";
+import { actionCostUsd, type Rule } from "@xtend/contracts";
 
 import { cn } from "../../lib/utils";
-import { webhookInfoAtom } from "../../state/automate";
-import { useRates } from "../../state/costs";
-import { usd } from "../analyze/ui";
-import { Button } from "../ui/button";
-import { describeAction, describeConditions, describeTrigger } from "./describe";
+import { usd, useRates } from "../../state/costs";
+import { table } from "../ui/layout";
+import { Switch } from "./controls";
+import { describeRule } from "./describe";
 
+/** Budgets are whole cents; spend keeps its fractions. */
+export const budget = (n: number) => `$${n.toFixed(2)}`;
+
+/** Dry run and ask first, the two modes that change what a firing does. */
+export function RuleModes({ rule }: { readonly rule: Rule }) {
+  return (
+    <>
+      {rule.dryRun ? (
+        <span className="shrink-0 font-mono text-2xs text-warning-foreground">dry run</span>
+      ) : null}
+      {rule.askFirst ? (
+        <span className="shrink-0 font-mono text-2xs text-muted-foreground">ask first</span>
+      ) : null}
+    </>
+  );
+}
+
+/** One rule in the list: its switch, what it does, and its price and spend. Click opens it. */
 export function RuleRow({
   rule,
+  selected,
   busy,
+  onSelect,
   onToggle,
-  onEdit,
-  onRunNow,
-  onDelete,
 }: {
   readonly rule: Rule;
+  readonly selected: boolean;
   readonly busy: boolean;
+  readonly onSelect: () => void;
   readonly onToggle: () => void;
-  readonly onEdit: () => void;
-  readonly onRunNow: () => void;
-  readonly onDelete: () => void;
 }) {
-  const [confirm, setConfirm] = useState<"run" | "delete" | null>(null);
-  const [webhook, setWebhook] = useState<WebhookInfo | null>(null);
-  const loadWebhook = useAtomSet(webhookInfoAtom, { mode: "promise" });
   const rates = useRates();
-  const cost = rates === null ? 0 : actionCostUsd(rates, rule.action);
-  const confirmRun = !rule.dryRun && !rule.askFirst;
-  const conditions = describeConditions(rule.conditions);
+  const cost = rates === null ? null : actionCostUsd(rates, rule.action);
   return (
-    <div className="flex flex-col gap-1.5 border-t border-border py-2 first:border-t-0">
-      <div className="flex items-center gap-2">
-        <Button
-          variant={rule.enabled ? "secondary" : "ghost-muted"}
-          size="micro"
+    <tr
+      tabIndex={0}
+      aria-selected={selected}
+      data-selected={selected}
+      className={cn(table.row, "cursor-pointer outline-hidden focus-visible:bg-white/[0.04]")}
+      onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && e.target === e.currentTarget) onSelect();
+      }}
+    >
+      <td className={cn(table.td, "w-0 pr-1")}>
+        <Switch
+          checked={rule.enabled}
           disabled={busy}
-          onClick={onToggle}
-        >
-          {rule.enabled ? "on" : "off"}
-        </Button>
-        <span className={cn("font-medium", !rule.enabled && "text-muted-foreground")}>
-          {rule.name}
-        </span>
-        {rule.dryRun ? <span className="text-2xs text-warning-foreground">dry run</span> : null}
-        {rule.askFirst ? <span className="text-2xs text-muted-foreground">ask first</span> : null}
-        <span className="flex-1" />
-        <span className="font-mono text-2xs text-muted-foreground">
-          {usd(cost)} / fire · {usd(rule.spentUsdDay)} of {usd(rule.budgetUsdDay)} today ·{" "}
-          {usd(rule.spentUsdMonth)} of {usd(rule.budgetUsdMonth)} this month
-        </span>
-        {rule.trigger.kind === "webhook" ? (
-          <Button
-            variant="ghost"
-            size="xs"
-            onClick={() =>
-              webhook === null ? void loadWebhook(rule.id).then(setWebhook) : setWebhook(null)
-            }
-          >
-            Webhook
-          </Button>
-        ) : null}
-        <Button
-          variant="ghost"
-          size="xs"
-          disabled={busy}
-          onClick={() => (confirmRun ? setConfirm(confirm === "run" ? null : "run") : onRunNow())}
-        >
-          Run now
-        </Button>
-        <Button variant="ghost" size="xs" onClick={onEdit}>
-          Edit
-        </Button>
-        <Button
-          variant="ghost-destructive"
-          size="xs"
-          disabled={busy}
-          onClick={() => setConfirm(confirm === "delete" ? null : "delete")}
-        >
-          Delete
-        </Button>
-      </div>
-      <p className="text-2xs text-muted-foreground">
-        {describeTrigger(rule.trigger)}
-        {conditions === "" ? "" : ` · only if ${conditions}`}
-        {rule.waitMinutes > 0 ? ` · wait ${rule.waitMinutes} min` : ""} ·{" "}
-        {describeAction(rule.action)}
-        {rule.undoAfterHours !== null ? ` · undo after ${rule.undoAfterHours}h` : ""}
-      </p>
-      {webhook !== null ? (
-        <p className="font-mono text-2xs text-muted-foreground">
-          POST {webhook.path} · header X-Xtend-Signature: sha256=HMAC-SHA256(body) with secret{" "}
-          <span className="text-foreground select-all">{webhook.secret}</span>
-        </p>
-      ) : null}
-      {confirm === "run" ? (
-        <div className="flex flex-wrap items-center gap-2 rounded-md border border-warning/40 bg-warning-surface px-3 py-2 text-xs">
-          <span>
-            Fire "{rule.name}" now at {usd(cost)} per{" "}
-            {rule.action.kind === "auto_delete" ? "post" : "fire"}, capped by its{" "}
-            {usd(rule.budgetUsdDay)} daily budget. This charges your treg balance.
+          label={`${rule.name} on`}
+          onChange={onToggle}
+        />
+      </td>
+      <td className={cn(table.td, "w-full max-w-0 py-2")}>
+        <div className="flex min-w-0 items-baseline gap-2">
+          <span className={cn("truncate font-medium", !rule.enabled && "text-muted-foreground")}>
+            {rule.name}
           </span>
-          <Button
-            size="xs"
-            onClick={() => {
-              setConfirm(null);
-              onRunNow();
-            }}
-          >
-            Confirm and run
-          </Button>
-          <Button variant="ghost" size="xs" onClick={() => setConfirm(null)}>
-            Cancel
-          </Button>
+          <RuleModes rule={rule} />
         </div>
-      ) : confirm === "delete" ? (
-        <div className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-xs">
-          <span>Delete rule "{rule.name}"? Its runs log goes with it.</span>
-          <Button
-            variant="destructive"
-            size="xs"
-            onClick={() => {
-              setConfirm(null);
-              onDelete();
-            }}
-          >
-            Delete
-          </Button>
-          <Button variant="ghost" size="xs" onClick={() => setConfirm(null)}>
-            Cancel
-          </Button>
-        </div>
-      ) : null}
-    </div>
+        <p className="truncate text-xs text-muted-foreground">{describeRule(rule)}</p>
+      </td>
+      <td className={cn(table.td, table.num, "whitespace-nowrap")}>
+        {cost === null ? "…" : usd(cost)}
+        {rule.action.kind === "auto_delete" ? (
+          <span className="text-muted-foreground"> /post</span>
+        ) : null}
+      </td>
+      <td className={cn(table.td, table.num, "hidden whitespace-nowrap @2xl/list:table-cell")}>
+        {usd(rule.spentUsdDay)}
+        <span className="text-muted-foreground"> / {budget(rule.budgetUsdDay)}</span>
+      </td>
+      <td className={cn(table.td, table.num, "hidden whitespace-nowrap @2xl/list:table-cell")}>
+        {usd(rule.spentUsdMonth)}
+        <span className="text-muted-foreground"> / {budget(rule.budgetUsdMonth)}</span>
+      </td>
+    </tr>
   );
 }

@@ -1,95 +1,198 @@
+import { useAtomValue } from "@effect/atom-react";
+import { useLocation, useNavigate } from "@tanstack/react-router";
 import { RuleRunStatus, type Rule, type RuleRun } from "@xtend/contracts";
-import { useState } from "react";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
+import { useState, type ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
-import { Empty, inputClass, usd } from "../analyze/ui";
-import { statusTone } from "./describe";
+import { rulesAtom, runsAtom } from "../../state/automate";
+import { usd } from "../../state/costs";
+import { errorText, fieldClass, when } from "../analyze/ui";
+import { HeaderTabs, PageHeader } from "../PageHeader";
+import { sectionHref } from "../shell/sections";
+import { Button } from "../ui/button";
+import { Empty, PageBody, table } from "../ui/layout";
+import { statusLabel, statusTone } from "./describe";
 
-const STATUSES = RuleRunStatus.literals;
+type StatusFilter = RuleRunStatus | "all";
+
+/** The runs log, newest first and capped by the service. `?rule=` opens it on one rule. */
+export function Runs() {
+  const runs = useAtomValue(runsAtom);
+  const rules = AsyncResult.getOrElse(useAtomValue(rulesAtom), () => [] as ReadonlyArray<Rule>);
+  const searchStr = useLocation({ select: (l) => l.searchStr });
+  const linked = Number(new URLSearchParams(searchStr).get("rule"));
+  const linkedId = Number.isInteger(linked) && linked > 0 ? linked : null;
+  return AsyncResult.match(runs, {
+    onInitial: () => (
+      <RunsPage>
+        <Empty>Connecting to the service.</Empty>
+      </RunsPage>
+    ),
+    onFailure: (f) => (
+      <RunsPage>
+        <Empty>
+          <span className="text-error-foreground">{errorText(f.cause)}</span>
+        </Empty>
+      </RunsPage>
+    ),
+    onSuccess: ({ value }) => (
+      // Keyed so following another rule's "Runs" link resets the filter to it.
+      <RunsLog key={linkedId ?? "all"} runs={value} rules={rules} initialRuleId={linkedId} />
+    ),
+  });
+}
+
+function RunsPage({ children }: { readonly children: ReactNode }) {
+  return (
+    <div className="flex h-full flex-col">
+      <PageHeader title="Runs" />
+      <PageBody>{children}</PageBody>
+    </div>
+  );
+}
 
 export function RunsLog({
   runs,
   rules,
+  initialRuleId = null,
 }: {
   readonly runs: ReadonlyArray<RuleRun>;
   readonly rules: ReadonlyArray<Rule>;
+  readonly initialRuleId?: number | null;
 }) {
-  const [status, setStatus] = useState<RuleRunStatus | "">("");
-  const [ruleId, setRuleId] = useState<number | null>(null);
+  const [status, setStatus] = useState<StatusFilter>("all");
+  const [ruleId, setRuleId] = useState<number | null>(initialRuleId);
+  const navigate = useNavigate();
   const names = new Map(rules.map((r) => [r.id, r.name]));
-  const shown = runs.filter(
-    (r) => (status === "" || r.status === status) && (ruleId === null || r.ruleId === ruleId),
-  );
+  const ofRule = runs.filter((r) => ruleId === null || r.ruleId === ruleId);
+  const shown = ofRule.filter((r) => status === "all" || r.status === status);
+  const total = shown.reduce((s, r) => s + r.costUsd, 0);
+  // Only the statuses this log has, so the header stays one short row.
+  const tabs = [
+    { id: "all" as const, label: "All" },
+    ...RuleRunStatus.literals
+      .map((s) => ({
+        id: s,
+        label: s === "ok" ? "OK" : statusLabel[s].charAt(0).toUpperCase() + statusLabel[s].slice(1),
+        count: ofRule.filter((r) => r.status === s).length,
+      }))
+      .filter((t) => t.count > 0 || t.id === status),
+  ];
+
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex gap-2 text-xs">
-        <select
-          className={cn(inputClass, "w-auto")}
-          value={ruleId ?? ""}
-          onChange={(e) => setRuleId(e.target.value === "" ? null : Number(e.target.value))}
-        >
-          <option value="">All rules</option>
-          {rules.map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.name}
-            </option>
-          ))}
-        </select>
-        <select
-          className={cn(inputClass, "w-auto")}
-          value={status}
-          onChange={(e) => setStatus(e.target.value as RuleRunStatus | "")}
-        >
-          <option value="">All statuses</option>
-          {STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
-      </div>
-      {shown.length === 0 ? (
-        <Empty>No runs yet. Enable a rule or press Run now.</Empty>
-      ) : (
-        <table className="w-full text-xs">
-          <thead className="text-2xs text-muted-foreground">
-            <tr>
-              <th className="py-1 text-left font-normal">When</th>
-              <th className="py-1 text-left font-normal">Rule</th>
-              <th className="py-1 text-left font-normal">Status</th>
-              <th className="py-1 text-left font-normal">Detail</th>
-              <th className="py-1 text-left font-normal">Subject</th>
-              <th className="py-1 text-left font-normal">X id</th>
-              <th className="py-1 text-right font-normal">Cost</th>
-            </tr>
-          </thead>
-          <tbody>
-            {shown.map((r) => (
-              <tr key={r.id} className="border-t border-border align-top hover:bg-accent/60">
-                <td className="py-1 pr-2 font-mono whitespace-nowrap text-muted-foreground">
-                  {r.at.slice(0, 16).replace("T", " ")}
-                </td>
-                <td className="py-1 pr-2 whitespace-nowrap">
-                  {names.get(r.ruleId) ?? `#${r.ruleId}`}
-                </td>
-                <td className={"py-1 pr-2 " + statusTone[r.status]}>{r.status}</td>
-                <td
-                  className={"py-1 pr-2 " + (r.status === "failed" ? "text-error-foreground" : "")}
-                >
-                  {r.detail}
-                </td>
-                <td className="max-w-40 truncate py-1 pr-2 font-mono text-muted-foreground">
-                  {r.subjectId}
-                </td>
-                <td className="max-w-40 truncate py-1 pr-2 font-mono text-muted-foreground">
-                  {r.xId ?? ""}
-                </td>
-                <td className="py-1 text-right font-mono">{usd(r.costUsd)}</td>
-              </tr>
+    <div className="flex h-full flex-col">
+      <PageHeader
+        title="Runs"
+        tabs={<HeaderTabs label="Status" tabs={tabs} value={status} onChange={setStatus} />}
+        detail={`${shown.length} runs · ${usd(total)}`}
+        actions={
+          <select
+            aria-label="Rule"
+            className={cn(fieldClass, "w-36")}
+            value={ruleId ?? ""}
+            onChange={(e) => setRuleId(e.target.value === "" ? null : Number(e.target.value))}
+          >
+            <option value="">All rules</option>
+            {rules.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name}
+              </option>
             ))}
-          </tbody>
-        </table>
-      )}
+          </select>
+        }
+      />
+      <PageBody className="@container">
+        {runs.length === 0 ? (
+          <Empty
+            action={
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void navigate({ href: sectionHref("/automate", "rules") })}
+              >
+                Open rules
+              </Button>
+            }
+          >
+            No runs yet. Turn a rule on or run it now.
+          </Empty>
+        ) : shown.length === 0 ? (
+          <Empty>No runs match these filters.</Empty>
+        ) : (
+          <table className={table.root}>
+            <thead>
+              <tr>
+                <th className={table.th}>When</th>
+                <th className={table.th}>Rule</th>
+                <th className={table.th}>Status</th>
+                <th className={table.th}>Detail</th>
+                <th className={cn(table.th, "hidden @4xl:table-cell")}>Subject</th>
+                <th className={cn(table.th, "hidden @4xl:table-cell")}>X id</th>
+                <th className={cn(table.th, "text-right")}>Cost</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((r) => (
+                <tr key={r.id} className={table.row}>
+                  <td
+                    className={cn(
+                      table.td,
+                      "font-mono text-xs whitespace-nowrap text-muted-foreground tabular-nums",
+                    )}
+                  >
+                    {when(r.at)}
+                  </td>
+                  <td className={cn(table.td, "whitespace-nowrap")}>
+                    {names.get(r.ruleId) ?? `#${r.ruleId}`}
+                  </td>
+                  <td
+                    className={cn(
+                      table.td,
+                      "font-mono text-xs whitespace-nowrap",
+                      statusTone[r.status],
+                    )}
+                  >
+                    {statusLabel[r.status]}
+                  </td>
+                  <td className={cn(table.td, "w-full max-w-0")}>
+                    <p
+                      className={cn(
+                        "truncate",
+                        r.status === "failed" ? "text-error-foreground" : "text-foreground/90",
+                      )}
+                      title={r.detail}
+                    >
+                      {r.detail}
+                    </p>
+                  </td>
+                  <td
+                    className={cn(
+                      table.td,
+                      "hidden max-w-40 truncate font-mono text-xs text-muted-foreground @4xl:table-cell",
+                    )}
+                  >
+                    {r.subjectId}
+                  </td>
+                  <td
+                    className={cn(
+                      table.td,
+                      "hidden max-w-40 truncate font-mono text-xs text-muted-foreground @4xl:table-cell",
+                    )}
+                  >
+                    {r.xId ?? ""}
+                  </td>
+                  <td
+                    className={cn(table.td, table.num, r.costUsd === 0 && "text-muted-foreground")}
+                  >
+                    {usd(r.costUsd)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </PageBody>
     </div>
   );
 }

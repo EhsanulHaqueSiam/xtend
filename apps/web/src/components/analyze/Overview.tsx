@@ -1,52 +1,90 @@
-import type { AnalyzeData, AnalyzeWindow } from "@xtend/contracts";
+import type { AnalyzeData } from "@xtend/contracts";
 
-import { fmt, LineChart, pct, Section, signed, Stat } from "./ui";
+import { cn } from "../../lib/utils";
+import { Section, Stat } from "../ui/layout";
+import { AnalyzePage, NotLoaded } from "./AnalyzePage";
+import { fmt, insetTable, LineChart, pct, signed } from "./ui";
 
-function Window({ w }: { readonly w: AnalyzeWindow }) {
-  return (
-    <Section title={`Last ${w.days} days`}>
-      <div className="grid grid-cols-3 gap-x-4 sm:grid-cols-6">
-        <Stat label="Views" value={fmt(w.views)} />
-        <Stat label="Likes" value={fmt(w.likes)} />
-        <Stat label="Replies" value={fmt(w.replies)} />
-        <Stat label="Reposts" value={fmt(w.reposts)} />
-        <Stat label="ER" value={pct(w.engagementRate)} sub="engagements over views" />
-        <Stat label="Posts / day" value={(w.posts / w.days).toFixed(2)} sub={`${w.posts} posts`} />
-      </div>
-    </Section>
-  );
-}
+const CHART_HEIGHT = 140;
 
 /** Numbers come computed from the service; this only lays them out. */
 export function Overview({ data }: { readonly data: AnalyzeData }) {
   const latest = data.snapshots.at(-1);
   const delta = data.followerDelta30d;
+  const t = insetTable;
+  if (data.fetchedAt === null)
+    return (
+      <AnalyzePage data={data}>
+        <NotLoaded />
+      </AnalyzePage>
+    );
   return (
-    <div className="flex flex-col gap-3">
-      <Section title="Followers">
-        <div className="grid grid-cols-3 gap-x-4">
-          <Stat
-            label="Followers"
-            value={fmt(latest?.followers ?? null)}
-            sub={
-              delta === null
-                ? "30-day change needs an older snapshot"
-                : `${signed(delta.delta)} since ${delta.sinceDay}`
-            }
-          />
+    <AnalyzePage data={data}>
+      <Section>
+        <div className="grid grid-cols-2 gap-x-6 gap-y-4 @xl:grid-cols-4">
+          <Stat label="Followers" value={fmt(latest?.followers ?? null)} />
+          {/* Until a snapshot is 30 days old there is nothing to compare against. */}
+          <div title={delta === null ? "Needs a snapshot at least 30 days old" : undefined}>
+            <Stat
+              label={delta === null ? "30 day change" : `Since ${delta.sinceDay}`}
+              value={delta === null ? "–" : signed(delta.delta)}
+              tone={
+                delta === null || delta.delta === 0 ? undefined : delta.delta > 0 ? "up" : "down"
+              }
+            />
+          </div>
           <Stat label="Following" value={fmt(latest?.following ?? null)} />
           <Stat label="Posts" value={fmt(latest?.posts ?? null)} />
         </div>
       </Section>
-      {data.windows.map((w) => (
-        <Window key={w.days} w={w} />
-      ))}
-      <Section title="Views of posts by day published, 30 days">
-        <LineChart points={data.viewsByPostDay.map((d) => ({ label: d.day, value: d.views }))} />
+
+      <Section title="Activity">
+        <table className={t.root}>
+          <thead>
+            <tr>
+              <th className={t.th}>Window</th>
+              <th className={cn(t.th, "text-right")}>Posts</th>
+              <th className={cn(t.th, "text-right")}>Per day</th>
+              <th className={cn(t.th, "text-right")}>Views</th>
+              <th className={cn(t.th, "text-right")}>Likes</th>
+              <th className={cn(t.th, "text-right")}>Replies</th>
+              <th className={cn(t.th, "text-right")}>Reposts</th>
+              <th className={cn(t.th, "text-right")} title="Engagements over views">
+                ER
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.windows.map((w) => (
+              <tr key={w.days} className={t.row}>
+                <td className={t.td}>Last {w.days} days</td>
+                <td className={cn(t.td, t.num)}>{w.posts}</td>
+                <td className={cn(t.td, t.num)}>{(w.posts / w.days).toFixed(2)}</td>
+                <td className={cn(t.td, t.num)}>{fmt(w.views)}</td>
+                <td className={cn(t.td, t.num)}>{fmt(w.likes)}</td>
+                <td className={cn(t.td, t.num)}>{fmt(w.replies)}</td>
+                <td className={cn(t.td, t.num)}>{fmt(w.reposts)}</td>
+                <td className={cn(t.td, t.num)}>{pct(w.engagementRate)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </Section>
-      <Section title="Followers by day">
-        <LineChart points={data.snapshots.map((s) => ({ label: s.day, value: s.followers }))} />
-      </Section>
-    </div>
+
+      <div className="grid @4xl:grid-cols-2 @4xl:divide-x @4xl:divide-border">
+        <Section title="Views by day published, 30 days" className="@4xl:border-b-0">
+          <LineChart
+            height={CHART_HEIGHT}
+            points={data.viewsByPostDay.map((d) => ({ label: d.day, value: d.views }))}
+          />
+        </Section>
+        <Section title="Followers by day">
+          <LineChart
+            height={CHART_HEIGHT}
+            points={data.snapshots.map((s) => ({ label: s.day, value: s.followers }))}
+          />
+        </Section>
+      </div>
+    </AnalyzePage>
   );
 }

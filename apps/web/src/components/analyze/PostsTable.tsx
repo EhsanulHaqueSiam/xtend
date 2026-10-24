@@ -1,29 +1,60 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
-import type { AccountPost, NonPublic, PostAnalytics, PostKind } from "@xtend/contracts";
+import type {
+  AccountPost,
+  AnalyzeData,
+  NonPublic,
+  PostAnalytics,
+  PostKind,
+} from "@xtend/contracts";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { useState } from "react";
+import { TextMorph } from "torph/react";
 
 import { cn } from "../../lib/utils";
 import { analyzeDataAtom, refreshNonPublicAtom } from "../../state/analyze";
-import { usd, useRates } from "../../state/costs";
+import { useRates } from "../../state/costs";
+import { HeaderTabs } from "../PageHeader";
 import { Button } from "../ui/button";
-import { engagementRate, ErrorText, fmt, pct, Section, Stat } from "./ui";
+import { Cost, Empty, Section, Stat, table } from "../ui/layout";
+import { AnalyzePage, NotLoaded } from "./AnalyzePage";
+import { engagementRate, errorText, fmt, insetTable, pct, useOpenOnX, when, XLink } from "./ui";
 
-const COLUMNS = ["date", "views", "likes", "replies", "reposts", "bookmarks", "er"] as const;
-type Column = (typeof COLUMNS)[number];
+// `hide` drops the less telling columns first as the page narrows (the X panel takes its share).
+const COLUMNS = [
+  { id: "date", label: "Date", hide: "" },
+  { id: "views", label: "Views", hide: "" },
+  { id: "likes", label: "Likes", hide: "" },
+  { id: "replies", label: "Replies", hide: "hidden @3xl:table-cell" },
+  { id: "reposts", label: "Reposts", hide: "hidden @3xl:table-cell" },
+  { id: "bookmarks", label: "Saves", hide: "hidden @4xl:table-cell" },
+  { id: "er", label: "ER", hide: "" },
+] as const;
+type Column = (typeof COLUMNS)[number]["id"];
 /** X's private metrics, shown once the nightly job has rows. */
-const PRIVATE_COLUMNS = ["impressions", "profileVisits", "linkClicks", "follows"] as const;
-const PRIVATE_LABELS = {
-  impressions: "impr",
-  profileVisits: "visits",
-  linkClicks: "clicks",
-  follows: "follows",
-};
+const PRIVATE_COLUMNS = [
+  { id: "impressions", label: "Impr", hide: "" },
+  { id: "profileVisits", label: "Visits", hide: "hidden @5xl:table-cell" },
+  { id: "linkClicks", label: "Clicks", hide: "hidden @5xl:table-cell" },
+  { id: "follows", label: "Follows", hide: "" },
+] as const satisfies ReadonlyArray<{ id: keyof PostAnalytics; label: string; hide: string }>;
 
 const valueOf = (p: AccountPost, c: Column): number =>
   c === "date" ? new Date(p.createdAt).getTime() : c === "er" ? engagementRate(p) : (p[c] ?? 0);
 
-const KINDS: ReadonlyArray<PostKind> = ["text", "media", "link", "reply", "thread"];
+const KINDS = [
+  { id: "text", label: "Text" },
+  { id: "media", label: "Media" },
+  { id: "link", label: "Link" },
+  { id: "reply", label: "Reply" },
+  { id: "thread", label: "Thread" },
+] as const satisfies ReadonlyArray<{ id: PostKind; label: string }>;
+type KindFilter = PostKind | "all";
+
 const DAY_MS = 86_400_000;
+/** Below this many posts the top and bottom five overlap too much to mean anything. */
+const MARK_MIN_POSTS = 10;
+const dayFormat = new Intl.DateTimeFormat("en", { month: "short", day: "numeric" });
 
 /** Last run, its error, and the paid refresh: one analytics read per own post of the last 30 days. */
 function NonPublicStatus({
@@ -37,53 +68,88 @@ function NonPublicStatus({
   const refresh = useAtomSet(refreshNonPublicAtom, { mode: "promise" });
   const state = useAtomValue(refreshNonPublicAtom);
   const refreshData = useAtomRefresh(analyzeDataAtom);
-  const [error, setError] = useState<string | null>(null);
-  const run = async () => {
-    setError(null);
-    try {
-      await refresh();
-      refreshData();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  };
   const last = nonPublic.lastRun;
   return (
     <Section
-      title="Non-public metrics"
-      actions={
-        <Button size="xs" variant="outline" disabled={state.waiting} onClick={() => void run()}>
-          {state.waiting
-            ? "Fetching…"
-            : `Fetch now (${rates === null ? "…" : usd(rates.readPage * posts30d)})`}
+      title="Private metrics"
+      className="py-4"
+      aside={
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={state.waiting}
+          // A failure lands in the atom, shown under the status line.
+          onClick={() => void refresh().then(refreshData, () => {})}
+        >
+          <TextMorph duration={250}>{state.waiting ? "Fetching" : "Fetch now"}</TextMorph>
+          {rates === null ? <Cost label="…" /> : <Cost usd={rates.readPage * posts30d} />}
         </Button>
       }
     >
-      <p className="text-2xs text-muted-foreground">
+      <p className="text-xs text-muted-foreground">
         {last === null
-          ? "Runs nightly at 03:00 in your time zone. Impressions, profile visits, link clicks and follows per post need the treg X connection."
+          ? "Nightly at 03:00 in your time zone. Impressions, profile visits, link clicks and follows per post need the treg X connection."
           : last.error === null
-            ? `Last run ${last.at.slice(0, 16).replace("T", " ")}: ${last.posts} posts.`
-            : `Last run ${last.at.slice(0, 16).replace("T", " ")} failed: needs the treg X connection (${last.error}).`}
+            ? `Last run ${when(last.at)}, ${last.posts} posts.`
+            : `Last run ${when(last.at)} failed: needs the treg X connection (${last.error}).`}
       </p>
-      {error !== null ? <ErrorText>{error}</ErrorText> : null}
+      {AsyncResult.isFailure(state) ? (
+        <p role="alert" className="pt-1 text-xs text-error-foreground">
+          {errorText(state.cause)}
+        </p>
+      ) : null}
     </Section>
   );
 }
 
-export function PostsTable({
-  posts,
-  nonPublic,
+function SortHeader({
+  column,
+  sort,
+  desc,
+  onSort,
 }: {
-  readonly posts: ReadonlyArray<AccountPost>;
-  readonly nonPublic: NonPublic;
+  readonly column: (typeof COLUMNS)[number];
+  readonly sort: Column;
+  readonly desc: boolean;
+  readonly onSort: (c: Column) => void;
 }) {
+  const on = column.id === sort;
+  const Arrow = desc ? ChevronDown : ChevronUp;
+  return (
+    <th
+      className={cn(table.th, "text-right", column.hide)}
+      aria-sort={on ? (desc ? "descending" : "ascending") : undefined}
+      title={column.id === "er" ? "Green: top 5 by engagement rate. Red: bottom 5." : undefined}
+    >
+      <button
+        type="button"
+        className={cn(
+          "inline-flex cursor-pointer items-center gap-0.5 transition-colors duration-150 hover:text-foreground",
+          on && "text-foreground",
+        )}
+        onClick={() => onSort(column.id)}
+      >
+        {on ? <Arrow className="size-3" /> : null}
+        {column.label}
+      </button>
+    </th>
+  );
+}
+
+/** Own posts: averages by type, private metrics, the sortable table, then the posts that gained followers. */
+export function Posts({ data }: { readonly data: AnalyzeData }) {
+  const { posts, nonPublic } = data;
+  const [kind, setKind] = useState<KindFilter>("all");
   const [sort, setSort] = useState<Column>("date");
   const [desc, setDesc] = useState(true);
+  const open = useOpenOnX();
   const byEr = [...posts].sort((a, b) => engagementRate(b) - engagementRate(a));
-  const best = new Set(byEr.slice(0, 5).map((p) => p.postId));
-  const worst = new Set(byEr.slice(-5).map((p) => p.postId));
-  const sorted = [...posts].sort((a, b) => (valueOf(b, sort) - valueOf(a, sort)) * (desc ? 1 : -1));
+  const marked = posts.length >= MARK_MIN_POSTS;
+  const best = new Set(marked ? byEr.slice(0, 5).map((p) => p.postId) : []);
+  const worst = new Set(marked ? byEr.slice(-5).map((p) => p.postId) : []);
+  const shown = posts
+    .filter((p) => kind === "all" || p.kind === kind)
+    .sort((a, b) => (valueOf(b, sort) - valueOf(a, sort)) * (desc ? 1 : -1));
   const privateByPost = new Map(nonPublic.byPost.map((r) => [r.postId, r]));
   const hasPrivate = privateByPost.size > 0;
   const gained = nonPublic.byPost
@@ -102,106 +168,153 @@ export function PostsTable({
       setDesc(true);
     }
   };
+  const tabs = [
+    { id: "all" as const, label: "All" },
+    ...KINDS.map((k) => ({ ...k, count: posts.filter((p) => p.kind === k.id).length })),
+  ];
+  if (data.fetchedAt === null && posts.length === 0)
+    return (
+      <AnalyzePage data={data}>
+        <NotLoaded />
+      </AnalyzePage>
+    );
 
   return (
-    <div className="flex flex-col gap-3">
+    <AnalyzePage
+      data={data}
+      tabs={<HeaderTabs label="Type" tabs={tabs} value={kind} onChange={setKind} />}
+    >
       <Section title="Average views by type">
-        <div className="grid grid-cols-5 gap-x-4">
-          {KINDS.map((kind) => {
-            const of = posts.filter((p) => p.kind === kind);
+        <div className="grid grid-cols-3 gap-x-6 gap-y-4 @2xl:grid-cols-5">
+          {KINDS.map((k) => {
+            const of = posts.filter((p) => p.kind === k.id);
             const avg =
               of.length === 0 ? 0 : of.reduce((s, p) => s + (p.views ?? 0), 0) / of.length;
-            return <Stat key={kind} label={kind} value={fmt(avg)} sub={`${of.length} posts`} />;
+            return (
+              <Stat
+                key={k.id}
+                label={`${k.label} · ${of.length} posts`}
+                value={of.length === 0 ? "–" : fmt(avg)}
+              />
+            );
           })}
         </div>
       </Section>
       <NonPublicStatus nonPublic={nonPublic} posts30d={posts30d} />
-      {gained.length === 0 ? null : (
-        <Section title="Posts that gained followers">
-          <ul className="flex flex-col gap-0.5 text-xs">
-            {gained.map((r) => (
-              <li key={r.postId} className="flex gap-2">
-                <span className="w-16 shrink-0 text-right font-mono">+{fmt(r.follows)}</span>
-                <a
-                  href={byId.get(r.postId)?.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="truncate hover:underline"
-                >
-                  {byId.get(r.postId)?.text ?? r.postId}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </Section>
-      )}
-      <Section title={`${posts.length} posts`}>
-        <table className="w-full text-xs">
-          <thead className="text-2xs text-muted-foreground">
-            <tr>
-              <th className="py-1 text-left font-normal">Post</th>
-              <th className="py-1 text-left font-normal">Type</th>
-              {COLUMNS.map((c) => (
-                <th key={c} className="py-1 text-right font-normal">
-                  <button
-                    type="button"
-                    className={cn("cursor-pointer uppercase", c === sort && "text-foreground")}
-                    onClick={() => toggle(c)}
-                  >
-                    {c}
-                    {c === sort ? (desc ? " v" : " ^") : ""}
-                  </button>
-                </th>
-              ))}
-              {hasPrivate
-                ? PRIVATE_COLUMNS.map((c) => (
-                    <th key={c} className="py-1 text-right font-normal uppercase">
-                      {PRIVATE_LABELS[c]}
-                    </th>
-                  ))
-                : null}
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((p) => (
-              <tr
-                key={p.postId}
-                className={cn(
-                  "border-t border-border hover:bg-accent/60",
-                  best.has(p.postId) && "text-success-foreground",
-                  worst.has(p.postId) && "text-error-foreground",
-                )}
-              >
-                <td className="max-w-xs truncate py-1 pr-2">
-                  <a href={p.url} target="_blank" rel="noreferrer" className="hover:underline">
-                    {p.text || "(no text)"}
-                  </a>
-                </td>
-                <td className="py-1 pr-2 text-muted-foreground">{p.kind}</td>
-                <td className="py-1 text-right font-mono text-muted-foreground">
-                  {p.createdAt.slice(0, 10)}
-                </td>
-                <td className="py-1 text-right font-mono">{fmt(p.views)}</td>
-                <td className="py-1 text-right font-mono">{fmt(p.likes)}</td>
-                <td className="py-1 text-right font-mono">{fmt(p.replies)}</td>
-                <td className="py-1 text-right font-mono">{fmt(p.reposts)}</td>
-                <td className="py-1 text-right font-mono">{fmt(p.bookmarks)}</td>
-                <td className="py-1 text-right font-mono">{pct(engagementRate(p))}</td>
+      {shown.length === 0 ? (
+        <Empty>{posts.length === 0 ? "No posts loaded yet." : "No posts of this type."}</Empty>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className={table.root}>
+            <thead>
+              <tr>
+                <th className={table.th}>Post</th>
+                <th className={cn(table.th, "hidden @4xl:table-cell")}>Type</th>
+                {COLUMNS.map((c) => (
+                  <SortHeader key={c.id} column={c} sort={sort} desc={desc} onSort={toggle} />
+                ))}
                 {hasPrivate
                   ? PRIVATE_COLUMNS.map((c) => (
-                      <td key={c} className="py-1 text-right font-mono">
-                        {fmt(privateByPost.get(p.postId)?.[c satisfies keyof PostAnalytics])}
-                      </td>
+                      <th key={c.id} className={cn(table.th, "text-right", c.hide)}>
+                        {c.label}
+                      </th>
                     ))
                   : null}
               </tr>
-            ))}
-          </tbody>
-        </table>
-        <p className="pt-2 text-2xs text-muted-foreground">
-          Green: top 5 by engagement rate. Red: bottom 5. Click a post to open it on x.com.
-        </p>
-      </Section>
-    </div>
+            </thead>
+            <tbody>
+              {shown.map((p) => (
+                <tr
+                  key={p.postId}
+                  tabIndex={0}
+                  className={cn(
+                    table.row,
+                    "cursor-pointer outline-hidden focus-visible:bg-white/[0.04]",
+                  )}
+                  onClick={() => open(p.url)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") open(p.url);
+                  }}
+                >
+                  <td className={cn(table.td, "w-full max-w-0")}>
+                    <p className="truncate text-foreground/90" title={p.text}>
+                      {p.text || "(no text)"}
+                    </p>
+                  </td>
+                  <td
+                    className={cn(table.td, "hidden text-xs text-muted-foreground @4xl:table-cell")}
+                  >
+                    {p.kind}
+                  </td>
+                  <td
+                    className={cn(table.td, table.num, "whitespace-nowrap text-muted-foreground")}
+                    title={p.createdAt.slice(0, 10)}
+                  >
+                    {dayFormat.format(new Date(p.createdAt))}
+                  </td>
+                  <td className={cn(table.td, table.num)}>{fmt(p.views)}</td>
+                  <td className={cn(table.td, table.num)}>{fmt(p.likes)}</td>
+                  <td className={cn(table.td, table.num, "hidden @3xl:table-cell")}>
+                    {fmt(p.replies)}
+                  </td>
+                  <td className={cn(table.td, table.num, "hidden @3xl:table-cell")}>
+                    {fmt(p.reposts)}
+                  </td>
+                  <td className={cn(table.td, table.num, "hidden @4xl:table-cell")}>
+                    {fmt(p.bookmarks)}
+                  </td>
+                  <td
+                    className={cn(
+                      table.td,
+                      table.num,
+                      best.has(p.postId) && "text-success-foreground",
+                      worst.has(p.postId) && "text-error-foreground",
+                    )}
+                  >
+                    {pct(engagementRate(p))}
+                  </td>
+                  {hasPrivate
+                    ? PRIVATE_COLUMNS.map((c) => (
+                        <td key={c.id} className={cn(table.td, table.num, c.hide)}>
+                          {fmt(privateByPost.get(p.postId)?.[c.id])}
+                        </td>
+                      ))
+                    : null}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {gained.length === 0 ? null : (
+        <Section title="Posts that gained followers">
+          <table className={insetTable.root}>
+            <tbody>
+              {gained.map((r) => {
+                const post = byId.get(r.postId);
+                return (
+                  <tr key={r.postId} className={insetTable.row}>
+                    <td
+                      className={cn(insetTable.td, insetTable.num, "w-16 text-success-foreground")}
+                    >
+                      +{fmt(r.follows)}
+                    </td>
+                    <td className={cn(insetTable.td, "max-w-0")}>
+                      {post === undefined ? (
+                        <span className="font-mono text-xs text-muted-foreground">{r.postId}</span>
+                      ) : (
+                        <XLink href={post.url} className="block truncate">
+                          {post.text || "(no text)"}
+                        </XLink>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </Section>
+      )}
+    </AnalyzePage>
   );
 }

@@ -1,21 +1,78 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useNavigate } from "@tanstack/react-router";
 import type { DryRunReport, Rule, RulePreview } from "@xtend/contracts";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
+import { TextMorph } from "torph/react";
 
 import { cn } from "../../lib/utils";
-import { dryRun7dAtom, previewAtom } from "../../state/automate";
-import { Empty, ErrorText, inputClass, usd } from "../analyze/ui";
+import { dryRun7dAtom, previewAtom, rulesAtom } from "../../state/automate";
+import { usd } from "../../state/costs";
+import { ErrorBar, fieldClass, insetTable, Note, when } from "../analyze/ui";
+import { PageHeader } from "../PageHeader";
+import { sectionHref } from "../shell/sections";
 import { Button } from "../ui/button";
+import { Cost, PageBody, Section } from "../ui/layout";
+
+/** Rows of what would fire, each with its price, and the total. */
+function WouldFire({
+  rows,
+  first,
+  total,
+  summary,
+}: {
+  readonly rows: ReadonlyArray<{ key: string; first: string; description: string; usd: number }>;
+  readonly first: string;
+  readonly total: number;
+  readonly summary: string;
+}) {
+  const t = insetTable;
+  return (
+    <table className={t.root}>
+      <thead>
+        <tr>
+          <th className={t.th}>{first}</th>
+          <th className={t.th}>Would</th>
+          <th className={cn(t.th, "text-right")}>Price</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr key={r.key} className={t.row}>
+            <td className={cn(t.td, "whitespace-nowrap")}>{r.first}</td>
+            <td className={cn(t.td, "w-full max-w-0")}>
+              <p className="truncate text-foreground/90" title={r.description}>
+                {r.description}
+              </p>
+            </td>
+            <td className={cn(t.td, t.num)}>{usd(r.usd)}</td>
+          </tr>
+        ))}
+        <tr>
+          <td className={cn(t.td, "border-b-0 font-medium")} colSpan={2}>
+            {summary}
+          </td>
+          <td className={cn(t.td, t.num, "border-b-0 font-medium")}>{usd(total)}</td>
+        </tr>
+      </tbody>
+    </table>
+  );
+}
 
 /** What every enabled rule would do right now, and what one rule would have done over the last 7 days. */
-export function DryRun({ rules }: { readonly rules: ReadonlyArray<Rule> }) {
+export function DryRun() {
+  const rules = AsyncResult.getOrElse(useAtomValue(rulesAtom), () => [] as ReadonlyArray<Rule>);
   const preview = useAtomSet(previewAtom, { mode: "promise" });
-  const state = useAtomValue(previewAtom);
+  const previewState = useAtomValue(previewAtom);
   const simulate = useAtomSet(dryRun7dAtom, { mode: "promise" });
+  const simulateState = useAtomValue(dryRun7dAtom);
+  const navigate = useNavigate();
   const [rows, setRows] = useState<ReadonlyArray<RulePreview> | null>(null);
-  const [ruleId, setRuleId] = useState<number | null>(rules[0]?.id ?? null);
+  const [picked, setPicked] = useState<number | null>(null);
   const [report, setReport] = useState<DryRunReport | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The first rule until one is picked, so the list can load after the page.
+  const ruleId = picked ?? rules[0]?.id ?? null;
   const guard = async (work: () => Promise<void>) => {
     setError(null);
     try {
@@ -24,106 +81,121 @@ export function DryRun({ rules }: { readonly rules: ReadonlyArray<Rule> }) {
       setError(e instanceof Error ? e.message : String(e));
     }
   };
-  const total = rows?.reduce((s, r) => s + r.costUsd, 0) ?? 0;
-  return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-2 text-xs">
-        <Button
-          size="xs"
-          variant="outline"
-          disabled={state.waiting}
-          onClick={() => void guard(async () => setRows(await preview()))}
-        >
-          {state.waiting ? "Evaluating…" : "Evaluate enabled rules"}
-        </Button>
-        <span className="text-muted-foreground">
-          Lists what would fire right now with its cost. Fires nothing.
-        </span>
-      </div>
-      {error !== null ? <ErrorText>{error}</ErrorText> : null}
-      {rows === null ? null : rows.length === 0 ? (
-        <Empty>Nothing would fire right now.</Empty>
-      ) : (
-        <table className="w-full text-xs">
-          <thead className="text-2xs text-muted-foreground">
-            <tr>
-              <th className="py-1 text-left font-normal">Rule</th>
-              <th className="py-1 text-left font-normal">Would</th>
-              <th className="py-1 text-right font-normal">Cost</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={`${r.ruleId}-${r.subjectId}`} className="border-t border-border">
-                <td className="py-1 pr-2 whitespace-nowrap">{r.ruleName}</td>
-                <td className="py-1 pr-2">{r.description}</td>
-                <td className="py-1 text-right font-mono">{usd(r.costUsd)}</td>
-              </tr>
-            ))}
-            <tr className="border-t border-border font-medium">
-              <td className="py-1" colSpan={2}>
-                {rows.length} would fire
-              </td>
-              <td className="py-1 text-right font-mono">{usd(total)}</td>
-            </tr>
-          </tbody>
-        </table>
-      )}
+  const enabled = rules.filter((r) => r.enabled).length;
 
-      <div className="flex items-center gap-2 border-t border-border pt-3 text-xs">
-        <select
-          className={cn(inputClass, "w-auto")}
-          value={ruleId ?? ""}
-          onChange={(e) => setRuleId(e.target.value === "" ? null : Number(e.target.value))}
+  return (
+    <div className="flex h-full flex-col">
+      <PageHeader title="Dry run" detail="fires nothing" />
+      <ErrorBar>{error}</ErrorBar>
+      <PageBody>
+        <Section
+          title="Right now"
+          aside={
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={previewState.waiting || enabled === 0}
+              onClick={() => void guard(async () => setRows(await preview()))}
+            >
+              <TextMorph duration={250}>
+                {previewState.waiting ? "Evaluating" : `Evaluate ${enabled} enabled`}
+              </TextMorph>
+            </Button>
+          }
         >
-          {rules.map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.name}
-            </option>
-          ))}
-        </select>
-        <Button
-          size="xs"
-          variant="outline"
-          disabled={ruleId === null}
-          onClick={() => void guard(async () => setReport(await simulate(ruleId!)))}
+          {rows === null ? (
+            <Note>
+              {enabled === 0
+                ? "No rule is on. Turn one on to see what it would fire."
+                : "What every enabled rule would fire now, each with its price."}
+            </Note>
+          ) : rows.length === 0 ? (
+            <Note>Nothing would fire right now.</Note>
+          ) : (
+            <WouldFire
+              first="Rule"
+              rows={rows.map((r) => ({
+                key: `${r.ruleId}-${r.subjectId}`,
+                first: r.ruleName,
+                description: r.description,
+                usd: r.costUsd,
+              }))}
+              total={rows.reduce((s, r) => s + r.costUsd, 0)}
+              summary={`${rows.length} would fire`}
+            />
+          )}
+        </Section>
+
+        <Section
+          title="Last 7 days"
+          aside={
+            rules.length === 0 ? undefined : (
+              <>
+                <select
+                  aria-label="Rule"
+                  className={cn(fieldClass, "w-48")}
+                  value={ruleId ?? ""}
+                  onChange={(e) => {
+                    setPicked(Number(e.target.value));
+                    setReport(null);
+                  }}
+                >
+                  {rules.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={ruleId === null || simulateState.waiting}
+                  onClick={() =>
+                    ruleId !== null && void guard(async () => setReport(await simulate(ruleId)))
+                  }
+                >
+                  <TextMorph duration={250}>
+                    {simulateState.waiting ? "Simulating" : "Simulate"}
+                  </TextMorph>
+                  <Cost usd={0} />
+                </Button>
+              </>
+            )
+          }
         >
-          Simulate last 7 days
-        </Button>
-        <span className="text-muted-foreground">
-          Replays the rule over stored posts, engagers and followers. Free.
-        </span>
-      </div>
-      {report === null ? null : report.fired.length === 0 ? (
-        <Empty>Would not have fired in the last 7 days.</Empty>
-      ) : (
-        <table className="w-full text-xs">
-          <thead className="text-2xs text-muted-foreground">
-            <tr>
-              <th className="py-1 text-left font-normal">When</th>
-              <th className="py-1 text-left font-normal">Would have</th>
-              <th className="py-1 text-right font-normal">Cost</th>
-            </tr>
-          </thead>
-          <tbody>
-            {report.fired.map((f) => (
-              <tr key={`${f.at} ${f.description}`} className="border-t border-border">
-                <td className="py-1 pr-2 font-mono whitespace-nowrap text-muted-foreground">
-                  {f.at.slice(0, 16).replace("T", " ")}
-                </td>
-                <td className="py-1 pr-2">{f.description}</td>
-                <td className="py-1 text-right font-mono">{usd(f.costUsd)}</td>
-              </tr>
-            ))}
-            <tr className="border-t border-border font-medium">
-              <td className="py-1" colSpan={2}>
-                {report.fired.length} firings in 7 days
-              </td>
-              <td className="py-1 text-right font-mono">{usd(report.totalUsd)}</td>
-            </tr>
-          </tbody>
-        </table>
-      )}
+          {rules.length === 0 ? (
+            <Note
+              action={
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void navigate({ href: sectionHref("/automate", "rules") })}
+                >
+                  Open rules
+                </Button>
+              }
+            >
+              No rules yet.
+            </Note>
+          ) : report === null ? (
+            <Note>Replays one rule over stored posts, engagers and followers.</Note>
+          ) : report.fired.length === 0 ? (
+            <Note>Would not have fired in the last 7 days.</Note>
+          ) : (
+            <WouldFire
+              first="When"
+              rows={report.fired.map((f) => ({
+                key: `${f.at} ${f.description}`,
+                first: when(f.at),
+                description: f.description,
+                usd: f.costUsd,
+              }))}
+              total={report.totalUsd}
+              summary={`${report.fired.length} firings in 7 days`}
+            />
+          )}
+        </Section>
+      </PageBody>
     </div>
   );
 }

@@ -1,38 +1,69 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
-import type { AccountPost } from "@xtend/contracts";
+import { Link } from "@tanstack/react-router";
+import type { AnalyzeData } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { BadgeCheck } from "lucide-react";
+import { TextMorph } from "torph/react";
 
+import { isElectron } from "../../env";
+import { cn } from "../../lib/utils";
 import { engagersAtom, themesAtom } from "../../state/analyze";
 import { Button } from "../ui/button";
-import { Empty, ErrorText, errorText, fmt, Section } from "./ui";
+import { Section } from "../ui/layout";
+import { AnalyzePage, RefreshPosts } from "./AnalyzePage";
+import { errorText, fmt, insetTable, ModelCall, Note, XLink } from "./ui";
 
 function Engagers() {
   const result = useAtomValue(engagersAtom);
+  const t = insetTable;
   return (
     <Section title="Accounts you see most">
       {AsyncResult.match(result, {
-        onInitial: () => <Empty>Loading…</Empty>,
-        onFailure: (f) => <ErrorText>{errorText(f.cause)}</ErrorText>,
+        onInitial: () => <Note>Loading.</Note>,
+        onFailure: (f) => <p className="text-xs text-error-foreground">{errorText(f.cause)}</p>,
         onSuccess: ({ value }) =>
           value.length === 0 ? (
-            <Empty>Nothing observed yet. Browse x.com in the desktop app first.</Empty>
+            isElectron ? (
+              <Note
+                action={
+                  <Button size="sm" variant="outline" render={<Link to="/x" />}>
+                    Open X
+                  </Button>
+                }
+              >
+                Nothing seen yet. Accounts land here as you browse X.
+              </Note>
+            ) : (
+              <Note>Nothing seen yet. Browse X in the desktop app.</Note>
+            )
           ) : (
-            <table className="w-full text-xs">
+            <table className={t.root}>
+              <thead>
+                <tr>
+                  <th className={t.th}>Account</th>
+                  <th className={cn(t.th, "text-right")}>Followers</th>
+                  <th className={cn(t.th, "text-right")}>Seen</th>
+                </tr>
+              </thead>
               <tbody>
                 {value.map((e) => (
-                  <tr key={e.handle} className="border-t border-border first:border-t-0">
-                    <td className="flex items-center gap-1 py-1">
-                      <span className="truncate font-medium">{e.name}</span>
-                      {e.verified ? <BadgeCheck className="size-3 text-info-foreground" /> : null}
-                      <span className="text-muted-foreground">@{e.handle}</span>
+                  <tr key={e.handle} className={t.row}>
+                    <td className={cn(t.td, "max-w-0")}>
+                      <XLink
+                        href={`https://x.com/${e.handle}`}
+                        className="flex min-w-0 items-center gap-1.5"
+                      >
+                        <span className="truncate font-medium">{e.name}</span>
+                        {e.verified ? (
+                          <BadgeCheck className="size-3.5 shrink-0 text-muted-foreground" />
+                        ) : null}
+                        <span className="truncate font-mono text-xs text-muted-foreground">
+                          @{e.handle}
+                        </span>
+                      </XLink>
                     </td>
-                    <td className="py-1 text-right font-mono text-muted-foreground">
-                      {fmt(e.followers)} followers
-                    </td>
-                    <td className="py-1 text-right font-mono text-muted-foreground">
-                      seen {e.seen}x
-                    </td>
+                    <td className={cn(t.td, t.num)}>{fmt(e.followers)}</td>
+                    <td className={cn(t.td, t.num, "text-muted-foreground")}>{e.seen}×</td>
                   </tr>
                 ))}
               </tbody>
@@ -43,57 +74,54 @@ function Engagers() {
   );
 }
 
-function Themes({ posts }: { readonly posts: ReadonlyArray<AccountPost> }) {
+function Themes({ data }: { readonly data: AnalyzeData }) {
   const result = useAtomValue(themesAtom);
   const run = useAtomSet(themesAtom);
-  const byId = new Map(posts.map((p) => [p.postId, p]));
+  const byId = new Map(data.posts.map((p) => [p.postId, p]));
+  const noPosts = data.posts.length === 0;
   return (
     <Section
       title="Themes in your best 50 posts"
-      actions={
+      aside={
         <Button
-          size="xs"
+          size="sm"
           variant="outline"
-          disabled={result.waiting || posts.length === 0}
+          disabled={result.waiting || noPosts}
+          title="Cached per set of posts: asking again for the same posts is free."
           onClick={() => run()}
         >
-          {result.waiting ? "Analyzing…" : "Analyze themes (model call, cached per post set)"}
+          <TextMorph duration={250}>{result.waiting ? "Analyzing" : "Analyze themes"}</TextMorph>
+          <ModelCall />
         </Button>
       }
     >
       {AsyncResult.match(result, {
-        onInitial: () => (
-          <Empty>
-            {posts.length === 0
-              ? "Refresh your posts first."
-              : "Runs the assistant over your top posts."}
-          </Empty>
-        ),
-        onFailure: (f) => <ErrorText>{errorText(f.cause)}</ErrorText>,
+        onInitial: () =>
+          noPosts ? (
+            <Note action={<RefreshPosts />}>Refresh your posts first.</Note>
+          ) : (
+            <Note>Groups your top posts by what they are about, and why each group works.</Note>
+          ),
+        onFailure: (f) => <p className="text-xs text-error-foreground">{errorText(f.cause)}</p>,
         onSuccess: ({ value }) => (
-          <div className="flex flex-col divide-y divide-border">
+          <div className="grid gap-x-10 gap-y-6 @4xl:grid-cols-2">
             {value.map((t) => (
-              <div key={t.name} className="py-2">
-                <p className="text-sm font-medium">
-                  {t.name}{" "}
+              <div key={t.name} className="flex min-w-0 flex-col gap-1">
+                <p className="flex items-baseline gap-2 text-sm font-medium">
+                  {t.name}
                   <span className="font-mono text-2xs text-muted-foreground">
                     {t.postIds.length} posts
                   </span>
                 </p>
                 <p className="text-xs text-muted-foreground">{t.why}</p>
-                <ul className="mt-1 flex flex-col gap-0.5 text-xs">
+                <ul className="mt-1 flex flex-col border-t border-border text-[13px]">
                   {t.postIds.slice(0, 5).map((id) => {
                     const p = byId.get(id);
                     return p === undefined ? null : (
-                      <li key={id} className="truncate">
-                        <a
-                          href={p.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="hover:underline"
-                        >
+                      <li key={id} className="border-b border-border py-1.5">
+                        <XLink href={p.url} className="block truncate text-foreground/90">
                           {p.text}
-                        </a>
+                        </XLink>
                       </li>
                     );
                   })}
@@ -107,11 +135,11 @@ function Themes({ posts }: { readonly posts: ReadonlyArray<AccountPost> }) {
   );
 }
 
-export function Audience({ posts }: { readonly posts: ReadonlyArray<AccountPost> }) {
+export function Audience({ data }: { readonly data: AnalyzeData }) {
   return (
-    <div className="flex flex-col gap-3">
+    <AnalyzePage data={data}>
       <Engagers />
-      <Themes posts={posts} />
-    </div>
+      <Themes data={data} />
+    </AnalyzePage>
   );
 }
