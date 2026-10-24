@@ -1,15 +1,10 @@
-import {
-  Costs_METHODS,
-  Engage_METHODS,
-  WS_METHODS,
-  type Mention,
-  type RateCard,
-} from "@xtend/contracts";
+import { Costs_METHODS, Engage_METHODS, WS_METHODS, type Mention } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import { expect, it } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
 import type { FakeService } from "../../../test/fakeService";
+import { rates } from "../../../test/fixtures";
 import { render } from "../../../test/render";
 import { Mentions } from "./Mentions";
 
@@ -37,22 +32,6 @@ const mention = (n: number, text: string): Mention => ({
   source: "session",
   handled: false,
 });
-
-const rates: RateCard = {
-  post: 0.015,
-  postWithLink: 0.2,
-  like: 0.015,
-  repost: 0.015,
-  follow: 0.015,
-  dm: 0.015,
-  delete: 0.01,
-  readPage: 0.005,
-  profile: 0.01,
-  searchPage: 0.00075,
-  scraperProfile: 0.00022,
-  followersPage: 0.001,
-  trending: 0.001,
-};
 
 /** Three open mentions; marking one handled drops it from the next read, as the service does. */
 function fakeService(): FakeService {

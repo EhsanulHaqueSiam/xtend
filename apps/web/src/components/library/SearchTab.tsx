@@ -35,26 +35,47 @@ export function SearchTab({ initialQuery }: { readonly initialQuery: string }) {
   const search = useAtomSet(searchAtom, { mode: "promise" });
   const saved = useSavedIds();
   const [query, setQuery] = useState(initialQuery);
-  const searchQuote = useQuoteLabel({ kind: "search", query });
   const [mode, setMode] = useState<XSearchMode>("top");
+  const searchQuote = useQuoteLabel({ kind: "search", query, mode });
   const [exclude, setExclude] = useState("");
   const [items, setItems] = useState<ReadonlyArray<XPost>>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [searched, setSearched] = useState(false);
+  // What the listed results answer; Load more continues it, not whatever the box says now.
+  const [searched, setSearched] = useState<{
+    readonly query: string;
+    readonly mode: XSearchMode;
+  } | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  // The page Load more reads is its own paid read, cached apart from the first.
+  const moreQuote = useQuoteLabel(
+    searched === null || cursor === null
+      ? { kind: "search", query, mode }
+      : { kind: "search", ...searched, cursor },
+  );
 
-  const run = async (next?: string) => {
-    if (query.trim() === "") return;
+  const run = async (more?: {
+    readonly cursor: string;
+    readonly query: string;
+    readonly mode: XSearchMode;
+  }) => {
+    const input = more ?? { query, mode };
+    // Enter submits even while the button is disabled, and every search is paid.
+    if (input.query.trim() === "" || busy) return;
     setBusy(true);
     setError(null);
     try {
-      const page = await search({ query, mode, ...(next === undefined ? {} : { cursor: next }) });
-      setItems((prev) => (next === undefined ? page.items : [...prev, ...page.items]));
+      const page = await search(input);
+      // X can repeat a post on the next page; a second card with its key would break the grid.
+      setItems((prev) =>
+        more === undefined
+          ? page.items
+          : [...prev, ...page.items.filter((p) => !prev.some((q) => q.postId === p.postId))],
+      );
       setCursor(page.nextCursor);
-      setSearched(true);
-      if (next === undefined) setSelected(null);
+      setSearched({ query: input.query, mode: input.mode });
+      if (more === undefined) setSelected(null);
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -81,7 +102,7 @@ export function SearchTab({ initialQuery }: { readonly initialQuery: string }) {
       <PageHeader
         title="Search"
         tabs={<HeaderTabs label="Mode" tabs={MODES} value={mode} onChange={setMode} />}
-        detail={searched ? `${visible.length} results` : undefined}
+        detail={searched !== null ? `${visible.length} results` : undefined}
       />
       <form
         role="search"
@@ -133,7 +154,7 @@ export function SearchTab({ initialQuery }: { readonly initialQuery: string }) {
         }
         list={
           <>
-            {!searched ? (
+            {searched === null ? (
               <Empty>Find posts worth saving. X's own search syntax works here.</Empty>
             ) : visible.length === 0 ? (
               <Empty>
@@ -148,16 +169,16 @@ export function SearchTab({ initialQuery }: { readonly initialQuery: string }) {
                 onSelect={setSelected}
               />
             )}
-            {searched && cursor !== null ? (
+            {searched !== null && cursor !== null ? (
               <div className="flex justify-center pb-6">
                 <button
                   type="button"
                   className={xPill}
                   disabled={busy}
-                  onClick={() => void run(cursor)}
+                  onClick={() => void run({ ...searched, cursor })}
                 >
                   {busy ? "Loading" : "Load more"}
-                  <Cost label={searchQuote} />
+                  <Cost label={moreQuote} />
                 </button>
               </div>
             ) : null}

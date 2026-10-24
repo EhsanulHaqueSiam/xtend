@@ -4,6 +4,7 @@ import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
+import { fmtDay } from "../../lib/time";
 import { cn } from "../../lib/utils";
 import {
   collectionPostsAtom,
@@ -11,6 +12,7 @@ import {
   createCollectionAtom,
   deleteCollectionAtom,
   deleteSavedAtom,
+  removeFromCollectionAtom,
   renameCollectionAtom,
   setNoteAtom,
   swipeFileAtom,
@@ -25,18 +27,24 @@ import { InspectorGroup, PostInspector } from "./PostInspector";
 import { RemixButton, SaveButton } from "./SaveButton";
 import { ErrorLine, causeMessage, errorMessage } from "./shared";
 
-/** The selected saved post: its note, more collections, remix, remove. */
+/**
+ * The selected saved post: its note, more collections, remix, remove. Remove in a collection
+ * takes it out of that one; in the swipe file it deletes the saved post everywhere.
+ */
 function SavedInspector({
   saved,
+  collection,
   onChange,
   onClose,
 }: {
   readonly saved: SavedPost;
+  readonly collection: Collection | undefined;
   readonly onChange: () => void;
   readonly onClose: () => void;
 }) {
   const setNote = useAtomSet(setNoteAtom, { mode: "promise" });
   const remove = useAtomSet(deleteSavedAtom, { mode: "promise" });
+  const unlink = useAtomSet(removeFromCollectionAtom, { mode: "promise" });
   const [note, setNoteText] = useState(saved.note);
   const [error, setError] = useState<string | null>(null);
   const fail = (e: unknown) => setError(errorMessage(e));
@@ -44,7 +52,7 @@ function SavedInspector({
     <PostInspector
       post={saved.post}
       facts={[
-        ["Saved", saved.savedAt.slice(0, 10)],
+        ["Saved", fmtDay(saved.savedAt)],
         ["Collections", String(saved.collectionIds.length)],
       ]}
       onClose={onClose}
@@ -53,18 +61,30 @@ function SavedInspector({
         <div className="flex flex-wrap items-center gap-1.5">
           <SaveButton post={saved.post} saved />
           <RemixButton post={saved.post} />
-          <button
-            type="button"
-            className={cn(xAction, "ml-auto text-xs hover:text-error-foreground")}
-            onClick={() =>
-              void remove(saved.id).then(() => {
-                onClose();
-                onChange();
-              }, fail)
-            }
-          >
-            <Trash2 /> Remove
-          </button>
+          {/* Staff picks is read-only, as the service keeps it. */}
+          {collection?.builtIn === true ? null : (
+            <button
+              type="button"
+              className={cn(xAction, "ml-auto text-xs hover:text-error-foreground")}
+              title={
+                collection === undefined
+                  ? "Delete from the swipe file and every collection"
+                  : `Take out of ${collection.name}; it stays in the swipe file`
+              }
+              onClick={() =>
+                void (
+                  collection === undefined
+                    ? remove(saved.id)
+                    : unlink({ collectionId: collection.id, savedId: saved.id })
+                ).then(() => {
+                  onClose();
+                  onChange();
+                }, fail)
+              }
+            >
+              <Trash2 /> Remove
+            </button>
+          )}
         </div>
       </InspectorGroup>
       <InspectorGroup title="Note">
@@ -87,10 +107,13 @@ function SavedInspector({
 /** Saved posts as cards, the selected one in the detail column. Collections and the swipe file share it. */
 export function SavedPosts({
   result,
+  collection,
   onChange,
   empty,
 }: {
   readonly result: AsyncResult.AsyncResult<ReadonlyArray<SavedPost>, unknown>;
+  /** The collection listed; none is the swipe file. */
+  readonly collection?: Collection;
   readonly onChange: () => void;
   readonly empty: ReactNode;
 }) {
@@ -107,6 +130,7 @@ export function SavedPosts({
           <SavedInspector
             key={open.id}
             saved={open}
+            collection={collection}
             onChange={onChange}
             onClose={() => setSelected(null)}
           />
@@ -123,7 +147,7 @@ export function SavedPosts({
               items={value.map((s) => ({
                 key: String(s.id),
                 post: s.post,
-                tag: `saved ${s.savedAt.slice(0, 10)}`,
+                tag: `saved ${fmtDay(s.savedAt)}`,
                 note: s.note,
               }))}
               selected={selected}
@@ -144,6 +168,7 @@ function CollectionPosts({ collection }: { readonly collection: Collection }) {
   return (
     <SavedPosts
       result={posts}
+      collection={collection}
       onChange={() => {
         refresh();
         refreshAll();

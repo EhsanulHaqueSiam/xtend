@@ -71,5 +71,5 @@ export function viewerHandleFromNav(root: ParentNode): string | null {
   return HANDLE_PATH.exec(href)?.[1]?.toLowerCase() ?? null;
 }
 
-/** Direct messages never get a strip. */
-export const isDmPath = (pathname: string): boolean => pathname.startsWith("/messages");
+/** Direct messages never get a strip: the classic inbox and X's Chat, which replaced it in 2025. */
+export const isDmPath = (pathname: string): boolean => /^\/(messages|i\/chat)(\/|$)/.test(pathname);

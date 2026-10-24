@@ -163,7 +163,8 @@ const make = Effect.gen(function* () {
               SELECT * FROM people WHERE account_id = ${sql.literal(CURRENT_ACCOUNT)} ORDER BY last_activity DESC LIMIT ${LIST_LIMIT}`
           : yield* sql<PersonRow>`
               SELECT p.* FROM people p JOIN list_members m ON m.person_id = p.id
-              WHERE m.list_id = ${listId} ORDER BY p.last_activity DESC LIMIT ${LIST_LIMIT}`;
+              WHERE m.list_id = ${listId} AND p.account_id = ${sql.literal(CURRENT_ACCOUNT)}
+              ORDER BY p.last_activity DESC LIMIT ${LIST_LIMIT}`;
       return rows.map(toPerson);
     },
     Effect.mapError(fail("list")),
@@ -187,18 +188,21 @@ const make = Effect.gen(function* () {
       yield* sql`UPDATE people SET last_activity = ${at} WHERE id = ${personId}`;
     });
 
-  // Returns the new id, or null when the handle already exists.
+  const idOfHandle = (handle: string) =>
+    sql<{ id: number }>`
+      SELECT id FROM people WHERE handle = ${handle} AND account_id = ${sql.literal(CURRENT_ACCOUNT)}`;
+
+  // Returns the new id, or null when the handle already exists in this account.
+  // account_id is explicit: the conflict check runs before 014's trigger would stamp it.
   const insertOne = (c: Candidate, source: string, listId?: number) =>
     Effect.gen(function* () {
       const at = yield* now;
       const score = c.score ?? lightScore(c);
       const inserted = yield* sql<{ id: number }>`
-        INSERT INTO people (handle, name, user_id, followers, bio, score, tier, source, first_seen, last_activity)
-        VALUES (${c.handle.toLowerCase()}, ${c.name}, ${c.userId}, ${c.followers}, ${c.bio}, ${score}, ${tierOf(score)}, ${source}, ${at}, ${at})
-        ON CONFLICT(handle) DO NOTHING RETURNING id`;
-      const id =
-        inserted[0]?.id ??
-        (yield* sql<{ id: number }>`SELECT id FROM people WHERE handle = ${c.handle}`)[0]!.id;
+        INSERT INTO people (handle, name, user_id, followers, bio, score, tier, source, first_seen, last_activity, account_id)
+        VALUES (${c.handle.toLowerCase()}, ${c.name}, ${c.userId}, ${c.followers}, ${c.bio}, ${score}, ${tierOf(score)}, ${source}, ${at}, ${at}, ${sql.literal(CURRENT_ACCOUNT)})
+        ON CONFLICT(account_id, handle) DO NOTHING RETURNING id`;
+      const id = inserted[0]?.id ?? (yield* idOfHandle(c.handle))[0]!.id;
       if (listId !== undefined)
         yield* sql`INSERT OR IGNORE INTO list_members (list_id, person_id) VALUES (${listId}, ${id})`;
       if (inserted[0] === undefined) return null;
@@ -209,11 +213,7 @@ const make = Effect.gen(function* () {
   const add = Effect.fn("PeopleStore.add")(
     function* (input: PersonAdd) {
       const id = yield* insertOne(input, input.source, input.listId);
-      return id === null
-        ? (yield* sql<PersonRow>`SELECT * FROM people WHERE handle = ${input.handle}`).map(
-            toPerson,
-          )[0]!
-        : yield* byId(id);
+      return yield* byId(id ?? (yield* idOfHandle(input.handle))[0]!.id);
     },
     Effect.mapError(fail("add")),
   );
@@ -333,8 +333,9 @@ const make = Effect.gen(function* () {
       const fresh = new Set<string>();
       for (const f of followers) {
         const rows = yield* sql<{ user_id: string }>`
-          INSERT INTO followers_seen (user_id, handle, first_seen_at) VALUES (${f.userId}, ${f.handle.toLowerCase()}, ${at})
-          ON CONFLICT(user_id) DO NOTHING RETURNING user_id`;
+          INSERT INTO followers_seen (user_id, handle, first_seen_at, account_id)
+          VALUES (${f.userId}, ${f.handle.toLowerCase()}, ${at}, ${sql.literal(CURRENT_ACCOUNT)})
+          ON CONFLICT(account_id, user_id) DO NOTHING RETURNING user_id`;
         if (rows[0] !== undefined) fresh.add(rows[0].user_id);
       }
       // Nothing new this check: keep showing the previous batch rather than an empty tab.

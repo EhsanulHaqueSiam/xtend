@@ -17,6 +17,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schedule from "effect/Schedule";
+import * as Semaphore from "effect/Semaphore";
 import * as SqlClient from "effect/sql/SqlClient";
 import type { SqlError } from "effect/sql/SqlError";
 
@@ -45,6 +46,9 @@ const POLL_MS = {
   followers: 15 * MINUTE_MS,
 } as const;
 const DRY_RUN_DAYS = 7;
+
+/** auto_delete remembers each post it deleted among the rule's fired subjects. */
+const deletedKey = (postId: string) => `deleted:${postId}`;
 
 /** Actions that act on the account, not on the subject: one firing per tick however many subjects matched. */
 const perTick = (action: Action) => action.kind === "auto_delete" || action.kind === "auto_retweet";
@@ -84,12 +88,9 @@ const conditionFailure = (
   if (c.link !== undefined && s.post !== undefined && s.post.hasLink !== (c.link === "has"))
     return c.link === "has" ? "no link" : "has a link";
   if (c.notReply === true && s.post?.isReply === true) return "is a reply";
-  if (
-    c.minAuthorFollowers !== undefined &&
-    s.post?.authorFollowers !== undefined &&
-    s.post.authorFollowers !== null &&
-    s.post.authorFollowers < c.minAuthorFollowers
-  )
+  // The person the rule acts on: a liker, follower or lead has no post, only themselves.
+  const followers = s.engager?.followers ?? s.post?.authorFollowers ?? null;
+  if (c.minAuthorFollowers !== undefined && followers !== null && followers < c.minAuthorFollowers)
     return `author under ${c.minAuthorFollowers} followers`;
   if (c.notInListId !== undefined && s.engager !== undefined && listHandles.has(s.engager.handle))
     return "already in the list";
@@ -104,13 +105,77 @@ const queryWords = (query: string) =>
     .filter((w) => w !== "" && w !== "or" && !w.startsWith("-") && !w.includes(":"))
     .map((w) => w.replaceAll('"', ""));
 
+interface AuthoredPost {
+  readonly postId: string;
+  readonly createdAt: string;
+  readonly text: string;
+  readonly hasLink: boolean;
+  readonly isReply: boolean;
+  readonly author: {
+    readonly userId: string;
+    readonly handle: string;
+    readonly name: string;
+    readonly followers: number | null;
+  };
+}
+
+/** Someone's post as a subject: the post to act on and its author as the person to act on. */
+const authoredSubject = (p: AuthoredPost): Subject => ({
+  id: p.postId,
+  at: p.createdAt,
+  postId: p.postId,
+  post: { hasLink: p.hasLink, isReply: p.isReply, authorFollowers: p.author.followers },
+  engager: {
+    userId: p.author.userId,
+    handle: p.author.handle,
+    name: p.author.name,
+    followers: p.author.followers,
+  },
+  description: `@${p.author.handle}: ${p.text.slice(0, 60)}`,
+});
+
+/** Why the rule's own caps refuse spending `costUsd` more, or null when they allow it. */
+const overBudget = (rule: Rule, costUsd: number): string | null =>
+  rule.spentUsdDay + costUsd > rule.budgetUsdDay
+    ? `day budget: $${rule.spentUsdDay.toFixed(3)} spent of $${rule.budgetUsdDay}`
+    : rule.spentUsdMonth + costUsd > rule.budgetUsdMonth
+      ? `month budget: $${rule.spentUsdMonth.toFixed(3)} spent of $${rule.budgetUsdMonth}`
+      : null;
+
+type ActionError = XApiError | LeadsError | AutomateError;
+
+/** The request went out and no answer says how it went (a timeout, an unreadable 200): it may have acted, and costs its quote. */
+const mayHaveActed = (e: ActionError) =>
+  e._tag === "XApiError" && (e.reason === "http" || e.reason === "decode");
+
+/**
+ * Nothing was done, so trying again later is safe: a full budget, no token or X connection, an
+ * outage, a rate limit, a local store. A 4xx X answered with is a refusal that would repeat.
+ */
+const retriable = (e: ActionError) =>
+  e._tag !== "XApiError" ||
+  e.reason === "budget" ||
+  e.reason === "no_token" ||
+  (e.reason === "provider" &&
+    (e.status === null ||
+      e.status >= 500 ||
+      e.status === 401 ||
+      e.status === 402 ||
+      e.status === 429));
+
+const hhmm = (parts: DateTime.DateTime.PartsWithWeekday) =>
+  `${String(parts.hour).padStart(2, "0")}:${String(parts.minute).padStart(2, "0")}`;
+
 /** Evaluates rules against X and the session observations, runs the ones that fire, and logs every outcome. */
 export class AutomationEngine extends Context.Service<
   AutomationEngine,
   {
     /** What every enabled rule would do right now, with costs. Does not fire anything. */
     readonly preview: Effect.Effect<ReadonlyArray<RulePreview>, AutomateError>;
-    /** Evaluates and fires one rule regardless of its enabled flag. Fired subjects stay deduped. */
+    /**
+     * Evaluates and fires one rule regardless of its enabled flag. Fired subjects stay deduped;
+     * evaluations and approvals run one at a time, so the minute tick and Run now never both act.
+     */
     readonly runRule: (id: number) => Effect.Effect<ReadonlyArray<RuleRun>, AutomateError>;
     /** Performs a pending request's action now and closes it. */
     readonly approve: (pendingId: number) => Effect.Effect<RuleRun, AutomateError>;
@@ -138,8 +203,8 @@ const make = Effect.gen(function* () {
       : new AutomateError({ operation, detail: String(cause).slice(0, 200), cause });
   const nowMs = Effect.map(DateTime.now, DateTime.toEpochMillis);
   const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
-  // Subjects being fired right now, so the minute tick and Run now cannot both act on one.
-  const inFlight = new Set<string>();
+  // One evaluation or approval at a time: each reads what the last one fired before acting.
+  const gate = yield* Semaphore.make(1);
   // Last poll per watched post or follower list; lost on restart, which costs one extra poll.
   const lastPoll = new Map<string, number>();
 
@@ -154,22 +219,32 @@ const make = Effect.gen(function* () {
   );
 
   // Session observations first (free, fresh), the scraper timeline (cached 1h) fills what the session never showed.
-  const ownPosts = Effect.gen(function* () {
-    const handle = yield* ownHandle;
-    const seen = yield* observations.listRecent({ authorHandle: handle, limit: OWN_POSTS_LIMIT });
-    const timeline = yield* x.userPosts(handle, { purpose: "automate.ownPosts" });
-    const byId = new Map<string, OwnPost>();
-    for (const p of [...timeline.items, ...seen.posts])
-      byId.set(p.postId, {
-        postId: p.postId,
-        createdAt: p.createdAt,
-        views: p.metrics.views ?? 0,
-        likes: p.metrics.likes,
-        hasLink: p.hasLink,
-        isReply: p.isReply,
-      });
-    return [...byId.values()];
-  });
+  // Rules share the read; whichever rule finds it cold pays for it: its caps refuse the read
+  // (leaving the session's posts) and it counts against them. A dry run reads it only cached.
+  const ownPosts = (rule: Rule) =>
+    Effect.gen(function* () {
+      const handle = yield* ownHandle;
+      const seen = yield* observations.listRecent({ authorHandle: handle, limit: OWN_POSTS_LIMIT });
+      const read =
+        (yield* x.cached.userPosts(handle)) ||
+        (!rule.dryRun && !(yield* pollRefused(rule, XClient.RATE_CARD.searchPage)));
+      const page = read ? yield* x.userPosts(handle, { purpose: "automate.ownPosts" }) : null;
+      if (page !== null && !rule.dryRun)
+        yield* rules.addSpend(rule.id, page.fromCache ? 0 : XClient.RATE_CARD.searchPage);
+      const timeline = page?.items ?? [];
+      const byId = new Map<string, OwnPost>();
+      // A repost carries someone else's post and reach: plugging, boosting or deleting it is not the user's to do.
+      for (const p of [...timeline, ...seen.posts].filter((p) => !p.isRepost))
+        byId.set(p.postId, {
+          postId: p.postId,
+          createdAt: p.createdAt,
+          views: p.metrics.views ?? 0,
+          likes: p.metrics.likes,
+          hasLink: p.hasLink,
+          isReply: p.isReply,
+        });
+      return [...byId.values()];
+    });
 
   const postSubject = (p: OwnPost, description: string): Subject => ({
     id: p.postId,
@@ -201,10 +276,14 @@ const make = Effect.gen(function* () {
         })),
     );
 
+  // The account's first follower check only learns who already followed it; none of them is new.
   const followerSubjects = (sinceIso: string) =>
     Effect.map(
       sql<{ user_id: string; handle: string; first_seen_at: string }>`
-        SELECT user_id, handle, first_seen_at FROM followers_seen WHERE first_seen_at >= ${sinceIso} AND account_id = ${sql.literal(CURRENT_ACCOUNT)} ORDER BY first_seen_at DESC`,
+        SELECT user_id, handle, first_seen_at FROM followers_seen
+        WHERE first_seen_at >= ${sinceIso} AND account_id = ${sql.literal(CURRENT_ACCOUNT)}
+          AND first_seen_at > (SELECT MIN(first_seen_at) FROM followers_seen WHERE account_id = ${sql.literal(CURRENT_ACCOUNT)})
+        ORDER BY first_seen_at DESC`,
       (rows) =>
         rows.map((r): Subject => ({
           id: r.user_id,
@@ -233,26 +312,69 @@ const make = Effect.gen(function* () {
       })),
     );
 
-  // Trigger reads that cost money run on their own clock, not on every minute tick.
+  // A poll the rule's caps refuse is logged once (recordRun collapses repeats) and retried next tick.
+  const pollRefused = (rule: Rule, quote: number) => {
+    const over = overBudget(rule, quote);
+    return over === null
+      ? Effect.succeed(false)
+      : rules
+          .recordRun({
+            ruleId: rule.id,
+            subjectId: "poll",
+            status: "skipped",
+            detail: `poll costs $${quote}; ${over}`,
+            costUsd: 0,
+          })
+          .pipe(Effect.as(true));
+  };
+
+  // A keyword rule's search is its poll, read on each tick and paid each time the 30-minute cache
+  // runs out: a live rule's caps refuse it (not a cached one, which is free) and it counts against
+  // them. A dry run only gets here with the search cached, and counts nothing.
+  const keywordSearch = (rule: Rule, query: string) =>
+    Effect.gen(function* () {
+      const refused =
+        !rule.dryRun &&
+        !(yield* x.cached.search(query, "latest")) &&
+        (yield* pollRefused(rule, XClient.RATE_CARD.searchPage));
+      if (refused) return [];
+      const page = yield* x.searchPosts(query, { mode: "latest", purpose: "automate.keyword" });
+      if (!rule.dryRun)
+        yield* rules.addSpend(rule.id, page.fromCache ? 0 : XClient.RATE_CARD.searchPage);
+      return page.items;
+    });
+
+  // Trigger reads that cost money run on their own clock, not on every minute tick, and count
+  // against the rule's caps. A dry run charges nothing, so it reads only what earlier polls stored.
   const poll = (rule: Rule) =>
     Effect.gen(function* () {
+      if (rule.dryRun) return;
       const t = rule.trigger;
       const ms = yield* nowMs;
       const at = yield* nowIso;
       if (t.kind === "post_engaged") {
         const key = `${t.via}:${t.postId}`;
         if (ms - (lastPoll.get(key) ?? 0) < POLL_MS[t.via]) return;
+        if (yield* pollRefused(rule, XExtra.engagersCostUsd(t.via))) return;
         lastPoll.set(key, ms);
-        const { matches } = yield* extra.engagers(t.postId, t.via, `automate.${rule.name}`);
+        const { matches, costUsd } = yield* extra.engagers(
+          t.postId,
+          t.via,
+          `automate.${rule.name}`,
+        );
+        yield* rules.addSpend(rule.id, costUsd);
         for (const m of matches)
           yield* sql`
             INSERT OR IGNORE INTO engagers (post_id, user_id, via, handle, name, followers, seen_at)
             VALUES (${t.postId}, ${m.userId ?? m.handle}, ${t.via}, ${m.handle}, ${m.name}, ${m.followers}, ${at})`;
       } else if (t.kind === "new_follower") {
-        if (ms - (lastPoll.get("followers") ?? 0) < POLL_MS.followers) return;
-        lastPoll.set("followers", ms);
         const handle = yield* ownHandle;
-        const page = yield* x.followers(handle, { purpose: `automate.${rule.name}` });
+        const key = `followers:${handle}`;
+        if (ms - (lastPoll.get(key) ?? 0) < POLL_MS.followers) return;
+        if (yield* pollRefused(rule, XClient.RATE_CARD.followersPage)) return;
+        lastPoll.set(key, ms);
+        const page = yield* x.followers(handle, { purpose: `automate.${rule.name}`, fresh: true });
+        yield* rules.addSpend(rule.id, page.fromCache ? 0 : XClient.RATE_CARD.followersPage);
         yield* people.markFollowersSeen(page.items);
       }
     });
@@ -261,13 +383,15 @@ const make = Effect.gen(function* () {
     const trigger = rule.trigger;
     switch (trigger.kind) {
       case "post_crosses_threshold":
-        return Effect.map(Effect.all([ownPosts, nowMs]), ([posts, ms]) =>
+        return Effect.map(Effect.all([ownPosts(rule), nowMs]), ([posts, ms]) =>
           posts
             .filter((p) => {
               const created = Date.parse(p.createdAt);
               return (
                 (created >= Date.parse(rule.createdAt) || created >= ms - THRESHOLD_WINDOW_MS) &&
-                p[trigger.metric] >= trigger.threshold
+                p[trigger.metric] >= trigger.threshold &&
+                // A plug is an own reply that rides the post's reach; plugging replies would plug the plug.
+                !(rule.action.kind === "auto_plug" && p.isReply)
               );
             })
             .map((p) =>
@@ -278,8 +402,7 @@ const make = Effect.gen(function* () {
         return Effect.map(Effect.all([nowMs, settings.get]), ([ms, { timeZone }]) => {
           const local = DateTime.setZone(DateTime.makeUnsafe(ms), SettingsStore.zoneOf(timeZone));
           const parts = DateTime.toParts(local);
-          const hhmm = `${String(parts.hour).padStart(2, "0")}:${String(parts.minute).padStart(2, "0")}`;
-          if (!trigger.weekdays.includes(parts.weekDay) || hhmm < trigger.time) return [];
+          if (!trigger.weekdays.includes(parts.weekDay) || hhmm(parts) < trigger.time) return [];
           const day = DateTime.formatIsoDate(local);
           return [
             { id: `${day} ${trigger.time}`, description: `schedule slot ${day} ${trigger.time}` },
@@ -311,23 +434,16 @@ const make = Effect.gen(function* () {
           return [...byUser.values()];
         });
       case "keyword_post":
-        return Effect.map(
-          x.searchPosts(trigger.query, { mode: "latest", purpose: "automate.keyword" }),
-          (page) =>
-            page.items.map((p): Subject => ({
-              id: p.postId,
-              at: p.createdAt,
-              postId: p.postId,
-              post: { hasLink: p.hasLink, isReply: p.isReply, authorFollowers: p.author.followers },
-              engager: {
-                userId: p.author.userId,
-                handle: p.author.handle,
-                name: p.author.name,
-                followers: p.author.followers,
-              },
-              description: `@${p.author.handle}: ${p.text.slice(0, 60)}`,
-            })),
-        );
+        return Effect.gen(function* () {
+          const { handle } = yield* settings.get;
+          // A dry run charges nothing: without a cached search it matches what the session view saw.
+          const found =
+            rule.dryRun && !(yield* x.cached.search(trigger.query, "latest"))
+              ? yield* history(rule, rule.createdAt)
+              : (yield* keywordSearch(rule, trigger.query)).map(authoredSubject);
+          // Own posts are never keyword subjects: a plug carrying the keyword would answer itself every tick.
+          return found.filter((s) => s.engager?.handle !== handle);
+        });
       case "post_engaged":
         return engagerSubjects(trigger.postId, trigger.via, rule.createdAt);
       case "new_follower":
@@ -339,8 +455,8 @@ const make = Effect.gen(function* () {
     }
   };
 
-  const bestOwnPost = (evergreen: boolean) =>
-    Effect.map(Effect.all([ownPosts, nowMs]), ([posts, ms]) => {
+  const bestOwnPost = (rule: Rule, evergreen: boolean) =>
+    Effect.map(Effect.all([ownPosts(rule), nowMs]), ([posts, ms]) => {
       const since = ms - BEST_WINDOW_DAYS * DAY_MS;
       const top = posts
         .filter((p) => Date.parse(p.createdAt) >= since)
@@ -349,15 +465,15 @@ const make = Effect.gen(function* () {
       return top.length === 0 ? null : top[Math.floor(Math.random() * top.length)]!;
     });
 
-  const staleOwnPosts = (olderThanDays: number, maxViews: number) =>
-    Effect.map(Effect.all([ownPosts, nowMs]), ([posts, ms]) => {
+  const staleOwnPosts = (rule: Rule, olderThanDays: number, maxViews: number) =>
+    Effect.map(Effect.all([ownPosts(rule), nowMs]), ([posts, ms]) => {
       const before = ms - olderThanDays * DAY_MS;
       return posts.filter((p) => Date.parse(p.createdAt) < before && p.views < maxViews);
     });
 
   /** What a failed action already cost: X bills each call that went through before the one that failed. */
   interface PerformFailure {
-    readonly error: XApiError | LeadsError;
+    readonly error: ActionError;
     readonly costUsd: number;
   }
   interface Performed {
@@ -382,7 +498,10 @@ const make = Effect.gen(function* () {
   ) =>
     call.pipe(
       Effect.as({ costUsd: cost, xId }),
-      Effect.mapError((error): PerformFailure => ({ error, costUsd: 0 })),
+      Effect.mapError((error): PerformFailure => ({
+        error,
+        costUsd: mayHaveActed(error) ? cost : 0,
+      })),
     );
 
   const plan = (rule: Rule, s: Subject): Effect.Effect<Plan, EvalError> => {
@@ -402,7 +521,10 @@ const make = Effect.gen(function* () {
                 undo: "delete_post",
                 perform: x.createPost({ text: action.text, replyToPostId: s.postId, purpose }).pipe(
                   Effect.map((r) => ({ costUsd: r.costUsd, xId: r.postId })),
-                  Effect.mapError((error): PerformFailure => ({ error, costUsd: 0 })),
+                  Effect.mapError((error): PerformFailure => ({
+                    error,
+                    costUsd: mayHaveActed(error) ? cost : 0,
+                  })),
                 ),
               },
         );
@@ -486,7 +608,7 @@ const make = Effect.gen(function* () {
             .pipe(Effect.as({ costUsd: 0, xId: s.postId ?? e?.userId ?? null })),
         });
       case "auto_retweet":
-        return Effect.map(bestOwnPost(action.evergreen), (best) =>
+        return Effect.map(bestOwnPost(rule, action.evergreen), (best) =>
           best === null
             ? skip("no own post in the last 7 days")
             : {
@@ -501,25 +623,44 @@ const make = Effect.gen(function* () {
           skip("clean_profile is replaced by an unrepost action with undoAfterHours"),
         );
       case "auto_delete":
-        return Effect.map(staleOwnPosts(action.olderThanDays, action.maxViews), (stale) =>
-          stale.length === 0
-            ? skip("no post matches the age and view limits")
-            : {
-                costUsd: cost * stale.length,
-                detail: `delete ${stale.length} posts`,
-                perform: Effect.gen(function* () {
-                  let spent = 0;
-                  for (const p of stale) {
-                    yield* x
-                      .deletePost(p.postId, purpose)
-                      .pipe(
-                        Effect.mapError((error): PerformFailure => ({ error, costUsd: spent })),
+        return Effect.map(
+          Effect.all([
+            staleOwnPosts(rule, action.olderThanDays, action.maxViews),
+            rules.firedSubjects(rule.id),
+          ]),
+          ([seen, done]) => {
+            // The session view and the cached timeline still list posts after they are deleted.
+            const stale = seen.filter((p) => !done.has(deletedKey(p.postId)));
+            return stale.length === 0
+              ? skip("no post matches the age and view limits")
+              : {
+                  costUsd: cost * stale.length,
+                  detail: `delete ${stale.length} posts`,
+                  perform: Effect.gen(function* () {
+                    let spent = 0;
+                    for (const p of stale) {
+                      yield* x.deletePost(p.postId, purpose).pipe(
+                        // Deleted by hand since it was seen: gone is all this asked for.
+                        Effect.catchIf(
+                          (e) => e.reason === "provider" && e.status === 404,
+                          () => Effect.void,
+                        ),
+                        Effect.mapError((error): PerformFailure => ({
+                          error,
+                          costUsd: spent + (mayHaveActed(error) ? cost : 0),
+                        })),
                       );
-                    spent += cost;
-                  }
-                  return { costUsd: spent, xId: stale.map((p) => p.postId).join(",") };
-                }),
-              },
+                      spent += cost;
+                      yield* rules
+                        .markFired(rule.id, [deletedKey(p.postId)])
+                        .pipe(
+                          Effect.mapError((error): PerformFailure => ({ error, costUsd: spent })),
+                        );
+                    }
+                    return { costUsd: spent, xId: stale.map((p) => p.postId).join(",") };
+                  }),
+                };
+          },
         );
     }
   };
@@ -529,6 +670,8 @@ const make = Effect.gen(function* () {
     Effect.gen(function* () {
       const fired = yield* rules.firedSubjects(rule.id);
       const queued = yield* rules.openPendingSubjects(rule.id);
+      // An account-level action already waiting for you is not asked for again.
+      if (perTick(rule.action) && queued.size > 0) return [];
       const ms = yield* nowMs;
       const listHandles =
         rule.conditions.notInListId === undefined
@@ -547,8 +690,11 @@ const make = Effect.gen(function* () {
   const preview = Effect.gen(function* () {
     const all = yield* rules.list;
     const out: Array<RulePreview> = [];
-    for (const rule of all.filter((r) => r.enabled)) {
-      for (const s of yield* pending(rule)) {
+    for (const enabled of all.filter((r) => r.enabled)) {
+      // Read as a dry run would, from stored and cached data: evaluating must not spend.
+      const rule = { ...enabled, dryRun: true };
+      const found = yield* pending(rule);
+      for (const s of perTick(rule.action) ? found.slice(0, 1) : found) {
         const p = yield* plan(rule, s);
         out.push({
           ruleId: rule.id,
@@ -562,31 +708,28 @@ const make = Effect.gen(function* () {
     return out;
   }).pipe(Effect.mapError(fail("preview")));
 
-  const fire = (stale: Rule, s: Subject, approved = false) =>
+  /** Runs one subject through budget, dry run and ask-first. `approvedUsd` is what the user approved in Needs you. */
+  const fire = (rule: Rule, s: Subject, approvedUsd?: number) =>
     Effect.gen(function* () {
-      // Re-read the rule: earlier subjects in this batch already moved its spend.
-      const rule = yield* rules.get(stale.id);
       const p = yield* plan(rule, s);
       const base = { ruleId: rule.id, subjectId: s.id, costUsd: p.costUsd };
       if (p.perform === null)
         return yield* rules.recordRun({ ...base, status: "skipped", detail: p.detail, costUsd: 0 });
-      if (rule.spentUsdDay + p.costUsd > rule.budgetUsdDay)
+      // The approval covered the price shown; a plan that grew since (more posts to delete) asks again.
+      if (approvedUsd !== undefined && p.costUsd > approvedUsd)
         return yield* rules.recordRun({
           ...base,
           status: "skipped",
-          detail: `day budget: $${rule.spentUsdDay.toFixed(3)} spent of $${rule.budgetUsdDay}`,
+          detail: `now costs $${p.costUsd.toFixed(3)}, $${approvedUsd.toFixed(3)} was approved; asking again`,
           costUsd: 0,
         });
-      if (rule.spentUsdMonth + p.costUsd > rule.budgetUsdMonth)
-        return yield* rules.recordRun({
-          ...base,
-          status: "skipped",
-          detail: `month budget: $${rule.spentUsdMonth.toFixed(3)} spent of $${rule.budgetUsdMonth}`,
-          costUsd: 0,
-        });
+      // Re-read: planning auto_retweet or auto_delete may have just paid for the own timeline.
+      const over = overBudget(yield* rules.get(rule.id), p.costUsd);
+      if (over !== null)
+        return yield* rules.recordRun({ ...base, status: "skipped", detail: over, costUsd: 0 });
       if (rule.dryRun)
         return yield* rules.recordRun({ ...base, status: "dry_run", detail: `would ${p.detail}` });
-      if (rule.askFirst && !approved) {
+      if (rule.askFirst && approvedUsd === undefined) {
         const request = yield* rules.createPending({
           ruleId: rule.id,
           subject: s,
@@ -611,20 +754,30 @@ const make = Effect.gen(function* () {
           costUsd: 0,
         });
       }
+      // Closed before acting, so a restart mid-call cannot act twice; reopened only when the
+      // action surely did nothing. A timeout or a refusal is never retried on its own.
+      yield* rules.markFired(rule.id, [s.id]);
       const outcome = yield* Effect.result(p.perform);
       if (outcome._tag === "Failure") {
-        // The monthly budget (Budget service, inside XClient) refusing is a skip, not a failure.
         const { error, costUsd } = outcome.failure;
+        const retry = retriable(error);
+        if (retry) yield* rules.unmarkFired(rule.id, s.id);
+        const why = retry
+          ? ""
+          : mayHaveActed(error)
+            ? "; it may have gone through, so it is not retried"
+            : "; X refused it, so it is not retried";
+        // The monthly budget (Budget service, inside XClient) refusing is a skip, not a failure.
         return yield* rules.recordRun({
           ...base,
           status: "reason" in error && error.reason === "budget" ? "skipped" : "failed",
-          detail: `${p.detail}: ${error.message}`,
+          detail: `${p.detail}: ${error.message}${why}`,
           costUsd,
         });
       }
       const { costUsd, xId } = outcome.success;
       const run = yield* rules.recordRun({ ...base, status: "ok", detail: p.detail, costUsd, xId });
-      if (rule.undoAfterHours !== null && p.undo !== undefined && xId !== null)
+      if (rule.undoAfterHours !== null && p.undo !== undefined && xId !== null && xId !== "")
         yield* rules.scheduleUndo(
           rule.id,
           DateTime.formatIso(DateTime.makeUnsafe((yield* nowMs) + rule.undoAfterHours * HOUR_MS)),
@@ -638,41 +791,60 @@ const make = Effect.gen(function* () {
       return run;
     });
 
-  const runRule = Effect.fn("AutomationEngine.runRule")(
-    function* (id: number) {
+  // `scheduled` is the tick: a rule switched off after the tick listed it is skipped, not run.
+  const run = Effect.fn("AutomationEngine.runRule")(
+    function* (id: number, scheduled: boolean) {
       const rule = yield* rules.get(id);
+      if (scheduled && !rule.enabled) return [];
       const found = yield* poll(rule).pipe(
         Effect.andThen(pending(rule)),
         Effect.catch((cause) =>
-          Effect.flatMap(nowIso, (at) =>
-            rules
-              .recordRun({
+          rules
+            .recordRun({
+              ruleId: rule.id,
+              subjectId: "evaluate",
+              status: "failed",
+              detail: `trigger evaluation: ${String(cause).slice(0, 300)}`,
+              costUsd: 0,
+            })
+            .pipe(Effect.as<ReadonlyArray<Subject>>([])),
+        ),
+      );
+      const due = perTick(rule.action) ? found.slice(0, 1) : found;
+      const runs: Array<RuleRun> = [];
+      for (const s of due) {
+        // Re-read per subject: earlier ones moved its spend, and switching it off is the stop button.
+        const current = yield* rules.get(rule.id);
+        if (rule.enabled && !current.enabled) break;
+        runs.push(
+          yield* fire(current, s).pipe(
+            Effect.catch((cause) =>
+              rules.recordRun({
                 ruleId: rule.id,
-                subjectId: `evaluate ${at}`,
+                subjectId: s.id,
                 status: "failed",
-                detail: `trigger evaluation: ${String(cause).slice(0, 300)}`,
+                detail: String(cause).slice(0, 300),
                 costUsd: 0,
-              })
-              .pipe(Effect.as<ReadonlyArray<Subject>>([])),
+              }),
+            ),
           ),
-        ),
-      );
-      const free = found.filter((s) => !inFlight.has(`${rule.id}:${s.id}`));
-      const due = perTick(rule.action) ? free.slice(0, 1) : free;
-      for (const s of due) inFlight.add(`${rule.id}:${s.id}`);
-      const runs = yield* Effect.forEach(due, (s) => fire(rule, s)).pipe(
-        Effect.ensuring(
-          Effect.sync(() => due.forEach((s) => inFlight.delete(`${rule.id}:${s.id}`))),
-        ),
-      );
-      // One account-level firing covered every subject that matched this tick.
-      if (perTick(rule.action) && runs[0]?.status === "ok")
+        );
+      }
+      // One account-level firing (or attempt that closed its subject), or the one request asking
+      // for it, covers every subject that matched.
+      const first = runs[0];
+      if (
+        perTick(rule.action) &&
+        first !== undefined &&
+        (first.status === "pending" || (yield* rules.firedSubjects(rule.id)).has(first.subjectId))
+      )
         yield* rules.markFired(
           rule.id,
-          free.map((s) => s.id),
+          found.slice(1).map((s) => s.id),
         );
       return runs;
     },
+    Semaphore.withPermits(gate, 1),
     Effect.mapError(fail("runRule")),
   );
 
@@ -686,19 +858,27 @@ const make = Effect.gen(function* () {
           cause: null,
         });
       const rule = yield* rules.get(request.ruleId);
-      const run = yield* fire(rule, request.subject, true);
+      const run = yield* fire(rule, request.subject, request.costUsd);
       yield* rules.settlePending(pendingId, "approved", run.id);
       return run;
     },
+    Semaphore.withPermits(gate, 1),
     Effect.mapError(fail("approve")),
   );
 
   const dismiss = Effect.fn("AutomationEngine.dismiss")(
     function* (pendingId: number) {
       const request = yield* rules.pending(pendingId);
+      if (request.status !== "pending")
+        return yield* new AutomateError({
+          operation: "dismiss",
+          detail: `request ${pendingId} is already ${request.status}`,
+          cause: null,
+        });
       yield* rules.settlePending(pendingId, "dismissed", null);
       yield* rules.markFired(request.ruleId, [request.subjectId]);
     },
+    Semaphore.withPermits(gate, 1),
     Effect.mapError(fail("dismiss")),
   );
 
@@ -720,7 +900,9 @@ const make = Effect.gen(function* () {
     for (const d of due) {
       const rule = yield* rules.get(d.ruleId);
       const outcome = yield* Effect.result(performUndo(d.undo, `automate.${rule.name}.undo`));
-      yield* rules.settleUndo(d.id, outcome._tag === "Success" ? "done" : "failed");
+      // An outage, rate limit or full budget did nothing: the undo stays due for the next tick.
+      if (outcome._tag === "Success" || !retriable(outcome.failure))
+        yield* rules.settleUndo(d.id, outcome._tag === "Success" ? "done" : "failed");
       yield* rules.recordRun({
         ruleId: rule.id,
         subjectId: `undo:${d.id}`,
@@ -729,7 +911,10 @@ const make = Effect.gen(function* () {
           outcome._tag === "Success"
             ? `${d.undo.kind} ${d.undo.xId}`
             : `${d.undo.kind} ${d.undo.xId}: ${outcome.failure.message}`,
-        costUsd: outcome._tag === "Success" ? XClient.RATE_CARD.delete : 0,
+        costUsd:
+          outcome._tag === "Success" || mayHaveActed(outcome.failure)
+            ? XClient.RATE_CARD.delete
+            : 0,
         xId: d.undo.xId,
       });
     }
@@ -753,7 +938,10 @@ const make = Effect.gen(function* () {
           return posts
             .filter(
               (p) =>
-                Date.parse(p.createdAt) >= sinceMs && (p.metrics[t.metric] ?? 0) >= t.threshold,
+                !p.isRepost &&
+                Date.parse(p.createdAt) >= sinceMs &&
+                (p.metrics[t.metric] ?? 0) >= t.threshold &&
+                !(rule.action.kind === "auto_plug" && p.isReply),
             )
             .map((p) =>
               postSubject(
@@ -762,29 +950,22 @@ const make = Effect.gen(function* () {
               ),
             );
         });
+      // Live, own posts are never keyword subjects either.
       case "keyword_post":
-        return Effect.map(observations.listRecent({ limit: OWN_POSTS_LIMIT }), ({ posts }) => {
-          const words = queryWords(t.query);
-          return posts
-            .filter(
-              (p) =>
-                Date.parse(p.createdAt) >= sinceMs &&
-                words.some((w) => p.text.toLowerCase().includes(w)),
-            )
-            .map((p): Subject => ({
-              id: p.postId,
-              at: p.createdAt,
-              postId: p.postId,
-              post: { hasLink: p.hasLink, isReply: p.isReply, authorFollowers: p.author.followers },
-              engager: {
-                userId: p.author.userId,
-                handle: p.author.handle,
-                name: p.author.name,
-                followers: p.author.followers,
-              },
-              description: `@${p.author.handle}: ${p.text.slice(0, 60)}`,
-            }));
-        });
+        return Effect.map(
+          Effect.all([observations.listRecent({ limit: OWN_POSTS_LIMIT }), settings.get]),
+          ([{ posts }, { handle }]) => {
+            const words = queryWords(t.query);
+            return posts
+              .filter(
+                (p) =>
+                  Date.parse(p.createdAt) >= sinceMs &&
+                  p.author.handle !== handle &&
+                  words.some((w) => p.text.toLowerCase().includes(w)),
+              )
+              .map(authoredSubject);
+          },
+        );
       case "new_engager":
         return Effect.gen(function* () {
           const handle = yield* ownHandle;
@@ -807,19 +988,34 @@ const make = Effect.gen(function* () {
               description: `@${p.author.handle} replied`,
             }));
         });
+      // Slots in the user's zone, as the live trigger fires them, that fell inside the window.
       case "schedule":
-        return Effect.map(nowMs, (ms) => {
+        return Effect.map(Effect.all([nowMs, settings.get]), ([ms, { timeZone }]) => {
+          const zone = SettingsStore.zoneOf(timeZone);
           const out: Array<Subject> = [];
-          for (let d = 0; d < DRY_RUN_DAYS; d++) {
-            const day = DateTime.makeUnsafe(ms - d * DAY_MS);
-            if (t.weekdays.includes(DateTime.toParts(day).weekDay)) {
-              const iso = DateTime.formatIsoDate(day);
-              out.push({
-                id: `${iso} ${t.time}`,
-                at: DateTime.formatIso(day),
-                description: `schedule slot ${iso} ${t.time}`,
-              });
-            }
+          for (let d = 0; d <= DRY_RUN_DAYS; d++) {
+            const day = DateTime.toParts(
+              DateTime.setZone(DateTime.makeUnsafe(ms - d * DAY_MS), zone),
+            );
+            if (!t.weekdays.includes(day.weekDay)) continue;
+            const slot = DateTime.makeZonedUnsafe(
+              {
+                year: day.year,
+                month: day.month,
+                day: day.day,
+                hour: Number(t.time.slice(0, 2)),
+                minute: Number(t.time.slice(3, 5)),
+              },
+              { timeZone: zone, adjustForTimeZone: true },
+            );
+            const slotMs = DateTime.toEpochMillis(slot);
+            if (slotMs > ms || slotMs < sinceMs) continue;
+            const iso = DateTime.formatIsoDate(slot);
+            out.push({
+              id: `${iso} ${t.time}`,
+              at: DateTime.formatIso(slot),
+              description: `schedule slot ${iso} ${t.time}`,
+            });
           }
           return out;
         });
@@ -864,15 +1060,26 @@ const make = Effect.gen(function* () {
 
   const tick = Effect.gen(function* () {
     const all = yield* rules.list;
+    // One rule failing (deleted mid-tick, its store down) must not starve the rules after it or the undos.
     yield* Effect.forEach(
       all.filter((r) => r.enabled),
-      (r) => runRule(r.id),
+      (r) =>
+        run(r.id, true).pipe(
+          Effect.catch((error) => Effect.logWarning(`automation rule ${r.id} failed`, error)),
+        ),
       { discard: true },
     );
     yield* runUndos;
   }).pipe(Effect.mapError(fail("tick")));
 
-  return AutomationEngine.of({ preview, runRule, approve, dismiss, dryRun7d, tick });
+  return AutomationEngine.of({
+    preview,
+    runRule: (id) => run(id, false),
+    approve,
+    dismiss,
+    dryRun7d,
+    tick,
+  });
 });
 
 export const layer = Layer.effect(AutomationEngine, make);

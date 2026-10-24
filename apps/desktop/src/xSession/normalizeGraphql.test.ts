@@ -49,7 +49,11 @@ describe("normalizeGraphqlResponse", () => {
                     content: {
                       itemContent: {
                         tweet_results: {
-                          result: { __typename: "TweetWithVisibilityResults", tweet: tweet("2") },
+                          // X's inner tweet carries no __typename of its own.
+                          result: {
+                            __typename: "TweetWithVisibilityResults",
+                            tweet: { ...tweet("2"), __typename: undefined },
+                          },
                         },
                       },
                     },
@@ -126,8 +130,49 @@ describe("normalizeGraphqlResponse", () => {
   it("drops tweets without an author or a valid date instead of guessing", () => {
     expect(normalizeGraphqlResponse(tweet("4", { core: {} }))).toEqual([]);
     expect(
-      normalizeGraphqlResponse(tweet("5", { legacy: { created_at: "nope", favorite_count: 1 } })),
+      normalizeGraphqlResponse(
+        tweet("5", { legacy: { ...tweet("5").legacy, created_at: "nope" } }),
+      ),
     ).toEqual([]);
+  });
+
+  it("drops a post whose counts X renamed rather than recording zeros", () => {
+    const { favorite_count: _, ...renamed } = tweet("6").legacy;
+    expect(normalizeGraphqlResponse(tweet("6", { legacy: renamed }))).toEqual([]);
+    expect(
+      normalizeGraphqlResponse(tweet("6", { legacy: { ...renamed, like_count: 9800 } })),
+    ).toEqual([]);
+    expect(
+      normalizeGraphqlResponse(tweet("6", { legacy: { ...renamed, favorite_count: -1 } })),
+    ).toEqual([]);
+  });
+
+  it("reads counts sent as digit strings, and leaves views null unless X sent a number", () => {
+    const { bookmark_count: _, ...legacy } = tweet("7").legacy;
+    const [post] = normalizeGraphqlResponse(
+      tweet("7", { legacy: { ...legacy, favorite_count: "12" }, views: { count: "" } }),
+    );
+    expect(post?.metrics).toEqual({
+      views: null,
+      likes: 12,
+      reposts: 1200,
+      replies: 412,
+      quotes: 40,
+      bookmarks: 0,
+    });
+    const [hidden] = normalizeGraphqlResponse(tweet("7", { views: { state: "Enabled" } }));
+    expect(hidden?.metrics.views).toBeNull();
+  });
+
+  it("skips tombstones and keeps one post per id when a response repeats it", () => {
+    const body = {
+      entries: [
+        { tweet_results: { result: tweet("1") } },
+        { tweet_results: { result: { __typename: "TweetTombstone", tombstone: { text: {} } } } },
+        { tweet_results: { result: tweet("2", { quoted_status_result: { result: tweet("1") } }) } },
+      ],
+    };
+    expect(normalizeGraphqlResponse(body).map((p) => p.postId)).toEqual(["1", "2"]);
   });
 
   it("flags retweet wrappers and promoted items, and lowercases handles", () => {
@@ -144,6 +189,7 @@ describe("normalizeGraphqlResponse", () => {
     });
     const wrapper = tweet("8", {
       legacy: {
+        ...tweet("8").legacy,
         full_text: "RT @SomeOne: Shipped the thing.",
         created_at: "Wed Oct 22 05:00:00 +0000 2026",
         retweeted_status_result: { result: original },
@@ -156,17 +202,21 @@ describe("normalizeGraphqlResponse", () => {
           content: {
             itemContent: {
               promotedMetadata: { advertiser_results: {} },
-              tweet_results: { result: tweet("3") },
+              tweet_results: {
+                result: tweet("3", { quoted_status_result: { result: tweet("11") } }),
+              },
             },
           },
         },
       ],
     };
     const posts = normalizeGraphqlResponse(body);
+    // The post an ad quotes is organic.
     expect(posts.map((p) => [p.postId, p.isRepost, p.isPromoted])).toEqual([
       ["8", true, false],
       ["7", false, false],
       ["3", false, true],
+      ["11", false, false],
     ]);
     expect(posts[1]?.author.handle).toBe("someone");
   });

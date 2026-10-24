@@ -19,6 +19,8 @@ function IdeaRow({ idea }: { readonly idea: TrendIdea }) {
   const saveDraft = useAtomSet(saveSuggestedDraftAtom, { mode: "promise" });
   const [copied, setCopied] = useState(false);
   const [filed, setFiled] = useState(false);
+  // Held from the click until it fails, so a second click cannot file the idea twice.
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   return (
     <li className="border-b border-border py-3.5 last:border-b-0">
@@ -38,13 +40,18 @@ function IdeaRow({ idea }: { readonly idea: TrendIdea }) {
         <button
           type="button"
           className={button}
-          disabled={filed}
-          onClick={() =>
+          disabled={filed || saving}
+          onClick={() => {
+            setSaving(true);
+            setError(null);
             void saveDraft({ text: idea.text, source: `trend:${idea.trend}` }).then(
               () => setFiled(true),
-              (e: unknown) => setError(errorMessage(e)),
-            )
-          }
+              (e: unknown) => {
+                setSaving(false);
+                setError(errorMessage(e));
+              },
+            );
+          }}
         >
           <TextMorph duration={250}>{filed ? "In Compose" : "Save as draft"}</TextMorph>
         </button>
@@ -70,6 +77,8 @@ export function TrendsTab() {
   const trendsQuote = useQuoteLabel({ kind: "trending", country });
   const assistQuote = useQuoteLabel({ kind: "assist" });
   const [applied, setApplied] = useState<string | null>(null);
+  // Ideas read the loaded country's trends again once the 30-minute cache has gone.
+  const ideasQuote = useQuoteLabel({ kind: "trending", country: applied ?? country });
   const ideasFor = useAtomSet(trendIdeasAtom, { mode: "promise" });
   const [ideas, setIdeas] = useState<ReadonlyArray<TrendIdea> | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -102,7 +111,7 @@ export function TrendsTab() {
       onClick={() => void generate()}
     >
       {busy ? "Writing" : ideas === null ? "Write 5 ideas" : "Write 5 more"}
-      <Cost label={assistQuote} />
+      <Cost label={`${ideasQuote} + ${assistQuote}`} />
     </button>
   );
 

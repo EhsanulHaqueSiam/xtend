@@ -3,18 +3,36 @@ import type { XtendEvent } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useEffect, useRef } from "react";
 
+import { usd } from "../../state/costs";
 import { eventsAtom } from "../../state/shell";
 
-const text = (event: XtendEvent): string | null => {
+/** What the OS notification for an event says; null for events that only update screens. */
+const notice = (event: XtendEvent): { title: string; body: string } | null => {
   const p = event.payload;
   const str = (k: string) => (typeof p[k] === "string" ? (p[k] as string) : undefined);
-  if (event.type === "mention_arrived")
-    return `@${str("handle") ?? "someone"}: ${str("text") ?? "mentioned you"}`;
-  if (event.type === "lead_found") return `Lead found: @${str("handle") ?? "unknown"}`;
+  if (event.type === "mention_arrived") {
+    const count = typeof p.count === "number" ? p.count : 1;
+    return { title: "Xtend", body: count === 1 ? "New mention" : `${count} new mentions` };
+  }
+  if (event.type === "lead_found")
+    return { title: "Xtend", body: `Lead found: @${str("handle") ?? "unknown"}` };
+  if (event.type !== "rule_fired") return null;
+  // An automation's notify action carries its own text; an ask-first rule waits for Approve.
+  const notify = p.notify;
+  if (typeof notify === "object" && notify !== null && "title" in notify && "body" in notify)
+    return { title: String(notify.title), body: String(notify.body) };
+  if (p.pending === true)
+    return {
+      title: str("ruleName") ?? "Xtend",
+      body: `Needs you: ${str("description") ?? "a rule is waiting"}${typeof p.costUsd === "number" ? ` (${usd(p.costUsd)})` : ""}`,
+    };
   return null;
 };
 
-/** Mentions and leads become OS notifications; the desktop grants the permission, a browser asks once. */
+/**
+ * Mentions, leads, automation notify actions and ask-first requests become OS notifications;
+ * the desktop grants the permission, a browser asks once.
+ */
 export function ShellNotifications() {
   const events = useAtomValue(eventsAtom);
   // The list is capped, so remember the last event itself rather than an index.
@@ -27,9 +45,9 @@ export function ShellNotifications() {
     if (Notification.permission === "default") void Notification.requestPermission();
     if (Notification.permission !== "granted") return;
     for (const event of fresh) {
-      const body = text(event);
-      if (body === null) continue;
-      const note = new Notification("Xtend", { body });
+      const shown = notice(event);
+      if (shown === null) continue;
+      const note = new Notification(shown.title, { body: shown.body });
       note.addEventListener("click", () => window.focus());
     }
   }, [events]);

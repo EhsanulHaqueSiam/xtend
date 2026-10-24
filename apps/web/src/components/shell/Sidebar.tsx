@@ -155,8 +155,11 @@ function XRows() {
   );
 }
 
-/** The current account; with more than one, a menu that rebuilds the window on another. */
-function AccountMenu() {
+/**
+ * The current account; with more than one, a menu that rebuilds the window on another. A refused
+ * switch (a post going out, a removed account) goes to `onError`, so the sidebar can say why.
+ */
+function AccountMenu({ onError }: { readonly onError: (message: string | null) => void }) {
   const accounts = useAtomValue(accountsAtom);
   const select = useAtomSet(selectAccountAtom, { mode: "promise" });
   const handle = or(
@@ -185,7 +188,16 @@ function AccountMenu() {
       }
     >
       {list.map((a) => (
-        <MenuItem key={a.id} onClick={() => void select(a.id).then(() => switchAccount(a.id))}>
+        <MenuItem
+          key={a.id}
+          onClick={() => {
+            onError(null);
+            void select(a.id).then(
+              () => switchAccount(a.id),
+              (e: unknown) => onError(e instanceof Error ? e.message : String(e)),
+            );
+          }}
+        >
           <span className="truncate">{a.label}</span>
           {a.handle !== null ? (
             <span className="ml-auto font-mono text-2xs">@{a.handle}</span>
@@ -269,6 +281,7 @@ function Today() {
  */
 export function Sidebar() {
   const setPalette = useAtomSet(paletteOpenAtom);
+  const [accountError, setAccountError] = useState<string | null>(null);
   const queued = or(useAtomValue(queuedDraftsAtom), null);
   const mentions = or(useAtomValue(mentionsAtom), null);
   const openMentions = mentions?.mentions.filter((m) => !m.handled).length ?? null;
@@ -286,8 +299,13 @@ export function Sidebar() {
           </span>
           Xtend
         </span>
-        <AccountMenu />
+        <AccountMenu onError={setAccountError} />
       </div>
+      {accountError !== null ? (
+        <p role="alert" className="-mt-1 mb-2 px-1 text-2xs text-error-foreground">
+          {accountError}
+        </p>
+      ) : null}
       <button
         type="button"
         className="no-drag mb-3 flex h-[30px] w-full cursor-pointer items-center gap-2 rounded-[var(--control-radius)] bg-sidebar-control-surface pr-1.5 pl-2.5 text-[13px] text-sidebar-muted-foreground outline-hidden hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring"

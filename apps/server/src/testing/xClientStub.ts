@@ -26,7 +26,8 @@ export const xClientStub = (overrides: Partial<XClient.XClient["Service"]>) =>
       userPosts: () => Effect.succeed(false),
       followers: () => Effect.succeed(false),
       trending: () => Effect.succeed(false),
-      mentions: Effect.succeed(false),
+      me: Effect.succeed(false),
+      mentions: () => Effect.succeed(false),
     },
     ...overrides,
   });

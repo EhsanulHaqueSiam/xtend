@@ -2,10 +2,11 @@ import { ComposeError, type Draft } from "@xtend/contracts";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
-import { HttpClient } from "effect/http";
+import { HttpClient, HttpClientResponse } from "effect/http";
 import * as Layer from "effect/Layer";
 
 import * as Treg from "../x/Treg.ts";
+import * as DraftStore from "./DraftStore.ts";
 import * as Media from "./Media.ts";
 
 /** X Articles through treg: $0.005 per request on X's content row. Neither endpoint is verified against the live API. */
@@ -36,7 +37,7 @@ export class Articles extends Context.Service<
     ) => Effect.Effect<{ readonly articleId: string; readonly postId: string }, ComposeError>;
     /** Paid: one image from COVER.model, stored as the article's cover (media on block 0). */
     readonly generateCover: (
-      draft: Draft,
+      draftId: string,
       prompt: string,
       purpose: string,
     ) => Effect.Effect<Draft, ComposeError>;
@@ -51,6 +52,7 @@ export class Articles extends Context.Service<
 const make = Effect.gen(function* () {
   const treg = yield* Treg.Treg;
   const media = yield* Media.Media;
+  const drafts = yield* DraftStore.DraftStore;
   const http = yield* HttpClient.HttpClient;
   const fail = (operation: string) => (cause: { readonly message: string }) =>
     cause instanceof ComposeError
@@ -80,6 +82,8 @@ const make = Effect.gen(function* () {
           operation: "articlePublish",
           detail: "X returned no article id for the draft",
         });
+      // Kept before publishing, so a retry after a failed publish reuses it instead of paying for a second X draft.
+      if (draft.articleId === null) yield* drafts.setOutcome(draft.id, { articleId });
       const published = yield* treg.call({
         endpoint: ARTICLE.publish(articleId),
         method: "POST",
@@ -95,7 +99,11 @@ const make = Effect.gen(function* () {
   );
 
   const generateCover = Effect.fn("Articles.generateCover")(
-    function* (draft: Draft, prompt: string, purpose: string) {
+    function* (draftId: string, prompt: string, purpose: string) {
+      // Refused before paying: a cover that cannot be attached is money for nothing.
+      const blocked = Media.roomFor(yield* drafts.get(draftId), 0, "image");
+      if (blocked !== null)
+        return yield* new ComposeError({ operation: "generateCover", detail: blocked });
       const started = yield* treg.call({
         endpoint: COVER.model,
         method: "POST",
@@ -135,13 +143,15 @@ const make = Effect.gen(function* () {
           detail: "no image in the result",
         });
       // A public, expiring CDN link with no credential; the only download outside x/Treg.ts.
+      // An expired link answers with an error page, which must not be stored as the cover.
       const bytes = yield* http.get(url).pipe(
+        Effect.flatMap(HttpClientResponse.filterStatusOk),
         Effect.flatMap((r) => r.arrayBuffer),
         Effect.map((b) => new Uint8Array(b)),
         Effect.scoped,
       );
       return yield* media.add({
-        draftId: draft.id,
+        draftId,
         blockIndex: 0,
         kind: "image",
         ext: "webp",

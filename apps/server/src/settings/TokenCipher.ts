@@ -56,7 +56,7 @@ export const layer = Layer.effect(
       Effect.map((s) => s.trim()),
       Effect.orElseSucceed(() => ""),
     );
-    if (existing.length === 64) return make(Buffer.from(existing, "hex"));
+    if (/^[0-9a-f]{64}$/i.test(existing)) return make(Buffer.from(existing, "hex"));
     const key = NodeCrypto.randomBytes(32);
     yield* fs.writeFileString(file, key.toString("hex") + "\n", { mode: 0o600 });
     return make(key);

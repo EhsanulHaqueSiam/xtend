@@ -88,5 +88,9 @@ it("reads the signed-in handle from X's Profile link", () => {
 
 it("treats direct messages as off limits", () => {
   expect(isDmPath("/messages/123")).toBe(true);
+  expect(isDmPath("/messages")).toBe(true);
+  expect(isDmPath("/i/chat/123-456")).toBe(true);
   expect(isDmPath("/home")).toBe(false);
+  // A handle that merely starts with "messages" is a profile.
+  expect(isDmPath("/messagesbot/status/1")).toBe(false);
 });

@@ -84,8 +84,12 @@ const make = Effect.gen(function* () {
     Effect.mapError((cause) => new SettingsError({ operation: "get", cause })),
   );
 
+  // A token sealed with another secret-key (a database copied without its base dir) fails
+  // here as a SettingsError, so callers fall back to the CLI login instead of dying.
   const tregToken = row.pipe(
-    Effect.map((r) => (r.treg_token === null ? null : cipher.decrypt(r.treg_token))),
+    Effect.flatMap(({ treg_token: stored }) =>
+      stored === null ? Effect.succeed(null) : Effect.try(() => cipher.decrypt(stored)),
+    ),
     Effect.mapError((cause) => new SettingsError({ operation: "get", cause })),
   );
 
@@ -94,12 +98,10 @@ const make = Effect.gen(function* () {
       const current = yield* row;
       const at = yield* now;
       const handle = patch.handle === undefined ? current.handle : patch.handle;
+      // A pasted token often carries a stray space or newline, which would make every treg call 401.
+      const pasted = typeof patch.tregToken === "string" ? patch.tregToken.trim() : patch.tregToken;
       const token =
-        patch.tregToken === undefined
-          ? current.treg_token
-          : patch.tregToken === null
-            ? null
-            : cipher.encrypt(patch.tregToken);
+        pasted === undefined ? current.treg_token : pasted ? cipher.encrypt(pasted) : null;
       if (patch.timeZone !== undefined && DateTime.zoneMakeNamed(patch.timeZone)._tag === "None")
         return yield* Effect.fail(`unknown time zone ${patch.timeZone}`);
       yield* sql`
@@ -138,21 +140,29 @@ const make = Effect.gen(function* () {
     Effect.mapError((cause) => new SettingsError({ operation: "spend", cause })),
   );
 
-  const monthStart = Effect.map(DateTime.now, (d) => DateTime.formatIso(d).slice(0, 7) + "-01");
-  const dayStart = Effect.map(DateTime.now, (d) => DateTime.formatIso(d).slice(0, 10));
+  // Today and this month are the user's, in settings.timeZone, not UTC's. spend_log holds UTC
+  // ISO instants, so the start instant compares with them as text.
+  const startOf = (r: SettingsRow, part: "day" | "month") =>
+    Effect.map(DateTime.now, (d) =>
+      DateTime.formatIso(
+        DateTime.startOf(DateTime.setZone(d, zoneOf(r.time_zone ?? defaultZone)), part),
+      ),
+    );
 
-  const monthSpend = Effect.gen(function* () {
-    const since = yield* monthStart;
-    const rows = yield* sql<{ total: number | null }>`
-      SELECT SUM(cost_usd) AS total FROM spend_log WHERE at >= ${since}
-    `;
-    return rows[0]?.total ?? 0;
-  });
+  const monthSpend = (r: SettingsRow) =>
+    Effect.gen(function* () {
+      const since = yield* startOf(r, "month");
+      const rows = yield* sql<{ total: number | null }>`
+        SELECT SUM(cost_usd) AS total FROM spend_log WHERE at >= ${since}
+      `;
+      return rows[0]?.total ?? 0;
+    });
 
   const spendSummary = Effect.gen(function* () {
-    const monthUsd = yield* monthSpend;
-    const since = yield* monthStart;
-    const today = yield* dayStart;
+    const settings = yield* row;
+    const monthUsd = yield* monthSpend(settings);
+    const since = yield* startOf(settings, "month");
+    const today = yield* startOf(settings, "day");
     const todayRows = yield* sql<{ total: number | null }>`
       SELECT SUM(cost_usd) AS total FROM spend_log WHERE at >= ${today}
     `;
@@ -163,7 +173,6 @@ const make = Effect.gen(function* () {
     const recent = yield* sql<SpendRow>`
       SELECT at, provider, endpoint, purpose, cost_usd FROM spend_log ORDER BY id DESC LIMIT 50
     `;
-    const settings = yield* row;
     return {
       monthUsd,
       todayUsd: todayRows[0]?.total ?? 0,
@@ -182,7 +191,7 @@ const make = Effect.gen(function* () {
   const wouldExceedBudget = Effect.fn("SettingsStore.wouldExceedBudget")(
     function* (costUsd: number) {
       const settings = yield* row;
-      return (yield* monthSpend) + costUsd > settings.monthly_budget_usd;
+      return (yield* monthSpend(settings)) + costUsd > settings.monthly_budget_usd;
     },
     Effect.mapError((cause) => new SettingsError({ operation: "spend", cause })),
   );

@@ -9,12 +9,17 @@ import {
   isGraphqlUrl,
   isViewerOperation,
   normalizeGraphqlResponse,
+  readCreatedPostId,
   readViewerHandle,
   sourceFromOperation,
 } from "./normalizeGraphql.ts";
 
 const REATTACH_MS = 2_000;
 const DRAIN_MS = 30_000;
+/** Responses that never finish (a stream, a body cut off) would otherwise stay in `pending` for good. */
+const MAX_PENDING = 200;
+/** A service away for days must not fill the disk; the oldest observations are worth least. */
+const MAX_QUEUED = 1_000;
 
 /**
  * Reads GraphQL responses the session view already received and forwards the
@@ -25,6 +30,8 @@ export interface SessionCaptureOptions {
   readonly serviceUrl: string;
   /** Bearer token for the service's observations route. */
   readonly serviceToken: string;
+  /** The account whose session partition this view is; every batch is filed under it. */
+  readonly accountId: number;
   /** Batches the service did not acknowledge wait here until it is back. */
   readonly queueDir: string;
   readonly log: (message: string, detail?: unknown) => void;
@@ -53,7 +60,10 @@ export function attachSessionCapture(
       const response = isRecord(params.response) ? params.response : undefined;
       const url = typeof response?.url === "string" ? response.url : "";
       const mime = typeof response?.mimeType === "string" ? response.mimeType : "";
-      if (isGraphqlUrl(url) && mime.includes("json")) pending.set(params.requestId, url);
+      if (!isGraphqlUrl(url) || !mime.includes("json")) return;
+      pending.set(params.requestId, url);
+      // Maps iterate in insertion order, so the first key is the oldest request.
+      if (pending.size > MAX_PENDING) pending.delete(pending.keys().next().value!);
       return;
     }
     if (method === "Network.loadingFailed") {
@@ -88,20 +98,24 @@ export function attachSessionCapture(
       return;
     }
     const posts = normalizeGraphqlResponse(body);
+    if (isCreateTweetOperation(url)) {
+      const created = readCreatedPostId(body) ?? posts[0]?.postId;
+      if (created !== undefined) options.onCreatedPost?.(created);
+    }
     if (posts.length === 0) return;
-    if (isCreateTweetOperation(url)) options.onCreatedPost?.(posts[0]!.postId);
     const viewer = viewerHandle ?? options.fallbackViewer?.() ?? null;
     options.onPosts?.(posts, viewer);
     await send({
       viewerHandle: viewer,
+      accountId: options.accountId,
       source: sourceFromOperation(url),
       observedAt: new Date().toISOString(),
       posts,
     });
   };
 
-  /** True when the service acknowledged the batch; a rejected batch is logged and dropped. */
-  const post = async (batch: ObservationBatch): Promise<boolean> => {
+  /** Throws only when the service is unreachable; a batch it refused is logged and dropped, as resending it would fail the same way. */
+  const post = async (batch: ObservationBatch): Promise<void> => {
     const response = await fetch(new URL("/api/observations", options.serviceUrl), {
       method: "POST",
       headers: {
@@ -111,7 +125,6 @@ export function attachSessionCapture(
       body: JSON.stringify(batch),
     });
     if (!response.ok) options.log("service rejected batch", { status: response.status });
-    return true;
   };
 
   const send = async (batch: ObservationBatch) => {
@@ -129,6 +142,9 @@ export function attachSessionCapture(
       fs.mkdirSync(options.queueDir, { recursive: true });
       const name = `${batch.observedAt.replaceAll(":", "-")}-${Math.random().toString(36).slice(2, 8)}.json`;
       fs.writeFileSync(path.join(options.queueDir, name), JSON.stringify(batch));
+      const queued = fs.readdirSync(options.queueDir).filter((n) => n.endsWith(".json"));
+      for (const old of queued.sort().slice(0, -MAX_QUEUED))
+        fs.rmSync(path.join(options.queueDir, old), { force: true });
     } catch (error) {
       options.log("could not queue batch", { error: String(error) });
     }
@@ -143,7 +159,15 @@ export function attachSessionCapture(
       for (const name of fs.readdirSync(options.queueDir).sort()) {
         if (!name.endsWith(".json")) continue;
         const file = path.join(options.queueDir, name);
-        const batch = JSON.parse(fs.readFileSync(file, "utf8")) as ObservationBatch;
+        let batch: ObservationBatch;
+        try {
+          batch = JSON.parse(fs.readFileSync(file, "utf8")) as ObservationBatch;
+        } catch (error) {
+          // A file cut short by a crash mid-write sorts first forever and would hold back every batch after it.
+          options.log("dropped unreadable queued batch", { name, error: String(error) });
+          fs.rmSync(file, { force: true });
+          continue;
+        }
         // eslint-disable-next-line no-await-in-loop -- replayed in order; a failure stops the drain where it is.
         await post(batch);
         fs.rmSync(file, { force: true });
@@ -156,14 +180,19 @@ export function attachSessionCapture(
   };
   const drainTimer = setInterval(() => void drainQueue(), DRAIN_MS);
 
+  let attachFailing = false;
   const attach = () => {
     if (stopped) return;
     try {
       debug.attach("1.3");
     } catch (error) {
-      options.log("debugger attach failed", { error: String(error) });
+      // DevTools opened on the window holds the debugger; keep trying until it lets go.
+      if (!attachFailing) options.log("debugger attach failed, retrying", { error: String(error) });
+      attachFailing = true;
+      reattachTimer = setTimeout(attach, REATTACH_MS);
       return;
     }
+    attachFailing = false;
     void debug.sendCommand("Network.enable").catch((error: unknown) => {
       options.log("Network.enable failed", { error: String(error) });
     });

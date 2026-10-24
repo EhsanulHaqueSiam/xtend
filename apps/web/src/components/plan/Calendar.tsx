@@ -1,6 +1,6 @@
 import type { Draft, Slot } from "@xtend/contracts";
 
-import { dayKeyIn, dayStartIn, hhmm, minuteIn, partsIn } from "../../lib/time";
+import { dayKeyIn, dayStartIn, hhmm, localInputToInstant, minuteIn, partsIn } from "../../lib/time";
 import { cn } from "../../lib/utils";
 import { draftTitle } from "../compose/DraftsList";
 import { Menu, MenuItem } from "../ui/menu";
@@ -12,6 +12,10 @@ interface Event {
 }
 
 const draftAt = (d: Draft) => new Date(d.postedAt ?? d.scheduledAt ?? "");
+
+/** When the zone's clock shows `minute` on that day; midnight plus minutes is an hour off on DST days. */
+const slotAt = (zone: string, dayKey: string, minute: number) =>
+  localInputToInstant(zone, `${dayKey}T${hhmm(minute)}`)!;
 
 /** Slot times and drafts for one day in the zone, merged so a draft sitting on its slot fills that cell. */
 const dayEvents = (
@@ -40,8 +44,9 @@ export const emptySlotCount = (
 ) =>
   Array.from({ length: 7 }, (_, i) => {
     const day = dayStartIn(zone, start, i);
+    const key = dayKeyIn(zone, day);
     return dayEvents(zone, day, slots, drafts).filter(
-      (e) => e.draft === null && day.getTime() + e.minute * 60_000 > now.getTime(),
+      (e) => e.draft === null && slotAt(zone, key, e.minute) > now,
     ).length;
   }).reduce((a, b) => a + b, 0);
 
@@ -101,7 +106,7 @@ export function Calendar({
             <div className="flex flex-col gap-1 p-1.5">
               {dayEvents(zone, day, slots, drafts).map((e) => {
                 const d = e.draft;
-                const at = new Date(day.getTime() + e.minute * 60_000);
+                const at = slotAt(zone, key, e.minute);
                 if (d !== null)
                   return (
                     <button
@@ -121,7 +126,7 @@ export function Calendar({
                       </span>
                     </button>
                   );
-                // An open slot that has passed is history, not a gap to fill.
+                // A slot already gone, today's included, would be posted by the scheduler's next tick.
                 if (at <= now) return null;
                 return (
                   <Menu

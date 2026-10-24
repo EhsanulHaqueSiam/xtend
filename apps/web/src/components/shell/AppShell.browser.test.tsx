@@ -1,7 +1,7 @@
-import type { Settings, SpendSummary } from "@xtend/contracts";
+import { AccountsError, type Settings, type SpendSummary } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import { expect, it } from "vite-plus/test";
-import { userEvent } from "vite-plus/test/browser";
+import { page, userEvent } from "vite-plus/test/browser";
 
 import { installFakeBridge } from "../../../test/fakeBridge";
 import { render } from "../../../test/render";
@@ -89,4 +89,30 @@ it("opens the palette on ⌘K sent from inside x.com", async () => {
   const palette = screen.getByRole("dialog", { name: "Command palette" });
   await expect.element(palette).toBeVisible();
   await expect.element(palette.getByRole("option", { name: "Notifications" })).toBeVisible();
+});
+
+it("says why the service refused an account switch instead of doing nothing", async () => {
+  await using screen = await render(shell(), {
+    router: "/compose",
+    service: {
+      ...service,
+      "accounts.list": () =>
+        Effect.succeed({
+          accounts: [
+            { id: 1, handle: "siamships", label: "Main", createdAt: "2026-10-01T00:00:00.000Z" },
+            { id: 2, handle: null, label: "Brand", createdAt: "2026-10-02T00:00:00.000Z" },
+          ],
+          currentId: 1,
+        }),
+      "accounts.select": () =>
+        Effect.fail(new AccountsError({ operation: "select", detail: "account 2 is gone" })),
+    },
+  });
+  const account = screen.getByRole("button", { name: "@siamships" });
+  await userEvent.click(account);
+  await userEvent.click(page.getByRole("menuitem", { name: /^Brand/ }));
+  await expect
+    .element(screen.getByRole("alert"))
+    .toHaveTextContent("Accounts select failed: account 2 is gone");
+  await expect.element(account).toBeVisible();
 });

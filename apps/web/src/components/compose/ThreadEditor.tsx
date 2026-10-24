@@ -18,8 +18,36 @@ const POST_LIMIT = 280;
 // The contract's link rule, so the counter and the price agree with what the service charges.
 const LINK = new RegExp(LINK_PATTERN.source, "gi");
 
-/** X counts every link as 23 characters whatever its length. shortcut: CJK and emoji weights ignored, add when a user hits it. */
-export const charCount = (text: string) => [...text.replace(LINK, "x".repeat(23))].length;
+// X's weighting (twitter-text v3): code points in these ranges count 1, every other one 2
+// (CJK, most symbols), an emoji sequence 2 however many code points it joins, a link 23.
+const LIGHT: ReadonlyArray<readonly [number, number]> = [
+  [0, 4351],
+  [8192, 8205],
+  [8208, 8223],
+  [8242, 8247],
+];
+const EMOJI = /\p{Emoji_Presentation}|️|\p{Regional_Indicator}|⃣/u;
+const graphemes = new Intl.Segmenter();
+
+/** The length X checks against 280. */
+export const charCount = (text: string) => {
+  let count = 0;
+  for (const { segment } of graphemes.segment(
+    text.normalize("NFC").replace(LINK, "x".repeat(23)),
+  )) {
+    if (EMOJI.test(segment)) count += 2;
+    else
+      for (const ch of segment) {
+        const cp = ch.codePointAt(0) ?? 0;
+        count += LIGHT.some(([from, to]) => cp >= from && cp <= to) ? 1 : 2;
+      }
+  }
+  return count;
+};
+
+/** The text X receives for post i; the service appends the quote link to the first post. */
+export const postText = (text: string, i: number, quoteUrl: string | null) =>
+  i === 0 && quoteUrl !== null ? `${text}\n${quoteUrl}` : text;
 
 /** Plain text pasted with blank lines between posts becomes one block per paragraph. */
 export const splitBlocks = (text: string) =>
@@ -160,6 +188,7 @@ export function ThreadEditor({
   blocks,
   media,
   previews,
+  quoteUrl,
   active,
   avatar,
   notes,
@@ -172,6 +201,8 @@ export function ThreadEditor({
   readonly blocks: ReadonlyArray<DraftBlock>;
   readonly media: ReadonlyArray<DraftMedia>;
   readonly previews: Readonly<Record<string, string>>;
+  /** Rides on the first post, so it counts against that post's 280. */
+  readonly quoteUrl: string | null;
   readonly active: number;
   /** The account's initial in the avatar circle. */
   readonly avatar: string;
@@ -191,7 +222,22 @@ export function ThreadEditor({
     const pieces = splitBlocks(e.clipboardData.getData("text/plain"));
     if (pieces.length < 2) return;
     e.preventDefault();
-    onChange([...blocks.slice(0, i), ...pieces.map((text) => ({ text })), ...blocks.slice(i + 1)]);
+    // The post's own text stays around the pasted posts, split at the caret.
+    const { value, selectionStart, selectionEnd } = e.currentTarget;
+    const texts = pieces.map((p, j) =>
+      j === 0
+        ? value.slice(0, selectionStart) + p
+        : j === pieces.length - 1
+          ? p + value.slice(selectionEnd)
+          : p,
+    );
+    onChange([
+      ...blocks.slice(0, i),
+      { ...blocks[i], text: texts[0] ?? "" },
+      ...texts.slice(1).map((text) => ({ text })),
+      ...blocks.slice(i + 1),
+    ]);
+    onMediaChange(shiftBlocks(media, i, pieces.length - 1));
   };
   // Media rows point at a block index, so moving a block moves its attachments with it.
   const moveBlock = (from: number, to: number) => {
@@ -222,7 +268,7 @@ export function ThreadEditor({
         }}
       />
       {blocks.map(({ text, replySettings }, i) => {
-        const count = charCount(text);
+        const count = charCount(postText(text, i, quoteUrl));
         const on = i === active;
         const here = media.filter((m) => m.blockIndex === i);
         const full = here.some((m) => m.kind === "video") || here.length >= MEDIA_MAX_IMAGES;

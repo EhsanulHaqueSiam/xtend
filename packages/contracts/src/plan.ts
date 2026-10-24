@@ -75,7 +75,7 @@ export const PlanRpcGroup = RpcGroup.make(
     error: ComposeError,
   }),
   Rpc.make(Plan_METHODS.unschedule, { payload: DraftId, success: Draft, error: ComposeError }),
-  /** Moves the draft to the next free slot after its current one. */
+  /** Moves the draft to the next free slot after its current one, or after now once that has passed. */
   Rpc.make(Plan_METHODS.skip, { payload: DraftId, success: Draft, error: ComposeError }),
   Rpc.make(Plan_METHODS.runNow, { payload: DraftId, success: Draft, error: ComposeError }),
   Rpc.make(Plan_METHODS.runsList, {
@@ -83,7 +83,7 @@ export const PlanRpcGroup = RpcGroup.make(
     success: Schema.Struct({ runs: Schema.Array(QueueRun) }),
     error: ComposeError,
   }),
-  /** Queued and posted drafts whose scheduled or posted time falls in [from, to). */
+  /** Scheduled drafts (queued, posting, failed) and posted ones whose time falls in [from, to). */
   Rpc.make(Plan_METHODS.calendar, {
     payload: Schema.Struct({ from: IsoDateTime, to: IsoDateTime }),
     success: DraftList,

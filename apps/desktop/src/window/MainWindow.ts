@@ -47,6 +47,24 @@ import {
 } from "./guestPolicy.ts";
 
 const ZOOM_STEP = 0.5;
+/** A renderer that dies again this soon after a reload stays down rather than reloading in a loop. */
+const CRASH_RELOAD_MS = 10_000;
+
+/** A dead renderer leaves the app or x.com black until a restart; bring it back once. */
+const reloadWhenGone = (
+  name: string,
+  target: Electron.WebContents,
+  log: (message: string, detail?: unknown) => void,
+) => {
+  let lastReload = 0;
+  target.on("render-process-gone", (_event, details) => {
+    log(`${name} renderer gone`, details.reason);
+    if (details.reason === "clean-exit" || target.isDestroyed()) return;
+    if (Date.now() - lastReload < CRASH_RELOAD_MS) return;
+    lastReload = Date.now();
+    target.reload();
+  });
+};
 
 export interface MainWindowOptions {
   readonly appUrl: string;
@@ -182,6 +200,7 @@ export function createMainWindow(options: MainWindowOptions) {
   const appContents = window.webContents;
   allowNotificationsOnly(appContents.session);
   appContents.on("page-title-updated", (event) => event.preventDefault());
+  reloadWhenGone("app", appContents, options.log);
   const toApp = (channel: string, value: unknown) => {
     if (!appContents.isDestroyed()) appContents.send(channel, value);
   };
@@ -252,6 +271,7 @@ export function createMainWindow(options: MainWindowOptions) {
   /** Everything x.com's webview needs, attached once per guest; returns the teardown. */
   const attachX = (contents: Electron.WebContents) => {
     contents.setUserAgent(browserUserAgent(contents.getUserAgent()));
+    reloadWhenGone("x.com", contents, options.log);
 
     // The skin is CSS only and goes in on every full load; the key lets the app switch it off.
     let skinKey: string | null = null;
@@ -348,6 +368,7 @@ export function createMainWindow(options: MainWindowOptions) {
     const detachCapture = attachSessionCapture(contents, {
       serviceUrl: options.serviceUrl,
       serviceToken: options.serviceToken,
+      accountId: options.accountId,
       queueDir: options.queueDir,
       log: options.log,
       onPosts: overlay.observe,
@@ -369,7 +390,12 @@ export function createMainWindow(options: MainWindowOptions) {
 
     const onAction = (event: Electron.IpcMainEvent, action: OverlayAction) => {
       if (event.sender !== contents) return;
-      if (action.type === "openRoute") return toApp(APP_ROUTE_CHANNEL, action.route);
+      // The preload is ours, but x.com's page shares its process: only app paths get through.
+      if (action.type === "openRoute") {
+        if (typeof action.route === "string" && action.route.startsWith("/"))
+          toApp(APP_ROUTE_CHANNEL, action.route);
+        return;
+      }
       const post = overlay.get(action.postId);
       if (post === undefined) return;
       commands.save({
@@ -457,6 +483,8 @@ export function createMainWindow(options: MainWindowOptions) {
 
   return {
     window,
+    /** The app page's contents: main's own IPC handlers answer only it. */
+    appContents,
     /** Shows an app route; a tool route keeps x.com in the side panel. */
     openRoute: (route: string) => {
       if (bridgeServed) toApp(APP_ROUTE_CHANNEL, route);

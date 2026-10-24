@@ -1,10 +1,16 @@
 import { ObservationBatch } from "@xtend/contracts";
+import * as ByteSize from "effect/ByteSize";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
-import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
+import {
+  HttpIncomingMessage,
+  HttpRouter,
+  HttpServerRequest,
+  HttpServerResponse,
+} from "effect/http";
 
 import * as ServiceAuth from "./auth/ServiceAuth.ts";
 import * as RuleStore from "./automate/RuleStore.ts";
@@ -162,7 +168,14 @@ export const layerWebhookRoute = HttpRouter.add("POST", "/api/webhooks/:ruleId",
     const ruleId = Number(params["ruleId"]);
     if (!Number.isInteger(ruleId) || ruleId <= 0)
       return yield* HttpServerResponse.json({ error: "bad_rule" }, { status: 404 });
-    const body = yield* request.text;
+    // Anyone can call this route, so the read itself is capped; the length check in
+    // handleWebhook only runs once the whole body is in memory. 4 bytes covers any UTF-8 char.
+    const body = yield* request.text.pipe(
+      Effect.provideService(
+        HttpIncomingMessage.MaxBodySize,
+        ByteSize.bytes(Webhooks.MAX_BODY_CHARS * 4),
+      ),
+    );
     const signature = request.headers["x-xtend-signature"] ?? null;
     const result = yield* Webhooks.handleWebhook(ruleId, signature, body);
     return yield* HttpServerResponse.json(result);

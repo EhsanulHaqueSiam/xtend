@@ -94,7 +94,14 @@ const make = Effect.gen(function* () {
   const store = yield* LibraryStore.LibraryStore;
   const drafts = yield* DraftStore.DraftStore;
 
-  const today = Effect.map(DateTime.now, (d) => DateTime.formatIso(d).slice(0, 10));
+  // The user's local day, the one DailyJobs runs the picks job on; a UTC day would roll over and
+  // hide the morning's picks partway through the user's day.
+  const today = Effect.gen(function* () {
+    const { timeZone } = yield* settings.get.pipe(Effect.mapError(settingsError));
+    return DateTime.formatIsoDate(
+      DateTime.setZone(yield* DateTime.now, SettingsStore.zoneOf(timeZone)),
+    );
+  });
   const keywords = settings.get.pipe(
     Effect.map((s) => s.keywords.slice(0, MAX_PICK_KEYWORDS)),
     Effect.mapError(settingsError),
@@ -208,6 +215,7 @@ const make = Effect.gen(function* () {
 
   const detectPatterns = Effect.gen(function* () {
     const batch = yield* store.undetected(DETECT_BATCH);
+    let detected = 0;
     if (batch.length > 0) {
       const { labels } = yield* assist
         .generate({
@@ -218,10 +226,19 @@ const make = Effect.gen(function* () {
           output: Labels,
         })
         .pipe(Effect.mapError(assistError));
-      const known = new Set(batch.map((p) => p.post.postId));
-      yield* store.setPatterns(labels.filter((l) => known.has(l.postId)));
+      const given = new Map(batch.map((p) => [p.post.postId, p.format]));
+      // Media, link and text come from the post's own flags; the model only gets to say thread.
+      const applied = labels.flatMap((l) => {
+        const format = given.get(l.postId);
+        return format === undefined
+          ? []
+          : [{ ...l, format: l.format === "thread" ? l.format : format }];
+      });
+      yield* store.setPatterns(applied);
+      // A post the model skipped or invented is not labelled, whatever the batch size was.
+      detected = new Set(applied.map((l) => l.postId)).size;
     }
-    return { detected: batch.length, remaining: yield* store.undetectedCount };
+    return { detected, remaining: yield* store.undetectedCount };
   });
 
   const draftError = (e: { readonly message: string }) =>

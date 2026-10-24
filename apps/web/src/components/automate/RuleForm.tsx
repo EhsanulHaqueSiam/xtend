@@ -11,7 +11,7 @@ import { useState } from "react";
 
 import { TextMorph } from "torph/react";
 
-import { cn } from "../../lib/utils";
+import { cn, parsePostId } from "../../lib/utils";
 import { usd, useRates } from "../../state/costs";
 import { listsAtom } from "../../state/leads";
 import { Button } from "../ui/button";
@@ -19,6 +19,7 @@ import { compactInputClass } from "../ui/field";
 import { Cost } from "../ui/layout";
 import { Switch } from "../ui/switch";
 import { Prop, PropGroup } from "./controls";
+import { triggerPoll } from "./describe";
 
 const TRIGGERS: Record<Trigger["kind"], { label: string; init: Trigger }> = {
   post_crosses_threshold: {
@@ -95,14 +96,20 @@ function NumberInput({
   readonly width?: string;
   readonly step?: number;
 }) {
+  const parse = step === undefined ? int : money;
+  // The typed text, so clearing the field to retype does not snap a 0 back in front of it.
+  const [text, setText] = useState(String(value));
   return (
     <input
       type="number"
       min={0}
       step={step}
       className={cn(inputField(width), noSpinner)}
-      value={value}
-      onChange={(e) => onChange(step === undefined ? int(e.target.value) : money(e.target.value))}
+      value={text === "" || parse(text) === value ? text : value}
+      onChange={(e) => {
+        setText(e.target.value);
+        onChange(parse(e.target.value));
+      }}
     />
   );
 }
@@ -184,10 +191,14 @@ export function RuleForm({
     edit({ ...rule, action: a, askFirst: a.kind === "auto_delete" ? true : rule.askFirst });
   const rates = useRates();
   const cost = rates === null ? null : actionCostUsd(rates, action);
+  const poll = rates === null ? null : triggerPoll(rates, trigger);
   const isNew = initial.id === undefined;
   const valid =
     rule.name.trim() !== "" &&
-    (trigger.kind !== "post_engaged" || trigger.postId.trim() !== "") &&
+    (trigger.kind !== "post_engaged" || parsePostId(trigger.postId) !== null) &&
+    (trigger.kind !== "schedule" ||
+      (trigger.weekdays.length > 0 && /^\d{2}:\d{2}$/.test(trigger.time))) &&
+    (trigger.kind !== "keyword_post" || trigger.query.trim() !== "") &&
     (action.kind !== "add_to_list" || action.listId > 0);
 
   return (
@@ -291,7 +302,13 @@ export function RuleForm({
                   className={inputField("w-48")}
                   value={trigger.postId}
                   placeholder="1835124037934367098"
-                  onChange={(e) => setTrigger({ ...trigger, postId: e.target.value.trim() })}
+                  // A pasted post URL keeps only its id.
+                  onChange={(e) =>
+                    setTrigger({
+                      ...trigger,
+                      postId: parsePostId(e.target.value) ?? e.target.value.trim(),
+                    })
+                  }
                 />
               </Prop>
               <Prop label="Via">
@@ -302,8 +319,8 @@ export function RuleForm({
                     setTrigger({ ...trigger, via: e.target.value as typeof trigger.via })
                   }
                 >
-                  <option value="repost">reposts, scraper every 15 min</option>
-                  <option value="like">likes, X API hourly</option>
+                  <option value="repost">reposts, scraper</option>
+                  <option value="like">likes, X API, first 20</option>
                 </select>
               </Prop>
             </>
@@ -320,6 +337,12 @@ export function RuleForm({
                 {isNew ? "after saving" : "under Webhook above"}
               </span>
             </Prop>
+          ) : null}
+          {poll !== null ? (
+            <p className="py-2 text-2xs text-muted-foreground">
+              Polls X every {poll.every}: {usd(poll.usd)} a poll, up to{" "}
+              {usd(poll.usd * poll.perDay)} a day{rule.dryRun ? ", not while a dry run" : ""}.
+            </p>
           ) : null}
         </PropGroup>
 

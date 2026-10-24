@@ -120,18 +120,21 @@ export function SaveButton({
 export function RemixButton({ post }: { readonly post: XPost }) {
   const save = useAtomSet(savePostAtom, { mode: "promise" });
   const navigate = useNavigate();
+  // A failed save stays on the button: Compose would open with nothing to remix.
+  const [error, setError] = useState<string | null>(null);
   return (
     <button
       type="button"
-      className={cn(xPill, xPillSm, small)}
-      title="Write your own in Compose, with this post as inspiration"
+      className={cn(xPill, xPillSm, small, error !== null && "text-error-foreground")}
+      title={error ?? "Write your own in Compose, with this post as inspiration"}
       onClick={() =>
-        void save({ post, collectionId: null }).then(() =>
-          navigate({ href: `/compose?inspire=${post.postId}` }),
+        void save({ post, collectionId: null }).then(
+          () => navigate({ href: `/compose?inspire=${post.postId}` }),
+          (e: unknown) => setError(errorMessage(e)),
         )
       }
     >
-      Remix
+      <TextMorph duration={250}>{error !== null ? "Retry" : "Remix"}</TextMorph>
     </button>
   );
 }

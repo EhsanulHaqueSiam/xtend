@@ -2,6 +2,7 @@ import type { FollowerCategory, ScoreReport, TopFollower, XFollower } from "@xte
 import { BadgeCheck } from "lucide-react";
 import type { ReactNode } from "react";
 
+import { fmtDay } from "../../lib/time";
 import { cn } from "../../lib/utils";
 import { LineChart } from "../analyze/ui";
 import { Empty, Section, Stat, table } from "../ui/layout";
@@ -172,7 +173,7 @@ function Moved({ moved }: { readonly moved: NonNullable<ScoreReport["moved"]> })
       </ul>
     );
   return (
-    <Section title={`Who moved the score since ${moved.sinceAt.slice(0, 10)}`}>
+    <Section title={`Who moved the score since ${fmtDay(moved.sinceAt)}`}>
       {total === 0 ? (
         quiet("Same scored set as last time.")
       ) : (
@@ -226,7 +227,7 @@ export function ReportCard({
       </Empty>
     );
   const next = nextTier(s.score);
-  const sampledLine = `@${report.handle} · sampled ${s.at.slice(0, 10)} · ${s.pages} pages`;
+  const sampledLine = `@${report.handle} · sampled ${fmtDay(s.at)} · ${s.pages} pages`;
 
   if (botOnly)
     return (
@@ -306,9 +307,7 @@ export function ReportCard({
       {report.moved === null ? null : <Moved moved={report.moved} />}
       <BotCheck s={s} />
       <Section title="Score history">
-        <LineChart
-          points={report.history.map((h) => ({ label: h.at.slice(0, 10), value: h.score }))}
-        />
+        <LineChart points={report.history.map((h) => ({ label: fmtDay(h.at), value: h.score }))} />
       </Section>
       {report.profileHistory.length === 0 ? null : (
         <Section title="Name and bio history">

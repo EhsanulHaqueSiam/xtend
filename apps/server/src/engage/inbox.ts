@@ -15,6 +15,10 @@ export const observedToPost = (p: ObservedPostSummary): XPost => ({
   metrics: p.metrics,
 });
 
+/** True when the text tags @handle itself, not a longer handle that starts with it (@siam in @siamships). */
+export const tagsHandle = (text: string, handle: string): boolean =>
+  new RegExp(`@${handle}(?![A-Za-z0-9_])`, "i").test(text);
+
 /**
  * Replies and quotes aimed at the user among what the session saw. The capture
  * has no in-reply-to id, so a reply counts when it addresses @handle and a
@@ -25,13 +29,11 @@ export const matchIncoming = (
   handle: string,
 ): ReadonlyArray<XPost> => {
   const me = handle.toLowerCase();
-  const tag = `@${me}`;
   const quote = `x.com/${me}/status/`;
   return posts
     .filter((p) => {
       if (p.author.handle.toLowerCase() === me) return false;
-      const text = p.text.toLowerCase();
-      return (p.isReply && text.includes(tag)) || text.includes(quote);
+      return (p.isReply && tagsHandle(p.text, me)) || p.text.toLowerCase().includes(quote);
     })
     .map(observedToPost);
 };

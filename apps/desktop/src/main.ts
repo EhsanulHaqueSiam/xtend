@@ -36,7 +36,9 @@ if (userDataOverride !== undefined && !app.isPackaged) app.setPath("userData", u
 
 // The desktop's own config (which service to use) lives in userData, never in the service DB.
 const configFile = path.join(app.getPath("userData"), "config.json");
-const remote = readRemote(configFile);
+// An explicit service URL wins over the saved remote, token included: a dev desktop shares the
+// installed app's userData and must not send the remote's token to its own service.
+const remote = process.env.XTEND_SERVICE_URL === undefined ? readRemote(configFile) : null;
 const serviceUrl = process.env.XTEND_SERVICE_URL ?? remote?.url ?? "http://127.0.0.1:4820";
 const appUrl = process.env.XTEND_DEV_URL ?? serviceUrl;
 
@@ -97,7 +99,7 @@ const openRoute = (route: string) => main?.openRoute(route);
 const openWindow = () => {
   if (main !== undefined && !main.window.isDestroyed()) return main.window.show();
   const serviceToken = readServiceToken();
-  main = createMainWindow({
+  const created = createMainWindow({
     appUrl,
     serviceUrl,
     serviceToken,
@@ -108,7 +110,11 @@ const openWindow = () => {
     importCookiesPath: process.env.XTEND_IMPORT_COOKIES,
     log,
   });
-  main.window.on("closed", () => (main = undefined));
+  main = created;
+  // An account switch closes the old window after the new one opened; that close must not forget the new one.
+  created.window.on("closed", () => {
+    if (main === created) main = undefined;
+  });
 };
 
 // Dev only: `kill -USR2 <pid>` writes <ts>.png (the window, x.com included) to XTEND_SHOT_DIR,
@@ -124,18 +130,27 @@ if (shotDir !== undefined && !app.isPackaged) {
 
 // xtend://compose?text=... and xtend://report?handle=... open the app on that screen.
 if (app.isPackaged) app.setAsDefaultProtocolClient("xtend");
+// Set once the service answered and the first window is open; a link that arrives earlier waits.
+let started = false;
+let pendingRoute: string | null = null;
 const handleDeepLink = (url: string) => {
   const route = deepLinkToRoute(url);
   log("deep link", { url, route });
   if (route === null) return;
+  // macOS delivers the link that launched the app before `ready`, when no window may exist yet.
+  if (!started) {
+    pendingRoute = route;
+    return;
+  }
   openWindow();
   openRoute(route);
 };
-if (!app.requestSingleInstanceLock()) app.quit();
+const primary = app.requestSingleInstanceLock();
+if (!primary) app.quit();
 app.on("second-instance", (_event, argv) => {
   const link = argv.find((a) => a.startsWith("xtend://"));
   if (link !== undefined) handleDeepLink(link);
-  else openWindow();
+  else if (started) openWindow();
 });
 app.on("open-url", (event, url) => {
   event.preventDefault();
@@ -146,8 +161,11 @@ app.on("open-url", (event, url) => {
 nativeTheme.themeSource = "dark";
 
 void app.whenReady().then(async () => {
+  // A second instance only hands its argv to the first; supervising too could start a second service.
+  if (!primary) return;
   const supervision = await superviseService({
     serviceUrl,
+    remote: remote !== null,
     baseDir,
     devUrl: process.env.XTEND_DEV_URL,
     log,
@@ -156,14 +174,24 @@ void app.whenReady().then(async () => {
   app.on("before-quit", supervision.stop);
   accountId = await currentAccountId(readServiceToken());
 
-  ipcMain.handle(REMOTE_CHECK_CHANNEL, (_event, config: unknown) => {
+  // Only the app view may repoint the service or switch accounts; every other page is x.com or a sign-in popup.
+  const fromApp = (event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent) =>
+    main !== undefined && event.sender === main.appContents;
+  ipcMain.handle(REMOTE_CHECK_CHANNEL, (event, config: unknown) => {
+    if (!fromApp(event)) throw new Error("remote check is only for the app view");
     const decoded = decodeRemote(config);
     if (decoded._tag === "Failure" || decoded.success === null)
-      return { health: false, version: null, auth: false, error: "url and token required" };
+      return {
+        health: false,
+        version: null,
+        auth: false,
+        error: "needs an http(s) URL and a token",
+      };
     return checkRemote(decoded.success, { fetch, openSocket });
   });
   // Changing the service means a different token, base dir and account: a relaunch is the honest reload.
-  ipcMain.on(REMOTE_SET_CHANNEL, (_event, config: unknown) => {
+  ipcMain.on(REMOTE_SET_CHANNEL, (event, config: unknown) => {
+    if (!fromApp(event)) return;
     const decoded = decodeRemote(config);
     if (decoded._tag === "Failure") return;
     writeRemote(configFile, decoded.success);
@@ -171,7 +199,8 @@ void app.whenReady().then(async () => {
     app.quit();
   });
   // The session partition is fixed at view creation, so a switch rebuilds the window on the new one.
-  ipcMain.on(ACCOUNT_SELECT_CHANNEL, (_event, id: unknown) => {
+  ipcMain.on(ACCOUNT_SELECT_CHANNEL, (event, id: unknown) => {
+    if (!fromApp(event)) return;
     if (typeof id !== "number" || !Number.isInteger(id) || id === accountId) return;
     accountId = id;
     const old = main;
@@ -182,6 +211,9 @@ void app.whenReady().then(async () => {
 
   createTray(openWindow);
   openWindow();
+  started = true;
+  if (pendingRoute !== null) openRoute(pendingRoute);
+  pendingRoute = null;
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) openWindow();
   });

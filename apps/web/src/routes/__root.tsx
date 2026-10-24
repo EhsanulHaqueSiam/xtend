@@ -3,6 +3,7 @@ import { createRootRoute, Outlet } from "@tanstack/react-router";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useEffect } from "react";
 
+import { AccountSync } from "../components/shell/AccountSync";
 import { AppShell } from "../components/shell/AppShell";
 import { ShellHotkeys } from "../components/shell/ShellHotkeys";
 import { ShellNotifications } from "../components/shell/ShellNotifications";
@@ -60,6 +61,7 @@ export const Route = createRootRoute({
   component: () => (
     <TooltipProvider delay={300}>
       <ZoneSync />
+      <AccountSync />
       <ShellHotkeys />
       <ShellNotifications />
       <AppShell>

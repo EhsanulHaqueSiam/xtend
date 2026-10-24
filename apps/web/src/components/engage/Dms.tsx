@@ -20,9 +20,9 @@ export function Dms() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    void call(false).then((exit) => {
-      if (Exit.isSuccess(exit)) setQuote(exit.value.quoteUsd);
-    });
+    void call(false).then((exit) =>
+      Exit.isSuccess(exit) ? setQuote(exit.value.quoteUsd) : setError(errorText(exit.cause)),
+    );
   }, [call]);
 
   const load = async () => {

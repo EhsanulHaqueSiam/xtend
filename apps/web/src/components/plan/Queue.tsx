@@ -143,8 +143,10 @@ export function Queue({
                       }
                     >
                       <p>
-                        Post {d.blocks.length} {d.blocks.length === 1 ? "post" : "posts"} now for{" "}
-                        {cost === null ? "…" : <Cost usd={cost} />}.
+                        {d.kind === "article"
+                          ? "Publish this article"
+                          : `Post ${d.blocks.length} ${d.blocks.length === 1 ? "post" : "posts"}`}{" "}
+                        now for {cost === null ? "…" : <Cost usd={cost} />}.
                       </p>
                       <p className="mt-1 text-xs text-muted-foreground">
                         Charges your treg balance.
@@ -155,6 +157,7 @@ export function Queue({
                         </Button>
                         <Button
                           size="xs"
+                          disabled={cost === null}
                           onClick={() => {
                             setConfirm(null);
                             onRunNow(d.id);

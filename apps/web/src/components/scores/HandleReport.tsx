@@ -3,7 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 
-import { cn } from "../../lib/utils";
+import { cn, NOT_A_HANDLE, parseHandle } from "../../lib/utils";
 import { useQuoteLabel, useRates } from "../../state/costs";
 import { reportAtom, runScoreAtom } from "../../state/scores";
 import { settingsAtom } from "../../state/settings";
@@ -141,6 +141,7 @@ export function ReportSection({
 }) {
   const navigate = useNavigate();
   const [draft, setDraft] = useState(handle ?? "");
+  const [invalid, setInvalid] = useState(false);
   const tab = botOnly ? "bot-check" : "report";
   return (
     <>
@@ -151,8 +152,10 @@ export function ReportSection({
             className="flex items-center gap-1.5"
             onSubmit={(e) => {
               e.preventDefault();
-              const h = draft.trim().replace(/^@/, "").toLowerCase();
-              if (h !== "")
+              if (draft.trim() === "") return;
+              const h = parseHandle(draft)?.toLowerCase() ?? null;
+              setInvalid(h === null);
+              if (h !== null)
                 void navigate({ href: `/scores?tab=${tab}&handle=${encodeURIComponent(h)}` });
             }}
           >
@@ -170,6 +173,7 @@ export function ReportSection({
           </form>
         }
       />
+      {invalid ? <ErrorLine>{NOT_A_HANDLE}</ErrorLine> : null}
       <PageBody>
         {handle === undefined ? (
           <Empty>

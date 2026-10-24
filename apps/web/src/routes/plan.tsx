@@ -4,7 +4,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { failText } from "../components/compose/AssistPanel";
 import { tabOf } from "../components/compose/DraftsHome";
@@ -147,17 +147,25 @@ function PlanScreen() {
   const queueCosts = queued.filter((d) => d.status === "queued").map(costOf);
   const queueUsd = queueCosts.every((c) => c !== null) ? sumUsd(queueCosts) : null;
 
+  // One draft action at a time: a second Skip or Next slot click would move the draft again.
+  const acting = useRef(false);
   /** Every draft action refetches the lists it can move a draft between. */
-  const act = async (exit: Promise<Exit.Exit<Draft, unknown>>, done: (d: Draft) => string) => {
-    const result = await exit;
-    if (Exit.isFailure(result)) {
-      setNotice(`Failed: ${failText(result.cause)}`);
-      return;
+  const act = async (run: () => Promise<Exit.Exit<Draft, unknown>>, done: (d: Draft) => string) => {
+    if (acting.current) return;
+    acting.current = true;
+    try {
+      const result = await run();
+      if (Exit.isFailure(result)) {
+        setNotice(`Failed: ${failText(result.cause)}`);
+        return;
+      }
+      setNotice(done(result.value));
+      refreshWeek();
+      refreshDrafts();
+      refreshReady();
+    } finally {
+      acting.current = false;
     }
-    setNotice(done(result.value));
-    refreshWeek();
-    refreshDrafts();
-    refreshReady();
   };
   const toCompose = (search: {
     readonly draft?: string;
@@ -178,8 +186,12 @@ function PlanScreen() {
     });
   const open = (d: Draft) => toCompose({ draft: d.id, tab: tabOf(d.status) });
   const queueNext = (d: Draft) =>
-    act(queue(d.id), (q) =>
-      q.scheduledAt === null ? "Queued" : `Queued for ${monthDay.format(new Date(q.scheduledAt))}`,
+    act(
+      () => queue(d.id),
+      (q) =>
+        q.scheduledAt === null
+          ? "Queued"
+          : `Queued for ${monthDay.format(new Date(q.scheduledAt))}`,
     );
 
   const detail =
@@ -256,7 +268,7 @@ function PlanScreen() {
             fillable={fillable}
             onFill={(id, at) =>
               act(
-                schedule({ id, at: at.toISOString() }),
+                () => schedule({ id, at: at.toISOString() }),
                 (d) => `Scheduled "${draftTitle(d)}" for ${monthDay.format(at)}`,
               )
             }
@@ -271,13 +283,25 @@ function PlanScreen() {
                 Open drafts
               </Button>
             }
-            onSkip={(id) => act(skip(id), (d) => `Moved "${draftTitle(d)}" to the next slot`)}
-            onUnschedule={(id) => act(unschedule(id), (d) => `"${draftTitle(d)}" is a draft again`)}
+            onSkip={(id) =>
+              act(
+                () => skip(id),
+                (d) => `Moved "${draftTitle(d)}" to the next slot`,
+              )
+            }
+            onUnschedule={(id) =>
+              act(
+                () => unschedule(id),
+                (d) => `"${draftTitle(d)}" is a draft again`,
+              )
+            }
             onRunNow={(id) =>
-              act(runNow(id), (d) =>
-                d.status === "posted"
-                  ? `Posted ${d.postIds.length} posts`
-                  : `Failed: ${d.error ?? "unknown"}`,
+              act(
+                () => runNow(id),
+                (d) =>
+                  d.status === "posted"
+                    ? `Posted ${d.postIds.length} posts`
+                    : `Failed: ${d.error ?? "unknown"}`,
               )
             }
             onOpen={open}
@@ -285,6 +309,8 @@ function PlanScreen() {
         ) : null}
         {section === "slots" && AsyncResult.isSuccess(slots) ? (
           <Slots
+            // A save comes back in the service's order; the rows start over from it.
+            key={JSON.stringify(slots.value)}
             slots={slots.value}
             heatmap={AsyncResult.getOrElse(heatmap, () => null)}
             bestHoursEmpty={

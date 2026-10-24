@@ -1,4 +1,4 @@
-import type { Action, Conditions, Rule, RuleRunStatus, Trigger } from "@xtend/contracts";
+import type { Action, Conditions, RateCard, Rule, RuleRunStatus, Trigger } from "@xtend/contracts";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
@@ -20,6 +20,31 @@ const describeTrigger = (t: Trigger): string => {
       return `when an agent finds someone scoring ${t.minScore}+`;
     case "webhook":
       return "when the webhook URL is called";
+  }
+};
+
+/**
+ * What the engine pays X on its own clock to watch a trigger, priced from the rate card. The
+ * cadence is AutomationEngine's POLL_MS and the read cache's lifetime (search 30 min, own posts
+ * 1 h). Dry runs never poll. Null for triggers that only read stored data.
+ */
+export const triggerPoll = (
+  rates: RateCard,
+  t: Trigger,
+): { readonly usd: number; readonly every: string; readonly perDay: number } | null => {
+  switch (t.kind) {
+    case "post_engaged":
+      return t.via === "like"
+        ? { usd: rates.likersPage, every: "hour", perDay: 24 }
+        : { usd: rates.repostersPage, every: "15 min", perDay: 96 };
+    case "new_follower":
+      return { usd: rates.followersPage, every: "15 min", perDay: 96 };
+    case "keyword_post":
+      return { usd: rates.searchPage, every: "30 min", perDay: 48 };
+    case "post_crosses_threshold":
+      return { usd: rates.searchPage, every: "hour", perDay: 24 };
+    default:
+      return null;
   }
 };
 

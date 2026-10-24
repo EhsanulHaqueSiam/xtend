@@ -13,7 +13,6 @@ import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 
 import * as Assist from "../ai/Assist.ts";
@@ -24,7 +23,7 @@ import * as Treg from "../x/Treg.ts";
 import * as XClient from "../x/XClient.ts";
 import { DM_EVENTS_QUOTE_USD, fetchDmEvents } from "./DmEvents.ts";
 import * as EngageStore from "./EngageStore.ts";
-import { matchIncoming, observedToPost } from "./inbox.ts";
+import { matchIncoming, observedToPost, tagsHandle } from "./inbox.ts";
 import { rankTarget } from "./ranking.ts";
 
 const MAX_TARGETS = 30;
@@ -91,8 +90,6 @@ const make = Effect.gen(function* () {
   const store = yield* EngageStore.EngageStore;
   const events = yield* Events.Events;
   const treg = yield* Treg.Treg;
-  // Incoming rows already announced; a row seen for the first time publishes mention_arrived.
-  const announced = yield* Ref.make(new Set<string>());
 
   const current = settings.get.pipe(Effect.mapError(settingsError));
   const observedError = (e: { readonly message: string }) =>
@@ -207,15 +204,12 @@ const make = Effect.gen(function* () {
         }).pipe(Effect.catchTag("XApiError", (e) => Effect.succeed(e.message)))
       : null;
     const api = { posts: yield* store.apiMentions, error: apiError };
-    const tag = handle === null ? null : `@${handle}`;
     const observed =
-      tag === null
+      handle === null
         ? []
         : (yield* observations
             .listRecent({ limit: 200 })
-            .pipe(Effect.mapError(observedError))).posts.filter((p) =>
-            p.text.toLowerCase().includes(tag),
-          );
+            .pipe(Effect.mapError(observedError))).posts.filter((p) => tagsHandle(p.text, handle));
     const seen = new Set(api.posts.map((p) => p.postId));
     const list: Array<Mention> = api.posts.map((post) => ({
       post,
@@ -241,10 +235,8 @@ const make = Effect.gen(function* () {
               .posts,
             handle,
           );
-    const fresh = yield* Ref.modify(announced, (set) => {
-      const unseen = posts.filter((p) => !set.has(p.postId));
-      return [unseen.length, new Set([...set, ...unseen.map((p) => p.postId)])];
-    });
+    // A row seen for the first time publishes mention_arrived, once per account across restarts.
+    const fresh = yield* store.announce(posts.map((p) => p.postId));
     if (fresh > 0) yield* events.publish({ type: "mention_arrived", payload: { count: fresh } });
     const incoming = posts
       .map((post): Mention => ({ post, source: "session", handled: handled.has(post.postId) }))

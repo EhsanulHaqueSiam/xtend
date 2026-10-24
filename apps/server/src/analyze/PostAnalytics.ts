@@ -6,6 +6,7 @@ import * as Layer from "effect/Layer";
 import * as Schedule from "effect/Schedule";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import { CURRENT_ACCOUNT } from "../persistence/account.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 import * as Treg from "../x/Treg.ts";
 import { RATE_CARD } from "../x/XClient.ts";
@@ -24,7 +25,7 @@ const obj = (v: unknown): Json => (typeof v === "object" && v !== null ? (v as J
 const arr = (v: unknown): ReadonlyArray<unknown> => (Array.isArray(v) ? v : []);
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 
-/** X names the metric; we store the few the screens use. Totals and timeseries both sum here. */
+/** X names the metric; we store the few the screens use. */
 const METRIC_KEYS: Record<string, keyof Omit<Row, "postId" | "day">> = {
   impressions: "impressions",
   profile_visits: "profileVisits",
@@ -56,10 +57,12 @@ const parseAnalytics = (body: unknown, day: string): ReadonlyArray<Row> =>
       reposts: 0,
     };
     const measurement = obj(it.measurement);
-    const metrics = [
-      ...arr(measurement.metrics_total),
-      ...arr(measurement.metrics_timeseries).flatMap((t) => arr(obj(t).metrics)),
-    ];
+    // The total already sums the series; a body carrying both must not count each metric twice.
+    const total = arr(measurement.metrics_total);
+    const metrics =
+      total.length > 0
+        ? total
+        : arr(measurement.metrics_timeseries).flatMap((t) => arr(obj(t).metrics));
     for (const m of metrics) {
       const key = METRIC_KEYS[str(obj(m).metric_type)];
       const value = obj(m).value;
@@ -151,7 +154,8 @@ const make = Effect.gen(function* () {
 
   const current = Effect.gen(function* () {
     const runs = yield* sql<{ at: string; posts: number; error: string | null }>`
-      SELECT at, posts, error FROM post_analytics_runs ORDER BY at DESC LIMIT 1
+      SELECT at, posts, error FROM post_analytics_runs
+      WHERE account_id = ${sql.literal(CURRENT_ACCOUNT)} ORDER BY at DESC LIMIT 1
     `;
     const rows = yield* sql<{
       post_id: string;
@@ -165,7 +169,8 @@ const make = Effect.gen(function* () {
       reposts: number;
     }>`
       SELECT * FROM post_analytics a
-      WHERE day = (SELECT MAX(day) FROM post_analytics WHERE post_id = a.post_id)
+      WHERE a.account_id = ${sql.literal(CURRENT_ACCOUNT)}
+        AND day = (SELECT MAX(day) FROM post_analytics WHERE post_id = a.post_id)
       ORDER BY day DESC LIMIT 200
     `;
     const lastRun = runs[0];
@@ -193,7 +198,7 @@ const make = Effect.gen(function* () {
     const today = DateTime.formatIsoDate(now);
     const last = yield* sql<{
       at: string;
-    }>`SELECT at FROM post_analytics_runs ORDER BY at DESC LIMIT 1`;
+    }>`SELECT at FROM post_analytics_runs WHERE account_id = ${sql.literal(CURRENT_ACCOUNT)} ORDER BY at DESC LIMIT 1`;
     const lastDay =
       last[0] === undefined
         ? null

@@ -84,7 +84,7 @@ export const ScoreReport = Schema.Struct({
 });
 export type ScoreReport = typeof ScoreReport.Type;
 
-/** Score change against the newest sample at least N days old. */
+/** Score change since the newest sample at least N days before the latest one. */
 export const ScoreChange = Schema.Struct({
   d1: Schema.NullOr(Schema.Number),
   d7: Schema.NullOr(Schema.Number),

@@ -62,8 +62,14 @@ const engagements = (p: AccountPost) => p.likes + p.reposts + p.replies + p.quot
 const engagementRate = (p: AccountPost): number =>
   p.views === null || p.views === 0 ? 0 : engagements(p) / p.views;
 
+// A post X gave no view count is left out of every per-view figure: its engagements over zero
+// views would inflate a rate, and counting it as zero views would drag an average down.
+const withViews = (posts: ReadonlyArray<AccountPost>) => posts.filter((p) => p.views !== null);
+const sumViews = (posts: ReadonlyArray<AccountPost>) =>
+  posts.reduce((s, p) => s + (p.views ?? 0), 0);
+
 const windowOf = (posts: ReadonlyArray<AccountPost>, days: number): AnalyzeWindow => {
-  const views = posts.reduce((s, p) => s + (p.views ?? 0), 0);
+  const views = sumViews(posts);
   return {
     days,
     posts: posts.length,
@@ -71,21 +77,23 @@ const windowOf = (posts: ReadonlyArray<AccountPost>, days: number): AnalyzeWindo
     likes: posts.reduce((s, p) => s + p.likes, 0),
     replies: posts.reduce((s, p) => s + p.replies, 0),
     reposts: posts.reduce((s, p) => s + p.reposts, 0),
-    engagementRate: views === 0 ? 0 : posts.reduce((s, p) => s + engagements(p), 0) / views,
+    engagementRate:
+      views === 0 ? 0 : withViews(posts).reduce((s, p) => s + engagements(p), 0) / views,
   };
 };
 
-/** Everything the Overview shows, computed once here so every client agrees. */
+/** Everything the Overview shows, computed once here so every client agrees. Post days are the account's. */
 export const summarize = (
   posts: ReadonlyArray<AccountPost>,
   snapshots: ReadonlyArray<AnalyzeData["snapshots"][number]>,
   nowMs: number,
+  zone: DateTime.TimeZone,
 ): Pick<AnalyzeData, "windows" | "viewsByPostDay" | "followerDelta30d"> => {
   const within = (days: number) =>
     posts.filter((p) => nowMs - Date.parse(p.createdAt) < days * DAY_MS);
   const byDay = new Map<string, { posts: number; views: number }>();
   for (const p of within(30)) {
-    const day = p.createdAt.slice(0, 10);
+    const day = DateTime.formatIsoDate(DateTime.setZone(DateTime.makeUnsafe(p.createdAt), zone));
     const cell = byDay.get(day) ?? { posts: 0, views: 0 };
     byDay.set(day, { posts: cell.posts + 1, views: cell.views + (p.views ?? 0) });
   }
@@ -104,28 +112,29 @@ export const summarize = (
   };
 };
 
+const avgViews = (posts: ReadonlyArray<AccountPost>) => {
+  const viewed = withViews(posts);
+  return viewed.length === 0 ? 0 : sumViews(viewed) / viewed.length;
+};
+
 /** Hour-of-week cells with at least one post, in the account's zone; the UI fills the empty ones. */
-const heatmapOf = (
+export const heatmapOf = (
   posts: ReadonlyArray<AccountPost>,
   zone: DateTime.TimeZone,
 ): ReadonlyArray<HeatmapCell> => {
-  const cells = new Map<number, { posts: number; views: number }>();
+  const cells = new Map<number, Array<AccountPost>>();
   for (const p of posts) {
     const d = DateTime.toParts(DateTime.setZone(DateTime.makeUnsafe(p.createdAt), zone));
     const key = d.weekDay * 24 + d.hour;
-    const cell = cells.get(key) ?? { posts: 0, views: 0 };
-    cells.set(key, { posts: cell.posts + 1, views: cell.views + (p.views ?? 0) });
+    cells.set(key, [...(cells.get(key) ?? []), p]);
   }
-  return [...cells].map(([key, c]) => ({
+  return [...cells].map(([key, cell]) => ({
     weekday: Math.floor(key / 24),
     hour: key % 24,
-    posts: c.posts,
-    avgViews: c.views / c.posts,
+    posts: cell.length,
+    avgViews: avgViews(cell),
   }));
 };
-
-const avgViews = (posts: ReadonlyArray<AccountPost>) =>
-  posts.length === 0 ? 0 : posts.reduce((s, p) => s + (p.views ?? 0), 0) / posts.length;
 
 export class Analytics extends Context.Service<
   Analytics,
@@ -192,6 +201,7 @@ const make = Effect.gen(function* () {
 
   const data: Effect.Effect<AnalyzeData, AnalyzeError> = Effect.gen(function* () {
     const { handle: h, timeZone } = yield* current;
+    const zone = SettingsStore.zoneOf(timeZone);
     const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
     const nonPublic = yield* postAnalytics.current;
     if (h === null)
@@ -203,7 +213,7 @@ const make = Effect.gen(function* () {
         snapshots: [],
         heatmap: [],
         timeZone,
-        ...summarize([], [], nowMs),
+        ...summarize([], [], nowMs, zone),
         nonPublic,
       };
     const { posts, fetchedAt } = yield* store.listPosts(h);
@@ -215,9 +225,9 @@ const make = Effect.gen(function* () {
       fetchedAt,
       posts,
       snapshots,
-      heatmap: heatmapOf(posts, SettingsStore.zoneOf(timeZone)),
+      heatmap: heatmapOf(posts, zone),
       timeZone,
-      ...summarize(posts, snapshots, nowMs),
+      ...summarize(posts, snapshots, nowMs, zone),
       nonPublic,
     };
   });

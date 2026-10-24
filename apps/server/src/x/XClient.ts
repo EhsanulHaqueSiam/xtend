@@ -2,9 +2,9 @@ import {
   hasLink,
   type RateCard,
   XApiError,
-  type XFollower,
-  type XPost,
-  type XProfile,
+  XFollower,
+  XPost,
+  XProfile,
   type XSearchMode,
   type XTrend,
 } from "@xtend/contracts";
@@ -13,6 +13,7 @@ import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
 
 import * as Treg from "./Treg.ts";
 
@@ -45,6 +46,9 @@ export const RATE_CARD: RateCard = {
   scraperProfile: 0.00022,
   followersPage: 0.001,
   trending: 0.001,
+  // X bills liking_users per user returned; XExtra caps the page at 20 users.
+  likersPage: 0.2,
+  repostersPage: 0.001,
 };
 
 export const postCostUsd = (text: string) =>
@@ -56,11 +60,21 @@ const arr = (v: unknown): ReadonlyArray<unknown> => (Array.isArray(v) ? v : []);
 const str = (v: unknown, fallback = ""): string => (typeof v === "string" ? v : fallback);
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 const int = (v: unknown): number => Math.max(0, Math.trunc(num(v) ?? 0));
-const isoFromUtc = (seconds: unknown): string | null =>
-  num(seconds) === null ? null : DateTime.formatIso(DateTime.makeUnsafe(num(seconds)! * 1000));
-// X's "Wed Oct 22 10:00:00 +0000 2026" form; DateTime parses it like Date does.
-const isoFromText = (text: string): string | null =>
-  DateTime.make(text).pipe((o) => (o._tag === "Some" ? DateTime.formatIso(o.value) : null));
+// X's "Wed Oct 22 10:00:00 +0000 2026" form; DateTime parses it like Date does. An out-of-range
+// value is null rather than a throw, so one odd row cannot fail the page.
+const isoFrom = (input: number | string): string | null =>
+  DateTime.make(input).pipe((o) => (o._tag === "Some" ? DateTime.formatIso(o.value) : null));
+const isoFromUtc = (seconds: unknown): string | null => {
+  const s = num(seconds);
+  return s === null ? null : isoFrom(s * 1000);
+};
+const isoFromText = (text: string): string | null => isoFrom(text);
+
+// A row that misses the contract (no author id, a fractional count) would fail the encoding of
+// the whole rpc answer it rides in, so it is dropped here like any other unknown shape.
+const isPost = Schema.is(XPost);
+const isFollower = Schema.is(XFollower);
+const isProfile = Schema.is(XProfile);
 
 // A post with no id or date cannot be ranked, scheduled against or charted, so it is dropped
 // rather than stored at the epoch.
@@ -129,6 +143,12 @@ const followerFromTikhub = (row: Json): XFollower | null => {
   };
 };
 
+/**
+ * How old a follower page a new-follower check (Leads, the automate poll) accepts. Under the
+ * poll's 15 minutes, so every poll reads X; a score run lives with the 12-hour copy.
+ */
+const FOLLOWERS_FRESH = Duration.minutes(10);
+
 export interface SearchOptions {
   readonly mode?: XSearchMode;
   readonly limit?: number;
@@ -145,12 +165,17 @@ export interface Page<A> {
 
 /** Cache probes for the reads a screen is about to pay for; `costs.quote` uses them. */
 export interface CacheProbes {
-  readonly search: (query: string, mode?: XSearchMode) => Effect.Effect<boolean>;
+  /** `cursor` probes a later page, which is its own read. */
+  readonly search: (query: string, mode?: XSearchMode, cursor?: string) => Effect.Effect<boolean>;
   readonly profile: (handle: string) => Effect.Effect<boolean>;
   readonly userPosts: (handle: string) => Effect.Effect<boolean>;
-  readonly followers: (handle: string) => Effect.Effect<boolean>;
+  /** `fresh` probes the way a new-follower check reads; see `followers`. */
+  readonly followers: (handle: string, fresh?: boolean) => Effect.Effect<boolean>;
   readonly trending: (country: string) => Effect.Effect<boolean>;
-  readonly mentions: Effect.Effect<boolean>;
+  /** The connected account's id, which likes, reposts and mentions look up first. */
+  readonly me: Effect.Effect<boolean>;
+  /** The page a refresh asking for mentions after `sinceId` reads; each `sinceId` is its own key. */
+  readonly mentions: (sinceId?: string) => Effect.Effect<boolean>;
 }
 
 export interface CreatePostInput {
@@ -184,7 +209,12 @@ export class XClient extends Context.Service<
     ) => Effect.Effect<Page<XPost>, XApiError>;
     readonly followers: (
       handle: string,
-      options: { readonly cursor?: string; readonly purpose: string },
+      options: {
+        readonly cursor?: string;
+        readonly purpose: string;
+        /** A new-follower check: only a copy under 10 minutes old serves, not 12 hours'. */
+        readonly fresh?: boolean;
+      },
     ) => Effect.Effect<Page<XFollower>, XApiError>;
     readonly trending: (
       country: string,
@@ -223,7 +253,7 @@ export const make = Effect.gen(function* () {
   const posts = (rows: ReadonlyArray<unknown>, fallbackHandle: string) =>
     rows.flatMap((row) => {
       const p = postFromAnyapi(obj(row), fallbackHandle);
-      return p === null ? [] : [p];
+      return p !== null && isPost(p) ? [p] : [];
     });
 
   // Each read is a call builder plus a parser so the cache probe and the call share one key.
@@ -253,11 +283,11 @@ export const make = Effect.gen(function* () {
     cacheFor: Duration.hours(1),
     expectedCostUsd: RATE_CARD.searchPage,
   });
-  const followersCall = (handle: string, cursor?: string): Treg.TregCall => ({
+  const followersCall = (handle: string, cursor?: string, fresh = false): Treg.TregCall => ({
     endpoint: ENDPOINTS.followers,
     query: { screen_name: clean(handle), cursor },
     purpose: "",
-    cacheFor: Duration.hours(12),
+    cacheFor: fresh ? FOLLOWERS_FRESH : Duration.hours(12),
     expectedCostUsd: RATE_CARD.followersPage,
   });
   const trendingCall = (country: string): Treg.TregCall => ({
@@ -284,7 +314,9 @@ export const make = Effect.gen(function* () {
   const profile = Effect.fn("XClient.profile")(function* (handle: string, purpose: string) {
     const response = yield* treg.call({ ...profileCall(handle), purpose });
     const output = obj(obj(response.body).output);
-    return output.found === true ? profileFromAnyapi(obj(output.data)) : null;
+    if (output.found !== true) return null;
+    const found = profileFromAnyapi(obj(output.data));
+    return isProfile(found) ? found : null;
   });
 
   const userPosts = Effect.fn("XClient.userPosts")(function* (
@@ -305,17 +337,17 @@ export const make = Effect.gen(function* () {
 
   const followers = Effect.fn("XClient.followers")(function* (
     handle: string,
-    options: { readonly cursor?: string; readonly purpose: string },
+    options: { readonly cursor?: string; readonly purpose: string; readonly fresh?: boolean },
   ) {
     const response = yield* treg.call({
-      ...followersCall(handle, options.cursor),
+      ...followersCall(handle, options.cursor, options.fresh),
       purpose: options.purpose,
     });
     const data = obj(obj(response.body).data);
     return {
       items: arr(data.followers).flatMap((row) => {
         const f = followerFromTikhub(obj(row));
-        return f === null ? [] : [f];
+        return f !== null && isFollower(f) ? [f] : [];
       }),
       nextCursor: data.more_users === true ? str(data.next_cursor) || null : null,
       fromCache: response.cached,
@@ -342,8 +374,11 @@ export const make = Effect.gen(function* () {
 
   const me = Effect.fn("XClient.me")(function* (purpose: string) {
     const response = yield* own("2/users/me", { ...meCall, purpose }).pipe(
+      // A refusal means no X connection; a rate limit or an outage must not read as one.
       Effect.catchTag("XApiError", (e) =>
-        e.reason === "provider" ? Effect.succeed(null) : Effect.fail(e),
+        e.reason === "provider" && e.status !== null && e.status < 500 && e.status !== 429
+          ? Effect.succeed(null)
+          : Effect.fail(e),
       ),
     );
     if (response === null) return null;
@@ -454,58 +489,68 @@ export const make = Effect.gen(function* () {
     });
     const body = obj(response.body);
     const users = new Map(arr(obj(body.includes).users).map((u) => [str(obj(u).id), obj(u)]));
-    return arr(body.data).flatMap((row): Array<XPost> => {
-      const t = obj(row);
-      const u = users.get(str(t.author_id)) ?? {};
-      const m = obj(t.public_metrics);
-      const handle = str(u.username).toLowerCase();
-      const createdAt = isoFromText(str(t.created_at));
-      if (str(t.id) === "" || createdAt === null) return [];
-      return [
-        {
-          postId: str(t.id),
-          url: `https://x.com/${handle}/status/${str(t.id)}`,
-          text: str(t.text),
-          createdAt,
-          lang: str(t.lang) || null,
-          isReply: true,
-          isRepost: false,
-          hasMedia: false,
-          hasLink: hasLink(str(t.text)),
-          author: {
-            userId: str(t.author_id),
-            handle,
-            name: str(u.name) || handle,
-            followers: num(obj(u.public_metrics).followers_count),
-            verified: u.verified === true,
-            avatarUrl: null,
+    return arr(body.data)
+      .flatMap((row): Array<XPost> => {
+        const t = obj(row);
+        const u = users.get(str(t.author_id)) ?? {};
+        const m = obj(t.public_metrics);
+        const handle = str(u.username).toLowerCase();
+        const createdAt = isoFromText(str(t.created_at));
+        if (str(t.id) === "" || createdAt === null) return [];
+        return [
+          {
+            postId: str(t.id),
+            url: `https://x.com/${handle}/status/${str(t.id)}`,
+            text: str(t.text),
+            createdAt,
+            lang: str(t.lang) || null,
+            isReply: true,
+            isRepost: false,
+            hasMedia: false,
+            hasLink: hasLink(str(t.text)),
+            author: {
+              userId: str(t.author_id),
+              handle,
+              name: str(u.name) || handle,
+              followers: num(obj(u.public_metrics).followers_count),
+              verified: u.verified === true,
+              avatarUrl: null,
+            },
+            metrics: {
+              views: num(m.impression_count),
+              likes: int(m.like_count),
+              reposts: int(m.retweet_count),
+              replies: int(m.reply_count),
+              quotes: int(m.quote_count),
+              bookmarks: int(m.bookmark_count),
+            },
           },
-          metrics: {
-            views: num(m.impression_count),
-            likes: int(m.like_count),
-            reposts: int(m.retweet_count),
-            replies: int(m.reply_count),
-            quotes: int(m.quote_count),
-            bookmarks: int(m.bookmark_count),
-          },
-        },
-      ];
-    });
+        ];
+      })
+      .filter(isPost);
   });
 
+  const meCached = treg.isCached({ ...meCall, endpoint: `${ENDPOINTS.own}/2/users/me` });
   const cached: CacheProbes = {
-    search: (query, mode) => treg.isCached(searchCall(query, mode === undefined ? {} : { mode })),
+    search: (query, mode, cursor) =>
+      treg.isCached(
+        searchCall(query, {
+          ...(mode === undefined ? {} : { mode }),
+          ...(cursor === undefined ? {} : { cursor }),
+        }),
+      ),
     profile: (handle) => treg.isCached(profileCall(handle)),
     userPosts: (handle) => treg.isCached(userPostsCall(handle)),
-    followers: (handle) => treg.isCached(followersCall(handle)),
+    followers: (handle, fresh) => treg.isCached(followersCall(handle, undefined, fresh)),
     trending: (country) => treg.isCached(trendingCall(country)),
+    me: meCached,
     // The mentions key needs the user id, so a cold `me` means a cold mentions page too.
-    mentions: Effect.gen(function* () {
-      const meCached = yield* treg.isCached({ ...meCall, endpoint: `${ENDPOINTS.own}/2/users/me` });
-      if (!meCached) return false;
-      const m = yield* me("costs.quote").pipe(Effect.orElseSucceed(() => null));
-      return m === null ? false : yield* treg.isCached(mentionsCall(m.userId));
-    }),
+    mentions: (sinceId) =>
+      Effect.gen(function* () {
+        if (!(yield* meCached)) return false;
+        const m = yield* me("costs.quote").pipe(Effect.orElseSucceed(() => null));
+        return m === null ? false : yield* treg.isCached(mentionsCall(m.userId, sinceId));
+      }),
   };
 
   return XClient.of({

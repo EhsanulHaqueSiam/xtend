@@ -1,3 +1,6 @@
+// @effect-diagnostics nodeBuiltinImport:off -- a desktop child watches its raw stdin pipe.
+import { finished } from "node:stream";
+
 import * as NodeHttpClient from "@effect/platform-node/NodeHttpClient";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -9,6 +12,7 @@ import {
   Leads_METHODS,
   PortSchema,
   Scores_METHODS,
+  type ServiceSupervisor,
   type SignalAgent,
   type SpendSummary,
   WS_METHODS,
@@ -26,6 +30,7 @@ import { runMcpStdio } from "./cli/mcp.ts";
 import * as ServerConfig from "./config.ts";
 import { runServer } from "./server.ts";
 import * as Launchd from "./service/launchd.ts";
+import { RATE_CARD } from "./x/XClient.ts";
 
 const portFlag = Flag.Int("port").pipe(
   Flag.withSchema(PortSchema),
@@ -89,18 +94,19 @@ const firstLine = (draft: Draft) => draft.blocks[0]?.text.split("\n")[0] ?? draf
 
 const post = Command.make("post", { text: Argument.String("text") }).pipe(
   Command.withDescription(
-    "Post one text right now through the X API (costs $0.015, $0.20 with a link).",
+    `Post one text right now through the X API (costs $${RATE_CARD.post.toFixed(3)}, $${RATE_CARD.postWithLink.toFixed(2)} with a link).`,
   ),
   Command.withHandler(({ text }) =>
     withApi(
       Effect.gen(function* () {
         const draft = yield* call<Draft>(Compose_METHODS.draftCreate, { blocks: [{ text }] });
         const posted = yield* call<Draft>(Compose_METHODS.postNow, { id: draft.id });
-        yield* Console.log(
-          posted.status === "posted"
-            ? `posted https://x.com/i/status/${posted.postIds[0]}`
-            : `${posted.status}: ${posted.error ?? "no detail"}`,
-        );
+        // A post that did not go out fails the command, so `xtend post ... && next` stops.
+        if (posted.status !== "posted")
+          return yield* new Api.ApiError({
+            detail: `${posted.status}: ${posted.error ?? "no detail"}`,
+          });
+        yield* Console.log(`posted https://x.com/i/status/${posted.postIds[0]}`);
       }),
     ),
   ),
@@ -125,8 +131,9 @@ const report = Command.make("report", { handle: Argument.String("handle") }).pip
   Command.withDescription("Score report for a handle, as JSON."),
   Command.withHandler(({ handle }) =>
     withApi(
-      Effect.flatMap(call<unknown>(Scores_METHODS.report, { handle }), (r) =>
-        Console.log(JSON.stringify(r, null, 2)),
+      Effect.flatMap(
+        call<unknown>(Scores_METHODS.report, { handle: handle.replace(/^@/, "") }),
+        (r) => Console.log(JSON.stringify(r, null, 2)),
       ),
     ),
   ),
@@ -155,10 +162,9 @@ const agentsRun = Command.make("run", { name: Argument.String("name") }).pipe(
         if (agent === undefined)
           return yield* new Api.ApiError({ detail: `no agent named ${name}` });
         const run = yield* call<AgentRun>(Leads_METHODS.agentRun, { id: agent.id });
+        if (run.error !== null) return yield* new Api.ApiError({ detail: `failed: ${run.error}` });
         yield* Console.log(
-          run.error === null
-            ? `found ${run.found}, new ${run.inserted}, cost $${run.costUsd.toFixed(3)}`
-            : `failed: ${run.error}`,
+          `found ${run.found}, new ${run.inserted}, cost $${run.costUsd.toFixed(3)}`,
         );
       }),
     ),
@@ -217,11 +223,35 @@ const service = Command.make("service").pipe(
   Command.withSubcommands([serviceInstall, serviceUninstall, serviceStatus]),
 );
 
+/**
+ * A desktop's child stops with the desktop. An Electron that crashed sends no SIGTERM, but the OS
+ * closes its end of the child's stdin pipe. launchd and a shell give stdin no such meaning, so
+ * only a child watches it.
+ */
+export const stopWithDesktop =
+  (supervisor: ServiceSupervisor, stdin: NodeJS.ReadableStream) =>
+  <A, E, R>(server: Effect.Effect<A, E, R>) =>
+    supervisor !== "child"
+      ? server
+      : Effect.raceFirst(
+          server,
+          Effect.callback<void>((resume) => {
+            const forget = finished(stdin, () =>
+              resume(Effect.logInfo("the desktop that started this service is gone; stopping")),
+            );
+            stdin.resume();
+            return Effect.sync(forget);
+          }),
+        );
+
 export const cli = root.pipe(
   Command.withDescription("Run the Xtend service, or drive a running one."),
   Command.withHandler((flags) =>
     Effect.flatMap(resolveConfig(flags), (config) =>
-      runServer.pipe(Effect.provide(ServerConfig.layer(config))),
+      runServer.pipe(
+        stopWithDesktop(config.supervisor, process.stdin),
+        Effect.provide(ServerConfig.layer(config)),
+      ),
     ),
   ),
   Command.withSubcommands([post, queue, report, spend, agents, mcp, service]),

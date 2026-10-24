@@ -23,6 +23,17 @@ export const DesktopCommand = Schema.Union([
 ]);
 export type DesktopCommand = typeof DesktopCommand.Type;
 
+/**
+ * How long the desktop may spend on a command, counted from when it receives it. It gives up by
+ * then and says why; the service waits a little longer for that answer. A session post loads X's
+ * composer, uploads its media (a video can take minutes) and waits for X to confirm.
+ */
+export const DESKTOP_COMMAND_LIMIT_MS = {
+  sessionScreenshot: 20_000,
+  sessionNavigate: 20_000,
+  sessionPost: 180_000,
+} satisfies Record<DesktopCommand["type"], number>;
+
 export const DesktopCommandResult = Schema.Union([
   Schema.Struct({ type: Schema.Literal("sessionScreenshot"), pngBase64: Schema.String }),
   Schema.Struct({ type: Schema.Literal("sessionPost"), postId: XId }),
@@ -47,13 +58,15 @@ export const DesktopCommandCompletion = Schema.Struct({
   result: Schema.NullOr(DesktopCommandResult),
   /** Why the desktop could not run the command; set only when `result` is null. */
   error: Schema.NullOr(Schema.String),
+  /** The desktop refused before touching the session view, so nothing went to X and sending it again is safe. */
+  notAttempted: Schema.optional(Schema.Boolean),
 });
 export type DesktopCommandCompletion = typeof DesktopCommandCompletion.Type;
 
 export class DesktopUnavailableError extends Schema.TaggedError<DesktopUnavailableError>()(
   "DesktopUnavailableError",
   {
-    reason: Schema.Literals(["no_desktop", "timeout", "failed"]),
+    reason: Schema.Literals(["no_desktop", "timeout", "failed", "not_attempted"]),
     detail: Schema.String,
   },
 ) {

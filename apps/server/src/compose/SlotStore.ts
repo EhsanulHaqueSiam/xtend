@@ -20,7 +20,10 @@ const toSlot = (r: SlotRow): Slot => ({
   minuteOfDay: r.minute_of_day,
 });
 
-/** Slot times in the account's zone for the 60 days after `after`, ascending UTC. */
+/**
+ * Slot times in the account's zone for the year after `after`, ascending UTC. A year, not weeks:
+ * one weekly slot with a few months of drafts queued must still find a free one.
+ */
 export const slotTimesAfter = (
   slots: ReadonlyArray<SlotInput>,
   after: DateTime.Utc,
@@ -29,7 +32,7 @@ export const slotTimesAfter = (
   const out: Array<string> = [];
   const afterMillis = DateTime.toEpochMillis(after);
   let day = DateTime.setZone(after, zone).pipe(DateTime.startOf("day"));
-  for (let d = 0; d < 60; d++) {
+  for (let d = 0; d < 366; d++) {
     const weekday = DateTime.toParts(day).weekDay;
     for (const slot of slots) {
       if ((slot.weekdayMask & (1 << weekday)) === 0) continue;

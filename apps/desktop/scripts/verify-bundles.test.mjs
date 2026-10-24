@@ -12,7 +12,7 @@ const read = (path) => NodeFS.readFileSync(new URL(path, import.meta.url), "utf8
 
 it("reads the bridge functions and the overlay channels from their sources", () => {
   const apis = bridgeApis(read("../../web/src/desktopBridge.ts"));
-  expect(apis).toContain("openSlot");
+  expect(apis).toContain("setXSkin");
   expect(apis).toContain("pushGlance");
   // Data members are not functions the preload has to expose.
   expect(apis).not.toContain("serviceToken");

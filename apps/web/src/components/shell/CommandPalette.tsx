@@ -2,12 +2,14 @@ import { useAtom, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { AtSign, Bot, CalendarClock, Gauge, Search, Twitter, type LucideIcon } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
+import { useRates } from "../../state/costs";
 import { agentsAtom, paletteOpenAtom, runAgentAtom } from "../../state/shell";
 import { xNavigate } from "../../state/x";
+import { agentRunCost } from "../leads/ui";
 import { SCREENS } from "./commands";
 import { SECTIONS } from "./sections";
 
@@ -20,7 +22,8 @@ interface Command {
   readonly run: () => void;
 }
 
-const HANDLE = /@(\w{1,15})/;
+// A whole handle only: the first 15 characters of a longer word would open someone else's report.
+const HANDLE = /@(\w{1,15})\b/;
 
 const matches = (command: Command, query: string) =>
   command.label.toLowerCase().includes(query.toLowerCase());
@@ -48,8 +51,10 @@ function PaletteBody({
 }) {
   const agents = useAtomValue(agentsAtom);
   const runAgent = useAtomSet(runAgentAtom);
+  const rates = useRates();
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
+  const list = useRef<HTMLUListElement>(null);
 
   const commands = useMemo((): ReadonlyArray<Command> => {
     const to = (href: string) => () => go(href);
@@ -100,7 +105,7 @@ function PaletteBody({
         id: `agent:${agent.id}`,
         group: "Actions" as const,
         label: `Run agent ${agent.name}`,
-        hint: "paid search",
+        hint: `paid run ${agentRunCost(rates, agent)}`,
         icon: Bot,
         run: () => runAgent(agent.id),
       })),
@@ -132,13 +137,18 @@ function PaletteBody({
         run: to(`/library?q=${encodeURIComponent(query.trim())}`),
       });
     return [...dynamic, ...fixed];
-  }, [agents, go, query, runAgent]);
+  }, [agents, go, query, rates, runAgent]);
 
   const pick = (command: Command) => {
     command.run();
     onClose();
   };
   const selected = Math.min(cursor, commands.length - 1);
+  // Arrow keys move past the fold once agents fill the list.
+  useEffect(() => {
+    const options = list.current?.querySelectorAll('[role="option"]');
+    options?.[selected]?.scrollIntoView({ block: "nearest" });
+  }, [selected]);
 
   return (
     <div
@@ -169,7 +179,7 @@ function PaletteBody({
           }
         }}
       />
-      <ul role="listbox" className="min-h-0 flex-1 overflow-y-auto p-1.5">
+      <ul ref={list} role="listbox" className="min-h-0 flex-1 overflow-y-auto p-1.5">
         {commands.length === 0 ? (
           <li className="px-2.5 py-2 text-xs text-muted-foreground">No commands</li>
         ) : null}

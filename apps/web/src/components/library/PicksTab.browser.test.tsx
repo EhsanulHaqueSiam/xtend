@@ -1,26 +1,11 @@
-import type { Pick, RateCard, XPost } from "@xtend/contracts";
+import type { Pick, XPost } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import { expect, it } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
+import { rates } from "../../../test/fixtures";
 import { render } from "../../../test/render";
 import { PicksTab } from "./PicksTab";
-
-const rates: RateCard = {
-  post: 0.015,
-  postWithLink: 0.2,
-  like: 0.01,
-  repost: 0.015,
-  follow: 0.01,
-  dm: 0.01,
-  delete: 0.01,
-  readPage: 0.005,
-  profile: 0.01,
-  searchPage: 0.00075,
-  scraperProfile: 0.0005,
-  followersPage: 0.001,
-  trending: 0.001,
-};
 
 const post = (postId: string, text: string, hasMedia: boolean): XPost => ({
   postId,

@@ -30,15 +30,8 @@ export const insetTable = {
   td: cn(table.td, "first:pl-0 last:pr-0"),
 } as const;
 
-/** "Oct 24, 09:12" in the viewer's zone, for timestamps in dense rows. */
-const whenFormat = new Intl.DateTimeFormat("en", {
-  month: "short",
-  day: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-  hourCycle: "h23",
-});
-export const when = (iso: string) => whenFormat.format(new Date(iso));
+/** Timestamps in dense rows, in the account's zone (Settings) like every other screen's. */
+export { fmtWhen as when } from "../../lib/time";
 
 /** The empty state inside a Section: one quiet line, and the action that fills it. */
 export function Note({

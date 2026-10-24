@@ -51,7 +51,8 @@ export function NeedsYou() {
           onSuccess: ({ value }) => (
             <NeedsYouList
               requests={value}
-              busy={busy}
+              // Until the refetch drops an approved request, its Approve would pay a second time.
+              busy={busy || pending.waiting}
               onApprove={(id) => void run(() => approve(id).then(after))}
               onDismiss={(id) => void run(() => dismiss(id).then(after))}
               onOpenRules={() => void navigate({ href: sectionHref("/automate", "rules") })}

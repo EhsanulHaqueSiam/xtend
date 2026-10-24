@@ -3,7 +3,7 @@ import type { AnalyzeData, CompetitorReport } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { Fragment, useState } from "react";
 
-import { cn } from "../../lib/utils";
+import { cn, NOT_A_HANDLE, parseHandle } from "../../lib/utils";
 import { competitorsAtom, fetchCompetitorAtom } from "../../state/analyze";
 import { useQuoteLabel } from "../../state/costs";
 import { watchAddAtom, watchListAtom, watchRemoveAtom } from "../../state/scores";
@@ -17,10 +17,12 @@ import { ErrorBar, errorText, fmt, when } from "./ui";
 function FetchButton({
   handle,
   label,
+  disabled,
   onClick,
 }: {
   readonly handle: string;
   readonly label: string;
+  readonly disabled: boolean;
   readonly onClick: () => void;
 }) {
   const quote = useQuoteLabel({ kind: "competitorFetch", handle });
@@ -28,6 +30,7 @@ function FetchButton({
     <Button
       size="sm"
       variant="outline"
+      disabled={disabled}
       onClick={(e) => {
         e.stopPropagation();
         onClick();
@@ -68,6 +71,8 @@ export function Competitors({ data }: { readonly data: AnalyzeData }) {
   const add = useAtomSet(watchAddAtom, { mode: "promise" });
   const remove = useAtomSet(watchRemoveAtom, { mode: "promise" });
   const fetchOne = useAtomSet(fetchCompetitorAtom, { mode: "promise" });
+  // Paid: a second click while one fetch runs would pay for the same reads again.
+  const fetching = useAtomValue(fetchCompetitorAtom).waiting;
   const [handle, setHandle] = useState("");
   const [open, setOpen] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -84,14 +89,17 @@ export function Competitors({ data }: { readonly data: AnalyzeData }) {
   );
   const watched = AsyncResult.getOrElse(watch, () => []);
 
+  // True when the work succeeded, so the add form only clears what actually went in.
   const run = async (work: () => Promise<unknown>) => {
     setError(null);
     try {
       await work();
       refreshWatch();
       refreshReports();
+      return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      return false;
     }
   };
 
@@ -104,9 +112,10 @@ export function Competitors({ data }: { readonly data: AnalyzeData }) {
           className="flex items-center gap-1.5"
           onSubmit={(e) => {
             e.preventDefault();
-            const h = handle.trim().replace(/^@/, "");
-            if (h === "") return;
-            void run(() => add(h)).then(() => setHandle(""));
+            if (handle.trim() === "") return;
+            const h = parseHandle(handle);
+            if (h === null) return setError(NOT_A_HANDLE);
+            void run(() => add(h)).then((ok) => ok && setHandle(""));
           }}
         >
           <input
@@ -206,6 +215,7 @@ export function Competitors({ data }: { readonly data: AnalyzeData }) {
                             <FetchButton
                               handle={w.handle}
                               label={report === undefined ? "Fetch" : "Refetch"}
+                              disabled={fetching}
                               onClick={() => void run(() => fetchOne(w.handle))}
                             />
                             <Button

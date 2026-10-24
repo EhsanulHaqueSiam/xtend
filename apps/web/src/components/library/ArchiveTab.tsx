@@ -3,6 +3,7 @@ import { AuthorBand, HookPattern, type LibraryFilters, type LibraryPost } from "
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState, type ReactNode } from "react";
 
+import { fmtDay } from "../../lib/time";
 import { cn } from "../../lib/utils";
 import {
   browseAtom,
@@ -94,9 +95,11 @@ export function FilterBar({
         min={0}
         placeholder="min views"
         value={value.minViews ?? ""}
-        onChange={(e) =>
-          set("minViews", e.target.value === "" ? undefined : Number(e.target.value))
-        }
+        // The filter key is schema-encoded on render, and a negative or fractional count fails it.
+        onChange={(e) => {
+          const n = Math.trunc(Number(e.target.value));
+          set("minViews", e.target.value === "" || Number.isNaN(n) ? undefined : Math.max(0, n));
+        }}
       />
       <Select
         label="year"
@@ -150,7 +153,7 @@ function ArchiveInspector({
   readonly saved: boolean;
   readonly onClose: () => void;
 }) {
-  const write = useAtomSet(writeInFormatAtom, { mode: "promise" });
+  const write = useAtomSet(writeInFormatAtom(entry.post.postId), { mode: "promise" });
   const assistQuote = useQuoteLabel({ kind: "assist" });
   const [draft, setDraft] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -161,7 +164,7 @@ function ArchiveInspector({
       format={entry.format}
       facts={[
         ["Hook", entry.hookPattern ?? "not labelled"],
-        ["Last seen", entry.lastSeenAt.slice(0, 10)],
+        ["Last seen", fmtDay(entry.lastSeenAt)],
       ]}
       onClose={onClose}
     >
@@ -181,7 +184,7 @@ function ArchiveInspector({
               setBusy(true);
               setError(null);
               try {
-                setDraft((await write(entry.post.postId)).text);
+                setDraft((await write()).text);
               } catch (e) {
                 setError(errorMessage(e));
               } finally {

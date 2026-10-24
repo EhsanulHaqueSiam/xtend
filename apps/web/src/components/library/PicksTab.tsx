@@ -118,8 +118,8 @@ function PickInspector({
   readonly saved: boolean;
   readonly onClose: () => void;
 }) {
-  const why = useAtomSet(pickWhyAtom, { mode: "promise" });
-  const draft = useAtomSet(pickDraftAtom, { mode: "promise" });
+  const why = useAtomSet(pickWhyAtom(pick.post.postId), { mode: "promise" });
+  const draft = useAtomSet(pickDraftAtom(pick.post.postId), { mode: "promise" });
   const saveDraft = useAtomSet(saveSuggestedDraftAtom, { mode: "promise" });
   const assistQuote = useQuoteLabel({ kind: "assist" });
   const [whyText, setWhyText] = useState(pick.whyItWorks);
@@ -161,7 +161,7 @@ function PickInspector({
             type="button"
             className={button}
             disabled={busy !== null}
-            onClick={() => void call("why", async () => setWhyText(await why(pick.post.postId)))}
+            onClick={() => void call("why", async () => setWhyText(await why()))}
           >
             {busy === "why" ? "Explaining" : "Explain it"}
           </button>
@@ -173,14 +173,15 @@ function PickInspector({
             type="button"
             className={button}
             disabled={busy !== null}
-            onClick={() => void call("draft", async () => setBlocks(await draft(pick.post.postId)))}
+            onClick={() => void call("draft", async () => setBlocks(await draft()))}
           >
             {busy === "draft" ? "Writing" : "Write one in your voice"}
           </button>
         ) : (
           <div className="flex flex-col gap-2">
-            {blocks.map((b) => (
-              <DraftBlock key={b}>{b}</DraftBlock>
+            {blocks.map((b, i) => (
+              // eslint-disable-next-line react/no-array-index-key -- model output; two posts can share a text.
+              <DraftBlock key={i}>{b}</DraftBlock>
             ))}
             {filed ? (
               <p className="text-xs text-muted-foreground">

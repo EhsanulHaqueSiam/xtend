@@ -17,7 +17,7 @@ import { Button } from "../ui/button";
 import { Cost } from "../ui/layout";
 import { Switch } from "../ui/switch";
 import { Prop, PropGroup } from "./controls";
-import { statusLabel, statusTone } from "./describe";
+import { statusLabel, statusTone, triggerPoll } from "./describe";
 import { emptyRule, RuleForm } from "./RuleForm";
 import { budget, RuleModes } from "./RuleRow";
 
@@ -42,13 +42,17 @@ function RuleState({
   readonly onDelete: () => void;
 }) {
   const [confirm, setConfirm] = useState<"run" | "delete" | null>(null);
-  const [webhook, setWebhook] = useState<WebhookInfo | null>(null);
+  // The secret, or why it could not be loaded.
+  const [webhook, setWebhook] = useState<WebhookInfo | string | null>(null);
   const loadWebhook = useAtomSet(webhookInfoAtom, { mode: "promise" });
   const rates = useRates();
   const cost = rates === null ? null : actionCostUsd(rates, rule.action);
   const per = rule.action.kind === "auto_delete" ? "post" : "fire";
-  // Dry runs and ask-first rules charge nothing when fired; only a live rule asks to confirm.
-  const paid = !rule.dryRun && !rule.askFirst;
+  // Dry runs never poll.
+  const poll = rates === null || rule.dryRun ? null : triggerPoll(rates, rule.trigger);
+  // Dry runs charge nothing. An ask-first rule only queues, but a polled trigger still pays X
+  // for the poll first, so it asks to confirm too.
+  const paid = !rule.dryRun && (!rule.askFirst || poll !== null);
   const last = runs[0];
   return (
     <div className="px-5">
@@ -64,6 +68,12 @@ function RuleState({
         <Prop as="div" label={`Per ${per}`}>
           {cost === null ? "…" : usd(cost)}
         </Prop>
+        {poll !== null ? (
+          <Prop as="div" label="Per poll">
+            {usd(poll.usd)}
+            <span className="text-muted-foreground">every {poll.every}</span>
+          </Prop>
+        ) : null}
         <Prop as="div" label="Today">
           {usd(rule.spentUsdDay)}
           <span className="text-muted-foreground">of {budget(rule.budgetUsdDay)}</span>
@@ -115,7 +125,11 @@ function RuleState({
             variant="ghost"
             aria-expanded={webhook !== null}
             onClick={() =>
-              webhook === null ? void loadWebhook(rule.id).then(setWebhook) : setWebhook(null)
+              webhook === null
+                ? void loadWebhook(rule.id).then(setWebhook, (e: unknown) =>
+                    setWebhook(e instanceof Error ? e.message : String(e)),
+                  )
+                : setWebhook(null)
             }
           >
             Webhook
@@ -136,8 +150,9 @@ function RuleState({
       {confirm === "run" ? (
         <div className="mt-3 flex flex-col gap-2 border-t border-border pt-3 text-xs">
           <p className="text-warning-foreground">
-            Charges your treg balance {cost === null ? "…" : usd(cost)} per {per}, capped by the{" "}
-            {budget(rule.budgetUsdDay)} daily budget.
+            {rule.askFirst
+              ? `Charges your treg balance: its poll costs up to ${usd(poll?.usd ?? 0)} and what it finds waits in Needs you.`
+              : `Charges your treg balance ${cost === null ? "…" : usd(cost)} per ${per}${poll === null ? "" : `, plus up to ${usd(poll.usd)} for the poll`}, capped by the ${budget(rule.budgetUsdDay)} daily budget.`}
           </p>
           <div className="flex gap-1.5">
             <Button
@@ -149,7 +164,13 @@ function RuleState({
               }}
             >
               Confirm and run
-              {cost === null ? <Cost label="…" /> : <Cost usd={cost} />}
+              {rule.askFirst ? (
+                <Cost usd={poll?.usd ?? 0} />
+              ) : cost === null ? (
+                <Cost label="…" />
+              ) : (
+                <Cost usd={cost} />
+              )}
             </Button>
             <Button size="sm" variant="ghost" onClick={() => setConfirm(null)}>
               Cancel
@@ -177,7 +198,9 @@ function RuleState({
         </div>
       ) : null}
 
-      {webhook !== null ? (
+      {typeof webhook === "string" ? (
+        <p className="mt-3 text-xs text-error-foreground">{webhook}</p>
+      ) : webhook !== null ? (
         <PropGroup title="Webhook">
           <Prop as="div" label="POST">
             <span className="truncate select-all">{webhook.path}</span>

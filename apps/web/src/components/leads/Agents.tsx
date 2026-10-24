@@ -31,7 +31,7 @@ import {
   useSelection,
 } from "../ui/split";
 import { xAction } from "../x";
-import { useAction } from "./ui";
+import { agentRunCost, useAction } from "./ui";
 
 const blank: SignalAgentInput = {
   name: "",
@@ -175,7 +175,7 @@ export function AgentsSection() {
                     }
                   >
                     No agents yet. Each run is one search
-                    {rates === null ? "" : ` (${usd(rates.searchPage)})`}.
+                    {rates === null ? "" : ` (${agentRunCost(rates, blank)})`}.
                   </Empty>
                 ) : (
                   <>
@@ -237,6 +237,10 @@ function AgentPanel({ agent }: { readonly agent: SignalAgent }) {
   const upsert = useAtomSet(upsertAgentAtom, { mode: "promise" });
   const running = useAction();
   const toggling = useAction();
+  // Shared by every agent: a second run or pause while one is in flight, even for an agent
+  // opened since, would interrupt it.
+  const runInFlight = useAtomValue(runAgentAtom).waiting;
+  const upsertInFlight = useAtomValue(upsertAgentAtom).waiting;
   const last = agent.lastRun;
   return (
     <>
@@ -249,7 +253,7 @@ function AgentPanel({ agent }: { readonly agent: SignalAgent }) {
           <button
             type="button"
             className={pill}
-            disabled={running.busy || rates === null}
+            disabled={running.busy || runInFlight || rates === null}
             onClick={() =>
               void running.run(() =>
                 runAgent(agent.id).then(() => {
@@ -260,12 +264,12 @@ function AgentPanel({ agent }: { readonly agent: SignalAgent }) {
             }
           >
             <TextMorph duration={250}>{running.busy ? "Running…" : "Run now"}</TextMorph>
-            {rates === null ? <Cost label="…" /> : <Cost usd={rates.searchPage} />}
+            <Cost label={agentRunCost(rates, agent)} />
           </button>
           <button
             type="button"
             className={pill}
-            disabled={toggling.busy}
+            disabled={toggling.busy || upsertInFlight}
             onClick={() =>
               void toggling.run(() => upsert({ ...agent, enabled: !agent.enabled }).then(refresh))
             }
@@ -453,7 +457,7 @@ function AgentForm({
           ) : null}
           <span className="ml-auto flex items-baseline gap-1.5 text-xs text-muted-foreground">
             per run
-            {rates === null ? <Cost label="…" /> : <Cost usd={rates.searchPage} />}
+            <Cost label={agentRunCost(rates, a)} />
           </span>
         </div>
         {error !== null ? <p className="mt-2 text-xs text-error-foreground">{error}</p> : null}

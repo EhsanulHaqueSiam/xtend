@@ -5,7 +5,7 @@ import { ChevronDown, X } from "lucide-react";
 import { useState } from "react";
 import { TextMorph } from "torph/react";
 
-import { cn } from "../../lib/utils";
+import { cn, parsePostId } from "../../lib/utils";
 import { useRates, usd } from "../../state/costs";
 import {
   createListAtom,
@@ -403,9 +403,6 @@ function SearchBuilder({ listId }: { readonly listId: number }) {
   );
 }
 
-/** A post's id from its URL or the bare id. */
-const postIdOf = (v: string) => v.match(/status\/(\d+)/)?.[1] ?? v.replace(/\D/g, "");
-
 /** Who reposted or liked one post, priced by the service before the fetch, then into the list. */
 function EngagementBuilder({ listId }: { readonly listId: number }) {
   const fetchEngagers = useAtomSet(engagersAtom, { mode: "promise" });
@@ -415,14 +412,15 @@ function EngagementBuilder({ listId }: { readonly listId: number }) {
   const quote = AsyncResult.getOrElse(useAtomValue(engagersQuoteAtom(via)), () => null);
   const [found, setFound] = useState<Found | null>(null);
   const [attempt, setAttempt] = useState(0);
-  const postId = postIdOf(post.trim());
+  // Null until it is a post id or a post's URL: a profile URL's digits are not a post.
+  const postId = parsePostId(post);
   return (
     <>
       <Section>
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            if (postId === "") return;
+            if (postId === null) return;
             void run(() =>
               fetchEngagers({ postId, via }).then((r) => {
                 setFound(r);
@@ -450,7 +448,7 @@ function EngagementBuilder({ listId }: { readonly listId: number }) {
             </select>
           </Field>
           <div className="mt-3 flex items-center gap-1.5">
-            <button type="submit" className={pill} disabled={busy || postId === ""}>
+            <button type="submit" className={pill} disabled={busy || postId === null}>
               <TextMorph duration={250}>{busy ? "Fetching…" : "Fetch"}</TextMorph>
               {quote === null ? <Cost label="…" /> : <Cost usd={quote} />}
             </button>

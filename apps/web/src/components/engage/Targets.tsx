@@ -3,10 +3,10 @@ import { Link } from "@tanstack/react-router";
 import type { ReplyTarget } from "@xtend/contracts";
 import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { TextMorph } from "torph/react";
 
-import { useQuoteLabel } from "../../state/costs";
+import { quoteAtom, useQuote, useQuoteLabel } from "../../state/costs";
 import {
   addKeywordsAtom,
   findKeywordsAtom,
@@ -57,13 +57,19 @@ type Suggestions = { keywords: ReadonlyArray<string>; handles: ReadonlyArray<str
 /** Posts worth replying to, ranked by the service; the selected one opens with its numbers and a reply. */
 export function Targets() {
   const result = useAtomValue(targetsAtom);
-  const refresh = useAtomRefresh(targetsAtom);
+  const load = useAtomSet(targetsAtom);
   const settings = AsyncResult.getOrElse(useAtomValue(settingsAtom), () => null);
   const find = useAtomSet(findKeywordsAtom, { mode: "promiseExit" });
   const finding = useAtomValue(findKeywordsAtom).waiting;
   const findQuote = useQuoteLabel({ kind: "findKeywords" });
   const assistQuote = useQuoteLabel({ kind: "assist" });
   const targetsQuote = useQuoteLabel({ kind: "engageTargets" });
+  const free = useQuote({ kind: "engageTargets" })?.cached === true;
+  const initial = AsyncResult.isInitial(result);
+  // Opening the page only shows what the cache already holds; a paid search waits for the click.
+  useEffect(() => {
+    if (free && initial) load();
+  }, [free, initial, load]);
   const [found, setFound] = useState<Suggestions | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Skipping only hides a target for this visit, as it always has.
@@ -81,6 +87,37 @@ export function Targets() {
     if (Exit.isFailure(exit)) setError(errorText(exit.cause));
     else setFound(exit.value);
   };
+  const skip = (id: string) => setSkipped((s) => new Set(s).add(id));
+
+  const top = (
+    <>
+      {error !== null ? <ErrorLine>{error}</ErrorLine> : null}
+      {found !== null ? (
+        <Found
+          found={found}
+          onAdded={() => setFound(null)}
+          onError={setError}
+          onDismiss={() => setFound(null)}
+        />
+      ) : null}
+      <NicheLine />
+    </>
+  );
+  // With no keywords there is nothing to search, whatever the targets result says.
+  const noKeywords =
+    settings === null || settings.keywords.length > 0 ? null : noHandle ? (
+      <NoHandle subject="Finding keywords needs" />
+    ) : (
+      <Empty
+        action={
+          <Link to="/settings" className={pill}>
+            Settings
+          </Link>
+        }
+      >
+        No keywords yet. Find some from your posts, or add your own in Settings.
+      </Empty>
+    );
 
   return (
     <>
@@ -105,57 +142,42 @@ export function Targets() {
               {/* One page of your posts, then one model call over it. */}
               <Cost label={`${findQuote} + ${assistQuote}`} />
             </button>
-            <button type="button" className={pill} disabled={result.waiting} onClick={refresh}>
-              Refresh
+            <button type="button" className={pill} disabled={result.waiting} onClick={() => load()}>
+              <TextMorph duration={250}>{result.waiting ? "Searching…" : "Refresh"}</TextMorph>
               <Cost label={targetsQuote} />
             </button>
           </>
         }
       />
       {AsyncResult.match(result, {
-        onInitial: () => (
-          <PageBody>
-            <Empty>Loading targets…</Empty>
-          </PageBody>
+        onInitial: ({ waiting }) => (
+          <TargetsBody
+            targets={[]}
+            top={top}
+            empty={
+              noKeywords ?? (
+                <Empty>
+                  {waiting
+                    ? "Searching your keywords…"
+                    : "Refresh to search your keywords for posts worth a reply."}
+                </Empty>
+              )
+            }
+            onSkip={skip}
+          />
         ),
         onFailure: (f) => (
           <PageBody>
+            {top}
             <ErrorLine>{errorText(f.cause)}</ErrorLine>
           </PageBody>
         ),
         onSuccess: () => (
           <TargetsBody
             targets={targets}
-            top={
-              <>
-                {error !== null ? <ErrorLine>{error}</ErrorLine> : null}
-                {found !== null ? (
-                  <Found
-                    found={found}
-                    onDone={() => {
-                      setFound(null);
-                      refresh();
-                    }}
-                    onDismiss={() => setFound(null)}
-                  />
-                ) : null}
-                <NicheLine />
-              </>
-            }
+            top={top}
             empty={
-              noHandle && settings.keywords.length === 0 ? (
-                <NoHandle subject="Finding keywords needs" />
-              ) : settings !== null && settings.keywords.length === 0 ? (
-                <Empty
-                  action={
-                    <Link to="/settings" className={pill}>
-                      Settings
-                    </Link>
-                  }
-                >
-                  No keywords yet. Find some from your posts, or add your own in Settings.
-                </Empty>
-              ) : (
+              noKeywords ?? (
                 <Empty
                   action={
                     <Link to="/settings" className={pill}>
@@ -167,7 +189,7 @@ export function Targets() {
                 </Empty>
               )
             }
-            onSkip={(id) => setSkipped((s) => new Set(s).add(id))}
+            onSkip={skip}
           />
         ),
       })}
@@ -290,24 +312,34 @@ function TargetDetail({
 /** Keywords and handles the model suggested from the user's posts, one click into Settings. */
 function Found({
   found,
-  onDone,
+  onAdded,
+  onError,
   onDismiss,
 }: {
   readonly found: Suggestions;
-  readonly onDone: () => void;
+  readonly onAdded: () => void;
+  readonly onError: (message: string) => void;
   readonly onDismiss: () => void;
 }) {
   const addKeywords = useAtomSet(addKeywordsAtom, { mode: "promise" });
+  const adding = useAtomValue(addKeywordsAtom).waiting;
+  const refreshTargetsQuote = useAtomRefresh(quoteAtom([{ kind: "engageTargets" }]));
+  // New keywords are searches the cache has not seen: requote, and let the priced Refresh run them.
+  const add = async () => {
+    try {
+      await addKeywords(found.keywords);
+      onAdded();
+      refreshTargetsQuote();
+    } catch (e) {
+      onError(e instanceof Error ? e.message : String(e));
+    }
+  };
   return (
     <Section
       title="Suggested keywords"
       aside={
         <>
-          <button
-            type="button"
-            className={pill}
-            onClick={() => void addKeywords(found.keywords).then(onDone)}
-          >
+          <button type="button" className={pill} disabled={adding} onClick={() => void add()}>
             Add all
           </button>
           <button type="button" className={xAction} onClick={onDismiss}>
@@ -331,7 +363,8 @@ function NicheLine() {
   const result = useAtomValue(nicheAtom);
   const refresh = useAtomRefresh(nicheAtom);
   const rebuild = useAtomSet(rebuildNicheAtom, { mode: "promiseExit" });
-  const rebuilding = useAtomValue(rebuildNicheAtom).waiting;
+  const state = useAtomValue(rebuildNicheAtom);
+  const rebuilding = state.waiting;
   const niche = AsyncResult.getOrElse(result, () => null);
   if (niche === null) return null;
   return (
@@ -343,6 +376,11 @@ function NicheLine() {
           : niche.handles.map((h) => `@${h.handle} ${h.replies}`).join(" · ")}
         {niche.topics.length > 0 ? `  ·  ${niche.topics.join(", ")}` : ""}
       </span>
+      {AsyncResult.isFailure(state) ? (
+        <span className="shrink-0 truncate text-2xs text-error-foreground">
+          {errorText(state.cause)}
+        </span>
+      ) : null}
       <button
         type="button"
         className={xAction}

@@ -91,11 +91,14 @@ type RowAction = "queue" | "unschedule" | "delete";
 function DraftRow({
   draft: d,
   costUsd,
+  busy,
   onOpen,
   onAct,
 }: {
   readonly draft: Draft;
   readonly costUsd: number | null;
+  /** Another row action is in flight; see `DraftsHome`'s `guarded`. */
+  readonly busy: boolean;
   readonly onOpen: (id: string) => void;
   readonly onAct: (what: RowAction, id: string) => void;
 }) {
@@ -147,12 +150,17 @@ function DraftRow({
       <td className={cn(table.td, "w-px")} onClick={(e) => e.stopPropagation()}>
         <div className="flex justify-end gap-0.5">
           {d.status === "draft" || d.status === "suggested" || d.status === "failed" ? (
-            <Button variant="ghost" size="xs" onClick={() => onAct("queue", d.id)}>
+            <Button variant="ghost" size="xs" disabled={busy} onClick={() => onAct("queue", d.id)}>
               {d.status === "failed" ? "Retry at next slot" : "Queue"}
             </Button>
           ) : null}
           {d.status === "queued" ? (
-            <Button variant="ghost" size="xs" onClick={() => onAct("unschedule", d.id)}>
+            <Button
+              variant="ghost"
+              size="xs"
+              disabled={busy}
+              onClick={() => onAct("unschedule", d.id)}
+            >
               Unschedule
             </Button>
           ) : null}
@@ -162,7 +170,12 @@ function DraftRow({
             </Button>
           ) : null}
           {editable && d.status !== "queued" ? (
-            <Button variant="ghost-destructive" size="xs" onClick={() => onAct("delete", d.id)}>
+            <Button
+              variant="ghost-destructive"
+              size="xs"
+              disabled={busy}
+              onClick={() => onAct("delete", d.id)}
+            >
               {d.status === "suggested" ? "Dismiss" : "Delete"}
             </Button>
           ) : null}
@@ -175,9 +188,11 @@ function DraftRow({
 /** An ask-first automation run waiting for a click; approving pays the price on its button. */
 function PendingRow({
   request,
+  busy,
   onDecide,
 }: {
   readonly request: PendingRequest;
+  readonly busy: boolean;
   readonly onDecide: (approve: boolean, id: number) => void;
 }) {
   return (
@@ -191,11 +206,16 @@ function PendingRow({
       </td>
       <td className={cn(table.td, "w-px")}>
         <div className="flex justify-end gap-1">
-          <Button size="xs" onClick={() => onDecide(true, request.id)}>
+          <Button size="xs" disabled={busy} onClick={() => onDecide(true, request.id)}>
             Approve
             <Cost tone="solid" usd={request.costUsd} />
           </Button>
-          <Button variant="ghost" size="xs" onClick={() => onDecide(false, request.id)}>
+          <Button
+            variant="ghost"
+            size="xs"
+            disabled={busy}
+            onClick={() => onDecide(false, request.id)}
+          >
             Dismiss
           </Button>
         </div>
@@ -273,6 +293,17 @@ export function DraftsHome({
   const dismiss = useAtomSet(dismissPendingAtom, { mode: "promiseExit" });
   const costOf = useDraftCost();
   const [notice, setNotice] = useState<string | null>(null);
+  // One action at a time: a second click would pay twice, and the rows share one rpc atom each.
+  const [busy, setBusy] = useState(false);
+  const guarded = async (work: () => Promise<void>) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await work();
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const all = AsyncResult.getOrElse(drafts, () => [] as ReadonlyArray<Draft>);
   const shown = all.filter((d) => STATUSES[tab].includes(d.status));
@@ -282,28 +313,30 @@ export function DraftsHome({
 
   const report = (exit: Exit.Exit<unknown, unknown>, done: string) =>
     setNotice(Exit.isFailure(exit) ? `Failed: ${failText(exit.cause)}` : done);
-  const act = async (what: RowAction, id: string) => {
-    const exit =
-      what === "queue"
-        ? await queue(id)
-        : what === "unschedule"
-          ? await unschedule(id)
-          : await remove(id);
-    report(
-      exit,
-      what === "queue"
-        ? "Queued for the next slot"
-        : what === "unschedule"
-          ? "Back in drafts"
-          : "Removed",
-    );
-    refreshDrafts();
-  };
-  const decide = async (yes: boolean, id: number) => {
-    report(yes ? await approve(id) : await dismiss(id), yes ? "Approved" : "Dismissed");
-    refreshPending();
-    refreshDrafts();
-  };
+  const act = (what: RowAction, id: string) =>
+    guarded(async () => {
+      const exit =
+        what === "queue"
+          ? await queue(id)
+          : what === "unschedule"
+            ? await unschedule(id)
+            : await remove(id);
+      report(
+        exit,
+        what === "queue"
+          ? "Queued for the next slot"
+          : what === "unschedule"
+            ? "Back in drafts"
+            : "Removed",
+      );
+      refreshDrafts();
+    });
+  const decide = (yes: boolean, id: number) =>
+    guarded(async () => {
+      report(yes ? await approve(id) : await dismiss(id), yes ? "Approved" : "Dismissed");
+      refreshPending();
+      refreshDrafts();
+    });
 
   // The section's size and what posting all of it would cost.
   const count = shown.length + asks.length;
@@ -349,7 +382,7 @@ export function DraftsHome({
             }
           >
             {asks.map((r) => (
-              <PendingRow key={r.id} request={r} onDecide={decide} />
+              <PendingRow key={r.id} request={r} busy={busy} onDecide={decide} />
             ))}
           </Table>
         ) : null}
@@ -378,6 +411,7 @@ export function DraftsHome({
                     key={d.id}
                     draft={d}
                     costUsd={costs[i] ?? null}
+                    busy={busy}
                     onOpen={onOpen}
                     onAct={act}
                   />

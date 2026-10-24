@@ -72,8 +72,8 @@ export function DryRun() {
   const [picked, setPicked] = useState<number | null>(null);
   const [report, setReport] = useState<DryRunReport | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // The first rule until one is picked, so the list can load after the page.
-  const ruleId = picked ?? rules[0]?.id ?? null;
+  // Follows the list: rules can arrive, or the picked one be deleted, while the page is open.
+  const ruleId = rules.some((r) => r.id === picked) ? picked : (rules[0]?.id ?? null);
   const guard = async (work: () => Promise<void>) => {
     setError(null);
     try {
@@ -86,7 +86,7 @@ export function DryRun() {
 
   return (
     <div className="flex h-full flex-col">
-      <PageHeader title="Dry run" detail="fires nothing" />
+      <PageHeader title="Dry run" detail="reads stored data only, fires nothing" />
       <ErrorBar>{error}</ErrorBar>
       <PageBody>
         <Section
@@ -101,6 +101,7 @@ export function DryRun() {
               <TextMorph duration={250}>
                 {previewState.waiting ? "Evaluating" : `Evaluate ${enabled} enabled`}
               </TextMorph>
+              <Cost usd={0} />
             </Button>
           }
         >

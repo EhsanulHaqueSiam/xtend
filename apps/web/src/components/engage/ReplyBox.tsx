@@ -4,7 +4,7 @@ import * as Exit from "effect/Exit";
 import { useState } from "react";
 import { TextMorph } from "torph/react";
 
-import { useRates } from "../../state/costs";
+import { usd, useQuote, useRates } from "../../state/costs";
 import { draftReplyAtom, likeAtom, sendReplyAtom } from "../../state/engage";
 import { cn } from "../../lib/utils";
 import { errorText } from "../analyze/ui";
@@ -20,11 +20,21 @@ export interface Work {
   readonly error: string | null;
   readonly replied: boolean;
   readonly liked: boolean;
+  /** What the like cost, quoted before it ran. */
+  readonly likedUsd: number;
 }
 
 export type Patch = (change: Partial<Work>) => void;
 
-const idle: Work = { drafts: [], text: "", busy: null, error: null, replied: false, liked: false };
+const idle: Work = {
+  drafts: [],
+  text: "",
+  busy: null,
+  error: null,
+  replied: false,
+  liked: false,
+  likedUsd: 0,
+};
 
 /**
  * Work per post id, owned by the screen rather than the detail column, so a
@@ -54,10 +64,14 @@ export function ReplyBox({
   readonly work: Work;
   readonly patch: Patch;
 }) {
-  const draft = useAtomSet(draftReplyAtom, { mode: "promiseExit" });
-  const send = useAtomSet(sendReplyAtom, { mode: "promiseExit" });
-  const like = useAtomSet(likeAtom, { mode: "promiseExit" });
+  // One atom per post: a new call on a shared one would interrupt a paid like or reply still
+  // in flight for the post the user just left.
+  const draft = useAtomSet(draftReplyAtom(post.postId), { mode: "promiseExit" });
+  const send = useAtomSet(sendReplyAtom(post.postId), { mode: "promiseExit" });
+  const like = useAtomSet(likeAtom(post.postId), { mode: "promiseExit" });
   const rates = useRates();
+  // The service's price: the first like of the day also pays for the account lookup.
+  const likeQuote = useQuote({ kind: "like" });
   const { drafts, text, busy, error, replied, liked } = work;
 
   const onDraft = async () => {
@@ -81,12 +95,14 @@ export function ReplyBox({
   };
 
   const onLike = async () => {
+    // Read before the call: the like itself fills the lookup cache and requotes.
+    const price = likeQuote?.usd ?? 0;
     patch({ busy: "like", error: null });
-    const exit = await like(post.postId);
+    const exit = await like();
     patch(
       Exit.isFailure(exit)
         ? { busy: null, error: errorText(exit.cause) }
-        : { busy: null, liked: true },
+        : { busy: null, liked: true, likedUsd: price },
     );
   };
 
@@ -148,13 +164,19 @@ export function ReplyBox({
         <button
           type="button"
           className={pill}
-          disabled={busy !== null || liked || rates === null}
+          disabled={busy !== null || liked || likeQuote === null}
           onClick={() => void onLike()}
         >
           <TextMorph duration={250}>
             {liked ? "Liked" : busy === "like" ? "Liking…" : "Like"}
           </TextMorph>
-          {liked ? null : rates === null ? <Cost label="…" /> : <Cost usd={rates.like} />}
+          {liked ? (
+            <Cost label={`for ${usd(work.likedUsd)}`} />
+          ) : likeQuote === null ? (
+            <Cost label="…" />
+          ) : (
+            <Cost usd={likeQuote.usd} />
+          )}
         </button>
       </div>
       {error !== null ? <p className="mt-2 text-xs text-error-foreground">{error}</p> : null}

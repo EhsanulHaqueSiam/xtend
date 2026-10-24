@@ -21,6 +21,7 @@ import { fmtWhen, postCosts, sumUsd } from "../components/compose/DraftsList";
 import { PostPreview, quotedPostId } from "../components/compose/PostPreview";
 import {
   MediaList,
+  postText,
   REPLY_OPTIONS,
   splitBlocks,
   ThreadEditor,
@@ -112,10 +113,34 @@ const toPatch = (e: Editor): DraftPatch => ({
 });
 const sourceUrl = (postId: string) => `https://x.com/i/web/status/${postId}`;
 
+/** The thread replaced by these posts; files of posts it no longer has go, as the service drops them. */
+const withPosts = (e: Editor, texts: ReadonlyArray<string>): Editor => ({
+  ...e,
+  blocks: texts.map((text) => ({ text })),
+  media: e.media.filter((m) => m.blockIndex < texts.length),
+});
+
+// A thread post may be only media or only the quote link, as the publisher allows.
 const isBlank = (e: Editor) =>
   e.kind === "thread"
-    ? e.blocks.every((b) => b.text.trim() === "") && e.media.length === 0
+    ? e.blocks.every((b) => b.text.trim() === "") &&
+      e.media.length === 0 &&
+      e.quoteUrl.trim() === ""
     : e.title.trim() === "" && e.body.trim() === "";
+
+/** What the first `posts` posts say, compared as DraftStore.update does to keep them on a retry. */
+const said = (
+  d: Pick<Draft, "kind" | "poll" | "quoteUrl" | "replyToPostId" | "blocks" | "media">,
+  posts: number,
+) =>
+  JSON.stringify([
+    d.kind,
+    d.poll,
+    d.quoteUrl,
+    d.replyToPostId,
+    d.blocks.slice(0, posts).map((b) => b.text),
+    d.media.filter((m) => m.blockIndex < posts).map((m) => [m.id, m.blockIndex, m.position]),
+  ]);
 
 const toBase64 = (file: File) =>
   new Promise<string>((resolve, reject) => {
@@ -407,7 +432,7 @@ function ComposeScreen() {
   );
 }
 
-function ComposeEditor({
+export function ComposeEditor({
   draftParam,
   inspire,
   reply,
@@ -465,9 +490,18 @@ function ComposeEditor({
   const [notice, setNotice] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<"post" | "schedule" | null>(null);
   const [when, setWhen] = useState("");
+  // The picker's wall time is in the account zone, whatever the browser's.
+  const scheduleAt = localInputToInstant(zone, when);
+  // The scheduler posts anything already due on its next tick, so a past time would post now
+  // unconfirmed. Judged against when the picker opened; Schedule checks the clock again.
+  const [pickerOpenedAt, setPickerOpenedAt] = useState(0);
+  const schedulePast = scheduleAt !== null && scheduleAt.getTime() <= pickerOpenedAt;
   const [coverPrompt, setCoverPrompt] = useState("");
+  // The paid or sending action in flight; its buttons stay disabled so a double click cannot repeat it.
+  const [busy, setBusy] = useState<"post" | "queue" | "schedule" | "cover" | null>(null);
   const lastSaved = useRef<string>(JSON.stringify(initial));
-  const saving = useRef(false);
+  const saving = useRef<Promise<Draft> | null>(null);
+  const removals = useRef(Promise.resolve());
 
   const open = (d: Draft) => {
     setSelected(d);
@@ -487,13 +521,15 @@ function ComposeEditor({
     // eslint-disable-next-line react/exhaustive-effect-dependencies -- runs until the deep-linked draft is open.
   }, [draftParam, drafts]);
 
-  // Autosave: one row per editor session, created on the first non-blank change.
+  // Autosave: one row per editor session, created on the first non-blank change. One save at a
+  // time: a caller during one gets its draft (a first create included), and the autosave effect,
+  // rerun by the new `selected`, sends what changed meanwhile.
   const save = async (force = false): Promise<Draft | null> => {
+    if (saving.current !== null) return saving.current;
     const json = JSON.stringify(editor);
-    if ((json === lastSaved.current && !force) || saving.current) return selected;
+    if (json === lastSaved.current && !force) return selected;
     if (selected === null && isBlank(editor) && !force) return null;
-    saving.current = true;
-    try {
+    const run = (async () => {
       const d =
         selected === null
           ? await create({
@@ -505,28 +541,54 @@ function ComposeEditor({
       setSelected(d);
       refresh();
       return d;
+    })();
+    saving.current = run;
+    try {
+      return await run;
     } finally {
-      saving.current = false;
+      saving.current = null;
     }
   };
+  /** A failed save stays on screen as the notice instead of vanishing with the promise. */
+  const reportFailure = (e: unknown) => {
+    setNotice(`Failed: ${e instanceof Error ? e.message : String(e)}`);
+    return null;
+  };
+  /** Saves now; false when the save failed. */
+  const saveOrReport = () =>
+    save().then(
+      () => true,
+      (e: unknown) => {
+        reportFailure(e);
+        return false;
+      },
+    );
   useEffect(() => {
-    // eslint-disable-next-line react/exhaustive-effect-dependencies -- debounced on content only; `save` is rebuilt each render.
-    const t = setTimeout(save, 600);
+    // eslint-disable-next-line react/exhaustive-effect-dependencies -- debounced on content only; `save` is rebuilt each render. `selected` reruns it after every save, so an edit skipped while one was in flight still goes out.
+    const t = setTimeout(saveOrReport, 600);
     return () => clearTimeout(t);
-  }, [editor, selected?.id]);
+  }, [editor, selected]);
+  // Leaving inside the debounce (a sidebar link, a new ?draft=) still saves the last keystrokes.
+  const flush = useRef(save);
+  useEffect(() => {
+    flush.current = save;
+  });
+  useEffect(() => () => void flush.current().catch(() => {}), []);
 
-  /** Media rows come back from the service; the editor keeps its own order and alt text in sync with them. */
-  const takeMedia = (d: Draft) => {
+  /** Rows the service just stored join the editor's; its own rows keep their block, order and alt. */
+  const attach = (d: Draft, ids: ReadonlySet<string>) => {
     setSelected(d);
-    setEditor((e) => ({ ...e, media: d.media }));
-    lastSaved.current = JSON.stringify({ ...editor, media: d.media });
+    setEditor((e) => ({ ...e, media: [...e.media, ...d.media.filter((m) => ids.has(m.id))] }));
     refresh();
   };
+  const newIds = (d: Draft, known: ReadonlyArray<DraftMedia>) =>
+    new Set(d.media.filter((m) => !known.some((x) => x.id === m.id)).map((m) => m.id));
 
   const addFiles = async (blockIndex: number, files: ReadonlyArray<File>) => {
     // Files need a row to hang off; a blank editor gets one now.
-    const d = selected ?? (await save(true));
+    const d = selected ?? (await save(true).catch(reportFailure));
     if (d === null) return;
+    let known = d.media;
     // One at a time on purpose: positions follow the order the files were picked in.
     /* eslint-disable no-await-in-loop */
     for (const file of files) {
@@ -545,50 +607,63 @@ function ComposeEditor({
         setNotice(`Failed: ${failText(exit.cause)}`);
         continue;
       }
-      const added = exit.value.media.find((m) => !editor.media.some((x) => x.id === m.id));
-      if (added !== undefined)
-        setPreviews((p) => ({ ...p, [added.id]: URL.createObjectURL(file) }));
-      takeMedia(exit.value);
+      const added = newIds(exit.value, known);
+      known = exit.value.media;
+      for (const id of added) setPreviews((p) => ({ ...p, [id]: URL.createObjectURL(file) }));
+      attach(exit.value, added);
     }
     /* eslint-enable no-await-in-loop */
   };
 
-  const removeMedia = async (id: string) => {
+  // Queued one after another: a second call on the shared rpc atom would interrupt the first.
+  const removeMedia = (id: string) => {
     if (selected === null) return;
-    const exit = await mediaRemove({ draftId: selected.id, id });
-    if (Exit.isFailure(exit)) setNotice(`Failed: ${failText(exit.cause)}`);
-    else takeMedia(exit.value);
+    const draftId = selected.id;
+    removals.current = removals.current.then(async () => {
+      const exit = await mediaRemove({ draftId, id });
+      if (Exit.isFailure(exit)) return setNotice(`Failed: ${failText(exit.cause)}`);
+      setSelected(exit.value);
+      setEditor((e) => ({ ...e, media: e.media.filter((m) => m.id !== id) }));
+      refresh();
+    });
   };
 
   const act = async (what: "queue" | "schedule" | "post") => {
-    const d = (await save()) ?? selected;
-    if (d === null) return;
-    // The picker's wall time is in the account zone, whatever the browser's.
-    const at = localInputToInstant(zone, when);
-    if (what === "schedule" && at === null) return;
-    const exit =
-      what === "queue"
-        ? await queue(d.id)
-        : what === "schedule"
-          ? await schedule({ id: d.id, at: at!.toISOString() })
-          : await postNow(d.id);
-    setConfirm(null);
-    refreshContext();
-    if (Exit.isFailure(exit)) {
-      setNotice(failText(exit.cause));
-      return;
+    if (busy !== null) return;
+    setBusy(what);
+    try {
+      const saved = await save().then((d) => d ?? selected, reportFailure);
+      if (saved === null) return;
+      if (what === "schedule" && (scheduleAt === null || scheduleAt.getTime() <= Date.now())) {
+        setNotice("Failed: that time has passed");
+        return;
+      }
+      const exit =
+        what === "queue"
+          ? await queue(saved.id)
+          : what === "schedule"
+            ? await schedule({ id: saved.id, at: scheduleAt!.toISOString() })
+            : await postNow(saved.id);
+      setConfirm(null);
+      refreshContext();
+      if (Exit.isFailure(exit)) {
+        setNotice(`Failed: ${failText(exit.cause)}`);
+        return;
+      }
+      const next = exit.value;
+      setSelected(next);
+      onSection(tabOf(next.status));
+      refresh();
+      setNotice(
+        next.status === "failed"
+          ? `Failed: ${next.error}`
+          : next.status === "posted"
+            ? `Posted ${next.postIds.length} ${next.kind === "article" ? "article" : "posts"}${next.linkPreviewNote === null ? "" : `. ${next.linkPreviewNote}`}`
+            : `Queued for ${next.scheduledAt === null ? "later" : fmtWhen(next.scheduledAt)}`,
+      );
+    } finally {
+      setBusy(null);
     }
-    const next = exit.value;
-    setSelected(next);
-    onSection(tabOf(next.status));
-    refresh();
-    setNotice(
-      next.status === "failed"
-        ? `Failed: ${next.error}`
-        : next.status === "posted"
-          ? `Posted ${next.postIds.length} ${next.kind === "article" ? "article" : "posts"}${next.linkPreviewNote === null ? "" : `. ${next.linkPreviewNote}`}`
-          : `Queued for ${next.scheduledAt === null ? "later" : fmtWhen(next.scheduledAt)}`,
-    );
   };
 
   // Read once per mount; the slot label only needs to know which week it falls in.
@@ -600,17 +675,62 @@ function ComposeEditor({
   const blocks = editor.blocks;
   const media = editor.media;
   const hasMedia = media.length > 0;
+  const hasMediaAt = (i: number) => media.some((m) => m.blockIndex === i);
   const quoteUrl = editor.quoteUrl.trim() === "" ? null : editor.quoteUrl.trim();
   const quoteBad = quoteUrl !== null && quotedPostId(quoteUrl) === null;
-  const costs = rates === null ? [] : postCosts(rates, blocks, media, quoteUrl);
+  const isArticle = editor.kind === "article";
+  // The scheduler or another window moves the draft while it is open here; the list follows
+  // their status events, so its newer copy is where the draft really is.
+  const listed =
+    selected === null
+      ? undefined
+      : AsyncResult.getOrElse(drafts, (): ReadonlyArray<Draft> => []).find(
+          (d) => d.id === selected.id,
+        );
+  const current =
+    listed !== undefined && selected !== null && listed.updatedAt > selected.updatedAt
+      ? listed
+      : selected;
+  // Posted is final; a draft mid-publish belongs to the publisher.
+  const locked = current?.status === "posted" || current?.status === "posting";
+  // Posts of a failed thread already on X. A retry skips them while they still say what went out;
+  // an edit to them makes the service start the thread over.
+  const onX = current === null || locked || isArticle ? 0 : current.postIds.length;
+  const skipped =
+    current !== null && onX > 0 && said({ ...editor, quoteUrl }, onX) === said(current, onX)
+      ? onX
+      : 0;
+  const costs =
+    rates === null
+      ? []
+      : postCosts(rates, blocks, media, quoteUrl).map((c, i) => (i < skipped ? 0 : c));
   const total = sumUsd(costs);
   const linkCount = rates === null ? 0 : costs.filter((c) => c === rates.postWithLink).length;
-  const sessionCount = costs.filter((c) => c === 0).length;
-  const isArticle = editor.kind === "article";
+  const sessionCount = blocks.filter((_, i) => i >= skipped && hasMediaAt(i)).length;
+  const toPost = blocks.length - skipped;
   const cover = media.find((m) => m.blockIndex === 0 && m.kind === "image");
-  // Posted is final; a draft mid-publish belongs to the publisher.
-  const locked = selected?.status === "posted" || selected?.status === "posting";
-  const canSend = !isBlank(editor) && !locked && rates !== null && !quoteBad;
+  // What the publisher would refuse (Publisher.refusal), caught before a thread stops halfway.
+  const emptyAt = isArticle
+    ? -1
+    : blocks.findIndex((b, i) => postText(b.text, i, quoteUrl).trim() === "" && !hasMediaAt(i));
+  const blocker =
+    isBlank(editor) || quoteBad
+      ? null
+      : isArticle
+        ? editor.title.trim() === "" || editor.body.trim() === ""
+          ? "Article needs a title and a body"
+          : null
+        : emptyAt !== -1
+          ? `Post ${emptyAt + 1} is empty`
+          : editor.poll !== null && editor.poll.options.some((o) => o.trim() === "")
+            ? "A poll option is empty"
+            : editor.poll !== null && hasMediaAt(0)
+              ? "A poll cannot share the first post with media"
+              : null;
+  const canSend =
+    !isBlank(editor) && !locked && rates !== null && !quoteBad && blocker === null && busy === null;
+  // Fields stay put while the service owns the draft or a post is going out.
+  const frozen = locked || busy === "post";
   const sessionBlocked = hasMedia && (!sessionPosting || context?.desktopConnected === false);
   // What sending costs: a thread post by post, an article as its draft and publish requests.
   const sendUsd = isArticle
@@ -624,16 +744,16 @@ function ComposeEditor({
     sendUsd === null ? <Cost tone="solid" label="…" /> : <Cost tone="solid" usd={sendUsd} />;
 
   const waiting = draftParam !== undefined && selected === null;
-  const queued = selected?.status === "queued";
+  const queued = current?.status === "queued";
   const slotAt =
-    queued && selected.scheduledAt !== null ? selected.scheduledAt : (context?.nextSlot ?? null);
+    queued && current.scheduledAt !== null ? current.scheduledAt : (context?.nextSlot ?? null);
   const slot = slotAt === null ? null : slotLabel(zone, new Date(slotAt), mountedAt);
   const firstLine = (isArticle ? editor.title : (blocks[0]?.text ?? "")).split("\n")[0]?.trim();
   const title = waiting
     ? "Draft"
     : firstLine !== undefined && firstLine !== ""
       ? firstLine
-      : selected !== null
+      : current !== null
         ? "Untitled"
         : reply !== undefined
           ? "Reply"
@@ -647,14 +767,14 @@ function ComposeEditor({
     ? []
     : [
         isArticle ? "article" : `${blocks.length} ${blocks.length === 1 ? "post" : "posts"}`,
-        selected === null || selected.status === "draft" ? null : selected.status,
+        current === null || current.status === "draft" ? null : current.status,
         voiceScore === null ? null : `voice ${Math.round(voiceScore * 100)}%`,
       ].filter((x) => x !== null);
-  const back = selected === null ? "drafts" : tabOf(selected.status);
+  const back = current === null ? "drafts" : tabOf(current.status);
 
   const postNowText = isArticle
     ? "Publish this article now: a draft and a publish request."
-    : `Post ${blocks.length} ${blocks.length === 1 ? "post" : "posts"} now.`;
+    : `Post ${toPost} ${toPost === 1 ? "post" : "posts"} now.`;
 
   return (
     <div className="flex h-full flex-col">
@@ -664,7 +784,7 @@ function ComposeEditor({
             variant="ghost-muted"
             size="sm"
             aria-label={`Back to ${sectionLabel("/compose", back)}`}
-            onClick={() => onBack(back)}
+            onClick={() => void saveOrReport().then((ok) => ok && onBack(back))}
           >
             <ArrowLeft />
             {sectionLabel("/compose", back)}
@@ -707,6 +827,12 @@ function ComposeEditor({
                           <dd>free</dd>
                         </div>
                       ) : null}
+                      {skipped > 0 ? (
+                        <div className="flex justify-between py-0.5 text-muted-foreground">
+                          <dt>{skipped} already on X</dt>
+                          <dd>free</dd>
+                        </div>
+                      ) : null}
                     </>
                   )}
                   <div className="mt-1 flex justify-between border-t border-border pt-1.5">
@@ -719,14 +845,17 @@ function ComposeEditor({
                   <Button variant="ghost" size="xs" onClick={() => setConfirm(null)}>
                     Cancel
                   </Button>
-                  <Button size="xs" onClick={() => act("post")}>
-                    Confirm and post
+                  <Button size="xs" disabled={busy !== null} onClick={() => act("post")}>
+                    {busy === "post" ? "Posting…" : "Confirm and post"}
                   </Button>
                 </div>
               </Popover>
               <Popover
                 open={confirm === "schedule"}
-                onOpenChange={(open) => setConfirm(open ? "schedule" : null)}
+                onOpenChange={(open) => {
+                  if (open) setPickerOpenedAt(Date.now());
+                  setConfirm(open ? "schedule" : null);
+                }}
                 trigger={
                   <Button
                     variant="outline"
@@ -742,7 +871,11 @@ function ComposeEditor({
                 <label className="flex flex-col gap-1.5">
                   <span className="flex justify-between text-xs text-muted-foreground">
                     Post at
-                    <span className="font-mono text-2xs">{zone}</span>
+                    <span
+                      className={cn("font-mono text-2xs", schedulePast && "text-error-foreground")}
+                    >
+                      {schedulePast ? "That time has passed" : zone}
+                    </span>
                   </span>
                   <input
                     type="datetime-local"
@@ -756,7 +889,11 @@ function ComposeEditor({
                   <Button variant="ghost" size="xs" onClick={() => setConfirm(null)}>
                     Cancel
                   </Button>
-                  <Button size="xs" disabled={when === ""} onClick={() => act("schedule")}>
+                  <Button
+                    size="xs"
+                    disabled={scheduleAt === null || schedulePast || busy !== null}
+                    onClick={() => act("schedule")}
+                  >
                     Schedule
                     {price}
                   </Button>
@@ -802,14 +939,23 @@ function ComposeEditor({
                 {notice}
               </p>
             ) : null}
-            {selected?.status === "failed" && notice === null ? (
-              <p className="mb-3 text-xs text-error-foreground">Failed: {selected.error}</p>
+            {current?.status === "failed" && notice === null ? (
+              <p className="mb-3 text-xs text-error-foreground">Failed: {current.error}</p>
+            ) : null}
+            {onX > 0 ? (
+              <p className="mb-3 text-xs text-muted-foreground">
+                {onX} of {blocks.length} posts are already on X. A retry posts the rest; editing one
+                of them posts the whole thread again.
+              </p>
             ) : null}
             {locked ? (
               <p className="mb-3 text-xs text-muted-foreground">
-                This draft is {selected?.status}; start a new draft to change it.
-                {selected?.linkPreviewNote === null ? "" : ` ${selected?.linkPreviewNote}`}
+                This draft is {current?.status}; start a new draft to change it.
+                {current?.linkPreviewNote === null ? "" : ` ${current?.linkPreviewNote}`}
               </p>
+            ) : null}
+            {blocker !== null ? (
+              <p className="mb-3 text-xs text-warning-foreground">{blocker}</p>
             ) : null}
             {sessionBlocked ? (
               <p className="mb-3 text-xs text-warning-foreground">
@@ -823,7 +969,7 @@ function ComposeEditor({
                 {AsyncResult.isSuccess(drafts) ? "This draft no longer exists." : "Loading draft"}
               </p>
             ) : isArticle ? (
-              <div className="flex flex-col gap-3">
+              <fieldset disabled={frozen} className="flex min-w-0 flex-col gap-3">
                 <input
                   className="w-full bg-transparent text-2xl font-semibold tracking-tight outline-hidden placeholder:text-placeholder"
                   aria-label="Title"
@@ -864,16 +1010,26 @@ function ComposeEditor({
                     <Button
                       variant="outline"
                       size="sm"
-                      disabled={coverPrompt.trim() === "" || cover !== undefined || quote === null}
+                      disabled={
+                        coverPrompt.trim() === "" ||
+                        cover !== undefined ||
+                        quote === null ||
+                        busy !== null
+                      }
                       onClick={async () => {
-                        const d = selected ?? (await save(true));
-                        if (d === null) return;
-                        setNotice("Generating cover");
-                        const exit = await generateCover({ draftId: d.id, prompt: coverPrompt });
-                        if (Exit.isFailure(exit)) setNotice(`Failed: ${failText(exit.cause)}`);
-                        else {
-                          takeMedia(exit.value);
-                          setNotice("Cover generated");
+                        setBusy("cover");
+                        try {
+                          const d = selected ?? (await save(true).catch(reportFailure));
+                          if (d === null) return;
+                          setNotice("Generating cover");
+                          const exit = await generateCover({ draftId: d.id, prompt: coverPrompt });
+                          if (Exit.isFailure(exit)) setNotice(`Failed: ${failText(exit.cause)}`);
+                          else {
+                            attach(exit.value, newIds(exit.value, d.media));
+                            setNotice("Cover generated");
+                          }
+                        } finally {
+                          setBusy(null);
                         }
                       }}
                     >
@@ -906,17 +1062,20 @@ function ComposeEditor({
                     against the live API, so the first publish may fail.
                   </p>
                 </div>
-              </div>
+              </fieldset>
             ) : (
-              <fieldset disabled={locked} className="min-w-0">
+              <fieldset disabled={frozen} className="min-w-0">
                 <ThreadEditor
                   blocks={blocks}
                   media={media}
                   previews={previews}
+                  quoteUrl={quoteUrl}
                   active={active}
                   avatar={(handle ?? "you").slice(0, 1).toUpperCase()}
-                  notes={costs.map((c) =>
-                    rates === null ? null : c === 0 ? (
+                  notes={costs.map((c, i) =>
+                    rates === null ? null : i < skipped ? (
+                      "already on X, free"
+                    ) : hasMediaAt(i) ? (
                       "media, through your session, free"
                     ) : c === rates.postWithLink ? (
                       <>
@@ -942,7 +1101,9 @@ function ComposeEditor({
                     {optionsSummary(editor)}
                   </span>
                 </summary>
-                <Options editor={editor} onChange={setEditor} />
+                <fieldset disabled={frozen} className="min-w-0">
+                  <Options editor={editor} onChange={setEditor} />
+                </fieldset>
               </details>
             )}
           </div>
@@ -960,10 +1121,13 @@ function ComposeEditor({
                   handle={handle}
                   avatarUrl={null}
                 />
-                <ComposeContext
-                  firstLine={blocks[0]?.text.split("\n")[0] ?? ""}
-                  onUse={(b) => setEditor({ ...editor, blocks: b.map((text) => ({ text })) })}
-                />
+                {/* Suggestions are used long after they were asked for, so each applies to the editor as it is then. */}
+                {locked ? null : (
+                  <ComposeContext
+                    firstLine={blocks[0]?.text.split("\n")[0] ?? ""}
+                    onUse={(b) => setEditor((e) => withPosts(e, b))}
+                  />
+                )}
               </>
             )}
           </Companion>
@@ -971,27 +1135,22 @@ function ComposeEditor({
         {waiting || isArticle || locked ? null : (
           <div className="mx-auto w-full max-w-[640px] shrink-0 px-6">
             <AssistPanel
+              handle={handle}
               blocks={blocks.map((b) => b.text)}
               active={active}
               onReplaceBlock={(i, text) =>
-                setEditor({
-                  ...editor,
-                  blocks: blocks.map((b, j) => (j === i ? { ...b, text } : b)),
-                })
+                setEditor((e) => ({
+                  ...e,
+                  blocks: e.blocks.map((b, j) => (j === i ? { ...b, text } : b)),
+                }))
               }
-              onInsertAfter={(i, texts) =>
-                setEditor({
-                  ...editor,
-                  blocks: [
-                    ...blocks.slice(0, i + 1),
-                    ...texts.map((text) => ({ text })),
-                    ...blocks.slice(i + 1),
-                  ],
-                })
+              onAppend={(texts) =>
+                setEditor((e) => ({
+                  ...e,
+                  blocks: [...e.blocks, ...texts.map((text) => ({ text }))],
+                }))
               }
-              onReplaceAll={(b) =>
-                setEditor({ ...editor, blocks: b.flatMap(splitBlocks).map((text) => ({ text })) })
-              }
+              onReplaceAll={(b) => setEditor((e) => withPosts(e, b.flatMap(splitBlocks)))}
               onVoiceScore={(score) =>
                 setVoice({ score, text: JSON.stringify(blocks.map((b) => b.text)) })
               }

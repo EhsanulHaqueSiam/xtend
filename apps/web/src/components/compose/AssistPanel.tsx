@@ -4,7 +4,7 @@ import * as Cause from "effect/Cause";
 import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { Sparkles, X } from "lucide-react";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 
 import { fmtWhen } from "../../lib/time";
 import { cn } from "../../lib/utils";
@@ -25,6 +25,7 @@ import { XCard } from "../x";
 import { splitBlocks } from "./ThreadEditor";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const SEARCHING = "Searching";
 
 /** A label and its value on one line, value in mono on the right. */
 function Fact({ label, children }: { readonly label: string; readonly children: string }) {
@@ -47,7 +48,8 @@ export function ComposeContext({
   const context = useAtomValue(composeContextAtom);
   const search = useAtomSet(searchAtom, { mode: "promiseExit" });
   const query = firstLine.trim().slice(0, 80);
-  const price = useQuoteLabel({ kind: "search", query });
+  // The mode the search below runs with: each mode is cached apart, so it decides "cached, free".
+  const price = useQuoteLabel({ kind: "search", query, mode: "top" });
   const [similar, setSimilar] = useState<ReadonlyArray<XPost> | string | null>(null);
   const ctx = AsyncResult.getOrElse(context, () => null);
   return (
@@ -65,9 +67,9 @@ export function ComposeContext({
         <Button
           variant="outline"
           size="xs"
-          disabled={query === ""}
+          disabled={query === "" || similar === SEARCHING}
           onClick={async () => {
-            setSimilar("Searching");
+            setSimilar(SEARCHING);
             const exit = await search({ query, mode: "top" });
             setSimilar(Exit.isFailure(exit) ? failText(exit.cause) : exit.value.items.slice(0, 3));
           }}
@@ -114,22 +116,32 @@ export const failText = (cause: Cause.Cause<unknown>) => {
   return e instanceof Error ? e.message : String(e);
 };
 
+/** Voice match reads the handle's recent posts from X before its model call. */
+function VoiceMatchCost({ handle, model }: { readonly handle: string; readonly model: string }) {
+  return <Cost label={`${useQuoteLabel({ kind: "userPosts", handle })} + ${model}`} />;
+}
+
 /**
  * The model's help at the foot of the writing column: one row of actions on the draft and a
- * topic box for thread ideas. Answers open above the row, each with Use and Dismiss.
+ * topic box for thread ideas. Answers open above the row, each with Use and Dismiss. Each action
+ * is one model call and shows its price; voice match also reads X.
  */
 export function AssistPanel({
+  handle,
   blocks,
   active,
   onReplaceBlock,
-  onInsertAfter,
+  onAppend,
   onReplaceAll,
   onVoiceScore,
 }: {
+  /** The Settings handle whose recent posts voice match reads; none means no read. */
+  readonly handle: string | null;
   readonly blocks: ReadonlyArray<string>;
   readonly active: number;
   readonly onReplaceBlock: (index: number, text: string) => void;
-  readonly onInsertAfter: (index: number, texts: ReadonlyArray<string>) => void;
+  /** Adds posts after the thread's last one, whatever it is by the time Use is clicked. */
+  readonly onAppend: (texts: ReadonlyArray<string>) => void;
   readonly onReplaceAll: (blocks: ReadonlyArray<string>) => void;
   /** The voice match score (0 to 1) for the text it was run on, for the page header. */
   readonly onVoiceScore?: (score: number) => void;
@@ -139,6 +151,7 @@ export function AssistPanel({
   const ideas = useAtomSet(assistThreadIdeasAtom, { mode: "promiseExit" });
   const cont = useAtomSet(assistContinueAtom, { mode: "promiseExit" });
   const voice = useAtomSet(assistVoiceMatchAtom, { mode: "promiseExit" });
+  const model = useQuoteLabel({ kind: "assist" });
 
   const [topic, setTopic] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -169,9 +182,15 @@ export function AssistPanel({
   const first = blocks[0] ?? "";
   const current = blocks[active] ?? "";
 
-  const action = (label: string, disabled: boolean, onClick: () => void) => (
+  const action = (
+    label: string,
+    disabled: boolean,
+    onClick: () => void,
+    cost: ReactNode = <Cost label={model} />,
+  ) => (
     <Button variant="ghost-muted" size="xs" disabled={busy !== null || disabled} onClick={onClick}>
       {label}
+      {cost}
     </Button>
   );
 
@@ -248,25 +267,29 @@ export function AssistPanel({
             "Continue thread",
             () => cont(blocks),
             (r) => [{ text: r.blocks.join("\n\n"), blocks: r.blocks }],
-            (s) => onInsertAfter(blocks.length - 1, s.blocks),
+            (s) => onAppend(s.blocks),
           ),
         )}
-        {action("Voice match", first.trim() === "", () =>
-          run(
-            "Voice match",
-            () => voice(blocks),
-            (r) => {
-              onVoiceScore?.(r.score);
-              return [
-                {
-                  text: `${Math.round(r.score * 100)}% match against ${r.samples} recent posts`,
-                  note: r.note,
-                  blocks: [],
-                },
-              ];
-            },
-            () => {},
-          ),
+        {action(
+          "Voice match",
+          first.trim() === "",
+          () =>
+            run(
+              "Voice match",
+              () => voice(blocks),
+              (r) => {
+                onVoiceScore?.(r.score);
+                return [
+                  {
+                    text: `${Math.round(r.score * 100)}% match against ${r.samples} recent posts`,
+                    note: r.note,
+                    blocks: [],
+                  },
+                ];
+              },
+              () => {},
+            ),
+          handle === null ? undefined : <VoiceMatchCost handle={handle} model={model} />,
         )}
         <form
           className="ml-auto flex items-center gap-1"
@@ -300,6 +323,7 @@ export function AssistPanel({
             disabled={busy !== null || topic.trim() === ""}
           >
             Ideas
+            <Cost label={model} />
           </Button>
         </form>
       </div>

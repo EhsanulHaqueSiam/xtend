@@ -3,24 +3,9 @@ import * as Effect from "effect/Effect";
 import { expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
+import { rates } from "../../../test/fixtures";
 import { render } from "../../../test/render";
 import { RuleDetail } from "./RuleDetail";
-
-const rates = {
-  post: 0.015,
-  postWithLink: 0.2,
-  like: 0.015,
-  repost: 0.015,
-  follow: 0.015,
-  dm: 0.015,
-  delete: 0.01,
-  readPage: 0.005,
-  profile: 0.01,
-  searchPage: 0.0015,
-  scraperProfile: 0.00075,
-  followersPage: 0.0015,
-  trending: 0.002,
-};
 
 const service = {
   [Costs_METHODS.quote]: () => Effect.succeed({ rates, quotes: [] }),

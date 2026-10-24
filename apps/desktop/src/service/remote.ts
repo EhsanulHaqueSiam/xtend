@@ -7,7 +7,15 @@ import * as Schema from "effect/Schema";
  * DB because it is read before any service answers, and because pointing at a
  * Mac mini means the local DB is not the one in use.
  */
-export const RemoteConfig = Schema.Struct({ url: Schema.String, token: Schema.String });
+export const RemoteConfig = Schema.Struct({
+  // Startup builds every service URL from this; one that does not parse would keep the window from opening.
+  url: Schema.String.check(
+    Schema.makeFilter((url) => URL.canParse(url) && /^https?:$/.test(new URL(url).protocol), {
+      message: "an http(s) URL",
+    }),
+  ),
+  token: Schema.String,
+});
 export type RemoteConfig = typeof RemoteConfig.Type;
 
 const ConfigFile = Schema.fromJsonString(Schema.Struct({ remote: Schema.NullOr(RemoteConfig) }));

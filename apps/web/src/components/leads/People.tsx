@@ -1,6 +1,6 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
-import type { Person, Stage, XPost } from "@xtend/contracts";
+import { postCostUsd, type Person, type Stage, type XPost } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState, type ReactElement, type ReactNode } from "react";
 import { TextMorph } from "torph/react";
@@ -326,7 +326,7 @@ function PersonPanel({
   );
 }
 
-/** A DM through the X connection. X needs their user id, which a profile fetch fills. */
+/** A DM through the X connection. Without their user id the service reads the profile first, priced in. */
 function DirectMessage({
   person,
   onSent,
@@ -341,18 +341,13 @@ function DirectMessage({
   const send = useAction();
   const [text, setText] = useState("");
   const [sent, setSent] = useState(false);
-  // The draft reads their recent posts first.
+  // The draft reads their recent posts first, then one model call.
   const postsQuote = useQuoteLabel({ kind: "userPosts", handle: person.handle });
-  const noUserId = person.userId === null;
+  const assistQuote = useQuoteLabel({ kind: "assist" });
+  const sendUsd =
+    rates === null ? null : rates.dm + (person.userId === null ? rates.scraperProfile : 0);
   return (
-    <Section
-      title="Direct message"
-      aside={
-        noUserId ? (
-          <span className="text-xs text-muted-foreground">fetch the profile first</span>
-        ) : undefined
-      }
-    >
+    <Section title="Direct message">
       <textarea
         className={cn(inputClass, "min-h-20 resize-y leading-relaxed")}
         placeholder="Write a DM, or draft one"
@@ -366,7 +361,7 @@ function DirectMessage({
         <button
           type="button"
           className={pillSolid}
-          disabled={send.busy || draft.busy || text.trim() === "" || noUserId || rates === null}
+          disabled={send.busy || draft.busy || text.trim() === "" || sendUsd === null}
           onClick={() =>
             void send.run(() =>
               sendDm({ id: person.id, text }).then(() => {
@@ -378,7 +373,7 @@ function DirectMessage({
           }
         >
           <TextMorph duration={250}>{send.busy ? "Sending…" : sent ? "Sent" : "Send DM"}</TextMorph>
-          {rates === null ? <Cost tone="solid" label="…" /> : <Cost tone="solid" usd={rates.dm} />}
+          {sendUsd === null ? <Cost tone="solid" label="…" /> : <Cost tone="solid" usd={sendUsd} />}
         </button>
         <button
           type="button"
@@ -387,7 +382,7 @@ function DirectMessage({
           onClick={() => void draft.run(() => draftDm(person.id).then(setText))}
         >
           <TextMorph duration={250}>{draft.busy ? "Drafting…" : "Draft with AI"}</TextMorph>
-          <Cost label={postsQuote} />
+          <Cost label={`${postsQuote} + ${assistQuote}`} />
         </button>
       </div>
       {(send.error ?? draft.error) ? (
@@ -415,7 +410,9 @@ function Reply({
   const [text, setText] = useState("");
   const [sentId, setSentId] = useState<string | null>(null);
   const postQuote = useQuoteLabel({ kind: "userPosts", handle });
-  const replyQuote = useQuoteLabel({ kind: "post", text });
+  const assistQuote = useQuoteLabel({ kind: "assist" });
+  // Priced here from the rate card: a quote rpc per keystroke would flash "…" on the button.
+  const rates = useRates();
   const load = () => run(() => loadPost(id).then(setPost));
   return (
     <Section
@@ -460,7 +457,7 @@ function Reply({
             <button
               type="button"
               className={pillSolid}
-              disabled={busy || text.trim() === ""}
+              disabled={busy || text.trim() === "" || rates === null}
               onClick={() =>
                 void run(() =>
                   send({ id, postId: post.postId, text }).then((r) => {
@@ -472,7 +469,11 @@ function Reply({
               }
             >
               <TextMorph duration={250}>{sentId !== null ? "Replied" : "Reply"}</TextMorph>
-              <Cost tone="solid" label={replyQuote} />
+              {rates === null ? (
+                <Cost tone="solid" label="…" />
+              ) : (
+                <Cost tone="solid" usd={postCostUsd(rates, text)} />
+              )}
             </button>
             <button
               type="button"
@@ -488,8 +489,8 @@ function Reply({
               }
             >
               Draft with AI
-              {/* The draft reads their latest post again. */}
-              <Cost label={postQuote} />
+              {/* The draft reads their latest post again, then one model call. */}
+              <Cost label={`${postQuote} + ${assistQuote}`} />
             </button>
           </div>
         </>

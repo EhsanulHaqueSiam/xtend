@@ -78,7 +78,7 @@ export const LibraryFilters = Schema.Struct({
 });
 export type LibraryFilters = typeof LibraryFilters.Type;
 
-/** A curated evergreen post; text is empty until a `from:handle` search has seen it. */
+/** A curated evergreen post; `post` is null until a `from:handle` search has seen it. */
 export const StaffPick = Schema.Struct({
   handle: Schema.String,
   postId: XId,
@@ -123,6 +123,7 @@ export const Library_METHODS = {
   collectionCreate: "library.collectionCreate",
   collectionRename: "library.collectionRename",
   collectionDelete: "library.collectionDelete",
+  collectionRemovePost: "library.collectionRemovePost",
   picksGet: "library.picksGet",
   picksFetch: "library.picksFetch",
   pickWhy: "library.pickWhy",
@@ -210,6 +211,12 @@ export const LibraryRpcGroup = RpcGroup.make(
   }),
   Rpc.make(Library_METHODS.collectionDelete, {
     payload: Schema.Struct({ id: CollectionId }),
+    success: Schema.Void,
+    error: LibraryError,
+  }),
+  /** Takes the post out of one collection; it stays in the swipe file and the others. */
+  Rpc.make(Library_METHODS.collectionRemovePost, {
+    payload: Schema.Struct({ collectionId: CollectionId, savedId: SavedPostId }),
     success: Schema.Void,
     error: LibraryError,
   }),

@@ -1,4 +1,4 @@
-import { ComposeError } from "@xtend/contracts";
+import { ComposeError, type DesktopUnavailableError } from "@xtend/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -16,11 +16,15 @@ const SESSION_POSTING_OFF =
 export class SessionPosting extends Context.Service<
   SessionPosting,
   {
+    /**
+     * The desktop's own error comes through as is: the publisher must tell a desktop that never
+     * got the post from one that went quiet after it may have clicked Post.
+     */
     readonly post: (input: {
       readonly text: string;
       readonly mediaPaths: ReadonlyArray<string>;
       readonly replyToPostId?: string;
-    }) => Effect.Effect<{ readonly postId: string }, ComposeError>;
+    }) => Effect.Effect<{ readonly postId: string }, ComposeError | DesktopUnavailableError>;
     /** Points the session view at a URL (used to hand a freshly posted link card to the desktop). */
     readonly navigate: (url: string) => Effect.Effect<void, ComposeError>;
   }
@@ -38,23 +42,20 @@ const make = Effect.gen(function* () {
       return yield* new ComposeError({ operation: "sessionPost", detail: SESSION_POSTING_OFF });
   });
 
-  const post = Effect.fn("SessionPosting.post")(
-    function* (input: {
-      readonly text: string;
-      readonly mediaPaths: ReadonlyArray<string>;
-      readonly replyToPostId?: string;
-    }) {
-      yield* requireEnabled;
-      const result = yield* desktop.request({
-        type: "sessionPost",
-        text: input.text,
-        mediaPaths: input.mediaPaths,
-        ...(input.replyToPostId === undefined ? {} : { replyToPostId: input.replyToPostId }),
-      });
-      return { postId: result.postId };
-    },
-    Effect.mapError(fail("sessionPost")),
-  );
+  const post = Effect.fn("SessionPosting.post")(function* (input: {
+    readonly text: string;
+    readonly mediaPaths: ReadonlyArray<string>;
+    readonly replyToPostId?: string;
+  }) {
+    yield* requireEnabled.pipe(Effect.mapError(fail("sessionPost")));
+    const result = yield* desktop.request({
+      type: "sessionPost",
+      text: input.text,
+      mediaPaths: input.mediaPaths,
+      ...(input.replyToPostId === undefined ? {} : { replyToPostId: input.replyToPostId }),
+    });
+    return { postId: result.postId };
+  });
 
   const navigate = Effect.fn("SessionPosting.navigate")(
     function* (url: string) {

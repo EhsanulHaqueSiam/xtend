@@ -52,8 +52,10 @@ export function Mentions() {
   const runFetch = async () => {
     setError(null);
     const exit = await fetch();
-    if (Exit.isFailure(exit)) setError(errorText(exit.cause));
-    else refresh();
+    if (Exit.isFailure(exit)) return setError(errorText(exit.cause));
+    // X refusing the read comes back in the result; the free list refetched below never carries it.
+    setError(exit.value.apiError);
+    refresh();
   };
 
   return (

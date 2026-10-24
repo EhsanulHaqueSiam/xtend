@@ -4,7 +4,7 @@ import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 import { TextMorph } from "torph/react";
 
-import { useRates, usd } from "../../state/costs";
+import { useQuoteLabel, usd } from "../../state/costs";
 import { addPersonAtom, newFollowersAtom, peopleAtom } from "../../state/leads";
 import { settingsAtom } from "../../state/settings";
 import { fmt } from "../analyze/ui";
@@ -45,26 +45,46 @@ const COLUMNS: ReadonlyArray<Column<Row>> = [
 
 type Checked = { readonly followers: ReadonlyArray<NewFollower>; readonly costUsd: number };
 
-/** Followers gained since the last check. One followers page per check, paid up front. */
+/** The check reads the own handle's newest followers page; one under 10 minutes old serves free. */
+function CheckButton({
+  handle,
+  label,
+  busy,
+  onClick,
+}: {
+  readonly handle: string;
+  readonly label: string;
+  readonly busy: boolean;
+  readonly onClick: () => void;
+}) {
+  const quote = useQuoteLabel({ kind: "followersPage", handle });
+  return (
+    <button type="button" className={pill} disabled={busy || quote === "…"} onClick={onClick}>
+      <TextMorph duration={250}>{busy ? "Checking…" : label}</TextMorph>
+      <Cost label={quote} />
+    </button>
+  );
+}
+
+/** Followers gained since the last check. One followers page per check, priced up front. */
 export function FollowersSection() {
-  const rates = useRates();
   const settings = AsyncResult.getOrElse(useAtomValue(settingsAtom), () => null);
   const check = useAtomSet(newFollowersAtom, { mode: "promise" });
   const { busy, error, run } = useAction();
   const [result, setResult] = useState<Checked | null>(null);
   const [added, setAdded] = useState<ReadonlySet<string>>(new Set());
 
-  const button = (label: string) => (
-    <button
-      type="button"
-      className={pill}
-      disabled={busy || rates === null}
-      onClick={() => void run(() => check().then(setResult))}
-    >
-      <TextMorph duration={250}>{busy ? "Checking…" : label}</TextMorph>
-      {rates === null ? <Cost label="…" /> : <Cost usd={rates.followersPage} />}
-    </button>
-  );
+  // The quote is for the own handle's page, so there is no button until the handle is known.
+  const handle = settings?.handle ?? null;
+  const button = (label: string) =>
+    handle === null ? undefined : (
+      <CheckButton
+        handle={handle}
+        label={label}
+        busy={busy}
+        onClick={() => void run(() => check().then(setResult))}
+      />
+    );
 
   return (
     <>

@@ -161,7 +161,8 @@ const make = Effect.gen(function* () {
                 interval_minutes = ${a.intervalMinutes}, enabled = ${enabled}, scoring_prompt = ${a.scoringPrompt},
                 lang = ${a.lang}, exclude_bots = ${bots}, notify_min_score = ${a.notifyMinScore}, list_id = ${a.listId}
               WHERE id = ${a.id} RETURNING id`;
-      return yield* toAgent(yield* byId(rows[0]!.id));
+      if (rows[0] === undefined) return yield* Effect.fail(`agent ${a.id} not found`);
+      return yield* toAgent(yield* byId(rows[0].id));
     },
     Effect.mapError(fail("agentUpsert")),
   );
@@ -195,7 +196,8 @@ const make = Effect.gen(function* () {
         });
       }
       let found = [...byHandle.values()];
-      let costUsd = XClient.RATE_CARD.searchPage;
+      // A run inside the search's 30-minute cache paid nothing for it.
+      let costUsd = page.fromCache ? 0 : XClient.RATE_CARD.searchPage;
       // The bot check needs following, bio and account age, which only a profile has.
       if (agent.exclude_bots === 1) {
         costUsd += found.length * XClient.RATE_CARD.scraperProfile;
@@ -232,7 +234,8 @@ const make = Effect.gen(function* () {
           },
           output: Scores,
         });
-        const byScore = new Map(scores.map((s) => [s.handle.toLowerCase(), s]));
+        // Models often answer "@Alice" for alice.
+        const byScore = new Map(scores.map((s) => [s.handle.replace(/^@/, "").toLowerCase(), s]));
         scored = found.map((f) => {
           const s = byScore.get(f.candidate.handle.toLowerCase());
           return { ...f.candidate, score: s?.score ?? null, bio: s?.reason || f.candidate.bio };
@@ -249,7 +252,7 @@ const make = Effect.gen(function* () {
               payload: { personId: id, handle: c.handle, score: c.score, agent: agent.name },
             });
         }
-      // shortcut: XClient does not report whether a read was served from cache, so the quoted rates are logged.
+      // shortcut: a profile read does not say whether the cache served it, so those are logged at the quoted rate.
       return { at, found: found.length, inserted: ids.filter((id) => id !== null).length, costUsd };
     });
 
@@ -265,8 +268,11 @@ const make = Effect.gen(function* () {
       return toRun(rows[0]!);
     });
 
-  const run = Effect.fn("SignalAgents.run")(
-    function* (id: number) {
+  // Agents with a run in flight: "Run now" during a scheduled run, or a double click, must not pay twice.
+  const running = new Set<number>();
+
+  const runOnce = (id: number) =>
+    Effect.gen(function* () {
       const agent = yield* byId(id);
       const at = yield* now;
       const result = yield* runAgent(agent).pipe(
@@ -276,6 +282,13 @@ const make = Effect.gen(function* () {
         ),
       );
       return yield* record(id, result);
+    });
+
+  const run = Effect.fn("SignalAgents.run")(
+    function* (id: number) {
+      if (running.has(id)) return yield* Effect.fail(`agent ${id} is already running`);
+      running.add(id);
+      return yield* runOnce(id).pipe(Effect.ensuring(Effect.sync(() => running.delete(id))));
     },
     Effect.mapError(fail("agentRun")),
   );
@@ -291,11 +304,17 @@ const make = Effect.gen(function* () {
     });
   }).pipe(Effect.mapError(fail("agentSuggest")));
 
+  const due = (id?: number) => sql<{ id: number }>`
+    SELECT id FROM agents WHERE enabled = 1 AND account_id = ${sql.literal(CURRENT_ACCOUNT)}
+    AND (last_run IS NULL OR last_run <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-' || interval_minutes || ' minutes'))
+    ${id === undefined ? sql`` : sql`AND id = ${id}`}`;
+
   const tick = Effect.gen(function* () {
-    const due = yield* sql<AgentRow>`
-      SELECT * FROM agents WHERE enabled = 1 AND account_id = ${sql.literal(CURRENT_ACCOUNT)}
-      AND (last_run IS NULL OR last_run <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-' || interval_minutes || ' minutes'))`;
-    yield* Effect.forEach(due, (a) => run(a.id), { discard: true });
+    for (const { id } of yield* due()) {
+      // Asked again per agent: while earlier agents ran, this one may have been disabled or run by hand.
+      if (running.has(id) || (yield* due(id)).length === 0) continue;
+      yield* run(id);
+    }
   }).pipe(Effect.mapError(fail("agentTick")));
 
   return SignalAgents.of({ list, upsert, run, suggest, tick });

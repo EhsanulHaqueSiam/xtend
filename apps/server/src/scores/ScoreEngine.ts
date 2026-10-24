@@ -94,10 +94,11 @@ export const score = (
       Object.assign({ points: pointsFor(f, now), category: categoryOf(f) }, f),
     )
     .sort((a, b) => b.points - a.points);
-  const total = scored.reduce((sum, f) => sum + f.points, 0);
+  const total = Math.round(scored.reduce((sum, f) => sum + f.points, 0) * 10) / 10;
   const suspicious = followers.filter((f) => isSuspicious(f, now));
   return {
-    score: Math.round(total * 10) / 10,
+    score: total,
+    // From the shown score, so 199.96 reads as 200 and Noted, not 200 and Unknown.
     tier: tierFor(total),
     scored,
     categories: (["kol", "project", "fund", "person"] as const).map((category) => {

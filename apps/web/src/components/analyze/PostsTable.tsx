@@ -11,6 +11,7 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import { useState } from "react";
 import { TextMorph } from "torph/react";
 
+import { fmtDay } from "../../lib/time";
 import { cn } from "../../lib/utils";
 import { analyzeDataAtom, refreshNonPublicAtom } from "../../state/analyze";
 import { useRates } from "../../state/costs";
@@ -55,7 +56,13 @@ type KindFilter = PostKind | "all";
 const DAY_MS = 86_400_000;
 /** Below this many posts the top and bottom five overlap too much to mean anything. */
 const MARK_MIN_POSTS = 10;
-const dayFormat = new Intl.DateTimeFormat("en", { month: "short", day: "numeric" });
+// "Oct 24" of the display zone's day: fmtDay's date read back at UTC midnight is that same day.
+const dayFormat = new Intl.DateTimeFormat("en", {
+  month: "short",
+  day: "numeric",
+  timeZone: "UTC",
+});
+const shortDay = (iso: string) => dayFormat.format(new Date(`${fmtDay(iso)}T00:00:00Z`));
 
 /** Last run, its error, and the paid refresh: one analytics read per own post of the last 30 days. */
 function NonPublicStatus({
@@ -249,9 +256,9 @@ export function Posts({ data }: { readonly data: AnalyzeData }) {
                   </td>
                   <td
                     className={cn(table.td, table.num, "whitespace-nowrap text-muted-foreground")}
-                    title={p.createdAt.slice(0, 10)}
+                    title={fmtDay(p.createdAt)}
                   >
-                    {dayFormat.format(new Date(p.createdAt))}
+                    {shortDay(p.createdAt)}
                   </td>
                   <td className={cn(table.td, table.num)}>{fmt(p.views)}</td>
                   <td className={cn(table.td, table.num)}>{fmt(p.likes)}</td>

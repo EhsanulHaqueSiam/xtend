@@ -107,6 +107,8 @@ export function Slots({
                   className={cn(compactInputClass, "w-auto font-mono tabular-nums")}
                   value={hhmm(s.minuteOfDay)}
                   onChange={(e) => {
+                    // Cleared mid-edit; midnight would jump into the field under the cursor.
+                    if (e.target.value === "") return;
                     const [h = 0, m = 0] = e.target.value.split(":").map(Number);
                     set(i, { minuteOfDay: h * 60 + m });
                   }}

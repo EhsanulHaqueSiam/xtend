@@ -1,5 +1,8 @@
 // @effect-diagnostics nodeBuiltinImport:off -- a real listening socket is the point of this test.
+import * as NodeFs from "node:fs";
 import * as NodeHttp from "node:http";
+import * as NodeOs from "node:os";
+import * as NodePath from "node:path";
 
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -12,6 +15,7 @@ import * as Rpc from "effect/rpc/Rpc";
 import * as RpcGroup from "effect/rpc/RpcGroup";
 import { RpcSerialization, RpcServer } from "effect/rpc";
 
+import * as ServerConfig from "../config.ts";
 import * as ServiceAuth from "./ServiceAuth.ts";
 
 const TOKEN = "t".repeat(64);
@@ -92,14 +96,55 @@ describe("ServiceAuth", () => {
   it.effect("guards the observations route by bearer header", () =>
     Effect.gen(function* () {
       const p = yield* port;
-      const post = (headers: Record<string, string>) =>
+      const post = (headers: Record<string, string>, query = "") =>
         Effect.promise(() =>
-          fetch(`http://127.0.0.1:${p}/api/observations`, { method: "POST", headers }).then(
+          fetch(`http://127.0.0.1:${p}/api/observations${query}`, { method: "POST", headers }).then(
             (r) => r.status,
           ),
         );
+      // 64 characters but 65 bytes: refused like any wrong token, not answered with a 500.
+      expect(yield* post({}, `?token=%C3%A9${"t".repeat(63)}`)).toBe(401);
       expect(yield* post({})).toBe(401);
+      expect(yield* post({ authorization: `Bearer ${"x".repeat(64)}` })).toBe(401);
       expect(yield* post({ authorization: `Bearer ${TOKEN}` })).toBe(200);
+      expect(yield* post({ authorization: `Bearer ${TOKEN}`, origin: "null" })).toBe(401);
     }).pipe(Effect.provide(layerServer)),
+  );
+
+  it.effect("keeps one owner-only token across restarts and trusts the service's own origins", () =>
+    Effect.gen(function* () {
+      const baseDir = NodeFs.mkdtempSync(NodePath.join(NodeOs.tmpdir(), "xtend-auth-"));
+      const start = ServiceAuth.ServiceAuth.pipe(
+        Effect.provide(
+          Layer.fresh(ServiceAuth.layer).pipe(
+            Layer.provide(
+              ServerConfig.layer({
+                version: "test",
+                port: 4820,
+                host: "127.0.0.1",
+                baseDir,
+                dbPath: ":memory:",
+                staticDir: undefined,
+                devUrl: new URL("http://localhost:5820"),
+                supervisor: "none",
+              }),
+            ),
+            Layer.provide(NodeServices.layer),
+          ),
+        ),
+      );
+      const first = yield* start;
+      const file = NodePath.join(baseDir, "auth-token");
+      expect(NodeFs.readFileSync(file, "utf8").trim()).toBe(first.token);
+      expect(NodeFs.statSync(file).mode & 0o777).toBe(0o600);
+      // The desktop and CLI read the file once; a restart must not hand out a new token.
+      expect((yield* start).token).toBe(first.token);
+
+      const trusted = ["http://127.0.0.1:4820", "http://localhost:4820", "http://localhost:5820"];
+      expect(trusted.map(first.isAllowedOrigin)).toEqual([true, true, true]);
+      expect(["null", "http://127.0.0.1:5821", "https://x.com"].map(first.isAllowedOrigin)).toEqual(
+        [false, false, false],
+      );
+    }),
   );
 });
