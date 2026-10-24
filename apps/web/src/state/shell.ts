@@ -12,7 +12,6 @@ import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Schedule from "effect/Schedule";
 import * as Stream from "effect/Stream";
 
-import type { SlotState } from "../desktopBridge";
 import { clientRuntime, XtendClient } from "../rpc/client";
 
 const KEEP = 200;
@@ -68,27 +67,8 @@ export const connectionAtom = Atom.make((get): ConnectionState => {
   return "connected";
 });
 
-/** Standalone only: the ⌘K palette as an overlay. In a slot, the palette is its own slot. */
+/** Whether the ⌘K palette is open. */
 export const paletteOpenAtom = Atom.make(false);
-
-/** The slot main put the view in; without a bridge the app is standalone and never in one. */
-export const slotAtom = Atom.keepAlive(
-  Atom.make((get): SlotState => {
-    const bridge = window.desktopBridge;
-    if (bridge === undefined) return { kind: null, route: "/" };
-    get.addFinalizer(bridge.onSlot((slot) => get.setSelf(slot)));
-    return bridge.slot;
-  }),
-);
-
-/** The x.com URL the window shows; main resends it whenever a slot opens. */
-export const sessionUrlAtom = Atom.keepAlive(
-  Atom.make((get): string => {
-    const bridge = window.desktopBridge;
-    if (bridge !== undefined) get.addFinalizer(bridge.onSessionUrl((url) => get.setSelf(url)));
-    return "";
-  }),
-);
 
 /** Drafts waiting in the queue; refetched whenever a draft changes status. */
 export const queuedDraftsAtom = clientRuntime.atom((get) =>
@@ -98,10 +78,6 @@ export const queuedDraftsAtom = clientRuntime.atom((get) =>
     const { drafts } = yield* client[Compose_METHODS.draftsList]({});
     return drafts.filter((d) => d.status === "queued");
   }),
-);
-
-export const queuedCountAtom = Atom.make((get) =>
-  AsyncResult.map(get(queuedDraftsAtom), (drafts) => drafts.length),
 );
 
 /** Spend summary that follows spend_changed events. */

@@ -7,7 +7,6 @@ import { mentionsAtom } from "../../state/engage";
 import { slotsAtom } from "../../state/plan";
 import { settingsAtom } from "../../state/settings";
 import { connectionAtom, queuedDraftsAtom, spendLiveAtom } from "../../state/shell";
-import { shellBridge } from "./bridge";
 
 const MINUTE_MS = 60_000;
 
@@ -15,7 +14,7 @@ const or = <A, B>(result: AsyncResult.AsyncResult<A, unknown>, fallback: B): A |
   AsyncResult.getOrElse(result, () => fallback);
 
 /**
- * Pushes the Today card and composer chip data to main whenever it changes.
+ * Pushes the composer chip's data (best time, queue) to main whenever it changes.
  * Everything here is free: queued drafts, slots, stored mentions and the
  * spend summary; nothing is fetched from X for a widget.
  */
@@ -42,7 +41,7 @@ export function GlanceSync() {
     const key = JSON.stringify(glance);
     if (key === sent.current) return;
     sent.current = key;
-    shellBridge()?.pushGlance(glance);
+    window.desktopBridge?.pushGlance(glance);
   });
   return null;
 }

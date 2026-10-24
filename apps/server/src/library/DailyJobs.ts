@@ -11,6 +11,8 @@ export interface DailyJob<E, R> {
   /** Local wall-clock time in the account's time zone, "HH:MM". */
   readonly at: string;
   readonly run: Effect.Effect<unknown, E, R>;
+  /** Asked before the day is claimed, so a job turned on later in the day still runs today. */
+  readonly enabled?: Effect.Effect<boolean, never, SettingsStore.SettingsStore>;
 }
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -34,6 +36,7 @@ export const layerDaily = <E, R>(jobs: ReadonlyArray<DailyJob<E, R>>) =>
         const hhmm = `${pad(p.hour)}:${pad(p.minute)}`;
         for (const job of jobs) {
           if (hhmm < job.at) continue;
+          if (job.enabled !== undefined && !(yield* job.enabled)) continue;
           const claimed = yield* sql<{ job: string }>`
             INSERT OR IGNORE INTO jobs_ran (job, day) VALUES (${job.name}, ${day}) RETURNING job
           `;

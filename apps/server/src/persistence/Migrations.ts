@@ -20,6 +20,7 @@ import Migration0016 from "./Migrations/016_LeadsPerAccount.ts";
 import Migration0017 from "./Migrations/017_ObservationAccounts.ts";
 import Migration0018 from "./Migrations/018_AnalyzeEngageAccounts.ts";
 import Migration0019 from "./Migrations/019_AnnouncedMentions.ts";
+import Migration0020 from "./Migrations/020_DailyJobs.ts";
 
 export const migrationEntries = [
   [1, "Observations", Migration0001],
@@ -41,6 +42,7 @@ export const migrationEntries = [
   [17, "ObservationAccounts", Migration0017],
   [18, "AnalyzeEngageAccounts", Migration0018],
   [19, "AnnouncedMentions", Migration0019],
+  [20, "DailyJobs", Migration0020],
 ] as const;
 
 const run = Migrator.make({});

@@ -1,3 +1,4 @@
+import { useLocation } from "@tanstack/react-router";
 import { ScoresError, type WatchEntry } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import { expect, it, onTestFinished } from "vite-plus/test";
@@ -7,7 +8,7 @@ import { paid, quoting } from "../../../test/fixtures";
 import { render } from "../../../test/render";
 import { setDisplayZone } from "../../lib/time";
 import { NOT_A_HANDLE } from "../../lib/utils";
-import { HandlePicker } from "./HandleReport";
+import { ReportSection } from "./HandleReport";
 import { Watchlist } from "./Watchlist";
 
 const entry = (handle: string, addedAt: string): WatchEntry => ({
@@ -17,6 +18,14 @@ const entry = (handle: string, addedAt: string): WatchEntry => ({
   tier: null,
   change: { d1: null, d7: null, d14: null, d30: null },
 });
+
+/** The Report section as the route mounts it: the handle from `?handle=`, a new one remounting it. */
+function ReportAtUrl() {
+  const handle = useLocation({
+    select: (l) => new URLSearchParams(l.searchStr).get("handle") ?? undefined,
+  });
+  return <ReportSection key={handle ?? ""} handle={handle} />;
+}
 
 it("adds a handle as typed, keeps the input when it is not one or the add fails", async () => {
   const before = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -39,29 +48,30 @@ it("adds a handle as typed, keeps the input when it is not one or the add fails"
             }),
     },
   });
-  const input = screen.getByPlaceholder("handle without @");
+  const input = screen.getByLabelText("Handle to watch");
+  const add = screen.getByRole("button", { name: /^Watch/ });
   await userEvent.fill(input, "two words");
-  await userEvent.click(screen.getByRole("button", { name: "Add" }));
+  await userEvent.click(add);
   await expect.element(screen.getByText(NOT_A_HANDLE)).toBeVisible();
   await expect.element(input).toHaveValue("two words");
 
   await userEvent.fill(input, "taken");
-  await userEvent.click(screen.getByRole("button", { name: "Add" }));
+  await userEvent.click(add);
   await expect.element(screen.getByText("Scores watchAdd failed: watchlist is full")).toBeVisible();
   await expect.element(input).toHaveValue("taken");
 
   await userEvent.fill(input, " @Levels_IO ");
-  await userEvent.click(screen.getByRole("button", { name: "Add" }));
+  await userEvent.click(add);
   await expect.element(screen.getByRole("button", { name: "@Levels_IO" })).toBeVisible();
   expect(added).toEqual(["Levels_IO"]);
   await expect.element(input).toHaveValue("");
   await expect.element(screen.getByText("2026-10-23")).toBeVisible();
-  await expect.element(screen.getByRole("button", { name: "Score ($0.00522)" })).toBeVisible();
+  await expect.element(screen.getByRole("button", { name: /^Score.*\$0\.00522$/ })).toBeVisible();
 });
 
 it("opens a typed handle's stored report, and a failed score stays with the handle it was for", async () => {
   const reports: Array<string> = [];
-  await using screen = await render(<HandlePicker />, {
+  await using screen = await render(<ReportAtUrl />, {
     service: {
       "costs.quote": quoting(() => paid(0.00522)),
       "scores.report": ({ handle }) =>
@@ -73,21 +83,22 @@ it("opens a typed handle's stored report, and a failed score stays with the hand
         Effect.fail(new ScoresError({ operation: "run", detail: `@${handle} is private` })),
     },
   });
-  const input = screen.getByPlaceholder("handle without @");
+  const input = screen.getByLabelText("Handle");
+  const open = screen.getByRole("button", { name: /^Open/ });
   await userEvent.fill(input, "x.com/levelsio");
-  await userEvent.click(screen.getByRole("button", { name: "Open" }));
+  await userEvent.click(open);
   await expect.element(screen.getByText(NOT_A_HANDLE)).toBeVisible();
   expect(reports).toEqual([]);
 
   await userEvent.fill(input, "@levelsio");
-  await userEvent.click(screen.getByRole("button", { name: "Open" }));
-  await expect.element(screen.getByText("@levelsio", { exact: true })).toBeVisible();
+  await userEvent.click(open);
+  await expect.element(screen.getByText(/^No score for @levelsio yet/)).toBeVisible();
   expect(reports).toEqual(["levelsio"]);
-  await userEvent.click(screen.getByRole("button", { name: "Score ($0.00522)" }));
+  await userEvent.click(screen.getByRole("button", { name: /^Score.*\$0\.00522$/ }));
   await expect.element(screen.getByText("Scores run failed: @levelsio is private")).toBeVisible();
 
   await userEvent.fill(input, "paulg");
-  await userEvent.click(screen.getByRole("button", { name: "Open" }));
-  await expect.element(screen.getByText("@paulg", { exact: true })).toBeVisible();
+  await userEvent.click(open);
+  await expect.element(screen.getByText(/^No score for @paulg yet/)).toBeVisible();
   expect(screen.getByText(/is private/).elements()).toHaveLength(0);
 });

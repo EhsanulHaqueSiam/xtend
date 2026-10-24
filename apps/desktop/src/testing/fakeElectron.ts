@@ -1,25 +1,34 @@
 import { EventEmitter } from "node:events";
 
-import type { Rect } from "../ipc/channels.ts";
-
 /**
  * Just enough of Electron for main.ts and MainWindow.ts to run in a unit test:
  * `vi.mock("electron", () => import("../testing/fakeElectron.ts"))`. IPC goes
- * through `ipcMain` with a chosen sender, so tests can play the app view, the
- * x.com window or a stranger.
+ * through `ipcMain` with a chosen sender, so tests can play the app page, the
+ * x.com webview or a stranger.
  */
+
+function fakeSession() {
+  return Object.assign(new EventEmitter(), {
+    availableSpellCheckerLanguages: [],
+    setPermissionRequestHandler: () => {},
+    setPermissionCheckHandler: () => {},
+    setSpellCheckerLanguages: () => {},
+  });
+}
 
 export class FakeContents extends EventEmitter {
   readonly sent: Array<readonly [string, unknown]> = [];
   readonly loaded: Array<string> = [];
   zoomLevel = 0;
   focused = false;
-  readonly session = Object.assign(new EventEmitter(), {
-    availableSpellCheckerLanguages: [],
-    setPermissionRequestHandler: () => {},
-    setPermissionCheckHandler: () => {},
-    setSpellCheckerLanguages: () => {},
+  readonly session = fakeSession();
+  readonly debugger = Object.assign(new EventEmitter(), {
+    attach: () => {},
+    detach: () => {},
+    isAttached: () => false,
+    sendCommand: async () => ({}),
   });
+  readonly insertedCss: Array<string> = [];
   readonly navigationHistory = { goBack: () => {}, goForward: () => {} };
 
   send(channel: string, value?: unknown) {
@@ -52,7 +61,11 @@ export class FakeContents extends EventEmitter {
   }
   setUserAgent() {}
   setWindowOpenHandler() {}
-  insertCSS() {}
+  async insertCSS(css: string) {
+    this.insertedCss.push(css);
+    return `css-${this.insertedCss.length}`;
+  }
+  async removeInsertedCSS() {}
   stopFindInPage() {}
   findInPage() {}
   close() {}
@@ -83,21 +96,17 @@ export class BrowserWindow extends EventEmitter {
   }
 }
 
-export class WebContentsView {
-  static readonly all: Array<WebContentsView> = [];
-  readonly webContents = new FakeContents();
-  bounds: Rect = { x: 0, y: 0, width: 0, height: 0 };
-  constructor() {
-    WebContentsView.all.push(this);
-  }
-  setBackgroundColor() {}
-  setBounds(bounds: Rect) {
-    this.bounds = bounds;
-  }
-  getBounds() {
-    return this.bounds;
-  }
-}
+/** One fake session per partition, like Electron's. */
+const sessions = new Map<string, ReturnType<typeof fakeSession>>();
+export const session = {
+  fromPartition: (partition: string) => {
+    let found = sessions.get(partition);
+    if (found === undefined) sessions.set(partition, (found = fakeSession()));
+    return found;
+  },
+};
+
+export const nativeTheme = { themeSource: "system" };
 
 class FakeIpcMain extends EventEmitter {
   readonly handlers = new Map<string, (event: unknown, ...args: Array<unknown>) => unknown>();
@@ -155,5 +164,5 @@ export const reset = () => {
   app.relaunched = 0;
   app.quits = 0;
   BrowserWindow.all.length = 0;
-  WebContentsView.all.length = 0;
+  sessions.clear();
 };

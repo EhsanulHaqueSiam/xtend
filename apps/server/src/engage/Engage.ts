@@ -169,7 +169,7 @@ const make = Effect.gen(function* () {
     if (handle === null)
       return yield* new EngageError({
         operation: "settings",
-        detail: "Set your X handle in Settings first.",
+        detail: "No X handle yet. It comes from your X session, or set it in Settings.",
       });
     const page = yield* x.userPosts(handle, { purpose: "engage.findKeywords" });
     return yield* assist

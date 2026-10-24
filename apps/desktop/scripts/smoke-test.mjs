@@ -1,6 +1,6 @@
 // Boots the built desktop against a throwaway state dir and port and checks the whole start
-// path: Electron starts, the supervisor's child service answers, the app view renders the
-// web app, and the x.com window loads. Needs `pnpm build` first (web dist, desktop pack).
+// path: Electron starts, the supervisor's child service answers, the window renders the
+// web app, and its x.com webview loads. Needs `pnpm build` first (web dist, desktop pack).
 // Linux CI runs it under xvfb-run. Fails on module or uncaught errors in the output too.
 //   node scripts/smoke-test.mjs
 import * as NodeChildProcess from "node:child_process";
@@ -110,7 +110,11 @@ const poll = async () => {
       (await evaluate(app, `(document.getElementById("root")?.childElementCount ?? 0) > 0`)) ===
       true;
   }
-  checks.xLoaded ||= pages.some((t) => /^https:\/\/(x|twitter)\.com\//.test(t.url));
+  // x.com is a <webview> guest of the app page, so DevTools lists it as its own target type.
+  checks.xLoaded ||= targets.some(
+    (t) =>
+      (t.type === "webview" || t.type === "page") && /^https:\/\/(x|twitter)\.com\//.test(t.url),
+  );
   return poll();
 };
 await poll();

@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import * as DraftStore from "../compose/DraftStore.ts";
+import * as SettingsStore from "../settings/SettingsStore.ts";
 import { layerDaily } from "./DailyJobs.ts";
 import * as Library from "./Library.ts";
 import * as LibraryStore from "./LibraryStore.ts";
@@ -16,16 +17,29 @@ const layerService = Library.layer.pipe(
   Layer.provide(DraftStore.layer),
 );
 
+// Each job spends (searches, model calls) with nobody clicking, so all of them wait for the
+// opt-in in Settings; the screens' own buttons do the same work on demand with their price shown.
+const optedIn = Effect.flatMap(SettingsStore.SettingsStore, (s) =>
+  Effect.map(s.get, (v) => v.dailyLibraryJobs),
+).pipe(Effect.orElseSucceed(() => false));
+
 const layerJobs = layerDaily([
-  { name: "library.picks", at: "08:00", run: Effect.flatMap(Library.Library, (l) => l.picksFetch) },
+  {
+    name: "library.picks",
+    at: "08:00",
+    enabled: optedIn,
+    run: Effect.flatMap(Library.Library, (l) => l.picksFetch),
+  },
   {
     name: "library.detect",
     at: "08:10",
+    enabled: optedIn,
     run: Effect.flatMap(Library.Library, (l) => l.detectPatterns),
   },
   {
     name: "library.ready",
     at: "08:30",
+    enabled: optedIn,
     run: Effect.flatMap(Library.Library, (l) => l.generateReady(READY_COUNTRY)),
   },
 ]).pipe(Layer.provide(layerService));

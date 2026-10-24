@@ -13,6 +13,6 @@ the source alone does not explain. Most code changes do not need an internal doc
 update.
 
 - [Architecture overview](./internals/overview.md)
-- [Native shell: x.com as the window, the app in slots](./internals/native-shell.md)
+- [Native shell: the app as the window, x.com as a webview in it](./internals/native-shell.md)
 - [API, CLI and MCP](./operations/api.md)
 - [Hosted web tier, design only](./internals/hosted.md)

@@ -9,11 +9,16 @@ import {
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 
+import { TextMorph } from "torph/react";
+
 import { cn, parsePostId } from "../../lib/utils";
-import { useRates } from "../../state/costs";
+import { usd, useRates } from "../../state/costs";
 import { listsAtom } from "../../state/leads";
-import { inputClass, usd } from "../analyze/ui";
 import { Button } from "../ui/button";
+import { compactInputClass } from "../ui/field";
+import { Cost } from "../ui/layout";
+import { Switch } from "../ui/switch";
+import { Prop, PropGroup } from "./controls";
 import { triggerPoll } from "./describe";
 
 const TRIGGERS: Record<Trigger["kind"], { label: string; init: Trigger }> = {
@@ -68,14 +73,17 @@ export const emptyRule: RuleInput = {
 const int = (v: string) => Math.max(0, Math.trunc(Number(v) || 0));
 const money = (v: string) => Math.max(0, Number(v) || 0);
 
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="flex items-center justify-between gap-2">
-      <span className="text-muted-foreground">{label}</span>
-      {children}
-    </label>
+// Values read as text until hovered or focused, as in an inspector's properties list.
+const field = (width: string) =>
+  cn(
+    compactInputClass,
+    "border-transparent bg-transparent text-right font-mono [text-align-last:right]",
+    width,
   );
-}
+// Inputs carry their padding past the column so their text lines up with read-only values.
+const inputField = (width: string) => cn(field(width), "-mr-2");
+const noSpinner =
+  "[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
 
 function NumberInput({
   value,
@@ -96,7 +104,7 @@ function NumberInput({
       type="number"
       min={0}
       step={step}
-      className={cn(inputClass, width)}
+      className={cn(inputField(width), noSpinner)}
       value={text === "" || parse(text) === value ? text : value}
       onChange={(e) => {
         setText(e.target.value);
@@ -119,7 +127,7 @@ function OptionalNumber({
   return (
     <input
       inputMode="numeric"
-      className={cn(inputClass, "w-20")}
+      className={inputField("w-20")}
       placeholder={placeholder}
       value={value ?? ""}
       onChange={(e) => onChange(e.target.value === "" ? undefined : int(e.target.value))}
@@ -139,7 +147,7 @@ function ListSelect({
   const lists = AsyncResult.getOrElse(useAtomValue(listsAtom), () => []);
   return (
     <select
-      className={cn(inputClass, "w-auto")}
+      className={field("w-auto max-w-48")}
       value={value ?? ""}
       onChange={(e) => onChange(e.target.value === "" ? undefined : Number(e.target.value))}
     >
@@ -153,6 +161,11 @@ function ListSelect({
   );
 }
 
+/**
+ * The rule editor, a properties list for the detail column: when, only if,
+ * then, limits, with what one firing costs beside Save. A new rule also sets
+ * Enabled here; a saved one is switched on and off from its row.
+ */
 export function RuleForm({
   initial,
   saving,
@@ -165,15 +178,21 @@ export function RuleForm({
   readonly onCancel: () => void;
 }) {
   const [rule, setRule] = useState(initial);
+  const [dirty, setDirty] = useState(false);
+  const edit = (next: RuleInput) => {
+    setRule(next);
+    setDirty(true);
+  };
   const { trigger, action, conditions } = rule;
-  const setTrigger = (t: Trigger) => setRule({ ...rule, trigger: t });
-  const setConditions = (c: Conditions) => setRule({ ...rule, conditions: c });
+  const setTrigger = (t: Trigger) => edit({ ...rule, trigger: t });
+  const setConditions = (c: Conditions) => edit({ ...rule, conditions: c });
   // Delete actions default to ask-first.
   const setAction = (a: Action) =>
-    setRule({ ...rule, action: a, askFirst: a.kind === "auto_delete" ? true : rule.askFirst });
+    edit({ ...rule, action: a, askFirst: a.kind === "auto_delete" ? true : rule.askFirst });
   const rates = useRates();
   const cost = rates === null ? null : actionCostUsd(rates, action);
   const poll = rates === null ? null : triggerPoll(rates, trigger);
+  const isNew = initial.id === undefined;
   const valid =
     rule.name.trim() !== "" &&
     (trigger.kind !== "post_engaged" || parsePostId(trigger.postId) !== null) &&
@@ -183,321 +202,342 @@ export function RuleForm({
     (action.kind !== "add_to_list" || action.listId > 0);
 
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-border bg-card p-3 text-xs">
-      <Row label="Name">
-        <input
-          className={cn(inputClass, "w-64")}
-          value={rule.name}
-          placeholder="Thank reposters"
-          onChange={(e) => setRule({ ...rule, name: e.target.value })}
-        />
-      </Row>
-      <Row label="When">
-        <select
-          className={cn(inputClass, "w-auto")}
-          value={trigger.kind}
-          onChange={(e) => setTrigger(TRIGGERS[e.target.value as Trigger["kind"]].init)}
-        >
-          {Object.entries(TRIGGERS).map(([k, v]) => (
-            <option key={k} value={k}>
-              {v.label}
-            </option>
-          ))}
-        </select>
-      </Row>
-      {trigger.kind === "post_crosses_threshold" ? (
-        <Row label="Reaches">
-          <span className="flex gap-1">
-            <NumberInput
-              width="w-24"
-              value={trigger.threshold}
-              onChange={(threshold) => setTrigger({ ...trigger, threshold })}
+    <form
+      className="flex min-h-0 flex-1 flex-col"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (valid && !saving) onSave({ ...rule, name: rule.name.trim() });
+      }}
+    >
+      <div className="flex-1 px-5 pb-6">
+        <PropGroup title="Rule">
+          <Prop label="Name">
+            <input
+              // A new rule's first step is its name; a saved one opens on its numbers.
+              autoFocus={isNew}
+              className={inputField("w-48")}
+              value={rule.name}
+              placeholder="Thank reposters"
+              onChange={(e) => edit({ ...rule, name: e.target.value })}
             />
+          </Prop>
+        </PropGroup>
+
+        <PropGroup title="When">
+          <Prop label="Trigger">
             <select
-              className={cn(inputClass, "w-auto")}
-              value={trigger.metric}
-              onChange={(e) =>
-                setTrigger({ ...trigger, metric: e.target.value as typeof trigger.metric })
-              }
+              className={field("w-auto max-w-full")}
+              value={trigger.kind}
+              onChange={(e) => setTrigger(TRIGGERS[e.target.value as Trigger["kind"]].init)}
             >
-              <option value="views">views</option>
-              <option value="likes">likes</option>
+              {Object.entries(TRIGGERS).map(([k, v]) => (
+                <option key={k} value={k}>
+                  {v.label}
+                </option>
+              ))}
             </select>
-          </span>
-        </Row>
-      ) : trigger.kind === "schedule" ? (
-        <Row label="Days and time">
-          <span className="flex items-center gap-1">
-            {DAYS.map((d, i) => (
-              <Button
-                key={d}
-                variant={trigger.weekdays.includes(i) ? "secondary" : "ghost-muted"}
-                size="micro"
-                onClick={() =>
-                  setTrigger({
-                    ...trigger,
-                    weekdays: trigger.weekdays.includes(i)
-                      ? trigger.weekdays.filter((x) => x !== i)
-                      : [...trigger.weekdays, i].sort(),
-                  })
+          </Prop>
+          {trigger.kind === "post_crosses_threshold" ? (
+            <Prop label="Reaches">
+              <NumberInput
+                width="w-24"
+                value={trigger.threshold}
+                onChange={(threshold) => setTrigger({ ...trigger, threshold })}
+              />
+              <select
+                className={field("w-auto")}
+                value={trigger.metric}
+                onChange={(e) =>
+                  setTrigger({ ...trigger, metric: e.target.value as typeof trigger.metric })
                 }
               >
-                {d}
-              </Button>
-            ))}
-            <input
-              type="time"
-              className={cn(inputClass, "w-auto")}
-              value={trigger.time}
-              onChange={(e) => setTrigger({ ...trigger, time: e.target.value })}
+                <option value="views">views</option>
+                <option value="likes">likes</option>
+              </select>
+            </Prop>
+          ) : trigger.kind === "schedule" ? (
+            <>
+              <Prop label="Days" as="div">
+                {DAYS.map((d, i) => (
+                  <Button
+                    key={d}
+                    variant={trigger.weekdays.includes(i) ? "secondary" : "ghost-muted"}
+                    size="micro"
+                    aria-pressed={trigger.weekdays.includes(i)}
+                    onClick={() =>
+                      setTrigger({
+                        ...trigger,
+                        weekdays: trigger.weekdays.includes(i)
+                          ? trigger.weekdays.filter((x) => x !== i)
+                          : [...trigger.weekdays, i].sort(),
+                      })
+                    }
+                  >
+                    {d}
+                  </Button>
+                ))}
+              </Prop>
+              <Prop label="Time">
+                <input
+                  type="time"
+                  className={inputField("w-auto")}
+                  value={trigger.time}
+                  onChange={(e) => setTrigger({ ...trigger, time: e.target.value })}
+                />
+              </Prop>
+            </>
+          ) : trigger.kind === "keyword_post" ? (
+            <Prop label="Query">
+              <input
+                className={inputField("w-48")}
+                value={trigger.query}
+                placeholder="x growth"
+                onChange={(e) => setTrigger({ ...trigger, query: e.target.value })}
+              />
+            </Prop>
+          ) : trigger.kind === "post_engaged" ? (
+            <>
+              <Prop label="Post id">
+                <input
+                  className={inputField("w-48")}
+                  value={trigger.postId}
+                  placeholder="1835124037934367098"
+                  // A pasted post URL keeps only its id.
+                  onChange={(e) =>
+                    setTrigger({
+                      ...trigger,
+                      postId: parsePostId(e.target.value) ?? e.target.value.trim(),
+                    })
+                  }
+                />
+              </Prop>
+              <Prop label="Via">
+                <select
+                  className={field("w-auto max-w-full")}
+                  value={trigger.via}
+                  onChange={(e) =>
+                    setTrigger({ ...trigger, via: e.target.value as typeof trigger.via })
+                  }
+                >
+                  <option value="repost">reposts, scraper</option>
+                  <option value="like">likes, X API, first 20</option>
+                </select>
+              </Prop>
+            </>
+          ) : trigger.kind === "agent_match" ? (
+            <Prop label="Minimum score">
+              <NumberInput
+                value={trigger.minScore}
+                onChange={(n) => setTrigger({ ...trigger, minScore: Math.min(100, n) })}
+              />
+            </Prop>
+          ) : trigger.kind === "webhook" ? (
+            <Prop label="URL" as="div">
+              <span className="text-muted-foreground">
+                {isNew ? "after saving" : "under Webhook above"}
+              </span>
+            </Prop>
+          ) : null}
+          {poll !== null ? (
+            <p className="py-2 text-2xs text-muted-foreground">
+              Polls X every {poll.every}: {usd(poll.usd)} a poll, up to{" "}
+              {usd(poll.usd * poll.perDay)} a day{rule.dryRun ? ", not while a dry run" : ""}.
+            </p>
+          ) : null}
+        </PropGroup>
+
+        <PropGroup title="Only if">
+          <Prop label="Within hours">
+            <OptionalNumber
+              placeholder="any"
+              value={conditions.withinHours}
+              onChange={(withinHours) => setConditions({ ...conditions, withinHours })}
             />
-          </span>
-        </Row>
-      ) : trigger.kind === "keyword_post" ? (
-        <Row label="Query">
-          <input
-            className={cn(inputClass, "w-64")}
-            value={trigger.query}
-            placeholder="x growth"
-            onChange={(e) => setTrigger({ ...trigger, query: e.target.value })}
-          />
-        </Row>
-      ) : trigger.kind === "post_engaged" ? (
-        <Row label="Post id and kind">
-          <span className="flex gap-1">
-            <input
-              className={cn(inputClass, "w-48")}
-              value={trigger.postId}
-              placeholder="1835124037934367098"
-              aria-label="Post id"
+          </Prop>
+          <Prop label="Link">
+            <select
+              className={field("w-auto")}
+              value={conditions.link ?? ""}
               onChange={(e) =>
-                setTrigger({
-                  ...trigger,
-                  postId: parsePostId(e.target.value) ?? e.target.value.trim(),
+                setConditions({
+                  ...conditions,
+                  link: e.target.value === "" ? undefined : (e.target.value as "has" | "none"),
                 })
               }
-            />
-            <select
-              className={cn(inputClass, "w-auto")}
-              value={trigger.via}
-              onChange={(e) =>
-                setTrigger({ ...trigger, via: e.target.value as typeof trigger.via })
-              }
             >
-              <option value="repost">reposts (scraper)</option>
-              <option value="like">likes (X API, first 20)</option>
+              <option value="">either</option>
+              <option value="has">has a link</option>
+              <option value="none">no link</option>
             </select>
-          </span>
-        </Row>
-      ) : trigger.kind === "agent_match" ? (
-        <Row label="Minimum score">
-          <NumberInput
-            value={trigger.minScore}
-            onChange={(n) => setTrigger({ ...trigger, minScore: Math.min(100, n) })}
-          />
-        </Row>
-      ) : trigger.kind === "webhook" ? (
-        <p className="text-2xs text-muted-foreground">
-          Save the rule, then open its Webhook URL from the rule row.
-        </p>
-      ) : null}
-      {poll !== null ? (
-        <p className="text-2xs text-muted-foreground">
-          Polls X every {poll.every}: {usd(poll.usd)} a poll, up to {usd(poll.usd * poll.perDay)} a
-          day{rule.dryRun ? ", not while a dry run" : ""}.
-        </p>
-      ) : null}
-
-      <Row label="Only if">
-        <span className="flex flex-wrap items-center justify-end gap-1">
-          <OptionalNumber
-            placeholder="within h"
-            value={conditions.withinHours}
-            onChange={(withinHours) => setConditions({ ...conditions, withinHours })}
-          />
-          <select
-            className={cn(inputClass, "w-auto")}
-            value={conditions.link ?? ""}
-            onChange={(e) =>
-              setConditions({
-                ...conditions,
-                link: e.target.value === "" ? undefined : (e.target.value as "has" | "none"),
-              })
-            }
-          >
-            <option value="">link or not</option>
-            <option value="has">has a link</option>
-            <option value="none">no link</option>
-          </select>
-          <label className="flex items-center gap-1">
-            <input
-              type="checkbox"
+          </Prop>
+          <Prop label="Not a reply">
+            <Switch
               checked={conditions.notReply === true}
-              onChange={(e) =>
-                setConditions({ ...conditions, notReply: e.target.checked ? true : undefined })
+              onChange={(on) => setConditions({ ...conditions, notReply: on ? true : undefined })}
+            />
+          </Prop>
+          <Prop label="Author followers at least">
+            <OptionalNumber
+              placeholder="any"
+              value={conditions.minAuthorFollowers}
+              onChange={(minAuthorFollowers) =>
+                setConditions({ ...conditions, minAuthorFollowers })
               }
             />
-            not a reply
-          </label>
-          <OptionalNumber
-            placeholder="author ≥ followers"
-            value={conditions.minAuthorFollowers}
-            onChange={(minAuthorFollowers) => setConditions({ ...conditions, minAuthorFollowers })}
-          />
-          <ListSelect
-            none="not in list: any"
-            value={conditions.notInListId}
-            onChange={(notInListId) => setConditions({ ...conditions, notInListId })}
-          />
-        </span>
-      </Row>
-      <Row label="Wait before acting (minutes)">
-        <NumberInput
-          value={rule.waitMinutes}
-          onChange={(waitMinutes) => setRule({ ...rule, waitMinutes })}
-        />
-      </Row>
+          </Prop>
+          <Prop label="Not in list">
+            <ListSelect
+              none="any"
+              value={conditions.notInListId}
+              onChange={(notInListId) => setConditions({ ...conditions, notInListId })}
+            />
+          </Prop>
+        </PropGroup>
 
-      <Row label="Then">
-        <select
-          className={cn(inputClass, "w-auto")}
-          value={action.kind}
-          onChange={(e) => setAction(ACTIONS[e.target.value as Action["kind"]].init)}
-        >
-          {Object.entries(ACTIONS).map(([k, v]) => (
-            <option key={k} value={k}>
-              {v.label}
-            </option>
-          ))}
-        </select>
-      </Row>
-      {action.kind === "auto_plug" ? (
-        <Row label="Reply text">
-          <input
-            className={cn(inputClass, "w-64")}
-            value={action.text}
-            placeholder="Full breakdown here → https://…"
-            onChange={(e) => setAction({ ...action, text: e.target.value })}
-          />
-        </Row>
-      ) : action.kind === "auto_dm" ? (
-        <Row label="Template ({name})">
-          <input
-            className={cn(inputClass, "w-64")}
-            value={action.template}
-            onChange={(e) => setAction({ ...action, template: e.target.value })}
-          />
-        </Row>
-      ) : action.kind === "notify" ? (
-        <Row label="Message ({name})">
-          <input
-            className={cn(inputClass, "w-64")}
-            value={action.message}
-            onChange={(e) => setAction({ ...action, message: e.target.value })}
-          />
-        </Row>
-      ) : action.kind === "add_to_list" ? (
-        <Row label="List">
-          <ListSelect
-            none="pick a list"
-            value={action.listId > 0 ? action.listId : undefined}
-            onChange={(listId) => setAction({ ...action, listId: listId ?? 0 })}
-          />
-        </Row>
-      ) : action.kind === "auto_retweet" ? (
-        <Row label="Pick from my top posts">
-          <input
-            type="checkbox"
-            checked={action.evergreen}
-            onChange={(e) => setAction({ ...action, evergreen: e.target.checked })}
-          />
-        </Row>
-      ) : action.kind === "auto_delete" ? (
-        <Row label="Older than days / under views">
-          <span className="flex gap-1">
+        <PropGroup title="Then">
+          <Prop label="Action">
+            <select
+              className={field("w-auto max-w-full")}
+              value={action.kind}
+              onChange={(e) => setAction(ACTIONS[e.target.value as Action["kind"]].init)}
+            >
+              {Object.entries(ACTIONS).map(([k, v]) => (
+                <option key={k} value={k}>
+                  {v.label}
+                </option>
+              ))}
+            </select>
+          </Prop>
+          {action.kind === "auto_plug" ? (
+            <Prop label="Reply text">
+              <input
+                className={inputField("w-48")}
+                value={action.text}
+                placeholder="Full breakdown here: https://…"
+                onChange={(e) => setAction({ ...action, text: e.target.value })}
+              />
+            </Prop>
+          ) : action.kind === "auto_dm" ? (
+            <Prop label="Template, {name}">
+              <input
+                className={inputField("w-48")}
+                value={action.template}
+                onChange={(e) => setAction({ ...action, template: e.target.value })}
+              />
+            </Prop>
+          ) : action.kind === "notify" ? (
+            <Prop label="Message, {name}">
+              <input
+                className={inputField("w-48")}
+                value={action.message}
+                onChange={(e) => setAction({ ...action, message: e.target.value })}
+              />
+            </Prop>
+          ) : action.kind === "add_to_list" ? (
+            <Prop label="List">
+              <ListSelect
+                none="pick a list"
+                value={action.listId > 0 ? action.listId : undefined}
+                onChange={(listId) => setAction({ ...action, listId: listId ?? 0 })}
+              />
+            </Prop>
+          ) : action.kind === "auto_retweet" ? (
+            <Prop label="Pick from my top posts">
+              <Switch
+                checked={action.evergreen}
+                onChange={(evergreen) => setAction({ ...action, evergreen })}
+              />
+            </Prop>
+          ) : action.kind === "auto_delete" ? (
+            <>
+              <Prop label="Older than days">
+                <NumberInput
+                  value={action.olderThanDays}
+                  onChange={(olderThanDays) => setAction({ ...action, olderThanDays })}
+                />
+              </Prop>
+              <Prop label="Under views">
+                <NumberInput
+                  width="w-24"
+                  value={action.maxViews}
+                  onChange={(maxViews) => setAction({ ...action, maxViews })}
+                />
+              </Prop>
+            </>
+          ) : action.kind === "clean_profile" ? (
+            <Prop label="After hours">
+              <NumberInput
+                value={action.afterHours}
+                onChange={(afterHours) => setAction({ ...action, afterHours })}
+              />
+            </Prop>
+          ) : null}
+          <Prop label="Wait minutes first">
             <NumberInput
-              value={action.olderThanDays}
-              onChange={(olderThanDays) => setAction({ ...action, olderThanDays })}
+              value={rule.waitMinutes}
+              onChange={(waitMinutes) => edit({ ...rule, waitMinutes })}
             />
+          </Prop>
+          <Prop label="Undo after hours">
+            <OptionalNumber
+              placeholder="never"
+              value={rule.undoAfterHours ?? undefined}
+              onChange={(h) => edit({ ...rule, undoAfterHours: h ?? null })}
+            />
+          </Prop>
+        </PropGroup>
+
+        <PropGroup title="Limits">
+          <Prop label="Budget per day, USD">
             <NumberInput
+              step={0.1}
               width="w-24"
-              value={action.maxViews}
-              onChange={(maxViews) => setAction({ ...action, maxViews })}
+              value={rule.budgetUsdDay}
+              onChange={(budgetUsdDay) => edit({ ...rule, budgetUsdDay })}
             />
-          </span>
-        </Row>
-      ) : action.kind === "clean_profile" ? (
-        <Row label="After hours">
-          <NumberInput
-            value={action.afterHours}
-            onChange={(afterHours) => setAction({ ...action, afterHours })}
-          />
-        </Row>
-      ) : null}
-      <Row label="Undo after hours (blank: never)">
-        <OptionalNumber
-          placeholder="never"
-          value={rule.undoAfterHours ?? undefined}
-          onChange={(h) => setRule({ ...rule, undoAfterHours: h ?? null })}
-        />
-      </Row>
-      <Row label="Budget per day / per month (USD)">
-        <span className="flex gap-1">
-          <NumberInput
-            step={0.1}
-            width="w-24"
-            value={rule.budgetUsdDay}
-            onChange={(budgetUsdDay) => setRule({ ...rule, budgetUsdDay })}
-          />
-          <NumberInput
-            step={0.1}
-            width="w-24"
-            value={rule.budgetUsdMonth}
-            onChange={(budgetUsdMonth) => setRule({ ...rule, budgetUsdMonth })}
-          />
+          </Prop>
+          <Prop label="Budget per month, USD">
+            <NumberInput
+              step={0.1}
+              width="w-24"
+              value={rule.budgetUsdMonth}
+              onChange={(budgetUsdMonth) => edit({ ...rule, budgetUsdMonth })}
+            />
+          </Prop>
+          <Prop label="Ask first, approve in Needs you">
+            <Switch checked={rule.askFirst} onChange={(askFirst) => edit({ ...rule, askFirst })} />
+          </Prop>
+          <Prop label="Dry run, charge nothing">
+            <Switch checked={rule.dryRun} onChange={(dryRun) => edit({ ...rule, dryRun })} />
+          </Prop>
+          {isNew ? (
+            <Prop label="Enabled">
+              <Switch checked={rule.enabled} onChange={(enabled) => edit({ ...rule, enabled })} />
+            </Prop>
+          ) : null}
+        </PropGroup>
+      </div>
+
+      <div className="sticky bottom-0 flex items-center justify-between gap-2 border-t border-border bg-background px-5 py-3">
+        <span className="truncate font-mono text-2xs text-muted-foreground tabular-nums">
+          {cost === null ? <Cost label="…" /> : <Cost usd={cost} />}
+          {action.kind === "auto_delete" ? " per post" : " per fire"}
+          {rule.undoAfterHours !== null
+            ? ` + ${rates === null ? "…" : usd(rates.delete)} undo`
+            : ""}
+          {rule.dryRun ? ", dry run" : ""}
         </span>
-      </Row>
-      <Row label="Ask first (queue in Needs you, act on Approve)">
-        <input
-          type="checkbox"
-          checked={rule.askFirst}
-          onChange={(e) => setRule({ ...rule, askFirst: e.target.checked })}
-        />
-      </Row>
-      <Row label="Dry run (log what would fire, charge nothing)">
-        <input
-          type="checkbox"
-          checked={rule.dryRun}
-          onChange={(e) => setRule({ ...rule, dryRun: e.target.checked })}
-        />
-      </Row>
-      <Row label="Enabled">
-        <input
-          type="checkbox"
-          checked={rule.enabled}
-          onChange={(e) => setRule({ ...rule, enabled: e.target.checked })}
-        />
-      </Row>
-      <div className="flex items-center justify-between gap-2 border-t border-border pt-2">
-        <span className="font-mono text-muted-foreground">
-          {cost === null ? "…" : usd(cost)} per fire
-          {action.kind === "auto_delete" ? " per post" : ""}
-          {rule.undoAfterHours !== null ? ` + ${usd(rates?.delete ?? 0)} undo` : ""}
-          {rule.dryRun ? " · dry run, nothing charged" : ""}
-        </span>
-        <span className="flex gap-1">
-          <Button variant="ghost" size="xs" onClick={onCancel}>
-            Cancel
+        <span className="flex shrink-0 gap-1.5">
+          <Button variant="ghost" size="sm" onClick={onCancel}>
+            {isNew || dirty ? "Cancel" : "Close"}
           </Button>
-          <Button
-            size="xs"
-            disabled={saving || !valid}
-            onClick={() => onSave({ ...rule, name: rule.name.trim() })}
-          >
-            {saving ? "Saving…" : "Save rule"}
+          <Button size="sm" type="submit" disabled={saving || !valid || (!isNew && !dirty)}>
+            <TextMorph duration={250}>
+              {saving ? "Saving" : isNew ? "Create rule" : "Save"}
+            </TextMorph>
           </Button>
         </span>
       </div>
-    </div>
+    </form>
   );
 }

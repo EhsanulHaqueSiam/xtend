@@ -78,7 +78,8 @@ export class ObservationStore extends Context.Service<
      * observedAt) adds nothing, not even a sighting; a batch older than what is stored (a
      * retried send arriving late) adds its metrics row but never overwrites newer profile data.
      * Sightings go to the account whose session captured them, or the current one when the batch
-     * names no account this service has.
+     * names no account this service has. That account adopts the batch's viewer as its handle
+     * when it has none, so a fresh install never asks who is signed in.
      */
     readonly record: (
       batch: ObservationBatch,
@@ -103,6 +104,19 @@ const make = Effect.gen(function* () {
           ${sql.literal(CURRENT_ACCOUNT)}
         ) AS id
       `;
+      const adopted =
+        viewer === null
+          ? []
+          : yield* sql<{ id: number }>`
+              UPDATE accounts SET handle = ${viewer} WHERE id = ${owner!.id} AND handle IS NULL
+              RETURNING id
+            `;
+      // Settings.handle mirrors the current account's, so it follows only when the owner is current.
+      if (adopted.length > 0)
+        yield* sql`
+          UPDATE settings SET handle = ${viewer}
+          WHERE id = 1 AND handle IS NULL AND current_account_id = ${owner!.id}
+        `;
       yield* sql.withTransaction(
         Effect.forEach(
           batch.posts,
@@ -144,7 +158,11 @@ const make = Effect.gen(function* () {
       );
       yield* events.publish({
         type: "observation_recorded",
-        payload: { posts: batch.posts.length, source: batch.source },
+        payload: {
+          posts: batch.posts.length,
+          source: batch.source,
+          ...(adopted.length > 0 ? { handleAdopted: viewer } : {}),
+        },
       });
       return { posts: batch.posts.length };
     },

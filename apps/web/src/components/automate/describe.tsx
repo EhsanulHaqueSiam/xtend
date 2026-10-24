@@ -1,8 +1,8 @@
-import type { Action, Conditions, RateCard, RuleRunStatus, Trigger } from "@xtend/contracts";
+import type { Action, Conditions, RateCard, Rule, RuleRunStatus, Trigger } from "@xtend/contracts";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
-export const describeTrigger = (t: Trigger): string => {
+const describeTrigger = (t: Trigger): string => {
   switch (t.kind) {
     case "post_crosses_threshold":
       return `when my post reaches ${t.threshold.toLocaleString()} ${t.metric}`;
@@ -48,7 +48,7 @@ export const triggerPoll = (
   }
 };
 
-export const describeConditions = (c: Conditions): string =>
+const describeConditions = (c: Conditions): string =>
   [
     c.withinHours !== undefined ? `within ${c.withinHours}h` : null,
     c.link === "has" ? "has a link" : c.link === "none" ? "no link" : null,
@@ -59,7 +59,7 @@ export const describeConditions = (c: Conditions): string =>
     .filter((s) => s !== null)
     .join(", ");
 
-export const describeAction = (a: Action): string => {
+const describeAction = (a: Action): string => {
   switch (a.kind) {
     case "auto_plug":
       return `reply with "${a.text}"`;
@@ -82,6 +82,28 @@ export const describeAction = (a: Action): string => {
     case "follow":
       return "follow them";
   }
+};
+
+/** The whole rule as one line: "When my post reaches 5,000 views, if no link, reply with …". */
+export const describeRule = (rule: Rule): string => {
+  const conditions = describeConditions(rule.conditions);
+  const line = [
+    describeTrigger(rule.trigger) + (conditions === "" ? "" : `, if ${conditions}`),
+    rule.waitMinutes > 0 ? `after ${rule.waitMinutes} min` : null,
+    describeAction(rule.action),
+    rule.undoAfterHours !== null ? `undo after ${rule.undoAfterHours}h` : null,
+  ]
+    .filter((s) => s !== null)
+    .join(", ");
+  return line.charAt(0).toUpperCase() + line.slice(1);
+};
+
+export const statusLabel: Record<RuleRunStatus, string> = {
+  ok: "ok",
+  failed: "failed",
+  skipped: "skipped",
+  dry_run: "dry run",
+  pending: "pending",
 };
 
 export const statusTone: Record<RuleRunStatus, string> = {

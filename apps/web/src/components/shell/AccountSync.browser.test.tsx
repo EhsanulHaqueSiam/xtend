@@ -7,7 +7,7 @@ import { AccountSync } from "./AccountSync";
 
 it("follows an account switch made in another client onto that account", async () => {
   // A desktop window on account 1.
-  const calls = installFakeBridge();
+  const { calls } = installFakeBridge();
   onTestFinished(() => {
     delete window.desktopBridge;
   });

@@ -15,6 +15,8 @@ export const Settings = Schema.Struct({
   monthlyBudgetUsd: Schema.Number,
   /** Desktop only: let media posts go through the logged-in x.com session. */
   sessionPostingEnabled: Schema.Boolean,
+  /** The Library's paid morning jobs (picks, hooks, ready-to-post); off until the user opts in. */
+  dailyLibraryJobs: Schema.Boolean,
   /** Short description of what the account is about; the assistant writes in this voice. */
   voiceNotes: Schema.String,
   /** Niche keywords the library, leads and engage screens search by default. */
@@ -31,6 +33,7 @@ export const SettingsUpdate = Schema.Struct({
     Schema.Number.check(Schema.isFinite(), Schema.isGreaterThanOrEqualTo(0)),
   ),
   sessionPostingEnabled: Schema.optional(Schema.Boolean),
+  dailyLibraryJobs: Schema.optional(Schema.Boolean),
   voiceNotes: Schema.optional(Schema.String),
   keywords: Schema.optional(Schema.Array(Schema.String)),
   timeZone: Schema.optional(Schema.String.check(Schema.isMinLength(1))),

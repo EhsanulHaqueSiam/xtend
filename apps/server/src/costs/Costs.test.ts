@@ -109,6 +109,7 @@ describe("Costs", () => {
         { kind: "scoreRun", handle: "levelsio" },
         { kind: "scoreRun", handle: "warm" },
         { kind: "followersPage", handle: "levelsio" },
+        { kind: "assist" },
       ]);
       expect(rates).toEqual(XClient.RATE_CARD);
       expect(quotes.map((q) => q.usd)).toEqual([
@@ -123,6 +124,7 @@ describe("Costs", () => {
         rates.scraperProfile + 4 * rates.followersPage,
         4 * rates.followersPage,
         rates.followersPage,
+        Assist.EXPECTED_CALL_USD,
       ]);
       expect(quotes.map((q) => q.cached)).toEqual([
         false,
@@ -132,6 +134,7 @@ describe("Costs", () => {
         false,
         false,
         true,
+        false,
         false,
         false,
         false,

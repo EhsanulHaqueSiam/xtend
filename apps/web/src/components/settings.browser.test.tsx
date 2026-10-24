@@ -71,7 +71,8 @@ const service = (
 it("saves a budget and time zone only once both are valid, and the meter shows the new budget", async () => {
   const updates: Array<SettingsUpdate> = [];
   await using screen = await render(<SettingsScreen />, { service: service(updates) });
-  await expect.element(screen.getByText("$1.50 of $20.00")).toBeVisible();
+  // The meter's budget, beside this month's $1.50.
+  await expect.element(screen.getByText("$20.00", { exact: true })).toBeVisible();
   const save = screen.getByRole("button", { name: "Save" });
   const budget = screen.getByRole("spinbutton");
 
@@ -90,7 +91,7 @@ it("saves a budget and time zone only once both are valid, and the meter shows t
   await userEvent.click(save);
 
   await expect.poll(() => updates).toEqual([{ monthlyBudgetUsd: 35.5, timeZone: "Asia/Dhaka" }]);
-  await expect.element(screen.getByText("$1.50 of $35.50")).toBeVisible();
+  await expect.element(screen.getByText("$35.50", { exact: true })).toBeVisible();
 });
 
 it("saves a handle as X spells it, refuses one X would not accept, and says why a save failed", async () => {
@@ -123,7 +124,7 @@ it("saves a handle as X spells it, refuses one X would not accept, and says why 
 });
 
 it("switches account only after the service selected it, and says when it refused", async () => {
-  const calls = installFakeBridge();
+  const { calls } = installFakeBridge();
   onTestFinished(() => {
     delete window.desktopBridge;
   });

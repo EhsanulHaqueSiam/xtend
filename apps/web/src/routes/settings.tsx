@@ -11,9 +11,12 @@ import { useState } from "react";
 
 import { PageHeader } from "../components/PageHeader";
 import { Button } from "../components/ui/button";
+import { Field, inputClass } from "../components/ui/field";
+import { PageBody, Section, Stat } from "../components/ui/layout";
+import { Switch } from "../components/ui/switch";
 import type { Reachability, ServiceMode } from "../desktopBridge";
 import { isElectron } from "../env";
-import { NOT_A_HANDLE, parseHandle } from "../lib/utils";
+import { cn, NOT_A_HANDLE, parseHandle } from "../lib/utils";
 import {
   accountsAtom,
   createAccountAtom,
@@ -21,36 +24,23 @@ import {
   switchAccount,
 } from "../state/accounts";
 import { serverInfoAtom } from "../state/observations";
+import { useQuoteLabel } from "../state/costs";
 import { settingsAtom, spendAtom, updateSettingsAtom } from "../state/settings";
+import { xSkinAtom } from "../state/x";
 
 const usd = (n: number) => `$${n.toFixed(2)}`;
 
 function Row({ label, children }: { readonly label: string; readonly children: React.ReactNode }) {
   return (
-    <div className="flex items-baseline justify-between gap-6 py-2.5 text-sm">
+    <div className="flex items-baseline justify-between gap-6 border-b border-border py-2.5 text-sm last:border-b-0">
       <dt className="shrink-0 text-muted-foreground">{label}</dt>
       <dd className="min-w-0 truncate text-right font-mono text-xs">{children}</dd>
     </div>
   );
 }
 
-function Field({
-  label,
-  hint,
-  children,
-}: {
-  readonly label: string;
-  readonly hint?: string;
-  readonly children: React.ReactNode;
-}) {
-  return (
-    <label className="flex flex-col gap-1 py-2.5 text-sm">
-      <span className="text-muted-foreground">{label}</span>
-      {children}
-      {hint !== undefined ? <span className="text-2xs text-muted-foreground">{hint}</span> : null}
-    </label>
-  );
-}
+// Settings reads as a list of values, so its fields are mono.
+const settingsInput = cn(inputClass, "font-mono text-xs");
 
 /** What the service accepts too: Intl knows the zone. A typo would come back as a bare "update failed". */
 const isTimeZone = (zone: string) => {
@@ -61,9 +51,6 @@ const isTimeZone = (zone: string) => {
     return false;
   }
 };
-
-const inputClass =
-  "w-full rounded-md border border-input bg-background px-2.5 py-1.5 font-mono text-xs text-foreground outline-hidden placeholder:text-placeholder focus-visible:ring-2 focus-visible:ring-ring";
 
 function SettingsForm({ current }: { readonly current: SettingsShape }) {
   const update = useAtomSet(updateSettingsAtom, { mode: "promise" });
@@ -77,6 +64,7 @@ function SettingsForm({ current }: { readonly current: SettingsShape }) {
   const [budgetInvalid, setBudgetInvalid] = useState(false);
   const [zoneInvalid, setZoneInvalid] = useState(false);
   const dirty = Object.keys(draft).length > 0 || tregToken !== "";
+  const invalid = budgetInvalid || zoneInvalid;
 
   const save = async () => {
     setError(null);
@@ -101,142 +89,202 @@ function SettingsForm({ current }: { readonly current: SettingsShape }) {
   };
 
   return (
-    <section className="rounded-lg border border-border bg-card px-4">
-      <Field
-        label="X handle"
-        hint="The account treg is connected to. Scores, analytics and mentions are about this handle."
-      >
-        <input
-          className={inputClass}
-          placeholder="handle without @"
-          defaultValue={current.handle ?? ""}
-          onChange={(e) => {
-            const value = e.target.value.trim();
-            setDraft((d) => ({ ...d, handle: value === "" ? null : value }));
-          }}
-        />
-      </Field>
-      <Field
-        label="treg token"
-        hint={
-          current.tregTokenSet
-            ? "A token is stored. Paste a new one to replace it."
-            : "Not set. Falls back to XTEND_TREG_TOKEN or the treg CLI login on this machine."
-        }
-      >
-        <input
-          className={inputClass}
-          type="password"
-          placeholder="treg token"
-          value={tregToken}
-          onChange={(e) => setTregToken(e.target.value)}
-        />
-      </Field>
-      <Field
-        label="Monthly budget (USD)"
-        hint={
-          budgetInvalid
-            ? "Enter an amount of 0 or more."
-            : "Paid calls stop when this month's spend would pass it."
-        }
-      >
-        <input
-          className={inputClass}
-          type="number"
-          min={0}
-          step={1}
-          aria-invalid={budgetInvalid}
-          defaultValue={current.monthlyBudgetUsd}
-          onChange={(e) => {
-            // NaN while empty or half typed ("-"); Number("") would have saved a $0 budget.
-            const value = e.target.valueAsNumber;
-            const valid = Number.isFinite(value) && value >= 0;
-            setBudgetInvalid(!valid);
-            if (valid) setDraft((d) => ({ ...d, monthlyBudgetUsd: value }));
-          }}
-        />
-      </Field>
-      <Field
-        label="Time zone"
-        hint={
-          zoneInvalid
-            ? "Not a time zone. Pick one from the list."
-            : "IANA name. Posting slots, the calendar and the best-time heatmap are all in this zone."
-        }
-      >
-        <input
-          className={inputClass}
-          list="xtend-zones"
-          aria-invalid={zoneInvalid}
-          defaultValue={current.timeZone}
-          onChange={(e) => {
-            const value = e.target.value.trim();
-            const valid = value === "" || isTimeZone(value);
-            setZoneInvalid(!valid);
-            if (valid)
-              setDraft((d) => ({ ...d, timeZone: value === "" ? current.timeZone : value }));
-          }}
-        />
-        <datalist id="xtend-zones">
-          {Intl.supportedValuesOf("timeZone").map((z) => (
-            <option key={z} value={z} />
-          ))}
-        </datalist>
-      </Field>
-      <Field
-        label="Voice notes"
-        hint="One paragraph on what you post about and how you sound. The assistant writes in this voice."
-      >
-        <textarea
-          className={inputClass}
-          rows={3}
-          defaultValue={current.voiceNotes}
-          onChange={(e) => setDraft((d) => ({ ...d, voiceNotes: e.target.value }))}
-        />
-      </Field>
-      <Field
-        label="Keywords"
-        hint="Comma separated. Library, Engage and Leads search these by default."
-      >
-        <input
-          className={inputClass}
-          defaultValue={current.keywords.join(", ")}
-          onChange={(e) =>
-            setDraft((d) => ({
-              ...d,
-              keywords: e.target.value
-                .split(",")
-                .map((k) => k.trim())
-                .filter((k) => k !== ""),
-            }))
-          }
-        />
-      </Field>
-      {isElectron ? (
-        <label className="flex items-center justify-between gap-6 py-2.5 text-sm">
-          <span className="text-muted-foreground">Post media through the x.com session</span>
-          <input
-            type="checkbox"
-            defaultChecked={current.sessionPostingEnabled}
-            onChange={(e) => setDraft((d) => ({ ...d, sessionPostingEnabled: e.target.checked }))}
-          />
-        </label>
-      ) : null}
-      <div className="flex items-center justify-end gap-3 py-3">
-        {error !== null ? (
-          <p role="alert" className="text-xs text-error-foreground">
-            {error}
-          </p>
-        ) : null}
-        <Button
-          size="sm"
-          disabled={!dirty || saving || budgetInvalid || zoneInvalid}
-          onClick={() => void save()}
+    <>
+      <Section title="X account">
+        <Field
+          wide
+          label="Handle"
+          hint="Taken from your X session when empty. Scores, analytics and mentions are about it."
         >
-          {saving ? "Saving…" : "Save"}
-        </Button>
-      </div>
-    </section>
+          <input
+            className={settingsInput}
+            placeholder="handle without @"
+            defaultValue={current.handle ?? ""}
+            onChange={(e) => {
+              const value = e.target.value.trim();
+              setDraft((d) => ({ ...d, handle: value === "" ? null : value }));
+            }}
+          />
+        </Field>
+      </Section>
+      <Section title="treg and budget">
+        <Field
+          wide
+          label="treg token"
+          hint={
+            current.tregTokenSet
+              ? "A token is stored. Paste a new one to replace it."
+              : "Not set. Falls back to XTEND_TREG_TOKEN or the treg CLI login on this machine."
+          }
+        >
+          <input
+            className={settingsInput}
+            type="password"
+            placeholder="treg token"
+            value={tregToken}
+            onChange={(e) => setTregToken(e.target.value)}
+          />
+        </Field>
+        <Field
+          wide
+          label="Monthly budget (USD)"
+          hint={
+            budgetInvalid
+              ? "Enter an amount of 0 or more."
+              : "Paid calls stop before this month's spend would pass it."
+          }
+        >
+          <input
+            className={settingsInput}
+            type="number"
+            min={0}
+            step={1}
+            aria-invalid={budgetInvalid}
+            defaultValue={current.monthlyBudgetUsd}
+            onChange={(e) => {
+              // NaN while empty or half typed ("-"); Number("") would have saved a $0 budget.
+              const value = e.target.valueAsNumber;
+              const valid = Number.isFinite(value) && value >= 0;
+              setBudgetInvalid(!valid);
+              if (valid) setDraft((d) => ({ ...d, monthlyBudgetUsd: value }));
+            }}
+          />
+        </Field>
+        <DailyJobsField
+          checked={draft.dailyLibraryJobs ?? current.dailyLibraryJobs}
+          onChange={(next) => setDraft((d) => ({ ...d, dailyLibraryJobs: next }))}
+        />
+      </Section>
+      <Section title="Time and voice">
+        <Field
+          wide
+          label="Time zone"
+          hint={
+            zoneInvalid
+              ? "Not a time zone. Pick one from the list."
+              : "IANA name. Posting slots, the calendar and the best-time heatmap are all in this zone."
+          }
+        >
+          <input
+            className={settingsInput}
+            list="xtend-zones"
+            aria-invalid={zoneInvalid}
+            defaultValue={current.timeZone}
+            onChange={(e) => {
+              const value = e.target.value.trim();
+              const valid = value === "" || isTimeZone(value);
+              setZoneInvalid(!valid);
+              if (valid)
+                setDraft((d) => ({ ...d, timeZone: value === "" ? current.timeZone : value }));
+            }}
+          />
+          <datalist id="xtend-zones">
+            {Intl.supportedValuesOf("timeZone").map((z) => (
+              <option key={z} value={z} />
+            ))}
+          </datalist>
+        </Field>
+        <Field
+          wide
+          label="Voice notes"
+          hint="One paragraph on what you post about and how you sound. The assistant writes in this voice."
+        >
+          <textarea
+            className={settingsInput}
+            rows={3}
+            defaultValue={current.voiceNotes}
+            onChange={(e) => setDraft((d) => ({ ...d, voiceNotes: e.target.value }))}
+          />
+        </Field>
+        <Field
+          wide
+          label="Keywords"
+          hint="Comma separated. Library, Engage and Leads search these by default."
+        >
+          <input
+            className={settingsInput}
+            defaultValue={current.keywords.join(", ")}
+            onChange={(e) =>
+              setDraft((d) => ({
+                ...d,
+                keywords: e.target.value
+                  .split(",")
+                  .map((k) => k.trim())
+                  .filter((k) => k !== ""),
+              }))
+            }
+          />
+        </Field>
+      </Section>
+      {isElectron ? (
+        <Section title="Desktop">
+          <Field
+            wide
+            label="Post media through X"
+            hint="Off by default. When on, posts with media go through your X session instead of the API."
+          >
+            <Switch
+              className="mt-1"
+              label="Post media through the x.com session"
+              checked={draft.sessionPostingEnabled ?? current.sessionPostingEnabled}
+              onChange={(next) => setDraft((d) => ({ ...d, sessionPostingEnabled: next }))}
+            />
+          </Field>
+          <XSkinField />
+        </Section>
+      ) : null}
+      {/* A field left invalid is an unsaved change too; the bar stays to say it cannot save. */}
+      {dirty || invalid ? (
+        <div className="sticky bottom-0 flex items-center justify-end gap-2 border-t border-border bg-background px-6 py-3">
+          {error !== null ? (
+            <p role="alert" className="mr-auto text-xs text-error-foreground">
+              {error}
+            </p>
+          ) : (
+            <span className="mr-auto text-xs text-muted-foreground">Unsaved changes</span>
+          )}
+          <Button size="sm" disabled={!dirty || saving || invalid} onClick={() => void save()}>
+            {saving ? "Saving…" : "Save"}
+          </Button>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+/** The Library's morning jobs spend with nobody clicking, so they are off until turned on here. */
+function DailyJobsField({
+  checked,
+  onChange,
+}: {
+  readonly checked: boolean;
+  readonly onChange: (next: boolean) => void;
+}) {
+  const searches = useQuoteLabel({ kind: "picksFetch" });
+  const call = useQuoteLabel({ kind: "assist" });
+  return (
+    <Field
+      wide
+      label="Daily Library jobs"
+      hint={`Each morning: picks for your keywords (${searches} in searches), hook detection and three ready posts (${call} per model call).`}
+    >
+      <Switch className="mt-1" label="Daily Library jobs" checked={checked} onChange={onChange} />
+    </Field>
+  );
+}
+
+/** The CSS skin over x.com, applied at once; it is a desktop preference, not a service setting. */
+function XSkinField() {
+  const skin = useAtomValue(xSkinAtom);
+  const setSkin = useAtomSet(xSkinAtom);
+  return (
+    <Field
+      wide
+      label="Clean X"
+      hint="Hide X's own sidebar, right column and Grok prompts inside Xtend."
+    >
+      <Switch className="mt-1" label="Clean X" checked={skin} onChange={setSkin} />
+    </Field>
   );
 }
 
@@ -246,19 +294,22 @@ function SpendMeter() {
     onInitial: () => null,
     onFailure: () => null,
     onSuccess: ({ value }) => (
-      <section className="rounded-lg border border-border bg-card px-4">
-        <dl className="divide-y divide-border">
-          <Row label="This month">
-            {usd(value.monthUsd)} of {usd(value.monthlyBudgetUsd)}
-          </Row>
-          <Row label="Today">{usd(value.todayUsd)}</Row>
-          {value.byPurpose.slice(0, 8).map((p) => (
-            <Row key={p.purpose} label={p.purpose}>
-              {usd(p.costUsd)}
-            </Row>
-          ))}
-        </dl>
-      </section>
+      <Section title="Spend">
+        <div className="grid grid-cols-3 gap-6 pb-4">
+          <Stat label="This month" value={usd(value.monthUsd)} />
+          <Stat label="Today" value={usd(value.todayUsd)} />
+          <Stat label="Budget" value={usd(value.monthlyBudgetUsd)} />
+        </div>
+        {value.byPurpose.length > 0 ? (
+          <dl>
+            {value.byPurpose.slice(0, 8).map((p) => (
+              <Row key={p.purpose} label={p.purpose}>
+                {usd(p.costUsd)}
+              </Row>
+            ))}
+          </dl>
+        ) : null}
+      </Section>
     ),
   });
 }
@@ -287,7 +338,7 @@ function RemoteService() {
   const [checking, setChecking] = useState(false);
   if (bridge === undefined)
     return (
-      <p className="py-2.5 text-2xs text-muted-foreground">
+      <p className="text-xs text-muted-foreground">
         From another browser, open this service's URL with{" "}
         <span className="font-mono">?token=</span>
         followed by the token from <span className="font-mono">auth-token</span> in its data
@@ -303,11 +354,12 @@ function RemoteService() {
   return (
     <>
       <Field
+        wide
         label="Service URL"
         hint="http://<tailnet ip or host>:4820 of a service started with --host."
       >
         <input
-          className={inputClass}
+          className={settingsInput}
           placeholder="http://mac-mini:4820"
           value={url}
           onChange={(e) => {
@@ -316,9 +368,9 @@ function RemoteService() {
           }}
         />
       </Field>
-      <Field label="Service token" hint="auth-token from that machine's data directory.">
+      <Field wide label="Service token" hint="auth-token from that machine's data directory.">
         <input
-          className={inputClass}
+          className={settingsInput}
           type="password"
           value={token}
           onChange={(e) => {
@@ -337,7 +389,7 @@ function RemoteService() {
             : (result.error ?? "unreachable")}
         </p>
       ) : null}
-      <div className="flex justify-end gap-2 py-3">
+      <div className="flex justify-end gap-2 pt-3">
         {bridge.remote !== null ? (
           <Button size="sm" variant="outline" onClick={() => bridge.setRemote(null)}>
             Use local service
@@ -390,9 +442,12 @@ function AccountRows({ list }: { readonly list: AccountList }) {
   };
   return (
     <>
-      <dl className="divide-y divide-border">
+      <dl>
         {list.accounts.map((a) => (
-          <div key={a.id} className="flex items-center justify-between gap-6 py-2 text-sm">
+          <div
+            key={a.id}
+            className="flex items-center justify-between gap-6 border-b border-border py-2 text-sm"
+          >
             <dt className="min-w-0 truncate">
               {a.label}
               {a.handle !== null ? (
@@ -415,15 +470,19 @@ function AccountRows({ list }: { readonly list: AccountList }) {
           </div>
         ))}
       </dl>
-      <div className="flex items-end gap-2 py-2.5">
+      <div className="flex max-w-xl items-end gap-2 pt-3">
         <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm">
           <span className="text-muted-foreground">New account label</span>
-          <input className={inputClass} value={label} onChange={(e) => setLabel(e.target.value)} />
+          <input
+            className={settingsInput}
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+          />
         </label>
         <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm">
           <span className="text-muted-foreground">Handle</span>
           <input
-            className={inputClass}
+            className={settingsInput}
             placeholder="optional"
             value={handle}
             onChange={(e) => setHandle(e.target.value)}
@@ -434,7 +493,7 @@ function AccountRows({ list }: { readonly list: AccountList }) {
         </Button>
       </div>
       {error !== null ? (
-        <p role="alert" className="pb-2.5 text-xs text-error-foreground">
+        <p role="alert" className="pt-2 text-xs text-error-foreground">
           {error}
         </p>
       ) : null}
@@ -459,45 +518,45 @@ export function SettingsScreen() {
   return (
     <div className="flex h-full flex-col">
       <PageHeader title="Settings" />
-      <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 overflow-y-auto px-4 py-4">
-        {AsyncResult.match(settings, {
-          onInitial: () => <p className="text-sm text-muted-foreground">Loading…</p>,
-          onFailure: () => (
-            <p className="text-sm text-error-foreground">Could not load settings.</p>
-          ),
-          onSuccess: ({ value }) => <SettingsForm current={value} />,
-        })}
-        <SpendMeter />
-        <section className="rounded-lg border border-border bg-card px-4">
-          <dl className="divide-y divide-border">
-            <Row label="Client">{isElectron ? "desktop" : "browser"}</Row>
-            <Row label="Service">
-              {AsyncResult.match(info, {
-                onInitial: () => "connecting…",
-                onFailure: () => <span className="text-error-foreground">unreachable</span>,
-                onSuccess: ({ value }) => `${value.name} ${value.version}`,
-              })}
-            </Row>
-            <Row label="Mode">
-              {AsyncResult.getOrElse(AsyncResult.map(info, modeLabel), () => "–")}
-            </Row>
-            <Row label="Data directory">
-              {AsyncResult.getOrElse(
-                AsyncResult.map(info, (v) => v.baseDir),
-                () => "–",
-              )}
-            </Row>
-          </dl>
-        </section>
-        <section className="rounded-lg border border-border bg-card px-4">
-          <h2 className="pt-3 text-sm font-medium">Accounts</h2>
-          <Accounts />
-        </section>
-        <section className="rounded-lg border border-border bg-card px-4">
-          <h2 className="pt-3 text-sm font-medium">Connect to a remote service</h2>
-          <RemoteService />
-        </section>
-      </div>
+      <PageBody>
+        <div className="max-w-4xl">
+          {AsyncResult.match(settings, {
+            onInitial: () => <p className="px-6 py-5 text-sm text-muted-foreground">Loading…</p>,
+            onFailure: () => (
+              <p className="px-6 py-5 text-sm text-error-foreground">Could not load settings.</p>
+            ),
+            onSuccess: ({ value }) => <SettingsForm current={value} />,
+          })}
+          <SpendMeter />
+          <Section title="Service">
+            <dl>
+              <Row label="Client">{isElectron ? "desktop" : "browser"}</Row>
+              <Row label="Service">
+                {AsyncResult.match(info, {
+                  onInitial: () => "connecting…",
+                  onFailure: () => <span className="text-error-foreground">unreachable</span>,
+                  onSuccess: ({ value }) => `${value.name} ${value.version}`,
+                })}
+              </Row>
+              <Row label="Mode">
+                {AsyncResult.getOrElse(AsyncResult.map(info, modeLabel), () => "–")}
+              </Row>
+              <Row label="Data directory">
+                {AsyncResult.getOrElse(
+                  AsyncResult.map(info, (v) => v.baseDir),
+                  () => "–",
+                )}
+              </Row>
+            </dl>
+          </Section>
+          <Section title="Accounts">
+            <Accounts />
+          </Section>
+          <Section title="Remote service">
+            <RemoteService />
+          </Section>
+        </div>
+      </PageBody>
     </div>
   );
 }

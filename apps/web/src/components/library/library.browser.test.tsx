@@ -1,7 +1,7 @@
 import { type Collection, LibraryError, type SavedPost } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import { afterEach, expect, it, vi } from "vite-plus/test";
-import { userEvent } from "vite-plus/test/browser";
+import { page, userEvent } from "vite-plus/test/browser";
 
 import { paid, rates, xPost } from "../../../test/fixtures";
 import { render } from "../../../test/render";
@@ -35,6 +35,16 @@ const saved = (id: number, post: typeof first, note = ""): SavedPost => ({
   collectionIds: [],
 });
 
+type Screen = Awaited<ReturnType<typeof render>>;
+/** A post's card in a Library grid. */
+const card = (screen: Screen, text: string) =>
+  screen.getByRole("article").filter({ hasText: text });
+/** Selects a card; its inspector opens in the detail column. */
+const inspect = async (screen: Screen, text: string) => {
+  await userEvent.click(card(screen, text).getByText(text));
+  return screen.getByRole("complementary", { name: "Selected post" });
+};
+
 it("prices a search by its mode, and Load more as the next page of the search on screen", async () => {
   const searches: Array<{
     readonly query: string;
@@ -62,21 +72,25 @@ it("prices a search by its mode, and Load more as the next page of the search on
         );
       },
       "library.collectionsList": () => Effect.succeed([]),
+      "library.savedList": () => Effect.succeed([]),
     },
   });
   // A `?q=` link searches on arrival.
   await expect.poll(() => searches).toEqual([{ query: "ai agents", mode: "top" }]);
-  await expect.element(screen.getByRole("button", { name: "Search (cached, free)" })).toBeVisible();
+  await expect
+    .element(screen.getByRole("button", { name: /^Search.*cached, free$/ }))
+    .toBeVisible();
   // The next page is a read of its own, paid though the first one was cached.
-  await expect.element(screen.getByRole("button", { name: "Load more ($0.00075)" })).toBeVisible();
+  const loadMore = screen.getByRole("button", { name: /^Load more.*\$0\.00075$/ });
+  await expect.element(loadMore).toBeVisible();
 
   // Latest is cached apart from Top.
-  await userEvent.click(screen.getByRole("button", { name: "latest" }));
-  await expect.element(screen.getByRole("button", { name: "Search ($0.00075)" })).toBeVisible();
+  await userEvent.click(screen.getByRole("tab", { name: /^Latest/ }));
+  await expect.element(screen.getByRole("button", { name: /^Search.*\$0\.00075$/ })).toBeVisible();
 
   // Load more continues the search that is listed, whatever the box and the toggle say now.
   await userEvent.fill(screen.getByLabelText("Search query"), "something else");
-  await userEvent.click(screen.getByRole("button", { name: "Load more ($0.00075)" }));
+  await userEvent.click(loadMore);
   await expect
     .poll(() => searches.at(-1))
     .toEqual({ query: "ai agents", mode: "top", cursor: "c2" });
@@ -101,15 +115,18 @@ it("saves a post into a user collection and says when the save failed", async ()
       },
     },
   });
-  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  // The choices open in a menu, which portals out of the screen's container.
+  const trigger = screen.getByRole("button", { name: /^Save/ });
+  await userEvent.click(trigger);
+  await expect.element(page.getByRole("menuitem", { name: /^Hooks/ })).toBeVisible();
   // The built-in collection fills itself; it is not offered.
-  expect(screen.getByRole("button", { name: "Staff picks" }).elements()).toHaveLength(0);
-  await userEvent.click(screen.getByRole("button", { name: "Hooks" }));
-  await expect.element(screen.getByText("Saved to Hooks")).toBeVisible();
+  expect(page.getByRole("menuitem", { name: /^Staff picks/ }).elements()).toHaveLength(0);
+  await userEvent.click(page.getByRole("menuitem", { name: /^Hooks/ }));
+  await expect.element(screen.getByRole("button", { name: /Saved to Hooks/ })).toBeVisible();
   expect(saves).toEqual([2]);
 
-  await userEvent.click(screen.getByRole("button", { name: "Save" }));
-  await userEvent.click(screen.getByRole("button", { name: "Swipe file" }));
+  await userEvent.click(trigger);
+  await userEvent.click(page.getByRole("menuitem", { name: "Swipe file" }));
   await expect.element(screen.getByText("Library store failed: disk full")).toBeVisible();
   expect(saves).toEqual([2, null]);
 });
@@ -135,15 +152,17 @@ it("creates a collection, lists its posts, and clears the view when the open one
   });
   await expect.element(screen.getByRole("button", { name: /^Staff picks/ })).toBeVisible();
   // Staff picks is read-only.
-  expect(screen.getByRole("button", { name: "Delete" }).elements()).toHaveLength(0);
+  expect(screen.getByRole("button", { name: /^(Delete|Rename) / }).elements()).toHaveLength(0);
 
   await userEvent.fill(screen.getByLabelText("New collection"), "  Hooks ");
-  await userEvent.click(screen.getByRole("button", { name: "Create collection" }));
+  await userEvent.click(screen.getByRole("button", { name: "Create" }));
   await userEvent.click(screen.getByRole("button", { name: /^Hooks/ }));
   await expect.element(screen.getByText(first.text)).toBeVisible();
 
-  await userEvent.click(screen.getByRole("button", { name: "Delete" }));
-  await expect.element(screen.getByText(/^Pick a collection\./)).toBeVisible();
+  // Deleting the open collection falls back to the first one, Staff picks.
+  await userEvent.click(screen.getByRole("button", { name: "Delete Hooks" }));
+  await expect.element(screen.getByText("The daily picks land here.")).toBeVisible();
+  await expect.element(screen.getByText(first.text)).not.toBeInTheDocument();
   await expect.element(screen.getByRole("button", { name: /^Hooks/ })).not.toBeInTheDocument();
 });
 
@@ -167,15 +186,16 @@ it("Remove in a collection takes the post out of that collection only; Staff pic
     },
   });
   await userEvent.click(screen.getByRole("button", { name: /^Hooks/ }));
-  const row = (text: string) => screen.getByRole("article").filter({ hasText: text });
-  await userEvent.click(row(first.text).getByRole("button", { name: "Remove" }));
+  const hooksPost = await inspect(screen, first.text);
+  await userEvent.click(hooksPost.getByRole("button", { name: "Remove" }));
   await expect.poll(() => removed).toEqual([{ collectionId: 2, savedId: 5 }]);
   await expect.element(screen.getByText(first.text)).not.toBeInTheDocument();
   await expect.element(screen.getByText(second.text)).toBeVisible();
 
   await userEvent.click(screen.getByRole("button", { name: /^Staff picks/ }));
-  await expect.element(screen.getByText(third.text)).toBeVisible();
-  expect(screen.getByRole("button", { name: "Remove" }).elements()).toHaveLength(0);
+  const staffPost = await inspect(screen, third.text);
+  await expect.element(staffPost.getByRole("button", { name: "Remix" })).toBeVisible();
+  expect(staffPost.getByRole("button", { name: "Remove" }).elements()).toHaveLength(0);
 });
 
 it("searches the swipe file, keeps a note on blur, and drops a removed post", async () => {
@@ -202,12 +222,15 @@ it("searches the swipe file, keeps a note on blur, and drops a removed post", as
   await expect.element(screen.getByText(second.text)).not.toBeInTheDocument();
   await userEvent.clear(screen.getByLabelText("Search swipe file"));
 
-  const row = (text: string) => screen.getByRole("article").filter({ hasText: text });
-  await userEvent.fill(row(first.text).getByLabelText("Note"), "steal the hook");
+  const firstPost = await inspect(screen, first.text);
+  await userEvent.fill(firstPost.getByLabelText("Note"), "steal the hook");
   await userEvent.click(screen.getByLabelText("Search swipe file"));
   await expect.poll(() => notes).toEqual([{ id: 1, note: "steal the hook" }]);
+  // The open inspector covers the grid on a narrow screen.
+  await userEvent.click(firstPost.getByRole("button", { name: "Close" }));
 
-  await userEvent.click(row(second.text).getByRole("button", { name: "Remove" }));
+  const secondPost = await inspect(screen, second.text);
+  await userEvent.click(secondPost.getByRole("button", { name: "Remove" }));
   await expect.element(screen.getByText(second.text)).not.toBeInTheDocument();
   await expect.element(screen.getByText(first.text)).toBeVisible();
 });
@@ -228,6 +251,7 @@ it("prices the day's fetches before they run and labels each model call", async 
         ]),
       "library.pickWhy": () => Effect.succeed("Hook names the pain.\nList format."),
       "library.collectionsList": () => Effect.succeed([]),
+      "library.savedList": () => Effect.succeed([]),
       "costs.quote": ({ actions }) =>
         Effect.succeed({
           rates,
@@ -236,16 +260,21 @@ it("prices the day's fetches before they run and labels each model call", async 
     },
   });
   await expect
-    .element(screen.getByRole("button", { name: "Fetch 1 keyword for $0.00075" }))
+    .element(screen.getByRole("button", { name: /^Fetch 1 keyword.*\$0\.00075$/ }))
+    .toBeVisible();
+  // One trends read, then one model call for all three.
+  await expect
+    .element(screen.getByRole("button", { name: /^Write 3 ready posts.*\$0\.001 \+ \$0\.00075$/ }))
     .toBeVisible();
   await expect
-    .element(screen.getByRole("button", { name: "Ready-to-post x3 ($0.001 + model)" }))
+    .element(screen.getByRole("button", { name: /^Fetch text for 1 authors.*\$0\.00075$/ }))
     .toBeVisible();
-  await expect
-    .element(screen.getByRole("button", { name: "Fetch text for 1 authors ($0.00075)" }))
-    .toBeVisible();
-  await userEvent.click(screen.getByRole("button", { name: "Why it works (model)" }));
-  await expect.element(screen.getByText("Hook names the pain.", { exact: false })).toBeVisible();
+  // Why it works and Ready to post are each one model call, priced beside it.
+  const pickPost = await inspect(screen, first.text);
+  await expect.element(pickPost.getByRole("button", { name: "Explain it" })).toBeVisible();
+  expect(pickPost.getByText("$0.00075", { exact: true }).elements()).toHaveLength(2);
+  await userEvent.click(pickPost.getByRole("button", { name: "Explain it" }));
+  await expect.element(pickPost.getByText("Hook names the pain.", { exact: false })).toBeVisible();
 });
 
 it("prices trend ideas by the country whose trends are loaded", async () => {
@@ -265,13 +294,19 @@ it("prices trend ideas by the country whose trends are loaded", async () => {
         Effect.succeed([{ name: "#buildinpublic", context: null, postCount: 1200 }]),
     },
   });
-  await expect.element(screen.getByRole("button", { name: /^Ideas from trends/ })).toBeDisabled();
-  await userEvent.click(screen.getByRole("button", { name: "Load trends (cached, free)" }));
+  // Ideas need loaded trends: before Load there is no button for them.
+  expect(screen.getByRole("button", { name: /^Write 5 ideas/ }).elements()).toHaveLength(0);
+  // Before Load the empty state offers the header's Load too.
+  await userEvent.click(
+    screen.getByRole("button", { name: /^Load trends.*cached, free$/ }).first(),
+  );
   await expect.element(screen.getByText("#buildinpublic")).toBeVisible();
 
   await userEvent.selectOptions(screen.getByLabelText("Country"), "UnitedKingdom");
-  await expect.element(screen.getByRole("button", { name: "Load trends ($0.001)" })).toBeVisible();
   await expect
-    .element(screen.getByRole("button", { name: "Ideas from trends (cached, free + model)" }))
+    .element(screen.getByRole("button", { name: /^Load trends.*\$0\.001$/ }))
+    .toBeVisible();
+  await expect
+    .element(screen.getByRole("button", { name: /^Write 5 ideas.*cached, free \+ \$0\.001$/ }))
     .toBeEnabled();
 });

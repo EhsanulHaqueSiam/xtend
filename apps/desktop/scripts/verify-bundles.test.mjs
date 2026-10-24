@@ -12,13 +12,15 @@ const read = (path) => NodeFS.readFileSync(new URL(path, import.meta.url), "utf8
 
 it("reads the bridge functions and the overlay channels from their sources", () => {
   const apis = bridgeApis(read("../../web/src/desktopBridge.ts"));
-  expect(apis).toContain("openSlot");
+  expect(apis).toContain("setXSkin");
   expect(apis).toContain("pushGlance");
   // Data members are not functions the preload has to expose.
   expect(apis).not.toContain("serviceToken");
   const channels = overlayChannels(read("../src/ipc/channels.ts"));
   expect(channels).toContain("xtend:overlay-data");
+  // The preload sends these to main; it does not listen on them.
   expect(channels).not.toContain("xtend:overlay-action");
+  expect(channels).not.toContain("xtend:overlay-viewer");
 });
 
 it("passes a sandbox-safe preload and names what a broken one lacks", () => {

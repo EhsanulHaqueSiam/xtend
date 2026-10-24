@@ -1,78 +1,39 @@
 import { useAtomSet } from "@effect/atom-react";
 import type { XPost, XSearchMode } from "@xtend/contracts";
-import { useNavigate } from "@tanstack/react-router";
-import { Lightbulb, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { cn } from "../../lib/utils";
 import { useQuoteLabel } from "../../state/costs";
-import { savePostAtom, searchAtom } from "../../state/library";
-import { Button } from "../ui/button";
-import { SaveButton } from "./SaveButton";
-import { Empty, ErrorLine, PostRow, errorMessage, inputClass } from "./shared";
+import { searchAtom } from "../../state/library";
+import { HeaderTabs, PageHeader } from "../PageHeader";
+import { compactInputClass } from "../ui/field";
+import { Cost, Empty } from "../ui/layout";
+import { DetailSplit } from "../ui/split";
+import { xPill } from "../x";
+import { PostGrid } from "./PostCard";
+import { InspectorGroup, PostInspector } from "./PostInspector";
+import { RemixButton, SaveButton, useSavedIds } from "./SaveButton";
+import { ErrorLine, errorMessage } from "./shared";
 
-/** "Use as inspiration" saves the post so Compose can read it back by id, then opens the composer. */
-export function InspireButton({ post }: { readonly post: XPost }) {
-  const save = useAtomSet(savePostAtom, { mode: "promise" });
-  const navigate = useNavigate();
-  const [error, setError] = useState<string | null>(null);
-  return (
-    <>
-      <Button
-        variant="outline"
-        size="xs"
-        onClick={() =>
-          void save({ post, collectionId: null }).then(
-            () => navigate({ href: `/compose?inspire=${post.postId}` }),
-            (e: unknown) => setError(errorMessage(e)),
-          )
-        }
-      >
-        <Lightbulb /> Use as inspiration
-      </Button>
-      {error !== null ? <span className="text-2xs text-error-foreground">{error}</span> : null}
-    </>
-  );
-}
+const MODES = [
+  { id: "top", label: "Top" },
+  { id: "latest", label: "Latest" },
+] as const satisfies ReadonlyArray<{ readonly id: XSearchMode; readonly label: string }>;
 
-const excluded = (text: string, words: ReadonlyArray<string>) => {
-  const lower = text.toLowerCase();
-  return words.some((w) => lower.includes(w));
-};
-
-/** Renders the list of search results with the exclusion filter applied client-side. */
-function SearchResults({
-  items,
-  exclude,
-}: {
-  readonly items: ReadonlyArray<XPost>;
-  readonly exclude: string;
-}) {
-  const words = exclude
+const excludedWords = (exclude: string) =>
+  exclude
     .split(/[\s,]+/)
     .map((w) => w.trim().toLowerCase())
     .filter((w) => w !== "");
-  const visible = items.filter((p) => !excluded(p.text, words));
-  if (visible.length === 0) return <Empty>No results.</Empty>;
-  return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-0.5 px-2 py-2">
-      {visible.map((post) => (
-        <PostRow
-          key={post.postId}
-          post={post}
-          actions={
-            <>
-              <SaveButton post={post} />
-              <InspireButton post={post} />
-            </>
-          }
-        />
-      ))}
-    </div>
-  );
-}
 
+/**
+ * Paid X search. Every run and every next page shows its price on the button.
+ * Excluded words filter the results here, after they arrive.
+ */
 export function SearchTab({ initialQuery }: { readonly initialQuery: string }) {
   const search = useAtomSet(searchAtom, { mode: "promise" });
+  const saved = useSavedIds();
   const [query, setQuery] = useState(initialQuery);
   const [mode, setMode] = useState<XSearchMode>("top");
   const searchQuote = useQuoteLabel({ kind: "search", query, mode });
@@ -86,6 +47,7 @@ export function SearchTab({ initialQuery }: { readonly initialQuery: string }) {
     readonly query: string;
     readonly mode: XSearchMode;
   } | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
   // The page Load more reads is its own paid read, cached apart from the first.
   const moreQuote = useQuoteLabel(
     searched === null || cursor === null
@@ -104,8 +66,8 @@ export function SearchTab({ initialQuery }: { readonly initialQuery: string }) {
     setBusy(true);
     setError(null);
     try {
-      const page = await search(more ?? input);
-      // X can repeat a post on the next page; a second row with its key would break the list.
+      const page = await search(input);
+      // X can repeat a post on the next page; a second card with its key would break the grid.
       setItems((prev) =>
         more === undefined
           ? page.items
@@ -113,6 +75,7 @@ export function SearchTab({ initialQuery }: { readonly initialQuery: string }) {
       );
       setCursor(page.nextCursor);
       setSearched({ query: input.query, mode: input.mode });
+      if (more === undefined) setSelected(null);
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -120,82 +83,108 @@ export function SearchTab({ initialQuery }: { readonly initialQuery: string }) {
     }
   };
 
-  // A `?q=` link (Scores sends them) searches on arrival.
+  // A `?q=` link (the palette, Scores, the header's Search X) searches on arrival.
   useEffect(() => {
     // eslint-disable-next-line react/set-state-in-effect -- the search is the effect; its busy flag is its output.
     if (initialQuery !== "") void run();
     // eslint-disable-next-line react/exhaustive-effect-dependencies -- once per arrival, not per keystroke.
   }, [initialQuery]);
 
+  const words = excludedWords(exclude);
+  const visible = items.filter((p) => {
+    const text = p.text.toLowerCase();
+    return !words.some((w) => text.includes(w));
+  });
+  const post = visible.find((p) => p.postId === selected);
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <>
+      <PageHeader
+        title="Search"
+        tabs={<HeaderTabs label="Mode" tabs={MODES} value={mode} onChange={setMode} />}
+        detail={searched !== null ? `${visible.length} results` : undefined}
+      />
       <form
-        className="flex flex-col gap-2 border-b border-border px-3 py-2"
+        role="search"
+        className="flex flex-wrap items-center gap-2 border-b border-border px-6 py-3"
         onSubmit={(e) => {
           e.preventDefault();
           void run();
         }}
       >
-        <div className="flex gap-2">
+        <label className="flex h-8 min-w-60 flex-1 cursor-text items-center gap-2 rounded-[var(--control-radius)] border border-white/13 px-2.5 transition-[border-color] duration-150 focus-within:border-white/30">
+          <Search className="size-4 shrink-0 text-muted-foreground" />
           <input
-            className={inputClass}
+            className="min-w-0 flex-1 bg-transparent text-[13.5px] text-foreground outline-hidden placeholder:text-muted-foreground"
             aria-label="Search query"
             data-shortcut="search"
             placeholder="keyword from:handle min_faves:200 since:2026-10-01"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
-          <Button type="submit" size="sm" disabled={busy}>
-            <Search /> Search ({searchQuote})
-          </Button>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 text-2xs text-muted-foreground">
-          <span>X syntax works: from:handle, min_faves:200, since:YYYY-MM-DD, OR</span>
-          <span className="ml-auto flex items-center gap-1">
-            {(["top", "latest"] as const).map((m) => (
-              <Button
-                key={m}
-                variant="ghost"
-                size="xs"
-                data-active={mode === m ? "true" : undefined}
-                className="data-[active=true]:bg-accent data-[active=true]:text-foreground"
-                onClick={() => setMode(m)}
-              >
-                {m}
-              </Button>
-            ))}
-          </span>
-          <input
-            className={`${inputClass} max-w-56`}
-            aria-label="Exclude words"
-            placeholder="exclude words, comma separated"
-            value={exclude}
-            onChange={(e) => setExclude(e.target.value)}
-          />
-        </div>
+        </label>
+        <input
+          className={cn(compactInputClass, "h-8 w-44")}
+          aria-label="Exclude words"
+          placeholder="exclude words"
+          value={exclude}
+          onChange={(e) => setExclude(e.target.value)}
+        />
+        <button type="submit" className={xPill} disabled={busy || query.trim() === ""}>
+          {busy ? "Searching" : "Search"}
+          <Cost label={searchQuote} />
+        </button>
       </form>
       {error !== null ? <ErrorLine>{error}</ErrorLine> : null}
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        {searched !== null ? (
+      <DetailSplit
+        closable
+        label="Selected post"
+        detailKey={selected}
+        detail={
+          post === undefined ? null : (
+            <PostInspector post={post} onClose={() => setSelected(null)}>
+              <InspectorGroup title="Act">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <SaveButton post={post} saved={saved.has(post.postId)} />
+                  <RemixButton post={post} />
+                </div>
+              </InspectorGroup>
+            </PostInspector>
+          )
+        }
+        list={
           <>
-            <SearchResults items={items} exclude={exclude} />
-            {cursor !== null ? (
-              <div className="flex justify-center py-3">
-                <Button
-                  variant="outline"
-                  size="sm"
+            {searched === null ? (
+              <Empty>Find posts worth saving. X's own search syntax works here.</Empty>
+            ) : visible.length === 0 ? (
+              <Empty>
+                {items.length === 0
+                  ? "No results."
+                  : `All ${items.length} results hold an excluded word.`}
+              </Empty>
+            ) : (
+              <PostGrid
+                items={visible.map((p) => ({ key: p.postId, post: p }))}
+                selected={selected}
+                onSelect={setSelected}
+              />
+            )}
+            {searched !== null && cursor !== null ? (
+              <div className="flex justify-center pb-6">
+                <button
+                  type="button"
+                  className={xPill}
                   disabled={busy}
                   onClick={() => void run({ ...searched, cursor })}
                 >
-                  Load more ({moreQuote})
-                </Button>
+                  {busy ? "Loading" : "Load more"}
+                  <Cost label={moreQuote} />
+                </button>
               </div>
             ) : null}
           </>
-        ) : (
-          <Empty>Search X for posts worth saving or stealing the structure of.</Empty>
-        )}
-      </div>
-    </div>
+        }
+      />
+    </>
   );
 }

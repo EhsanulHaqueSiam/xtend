@@ -1,7 +1,7 @@
 import type { SlotInput } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import { expect, it, vi } from "vite-plus/test";
-import { userEvent } from "vite-plus/test/browser";
+import { page, userEvent } from "vite-plus/test/browser";
 
 import { draft, rates } from "../../../test/fixtures";
 import { render } from "../../../test/render";
@@ -47,17 +47,23 @@ it("lays a DST week out in the account zone: past slots gone, drafts by status, 
     />,
   );
   await expect.element(screen.getByText("Mon 2")).toBeVisible();
-  await expect.element(screen.getByText("09:00 ✕ Launch thread")).toBeVisible();
-  await expect.element(screen.getByText("10:00 ✓ 2 posted")).toBeVisible();
+  // Each draft sits at its time in the zone, with its status beside it.
+  const failedAt = screen.getByRole("button", { name: /Launch thread/ });
+  await expect.element(failedAt).toMatchTextContent("09:00");
+  await expect.element(failedAt).toMatchTextContent("failed");
+  const postedAt = screen.getByRole("button", { name: /hello/ });
+  await expect.element(postedAt).toMatchTextContent("10:00");
+  await expect.element(postedAt).toMatchTextContent("posted");
   // Only Sunday's slots are still ahead; each earlier one would post on the scheduler's next tick.
   expect(screen.getByLabelText("Empty slot 03:30").elements()).toHaveLength(1);
   expect(screen.getByLabelText("Empty slot 09:00").elements()).toHaveLength(1);
   expect(emptySlotCount(zone, start, now, slots, drafts)).toBe(2);
 
-  await userEvent.selectOptions(screen.getByLabelText("Empty slot 03:30"), "d1");
+  await userEvent.click(screen.getByRole("button", { name: "Empty slot 03:30" }));
+  await userEvent.click(page.getByRole("menuitem", { name: /Fill me/ }));
   // 03:30 on Sunday is already summer time: 07:30 UTC, not the 08:30 of a winter offset.
   expect(onFill).toHaveBeenCalledWith("d1", new Date("2026-03-08T07:30:00.000Z"));
-  await userEvent.click(screen.getByText("09:00 Going out"));
+  await userEvent.click(screen.getByRole("button", { name: /Going out/ }));
   expect(onOpen).toHaveBeenCalledWith(drafts[1]);
 });
 
@@ -74,6 +80,7 @@ it("prices each queued draft as Compose does and asks before posting one now", a
   await using screen = await render(
     <Queue
       drafts={[thread, article, failed]}
+      emptyAction={null}
       onSkip={() => {}}
       onUnschedule={() => {}}
       onRunNow={onRunNow}
@@ -87,7 +94,7 @@ it("prices each queued draft as Compose does and asks before posting one now", a
       },
     },
   );
-  const row = (text: string) => screen.getByRole("listitem").filter({ hasText: text });
+  const row = (text: string) => screen.getByRole("row").filter({ hasText: text });
   // The quote link makes the first post a link post; the post with media goes through the session.
   await expect.element(row("Three tips").getByText("$0.2", { exact: true })).toBeVisible();
   await expect.element(row("How I ship").getByText("$0.04", { exact: true })).toBeVisible();
@@ -96,11 +103,10 @@ it("prices each queued draft as Compose does and asks before posting one now", a
   await expect.element(row("broke").getByRole("button", { name: "Post now" })).toBeDisabled();
 
   await userEvent.click(row("Three tips").getByRole("button", { name: "Post now" }));
-  await expect
-    .element(screen.getByText("Post 2 posts now for $0.2. This charges your treg balance."))
-    .toBeVisible();
+  await expect.element(page.getByText("Post 2 posts now for $0.2.")).toBeVisible();
+  await expect.element(page.getByText("Charges your treg balance.")).toBeVisible();
   expect(onRunNow).not.toHaveBeenCalled();
-  await userEvent.click(screen.getByRole("button", { name: "Confirm and post" }));
+  await userEvent.click(page.getByRole("button", { name: "Confirm and post" }));
   expect(onRunNow).toHaveBeenCalledWith("q1");
 });
 
@@ -110,14 +116,21 @@ it("edits slot times and days, keeps a cleared time, and saves only slots with a
     <Slots
       slots={[{ id: 1, weekdayMask: 62, minuteOfDay: 9 * 60 }]}
       heatmap={{ cells: [], posts: 14, best: [{ weekday: 2, hour: 18 }] }}
+      bestHoursEmpty={null}
       onSave={(next) => (saved = next)}
     />,
   );
-  const save = screen.getByRole("button", { name: "Save" });
+  // It reads "Saved" until something changes.
+  const save = screen.getByRole("button", { name: /^Saved?$/ });
   await expect.element(save).toBeDisabled();
 
   // A best hour becomes a slot on that day.
-  await userEvent.click(screen.getByRole("button", { name: "Add", exact: true }));
+  await userEvent.click(
+    screen
+      .getByRole("listitem")
+      .filter({ hasText: "Tue 18:00" })
+      .getByRole("button", { name: "Add slot" }),
+  );
   const times = screen.getByLabelText("Slot time");
   expect(times.elements()).toHaveLength(2);
   await userEvent.fill(times.first(), "07:15");
@@ -126,7 +139,8 @@ it("edits slot times and days, keeps a cleared time, and saves only slots with a
   await expect.element(times.first()).toHaveValue("07:15");
 
   // A slot with no day cannot be saved.
-  const tuesday = screen.getByRole("listitem").nth(1).getByLabelText("Tue");
+  // Row 0 is the table's head.
+  const tuesday = screen.getByRole("row").nth(2).getByLabelText("Tue");
   await userEvent.click(tuesday);
   await expect.element(save).toBeDisabled();
   await userEvent.click(tuesday);

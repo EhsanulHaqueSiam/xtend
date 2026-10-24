@@ -18,12 +18,13 @@ it("opens on ⌘K, filters commands and closes on Escape", async () => {
   expect(page.getByRole("dialog").query()).toBeNull();
 
   await userEvent.keyboard("{Meta>}k{/Meta}");
-  await expect.element(page.getByRole("dialog", { name: "Command palette" })).toBeVisible();
-  await expect.element(page.getByText("Go to Compose")).toBeVisible();
+  const palette = page.getByRole("dialog", { name: "Command palette" });
+  await expect.element(palette).toBeVisible();
+  await expect.element(palette.getByRole("option", { name: "Compose" })).toBeVisible();
 
   await userEvent.type(page.getByRole("textbox", { name: "Command" }), "pla");
-  await expect.element(page.getByText("Go to Plan")).toBeVisible();
-  expect(page.getByText("Go to Compose").query()).toBeNull();
+  await expect.element(palette.getByRole("option", { name: "Plan", exact: true })).toBeVisible();
+  expect(palette.getByRole("option", { name: "Compose" }).query()).toBeNull();
 
   await userEvent.keyboard("{Escape}");
   expect(page.getByRole("dialog").query()).toBeNull();
@@ -65,9 +66,7 @@ it("arrows and Enter run the highlighted command; @handle offers its report; age
   await userEvent.type(box, "a");
   expect(screen.router?.state.location.pathname).toBe("/");
   await userEvent.keyboard("{ArrowDown}");
-  await expect
-    .element(page.getByRole("option", { selected: true }))
-    .toHaveTextContent("Go to Plan");
+  await expect.element(page.getByRole("option", { selected: true })).toHaveTextContent("Plan");
   await userEvent.keyboard("{Enter}");
   await expect.poll(() => screen.router?.state.location.pathname).toBe("/plan");
   expect(page.getByRole("dialog").query()).toBeNull();

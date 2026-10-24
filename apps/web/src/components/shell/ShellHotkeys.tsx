@@ -1,9 +1,11 @@
-import { useAtom, useAtomValue } from "@effect/atom-react";
-import { useNavigate } from "@tanstack/react-router";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useLocation, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 
-import { paletteOpenAtom, slotAtom } from "../../state/shell";
-import { shellBridge } from "./bridge";
+import type { ShortcutKey } from "../../desktopBridge";
+import { isElectron } from "../../env";
+import { paletteOpenAtom } from "../../state/shell";
+import { isXRoute, lastToolRoute, xFindOpenAtom, xPanelOpenAtom } from "../../state/x";
 import { SCREENS } from "./commands";
 
 const isEditable = (target: EventTarget | null) =>
@@ -11,29 +13,36 @@ const isEditable = (target: EventTarget | null) =>
   (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
 
 /**
- * Single-key navigation, ⌘K and Esc in the app's own view. Standalone they
- * navigate and toggle the overlay palette; in a slot they ask main for the
- * matching slot, and Esc hides the one that is open.
+ * The app's keys. ⌘K toggles the palette, ⌘\ docks or hides x.com beside a
+ * tool, ⌘F finds in x.com, and single letters outside text fields open
+ * screens. While x.com has focus its own keys stay X's; main forwards the
+ * three chords so they work there too.
  */
 export function ShellHotkeys() {
   const navigate = useNavigate();
-  const [, setPalette] = useAtom(paletteOpenAtom);
-  const slot = useAtomValue(slotAtom);
+  const pathname = useLocation({ select: (l) => l.pathname });
+  const setPalette = useAtomSet(paletteOpenAtom);
+  const setFind = useAtomSet(xFindOpenAtom);
+  const panelOpen = useAtomValue(xPanelOpenAtom);
+  const setPanel = useAtomSet(xPanelOpenAtom);
 
   useEffect(() => {
-    const bridge = shellBridge();
-    const go = (href: string) =>
-      bridge === undefined
-        ? void navigate({ href })
-        : bridge.openSlot({ kind: "center", route: href });
-    const palette = () => {
-      if (bridge === undefined) return setPalette((open) => !open);
-      if (slot.kind === "palette") bridge.closeSlot({ kind: "palette" });
-      else bridge.openSlot({ kind: "palette", route: "/palette" });
+    const onX = isXRoute(pathname);
+    const chord = (key: ShortcutKey) => {
+      if (key === "palette") return setPalette((open) => !open);
+      if (!isElectron) return;
+      if (key === "find") return onX || panelOpen ? setFind(true) : undefined;
+      // From X's own pages, ⌘\ goes back to the last tool with x.com beside it.
+      if (onX) {
+        setPanel(true);
+        return void navigate({ href: lastToolRoute() });
+      }
+      setPanel(!panelOpen);
     };
-    const run = (key: string) => {
+    const letter = (key: string) => {
+      if (key === "x" && isElectron) return void navigate({ to: "/x" });
       if (key === "s") {
-        go("/library");
+        void navigate({ href: "/library" });
         // The search input mounts with the route; focus it once it exists.
         setTimeout(
           () => document.querySelector<HTMLElement>('[data-shortcut="search"]')?.focus(),
@@ -41,25 +50,31 @@ export function ShellHotkeys() {
         );
         return;
       }
-      if (key === "r") return go("/compose?reply=1");
+      if (key === "r") return void navigate({ href: "/compose?reply=1" });
       const screen = SCREENS.find((s) => s.key === key)?.to;
-      if (screen !== undefined) go(screen);
+      if (screen !== undefined) void navigate({ to: screen });
     };
     const onKeyDown = (event: KeyboardEvent) => {
       const key = event.key.toLowerCase();
-      if ((event.metaKey || event.ctrlKey) && key === "k") {
-        event.preventDefault();
-        return palette();
+      const mod = event.metaKey || event.ctrlKey;
+      if (mod && !event.altKey && !event.shiftKey) {
+        const map: Record<string, ShortcutKey> = { k: "palette", "\\": "xPanel", f: "find" };
+        const hit = map[key];
+        if (hit !== undefined) {
+          event.preventDefault();
+          return chord(hit);
+        }
       }
-      // A menu or dialog that took Esc already prevented it; otherwise Esc hides the slot.
-      if (event.key === "Escape" && bridge !== undefined && !event.defaultPrevented)
-        return bridge.closeSlot();
-      if (event.metaKey || event.ctrlKey || event.altKey || isEditable(event.target)) return;
-      if (key.length === 1 && /[a-z]/.test(key)) run(key);
+      if (mod || event.altKey || isEditable(event.target)) return;
+      if (key.length === 1 && /[a-z]/.test(key)) letter(key);
     };
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [navigate, setPalette, slot.kind]);
+    const offBridge = window.desktopBridge?.onShortcut(chord);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      offBridge?.();
+    };
+  }, [navigate, panelOpen, pathname, setFind, setPalette, setPanel]);
 
   return null;
 }

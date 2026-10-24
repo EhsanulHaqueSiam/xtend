@@ -27,6 +27,7 @@ const editor = (draftParam?: string) => (
     reply={undefined}
     text={undefined}
     onBack={() => {}}
+    onSection={() => {}}
   />
 );
 
@@ -60,7 +61,7 @@ it("saves a new thread as one draft and queues it even while that first save is 
   await userEvent.fill(screen.getByLabelText("Post 1"), "Three things I got wrong");
   await expect.poll(() => creates.length).toBe(1);
   // Queue during the create waits for its draft rather than doing nothing.
-  await userEvent.click(screen.getByRole("button", { name: "Queue" }));
+  await userEvent.click(screen.getByRole("button", { name: /^Queue/ }));
   finishCreate();
   await expect.poll(() => queued).toEqual(["d1"]);
   await expect.element(screen.getByText(/^Queued for /)).toBeVisible();
@@ -95,16 +96,17 @@ it("prices the thread before posting and posts it once however often Confirm is 
     },
   });
 
-  await expect.element(screen.getByText("$0.215 to post", { exact: false })).toBeVisible();
-  await expect.element(screen.getByText("1 with a link, billed higher")).toBeVisible();
+  // The price rides on the send buttons, and the post with a link says so beside it.
+  await expect.element(screen.getByRole("button", { name: /^Queue/ })).toMatchTextContent("$0.215");
+  await expect.element(screen.getByText(/^link\s*\$0\.2$/)).toBeVisible();
   await userEvent.click(screen.getByRole("button", { name: "Post now" }));
-  await expect
-    .element(
-      screen.getByText("Post 2 posts now for $0.215 (1 with a link at $0.200).", { exact: false }),
-    )
-    .toBeVisible();
-  await userEvent.dblClick(screen.getByRole("button", { name: "Confirm and post" }));
-  await expect.element(screen.getByRole("button", { name: "Posting…" })).toBeDisabled();
+  const confirm = page.getByRole("dialog");
+  await expect.element(confirm.getByText("Post 2 posts now.")).toBeVisible();
+  await expect.element(confirm.getByText("1 with a link")).toBeVisible();
+  await expect.element(confirm.getByText("$0.2", { exact: true })).toBeVisible();
+  await expect.element(confirm.getByText("$0.215", { exact: true })).toBeVisible();
+  await userEvent.dblClick(confirm.getByRole("button", { name: "Confirm and post" }));
+  await expect.element(confirm.getByRole("button", { name: "Posting…" })).toBeDisabled();
   finishPost();
   await expect.element(screen.getByRole("status")).toHaveTextContent("Posted 2 posts");
   expect(posts).toEqual(["d1"]);
@@ -139,7 +141,7 @@ it.each(refusals)("holds back what the publisher would refuse: %s", async (_, ex
   const send = screen.getByRole("button", { name: "Post now" });
   if (refusal === null) {
     await expect.element(send).toBeEnabled();
-    await expect.element(screen.getByText("$0.200 to post", { exact: false })).toBeVisible();
+    await expect.element(screen.getByRole("button", { name: /^Queue/ })).toMatchTextContent("$0.2");
   } else {
     await expect.element(screen.getByText(refusal)).toBeVisible();
     await expect.element(send).toBeDisabled();
@@ -158,13 +160,14 @@ it("prices a retry of a part-posted thread for the posts not yet on X", async ()
   await expect
     .element(screen.getByText("1 of 3 posts are already on X", { exact: false }))
     .toBeVisible();
-  await expect.element(screen.getByText("$0.030 to post", { exact: false })).toBeVisible();
-  await expect.element(screen.getByText("1 already on X, free")).toBeVisible();
+  const queue = screen.getByRole("button", { name: /^Queue/ });
+  await expect.element(queue).toMatchTextContent("$0.03");
+  await expect.element(screen.getByText("already on X, free")).toBeVisible();
 
   // Changing a post that went out makes the service post the whole thread again.
   await userEvent.fill(screen.getByLabelText("Post 1"), "one, reworded");
-  await expect.element(screen.getByText("$0.045 to post", { exact: false })).toBeVisible();
-  await expect.element(screen.getByText("1 already on X, free")).not.toBeInTheDocument();
+  await expect.element(queue).toMatchTextContent("$0.045");
+  await expect.element(screen.getByText("already on X, free")).not.toBeInTheDocument();
 });
 
 it("locks the editor when the scheduler claims the open draft", async () => {
@@ -186,7 +189,7 @@ it("locks the editor when the scheduler claims the open draft", async () => {
     },
   });
   await expect.element(screen.getByLabelText("Post 1")).toBeEnabled();
-  await expect.element(screen.getByText("Assist")).toBeVisible();
+  await expect.element(screen.getByRole("button", { name: /^Improve hook/ })).toBeVisible();
 
   row = { ...row, status: "posting", updatedAt: "2026-10-23T09:30:00.000Z" };
   claim();
@@ -194,9 +197,12 @@ it("locks the editor when the scheduler claims the open draft", async () => {
     .element(screen.getByText("This draft is posting; start a new draft to change it."))
     .toBeVisible();
   await expect.element(screen.getByLabelText("Post 1")).toBeDisabled();
-  await expect.element(screen.getByRole("button", { name: "Post now" })).toBeDisabled();
+  // Nothing sends a draft the publisher owns.
+  await expect.element(screen.getByRole("button", { name: "Post now" })).not.toBeInTheDocument();
   // No paid assist on a draft that can no longer change.
-  await expect.element(screen.getByText("Assist")).not.toBeInTheDocument();
+  await expect
+    .element(screen.getByRole("button", { name: /^Improve hook/ }))
+    .not.toBeInTheDocument();
 });
 
 it("offers no editable field on a posted article or a posted thread's options", async () => {
@@ -214,8 +220,9 @@ it("offers no editable field on a posted article or a posted thread's options", 
   }
   const thread = draft("t1", "posted", { postIds: ["31"] });
   await using screen = await render(editor("t1"), { service: editorService(() => [thread]) });
-  await userEvent.click(screen.getByText("More options"));
-  await expect.element(screen.getByLabelText("Quote post link")).toBeDisabled();
+  await expect.element(screen.getByLabelText("Post 1")).toBeDisabled();
+  // A posted thread has no options to open at all.
+  expect(screen.getByLabelText("Quote post link").elements()).toHaveLength(0);
 });
 
 it("schedules at the picked wall time in the account's zone and refuses a time already gone", async () => {
@@ -230,15 +237,17 @@ it("schedules at the picked wall time in the account's zone and refuses a time a
       },
     },
   });
-  await userEvent.click(screen.getByRole("button", { name: "Schedule" }));
-  await expect.element(screen.getByText("Asia/Dhaka")).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: "Schedule", exact: true }));
+  const picker = page.getByRole("dialog");
+  await expect.element(picker.getByText("Asia/Dhaka")).toBeVisible();
+  const submit = picker.getByRole("button", { name: /^Schedule/ });
 
-  await userEvent.fill(screen.getByLabelText("Post at"), "2020-01-01T09:00");
-  await expect.element(screen.getByText("That time has passed")).toBeVisible();
-  await expect.element(screen.getByRole("button", { name: "Schedule" })).toBeDisabled();
+  await userEvent.fill(picker.getByLabelText("Post at"), "2020-01-01T09:00");
+  await expect.element(picker.getByText("That time has passed")).toBeVisible();
+  await expect.element(submit).toBeDisabled();
 
-  await userEvent.fill(screen.getByLabelText("Post at"), "2030-01-07T09:30");
-  await userEvent.click(screen.getByRole("button", { name: "Schedule" }));
+  await userEvent.fill(picker.getByLabelText("Post at"), "2030-01-07T09:30");
+  await userEvent.click(submit);
   // 09:30 in Dhaka (UTC+6), whatever zone the browser runs in.
   await expect.poll(() => scheduled).toEqual([{ id: "d1", at: "2030-01-07T03:30:00.000Z" }]);
 });
@@ -304,7 +313,7 @@ it("Use on a similar post drops the files of the posts it replaces, on screen an
     },
   });
   // The second post's file would go through the session, which is off.
-  const sessionWarning = screen.getByText(/enable Session posting in Settings/);
+  const sessionWarning = screen.getByText(/Turn on Session posting in Settings/);
   await expect.element(sessionWarning).toBeVisible();
   await userEvent.click(screen.getByRole("button", { name: /^Find similar/ }));
   await userEvent.click(screen.getByRole("button", { name: "Use", exact: true }));
@@ -345,6 +354,7 @@ it("saves the last keystrokes when the editor closes inside the autosave delay, 
       reply={undefined}
       text={undefined}
       onBack={(tab) => backs.push(tab)}
+      onSection={() => {}}
     />,
     {
       service: {
@@ -355,7 +365,7 @@ it("saves the last keystrokes when the editor closes inside the autosave delay, 
     },
   );
   await userEvent.fill(screen.getByLabelText("Post 1"), "an edit the service refuses");
-  await userEvent.click(screen.getByRole("button", { name: "Back to drafts" }));
+  await userEvent.click(screen.getByRole("button", { name: /^Back to drafts$/i }));
   await expect
     .element(screen.getByRole("status"))
     .toHaveTextContent("Failed: Compose update failed: database is locked");

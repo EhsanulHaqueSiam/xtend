@@ -1,57 +1,63 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import type { TrendIdea } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { Copy, Sparkles } from "lucide-react";
 import { useState } from "react";
+import { TextMorph } from "torph/react";
 
-import { saveSuggestedDraftAtom, trendIdeasAtom, trendsAtom } from "../../state/library";
-import { Button } from "../ui/button";
+import { cn } from "../../lib/utils";
 import { useQuoteLabel } from "../../state/costs";
-import { TREND_COUNTRIES } from "../scores/Trending";
-import { Empty, ErrorLine, errorMessage, fmt, inputClass } from "./shared";
+import { saveSuggestedDraftAtom, trendIdeasAtom, trendsAtom } from "../../state/library";
+import { PageHeader } from "../PageHeader";
+import { CountrySelect, TREND_COUNTRIES, TrendTable, countryLabel } from "../scores/Trending";
+import { Cost, Empty, PageBody } from "../ui/layout";
+import { xPill, xPillSm } from "../x";
+import { ErrorLine, causeMessage, errorMessage } from "./shared";
+
+const button = cn(xPill, xPillSm);
 
 function IdeaRow({ idea }: { readonly idea: TrendIdea }) {
   const saveDraft = useAtomSet(saveSuggestedDraftAtom, { mode: "promise" });
-  const [status, setStatus] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [filed, setFiled] = useState(false);
   // Held from the click until it fails, so a second click cannot file the idea twice.
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   return (
-    <div className="rounded-lg border border-border px-3 py-2.5">
-      <div className="flex items-baseline gap-2 text-xs">
-        <span className="font-medium">{idea.trend}</span>
-        <span className="text-muted-foreground">{idea.angle}</span>
-      </div>
-      <p className="mt-1 whitespace-pre-wrap text-sm">{idea.text}</p>
-      <div className="mt-2 flex items-center gap-1.5">
-        <Button
-          variant="outline"
-          size="xs"
-          onClick={() =>
-            void navigator.clipboard.writeText(idea.text).then(() => setStatus("Copied"))
-          }
+    <li className="border-b border-border py-3.5 last:border-b-0">
+      <p className="flex min-w-0 items-baseline gap-2 text-xs">
+        <span className="shrink-0 font-medium text-foreground/80">{idea.trend}</span>
+        <span className="truncate text-muted-foreground">{idea.angle}</span>
+      </p>
+      <p className="mt-1.5 text-[13.5px] leading-normal whitespace-pre-wrap">{idea.text}</p>
+      <div className="mt-2.5 flex items-center gap-1.5">
+        <button
+          type="button"
+          className={button}
+          onClick={() => void navigator.clipboard.writeText(idea.text).then(() => setCopied(true))}
         >
-          <Copy /> Copy
-        </Button>
-        <Button
-          variant="outline"
-          size="xs"
-          disabled={saving}
+          <TextMorph duration={250}>{copied ? "Copied" : "Copy"}</TextMorph>
+        </button>
+        <button
+          type="button"
+          className={button}
+          disabled={filed || saving}
           onClick={() => {
             setSaving(true);
+            setError(null);
             void saveDraft({ text: idea.text, source: `trend:${idea.trend}` }).then(
-              ({ id }) => setStatus(`Suggested draft #${id}`),
+              () => setFiled(true),
               (e: unknown) => {
                 setSaving(false);
-                setStatus(errorMessage(e));
+                setError(errorMessage(e));
               },
             );
           }}
         >
-          Save as draft
-        </Button>
-        {status !== null ? <span className="text-2xs text-muted-foreground">{status}</span> : null}
+          <TextMorph duration={250}>{filed ? "In Compose" : "Save as draft"}</TextMorph>
+        </button>
+        {error !== null ? <span className="text-2xs text-error-foreground">{error}</span> : null}
       </div>
-    </div>
+    </li>
   );
 }
 
@@ -59,27 +65,17 @@ function IdeaRow({ idea }: { readonly idea: TrendIdea }) {
 function TrendList({ country }: { readonly country: string }) {
   const trends = useAtomValue(trendsAtom(country));
   return AsyncResult.match(trends, {
-    onInitial: () => <Empty>Loading trends…</Empty>,
-    onFailure: (f) => <ErrorLine>{String(f.cause)}</ErrorLine>,
-    onSuccess: ({ value }) => (
-      <ol className="flex flex-col divide-y divide-border">
-        {value.slice(0, 30).map((t, i) => (
-          <li key={t.name} className="flex items-baseline gap-2 py-1.5 text-sm">
-            <span className="w-5 font-mono text-2xs text-muted-foreground">{i + 1}</span>
-            <span className="truncate">{t.name}</span>
-            <span className="ml-auto shrink-0 font-mono text-2xs text-muted-foreground">
-              {t.postCount === null ? (t.context ?? "") : `${fmt(t.postCount)} posts`}
-            </span>
-          </li>
-        ))}
-      </ol>
-    ),
+    onInitial: () => <Empty>Loading trends for {countryLabel(country)}</Empty>,
+    onFailure: (f) => <ErrorLine className="py-4">{causeMessage(f.cause)}</ErrorLine>,
+    onSuccess: ({ value }) => <TrendTable trends={value.slice(0, 30)} />,
   });
 }
 
+/** A country's trends, and post ideas the model ties to the ones that fit the user's keywords. */
 export function TrendsTab() {
   const [country, setCountry] = useState<string>(TREND_COUNTRIES[0]);
   const trendsQuote = useQuoteLabel({ kind: "trending", country });
+  const assistQuote = useQuoteLabel({ kind: "assist" });
   const [applied, setApplied] = useState<string | null>(null);
   // Ideas read the loaded country's trends again once the 30-minute cache has gone.
   const ideasQuote = useQuoteLabel({ kind: "trending", country: applied ?? country });
@@ -101,62 +97,65 @@ export function TrendsTab() {
     }
   };
 
+  const load = (
+    <button type="button" className={button} onClick={() => setApplied(country)}>
+      Load trends
+      <Cost label={trendsQuote} />
+    </button>
+  );
+  const ideasButton = (
+    <button
+      type="button"
+      className={button}
+      disabled={busy || applied === null}
+      onClick={() => void generate()}
+    >
+      {busy ? "Writing" : ideas === null ? "Write 5 ideas" : "Write 5 more"}
+      <Cost label={`${ideasQuote} + ${assistQuote}`} />
+    </button>
+  );
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <form
-        className="flex items-center gap-2 border-b border-border px-3 py-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          setApplied(country);
-        }}
-      >
-        <select
-          className={`${inputClass} max-w-48`}
-          aria-label="Country"
-          value={country}
-          onChange={(e) => setCountry(e.target.value)}
-        >
-          {TREND_COUNTRIES.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </select>
-        <Button type="submit" variant="outline" size="sm">
-          Load trends ({trendsQuote})
-        </Button>
-        <Button
-          size="sm"
-          className="ml-auto"
-          disabled={busy || applied === null}
-          onClick={() => void generate()}
-        >
-          <Sparkles /> Ideas from trends ({ideasQuote} + model)
-        </Button>
-      </form>
-      {error !== null ? <ErrorLine>{error}</ErrorLine> : null}
-      <div className="flex min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto grid w-full max-w-5xl grid-cols-1 gap-4 px-3 py-3 md:grid-cols-[1fr_1.4fr]">
-          <div>
-            {applied === null ? (
-              <p className="text-sm text-muted-foreground">
-                Load the trends for a country. Cached for 30 minutes.
-              </p>
-            ) : (
+    <>
+      <PageHeader
+        title="Trends"
+        detail={applied === null ? undefined : countryLabel(applied)}
+        actions={
+          <>
+            <CountrySelect value={country} onChange={setCountry} />
+            {load}
+          </>
+        }
+      />
+      <PageBody>
+        {applied === null ? (
+          <Empty action={load}>Trends by country, cached for 30 minutes.</Empty>
+        ) : (
+          <div className="grid min-h-full grid-cols-1 @min-[52rem]:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
+            <div className="border-b border-border py-2 @min-[52rem]:border-r @min-[52rem]:border-b-0">
               <TrendList country={applied} />
-            )}
+            </div>
+            <section className="px-6 py-4">
+              <div className="mb-1 flex items-center justify-between gap-3">
+                <h2 className="text-[12.5px] font-semibold text-foreground/80">Post ideas</h2>
+                {ideasButton}
+              </div>
+              {error !== null ? <ErrorLine className="px-0">{error}</ErrorLine> : null}
+              {ideas === null ? (
+                <p className="py-6 text-sm text-muted-foreground">
+                  Five posts tied to the trends that fit your keywords.
+                </p>
+              ) : (
+                <ul>
+                  {ideas.map((idea) => (
+                    <IdeaRow key={`${idea.trend}:${idea.angle}`} idea={idea} />
+                  ))}
+                </ul>
+              )}
+            </section>
           </div>
-          <div className="flex flex-col gap-2">
-            {ideas === null ? (
-              <p className="text-sm text-muted-foreground">
-                Generate 5 post ideas tied to the trends that fit your keywords.
-              </p>
-            ) : (
-              ideas.map((idea) => <IdeaRow key={`${idea.trend}:${idea.angle}`} idea={idea} />)
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
+        )}
+      </PageBody>
+    </>
   );
 }

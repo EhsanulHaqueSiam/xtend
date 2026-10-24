@@ -1,13 +1,19 @@
 import { useAtomValue } from "@effect/atom-react";
+import type { XTrend } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 
+import { cn } from "../../lib/utils";
 import { useQuoteLabel } from "../../state/costs";
 import { trendingAtom } from "../../state/scores";
-import { Empty, ErrorText, errorText, fmt, inputClass, Section } from "../analyze/ui";
-import { Button } from "../ui/button";
+import { PageHeader } from "../PageHeader";
+import { compactInputClass } from "../ui/field";
+import { Cost, Empty, PageBody, table } from "../ui/layout";
+import { xPill, xPillSm } from "../x";
+import { ErrorLine, causeMessage, fmt } from "../library/shared";
+import { XLink } from "../ui/x-link";
 
-/** The scraper's country names; Library's trends tab uses the same list. */
+/** The scraper's country names; Library's trends section uses the same list. */
 export const TREND_COUNTRIES = [
   "UnitedStates",
   "UnitedKingdom",
@@ -18,38 +24,82 @@ export const TREND_COUNTRIES = [
   "Brazil",
 ] as const;
 
+/** "UnitedStates" reads as "United States". */
+export const countryLabel = (country: string) => country.replace(/([a-z])([A-Z])/g, "$1 $2");
+
+export function CountrySelect({
+  value,
+  onChange,
+}: {
+  readonly value: string;
+  readonly onChange: (country: string) => void;
+}) {
+  return (
+    <select
+      aria-label="Country"
+      className={cn(compactInputClass, "w-auto cursor-pointer")}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      {TREND_COUNTRIES.map((c) => (
+        <option key={c} value={c}>
+          {countryLabel(c)}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/** Ranked trends; each opens X's search for it. */
+export function TrendTable({ trends }: { readonly trends: ReadonlyArray<XTrend> }) {
+  return (
+    <table className={table.root}>
+      <thead>
+        <tr>
+          <th className={cn(table.th, "w-12 text-right")}>#</th>
+          <th className={table.th}>Trend</th>
+          <th className={cn(table.th, "@max-[36rem]:hidden")}>Context</th>
+          <th className={cn(table.th, "text-right")}>Posts</th>
+        </tr>
+      </thead>
+      <tbody>
+        {trends.map((t, i) => (
+          <tr key={t.name} className={table.row}>
+            <td className={cn(table.td, table.num, "text-muted-foreground")}>{i + 1}</td>
+            <td className={cn(table.td, "max-w-0 truncate")}>
+              <XLink
+                href={`https://x.com/search?q=${encodeURIComponent(t.name)}`}
+                className="hover:underline"
+              >
+                {t.name}
+              </XLink>
+            </td>
+            <td
+              className={cn(table.td, "max-w-0 truncate text-muted-foreground @max-[36rem]:hidden")}
+            >
+              {t.context ?? ""}
+            </td>
+            <td className={cn(table.td, table.num)}>
+              {t.postCount === null ? "–" : fmt(t.postCount)}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/** Mounted only after Load: reading the atom is the paid call. */
 function Trends({ country }: { readonly country: string }) {
   const trends = useAtomValue(trendingAtom(country));
   return AsyncResult.match(trends, {
-    onInitial: () => <Empty>Loading…</Empty>,
-    onFailure: (f) => <ErrorText>{errorText(f.cause)}</ErrorText>,
+    onInitial: () => <Empty>Loading trends for {countryLabel(country)}</Empty>,
+    onFailure: (f) => <ErrorLine className="py-4">{causeMessage(f.cause)}</ErrorLine>,
     onSuccess: ({ value }) =>
       value.length === 0 ? (
-        <Empty>No trends returned for {country}.</Empty>
+        <Empty>X returned no trends for {countryLabel(country)}.</Empty>
       ) : (
-        <ol className="flex flex-col gap-0.5 text-xs">
-          {value.map((t, i) => (
-            <li key={t.name} className="flex items-center gap-2">
-              <span className="w-5 shrink-0 text-right font-mono text-2xs text-muted-foreground">
-                {i + 1}
-              </span>
-              <a
-                href={`https://x.com/search?q=${encodeURIComponent(t.name)}`}
-                target="_blank"
-                rel="noreferrer"
-                className="truncate hover:underline"
-              >
-                {t.name}
-              </a>
-              {t.context === null ? null : (
-                <span className="truncate text-2xs text-muted-foreground">{t.context}</span>
-              )}
-              <span className="ml-auto shrink-0 font-mono text-2xs text-muted-foreground">
-                {t.postCount === null ? "" : `${fmt(t.postCount)} posts`}
-              </span>
-            </li>
-          ))}
-        </ol>
+        <TrendTable trends={value} />
       ),
   });
 }
@@ -59,33 +109,31 @@ export function Trending() {
   const [country, setCountry] = useState<string>(TREND_COUNTRIES[0]);
   const [loaded, setLoaded] = useState<string | null>(null);
   const quote = useQuoteLabel({ kind: "trending", country });
+  const load = (
+    <button type="button" className={cn(xPill, xPillSm)} onClick={() => setLoaded(country)}>
+      Load
+      <Cost label={quote} />
+    </button>
+  );
   return (
-    <Section
-      title="Trending on X"
-      actions={
-        <div className="flex gap-1">
-          <select
-            className={inputClass + " w-auto py-0.5"}
-            value={country}
-            onChange={(e) => setCountry(e.target.value)}
-          >
-            {TREND_COUNTRIES.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-          <Button size="xs" variant="outline" onClick={() => setLoaded(country)}>
-            Load ({quote})
-          </Button>
-        </div>
-      }
-    >
-      {loaded === null ? (
-        <Empty>Pick a country and load. Cached for 30 minutes on the service.</Empty>
-      ) : (
-        <Trends country={loaded} />
-      )}
-    </Section>
+    <>
+      <PageHeader
+        title="Trending"
+        detail={loaded === null ? undefined : countryLabel(loaded)}
+        actions={
+          <>
+            <CountrySelect value={country} onChange={setCountry} />
+            {load}
+          </>
+        }
+      />
+      <PageBody>
+        {loaded === null ? (
+          <Empty action={load}>What X is talking about by country, cached for 30 minutes.</Empty>
+        ) : (
+          <Trends country={loaded} />
+        )}
+      </PageBody>
+    </>
   );
 }

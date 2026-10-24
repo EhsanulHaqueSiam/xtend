@@ -1,8 +1,6 @@
-/** IPC between the main process, the xtend view's app preload and the x.com window's overlay preload. */
+/** IPC between the main process, the app window's preload and the x.com webview's overlay preload. */
 
-// App view -> main
-export const SESSION_NAVIGATE_CHANNEL = "xtend:session-navigate";
-export const SESSION_FIND_CHANNEL = "xtend:session-find";
+// App -> main
 export const OPEN_EXTERNAL_CHANNEL = "xtend:open-external";
 export const ACCOUNT_SELECT_CHANNEL = "xtend:account-select";
 export const REMOTE_SET_CHANNEL = "xtend:remote-set";
@@ -10,20 +8,17 @@ export const REMOTE_SET_CHANNEL = "xtend:remote-set";
 export const REMOTE_CHECK_CHANNEL = "xtend:remote-check";
 /** sendSync from the app preload: bridge info (incl. the service token) must not ride in argv, which `ps` shows. */
 export const BRIDGE_INFO_CHANNEL = "xtend:bridge-info";
-export const SLOT_OPEN_CHANNEL = "xtend:slot-open";
-export const SLOT_CLOSE_CHANNEL = "xtend:slot-close";
-/** The app's summary for the Today card and composer chips; main forwards it to the overlay preload. */
+/** The app's summary for the composer chip; main forwards it to the overlay preload. */
 export const GLANCE_CHANNEL = "xtend:glance";
+/** Whether the X skin is on (boolean); main inserts or removes its CSS in the webview. */
+export const X_SKIN_CHANNEL = "xtend:x-skin";
 
-// Main -> app view
-export const SESSION_URL_CHANNEL = "xtend:session-url";
-export const SESSION_FIND_RESULT_CHANNEL = "xtend:session-find-result";
+// Main -> app
 export const SESSION_DOWNLOAD_CHANNEL = "xtend:session-download";
+/** A key pressed while x.com had focus that the app acts on (`ShortcutKey`). */
 export const SHORTCUT_CHANNEL = "xtend:shortcut";
-export const SLOT_CHANNEL = "xtend:slot";
-
-// Either preload -> main: whether a text field has focus, so single-letter shortcuts stay typing.
-export const EDITING_CHANNEL = "xtend:editing";
+/** An app route to show: deep links and the x.com injections (Reply with AI, Schedule, Full report). */
+export const APP_ROUTE_CHANNEL = "xtend:app-route";
 
 // Main -> overlay preload
 export const OVERLAY_DATA_CHANNEL = "xtend:overlay-data";
@@ -32,81 +27,30 @@ export const OVERLAY_HIDE_CHANNEL = "xtend:overlay-hide";
 export const OVERLAY_GLANCE_CHANNEL = "xtend:overlay-glance";
 // Overlay preload -> main
 export const OVERLAY_ACTION_CHANNEL = "xtend:overlay-action";
-/** X's primary and right column rects in x.com CSS pixels (`ColumnRects`). */
-export const COLUMN_RECT_CHANNEL = "xtend:column-rect";
-/** Any pointerdown in x.com; main closes the open slot on it. */
-export const POINTER_DOWN_CHANNEL = "xtend:pointer-down";
-
-export interface Rect {
-  readonly x: number;
-  readonly y: number;
-  readonly width: number;
-  readonly height: number;
-}
-
-/** Each is null while the page has none: DMs and settings have no primary column, narrow windows no right one. */
-export interface ColumnRects {
-  readonly column: Rect | null;
-  readonly sidebar: Rect | null;
-}
-
-/** Where the xtend view is drawn over x.com; see window/Slots.ts for the geometry. */
-export type SlotKind = "center" | "popover" | "sheet" | "palette" | "bar" | "toast";
-
-export interface SlotOpen {
-  readonly kind: SlotKind;
-  readonly route: string;
-  /** Trigger rect in x.com CSS pixels; popovers hang off it. */
-  readonly anchor?: Rect | undefined;
-}
-
-export interface SlotClose {
-  /** Only closes when this kind is the open one; omitted closes whatever is open. */
-  readonly kind?: SlotKind | undefined;
-}
-
-/** What main tells the app view: null kind means hidden, the route is the one it should show. */
-export interface SlotState {
-  readonly kind: SlotKind | null;
-  readonly route: string;
-}
-
-/** Null stops the search and clears the highlights. */
-export type SessionFind = {
-  readonly text: string;
-  readonly forward: boolean;
-  readonly findNext: boolean;
-} | null;
-
-export interface SessionFindResult {
-  readonly activeMatchOrdinal: number;
-  readonly matches: number;
-}
+/** The signed-in handle read from X's nav (string), when the capture has not seen it. */
+export const OVERLAY_VIEWER_CHANNEL = "xtend:overlay-viewer";
 
 export interface SessionDownload {
   readonly name: string;
   readonly state: "started" | "completed" | "failed";
 }
 
-/** What the main process tells the app view about its service at load time. */
+/** What the main process tells the app about its service and the x.com session at load time. */
 export interface BridgeInfo {
   readonly serviceToken: string;
   readonly serviceMode: "child" | "launchd" | "remote" | "none";
   readonly remote: { readonly url: string; readonly token: string } | null;
   readonly accountId: number;
-  readonly slot: SlotState;
+  /** The cookie partition of the current account; main refuses an x.com webview on any other. */
+  readonly xPartition: string;
+  /** Where x.com was when the app last closed. */
+  readonly xStartUrl: string;
+  /** A route asked for before the page loaded (a deep link at launch); null otherwise. */
+  readonly initialRoute: string | null;
 }
 
-export type ShortcutKey =
-  | "palette"
-  | "compose"
-  | "plan"
-  | "analyze"
-  | "engage"
-  | "library"
-  | "find"
-  | "address"
-  | "overlayToggle";
+/** Keys main catches in x.com for the app: ⌘K palette, ⌘\ X panel, ⌘F find. */
+export type ShortcutKey = "palette" | "xPanel" | "find";
 
 /** What the overlay strip needs per post; the capture already normalized all of it. */
 export interface OverlayPost {
@@ -131,7 +75,7 @@ export interface OverlayData {
 }
 
 /**
- * What the native injections show without a server call: the app view already
+ * What the native injections show without a server call: the app already
  * holds the atoms and formats the labels in the account zone.
  */
 export interface Glance {
@@ -147,4 +91,4 @@ export interface Glance {
 
 export type OverlayAction =
   | { readonly type: "save"; readonly postId: string }
-  | { readonly type: "openSlot"; readonly slot: SlotOpen };
+  | { readonly type: "openRoute"; readonly route: string };

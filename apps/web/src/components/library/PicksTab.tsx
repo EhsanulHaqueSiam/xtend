@@ -1,45 +1,252 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
-import type { Pick, StaffPick } from "@xtend/contracts";
+import type { Pick, StaffPick, XPost } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { Sparkles, Wand2 } from "lucide-react";
 import { useState } from "react";
 
+import { cn } from "../../lib/utils";
+import { useQuoteLabel, useRates } from "../../state/costs";
+import { settingsAtom } from "../../state/settings";
 import {
   fetchPicksAtom,
   fetchStaffPicksAtom,
   generateReadyAtom,
   pickDraftAtom,
   pickWhyAtom,
-  saveSuggestedDraftAtom,
   picksAtom,
+  saveSuggestedDraftAtom,
   staffPicksAtom,
 } from "../../state/library";
-import { Button } from "../ui/button";
-import { SaveButton } from "./SaveButton";
-import { InspireButton } from "./SearchTab";
-import { useQuoteLabel, useRates, usd } from "../../state/costs";
+import { PageHeader } from "../PageHeader";
 import { TREND_COUNTRIES } from "../scores/Trending";
-import { Empty, ErrorLine, PostRow, errorMessage } from "./shared";
+import { Cost, Empty, Section } from "../ui/layout";
+import { DetailSplit } from "../ui/split";
+import { profileUrl, XLink } from "../ui/x-link";
+import { xPill, xPillSm, xPillSolid } from "../x";
+import {
+  FormatTabs,
+  SearchXField,
+  SortMenu,
+  formatCounts,
+  matchesFormat,
+  sortItems,
+  type FormatFilter,
+  type SortKey,
+} from "./controls";
+import { PostGrid } from "./PostCard";
+import { DraftBlock, InspectorGroup, PostInspector } from "./PostInspector";
+import { RemixButton, SaveButton, useSavedIds } from "./SaveButton";
+import { AppLink, ErrorLine, causeMessage, errorMessage } from "./shared";
+
+const button = cn(xPill, xPillSm);
+const solid = cn(xPillSolid, xPillSm);
+
+/** A staff pick whose text has arrived. */
+type FetchedStaffPick = StaffPick & { readonly post: XPost };
+const isFetched = (p: StaffPick): p is FetchedStaffPick => p.post !== null;
+
+/** The paid runs behind the day's picks: the keyword fetch and the three ready posts. */
+function useRuns() {
+  const refresh = useAtomRefresh(picksAtom);
+  const fetch = useAtomSet(fetchPicksAtom, { mode: "promise" });
+  const generate = useAtomSet(generateReadyAtom, { mode: "promise" });
+  const picksQuote = useQuoteLabel({ kind: "picksFetch" });
+  const trendingQuote = useQuoteLabel({ kind: "trending", country: TREND_COUNTRIES[0] });
+  const assistQuote = useQuoteLabel({ kind: "assist" });
+  const [busy, setBusy] = useState<"picks" | "ready" | null>(null);
+  const [notice, setNotice] = useState<{ readonly text: string; readonly error: boolean } | null>(
+    null,
+  );
+
+  const call = async (which: "picks" | "ready", work: () => Promise<string | null>) => {
+    setBusy(which);
+    setNotice(null);
+    try {
+      const text = await work();
+      setNotice(text === null ? null : { text, error: false });
+    } catch (e) {
+      setNotice({ text: errorMessage(e), error: true });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const fetchButton = (pending: number, disabled: boolean) => (
+    <button
+      type="button"
+      className={button}
+      disabled={busy !== null || disabled}
+      onClick={() =>
+        void call("picks", async () => {
+          await fetch();
+          refresh();
+          return null;
+        })
+      }
+    >
+      {busy === "picks" ? "Fetching" : `Fetch ${pending} keyword${pending === 1 ? "" : "s"}`}
+      <Cost label={picksQuote} />
+    </button>
+  );
+  const readyButton = (
+    <button
+      type="button"
+      className={button}
+      disabled={busy !== null}
+      title="Three posts for today in your voice, from the trends and the picks. Filed as suggested drafts."
+      onClick={() =>
+        void call("ready", async () => {
+          const posts = await generate(TREND_COUNTRIES[0]);
+          return `${posts.length} suggested drafts in Compose: ${posts.map((p) => `${p.basis} (voice ${p.voiceMatch})`).join(", ")}.`;
+        })
+      }
+    >
+      {busy === "ready" ? "Writing" : "Write 3 ready posts"}
+      {/* One trends read, then one model call writes all three. */}
+      <Cost label={`${trendingQuote} + ${assistQuote}`} />
+    </button>
+  );
+  return { fetchButton, readyButton, notice };
+}
+
+/** The selected pick: why it works and a ready-to-post version, both model calls. */
+function PickInspector({
+  pick,
+  saved,
+  onClose,
+}: {
+  readonly pick: Pick;
+  readonly saved: boolean;
+  readonly onClose: () => void;
+}) {
+  const why = useAtomSet(pickWhyAtom(pick.post.postId), { mode: "promise" });
+  const draft = useAtomSet(pickDraftAtom(pick.post.postId), { mode: "promise" });
+  const saveDraft = useAtomSet(saveSuggestedDraftAtom, { mode: "promise" });
+  const assistQuote = useQuoteLabel({ kind: "assist" });
+  const [whyText, setWhyText] = useState(pick.whyItWorks);
+  const [blocks, setBlocks] = useState<ReadonlyArray<string> | null>(null);
+  const [filed, setFiled] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<"why" | "draft" | "send" | null>(null);
+
+  const call = async (which: "why" | "draft" | "send", work: () => Promise<void>) => {
+    setBusy(which);
+    setError(null);
+    try {
+      await work();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <PostInspector post={pick.post} facts={[["Keyword", pick.keyword]]} onClose={onClose}>
+      <InspectorGroup title="Act">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <SaveButton post={pick.post} saved={saved} />
+          <RemixButton post={pick.post} />
+        </div>
+      </InspectorGroup>
+      <InspectorGroup
+        title="Why it works"
+        aside={whyText === null ? <Cost label={assistQuote} /> : undefined}
+      >
+        {whyText !== null ? (
+          <p className="text-[13px] leading-relaxed whitespace-pre-wrap text-foreground/80">
+            {whyText}
+          </p>
+        ) : (
+          <button
+            type="button"
+            className={button}
+            disabled={busy !== null}
+            onClick={() => void call("why", async () => setWhyText(await why()))}
+          >
+            {busy === "why" ? "Explaining" : "Explain it"}
+          </button>
+        )}
+      </InspectorGroup>
+      <InspectorGroup title="Ready to post" aside={<Cost label={assistQuote} />}>
+        {blocks === null ? (
+          <button
+            type="button"
+            className={button}
+            disabled={busy !== null}
+            onClick={() => void call("draft", async () => setBlocks(await draft()))}
+          >
+            {busy === "draft" ? "Writing" : "Write one in your voice"}
+          </button>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {blocks.map((b, i) => (
+              // eslint-disable-next-line react/no-array-index-key -- model output; two posts can share a text.
+              <DraftBlock key={i}>{b}</DraftBlock>
+            ))}
+            {filed ? (
+              <p className="text-xs text-muted-foreground">
+                Filed as a suggested draft.{" "}
+                <AppLink href="/compose?tab=automatic" className="text-foreground hover:underline">
+                  Open Compose
+                </AppLink>
+              </p>
+            ) : (
+              <div>
+                <button
+                  type="button"
+                  className={solid}
+                  disabled={busy !== null}
+                  onClick={() =>
+                    void call("send", async () => {
+                      await saveDraft({
+                        text: blocks.join("\n\n"),
+                        source: `pick:${pick.post.postId}`,
+                      });
+                      setFiled(true);
+                    })
+                  }
+                >
+                  Send to Compose
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </InspectorGroup>
+      {error !== null ? <ErrorLine className="px-5 pt-3 pb-0">{error}</ErrorLine> : null}
+    </PostInspector>
+  );
+}
 
 /** The curated evergreen posts; text arrives with one `from:handle` search per author. */
-function StaffPicks() {
-  const result = useAtomValue(staffPicksAtom);
+function StaffPicks({
+  picks,
+  shown,
+  selected,
+  onSelect,
+}: {
+  readonly picks: ReadonlyArray<StaffPick>;
+  readonly shown: ReadonlyArray<FetchedStaffPick>;
+  readonly selected: string | null;
+  readonly onSelect: (key: string) => void;
+}) {
   const refresh = useAtomRefresh(staffPicksAtom);
   const fetch = useAtomSet(fetchStaffPicksAtom, { mode: "promise" });
   const rates = useRates();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const picks = AsyncResult.getOrElse(result, (): ReadonlyArray<StaffPick> => []);
-  const missing = new Set(picks.filter((p) => p.post === null).map((p) => p.handle)).size;
+  const unfetched = picks.filter((p) => p.post === null);
+  const authors = new Set(unfetched.map((p) => p.handle)).size;
+  if (picks.length === 0) return null;
   return (
-    <div className="border-t border-border">
-      <div className="flex flex-wrap items-center gap-2 px-3 py-2 text-2xs text-muted-foreground">
-        <span>Staff picks: {picks.length} evergreen posts on building, marketing and AI</span>
-        {missing > 0 ? (
-          <Button
-            size="xs"
-            variant="outline"
-            className="ml-auto"
+    <Section
+      title="Staff picks"
+      className="border-t"
+      aside={
+        authors > 0 ? (
+          <button
+            type="button"
+            className={button}
             disabled={busy || rates === null}
             onClick={async () => {
               setBusy(true);
@@ -54,235 +261,211 @@ function StaffPicks() {
               }
             }}
           >
-            {busy
-              ? "Fetching…"
-              : `Fetch text for ${missing} authors (${rates === null ? "…" : usd(rates.searchPage * missing)})`}
-          </Button>
-        ) : null}
-      </div>
-      {error !== null ? <ErrorLine>{error}</ErrorLine> : null}
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-0.5 px-2 pb-2">
-        {picks.map((p) =>
-          p.post === null ? (
-            <div
-              key={p.postId}
-              className="flex items-center gap-2 px-3 py-1.5 font-mono text-2xs text-muted-foreground"
-            >
-              <span className="rounded-sm border border-border px-1">{p.topic}</span>
-              <a
-                href={`https://x.com/${p.handle}/status/${p.postId}`}
-                target="_blank"
-                rel="noreferrer"
-                className="hover:text-foreground"
-              >
-                @{p.handle}/{p.postId}
-              </a>
-              <span>text not fetched</span>
-            </div>
-          ) : (
-            <PostRow
-              key={p.postId}
-              post={p.post}
-              badge={
-                <span className="rounded-sm border border-border px-1 font-mono text-2xs text-muted-foreground">
-                  {p.topic}
-                </span>
-              }
-              actions={
-                <>
-                  <SaveButton post={p.post} />
-                  <InspireButton post={p.post} />
-                </>
-              }
-            />
-          ),
-        )}
-      </div>
-    </div>
-  );
-}
-
-function PickRow({ pick }: { readonly pick: Pick }) {
-  const why = useAtomSet(pickWhyAtom(pick.post.postId), { mode: "promise" });
-  const draft = useAtomSet(pickDraftAtom(pick.post.postId), { mode: "promise" });
-  const saveDraft = useAtomSet(saveSuggestedDraftAtom, { mode: "promise" });
-  const [whyText, setWhyText] = useState(pick.whyItWorks);
-  const [blocks, setBlocks] = useState<ReadonlyArray<string> | null>(null);
-  const [status, setStatus] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  // One suggested draft per answer; a second click would file a duplicate.
-  const [sent, setSent] = useState(false);
-
-  const call = async (work: () => Promise<void>) => {
-    setBusy(true);
-    setStatus(null);
-    try {
-      await work();
-    } catch (e) {
-      setStatus(errorMessage(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <PostRow
-      post={pick.post}
-      badge={
-        <span className="rounded-sm border border-border px-1 font-mono text-2xs text-muted-foreground">
-          {pick.keyword}
-        </span>
-      }
-      actions={
-        <>
-          <SaveButton post={pick.post} />
-          <InspireButton post={pick.post} />
-          {whyText === null ? (
-            <Button
-              variant="outline"
-              size="xs"
-              disabled={busy}
-              onClick={() => void call(async () => setWhyText(await why()))}
-            >
-              <Sparkles /> Why it works (model)
-            </Button>
-          ) : null}
-          {blocks === null ? (
-            <Button
-              variant="outline"
-              size="xs"
-              disabled={busy}
-              onClick={() => void call(async () => setBlocks(await draft()))}
-            >
-              <Wand2 /> Ready to post (model)
-            </Button>
-          ) : null}
-          {status !== null ? (
-            <span className="text-2xs text-error-foreground">{status}</span>
-          ) : null}
-        </>
+            {busy ? "Fetching" : `Fetch text for ${authors} authors`}
+            {rates === null ? <Cost label="…" /> : <Cost usd={rates.searchPage * authors} />}
+          </button>
+        ) : undefined
       }
     >
-      {whyText !== null ? (
-        <p className="mt-2 whitespace-pre-wrap border-l-2 border-border pl-2 text-xs text-muted-foreground">
-          {whyText}
+      {error !== null ? <ErrorLine className="px-0">{error}</ErrorLine> : null}
+      {shown.length > 0 ? (
+        <PostGrid
+          className="px-0 py-0"
+          items={shown.map((p) => ({ key: `staff:${p.postId}`, post: p.post, tag: p.topic }))}
+          selected={selected}
+          onSelect={onSelect}
+        />
+      ) : null}
+      {unfetched.length > 0 ? (
+        <p className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          <span>{unfetched.length} posts wait for their text, by</span>
+          {[...new Set(unfetched.map((p) => p.handle))].map((handle) => (
+            <XLink
+              key={handle}
+              href={profileUrl(handle)}
+              className="font-mono text-2xs transition-colors duration-150 hover:text-foreground"
+            >
+              @{handle}
+            </XLink>
+          ))}
         </p>
       ) : null}
-      {blocks !== null ? (
-        <div className="mt-2 flex flex-col gap-1.5 border-l-2 border-success pl-2">
-          {blocks.map((b, i) => (
-            // eslint-disable-next-line react/no-array-index-key -- model output; two posts can share a text.
-            <p key={i} className="whitespace-pre-wrap text-sm">
-              {b}
-            </p>
-          ))}
-          <div>
-            <Button
-              variant="outline"
-              size="xs"
-              disabled={busy || sent}
-              onClick={() =>
-                void call(async () => {
-                  await saveDraft({
-                    text: blocks.join("\n\n"),
-                    source: `pick:${pick.post.postId}`,
-                  });
-                  setSent(true);
-                })
-              }
-            >
-              {sent ? "Sent to Compose" : "Send to Compose"}
-            </Button>
-          </div>
-        </div>
-      ) : null}
-    </PostRow>
+    </Section>
   );
 }
 
+/** Today's top posts for the user's keywords, and the staff picks under them. */
+
+/** Today's picks are in; the morning run is named only when it is turned on in Settings. */
+function FetchedLabel() {
+  const daily = AsyncResult.getOrElse(
+    AsyncResult.map(useAtomValue(settingsAtom), (v) => v.dailyLibraryJobs),
+    () => false,
+  );
+  return (
+    <span className="font-mono text-2xs text-muted-foreground">
+      {daily ? "fetched · daily 08:00" : "fetched today"}
+    </span>
+  );
+}
 export function PicksTab() {
-  const picksQuote = useQuoteLabel({ kind: "picksFetch" });
   const state = useAtomValue(picksAtom);
-  const refresh = useAtomRefresh(picksAtom);
-  const fetch = useAtomSet(fetchPicksAtom, { mode: "promise" });
-  const generate = useAtomSet(generateReadyAtom, { mode: "promise" });
-  const trendingQuote = useQuoteLabel({ kind: "trending", country: TREND_COUNTRIES[0] });
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"picks" | "ready" | null>(null);
+  const staff = useAtomValue(staffPicksAtom);
+  const saved = useSavedIds();
+  const runs = useRuns();
+  const [format, setFormat] = useState<FormatFilter>("all");
+  const [sort, setSort] = useState<SortKey>("views");
+  const [selected, setSelected] = useState<string | null>(null);
 
-  const call = async (which: "picks" | "ready", work: () => Promise<string | null>) => {
-    setBusy(which);
-    setError(null);
-    try {
-      setError(await work());
-    } catch (e) {
-      setError(errorMessage(e));
-    } finally {
-      setBusy(null);
-    }
-  };
-  const run = () =>
-    call("picks", async () => {
-      await fetch();
-      refresh();
-      return null;
-    });
-  const runReady = () =>
-    call("ready", async () => {
-      const posts = await generate(TREND_COUNTRIES[0]);
-      return `Filed ${posts.length} suggested drafts in Compose: ${posts.map((p) => `${p.basis} (voice ${p.voiceMatch})`).join(", ")}.`;
-    });
+  const value = AsyncResult.getOrElse(state, () => null);
+  const picks = value?.picks ?? [];
+  const staffPicks = AsyncResult.getOrElse(staff, (): ReadonlyArray<StaffPick> => []);
+  const fetchedStaff = staffPicks.filter(isFetched);
+  const shownPicks = sortItems(
+    picks.filter((p) => matchesFormat(p.post, format)),
+    (p) => p.post,
+    sort,
+  );
+  const shownStaff = sortItems(
+    fetchedStaff.filter((p) => matchesFormat(p.post, format)),
+    (p) => p.post,
+    sort,
+  );
 
-  return AsyncResult.match(state, {
-    onInitial: () => <Empty>Loading…</Empty>,
-    onFailure: (f) => <ErrorLine>{String(f.cause)}</ErrorLine>,
-    onSuccess: ({ value }) => (
-      <div className="flex min-h-0 flex-1 flex-col">
-        <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2 text-2xs text-muted-foreground">
-          <span>
-            {value.day}: top posts of the last 7 days for{" "}
-            {value.keywords.length === 0
-              ? "no keywords (set them in Settings)"
-              : value.keywords.join(", ")}
-          </span>
-          <span className="ml-auto flex items-center gap-1.5">
-            <Button
-              size="xs"
-              variant="outline"
-              disabled={busy !== null}
-              onClick={() => void runReady()}
-            >
-              <Wand2 />{" "}
-              {busy === "ready" ? "Writing…" : `Ready-to-post x3 (${trendingQuote} + model)`}
-            </Button>
-            {value.pending.length > 0 ? (
-              <Button
-                size="xs"
-                disabled={busy !== null || value.keywords.length === 0}
-                onClick={() => void run()}
+  const close = () => setSelected(null);
+  const pick = picks.find((p) => `pick:${p.post.postId}` === selected);
+  const staffPick = fetchedStaff.find((p) => `staff:${p.postId}` === selected);
+  const detail =
+    pick !== undefined ? (
+      <PickInspector
+        key={pick.post.postId}
+        pick={pick}
+        saved={saved.has(pick.post.postId)}
+        onClose={close}
+      />
+    ) : staffPick !== undefined ? (
+      <PostInspector post={staffPick.post} facts={[["Topic", staffPick.topic]]} onClose={close}>
+        <InspectorGroup title="Act">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <SaveButton post={staffPick.post} saved={saved.has(staffPick.postId)} />
+            <RemixButton post={staffPick.post} />
+          </div>
+        </InspectorGroup>
+      </PostInspector>
+    ) : null;
+
+  return (
+    <>
+      <PageHeader
+        title="Picks"
+        tabs={
+          <FormatTabs
+            value={format}
+            onChange={setFormat}
+            counts={formatCounts([...picks.map((p) => p.post), ...fetchedStaff.map((p) => p.post)])}
+          />
+        }
+        actions={
+          <>
+            <SortMenu value={sort} onChange={setSort} />
+            <SearchXField />
+          </>
+        }
+      />
+      <DetailSplit
+        closable
+        label="Selected post"
+        detailKey={selected}
+        detail={detail}
+        list={
+          <>
+            {AsyncResult.match(state, {
+              onInitial: () => <Empty>Loading picks</Empty>,
+              onFailure: (f) => <ErrorLine className="py-4">{causeMessage(f.cause)}</ErrorLine>,
+              onSuccess: ({ value: day }) =>
+                day.picks.length === 0 ? (
+                  day.keywords.length === 0 ? (
+                    <Empty
+                      action={
+                        <AppLink href="/settings" className={button}>
+                          Set keywords
+                        </AppLink>
+                      }
+                    >
+                      Picks are the top posts of the week for your keywords.
+                    </Empty>
+                  ) : (
+                    <Empty
+                      action={
+                        <div className="flex flex-wrap justify-center gap-1.5">
+                          {day.pending.length > 0
+                            ? runs.fetchButton(day.pending.length, false)
+                            : null}
+                          {runs.readyButton}
+                        </div>
+                      }
+                    >
+                      No picks yet today for {day.keywords.join(", ")}.
+                    </Empty>
+                  )
+                ) : (
+                  <>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-6 pt-4">
+                      <p className="min-w-0 flex-1 truncate text-[13px] text-muted-foreground">
+                        <span className="font-mono text-2xs tabular-nums">{day.day}</span>
+                        <span className="px-2 text-white/20">/</span>
+                        {day.keywords.length === 0 ? (
+                          <AppLink href="/settings" className="hover:text-foreground">
+                            no keywords set
+                          </AppLink>
+                        ) : (
+                          <span className="text-foreground/80">{day.keywords.join(", ")}</span>
+                        )}
+                      </p>
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        {runs.readyButton}
+                        {day.pending.length > 0 ? (
+                          runs.fetchButton(day.pending.length, false)
+                        ) : day.keywords.length > 0 ? (
+                          <FetchedLabel />
+                        ) : null}
+                      </div>
+                    </div>
+                    {shownPicks.length === 0 ? (
+                      <Empty>No {format === "link" ? "link" : format} picks today.</Empty>
+                    ) : (
+                      <PostGrid
+                        items={shownPicks.map((p) => ({
+                          key: `pick:${p.post.postId}`,
+                          post: p.post,
+                          tag: p.keyword,
+                        }))}
+                        selected={selected}
+                        onSelect={setSelected}
+                      />
+                    )}
+                  </>
+                ),
+            })}
+            {runs.notice !== null ? (
+              <p
+                className={cn(
+                  "px-6 pb-4 text-xs",
+                  runs.notice.error ? "text-error-foreground" : "text-muted-foreground",
+                )}
               >
-                Fetch {value.pending.length} keyword{value.pending.length === 1 ? "" : "s"} for{" "}
-                {picksQuote}
-              </Button>
-            ) : (
-              <span>fetched today · runs daily at 08:00, ready-to-post at 08:30</span>
-            )}
-          </span>
-        </div>
-        {error !== null ? <ErrorLine>{error}</ErrorLine> : null}
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-          {value.picks.length === 0 ? (
-            <Empty>No picks yet today.</Empty>
-          ) : (
-            <div className="mx-auto flex w-full max-w-3xl flex-col gap-0.5 px-2 py-2">
-              {value.picks.map((pick) => (
-                <PickRow key={pick.post.postId} pick={pick} />
-              ))}
-            </div>
-          )}
-          <StaffPicks />
-        </div>
-      </div>
-    ),
-  });
+                {runs.notice.text}
+              </p>
+            ) : null}
+            <StaffPicks
+              picks={staffPicks}
+              shown={shownStaff}
+              selected={selected}
+              onSelect={setSelected}
+            />
+          </>
+        }
+      />
+    </>
+  );
 }

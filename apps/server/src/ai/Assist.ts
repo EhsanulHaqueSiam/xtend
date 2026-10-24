@@ -12,7 +12,7 @@ import * as ServerConfig from "../config.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 
 /** Reserved before every model call; one structured call lands well under this and the actual cost settles it. */
-const EXPECTED_CALL_USD = 0.05;
+export const EXPECTED_CALL_USD = 0.05;
 
 export class AssistError extends Schema.TaggedError<AssistError>()("AssistError", {
   task: Schema.String,

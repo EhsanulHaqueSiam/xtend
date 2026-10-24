@@ -27,7 +27,7 @@ vi.mock("./window/MainWindow.ts", async () => {
       accountId: options.accountId,
       window: new BrowserWindow(),
       appContents: new FakeContents(),
-      openSlot: vi.fn(),
+      openRoute: vi.fn(),
     })),
   };
 });
@@ -55,7 +55,7 @@ interface OpenedWindow {
   readonly accountId: number;
   readonly window: InstanceType<FakeElectron["BrowserWindow"]>;
   readonly appContents: InstanceType<FakeElectron["FakeContents"]>;
-  readonly openSlot: ReturnType<typeof vi.fn>;
+  readonly openRoute: ReturnType<typeof vi.fn>;
 }
 
 /** Starts main.ts afresh; `windows()` are the windows it opened, oldest first. */
@@ -119,10 +119,7 @@ it("opens a deep link that arrived before the service answered once the window i
 
   answer();
   await vi.waitFor(() => expect(windows()).toHaveLength(1));
-  expect(windows()[0]!.openSlot).toHaveBeenCalledWith({
-    kind: "center",
-    route: "/compose?text=hello",
-  });
+  expect(windows()[0]!.openRoute).toHaveBeenCalledWith("/compose?text=hello");
   supervisor.ready = Promise.resolve();
 });
 

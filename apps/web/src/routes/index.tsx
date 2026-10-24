@@ -1,6 +1,12 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
 import { SeenFeed } from "../components/SeenFeed";
+import { isElectron } from "../env";
 
-/** Home is what the x.com session observed; in the desktop, x.com itself is the window around this view. */
-export const Route = createFileRoute("/")({ component: SeenFeed });
+/** On the desktop home is x.com itself; in a browser it is what the session observed. */
+export const Route = createFileRoute("/")({
+  beforeLoad: () => {
+    if (isElectron) throw redirect({ to: "/x" });
+  },
+  component: SeenFeed,
+});

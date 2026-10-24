@@ -212,7 +212,7 @@ const make = Effect.gen(function* () {
     handle === null
       ? new AutomateError({
           operation: "evaluate",
-          detail: "set your X handle in Settings first",
+          detail: "no X handle yet; it comes from your X session, or set it in Settings",
           cause: null,
         })
       : Effect.succeed(handle),

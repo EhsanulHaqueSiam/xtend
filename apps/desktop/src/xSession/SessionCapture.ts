@@ -39,6 +39,8 @@ export interface SessionCaptureOptions {
   readonly onPosts?: (posts: ReadonlyArray<ObservedPost>, viewerHandle: string | null) => void;
   /** The id x.com returned for a post the session just created (CreateTweet). */
   readonly onCreatedPost?: (postId: string) => void;
+  /** The signed-in handle from X's nav, for sessions that never make the Viewer call. */
+  readonly fallbackViewer?: () => string | null;
 }
 
 export function attachSessionCapture(
@@ -101,9 +103,10 @@ export function attachSessionCapture(
       if (created !== undefined) options.onCreatedPost?.(created);
     }
     if (posts.length === 0) return;
-    options.onPosts?.(posts, viewerHandle);
+    const viewer = viewerHandle ?? options.fallbackViewer?.() ?? null;
+    options.onPosts?.(posts, viewer);
     await send({
-      viewerHandle,
+      viewerHandle: viewer,
       accountId: options.accountId,
       source: sourceFromOperation(url),
       observedAt: new Date().toISOString(),

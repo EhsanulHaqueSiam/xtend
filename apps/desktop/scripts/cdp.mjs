@@ -1,13 +1,13 @@
 // Drives a running dev desktop through the DevTools port it opens with XTEND_REMOTE_DEBUG,
-// for headless hosts where nobody can click. Pages are picked by a URL substring:
-// "x.com" is the window, the service or dev URL ("localhost:5820") is the xtend view.
+// for headless hosts where nobody can click. Targets are picked by a URL substring:
+// "x.com" is the x.com webview, the service or dev URL ("localhost:5820") is the app window.
 //   XTEND_REMOTE_DEBUG=9223 node scripts/dev-electron.mjs     start the app with the port open
 //   node scripts/cdp.mjs shot /tmp/xtend                       every page to /tmp/xtend-<n>.png
 //   node scripts/cdp.mjs eval x.com 'location.href'            prints the JSON value
 //   node scripts/cdp.mjs click x.com 470 86                    a real mouse click in CSS pixels
 //   node scripts/cdp.mjs type x.com 'hello'                    inserts text at the focus
-// Keys sent this way skip Electron's before-input-event, so app shortcuts cannot be driven;
-// call window.desktopBridge in the xtend view instead (see docs/internals/native-shell.md).
+// Keys sent this way skip Electron's before-input-event, so the chords main forwards from
+// x.com (⌘K, ⌘\, ⌘F) cannot be driven there; send them to the app window instead.
 import { writeFile } from "node:fs/promises";
 
 const port = process.env.XTEND_REMOTE_DEBUG ?? "9223";
@@ -15,7 +15,9 @@ const TIMEOUT_MS = 5_000;
 const [command, ...args] = process.argv.slice(2);
 
 const pages = async () =>
-  (await (await fetch(`http://127.0.0.1:${port}/json`)).json()).filter((t) => t.type === "page");
+  (await (await fetch(`http://127.0.0.1:${port}/json`)).json()).filter(
+    (t) => t.type === "page" || t.type === "webview",
+  );
 
 /** Opens the page's DevTools socket and returns a `call(method, params)` plus `close`. */
 async function connect(target) {
@@ -63,7 +65,7 @@ const commands = {
           await writeFile(`${prefix}-${index}.png`, Buffer.from(data, "base64"));
           console.log(`${prefix}-${index}.png  ${target.url}`);
         } catch (error) {
-          // The xtend view has empty bounds while no slot is open and paints nothing.
+          // A parked webview (hidden off-screen) may not paint.
           console.log(`skipped ${target.url}: ${error.message}`);
         } finally {
           close();

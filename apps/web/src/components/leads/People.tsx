@@ -1,9 +1,13 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useNavigate } from "@tanstack/react-router";
 import { postCostUsd, type Person, type Stage, type XPost } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { useState } from "react";
+import { useState, type ReactElement, type ReactNode } from "react";
+import { TextMorph } from "torph/react";
 
+import { fmtWhen } from "../../lib/time";
 import { cn } from "../../lib/utils";
+import { useQuoteLabel, useRates } from "../../state/costs";
 import {
   draftDmAtom,
   draftReplyAtom,
@@ -15,262 +19,376 @@ import {
   sendReplyAtom,
   updatePersonAtom,
 } from "../../state/leads";
-import { useQuoteLabel, useRates, usd } from "../../state/costs";
-import { Empty, ErrorText, errorText, fmt, inputClass } from "../analyze/ui";
-import { Button } from "../ui/button";
-import { ago, STAGES, StagePill, useAction } from "./ui";
+import { errorText, fmt } from "../analyze/ui";
+import { ago, ErrorLine, pill, pillSolid } from "../engage/triage";
+import { HeaderTabs, PageHeader } from "../PageHeader";
+import { sectionHref } from "../shell/sections";
+import { inputClass } from "../ui/field";
+import { Cost, Empty, PageBody, Section } from "../ui/layout";
+import {
+  type Column,
+  DetailSplit,
+  ListHead,
+  ListRow,
+  Props,
+  RowTitle,
+  useSelection,
+} from "../ui/split";
+import { OpenOnX, profileUrl } from "../ui/x-link";
+import { STAGES, StageText, useAction } from "./ui";
 
-/** People table for one list (or everyone) with a detail panel for the selected row. */
-export function People({ listId }: { readonly listId: number | null }) {
-  const people = useAtomValue(peopleAtom(listId));
-  const [open, setOpen] = useState<number | null>(null);
-  return (
-    <div className="flex gap-3">
-      <div className="min-w-0 flex-1">
-        {AsyncResult.match(people, {
-          onInitial: () => <Empty>Loading people…</Empty>,
-          onFailure: (f) => <ErrorText>{errorText(f.cause)}</ErrorText>,
-          onSuccess: ({ value }) =>
-            value.length === 0 ? (
-              <Empty>No people yet. Build a list, run an agent or check new followers.</Empty>
-            ) : (
-              <PeopleTable people={value} listId={listId} open={open} onOpen={setOpen} />
-            ),
-        })}
-      </div>
-      {open !== null ? (
-        // Keyed: a typed DM, unsaved notes or a loaded post belong to that person only.
-        <PersonPanel key={open} id={open} listId={listId} onClose={() => setOpen(null)} />
-      ) : null}
-    </div>
-  );
-}
+const COLUMNS: ReadonlyArray<Column<Person>> = [
+  { label: "Score", className: "w-10", cell: (p) => fmt(p.score) },
+  {
+    label: "Tier",
+    className: "hidden w-20 @xl:block",
+    cell: (p) => <span className="text-muted-foreground">{p.tier ?? ""}</span>,
+  },
+  { label: "Followers", className: "w-18", cell: (p) => fmt(p.followers) },
+  {
+    label: "Source",
+    className: "hidden w-32 @2xl:block",
+    cell: (p) => <span className="text-muted-foreground">{p.source}</span>,
+  },
+  {
+    label: "Stage",
+    className: "hidden w-20 @lg:block",
+    cell: (p) => <StageText stage={p.stage} />,
+  },
+  {
+    label: "Last",
+    className: "w-12",
+    cell: (p) => <span className="text-muted-foreground">{ago(p.lastActivity)}</span>,
+  },
+];
 
-function PeopleTable({
-  people,
-  listId,
-  open,
-  onOpen,
-}: {
-  readonly people: ReadonlyArray<Person>;
-  readonly listId: number | null;
-  readonly open: number | null;
-  readonly onOpen: (id: number) => void;
-}) {
-  const refresh = useAtomRefresh(peopleAtom(listId));
-  const update = useAtomSet(updatePersonAtom, { mode: "promise" });
-  // Busy disables the stage pickers: a second change while one saves would interrupt it.
-  const { busy, error, run } = useAction();
-  const setStage = (id: number, stage: Stage) => run(() => update({ id, stage }).then(refresh));
+type StageFilter = "all" | Stage;
+
+/** Everyone the screens have found, filtered by stage, with the selected person beside the table. */
+export function PeopleSection() {
+  const people = useAtomValue(peopleAtom(null));
+  const [stage, setStage] = useState<StageFilter>("all");
+  const all = AsyncResult.getOrElse(people, () => []);
+  const tabs = [
+    { id: "all" as const, label: "All", count: all.length },
+    ...STAGES.map((s) => ({
+      id: s,
+      label: s[0]!.toUpperCase() + s.slice(1),
+      count: all.filter((p) => p.stage === s).length,
+    })),
+  ];
   return (
     <>
-      {error !== null ? <ErrorText>{error}</ErrorText> : null}
-      <table className="w-full text-xs">
-        <thead className="text-2xs text-muted-foreground">
-          <tr>
-            <th className="py-1 text-left font-normal">Person</th>
-            <th className="py-1 text-right font-normal">Score</th>
-            <th className="py-1 text-right font-normal">Followers</th>
-            <th className="py-1 pl-3 text-left font-normal">Source</th>
-            <th className="py-1 pl-3 text-left font-normal">Stage</th>
-            <th className="py-1 text-right font-normal">Last</th>
-          </tr>
-        </thead>
-        <tbody>
-          {people.map((p) => (
-            <tr
-              key={p.id}
-              className={cn(
-                "cursor-pointer border-t border-border hover:bg-accent/60",
-                p.id === open && "bg-accent/60",
-                p.stage === "ignored" && "text-muted-foreground",
-              )}
-              onClick={() => onOpen(p.id)}
-            >
-              <td className="max-w-xs truncate py-1 pr-2">
-                @{p.handle} <span className="text-muted-foreground">{p.name}</span>
-              </td>
-              <td className="py-1 text-right font-mono text-2xs">
-                {fmt(p.score)}
-                {p.tier !== null ? <span className="text-muted-foreground"> {p.tier}</span> : null}
-              </td>
-              <td className="py-1 text-right font-mono text-2xs">{fmt(p.followers)}</td>
-              <td className="max-w-32 truncate py-1 pl-3 font-mono text-2xs text-muted-foreground">
-                {p.source}
-              </td>
-              <td className="py-1 pl-3" onClick={(e) => e.stopPropagation()}>
-                <select
-                  className="cursor-pointer bg-transparent font-mono text-2xs text-foreground outline-hidden"
-                  aria-label={`Stage of @${p.handle}`}
-                  disabled={busy}
-                  value={p.stage}
-                  onChange={(e) => void setStage(p.id, e.target.value as Stage)}
-                >
-                  {STAGES.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-              </td>
-              <td className="py-1 text-right font-mono text-2xs text-muted-foreground">
-                {ago(p.lastActivity)}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <PageHeader
+        title="People"
+        tabs={
+          all.length === 0 ? undefined : (
+            <HeaderTabs label="Stage" tabs={tabs} value={stage} onChange={setStage} />
+          )
+        }
+      />
+      <PeopleSplit
+        listId={null}
+        stage={stage}
+        empty={stage === "all" ? <NoPeople /> : <Empty>No one at {stage} yet.</Empty>}
+      />
     </>
   );
 }
 
-function PersonPanel({
-  id,
+function NoPeople() {
+  const navigate = useNavigate();
+  return (
+    <Empty
+      action={
+        <button
+          type="button"
+          className={pill}
+          onClick={() => void navigate({ href: sectionHref("/leads", "lists") })}
+        >
+          Build a list
+        </button>
+      }
+    >
+      No people yet. Build a list, run an agent or check new followers.
+    </Empty>
+  );
+}
+
+/**
+ * A people table and, beside it, the selected person, or `aside` when the
+ * caller opened something else there (the list builder). Picking a row calls
+ * `onPick` so the caller can put the person back.
+ */
+export function PeopleSplit({
   listId,
-  onClose,
+  stage = "all",
+  aside = null,
+  onPick,
+  empty,
 }: {
-  readonly id: number;
   readonly listId: number | null;
-  readonly onClose: () => void;
+  readonly stage?: StageFilter;
+  readonly aside?: ReactElement | null;
+  readonly onPick?: () => void;
+  readonly empty: ReactNode;
 }) {
+  const result = useAtomValue(peopleAtom(listId));
+  const all = AsyncResult.getOrElse(result, () => []);
+  const people = stage === "all" ? all : all.filter((p) => p.stage === stage);
+  const { selected, select } = useSelection(people.map((p) => p.id));
+  const current = people.find((p) => p.id === selected) ?? null;
+
+  return AsyncResult.match(result, {
+    onInitial: () => (
+      <PageBody>
+        <Empty>Loading people…</Empty>
+      </PageBody>
+    ),
+    onFailure: (f) => (
+      <PageBody>
+        <ErrorLine>{errorText(f.cause)}</ErrorLine>
+      </PageBody>
+    ),
+    onSuccess: () => (
+      <DetailSplit
+        detailKey={aside !== null ? "aside" : selected}
+        list={
+          people.length === 0 ? (
+            empty
+          ) : (
+            <>
+              <ListHead label="Person" columns={COLUMNS} />
+              {people.map((p) => (
+                <ListRow
+                  key={p.id}
+                  selected={aside === null && p.id === selected}
+                  onSelect={() => {
+                    select(p.id);
+                    onPick?.();
+                  }}
+                  muted={p.stage === "ignored"}
+                  item={p}
+                  columns={COLUMNS}
+                >
+                  <RowTitle name={`@${p.handle}`} meta={p.name} />
+                </ListRow>
+              ))}
+            </>
+          )
+        }
+        detail={
+          aside !== null ? (
+            aside
+          ) : current === null ? null : (
+            <PersonPanel key={current.id} listed={current} listId={listId} />
+          )
+        }
+      />
+    ),
+  });
+}
+
+/**
+ * One person: who they are, their stage and notes, a DM, a reply to their
+ * latest post and what happened so far. The row they were picked from shows
+ * at once; the full record (activity) follows.
+ */
+function PersonPanel({
+  listed,
+  listId,
+}: {
+  readonly listed: Person;
+  readonly listId: number | null;
+}) {
+  const { id } = listed;
   const rates = useRates();
   const data = useAtomValue(personAtom(id));
   const refresh = useAtomRefresh(personAtom(id));
   const refreshList = useAtomRefresh(peopleAtom(listId));
   const update = useAtomSet(updatePersonAtom, { mode: "promise" });
-  const profile = useAtomSet(personProfileAtom, { mode: "promise" });
-  const draftDm = useAtomSet(draftDmAtom, { mode: "promise" });
-  const sendDm = useAtomSet(sendDmAtom, { mode: "promise" });
-  const { busy, error, run } = useAction();
+  const fetchProfile = useAtomSet(personProfileAtom, { mode: "promise" });
+  const profile = useAction();
+  const edit = useAction();
   const [notes, setNotes] = useState<string | null>(null);
-  const [dm, setDm] = useState("");
+  const loaded = AsyncResult.getOrElse(data, () => null);
+  const person = loaded?.person ?? listed;
+  const refreshBoth = () => {
+    refresh();
+    refreshList();
+  };
+
+  const setStage = (stage: Stage) => edit.run(() => update({ id, stage }).then(refreshBoth));
 
   return (
-    <aside className="flex w-80 shrink-0 flex-col gap-2 rounded-lg border border-border bg-card p-3 text-xs">
-      {AsyncResult.match(data, {
-        onInitial: () => <Empty>Loading…</Empty>,
-        onFailure: (f) => <ErrorText>{errorText(f.cause)}</ErrorText>,
-        onSuccess: ({ value: { person, activity } }) => (
-          <>
-            <div className="flex items-center justify-between">
-              <a
-                href={`https://x.com/${person.handle}`}
-                target="_blank"
-                rel="noreferrer"
-                className="font-medium hover:underline"
+    <>
+      <Section>
+        <p className="truncate text-sm font-semibold">@{person.handle}</p>
+        <p className="truncate text-[12.5px] text-muted-foreground">{person.name}</p>
+        <p
+          className={cn(
+            "mt-3 text-sm leading-relaxed break-words whitespace-pre-wrap",
+            person.bio === "" && "text-muted-foreground",
+          )}
+        >
+          {person.bio || "No bio loaded."}
+        </p>
+        <div className="mt-4 flex flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            className={pill}
+            disabled={profile.busy || rates === null}
+            onClick={() => void profile.run(() => fetchProfile(id).then(refreshBoth))}
+          >
+            <TextMorph duration={250}>{profile.busy ? "Fetching…" : "Fetch profile"}</TextMorph>
+            {rates === null ? <Cost label="…" /> : <Cost usd={rates.scraperProfile} />}
+          </button>
+          <OpenOnX href={profileUrl(person.handle)} />
+        </div>
+        {profile.error !== null ? (
+          <p className="mt-2 text-xs text-error-foreground">{profile.error}</p>
+        ) : null}
+      </Section>
+      <Section title="Stage">
+        <div
+          className="flex flex-wrap items-center gap-x-4 gap-y-1"
+          role="group"
+          aria-label="Stage"
+        >
+          {STAGES.map((s) => (
+            <button
+              key={s}
+              type="button"
+              aria-pressed={s === person.stage}
+              disabled={edit.busy}
+              className="cursor-pointer text-[13px] text-muted-foreground transition-colors duration-150 hover:text-foreground aria-pressed:text-foreground aria-pressed:font-medium"
+              onClick={() => void setStage(s)}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+        {edit.error !== null ? (
+          <p className="mt-2 text-xs text-error-foreground">{edit.error}</p>
+        ) : null}
+      </Section>
+      <Section title="Numbers">
+        <Props
+          rows={[
+            [
+              "Score",
+              person.score === null
+                ? "–"
+                : `${person.score}${person.tier === null ? "" : ` ${person.tier}`}`,
+            ],
+            ["Followers", fmt(person.followers)],
+            ["Source", person.source],
+            ["First seen", fmtWhen(person.firstSeen)],
+            ["Last activity", fmtWhen(person.lastActivity)],
+          ]}
+        />
+      </Section>
+      <Section title="Notes">
+        <textarea
+          className={cn(inputClass, "min-h-16 resize-y leading-relaxed")}
+          placeholder="What you know about them"
+          value={notes ?? person.notes}
+          onChange={(e) => setNotes(e.target.value)}
+          onBlur={() => {
+            if (notes !== null && notes !== person.notes)
+              void edit.run(() => update({ id, notes }).then(refresh));
+          }}
+        />
+      </Section>
+      <DirectMessage person={person} onSent={refreshBoth} />
+      <Reply id={id} handle={person.handle} onSent={refreshBoth} />
+      <Section title="Activity">
+        {loaded === null ? (
+          <p className="text-[13px] text-muted-foreground">Loading…</p>
+        ) : loaded.activity.length === 0 ? (
+          <p className="text-[13px] text-muted-foreground">Nothing yet.</p>
+        ) : (
+          <ul className="border-t border-border">
+            {loaded.activity.map((a) => (
+              <li
+                key={a.id}
+                className="grid grid-cols-[2.5rem_4.5rem_minmax(0,1fr)] gap-2 border-b border-border py-1.5 text-xs"
               >
-                @{person.handle}
-              </a>
-              <Button variant="ghost-muted" size="xs" onClick={onClose}>
-                close
-              </Button>
-            </div>
-            <div className="flex gap-3 font-mono text-2xs text-muted-foreground">
-              <span>
-                score {fmt(person.score)}
-                {person.tier !== null ? ` ${person.tier}` : ""}
-              </span>
-              <span>{fmt(person.followers)} followers</span>
-              <StagePill stage={person.stage} />
-            </div>
-            <p className="text-muted-foreground">
-              {person.bio || "No bio loaded."}{" "}
-              <button
-                type="button"
-                className="cursor-pointer text-foreground hover:underline"
-                disabled={busy || rates === null}
-                onClick={() =>
-                  void run(() =>
-                    profile(id).then(() => {
-                      refresh();
-                      refreshList();
-                    }),
-                  )
-                }
-              >
-                fetch profile ({rates === null ? "…" : usd(rates.scraperProfile)})
-              </button>
-            </p>
-            <textarea
-              className={inputClass}
-              rows={3}
-              placeholder="Notes"
-              value={notes ?? person.notes}
-              onChange={(e) => setNotes(e.target.value)}
-              onBlur={() => {
-                if (notes !== null && notes !== person.notes)
-                  void run(() => update({ id, notes }).then(refresh));
-              }}
-            />
-            <textarea
-              className={inputClass}
-              rows={4}
-              placeholder="DM text"
-              value={dm}
-              onChange={(e) => setDm(e.target.value)}
-            />
-            <div className="flex gap-1.5">
-              <DraftDmButton
-                handle={person.handle}
-                busy={busy}
-                onClick={() => void run(() => draftDm(id).then(setDm))}
-              />
-              <Button
-                size="xs"
-                disabled={busy || dm.trim() === "" || rates === null}
-                onClick={() =>
-                  void run(() =>
-                    sendDm({ id, text: dm }).then(() => {
-                      setDm("");
-                      refresh();
-                      refreshList();
-                    }),
-                  )
-                }
-              >
-                {/* Without a user id the service reads the profile before it can DM. */}
-                {`Send DM (${rates === null ? "…" : usd(rates.dm + (person.userId === null ? rates.scraperProfile : 0))})`}
-              </Button>
-            </div>
-            {error !== null ? <ErrorText>{error}</ErrorText> : null}
-            <Reply id={id} handle={person.handle} onSent={() => void (refresh(), refreshList())} />
-            <ul className="flex flex-col gap-0.5 border-t border-border pt-2">
-              {activity.length === 0 ? (
-                <li className="text-muted-foreground">No activity yet.</li>
-              ) : (
-                activity.map((a) => (
-                  <li key={a.id} className="flex gap-2">
-                    <span className="w-8 shrink-0 font-mono text-2xs text-muted-foreground">
-                      {ago(a.at)}
-                    </span>
-                    <span className="font-mono text-2xs">{a.kind}</span>
-                    <span className="truncate text-muted-foreground">{a.detail}</span>
-                  </li>
-                ))
-              )}
-            </ul>
-          </>
-        ),
-      })}
-    </aside>
+                <span className="font-mono text-muted-foreground tabular-nums">{ago(a.at)}</span>
+                <span className="font-mono">{a.kind}</span>
+                <span className="truncate text-muted-foreground">{a.detail}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
+    </>
   );
 }
 
-/** The draft reads their recent posts first; the model call is billed apart. */
-function DraftDmButton({
-  handle,
-  busy,
-  onClick,
+/** A DM through the X connection. Without their user id the service reads the profile first, priced in. */
+function DirectMessage({
+  person,
+  onSent,
 }: {
-  readonly handle: string;
-  readonly busy: boolean;
-  readonly onClick: () => void;
+  readonly person: Person;
+  readonly onSent: () => void;
 }) {
-  const quote = useQuoteLabel({ kind: "userPosts", handle });
+  const rates = useRates();
+  const draftDm = useAtomSet(draftDmAtom, { mode: "promise" });
+  const sendDm = useAtomSet(sendDmAtom, { mode: "promise" });
+  const draft = useAction();
+  const send = useAction();
+  const [text, setText] = useState("");
+  const [sent, setSent] = useState(false);
+  // The draft reads their recent posts first, then one model call.
+  const postsQuote = useQuoteLabel({ kind: "userPosts", handle: person.handle });
+  const assistQuote = useQuoteLabel({ kind: "assist" });
+  const sendUsd =
+    rates === null ? null : rates.dm + (person.userId === null ? rates.scraperProfile : 0);
   return (
-    <Button size="xs" variant="outline" disabled={busy} onClick={onClick}>
-      Draft with AI ({quote} + model)
-    </Button>
+    <Section title="Direct message">
+      <textarea
+        className={cn(inputClass, "min-h-20 resize-y leading-relaxed")}
+        placeholder="Write a DM, or draft one"
+        value={text}
+        onChange={(e) => {
+          setText(e.target.value);
+          setSent(false);
+        }}
+      />
+      <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+        <button
+          type="button"
+          className={pillSolid}
+          disabled={send.busy || draft.busy || text.trim() === "" || sendUsd === null}
+          onClick={() =>
+            void send.run(() =>
+              sendDm({ id: person.id, text }).then(() => {
+                setText("");
+                setSent(true);
+                onSent();
+              }),
+            )
+          }
+        >
+          <TextMorph duration={250}>{send.busy ? "Sending…" : sent ? "Sent" : "Send DM"}</TextMorph>
+          {sendUsd === null ? <Cost tone="solid" label="…" /> : <Cost tone="solid" usd={sendUsd} />}
+        </button>
+        <button
+          type="button"
+          className={pill}
+          disabled={send.busy || draft.busy}
+          onClick={() => void draft.run(() => draftDm(person.id).then(setText))}
+        >
+          <TextMorph duration={250}>{draft.busy ? "Drafting…" : "Draft with AI"}</TextMorph>
+          <Cost label={`${postsQuote} + ${assistQuote}`} />
+        </button>
+      </div>
+      {(send.error ?? draft.error) ? (
+        <p className="mt-2 text-xs text-error-foreground">{send.error ?? draft.error}</p>
+      ) : null}
+    </Section>
   );
 }
 
@@ -292,53 +410,53 @@ function Reply({
   const [text, setText] = useState("");
   const [sentId, setSentId] = useState<string | null>(null);
   const postQuote = useQuoteLabel({ kind: "userPosts", handle });
+  const assistQuote = useQuoteLabel({ kind: "assist" });
   // Priced here from the rate card: a quote rpc per keystroke would flash "…" on the button.
   const rates = useRates();
+  const load = () => run(() => loadPost(id).then(setPost));
   return (
-    <div className="flex flex-col gap-1.5 border-t border-border pt-2">
-      <div className="flex items-center justify-between">
-        <span className="font-medium">Reply to their latest post</span>
-        <Button
-          size="xs"
-          variant="ghost-muted"
-          disabled={busy}
-          onClick={() => void run(() => loadPost(id).then(setPost))}
-        >
-          Load post ({postQuote})
-        </Button>
-      </div>
-      {post === null ? (
-        <p className="text-muted-foreground">No recent post found.</p>
-      ) : post !== undefined ? (
-        <p className="line-clamp-3 text-muted-foreground">{post.text}</p>
-      ) : null}
-      {post !== undefined && post !== null ? (
+    <Section
+      title="Reply to their latest post"
+      aside={
+        post === undefined ? undefined : (
+          <button
+            type="button"
+            className="flex cursor-pointer items-baseline gap-1.5 text-xs text-muted-foreground transition-colors duration-150 hover:text-foreground disabled:opacity-50"
+            disabled={busy}
+            onClick={() => void load()}
+          >
+            Load again
+            <Cost label={postQuote} />
+          </button>
+        )
+      }
+    >
+      {post === undefined ? (
+        <button type="button" className={pill} disabled={busy} onClick={() => void load()}>
+          <TextMorph duration={250}>{busy ? "Loading…" : "Load their latest post"}</TextMorph>
+          <Cost label={postQuote} />
+        </button>
+      ) : post === null ? (
+        <p className="text-[13px] text-muted-foreground">No recent post found.</p>
+      ) : (
         <>
+          <p className="line-clamp-4 border-l border-white/13 pl-3 text-[13px] leading-relaxed text-foreground/80">
+            {post.text}
+          </p>
           <textarea
-            className={inputClass}
-            rows={3}
-            placeholder="Reply text"
+            className={cn(inputClass, "mt-3 min-h-20 resize-y leading-relaxed")}
+            placeholder="Write a reply, or draft one"
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            maxLength={280}
+            onChange={(e) => {
+              setText(e.target.value);
+              setSentId(null);
+            }}
           />
-          <div className="flex gap-1.5">
-            <Button
-              size="xs"
-              variant="outline"
-              disabled={busy}
-              onClick={() =>
-                void run(() =>
-                  draft(id).then((d) => {
-                    setPost(d.post);
-                    setText(d.text);
-                  }),
-                )
-              }
-            >
-              Draft with AI
-            </Button>
-            <Button
-              size="xs"
+          <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              className={pillSolid}
               disabled={busy || text.trim() === "" || rates === null}
               onClick={() =>
                 void run(() =>
@@ -350,15 +468,34 @@ function Reply({
                 )
               }
             >
-              Reply ({rates === null ? "…" : usd(postCostUsd(rates, text))})
-            </Button>
+              <TextMorph duration={250}>{sentId !== null ? "Replied" : "Reply"}</TextMorph>
+              {rates === null ? (
+                <Cost tone="solid" label="…" />
+              ) : (
+                <Cost tone="solid" usd={postCostUsd(rates, text)} />
+              )}
+            </button>
+            <button
+              type="button"
+              className={pill}
+              disabled={busy}
+              onClick={() =>
+                void run(() =>
+                  draft(id).then((d) => {
+                    setPost(d.post);
+                    setText(d.text);
+                  }),
+                )
+              }
+            >
+              Draft with AI
+              {/* The draft reads their latest post again, then one model call. */}
+              <Cost label={`${postQuote} + ${assistQuote}`} />
+            </button>
           </div>
         </>
-      ) : null}
-      {sentId !== null ? (
-        <p className="font-mono text-2xs text-success-foreground">replied, post {sentId}</p>
-      ) : null}
-      {error !== null ? <ErrorText>{error}</ErrorText> : null}
-    </div>
+      )}
+      {error !== null ? <p className="mt-2 text-xs text-error-foreground">{error}</p> : null}
+    </Section>
   );
 }

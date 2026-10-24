@@ -1,22 +1,19 @@
 import {
   type DraftBlock,
   type DraftMedia,
-  hasLink,
   LINK_PATTERN,
   MEDIA_MAX_IMAGES,
   type ReplySettings,
 } from "@xtend/contracts";
 import { ArrowDown, ArrowUp, Film, Globe, Image, Plus, X } from "lucide-react";
-import type { ClipboardEvent, DragEvent } from "react";
+import type { ClipboardEvent, DragEvent, ReactNode } from "react";
 import { useRef, useState } from "react";
 
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
-import { xIconButton } from "../x";
+import { compactInputClass } from "../ui/field";
 
 const POST_LIMIT = 280;
-export const inputClass =
-  "w-full rounded-md border border-input bg-background px-2.5 py-1.5 font-mono text-xs text-foreground outline-hidden placeholder:text-placeholder focus-visible:ring-2 focus-visible:ring-ring";
 
 // The contract's link rule, so the counter and the price agree with what the service charges.
 const LINK = new RegExp(LINK_PATTERN.source, "gi");
@@ -112,7 +109,7 @@ export function MediaList({
   };
   if (media.length === 0) return null;
   return (
-    <ul className="flex flex-wrap gap-1.5 px-2 pb-1.5" aria-label="Attached media">
+    <ul className="mt-2 flex flex-wrap gap-2" aria-label="Attached media">
       {media.map((m) => (
         <li
           key={m.id}
@@ -121,23 +118,23 @@ export function MediaList({
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => drop(e, m.id)}
           className={cn(
-            "flex w-36 cursor-grab flex-col gap-1 rounded-md border border-border bg-background p-1",
+            "flex w-40 cursor-grab flex-col gap-1.5 rounded-[var(--control-radius)] border border-white/13 p-1.5",
             dragging === m.id && "opacity-50",
           )}
         >
-          <div className="flex h-16 items-center justify-center overflow-hidden rounded-sm bg-muted">
+          <div className="flex h-20 items-center justify-center overflow-hidden rounded-md bg-surface-raised">
             {previews[m.id] !== undefined && m.kind === "image" ? (
               <img src={previews[m.id]} alt={m.alt} className="h-full w-full object-cover" />
             ) : (
-              <span className="flex items-center gap-1 text-2xs text-muted-foreground">
+              <span className="flex items-center gap-1 font-mono text-2xs text-muted-foreground">
                 {m.kind === "video" ? <Film className="size-3" /> : <Image className="size-3" />}
-                <span className="max-w-24 truncate">{fileName(m.path)}</span>
+                <span className="max-w-28 truncate">{fileName(m.path)}</span>
               </span>
             )}
           </div>
           {m.kind === "image" ? (
             <input
-              className={inputClass + " px-1.5 py-0.5"}
+              className={compactInputClass}
               aria-label="Alt text"
               placeholder="Alt text"
               value={m.alt}
@@ -160,43 +157,32 @@ export function MediaList({
   );
 }
 
-/** X's character ring: fills blue, turns yellow in the last 20 and red past the limit. */
-function CountRing({ count }: { readonly count: number }) {
-  const radius = 9;
-  const length = 2 * Math.PI * radius;
+/** "41/280" in mono: amber in the last 20, red past the limit. */
+function Count({ count }: { readonly count: number }) {
   const left = POST_LIMIT - count;
-  const color = left < 0 ? "#f4212e" : left <= 20 ? "#ffd400" : "#1d9bf0";
   return (
-    <span className="flex items-center gap-1.5">
-      <svg viewBox="0 0 22 22" className="size-5" aria-hidden="true">
-        <circle cx="11" cy="11" r={radius} fill="none" stroke="var(--border)" strokeWidth="2" />
-        <circle
-          cx="11"
-          cy="11"
-          r={radius}
-          fill="none"
-          stroke={color}
-          strokeWidth="2"
-          strokeDasharray={`${length * Math.min(count / POST_LIMIT, 1)} ${length}`}
-          transform="rotate(-90 11 11)"
-        />
-      </svg>
-      <span
-        className={cn(
-          "text-[13px] tabular-nums",
-          left < 0 ? "text-[#f4212e]" : "text-muted-foreground",
-        )}
-        aria-label="Characters left"
-      >
-        {left}
-      </span>
+    <span
+      aria-label="Characters used"
+      className={cn(
+        "font-mono text-2xs tabular-nums",
+        left < 0
+          ? "text-error-foreground"
+          : left <= 20
+            ? "text-warning-foreground"
+            : "text-muted-foreground/70",
+      )}
+    >
+      {count}/{POST_LIMIT}
     </span>
   );
 }
 
+const tool =
+  "inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-white/[0.05] hover:text-foreground disabled:pointer-events-none disabled:opacity-40 [&_svg]:size-4";
+
 /**
- * X's thread composer: one row per post with the avatar and the connector line, the post being
- * written in X's 20px type with its tools, the others quieter until clicked.
+ * The thread being written: one post per row on a hairline rail, a mono count under each.
+ * The post being written shows its tools (media, who can reply, order, remove, add below).
  */
 export function ThreadEditor({
   blocks,
@@ -205,6 +191,7 @@ export function ThreadEditor({
   quoteUrl,
   active,
   avatar,
+  notes,
   onChange,
   onFocus,
   onAddFiles,
@@ -217,8 +204,10 @@ export function ThreadEditor({
   /** Rides on the first post, so it counts against that post's 280. */
   readonly quoteUrl: string | null;
   readonly active: number;
-  /** The account's initials in the avatar circle. */
+  /** The account's initial in the avatar circle. */
   readonly avatar: string;
+  /** A short fact beside each post's count, such as a link post's price. */
+  readonly notes?: ReadonlyArray<ReactNode>;
   readonly onChange: (blocks: ReadonlyArray<DraftBlock>) => void;
   readonly onFocus: (index: number) => void;
   readonly onAddFiles: (index: number, files: ReadonlyArray<File>) => void;
@@ -288,25 +277,24 @@ export function ThreadEditor({
             // Blocks are plain strings; their position is their identity.
             // eslint-disable-next-line react/no-array-index-key
             key={i}
-            className={cn(
-              "flex gap-3 px-4 pt-3 transition-opacity duration-150",
-              !on && "opacity-60 hover:opacity-90",
-            )}
+            className="relative flex gap-3 pb-4"
           >
-            <div className="flex flex-col items-center">
-              <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-[#333639] text-sm font-bold text-foreground">
-                {avatar}
-              </div>
-              {i < blocks.length - 1 ? <div className="mt-1 w-0.5 flex-1 bg-[#333639]" /> : null}
+            {i < blocks.length - 1 ? (
+              <span
+                aria-hidden
+                className="absolute top-9 bottom-1 left-[14.5px] w-px bg-white/13"
+              />
+            ) : null}
+            <div className="flex size-[30px] shrink-0 items-center justify-center rounded-full bg-white/10 text-xs font-semibold text-foreground">
+              {avatar}
             </div>
-            <div className="min-w-0 flex-1 pb-3">
+            <div className="min-w-0 flex-1">
               <textarea
                 aria-label={`Post ${i + 1}`}
                 className={cn(
-                  "w-full resize-none bg-transparent text-foreground outline-hidden placeholder:text-placeholder",
-                  on ? "pt-1.5 text-xl leading-6" : "pt-2 text-[15px] leading-5",
+                  "block w-full resize-none bg-transparent pt-1 text-[15px] leading-normal text-foreground outline-hidden field-sizing-content placeholder:text-placeholder",
+                  blocks.length === 1 ? "min-h-[3lh]" : "min-h-[1lh]",
                 )}
-                rows={Math.max(on ? 2 : 1, Math.ceil(count / (on ? 45 : 60)))}
                 placeholder={i === 0 ? "What's happening?" : "Add another post"}
                 value={text}
                 onFocus={() => onFocus(i)}
@@ -321,38 +309,12 @@ export function ThreadEditor({
                 }
                 onRemove={onRemoveMedia}
               />
-              {on ? (
-                <>
-                  <label className="-ml-2 mt-1 inline-flex cursor-pointer items-center gap-1 rounded-full px-2 py-1 text-sm font-bold text-primary hover:bg-primary/10">
-                    <Globe className="size-4" />
-                    <select
-                      aria-label={`Who can reply to post ${i + 1}`}
-                      className="cursor-pointer appearance-none bg-transparent outline-hidden"
-                      value={replySettings ?? ""}
-                      onChange={(e) =>
-                        onChange(
-                          blocks.map((b, j) =>
-                            j === i
-                              ? e.target.value === ""
-                                ? { text: b.text }
-                                : { ...b, replySettings: e.target.value as ReplySettings }
-                              : b,
-                          ),
-                        )
-                      }
-                    >
-                      <option value="">Draft default can reply</option>
-                      {REPLY_OPTIONS.map(([v, label]) => (
-                        <option key={v} value={v}>
-                          {label} can reply
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <div className="-ml-2 mt-2 flex items-center border-t border-border pt-2">
+              <div className="mt-1 flex h-7 items-center gap-0.5">
+                {on ? (
+                  <>
                     <button
                       type="button"
-                      className={xIconButton}
+                      className={cn(tool, "-ml-1.5")}
                       aria-label="Add media"
                       disabled={full}
                       onClick={() => {
@@ -362,12 +324,38 @@ export function ThreadEditor({
                     >
                       <Image />
                     </button>
+                    <label className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-xs text-muted-foreground transition-colors duration-150 hover:bg-white/[0.05] hover:text-foreground">
+                      <Globe className="size-3.5" />
+                      <select
+                        aria-label={`Who can reply to post ${i + 1}`}
+                        className="cursor-pointer appearance-none bg-transparent outline-hidden field-sizing-content"
+                        value={replySettings ?? ""}
+                        onChange={(e) =>
+                          onChange(
+                            blocks.map((b, j) =>
+                              j === i
+                                ? e.target.value === ""
+                                  ? { text: b.text }
+                                  : { ...b, replySettings: e.target.value as ReplySettings }
+                                : b,
+                            ),
+                          )
+                        }
+                      >
+                        <option value="">Default replies</option>
+                        {REPLY_OPTIONS.map(([v, label]) => (
+                          <option key={v} value={v}>
+                            {label} can reply
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                     {/* Order and removal only mean something once there is a thread. */}
                     {blocks.length > 1 ? (
                       <>
                         <button
                           type="button"
-                          className={xIconButton}
+                          className={tool}
                           aria-label="Move up"
                           disabled={i === 0}
                           onClick={() => moveBlock(i, i - 1)}
@@ -376,7 +364,7 @@ export function ThreadEditor({
                         </button>
                         <button
                           type="button"
-                          className={xIconButton}
+                          className={tool}
                           aria-label="Move down"
                           disabled={i === blocks.length - 1}
                           onClick={() => moveBlock(i, i + 1)}
@@ -385,9 +373,8 @@ export function ThreadEditor({
                         </button>
                         <button
                           type="button"
-                          className={xIconButton}
+                          className={tool}
                           aria-label="Remove post"
-                          disabled={blocks.length === 1}
                           onClick={() => {
                             for (const m of here) onRemoveMedia(m.id);
                             onChange(blocks.filter((_, j) => j !== i));
@@ -404,40 +391,35 @@ export function ThreadEditor({
                         </button>
                       </>
                     ) : null}
-                    <span className="flex-1" />
-                    {hasLink(postText(text, i, quoteUrl)) ? (
-                      <span className="mr-3 text-[13px] text-muted-foreground">link</span>
-                    ) : null}
-                    <CountRing count={count} />
-                    <span className="mx-3 h-7 w-px bg-border" />
                     <button
                       type="button"
-                      className={cn(xIconButton, "size-7 border border-border [&_svg]:size-4")}
+                      className={tool}
                       aria-label="Add post below"
                       onClick={() => insertAfter(i)}
                     >
                       <Plus />
                     </button>
-                  </div>
-                </>
-              ) : count > POST_LIMIT ? (
-                <p className="mt-1 text-[13px] text-[#f4212e]">{POST_LIMIT - count} characters</p>
-              ) : null}
+                  </>
+                ) : null}
+                <span className="flex-1" />
+                {notes?.[i] !== undefined && notes[i] !== null ? (
+                  <span className="mr-3 flex items-baseline gap-1.5 text-2xs text-muted-foreground">
+                    {notes[i]}
+                  </span>
+                ) : null}
+                <Count count={count} />
+              </div>
             </div>
           </div>
         );
       })}
       <button
         type="button"
-        className="flex cursor-pointer items-center gap-3 px-4 pt-1 pb-3 text-left text-[15px] text-muted-foreground hover:text-foreground"
+        className="-ml-1 flex h-8 w-fit cursor-pointer items-center gap-2.5 rounded-md pr-2 pl-[11px] text-[13px] text-muted-foreground transition-colors duration-150 hover:text-foreground"
         onClick={() => insertAfter(blocks.length - 1)}
       >
-        <span className="flex w-10 justify-center">
-          <span className="flex size-6 items-center justify-center rounded-full border border-[#333639]">
-            <Plus className="size-3.5" />
-          </span>
-        </span>
-        Add another post
+        <Plus className="size-3.5" />
+        Add post
       </button>
     </div>
   );

@@ -53,6 +53,22 @@ describe("ObservationStore", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
+  it.effect("adopts the session's viewer as the handle once, and never overrides one", () =>
+    Effect.gen(function* () {
+      const store = yield* ObservationStore.ObservationStore;
+      const sql = yield* SqlClient.SqlClient;
+      const handle = () =>
+        sql<{ s: string | null; a: string | null }>`
+          SELECT (SELECT handle FROM settings WHERE id = 1) AS s,
+                 (SELECT handle FROM accounts WHERE id = 1) AS a
+        `.pipe(Effect.map((rows) => rows[0]));
+      yield* store.record({ ...batch("2026-10-22T10:00:00.000Z", 5), viewerHandle: "Siam" });
+      expect(yield* handle()).toEqual({ s: "siam", a: "siam" });
+      yield* store.record({ ...batch("2026-10-22T11:00:00.000Z", 6), viewerHandle: "other" });
+      expect(yield* handle()).toEqual({ s: "siam", a: "siam" });
+    }).pipe(Effect.provide(layerTest)),
+  );
+
   it.effect("a batch that arrives late does not roll back newer author data or text", () =>
     Effect.gen(function* () {
       const store = yield* ObservationStore.ObservationStore;

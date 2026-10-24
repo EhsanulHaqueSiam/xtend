@@ -3,8 +3,8 @@ import type { Draft, Slot } from "@xtend/contracts";
 import { dayKeyIn, dayStartIn, hhmm, localInputToInstant, minuteIn, partsIn } from "../../lib/time";
 import { cn } from "../../lib/utils";
 import { draftTitle } from "../compose/DraftsList";
-import { inputClass } from "../compose/ThreadEditor";
-import { DAYS, slotsOn } from "./ui";
+import { Menu, MenuItem } from "../ui/menu";
+import { DAYS, slotsOn, StatusDot } from "./ui";
 
 interface Event {
   readonly minute: number;
@@ -50,6 +50,10 @@ export const emptySlotCount = (
     ).length;
   }).reduce((a, b) => a + b, 0);
 
+/**
+ * The week as seven full-height columns. Each day lists its posts and open slots by time; an
+ * open slot ahead of now takes a draft from its menu.
+ */
 export function Calendar({
   zone,
   start,
@@ -73,68 +77,91 @@ export function Calendar({
 }) {
   const today = dayKeyIn(zone, now);
   return (
-    <div className="grid grid-cols-7 gap-px overflow-hidden rounded-lg border border-border bg-border">
+    <div className="grid min-h-full grid-cols-7">
       {Array.from({ length: 7 }, (_, i) => {
         const day = dayStartIn(zone, start, i);
         const key = dayKeyIn(zone, day);
         const parts = partsIn(zone, day);
+        const isToday = key === today;
+        const past = !isToday && day < now;
         return (
-          <div key={i} className="flex min-h-40 flex-col gap-1 bg-card p-1.5">
-            <span
+          <section
+            key={key}
+            aria-label={`${DAYS[parts.weekday]} ${parts.day}`}
+            className={cn(
+              "flex min-w-0 flex-col border-r border-border last:border-r-0",
+              isToday && "bg-white/[0.02]",
+            )}
+          >
+            <h2
               className={cn(
-                "font-mono text-2xs text-muted-foreground",
-                key === today && "text-foreground",
+                "flex h-9 shrink-0 items-center gap-1.5 border-b border-border px-3 font-mono text-2xs tabular-nums",
+                isToday ? "text-foreground" : "text-muted-foreground",
+                past && "opacity-60",
               )}
             >
               {DAYS[parts.weekday]} {parts.day}
-            </span>
-            {dayEvents(zone, day, slots, drafts).map((e) => {
-              const d = e.draft;
-              const at = slotAt(zone, key, e.minute);
-              // A slot already gone, today's included, would be posted by the scheduler's next tick.
-              return d === null ? (
-                at <= now ? null : (
-                  <select
-                    key={e.minute}
-                    aria-label={`Empty slot ${hhmm(e.minute)}`}
-                    className={cn(
-                      inputClass,
-                      "rounded-sm border-dashed px-1 py-0.5 text-2xs text-muted-foreground",
-                    )}
-                    value=""
-                    onChange={(ev) => onFill(ev.target.value, at)}
-                  >
-                    <option value="">{hhmm(e.minute)} empty slot</option>
-                    {fillable.map((d) => (
-                      <option key={d.id} value={d.id}>
+              {isToday ? <span className="size-1 rounded-full bg-foreground" /> : null}
+            </h2>
+            <div className="flex flex-col gap-1 p-1.5">
+              {dayEvents(zone, day, slots, drafts).map((e) => {
+                const d = e.draft;
+                const at = slotAt(zone, key, e.minute);
+                if (d !== null)
+                  return (
+                    <button
+                      key={d.id}
+                      type="button"
+                      title={draftTitle(d)}
+                      className="flex w-full cursor-pointer flex-col gap-0.5 rounded-md px-1.5 py-1 text-left transition-colors duration-150 hover:bg-white/[0.05]"
+                      onClick={() => onOpen(d)}
+                    >
+                      <span className="flex items-center gap-1.5 font-mono text-2xs text-muted-foreground tabular-nums">
+                        <StatusDot status={d.status} />
+                        {hhmm(e.minute)}
+                        {d.status === "queued" ? null : <span>{d.status}</span>}
+                      </span>
+                      <span className="line-clamp-2 text-xs leading-snug break-words">
                         {draftTitle(d)}
-                      </option>
-                    ))}
-                  </select>
-                )
-              ) : (
-                <button
-                  key={d.id}
-                  className={cn(
-                    "truncate rounded-sm border px-1 py-0.5 text-left font-mono text-2xs",
-                    d.status === "posted" && "border-success/40 text-success-foreground",
-                    (d.status === "queued" || d.status === "posting") &&
-                      "border-info/40 text-info-foreground",
-                    d.status === "failed" && "border-error/40 text-error-foreground",
-                  )}
-                  title={draftTitle(d)}
-                  onClick={() => onOpen(d)}
-                >
-                  {hhmm(e.minute)}{" "}
-                  {d.status === "posted"
-                    ? `✓ ${d.postIds.length} posted`
-                    : d.status === "failed"
-                      ? `✕ ${draftTitle(d)}`
-                      : draftTitle(d)}
-                </button>
-              );
-            })}
-          </div>
+                      </span>
+                    </button>
+                  );
+                // A slot already gone, today's included, would be posted by the scheduler's next tick.
+                if (at <= now) return null;
+                return (
+                  <Menu
+                    key={e.minute}
+                    label={`Fill ${hhmm(e.minute)}`}
+                    trigger={
+                      <button
+                        type="button"
+                        aria-label={`Empty slot ${hhmm(e.minute)}`}
+                        className="flex w-full cursor-pointer items-center gap-1.5 rounded-md border border-dashed border-white/13 px-1.5 py-1 text-left font-mono text-2xs text-muted-foreground tabular-nums transition-colors duration-150 hover:border-white/25 hover:text-foreground data-popup-open:border-white/25 data-popup-open:text-foreground"
+                      >
+                        {hhmm(e.minute)}
+                        <span className="font-sans">open</span>
+                      </button>
+                    }
+                  >
+                    {fillable.length === 0 ? (
+                      <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                        No drafts to place
+                      </p>
+                    ) : (
+                      fillable.map((f) => (
+                        <MenuItem key={f.id} onClick={() => onFill(f.id, at)}>
+                          <span className="min-w-0 flex-1 truncate">{draftTitle(f)}</span>
+                          <span className="font-mono text-2xs text-muted-foreground tabular-nums">
+                            {f.kind === "article" ? "article" : f.blocks.length}
+                          </span>
+                        </MenuItem>
+                      ))
+                    )}
+                  </Menu>
+                );
+              })}
+            </div>
+          </section>
         );
       })}
     </div>

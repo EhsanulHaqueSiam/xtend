@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain, nativeTheme } from "electron";
 import { autoUpdater } from "electron-updater";
 
 import {
@@ -93,8 +93,8 @@ let main: ReturnType<typeof createMainWindow> | undefined;
 let serviceMode: ServiceMode = "none";
 let accountId = 1;
 
-/** A screen asked for from outside (deep link) opens in the center slot. */
-const openRoute = (route: string) => main?.openSlot({ kind: "center", route });
+/** A screen asked for from outside (deep link); x.com stays beside it in the side panel. */
+const openRoute = (route: string) => main?.openRoute(route);
 
 const openWindow = () => {
   if (main !== undefined && !main.window.isDestroyed()) return main.window.show();
@@ -117,16 +117,13 @@ const openWindow = () => {
   });
 };
 
-// Dev only: `kill -USR2 <pid>` writes <ts>.png (x.com), <ts>-slot.png and <ts>.json (slot bounds) to
-// XTEND_SHOT_DIR, for agents without a screen; compose them with any image tool.
+// Dev only: `kill -USR2 <pid>` writes <ts>.png (the window, x.com included) to XTEND_SHOT_DIR,
+// for agents without a screen.
 const shotDir = process.env.XTEND_SHOT_DIR;
 if (shotDir !== undefined && !app.isPackaged) {
   process.on("SIGUSR2", () => {
-    void main?.capture().then(({ x, slot, bounds }) => {
-      const base = path.join(shotDir, String(Date.now()));
-      fs.writeFileSync(`${base}.png`, x.toPNG());
-      if (slot !== null) fs.writeFileSync(`${base}-slot.png`, slot.toPNG());
-      fs.writeFileSync(`${base}.json`, JSON.stringify(bounds));
+    void main?.capture().then((image) => {
+      fs.writeFileSync(path.join(shotDir, `${Date.now()}.png`), image.toPNG());
     });
   });
 }
@@ -159,6 +156,9 @@ app.on("open-url", (event, url) => {
   event.preventDefault();
   handleDeepLink(url);
 });
+
+// Xtend is dark-only; x.com's "follow the system" theme should land on dark too.
+nativeTheme.themeSource = "dark";
 
 void app.whenReady().then(async () => {
   // A second instance only hands its argv to the first; supervising too could start a second service.
@@ -220,7 +220,8 @@ void app.whenReady().then(async () => {
 
   if (app.isPackaged) {
     autoUpdater.on("error", (error) => log("updater", String(error)));
-    void autoUpdater.checkForUpdatesAndNotify();
+    // A private repo or no network rejects here; the error listener has already logged it.
+    autoUpdater.checkForUpdatesAndNotify().catch(() => {});
   }
 });
 

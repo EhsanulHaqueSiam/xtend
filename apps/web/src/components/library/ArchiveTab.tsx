@@ -1,40 +1,49 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
-import {
-  AuthorBand,
-  HookPattern,
-  type LibraryFilters,
-  type LibraryPost,
-  PostFormat,
-} from "@xtend/contracts";
+import { AuthorBand, HookPattern, type LibraryFilters, type LibraryPost } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { PenLine, Sparkles } from "lucide-react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
+import { fmtDay } from "../../lib/time";
+import { cn } from "../../lib/utils";
 import {
   browseAtom,
   detectPatternsAtom,
   encodeFilters,
   writeInFormatAtom,
 } from "../../state/library";
-import { Button } from "../ui/button";
-import { SaveButton } from "./SaveButton";
-import { InspireButton } from "./SearchTab";
-import { Empty, ErrorLine, PostRow, errorMessage, inputClass } from "./shared";
+import { useQuoteLabel } from "../../state/costs";
+import { PageHeader } from "../PageHeader";
+import { compactInputClass } from "../ui/field";
+import { Cost, Empty } from "../ui/layout";
+import { DetailSplit } from "../ui/split";
+import { xPill, xPillSm } from "../x";
+import {
+  FormatTabs,
+  SearchXField,
+  SortMenu,
+  sortItems,
+  type FormatFilter,
+  type SortKey,
+} from "./controls";
+import { PostGrid } from "./PostCard";
+import { DraftBlock, InspectorGroup, PostInspector } from "./PostInspector";
+import { RemixButton, SaveButton, useSavedIds } from "./SaveButton";
+import { AppLink, ErrorLine, causeMessage, errorMessage } from "./shared";
 
-// The shared input class is full width; the bar needs its controls side by side.
-const narrow = inputClass.replace("w-full", "");
-const selectClass = `${narrow} w-auto`;
 const THIS_YEAR = new Date().getFullYear();
 const YEARS = Array.from({ length: 6 }, (_, i) => THIS_YEAR - i);
 const LANGS = ["en", "es", "pt", "fr", "de", "ja", "hi", "id"] as const;
+const ARCHIVE_FORMATS = ["all", "thread", "media", "text", "link"] as const;
 
 function Select<T extends string>({
   label,
+  placeholder,
   value,
   options,
   onChange,
 }: {
   readonly label: string;
+  readonly placeholder: string;
   readonly value: T | undefined;
   readonly options: ReadonlyArray<T>;
   readonly onChange: (v: T | undefined) => void;
@@ -42,11 +51,15 @@ function Select<T extends string>({
   return (
     <select
       aria-label={label}
-      className={selectClass}
+      className={cn(
+        compactInputClass,
+        "w-auto cursor-pointer",
+        value === undefined && "text-muted-foreground",
+      )}
       value={value ?? ""}
       onChange={(e) => onChange(e.target.value === "" ? undefined : (e.target.value as T))}
     >
-      <option value="">{label}</option>
+      <option value="">{placeholder}</option>
       {options.map((o) => (
         <option key={o} value={o}>
           {o}
@@ -56,13 +69,15 @@ function Select<T extends string>({
   );
 }
 
-/** Filters over the archive. Every control is a plain select or input so the bar stays one row. */
+/** The archive's filters other than format, which sits in the header. One row of plain controls. */
 export function FilterBar({
   value,
   onChange,
+  aside,
 }: {
   readonly value: LibraryFilters;
   readonly onChange: (next: LibraryFilters) => void;
+  readonly aside?: ReactNode;
 }) {
   const set = <K extends keyof LibraryFilters>(key: K, v: LibraryFilters[K] | undefined) => {
     const next = { ...value };
@@ -70,10 +85,11 @@ export function FilterBar({
     else next[key] = v;
     onChange(next);
   };
+  const { format, ...rest } = value;
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
+    <div className="flex flex-wrap items-center gap-1.5 border-b border-border px-6 py-2.5">
       <input
-        className={`${narrow} w-28`}
+        className={cn(compactInputClass, "w-24 font-mono tabular-nums")}
         aria-label="Min views"
         type="number"
         min={0}
@@ -86,96 +102,131 @@ export function FilterBar({
         }}
       />
       <Select
-        label="format"
-        value={value.format}
-        options={PostFormat.literals}
-        onChange={(v) => set("format", v)}
-      />
-      <Select
         label="year"
+        placeholder="Any year"
         value={value.year === undefined ? undefined : String(value.year)}
         options={YEARS.map(String)}
         onChange={(v) => set("year", v === undefined ? undefined : Number(v))}
       />
       <Select
         label="author size"
+        placeholder="Any author size"
         value={value.authorBand}
         options={AuthorBand.literals}
         onChange={(v) => set("authorBand", v)}
       />
       <Select
         label="language"
+        placeholder="Any language"
         value={value.lang}
         options={LANGS}
         onChange={(v) => set("lang", v)}
       />
       <Select
         label="hook"
+        placeholder="Any hook"
         value={value.hookPattern}
         options={HookPattern.literals}
         onChange={(v) => set("hookPattern", v)}
       />
-      {Object.keys(value).length > 0 ? (
-        <Button variant="ghost-muted" size="xs" onClick={() => onChange({})}>
+      {Object.keys(rest).length > 0 ? (
+        <button
+          type="button"
+          className="h-7 cursor-pointer px-2 text-xs text-muted-foreground transition-colors duration-150 hover:text-foreground"
+          onClick={() => onChange(format === undefined ? {} : { format })}
+        >
           Clear
-        </Button>
+        </button>
       ) : null}
+      {aside !== undefined ? <div className="ml-auto flex items-center gap-2">{aside}</div> : null}
     </div>
   );
 }
 
-function ArchiveRow({ entry }: { readonly entry: LibraryPost }) {
+/** The selected archive post, with the model's "write mine in this format". */
+function ArchiveInspector({
+  entry,
+  saved,
+  onClose,
+}: {
+  readonly entry: LibraryPost;
+  readonly saved: boolean;
+  readonly onClose: () => void;
+}) {
   const write = useAtomSet(writeInFormatAtom(entry.post.postId), { mode: "promise" });
-  const [status, setStatus] = useState<string | null>(null);
+  const assistQuote = useQuoteLabel({ kind: "assist" });
+  const [draft, setDraft] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   return (
-    <PostRow
+    <PostInspector
       post={entry.post}
-      badge={
-        <span className="rounded-sm border border-border px-1 font-mono text-2xs text-muted-foreground">
-          {entry.format}
-          {entry.hookPattern === null ? "" : ` · ${entry.hookPattern}`}
-        </span>
-      }
-      actions={
-        <>
-          <SaveButton post={entry.post} />
-          <InspireButton post={entry.post} />
-          <Button
-            variant="outline"
-            size="xs"
+      format={entry.format}
+      facts={[
+        ["Hook", entry.hookPattern ?? "not labelled"],
+        ["Last seen", fmtDay(entry.lastSeenAt)],
+      ]}
+      onClose={onClose}
+    >
+      <InspectorGroup title="Act">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <SaveButton post={entry.post} saved={saved} />
+          <RemixButton post={entry.post} />
+        </div>
+      </InspectorGroup>
+      <InspectorGroup title="Write mine in this format" aside={<Cost label={assistQuote} />}>
+        {draft === null ? (
+          <button
+            type="button"
+            className={cn(xPill, xPillSm)}
             disabled={busy}
             onClick={async () => {
               setBusy(true);
-              setStatus(null);
+              setError(null);
               try {
-                const { text } = await write();
-                setStatus(`Saved as a suggested draft: ${text}`);
+                setDraft((await write()).text);
               } catch (e) {
-                setStatus(errorMessage(e));
+                setError(errorMessage(e));
               } finally {
                 setBusy(false);
               }
             }}
           >
-            <PenLine /> {busy ? "Writing…" : "Write mine in this format (model)"}
-          </Button>
-          {status !== null ? (
-            <span className="text-2xs text-muted-foreground">{status}</span>
-          ) : null}
-        </>
-      }
-    />
+            {busy ? "Writing" : "Write it"}
+          </button>
+        ) : (
+          <div className="flex flex-col gap-2">
+            <DraftBlock>{draft}</DraftBlock>
+            <p className="text-xs text-muted-foreground">
+              Filed as a suggested draft.{" "}
+              <AppLink href="/compose?tab=automatic" className="text-foreground hover:underline">
+                Open Compose
+              </AppLink>
+            </p>
+          </div>
+        )}
+        {error !== null ? <ErrorLine className="px-0">{error}</ErrorLine> : null}
+      </InspectorGroup>
+    </PostInspector>
   );
 }
+
+const tagOf = (entry: LibraryPost) =>
+  [entry.format === "thread" ? "thread" : null, entry.hookPattern]
+    .filter((t) => t !== null)
+    .join(" · ") || null;
 
 /** Every post a search or a pick has seen, with the model's format and hook labels. */
 export function ArchiveTab() {
   const [filters, setFilters] = useState<LibraryFilters>({});
+  const [sort, setSort] = useState<SortKey>("views");
+  const [selected, setSelected] = useState<string | null>(null);
   const key = encodeFilters(filters);
   const result = useAtomValue(browseAtom(key));
   const refresh = useAtomRefresh(browseAtom(key));
   const detect = useAtomSet(detectPatternsAtom, { mode: "promise" });
+  const saved = useSavedIds();
+  const assistQuote = useQuoteLabel({ kind: "assist" });
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -184,7 +235,7 @@ export function ArchiveTab() {
     setNotice(null);
     try {
       const { detected, remaining } = await detect();
-      setNotice(`Labelled ${detected} posts, ${remaining} still unlabelled.`);
+      setNotice(`${detected} labelled, ${remaining} to go`);
       refresh();
     } catch (e) {
       setNotice(errorMessage(e));
@@ -193,38 +244,111 @@ export function ArchiveTab() {
     }
   };
 
+  const rows = AsyncResult.getOrElse(result, (): ReadonlyArray<LibraryPost> => []);
+  const entry = rows.find((r) => r.post.postId === selected);
+  const format: FormatFilter = filters.format ?? "all";
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <FilterBar value={filters} onChange={setFilters} />
-      <div className="flex items-center gap-2 border-b border-border px-3 py-1.5 text-2xs text-muted-foreground">
-        <span>Formats come from the post; hook patterns need one model call per 20 posts.</span>
-        <Button
-          variant="outline"
-          size="xs"
-          className="ml-auto"
-          disabled={busy}
-          onClick={() => void runDetect()}
-        >
-          <Sparkles /> {busy ? "Detecting…" : "Detect patterns (20 posts, model)"}
-        </Button>
-      </div>
-      {notice !== null ? <ErrorLine>{notice}</ErrorLine> : null}
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        {AsyncResult.match(result, {
-          onInitial: () => <Empty>Loading…</Empty>,
-          onFailure: (f) => <ErrorLine>{String(f.cause)}</ErrorLine>,
+    <>
+      <PageHeader
+        title="Archive"
+        tabs={
+          <FormatTabs
+            value={format}
+            options={ARCHIVE_FORMATS}
+            onChange={(next) => {
+              const { format: _, ...rest } = filters;
+              setFilters(next === "all" ? rest : { ...rest, format: next });
+            }}
+          />
+        }
+        detail={AsyncResult.isSuccess(result) ? `${rows.length} posts` : undefined}
+        actions={
+          <>
+            <SortMenu value={sort} onChange={setSort} />
+            <SearchXField />
+          </>
+        }
+      />
+      <FilterBar
+        value={filters}
+        onChange={setFilters}
+        aside={
+          <>
+            {notice !== null ? (
+              <span className="font-mono text-2xs text-muted-foreground">{notice}</span>
+            ) : null}
+            <button
+              type="button"
+              className={cn(xPill, xPillSm)}
+              disabled={busy}
+              title="Label the hook pattern of the next 20 unlabelled posts"
+              onClick={() => void runDetect()}
+            >
+              {busy ? "Detecting" : "Detect hooks"}
+              {/* One model call labels the batch of 20. */}
+              <Cost label={`20 posts · ${assistQuote}`} />
+            </button>
+          </>
+        }
+      />
+      <DetailSplit
+        closable
+        label="Selected post"
+        detailKey={selected}
+        detail={
+          entry === undefined ? null : (
+            <ArchiveInspector
+              key={entry.post.postId}
+              entry={entry}
+              saved={saved.has(entry.post.postId)}
+              onClose={() => setSelected(null)}
+            />
+          )
+        }
+        list={AsyncResult.match(result, {
+          onInitial: () => <Empty>Loading the archive</Empty>,
+          onFailure: (f) => <ErrorLine className="py-4">{causeMessage(f.cause)}</ErrorLine>,
           onSuccess: ({ value }) =>
             value.length === 0 ? (
-              <Empty>Nothing here yet. Searches and picks fill the archive.</Empty>
+              Object.keys(filters).length > 0 ? (
+                <Empty
+                  action={
+                    <button
+                      type="button"
+                      className={cn(xPill, xPillSm)}
+                      onClick={() => setFilters({})}
+                    >
+                      Clear filters
+                    </button>
+                  }
+                >
+                  No archived post matches these filters.
+                </Empty>
+              ) : (
+                <Empty
+                  action={
+                    <AppLink href="/library?tab=search" className={cn(xPill, xPillSm)}>
+                      Search X
+                    </AppLink>
+                  }
+                >
+                  Searches and picks fill the archive.
+                </Empty>
+              )
             ) : (
-              <div className="mx-auto flex w-full max-w-3xl flex-col gap-0.5 px-2 py-2">
-                {value.map((entry) => (
-                  <ArchiveRow key={entry.post.postId} entry={entry} />
-                ))}
-              </div>
+              <PostGrid
+                items={sortItems(value, (r) => r.post, sort).map((r) => ({
+                  key: r.post.postId,
+                  post: r.post,
+                  tag: tagOf(r),
+                }))}
+                selected={selected}
+                onSelect={setSelected}
+              />
             ),
         })}
-      </div>
-    </div>
+      />
+    </>
   );
 }

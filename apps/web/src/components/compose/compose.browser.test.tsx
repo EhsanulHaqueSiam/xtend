@@ -64,8 +64,10 @@ it("shows the count per block, with the quote link on the first, and splits past
       onChange={onChange}
     />,
   );
-  // The post being written shows X's remaining count; the over-limit one goes negative.
-  await expect.element(screen.getByLabelText("Characters left")).toHaveTextContent("-1");
+  // Every post shows its count against X's limit; the first one is over it.
+  await expect
+    .element(screen.getByLabelText("Characters used").first())
+    .toHaveTextContent("281/280");
 
   paste(screen.getByLabelText("Post 2").element() as HTMLElement, "first\n\nsecond");
   expect(onChange).toHaveBeenLastCalledWith([
@@ -82,7 +84,8 @@ it("shows the count per block, with the quote link on the first, and splits past
       onChange={onChange}
     />,
   );
-  await expect.element(screen.getByLabelText("Characters left")).toHaveTextContent("-4");
+  // The quote link counts against the first post: 260 + 24.
+  await expect.element(screen.getByLabelText("Characters used")).toHaveTextContent("284/280");
 });
 
 it("keeps a post's own text around a pasted thread and moves later posts' media with them", async () => {
@@ -165,21 +168,24 @@ it("prices every assist action before it runs, voice match with its read of the 
   };
   {
     await using screen = await render(panel("siamships"), { service });
+    // Voice match reads the handle's posts, then makes the model call.
     await expect
-      .element(screen.getByRole("button", { name: "Voice match · $0.00075 + model" }))
+      .element(screen.getByRole("button", { name: /^Voice match.*\$0\.00075 \+ \$0\.00075$/ }))
       .toBeVisible();
-    await expect
-      .element(screen.getByRole("button", { name: "Improve hook · model" }))
-      .toBeVisible();
-    await expect.element(screen.getByRole("button", { name: "Rewrite · model" })).toBeVisible();
-    await expect
-      .element(screen.getByRole("button", { name: "Continue thread · model" }))
-      .toBeVisible();
-    await expect.element(screen.getByRole("button", { name: "Ideas · model" })).toBeVisible();
+    await Promise.all(
+      ["Improve hook", "Rewrite", "Continue thread", "Ideas"].map((name) =>
+        expect
+          .element(screen.getByRole("button", { name: new RegExp(`^${name}.*\\$0\\.00075$`) }))
+          .toBeVisible(),
+      ),
+    );
+    expect(quoted).toContain("userPosts");
   }
   quoted.length = 0;
   // Without a handle voice match reads nothing from X.
   await using screen = await render(panel(null), { service });
-  await expect.element(screen.getByRole("button", { name: "Voice match · model" })).toBeVisible();
-  expect(quoted).toEqual([]);
+  await expect
+    .element(screen.getByRole("button", { name: /^Voice match[^+]*\$0\.00075$/ }))
+    .toBeVisible();
+  expect(quoted).not.toContain("userPosts");
 });

@@ -16,7 +16,7 @@ const request: PendingRequest = {
   status: "pending",
 };
 
-it("lists pending requests with their cost and routes Approve and Dismiss", async () => {
+it("lists pending requests with their price on Approve and routes Approve and Dismiss", async () => {
   const onApprove = vi.fn();
   const onDismiss = vi.fn();
   await using screen = await render(
@@ -25,7 +25,7 @@ it("lists pending requests with their cost and routes Approve and Dismiss", asyn
   await expect.element(screen.getByText("thank reposters")).toBeVisible();
   await expect.element(screen.getByText("@ada reposted 555; DM Ada")).toBeVisible();
 
-  await userEvent.click(screen.getByRole("button", { name: "Approve ($0.015)" }));
+  await userEvent.click(screen.getByRole("button", { name: "Approve $0.015" }));
   expect(onApprove).toHaveBeenCalledWith(7);
   await userEvent.click(screen.getByRole("button", { name: "Dismiss" }));
   expect(onDismiss).toHaveBeenCalledWith(7);
@@ -33,5 +33,5 @@ it("lists pending requests with their cost and routes Approve and Dismiss", asyn
   await screen.rerender(
     <NeedsYouList requests={[]} busy={false} onApprove={onApprove} onDismiss={onDismiss} />,
   );
-  await expect.element(screen.getByText(/Nothing needs you/)).toBeVisible();
+  await expect.element(screen.getByText(/Nothing waiting/)).toBeVisible();
 });

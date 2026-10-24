@@ -3,9 +3,19 @@ import * as Effect from "effect/Effect";
 import * as Atom from "effect/reactivity/Atom";
 
 import { clientRuntime, XtendClient } from "../rpc/client";
+import { eventsOfTypeAtom } from "./shell";
 
-export const analyzeDataAtom = clientRuntime.atom(
+/** Moves when the service adopts the signed-in session's handle; ordinary observations leave it alone. */
+const handleAdoptedAtom = Atom.make(
+  (get) =>
+    get(eventsOfTypeAtom("observation_recorded")).filter((e) => "handleAdopted" in e.payload)
+      .length,
+);
+
+/** Refetches when the handle is adopted, so signing in to X beside the screen fills it in. */
+export const analyzeDataAtom = clientRuntime.atom((get) =>
   Effect.gen(function* () {
+    get(handleAdoptedAtom);
     const client = yield* XtendClient;
     return yield* client[Analyze_METHODS.data]({});
   }),

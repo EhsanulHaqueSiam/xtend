@@ -1,153 +1,105 @@
 # Native shell
 
-x.com is the window. The React app is one `WebContentsView` ("xtend view") that the main
-process moves between slots over it, so Xtend's UI appears where X would draw it: the suite
-screens as an X page in the primary column, the palette and bars as layers over it. There is
-no sidebar, URL bar or session view in the app any more; standalone (hosted tier, browser
-tests) keeps the sidebar because it has no bridge.
+The window is the Xtend app. x.com is one `<webview>` inside it, on the account's cookie
+partition: the user's own logged-in browser session. Browsing X through it costs nothing and
+looks to X like an ordinary Chromium tab. Xtend's sidebar is the one navigation for X's pages
+and the tools; X's own rail and right column are hidden by a CSS skin.
 
-## Window and view
+## Window and webview
 
-`apps/desktop/src/window/MainWindow.ts`
+`apps/desktop/src/window/MainWindow.ts`, rules in `window/guestPolicy.ts` (tested).
 
-- The `BrowserWindow`'s own web contents load x.com on the account's session partition with
-  the isolated-world preload (`overlayPreload.cjs`). Everything that used to apply to the child
-  session view (user agent, cookie import, downloads, context menu, zoom and history keys,
-  CDP capture, desktop commands, overlay feed) now applies to the window.
-- The window title stays "Xtend" (`page-title-updated` is prevented). On macOS the title bar is
-  `hiddenInset`; `BANNER_INSET_CSS` from `xDom.ts` pads X's rail so the logo clears the traffic
-  lights.
-- The xtend view is created once with the window, loads the app with `preload.cjs`, has a
-  transparent background, and is never destroyed: hidden means empty bounds, so its socket,
-  live events and atoms stay warm. The bridge-info `sendSync` answers only this view.
+- The `BrowserWindow` loads the app (`preload.cjs`, `webviewTag: true`). On macOS the title bar
+  is `hiddenInset`; the sidebar's top row is the drag region and clears the traffic lights.
+- The app page creates the webview itself (`components/shell/XPane.tsx`), once, by hand rather
+  than through React, so its partition is set before the first navigation and no render ever
+  recreates it.
+- `will-attach-webview` is the gate: `hardenXWebview` refuses anything but x.com on the current
+  account's partition, and forces the overlay preload, `sandbox`, `contextIsolation` and no node
+  integration, whatever the page asked for.
+- `did-attach-webview` wires the guest: Chromium's user agent without the Electron and app
+  tokens, the skin on every `dom-ready`, the window-open and navigation rules (x.com stays
+  inside, Google and Apple sign-in get a popup on the same partition, everything else opens in
+  the default browser), the context menu, downloads, the key rules, the capture and the desktop
+  commands. A new guest (an account switch rebuilds the window) detaches the old one first.
 
-## Slots
+## Where x.com sits
 
-`apps/desktop/src/window/Slots.ts` is pure geometry and dismissal rules, tested in
-`Slots.test.ts`. Main owns the open slot; the app only asks for "route R in slot S".
+`components/shell/AppShell.tsx` is a three-column grid: sidebar, main area, X panel. The pane
+moves between them with CSS only, never in the DOM, because moving a webview reloads it.
 
-| kind      | bounds                                                                                                                                  | closes on                              |
-| --------- | --------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
-| `center`  | X's primary column, full height; fallback a 600px column centered in the window. Wide routes (the composer) also cover X's right column | pointer-down in x.com, Esc, back arrow |
-| `popover` | 340x320 below the anchor's left edge, flips above without room, clamped, 8px gap                                                        | pointer-down, Esc                      |
-| `sheet`   | 680x480 bottom-center                                                                                                                   | pointer-down, Esc                      |
-| `palette` | 640x420 top-center at y=80                                                                                                              | pointer-down, Esc, ⌘K again            |
-| `bar`     | column x and width, y 0, height 44                                                                                                      | pointer-down, Esc, Enter in the bar    |
-| `toast`   | 360x64 bottom-center, 24px margin                                                                                                       | the app's own `closeSlot` only         |
+| route             | pane                                                                      |
+| ----------------- | ------------------------------------------------------------------------- |
+| `/x` (and `/`)    | over the main area; the route renders nothing                             |
+| a tool, panel on  | the right column, `xPanelWidthAtom` wide (360-760, dragged from its edge) |
+| a tool, panel off | parked off-screen at the panel's width, session and scroll intact         |
 
-One slot is open at a time. Opening a slot focuses the xtend view; closing it focuses x.com.
-Main resends the current x.com URL on every open, so the address bar prefills correctly.
+`⌘\` toggles the panel; from `/x` it returns to the last tool with the panel open. The panel
+bar shows the path and has back, forward, reload, full size (`/x`), open in browser and close.
+The sidebar's X rows (Home, Notifications, Messages, Bookmarks, Profile) load their page in the
+webview and go to `/x`. Notifications shows X's unread count, read from the "(3) Home / X" page
+title. `state/x.ts` holds the webview's functions (`xNavigate`, `xBack`, `xFind`) and atoms
+(`xUrlAtom`, `xUnreadAtom`, the panel's open state and width, the skin switch).
 
-The column rects come from the x.com preload: a `ResizeObserver` on
-`div[data-testid="primaryColumn"]` and `div[data-testid="sidebarColumn"]` plus the window
-resize event, re-found on every mutation scan because X remounts both on route changes. Main
-multiplies them by the zoom factor. On pages without the primary column (DMs, settings) the
-fallback column is used.
+## The skin
 
-`isWide` in `Slots.ts` decides which routes get X's right column too: Compose while a draft is
-open (`draft`, `new`, `text`, `inspire` or `reply` in the query), not its list. Without a right
-column (a narrow window) a wide route falls back to the column. Inside the app, Compose moves
-between its list and the composer through `openSlot`, so main resizes on the way.
+`apps/desktop/src/overlay/xSkin.ts`, inserted with `insertCSS` on every full load. CSS only, so
+x.com's code runs untouched and nothing is clicked or fetched. It hides X's nav rail, its right
+column and the Premium and Grok prompts, centres the timeline at 640px and styles scrollbars
+and selection with Xtend's tokens. X serves two clients: the long-standing one keyed by
+`data-testid` (what signed-in users get as of 2026-10) and a newer one built from `main` and
+`aside` in a grid (what signed-out pages get). Each has its own block. `:has()` cannot nest,
+which is why the newer client's row is found by its grid's `main + aside`; that pair also keeps
+the rule away from the legacy client's layers div, where X's menus and modals live.
+`xSkin.browser.test.ts` fails when a rule stops parsing. The app can switch the skin off
+(`xSkinAtom`, `bridge.setXSkin`).
+
+## Keys
+
+In x.com (`before-input-event` on the guest, `guestKey`): `⌘K` palette, `⌘\` X panel and `⌘F`
+find are sent to the app; `⌘[` `⌘]` go back and forward, `⌘=` `⌘-` `⌘0` zoom, `⌥O` toggles the
+metrics strips. Single letters stay X's own (j, k, l, r). In the app (`ShellHotkeys`) the same
+chords work, and letters outside text fields open screens: c Compose, p Plan, a Analyze,
+e Engage, l Library, s Library search, r reply, x X.
 
 ## Channels
 
 `apps/desktop/src/ipc/channels.ts`
 
-- x.com preload -> main: `xtend:column-rect` (`Rect | null`), `xtend:pointer-down`,
-  `xtend:overlay-action` (`save` or `openSlot`), `xtend:editing`.
-- main -> x.com preload: `xtend:overlay-data`, `xtend:overlay-toggle`, `xtend:overlay-hide`,
-  `xtend:overlay-glance` (resent after every full load).
-- app view -> main: `xtend:slot-open` (`{ kind, route, anchor? }`), `xtend:slot-close`
-  (`{ kind? }`: a named kind only closes itself, so a stale close cannot hide a newer slot),
-  `xtend:session-navigate` (url), `xtend:session-find`, `xtend:open-external`,
-  `xtend:editing`, `xtend:glance` (`Glance`), plus the account and remote channels.
-- main -> app view: `xtend:slot` (`{ kind | null, route }`), `xtend:session-url`,
-  `xtend:session-find-result`, `xtend:session-download`, `xtend:shortcut`.
+- app -> main: `xtend:glance` (the composer chip's best time), `xtend:x-skin` (boolean),
+  `xtend:open-external`, the account and remote channels, `xtend:bridge-info` (sync).
+- main -> app: `xtend:app-route` (deep links and the injections), `xtend:shortcut`
+  (`palette`, `xPanel`, `find`), `xtend:session-download`.
+- main <-> overlay preload: `xtend:overlay-data`, `xtend:overlay-toggle`, `xtend:overlay-hide`,
+  `xtend:overlay-glance`, and `xtend:overlay-action` (`save` or `openRoute`) back.
 
-The bridge the app sees (`apps/web/src/desktopBridge.ts`): `slot` (state at load), `onSlot`,
-`openSlot`, `closeSlot`, `pushGlance`, `navigateSession`, `sessionFind`, `openExternal`, `onSessionUrl`,
-`onSessionFindResult`, `onSessionDownload`, `onShortcut`, `checkRemote`, `setRemote`,
-`selectAccount`.
+The bridge the app sees (`apps/web/src/desktopBridge.ts`) adds `xPartition`, `xStartUrl` and
+`initialRoute` (a deep link that arrived before the page loaded) to the service details.
 
 ## Native injections
 
-`apps/desktop/src/overlay/overlayPreload.ts` adds Xtend to X's own chrome. Every X selector
-lives in `xDom.ts` with its fixture test; a missing landmark drops that one injection.
+`apps/desktop/src/overlay/overlayPreload.ts` runs in the webview's isolated world. It reads the
+DOM X already rendered and never clicks, scrolls or fetches. Every X selector lives in `xDom.ts`
+with its fixture test; a missing landmark drops that one injection.
 
-| injection   | where                                                      | does                                                                |
-| ----------- | ---------------------------------------------------------- | ------------------------------------------------------------------- |
-| metrics row | after each post's action row                               | views, ER, views/h, followers, vs your average; Save, Reply with AI |
-| rail item   | X's Home item cloned, before Premium (or Profile, or More) | opens the center slot on `/plan`                                    |
-| Schedule    | composer toolbar, before Post, in every composer           | opens `/compose?text=` with what was typed                          |
-| Today card  | right column, above the first card (Premium or Trending)   | queue, mentions, spend, service; each row opens a tab               |
+| injection     | where                                       | does                                                                |
+| ------------- | ------------------------------------------- | ------------------------------------------------------------------- |
+| metrics row   | after each post's action row                | views, ER, views/h, followers, vs your average; Save, Reply with AI |
+| Schedule chip | composer toolbar, before Post               | opens `/compose?text=` with what was typed                          |
+| hover card    | on an author's avatar or name, after 400 ms | followers; Full report opens `/scores`                              |
 
-The rail item is a plain clone so it inherits X's styles and icon-only collapse; everything
-else sits in a closed shadow root styled with X's tokens (system font, 13px `#71767b` rows,
-`#2f3336` hairlines, 16px card radius). Each added element carries `data-xtend`, and a
-pointer-down whose composed path holds one does not dismiss the open slot. The Schedule chip
-acts on pointer-down because focusing a collapsed composer makes X remount its toolbar before
-a click would land.
-
-The Today card and the chip's best time come from the app view, not the server:
-`GlanceSync` (`apps/web/src/components/shell/GlanceSync.tsx`) derives a `Glance` from queued
-drafts, slots, stored mentions and the spend summary, all free, formats times in the account
-zone (`lib/glance.ts`) and pushes it through the bridge whenever it changes.
-
-## Shortcuts
-
-In x.com (`before-input-event` on the window's contents): ⌘K toggles the palette slot, C/P/A/E/L
-outside text fields open the center slot on `/compose`, `/plan`, `/analyze`, `/engage`,
-`/library`, ⌘F opens `bar` `/bar/find`, ⌘L opens `bar` `/bar/address`, Esc closes the open
-slot, ⌥O toggles the overlay strips, ⌘= ⌘- ⌘0 zoom and ⌘[ ⌘] go back and forward.
-
-In the app view, `ShellHotkeys` handles the same letters and ⌘K through the bridge, and Esc
-asks main to close the open slot (unless a menu or dialog already took the key). ⌘F, ⌘L and ⌥O
-are intercepted by main there too.
-
-## App in slot mode
-
-`apps/web/src/components/shell/SlotShell.tsx` replaces `AppSidebar` whenever
-`window.desktopBridge` exists. `html.slot` in `index.css` overrides the palette with X's tokens
-and makes the page transparent. `slotAtom` (`state/shell.ts`) mirrors main's state; the shell
-navigates to the slot's route whenever a slot opens.
-
-- `center`: X's page header (back arrow calls `closeSlot`, "Xtend") and tab row (Plan, Compose,
-  Engage, Leads, Library, Scores, More: Analyze, Automate, Seen, Settings). Tabs call
-  `openSlot` so main stays the source of truth. Hairlines left and right. When the view is
-  wider than the column, the frame keeps the column at X's 600px and puts an `<aside>` over X's
-  right column; a page's `<Companion>` (`components/shell/Companion.tsx`) portals its cards into
-  it, and renders them under the page anywhere else.
-
-Pages drawn inside x.com use X's control shapes from `apps/web/src/components/x.tsx`: pill
-buttons, the grey action row with a blue hover, right-column cards and the second-level tab row.
-
-Compose is drafts first. `/compose` lists every draft as the X post it will become, under tabs
-for drafts, queued, automatic (suggested drafts from Library and Automate plus ask-first
-automation requests, approved at the price they show), failed and posted, with X's
-"What's happening?" box on top. Opening one, or the box, goes to X's thread composer, with the
-preview, assist and context cards in the companion column.
-
-- `palette`: `/palette` renders `PaletteBody`; a pick opens the center slot, which replaces the
-  palette.
-- `bar`: `/bar/find` and `/bar/address`.
-- `popover`, `sheet`, `toast`: ringed, rounded frames around `<Outlet />`; routes come later.
-
-## Adding a slot route
-
-1. Add the route file under `apps/web/src/routes/`; the frame comes from `SlotShell`, so the
-   page renders only its content.
-2. Open it from the app with `bridge.openSlot({ kind, route, anchor? })`, from the x.com preload
-   with an `openSlot` overlay action, or from main with `openSlot` on the window handle.
-3. Close it with `bridge.closeSlot({ kind })` from the page, or let pointer-down and Esc do it.
+They sit in closed shadow roots styled with Xtend's tokens and carry `data-xtend`. Routes they
+open arrive through `xtend:app-route`, and the shell opens the X panel beside them so X stays in
+view. The chip's best time comes from `GlanceSync`, which derives it from free reads only.
 
 ## Dev capture
 
-With `XTEND_SHOT_DIR` set on an unpackaged build, `kill -USR2 <electron pid>` writes
-`<ts>.png` (x.com), `<ts>-slot.png` (the xtend view, when a slot is open) and `<ts>.json`
-(the slot's bounds). A window capture does not include child views, so compose them, e.g.
-`magick x.png slot.png -geometry +X+Y -composite out.png`. Keys injected through the DevTools
-protocol skip Electron's `before-input-event`, so shortcuts cannot be driven through CDP; the
-bridge (`window.desktopBridge.openSlot(...)` evaluated in the app view) can. Without a display
-session, CDP mouse events right after a load or a layout change are dropped; evaluating
-`document.elementFromPoint(x, y)` just before `Input.dispatchMouseEvent` makes them land.
-`apps/desktop/scripts/cdp.mjs click` does both.
+`XTEND_REMOTE_DEBUG=<port>` on an unpackaged build opens DevTools; `node
+apps/desktop/scripts/cdp.mjs shot|eval|click|type` drives it. The app page and the x.com webview
+are separate targets (`localhost:<web port>` and `x.com`); a screenshot of the app page includes
+the webview. Keys sent through DevTools skip `before-input-event`, so drive the chords on the
+app page. `XTEND_SHOT_DIR` plus `kill -USR2 <pid>` writes the window to `<ts>.png`.
+
+A dev desktop in a worktree uses its own Electron profile (`.xtend/electron`), so it starts
+signed out of X. Copying `Partitions/x-session` from an installed app's profile (minus its
+caches) into it signs it in.

@@ -6,7 +6,8 @@ import { userEvent } from "vite-plus/test/browser";
 import { paid, quoting, settings, xPost } from "../../../test/fixtures";
 import type { FakeService } from "../../../test/fakeService";
 import { render } from "../../../test/render";
-import { EngageScreen } from "../../routes/engage";
+import { Mentions } from "./Mentions";
+import { Targets } from "./Targets";
 
 const target = (postId: string, text: string): ReplyTarget => ({
   post: xPost(postId, text),
@@ -20,15 +21,17 @@ const target = (postId: string, text: string): ReplyTarget => ({
   repliesToAuthor: 0,
 });
 
-/** What the screen reads before anyone clicks: the niche line and the header's mention count. */
+/** What the screens read before anyone clicks: settings with a keyword, and the niche line. */
 const screenReads = {
+  "settings.get": () =>
+    Effect.succeed({ ...settings, dailyLibraryJobs: false, keywords: ["indie hacking"] }),
   "engage.nicheProfile": () => Effect.succeed({ handles: [], topics: [], updatedAt: null }),
-  "engage.mentions": () => Effect.succeed({ mentions: [], apiError: null }),
+  "engage.inbox": () => Effect.succeed({ sent: [], followUps: [], incoming: [] }),
 } satisfies FakeService;
 
 it("opening Targets pays for nothing: a paid search waits for the priced click", async () => {
   let searches = 0;
-  await using screen = await render(<EngageScreen />, {
+  await using screen = await render(<Targets />, {
     service: {
       ...screenReads,
       // Two keywords, neither in the service's 30-minute cache.
@@ -40,17 +43,19 @@ it("opening Targets pays for nothing: a paid search waits for the priced click",
         }),
     },
   });
-  await expect.element(screen.getByText(/^Refresh targets to search your keywords/)).toBeVisible();
+  await expect.element(screen.getByText(/^Refresh to search your keywords/)).toBeVisible();
   expect(searches).toBe(0);
 
-  await userEvent.click(screen.getByRole("button", { name: "Refresh targets ($0.0015)" }));
-  await expect.element(screen.getByText("Shipping my first SaaS today")).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: /^Refresh\s*\$0\.0015$/ }));
+  await expect
+    .element(screen.getByRole("complementary").getByText("Shipping my first SaaS today"))
+    .toBeVisible();
   expect(searches).toBe(1);
 });
 
 it("shows the cached targets on open when the cache makes them free", async () => {
   let searches = 0;
-  await using screen = await render(<EngageScreen />, {
+  await using screen = await render(<Targets />, {
     service: {
       ...screenReads,
       "costs.quote": quoting((a) =>
@@ -63,18 +68,20 @@ it("shows the cached targets on open when the cache makes them free", async () =
         }),
     },
   });
-  await expect.element(screen.getByText("Shipping my first SaaS today")).toBeVisible();
   await expect
-    .element(screen.getByRole("button", { name: "Refresh targets (cached, free)" }))
+    .element(screen.getByRole("complementary").getByText("Shipping my first SaaS today"))
+    .toBeVisible();
+  await expect
+    .element(screen.getByRole("button", { name: /^Refresh\s*cached, free$/ }))
     .toBeVisible();
   expect(searches).toBe(1);
 });
 
-it("prices a like with the day's account lookup, and likes on two rows do not cut each other off", async () => {
+it("prices a like with the day's account lookup, and likes on two posts do not cut each other off", async () => {
   const liked: Array<string> = [];
   let releaseFirst = () => {};
   const firstLike = new Promise<void>((resolve) => (releaseFirst = resolve));
-  await using screen = await render(<EngageScreen />, {
+  await using screen = await render(<Targets />, {
     service: {
       ...screenReads,
       // The first like of the day also reads the account ($0.015 + $0.01).
@@ -89,35 +96,38 @@ it("prices a like with the day's account lookup, and likes on two rows do not cu
         Effect.succeed([target("1", "First target"), target("2", "Second target")]),
       "engage.like": ({ postId }) =>
         Effect.gen(function* () {
-          // The first like is still in flight when the second row is clicked.
+          // The first like is still in flight when the second post is opened and liked.
           if (postId === "1") yield* Effect.promise(() => firstLike);
           liked.push(postId);
         }),
     },
   });
-  await expect.element(screen.getByText("Second target")).toBeVisible();
-  const likes = screen.getByRole("button", { name: "Like · $0.025" });
-  await expect.poll(() => likes.elements().length).toBe(2);
+  const detail = screen.getByRole("complementary");
+  await expect.element(detail.getByText("First target")).toBeVisible();
 
-  await userEvent.click(likes.nth(0));
-  await expect.element(screen.getByRole("button", { name: "Liking…" })).toBeVisible();
-  await userEvent.click(screen.getByRole("button", { name: "Like · $0.025" }));
+  await userEvent.click(detail.getByRole("button", { name: /^Like\s*\$0\.025$/ }));
+  await expect.element(detail.getByRole("button", { name: /^Liking/ })).toBeVisible();
+  // Moving on unmounts the first post's reply box; its paid like must keep going.
+  await userEvent.click(screen.getByRole("button", { name: /Second target/ }));
+  await expect.element(detail.getByText("Second target")).toBeVisible();
+  await userEvent.click(detail.getByRole("button", { name: /^Like\s*\$0\.025$/ }));
   await expect.poll(() => liked).toEqual(["2"]);
   releaseFirst();
   await expect.poll(() => liked).toEqual(["2", "1"]);
 
-  // Each row says what its like cost, and a liked row cannot pay for a second one.
-  const done = screen.getByRole("button", { name: "Liked" });
-  await expect.poll(() => done.elements().length).toBe(2);
-  for (const button of done.elements()) expect(button).toBeDisabled();
-  await expect.poll(() => screen.getByText("Liked for $0.025").elements().length).toBe(2);
+  // Each post says what its like cost, and a liked post cannot pay for a second one.
+  const done = detail.getByRole("button", { name: /^Liked\s*for \$0\.025$/ });
+  await expect.element(done).toBeDisabled();
+  await userEvent.click(screen.getByRole("button", { name: /First target/ }));
+  await expect.element(detail.getByText("First target")).toBeVisible();
+  await expect.element(done).toBeDisabled();
 });
 
 it("a paid search still out when the user leaves Engage finishes, and shows on return", async () => {
   let release = () => {};
   const searched = new Promise<void>((resolve) => (release = resolve));
   let searches = 0;
-  await using screen = await render(<EngageScreen />, {
+  await using screen = await render(<Targets />, {
     service: {
       ...screenReads,
       "costs.quote": quoting((a) => (a.kind === "engageTargets" ? paid(0.0015) : paid(0.001))),
@@ -130,14 +140,16 @@ it("a paid search still out when the user leaves Engage finishes, and shows on r
         ),
     },
   });
-  await userEvent.click(screen.getByRole("button", { name: "Refresh targets ($0.0015)" }));
-  await expect.element(screen.getByRole("button", { name: "Searching…" })).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: /^Refresh\s*\$0\.0015$/ }));
+  await expect.element(screen.getByRole("button", { name: /^Searching/ })).toBeVisible();
   // Off to another screen while the searches are paid for, then back.
   await screen.rerender(<p>elsewhere</p>);
   release();
   await expect.poll(() => searches).toBe(1);
-  await screen.rerender(<EngageScreen />);
-  await expect.element(screen.getByText("Shipping my first SaaS today")).toBeVisible();
+  await screen.rerender(<Targets />);
+  await expect
+    .element(screen.getByRole("complementary").getByText("Shipping my first SaaS today"))
+    .toBeVisible();
   expect(searches).toBe(1);
 });
 
@@ -149,7 +161,7 @@ const mention = (postId: string, handled: boolean): Mention => ({
 
 it("says when X refuses the paid mentions read, and marks a mention handled", async () => {
   const handledIds: Array<string> = [];
-  await using screen = await render(<EngageScreen />, {
+  await using screen = await render(<Mentions />, {
     service: {
       ...screenReads,
       "costs.quote": quoting(() => paid(0.015)),
@@ -162,14 +174,15 @@ it("says when X refuses the paid mentions read, and marks a mention handled", as
       "engage.mentionHandled": ({ postId }) => Effect.sync(() => void handledIds.push(postId)),
     },
   });
-  await expect.element(screen.getByText("1 unhandled mentions")).toBeVisible();
-  await userEvent.click(screen.getByRole("button", { name: "Mentions" }));
+  const open = screen.getByRole("tab", { name: /Open/ });
+  await expect.element(open).toHaveTextContent("Open1");
 
-  await userEvent.click(screen.getByRole("button", { name: "Fetch new mentions ($0.015)" }));
+  await userEvent.click(screen.getByRole("button", { name: /^Fetch new\s*\$0\.015$/ }));
   await expect.element(screen.getByText("X refused the read: 429 Too Many Requests")).toBeVisible();
 
   await userEvent.click(screen.getByRole("button", { name: "Mark handled" }));
-  await expect.element(screen.getByText("handled", { exact: true })).toBeVisible();
+  await expect.element(screen.getByText("All handled.")).toBeVisible();
   expect(handledIds).toEqual(["7"]);
-  await expect.element(screen.getByText("0 unhandled mentions")).toBeVisible();
+  // The open count drops with it (a zero count is not drawn).
+  await expect.poll(() => open.element().textContent).toBe("Open");
 });

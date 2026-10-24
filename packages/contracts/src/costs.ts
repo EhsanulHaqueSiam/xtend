@@ -77,6 +77,11 @@ export const CostAction = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("engageTargets") }),
   /** One own-timeline page; the model call is billed separately. */
   Schema.Struct({ kind: Schema.Literal("findKeywords") }),
+  /**
+   * One model call (draft, remix, reply, Ask). Quoted at what Assist reserves against the
+   * budget before the call; the bill settles at what the model charged, usually less.
+   */
+  Schema.Struct({ kind: Schema.Literal("assist") }),
 ]);
 export type CostAction = typeof CostAction.Type;
 

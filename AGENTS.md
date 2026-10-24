@@ -1,13 +1,13 @@
 # Xtend
 
-Xtend is a desktop-first X (Twitter) growth suite: x.com is the window, and a local service adds analytics, a composer with a queue, a viral library, engagement targets, lead lists, automations and account scores drawn into it where X would draw them. The architecture copies T3 Code: a headless Node service owns data and all X calls; thin web and Electron clients connect to it over WebSocket RPC.
+Xtend is a desktop-first X (Twitter) growth suite: one app whose sidebar holds both X and the tools. x.com runs inside it as the user's own logged-in session, reskinned with CSS, and a local service adds analytics, a composer with a queue, a viral library, engagement targets, lead lists, automations and account scores. The architecture copies T3 Code: a headless Node service owns data and all X calls; thin web and Electron clients connect to it over WebSocket RPC.
 
 ## Glossary
 
 - **service** means the headless `xtend` process in `apps/server`: SQLite, scheduler, automations, treg and X calls, agent runs.
 - **client** means the web UI (`apps/web`) or the Electron shell (`apps/desktop`) that wraps it.
-- **session view** means the logged-in x.com web contents of the desktop window. It is the only place the user's X session exists; the service never holds X cookies.
-- **slot** means where the desktop draws the app's `WebContentsView` over x.com (center column, popover, sheet, palette, bar, toast). See `docs/internals/native-shell.md`.
+- **session view** means the x.com `<webview>` inside the desktop window, on the account's cookie partition. It is the only place the user's X session exists; the service never holds X cookies. It sits over the main area on X's pages and in the side panel beside the tools. See `docs/internals/native-shell.md`.
+- **skin** means the CSS the desktop inserts into the session view to hide X's own navigation and right column. CSS only, never script.
 - **observation** means a post, author or metric row the desktop read from the session view's own traffic and sent to the service. Observations are passive: nothing is replayed to X.
 - **account** means one connected X handle. All data is scoped to an account.
 
@@ -24,7 +24,8 @@ Xtend is a desktop-first X (Twitter) growth suite: x.com is the window, and a lo
 - `apps/server` - the service. Effect-heavy. Foundation services every screen uses: `x/Treg.ts` (the only HTTP door to treg: token, budget, read cache, spend log), `x/XClient.ts` (typed X reads and writes, every call names its `purpose`), `ai/Assist.ts` (one structured-output model call; screens pass instructions, input and an output schema), `settings/SettingsStore.ts` (handle, token, budget, voice notes, keywords, spend).
 - Each suite area (compose, plan, analyze, scores, library, engage, leads, automate) owns `packages/contracts/src/<area>.ts` (schemas, method names, its RpcGroup, merged into `WsRpcGroup`), `apps/server/src/<area>/<Area>Handlers.ts` (`layer` for its services, `layerHandlers` for its rpcs, both pre-merged in `server.ts` and `ws.ts`), one migration per area pair, and its own routes, components and state files in `apps/web`. Adding a screen never edits another screen's files. Read `docs/internals/effect-services.md` in T3 Code (vendored reference at `~/Work/ref/t3code`) before adding server code; the same rules apply here.
 - `apps/web` - React, Vite, TanStack Router, Tailwind 4, `@effect/atom-react`. The desktop wraps it.
-- `apps/desktop` - Electron. Opens x.com as the window, runs or connects to the service, draws the app view in slots, captures observations.
+- Screens share one shape: `PageHeader` on top (the open section's name, plain-word filters, actions), then `components/ui/layout.tsx` (`PageBody`, `Section`, `Empty`, `Cost`, `Stat`, `table`). A tool's sections live in `components/shell/sections.ts` and show as rows under it in the sidebar; the page reads the open one with `useSection` and never draws its own tab row. Groups are a label and a hairline, not a card. Shared pieces live in `components/ui/` (`split.tsx` list plus detail column, `menu.tsx`, `popover.tsx`, `switch.tsx`, `field.tsx`, `x-link.tsx` to open a post on X beside the tool, `no-handle.tsx`); use them before writing a local one.
+- `apps/desktop` - Electron. Loads the app as the window, gates and wires the x.com webview, runs or connects to the service, captures observations.
 
 ## Conventions
 
