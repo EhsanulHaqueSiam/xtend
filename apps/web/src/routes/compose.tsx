@@ -9,7 +9,7 @@ import {
   postCostUsd,
   type ReplySettings,
 } from "@xtend/contracts";
-import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { ArrowLeft, CalendarClock } from "lucide-react";
@@ -25,7 +25,6 @@ import {
   splitBlocks,
   ThreadEditor,
 } from "../components/compose/ThreadEditor";
-import { shellBridge } from "../components/shell/bridge";
 import { Companion } from "../components/shell/Companion";
 import { SubTabs, XCard, xInput, xMeta, xPill, xPillSm, xPillSolid } from "../components/x";
 import { cn } from "../lib/utils";
@@ -343,18 +342,8 @@ function ComposeScreen() {
     AsyncResult.map(settings, (s) => s.handle),
     () => null,
   );
-  const router = useRouter();
-  // In x.com main owns the slot, and the slot's width follows the route (the composer gets
-  // X's right column), so moves between the list and the composer go through main.
-  const go = (next: Partial<ComposeSearch>) => {
-    const search = composeSearch(next);
-    const bridge = shellBridge();
-    if (bridge === undefined) return void navigate({ to: "/compose", search });
-    bridge.openSlot({
-      kind: "center",
-      route: router.buildLocation({ to: "/compose", search }).href,
-    });
-  };
+  const go = (next: Partial<ComposeSearch>) =>
+    void navigate({ to: "/compose", search: composeSearch(next) });
   const editing =
     search.draft !== undefined ||
     search.new === true ||

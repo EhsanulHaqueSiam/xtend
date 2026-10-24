@@ -1,11 +1,13 @@
 import { useAtom, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { Bot, CalendarClock, Gauge, Search, type LucideIcon } from "lucide-react";
+import { AtSign, Bot, CalendarClock, Gauge, Search, Twitter, type LucideIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 
+import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
 import { agentsAtom, paletteOpenAtom, runAgentAtom } from "../../state/shell";
+import { xNavigate } from "../../state/x";
 import { SCREENS } from "./commands";
 
 interface Command {
@@ -21,12 +23,21 @@ const HANDLE = /@(\w{1,15})/;
 const matches = (command: Command, query: string) =>
   command.label.toLowerCase().includes(query.toLowerCase());
 
+/** X's own pages the palette can open; on the desktop they load in the x.com webview. */
+const X_PAGES: ReadonlyArray<{ readonly label: string; readonly path: string }> = [
+  { label: "Home", path: "/home" },
+  { label: "Notifications", path: "/notifications" },
+  { label: "Messages", path: "/messages" },
+  { label: "Bookmarks", path: "/i/bookmarks" },
+  { label: "Explore", path: "/explore" },
+];
+
 /**
- * The palette itself: screens, schedule, report on a handle, run an agent,
- * search the library. `go` opens a screen; `onClose` is called after a pick
- * and on Escape. Standalone wraps it in an overlay; the palette slot is it.
+ * The palette itself: screens, X's pages, schedule, report on a handle, open a
+ * handle on X, run an agent, search the library. `go` opens an app route;
+ * `onClose` is called after a pick and on Escape.
  */
-export function PaletteBody({
+function PaletteBody({
   go,
   onClose,
 }: {
@@ -40,9 +51,21 @@ export function PaletteBody({
 
   const commands = useMemo((): ReadonlyArray<Command> => {
     const to = (href: string) => () => go(href);
+    const onX = (path: string) => () => {
+      xNavigate(`https://x.com${path}`);
+      go("/x");
+    };
     const handle = HANDLE.exec(query)?.[1];
     const fixed: Array<Command> = [
       ...SCREENS.map((s) => ({ id: s.to, label: `Go to ${s.label}`, icon: s.icon, run: to(s.to) })),
+      ...(isElectron
+        ? X_PAGES.map((p) => ({
+            id: `x:${p.path}`,
+            label: `X ${p.label}`,
+            icon: Twitter,
+            run: onX(p.path),
+          }))
+        : []),
       { id: "schedule", label: "Schedule this", icon: CalendarClock, run: to("/compose") },
       ...AsyncResult.getOrElse(agents, () => []).map((agent) => ({
         id: `agent:${agent.id}`,
@@ -53,13 +76,21 @@ export function PaletteBody({
       })),
     ].filter((c) => matches(c, query));
     const dynamic: Array<Command> = [];
-    if (handle !== undefined)
+    if (handle !== undefined) {
       dynamic.push({
         id: "report",
         label: `Report on @${handle}`,
         icon: Gauge,
         run: to(`/scores?handle=${encodeURIComponent(handle)}`),
       });
+      if (isElectron)
+        dynamic.push({
+          id: "profile",
+          label: `Open @${handle} on X`,
+          icon: AtSign,
+          run: onX(`/${handle}`),
+        });
+    }
     if (query.trim() !== "")
       dynamic.push({
         id: "search",
@@ -70,7 +101,6 @@ export function PaletteBody({
     return [...dynamic, ...fixed];
   }, [agents, go, query, runAgent]);
 
-  // Run first: a screen command replaces the palette slot, so a close by kind afterwards is a no-op.
   const pick = (command: Command) => {
     command.run();
     onClose();
@@ -137,7 +167,10 @@ export function PaletteBody({
   );
 }
 
-/** Standalone ⌘K: the palette as an overlay over the app. In the desktop it is the palette slot instead. */
+/**
+ * ⌘K: the palette over everything, x.com included. It opens with no animation: a key
+ * pressed hundreds of times a day should answer at once.
+ */
 export function CommandPalette() {
   const [open, setOpen] = useAtom(paletteOpenAtom);
   const navigate = useNavigate();
@@ -145,11 +178,11 @@ export function CommandPalette() {
   const close = () => setOpen(false);
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 pt-[12vh]"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-black/55 pt-[12vh]"
       onMouseDown={close}
     >
       <div
-        className="h-[420px] w-[520px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-md border border-border bg-background shadow-xl"
+        className="h-[420px] w-[560px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-[calc(var(--radius)+4px)] border border-white/13 bg-surface-raised"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <PaletteBody go={(href) => void navigate({ href })} onClose={close} />

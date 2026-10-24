@@ -101,8 +101,8 @@ Both need `pnpm build` first.
   `apps/web/src/desktopBridge.ts`, or when the x.com preload stops listening on a channel main
   sends it.
 - `pnpm --filter @xtend/desktop smoke-test` boots the built app on a throwaway state dir, user
-  data dir and port. It passes once the supervisor's service answers, the xtend view has
-  rendered and the window has loaded x.com. Linux needs `xvfb-run`.
+  data dir and port. It passes once the supervisor's service answers, the app has rendered
+  and its webview has loaded x.com. Linux needs `xvfb-run`.
 - `node apps/desktop/scripts/cdp.mjs shot|eval|click|type` drives a dev desktop started with
   `XTEND_REMOTE_DEBUG=9223` on a host without a display. See
   [native-shell.md](../internals/native-shell.md#dev-capture) for its limits.

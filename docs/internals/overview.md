@@ -7,13 +7,14 @@ control the service over WebSocket RPC; the service never holds X cookies.
 
 - **The service** (`apps/server`) owns SQLite, the scheduler, automations, agents, and every
   treg and X API call. It serves the web app and the RPC on one port.
-- **The desktop** (`apps/desktop`) owns the window, which is x.com itself, and the capture
-  pipeline. It reads GraphQL responses the window already received through the Chrome DevTools
-  Protocol and posts normalized observations to the service over HTTP. It does not inject
-  scripts into x.com's world and never replays requests to X.
-- **The web app** (`apps/web`) is the UI for both the browser and the desktop. In the desktop it
-  is one view drawn in slots over x.com (see [native-shell.md](./native-shell.md)); in a browser
-  it has a sidebar and Home shows what the session observed.
+- **The desktop** (`apps/desktop`) owns the window, which loads the app, and the x.com webview
+  inside it, plus the capture pipeline. It reads GraphQL responses the webview already received
+  through the Chrome DevTools Protocol and posts normalized observations to the service over
+  HTTP. It does not inject scripts into x.com's world and never replays requests to X.
+- **The web app** (`apps/web`) is the UI for both the browser and the desktop. In the desktop
+  its sidebar lists X's pages and the tools, and it places the x.com webview over the main area
+  or beside a tool (see [native-shell.md](./native-shell.md)); in a browser it has the same
+  sidebar without X, and Home shows what the session observed.
 
 The [RPC contract](../../packages/contracts/src/rpc.ts) is the boundary between independently
 versioned clients and the service.

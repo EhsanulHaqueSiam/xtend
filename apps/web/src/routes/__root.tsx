@@ -3,13 +3,10 @@ import { createRootRoute, Outlet } from "@tanstack/react-router";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useEffect } from "react";
 
-import { AppSidebar } from "../components/AppSidebar";
-import { CommandPalette } from "../components/shell/CommandPalette";
+import { AppShell } from "../components/shell/AppShell";
 import { ShellHotkeys } from "../components/shell/ShellHotkeys";
 import { ShellNotifications } from "../components/shell/ShellNotifications";
-import { SlotShell } from "../components/shell/SlotShell";
 import { TooltipProvider } from "../components/ui/tooltip";
-import { isElectron } from "../env";
 import { setDisplayZone } from "../lib/time";
 import { settingsAtom } from "../state/settings";
 import { connectionAtom } from "../state/shell";
@@ -59,21 +56,17 @@ function Reconnecting({ children }: { readonly children: React.ReactNode }) {
   );
 }
 
-// The desktop draws this view in a slot over x.com; standalone (hosted tier, browser tests) keeps the sidebar.
-const Shell = isElectron ? SlotShell : AppSidebar;
-
 export const Route = createRootRoute({
   component: () => (
     <TooltipProvider delay={300}>
       <ZoneSync />
       <ShellHotkeys />
       <ShellNotifications />
-      {isElectron ? null : <CommandPalette />}
-      <Shell>
+      <AppShell>
         <Reconnecting>
           <Outlet />
         </Reconnecting>
-      </Shell>
+      </AppShell>
     </TooltipProvider>
   ),
 });

@@ -5,11 +5,12 @@ import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { CalendarClock, ExternalLink, Pencil, Trash2, Undo2, Zap } from "lucide-react";
 import { useState } from "react";
 
+import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
 import { approvePendingAtom, dismissPendingAtom, pendingAtom } from "../../state/automate";
 import { deleteDraftAtom, draftsAtom } from "../../state/compose";
 import { queueAtom, unscheduleAtom } from "../../state/plan";
-import { shellBridge } from "../shell/bridge";
+import { xNavigate, xPanelOpenAtom } from "../../state/x";
 import { SubTabs, xAction, xMeta, xPill, xPillSm, xPillSolid } from "../x";
 import { failText } from "./AssistPanel";
 import { fmtWhen, statusTone } from "./DraftsList";
@@ -65,13 +66,15 @@ const meta = (d: Draft) =>
             ? "Suggested"
             : `Edited ${fmtWhen(d.updatedAt)}`;
 
-/** In x.com the post opens in the window itself; standalone it opens a tab. */
-const openOnX = (url: string) => {
-  const bridge = shellBridge();
-  if (bridge === undefined) return void window.open(url, "_blank", "noreferrer");
-  bridge.navigateSession(url);
-  bridge.closeSlot({ kind: "center" });
-};
+/** On the desktop the post opens in the x.com panel beside Compose; in a browser, a new tab. */
+function useOpenOnX() {
+  const setPanel = useAtomSet(xPanelOpenAtom);
+  return (url: string) => {
+    if (!isElectron) return void window.open(url, "_blank", "noreferrer");
+    xNavigate(url);
+    setPanel(true);
+  };
+}
 
 function Avatar({ label, className }: { readonly label: string; readonly className?: string }) {
   return (
@@ -98,6 +101,7 @@ function DraftRow({
   readonly onOpen: (id: string) => void;
   readonly onAct: (what: "queue" | "unschedule" | "delete", id: string) => void;
 }) {
+  const openOnX = useOpenOnX();
   const editable = d.status !== "posted" && d.status !== "posting";
   const text = d.kind === "article" ? d.body : (d.blocks[0]?.text ?? "");
   const source = d.status === "suggested" ? sourceLabel(d.source) : null;
