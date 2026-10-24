@@ -98,11 +98,16 @@ export const bridgeApis = (declaration) => {
   return [...body.matchAll(/^ {2}readonly (\w+): \(/gm)].map((m) => m[1]);
 };
 
-/** Channels main sends to the x.com preload: the OVERLAY_* constants except the preload's own action channel. */
-export const overlayChannels = (channelsSource) =>
-  [...channelsSource.matchAll(/export const (OVERLAY_\w+_CHANNEL) = "([^"]+)"/g)]
-    .filter((m) => m[1] !== "OVERLAY_ACTION_CHANNEL")
-    .map((m) => m[2]);
+/** Channels main sends to the x.com preload: the OVERLAY_* constants under channels.ts's "Main -> overlay preload" comment. */
+export const overlayChannels = (channelsSource) => {
+  const start = channelsSource.indexOf("// Main -> overlay preload");
+  const end = channelsSource.indexOf("// Overlay preload -> main", start);
+  if (start === -1 || end === -1)
+    throw new Error("channels.ts lost its overlay direction comments");
+  return [
+    ...channelsSource.slice(start, end).matchAll(/export const OVERLAY_\w+_CHANNEL = "([^"]+)"/g),
+  ].map((m) => m[1]);
+};
 
 if (process.argv[1] === NodeURL.fileURLToPath(import.meta.url)) {
   const read = (path) => NodeFS.readFileSync(new URL(path, import.meta.url), "utf8");

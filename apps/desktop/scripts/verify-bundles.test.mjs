@@ -18,7 +18,9 @@ it("reads the bridge functions and the overlay channels from their sources", () 
   expect(apis).not.toContain("serviceToken");
   const channels = overlayChannels(read("../src/ipc/channels.ts"));
   expect(channels).toContain("xtend:overlay-data");
+  // The preload sends these to main; it does not listen on them.
   expect(channels).not.toContain("xtend:overlay-action");
+  expect(channels).not.toContain("xtend:overlay-viewer");
 });
 
 it("passes a sandbox-safe preload and names what a broken one lacks", () => {
