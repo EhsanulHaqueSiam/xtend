@@ -1,26 +1,29 @@
 import { useAtomValue } from "@effect/atom-react";
-import { type Draft, postCostUsd } from "@xtend/contracts";
+import type { Draft } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { useState } from "react";
+import { Fragment, useState, type ReactNode } from "react";
 
-import { useRates, usd } from "../../state/costs";
+import { cn } from "../../lib/utils";
 import { runsAtom } from "../../state/plan";
-import { Empty, errorText } from "../analyze/ui";
-import { draftTitle, fmtWhen, statusTone } from "../compose/DraftsList";
+import { failText } from "../compose/AssistPanel";
+import { draftTitle, fmtWhen, useDraftCost } from "../compose/DraftsList";
+import { Popover } from "../compose/overlay";
 import { Button } from "../ui/button";
+import { Cost, Empty, table } from "../ui/layout";
+import { StatusDot } from "./ui";
 
 function Runs({ id }: { readonly id: string }) {
   const runs = useAtomValue(runsAtom(id));
   return AsyncResult.match(runs, {
-    onInitial: () => <p className="text-2xs text-muted-foreground">Loading…</p>,
-    onFailure: (f) => <p className="text-2xs text-error-foreground">{errorText(f.cause)}</p>,
+    onInitial: () => <p className="text-2xs text-muted-foreground">Loading runs</p>,
+    onFailure: (f) => <p className="text-2xs text-error-foreground">{failText(f.cause)}</p>,
     onSuccess: ({ value }) =>
       value.length === 0 ? (
         <p className="text-2xs text-muted-foreground">No runs yet.</p>
       ) : (
-        <ul className="flex flex-col gap-0.5 font-mono text-2xs">
+        <ul className="flex flex-col gap-0.5 font-mono text-2xs tabular-nums">
           {value.map((r) => (
-            <li key={r.id} className="flex gap-2">
+            <li key={r.id} className="flex gap-3">
               <span className="text-muted-foreground">{fmtWhen(r.at)}</span>
               <span className={r.ok ? "text-success-foreground" : "text-error-foreground"}>
                 {r.ok ? "ok" : "failed"} #{r.attempt}
@@ -33,15 +36,18 @@ function Runs({ id }: { readonly id: string }) {
   });
 }
 
-/** Queued and failed drafts by time. Post now shows its treg cost before it charges. */
+/** Queued and failed drafts by time. Post now confirms with its treg price before it charges. */
 export function Queue({
   drafts,
+  emptyAction,
   onSkip,
   onUnschedule,
   onRunNow,
   onOpen,
 }: {
   readonly drafts: ReadonlyArray<Draft>;
+  /** What fills an empty queue, under its one line. */
+  readonly emptyAction: ReactNode;
   readonly onSkip: (id: string) => void;
   readonly onUnschedule: (id: string) => void;
   readonly onRunNow: (id: string) => void;
@@ -49,90 +55,129 @@ export function Queue({
 }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<string | null>(null);
-  const rates = useRates();
-  // Blocks with media go through the x.com session, which treg does not bill.
-  const draftCostUsd = (d: Draft) =>
-    rates === null
-      ? 0
-      : d.blocks.reduce(
-          (sum, b, i) =>
-            sum + (d.media.some((m) => m.blockIndex === i) ? 0 : postCostUsd(rates, b.text)),
-          0,
-        );
-  if (drafts.length === 0)
-    return <Empty>Nothing queued. Add a draft from Compose or the shelf.</Empty>;
+  const costOf = useDraftCost();
+  if (drafts.length === 0) return <Empty action={emptyAction}>Nothing queued.</Empty>;
   return (
-    <ul className="flex flex-col rounded-lg border border-border bg-card">
-      {drafts.map((d) => (
-        <li
-          key={d.id}
-          className="flex flex-col gap-1 border-b border-border px-3 py-2 last:border-b-0"
-        >
-          <div className="flex items-center gap-2">
-            <button className="min-w-0 flex-1 text-left" onClick={() => onOpen(d)}>
-              <p className="truncate text-sm">{draftTitle(d)}</p>
-              <p className="flex gap-2 font-mono text-2xs text-muted-foreground">
-                <span className={statusTone[d.status]}>{d.status}</span>
-                <span>{d.scheduledAt === null ? "no time" : fmtWhen(d.scheduledAt)}</span>
-                <span>{d.blocks.length} posts</span>
-                {d.media.length > 0 ? (
-                  <span className="text-info-foreground">
-                    {d.media.some((m) => m.kind === "video")
-                      ? "video"
-                      : `${d.media.length} ${d.media.length === 1 ? "image" : "images"}`}
-                    {" via session"}
+    <table className={table.root}>
+      <thead>
+        <tr>
+          <th className={table.th}>Posts at</th>
+          <th className={cn(table.th, "w-full")}>Draft</th>
+          <th className={cn(table.th, "text-right")}>Posts</th>
+          <th className={cn(table.th, "text-right")}>Cost</th>
+          <th className={table.th} />
+        </tr>
+      </thead>
+      <tbody>
+        {drafts.map((d) => {
+          const cost = costOf(d);
+          const media =
+            d.media.length === 0
+              ? null
+              : d.media.some((m) => m.kind === "video")
+                ? "video via session"
+                : `${d.media.length} ${d.media.length === 1 ? "image" : "images"} via session`;
+          return (
+            <Fragment key={d.id}>
+              <tr className={table.row}>
+                <td className={cn(table.td, table.num, "whitespace-nowrap text-left")}>
+                  <span className="flex items-center gap-2">
+                    <StatusDot status={d.status} />
+                    {d.status === "failed" ? (
+                      <span className="text-error-foreground">failed</span>
+                    ) : d.scheduledAt === null ? (
+                      "no time"
+                    ) : (
+                      fmtWhen(d.scheduledAt)
+                    )}
                   </span>
-                ) : null}
-                {d.kind === "article" ? <span>article</span> : null}
-                <span>{usd(draftCostUsd(d))}</span>
-                {d.attempts > 0 ? <span>{d.attempts} attempts</span> : null}
-              </p>
-            </button>
-            <Button variant="ghost" size="xs" onClick={() => onSkip(d.id)}>
-              Skip
-            </Button>
-            <Button variant="ghost" size="xs" onClick={() => onUnschedule(d.id)}>
-              Unschedule
-            </Button>
-            <Button
-              variant="ghost"
-              size="xs"
-              onClick={() => setExpanded(expanded === d.id ? null : d.id)}
-            >
-              Runs
-            </Button>
-            <Button
-              size="xs"
-              disabled={d.status !== "queued"}
-              onClick={() => setConfirm(confirm === d.id ? null : d.id)}
-            >
-              Post now
-            </Button>
-          </div>
-          {d.error !== null ? <p className="text-2xs text-error-foreground">{d.error}</p> : null}
-          {confirm === d.id ? (
-            <div className="flex flex-wrap items-center gap-2 rounded-md border border-warning/40 bg-warning-surface px-2 py-1.5 text-xs">
-              <span>
-                Post {d.blocks.length} {d.blocks.length === 1 ? "post" : "posts"} now for{" "}
-                {usd(draftCostUsd(d))}. This charges your treg balance.
-              </span>
-              <Button
-                size="xs"
-                onClick={() => {
-                  setConfirm(null);
-                  onRunNow(d.id);
-                }}
-              >
-                Confirm and post
-              </Button>
-              <Button variant="ghost" size="xs" onClick={() => setConfirm(null)}>
-                Cancel
-              </Button>
-            </div>
-          ) : null}
-          {expanded === d.id ? <Runs id={d.id} /> : null}
-        </li>
-      ))}
-    </ul>
+                </td>
+                <td className={cn(table.td, "max-w-0 py-2")}>
+                  <button
+                    type="button"
+                    className="block w-full cursor-pointer truncate text-left outline-hidden focus-visible:underline"
+                    onClick={() => onOpen(d)}
+                  >
+                    {draftTitle(d)}
+                  </button>
+                  {d.error !== null ? (
+                    <p className="truncate text-xs text-error-foreground">{d.error}</p>
+                  ) : null}
+                  {media !== null || d.attempts > 0 ? (
+                    <p className="truncate text-xs text-muted-foreground">
+                      {[media, d.attempts > 0 ? `${d.attempts} attempts` : null]
+                        .filter((x) => x !== null)
+                        .join(" · ")}
+                    </p>
+                  ) : null}
+                </td>
+                <td className={cn(table.td, table.num, "text-muted-foreground")}>
+                  {d.kind === "article" ? "article" : d.blocks.length}
+                </td>
+                <td className={cn(table.td, "text-right")}>
+                  {cost === null ? <Cost label="…" /> : <Cost usd={cost} />}
+                </td>
+                <td className={cn(table.td, "w-px")}>
+                  <div className="flex justify-end gap-0.5">
+                    <Button variant="ghost" size="xs" onClick={() => onSkip(d.id)}>
+                      Skip
+                    </Button>
+                    <Button variant="ghost" size="xs" onClick={() => onUnschedule(d.id)}>
+                      Unschedule
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      aria-expanded={expanded === d.id}
+                      onClick={() => setExpanded(expanded === d.id ? null : d.id)}
+                    >
+                      Runs
+                    </Button>
+                    <Popover
+                      open={confirm === d.id}
+                      onOpenChange={(open) => setConfirm(open ? d.id : null)}
+                      trigger={
+                        <Button variant="outline" size="xs" disabled={d.status !== "queued"}>
+                          Post now
+                        </Button>
+                      }
+                    >
+                      <p>
+                        Post {d.blocks.length} {d.blocks.length === 1 ? "post" : "posts"} now for{" "}
+                        {cost === null ? "…" : <Cost usd={cost} />}.
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Charges your treg balance.
+                      </p>
+                      <div className="mt-3 flex justify-end gap-1.5">
+                        <Button variant="ghost" size="xs" onClick={() => setConfirm(null)}>
+                          Cancel
+                        </Button>
+                        <Button
+                          size="xs"
+                          onClick={() => {
+                            setConfirm(null);
+                            onRunNow(d.id);
+                          }}
+                        >
+                          Confirm and post
+                        </Button>
+                      </div>
+                    </Popover>
+                  </div>
+                </td>
+              </tr>
+              {expanded === d.id ? (
+                <tr>
+                  <td colSpan={5} className="border-b border-border px-6 py-2.5">
+                    <Runs id={d.id} />
+                  </td>
+                </tr>
+              ) : null}
+            </Fragment>
+          );
+        })}
+      </tbody>
+    </table>
   );
 }

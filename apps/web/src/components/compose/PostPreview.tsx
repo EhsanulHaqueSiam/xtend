@@ -19,12 +19,15 @@ export function QuoteCard({ url }: { readonly url: string }) {
   const post = postId === null ? null : AsyncResult.getOrElse(saved, () => null);
   if (post === null)
     return (
-      <p className="mt-2 truncate text-[13px] text-info-foreground" data-testid="quote-link">
+      <p
+        className="mt-2 truncate font-mono text-2xs text-muted-foreground"
+        data-testid="quote-link"
+      >
         {url}
       </p>
     );
   return (
-    <div className="mt-2 rounded-2xl border border-border px-3 py-2" data-testid="quote-card">
+    <div className="mt-2 rounded-xl border border-border px-3 py-2" data-testid="quote-card">
       <p className="flex gap-1 text-[13px]">
         <span className="font-semibold">{post.post.author.name}</span>
         <span className="text-muted-foreground">@{post.post.author.handle}</span>
@@ -65,16 +68,13 @@ export function PostPreview({
     <XCard
       title="Preview"
       aside={
-        <span className="flex gap-0.5 text-[13px] font-normal">
+        <span className="flex gap-3 text-xs font-normal">
           {(["phone", "desktop"] as const).map((f) => (
             <button
               key={f}
               type="button"
               aria-pressed={frame === f}
-              className={cn(
-                "cursor-pointer rounded-full px-2.5 py-1 capitalize text-muted-foreground hover:bg-accent",
-                frame === f && "bg-accent text-foreground",
-              )}
+              className="cursor-pointer capitalize text-muted-foreground transition-colors duration-150 hover:text-foreground aria-pressed:text-foreground"
               onClick={() => setFrame(f)}
             >
               {f}
@@ -85,39 +85,39 @@ export function PostPreview({
     >
       <div
         className={cn(
-          "pb-2",
-          frame === "phone" && "mx-auto mb-3 max-w-[300px] rounded-3xl border-2 border-border py-3",
+          frame === "phone" &&
+            "mx-auto max-w-[300px] rounded-[28px] border border-white/13 px-1 pt-4 pb-2",
         )}
       >
         {blocks.map(({ text }, i) => (
           // eslint-disable-next-line react/no-array-index-key -- blocks are plain strings; position is their identity.
-          <div key={i} className="flex gap-2.5 px-4 pt-1">
+          <div key={i} className="flex gap-2.5 px-1 pt-1">
             <div className="flex flex-col items-center">
               {avatarUrl !== null ? (
                 <img src={avatarUrl} alt="" className="size-8 shrink-0 rounded-full" />
               ) : (
-                <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[#333639] text-xs font-bold">
+                <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white/10 text-xs font-semibold">
                   {initials(name)}
                 </div>
               )}
-              {i < blocks.length - 1 ? <div className="mt-1 w-0.5 flex-1 bg-[#333639]" /> : null}
+              {i < blocks.length - 1 ? <div className="mt-1 w-px flex-1 bg-white/13" /> : null}
             </div>
             <div className="min-w-0 flex-1 pb-3">
-              <div className="flex items-baseline gap-1 text-sm">
-                <span className="truncate font-bold">{name}</span>
+              <div className="flex items-baseline gap-1 text-[13px]">
+                <span className="truncate font-semibold">{name}</span>
                 <span className="truncate text-muted-foreground">@{handle ?? "you"} · now</span>
               </div>
-              <p className="mt-0.5 whitespace-pre-wrap break-words text-sm leading-[18px]">
+              <p className="mt-0.5 whitespace-pre-wrap break-words text-[13.5px] leading-[1.4]">
                 {text === "" ? <span className="text-placeholder">Your post</span> : text}
               </p>
               {media.some((m) => m.blockIndex === i) ? (
-                <div className="mt-2 grid grid-cols-2 gap-0.5 overflow-hidden rounded-2xl border border-border">
+                <div className="mt-2 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border">
                   {media
                     .filter((m) => m.blockIndex === i)
                     .map((m) => (
                       <div
                         key={m.id}
-                        className="flex h-20 items-center justify-center overflow-hidden bg-[#16181c] text-2xs text-muted-foreground"
+                        className="flex h-20 items-center justify-center overflow-hidden bg-surface-raised font-mono text-2xs text-muted-foreground"
                       >
                         {previews[m.id] !== undefined && m.kind === "image" ? (
                           <img

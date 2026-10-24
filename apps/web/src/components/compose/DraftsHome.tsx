@@ -1,22 +1,27 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import type { Draft, PendingRequest } from "@xtend/contracts";
+import { Link } from "@tanstack/react-router";
 import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { CalendarClock, ExternalLink, Pencil, Trash2, Undo2, Zap } from "lucide-react";
-import { useState } from "react";
+import { Plus } from "lucide-react";
+import { useState, type ReactNode } from "react";
 
 import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
 import { approvePendingAtom, dismissPendingAtom, pendingAtom } from "../../state/automate";
 import { deleteDraftAtom, draftsAtom } from "../../state/compose";
+import { usd } from "../../state/costs";
 import { queueAtom, unscheduleAtom } from "../../state/plan";
 import { xNavigate, xPanelOpenAtom } from "../../state/x";
-import { SubTabs, xAction, xMeta, xPill, xPillSm, xPillSolid } from "../x";
+import { PageHeader } from "../PageHeader";
+import { sectionLabel, SECTIONS, type SectionId } from "../shell/sections";
+import { Button } from "../ui/button";
+import { Cost, Empty, PageBody, table } from "../ui/layout";
 import { failText } from "./AssistPanel";
-import { fmtWhen, statusTone } from "./DraftsList";
+import { draftTitle, fmtWhen, sumUsd, useDraftCost } from "./DraftsList";
 
-export const COMPOSE_TABS = ["drafts", "queued", "automatic", "failed", "posted"] as const;
-export type ComposeTab = (typeof COMPOSE_TABS)[number];
+export type ComposeTab = SectionId<"/compose">;
+export const COMPOSE_TABS: ReadonlyArray<ComposeTab> = SECTIONS["/compose"].map((s) => s.id);
 
 const STATUSES: Record<ComposeTab, ReadonlyArray<Draft["status"]>> = {
   drafts: ["draft"],
@@ -26,19 +31,32 @@ const STATUSES: Record<ComposeTab, ReadonlyArray<Draft["status"]>> = {
   posted: ["posted"],
 };
 
-/** The tab a draft lives under, so the editor's back arrow returns to it. */
+/** The section a draft lives under, so the editor's way back returns to it. */
 export const tabOf = (status: Draft["status"]): ComposeTab =>
   COMPOSE_TABS.find((tab) => STATUSES[tab].includes(status)) ?? "drafts";
 
-const EMPTY: Record<ComposeTab, string> = {
-  drafts: "No drafts. Start one above, or press C anywhere in X.",
-  queued: "Nothing queued. Queued drafts post at the next free slot from Plan.",
-  automatic: "Nothing waiting. Library and Automate put their drafts and ask-first actions here.",
-  failed: "No failed posts.",
-  posted: "Nothing posted from Xtend yet.",
+/** What the time column means in each section. */
+const WHEN: Record<ComposeTab, string> = {
+  drafts: "Edited",
+  queued: "Posts at",
+  automatic: "Added",
+  failed: "Failed",
+  posted: "Posted",
 };
 
-const usd = (n: number) => `$${n.toFixed(3)}`;
+const when = (d: Draft) =>
+  d.status === "posting"
+    ? "posting"
+    : d.status === "queued"
+      ? d.scheduledAt === null
+        ? "next slot"
+        : fmtWhen(d.scheduledAt)
+      : d.status === "posted"
+        ? d.postedAt === null
+          ? ""
+          : fmtWhen(d.postedAt)
+        : fmtWhen(d.updatedAt);
+
 const statusUrl = (postId: string) => `https://x.com/i/web/status/${postId}`;
 
 /** Where a suggested draft came from, from the free-form source its writer left on it. */
@@ -53,18 +71,20 @@ const sourceLabel = (source: string | null) =>
           ? "From a saved post"
           : source;
 
-const meta = (d: Draft) =>
-  d.status === "queued"
-    ? `Queued · ${d.scheduledAt === null ? "next slot" : fmtWhen(d.scheduledAt)}`
-    : d.status === "posting"
-      ? "Posting…"
-      : d.status === "posted"
-        ? `Posted${d.postedAt === null ? "" : ` · ${fmtWhen(d.postedAt)}`}`
-        : d.status === "failed"
-          ? "Failed"
-          : d.status === "suggested"
-            ? "Suggested"
-            : `Edited ${fmtWhen(d.updatedAt)}`;
+/** The line under a draft's title: why it failed, where it came from, or how it goes on. */
+const subline = (d: Draft): { readonly text: string; readonly tone?: string } | null => {
+  if (d.status === "failed" && d.error !== null)
+    return { text: d.error, tone: "text-error-foreground" };
+  const source = d.status === "suggested" ? sourceLabel(d.source) : null;
+  if (source !== null) return { text: source };
+  // An article's title is its first line, so the body follows; a thread's hook is its first line.
+  const first = d.blocks[0]?.text ?? "";
+  const rest =
+    d.kind === "article"
+      ? d.body.trim()
+      : first.split("\n").slice(1).join(" ").trim() || (d.blocks[1]?.text ?? "").trim();
+  return rest === "" ? null : { text: rest.replace(/\s+/g, " ") };
+};
 
 /** On the desktop the post opens in the x.com panel beside Compose; in a browser, a new tab. */
 function useOpenOnX() {
@@ -76,117 +96,94 @@ function useOpenOnX() {
   };
 }
 
-function Avatar({ label, className }: { readonly label: string; readonly className?: string }) {
-  return (
-    <div
-      className={cn(
-        "flex size-10 shrink-0 items-center justify-center rounded-full bg-[#333639] text-sm font-bold",
-        className,
-      )}
-    >
-      {label}
-    </div>
-  );
-}
+type RowAction = "queue" | "unschedule" | "delete";
 
-/** A draft drawn as the X post it will become, with its status where X puts the time. */
+/** One draft: its first line and what follows, then posts, price and time in mono columns. */
 function DraftRow({
   draft: d,
-  handle,
+  costUsd,
   onOpen,
   onAct,
 }: {
   readonly draft: Draft;
-  readonly handle: string | null;
+  readonly costUsd: number | null;
   readonly onOpen: (id: string) => void;
-  readonly onAct: (what: "queue" | "unschedule" | "delete", id: string) => void;
+  readonly onAct: (what: RowAction, id: string) => void;
 }) {
   const openOnX = useOpenOnX();
   const editable = d.status !== "posted" && d.status !== "posting";
-  const text = d.kind === "article" ? d.body : (d.blocks[0]?.text ?? "");
-  const source = d.status === "suggested" ? sourceLabel(d.source) : null;
+  const sub = subline(d);
+  const posts = d.kind === "article" ? "article" : String(d.blocks.length);
+  const blank =
+    d.kind === "article"
+      ? d.title.trim() === "" && d.body.trim() === ""
+      : d.blocks.every((b) => b.text.trim() === "");
   return (
-    <article
-      className={cn(
-        "flex gap-3 border-b border-border px-4 py-3 transition-colors hover:bg-white/[0.03]",
-        editable && "cursor-pointer",
-      )}
+    <tr
+      className={cn(table.row, editable && "cursor-pointer")}
       onClick={() => (editable ? onOpen(d.id) : undefined)}
     >
-      <Avatar label={(handle ?? "you").slice(0, 1).toUpperCase()} />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-1 text-[15px] leading-5">
-          <span className="truncate font-bold">{handle ?? "You"}</span>
-          {handle !== null ? (
-            <span className="truncate text-muted-foreground">@{handle}</span>
-          ) : null}
-          <span className={cn("ml-auto shrink-0 pl-2 text-[13px]", statusTone[d.status])}>
-            {meta(d)}
-          </span>
-        </div>
-        {d.kind === "article" ? (
-          <p className="mt-0.5 text-[15px] font-bold">{d.title || "Untitled article"}</p>
+      <td className={cn(table.td, "w-full max-w-0 py-2")}>
+        {editable ? (
+          <button
+            type="button"
+            className="block w-full cursor-pointer truncate text-left outline-hidden focus-visible:underline"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpen(d.id);
+            }}
+          >
+            {blank ? <span className="text-placeholder">Empty draft</span> : draftTitle(d)}
+          </button>
+        ) : (
+          <p className="truncate">{draftTitle(d)}</p>
+        )}
+        {sub !== null ? (
+          <p className={cn("truncate text-xs text-muted-foreground", sub.tone)}>{sub.text}</p>
         ) : null}
-        <p className="mt-0.5 line-clamp-4 whitespace-pre-wrap break-words text-[15px] leading-5">
-          {text.trim() === "" ? <span className="text-placeholder">Empty draft</span> : text}
-        </p>
-        {d.kind === "thread" && d.blocks.length > 1 ? (
-          <p className="mt-1 text-[15px] text-primary">
-            Show this thread · {d.blocks.length} posts
-          </p>
-        ) : null}
-        {d.media.length > 0 ? (
-          <p className={cn(xMeta, "mt-1")}>
-            {d.media.length} {d.media.length === 1 ? "attachment" : "attachments"}
-          </p>
-        ) : null}
-        {source !== null ? <p className={cn(xMeta, "mt-1")}>{source}</p> : null}
-        {d.status === "failed" && d.error !== null ? (
-          <p className="mt-1 text-[13px] text-[#f4212e]">{d.error}</p>
-        ) : null}
-        {/* Actions act on the row, not open it. */}
-        <div className="-ml-2.5 mt-1 flex flex-wrap" onClick={(e) => e.stopPropagation()}>
-          {editable ? (
-            <button type="button" className={xAction} onClick={() => onOpen(d.id)}>
-              <Pencil />
-              Edit
-            </button>
-          ) : null}
+      </td>
+      <td className={cn(table.td, table.num, "text-muted-foreground")}>
+        {posts}
+        {d.media.length > 0 ? ` · ${d.media.length} media` : ""}
+      </td>
+      {d.status === "posted" ? null : (
+        <td className={cn(table.td, "text-right")}>
+          {costUsd === null ? <Cost label="…" /> : <Cost usd={costUsd} />}
+        </td>
+      )}
+      <td className={cn(table.td, table.num, "whitespace-nowrap text-muted-foreground")}>
+        {when(d)}
+      </td>
+      {/* Actions act on the row, not open it. */}
+      <td className={cn(table.td, "w-px")} onClick={(e) => e.stopPropagation()}>
+        <div className="flex justify-end gap-0.5">
           {d.status === "draft" || d.status === "suggested" || d.status === "failed" ? (
-            <button type="button" className={xAction} onClick={() => onAct("queue", d.id)}>
-              <CalendarClock />
+            <Button variant="ghost" size="xs" onClick={() => onAct("queue", d.id)}>
               {d.status === "failed" ? "Retry at next slot" : "Queue"}
-            </button>
+            </Button>
           ) : null}
           {d.status === "queued" ? (
-            <button type="button" className={xAction} onClick={() => onAct("unschedule", d.id)}>
-              <Undo2 />
+            <Button variant="ghost" size="xs" onClick={() => onAct("unschedule", d.id)}>
               Unschedule
-            </button>
+            </Button>
           ) : null}
           {d.status === "posted" && d.postIds[0] !== undefined ? (
-            <button
-              type="button"
-              className={xAction}
-              onClick={() => openOnX(statusUrl(d.postIds[0]!))}
-            >
-              <ExternalLink />
+            <Button variant="ghost" size="xs" onClick={() => openOnX(statusUrl(d.postIds[0]!))}>
               View on X
-            </button>
+            </Button>
           ) : null}
           {editable && d.status !== "queued" ? (
-            <button type="button" className={xAction} onClick={() => onAct("delete", d.id)}>
-              <Trash2 />
+            <Button variant="ghost-destructive" size="xs" onClick={() => onAct("delete", d.id)}>
               {d.status === "suggested" ? "Dismiss" : "Delete"}
-            </button>
+            </Button>
           ) : null}
         </div>
-      </div>
-    </article>
+      </td>
+    </tr>
   );
 }
 
-/** An ask-first automation run waiting for a click; approving pays the price shown on it. */
+/** An ask-first automation run waiting for a click; approving pays the price on its button. */
 function PendingRow({
   request,
   onDecide,
@@ -195,54 +192,82 @@ function PendingRow({
   readonly onDecide: (approve: boolean, id: number) => void;
 }) {
   return (
-    <article className="flex gap-3 border-b border-border px-4 py-3">
-      <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
-        <Zap className="size-5" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-1 text-[15px] leading-5">
-          <span className="truncate font-bold">{request.ruleName}</span>
-          <span className="ml-auto shrink-0 pl-2 text-[13px] text-muted-foreground">
-            {fmtWhen(request.createdAt)}
-          </span>
-        </div>
-        <p className="mt-0.5 whitespace-pre-wrap text-[15px] leading-5">{request.description}</p>
-        <div className="mt-2 flex gap-2">
-          <button
-            type="button"
-            className={cn(xPillSolid, xPillSm)}
-            onClick={() => onDecide(true, request.id)}
-          >
-            Approve · {usd(request.costUsd)}
-          </button>
-          <button
-            type="button"
-            className={cn(xPill, xPillSm)}
-            onClick={() => onDecide(false, request.id)}
-          >
+    <tr className={table.row}>
+      <td className={cn(table.td, "w-full max-w-0 py-2")}>
+        <p className="truncate">{request.ruleName}</p>
+        <p className="truncate text-xs text-muted-foreground">{request.description}</p>
+      </td>
+      <td className={cn(table.td, table.num, "whitespace-nowrap text-muted-foreground")}>
+        {fmtWhen(request.createdAt)}
+      </td>
+      <td className={cn(table.td, "w-px")}>
+        <div className="flex justify-end gap-1">
+          <Button size="xs" onClick={() => onDecide(true, request.id)}>
+            Approve
+            <Cost tone="solid" usd={request.costUsd} />
+          </Button>
+          <Button variant="ghost" size="xs" onClick={() => onDecide(false, request.id)}>
             Dismiss
-          </button>
+          </Button>
         </div>
-      </div>
-    </article>
+      </td>
+    </tr>
   );
 }
 
+function Table({ head, children }: { readonly head: ReactNode; readonly children: ReactNode }) {
+  return (
+    <table className={table.root}>
+      <thead>
+        <tr>{head}</tr>
+      </thead>
+      <tbody>{children}</tbody>
+    </table>
+  );
+}
+
+/** One line per empty section, with the action that fills it when there is one. */
+function EmptySection({ tab, onNew }: { readonly tab: ComposeTab; readonly onNew: () => void }) {
+  const newDraft = (
+    <Button variant="outline" size="sm" onClick={onNew}>
+      New draft
+    </Button>
+  );
+  switch (tab) {
+    case "drafts":
+      return <Empty action={newDraft}>No drafts. Press C anywhere to start one.</Empty>;
+    case "queued":
+      return <Empty action={newDraft}>Nothing queued. Queued drafts post at your next slot.</Empty>;
+    case "automatic":
+      return (
+        <Empty
+          action={
+            <Button variant="outline" size="sm" render={<Link to="/automate" />}>
+              Automate
+            </Button>
+          }
+        >
+          Nothing waiting. Library and Automate leave drafts and ask-first actions here.
+        </Empty>
+      );
+    case "failed":
+      return <Empty>No failed posts.</Empty>;
+    case "posted":
+      return <Empty>Nothing posted from Xtend yet.</Empty>;
+  }
+}
+
 /**
- * Compose's landing page: every draft as the X post it will become, grouped by where it is
- * (yours, queued, written for you by Library and Automate, failed, posted), under X's own
- * "What's happening?" box. Opening a draft or the box goes to the composer.
+ * Compose's landing page: one section of drafts (yours, queued, written for you by Library
+ * and Automate, failed, posted) as a dense table. The section comes from the sidebar; a row
+ * or New draft opens the composer.
  */
 export function DraftsHome({
   tab,
-  handle,
-  onTab,
   onOpen,
   onNew,
 }: {
   readonly tab: ComposeTab;
-  readonly handle: string | null;
-  readonly onTab: (tab: ComposeTab) => void;
   readonly onOpen: (id: string) => void;
   readonly onNew: () => void;
 }) {
@@ -257,15 +282,18 @@ export function DraftsHome({
   const remove = useAtomSet(deleteDraftAtom, { mode: "promiseExit" });
   const approve = useAtomSet(approvePendingAtom, { mode: "promiseExit" });
   const dismiss = useAtomSet(dismissPendingAtom, { mode: "promiseExit" });
+  const costOf = useDraftCost();
   const [notice, setNotice] = useState<string | null>(null);
 
   const all = AsyncResult.getOrElse(drafts, () => [] as ReadonlyArray<Draft>);
-  const count = (t: ComposeTab) => all.filter((d) => STATUSES[t].includes(d.status)).length;
   const shown = all.filter((d) => STATUSES[tab].includes(d.status));
+  const asks = tab === "automatic" ? pending : [];
+  const costs = shown.map(costOf);
+  const total = costs.every((c) => c !== null) ? sumUsd(costs) : null;
 
   const report = (exit: Exit.Exit<unknown, unknown>, done: string) =>
     setNotice(Exit.isFailure(exit) ? `Failed: ${failText(exit.cause)}` : done);
-  const act = async (what: "queue" | "unschedule" | "delete", id: string) => {
+  const act = async (what: RowAction, id: string) => {
     const exit =
       what === "queue"
         ? await queue(id)
@@ -288,60 +316,87 @@ export function DraftsHome({
     refreshDrafts();
   };
 
+  // The section's size and what posting all of it would cost.
+  const count = shown.length + asks.length;
+  const detail =
+    count === 0
+      ? undefined
+      : tab === "posted" || total === null || total === 0
+        ? `${count}`
+        : `${count} · ${usd(total)}`;
+
   return (
     <div className="flex h-full flex-col">
-      <SubTabs
-        tabs={[
-          { id: "drafts", label: "Drafts", count: count("drafts") },
-          { id: "queued", label: "Queued", count: count("queued") },
-          { id: "automatic", label: "Automatic", count: count("automatic") + pending.length },
-          { id: "failed", label: "Failed", count: count("failed") },
-          { id: "posted", label: "Posted" },
-        ]}
-        value={tab}
-        onChange={onTab}
+      <PageHeader
+        title={sectionLabel("/compose", tab)}
+        detail={detail}
+        actions={
+          <Button size="sm" onClick={onNew}>
+            <Plus />
+            New draft
+          </Button>
+        }
       />
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <button
-          type="button"
-          className="flex w-full cursor-text items-center gap-3 border-b border-border px-4 py-3 text-left"
-          onClick={onNew}
+      {notice !== null ? (
+        <p
+          role="status"
+          className={cn(
+            "shrink-0 border-b border-border px-6 py-2 text-xs",
+            notice.startsWith("Failed") ? "text-error-foreground" : "text-muted-foreground",
+          )}
         >
-          <Avatar label={(handle ?? "you").slice(0, 1).toUpperCase()} />
-          <span className="flex-1 py-2 text-xl text-placeholder">What's the thread?</span>
-          <span className={cn(xPillSolid, "pointer-events-none")}>Draft</span>
-        </button>
-        {notice !== null ? (
-          <p
-            role="status"
-            className={cn(
-              "border-b border-border px-4 py-2 text-[13px]",
-              notice.startsWith("Failed") ? "text-[#f4212e]" : "text-muted-foreground",
-            )}
+          {notice}
+        </p>
+      ) : null}
+      <PageBody>
+        {asks.length > 0 ? (
+          <Table
+            head={
+              <>
+                <th className={table.th}>Ask first</th>
+                <th className={cn(table.th, "text-right")}>Asked</th>
+                <th className={table.th} />
+              </>
+            }
           >
-            {notice}
-          </p>
+            {asks.map((r) => (
+              <PendingRow key={r.id} request={r} onDecide={decide} />
+            ))}
+          </Table>
         ) : null}
-        {tab === "automatic"
-          ? pending.map((r) => <PendingRow key={r.id} request={r} onDecide={decide} />)
-          : null}
         {AsyncResult.match(drafts, {
-          onInitial: () => <p className={cn(xMeta, "px-4 py-8 text-center")}>Loading…</p>,
-          onFailure: (f) => (
-            <p className="px-4 py-8 text-center text-[13px] text-[#f4212e]">{failText(f.cause)}</p>
-          ),
+          onInitial: () => <Empty>Loading drafts</Empty>,
+          onFailure: (f) => <Empty>{failText(f.cause)}</Empty>,
           onSuccess: () =>
-            shown.length === 0 && !(tab === "automatic" && pending.length > 0) ? (
-              <p className={cn(xMeta, "px-8 py-10 text-center text-[15px] leading-5")}>
-                {EMPTY[tab]}
-              </p>
+            shown.length === 0 ? (
+              asks.length > 0 ? null : (
+                <EmptySection tab={tab} onNew={onNew} />
+              )
             ) : (
-              shown.map((d) => (
-                <DraftRow key={d.id} draft={d} handle={handle} onOpen={onOpen} onAct={act} />
-              ))
+              <Table
+                head={
+                  <>
+                    <th className={table.th}>{tab === "automatic" ? "Suggested" : "Draft"}</th>
+                    <th className={cn(table.th, "text-right")}>Posts</th>
+                    {tab === "posted" ? null : <th className={cn(table.th, "text-right")}>Cost</th>}
+                    <th className={cn(table.th, "text-right")}>{WHEN[tab]}</th>
+                    <th className={table.th} />
+                  </>
+                }
+              >
+                {shown.map((d, i) => (
+                  <DraftRow
+                    key={d.id}
+                    draft={d}
+                    costUsd={costs[i] ?? null}
+                    onOpen={onOpen}
+                    onAct={act}
+                  />
+                ))}
+              </Table>
             ),
         })}
-      </div>
+      </PageBody>
     </div>
   );
 }

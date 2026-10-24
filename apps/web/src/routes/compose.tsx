@@ -6,27 +6,33 @@ import {
   type DraftPatch,
   type DraftPoll,
   MEDIA_MAX_BYTES,
-  postCostUsd,
   type ReplySettings,
 } from "@xtend/contracts";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { ArrowLeft, CalendarClock } from "lucide-react";
+import { ArrowLeft, CalendarClock, ChevronRight } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { TextMorph } from "torph/react";
 
 import { AssistPanel, ComposeContext, failText } from "../components/compose/AssistPanel";
 import { COMPOSE_TABS, type ComposeTab, DraftsHome, tabOf } from "../components/compose/DraftsHome";
-import { fmtWhen, statusTone } from "../components/compose/DraftsList";
+import { fmtWhen, postCosts, sumUsd } from "../components/compose/DraftsList";
+import { Popover } from "../components/compose/overlay";
 import { PostPreview, quotedPostId } from "../components/compose/PostPreview";
 import {
+  fieldClass,
   MediaList,
   REPLY_OPTIONS,
   splitBlocks,
   ThreadEditor,
 } from "../components/compose/ThreadEditor";
+import { HeaderTabs, PageHeader } from "../components/PageHeader";
 import { Companion } from "../components/shell/Companion";
-import { SubTabs, XCard, xInput, xMeta, xPill, xPillSm, xPillSolid } from "../components/x";
+import { sectionLabel, useSection } from "../components/shell/sections";
+import { Button } from "../components/ui/button";
+import { Cost, PageBody } from "../components/ui/layout";
+import { XCard } from "../components/x";
 import { cn } from "../lib/utils";
 import { localInputToInstant } from "../lib/time";
 import {
@@ -110,8 +116,6 @@ const isBlank = (e: Editor) =>
     ? e.blocks.every((b) => b.text.trim() === "") && e.media.length === 0
     : e.title.trim() === "" && e.body.trim() === "";
 
-const usd = (n: number) => `$${n.toFixed(3)}`;
-
 const toBase64 = (file: File) =>
   new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -120,6 +124,18 @@ const toBase64 = (file: File) =>
     reader.readAsDataURL(file);
   });
 
+/** "Sun 09:00" within the week ahead, "Nov 3, 09:00" past it: short enough for a header button. */
+const slotLabel = (zone: string, at: Date, now: Date) =>
+  new Intl.DateTimeFormat("en", {
+    timeZone: zone,
+    hourCycle: "h23",
+    hour: "2-digit",
+    minute: "2-digit",
+    ...(at.getTime() - now.getTime() < 6 * 86_400_000
+      ? { weekday: "short" }
+      : { month: "short", day: "numeric" }),
+  }).format(at);
+
 /** The Library post a new draft was started from; shown beside the editor, linked on the draft. */
 function Inspiration({ postId }: { readonly postId: string }) {
   const saved = useAtomValue(savedPostAtom(postId));
@@ -127,7 +143,7 @@ function Inspiration({ postId }: { readonly postId: string }) {
   if (post === null) return null;
   return (
     <XCard title={`Inspired by @${post.post.author.handle}`}>
-      <p className="whitespace-pre-wrap px-4 pb-3 text-[15px] leading-5">{post.post.text}</p>
+      <p className="whitespace-pre-wrap text-[13.5px] leading-[1.4]">{post.post.text}</p>
     </XCard>
   );
 }
@@ -149,12 +165,12 @@ function ReplyTarget({ postId }: { readonly postId: string }) {
   return (
     <XCard title={target === null ? "Replying" : `Replying to @${target.handle}`}>
       {target !== null ? (
-        <p className="line-clamp-6 whitespace-pre-wrap px-4 pb-3 text-[15px] leading-5">
+        <p className="line-clamp-6 whitespace-pre-wrap text-[13.5px] leading-[1.4]">
           {target.text}
         </p>
       ) : (
         <a
-          className="block truncate px-4 pb-3 text-[15px] text-primary"
+          className="block truncate font-mono text-2xs text-muted-foreground hover:text-foreground"
           href={sourceUrl(postId)}
           target="_blank"
           rel="noreferrer"
@@ -174,15 +190,32 @@ const POLL_DURATIONS = [
   [10080, "7 days"],
 ] as const;
 
+/** The options that differ from a plain thread, for the collapsed Options row. */
+const optionsSummary = (e: Editor) =>
+  [
+    e.replySettings === "everyone"
+      ? null
+      : (REPLY_OPTIONS.find(([v]) => v === e.replySettings)?.[1] ?? null),
+    e.quoteUrl.trim() === "" ? null : "quote",
+    e.poll === null ? null : "poll",
+    e.hideLinkPreviews ? "no link previews" : null,
+    e.threadDelaySeconds > 0 ? `${e.threadDelaySeconds}s apart` : null,
+  ]
+    .filter((x) => x !== null)
+    .join(" · ");
+
+const row = "flex items-center justify-between gap-3 border-t border-border py-2.5";
+const check = "size-4 cursor-pointer accent-foreground";
+
 function Options({ editor, onChange }: { editor: Editor; onChange: (e: Editor) => void }) {
   const poll = editor.poll;
   const quoteBad = editor.quoteUrl.trim() !== "" && quotedPostId(editor.quoteUrl) === null;
   return (
-    <div className="flex flex-col text-[15px] [&>label]:border-t [&>label]:border-border [&>label]:px-4 [&>label]:py-3">
-      <label className="flex items-center justify-between gap-2">
+    <div className="flex flex-col pb-2 text-[13px]">
+      <label className={row}>
         <span>Who can reply to every post</span>
         <select
-          className={cn(xInput, "w-auto")}
+          className={cn(fieldClass, "h-7 w-auto py-0 text-xs")}
           value={editor.replySettings}
           onChange={(e) => onChange({ ...editor, replySettings: e.target.value as ReplySettings })}
         >
@@ -193,25 +226,27 @@ function Options({ editor, onChange }: { editor: Editor; onChange: (e: Editor) =
           ))}
         </select>
       </label>
-      <label className="flex flex-col gap-1.5">
-        <span>Quote a post</span>
-        <span className={xMeta}>An x.com link, posted in the first post at the link price.</span>
+      <label className={cn(row, "flex-col items-stretch gap-1.5")}>
+        <span className="flex items-baseline justify-between gap-3">
+          Quote a post
+          <span className="text-xs text-muted-foreground">rides on the first post as a link</span>
+        </span>
         <input
-          className={xInput}
+          className={fieldClass}
           aria-label="Quote post link"
           placeholder="https://x.com/handle/status/123"
           value={editor.quoteUrl}
           onChange={(e) => onChange({ ...editor, quoteUrl: e.target.value })}
         />
         {quoteBad ? (
-          <span className="text-[13px] text-[#f4212e]">Not an x.com status link</span>
+          <span className="text-xs text-error-foreground">Not an x.com status link</span>
         ) : null}
       </label>
-      <label className="flex items-center justify-between gap-2">
+      <label className={row}>
         <span>Poll on the first post</span>
         <input
           type="checkbox"
-          className="size-4 accent-[#1d9bf0]"
+          className={check}
           checked={poll !== null}
           onChange={(e) =>
             onChange({
@@ -222,12 +257,12 @@ function Options({ editor, onChange }: { editor: Editor; onChange: (e: Editor) =
         />
       </label>
       {poll !== null ? (
-        <div className="flex flex-col gap-2 px-4 pb-3">
+        <div className="flex flex-col gap-1.5 pb-2.5">
           {poll.options.map((o, i) => (
             // eslint-disable-next-line react/no-array-index-key -- options are plain strings; position is their identity.
             <div key={i} className="flex gap-1">
               <input
-                className={xInput}
+                className={fieldClass}
                 placeholder={`Option ${i + 1}`}
                 value={o}
                 maxLength={25}
@@ -242,9 +277,9 @@ function Options({ editor, onChange }: { editor: Editor; onChange: (e: Editor) =
                 }
               />
               {poll.options.length > 2 ? (
-                <button
-                  type="button"
-                  className={cn(xPill, xPillSm)}
+                <Button
+                  variant="ghost-muted"
+                  size="sm"
                   aria-label={`Remove option ${i + 1}`}
                   onClick={() =>
                     onChange({
@@ -254,23 +289,24 @@ function Options({ editor, onChange }: { editor: Editor; onChange: (e: Editor) =
                   }
                 >
                   Remove
-                </button>
+                </Button>
               ) : null}
             </div>
           ))}
           <div className="flex items-center justify-between gap-2">
-            <button
-              type="button"
-              className="cursor-pointer text-[15px] text-primary disabled:opacity-50"
+            <Button
+              variant="ghost"
+              size="xs"
               disabled={poll.options.length >= 4}
               onClick={() =>
                 onChange({ ...editor, poll: { ...poll, options: [...poll.options, ""] } })
               }
             >
               Add option
-            </button>
+            </Button>
             <select
-              className={cn(xInput, "w-auto")}
+              aria-label="Poll length"
+              className={cn(fieldClass, "h-7 w-auto py-0 text-xs")}
               value={poll.durationMinutes}
               onChange={(e) =>
                 onChange({ ...editor, poll: { ...poll, durationMinutes: Number(e.target.value) } })
@@ -285,26 +321,26 @@ function Options({ editor, onChange }: { editor: Editor; onChange: (e: Editor) =
           </div>
         </div>
       ) : null}
-      <label className="flex items-center justify-between gap-2">
+      <label className={row}>
         <span>
           Hide link previews
-          <span className={cn(xMeta, "block")}>
-            Removed through your x.com session after posting.
+          <span className="block text-xs text-muted-foreground">
+            Removed through your x.com session after posting
           </span>
         </span>
         <input
           type="checkbox"
-          className="size-4 accent-[#1d9bf0]"
+          className={check}
           checked={editor.hideLinkPreviews}
           onChange={(e) => onChange({ ...editor, hideLinkPreviews: e.target.checked })}
         />
       </label>
-      <label className="flex items-center justify-between gap-2">
+      <label className={row}>
         <span>Seconds between thread posts</span>
         <input
           type="number"
           min={0}
-          className={cn(xInput, "w-20")}
+          className={cn(fieldClass, "h-7 w-20 py-0 text-right font-mono text-xs")}
           value={editor.threadDelaySeconds}
           onChange={(e) =>
             onChange({
@@ -330,18 +366,15 @@ const composeSearch = (search: Partial<ComposeSearch>): ComposeSearch => ({
 });
 
 /**
- * Compose is drafts first: the list of drafts as X posts, and the composer once a draft, a
- * new thread, a reply, an inspiration or carried-over text is in the URL. A new `?inspire=`,
- * `?reply=`, `?text=` or `?draft=` remounts the composer, so it starts without an effect.
+ * Compose is drafts first: the open section's drafts (the sidebar picks the section), and the
+ * composer once a draft, a new thread, a reply, an inspiration or carried-over text is in the
+ * URL. A new `?inspire=`, `?reply=`, `?text=` or `?draft=` remounts the composer, so it starts
+ * without an effect. `?tab=` stays while editing, so the sidebar keeps the draft's section lit.
  */
 function ComposeScreen() {
   const search = Route.useSearch();
+  const tab = useSection("/compose");
   const navigate = useNavigate();
-  const settings = useAtomValue(settingsAtom);
-  const handle = AsyncResult.getOrElse(
-    AsyncResult.map(settings, (s) => s.handle),
-    () => null,
-  );
   const go = (next: Partial<ComposeSearch>) =>
     void navigate({ to: "/compose", search: composeSearch(next) });
   const editing =
@@ -353,10 +386,8 @@ function ComposeScreen() {
   if (!editing) {
     return (
       <DraftsHome
-        tab={search.tab ?? "drafts"}
-        handle={handle}
-        onTab={(tab) => go({ tab })}
-        onOpen={(draft) => go({ draft })}
+        tab={tab}
+        onOpen={(draft) => go({ draft, tab })}
         onNew={() => go({ new: true })}
       />
     );
@@ -368,7 +399,11 @@ function ComposeScreen() {
       inspire={search.inspire}
       reply={search.reply}
       text={search.text}
-      onBack={(tab) => go({ tab })}
+      onBack={(back) => go({ tab: back })}
+      onSection={(next) => {
+        if (next !== tab)
+          void navigate({ to: "/compose", search: { ...search, tab: next }, replace: true });
+      }}
     />
   );
 }
@@ -379,14 +414,17 @@ function ComposeEditor({
   reply,
   text,
   onBack,
+  onSection,
 }: {
   readonly draftParam: string | undefined;
   readonly inspire: string | undefined;
   readonly reply: string | undefined;
   /** Text carried over from X's composer by the Schedule chip. */
   readonly text: string | undefined;
-  /** Back to the list, on the tab the draft now lives under. */
+  /** Back to the list, on the section the draft now lives under. */
   readonly onBack: (tab: ComposeTab) => void;
+  /** The draft moved to another section (it was queued, posted or failed); the sidebar follows. */
+  readonly onSection: (tab: ComposeTab) => void;
 }) {
   const rates = useRates();
   const drafts = useAtomValue(draftsAtom);
@@ -543,6 +581,7 @@ function ComposeEditor({
     }
     const next = exit.value;
     setSelected(next);
+    onSection(tabOf(next.status));
     refresh();
     setNotice(
       next.status === "failed"
@@ -553,21 +592,19 @@ function ComposeEditor({
     );
   };
 
+  // Read once per mount; the slot label only needs to know which week it falls in.
+  const [mountedAt] = useState(() => new Date());
+  const [voice, setVoice] = useState<{ readonly score: number; readonly text: string } | null>(
+    null,
+  );
+
   const blocks = editor.blocks;
   const media = editor.media;
   const hasMedia = media.length > 0;
   const quoteUrl = editor.quoteUrl.trim() === "" ? null : editor.quoteUrl.trim();
   const quoteBad = quoteUrl !== null && quotedPostId(quoteUrl) === null;
-  // A block with media goes through the x.com session, which treg does not bill.
-  const costs =
-    rates === null
-      ? []
-      : blocks.map((b, i) =>
-          media.some((m) => m.blockIndex === i)
-            ? 0
-            : postCostUsd(rates, i === 0 && quoteUrl !== null ? `${b.text} ${quoteUrl}` : b.text),
-        );
-  const total = costs.reduce((a, b) => a + b, 0);
+  const costs = rates === null ? [] : postCosts(rates, blocks, media, quoteUrl);
+  const total = sumUsd(costs);
   const linkCount = rates === null ? 0 : costs.filter((c) => c === rates.postWithLink).length;
   const sessionCount = costs.filter((c) => c === 0).length;
   const isArticle = editor.kind === "article";
@@ -576,323 +613,393 @@ function ComposeEditor({
   const locked = selected?.status === "posted" || selected?.status === "posting";
   const canSend = !isBlank(editor) && !locked && rates !== null && !quoteBad;
   const sessionBlocked = hasMedia && (!sessionPosting || context?.desktopConnected === false);
+  // What sending costs: a thread post by post, an article as its draft and publish requests.
+  const sendUsd = isArticle
+    ? quote === null
+      ? null
+      : quote.articleUsd * 2
+    : rates === null
+      ? null
+      : total;
+  const price =
+    sendUsd === null ? <Cost tone="solid" label="…" /> : <Cost tone="solid" usd={sendUsd} />;
 
   const waiting = draftParam !== undefined && selected === null;
-  const nextSlot = context?.nextSlot ?? null;
-  const title =
-    selected === null
-      ? reply !== undefined
-        ? "Reply"
-        : isArticle
-          ? "New article"
-          : "New thread"
-      : isArticle
-        ? "Edit article"
-        : "Edit thread";
+  const queued = selected?.status === "queued";
+  const slotAt =
+    queued && selected.scheduledAt !== null ? selected.scheduledAt : (context?.nextSlot ?? null);
+  const slot = slotAt === null ? null : slotLabel(zone, new Date(slotAt), mountedAt);
+  const firstLine = (isArticle ? editor.title : (blocks[0]?.text ?? "")).split("\n")[0]?.trim();
+  const title = waiting
+    ? "Draft"
+    : firstLine !== undefined && firstLine !== ""
+      ? firstLine
+      : selected !== null
+        ? "Untitled"
+        : reply !== undefined
+          ? "Reply"
+          : isArticle
+            ? "New article"
+            : "New thread";
+  // A voice score only describes the text it was run on.
+  const voiceScore =
+    voice !== null && voice.text === JSON.stringify(blocks.map((b) => b.text)) ? voice.score : null;
+  const facts = waiting
+    ? []
+    : [
+        isArticle ? "article" : `${blocks.length} ${blocks.length === 1 ? "post" : "posts"}`,
+        selected === null || selected.status === "draft" ? null : selected.status,
+        voiceScore === null ? null : `voice ${Math.round(voiceScore * 100)}%`,
+      ].filter((x) => x !== null);
+  const back = selected === null ? "drafts" : tabOf(selected.status);
+
+  const postNowText = isArticle
+    ? "Publish this article now: a draft and a publish request."
+    : `Post ${blocks.length} ${blocks.length === 1 ? "post" : "posts"} now.`;
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-[53px] shrink-0 items-center gap-6 border-b border-border px-4">
-        <button
-          type="button"
-          aria-label="Back to drafts"
-          className="-ml-2 flex size-9 cursor-pointer items-center justify-center rounded-full hover:bg-accent"
-          onClick={() => onBack(selected === null ? "drafts" : tabOf(selected.status))}
-        >
-          <ArrowLeft className="size-5" />
-        </button>
-        <h2 className="flex-1 text-xl font-bold">{title}</h2>
-        {selected !== null ? (
-          <span className={cn("text-[13px]", statusTone[selected.status])}>
-            {selected.status === "queued" && selected.scheduledAt !== null
-              ? `Queued · ${fmtWhen(selected.scheduledAt)}`
-              : selected.status}
-          </span>
-        ) : null}
-      </div>
-      {locked ? null : (
-        <SubTabs
-          tabs={[
-            { id: "thread", label: "Thread" },
-            { id: "article", label: "Article" },
-          ]}
-          value={editor.kind}
-          onChange={(kind) => setEditor({ ...editor, kind })}
-        />
-      )}
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {notice !== null ? (
-          <p
-            role="status"
-            className={cn(
-              "border-b border-border px-4 py-2 text-[13px]",
-              notice.startsWith("Failed") ? "text-[#f4212e]" : "text-[#00ba7c]",
-            )}
+      <PageHeader
+        leading={
+          <Button
+            variant="ghost-muted"
+            size="sm"
+            aria-label={`Back to ${sectionLabel("/compose", back)}`}
+            onClick={() => onBack(back)}
           >
-            {notice}
-          </p>
-        ) : null}
-        {selected?.status === "failed" && notice === null ? (
-          <p className="border-b border-border px-4 py-2 text-[13px] text-[#f4212e]">
-            Failed: {selected.error}
-          </p>
-        ) : null}
-        {locked ? (
-          <p className={cn(xMeta, "border-b border-border px-4 py-2")}>
-            This draft is {selected?.status}; start a new draft to change it.
-            {selected?.linkPreviewNote === null ? "" : ` ${selected?.linkPreviewNote}`}
-          </p>
-        ) : null}
-        {sessionBlocked ? (
-          <p className="border-b border-border px-4 py-2 text-[13px] text-[#ffd400]">
-            {sessionPosting
-              ? "Media posts go through your x.com session, but no desktop is connected."
-              : "Media posts go through your x.com session, enable Session posting in Settings."}
-          </p>
-        ) : null}
-        {waiting ? (
-          <p className={cn(xMeta, "px-4 py-8 text-center")}>
-            {AsyncResult.isSuccess(drafts) ? "This draft no longer exists." : "Loading…"}
-          </p>
-        ) : isArticle ? (
-          <div className="flex flex-col gap-3 px-4 py-3">
-            <input
-              className="w-full bg-transparent text-2xl font-extrabold outline-hidden placeholder:text-placeholder"
-              placeholder="Title"
-              value={editor.title}
-              onChange={(e) => setEditor({ ...editor, title: e.target.value })}
-            />
-            <textarea
-              className="min-h-80 w-full resize-none bg-transparent text-[17px] leading-6 outline-hidden placeholder:text-placeholder"
-              placeholder="Write in markdown"
-              value={editor.body}
-              onChange={(e) => setEditor({ ...editor, body: e.target.value })}
-            />
-            <div className="flex flex-col gap-2 border-t border-border pt-3">
-              <span className="text-[15px] font-bold">Cover</span>
-              {cover !== undefined ? (
-                <MediaList
-                  media={[cover]}
-                  previews={previews}
-                  onChange={(m) =>
-                    setEditor({
-                      ...editor,
-                      media: [...media.filter((x) => x.id !== cover.id), ...m],
-                    })
-                  }
-                  onRemove={removeMedia}
-                />
-              ) : null}
-              <input
-                className={xInput}
-                placeholder="Describe the cover image"
-                value={coverPrompt}
-                onChange={(e) => setCoverPrompt(e.target.value)}
-              />
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  className={cn(xPill, xPillSm)}
-                  disabled={coverPrompt.trim() === "" || cover !== undefined || quote === null}
-                  onClick={async () => {
-                    const d = selected ?? (await save(true));
-                    if (d === null) return;
-                    setNotice("Generating cover…");
-                    const exit = await generateCover({ draftId: d.id, prompt: coverPrompt });
-                    if (Exit.isFailure(exit)) setNotice(`Failed: ${failText(exit.cause)}`);
-                    else {
-                      takeMedia(exit.value);
-                      setNotice("Cover generated");
-                    }
-                  }}
-                >
-                  Generate · {quote === null ? "…" : `${usd(quote.coverUsd)}, ${quote.coverModel}`}
-                </button>
-                <button
-                  type="button"
-                  className={cn(xPill, xPillSm)}
-                  disabled={cover !== undefined}
-                  onClick={() => {
-                    const input = document.createElement("input");
-                    input.type = "file";
-                    input.accept = "image/*";
-                    input.addEventListener("change", () => addFiles(0, [...(input.files ?? [])]));
-                    input.click();
-                  }}
-                >
-                  Upload
-                </button>
-              </div>
-              <p className={xMeta}>
-                Published through X Articles via treg (
-                {quote === null ? "…" : usd(quote.articleUsd)} per request). Unverified against the
-                live API; the first publish may fail.
-              </p>
-            </div>
-          </div>
-        ) : (
-          <fieldset disabled={locked} className="min-w-0">
-            <ThreadEditor
-              blocks={blocks}
-              media={media}
-              previews={previews}
-              active={active}
-              avatar={(handle ?? "you").slice(0, 1).toUpperCase()}
-              onChange={(b) => setEditor({ ...editor, blocks: b })}
-              onFocus={setActive}
-              onAddFiles={addFiles}
-              onMediaChange={(m) => setEditor((e) => ({ ...e, media: m }))}
-              onRemoveMedia={removeMedia}
-            />
-          </fieldset>
-        )}
-        {waiting || isArticle ? null : (
-          <details className="border-t border-border">
-            <summary className="cursor-pointer px-4 py-3 text-[15px] text-primary hover:bg-primary/5">
-              More options
-            </summary>
-            <Options editor={editor} onChange={setEditor} />
-          </details>
-        )}
-        <Companion>
-          {inspire !== undefined ? <Inspiration postId={inspire} /> : null}
-          {editor.replyToPostId !== null ? <ReplyTarget postId={editor.replyToPostId} /> : null}
-          {isArticle || waiting ? null : (
+            <ArrowLeft />
+            {sectionLabel("/compose", back)}
+          </Button>
+        }
+        title={title}
+        detail={facts.length === 0 ? undefined : facts.join(" · ")}
+        actions={
+          waiting || locked ? undefined : (
             <>
-              <PostPreview
-                blocks={blocks}
-                media={media}
-                previews={previews}
-                quoteUrl={quoteUrl}
-                name={handle ?? "You"}
-                handle={handle}
-                avatarUrl={null}
-              />
-              <AssistPanel
-                blocks={blocks.map((b) => b.text)}
-                active={active}
-                onReplaceBlock={(i, text) =>
-                  setEditor({
-                    ...editor,
-                    blocks: blocks.map((b, j) => (j === i ? { ...b, text } : b)),
-                  })
+              <Popover
+                open={confirm === "post"}
+                onOpenChange={(open) => setConfirm(open ? "post" : null)}
+                trigger={
+                  <Button variant="ghost" size="sm" disabled={!canSend}>
+                    Post now
+                  </Button>
                 }
-                onInsertAfter={(i, texts) =>
-                  setEditor({
-                    ...editor,
-                    blocks: [
-                      ...blocks.slice(0, i + 1),
-                      ...texts.map((text) => ({ text })),
-                      ...blocks.slice(i + 1),
-                    ],
-                  })
+              >
+                <p>{postNowText}</p>
+                <dl className="mt-2 flex flex-col font-mono text-xs tabular-nums">
+                  {isArticle ? (
+                    <div className="flex justify-between py-0.5 text-muted-foreground">
+                      <dt>2 requests</dt>
+                      <dd>{quote === null ? "…" : <Cost usd={quote.articleUsd} />} each</dd>
+                    </div>
+                  ) : (
+                    <>
+                      {linkCount > 0 && rates !== null ? (
+                        <div className="flex justify-between py-0.5 text-muted-foreground">
+                          <dt>{linkCount} with a link</dt>
+                          <dd>
+                            <Cost usd={rates.postWithLink} /> each
+                          </dd>
+                        </div>
+                      ) : null}
+                      {sessionCount > 0 ? (
+                        <div className="flex justify-between py-0.5 text-muted-foreground">
+                          <dt>{sessionCount} with media, through your x.com session</dt>
+                          <dd>free</dd>
+                        </div>
+                      ) : null}
+                    </>
+                  )}
+                  <div className="mt-1 flex justify-between border-t border-border pt-1.5">
+                    <dt>Total</dt>
+                    <dd>{sendUsd === null ? "…" : <Cost usd={sendUsd} />}</dd>
+                  </div>
+                </dl>
+                <p className="mt-2 text-xs text-muted-foreground">Charges your treg balance.</p>
+                <div className="mt-3 flex justify-end gap-1.5">
+                  <Button variant="ghost" size="xs" onClick={() => setConfirm(null)}>
+                    Cancel
+                  </Button>
+                  <Button size="xs" onClick={() => act("post")}>
+                    Confirm and post
+                  </Button>
+                </div>
+              </Popover>
+              <Popover
+                open={confirm === "schedule"}
+                onOpenChange={(open) => setConfirm(open ? "schedule" : null)}
+                trigger={
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={!canSend}
+                    aria-label={slot === null ? "Schedule" : `Schedule, ${slot}`}
+                  >
+                    <CalendarClock />
+                    {slot ?? "Schedule"}
+                  </Button>
                 }
-                onReplaceAll={(b) =>
-                  setEditor({ ...editor, blocks: b.flatMap(splitBlocks).map((text) => ({ text })) })
-                }
-              />
-              <ComposeContext
-                firstLine={blocks[0]?.text.split("\n")[0] ?? ""}
-                onUse={(b) => setEditor({ ...editor, blocks: b.map((text) => ({ text })) })}
-              />
+              >
+                <label className="flex flex-col gap-1.5">
+                  <span className="flex justify-between text-xs text-muted-foreground">
+                    Post at
+                    <span className="font-mono text-2xs">{zone}</span>
+                  </span>
+                  <input
+                    type="datetime-local"
+                    aria-label="Post at"
+                    className={cn(fieldClass, "font-mono text-xs [color-scheme:dark]")}
+                    value={when}
+                    onChange={(e) => setWhen(e.target.value)}
+                  />
+                </label>
+                <div className="mt-3 flex justify-end gap-1.5">
+                  <Button variant="ghost" size="xs" onClick={() => setConfirm(null)}>
+                    Cancel
+                  </Button>
+                  <Button size="xs" disabled={when === ""} onClick={() => act("schedule")}>
+                    Schedule
+                    {price}
+                  </Button>
+                </div>
+              </Popover>
+              <Button
+                size="sm"
+                variant={queued ? "outline" : "default"}
+                disabled={!canSend || queued}
+                onClick={() => act("queue")}
+              >
+                <TextMorph duration={250}>{queued ? "Queued" : "Queue"}</TextMorph>
+                {queued ? sendUsd === null ? <Cost label="…" /> : <Cost usd={sendUsd} /> : price}
+              </Button>
             </>
-          )}
-        </Companion>
-      </div>
-      {confirm === "post" ? (
-        <div className="shrink-0 border-t border-border px-4 py-3 text-[15px] leading-5">
-          <p>
-            {isArticle
-              ? `Publish this article now for ${quote === null ? "…" : usd(quote.articleUsd * 2)} (draft and publish, ${quote === null ? "…" : usd(quote.articleUsd)} each).`
-              : `Post ${blocks.length} ${blocks.length === 1 ? "post" : "posts"} now for ${usd(total)}${
-                  linkCount > 0 && rates !== null
-                    ? ` (${linkCount} with a link at ${usd(rates.postWithLink)})`
-                    : ""
-                }${sessionCount > 0 ? ` (${sessionCount} with media through your x.com session, free)` : ""}.`}{" "}
-            This charges your treg balance.
-          </p>
-          <div className="mt-2.5 flex gap-2">
-            <button type="button" className={cn(xPillSolid, xPillSm)} onClick={() => act("post")}>
-              Confirm and post
-            </button>
-            <button type="button" className={cn(xPill, xPillSm)} onClick={() => setConfirm(null)}>
-              Cancel
-            </button>
-          </div>
-        </div>
-      ) : confirm === "schedule" ? (
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border px-4 py-3">
-          <input
-            type="datetime-local"
-            aria-label="Post at"
-            className={cn(xInput, "w-auto")}
-            value={when}
-            onChange={(e) => setWhen(e.target.value)}
-          />
-          <span className={xMeta}>{zone}</span>
-          <span className="flex-1" />
-          <button
-            type="button"
-            className={cn(xPillSolid, xPillSm)}
-            disabled={when === ""}
-            onClick={() => act("schedule")}
-          >
-            Schedule
-          </button>
-          <button type="button" className={cn(xPill, xPillSm)} onClick={() => setConfirm(null)}>
-            Cancel
-          </button>
-        </div>
-      ) : (
-        <div className="flex shrink-0 items-center gap-2 border-t border-border px-4 py-2.5">
-          <p className={cn(xMeta, "min-w-0 flex-1")}>
-            {isArticle ? (
-              "Article"
+          )
+        }
+      />
+      <div className="flex min-h-0 flex-1 flex-col">
+        <PageBody>
+          <div className="mx-auto w-full max-w-[640px] px-6 pt-4 pb-10">
+            {locked || waiting ? null : (
+              <div className="mb-3 flex h-8 items-center">
+                <HeaderTabs
+                  label="Format"
+                  tabs={[
+                    { id: "thread", label: "Thread" },
+                    { id: "article", label: "Article" },
+                  ]}
+                  value={editor.kind}
+                  onChange={(kind) => setEditor({ ...editor, kind })}
+                />
+              </div>
+            )}
+            {notice !== null ? (
+              <p
+                role="status"
+                className={cn(
+                  "mb-3 text-xs",
+                  notice.startsWith("Failed") ? "text-error-foreground" : "text-success-foreground",
+                )}
+              >
+                {notice}
+              </p>
+            ) : null}
+            {selected?.status === "failed" && notice === null ? (
+              <p className="mb-3 text-xs text-error-foreground">Failed: {selected.error}</p>
+            ) : null}
+            {locked ? (
+              <p className="mb-3 text-xs text-muted-foreground">
+                This draft is {selected?.status}; start a new draft to change it.
+                {selected?.linkPreviewNote === null ? "" : ` ${selected?.linkPreviewNote}`}
+              </p>
+            ) : null}
+            {sessionBlocked ? (
+              <p className="mb-3 text-xs text-warning-foreground">
+                {sessionPosting
+                  ? "Media posts go through your x.com session, and no desktop is connected."
+                  : "Media posts go through your x.com session. Turn on Session posting in Settings."}
+              </p>
+            ) : null}
+            {waiting ? (
+              <p className="py-10 text-center text-sm text-muted-foreground">
+                {AsyncResult.isSuccess(drafts) ? "This draft no longer exists." : "Loading draft"}
+              </p>
+            ) : isArticle ? (
+              <div className="flex flex-col gap-3">
+                <input
+                  className="w-full bg-transparent text-2xl font-semibold tracking-tight outline-hidden placeholder:text-placeholder"
+                  aria-label="Title"
+                  placeholder="Title"
+                  value={editor.title}
+                  onChange={(e) => setEditor({ ...editor, title: e.target.value })}
+                />
+                <textarea
+                  className="min-h-[10lh] w-full resize-none bg-transparent text-[15px] leading-relaxed outline-hidden field-sizing-content placeholder:text-placeholder"
+                  aria-label="Body"
+                  placeholder="Write in markdown"
+                  value={editor.body}
+                  onChange={(e) => setEditor({ ...editor, body: e.target.value })}
+                />
+                <div className="mt-4 flex flex-col gap-2 border-t border-border pt-4">
+                  <h2 className="text-[12.5px] font-semibold text-foreground/80">Cover</h2>
+                  {cover !== undefined ? (
+                    <MediaList
+                      media={[cover]}
+                      previews={previews}
+                      onChange={(m) =>
+                        setEditor({
+                          ...editor,
+                          media: [...media.filter((x) => x.id !== cover.id), ...m],
+                        })
+                      }
+                      onRemove={removeMedia}
+                    />
+                  ) : null}
+                  <div className="flex gap-1.5">
+                    <input
+                      className={fieldClass}
+                      aria-label="Cover prompt"
+                      placeholder="Describe the cover image"
+                      value={coverPrompt}
+                      onChange={(e) => setCoverPrompt(e.target.value)}
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={coverPrompt.trim() === "" || cover !== undefined || quote === null}
+                      onClick={async () => {
+                        const d = selected ?? (await save(true));
+                        if (d === null) return;
+                        setNotice("Generating cover");
+                        const exit = await generateCover({ draftId: d.id, prompt: coverPrompt });
+                        if (Exit.isFailure(exit)) setNotice(`Failed: ${failText(exit.cause)}`);
+                        else {
+                          takeMedia(exit.value);
+                          setNotice("Cover generated");
+                        }
+                      }}
+                    >
+                      Generate
+                      {quote === null ? <Cost label="…" /> : <Cost usd={quote.coverUsd} />}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={cover !== undefined}
+                      onClick={() => {
+                        const input = document.createElement("input");
+                        input.type = "file";
+                        input.accept = "image/*";
+                        input.addEventListener("change", () =>
+                          addFiles(0, [...(input.files ?? [])]),
+                        );
+                        input.click();
+                      }}
+                    >
+                      Upload
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {quote === null ? null : (
+                      <span className="font-mono text-2xs">{quote.coverModel} · </span>
+                    )}
+                    Publishes through X Articles via treg at{" "}
+                    {quote === null ? "…" : <Cost usd={quote.articleUsd} />} a request. Unverified
+                    against the live API, so the first publish may fail.
+                  </p>
+                </div>
+              </div>
             ) : (
+              <fieldset disabled={locked} className="min-w-0">
+                <ThreadEditor
+                  blocks={blocks}
+                  media={media}
+                  previews={previews}
+                  active={active}
+                  avatar={(handle ?? "you").slice(0, 1).toUpperCase()}
+                  notes={costs.map((c) =>
+                    rates === null ? null : c === 0 ? (
+                      "media, through your session, free"
+                    ) : c === rates.postWithLink ? (
+                      <>
+                        link
+                        <Cost usd={c} />
+                      </>
+                    ) : null,
+                  )}
+                  onChange={(b) => setEditor({ ...editor, blocks: b })}
+                  onFocus={setActive}
+                  onAddFiles={addFiles}
+                  onMediaChange={(m) => setEditor((e) => ({ ...e, media: m }))}
+                  onRemoveMedia={removeMedia}
+                />
+              </fieldset>
+            )}
+            {waiting || isArticle || locked ? null : (
+              <details className="group mt-4 border-t border-border">
+                <summary className="flex h-10 cursor-pointer list-none items-center gap-1.5 text-[13px] text-muted-foreground transition-colors duration-150 hover:text-foreground [&::-webkit-details-marker]:hidden">
+                  <ChevronRight className="size-3.5 group-open:rotate-90" />
+                  Options
+                  <span className="ml-auto truncate font-mono text-2xs">
+                    {optionsSummary(editor)}
+                  </span>
+                </summary>
+                <Options editor={editor} onChange={setEditor} />
+              </details>
+            )}
+          </div>
+          <Companion>
+            {inspire !== undefined ? <Inspiration postId={inspire} /> : null}
+            {editor.replyToPostId !== null ? <ReplyTarget postId={editor.replyToPostId} /> : null}
+            {isArticle || waiting ? null : (
               <>
-                <span className="text-foreground">
-                  {blocks.length} {blocks.length === 1 ? "post" : "posts"}
-                </span>{" "}
-                · {rates === null ? "…" : usd(total)} to post
-                {linkCount > 0 ? (
-                  <span className="block">{linkCount} with a link, billed higher</span>
-                ) : null}
-                {sessionCount > 0 ? (
-                  <span className="block">{sessionCount} with media via your session, free</span>
-                ) : null}
+                <PostPreview
+                  blocks={blocks}
+                  media={media}
+                  previews={previews}
+                  quoteUrl={quoteUrl}
+                  name={handle ?? "You"}
+                  handle={handle}
+                  avatarUrl={null}
+                />
+                <ComposeContext
+                  firstLine={blocks[0]?.text.split("\n")[0] ?? ""}
+                  onUse={(b) => setEditor({ ...editor, blocks: b.map((text) => ({ text })) })}
+                />
               </>
             )}
-          </p>
-          <button
-            type="button"
-            className={xPill}
-            disabled={!canSend}
-            onClick={() => setConfirm("post")}
-          >
-            Post now
-          </button>
-          <button
-            type="button"
-            className={cn(xPill, "px-2.5")}
-            aria-label="Schedule"
-            disabled={!canSend}
-            onClick={() => setConfirm("schedule")}
-          >
-            <CalendarClock className="size-[18px]" />
-          </button>
-          <button
-            type="button"
-            className={xPillSolid}
-            disabled={!canSend}
-            onClick={() => act("queue")}
-          >
-            Queue
-            {nextSlot !== null ? (
-              <span className="font-normal text-[#536471]">· {fmtWhen(nextSlot)}</span>
-            ) : null}
-          </button>
-        </div>
-      )}
+          </Companion>
+        </PageBody>
+        {waiting || isArticle || locked ? null : (
+          <div className="mx-auto w-full max-w-[640px] shrink-0 px-6">
+            <AssistPanel
+              blocks={blocks.map((b) => b.text)}
+              active={active}
+              onReplaceBlock={(i, text) =>
+                setEditor({
+                  ...editor,
+                  blocks: blocks.map((b, j) => (j === i ? { ...b, text } : b)),
+                })
+              }
+              onInsertAfter={(i, texts) =>
+                setEditor({
+                  ...editor,
+                  blocks: [
+                    ...blocks.slice(0, i + 1),
+                    ...texts.map((text) => ({ text })),
+                    ...blocks.slice(i + 1),
+                  ],
+                })
+              }
+              onReplaceAll={(b) =>
+                setEditor({ ...editor, blocks: b.flatMap(splitBlocks).map((text) => ({ text })) })
+              }
+              onVoiceScore={(score) =>
+                setVoice({ score, text: JSON.stringify(blocks.map((b) => b.text)) })
+              }
+            />
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -3,9 +3,11 @@ import type { XPost } from "@xtend/contracts";
 import * as Cause from "effect/Cause";
 import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
+import { Sparkles, X } from "lucide-react";
 import { useState } from "react";
 
 import { fmtWhen } from "../../lib/time";
+import { cn } from "../../lib/utils";
 import {
   assistContinueAtom,
   assistHookAtom,
@@ -14,15 +16,24 @@ import {
   assistVoiceMatchAtom,
   composeContextAtom,
 } from "../../state/compose";
-import { Sparkles } from "lucide-react";
-
-import { cn } from "../../lib/utils";
 import { useQuoteLabel } from "../../state/costs";
 import { searchAtom } from "../../state/library";
-import { xAction, XCard, xMeta, xPill, xPillSm, xPillSolid } from "../x";
-import { splitBlocks } from "./ThreadEditor";
+import { Button } from "../ui/button";
+import { Cost } from "../ui/layout";
+import { XCard } from "../x";
+import { fieldClass, splitBlocks } from "./ThreadEditor";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** A label and its value on one line, value in mono on the right. */
+function Fact({ label, children }: { readonly label: string; readonly children: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 border-b border-border py-1.5 text-[13px]">
+      <span className="shrink-0 text-muted-foreground">{label}</span>
+      <span className="truncate text-right font-mono text-xs tabular-nums">{children}</span>
+    </div>
+  );
+}
 
 /** Where the draft would land (next free slot, best hours) and three library posts like its first line. */
 export function ComposeContext({
@@ -40,57 +51,48 @@ export function ComposeContext({
   const ctx = AsyncResult.getOrElse(context, () => null);
   return (
     <XCard title="Context">
-      <div className="px-4 pb-3">
-        <p className={xMeta}>Next slot</p>
-        <p className="text-[15px] font-bold">
-          {ctx === null ? "…" : ctx.nextSlot === null ? "No slots set" : fmtWhen(ctx.nextSlot)}
-        </p>
-      </div>
+      <Fact label="Next slot">
+        {ctx === null ? "…" : ctx.nextSlot === null ? "no slots set" : fmtWhen(ctx.nextSlot)}
+      </Fact>
       {ctx !== null && ctx.bestHours.length > 0 ? (
-        <div className="px-4 pb-3">
-          <p className={xMeta}>Best hours</p>
-          <p className="text-[15px]">
-            {ctx.bestHours.map((b) => `${DAYS[b.weekday]} ${b.hour}:00`).join(", ")}
-          </p>
-        </div>
+        <Fact label="Best hours">
+          {ctx.bestHours.map((b) => `${DAYS[b.weekday]} ${b.hour}:00`).join(", ")}
+        </Fact>
       ) : null}
-      <div className="px-4 pb-3">
-        <p className={xMeta}>Similar posts</p>
-        <button
-          type="button"
-          className="cursor-pointer text-[15px] text-primary hover:underline disabled:pointer-events-none disabled:opacity-50"
+      <div className="flex items-center justify-between gap-3 pt-2.5">
+        <span className="text-[13px] text-muted-foreground">Similar posts</span>
+        <Button
+          variant="outline"
+          size="xs"
           disabled={query === ""}
           onClick={async () => {
-            setSimilar("Searching…");
+            setSimilar("Searching");
             const exit = await search({ query, mode: "top" });
             setSimilar(Exit.isFailure(exit) ? failText(exit.cause) : exit.value.items.slice(0, 3));
           }}
         >
-          Find similar · {price}
-        </button>
+          Find similar
+          <Cost label={price} />
+        </Button>
       </div>
       {typeof similar === "string" ? (
-        <p className={cn(xMeta, "px-4 pb-3")}>{similar}</p>
+        <p className="pt-2 text-xs text-muted-foreground">{similar}</p>
       ) : similar !== null ? (
-        <ul className="flex flex-col">
+        <ul className="mt-2 flex flex-col">
           {similar.length === 0 ? (
-            <li className={cn(xMeta, "px-4 pb-3")}>Nothing similar found.</li>
+            <li className="text-xs text-muted-foreground">Nothing similar found.</li>
           ) : null}
           {similar.map((p) => (
-            <li key={p.postId} className="flex items-start gap-2 border-t border-border px-4 py-3">
+            <li key={p.postId} className="flex items-start gap-2 border-t border-border py-2.5">
               <div className="min-w-0 flex-1">
-                <p className={xMeta}>
+                <p className="font-mono text-2xs text-muted-foreground">
                   @{p.author.handle} · {p.metrics.likes} likes
                 </p>
-                <p className="line-clamp-3 whitespace-pre-wrap text-sm">{p.text}</p>
+                <p className="mt-0.5 line-clamp-3 whitespace-pre-wrap text-[13px]">{p.text}</p>
               </div>
-              <button
-                type="button"
-                className={cn(xPill, xPillSm)}
-                onClick={() => onUse(splitBlocks(p.text))}
-              >
+              <Button variant="ghost" size="xs" onClick={() => onUse(splitBlocks(p.text))}>
                 Use
-              </button>
+              </Button>
             </li>
           ))}
         </ul>
@@ -99,7 +101,7 @@ export function ComposeContext({
   );
 }
 
-/** One assist answer, flattened so the panel renders every task the same way. */
+/** One assist answer, flattened so the bar renders every task the same way. */
 interface Suggestion {
   readonly text: string;
   readonly note?: string;
@@ -111,18 +113,25 @@ export const failText = (cause: Cause.Cause<unknown>) => {
   return e instanceof Error ? e.message : String(e);
 };
 
+/**
+ * The model's help at the foot of the writing column: one row of actions on the draft and a
+ * topic box for thread ideas. Answers open above the row, each with Use and Dismiss.
+ */
 export function AssistPanel({
   blocks,
   active,
   onReplaceBlock,
   onInsertAfter,
   onReplaceAll,
+  onVoiceScore,
 }: {
   readonly blocks: ReadonlyArray<string>;
   readonly active: number;
   readonly onReplaceBlock: (index: number, text: string) => void;
   readonly onInsertAfter: (index: number, texts: ReadonlyArray<string>) => void;
   readonly onReplaceAll: (blocks: ReadonlyArray<string>) => void;
+  /** The voice match score (0 to 1) for the text it was run on, for the page header. */
+  readonly onVoiceScore?: (score: number) => void;
 }) {
   const hook = useAtomSet(assistHookAtom, { mode: "promiseExit" });
   const rewrite = useAtomSet(assistRewriteAtom, { mode: "promiseExit" });
@@ -159,32 +168,71 @@ export function AssistPanel({
   const first = blocks[0] ?? "";
   const current = blocks[active] ?? "";
 
-  const action = (label: string, disabled: boolean, onClick: () => void, icon = false) => (
-    <button
-      type="button"
-      className={xAction}
-      disabled={busy !== null || disabled}
-      onClick={onClick}
-    >
-      {icon ? <Sparkles /> : null}
+  const action = (label: string, disabled: boolean, onClick: () => void) => (
+    <Button variant="ghost-muted" size="xs" disabled={busy !== null || disabled} onClick={onClick}>
       {label}
-    </button>
+    </Button>
   );
 
   return (
-    <XCard title="Assist">
-      <div className="-mt-1 flex flex-wrap gap-0.5 px-2.5 pb-2">
-        {action(
-          "Improve hook",
-          first.trim() === "",
-          () =>
-            run(
-              "Improve hook",
-              () => hook(blocks),
-              (r) => r.alternatives.map((a) => ({ text: a.text, note: a.reason, blocks: [] })),
-              (s) => onReplaceBlock(0, s.text),
-            ),
-          true,
+    <div className="border-t border-border">
+      {busy !== null || error !== null || items.length > 0 ? (
+        <div className="max-h-[40vh] overflow-y-auto pt-3">
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Sparkles className="size-3.5" />
+            <span className="flex-1">{busy ?? (error === null ? title : "Assist")}</span>
+            {busy === null ? (
+              <Button
+                variant="ghost-muted"
+                size="icon-xs"
+                aria-label="Close suggestions"
+                onClick={() => {
+                  setItems([]);
+                  setError(null);
+                }}
+              >
+                <X />
+              </Button>
+            ) : null}
+          </div>
+          {busy !== null ? <p className="py-2 text-xs text-muted-foreground">Writing</p> : null}
+          {error !== null ? <p className="py-2 text-xs text-error-foreground">{error}</p> : null}
+          {busy === null
+            ? items.map((s, i) => (
+                // eslint-disable-next-line react/no-array-index-key -- suggestions are unkeyed model output.
+                <div key={i} className="border-b border-border py-3 last:border-b-0">
+                  <p className="whitespace-pre-wrap text-[14px] leading-normal">{s.text}</p>
+                  {s.note !== undefined ? (
+                    <p className="mt-1 text-xs text-muted-foreground">{s.note}</p>
+                  ) : null}
+                  {title !== "Voice match" ? (
+                    <div className="mt-2 flex gap-1">
+                      <Button variant="outline" size="xs" onClick={() => use(s)}>
+                        Use
+                      </Button>
+                      <Button
+                        variant="ghost-muted"
+                        size="xs"
+                        onClick={() => setItems(items.filter((x) => x !== s))}
+                      >
+                        Dismiss
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
+              ))
+            : null}
+        </div>
+      ) : null}
+      <div className="flex flex-wrap items-center gap-x-0.5 gap-y-1 py-2.5">
+        <Sparkles aria-hidden className="mr-1 size-3.5 text-muted-foreground" />
+        {action("Improve hook", first.trim() === "", () =>
+          run(
+            "Improve hook",
+            () => hook(blocks),
+            (r) => r.alternatives.map((a) => ({ text: a.text, note: a.reason, blocks: [] })),
+            (s) => onReplaceBlock(0, s.text),
+          ),
         )}
         {action("Rewrite", current.trim() === "", () =>
           run(
@@ -206,80 +254,54 @@ export function AssistPanel({
           run(
             "Voice match",
             () => voice(blocks),
-            (r) => [
-              {
-                text: `${Math.round(r.score * 100)}% match against ${r.samples} recent posts`,
-                note: r.note,
-                blocks: [],
-              },
-            ],
+            (r) => {
+              onVoiceScore?.(r.score);
+              return [
+                {
+                  text: `${Math.round(r.score * 100)}% match against ${r.samples} recent posts`,
+                  note: r.note,
+                  blocks: [],
+                },
+              ];
+            },
             () => {},
           ),
         )}
-      </div>
-      <form
-        className="mx-4 mb-3 flex h-10 items-center rounded-full border border-border pr-1 pl-4 focus-within:border-primary"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (topic.trim() === "" || busy !== null) return;
-          void run(
-            "Thread ideas",
-            () => ideas(topic),
-            (r) =>
-              r.outlines.map((o) => ({
-                text: o.hook,
-                note: o.beats.join(" · "),
-                blocks: [o.hook, ...o.beats],
-              })),
-            (s) => onReplaceAll(s.blocks),
-          );
-        }}
-      >
-        <input
-          className="min-w-0 flex-1 bg-transparent text-[15px] outline-hidden placeholder:text-placeholder"
-          placeholder="Topic for thread ideas"
-          value={topic}
-          onChange={(e) => setTopic(e.target.value)}
-        />
-        <button
-          type="submit"
-          className={cn(xPill, xPillSm)}
-          disabled={busy !== null || topic.trim() === ""}
+        <form
+          className="ml-auto flex items-center gap-1"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (topic.trim() === "" || busy !== null) return;
+            void run(
+              "Thread ideas",
+              () => ideas(topic),
+              (r) =>
+                r.outlines.map((o) => ({
+                  text: o.hook,
+                  note: o.beats.join(" · "),
+                  blocks: [o.hook, ...o.beats],
+                })),
+              (s) => onReplaceAll(s.blocks),
+            );
+          }}
         >
-          Ideas
-        </button>
-      </form>
-      {busy !== null ? <p className={cn(xMeta, "px-4 pb-3")}>{busy}…</p> : null}
-      {error !== null ? <p className="px-4 pb-3 text-[13px] text-[#f4212e]">{error}</p> : null}
-      {items.length > 0 ? (
-        <div className="flex flex-col">
-          <p className={cn(xMeta, "flex items-center gap-1.5 px-4 pb-2 text-primary")}>
-            <Sparkles className="size-3.5" />
-            {title}
-          </p>
-          {items.map((s, i) => (
-            // eslint-disable-next-line react/no-array-index-key -- suggestions are unkeyed model output.
-            <div key={i} className="border-t border-border px-4 py-3">
-              <p className="whitespace-pre-wrap text-[15px] leading-5">{s.text}</p>
-              {s.note !== undefined ? <p className={cn(xMeta, "mt-1")}>{s.note}</p> : null}
-              {title !== "Voice match" ? (
-                <div className="mt-2 flex gap-2">
-                  <button type="button" className={cn(xPillSolid, xPillSm)} onClick={() => use(s)}>
-                    Use
-                  </button>
-                  <button
-                    type="button"
-                    className={cn(xPill, xPillSm)}
-                    onClick={() => setItems(items.filter((x) => x !== s))}
-                  >
-                    Dismiss
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          ))}
-        </div>
-      ) : null}
-    </XCard>
+          <input
+            className={cn(fieldClass, "h-7 w-36 py-0 text-xs")}
+            aria-label="Topic for thread ideas"
+            placeholder="Thread ideas on…"
+            value={topic}
+            onChange={(e) => setTopic(e.target.value)}
+          />
+          <Button
+            type="submit"
+            variant="outline"
+            size="xs"
+            disabled={busy !== null || topic.trim() === ""}
+          >
+            Ideas
+          </Button>
+        </form>
+      </div>
+    </div>
   );
 }

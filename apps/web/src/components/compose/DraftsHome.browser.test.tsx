@@ -1,4 +1,4 @@
-import type { Draft, PendingRequest } from "@xtend/contracts";
+import type { Draft, PendingRequest, RateCard } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import { expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
@@ -49,6 +49,26 @@ const pending: PendingRequest = {
   status: "pending",
 };
 
+const rates: RateCard = {
+  post: 0.015,
+  postWithLink: 0.2,
+  like: 0.01,
+  repost: 0.015,
+  follow: 0.01,
+  dm: 0.01,
+  delete: 0.01,
+  readPage: 0.005,
+  profile: 0.01,
+  searchPage: 0.00075,
+  scraperProfile: 0.0005,
+  followersPage: 0.001,
+  trending: 0.001,
+};
+const prices = {
+  "costs.quote": () => Effect.succeed({ rates, quotes: [] }),
+  "compose.quote": () => Effect.succeed({ articleUsd: 0.02, coverUsd: 0.04, coverModel: "m" }),
+} as const;
+
 const drafts = [
   draft("d1", "draft", "Three things I got wrong about Electron views", {
     blocks: [{ text: "Three things I got wrong about Electron views" }, { text: "1." }],
@@ -59,48 +79,39 @@ const drafts = [
   draft("q1", "queued", "Queued one", { scheduledAt: "2030-01-07T09:30:00.000Z" }),
 ];
 
-it("groups drafts by where they are, counts each tab, and opens or starts one", async () => {
-  const onTab = vi.fn();
+it("lists the open section's drafts with their price, and opens or starts one", async () => {
   const onOpen = vi.fn();
   const onNew = vi.fn();
-  await using screen = await render(
-    <DraftsHome tab="drafts" handle="siamships" onTab={onTab} onOpen={onOpen} onNew={onNew} />,
-    {
-      service: {
-        "compose.draftsList": () => Effect.succeed({ drafts }),
-        "automate.pendingList": () => Effect.succeed([pending]),
-      },
+  await using screen = await render(<DraftsHome tab="drafts" onOpen={onOpen} onNew={onNew} />, {
+    service: {
+      ...prices,
+      "compose.draftsList": () => Effect.succeed({ drafts }),
+      "automate.pendingList": () => Effect.succeed([pending]),
     },
-  );
-  await expect
-    .element(screen.getByText("Three things I got wrong about Electron views"))
-    .toBeVisible();
-  await expect.element(screen.getByText("Show this thread · 2 posts")).toBeVisible();
-  // Suggested drafts and ask-first requests both count under Automatic.
-  await expect.element(screen.getByRole("button", { name: "Automatic 2" })).toBeVisible();
+  });
+  await expect.element(screen.getByRole("heading", { name: "Drafts" })).toBeVisible();
+  const row = screen.getByRole("row").filter({ hasText: "Three things I got wrong" });
+  // Two posts at the plain post price; the second post shows under the hook.
+  await expect.element(row.getByText("1.", { exact: true })).toBeVisible();
+  await expect.element(row.getByText("$0.03", { exact: true })).toBeVisible();
   expect(screen.getByText("Queued one").elements()).toHaveLength(0);
 
-  await userEvent.click(screen.getByRole("button", { name: "Edit" }));
+  await userEvent.click(
+    screen.getByRole("button", { name: "Three things I got wrong about Electron views" }),
+  );
   expect(onOpen).toHaveBeenCalledWith("d1");
-  await userEvent.click(screen.getByText("What's the thread?"));
+  await userEvent.click(screen.getByRole("button", { name: "New draft" }));
   expect(onNew).toHaveBeenCalled();
-  await userEvent.click(screen.getByRole("button", { name: "Queued 1" }));
-  expect(onTab).toHaveBeenCalledWith("queued");
 });
 
-it("shows what automation wrote and asks before a paid action, then queues a suggestion", async () => {
+it("shows what automation wrote and prices an ask-first action, then queues a suggestion", async () => {
   const queued: Array<string> = [];
   const decided: Array<number> = [];
   await using screen = await render(
-    <DraftsHome
-      tab="automatic"
-      handle="siamships"
-      onTab={() => {}}
-      onOpen={() => {}}
-      onNew={() => {}}
-    />,
+    <DraftsHome tab="automatic" onOpen={() => {}} onNew={() => {}} />,
     {
       service: {
+        ...prices,
         "compose.draftsList": () => Effect.succeed({ drafts }),
         "automate.pendingList": () => Effect.succeed([pending]),
         "automate.pendingApprove": ({ id }) => {
@@ -129,7 +140,11 @@ it("shows what automation wrote and asks before a paid action, then queues a sug
   await expect
     .element(screen.getByText("Ready to post · your best format (voice 0.8)"))
     .toBeVisible();
-  await userEvent.click(screen.getByRole("button", { name: "Approve · $0.015" }));
+  // The paid approval carries its price on the button itself.
+  const approve = screen.getByRole("button", { name: /^Approve/ });
+  await expect.element(approve).toBeVisible();
+  expect(approve.element().textContent).toContain("$0.015");
+  await userEvent.click(approve);
   await expect.poll(() => decided).toEqual([7]);
   await userEvent.click(screen.getByRole("button", { name: "Queue" }));
   await expect.poll(() => queued).toEqual(["s1"]);
