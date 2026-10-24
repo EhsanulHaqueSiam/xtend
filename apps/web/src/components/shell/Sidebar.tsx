@@ -1,6 +1,6 @@
 import { Menu } from "@base-ui/react/menu";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
-import { Link, useLocation, useNavigate } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate, useRouter } from "@tanstack/react-router";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { ChevronDown, Search } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
@@ -18,6 +18,7 @@ import {
   spendLiveAtom,
 } from "../../state/shell";
 import { xNavigate, xUnreadAtom, xUrlAtom } from "../../state/x";
+import { isSectionRoute, SECTIONS } from "./sections";
 
 const or = <A, B>(result: AsyncResult.AsyncResult<A, unknown>, fallback: B): A | B =>
   AsyncResult.getOrElse(result, () => fallback);
@@ -65,6 +66,10 @@ const TOOLS: ReadonlyArray<Tool> = [
 
 const isOn = (pathname: string, to: string) => pathname === to || pathname.startsWith(`${to}/`);
 
+const SUB_ROW =
+  "no-drag flex h-[25px] w-full cursor-pointer items-center rounded-[var(--control-radius)] pr-2 pl-5 text-left text-[13.5px] text-sidebar-muted-foreground outline-hidden transition-colors duration-150 hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring data-[active=true]:text-sidebar-foreground";
+
+/** A tool, and under it while it is open, its sections: the page has no tab row of its own. */
 function ToolRow({
   tool,
   count,
@@ -72,11 +77,39 @@ function ToolRow({
   readonly tool: Tool;
   readonly count?: number | null | undefined;
 }) {
+  const router = useRouter();
+  const navigate = useNavigate();
   const pathname = useLocation({ select: (l) => l.pathname });
+  const searchStr = useLocation({ select: (l) => l.searchStr });
+  const on = isOn(pathname, tool.to);
+  const sections: ReadonlyArray<{ readonly id: string; readonly label: string }> =
+    on && isSectionRoute(tool.to) ? SECTIONS[tool.to] : [];
+  const tab = new URLSearchParams(searchStr).get("tab");
+  const openId = sections.find((s) => s.id === tab)?.id ?? sections[0]?.id;
   return (
-    <Link to={tool.to} data-active={isOn(pathname, tool.to)} className={ROW}>
-      <RowBody label={tool.label} count={count} />
-    </Link>
+    <>
+      <Link to={tool.to} data-active={on && sections.length === 0} className={ROW}>
+        <RowBody label={tool.label} count={count} />
+      </Link>
+      {sections.map((section) => {
+        const href = `${tool.to}?tab=${section.id}`;
+        return (
+          <a
+            key={section.id}
+            href={router.history.createHref(href)}
+            data-active={section.id === openId}
+            className={SUB_ROW}
+            onClick={(event) => {
+              if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+              event.preventDefault();
+              void navigate({ href });
+            }}
+          >
+            <RowBody label={section.label} />
+          </a>
+        );
+      })}
+    </>
   );
 }
 

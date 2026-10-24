@@ -73,7 +73,11 @@ const summaryFromRow = (row: ObservedPostRow): ObservedPostSummary => ({
 export class ObservationStore extends Context.Service<
   ObservationStore,
   {
-    /** Upserts authors and posts, appends one metrics row per post. A replayed batch (same observedAt) adds nothing, not even a sighting. */
+    /**
+     * Upserts authors and posts, appends one metrics row per post. A replayed batch (same
+     * observedAt) adds nothing, not even a sighting. The batch's viewer becomes the current
+     * account's handle when it has none, so a fresh install never asks who is signed in.
+     */
     readonly record: (
       batch: ObservationBatch,
     ) => Effect.Effect<ObservationRecordResult, ObservationStoreError>;
@@ -89,6 +93,18 @@ const make = Effect.gen(function* () {
 
   const record = Effect.fn("ObservationStore.record")(
     function* (batch: ObservationBatch) {
+      const viewer = batch.viewerHandle?.toLowerCase() ?? null;
+      const adopted =
+        viewer === null
+          ? []
+          : yield* sql<{ id: number }>`
+              UPDATE settings SET handle = ${viewer} WHERE id = 1 AND handle IS NULL RETURNING id
+            `;
+      if (adopted.length > 0)
+        yield* sql`
+          UPDATE accounts SET handle = ${viewer}
+          WHERE id = ${sql.literal(CURRENT_ACCOUNT)} AND handle IS NULL
+        `;
       yield* sql.withTransaction(
         Effect.forEach(
           batch.posts,
@@ -128,7 +144,11 @@ const make = Effect.gen(function* () {
       );
       yield* events.publish({
         type: "observation_recorded",
-        payload: { posts: batch.posts.length, source: batch.source },
+        payload: {
+          posts: batch.posts.length,
+          source: batch.source,
+          ...(adopted.length > 0 ? { handleAdopted: viewer } : {}),
+        },
       });
       return { posts: batch.posts.length };
     },

@@ -2,6 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import type { ObservationBatch } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as ObservationStore from "./ObservationStore.ts";
@@ -49,6 +50,22 @@ describe("ObservationStore", () => {
       expect(posts[0]?.observations).toBe(2);
       expect(posts[0]?.firstSeenAt).toBe("2026-10-22T10:00:00.000Z");
       expect(posts[0]?.lastSeenAt).toBe("2026-10-22T11:00:00.000Z");
+    }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect("adopts the session's viewer as the handle once, and never overrides one", () =>
+    Effect.gen(function* () {
+      const store = yield* ObservationStore.ObservationStore;
+      const sql = yield* SqlClient.SqlClient;
+      const handle = () =>
+        sql<{ s: string | null; a: string | null }>`
+          SELECT (SELECT handle FROM settings WHERE id = 1) AS s,
+                 (SELECT handle FROM accounts WHERE id = 1) AS a
+        `.pipe(Effect.map((rows) => rows[0]));
+      yield* store.record({ ...batch("2026-10-22T10:00:00.000Z", 5), viewerHandle: "Siam" });
+      expect(yield* handle()).toEqual({ s: "siam", a: "siam" });
+      yield* store.record({ ...batch("2026-10-22T11:00:00.000Z", 6), viewerHandle: "other" });
+      expect(yield* handle()).toEqual({ s: "siam", a: "siam" });
     }).pipe(Effect.provide(layerTest)),
   );
 
