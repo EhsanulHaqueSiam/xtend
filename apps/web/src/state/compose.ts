@@ -2,9 +2,12 @@ import { Compose_METHODS, type DraftPatch, type MediaKind } from "@xtend/contrac
 import * as Effect from "effect/Effect";
 
 import { clientRuntime, XtendClient } from "../rpc/client";
+import { eventsOfTypeAtom } from "./shell";
 
-export const draftsAtom = clientRuntime.atom(
+/** Refetched on every status event: the scheduler posts and fails drafts while the list is open. */
+export const draftsAtom = clientRuntime.atom((get) =>
   Effect.gen(function* () {
+    get(eventsOfTypeAtom("draft_status_changed"));
     const client = yield* XtendClient;
     return (yield* client[Compose_METHODS.draftsList]({})).drafts;
   }),

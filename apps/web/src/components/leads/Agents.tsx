@@ -14,7 +14,7 @@ import {
 import { useRates, usd } from "../../state/costs";
 import { Empty, ErrorText, errorText, inputClass, Section } from "../analyze/ui";
 import { Button } from "../ui/button";
-import { ago, useAction } from "./ui";
+import { agentRunCost, ago, useAction } from "./ui";
 
 const blank: SignalAgentInput = {
   name: "",
@@ -37,7 +37,8 @@ export function Agents() {
   return (
     <div className="flex flex-col gap-3">
       {editing !== null ? (
-        <AgentForm initial={editing} onDone={() => setEditing(null)} />
+        // Keyed: Edit on another agent while this form is open must load that agent, not keep this one.
+        <AgentForm key={editing.id ?? "new"} initial={editing} onDone={() => setEditing(null)} />
       ) : (
         <div className="flex gap-1.5">
           <Button size="xs" variant="outline" onClick={() => setEditing(blank)}>
@@ -51,7 +52,7 @@ export function Agents() {
         onFailure: (f) => <ErrorText>{errorText(f.cause)}</ErrorText>,
         onSuccess: ({ value }) =>
           value.length === 0 ? (
-            <Empty>No agents yet. Each run is one search ({usd(rates?.searchPage ?? 0)}).</Empty>
+            <Empty>No agents yet. Each run is one search ({agentRunCost(rates, blank)}).</Empty>
           ) : (
             value.map((a) => <AgentCard key={a.id} agent={a} onEdit={() => setEditing(a)} />)
           ),
@@ -72,6 +73,9 @@ function AgentCard({
   const refreshPeople = useAtomRefresh(peopleAtom(null));
   const runAgent = useAtomSet(runAgentAtom, { mode: "promise" });
   const upsert = useAtomSet(upsertAgentAtom, { mode: "promise" });
+  // Shared by every card: a second run or pause while one is in flight would interrupt it.
+  const running = useAtomValue(runAgentAtom).waiting;
+  const pausing = useAtomValue(upsertAgentAtom).waiting;
   const { busy, error, run } = useAction();
   const last = agent.lastRun;
   return (
@@ -85,7 +89,7 @@ function AgentCard({
           <Button
             size="xs"
             variant="ghost-muted"
-            disabled={busy}
+            disabled={busy || running || rates === null}
             onClick={() =>
               void run(() =>
                 runAgent(agent.id).then(() => {
@@ -95,7 +99,7 @@ function AgentCard({
               )
             }
           >
-            {busy ? "Running…" : `Run now (${usd(rates?.searchPage ?? 0)})`}
+            {busy ? "Running…" : `Run now (${agentRunCost(rates, agent)})`}
           </Button>
           <Button size="xs" variant="ghost-muted" onClick={onEdit}>
             Edit
@@ -103,7 +107,7 @@ function AgentCard({
           <Button
             size="xs"
             variant="ghost-muted"
-            disabled={busy}
+            disabled={busy || pausing}
             onClick={() =>
               void run(() => upsert({ ...agent, enabled: !agent.enabled }).then(refresh))
             }
@@ -261,7 +265,7 @@ function AgentForm({
             Cancel
           </Button>
           <span className="font-mono text-2xs text-muted-foreground">
-            {usd(rates?.searchPage ?? 0)} per run
+            {agentRunCost(rates, a)} per run
           </span>
         </div>
         {error !== null ? <ErrorText>{error}</ErrorText> : null}

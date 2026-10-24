@@ -1,5 +1,5 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
-import type { Person, Stage, XPost } from "@xtend/contracts";
+import { postCostUsd, type Person, type Stage, type XPost } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 
@@ -39,7 +39,8 @@ export function People({ listId }: { readonly listId: number | null }) {
         })}
       </div>
       {open !== null ? (
-        <PersonPanel id={open} listId={listId} onClose={() => setOpen(null)} />
+        // Keyed: a typed DM, unsaved notes or a loaded post belong to that person only.
+        <PersonPanel key={open} id={open} listId={listId} onClose={() => setOpen(null)} />
       ) : null}
     </div>
   );
@@ -58,7 +59,8 @@ function PeopleTable({
 }) {
   const refresh = useAtomRefresh(peopleAtom(listId));
   const update = useAtomSet(updatePersonAtom, { mode: "promise" });
-  const { error, run } = useAction();
+  // Busy disables the stage pickers: a second change while one saves would interrupt it.
+  const { busy, error, run } = useAction();
   const setStage = (id: number, stage: Stage) => run(() => update({ id, stage }).then(refresh));
   return (
     <>
@@ -99,6 +101,8 @@ function PeopleTable({
               <td className="py-1 pl-3" onClick={(e) => e.stopPropagation()}>
                 <select
                   className="cursor-pointer bg-transparent font-mono text-2xs text-foreground outline-hidden"
+                  aria-label={`Stage of @${p.handle}`}
+                  disabled={busy}
                   value={p.stage}
                   onChange={(e) => void setStage(p.id, e.target.value as Stage)}
                 >
@@ -174,7 +178,7 @@ function PersonPanel({
               <button
                 type="button"
                 className="cursor-pointer text-foreground hover:underline"
-                disabled={busy}
+                disabled={busy || rates === null}
                 onClick={() =>
                   void run(() =>
                     profile(id).then(() => {
@@ -184,7 +188,7 @@ function PersonPanel({
                   )
                 }
               >
-                fetch profile ({usd(rates?.scraperProfile ?? 0)})
+                fetch profile ({rates === null ? "…" : usd(rates.scraperProfile)})
               </button>
             </p>
             <textarea
@@ -206,17 +210,14 @@ function PersonPanel({
               onChange={(e) => setDm(e.target.value)}
             />
             <div className="flex gap-1.5">
-              <Button
-                size="xs"
-                variant="outline"
-                disabled={busy}
+              <DraftDmButton
+                handle={person.handle}
+                busy={busy}
                 onClick={() => void run(() => draftDm(id).then(setDm))}
-              >
-                Draft with AI
-              </Button>
+              />
               <Button
                 size="xs"
-                disabled={busy || dm.trim() === ""}
+                disabled={busy || dm.trim() === "" || rates === null}
                 onClick={() =>
                   void run(() =>
                     sendDm({ id, text: dm }).then(() => {
@@ -227,7 +228,8 @@ function PersonPanel({
                   )
                 }
               >
-                Send DM ({usd(rates?.dm ?? 0)})
+                {/* Without a user id the service reads the profile before it can DM. */}
+                {`Send DM (${rates === null ? "…" : usd(rates.dm + (person.userId === null ? rates.scraperProfile : 0))})`}
               </Button>
             </div>
             {error !== null ? <ErrorText>{error}</ErrorText> : null}
@@ -254,6 +256,24 @@ function PersonPanel({
   );
 }
 
+/** The draft reads their recent posts first; the model call is billed apart. */
+function DraftDmButton({
+  handle,
+  busy,
+  onClick,
+}: {
+  readonly handle: string;
+  readonly busy: boolean;
+  readonly onClick: () => void;
+}) {
+  const quote = useQuoteLabel({ kind: "userPosts", handle });
+  return (
+    <Button size="xs" variant="outline" disabled={busy} onClick={onClick}>
+      Draft with AI ({quote} + model)
+    </Button>
+  );
+}
+
 /** Their latest post, an AI draft, and a reply through the X connection; every paid step is priced on its button. */
 function Reply({
   id,
@@ -272,7 +292,8 @@ function Reply({
   const [text, setText] = useState("");
   const [sentId, setSentId] = useState<string | null>(null);
   const postQuote = useQuoteLabel({ kind: "userPosts", handle });
-  const replyQuote = useQuoteLabel({ kind: "post", text });
+  // Priced here from the rate card: a quote rpc per keystroke would flash "…" on the button.
+  const rates = useRates();
   return (
     <div className="flex flex-col gap-1.5 border-t border-border pt-2">
       <div className="flex items-center justify-between">
@@ -318,7 +339,7 @@ function Reply({
             </Button>
             <Button
               size="xs"
-              disabled={busy || text.trim() === ""}
+              disabled={busy || text.trim() === "" || rates === null}
               onClick={() =>
                 void run(() =>
                   send({ id, postId: post.postId, text }).then((r) => {
@@ -329,7 +350,7 @@ function Reply({
                 )
               }
             >
-              Reply ({replyQuote})
+              Reply ({rates === null ? "…" : usd(postCostUsd(rates, text))})
             </Button>
           </div>
         </>

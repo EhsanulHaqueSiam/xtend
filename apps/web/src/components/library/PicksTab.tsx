@@ -103,13 +103,15 @@ function StaffPicks() {
 }
 
 function PickRow({ pick }: { readonly pick: Pick }) {
-  const why = useAtomSet(pickWhyAtom, { mode: "promise" });
-  const draft = useAtomSet(pickDraftAtom, { mode: "promise" });
+  const why = useAtomSet(pickWhyAtom(pick.post.postId), { mode: "promise" });
+  const draft = useAtomSet(pickDraftAtom(pick.post.postId), { mode: "promise" });
   const saveDraft = useAtomSet(saveSuggestedDraftAtom, { mode: "promise" });
   const [whyText, setWhyText] = useState(pick.whyItWorks);
   const [blocks, setBlocks] = useState<ReadonlyArray<string> | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // One suggested draft per answer; a second click would file a duplicate.
+  const [sent, setSent] = useState(false);
 
   const call = async (work: () => Promise<void>) => {
     setBusy(true);
@@ -140,9 +142,9 @@ function PickRow({ pick }: { readonly pick: Pick }) {
               variant="outline"
               size="xs"
               disabled={busy}
-              onClick={() => void call(async () => setWhyText(await why(pick.post.postId)))}
+              onClick={() => void call(async () => setWhyText(await why()))}
             >
-              <Sparkles /> Why it works
+              <Sparkles /> Why it works (model)
             </Button>
           ) : null}
           {blocks === null ? (
@@ -150,9 +152,9 @@ function PickRow({ pick }: { readonly pick: Pick }) {
               variant="outline"
               size="xs"
               disabled={busy}
-              onClick={() => void call(async () => setBlocks(await draft(pick.post.postId)))}
+              onClick={() => void call(async () => setBlocks(await draft()))}
             >
-              <Wand2 /> Ready to post
+              <Wand2 /> Ready to post (model)
             </Button>
           ) : null}
           {status !== null ? (
@@ -168,8 +170,9 @@ function PickRow({ pick }: { readonly pick: Pick }) {
       ) : null}
       {blocks !== null ? (
         <div className="mt-2 flex flex-col gap-1.5 border-l-2 border-success pl-2">
-          {blocks.map((b) => (
-            <p key={b} className="whitespace-pre-wrap text-sm">
+          {blocks.map((b, i) => (
+            // eslint-disable-next-line react/no-array-index-key -- model output; two posts can share a text.
+            <p key={i} className="whitespace-pre-wrap text-sm">
               {b}
             </p>
           ))}
@@ -177,17 +180,18 @@ function PickRow({ pick }: { readonly pick: Pick }) {
             <Button
               variant="outline"
               size="xs"
+              disabled={busy || sent}
               onClick={() =>
                 void call(async () => {
-                  const { id } = await saveDraft({
+                  await saveDraft({
                     text: blocks.join("\n\n"),
                     source: `pick:${pick.post.postId}`,
                   });
-                  setStatus(`Stored as suggested draft #${id} (Compose has no drafts rpc yet).`);
+                  setSent(true);
                 })
               }
             >
-              Send to Compose
+              {sent ? "Sent to Compose" : "Send to Compose"}
             </Button>
           </div>
         </div>

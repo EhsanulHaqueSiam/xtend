@@ -20,8 +20,8 @@ const TABS = [
 ] as const;
 type Tab = (typeof TABS)[number]["id"];
 
-function LibraryScreen() {
-  const { q } = Route.useSearch();
+/** Library as it opens on `q`. */
+export function Library({ q }: { readonly q: string | undefined }) {
   const [tab, setTab] = useState<Tab>(q === undefined ? "picks" : "search");
   return (
     <div className="flex h-full flex-col">
@@ -35,6 +35,12 @@ function LibraryScreen() {
       {tab === "swipe" ? <SwipeTab /> : null}
     </div>
   );
+}
+
+function LibraryScreen() {
+  const { q } = Route.useSearch();
+  // A new `?q=` while Library is open starts over on Search with it, not the old query.
+  return <Library key={q} q={q} />;
 }
 
 /** `?q=` prefills and runs a search; Scores and the shell palette link here. */

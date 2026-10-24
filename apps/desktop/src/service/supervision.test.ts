@@ -3,21 +3,24 @@ import { expect, it } from "vite-plus/test";
 import { decide, deepLinkToRoute, nextRestart } from "./supervision.ts";
 
 it("picks the mode from the probe", () => {
-  expect(decide({ reachable: true, loopback: false, launchdLoaded: false })).toEqual({
+  const local = { remote: false, reachable: false, loopback: true, launchdLoaded: false };
+  expect(decide({ ...local, reachable: true, loopback: false })).toEqual({
     mode: "remote",
     spawn: false,
   });
-  expect(decide({ reachable: false, loopback: true, launchdLoaded: true })).toEqual({
-    mode: "launchd",
+  expect(decide({ ...local, launchdLoaded: true })).toEqual({ mode: "launchd", spawn: false });
+  expect(decide({ ...local, reachable: true })).toEqual({ mode: "none", spawn: false });
+  expect(decide(local)).toEqual({ mode: "child", spawn: true });
+});
+
+it("never starts a local service in place of a saved remote, even one tunnelled to localhost", () => {
+  expect(decide({ remote: true, reachable: false, loopback: true, launchdLoaded: false })).toEqual({
+    mode: "remote",
     spawn: false,
   });
-  expect(decide({ reachable: true, loopback: true, launchdLoaded: false })).toEqual({
-    mode: "none",
+  expect(decide({ remote: true, reachable: false, loopback: true, launchdLoaded: true })).toEqual({
+    mode: "remote",
     spawn: false,
-  });
-  expect(decide({ reachable: false, loopback: true, launchdLoaded: false })).toEqual({
-    mode: "child",
-    spawn: true,
   });
 });
 

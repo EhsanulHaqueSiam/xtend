@@ -4,6 +4,7 @@ import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Hash from "effect/Hash";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
@@ -14,6 +15,13 @@ import * as Budget from "../budget/Budget.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 
 const TREG_BASE = "https://treg.to";
+/**
+ * A call treg has not answered by then is given up on, so a hung socket cannot hold a
+ * reservation forever. It may still have been served, so like a silent answer it costs its quote.
+ */
+const CALL_TIMEOUT = Duration.minutes(2);
+/** Refusals before any provider served the call (bad token, no balance, rate limited) are never billed. */
+const UNBILLED_STATUSES: ReadonlySet<number> = new Set([401, 402, 429]);
 
 const TregCliConfig = Schema.fromJsonString(Schema.Struct({ token: Schema.String }));
 const decodeCliConfig = Schema.decodeUnknownEffect(TregCliConfig);
@@ -93,8 +101,10 @@ const make = Effect.gen(function* () {
     return stored ?? process.env.XTEND_TREG_TOKEN ?? (yield* cliToken);
   });
 
-  const cacheKey = (input: TregCall) =>
-    `${input.method ?? "GET"} ${input.endpoint} ${encodeJson(input.query ?? {})} ${encodeJson(input.body ?? null)}`;
+  // Keyed by the token too: an own-account read (`x/2/users/me`, mentions) belongs to the X
+  // connection behind one treg token, and a pasted new token must not be served the old one's.
+  const cacheKey = (input: TregCall, auth: string | null) =>
+    `${auth === null ? "-" : Hash.string(auth)} ${input.method ?? "GET"} ${input.endpoint} ${encodeJson(input.query ?? {})} ${encodeJson(input.body ?? null)}`;
 
   const readCache = (key: string, maxAge: Duration.Duration) =>
     Effect.gen(function* () {
@@ -117,10 +127,13 @@ const make = Effect.gen(function* () {
       `;
     }).pipe(Effect.ignore);
 
-  const isCached = (input: TregCall) =>
-    input.cacheFor === undefined
-      ? Effect.succeed(false)
-      : Effect.map(readCache(cacheKey(input), input.cacheFor), (hit) => hit !== null);
+  const isCached = (input: TregCall) => {
+    const maxAge = input.cacheFor;
+    if (maxAge === undefined) return Effect.succeed(false);
+    return Effect.gen(function* () {
+      return (yield* readCache(cacheKey(input, yield* token), maxAge)) !== null;
+    });
+  };
 
   // The HTTP exchange itself; what it cost comes back with the response so the budget can settle it.
   const exchange = Effect.fn("Treg.exchange")(function* (input: TregCall, auth: string) {
@@ -145,15 +158,20 @@ const make = Effect.gen(function* () {
           }),
       ),
     );
-    const text = yield* response.text.pipe(Effect.orElseSucceed(() => ""));
-    const body: unknown = yield* decodeJson(text).pipe(Effect.orElseSucceed(() => text));
+    // undefined: the body was cut off mid-read or is not JSON (a proxy's error page). An empty
+    // body (a 204) is null.
+    const read = yield* response.text.pipe(Effect.orElseSucceed(() => null));
+    const text = read ?? "";
+    const body: unknown =
+      read === null
+        ? undefined
+        : read === ""
+          ? null
+          : yield* decodeJson(read).pipe(Effect.orElseSucceed(() => undefined));
     // A 5xx or a treg-side refusal (502 "whose_error: treg") is never billed, so the quote
     // fallback applies only to answers the provider actually served.
-    const cost = costOf(
-      response.headers,
-      body,
-      response.status >= 500 ? 0 : (input.expectedCostUsd ?? 0),
-    );
+    const billed = response.status < 500 && !UNBILLED_STATUSES.has(response.status);
+    const cost = costOf(response.headers, body, billed ? (input.expectedCostUsd ?? 0) : 0);
     if (cost.source === "quote" && cost.costUsd > 0)
       yield* Effect.logDebug("treg sent no cost; charged the quote").pipe(
         Effect.annotateLogs({ endpoint: input.endpoint, costUsd: cost.costUsd }),
@@ -165,13 +183,13 @@ const make = Effect.gen(function* () {
   });
 
   const call = Effect.fn("Treg.call")(function* (input: TregCall) {
-    const key = cacheKey(input);
+    const auth = yield* token;
+    const key = cacheKey(input, auth);
     if (input.cacheFor !== undefined) {
       const cached = yield* readCache(key, input.cacheFor);
       if (cached !== null) return { status: 200, body: cached, costUsd: 0, cached: true };
     }
 
-    const auth = yield* token;
     if (auth === null) {
       return yield* new XApiError({
         endpoint: input.endpoint,
@@ -182,7 +200,7 @@ const make = Effect.gen(function* () {
     }
 
     const expected = input.expectedCostUsd ?? 0;
-    const { status, text, body, costUsd } = yield* budget
+    const answer = yield* budget
       .spend(
         {
           expectedUsd: expected,
@@ -190,7 +208,12 @@ const make = Effect.gen(function* () {
           endpoint: input.endpoint,
           purpose: input.purpose,
         },
-        exchange(input, auth),
+        exchange(input, auth).pipe(
+          Effect.timeoutOrElse({
+            duration: CALL_TIMEOUT,
+            orElse: () => Effect.succeed({ value: null, costUsd: expected }),
+          }),
+        ),
       )
       .pipe(
         Effect.catchTag("BudgetExceeded", (e) =>
@@ -205,6 +228,14 @@ const make = Effect.gen(function* () {
         ),
       );
 
+    if (answer === null)
+      return yield* new XApiError({
+        endpoint: input.endpoint,
+        reason: "http",
+        status: null,
+        detail: `treg did not answer in ${Duration.format(CALL_TIMEOUT)}; a write may still have gone through`,
+      });
+    const { status, text, body, costUsd } = answer;
     if (status >= 400) {
       return yield* new XApiError({
         endpoint: input.endpoint,
@@ -213,6 +244,14 @@ const make = Effect.gen(function* () {
         detail: text.slice(0, 500),
       });
     }
+    // Served and billed but unreadable: cached, it would read as an empty page until it expired.
+    if (body === undefined)
+      return yield* new XApiError({
+        endpoint: input.endpoint,
+        reason: "decode",
+        status,
+        detail: `unreadable answer: ${text.slice(0, 200)}`,
+      });
     if (input.cacheFor !== undefined) yield* writeCache(key, body);
     return { status, body, costUsd, cached: false };
   });

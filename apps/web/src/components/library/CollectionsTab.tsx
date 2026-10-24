@@ -4,12 +4,14 @@ import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 
+import { fmtDay } from "../../lib/time";
 import {
   collectionPostsAtom,
   collectionsAtom,
   createCollectionAtom,
   deleteCollectionAtom,
   deleteSavedAtom,
+  removeFromCollectionAtom,
   renameCollectionAtom,
   setNoteAtom,
   swipeFileAtom,
@@ -18,35 +20,53 @@ import { Button } from "../ui/button";
 import { InspireButton } from "./SearchTab";
 import { Empty, ErrorLine, PostRow, errorMessage, inputClass } from "./shared";
 
-/** A saved post with its note. Used by collections and the swipe file. */
+/**
+ * A saved post with its note. Used by collections and the swipe file: Remove in a collection
+ * takes it out of that one, in the swipe file it deletes it everywhere.
+ */
 function SavedRow({
   saved,
+  collection,
   onChange,
 }: {
   readonly saved: SavedPost;
+  readonly collection: Collection | undefined;
   readonly onChange: () => void;
 }) {
   const setNote = useAtomSet(setNoteAtom, { mode: "promise" });
   const remove = useAtomSet(deleteSavedAtom, { mode: "promise" });
+  const unlink = useAtomSet(removeFromCollectionAtom, { mode: "promise" });
   const [note, setNoteText] = useState(saved.note);
+  const [error, setError] = useState<string | null>(null);
+  const report = (e: unknown) => setError(errorMessage(e));
   return (
     <PostRow
       post={saved.post}
       badge={
         <span className="font-mono text-2xs text-muted-foreground">
-          saved {saved.savedAt.slice(0, 10)}
+          saved {fmtDay(saved.savedAt)}
         </span>
       }
       actions={
         <>
           <InspireButton post={saved.post} />
-          <Button
-            variant="ghost-destructive"
-            size="xs"
-            onClick={() => void remove(saved.id).then(onChange)}
-          >
-            <Trash2 /> Remove
-          </Button>
+          {/* Staff picks is read-only, as the service keeps it. */}
+          {collection?.builtIn === true ? null : (
+            <Button
+              variant="ghost-destructive"
+              size="xs"
+              onClick={() =>
+                void (
+                  collection === undefined
+                    ? remove(saved.id)
+                    : unlink({ collectionId: collection.id, savedId: saved.id })
+                ).then(onChange, report)
+              }
+            >
+              <Trash2 /> Remove
+            </Button>
+          )}
+          {error !== null ? <span className="text-2xs text-error-foreground">{error}</span> : null}
         </>
       }
     >
@@ -57,7 +77,7 @@ function SavedRow({
         value={note}
         onChange={(e) => setNoteText(e.target.value)}
         onBlur={() => {
-          if (note !== saved.note) void setNote({ id: saved.id, note });
+          if (note !== saved.note) void setNote({ id: saved.id, note }).catch(report);
         }}
       />
     </PostRow>
@@ -66,9 +86,12 @@ function SavedRow({
 
 export function SavedList({
   result,
+  collection,
   onChange,
 }: {
   readonly result: AsyncResult.AsyncResult<ReadonlyArray<SavedPost>, unknown>;
+  /** The collection listed; none is the swipe file. */
+  readonly collection?: Collection;
   readonly onChange: () => void;
 }) {
   return AsyncResult.match(result, {
@@ -80,7 +103,7 @@ export function SavedList({
       ) : (
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-0.5 px-2 py-2">
           {value.map((s) => (
-            <SavedRow key={s.id} saved={s} onChange={onChange} />
+            <SavedRow key={s.id} saved={s} collection={collection} onChange={onChange} />
           ))}
         </div>
       ),
@@ -91,12 +114,16 @@ function CollectionPosts({ collection }: { readonly collection: Collection }) {
   const posts = useAtomValue(collectionPostsAtom(collection.id));
   const refresh = useAtomRefresh(collectionPostsAtom(collection.id));
   const refreshAll = useAtomRefresh(swipeFileAtom(""));
+  // The sidebar counts each collection's posts.
+  const refreshCounts = useAtomRefresh(collectionsAtom);
   return (
     <SavedList
       result={posts}
+      collection={collection}
       onChange={() => {
         refresh();
         refreshAll();
+        refreshCounts();
       }}
     />
   );

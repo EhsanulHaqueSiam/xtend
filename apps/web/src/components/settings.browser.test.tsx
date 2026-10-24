@@ -1,0 +1,157 @@
+import {
+  AccountsError,
+  SettingsError,
+  type AccountList,
+  type Settings,
+  type SettingsUpdate,
+} from "@xtend/contracts";
+import * as Effect from "effect/Effect";
+import { expect, it, onTestFinished } from "vite-plus/test";
+import { userEvent } from "vite-plus/test/browser";
+
+import { installFakeBridge } from "../../test/fakeBridge";
+import type { FakeService } from "../../test/fakeService";
+import { settings } from "../../test/fixtures";
+import { render } from "../../test/render";
+import { NOT_A_HANDLE } from "../lib/utils";
+import { SettingsScreen } from "../routes/settings";
+
+const accounts: AccountList = {
+  accounts: [
+    { id: 1, handle: "siamships", label: "Main", createdAt: "2026-10-01T00:00:00.000Z" },
+    { id: 2, handle: "sidebrand", label: "Brand", createdAt: "2026-10-02T00:00:00.000Z" },
+  ],
+  currentId: 1,
+};
+
+/** A settings service that applies updates, so what the screen reads back is what it saved. */
+const service = (
+  updates: Array<SettingsUpdate>,
+  refuseUpdate = () => false,
+  extra: FakeService = {},
+): FakeService => {
+  let current: Settings = settings;
+  return {
+    "server.info": () =>
+      Effect.succeed({
+        name: "xtend",
+        version: "0.1.0",
+        baseDir: "/tmp/xtend-test",
+        host: "127.0.0.1",
+        supervisor: "none",
+      }),
+    "accounts.list": () => Effect.succeed(accounts),
+    "settings.get": () => Effect.sync(() => current),
+    "settings.update": (patch) =>
+      refuseUpdate()
+        ? Effect.fail(new SettingsError({ operation: "update", cause: null }))
+        : Effect.sync(() => {
+            updates.push(patch);
+            current = {
+              ...current,
+              handle: patch.handle === undefined ? current.handle : patch.handle,
+              monthlyBudgetUsd: patch.monthlyBudgetUsd ?? current.monthlyBudgetUsd,
+              timeZone: patch.timeZone ?? current.timeZone,
+              tregTokenSet: current.tregTokenSet || typeof patch.tregToken === "string",
+            };
+            return current;
+          }),
+    "spend.summary": () =>
+      Effect.sync(() => ({
+        monthUsd: 1.5,
+        todayUsd: 0.25,
+        monthlyBudgetUsd: current.monthlyBudgetUsd,
+        byPurpose: [],
+        recent: [],
+      })),
+    ...extra,
+  };
+};
+
+it("saves a budget and time zone only once both are valid, and the meter shows the new budget", async () => {
+  const updates: Array<SettingsUpdate> = [];
+  await using screen = await render(<SettingsScreen />, { service: service(updates) });
+  await expect.element(screen.getByText("$1.50 of $20.00")).toBeVisible();
+  const save = screen.getByRole("button", { name: "Save" });
+  const budget = screen.getByRole("spinbutton");
+
+  // Empty is not $0: a cleared field would otherwise stop every paid call.
+  await userEvent.clear(budget);
+  await expect.element(screen.getByText("Enter an amount of 0 or more.")).toBeVisible();
+  await expect.element(save).toBeDisabled();
+  await userEvent.type(budget, "35.5");
+  await expect.element(save).toBeEnabled();
+
+  const zone = screen.getByLabelText(/^Time zone/);
+  await userEvent.fill(zone, "Asia/Dhak");
+  await expect.element(screen.getByText("Not a time zone. Pick one from the list.")).toBeVisible();
+  await expect.element(save).toBeDisabled();
+  await userEvent.fill(zone, "Asia/Dhaka");
+  await userEvent.click(save);
+
+  await expect.poll(() => updates).toEqual([{ monthlyBudgetUsd: 35.5, timeZone: "Asia/Dhaka" }]);
+  await expect.element(screen.getByText("$1.50 of $35.50")).toBeVisible();
+});
+
+it("saves a handle as X spells it, refuses one X would not accept, and says why a save failed", async () => {
+  const updates: Array<SettingsUpdate> = [];
+  let refuse = false;
+  await using screen = await render(<SettingsScreen />, {
+    service: service(updates, () => refuse),
+  });
+  const handle = screen.getByPlaceholder("handle without @");
+  await userEvent.fill(handle, "two words");
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  await expect.element(screen.getByRole("alert")).toHaveTextContent(NOT_A_HANDLE);
+  expect(updates).toEqual([]);
+
+  await userEvent.fill(handle, " @NewHandle ");
+  await userEvent.fill(screen.getByPlaceholder("treg token"), "tk_live_123");
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  await expect.poll(() => updates).toEqual([{ handle: "NewHandle", tregToken: "tk_live_123" }]);
+  // The token never shows again; the field empties and the hint says one is stored.
+  await expect.element(screen.getByPlaceholder("treg token")).toHaveValue("");
+  await expect.element(screen.getByRole("alert")).not.toBeInTheDocument();
+
+  refuse = true;
+  await userEvent.fill(screen.getByPlaceholder("treg token"), "tk_live_456");
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  await expect
+    .element(screen.getByRole("alert"))
+    .toHaveTextContent("Settings failed during update.");
+  await expect.element(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+});
+
+it("switches account only after the service selected it, and says when it refused", async () => {
+  const calls = installFakeBridge();
+  onTestFinished(() => {
+    delete window.desktopBridge;
+  });
+  window.desktopBridge = {
+    ...window.desktopBridge!,
+    selectAccount: (id) => calls.push(`select ${id}`),
+  };
+  let refuse = true;
+  const selected: Array<number> = [];
+  await using screen = await render(<SettingsScreen />, {
+    service: service([], undefined, {
+      "accounts.select": ({ id }) =>
+        refuse
+          ? Effect.fail(new AccountsError({ operation: "select", detail: "no such account" }))
+          : Effect.sync(() => {
+              selected.push(id);
+              return { ...accounts, currentId: id };
+            }),
+    }),
+  });
+  await userEvent.click(screen.getByRole("button", { name: "Switch" }));
+  await expect
+    .element(screen.getByRole("alert"))
+    .toHaveTextContent("Accounts select failed: no such account");
+  expect(calls).toEqual([]);
+
+  refuse = false;
+  await userEvent.click(screen.getByRole("button", { name: "Switch" }));
+  await expect.poll(() => calls).toEqual(["select 2"]);
+  expect(selected).toEqual([2]);
+});

@@ -73,7 +73,13 @@ const summaryFromRow = (row: ObservedPostRow): ObservedPostSummary => ({
 export class ObservationStore extends Context.Service<
   ObservationStore,
   {
-    /** Upserts authors and posts, appends one metrics row per post. A replayed batch (same observedAt) adds nothing, not even a sighting. */
+    /**
+     * Upserts authors and posts, appends one metrics row per post. A replayed batch (same
+     * observedAt) adds nothing, not even a sighting; a batch older than what is stored (a
+     * retried send arriving late) adds its metrics row but never overwrites newer profile data.
+     * Sightings go to the account whose session captured them, or the current one when the batch
+     * names no account this service has.
+     */
     readonly record: (
       batch: ObservationBatch,
     ) => Effect.Effect<ObservationRecordResult, ObservationStoreError>;
@@ -89,6 +95,14 @@ const make = Effect.gen(function* () {
 
   const record = Effect.fn("ObservationStore.record")(
     function* (batch: ObservationBatch) {
+      const viewer = batch.viewerHandle?.toLowerCase() ?? null;
+      // A batch the desktop queued before an account switch arrives after it.
+      const [owner] = yield* sql<{ id: number }>`
+        SELECT COALESCE(
+          (SELECT id FROM accounts WHERE id = ${batch.accountId ?? null}),
+          ${sql.literal(CURRENT_ACCOUNT)}
+        ) AS id
+      `;
       yield* sql.withTransaction(
         Effect.forEach(
           batch.posts,
@@ -104,19 +118,21 @@ const make = Effect.gen(function* () {
                   name = excluded.name,
                   followers = COALESCE(excluded.followers, observed_authors.followers),
                   verified = excluded.verified,
-                  last_seen_at = MAX(observed_authors.last_seen_at, excluded.last_seen_at)
+                  last_seen_at = excluded.last_seen_at
+                WHERE excluded.last_seen_at >= observed_authors.last_seen_at
               `;
               yield* sql`
                 INSERT INTO observed_posts (post_id, author_id, text, created_at, is_reply, is_repost, is_promoted, has_media, has_link, first_seen_at, last_seen_at, observations)
                 VALUES (${post.postId}, ${a.userId}, ${post.text}, ${post.createdAt}, ${post.isReply ? 1 : 0}, ${post.isRepost ? 1 : 0}, ${post.isPromoted ? 1 : 0}, ${post.hasMedia ? 1 : 0}, ${post.hasLink ? 1 : 0}, ${batch.observedAt}, ${batch.observedAt}, 0)
                 ON CONFLICT(post_id) DO UPDATE SET
-                  text = excluded.text,
+                  text = IIF(excluded.last_seen_at >= observed_posts.last_seen_at, excluded.text, observed_posts.text),
+                  first_seen_at = MIN(observed_posts.first_seen_at, excluded.first_seen_at),
                   last_seen_at = MAX(observed_posts.last_seen_at, excluded.last_seen_at)
               `;
               const m = post.metrics;
               const inserted = yield* sql<{ post_id: string }>`
-                INSERT OR IGNORE INTO post_metrics (post_id, observed_at, source, viewer_handle, views, likes, reposts, replies, quotes, bookmarks)
-                VALUES (${post.postId}, ${batch.observedAt}, ${batch.source}, ${batch.viewerHandle?.toLowerCase() ?? null}, ${m.views}, ${m.likes}, ${m.reposts}, ${m.replies}, ${m.quotes}, ${m.bookmarks})
+                INSERT OR IGNORE INTO post_metrics (post_id, observed_at, source, viewer_handle, views, likes, reposts, replies, quotes, bookmarks, account_id)
+                VALUES (${post.postId}, ${batch.observedAt}, ${batch.source}, ${viewer}, ${m.views}, ${m.likes}, ${m.reposts}, ${m.replies}, ${m.quotes}, ${m.bookmarks}, ${owner!.id})
                 RETURNING post_id
               `;
               // A sighting is a new metrics row; a replayed batch is not a second look.
@@ -143,6 +159,7 @@ const make = Effect.gen(function* () {
           ? sql``
           : sql`AND a.handle = ${input.authorHandle.toLowerCase()}`;
       // Repost wrappers and ads are kept for the record but are nobody's content to analyse.
+      // A post belongs to every account that saw it; the post row only knows the first.
       const rows = yield* sql<ObservedPostRow>`
         SELECT p.post_id, p.text, p.created_at, p.is_reply, p.is_repost, p.is_promoted, p.has_media, p.has_link,
                p.first_seen_at, p.last_seen_at, p.observations,
@@ -152,7 +169,8 @@ const make = Effect.gen(function* () {
         JOIN observed_authors a ON a.user_id = p.author_id
         JOIN post_metrics m ON m.post_id = p.post_id
           AND m.observed_at = (SELECT MAX(observed_at) FROM post_metrics WHERE post_id = p.post_id)
-        WHERE p.is_repost = 0 AND p.is_promoted = 0 AND p.account_id = ${sql.literal(CURRENT_ACCOUNT)} ${authorFilter}
+        WHERE p.is_repost = 0 AND p.is_promoted = 0 ${authorFilter}
+          AND EXISTS (SELECT 1 FROM post_metrics s WHERE s.post_id = p.post_id AND s.account_id = ${sql.literal(CURRENT_ACCOUNT)})
         ORDER BY p.last_seen_at DESC, p.created_at DESC
         LIMIT ${limit}
       `;

@@ -79,6 +79,17 @@ describe("ScoreEngine", () => {
     expect(ScoreEngine.tierFor(900)).toBe("Supreme");
   });
 
+  it("gives the tier of the score it shows, at a tier boundary", () => {
+    // 49 x 4 points plus log10(9120) = 199.96, shown as 200.
+    const followers = [
+      ...Array.from({ length: 49 }, (_, i) => follower({ userId: `${i}`, followers: 10_000 })),
+      follower({ userId: "99", followers: 9_120 }),
+    ];
+    const result = ScoreEngine.score(followers, { followers: 1, following: 1 }, now);
+    expect(result.score).toBe(200);
+    expect(result.tier).toBe("Noted");
+  });
+
   it("scores the top K by reach, so a bigger sample does not inflate it", () => {
     const big = Array.from({ length: ScoreEngine.SCORE_TOP_K }, (_, i) =>
       follower({ userId: `b${i}`, followers: 10_000 }),

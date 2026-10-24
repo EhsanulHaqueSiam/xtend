@@ -18,8 +18,11 @@ import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import { CURRENT_ACCOUNT } from "../persistence/account.ts";
+import * as SettingsStore from "../settings/SettingsStore.ts";
 
 const RUNS_LIMIT = 200;
+/** Runs kept per rule; older ones are dropped as new ones arrive. Lists show RUNS_LIMIT. */
+const RUNS_KEPT = 1_000;
 
 const TriggerJson = Schema.fromJsonString(Trigger);
 const ActionJson = Schema.fromJsonString(Action);
@@ -151,18 +154,30 @@ export class RuleStore extends Context.Service<
     readonly get: (id: number) => Effect.Effect<Rule, AutomateError>;
     readonly upsert: (input: RuleInput) => Effect.Effect<Rule, AutomateError>;
     readonly remove: (id: number) => Effect.Effect<void, AutomateError>;
-    readonly webhookSecret: (id: number) => Effect.Effect<string, AutomateError>;
+    /**
+     * The secret of a webhook-triggered rule in any account: senders outside the app do not
+     * know which account is current. Other triggers read as not found.
+     */
+    readonly webhook: (
+      id: number,
+    ) => Effect.Effect<{ readonly secret: string; readonly enabled: boolean }, AutomateError>;
     readonly firedSubjects: (ruleId: number) => Effect.Effect<ReadonlySet<string>, AutomateError>;
     /**
-     * Appends the run row. Only an ok run marks the subject fired and adds its cost to the
-     * rule's day and month; skipped, failed, dry and pending runs leave the subject open.
+     * Appends the run row. Only an ok run marks the subject fired; the cost of an ok or failed
+     * run counts against the rule's day and month, a dry run's only says what it would have
+     * spent. A skipped, dry or free failed run that repeats the subject's last outcome returns
+     * that row instead, so a rule held back every minute logs it once.
      */
     readonly recordRun: (input: RunInput) => Effect.Effect<RuleRun, AutomateError>;
+    /** Counts spend that has no run row, such as a trigger poll, against the rule's day and month. */
+    readonly addSpend: (ruleId: number, costUsd: number) => Effect.Effect<void, AutomateError>;
     /** Marks subjects a once-per-tick action covered, or a dismissed request closed, without a run row each. */
     readonly markFired: (
       ruleId: number,
       subjectIds: ReadonlyArray<string>,
     ) => Effect.Effect<void, AutomateError>;
+    /** Opens a subject marked fired before its action ran, when the action never reached X. */
+    readonly unmarkFired: (ruleId: number, subjectId: string) => Effect.Effect<void, AutomateError>;
     readonly runs: (filter: {
       readonly ruleId?: number | undefined;
       readonly status?: RuleRunStatus | undefined;
@@ -189,6 +204,7 @@ export class RuleStore extends Context.Service<
       dueAt: string,
       undo: Undo,
     ) => Effect.Effect<void, AutomateError>;
+    /** The current account's due undos; another account's wait until it is current, since X acts as this one. */
     readonly dueUndos: (nowIso: string) => Effect.Effect<ReadonlyArray<DueUndo>, AutomateError>;
     readonly settleUndo: (
       id: number,
@@ -207,11 +223,20 @@ export class RuleStore extends Context.Service<
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+  const settings = yield* SettingsStore.SettingsStore;
   const now = Effect.map(DateTime.now, DateTime.formatIso);
+  // The caps' day and month are the user's, in settings.timeZone, like the global budget's.
+  const period = Effect.gen(function* () {
+    const { timeZone } = yield* settings.get;
+    const day = DateTime.formatIsoDate(
+      DateTime.setZone(yield* DateTime.now, SettingsStore.zoneOf(timeZone)),
+    );
+    return { day, month: day.slice(0, 7) };
+  });
   const fail = (operation: string) => (cause: unknown) =>
     new AutomateError({ operation, detail: String(cause).slice(0, 200), cause });
 
-  const toRule = (r: RuleRow, nowIso: string): Rule => ({
+  const toRule = (r: RuleRow, at: { readonly day: string; readonly month: string }): Rule => ({
     id: r.id,
     name: r.name,
     enabled: r.enabled === 1,
@@ -224,19 +249,23 @@ const make = Effect.gen(function* () {
     undoAfterHours: r.undo_after_hours,
     askFirst: r.ask_first === 1,
     dryRun: r.dry_run === 1,
-    spentUsdDay: r.spent_day === nowIso.slice(0, 10) ? r.spent_usd_day : 0,
-    spentUsdMonth: r.spent_month === nowIso.slice(0, 7) ? r.spent_usd_month : 0,
+    spentUsdDay: r.spent_day === at.day ? r.spent_usd_day : 0,
+    spentUsdMonth: r.spent_month === at.month ? r.spent_usd_month : 0,
     createdAt: r.created_at,
   });
 
+  // Another account's rule reads as missing: acting on it would use this account's X connection.
   const row = (id: number) =>
-    Effect.flatMap(sql<RuleRow>`SELECT * FROM rules WHERE id = ${id}`, (rows) =>
-      rows[0] === undefined ? Effect.fail(`rule ${id} not found`) : Effect.succeed(rows[0]),
+    Effect.flatMap(
+      sql<RuleRow>`SELECT * FROM rules WHERE id = ${id} AND account_id = ${sql.literal(CURRENT_ACCOUNT)}`,
+      (rows) =>
+        rows[0] === undefined ? Effect.fail(`rule ${id} not found`) : Effect.succeed(rows[0]),
     );
-  const byId = (id: number) => Effect.map(Effect.all([row(id), now]), ([r, at]) => toRule(r, at));
+  const byId = (id: number) =>
+    Effect.map(Effect.all([row(id), period]), ([r, at]) => toRule(r, at));
 
   const list = Effect.gen(function* () {
-    const at = yield* now;
+    const at = yield* period;
     const rows =
       yield* sql<RuleRow>`SELECT * FROM rules WHERE account_id = ${sql.literal(CURRENT_ACCOUNT)} ORDER BY id DESC`;
     return rows.map((r) => toRule(r, at));
@@ -266,22 +295,28 @@ const make = Effect.gen(function* () {
                 condition_json = ${trigger}, conditions_json = ${conditions}, wait_minutes = ${r.waitMinutes},
                 action_json = ${action}, budget_usd_day = ${r.budgetUsdDay}, budget_usd_month = ${r.budgetUsdMonth},
                 undo_after_hours = ${r.undoAfterHours}, ask_first = ${ask}, dry_run = ${dry}
-              WHERE id = ${r.id} RETURNING id`;
-      return yield* byId(rows[0]!.id);
+              WHERE id = ${r.id} AND account_id = ${sql.literal(CURRENT_ACCOUNT)} RETURNING id`;
+      if (rows[0] === undefined) return yield* Effect.fail(`rule ${r.id} not found`);
+      return yield* byId(rows[0].id);
     },
     Effect.mapError(fail("ruleUpsert")),
   );
 
   const remove = Effect.fn("RuleStore.remove")(
     function* (id: number) {
-      yield* sql`DELETE FROM rules WHERE id = ${id}`;
+      yield* sql`DELETE FROM rules WHERE id = ${id} AND account_id = ${sql.literal(CURRENT_ACCOUNT)}`;
     },
     Effect.mapError(fail("ruleDelete")),
   );
 
-  const webhookSecret = Effect.fn("RuleStore.webhookSecret")(
-    (id: number) => Effect.map(row(id), (r) => r.webhook_secret),
-    Effect.mapError(fail("webhookSecret")),
+  const webhook = Effect.fn("RuleStore.webhook")(
+    function* (id: number) {
+      const rows = yield* sql<{ webhook_secret: string; enabled: number }>`
+        SELECT webhook_secret, enabled FROM rules WHERE id = ${id} AND trigger = 'webhook'`;
+      if (rows[0] === undefined) return yield* Effect.fail(`webhook rule ${id} not found`);
+      return { secret: rows[0].webhook_secret, enabled: rows[0].enabled === 1 };
+    },
+    Effect.mapError(fail("webhook")),
   );
 
   const firedSubjects = Effect.fn("RuleStore.firedSubjects")(
@@ -293,26 +328,52 @@ const make = Effect.gen(function* () {
     Effect.mapError(fail("firedSubjects")),
   );
 
+  const spend = (ruleId: number, costUsd: number) =>
+    Effect.flatMap(
+      period,
+      ({ day, month }) => sql`
+      UPDATE rules SET
+        spent_usd_day = CASE WHEN spent_day = ${day} THEN spent_usd_day + ${costUsd} ELSE ${costUsd} END,
+        spent_day = ${day},
+        spent_usd_month = CASE WHEN spent_month = ${month} THEN spent_usd_month + ${costUsd} ELSE ${costUsd} END,
+        spent_month = ${month}
+      WHERE id = ${ruleId}`,
+    );
+
+  const addSpend = Effect.fn("RuleStore.addSpend")(
+    function* (ruleId: number, costUsd: number) {
+      if (costUsd > 0) yield* spend(ruleId, costUsd);
+    },
+    Effect.mapError(fail("addSpend")),
+  );
+
   const recordRun = Effect.fn("RuleStore.recordRun")(
     function* (input: RunInput) {
       const at = yield* now;
-      const day = at.slice(0, 10);
-      const month = at.slice(0, 7);
+      // Failed runs carry what X charged before the failure; it still counts against the rule.
+      const spent = input.status === "ok" || input.status === "failed" ? input.costUsd : 0;
+      if (spent === 0 && input.status !== "ok" && input.status !== "pending") {
+        const last = (yield* sql<RunRow>`
+          SELECT * FROM rule_runs WHERE rule_id = ${input.ruleId} AND subject_id = ${input.subjectId}
+          ORDER BY id DESC LIMIT 1`)[0];
+        if (
+          last !== undefined &&
+          last.status === input.status &&
+          last.detail === input.detail &&
+          last.cost_usd === input.costUsd
+        )
+          return toRun(last);
+      }
       if (input.status === "ok")
         yield* sql`INSERT OR IGNORE INTO rule_fired (rule_id, subject_id, at) VALUES (${input.ruleId}, ${input.subjectId}, ${at})`;
-      // Failed runs carry what X charged before the failure; it still counts against the rule.
-      if (input.costUsd > 0)
-        yield* sql`
-          UPDATE rules SET
-            spent_usd_day = CASE WHEN spent_day = ${day} THEN spent_usd_day + ${input.costUsd} ELSE ${input.costUsd} END,
-            spent_day = ${day},
-            spent_usd_month = CASE WHEN spent_month = ${month} THEN spent_usd_month + ${input.costUsd} ELSE ${input.costUsd} END,
-            spent_month = ${month}
-          WHERE id = ${input.ruleId}`;
+      if (spent > 0) yield* spend(input.ruleId, spent);
       const rows = yield* sql<RunRow>`
         INSERT INTO rule_runs (rule_id, at, subject_id, status, detail, cost_usd, x_id)
         VALUES (${input.ruleId}, ${at}, ${input.subjectId}, ${input.status}, ${input.detail}, ${input.costUsd}, ${input.xId ?? null})
         RETURNING *`;
+      yield* sql`
+        DELETE FROM rule_runs WHERE rule_id = ${input.ruleId} AND id <= (
+          SELECT id FROM rule_runs WHERE rule_id = ${input.ruleId} ORDER BY id DESC LIMIT 1 OFFSET ${RUNS_KEPT})`;
       return toRun(rows[0]!);
     },
     Effect.mapError(fail("recordRun")),
@@ -327,6 +388,13 @@ const make = Effect.gen(function* () {
     Effect.mapError(fail("markFired")),
   );
 
+  const unmarkFired = Effect.fn("RuleStore.unmarkFired")(
+    function* (ruleId: number, subjectId: string) {
+      yield* sql`DELETE FROM rule_fired WHERE rule_id = ${ruleId} AND subject_id = ${subjectId}`;
+    },
+    Effect.mapError(fail("unmarkFired")),
+  );
+
   const runs = Effect.fn("RuleStore.runs")(
     function* (filter: {
       readonly ruleId?: number | undefined;
@@ -335,7 +403,8 @@ const make = Effect.gen(function* () {
       const byRule = filter.ruleId === undefined ? sql`` : sql`AND rule_id = ${filter.ruleId}`;
       const byStatus = filter.status === undefined ? sql`` : sql`AND status = ${filter.status}`;
       const rows = yield* sql<RunRow>`
-        SELECT * FROM rule_runs WHERE 1 = 1 ${byRule} ${byStatus} ORDER BY id DESC LIMIT ${RUNS_LIMIT}`;
+        SELECT * FROM rule_runs WHERE rule_id IN (SELECT id FROM rules WHERE account_id = ${sql.literal(CURRENT_ACCOUNT)})
+          ${byRule} ${byStatus} ORDER BY id DESC LIMIT ${RUNS_LIMIT}`;
       return rows.map(toRun);
     },
     Effect.mapError(fail("runsList")),
@@ -356,7 +425,8 @@ const make = Effect.gen(function* () {
   const pendingRow = (id: number) =>
     Effect.flatMap(
       sql<PendingRow>`
-        SELECT p.*, r.name AS rule_name FROM pending_requests p JOIN rules r ON r.id = p.rule_id WHERE p.id = ${id}`,
+        SELECT p.*, r.name AS rule_name FROM pending_requests p JOIN rules r ON r.id = p.rule_id
+        WHERE p.id = ${id} AND r.account_id = ${sql.literal(CURRENT_ACCOUNT)}`,
       (rows) =>
         rows[0] === undefined
           ? Effect.fail(`pending request ${id} not found`)
@@ -384,7 +454,8 @@ const make = Effect.gen(function* () {
 
   const pendingList = sql<PendingRow>`
     SELECT p.*, r.name AS rule_name FROM pending_requests p JOIN rules r ON r.id = p.rule_id
-    WHERE p.status = 'pending' ORDER BY p.id DESC LIMIT ${RUNS_LIMIT}`.pipe(
+    WHERE p.status = 'pending' AND r.account_id = ${sql.literal(CURRENT_ACCOUNT)}
+    ORDER BY p.id DESC LIMIT ${RUNS_LIMIT}`.pipe(
     Effect.map((rows) => rows.map(toPending)),
     Effect.mapError(fail("pendingList")),
   );
@@ -415,7 +486,10 @@ const make = Effect.gen(function* () {
   const dueUndos = Effect.fn("RuleStore.dueUndos")(
     function* (nowIso: string) {
       const rows = yield* sql<{ id: number; rule_id: number; undo_json: string }>`
-        SELECT id, rule_id, undo_json FROM scheduled_actions WHERE status = 'due' AND due_at <= ${nowIso} ORDER BY id`;
+        SELECT id, rule_id, undo_json FROM scheduled_actions
+        WHERE status = 'due' AND due_at <= ${nowIso}
+          AND rule_id IN (SELECT id FROM rules WHERE account_id = ${sql.literal(CURRENT_ACCOUNT)})
+        ORDER BY id`;
       return rows.map((r): DueUndo => ({
         id: r.id,
         ruleId: r.rule_id,
@@ -437,6 +511,10 @@ const make = Effect.gen(function* () {
       const at = yield* now;
       const rows = yield* sql<{ id: number }>`
         INSERT INTO webhook_events (rule_id, body_json, at) VALUES (${ruleId}, ${bodyJson}, ${at}) RETURNING id`;
+      // The trigger only ever reads the newest RUNS_LIMIT calls, so older bodies are dead weight.
+      yield* sql`
+        DELETE FROM webhook_events WHERE rule_id = ${ruleId} AND id <= (
+          SELECT id FROM webhook_events WHERE rule_id = ${ruleId} ORDER BY id DESC LIMIT 1 OFFSET ${RUNS_LIMIT})`;
       return rows[0]!.id;
     },
     Effect.mapError(fail("recordWebhook")),
@@ -455,10 +533,12 @@ const make = Effect.gen(function* () {
     get,
     upsert,
     remove,
-    webhookSecret,
+    webhook,
     firedSubjects,
     recordRun,
+    addSpend,
     markFired,
+    unmarkFired,
     runs,
     createPending,
     pending,

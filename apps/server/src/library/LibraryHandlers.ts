@@ -50,6 +50,8 @@ export const layerHandlers = LibraryRpcGroup.toLayer(
       [Library_METHODS.collectionCreate]: ({ name }) => store.collectionCreate(name),
       [Library_METHODS.collectionRename]: ({ id, name }) => store.collectionRename(id, name),
       [Library_METHODS.collectionDelete]: ({ id }) => store.collectionDelete(id),
+      [Library_METHODS.collectionRemovePost]: ({ collectionId, savedId }) =>
+        store.collectionRemovePost(collectionId, savedId),
       [Library_METHODS.picksGet]: () => library.picksGet,
       [Library_METHODS.picksFetch]: () => library.picksFetch,
       [Library_METHODS.pickWhy]: ({ postId }) => library.pickWhy(postId),

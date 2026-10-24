@@ -1,7 +1,8 @@
-import type { Stage } from "@xtend/contracts";
+import type { RateCard, SignalAgentInput, Stage } from "@xtend/contracts";
 import { useState } from "react";
 
 import { cn } from "../../lib/utils";
+import { usd } from "../../state/costs";
 
 export const STAGES: ReadonlyArray<Stage> = ["new", "contacted", "replied", "customer", "ignored"];
 
@@ -30,6 +31,18 @@ export function StagePill({ stage }: { readonly stage: Stage }) {
     </span>
   );
 }
+
+/** The price of one agent run: a search page, plus a profile per new author when it drops bots. */
+export const agentRunCost = (
+  rates: RateCard | null,
+  agent: Pick<SignalAgentInput, "excludeBots">,
+) =>
+  rates === null
+    ? "…"
+    : agent.excludeBots
+      ? // SignalAgents reads one 50-post search page, so at most 50 new authors.
+        `up to ${usd(rates.searchPage + 50 * rates.scraperProfile)}`
+      : usd(rates.searchPage);
 
 /** Busy flag plus the last error for a button that awaits an rpc atom in promise mode. */
 export function useAction() {

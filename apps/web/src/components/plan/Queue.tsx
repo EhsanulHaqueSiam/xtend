@@ -3,10 +3,12 @@ import { type Draft, postCostUsd } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 
+import { composeQuoteAtom } from "../../state/compose";
 import { useRates, usd } from "../../state/costs";
 import { runsAtom } from "../../state/plan";
 import { Empty, errorText } from "../analyze/ui";
 import { draftTitle, fmtWhen, statusTone } from "../compose/DraftsList";
+import { postText } from "../compose/ThreadEditor";
 import { Button } from "../ui/button";
 
 function Runs({ id }: { readonly id: string }) {
@@ -50,15 +52,29 @@ export function Queue({
   const [expanded, setExpanded] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<string | null>(null);
   const rates = useRates();
-  // Blocks with media go through the x.com session, which treg does not bill.
+  const quote = AsyncResult.getOrElse(useAtomValue(composeQuoteAtom), () => null);
+  // Priced as Compose prices it: an article is a draft and a publish request, the quote link
+  // makes the first post a link post, and blocks with media go through the unbilled session.
+  // Null until the prices load, so nothing reads as free.
   const draftCostUsd = (d: Draft) =>
-    rates === null
-      ? 0
-      : d.blocks.reduce(
-          (sum, b, i) =>
-            sum + (d.media.some((m) => m.blockIndex === i) ? 0 : postCostUsd(rates, b.text)),
-          0,
-        );
+    d.kind === "article"
+      ? quote === null
+        ? null
+        : quote.articleUsd * 2
+      : rates === null
+        ? null
+        : d.blocks.reduce(
+            (sum, b, i) =>
+              sum +
+              (d.media.some((m) => m.blockIndex === i)
+                ? 0
+                : postCostUsd(rates, postText(b.text, i, d.quoteUrl))),
+            0,
+          );
+  const price = (d: Draft) => {
+    const cost = draftCostUsd(d);
+    return cost === null ? "…" : usd(cost);
+  };
   if (drafts.length === 0)
     return <Empty>Nothing queued. Add a draft from Compose or the shelf.</Empty>;
   return (
@@ -84,7 +100,7 @@ export function Queue({
                   </span>
                 ) : null}
                 {d.kind === "article" ? <span>article</span> : null}
-                <span>{usd(draftCostUsd(d))}</span>
+                <span>{price(d)}</span>
                 {d.attempts > 0 ? <span>{d.attempts} attempts</span> : null}
               </p>
             </button>
@@ -113,11 +129,14 @@ export function Queue({
           {confirm === d.id ? (
             <div className="flex flex-wrap items-center gap-2 rounded-md border border-warning/40 bg-warning-surface px-2 py-1.5 text-xs">
               <span>
-                Post {d.blocks.length} {d.blocks.length === 1 ? "post" : "posts"} now for{" "}
-                {usd(draftCostUsd(d))}. This charges your treg balance.
+                {d.kind === "article"
+                  ? "Publish this article"
+                  : `Post ${d.blocks.length} ${d.blocks.length === 1 ? "post" : "posts"}`}{" "}
+                now for {price(d)}. This charges your treg balance.
               </span>
               <Button
                 size="xs"
+                disabled={draftCostUsd(d) === null}
                 onClick={() => {
                   setConfirm(null);
                   onRunNow(d.id);

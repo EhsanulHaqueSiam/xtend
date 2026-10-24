@@ -1,6 +1,7 @@
 import type { SpendEntry } from "@xtend/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
@@ -102,7 +103,9 @@ const make = Effect.gen(function* () {
           return r.value;
         }),
       // A failed body may still have cost something (HTTP 4xx from X is billed); the slot carries it.
-      (slot) => settle(request, slot.charged),
+      // An interrupted one (the caller went away mid-call) may have been served, so it costs its quote.
+      (slot, exit) =>
+        settle(request, Exit.hasInterrupts(exit) ? request.expectedUsd : slot.charged),
     );
 
   return Budget.of({ spend });

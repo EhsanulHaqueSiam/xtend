@@ -8,12 +8,12 @@ import { PageHeader } from "../components/PageHeader";
 import { HandlePicker, HandleReport } from "../components/scores/HandleReport";
 import { Trending } from "../components/scores/Trending";
 import { Watchlist } from "../components/scores/Watchlist";
+import { parseHandle } from "../lib/utils";
 import { settingsAtom } from "../state/settings";
 
 const TABS = ["Mine", "Watchlist", "Report", "Trending", "Bot check"] as const;
 
-function ScoresScreen() {
-  const { handle: wanted } = Route.useSearch();
+function ScoresScreen({ wanted }: { readonly wanted: string | undefined }) {
   const [tab, setTab] = useState<(typeof TABS)[number]>(wanted === undefined ? "Mine" : "Report");
   const [picked, setPicked] = useState<string | null>(null);
   const settings = useAtomValue(settingsAtom);
@@ -65,10 +65,17 @@ function ScoresScreen() {
   );
 }
 
+// Keyed by the handle: the palette opening another report while Scores is up only changes the search.
+function ScoresRoute() {
+  const { handle } = Route.useSearch();
+  return <ScoresScreen key={handle ?? ""} wanted={handle} />;
+}
+
 export const Route = createFileRoute("/scores")({
-  // The palette and the overlay open /scores?handle=<h> straight on a report.
+  // The palette and the overlay open /scores?handle=<h> straight on a report. String(): the
+  // router parses search values as JSON, so an all-digit handle arrives as a number.
   validateSearch: (s: Record<string, unknown>) => ({
-    handle: typeof s.handle === "string" && s.handle !== "" ? s.handle.toLowerCase() : undefined,
+    handle: s.handle === undefined ? undefined : parseHandle(String(s.handle))?.toLowerCase(),
   }),
-  component: ScoresScreen,
+  component: ScoresRoute,
 });

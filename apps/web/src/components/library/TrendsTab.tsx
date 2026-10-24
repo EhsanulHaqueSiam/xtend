@@ -13,6 +13,8 @@ import { Empty, ErrorLine, errorMessage, fmt, inputClass } from "./shared";
 function IdeaRow({ idea }: { readonly idea: TrendIdea }) {
   const saveDraft = useAtomSet(saveSuggestedDraftAtom, { mode: "promise" });
   const [status, setStatus] = useState<string | null>(null);
+  // Held from the click until it fails, so a second click cannot file the idea twice.
+  const [saving, setSaving] = useState(false);
   return (
     <div className="rounded-lg border border-border px-3 py-2.5">
       <div className="flex items-baseline gap-2 text-xs">
@@ -33,11 +35,17 @@ function IdeaRow({ idea }: { readonly idea: TrendIdea }) {
         <Button
           variant="outline"
           size="xs"
-          onClick={() =>
-            void saveDraft({ text: idea.text, source: `trend:${idea.trend}` })
-              .then(({ id }) => setStatus(`Suggested draft #${id}`))
-              .catch((e: unknown) => setStatus(errorMessage(e)))
-          }
+          disabled={saving}
+          onClick={() => {
+            setSaving(true);
+            void saveDraft({ text: idea.text, source: `trend:${idea.trend}` }).then(
+              ({ id }) => setStatus(`Suggested draft #${id}`),
+              (e: unknown) => {
+                setSaving(false);
+                setStatus(errorMessage(e));
+              },
+            );
+          }}
         >
           Save as draft
         </Button>
@@ -73,6 +81,8 @@ export function TrendsTab() {
   const [country, setCountry] = useState<string>(TREND_COUNTRIES[0]);
   const trendsQuote = useQuoteLabel({ kind: "trending", country });
   const [applied, setApplied] = useState<string | null>(null);
+  // Ideas read the loaded country's trends again once the 30-minute cache has gone.
+  const ideasQuote = useQuoteLabel({ kind: "trending", country: applied ?? country });
   const ideasFor = useAtomSet(trendIdeasAtom, { mode: "promise" });
   const [ideas, setIdeas] = useState<ReadonlyArray<TrendIdea> | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -121,7 +131,7 @@ export function TrendsTab() {
           disabled={busy || applied === null}
           onClick={() => void generate()}
         >
-          <Sparkles /> Ideas from trends (model call)
+          <Sparkles /> Ideas from trends ({ideasQuote} + model)
         </Button>
       </form>
       {error !== null ? <ErrorLine>{error}</ErrorLine> : null}

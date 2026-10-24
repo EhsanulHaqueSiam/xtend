@@ -7,6 +7,8 @@ const BACKOFF_MS = [1_000, 2_000, 5_000, 10_000, 30_000] as const;
 const STABLE_MS = 60_000;
 
 export interface Probe {
+  /** The URL is the desktop's saved remote; a loopback one is a tunnel, never ours to start. */
+  readonly remote: boolean;
   /** GET /api/health answered on the configured URL. */
   readonly reachable: boolean;
   /** The URL points at this machine; only then may the desktop spawn or expect launchd. */
@@ -16,7 +18,7 @@ export interface Probe {
 
 /** Which mode the probe puts us in and whether to spawn a child. */
 export const decide = (probe: Probe): { readonly mode: ServiceMode; readonly spawn: boolean } => {
-  if (!probe.loopback) return { mode: "remote", spawn: false };
+  if (probe.remote || !probe.loopback) return { mode: "remote", spawn: false };
   if (probe.launchdLoaded) return { mode: "launchd", spawn: false };
   if (probe.reachable) return { mode: "none", spawn: false };
   return { mode: "child", spawn: true };

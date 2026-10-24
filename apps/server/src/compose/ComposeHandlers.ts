@@ -39,8 +39,8 @@ export const layerHandlers = ComposeRpcGroup.toLayer(
     return ComposeRpcGroup.of({
       [Compose_METHODS.draftsList]: () => Effect.map(drafts.list, (list) => ({ drafts: list })),
       [Compose_METHODS.draftCreate]: (patch) => drafts.create(patch),
-      [Compose_METHODS.draftUpdate]: ({ id, patch }) => drafts.update(id, patch),
-      [Compose_METHODS.draftDelete]: ({ id }) => drafts.remove(id),
+      [Compose_METHODS.draftUpdate]: ({ id, patch }) => media.update(id, patch),
+      [Compose_METHODS.draftDelete]: ({ id }) => media.removeDraft(id),
       [Compose_METHODS.postNow]: ({ id }) =>
         publisher.post(id, { purpose: "compose.postNow", retry: false }),
       [Compose_METHODS.assistHook]: ({ blocks }) => assist.improveHook(blocks),
@@ -59,9 +59,7 @@ export const layerHandlers = ComposeRpcGroup.toLayer(
         }),
       [Compose_METHODS.mediaRemove]: ({ draftId, id }) => media.remove(draftId, id),
       [Compose_METHODS.generateCover]: ({ draftId, prompt }) =>
-        Effect.flatMap(drafts.get(draftId), (d) =>
-          articles.generateCover(d, prompt, "compose.generateCover"),
-        ),
+        articles.generateCover(draftId, prompt, "compose.generateCover"),
       [Compose_METHODS.quote]: () => Effect.succeed(articles.quote),
       [Compose_METHODS.context]: () => bestTime.context,
     });

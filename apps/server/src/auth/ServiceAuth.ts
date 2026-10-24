@@ -40,12 +40,16 @@ export const make = (options: {
     if (header !== undefined && header.startsWith("Bearer ")) return header.slice(7);
     return new URL(request.url, "http://x").searchParams.get("token") ?? undefined;
   };
+  const expected = Buffer.from(options.token);
+  // Bytes, not characters, are compared: a same-length token with a non-ASCII character would
+  // make timingSafeEqual throw, turning a wrong token into a 500 instead of a 401.
   const allows = (request: HttpServerRequest.HttpServerRequest) => {
     const token = presented(request);
+    if (token === undefined) return false;
+    const given = Buffer.from(token);
     return (
-      token !== undefined &&
-      token.length === options.token.length &&
-      NodeCrypto.timingSafeEqual(Buffer.from(token), Buffer.from(options.token)) &&
+      given.length === expected.length &&
+      NodeCrypto.timingSafeEqual(given, expected) &&
       isAllowedOrigin(request.headers["origin"])
     );
   };

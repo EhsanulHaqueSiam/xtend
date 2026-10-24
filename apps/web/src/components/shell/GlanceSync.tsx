@@ -1,6 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { glanceOf } from "../../lib/glance";
 import { mentionsAtom } from "../../state/engage";
@@ -8,6 +8,8 @@ import { slotsAtom } from "../../state/plan";
 import { settingsAtom } from "../../state/settings";
 import { connectionAtom, queuedDraftsAtom, spendLiveAtom } from "../../state/shell";
 import { shellBridge } from "./bridge";
+
+const MINUTE_MS = 60_000;
 
 const or = <A, B>(result: AsyncResult.AsyncResult<A, unknown>, fallback: B): A | B =>
   AsyncResult.getOrElse(result, () => fallback);
@@ -27,10 +29,20 @@ export function GlanceSync() {
   const openMentions = mentions?.mentions.filter((m) => !m.handled).length ?? 0;
   const spendTodayUsd = spend?.todayUsd ?? 0;
   const zone = settings?.timeZone ?? new Intl.DateTimeFormat().resolvedOptions().timeZone;
+  // "18:00" and "Tomorrow 09:00" are relative to now: without a tick they outlive the slot they name.
+  const [now, setNow] = useState(() => new Date());
   useEffect(() => {
-    shellBridge()?.pushGlance(
-      glanceOf({ queued, slots, openMentions, spendTodayUsd, connected, zone, now: new Date() }),
-    );
-  }, [queued, slots, openMentions, spendTodayUsd, connected, zone]);
+    const timer = setInterval(() => setNow(new Date()), MINUTE_MS);
+    return () => clearInterval(timer);
+  }, []);
+  const glance = glanceOf({ queued, slots, openMentions, spendTodayUsd, connected, zone, now });
+  // Only a changed card crosses to main; most ticks change nothing.
+  const sent = useRef("");
+  useEffect(() => {
+    const key = JSON.stringify(glance);
+    if (key === sent.current) return;
+    sent.current = key;
+    shellBridge()?.pushGlance(glance);
+  });
   return null;
 }

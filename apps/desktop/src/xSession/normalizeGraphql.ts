@@ -13,11 +13,10 @@ const isRecord = (value: unknown): value is Json => typeof value === "object" &&
 
 const asString = (value: unknown): string | undefined =>
   typeof value === "string" ? value : undefined;
-const asCount = (value: unknown): number =>
-  typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
-const asNullableCount = (value: unknown): number | null => {
-  const n = typeof value === "string" ? Number(value) : value;
-  return typeof n === "number" && Number.isFinite(n) && n >= 0 ? Math.floor(n) : null;
+/** A count X sent as a number or a digit string (views always come as one); null for anything else. */
+const asCount = (value: unknown): number | null => {
+  const n = typeof value === "string" && /^\d+$/.test(value) ? Number(value) : value;
+  return typeof n === "number" && Number.isSafeInteger(n) && n >= 0 ? n : null;
 };
 
 const X_ID = /^\d{1,25}$/;
@@ -53,7 +52,7 @@ function readAuthor(tweet: Json): ObservedPost["author"] | undefined {
     userId,
     handle: handle.toLowerCase(),
     name: name ?? handle,
-    followers: asNullableCount(legacy.followers_count),
+    followers: asCount(legacy.followers_count),
     verified: user.is_blue_verified === true || legacy.verified === true,
   };
 }
@@ -64,7 +63,21 @@ function readPost(tweet: Json, promoted: boolean): ObservedPost | undefined {
   if (postId === undefined || !X_ID.test(postId) || legacy === undefined) return undefined;
   const author = readAuthor(tweet);
   const createdAt = xDateToIso(legacy.created_at);
-  if (author === undefined || createdAt === undefined) return undefined;
+  const likes = asCount(legacy.favorite_count);
+  const reposts = asCount(legacy.retweet_count);
+  const replies = asCount(legacy.reply_count);
+  const quotes = asCount(legacy.quote_count);
+  // A renamed count would otherwise record as 0 and pass for a real drop; bookmark_count is newer and not always sent.
+  if (
+    author === undefined ||
+    createdAt === undefined ||
+    likes === null ||
+    reposts === null ||
+    replies === null ||
+    quotes === null
+  ) {
+    return undefined;
+  }
 
   // Long posts carry the full text in note_tweet; legacy.full_text is truncated.
   const noteTweet = isRecord(tweet.note_tweet) ? tweet.note_tweet : undefined;
@@ -95,12 +108,12 @@ function readPost(tweet: Json, promoted: boolean): ObservedPost | undefined {
     hasMedia: media.length > 0,
     hasLink: urls.length > 0,
     metrics: {
-      views: asNullableCount(views.count),
-      likes: asCount(legacy.favorite_count),
-      reposts: asCount(legacy.retweet_count),
-      replies: asCount(legacy.reply_count),
-      quotes: asCount(legacy.quote_count),
-      bookmarks: asCount(legacy.bookmark_count),
+      views: asCount(views.count),
+      likes,
+      reposts,
+      replies,
+      quotes,
+      bookmarks: asCount(legacy.bookmark_count) ?? 0,
     },
   };
 }
@@ -118,15 +131,24 @@ export function normalizeGraphqlResponse(body: unknown): ReadonlyArray<ObservedP
     }
     if (!isRecord(node)) continue;
     const inAd = promoted || isRecord(node.promotedMetadata);
-    if (node.__typename === "Tweet") {
-      const post = readPost(node, inAd);
+    // TweetWithVisibilityResults (limited replies, sensitive media) wraps a tweet that carries no __typename of its own.
+    const tweet =
+      node.__typename === "Tweet"
+        ? node
+        : node.__typename === "TweetWithVisibilityResults" && isRecord(node.tweet)
+          ? node.tweet
+          : undefined;
+    if (tweet !== undefined) {
+      const post = readPost(tweet, inAd);
       // The first sighting in a response is the outer post; a quoted copy of
       // the same id deeper down carries the same numbers.
       if (post !== undefined && !found.has(post.postId)) found.set(post.postId, post);
     }
-    // TweetWithVisibilityResults wraps the tweet; quoted and retweeted posts nest inside legacy.
+    // Quoted and retweeted posts nest inside the tweet; a post quoted by an ad is not itself the ad.
+    const childPromoted = inAd && tweet === undefined;
     const values = Object.values(node);
-    for (let i = values.length - 1; i >= 0; i--) stack.push({ node: values[i], promoted: inAd });
+    for (let i = values.length - 1; i >= 0; i--)
+      stack.push({ node: values[i], promoted: childPromoted });
   }
   return [...found.values()];
 }
@@ -143,9 +165,25 @@ export function readViewerHandle(body: unknown): string | undefined {
   return handle !== undefined && X_HANDLE.test(handle) ? handle.toLowerCase() : undefined;
 }
 
-/** The composer's own write; its response carries the new post. */
+/** The composer's own writes, a post and a long post; their responses carry the new post. */
 export const isCreateTweetOperation = (url: string): boolean =>
-  /\/i\/api\/graphql\/[^/]+\/CreateTweet(\?|$)/.test(url);
+  /\/i\/api\/graphql\/[^/]+\/Create(Note)?Tweet(\?|$)/.test(url);
+
+/**
+ * The id of the post a CreateTweet or CreateNoteTweet response created, read from its fixed
+ * path: X sends that result without the `__typename` the walk looks for.
+ */
+export function readCreatedPostId(body: unknown): string | undefined {
+  if (!isRecord(body) || !isRecord(body.data)) return undefined;
+  const created = body.data.create_tweet ?? body.data.notetweet_create;
+  const results = isRecord(created) ? created.tweet_results : undefined;
+  const result = isRecord(results) && isRecord(results.result) ? results.result : undefined;
+  // A post with limited replies comes back in the visibility wrapper.
+  const id =
+    asString(result?.rest_id) ??
+    asString(isRecord(result?.tweet) ? result.tweet.rest_id : undefined);
+  return id !== undefined && X_ID.test(id) ? id : undefined;
+}
 
 export const isViewerOperation = (url: string): boolean =>
   /\/i\/api\/graphql\/[^/]+\/Viewer(\?|$)/.test(url);

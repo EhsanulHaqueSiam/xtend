@@ -18,9 +18,17 @@ const TOKEN_KEY = "xtend:token";
  * The service token, in order: the desktop already holds it; the Vite dev
  * server asks the service, which answers only that origin; a packaged build
  * has it in the page the service served; a remote browser brings it once as
- * `?token=` and keeps it for the tab.
+ * `?token=` and keeps it for the tab. That one leaves the address bar and
+ * history first, whichever token wins.
  */
-const serviceToken = Effect.gen(function* () {
+export const serviceToken = Effect.gen(function* () {
+  const url = new URL(window.location.href);
+  const param = url.searchParams.get("token");
+  if (param !== null) {
+    window.sessionStorage.setItem(TOKEN_KEY, param);
+    url.searchParams.delete("token");
+    window.history.replaceState(window.history.state, "", url);
+  }
   const fromDesktop = window.desktopBridge?.serviceToken;
   if (fromDesktop !== undefined && fromDesktop !== "") return fromDesktop;
   if (import.meta.env.DEV) {
@@ -33,14 +41,6 @@ const serviceToken = Effect.gen(function* () {
   }
   const meta = document.querySelector<HTMLMetaElement>('meta[name="xtend-token"]')?.content;
   if (meta !== undefined && meta !== "") return meta;
-  const url = new URL(window.location.href);
-  const param = url.searchParams.get("token");
-  if (param !== null) {
-    window.sessionStorage.setItem(TOKEN_KEY, param);
-    url.searchParams.delete("token");
-    window.history.replaceState(null, "", url);
-    return param;
-  }
   return window.sessionStorage.getItem(TOKEN_KEY) ?? "";
 });
 

@@ -12,6 +12,7 @@ import { PostsTable } from "../components/analyze/PostsTable";
 import { Empty, ErrorText, errorText, Tabs } from "../components/analyze/ui";
 import { PageHeader } from "../components/PageHeader";
 import { Button } from "../components/ui/button";
+import { fmtWhen } from "../lib/time";
 import { analyzeDataAtom, refreshAnalyzeAtom } from "../state/analyze";
 import { useQuoteLabel } from "../state/costs";
 
@@ -44,11 +45,7 @@ function AnalyzeScreen() {
     <div className="flex h-full flex-col">
       <PageHeader
         title="Analyze"
-        detail={
-          fetchedAt === null
-            ? "no posts loaded"
-            : `posts as of ${fetchedAt.slice(0, 16).replace("T", " ")}`
-        }
+        detail={fetchedAt === null ? "no posts loaded" : `posts as of ${fmtWhen(fetchedAt)}`}
         actions={
           <Button
             size="sm"

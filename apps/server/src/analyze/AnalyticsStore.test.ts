@@ -2,6 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import type { AccountPost } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as AnalyticsStore from "./AnalyticsStore.ts";
@@ -41,6 +42,26 @@ describe("AnalyticsStore", () => {
       expect(yield* store.cacheGet("themes:1")).toBeNull();
       yield* store.cacheSet("themes:1", "[]", "2026-10-22T10:00:00.000Z");
       expect(yield* store.cacheGet("themes:1")).toBe("[]");
+    }).pipe(Effect.provide(layerTest)),
+  );
+});
+
+describe("AnalyticsStore.listSnapshots", () => {
+  it.effect("returns the newest year of daily snapshots, oldest first", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const store = yield* AnalyticsStore.AnalyticsStore;
+      const start = Date.parse("2025-01-01T00:00:00.000Z");
+      for (let i = 0; i < 400; i++) {
+        const day = new Date(start + i * 86_400_000).toISOString().slice(0, 10);
+        yield* sql`
+          INSERT INTO profile_snapshots (handle, day, followers, following, posts)
+          VALUES ('siam', ${day}, ${i}, 0, 0)`;
+      }
+      const snapshots = yield* store.listSnapshots("siam");
+      expect(snapshots).toHaveLength(365);
+      expect(snapshots.at(-1)).toMatchObject({ day: "2026-02-04", followers: 399 });
+      expect(snapshots[0]?.followers).toBe(35);
     }).pipe(Effect.provide(layerTest)),
   );
 });

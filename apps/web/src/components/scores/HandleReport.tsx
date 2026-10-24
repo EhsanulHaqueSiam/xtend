@@ -2,6 +2,7 @@ import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 
+import { NOT_A_HANDLE, parseHandle } from "../../lib/utils";
 import { usd, useQuoteLabel, useRates } from "../../state/costs";
 import { reportAtom, runScoreAtom } from "../../state/scores";
 import { Empty, ErrorText, errorText, inputClass } from "../analyze/ui";
@@ -83,14 +84,17 @@ export function HandlePicker({
 }) {
   const [draft, setDraft] = useState(initial ?? "");
   const [handle, setHandle] = useState<string | null>(initial);
+  const [invalid, setInvalid] = useState(false);
   return (
     <div className="flex flex-col gap-3">
       <form
         className="flex gap-2"
         onSubmit={(e) => {
           e.preventDefault();
-          const h = draft.trim().replace(/^@/, "");
-          if (h !== "") setHandle(h);
+          if (draft.trim() === "") return;
+          const h = parseHandle(draft);
+          setInvalid(h === null);
+          if (h !== null) setHandle(h);
         }}
       >
         <input
@@ -103,11 +107,15 @@ export function HandlePicker({
           Open
         </Button>
       </form>
+      {invalid ? <ErrorText>{NOT_A_HANDLE}</ErrorText> : null}
       <p className="text-2xs text-muted-foreground">
         Opening is free and shows stored samples. Scoring reads the profile and the follower pages
         on the slider; the button shows the price.
       </p>
-      {handle === null ? null : <HandleReport handle={handle} botOnly={botOnly ?? false} />}
+      {handle === null ? null : (
+        // Keyed: the last handle's error and page count are not this one's.
+        <HandleReport key={handle} handle={handle} botOnly={botOnly ?? false} />
+      )}
     </div>
   );
 }

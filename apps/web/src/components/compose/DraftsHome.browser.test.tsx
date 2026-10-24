@@ -1,5 +1,6 @@
-import type { Draft, PendingRequest } from "@xtend/contracts";
+import { ComposeError, type Draft, type PendingRequest, type XtendEvent } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
+import * as Stream from "effect/Stream";
 import { expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
@@ -134,4 +135,81 @@ it("shows what automation wrote and asks before a paid action, then queues a sug
   await userEvent.click(screen.getByRole("button", { name: "Queue" }));
   await expect.poll(() => queued).toEqual(["s1"]);
   await expect.element(screen.getByText("Queued for the next slot")).toBeVisible();
+});
+
+it("shows why a draft failed, retries it only when asked, and says when an action is refused", async () => {
+  const uncertain = draft("f1", "failed", "Launch thread", {
+    error: "Post 2 may already be on X (timeout); check your profile before retrying",
+    postIds: ["11"],
+  });
+  const queued: Array<string> = [];
+  await using screen = await render(
+    <DraftsHome
+      tab="failed"
+      handle="siamships"
+      onTab={() => {}}
+      onOpen={() => {}}
+      onNew={() => {}}
+    />,
+    {
+      service: {
+        "compose.draftsList": () => Effect.succeed({ drafts: [uncertain] }),
+        "automate.pendingList": () => Effect.succeed([]),
+        "plan.queue": ({ id }) => {
+          queued.push(id);
+          return Effect.succeed(draft(id, "queued", "Launch thread"));
+        },
+        "compose.draftDelete": () =>
+          Effect.fail(new ComposeError({ operation: "remove", detail: "Draft is posting" })),
+      },
+    },
+  );
+  await expect.element(screen.getByText(uncertain.error!)).toBeVisible();
+  // Nothing requeues it on its own; the user checks X first.
+  expect(queued).toEqual([]);
+  await userEvent.click(screen.getByRole("button", { name: "Retry at next slot" }));
+  await expect.poll(() => queued).toEqual(["f1"]);
+
+  await userEvent.click(screen.getByRole("button", { name: "Delete" }));
+  await expect
+    .element(screen.getByRole("status"))
+    .toHaveTextContent("Failed: Compose remove failed: Draft is posting");
+});
+
+it("offers nothing on a draft mid-publish and moves it on when its status changes", async () => {
+  let rows = [draft("p1", "posting", "Going out now")];
+  let changed = () => {};
+  const status = new Promise<void>((resolve) => (changed = resolve));
+  const event: XtendEvent = {
+    type: "draft_status_changed",
+    at: "2026-10-23T09:31:00.000Z",
+    payload: { draftId: "p1", status: "posted" },
+  };
+  await using screen = await render(
+    <DraftsHome
+      tab="queued"
+      handle="siamships"
+      onTab={() => {}}
+      onOpen={() => {}}
+      onNew={() => {}}
+    />,
+    {
+      service: {
+        "compose.draftsList": () => Effect.sync(() => ({ drafts: rows })),
+        "automate.pendingList": () => Effect.succeed([]),
+        "events.subscribe": () =>
+          Stream.fromEffect(Effect.promise(() => status).pipe(Effect.as(event))).pipe(
+            Stream.concat(Stream.never),
+          ),
+      },
+    },
+  );
+  await expect.element(screen.getByText("Posting…")).toBeVisible();
+  for (const action of ["Edit", "Delete", "Unschedule", "Queue"])
+    expect(screen.getByRole("button", { name: action, exact: true }).elements()).toHaveLength(0);
+
+  rows = [draft("p1", "posted", "Going out now", { postIds: ["41"] })];
+  changed();
+  await expect.element(screen.getByText("Going out now")).not.toBeInTheDocument();
+  await expect.element(screen.getByText(/^Nothing queued\./)).toBeVisible();
 });

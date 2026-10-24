@@ -2,10 +2,12 @@ import { useAtom, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { Bot, CalendarClock, Gauge, Search, type LucideIcon } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { cn } from "../../lib/utils";
+import { useRates } from "../../state/costs";
 import { agentsAtom, paletteOpenAtom, runAgentAtom } from "../../state/shell";
+import { agentRunCost } from "../leads/ui";
 import { SCREENS } from "./commands";
 
 interface Command {
@@ -16,7 +18,8 @@ interface Command {
   readonly run: () => void;
 }
 
-const HANDLE = /@(\w{1,15})/;
+// A whole handle only: the first 15 characters of a longer word would open someone else's report.
+const HANDLE = /@(\w{1,15})\b/;
 
 const matches = (command: Command, query: string) =>
   command.label.toLowerCase().includes(query.toLowerCase());
@@ -35,8 +38,10 @@ export function PaletteBody({
 }) {
   const agents = useAtomValue(agentsAtom);
   const runAgent = useAtomSet(runAgentAtom);
+  const rates = useRates();
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
+  const list = useRef<HTMLUListElement>(null);
 
   const commands = useMemo((): ReadonlyArray<Command> => {
     const to = (href: string) => () => go(href);
@@ -47,7 +52,7 @@ export function PaletteBody({
       ...AsyncResult.getOrElse(agents, () => []).map((agent) => ({
         id: `agent:${agent.id}`,
         label: `Run agent ${agent.name}`,
-        hint: "paid search",
+        hint: `paid run ${agentRunCost(rates, agent)}`,
         icon: Bot,
         run: () => runAgent(agent.id),
       })),
@@ -68,7 +73,7 @@ export function PaletteBody({
         run: to(`/library?q=${encodeURIComponent(query.trim())}`),
       });
     return [...dynamic, ...fixed];
-  }, [agents, go, query, runAgent]);
+  }, [agents, go, query, rates, runAgent]);
 
   // Run first: a screen command replaces the palette slot, so a close by kind afterwards is a no-op.
   const pick = (command: Command) => {
@@ -76,6 +81,11 @@ export function PaletteBody({
     onClose();
   };
   const selected = Math.min(cursor, commands.length - 1);
+  // Arrow keys move past the fold once agents fill the list.
+  useEffect(() => {
+    const options = list.current?.querySelectorAll('[role="option"]');
+    options?.[selected]?.scrollIntoView({ block: "nearest" });
+  }, [selected]);
 
   return (
     <div
@@ -106,7 +116,7 @@ export function PaletteBody({
           }
         }}
       />
-      <ul role="listbox" className="min-h-0 flex-1 overflow-y-auto py-1">
+      <ul ref={list} role="listbox" className="min-h-0 flex-1 overflow-y-auto py-1">
         {commands.length === 0 ? (
           <li className="px-3 py-2 text-xs text-muted-foreground">No commands</li>
         ) : null}

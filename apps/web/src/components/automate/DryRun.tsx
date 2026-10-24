@@ -2,6 +2,7 @@ import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import type { DryRunReport, Rule, RulePreview } from "@xtend/contracts";
 import { useState } from "react";
 
+import { fmtWhen } from "../../lib/time";
 import { cn } from "../../lib/utils";
 import { dryRun7dAtom, previewAtom } from "../../state/automate";
 import { Empty, ErrorText, inputClass, usd } from "../analyze/ui";
@@ -13,7 +14,9 @@ export function DryRun({ rules }: { readonly rules: ReadonlyArray<Rule> }) {
   const state = useAtomValue(previewAtom);
   const simulate = useAtomSet(dryRun7dAtom, { mode: "promise" });
   const [rows, setRows] = useState<ReadonlyArray<RulePreview> | null>(null);
-  const [ruleId, setRuleId] = useState<number | null>(rules[0]?.id ?? null);
+  const [picked, setPicked] = useState<number | null>(null);
+  // Follows the list: rules can arrive, or the picked one be deleted, while the tab is open.
+  const ruleId = rules.some((r) => r.id === picked) ? picked : (rules[0]?.id ?? null);
   const [report, setReport] = useState<DryRunReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const guard = async (work: () => Promise<void>) => {
@@ -37,7 +40,8 @@ export function DryRun({ rules }: { readonly rules: ReadonlyArray<Rule> }) {
           {state.waiting ? "Evaluating…" : "Evaluate enabled rules"}
         </Button>
         <span className="text-muted-foreground">
-          Lists what would fire right now with its cost. Fires nothing.
+          Lists what would fire right now with its cost. Reads stored data only: free, fires
+          nothing.
         </span>
       </div>
       {error !== null ? <ErrorText>{error}</ErrorText> : null}
@@ -74,7 +78,7 @@ export function DryRun({ rules }: { readonly rules: ReadonlyArray<Rule> }) {
         <select
           className={cn(inputClass, "w-auto")}
           value={ruleId ?? ""}
-          onChange={(e) => setRuleId(e.target.value === "" ? null : Number(e.target.value))}
+          onChange={(e) => setPicked(Number(e.target.value))}
         >
           {rules.map((r) => (
             <option key={r.id} value={r.id}>
@@ -109,7 +113,7 @@ export function DryRun({ rules }: { readonly rules: ReadonlyArray<Rule> }) {
             {report.fired.map((f) => (
               <tr key={`${f.at} ${f.description}`} className="border-t border-border">
                 <td className="py-1 pr-2 font-mono whitespace-nowrap text-muted-foreground">
-                  {f.at.slice(0, 16).replace("T", " ")}
+                  {fmtWhen(f.at)}
                 </td>
                 <td className="py-1 pr-2">{f.description}</td>
                 <td className="py-1 text-right font-mono">{usd(f.costUsd)}</td>

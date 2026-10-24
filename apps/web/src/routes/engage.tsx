@@ -11,7 +11,7 @@ import { Mentions } from "../components/engage/Mentions";
 import { Targets } from "../components/engage/Targets";
 import { PageHeader } from "../components/PageHeader";
 import { Button } from "../components/ui/button";
-import { useQuoteLabel } from "../state/costs";
+import { quoteAtom, useQuoteLabel } from "../state/costs";
 import {
   addKeywordsAtom,
   findKeywordsAtom,
@@ -24,9 +24,11 @@ const TABS = ["Targets", "Mentions", "Inbox", "Sent", "Follow-ups", "DMs"] as co
 
 type Suggestions = { keywords: ReadonlyArray<string>; handles: ReadonlyArray<string> };
 
-function EngageScreen() {
+export function EngageScreen() {
   const [tab, setTab] = useState<(typeof TABS)[number]>("Targets");
-  const refreshTargets = useAtomRefresh(targetsAtom);
+  const loadTargets = useAtomSet(targetsAtom);
+  const targetsState = useAtomValue(targetsAtom);
+  const refreshTargetsQuote = useAtomRefresh(quoteAtom([{ kind: "engageTargets" }]));
   const refreshMentions = useAtomRefresh(mentionsAtom);
   const fetchMentions = useAtomSet(refreshMentionsAtom, { mode: "promiseExit" });
   const fetchState = useAtomValue(refreshMentionsAtom);
@@ -36,6 +38,7 @@ function EngageScreen() {
   const findQuote = useQuoteLabel({ kind: "findKeywords" });
   const mentionsQuote = useQuoteLabel({ kind: "mentions" });
   const addKeywords = useAtomSet(addKeywordsAtom, { mode: "promise" });
+  const adding = useAtomValue(addKeywordsAtom).waiting;
   const [found, setFound] = useState<Suggestions | null>(null);
   const [error, setError] = useState<string | null>(null);
   const mentions = useAtomValue(mentionsAtom);
@@ -50,11 +53,24 @@ function EngageScreen() {
     if (Exit.isFailure(exit)) setError(errorText(exit.cause));
     else setFound(exit.value);
   };
+  // New keywords are searches the cache has not seen: requote, and let the priced click run them.
+  const runAddKeywords = async (keywords: ReadonlyArray<string>) => {
+    setError(null);
+    try {
+      await addKeywords(keywords);
+      setFound(null);
+      refreshTargetsQuote();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
   const runFetchMentions = async () => {
     setError(null);
     const exit = await fetchMentions();
-    if (Exit.isFailure(exit)) setError(errorText(exit.cause));
-    else refreshMentions();
+    if (Exit.isFailure(exit)) return setError(errorText(exit.cause));
+    // X refusing the read comes back in the result; the free list refetched below never carries it.
+    setError(exit.value.apiError);
+    refreshMentions();
   };
 
   return (
@@ -73,8 +89,13 @@ function EngageScreen() {
               >
                 {findState.waiting ? "Finding…" : `Find keywords (${findQuote} + model)`}
               </Button>
-              <Button size="sm" variant="outline" onClick={refreshTargets}>
-                Refresh targets ({targetsQuote})
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={targetsState.waiting}
+                onClick={() => loadTargets()}
+              >
+                {targetsState.waiting ? "Searching…" : `Refresh targets (${targetsQuote})`}
               </Button>
             </>
           ) : tab === "Mentions" ? (
@@ -99,11 +120,8 @@ function EngageScreen() {
               <div className="flex gap-1">
                 <Button
                   size="xs"
-                  onClick={async () => {
-                    await addKeywords(found.keywords);
-                    setFound(null);
-                    refreshTargets();
-                  }}
+                  disabled={adding}
+                  onClick={() => void runAddKeywords(found.keywords)}
                 >
                   Add all to keywords
                 </Button>

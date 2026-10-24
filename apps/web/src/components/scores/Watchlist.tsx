@@ -5,7 +5,8 @@ import { useState } from "react";
 
 import { useQuoteLabel } from "../../state/costs";
 import { runScoreAtom, watchAddAtom, watchListAtom, watchRemoveAtom } from "../../state/scores";
-import { cn } from "../../lib/utils";
+import { fmtDay } from "../../lib/time";
+import { cn, NOT_A_HANDLE, parseHandle } from "../../lib/utils";
 import { Empty, ErrorText, errorText, fmt, inputClass, Section, signed } from "../analyze/ui";
 import { Button } from "../ui/button";
 
@@ -42,13 +43,16 @@ export function Watchlist({ onOpen }: { readonly onOpen: (handle: string) => voi
   const [sortBy, setSortBy] = useState<keyof ScoreChange | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // True when the work succeeded, so the add form only clears what actually went in.
   const run = async (work: () => Promise<unknown>) => {
     setError(null);
     try {
       await work();
       refreshWatch();
+      return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      return false;
     }
   };
 
@@ -59,9 +63,10 @@ export function Watchlist({ onOpen }: { readonly onOpen: (handle: string) => voi
           className="flex gap-2"
           onSubmit={(e) => {
             e.preventDefault();
-            const h = handle.trim().replace(/^@/, "");
-            if (h === "") return;
-            void run(() => add(h)).then(() => setHandle(""));
+            if (handle.trim() === "") return;
+            const h = parseHandle(handle);
+            if (h === null) return setError(NOT_A_HANDLE);
+            void run(() => add(h)).then((ok) => ok && setHandle(""));
           }}
         >
           <input
@@ -132,7 +137,7 @@ export function Watchlist({ onOpen }: { readonly onOpen: (handle: string) => voi
                       </td>
                     ))}
                     <td className="py-1 text-right font-mono text-2xs text-muted-foreground">
-                      {w.addedAt.slice(0, 10)}
+                      {fmtDay(w.addedAt)}
                     </td>
                     <td className="py-1 text-right">
                       <div className="flex justify-end gap-1">

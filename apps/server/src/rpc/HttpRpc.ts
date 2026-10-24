@@ -36,12 +36,12 @@ export const handlerFor = <R extends Rpc.AnyWithProps>(group: RpcGroup.RpcGroup<
       const rpc = group.requests.get(method);
       if (rpc === undefined) return yield* json({ error: "unknown_method", method }, 404);
       const request = yield* HttpServerRequest.HttpServerRequest;
-      // An empty or absent body is the empty payload most read methods take.
-      const body = yield* request.json.pipe(
-        Effect.map((parsed) => parsed ?? {}),
-        Effect.orElseSucceed(() => ({})),
-      );
-      const decoded = Schema.decodeUnknownResult(erased(rpc.payloadSchema))(body);
+      // An empty body is the empty payload most read methods take. Malformed JSON is refused:
+      // read as {} it would run a method with every option at its default.
+      const body = yield* Effect.result(request.json);
+      if (body._tag === "Failure")
+        return yield* json({ error: "invalid_payload", message: "body is not JSON" }, 400);
+      const decoded = Schema.decodeUnknownResult(erased(rpc.payloadSchema))(body.success ?? {});
       if (decoded._tag === "Failure")
         return yield* json({ error: "invalid_payload", message: decoded.failure.message }, 400);
       // Same lookup RpcGroup.accessHandler does, typed so the handler layer satisfies it.

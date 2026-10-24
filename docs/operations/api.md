@@ -88,6 +88,7 @@ server:
 | `spend_summary`  |                                    | `spend.summary`                         |
 
 Tool results are the rpc's JSON as text content; an rpc error comes back as `isError: true`
-with the message, never as a protocol error. The implementation is
+with the message, never as a protocol error. A line that is not JSON or a request without a
+method gets a JSON-RPC error (-32700, -32600), so a client never waits on an answer. The implementation is
 `apps/server/src/cli/mcp.ts`; it is hand-rolled because the three methods above are the whole
 protocol surface this needs.

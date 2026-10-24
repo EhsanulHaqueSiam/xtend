@@ -49,3 +49,45 @@ it("answers an unknown method with a JSON-RPC error and a bad tool with isError"
     ),
   ).toMatchObject({ result: { isError: true } });
 });
+
+it("answers a line it cannot parse and a request without a method, so no client waits forever", async () => {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const chunks: Array<string> = [];
+  output.on("data", (chunk: Buffer) => chunks.push(chunk.toString()));
+  const done = runMcpStdio(input, output, () => Promise.resolve({}));
+  input.write("{not json\n");
+  input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 4, params: {} })}\n`);
+  input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 5, method: "ping" })}\n`);
+  input.end();
+  await done;
+
+  const responses = chunks
+    .join("")
+    .trim()
+    .split("\n")
+    .map((l) => JSON.parse(l) as unknown);
+  expect(responses).toEqual([
+    { jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } },
+    { jsonrpc: "2.0", id: 4, error: { code: -32600, message: "invalid request" } },
+    { jsonrpc: "2.0", id: 5, result: {} },
+  ]);
+});
+
+it("reports a handle typed with its @", async () => {
+  const calls: Array<[string, unknown]> = [];
+  const call = (method: string, payload: unknown) => {
+    calls.push([method, payload]);
+    return Promise.resolve({});
+  };
+  await handleMcpMessage(
+    {
+      jsonrpc: "2.0",
+      id: 11,
+      method: "tools/call",
+      params: { name: "report_handle", arguments: { handle: "@levelsio" } },
+    },
+    call,
+  );
+  expect(calls).toEqual([["scores.report", { handle: "levelsio" }]]);
+});

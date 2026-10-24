@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import type { ObservedPostSummary } from "@xtend/contracts";
 
-import { matchIncoming } from "./inbox.ts";
+import { matchIncoming, tagsHandle } from "./inbox.ts";
 
 const seen = (
   postId: string,
@@ -35,5 +35,13 @@ describe("matchIncoming", () => {
     ];
     expect(matchIncoming(posts, "siamships").map((p) => p.postId)).toEqual(["1", "3"]);
     expect(matchIncoming(posts, "siamships")[0]?.url).toBe("https://x.com/alice/status/1");
+  });
+});
+
+describe("tagsHandle", () => {
+  it("matches the handle itself in any case, not a longer handle that starts with it", () => {
+    expect(tagsHandle("thanks @Siam!", "siam")).toBe(true);
+    expect(tagsHandle("@siam_dev and @siamships", "siam")).toBe(false);
+    expect(matchIncoming([seen("6", "eve", "@siamships agreed", true)], "siam")).toEqual([]);
   });
 });

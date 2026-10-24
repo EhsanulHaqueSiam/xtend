@@ -21,4 +21,23 @@ describe("Events", () => {
       expect(seen[0]?.payload).toEqual({ handle: "levelsio" });
     }).pipe(Effect.provide(Events.layer)),
   );
+
+  it.live("a client that stops reading never holds up the publisher", () =>
+    Effect.gen(function* () {
+      const events = yield* Events.Events;
+      // Takes the first event and then never asks for another, like a stalled socket.
+      yield* events.stream.pipe(
+        Stream.runForEach(() => Effect.never),
+        Effect.forkChild({ startImmediately: true }),
+      );
+      yield* Effect.sleep("10 millis");
+      // Rule firings publish inline; a full hub that blocked would stall the engine.
+      const published = yield* Effect.forEach(
+        Array.from({ length: 1000 }, (_, i) => i),
+        (i) => events.publish({ type: "rule_fired", payload: { i } }),
+        { discard: true },
+      ).pipe(Effect.timeoutOption("1 second"));
+      expect(published._tag).toBe("Some");
+    }).pipe(Effect.provide(Events.layer)),
+  );
 });

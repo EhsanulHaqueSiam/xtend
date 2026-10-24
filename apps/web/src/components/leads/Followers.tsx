@@ -1,16 +1,39 @@
-import { useAtomRefresh, useAtomSet } from "@effect/atom-react";
+import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import type { NewFollower } from "@xtend/contracts";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 
 import { addPersonAtom, newFollowersAtom, peopleAtom } from "../../state/leads";
-import { useRates, usd } from "../../state/costs";
+import { useQuoteLabel, usd } from "../../state/costs";
+import { settingsAtom } from "../../state/settings";
 import { Empty, ErrorText, fmt } from "../analyze/ui";
 import { Button } from "../ui/button";
 import { useAction } from "./ui";
 
-/** Followers gained since the last check. One followers page per check, paid up front. */
+/** The check reads the own handle's newest followers page; one under 10 minutes old serves free. */
+function CheckButton({
+  handle,
+  busy,
+  onClick,
+}: {
+  readonly handle: string;
+  readonly busy: boolean;
+  readonly onClick: () => void;
+}) {
+  const quote = useQuoteLabel({ kind: "followersPage", handle });
+  return (
+    <Button size="xs" variant="outline" disabled={busy || quote === "…"} onClick={onClick}>
+      {busy ? "Checking…" : `Check new followers (${quote})`}
+    </Button>
+  );
+}
+
+/** Followers gained since the last check. One followers page per check, priced up front. */
 export function Followers() {
-  const rates = useRates();
+  const handle = AsyncResult.getOrElse(
+    AsyncResult.map(useAtomValue(settingsAtom), (s) => s.handle),
+    () => undefined,
+  );
   const check = useAtomSet(newFollowersAtom, { mode: "promise" });
   const add = useAtomSet(addPersonAtom, { mode: "promise" });
   const refreshPeople = useAtomRefresh(peopleAtom(null));
@@ -39,14 +62,13 @@ export function Followers() {
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2">
-        <Button
-          size="xs"
-          variant="outline"
-          disabled={busy}
-          onClick={() => void run(() => check().then(setResult))}
-        >
-          {busy ? "Checking…" : `Check new followers (${usd(rates?.followersPage ?? 0)})`}
-        </Button>
+        {typeof handle !== "string" ? null : (
+          <CheckButton
+            handle={handle}
+            busy={busy}
+            onClick={() => void run(() => check().then(setResult))}
+          />
+        )}
         {result !== null ? (
           <span className="font-mono text-2xs text-muted-foreground">
             {result.followers.length} new · cost {usd(result.costUsd)}
@@ -54,7 +76,9 @@ export function Followers() {
         ) : null}
       </div>
       {error !== null ? <ErrorText>{error}</ErrorText> : null}
-      {result === null ? (
+      {handle === null ? (
+        <Empty>Set your X handle in Settings first.</Empty>
+      ) : result === null ? (
         <Empty>Reads the latest followers page and shows who is new since the last check.</Empty>
       ) : result.followers.length === 0 ? (
         <Empty>No new followers since the last check.</Empty>

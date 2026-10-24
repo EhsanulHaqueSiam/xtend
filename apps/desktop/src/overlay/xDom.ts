@@ -93,5 +93,5 @@ export function sidebarFirstCard(root: ParentNode): HTMLElement | null {
   return card !== null && card.getAttribute("data-testid") !== "sidebarColumn" ? card : null;
 }
 
-/** Direct messages never get a strip. */
-export const isDmPath = (pathname: string): boolean => pathname.startsWith("/messages");
+/** Direct messages never get a strip: the classic inbox and X's Chat, which replaced it in 2025. */
+export const isDmPath = (pathname: string): boolean => /^\/(messages|i\/chat)(\/|$)/.test(pathname);

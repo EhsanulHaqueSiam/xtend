@@ -1,6 +1,7 @@
 import * as Schema from "effect/Schema";
 
 import { XHandle } from "./baseSchemas.ts";
+import { XSearchMode } from "./x.ts";
 
 /**
  * The one rate card. The service owns the numbers (XClient.RATE_CARD) and
@@ -24,6 +25,10 @@ export const RateCard = Schema.Struct({
   scraperProfile: Schema.Number,
   followersPage: Schema.Number,
   trending: Schema.Number,
+  /** Who liked a post: one capped page of X's liking_users (Leads lists, the automate likes poll). */
+  likersPage: Schema.Number,
+  /** Who reposted a post: one scraper page (Leads lists, the automate reposts poll). */
+  repostersPage: Schema.Number,
 });
 export type RateCard = typeof RateCard.Type;
 
@@ -47,11 +52,19 @@ export const CostAction = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("like") }),
   Schema.Struct({ kind: Schema.Literal("repost") }),
   Schema.Struct({ kind: Schema.Literal("dm") }),
-  Schema.Struct({ kind: Schema.Literal("search"), query: Schema.String }),
+  /** `mode` and `cursor` are the ones the search will run with; each mode and page is cached apart. */
+  Schema.Struct({
+    kind: Schema.Literal("search"),
+    query: Schema.String,
+    mode: Schema.optional(XSearchMode),
+    cursor: Schema.optional(Schema.String),
+  }),
   Schema.Struct({ kind: Schema.Literal("profile"), handle: XHandle }),
   Schema.Struct({ kind: Schema.Literal("userPosts"), handle: XHandle }),
+  /** A new-follower check's page: a cached copy only counts while it is minutes old. */
   Schema.Struct({ kind: Schema.Literal("followersPage"), handle: XHandle }),
   Schema.Struct({ kind: Schema.Literal("trending"), country: Schema.String }),
+  /** One page of mentions newer than the newest one stored, as `engage.mentions` refreshes. */
   Schema.Struct({ kind: Schema.Literal("mentions") }),
   /** Profile plus the follower pages one score run reads. */
   Schema.Struct({ kind: Schema.Literal("scoreRun"), handle: XHandle }),

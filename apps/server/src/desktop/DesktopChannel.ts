@@ -1,4 +1,5 @@
 import {
+  DESKTOP_COMMAND_LIMIT_MS,
   type DesktopCommand,
   type DesktopCommandCompletion,
   type DesktopCommandRequest,
@@ -14,13 +15,14 @@ import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 
-const COMMAND_TIMEOUT_MS = 20_000;
+/** Room for the desktop's own "gave up" answer to arrive after its limit ran out. */
+const ANSWER_MARGIN_MS = 10_000;
 
 /**
  * The service's one door to the desktop. A connected desktop subscribes to the
- * command stream; `request` publishes a command and waits for its completion.
- * With no desktop subscribed a request fails at once instead of waiting out
- * the timeout, so compose can fall back without stalling.
+ * command stream; `request` sends a command to one desktop and waits for its
+ * completion. With no desktop subscribed a request fails at once instead of
+ * waiting out the timeout, so compose can fall back without stalling.
  */
 export class DesktopChannel extends Context.Service<
   DesktopChannel,
@@ -35,15 +37,22 @@ export class DesktopChannel extends Context.Service<
 >()("xtend/desktop/DesktopChannel") {}
 
 const make = Effect.gen(function* () {
-  const commands = yield* PubSub.unbounded<DesktopCommandRequest>();
-  const subscribers = yield* Ref.make(0);
+  // Each command goes to the newest desktop only. Broadcast, a session post would run in every
+  // desktop on this service (a laptop and a Mac mini, or a reconnect overlapping its old socket).
+  const commands = yield* PubSub.unbounded<{
+    readonly to: number;
+    readonly request: DesktopCommandRequest;
+  }>();
+  const desktops = yield* Ref.make<ReadonlyArray<number>>([]);
+  let nextDesktop = 0;
   const pending = new Map<
     string,
     Deferred.Deferred<DesktopCommandResult, DesktopUnavailableError>
   >();
 
   const request = Effect.fn("DesktopChannel.request")(function* (command: DesktopCommand) {
-    if ((yield* Ref.get(subscribers)) === 0)
+    const to = (yield* Ref.get(desktops)).at(-1);
+    if (to === undefined)
       return yield* new DesktopUnavailableError({
         reason: "no_desktop",
         detail: "no desktop is connected",
@@ -51,14 +60,15 @@ const make = Effect.gen(function* () {
     const id = crypto.randomUUID();
     const done = yield* Deferred.make<DesktopCommandResult, DesktopUnavailableError>();
     pending.set(id, done);
-    yield* PubSub.publish(commands, { id, command });
+    yield* PubSub.publish(commands, { to, request: { id, command } });
+    const timeoutMs = DESKTOP_COMMAND_LIMIT_MS[command.type] + ANSWER_MARGIN_MS;
     return yield* Deferred.await(done).pipe(
       Effect.timeoutOrElse({
-        duration: COMMAND_TIMEOUT_MS,
+        duration: timeoutMs,
         orElse: () =>
           new DesktopUnavailableError({
             reason: "timeout",
-            detail: `${command.type} not answered in ${COMMAND_TIMEOUT_MS / 1000}s`,
+            detail: `${command.type} not answered in ${timeoutMs / 1000}s`,
           }),
       }),
       Effect.ensuring(Effect.sync(() => pending.delete(id))),
@@ -68,11 +78,14 @@ const make = Effect.gen(function* () {
   const subscribe = Stream.unwrap(
     Effect.gen(function* () {
       const subscription = yield* PubSub.subscribe(commands);
-      yield* Ref.update(subscribers, (n) => n + 1);
+      const self = nextDesktop++;
+      yield* Ref.update(desktops, (all) => [...all, self]);
       yield* Effect.logInfo("desktop connected");
       return Stream.fromSubscription(subscription).pipe(
+        Stream.filter((message) => message.to === self),
+        Stream.map((message) => message.request),
         Stream.ensuring(
-          Ref.update(subscribers, (n) => n - 1).pipe(
+          Ref.update(desktops, (all) => all.filter((d) => d !== self)).pipe(
             Effect.andThen(Effect.logInfo("desktop disconnected")),
           ),
         ),
@@ -89,7 +102,10 @@ const make = Effect.gen(function* () {
     yield* completion.result === null
       ? Deferred.fail(
           done,
-          new DesktopUnavailableError({ reason: "failed", detail: completion.error ?? "" }),
+          new DesktopUnavailableError({
+            reason: completion.notAttempted === true ? "not_attempted" : "failed",
+            detail: completion.error ?? "",
+          }),
         )
       : Deferred.succeed(done, completion.result);
   });
@@ -99,7 +115,7 @@ const make = Effect.gen(function* () {
     request: request as DesktopChannel["Service"]["request"],
     subscribe,
     complete,
-    connected: Effect.map(Ref.get(subscribers), (n) => n > 0),
+    connected: Effect.map(Ref.get(desktops), (all) => all.length > 0),
   });
 });
 

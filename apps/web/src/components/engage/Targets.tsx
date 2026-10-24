@@ -3,9 +3,9 @@ import { postCostUsd, type ReplyTarget } from "@xtend/contracts";
 import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { BadgeCheck } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-import { useRates, usd } from "../../state/costs";
+import { useQuote, useRates, usd } from "../../state/costs";
 import {
   draftReplyAtom,
   likeAtom,
@@ -33,15 +33,19 @@ function Metric({ label, value }: { label: string; value: string }) {
 /** One target with its draft panel. State is per row so drafting several in a row works. */
 function TargetRow({ target }: { readonly target: ReplyTarget }) {
   const { post } = target;
-  const draft = useAtomSet(draftReplyAtom, { mode: "promiseExit" });
-  const send = useAtomSet(sendReplyAtom, { mode: "promiseExit" });
-  const like = useAtomSet(likeAtom, { mode: "promiseExit" });
+  const draft = useAtomSet(draftReplyAtom(post.postId), { mode: "promiseExit" });
+  const send = useAtomSet(sendReplyAtom(post.postId), { mode: "promiseExit" });
+  const like = useAtomSet(likeAtom(post.postId), { mode: "promiseExit" });
   const [drafts, setDrafts] = useState<ReadonlyArray<string>>([]);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState<"draft" | "reply" | "like" | null>(null);
   const [notice, setNotice] = useState<{ tone: "error" | "ok"; text: string } | null>(null);
   const [done, setDone] = useState<"replied" | "skipped" | null>(target.replied ? "replied" : null);
+  // A second like is another paid call for nothing.
+  const [liked, setLiked] = useState(false);
   const rates = useRates();
+  // The service's price: the first like of the day also pays for the account lookup.
+  const likeQuote = useQuote({ kind: "like" });
 
   const fail = (cause: Parameters<typeof errorText>[0]) =>
     setNotice({ tone: "error", text: errorText(cause) });
@@ -69,12 +73,15 @@ function TargetRow({ target }: { readonly target: ReplyTarget }) {
   };
 
   const onLike = async () => {
+    // Read before the call: the like itself fills the lookup cache and requotes.
+    const price = likeQuote?.usd ?? 0;
     setBusy("like");
     setNotice(null);
-    const exit = await like(post.postId);
+    const exit = await like();
     setBusy(null);
     if (Exit.isFailure(exit)) return fail(exit.cause);
-    setNotice({ tone: "ok", text: `Liked for ${usd(rates?.like ?? 0)}` });
+    setLiked(true);
+    setNotice({ tone: "ok", text: `Liked for ${usd(price)}` });
   };
 
   if (done === "skipped") return null;
@@ -165,10 +172,14 @@ function TargetRow({ target }: { readonly target: ReplyTarget }) {
         <Button
           variant="ghost"
           size="xs"
-          disabled={busy !== null || rates === null}
+          disabled={busy !== null || likeQuote === null || liked}
           onClick={() => void onLike()}
         >
-          {busy === "like" ? "Liking…" : `Like · ${rates === null ? "…" : usd(rates.like)}`}
+          {busy === "like"
+            ? "Liking…"
+            : liked
+              ? "Liked"
+              : `Like · ${likeQuote === null ? "…" : usd(likeQuote.usd)}`}
         </Button>
         <Button variant="ghost-muted" size="xs" onClick={() => setDone("skipped")}>
           Skip
@@ -199,6 +210,9 @@ function NicheLine() {
         ))
       )}
       {niche.topics.length > 0 ? <span>· {niche.topics.join(", ")}</span> : null}
+      {AsyncResult.isFailure(state) ? (
+        <span className="text-error-foreground">{errorText(state.cause)}</span>
+      ) : null}
       <Button
         variant="ghost"
         size="xs"
@@ -214,11 +228,24 @@ function NicheLine() {
 
 export function Targets() {
   const result = useAtomValue(targetsAtom);
+  const load = useAtomSet(targetsAtom);
+  const free = useQuote({ kind: "engageTargets" })?.cached === true;
+  const initial = AsyncResult.isInitial(result);
+  // Opening the tab only shows what the cache already holds; a paid search waits for the click.
+  useEffect(() => {
+    if (free && initial) load();
+  }, [free, initial, load]);
   return (
     <div className="flex flex-col gap-2">
       <NicheLine />
       {AsyncResult.match(result, {
-        onInitial: () => <Empty>Connecting to the service…</Empty>,
+        onInitial: ({ waiting }) => (
+          <Empty>
+            {waiting
+              ? "Searching your keywords…"
+              : "Refresh targets to search your keywords for posts worth a reply."}
+          </Empty>
+        ),
         onFailure: (f) => <ErrorText>{errorText(f.cause)}</ErrorText>,
         onSuccess: ({ value }) =>
           value.length === 0 ? (

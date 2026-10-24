@@ -3,6 +3,7 @@ import type { AccountPost, CompetitorReport, NonPublic } from "@xtend/contracts"
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 
+import { NOT_A_HANDLE, parseHandle } from "../../lib/utils";
 import { competitorsAtom, fetchCompetitorAtom } from "../../state/analyze";
 import { useQuoteLabel } from "../../state/costs";
 import { watchAddAtom, watchListAtom, watchRemoveAtom } from "../../state/scores";
@@ -12,15 +13,17 @@ import { Empty, ErrorText, errorText, fmt, inputClass, Section, Stat } from "./u
 function FetchButton({
   handle,
   label,
+  disabled,
   onClick,
 }: {
   readonly handle: string;
   readonly label: string;
+  readonly disabled: boolean;
   readonly onClick: () => void;
 }) {
   const quote = useQuoteLabel({ kind: "competitorFetch", handle });
   return (
-    <Button size="xs" variant="outline" onClick={onClick}>
+    <Button size="xs" variant="outline" disabled={disabled} onClick={onClick}>
       {label} ({quote})
     </Button>
   );
@@ -83,6 +86,8 @@ export function Competitors({
   const add = useAtomSet(watchAddAtom, { mode: "promise" });
   const remove = useAtomSet(watchRemoveAtom, { mode: "promise" });
   const fetchOne = useAtomSet(fetchCompetitorAtom, { mode: "promise" });
+  // Paid: a second click while one fetch runs would pay for the same reads again.
+  const fetching = useAtomValue(fetchCompetitorAtom).waiting;
   const [handle, setHandle] = useState("");
   const [error, setError] = useState<string | null>(null);
   const myAvg =
@@ -95,14 +100,17 @@ export function Competitors({
     AsyncResult.getOrElse(reports, () => []).map((r) => [r.handle, r] as const),
   );
 
+  // True when the work succeeded, so the add form only clears what actually went in.
   const run = async (work: () => Promise<unknown>) => {
     setError(null);
     try {
       await work();
       refreshWatch();
       refreshReports();
+      return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      return false;
     }
   };
 
@@ -113,9 +121,10 @@ export function Competitors({
           className="flex gap-2"
           onSubmit={(e) => {
             e.preventDefault();
-            const h = handle.trim().replace(/^@/, "");
-            if (h === "") return;
-            void run(() => add(h)).then(() => setHandle(""));
+            if (handle.trim() === "") return;
+            const h = parseHandle(handle);
+            if (h === null) return setError(NOT_A_HANDLE);
+            void run(() => add(h)).then((ok) => ok && setHandle(""));
           }}
         >
           <input
@@ -152,6 +161,7 @@ export function Competitors({
                       <FetchButton
                         handle={w.handle}
                         label={report === undefined ? "Fetch" : "Refetch"}
+                        disabled={fetching}
                         onClick={() => void run(() => fetchOne(w.handle))}
                       />
                       <Button

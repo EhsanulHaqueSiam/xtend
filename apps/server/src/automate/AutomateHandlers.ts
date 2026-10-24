@@ -35,7 +35,7 @@ export const layerHandlers = AutomateRpcGroup.toLayer(
       [Automate_METHODS.pendingDismiss]: ({ id }) => engine.dismiss(id),
       [Automate_METHODS.dryRun7d]: ({ id }) => engine.dryRun7d(id),
       [Automate_METHODS.webhookInfo]: ({ id }) =>
-        Effect.map(rules.webhookSecret(id), (secret) => ({
+        Effect.map(rules.webhook(id), ({ secret }) => ({
           path: Webhooks.WEBHOOK_PATH(id),
           secret,
         })),
