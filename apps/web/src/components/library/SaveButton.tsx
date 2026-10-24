@@ -1,64 +1,142 @@
+import { Menu } from "@base-ui/react/menu";
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import type { XPost } from "@xtend/contracts";
+import { useNavigate } from "@tanstack/react-router";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { Bookmark } from "lucide-react";
-import { useState } from "react";
+import { Bookmark, ChevronDown } from "lucide-react";
+import { useMemo, useState } from "react";
+import { TextMorph } from "torph/react";
 
+import { cn } from "../../lib/utils";
 import { collectionsAtom, savePostAtom, swipeFileAtom } from "../../state/library";
-import { Button } from "../ui/button";
+import { xPill, xPillSm, xPillSolid } from "../x";
+import { menuItemClass, menuPopupClass } from "./menu";
 import { errorMessage } from "./shared";
 
-/** "Save" on any post: to the swipe file alone or into one collection (a post may be in several). */
-export function SaveButton({ post }: { readonly post: XPost }) {
-  const collections = useAtomValue(collectionsAtom);
+const small = "[&_svg]:size-3.5";
+
+/** The ids of saved posts, so a card can say Saved before anyone clicks. */
+export function useSavedIds(): ReadonlySet<string> {
+  const saved = useAtomValue(swipeFileAtom(""));
+  return useMemo(
+    () => new Set(AsyncResult.getOrElse(saved, () => []).map((s) => s.post.postId)),
+    [saved],
+  );
+}
+
+/** Refreshes what a save changes: the swipe file and the collection counts. */
+function useSave() {
   const save = useAtomSet(savePostAtom, { mode: "promise" });
   const refreshSwipe = useAtomRefresh(swipeFileAtom(""));
   const refreshCollections = useAtomRefresh(collectionsAtom);
-  const [open, setOpen] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
+  return async (post: XPost, collectionId: number | null) => {
+    await save({ post, collectionId });
+    refreshSwipe();
+    refreshCollections();
+  };
+}
 
-  const run = async (collectionId: number | null, label: string) => {
-    setOpen(false);
-    try {
-      await save({ post, collectionId });
-      setStatus(`Saved to ${label}`);
-      refreshSwipe();
-      refreshCollections();
-    } catch (e) {
-      setStatus(errorMessage(e));
-    }
+/** One click into the swipe file, for a card's footer. The label morphs to Saved. */
+export function QuickSave({ post, saved }: { readonly post: XPost; readonly saved: boolean }) {
+  const save = useSave();
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const isSaved = saved || done;
+  return (
+    <button
+      type="button"
+      className={cn(
+        isSaved ? xPill : xPillSolid,
+        xPillSm,
+        small,
+        isSaved && "text-muted-foreground disabled:opacity-100",
+      )}
+      disabled={isSaved}
+      title={error ?? undefined}
+      onClick={() =>
+        void save(post, null).then(
+          () => setDone(true),
+          (e: unknown) => setError(errorMessage(e)),
+        )
+      }
+    >
+      <TextMorph duration={250}>{isSaved ? "Saved" : error !== null ? "Retry" : "Save"}</TextMorph>
+    </button>
+  );
+}
+
+/** Save into the swipe file or one collection (a post may be in several). */
+export function SaveButton({
+  post,
+  saved = false,
+}: {
+  readonly post: XPost;
+  readonly saved?: boolean;
+}) {
+  const collections = useAtomValue(collectionsAtom);
+  const save = useSave();
+  const [savedTo, setSavedTo] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const run = (collectionId: number | null, label: string) => {
+    setError(null);
+    save(post, collectionId).then(
+      () => setSavedTo(label),
+      (e: unknown) => setError(errorMessage(e)),
+    );
   };
 
   const list = AsyncResult.getOrElse(collections, () => []).filter((c) => !c.builtIn);
+  const label = savedTo !== null ? `Saved to ${savedTo}` : saved ? "Saved" : "Save";
   return (
-    <span className="relative inline-flex items-center gap-1.5">
-      <Button variant="outline" size="xs" onClick={() => setOpen((o) => !o)}>
-        <Bookmark /> Save
-      </Button>
-      {status !== null ? <span className="text-2xs text-muted-foreground">{status}</span> : null}
-      {open ? (
-        <span className="absolute top-full left-0 z-20 mt-1 flex min-w-40 flex-col rounded-md border border-border bg-popover p-1 shadow-md">
-          <Button
-            variant="ghost"
-            size="xs"
-            className="justify-start"
-            onClick={() => void run(null, "swipe file")}
-          >
-            Swipe file
-          </Button>
-          {list.map((c) => (
-            <Button
-              key={c.id}
-              variant="ghost"
-              size="xs"
-              className="justify-start"
-              onClick={() => void run(c.id, c.name)}
-            >
-              {c.name}
-            </Button>
-          ))}
-        </span>
+    <span className="inline-flex min-w-0 items-center gap-2">
+      <Menu.Root>
+        <Menu.Trigger
+          className={cn(saved || savedTo !== null ? xPill : xPillSolid, xPillSm, small)}
+        >
+          <Bookmark />
+          <TextMorph duration={250}>{label}</TextMorph>
+          <ChevronDown className="opacity-60" />
+        </Menu.Trigger>
+        <Menu.Portal>
+          <Menu.Positioner side="bottom" align="start" sideOffset={4} className="z-50">
+            <Menu.Popup className={menuPopupClass}>
+              <Menu.Item className={menuItemClass} onClick={() => run(null, "Swipe file")}>
+                Swipe file
+              </Menu.Item>
+              {list.map((c) => (
+                <Menu.Item key={c.id} className={menuItemClass} onClick={() => run(c.id, c.name)}>
+                  <span className="truncate">{c.name}</span>
+                  <span className="ml-auto font-mono text-2xs tabular-nums">{c.posts}</span>
+                </Menu.Item>
+              ))}
+            </Menu.Popup>
+          </Menu.Positioner>
+        </Menu.Portal>
+      </Menu.Root>
+      {error !== null ? (
+        <span className="truncate text-2xs text-error-foreground">{error}</span>
       ) : null}
     </span>
+  );
+}
+
+/** Saves the post so Compose can read it back by id, then opens the composer on it. */
+export function RemixButton({ post }: { readonly post: XPost }) {
+  const save = useAtomSet(savePostAtom, { mode: "promise" });
+  const navigate = useNavigate();
+  return (
+    <button
+      type="button"
+      className={cn(xPill, xPillSm, small)}
+      title="Write your own in Compose, with this post as inspiration"
+      onClick={() =>
+        void save({ post, collectionId: null }).then(() =>
+          navigate({ href: `/compose?inspire=${post.postId}` }),
+        )
+      }
+    >
+      Remix
+    </button>
   );
 }

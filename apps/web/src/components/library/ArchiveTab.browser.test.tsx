@@ -6,8 +6,14 @@ import { useState } from "react";
 import { render } from "../../../test/render";
 import { FilterBar } from "./ArchiveTab";
 
-function Harness({ onChange }: { readonly onChange: (f: LibraryFilters) => void }) {
-  const [filters, setFilters] = useState<LibraryFilters>({});
+function Harness({
+  initial,
+  onChange,
+}: {
+  readonly initial: LibraryFilters;
+  readonly onChange: (f: LibraryFilters) => void;
+}) {
+  const [filters, setFilters] = useState<LibraryFilters>(initial);
   return (
     <FilterBar
       value={filters}
@@ -19,25 +25,26 @@ function Harness({ onChange }: { readonly onChange: (f: LibraryFilters) => void 
   );
 }
 
-it("builds the filter set from the bar and clears it", async () => {
+it("builds the filter set from the bar, and Clear keeps the header's format", async () => {
   let last: LibraryFilters = {};
-  await using screen = await render(<Harness onChange={(f) => (last = f)} />);
+  await using screen = await render(
+    <Harness initial={{ format: "thread" }} onChange={(f) => (last = f)} />,
+  );
 
   await userEvent.fill(screen.getByLabelText("Min views"), "5000");
-  await userEvent.selectOptions(screen.getByLabelText("format"), "thread");
   await userEvent.selectOptions(screen.getByLabelText("author size"), "1M+");
   await userEvent.selectOptions(screen.getByLabelText("hook"), "number hook");
   expect(last).toEqual({
-    minViews: 5000,
     format: "thread",
+    minViews: 5000,
     authorBand: "1M+",
     hookPattern: "number hook",
   });
 
-  await userEvent.selectOptions(screen.getByLabelText("format"), "");
-  expect(last).toEqual({ minViews: 5000, authorBand: "1M+", hookPattern: "number hook" });
+  await userEvent.selectOptions(screen.getByLabelText("author size"), "");
+  expect(last).toEqual({ format: "thread", minViews: 5000, hookPattern: "number hook" });
 
   await userEvent.click(screen.getByRole("button", { name: "Clear" }));
-  expect(last).toEqual({});
+  expect(last).toEqual({ format: "thread" });
   await expect.element(screen.getByRole("button", { name: "Clear" })).not.toBeInTheDocument();
 });

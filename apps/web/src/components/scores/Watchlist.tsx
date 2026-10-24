@@ -1,13 +1,16 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
-import type { ScoreChange } from "@xtend/contracts";
+import type { ScoreChange, WatchEntry } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
+import { X } from "lucide-react";
 import { useState } from "react";
 
+import { cn } from "../../lib/utils";
 import { useQuoteLabel } from "../../state/costs";
 import { runScoreAtom, watchAddAtom, watchListAtom, watchRemoveAtom } from "../../state/scores";
-import { cn } from "../../lib/utils";
-import { Empty, ErrorText, errorText, fmt, inputClass, Section, signed } from "../analyze/ui";
-import { Button } from "../ui/button";
+import { PageHeader } from "../PageHeader";
+import { Cost, Empty, PageBody, table } from "../ui/layout";
+import { xIconButton, xPill, xPillSm } from "../x";
+import { ErrorLine, causeMessage, controlClass, errorMessage, fmt } from "../library/shared";
 
 const WINDOWS = ["d1", "d7", "d14", "d30"] as const satisfies ReadonlyArray<keyof ScoreChange>;
 
@@ -24,13 +27,36 @@ function ScoreButton({
 }) {
   const quote = useQuoteLabel({ kind: "scoreRun", handle });
   return (
-    <Button size="micro" variant="outline" disabled={disabled} onClick={onClick}>
-      {label} ({quote})
-    </Button>
+    <button
+      type="button"
+      className={cn(xPill, "h-6 gap-1 px-2 text-xs")}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      {label}
+      <Cost label={quote} />
+    </button>
   );
 }
 
-/** Watched handles with score, tier and change over 1 to 30 days, sortable by any window; shared with Analyze's Competitors tab. */
+function Change({ value }: { readonly value: number | null }) {
+  if (value === null) return <span className="text-muted-foreground">–</span>;
+  return (
+    <span
+      className={cn(value > 0 && "text-success-foreground", value < 0 && "text-error-foreground")}
+    >
+      {value > 0 ? "+" : ""}
+      {fmt(value)}
+    </span>
+  );
+}
+
+const sorted = (rows: ReadonlyArray<WatchEntry>, by: keyof ScoreChange | null) =>
+  by === null
+    ? rows
+    : rows.toSorted((a, b) => (b.change[by] ?? -Infinity) - (a.change[by] ?? -Infinity));
+
+/** Watched handles with score, tier and change over 1 to 30 days, sortable by any window. */
 export function Watchlist({ onOpen }: { readonly onOpen: (handle: string) => void }) {
   const watch = useAtomValue(watchListAtom);
   const refreshWatch = useAtomRefresh(watchListAtom);
@@ -48,115 +74,138 @@ export function Watchlist({ onOpen }: { readonly onOpen: (handle: string) => voi
       await work();
       refreshWatch();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorMessage(e));
     }
   };
 
+  const count = AsyncResult.getOrElse(
+    AsyncResult.map(watch, (rows) => rows.length),
+    () => null,
+  );
+
   return (
-    <div className="flex flex-col gap-3">
-      <Section title="Watch a handle">
-        <form
-          className="flex gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            const h = handle.trim().replace(/^@/, "");
-            if (h === "") return;
-            void run(() => add(h)).then(() => setHandle(""));
-          }}
-        >
-          <input
-            className={inputClass}
-            placeholder="handle without @"
-            value={handle}
-            onChange={(e) => setHandle(e.target.value)}
-          />
-          <Button size="sm" type="submit" variant="outline">
-            Add
-          </Button>
-        </form>
-        <p className="pt-1 text-2xs text-muted-foreground">
-          Adding is free. Scoring a handle reads its profile and up to 5 follower pages.
-        </p>
-        {error !== null ? <ErrorText>{error}</ErrorText> : null}
-      </Section>
-      {AsyncResult.match(watch, {
-        onInitial: () => <Empty>Loading…</Empty>,
-        onFailure: (f) => <ErrorText>{errorText(f.cause)}</ErrorText>,
-        onSuccess: ({ value }) =>
-          value.length === 0 ? (
-            <Empty>No handles watched yet.</Empty>
-          ) : (
-            <table className="w-full text-xs">
-              <thead className="text-2xs text-muted-foreground">
-                <tr className="border-b border-border">
-                  <th className="py-1 text-left font-normal">Handle</th>
-                  <th className="py-1 text-right font-normal">Score</th>
-                  <th className="py-1 text-left font-normal pl-3">Tier</th>
-                  {WINDOWS.map((w) => (
-                    <th key={w} className="py-1 text-right font-normal">
-                      <button
-                        type="button"
-                        className={cn("cursor-pointer", w === sortBy && "text-foreground")}
-                        onClick={() => setSortBy((s) => (s === w ? null : w))}
-                      >
-                        {w.slice(1)}d{w === sortBy ? " v" : ""}
-                      </button>
-                    </th>
-                  ))}
-                  <th className="py-1 text-right font-normal">Added</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {(sortBy === null
-                  ? value
-                  : [...value].sort(
-                      (a, b) => (b.change[sortBy] ?? -Infinity) - (a.change[sortBy] ?? -Infinity),
-                    )
-                ).map((w) => (
-                  <tr key={w.handle} className="border-b border-border/50">
-                    <td className="py-1">
-                      <button
-                        type="button"
-                        className="cursor-pointer hover:underline"
-                        onClick={() => onOpen(w.handle)}
-                      >
-                        @{w.handle}
-                      </button>
-                    </td>
-                    <td className="py-1 text-right font-mono text-2xs">{fmt(w.score)}</td>
-                    <td className="py-1 pl-3 font-mono text-2xs">{w.tier ?? "–"}</td>
-                    {WINDOWS.map((k) => (
-                      <td key={k} className="py-1 text-right font-mono text-2xs">
-                        {w.change[k] === null ? "–" : signed(w.change[k])}
-                      </td>
-                    ))}
-                    <td className="py-1 text-right font-mono text-2xs text-muted-foreground">
-                      {w.addedAt.slice(0, 10)}
-                    </td>
-                    <td className="py-1 text-right">
-                      <div className="flex justify-end gap-1">
-                        <ScoreButton
-                          handle={w.handle}
-                          label={w.score === null ? "Score" : "Rescore"}
-                          disabled={scoreState.waiting}
-                          onClick={() => void run(() => score({ handle: w.handle }))}
-                        />
-                        <Button
-                          size="micro"
-                          variant="ghost-muted"
-                          onClick={() => void run(() => remove(w.handle))}
+    <>
+      <PageHeader
+        title="Watchlist"
+        detail={count === null || count === 0 ? undefined : `${count} watched`}
+        actions={
+          <form
+            className="flex items-center gap-1.5"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const h = handle.trim().replace(/^@/, "");
+              if (h === "") return;
+              void run(() => add(h)).then(() => setHandle(""));
+            }}
+          >
+            <input
+              className={cn(controlClass, "w-40 font-mono @max-[40rem]:w-28")}
+              aria-label="Handle to watch"
+              placeholder="@handle"
+              value={handle}
+              onChange={(e) => setHandle(e.target.value)}
+            />
+            <button type="submit" className={cn(xPill, xPillSm)} disabled={handle.trim() === ""}>
+              Watch
+              <Cost usd={0} />
+            </button>
+          </form>
+        }
+      />
+      {error !== null ? <ErrorLine>{error}</ErrorLine> : null}
+      <PageBody>
+        {AsyncResult.match(watch, {
+          onInitial: () => <Empty>Loading the watchlist</Empty>,
+          onFailure: (f) => <ErrorLine className="py-4">{causeMessage(f.cause)}</ErrorLine>,
+          onSuccess: ({ value }) =>
+            value.length === 0 ? (
+              <Empty>
+                Watch a handle to see its score move over 1, 7, 14 and 30 days. Watching is free.
+              </Empty>
+            ) : (
+              <table className={table.root}>
+                <thead>
+                  <tr>
+                    <th className={table.th}>Handle</th>
+                    <th className={cn(table.th, "text-right")}>Score</th>
+                    <th className={table.th}>Tier</th>
+                    {WINDOWS.map((w) => (
+                      <th key={w} className={cn(table.th, "text-right")}>
+                        <button
+                          type="button"
+                          aria-label={`Sort by ${w.slice(1)} day change`}
+                          className={cn(
+                            "cursor-pointer transition-colors duration-150 hover:text-foreground",
+                            w === sortBy && "text-foreground",
+                          )}
+                          onClick={() => setSortBy((s) => (s === w ? null : w))}
                         >
-                          Remove
-                        </Button>
-                      </div>
-                    </td>
+                          {w.slice(1)}d{w === sortBy ? " ↓" : ""}
+                        </button>
+                      </th>
+                    ))}
+                    <th className={cn(table.th, "text-right @max-[44rem]:hidden")}>Added</th>
+                    <th className={table.th}>
+                      <span className="sr-only">Actions</span>
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          ),
-      })}
-    </div>
+                </thead>
+                <tbody>
+                  {sorted(value, sortBy).map((w) => (
+                    <tr key={w.handle} className={table.row}>
+                      <td className={table.td}>
+                        <button
+                          type="button"
+                          className="cursor-pointer font-medium hover:underline"
+                          onClick={() => onOpen(w.handle)}
+                        >
+                          @{w.handle}
+                        </button>
+                      </td>
+                      <td className={cn(table.td, table.num)}>{fmt(w.score)}</td>
+                      <td className={cn(table.td, "text-xs text-muted-foreground")}>
+                        {w.tier ?? "–"}
+                      </td>
+                      {WINDOWS.map((k) => (
+                        <td key={k} className={cn(table.td, table.num)}>
+                          <Change value={w.change[k]} />
+                        </td>
+                      ))}
+                      <td
+                        className={cn(
+                          table.td,
+                          table.num,
+                          "text-muted-foreground @max-[44rem]:hidden",
+                        )}
+                      >
+                        {w.addedAt.slice(0, 10)}
+                      </td>
+                      <td className={table.td}>
+                        <div className="flex items-center justify-end gap-1">
+                          <ScoreButton
+                            handle={w.handle}
+                            label={w.score === null ? "Score" : "Rescore"}
+                            disabled={scoreState.waiting}
+                            onClick={() => void run(() => score({ handle: w.handle }))}
+                          />
+                          <button
+                            type="button"
+                            aria-label={`Stop watching @${w.handle}`}
+                            title="Stop watching"
+                            className={cn(xIconButton, "size-6 [&_svg]:size-3.5")}
+                            onClick={() => void run(() => remove(w.handle))}
+                          >
+                            <X />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ),
+        })}
+      </PageBody>
+    </>
   );
 }

@@ -2,7 +2,11 @@ import type { FollowerCategory, ScoreReport, TopFollower, XFollower } from "@xte
 import { BadgeCheck } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { Empty, fmt, LineChart, pct, Section, signed, Stat } from "../analyze/ui";
+import { cn } from "../../lib/utils";
+import { LineChart } from "../analyze/ui";
+import { Empty, Section, Stat, table } from "../ui/layout";
+import { fmt } from "../library/shared";
+import { XLink, profileUrl } from "../library/XLink";
 
 const CATEGORIES: ReadonlyArray<{ category: FollowerCategory; label: string }> = [
   { category: "kol", label: "KOLs" },
@@ -18,63 +22,136 @@ const TIERS = [
   ["Significant", 600],
   ["Supreme", 900],
 ] as const;
+const TOP = TIERS[TIERS.length - 1]![1];
 const nextTier = (score: number) => TIERS.find(([, min]) => score < min);
 
-function Handle({ f }: { f: XFollower }) {
+export const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
+const signedPts = (n: number) => `${n > 0 ? "+" : ""}${n.toFixed(1)}`;
+
+type Sample = NonNullable<ScoreReport["latest"]>;
+
+/** Name, badge and @handle; the handle opens the profile on X. */
+function Who({ f }: { readonly f: XFollower }) {
   return (
-    <>
-      <span className="truncate font-medium">{f.name}</span>
-      {f.verified ? <BadgeCheck className="size-3 shrink-0 text-info-foreground" /> : null}
-      <a
-        href={`https://x.com/${f.handle}`}
-        target="_blank"
-        rel="noreferrer"
-        className="truncate text-muted-foreground hover:underline"
+    <span className="flex min-w-0 items-center gap-1">
+      <span className="truncate">{f.name}</span>
+      {f.verified ? <BadgeCheck className="size-3 shrink-0 text-foreground/60" /> : null}
+      <XLink
+        href={profileUrl(f.handle)}
+        className="truncate text-muted-foreground transition-colors duration-150 hover:text-foreground"
       >
         @{f.handle}
-      </a>
-    </>
+      </XLink>
+    </span>
   );
 }
 
-function FollowerRow({ f }: { f: TopFollower }) {
+/** One person in a short list, a mono figure on the right. */
+function PersonRow({ f, figure }: { readonly f: XFollower; readonly figure: string }) {
   return (
-    <li className="flex items-center gap-1 text-xs">
-      <Handle f={f} />
-      <span className="ml-auto shrink-0 font-mono text-2xs text-muted-foreground">
-        {fmt(f.followers)} · {f.points.toFixed(1)} pts
+    <li className="flex h-7 items-center gap-2 border-b border-border text-[13px] last:border-b-0">
+      <Who f={f} />
+      <span className="ml-auto shrink-0 font-mono text-2xs text-muted-foreground tabular-nums">
+        {figure}
       </span>
     </li>
   );
 }
 
+/** A labelled column of people: the label, a mono count, the rows. */
+function PeopleColumn({
+  label,
+  count,
+  testId,
+  children,
+}: {
+  readonly label: string;
+  readonly count: string;
+  readonly testId?: string;
+  readonly children: ReactNode;
+}) {
+  return (
+    <div data-testid={testId} className="min-w-0">
+      <p className="flex items-baseline justify-between gap-2 border-b border-border pb-1.5">
+        <span className="text-xs font-medium text-foreground/80">{label}</span>
+        <span className="font-mono text-2xs text-muted-foreground tabular-nums">{count}</span>
+      </p>
+      {children}
+    </div>
+  );
+}
+
+/** The section's own hairline closes a table, so its last row draws none. */
+const lastRowOpen = "[&_tbody_tr:last-child_td]:border-b-0";
+
+const quiet = (text: string) => <p className="py-2 text-xs text-muted-foreground">{text}</p>;
+
+/** Where the score sits on the tier ladder. Static: no fill animation. */
+function TierScale({ score }: { readonly score: number }) {
+  return (
+    <div className="relative mt-5 h-6 max-w-xl">
+      <div className="absolute inset-x-0 top-0 h-px bg-white/13" />
+      <div
+        className="absolute top-0 left-0 h-px bg-foreground"
+        style={{ width: `${Math.min(100, (score / TOP) * 100)}%` }}
+      />
+      {TIERS.map(([name, min]) => (
+        <span
+          key={name}
+          className={cn(
+            "absolute top-0 -translate-x-full border-r pt-1.5 pr-1.5 font-mono text-3xs whitespace-nowrap tabular-nums",
+            score >= min
+              ? "border-foreground text-foreground/80"
+              : "border-white/13 text-muted-foreground",
+          )}
+          style={{ left: `${(min / TOP) * 100}%` }}
+        >
+          {name} {min}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 /** Bot share, follow ratio and the sampled followers that look fake. */
-function BotCheck({ s }: { readonly s: NonNullable<ScoreReport["latest"]> }) {
+function BotCheck({ s }: { readonly s: Sample }) {
   return (
     <Section title="Bot check">
-      <div className="grid grid-cols-3 gap-x-4">
-        <Stat label="Bot share" value={pct(s.bot.botShare)} sub={`of ${s.sampled} sampled`} />
+      <div className="grid grid-cols-3 gap-x-6 pb-4 @min-[40rem]:max-w-xl">
+        <Stat label={`Bot share of ${s.sampled}`} value={pct(s.bot.botShare)} />
         <Stat
           label="Follow ratio"
           value={s.bot.followRatio === null ? "–" : s.bot.followRatio.toFixed(2)}
-          sub="followers / following"
         />
         <Stat label="Suspicious" value={String(s.bot.suspicious.length)} />
       </div>
       {s.bot.suspicious.length === 0 ? (
-        <p className="text-xs text-muted-foreground">No suspicious followers in the sample.</p>
+        quiet("No suspicious followers in the sample.")
       ) : (
-        <ul className="flex flex-col gap-1 pt-1">
-          {s.bot.suspicious.map((f) => (
-            <li key={f.userId} className="flex items-center gap-1 text-xs">
-              <Handle f={f} />
-              <span className="ml-auto shrink-0 font-mono text-2xs text-muted-foreground">
-                {fmt(f.followers)} / {fmt(f.following)}
-                {f.createdAt === null ? "" : ` · since ${f.createdAt.slice(0, 7)}`}
-              </span>
-            </li>
-          ))}
-        </ul>
+        <table className={cn(table.root, lastRowOpen, "-mx-6 w-[calc(100%+3rem)]")}>
+          <thead>
+            <tr>
+              <th className={table.th}>Follower</th>
+              <th className={cn(table.th, "w-28 text-right")}>Followers</th>
+              <th className={cn(table.th, "w-28 text-right")}>Following</th>
+              <th className={cn(table.th, "w-28 text-right")}>Joined X</th>
+            </tr>
+          </thead>
+          <tbody>
+            {s.bot.suspicious.map((f) => (
+              <tr key={f.userId} className={table.row}>
+                <td className={cn(table.td, "max-w-0")}>
+                  <Who f={f} />
+                </td>
+                <td className={cn(table.td, table.num)}>{fmt(f.followers)}</td>
+                <td className={cn(table.td, table.num)}>{fmt(f.following)}</td>
+                <td className={cn(table.td, table.num, "text-muted-foreground")}>
+                  {f.createdAt === null ? "–" : f.createdAt.slice(0, 7)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
     </Section>
   );
@@ -82,54 +159,56 @@ function BotCheck({ s }: { readonly s: NonNullable<ScoreReport["latest"]> }) {
 
 /** Joined, left and re-weighted followers between the two latest samples. */
 function Moved({ moved }: { readonly moved: NonNullable<ScoreReport["moved"]> }) {
-  const lists = [
-    { label: "Joined", rows: moved.joined.slice(0, 10), delta: (f: TopFollower) => f.points },
-    { label: "Left", rows: moved.left.slice(0, 10), delta: (f: TopFollower) => -f.points },
-  ] as const;
   const changed = moved.changed.slice(0, 10);
+  const total = moved.joined.length + moved.left.length + moved.changed.length;
+  const list = (rows: ReadonlyArray<TopFollower>, delta: (f: TopFollower) => number) =>
+    rows.length === 0 ? (
+      quiet("None")
+    ) : (
+      <ul>
+        {rows.slice(0, 10).map((f) => (
+          <PersonRow key={f.userId} f={f} figure={`${signedPts(delta(f))} pts`} />
+        ))}
+      </ul>
+    );
   return (
-    <Section title={`Who moved your score since ${moved.sinceAt.slice(0, 10)}`}>
-      {moved.joined.length + moved.left.length + changed.length === 0 ? (
-        <p className="text-xs text-muted-foreground">Same scored set as last time.</p>
+    <Section title={`Who moved the score since ${moved.sinceAt.slice(0, 10)}`}>
+      {total === 0 ? (
+        quiet("Same scored set as last time.")
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          {lists.map(({ label, rows, delta }) => (
-            <div key={label}>
-              <p className="pb-1 text-2xs text-muted-foreground">
-                {label} ({label === "Joined" ? moved.joined.length : moved.left.length})
-              </p>
-              <ul className="flex flex-col gap-1">
-                {rows.map((f) => (
-                  <li key={f.userId} className="flex items-center gap-1 text-xs">
-                    <Handle f={f} />
-                    <span className="ml-auto shrink-0 font-mono text-2xs text-muted-foreground">
-                      {signed(delta(f))} pts
-                    </span>
-                  </li>
+        <div className="grid grid-cols-1 gap-x-8 gap-y-5 @min-[44rem]:grid-cols-3">
+          <PeopleColumn label="Joined" count={String(moved.joined.length)} testId="moved-joined">
+            {list(moved.joined, (f) => f.points)}
+          </PeopleColumn>
+          <PeopleColumn label="Left" count={String(moved.left.length)} testId="moved-left">
+            {list(moved.left, (f) => -f.points)}
+          </PeopleColumn>
+          <PeopleColumn label="Changed" count={String(moved.changed.length)}>
+            {changed.length === 0 ? (
+              quiet("None")
+            ) : (
+              <ul>
+                {changed.map((f) => (
+                  <PersonRow
+                    key={f.userId}
+                    f={f}
+                    figure={`${f.previousPoints.toFixed(1)} to ${f.points.toFixed(1)}`}
+                  />
                 ))}
               </ul>
-            </div>
-          ))}
-          <div>
-            <p className="pb-1 text-2xs text-muted-foreground">Changed ({moved.changed.length})</p>
-            <ul className="flex flex-col gap-1">
-              {changed.map((f) => (
-                <li key={f.userId} className="flex items-center gap-1 text-xs">
-                  <Handle f={f} />
-                  <span className="ml-auto shrink-0 font-mono text-2xs text-muted-foreground">
-                    {f.previousPoints.toFixed(1)} to {f.points.toFixed(1)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
+            )}
+          </PeopleColumn>
         </div>
       )}
     </Section>
   );
 }
 
-/** The Sorsa-style report card: score, tier, who the top followers are by category, what moved, bot check, history. */
+/**
+ * A handle's report: score and tier, who the top followers are by category,
+ * what moved, the bot check and the history. `actions` is the score run,
+ * drawn beside the score.
+ */
 export function ReportCard({
   report,
   actions,
@@ -140,76 +219,92 @@ export function ReportCard({
   readonly botOnly?: boolean;
 }) {
   const s = report.latest;
-  const next = s === null ? undefined : nextTier(s.score);
-  if (botOnly && s !== null) {
+  if (s === null)
     return (
-      <div className="flex flex-col gap-3">
-        <Section title={`@${report.handle}`} actions={actions}>
-          <p className="text-2xs text-muted-foreground">sampled {s.at.slice(0, 10)}</p>
-        </Section>
-        <BotCheck s={s} />
-      </div>
+      <Empty action={actions}>
+        No score for @{report.handle} yet. Scoring reads its profile and a sample of followers.
+      </Empty>
     );
-  }
+  const next = nextTier(s.score);
+  const sampledLine = `@${report.handle} · sampled ${s.at.slice(0, 10)} · ${s.pages} pages`;
+
+  if (botOnly)
+    return (
+      <>
+        <section className="flex flex-wrap items-center gap-4 border-b border-border px-6 py-4">
+          <span className="font-mono text-2xs text-muted-foreground tabular-nums">
+            {sampledLine}
+          </span>
+          <div className="ml-auto">{actions}</div>
+        </section>
+        <BotCheck s={s} />
+      </>
+    );
+
   return (
-    <div className="flex flex-col gap-3">
-      <Section title={`@${report.handle}`} actions={actions}>
-        {s === null ? (
-          <Empty>No score yet. Run it to fetch followers and score them.</Empty>
-        ) : (
-          <div className="grid grid-cols-3 gap-x-4 sm:grid-cols-6">
-            <Stat
-              label="Score"
-              value={fmt(s.score)}
-              sub={next === undefined ? "top tier" : `${fmt(next[1] - s.score)} to ${next[0]}`}
-            />
-            <div className="flex flex-col gap-0.5 py-1">
-              <span className="text-2xs text-muted-foreground">Tier</span>
-              <span
-                className="w-fit rounded-md border border-border px-1.5 font-mono text-sm font-medium"
-                data-testid="tier"
-              >
+    <>
+      <section className="border-b border-border px-6 py-6">
+        <div className="flex flex-wrap items-start gap-x-12 gap-y-5">
+          <div>
+            <p className="text-xs text-muted-foreground">Score</p>
+            <p className="mt-1 flex items-baseline gap-3">
+              <span className="font-mono text-[34px] leading-none tracking-tight tabular-nums">
+                {fmt(s.score)}
+              </span>
+              <span className="text-[15px] font-semibold" data-testid="tier">
                 {s.tier}
               </span>
-            </div>
-            <Stat label="Followers" value={fmt(s.followers)} sub={`${s.sampled} sampled`} />
+            </p>
+            <p className="mt-2 font-mono text-2xs text-muted-foreground tabular-nums">
+              {next === undefined ? "top tier" : `${fmt(next[1] - s.score)} to ${next[0]}`}
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-x-8 gap-y-4 pt-0.5 @min-[40rem]:grid-cols-4">
+            <Stat label="Followers" value={fmt(s.followers)} />
+            <Stat label="Sampled" value={fmt(s.sampled)} />
             <Stat label="Bot share" value={pct(s.botShare)} />
             <Stat
               label="Follow ratio"
               value={s.bot.followRatio === null ? "–" : s.bot.followRatio.toFixed(2)}
             />
-            <Stat label="Sampled" value={s.at.slice(0, 10)} />
           </div>
-        )}
+          {actions !== undefined ? <div className="ml-auto self-center">{actions}</div> : null}
+        </div>
+        <TierScale score={s.score} />
+        <p className="font-mono text-2xs text-muted-foreground tabular-nums">{sampledLine}</p>
+      </section>
+      <Section title="Top followers by category">
+        <div className="grid grid-cols-1 gap-x-8 gap-y-5 @min-[36rem]:grid-cols-2 @min-[60rem]:grid-cols-4">
+          {CATEGORIES.map((b) => {
+            const of = s.topFollowers.filter((f) => f.category === b.category);
+            const total = s.categories.find((c) => c.category === b.category);
+            return (
+              <PeopleColumn
+                key={b.category}
+                testId={`category-${b.category}`}
+                label={b.label}
+                count={`${total?.count ?? 0} scored · ${fmt(total?.points ?? 0)} pts`}
+              >
+                {of.length === 0 ? (
+                  quiet("none in top 20")
+                ) : (
+                  <ul>
+                    {of.map((f) => (
+                      <PersonRow
+                        key={f.userId}
+                        f={f}
+                        figure={`${fmt(f.followers)} · ${f.points.toFixed(1)}`}
+                      />
+                    ))}
+                  </ul>
+                )}
+              </PeopleColumn>
+            );
+          })}
+        </div>
       </Section>
-      {s === null ? null : (
-        <Section title="Top followers by category">
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            {CATEGORIES.map((b) => {
-              const of = s.topFollowers.filter((f) => f.category === b.category);
-              const total = s.categories.find((c) => c.category === b.category);
-              return (
-                <div key={b.category} data-testid={`category-${b.category}`}>
-                  <p className="pb-1 text-2xs text-muted-foreground">
-                    {b.label} ({total?.count ?? 0} scored, {fmt(total?.points ?? 0)} pts)
-                  </p>
-                  {of.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">none in top 20</p>
-                  ) : (
-                    <ul className="flex flex-col gap-1">
-                      {of.map((f) => (
-                        <FollowerRow key={f.userId} f={f} />
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </Section>
-      )}
       {report.moved === null ? null : <Moved moved={report.moved} />}
-      {s === null ? null : <BotCheck s={s} />}
+      <BotCheck s={s} />
       <Section title="Score history">
         <LineChart
           points={report.history.map((h) => ({ label: h.at.slice(0, 10), value: h.score }))}
@@ -217,23 +312,32 @@ export function ReportCard({
       </Section>
       {report.profileHistory.length === 0 ? null : (
         <Section title="Name and bio history">
-          <ol className="flex flex-col gap-1">
-            {report.profileHistory
-              .toReversed()
-              .slice(0, 20)
-              .map((c) => (
-                <li key={c.day} className="flex gap-2 text-xs">
-                  <span className="shrink-0 font-mono text-2xs text-muted-foreground">{c.day}</span>
-                  <span className="shrink-0 font-medium">{c.name}</span>
-                  <span className="truncate text-muted-foreground">{c.bio}</span>
-                  <span className="ml-auto shrink-0 font-mono text-2xs text-muted-foreground">
-                    {fmt(c.followers)}
-                  </span>
-                </li>
-              ))}
-          </ol>
+          <table className={cn(table.root, lastRowOpen, "-mx-6 w-[calc(100%+3rem)]")}>
+            <tbody>
+              {report.profileHistory
+                .toReversed()
+                .slice(0, 20)
+                .map((c) => (
+                  <tr key={c.day} className={table.row}>
+                    <td
+                      className={cn(
+                        table.td,
+                        "w-28 font-mono text-2xs text-muted-foreground tabular-nums",
+                      )}
+                    >
+                      {c.day}
+                    </td>
+                    <td className={cn(table.td, "w-48 font-medium")}>{c.name}</td>
+                    <td className={cn(table.td, "max-w-0 truncate text-muted-foreground")}>
+                      {c.bio}
+                    </td>
+                    <td className={cn(table.td, table.num, "w-20")}>{fmt(c.followers)}</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
         </Section>
       )}
-    </div>
+    </>
   );
 }

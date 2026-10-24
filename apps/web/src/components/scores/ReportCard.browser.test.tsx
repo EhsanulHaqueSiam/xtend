@@ -60,14 +60,14 @@ it("buckets the top followers by category and shows who joined", async () => {
   await using screen = await render(<ReportCard report={report} />);
   await expect.element(screen.getByTestId("tier")).toHaveTextContent("Credible");
   const kol = screen.getByTestId("category-kol");
-  await expect.element(kol.getByText("KOLs (1 scored, 10 pts)")).toBeVisible();
+  await expect.element(kol.getByText("1 scored · 10 pts")).toBeVisible();
   await expect.element(kol.getByText("@h1")).toBeVisible();
   await expect
     .element(screen.getByTestId("category-project").getByText("none in top 20"))
     .toBeVisible();
   await expect
-    .element(screen.getByTestId("category-person").getByText("People (98 scored, 402 pts)"))
+    .element(screen.getByTestId("category-person").getByText("98 scored · 402 pts"))
     .toBeVisible();
-  await expect.element(screen.getByText("Joined (1)")).toBeVisible();
+  await expect.element(screen.getByTestId("moved-joined").getByText("@h1")).toBeVisible();
   await expect.element(screen.getByText("ships")).toBeVisible();
 });
