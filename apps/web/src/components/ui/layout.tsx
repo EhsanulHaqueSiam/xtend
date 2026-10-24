@@ -71,9 +71,23 @@ export function Empty({
  * (exact, the same formatting as the quote labels), or a quote label from
  * `useQuoteLabel` such as "cached, free".
  */
-export function Cost(props: { readonly usd: number } | { readonly label: string }) {
+export function Cost(
+  props: ({ readonly usd: number } | { readonly label: string }) & {
+    /** "solid" inside a primary button, where muted grey would vanish. */
+    readonly tone?: "solid" | undefined;
+  },
+) {
   const text = "label" in props ? props.label : props.usd === 0 ? "free" : formatUsd(props.usd);
-  return <span className="font-mono text-2xs text-muted-foreground tabular-nums">{text}</span>;
+  return (
+    <span
+      className={cn(
+        "font-mono text-2xs tabular-nums",
+        props.tone === "solid" ? "opacity-70" : "text-muted-foreground",
+      )}
+    >
+      {text}
+    </span>
+  );
 }
 
 /** A number with its label: label small and muted, value in mono. */

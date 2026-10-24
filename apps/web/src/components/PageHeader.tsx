@@ -49,17 +49,21 @@ export function HeaderTabs<T extends string>({
 }
 
 /**
- * The top of every screen: 52px, the section's name, an optional row of
- * filters right after it, and the screen's actions on the right. `detail` is a
+ * The top of every screen: 52px, the section's name (a long one truncates
+ * before the actions do), an optional row of filters right after it, and the
+ * screen's actions on the right. `detail` is a
  * short mono fact (a count, a date range) and never a sentence.
  */
 export function PageHeader({
   title,
+  leading,
   tabs,
   detail,
   actions,
 }: {
   readonly title: string;
+  /** Before the title: a back control on a screen opened from a list. */
+  readonly leading?: ReactNode;
   readonly tabs?: ReactNode;
   readonly detail?: ReactNode;
   readonly actions?: ReactNode;
@@ -71,7 +75,10 @@ export function PageHeader({
         isElectron && "drag-region",
       )}
     >
-      <h1 className="shrink-0 truncate text-[15px] font-semibold tracking-tight">{title}</h1>
+      {leading !== undefined ? <div className="no-drag -ml-2 shrink-0">{leading}</div> : null}
+      <h1 className="min-w-0 max-w-[40%] shrink truncate text-[15px] font-semibold tracking-tight">
+        {title}
+      </h1>
       {tabs}
       <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
         {detail !== undefined ? (

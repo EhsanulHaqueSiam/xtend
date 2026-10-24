@@ -91,7 +91,7 @@ function PaletteBody({
           )),
       {
         id: "schedule",
-        group: "Actions",
+        group: "Actions" as const,
         label: "Schedule this",
         icon: CalendarClock,
         run: to("/compose"),
