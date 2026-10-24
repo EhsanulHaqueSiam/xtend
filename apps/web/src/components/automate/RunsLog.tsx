@@ -1,6 +1,7 @@
 import { RuleRunStatus, type Rule, type RuleRun } from "@xtend/contracts";
 import { useState } from "react";
 
+import { fmtWhen } from "../../lib/time";
 import { cn } from "../../lib/utils";
 import { Empty, inputClass, usd } from "../analyze/ui";
 import { statusTone } from "./describe";
@@ -67,7 +68,7 @@ export function RunsLog({
             {shown.map((r) => (
               <tr key={r.id} className="border-t border-border align-top hover:bg-accent/60">
                 <td className="py-1 pr-2 font-mono whitespace-nowrap text-muted-foreground">
-                  {r.at.slice(0, 16).replace("T", " ")}
+                  {fmtWhen(r.at)}
                 </td>
                 <td className="py-1 pr-2 whitespace-nowrap">
                   {names.get(r.ruleId) ?? `#${r.ruleId}`}

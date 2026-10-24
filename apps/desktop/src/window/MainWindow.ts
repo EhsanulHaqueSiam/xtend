@@ -58,6 +58,8 @@ const OAUTH_HOSTS = new Set(["accounts.google.com", "appleid.apple.com"]);
 const sessionPartition = (accountId: number) =>
   accountId === 1 ? "persist:x-session" : `persist:x-session-${accountId}`;
 const ZOOM_STEP = 0.5;
+/** A renderer that dies again this soon after a reload stays down rather than reloading in a loop. */
+const CRASH_RELOAD_MS = 10_000;
 
 export interface MainWindowOptions {
   readonly appUrl: string;
@@ -171,11 +173,12 @@ const browserUserAgent = (ua: string) =>
     .replace(/ xtend\/\S+/i, "")
     .replace(/ @xtend\/\S+/i, "");
 
+// setBounds throws on NaN, and a throw in an ipcMain listener is an uncaught main-process error.
 const isRect = (value: unknown): value is Rect =>
   typeof value === "object" &&
   value !== null &&
-  ["x", "y", "width", "height"].every(
-    (k) => typeof (value as Record<string, unknown>)[k] === "number",
+  ["x", "y", "width", "height"].every((k) =>
+    Number.isFinite((value as Record<string, unknown>)[k]),
   );
 
 const SLOT_KINDS = new Set(["center", "popover", "sheet", "palette", "bar", "toast"]);
@@ -290,6 +293,7 @@ export function createMainWindow(options: MainWindowOptions) {
   // Slot state. The view is never destroyed: hidden means empty bounds, so its socket and atoms stay warm.
   let current: SlotOpen | null = null;
   let lastRoute = "/";
+  // In x.com CSS pixels, as the preload measured them.
   let column: Rect | null = null;
   let sidebar: Rect | null = null;
   const slotState = (): SlotState => ({ kind: current?.kind ?? null, route: lastRoute });
@@ -297,10 +301,16 @@ export function createMainWindow(options: MainWindowOptions) {
     if (!appContents.isDestroyed()) appContents.send(channel, value);
   };
   const applyBounds = () => {
+    if (current === null) return view.setBounds(EMPTY);
     const { width, height } = window.getContentBounds();
-    view.setBounds(
-      current === null ? EMPTY : slotBounds(current, { width, height }, column, sidebar),
-    );
+    // Window pixels are x.com's CSS pixels times the zoom, read now: a zoom that leaves X's
+    // column at the same CSS rect sends no new one.
+    const zoom = contents.getZoomFactor();
+    const scaled = (r: Rect | null): Rect | null =>
+      r === null
+        ? null
+        : { x: r.x * zoom, y: r.y * zoom, width: r.width * zoom, height: r.height * zoom };
+    view.setBounds(slotBounds(current, { width, height }, scaled(column), scaled(sidebar)));
   };
   const setSlot = (next: SlotOpen | null) => {
     if (next === current) return;
@@ -314,6 +324,21 @@ export function createMainWindow(options: MainWindowOptions) {
     appContents.focus();
   };
   window.on("resize", applyBounds);
+
+  // A dead renderer leaves x.com black or the slot empty until a restart; bring it back once.
+  for (const [name, target] of [
+    ["x.com", contents],
+    ["app view", appContents],
+  ] as const) {
+    let lastReload = 0;
+    target.on("render-process-gone", (_event, details) => {
+      options.log(`${name} renderer gone`, details.reason);
+      if (details.reason === "clean-exit" || target.isDestroyed()) return;
+      if (Date.now() - lastReload < CRASH_RELOAD_MS) return;
+      lastReload = Date.now();
+      target.reload();
+    });
+  }
 
   // Answer the preload's synchronous bridge-info request, and only for this view.
   const onBridgeInfo = (event: Electron.IpcMainEvent) => {
@@ -454,6 +479,7 @@ export function createMainWindow(options: MainWindowOptions) {
     else if (input.key === "]") contents.navigationHistory.goForward();
     else return;
     event.preventDefault();
+    applyBounds();
   });
   // The app's own DOM handles its letters, ⌘K and Esc; only the keys it cannot act on come through here.
   appContents.on("before-input-event", (event, input) => {
@@ -468,6 +494,7 @@ export function createMainWindow(options: MainWindowOptions) {
   const detachCapture = attachSessionCapture(contents, {
     serviceUrl: options.serviceUrl,
     serviceToken: options.serviceToken,
+    accountId: options.accountId,
     queueDir: options.queueDir,
     log: options.log,
     onPosts: overlay.observe,
@@ -515,21 +542,18 @@ export function createMainWindow(options: MainWindowOptions) {
     }),
     from<boolean>(contents, EDITING_CHANNEL, (v) => editing.set(contents, v === true)),
     from<unknown>(contents, COLUMN_RECT_CHANNEL, (value) => {
-      // The preload measures in x.com CSS pixels; the window's are those times the zoom.
-      const zoom = contents.getZoomFactor();
-      const scaled = (r: unknown): Rect | null =>
-        isRect(r)
-          ? { x: r.x * zoom, y: r.y * zoom, width: r.width * zoom, height: r.height * zoom }
-          : null;
       const rects =
         typeof value === "object" && value !== null ? (value as Partial<ColumnRects>) : {};
-      column = scaled(rects.column);
-      sidebar = scaled(rects.sidebar);
+      column = isRect(rects.column) ? rects.column : null;
+      sidebar = isRect(rects.sidebar) ? rects.sidebar : null;
       applyBounds();
     }),
     from<undefined>(contents, POINTER_DOWN_CHANNEL, () => setSlot(dismiss(current))),
     from<OverlayAction>(contents, OVERLAY_ACTION_CHANNEL, (action) => {
-      if (action.type === "openSlot") return setSlot(action.slot);
+      if (action.type === "openSlot") {
+        if (isSlotOpen(action.slot)) setSlot(action.slot);
+        return;
+      }
       const post = overlay.get(action.postId);
       if (post === undefined) return;
       commands.save({
@@ -571,6 +595,8 @@ export function createMainWindow(options: MainWindowOptions) {
 
   return {
     window,
+    /** The app view's contents: main's own IPC handlers answer only it. */
+    appContents,
     openSlot: (slot: SlotOpen) => setSlot(slot),
     /** Dev only: x.com and the slot view as separate images (a window capture omits child views) plus where the slot sits. */
     capture: async () => ({

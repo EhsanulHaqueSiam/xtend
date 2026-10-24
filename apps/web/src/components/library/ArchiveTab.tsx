@@ -79,9 +79,11 @@ export function FilterBar({
         min={0}
         placeholder="min views"
         value={value.minViews ?? ""}
-        onChange={(e) =>
-          set("minViews", e.target.value === "" ? undefined : Number(e.target.value))
-        }
+        // The filter key is schema-encoded on render, and a negative or fractional count fails it.
+        onChange={(e) => {
+          const n = Math.trunc(Number(e.target.value));
+          set("minViews", e.target.value === "" || Number.isNaN(n) ? undefined : Math.max(0, n));
+        }}
       />
       <Select
         label="format"
@@ -123,7 +125,7 @@ export function FilterBar({
 }
 
 function ArchiveRow({ entry }: { readonly entry: LibraryPost }) {
-  const write = useAtomSet(writeInFormatAtom, { mode: "promise" });
+  const write = useAtomSet(writeInFormatAtom(entry.post.postId), { mode: "promise" });
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   return (
@@ -147,7 +149,7 @@ function ArchiveRow({ entry }: { readonly entry: LibraryPost }) {
               setBusy(true);
               setStatus(null);
               try {
-                const { text } = await write(entry.post.postId);
+                const { text } = await write();
                 setStatus(`Saved as a suggested draft: ${text}`);
               } catch (e) {
                 setStatus(errorMessage(e));

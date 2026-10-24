@@ -4,6 +4,7 @@ import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useEffect } from "react";
 
 import { AppSidebar } from "../components/AppSidebar";
+import { AccountSync } from "../components/shell/AccountSync";
 import { CommandPalette } from "../components/shell/CommandPalette";
 import { ShellHotkeys } from "../components/shell/ShellHotkeys";
 import { ShellNotifications } from "../components/shell/ShellNotifications";
@@ -66,6 +67,7 @@ export const Route = createRootRoute({
   component: () => (
     <TooltipProvider delay={300}>
       <ZoneSync />
+      <AccountSync />
       <ShellHotkeys />
       <ShellNotifications />
       {isElectron ? null : <CommandPalette />}

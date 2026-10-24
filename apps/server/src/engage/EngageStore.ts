@@ -14,6 +14,7 @@ const decodePost = Schema.decodeUnknownSync(PostJson);
 const encodePost = Schema.encodeSync(PostJson);
 const HandlesJson = Schema.fromJsonString(NicheProfile.fields.handles);
 const TopicsJson = Schema.fromJsonString(NicheProfile.fields.topics);
+const encodeIds = Schema.encodeSync(Schema.fromJsonString(Schema.Array(Schema.String)));
 
 interface SentRow {
   readonly id: number;
@@ -58,6 +59,8 @@ export class EngageStore extends Context.Service<
     readonly repliedPostIds: Effect.Effect<ReadonlySet<string>, EngageError>;
     readonly handledMentionIds: Effect.Effect<ReadonlySet<string>, EngageError>;
     readonly markHandled: (postId: string) => Effect.Effect<void, EngageError>;
+    /** Records the incoming rows as announced for the current account; returns how many were not yet. */
+    readonly announce: (postIds: ReadonlyArray<string>) => Effect.Effect<number, EngageError>;
     /** Mentions fetched from X so far, newest first. */
     readonly apiMentions: Effect.Effect<ReadonlyArray<XPost>, EngageError>;
     /** Highest mention id fetched; the next refresh asks X for newer ones only. */
@@ -93,12 +96,16 @@ const make = Effect.gen(function* () {
   }, Effect.mapError(storeError));
 
   // followers_seen is the leads area's table; reading it here beats a second follower snapshot.
+  // The window end is formatted like the stored ISO stamps: datetime()'s "YYYY-MM-DD HH:MM:SS"
+  // sorts below every "YYYY-MM-DDT..." of that day, which cut the window at midnight.
   const sentList = Effect.fn("EngageStore.sentList")(function* (engagerIds: ReadonlyArray<string>) {
     const engagers = engagerIds.length === 0 ? sql`` : sql`OR f.user_id IN ${sql.in(engagerIds)}`;
     const rows = yield* sql<SentRow>`
       SELECT r.*, (
         SELECT COUNT(*) FROM followers_seen f
-        WHERE f.first_seen_at >= r.at AND f.first_seen_at < datetime(r.at, '+1 day')
+        WHERE f.account_id = r.account_id
+          AND f.first_seen_at >= r.at
+          AND f.first_seen_at < strftime('%Y-%m-%dT%H:%M:%fZ', r.at, '+1 day')
           AND (f.handle = r.target_handle ${engagers})
       ) AS attributed_followers
       FROM replies_sent r WHERE r.account_id = ${sql.literal(CURRENT_ACCOUNT)} ORDER BY r.id DESC LIMIT 200
@@ -118,6 +125,7 @@ const make = Effect.gen(function* () {
         AND NOT EXISTS (
           SELECT 1 FROM replies_sent later
           WHERE later.target_post_id = r.target_post_id AND later.id > r.id
+            AND later.account_id = r.account_id
         )
       ORDER BY r.id DESC LIMIT 100
     `;
@@ -139,6 +147,17 @@ const make = Effect.gen(function* () {
   const markHandled = Effect.fn("EngageStore.markHandled")(function* (postId: string) {
     const at = yield* now;
     yield* sql`INSERT OR IGNORE INTO handled_mentions (post_id, at) VALUES (${postId}, ${at})`;
+  }, Effect.mapError(storeError));
+
+  const announce = Effect.fn("EngageStore.announce")(function* (postIds: ReadonlyArray<string>) {
+    if (postIds.length === 0) return 0;
+    // One statement, so of two inbox reads racing over a row only one counts it.
+    const fresh = yield* sql`
+      INSERT OR IGNORE INTO announced_mentions (account_id, post_id)
+      SELECT ${sql.literal(CURRENT_ACCOUNT)}, value FROM json_each(${encodeIds(postIds)})
+      RETURNING post_id
+    `;
+    return fresh.length;
   }, Effect.mapError(storeError));
 
   const apiMentions = sql<{ post_json: string }>`
@@ -185,7 +204,7 @@ const make = Effect.gen(function* () {
   );
 
   const nicheGet = sql<{ handles_json: string; topics_json: string; updated_at: string }>`
-    SELECT handles_json, topics_json, updated_at FROM niche_profile WHERE id = 1
+    SELECT handles_json, topics_json, updated_at FROM niche_profile WHERE account_id = ${sql.literal(CURRENT_ACCOUNT)}
   `.pipe(
     Effect.map((rows): NicheProfile => {
       const r = rows[0];
@@ -205,8 +224,8 @@ const make = Effect.gen(function* () {
   ) {
     const at = yield* now;
     yield* sql`
-      INSERT OR REPLACE INTO niche_profile (id, handles_json, topics_json, updated_at)
-      VALUES (1, ${Schema.encodeSync(HandlesJson)(profile.handles)}, ${Schema.encodeSync(TopicsJson)(profile.topics)}, ${at})
+      INSERT OR REPLACE INTO niche_profile (account_id, handles_json, topics_json, updated_at)
+      VALUES (${sql.literal(CURRENT_ACCOUNT)}, ${Schema.encodeSync(HandlesJson)(profile.handles)}, ${Schema.encodeSync(TopicsJson)(profile.topics)}, ${at})
     `;
     return { ...profile, updatedAt: at };
   }, Effect.mapError(storeError));
@@ -222,6 +241,7 @@ const make = Effect.gen(function* () {
     repliedPostIds,
     handledMentionIds,
     markHandled,
+    announce,
     apiMentions,
     latestApiMentionId,
     storeApiMentions,

@@ -48,7 +48,12 @@ const eventsOf = (get: Atom.AtomContext) => AsyncResult.getOrElse(get(eventsAtom
  * @public consumed by the area screens, not only here
  */
 export const eventsOfTypeAtom = Atom.family((type: XtendEventType) =>
-  Atom.make((get) => eventsOf(get).filter((e) => e.type === type)),
+  // Every heartbeat and observation batch filters to a new array; only a new event of this
+  // type is a change, or each one would refetch everything that reacts to the type.
+  Atom.withEquality(
+    Atom.make((get) => eventsOf(get).filter((e) => e.type === type)),
+    (a, b) => a.at(-1) === b.at(-1),
+  ),
 );
 
 export type ConnectionState = "connecting" | "connected" | "disconnected";
@@ -115,9 +120,12 @@ export const agentsAtom = clientRuntime.atom(
   }),
 );
 
-export const runAgentAtom = clientRuntime.fn<number>()(
-  Effect.fnUntraced(function* (id) {
-    const client = yield* XtendClient;
-    return yield* client[Leads_METHODS.agentRun]({ id });
-  }),
+/** Kept alive: the palette closes as soon as it starts a run, and unmounting would interrupt the paid search. */
+export const runAgentAtom = Atom.keepAlive(
+  clientRuntime.fn<number>()(
+    Effect.fnUntraced(function* (id) {
+      const client = yield* XtendClient;
+      return yield* client[Leads_METHODS.agentRun]({ id });
+    }),
+  ),
 );

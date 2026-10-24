@@ -2,6 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import type { XPost } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as LibraryStore from "./LibraryStore.ts";
@@ -11,13 +12,13 @@ const layerTest = LibraryStore.layer.pipe(Layer.provideMerge(Sqlite.layerMemory)
 const post = (
   postId: string,
   views: number,
-  extra: Partial<Pick<XPost, "createdAt" | "lang" | "hasMedia" | "hasLink">> & {
+  extra: Partial<Pick<XPost, "createdAt" | "lang" | "hasMedia" | "hasLink" | "text">> & {
     readonly followers?: number;
   } = {},
 ): XPost => ({
   postId,
   url: `https://x.com/levelsio/status/${postId}`,
-  text: `Post ${postId}`,
+  text: extra.text ?? `Post ${postId}`,
   createdAt: extra.createdAt ?? "2026-10-22T09:00:00.000Z",
   lang: extra.lang ?? "en",
   isReply: false,
@@ -56,6 +57,111 @@ describe("LibraryStore", () => {
       expect(cols.map((c) => c.name)).toEqual(["Staff picks", "Hooks"]);
       // Deleting a collection keeps the post in the swipe file.
       expect((yield* store.getSavedPost("1"))?.collectionIds).toEqual([hooks.id]);
+      // Deleting the post takes it out of every collection it was in.
+      yield* store.savedDelete(again.id);
+      expect((yield* store.collectionsList).find((c) => c.id === hooks.id)?.posts).toBe(0);
+    }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect("takes a post out of one collection, leaving it saved and in the others", () =>
+    Effect.gen(function* () {
+      const store = yield* LibraryStore.LibraryStore;
+      const ideas = yield* store.collectionCreate("Ideas");
+      const hooks = yield* store.collectionCreate("Hooks");
+      yield* store.save({ post: post("1", 100), collectionId: ideas.id, note: "great hook" });
+      const saved = yield* store.save({ post: post("1", 100), collectionId: hooks.id });
+
+      yield* store.collectionRemovePost(ideas.id, saved.id);
+      expect(yield* store.savedList({ collectionId: ideas.id })).toEqual([]);
+      const kept = yield* store.getSavedPost("1");
+      expect([kept?.note, kept?.collectionIds]).toEqual(["great hook", [hooks.id]]);
+      expect((yield* store.collectionsList).map((c) => [c.name, c.posts])).toEqual([
+        ["Staff picks", 0],
+        ["Hooks", 1],
+        ["Ideas", 0],
+      ]);
+    }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect(
+    "searches saved posts by their text, author and note, with % and _ taken literally",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* LibraryStore.LibraryStore;
+        const hooks = yield* store.collectionCreate("Hooks");
+        yield* store.save({
+          post: post("1", 1, { text: "Grew 100% in a week" }),
+          collectionId: null,
+        });
+        yield* store.save({
+          post: post("2", 1, { text: "Grew 1000 users" }),
+          collectionId: hooks.id,
+        });
+        yield* store.save({ post: post("3", 1, { text: "snake_case wins" }), collectionId: null });
+        yield* store.save({ post: post("4", 1, { text: "snakeXcase loses" }), collectionId: null });
+        yield* store.save({ post: post("5", 1), collectionId: hooks.id, note: "Great hook" });
+        const ids = (input: Parameters<typeof store.savedList>[0]) =>
+          Effect.map(store.savedList(input), (rows) => rows.map((r) => r.post.postId));
+
+        expect(yield* ids({ query: "100%" })).toEqual(["1"]);
+        expect(yield* ids({ query: "snake_case" })).toEqual(["3"]);
+        expect(yield* ids({ query: "great HOOK" })).toEqual(["5"]);
+        expect(yield* ids({ query: "levelsio" })).toHaveLength(5);
+        // The author as X writes it.
+        expect(yield* ids({ query: "@levelsio" })).toHaveLength(5);
+        // The stored JSON's keys and the post URL are not what the user searches.
+        expect(yield* ids({ query: "author" })).toEqual([]);
+        expect(yield* ids({ query: "x.com" })).toEqual([]);
+        // A collection and a query narrow together.
+        expect(yield* ids({ collectionId: hooks.id, query: "grew" })).toEqual(["2"]);
+        expect(yield* ids({ query: "  " })).toHaveLength(5);
+      }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect("keeps each account's saved posts, collections, archive and Staff picks apart", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const store = yield* LibraryStore.LibraryStore;
+      const asAccount = (id: number) =>
+        sql`UPDATE settings SET current_account_id = ${id} WHERE id = 1`;
+
+      const ideas = yield* store.collectionCreate("Ideas");
+      const mine = yield* store.save({ post: post("1", 10), collectionId: ideas.id, note: "mine" });
+      yield* store.upsertPosts([post("1", 100)]);
+
+      yield* asAccount(2);
+      // A collection id from the other account, as a stale list after a switch would send.
+      const theirs = yield* store.save({ post: post("1", 10), collectionId: ideas.id });
+      expect(theirs.id).not.toBe(mine.id);
+      expect(theirs.note).toBe("");
+      expect(theirs.collectionIds).toEqual([]);
+      expect((yield* store.savedList({})).map((s) => s.id)).toEqual([theirs.id]);
+      expect(yield* store.collectionsList).toEqual([]);
+      expect(yield* store.browse({})).toEqual([]);
+      // Ids from the other account change nothing here.
+      yield* store.savedSetNote(mine.id, "hijacked");
+      yield* store.savedDelete(mine.id);
+      yield* store.collectionRename(ideas.id, "Hijacked");
+      yield* store.collectionRemovePost(ideas.id, mine.id);
+      yield* store.collectionDelete(ideas.id);
+      yield* store.upsertPosts([post("1", 5)]);
+      expect((yield* store.libraryPost("1"))?.post.metrics.views).toBe(5);
+      yield* store.picksRecord({ day: "2026-10-22", keyword: "effect", posts: [post("2", 900)] });
+      const staff = yield* store.collectionsList;
+      expect(staff.map((c) => [c.name, c.builtIn, c.posts])).toEqual([["Staff picks", true, 1]]);
+
+      // A link the 014-era picks made from this account's post into account 1's Staff picks.
+      yield* sql`INSERT INTO collection_posts (collection_id, saved_id) VALUES (1, ${theirs.id})`;
+
+      yield* asAccount(1);
+      expect((yield* store.getSavedPost("1"))?.note).toBe("mine");
+      expect(yield* store.getSavedPost("2")).toBeNull();
+      expect((yield* store.libraryPost("1"))?.post.metrics.views).toBe(100);
+      const cols = yield* store.collectionsList;
+      expect(cols.map((c) => [c.name, c.posts])).toEqual([
+        ["Staff picks", 0],
+        ["Ideas", 1],
+      ]);
     }).pipe(Effect.provide(layerTest)),
   );
 
@@ -72,7 +178,19 @@ describe("LibraryStore", () => {
       expect(picks.map((p) => p.post.postId)).toEqual(["2", "1"]);
       expect(picks[1]?.keyword).toBe("effect");
       expect(yield* store.pickFetchedKeywords("2026-10-22")).toEqual(["effect", "typescript"]);
-      expect(yield* store.savedList({ collectionId: LibraryStore.STAFF_PICKS_ID })).toHaveLength(2);
+      const staff = (yield* store.collectionsList).find((c) => c.builtIn);
+      expect(staff?.posts).toBe(2);
+      expect(yield* store.savedList({ collectionId: staff!.id })).toHaveLength(2);
+      // Read-only: a rename, delete or removal leaves it as it is.
+      yield* store.collectionRename(staff!.id, "Mine now");
+      yield* store.collectionDelete(staff!.id);
+      yield* store.collectionRemovePost(
+        staff!.id,
+        (yield* store.savedList({ collectionId: staff!.id }))[0]!.id,
+      );
+      expect((yield* store.collectionsList).map((c) => [c.name, c.posts])).toEqual([
+        ["Staff picks", 2],
+      ]);
     }).pipe(Effect.provide(layerTest)),
   );
 

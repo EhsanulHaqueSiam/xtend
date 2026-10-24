@@ -2,6 +2,7 @@ import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import type { AccountPost, NonPublic, PostAnalytics, PostKind } from "@xtend/contracts";
 import { useState } from "react";
 
+import { fmtDay, fmtWhen } from "../../lib/time";
 import { cn } from "../../lib/utils";
 import { analyzeDataAtom, refreshNonPublicAtom } from "../../state/analyze";
 import { usd, useRates } from "../../state/costs";
@@ -63,8 +64,8 @@ function NonPublicStatus({
         {last === null
           ? "Runs nightly at 03:00 in your time zone. Impressions, profile visits, link clicks and follows per post need the treg X connection."
           : last.error === null
-            ? `Last run ${last.at.slice(0, 16).replace("T", " ")}: ${last.posts} posts.`
-            : `Last run ${last.at.slice(0, 16).replace("T", " ")} failed: needs the treg X connection (${last.error}).`}
+            ? `Last run ${fmtWhen(last.at)}: ${last.posts} posts.`
+            : `Last run ${fmtWhen(last.at)} failed: needs the treg X connection (${last.error}).`}
       </p>
       {error !== null ? <ErrorText>{error}</ErrorText> : null}
     </Section>
@@ -82,7 +83,8 @@ export function PostsTable({
   const [desc, setDesc] = useState(true);
   const byEr = [...posts].sort((a, b) => engagementRate(b) - engagementRate(a));
   const best = new Set(byEr.slice(0, 5).map((p) => p.postId));
-  const worst = new Set(byEr.slice(-5).map((p) => p.postId));
+  // Never the same posts as the top 5: with fewer than 10 posts the best would also turn red.
+  const worst = new Set(byEr.slice(Math.max(5, byEr.length - 5)).map((p) => p.postId));
   const sorted = [...posts].sort((a, b) => (valueOf(b, sort) - valueOf(a, sort)) * (desc ? 1 : -1));
   const privateByPost = new Map(nonPublic.byPost.map((r) => [r.postId, r]));
   const hasPrivate = privateByPost.size > 0;
@@ -179,7 +181,7 @@ export function PostsTable({
                 </td>
                 <td className="py-1 pr-2 text-muted-foreground">{p.kind}</td>
                 <td className="py-1 text-right font-mono text-muted-foreground">
-                  {p.createdAt.slice(0, 10)}
+                  {fmtDay(p.createdAt)}
                 </td>
                 <td className="py-1 text-right font-mono">{fmt(p.views)}</td>
                 <td className="py-1 text-right font-mono">{fmt(p.likes)}</td>

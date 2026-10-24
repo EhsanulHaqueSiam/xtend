@@ -3,6 +3,7 @@ import { type AccountPost, XApiError } from "@xtend/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
@@ -113,6 +114,78 @@ describe("PostAnalytics", () => {
                 detail: "oauth refresh failed",
               }),
             ),
+          ),
+        ),
+      ),
+    ),
+  );
+});
+
+describe("PostAnalytics parsing", () => {
+  it.effect("counts a metric once when X sends both the total and its series", () =>
+    Effect.gen(function* () {
+      yield* seed;
+      const analytics = yield* PostAnalytics.PostAnalytics;
+      yield* analytics.refresh;
+      const { byPost } = yield* analytics.current;
+      expect(byPost.map((r) => [r.postId, r.impressions, r.follows])).toEqual([
+        ["1", 300, 2],
+        ["2", 30, 0],
+      ]);
+    }).pipe(
+      Effect.provide(
+        layerTest(
+          fakeTreg(() =>
+            Effect.succeed({
+              data: [
+                {
+                  id: "1",
+                  measurement: {
+                    metrics_total: [metric("impressions", 300), metric("user_follows", 2)],
+                    metrics_timeseries: [
+                      { metrics: [metric("impressions", 100), metric("user_follows", 1)] },
+                      { metrics: [metric("impressions", 200), metric("user_follows", 1)] },
+                    ],
+                  },
+                },
+                {
+                  id: "2",
+                  measurement: {
+                    metrics_timeseries: [
+                      { metrics: [metric("impressions", 10)] },
+                      { metrics: [metric("impressions", 20)] },
+                    ],
+                  },
+                },
+              ],
+            }),
+          ),
+        ),
+      ),
+    ),
+  );
+});
+
+describe("PostAnalytics accounts", () => {
+  it.effect("shows an account only its own posts' metrics and its own last run", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* seed;
+      const analytics = yield* PostAnalytics.PostAnalytics;
+      yield* analytics.refresh;
+
+      yield* sql`UPDATE settings SET current_account_id = 2 WHERE id = 1`;
+      expect(yield* analytics.current).toEqual({ lastRun: null, byPost: [] });
+      yield* sql`UPDATE settings SET current_account_id = 1 WHERE id = 1`;
+      const mine = yield* analytics.current;
+      expect([mine.lastRun?.posts, mine.byPost.map((r) => r.postId)]).toEqual([1, ["1"]]);
+    }).pipe(
+      Effect.provide(
+        layerTest(
+          fakeTreg(() =>
+            Effect.succeed({
+              data: [{ id: "1", measurement: { metrics_total: [metric("impressions", 9)] } }],
+            }),
           ),
         ),
       ),

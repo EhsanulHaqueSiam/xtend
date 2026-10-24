@@ -1,4 +1,5 @@
 import {
+  DESKTOP_COMMAND_LIMIT_MS,
   Desktop_METHODS,
   type DesktopCommand,
   type DesktopCommandResult,
@@ -24,6 +25,13 @@ const COMPOSER_TIMEOUT_MS = 15_000;
 const CREATED_TIMEOUT_MS = 15_000;
 
 type Cdp = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
+
+/** A refusal before the session view was touched: nothing went to X, so the service may send it again. */
+class NotAttempted extends Error {
+  readonly notAttempted = true;
+}
+const untouched = (error: unknown) =>
+  new NotAttempted(error instanceof Error ? error.message : String(error));
 
 export interface DesktopCommandsOptions {
   readonly serviceUrl: string;
@@ -60,26 +68,18 @@ export function attachDesktopCommands(
     Layer.provide(RpcSerialization.layerJson),
   );
 
-  const cdp: Cdp = (method, params) => contents.debugger.sendCommand(method, params);
   let client: Client | undefined;
-
-  const run = async (current: Client, command: DesktopCommand): Promise<DesktopCommandResult> => {
-    switch (command.type) {
-      case "sessionScreenshot": {
-        const shot = (await cdp("Page.captureScreenshot", { format: "png" })) as { data: string };
-        return { type: "sessionScreenshot", pngBase64: shot.data };
-      }
-      case "sessionNavigate":
-        options.navigate(command.url);
-        return { type: "sessionNavigate" };
-      case "sessionPost": {
-        const settings = await Effect.runPromise(current[WS_METHODS.settingsGet]({}));
-        if (!settings.sessionPostingEnabled) throw new Error("session posting is off in Settings");
-        const postId = await postThroughComposer(contents, cdp, command, options.nextCreatedPost);
-        return { type: "sessionPost", postId };
-      }
-    }
-  };
+  const run = commandRunner({
+    contents,
+    cdp: (method, params) => contents.debugger.sendCommand(method, params),
+    navigate: options.navigate,
+    nextCreatedPost: options.nextCreatedPost,
+    sessionPostingEnabled: async () => {
+      if (client === undefined) throw new Error("service not connected");
+      const settings = await Effect.runPromise(client[WS_METHODS.settingsGet]({}));
+      return settings.sessionPostingEnabled;
+    },
+  });
 
   const serve = Effect.gen(function* () {
     const current = yield* makeClient;
@@ -88,14 +88,19 @@ export function attachDesktopCommands(
     yield* current[Desktop_METHODS.subscribeCommands]({}).pipe(
       Stream.runForEach((request) =>
         Effect.promise(() =>
-          run(current, request.command).then(
+          run(request.command).then(
             (result) => ({ id: request.id, result, error: null }),
             (error: unknown) => {
               options.log("desktop command failed", {
                 type: request.command.type,
                 error: String(error),
               });
-              return { id: request.id, result: null, error: String(error) };
+              return {
+                id: request.id,
+                result: null,
+                error: String(error),
+                notAttempted: error instanceof NotAttempted,
+              };
             },
           ),
         ).pipe(
@@ -127,7 +132,72 @@ export function attachDesktopCommands(
   };
 }
 
+interface CommandRunnerDeps {
+  readonly contents: Pick<Electron.WebContents, "loadURL">;
+  readonly cdp: Cdp;
+  readonly navigate: (url: string) => void;
+  readonly nextCreatedPost: () => Promise<string>;
+  /** The service's setting, asked again before every post. */
+  readonly sessionPostingEnabled: () => Promise<boolean>;
+}
+
+/**
+ * Runs the service's commands in the session view one at a time, across reconnects too: a post
+ * whose socket dropped mid-flow still owns X's composer until it ends, and the next command waits
+ * for it. Each command gets DESKTOP_COMMAND_LIMIT_MS from when it arrived, waiting included, and
+ * one that has none left is refused before it touches the page: the service has given up on it.
+ */
+export function commandRunner(deps: CommandRunnerDeps) {
+  let busy: Promise<unknown> = Promise.resolve();
+
+  const run = async (command: DesktopCommand, deadline: number): Promise<DesktopCommandResult> => {
+    if (Date.now() >= deadline)
+      throw new NotAttempted(`${command.type} waited out its time behind another command`);
+    switch (command.type) {
+      case "sessionScreenshot": {
+        const shot = (await deps.cdp("Page.captureScreenshot", { format: "png" })) as {
+          data: string;
+        };
+        return { type: "sessionScreenshot", pngBase64: shot.data };
+      }
+      case "sessionNavigate":
+        deps.navigate(command.url);
+        return { type: "sessionNavigate" };
+      case "sessionPost": {
+        const enabled = await deps.sessionPostingEnabled().catch((error: unknown) => {
+          throw untouched(error);
+        });
+        if (!enabled) throw new NotAttempted("session posting is off in Settings");
+        const postId = await postThroughComposer(
+          deps.contents,
+          deps.cdp,
+          command,
+          deps.nextCreatedPost,
+          deadline,
+        );
+        return { type: "sessionPost", postId };
+      }
+    }
+  };
+
+  return (command: DesktopCommand): Promise<DesktopCommandResult> => {
+    const deadline = Date.now() + DESKTOP_COMMAND_LIMIT_MS[command.type];
+    const result = busy.then(() => run(command, deadline));
+    busy = result.catch(() => {});
+    return result;
+  };
+}
+
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** `promise`, or `message` as an error once the deadline passes. */
+const until = <A>(promise: Promise<A>, deadline: number, message: string): Promise<A> =>
+  Promise.race([
+    promise,
+    sleep(deadline - Date.now()).then(() => {
+      throw new Error(message);
+    }),
+  ]);
 
 const attributes = async (cdp: Cdp, nodeId: number): Promise<Record<string, string>> => {
   const { attributes: flat } = (await cdp("DOM.getAttributes", { nodeId })) as {
@@ -138,21 +208,27 @@ const attributes = async (cdp: Cdp, nodeId: number): Promise<Record<string, stri
   return out;
 };
 
-/** Polls for a selector until it matches (and `ready` agrees) or the deadline passes. */
+/**
+ * Polls for a selector until it matches (and `ready` agrees) or the deadline passes. The last
+ * match wins: X draws the compose modal in its layers root, after the page's own inline
+ * composer, which carries the same test ids.
+ */
 async function waitForNode(
   cdp: Cdp,
   selector: string,
+  deadline: number,
   ready: (attrs: Record<string, string>) => boolean = () => true,
-  deadline = Date.now() + COMPOSER_TIMEOUT_MS,
 ): Promise<number> {
+  // Checked first, so a flow that outlived its command never acts on what it finds.
+  if (Date.now() >= deadline) throw new Error(`composer element not ready: ${selector}`);
   const { root } = (await cdp("DOM.getDocument", { depth: 0 })) as { root: { nodeId: number } };
-  const { nodeId } = (await cdp("DOM.querySelector", { nodeId: root.nodeId, selector })) as {
-    nodeId: number;
+  const { nodeIds } = (await cdp("DOM.querySelectorAll", { nodeId: root.nodeId, selector })) as {
+    nodeIds: Array<number>;
   };
-  if (nodeId !== 0 && ready(await attributes(cdp, nodeId))) return nodeId;
-  if (Date.now() >= deadline) throw new Error(`composer element not found: ${selector}`);
+  const nodeId = nodeIds.at(-1);
+  if (nodeId !== undefined && ready(await attributes(cdp, nodeId))) return nodeId;
   await sleep(POLL_MS);
-  return waitForNode(cdp, selector, ready, deadline);
+  return waitForNode(cdp, selector, deadline, ready);
 }
 
 async function click(cdp: Cdp, nodeId: number): Promise<void> {
@@ -174,32 +250,44 @@ const enabled = (attrs: Record<string, string>) =>
 /**
  * Types into x.com's own composer exactly as a user would: focus, insert text,
  * pick files through the hidden input, press Post. The id comes from the
- * CreateTweet response the capture sees, not from any guess.
+ * CreateTweet response the capture sees, not from any guess. Every step ends
+ * by `deadline`; the upload alone may take whatever is left of it.
  */
-async function postThroughComposer(
-  contents: Electron.WebContents,
+export async function postThroughComposer(
+  contents: Pick<Electron.WebContents, "loadURL">,
   cdp: Cdp,
   command: Extract<DesktopCommand, { type: "sessionPost" }>,
   nextCreatedPost: () => Promise<string>,
+  deadline: number,
 ): Promise<string> {
-  await contents.loadURL(
-    command.replyToPostId === undefined
-      ? "https://x.com/compose/post"
-      : `https://x.com/intent/post?in_reply_to=${command.replyToPostId}`,
-  );
-  const textarea = await waitForNode(cdp, 'div[data-testid="tweetTextarea_0"]');
+  const step = (ms: number) => Math.min(Date.now() + ms, deadline);
+  // Until the first keystroke a failure leaves nothing that could become a post.
+  const textarea = await until(
+    contents.loadURL(
+      command.replyToPostId === undefined
+        ? "https://x.com/compose/post"
+        : `https://x.com/intent/post?in_reply_to=${command.replyToPostId}`,
+    ),
+    deadline,
+    "x.com's composer did not load",
+  )
+    .then(() => waitForNode(cdp, 'div[data-testid="tweetTextarea_0"]', step(COMPOSER_TIMEOUT_MS)))
+    .catch((error: unknown) => {
+      throw untouched(error);
+    });
   await click(cdp, textarea);
   await cdp("Input.insertText", { text: command.text });
   if (command.mediaPaths.length > 0) {
-    const input = await waitForNode(cdp, 'input[data-testid="fileInput"]');
+    const input = await waitForNode(
+      cdp,
+      'input[data-testid="fileInput"]',
+      step(COMPOSER_TIMEOUT_MS),
+    );
     await cdp("DOM.setFileInputFiles", { nodeId: input, files: command.mediaPaths });
   }
   // The post button stays disabled while uploads run.
   const created = nextCreatedPost();
-  const button = await waitForNode(cdp, 'button[data-testid="tweetButton"]', enabled);
+  const button = await waitForNode(cdp, 'button[data-testid="tweetButton"]', deadline, enabled);
   await click(cdp, button);
-  const timeout = sleep(CREATED_TIMEOUT_MS).then(() => {
-    throw new Error("x.com did not confirm the post");
-  });
-  return Promise.race([created, timeout]);
+  return until(created, step(CREATED_TIMEOUT_MS), "x.com did not confirm the post");
 }

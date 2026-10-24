@@ -2,6 +2,7 @@ import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import type { PendingRequest } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 
+import { fmtWhen } from "../../lib/time";
 import {
   approvePendingAtom,
   dismissPendingAtom,
@@ -33,7 +34,8 @@ export function NeedsYou() {
         onSuccess: ({ value }) => (
           <NeedsYouList
             requests={value}
-            busy={busy}
+            // Until the refetch drops an approved request, its Approve would pay a second time.
+            busy={busy || pending.waiting}
             onApprove={(id) => void run(() => approve(id).then(after))}
             onDismiss={(id) => void run(() => dismiss(id).then(after))}
           />
@@ -66,9 +68,7 @@ export function NeedsYouList({
           <span className="font-medium">{r.ruleName}</span>
           <span className="truncate text-muted-foreground">{r.description}</span>
           <span className="flex-1" />
-          <span className="font-mono text-2xs text-muted-foreground">
-            {r.createdAt.slice(0, 16).replace("T", " ")}
-          </span>
+          <span className="font-mono text-2xs text-muted-foreground">{fmtWhen(r.createdAt)}</span>
           <Button size="xs" disabled={busy} onClick={() => onApprove(r.id)}>
             Approve ({usd(r.costUsd)})
           </Button>

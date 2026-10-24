@@ -3,7 +3,7 @@ import type { Draft } from "@xtend/contracts";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { errorText, Section, Tabs } from "../components/analyze/ui";
 import { failText } from "../components/compose/AssistPanel";
@@ -79,17 +79,25 @@ function PlanScreen() {
     .sort((a, b) => (a.scheduledAt ?? "").localeCompare(b.scheduledAt ?? ""));
   const empties = emptySlotCount(zone, start, now, slotList, weekList);
 
+  // One draft action at a time: a second Skip or Next slot click would move the draft again.
+  const acting = useRef(false);
   /** Every draft action refetches the lists it can move a draft between. */
-  const act = async (exit: Promise<Exit.Exit<Draft, unknown>>, done: (d: Draft) => string) => {
-    const result = await exit;
-    if (Exit.isFailure(result)) {
-      setNotice(`Failed: ${failText(result.cause)}`);
-      return;
+  const act = async (run: () => Promise<Exit.Exit<Draft, unknown>>, done: (d: Draft) => string) => {
+    if (acting.current) return;
+    acting.current = true;
+    try {
+      const result = await run();
+      if (Exit.isFailure(result)) {
+        setNotice(`Failed: ${failText(result.cause)}`);
+        return;
+      }
+      setNotice(done(result.value));
+      refreshWeek();
+      refreshDrafts();
+      refreshReady();
+    } finally {
+      acting.current = false;
     }
-    setNotice(done(result.value));
-    refreshWeek();
-    refreshDrafts();
-    refreshReady();
   };
   const open = (d: Draft) =>
     navigate({
@@ -152,7 +160,7 @@ function PlanScreen() {
             fillable={fillable}
             onFill={(id, at) =>
               act(
-                schedule({ id, at: at.toISOString() }),
+                () => schedule({ id, at: at.toISOString() }),
                 (d) => `Scheduled "${draftTitle(d)}" for ${monthDay.format(at)}`,
               )
             }
@@ -162,13 +170,25 @@ function PlanScreen() {
         {tab === "Queue" ? (
           <Queue
             drafts={queued}
-            onSkip={(id) => act(skip(id), (d) => `Moved "${draftTitle(d)}" to the next slot`)}
-            onUnschedule={(id) => act(unschedule(id), (d) => `"${draftTitle(d)}" is a draft again`)}
+            onSkip={(id) =>
+              act(
+                () => skip(id),
+                (d) => `Moved "${draftTitle(d)}" to the next slot`,
+              )
+            }
+            onUnschedule={(id) =>
+              act(
+                () => unschedule(id),
+                (d) => `"${draftTitle(d)}" is a draft again`,
+              )
+            }
             onRunNow={(id) =>
-              act(runNow(id), (d) =>
-                d.status === "posted"
-                  ? `Posted ${d.postIds.length} posts`
-                  : `Failed: ${d.error ?? "unknown"}`,
+              act(
+                () => runNow(id),
+                (d) =>
+                  d.status === "posted"
+                    ? `Posted ${d.postIds.length} posts`
+                    : `Failed: ${d.error ?? "unknown"}`,
               )
             }
             onOpen={open}
@@ -176,6 +196,8 @@ function PlanScreen() {
         ) : null}
         {tab === "Slots" && AsyncResult.isSuccess(slots) ? (
           <Slots
+            // A save comes back in the service's order; the rows start over from it.
+            key={JSON.stringify(slots.value)}
             slots={slots.value}
             heatmap={AsyncResult.getOrElse(heatmap, () => null)}
             onSave={async (next) => {
@@ -208,10 +230,12 @@ function PlanScreen() {
                   <Button
                     size="xs"
                     onClick={() =>
-                      act(queue(d.id), (q) =>
-                        q.scheduledAt === null
-                          ? "Queued"
-                          : `Queued for ${monthDay.format(new Date(q.scheduledAt))}`,
+                      act(
+                        () => queue(d.id),
+                        (q) =>
+                          q.scheduledAt === null
+                            ? "Queued"
+                            : `Queued for ${monthDay.format(new Date(q.scheduledAt))}`,
                       )
                     }
                   >

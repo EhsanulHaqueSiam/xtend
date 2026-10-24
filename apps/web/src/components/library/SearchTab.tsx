@@ -14,18 +14,23 @@ import { Empty, ErrorLine, PostRow, errorMessage, inputClass } from "./shared";
 export function InspireButton({ post }: { readonly post: XPost }) {
   const save = useAtomSet(savePostAtom, { mode: "promise" });
   const navigate = useNavigate();
+  const [error, setError] = useState<string | null>(null);
   return (
-    <Button
-      variant="outline"
-      size="xs"
-      onClick={() =>
-        void save({ post, collectionId: null }).then(() =>
-          navigate({ href: `/compose?inspire=${post.postId}` }),
-        )
-      }
-    >
-      <Lightbulb /> Use as inspiration
-    </Button>
+    <>
+      <Button
+        variant="outline"
+        size="xs"
+        onClick={() =>
+          void save({ post, collectionId: null }).then(
+            () => navigate({ href: `/compose?inspire=${post.postId}` }),
+            (e: unknown) => setError(errorMessage(e)),
+          )
+        }
+      >
+        <Lightbulb /> Use as inspiration
+      </Button>
+      {error !== null ? <span className="text-2xs text-error-foreground">{error}</span> : null}
+    </>
   );
 }
 
@@ -69,24 +74,45 @@ function SearchResults({
 export function SearchTab({ initialQuery }: { readonly initialQuery: string }) {
   const search = useAtomSet(searchAtom, { mode: "promise" });
   const [query, setQuery] = useState(initialQuery);
-  const searchQuote = useQuoteLabel({ kind: "search", query });
   const [mode, setMode] = useState<XSearchMode>("top");
+  const searchQuote = useQuoteLabel({ kind: "search", query, mode });
   const [exclude, setExclude] = useState("");
   const [items, setItems] = useState<ReadonlyArray<XPost>>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [searched, setSearched] = useState(false);
+  // What the listed results answer; Load more continues it, not whatever the box says now.
+  const [searched, setSearched] = useState<{
+    readonly query: string;
+    readonly mode: XSearchMode;
+  } | null>(null);
+  // The page Load more reads is its own paid read, cached apart from the first.
+  const moreQuote = useQuoteLabel(
+    searched === null || cursor === null
+      ? { kind: "search", query, mode }
+      : { kind: "search", ...searched, cursor },
+  );
 
-  const run = async (next?: string) => {
-    if (query.trim() === "") return;
+  const run = async (more?: {
+    readonly cursor: string;
+    readonly query: string;
+    readonly mode: XSearchMode;
+  }) => {
+    const input = more ?? { query, mode };
+    // Enter submits even while the button is disabled, and every search is paid.
+    if (input.query.trim() === "" || busy) return;
     setBusy(true);
     setError(null);
     try {
-      const page = await search({ query, mode, ...(next === undefined ? {} : { cursor: next }) });
-      setItems((prev) => (next === undefined ? page.items : [...prev, ...page.items]));
+      const page = await search(more ?? input);
+      // X can repeat a post on the next page; a second row with its key would break the list.
+      setItems((prev) =>
+        more === undefined
+          ? page.items
+          : [...prev, ...page.items.filter((p) => !prev.some((q) => q.postId === p.postId))],
+      );
       setCursor(page.nextCursor);
-      setSearched(true);
+      setSearched({ query: input.query, mode: input.mode });
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -150,7 +176,7 @@ export function SearchTab({ initialQuery }: { readonly initialQuery: string }) {
       </form>
       {error !== null ? <ErrorLine>{error}</ErrorLine> : null}
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        {searched ? (
+        {searched !== null ? (
           <>
             <SearchResults items={items} exclude={exclude} />
             {cursor !== null ? (
@@ -159,9 +185,9 @@ export function SearchTab({ initialQuery }: { readonly initialQuery: string }) {
                   variant="outline"
                   size="sm"
                   disabled={busy}
-                  onClick={() => void run(cursor)}
+                  onClick={() => void run({ ...searched, cursor })}
                 >
-                  Load more ({searchQuote})
+                  Load more ({moreQuote})
                 </Button>
               </div>
             ) : null}

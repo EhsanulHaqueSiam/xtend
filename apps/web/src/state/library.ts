@@ -101,6 +101,16 @@ export const deleteCollectionAtom = clientRuntime.fn<number>()(
   }),
 );
 
+export const removeFromCollectionAtom = clientRuntime.fn<{
+  readonly collectionId: number;
+  readonly savedId: number;
+}>()(
+  Effect.fnUntraced(function* (input) {
+    const client = yield* XtendClient;
+    return yield* client[Library_METHODS.collectionRemovePost](input);
+  }),
+);
+
 export const picksAtom = clientRuntime.atom(
   Effect.gen(function* () {
     const client = yield* XtendClient;
@@ -115,18 +125,24 @@ export const fetchPicksAtom = clientRuntime.fn<void>()(
   }),
 );
 
-export const pickWhyAtom = clientRuntime.fn<string>()(
-  Effect.fnUntraced(function* (postId) {
-    const client = yield* XtendClient;
-    return yield* client[Library_METHODS.pickWhy]({ postId });
-  }),
+// Model calls take seconds and rows sit side by side, so each post gets its own atom:
+// a second write to a shared fn atom interrupts the first and hands both callers its result.
+export const pickWhyAtom = Atom.family((postId: string) =>
+  clientRuntime.fn<void>()(
+    Effect.fnUntraced(function* () {
+      const client = yield* XtendClient;
+      return yield* client[Library_METHODS.pickWhy]({ postId });
+    }),
+  ),
 );
 
-export const pickDraftAtom = clientRuntime.fn<string>()(
-  Effect.fnUntraced(function* (postId) {
-    const client = yield* XtendClient;
-    return yield* client[Library_METHODS.pickDraft]({ postId });
-  }),
+export const pickDraftAtom = Atom.family((postId: string) =>
+  clientRuntime.fn<void>()(
+    Effect.fnUntraced(function* () {
+      const client = yield* XtendClient;
+      return yield* client[Library_METHODS.pickDraft]({ postId });
+    }),
+  ),
 );
 
 export const saveSuggestedDraftAtom = clientRuntime.fn<{
@@ -175,11 +191,14 @@ export const detectPatternsAtom = clientRuntime.fn<void>()(
   }),
 );
 
-export const writeInFormatAtom = clientRuntime.fn<string>()(
-  Effect.fnUntraced(function* (postId) {
-    const client = yield* XtendClient;
-    return yield* client[Library_METHODS.writeInFormat]({ postId });
-  }),
+/** One per post, like `pickWhyAtom`. */
+export const writeInFormatAtom = Atom.family((postId: string) =>
+  clientRuntime.fn<void>()(
+    Effect.fnUntraced(function* () {
+      const client = yield* XtendClient;
+      return yield* client[Library_METHODS.writeInFormat]({ postId });
+    }),
+  ),
 );
 
 export const staffPicksAtom = clientRuntime.atom(

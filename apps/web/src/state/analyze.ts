@@ -1,5 +1,6 @@
 import { Analyze_METHODS } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
+import * as Atom from "effect/reactivity/Atom";
 
 import { clientRuntime, XtendClient } from "../rpc/client";
 
@@ -33,12 +34,17 @@ export const engagersAtom = clientRuntime.atom(
   }),
 );
 
-/** Paid (model call) unless the service has the result cached for the same posts. */
-export const themesAtom = clientRuntime.fn<void>()(
-  Effect.fnUntraced(function* () {
-    const client = yield* XtendClient;
-    return yield* client[Analyze_METHODS.themes]({});
-  }),
+/**
+ * Paid (model call) unless the service has the result cached for the same posts. Kept alive, as is
+ * askAtom: the click does not await either, so leaving the tab would interrupt the call.
+ */
+export const themesAtom = Atom.keepAlive(
+  clientRuntime.fn<void>()(
+    Effect.fnUntraced(function* () {
+      const client = yield* XtendClient;
+      return yield* client[Analyze_METHODS.themes]({});
+    }),
+  ),
 );
 
 export const competitorsAtom = clientRuntime.atom(
@@ -55,9 +61,11 @@ export const fetchCompetitorAtom = clientRuntime.fn<string>()(
   }),
 );
 
-export const askAtom = clientRuntime.fn<string>()(
-  Effect.fnUntraced(function* (question) {
-    const client = yield* XtendClient;
-    return yield* client[Analyze_METHODS.ask]({ question });
-  }),
+export const askAtom = Atom.keepAlive(
+  clientRuntime.fn<string>()(
+    Effect.fnUntraced(function* (question) {
+      const client = yield* XtendClient;
+      return yield* client[Analyze_METHODS.ask]({ question });
+    }),
+  ),
 );

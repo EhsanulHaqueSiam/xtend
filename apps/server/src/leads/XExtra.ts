@@ -18,12 +18,11 @@ const ENDPOINTS = {
   likers: (postId: string) => `x/2/tweets/${postId}/liking_users`,
 } as const;
 
+/** RATE_CARD.likersPage is X's per-user price times this. */
 const LIKERS_MAX = 20;
-const LIKER_USD = 0.01;
-const REPOSTERS_PAGE_USD = 0.001;
 
 export const engagersCostUsd = (via: EngagementVia) =>
-  via === "like" ? LIKERS_MAX * LIKER_USD : REPOSTERS_PAGE_USD;
+  via === "like" ? XClient.RATE_CARD.likersPage : XClient.RATE_CARD.repostersPage;
 
 type Json = Record<string, unknown>;
 const obj = (v: unknown): Json => (typeof v === "object" && v !== null ? (v as Json) : {});
@@ -79,7 +78,7 @@ const make = Effect.gen(function* () {
         endpoint: ENDPOINTS.reposters,
         query: { tweet_id: postId },
         purpose,
-        expectedCostUsd: REPOSTERS_PAGE_USD,
+        expectedCostUsd: engagersCostUsd("repost"),
       });
       const rows = arr(obj(obj(response.body).data).retweets);
       return {

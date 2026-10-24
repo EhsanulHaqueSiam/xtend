@@ -24,6 +24,11 @@ const Group = RpcGroup.make(
     success: Schema.Struct({ doubled: Schema.Number }),
     error: Boom,
   }),
+  // Every option defaulted, like a method that runs everything when told nothing.
+  Rpc.make("math.count", {
+    payload: Schema.Struct({ from: Schema.optional(Schema.Number) }),
+    success: Schema.Number,
+  }),
 );
 
 const routes = HttpRouter.add(
@@ -34,6 +39,7 @@ const routes = HttpRouter.add(
       Group.toLayer({
         "math.double": ({ n }) =>
           n < 0 ? new Boom({ why: "negative" }) : Effect.succeed({ doubled: n * 2 }),
+        "math.count": ({ from }) => Effect.succeed(from ?? 0),
       }),
     ),
   ),
@@ -53,6 +59,7 @@ const port = Effect.map(HttpServer.HttpServer, (s) =>
   s.address._tag === "UnixPathAddress" ? 0 : s.address.port,
 );
 
+/** `body` is sent as is when it is a string, so a test can send raw or broken JSON. */
 const post = (p: number, method: string, body: unknown, token?: string) =>
   Effect.promise(() =>
     fetch(`http://127.0.0.1:${p}/api/rpc/${method}`, {
@@ -61,7 +68,7 @@ const post = (p: number, method: string, body: unknown, token?: string) =>
         "content-type": "application/json",
         ...(token === undefined ? {} : { authorization: `Bearer ${token}` }),
       },
-      body: JSON.stringify(body),
+      body: typeof body === "string" ? body : JSON.stringify(body),
     }).then(async (r) => {
       const text = await r.text();
       // 401 is plain text from the guard; everything the bridge answers is JSON.
@@ -84,6 +91,18 @@ describe("HTTP rpc bridge", () => {
       });
       expect((yield* post(p, "math.double", { n: "x" }, TOKEN)).status).toBe(400);
       expect((yield* post(p, "math.nope", {}, TOKEN)).status).toBe(404);
+    }).pipe(Effect.provide(layerServer)),
+  );
+
+  it.effect("takes an empty body as {} but refuses a truncated one instead of defaulting it", () =>
+    Effect.gen(function* () {
+      const p = yield* port;
+      expect(yield* post(p, "math.count", "", TOKEN)).toEqual({ status: 200, body: 0 });
+      expect(yield* post(p, "math.count", '{"from": 5}', TOKEN)).toEqual({ status: 200, body: 5 });
+      expect(yield* post(p, "math.count", '{"from": 5', TOKEN)).toMatchObject({
+        status: 400,
+        body: { error: "invalid_payload" },
+      });
     }).pipe(Effect.provide(layerServer)),
   );
 });

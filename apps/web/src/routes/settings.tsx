@@ -13,6 +13,7 @@ import { PageHeader } from "../components/PageHeader";
 import { Button } from "../components/ui/button";
 import type { Reachability, ServiceMode } from "../desktopBridge";
 import { isElectron } from "../env";
+import { NOT_A_HANDLE, parseHandle } from "../lib/utils";
 import {
   accountsAtom,
   createAccountAtom,
@@ -51,21 +52,52 @@ function Field({
   );
 }
 
+/** What the service accepts too: Intl knows the zone. A typo would come back as a bare "update failed". */
+const isTimeZone = (zone: string) => {
+  try {
+    // Throws a RangeError for a zone Intl does not know.
+    return Boolean(new Intl.DateTimeFormat("en", { timeZone: zone }));
+  } catch {
+    return false;
+  }
+};
+
 const inputClass =
   "w-full rounded-md border border-input bg-background px-2.5 py-1.5 font-mono text-xs text-foreground outline-hidden placeholder:text-placeholder focus-visible:ring-2 focus-visible:ring-ring";
 
 function SettingsForm({ current }: { readonly current: SettingsShape }) {
   const update = useAtomSet(updateSettingsAtom, { mode: "promise" });
   const refreshSettings = useAtomRefresh(settingsAtom);
+  // The meter shows the budget, and today and this month are days in the saved time zone.
+  const refreshSpend = useAtomRefresh(spendAtom);
   const [draft, setDraft] = useState<SettingsUpdate>({});
   const [tregToken, setTregToken] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [budgetInvalid, setBudgetInvalid] = useState(false);
+  const [zoneInvalid, setZoneInvalid] = useState(false);
   const dirty = Object.keys(draft).length > 0 || tregToken !== "";
 
   const save = async () => {
-    await update({ ...draft, ...(tregToken === "" ? {} : { tregToken }) });
-    setDraft({});
-    setTregToken("");
-    refreshSettings();
+    setError(null);
+    const handle = draft.handle == null ? draft.handle : parseHandle(draft.handle);
+    if (handle === null && draft.handle != null) return setError(NOT_A_HANDLE);
+    setSaving(true);
+    try {
+      await update({
+        ...draft,
+        ...(handle === undefined ? {} : { handle }),
+        ...(tregToken === "" ? {} : { tregToken }),
+      });
+      setDraft({});
+      setTregToken("");
+      refreshSettings();
+      refreshSpend();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -102,32 +134,47 @@ function SettingsForm({ current }: { readonly current: SettingsShape }) {
       </Field>
       <Field
         label="Monthly budget (USD)"
-        hint="Paid calls stop when this month's spend would pass it."
+        hint={
+          budgetInvalid
+            ? "Enter an amount of 0 or more."
+            : "Paid calls stop when this month's spend would pass it."
+        }
       >
         <input
           className={inputClass}
           type="number"
           min={0}
           step={1}
+          aria-invalid={budgetInvalid}
           defaultValue={current.monthlyBudgetUsd}
           onChange={(e) => {
-            const value = Number(e.target.value);
-            if (Number.isFinite(value) && value >= 0)
-              setDraft((d) => ({ ...d, monthlyBudgetUsd: value }));
+            // NaN while empty or half typed ("-"); Number("") would have saved a $0 budget.
+            const value = e.target.valueAsNumber;
+            const valid = Number.isFinite(value) && value >= 0;
+            setBudgetInvalid(!valid);
+            if (valid) setDraft((d) => ({ ...d, monthlyBudgetUsd: value }));
           }}
         />
       </Field>
       <Field
         label="Time zone"
-        hint="IANA name. Posting slots, the calendar and the best-time heatmap are all in this zone."
+        hint={
+          zoneInvalid
+            ? "Not a time zone. Pick one from the list."
+            : "IANA name. Posting slots, the calendar and the best-time heatmap are all in this zone."
+        }
       >
         <input
           className={inputClass}
           list="xtend-zones"
+          aria-invalid={zoneInvalid}
           defaultValue={current.timeZone}
           onChange={(e) => {
             const value = e.target.value.trim();
-            setDraft((d) => ({ ...d, timeZone: value === "" ? current.timeZone : value }));
+            const valid = value === "" || isTimeZone(value);
+            setZoneInvalid(!valid);
+            if (valid)
+              setDraft((d) => ({ ...d, timeZone: value === "" ? current.timeZone : value }));
           }}
         />
         <datalist id="xtend-zones">
@@ -175,9 +222,18 @@ function SettingsForm({ current }: { readonly current: SettingsShape }) {
           />
         </label>
       ) : null}
-      <div className="flex justify-end py-3">
-        <Button size="sm" disabled={!dirty} onClick={() => void save()}>
-          Save
+      <div className="flex items-center justify-end gap-3 py-3">
+        {error !== null ? (
+          <p role="alert" className="text-xs text-error-foreground">
+            {error}
+          </p>
+        ) : null}
+        <Button
+          size="sm"
+          disabled={!dirty || saving || budgetInvalid || zoneInvalid}
+          onClick={() => void save()}
+        >
+          {saving ? "Saving…" : "Save"}
         </Button>
       </div>
     </section>
@@ -313,11 +369,24 @@ function AccountRows({ list }: { readonly list: AccountList }) {
   const refresh = useAtomRefresh(accountsAtom);
   const [label, setLabel] = useState("");
   const [handle, setHandle] = useState("");
-  const add = async () => {
-    await create({ label: label.trim(), handle: handle.trim() === "" ? null : handle.trim() });
-    setLabel("");
-    setHandle("");
-    refresh();
+  const [error, setError] = useState<string | null>(null);
+  const attempt = async (work: () => Promise<unknown>) => {
+    setError(null);
+    try {
+      await work();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+  const add = () => {
+    const parsed = handle.trim() === "" ? null : parseHandle(handle);
+    if (parsed === null && handle.trim() !== "") return setError(NOT_A_HANDLE);
+    return attempt(async () => {
+      await create({ label: label.trim(), handle: parsed });
+      setLabel("");
+      setHandle("");
+      refresh();
+    });
   };
   return (
     <>
@@ -337,7 +406,7 @@ function AccountRows({ list }: { readonly list: AccountList }) {
                 <Button
                   size="xs"
                   variant="outline"
-                  onClick={() => void select(a.id).then(() => switchAccount(a.id))}
+                  onClick={() => void attempt(() => select(a.id).then(() => switchAccount(a.id)))}
                 >
                   Switch
                 </Button>
@@ -364,6 +433,11 @@ function AccountRows({ list }: { readonly list: AccountList }) {
           Add
         </Button>
       </div>
+      {error !== null ? (
+        <p role="alert" className="pb-2.5 text-xs text-error-foreground">
+          {error}
+        </p>
+      ) : null}
     </>
   );
 }
@@ -379,7 +453,7 @@ function Accounts() {
   });
 }
 
-function SettingsScreen() {
+export function SettingsScreen() {
   const info = useAtomValue(serverInfoAtom);
   const settings = useAtomValue(settingsAtom);
   return (

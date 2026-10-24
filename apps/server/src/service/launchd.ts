@@ -19,6 +19,8 @@ export interface PlistInput {
   readonly logPath: string;
   /** PATH for the service so `treg` and `node` resolve under launchd's bare environment. */
   readonly pathEnv: string;
+  /** The program is Electron run as Node (the packaged app's binary); without the flag launchd opens the app. */
+  readonly electronAsNode: boolean;
 }
 
 /** A launchd user agent that keeps the service up and restarts it after a crash or login. */
@@ -35,7 +37,7 @@ ${input.programArguments.map((a) => `    <string>${escapeXml(a)}</string>`).join
   <key>EnvironmentVariables</key>
   <dict>
     <key>XTEND_SUPERVISOR</key><string>launchd</string>
-    <key>PATH</key><string>${escapeXml(input.pathEnv)}</string>
+    <key>PATH</key><string>${escapeXml(input.pathEnv)}</string>${input.electronAsNode ? "\n    <key>ELECTRON_RUN_AS_NODE</key><string>1</string>" : ""}
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
@@ -71,6 +73,7 @@ export const install = (options: ServiceOptions): string => {
       baseDir: options.baseDir,
       logPath: path.join(options.baseDir, "service.log"),
       pathEnv: `${path.dirname(process.execPath)}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin`,
+      electronAsNode: process.versions["electron"] !== undefined,
     }),
   );
   launchctl("bootout", `${domain()}/${LAUNCHD_LABEL}`);

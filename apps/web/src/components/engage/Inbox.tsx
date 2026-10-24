@@ -2,9 +2,10 @@ import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import type { Mention, SentReply } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 
-import { inboxAtom, markHandledAtom } from "../../state/engage";
+import { inboxAtom, markHandledAtom, mentionsAtom } from "../../state/engage";
 import { fmtWhen } from "../compose/DraftsList";
 import { Empty, ErrorText, errorText } from "../analyze/ui";
+import { useAction } from "../leads/ui";
 import { Button } from "../ui/button";
 
 function Row({ reply }: { reply: SentReply }) {
@@ -51,7 +52,15 @@ function Table({ rows, empty }: { rows: ReadonlyArray<SentReply>; empty: string 
   );
 }
 
-function IncomingRow({ mention, onHandled }: { mention: Mention; onHandled: () => void }) {
+function IncomingRow({
+  mention,
+  busy,
+  onHandled,
+}: {
+  mention: Mention;
+  busy: boolean;
+  onHandled: () => void;
+}) {
   const { post } = mention;
   return (
     <article className="flex flex-col gap-1 rounded-lg px-3 py-2 hover:bg-accent/60">
@@ -71,7 +80,7 @@ function IncomingRow({ mention, onHandled }: { mention: Mention; onHandled: () =
         {mention.handled ? (
           <span className="ml-auto font-mono text-2xs text-success-foreground">handled</span>
         ) : (
-          <Button variant="ghost" size="xs" className="ml-auto" onClick={onHandled}>
+          <Button variant="ghost" size="xs" className="ml-auto" disabled={busy} onClick={onHandled}>
             Mark handled
           </Button>
         )}
@@ -87,7 +96,17 @@ function IncomingRow({ mention, onHandled }: { mention: Mention; onHandled: () =
 export function Inbox({ view }: { view: "incoming" | "sent" | "followUps" }) {
   const result = useAtomValue(inboxAtom);
   const refresh = useAtomRefresh(inboxAtom);
+  // A reply to the user usually tags them too, so it is also one of the header's unhandled mentions.
+  const refreshMentions = useAtomRefresh(mentionsAtom);
   const markHandled = useAtomSet(markHandledAtom, { mode: "promise" });
+  const { busy, error, run } = useAction();
+  const handled = (postId: string) => () =>
+    void run(() =>
+      markHandled(postId).then(() => {
+        refresh();
+        refreshMentions();
+      }),
+    );
   return AsyncResult.match(result, {
     onInitial: () => <Empty>Connecting to the service…</Empty>,
     onFailure: (f) => <ErrorText>{errorText(f.cause)}</ErrorText>,
@@ -99,14 +118,13 @@ export function Inbox({ view }: { view: "incoming" | "sent" | "followUps" }) {
           </Empty>
         ) : (
           <div className="flex flex-col gap-0.5">
+            {error !== null ? <ErrorText>{error}</ErrorText> : null}
             {value.incoming.map((m) => (
               <IncomingRow
                 key={m.post.postId}
                 mention={m}
-                onHandled={async () => {
-                  await markHandled(m.post.postId);
-                  refresh();
-                }}
+                busy={busy}
+                onHandled={handled(m.post.postId)}
               />
             ))}
           </div>

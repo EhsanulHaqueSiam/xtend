@@ -90,11 +90,13 @@ function Avatar({ label, className }: { readonly label: string; readonly classNa
 function DraftRow({
   draft: d,
   handle,
+  busy,
   onOpen,
   onAct,
 }: {
   readonly draft: Draft;
   readonly handle: string | null;
+  readonly busy: boolean;
   readonly onOpen: (id: string) => void;
   readonly onAct: (what: "queue" | "unschedule" | "delete", id: string) => void;
 }) {
@@ -149,13 +151,23 @@ function DraftRow({
             </button>
           ) : null}
           {d.status === "draft" || d.status === "suggested" || d.status === "failed" ? (
-            <button type="button" className={xAction} onClick={() => onAct("queue", d.id)}>
+            <button
+              type="button"
+              className={xAction}
+              disabled={busy}
+              onClick={() => onAct("queue", d.id)}
+            >
               <CalendarClock />
               {d.status === "failed" ? "Retry at next slot" : "Queue"}
             </button>
           ) : null}
           {d.status === "queued" ? (
-            <button type="button" className={xAction} onClick={() => onAct("unschedule", d.id)}>
+            <button
+              type="button"
+              className={xAction}
+              disabled={busy}
+              onClick={() => onAct("unschedule", d.id)}
+            >
               <Undo2 />
               Unschedule
             </button>
@@ -171,7 +183,12 @@ function DraftRow({
             </button>
           ) : null}
           {editable && d.status !== "queued" ? (
-            <button type="button" className={xAction} onClick={() => onAct("delete", d.id)}>
+            <button
+              type="button"
+              className={xAction}
+              disabled={busy}
+              onClick={() => onAct("delete", d.id)}
+            >
               <Trash2 />
               {d.status === "suggested" ? "Dismiss" : "Delete"}
             </button>
@@ -185,9 +202,11 @@ function DraftRow({
 /** An ask-first automation run waiting for a click; approving pays the price shown on it. */
 function PendingRow({
   request,
+  busy,
   onDecide,
 }: {
   readonly request: PendingRequest;
+  readonly busy: boolean;
   readonly onDecide: (approve: boolean, id: number) => void;
 }) {
   return (
@@ -207,6 +226,7 @@ function PendingRow({
           <button
             type="button"
             className={cn(xPillSolid, xPillSm)}
+            disabled={busy}
             onClick={() => onDecide(true, request.id)}
           >
             Approve · {usd(request.costUsd)}
@@ -214,6 +234,7 @@ function PendingRow({
           <button
             type="button"
             className={cn(xPill, xPillSm)}
+            disabled={busy}
             onClick={() => onDecide(false, request.id)}
           >
             Dismiss
@@ -254,6 +275,17 @@ export function DraftsHome({
   const approve = useAtomSet(approvePendingAtom, { mode: "promiseExit" });
   const dismiss = useAtomSet(dismissPendingAtom, { mode: "promiseExit" });
   const [notice, setNotice] = useState<string | null>(null);
+  // One action at a time: a second click would pay twice, and the rows share one rpc atom each.
+  const [busy, setBusy] = useState(false);
+  const guarded = async (work: () => Promise<void>) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await work();
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const all = AsyncResult.getOrElse(drafts, () => [] as ReadonlyArray<Draft>);
   const count = (t: ComposeTab) => all.filter((d) => STATUSES[t].includes(d.status)).length;
@@ -261,28 +293,30 @@ export function DraftsHome({
 
   const report = (exit: Exit.Exit<unknown, unknown>, done: string) =>
     setNotice(Exit.isFailure(exit) ? `Failed: ${failText(exit.cause)}` : done);
-  const act = async (what: "queue" | "unschedule" | "delete", id: string) => {
-    const exit =
-      what === "queue"
-        ? await queue(id)
-        : what === "unschedule"
-          ? await unschedule(id)
-          : await remove(id);
-    report(
-      exit,
-      what === "queue"
-        ? "Queued for the next slot"
-        : what === "unschedule"
-          ? "Back in drafts"
-          : "Removed",
-    );
-    refreshDrafts();
-  };
-  const decide = async (yes: boolean, id: number) => {
-    report(yes ? await approve(id) : await dismiss(id), yes ? "Approved" : "Dismissed");
-    refreshPending();
-    refreshDrafts();
-  };
+  const act = (what: "queue" | "unschedule" | "delete", id: string) =>
+    guarded(async () => {
+      const exit =
+        what === "queue"
+          ? await queue(id)
+          : what === "unschedule"
+            ? await unschedule(id)
+            : await remove(id);
+      report(
+        exit,
+        what === "queue"
+          ? "Queued for the next slot"
+          : what === "unschedule"
+            ? "Back in drafts"
+            : "Removed",
+      );
+      refreshDrafts();
+    });
+  const decide = (yes: boolean, id: number) =>
+    guarded(async () => {
+      report(yes ? await approve(id) : await dismiss(id), yes ? "Approved" : "Dismissed");
+      refreshPending();
+      refreshDrafts();
+    });
 
   return (
     <div className="flex h-full flex-col">
@@ -319,7 +353,7 @@ export function DraftsHome({
           </p>
         ) : null}
         {tab === "automatic"
-          ? pending.map((r) => <PendingRow key={r.id} request={r} onDecide={decide} />)
+          ? pending.map((r) => <PendingRow key={r.id} request={r} busy={busy} onDecide={decide} />)
           : null}
         {AsyncResult.match(drafts, {
           onInitial: () => <p className={cn(xMeta, "px-4 py-8 text-center")}>Loading…</p>,
@@ -333,7 +367,14 @@ export function DraftsHome({
               </p>
             ) : (
               shown.map((d) => (
-                <DraftRow key={d.id} draft={d} handle={handle} onOpen={onOpen} onAct={act} />
+                <DraftRow
+                  key={d.id}
+                  draft={d}
+                  handle={handle}
+                  busy={busy}
+                  onOpen={onOpen}
+                  onAct={act}
+                />
               ))
             ),
         })}

@@ -102,9 +102,12 @@ const make = Effect.gen(function* () {
 
   const listSnapshots = Effect.fn("AnalyticsStore.listSnapshots")(
     function* (handle: string) {
+      // The newest year, oldest first: charts read left to right and `at(-1)` must be today.
       return yield* sql<ProfileSnapshot>`
-        SELECT day, followers, following, posts FROM profile_snapshots
-        WHERE handle = ${handle} ORDER BY day ASC LIMIT 365
+        SELECT * FROM (
+          SELECT day, followers, following, posts FROM profile_snapshots
+          WHERE handle = ${handle} ORDER BY day DESC LIMIT 365
+        ) ORDER BY day ASC
       `;
     },
     Effect.mapError(fail("listSnapshots")),

@@ -16,6 +16,8 @@ export const XtendEventType = Schema.Literals([
   "lead_found",
   "spend_changed",
   "service_state",
+  /** The current account changed; payload `accountId`. Every client reloads onto it. */
+  "account_switched",
 ]);
 export type XtendEventType = typeof XtendEventType.Type;
 

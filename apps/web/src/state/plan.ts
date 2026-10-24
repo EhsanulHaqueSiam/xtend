@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Atom from "effect/reactivity/Atom";
 
 import { clientRuntime, XtendClient } from "../rpc/client";
+import { eventsOfTypeAtom } from "./shell";
 
 export const slotsAtom = clientRuntime.atom(
   Effect.gen(function* () {
@@ -25,18 +26,22 @@ export const heatmapAtom = clientRuntime.atom(
   }),
 );
 
-export const readyAtom = clientRuntime.atom(
+export const readyAtom = clientRuntime.atom((get) =>
   Effect.gen(function* () {
+    get(eventsOfTypeAtom("draft_status_changed"));
     const client = yield* XtendClient;
     return (yield* client[Plan_METHODS.ready]({})).drafts;
   }),
 );
 
-/** Queued and posted drafts in the 7 days from `day` (a local "YYYY-MM-DD"); the calendar refetches when the user moves. */
-/** Keyed "fromIso|toIso": the week's bounds are instants the caller computed in the account zone. */
+/**
+ * Scheduled and posted drafts in one week, keyed "fromIso|toIso": the bounds are instants the
+ * caller computed in the account zone. Status events refetch it as the scheduler posts.
+ */
 export const calendarAtom = Atom.family((range: string) =>
-  clientRuntime.atom(
+  clientRuntime.atom((get) =>
     Effect.gen(function* () {
+      get(eventsOfTypeAtom("draft_status_changed"));
       const client = yield* XtendClient;
       const [from, to] = range.split("|") as [string, string];
       return (yield* client[Plan_METHODS.calendar]({ from, to })).drafts;

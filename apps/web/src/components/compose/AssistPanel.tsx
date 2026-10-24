@@ -3,7 +3,7 @@ import type { XPost } from "@xtend/contracts";
 import * as Cause from "effect/Cause";
 import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 
 import { fmtWhen } from "../../lib/time";
 import {
@@ -23,6 +23,7 @@ import { xAction, XCard, xMeta, xPill, xPillSm, xPillSolid } from "../x";
 import { splitBlocks } from "./ThreadEditor";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const SEARCHING = "Searching…";
 
 /** Where the draft would land (next free slot, best hours) and three library posts like its first line. */
 export function ComposeContext({
@@ -59,9 +60,9 @@ export function ComposeContext({
         <button
           type="button"
           className="cursor-pointer text-[15px] text-primary hover:underline disabled:pointer-events-none disabled:opacity-50"
-          disabled={query === ""}
+          disabled={query === "" || similar === SEARCHING}
           onClick={async () => {
-            setSimilar("Searching…");
+            setSimilar(SEARCHING);
             const exit = await search({ query, mode: "top" });
             setSimilar(Exit.isFailure(exit) ? failText(exit.cause) : exit.value.items.slice(0, 3));
           }}
@@ -111,17 +112,27 @@ export const failText = (cause: Cause.Cause<unknown>) => {
   return e instanceof Error ? e.message : String(e);
 };
 
+/** The X read voice match makes before its model call: the handle's recent posts. */
+function RecentPostsPrice({ handle }: { readonly handle: string }) {
+  return <>{useQuoteLabel({ kind: "userPosts", handle })} + </>;
+}
+
+/** Each action is one model call, labelled "model" as across the app; voice match also reads X. */
 export function AssistPanel({
+  handle,
   blocks,
   active,
   onReplaceBlock,
-  onInsertAfter,
+  onAppend,
   onReplaceAll,
 }: {
+  /** The Settings handle whose recent posts voice match reads; none means no read. */
+  readonly handle: string | null;
   readonly blocks: ReadonlyArray<string>;
   readonly active: number;
   readonly onReplaceBlock: (index: number, text: string) => void;
-  readonly onInsertAfter: (index: number, texts: ReadonlyArray<string>) => void;
+  /** Adds posts after the thread's last one, whatever it is by the time Use is clicked. */
+  readonly onAppend: (texts: ReadonlyArray<string>) => void;
   readonly onReplaceAll: (blocks: ReadonlyArray<string>) => void;
 }) {
   const hook = useAtomSet(assistHookAtom, { mode: "promiseExit" });
@@ -159,7 +170,7 @@ export function AssistPanel({
   const first = blocks[0] ?? "";
   const current = blocks[active] ?? "";
 
-  const action = (label: string, disabled: boolean, onClick: () => void, icon = false) => (
+  const action = (label: ReactNode, disabled: boolean, onClick: () => void, icon = false) => (
     <button
       type="button"
       className={xAction}
@@ -175,7 +186,7 @@ export function AssistPanel({
     <XCard title="Assist">
       <div className="-mt-1 flex flex-wrap gap-0.5 px-2.5 pb-2">
         {action(
-          "Improve hook",
+          "Improve hook · model",
           first.trim() === "",
           () =>
             run(
@@ -186,7 +197,7 @@ export function AssistPanel({
             ),
           true,
         )}
-        {action("Rewrite", current.trim() === "", () =>
+        {action("Rewrite · model", current.trim() === "", () =>
           run(
             `Rewrite post ${active + 1}`,
             () => rewrite(current),
@@ -194,27 +205,30 @@ export function AssistPanel({
             (s) => onReplaceBlock(active, s.text),
           ),
         )}
-        {action("Continue thread", first.trim() === "", () =>
+        {action("Continue thread · model", first.trim() === "", () =>
           run(
             "Continue thread",
             () => cont(blocks),
             (r) => [{ text: r.blocks.join("\n\n"), blocks: r.blocks }],
-            (s) => onInsertAfter(blocks.length - 1, s.blocks),
+            (s) => onAppend(s.blocks),
           ),
         )}
-        {action("Voice match", first.trim() === "", () =>
-          run(
-            "Voice match",
-            () => voice(blocks),
-            (r) => [
-              {
-                text: `${Math.round(r.score * 100)}% match against ${r.samples} recent posts`,
-                note: r.note,
-                blocks: [],
-              },
-            ],
-            () => {},
-          ),
+        {action(
+          <>Voice match · {handle === null ? null : <RecentPostsPrice handle={handle} />}model</>,
+          first.trim() === "",
+          () =>
+            run(
+              "Voice match",
+              () => voice(blocks),
+              (r) => [
+                {
+                  text: `${Math.round(r.score * 100)}% match against ${r.samples} recent posts`,
+                  note: r.note,
+                  blocks: [],
+                },
+              ],
+              () => {},
+            ),
         )}
       </div>
       <form
@@ -246,7 +260,7 @@ export function AssistPanel({
           className={cn(xPill, xPillSm)}
           disabled={busy !== null || topic.trim() === ""}
         >
-          Ideas
+          Ideas · model
         </button>
       </form>
       {busy !== null ? <p className={cn(xMeta, "px-4 pb-3")}>{busy}…</p> : null}

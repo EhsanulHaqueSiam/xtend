@@ -14,6 +14,8 @@ const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
 
 export interface SupervisorOptions {
   readonly serviceUrl: string;
+  /** The URL came from the desktop's saved remote config. */
+  readonly remote: boolean;
   readonly baseDir: string;
   /** Dev only: the Vite origin the child must trust and redirect to. */
   readonly devUrl: string | undefined;
@@ -65,6 +67,7 @@ async function waitForHealth(serviceUrl: string, deadline: number): Promise<bool
 export async function superviseService(options: SupervisorOptions): Promise<Supervision> {
   const url = new URL(options.serviceUrl);
   const probe = {
+    remote: options.remote,
     reachable: await healthy(options.serviceUrl),
     loopback: LOCAL_HOSTS.has(url.hostname),
     launchdLoaded: launchdLoaded(),
@@ -85,6 +88,8 @@ export async function superviseService(options: SupervisorOptions): Promise<Supe
   // Electron is a Node runtime too, so a user without node on PATH still gets a service.
   const node = process.env.XTEND_NODE ?? process.execPath;
   const start = () => {
+    // A restart timer can still fire after quit began; a child started then would outlive the app.
+    if (stopping) return;
     const startedAt = Date.now();
     child = ChildProcess.spawn(
       node,
@@ -98,17 +103,23 @@ export async function superviseService(options: SupervisorOptions): Promise<Supe
       ],
       {
         env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", XTEND_SUPERVISOR: "child" },
-        stdio: ["ignore", logFile, logFile],
+        // The child exits when this pipe closes, so a crash here cannot orphan it on our port.
+        stdio: ["pipe", logFile, logFile],
       },
     );
     options.log("service child started", { pid: child.pid });
-    child.once("exit", (code, signal) => {
-      if (stopping) return;
-      const restart = nextRestart(attempt, Date.now() - startedAt);
-      attempt = restart.attempt;
-      options.log("service child exited, restarting", { code, signal, in: restart.delayMs });
-      setTimeout(start, restart.delayMs);
-    });
+    let ended = false;
+    const restart = (detail: Record<string, unknown>) => {
+      if (stopping || ended) return;
+      ended = true;
+      const next = nextRestart(attempt, Date.now() - startedAt);
+      attempt = next.attempt;
+      options.log("service child exited, restarting", { ...detail, in: next.delayMs });
+      setTimeout(start, next.delayMs);
+    };
+    child.once("exit", (code, signal) => restart({ code, signal }));
+    // A spawn failure (bad XTEND_NODE) emits only `error`; unhandled, it would crash the main process.
+    child.once("error", (error) => restart({ error: String(error) }));
   };
   start();
   if (!(await waitForHealth(options.serviceUrl, Date.now() + START_TIMEOUT_MS)))

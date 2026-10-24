@@ -45,6 +45,8 @@ import {
  */
 
 const MIN_VIEWS = 100;
+/** Same bound as main's feed: the strips only need the posts still near the screen. */
+const MAX_POSTS = 2_000;
 const HOVER_DELAY_MS = 400;
 const HOST_ATTR = "data-xtend-strip";
 /** On every element we add to x.com's DOM: pointer-downs inside them must not dismiss the open slot. */
@@ -114,16 +116,23 @@ const shouldShow = (p: OverlayPost): boolean =>
 
 const send = (action: OverlayAction) => ipcRenderer.send(OVERLAY_ACTION_CHANNEL, action);
 
+/** Every x.com mutation rescans; rewriting unchanged markup would relayout each strip every frame of a scroll. */
+const render = (el: { body: HTMLElement; html: string }, html: string) => {
+  if (el.html === html) return;
+  el.html = html;
+  el.body.innerHTML = html;
+};
+
 const state = {
   posts: new Map<string, OverlayPost>(),
   ownAverage: null as OverlayData["ownAverage"],
   glance: null as Glance | null,
   enabled: true,
   killed: false,
-  strips: new Map<string, { host: HTMLElement; body: HTMLElement }>(),
+  strips: new Map<string, { host: HTMLElement; body: HTMLElement; html: string }>(),
   chips: [] as Array<{ host: HTMLElement; body: HTMLElement; toolbar: HTMLElement }>,
   rail: null as HTMLElement | null,
-  today: null as { host: HTMLElement; body: HTMLElement } | null,
+  today: null as { host: HTMLElement; body: HTMLElement; html: string } | null,
 };
 
 const stripHtml = (p: OverlayPost): string => {
@@ -149,7 +158,8 @@ const mountStrip = (article: HTMLElement, postId: string, post: OverlayPost) => 
   if (row === null) return;
   const { host, body } = shadowHost("strip");
   host.setAttribute(HOST_ATTR, postId);
-  body.innerHTML = stripHtml(post);
+  const html = stripHtml(post);
+  body.innerHTML = html;
   body.addEventListener("click", (e) => {
     const act = (e.target as HTMLElement).dataset.act;
     if (act === undefined) return;
@@ -162,7 +172,7 @@ const mountStrip = (article: HTMLElement, postId: string, post: OverlayPost) => 
     );
   });
   row.after(host);
-  state.strips.set(postId, { host, body });
+  state.strips.set(postId, { host, body, html });
 };
 
 const applyVisibility = () => {
@@ -254,14 +264,12 @@ const todayHtml = (g: Glance): string => {
 };
 const mountToday = () => {
   if (state.glance === null) return;
-  if (state.today?.host.isConnected) {
-    state.today.body.innerHTML = todayHtml(state.glance);
-    return;
-  }
+  if (state.today?.host.isConnected) return render(state.today, todayHtml(state.glance));
   const card = sidebarFirstCard(document);
   if (card === null) return;
   const { host, body } = shadowHost("today");
-  body.innerHTML = todayHtml(state.glance);
+  const html = todayHtml(state.glance);
+  body.innerHTML = html;
   body.addEventListener("click", (e) => {
     const route = (e.target as HTMLElement).closest<HTMLElement>("[data-route]")?.dataset.route;
     if (route === undefined) return;
@@ -269,7 +277,7 @@ const mountToday = () => {
     send({ type: "openSlot", slot: { kind: "center", route } });
   });
   card.before(host);
-  state.today = { host, body };
+  state.today = { host, body, html };
 };
 const renderGlance = () => {
   for (const chip of state.chips) chip.body.innerHTML = chipsHtml();
@@ -315,17 +323,19 @@ const scan = () => {
   mountRail();
   mountChips();
   mountToday();
+  // X unmounts articles scrolled far away; their strips go with them and must not pile up here.
+  for (const [postId, strip] of state.strips)
+    if (!strip.host.isConnected) state.strips.delete(postId);
   for (const article of findArticles(document)) {
     const postId = articlePostId(article);
     if (postId === null) continue;
     const post = state.posts.get(postId);
     const strip = state.strips.get(postId);
-    if (strip !== undefined && !strip.host.isConnected) state.strips.delete(postId);
     if (post === undefined || !shouldShow(post)) {
       strip?.host.remove();
       continue;
     }
-    if (strip !== undefined && strip.host.isConnected) strip.body.innerHTML = stripHtml(post);
+    if (strip !== undefined) render(strip, stripHtml(post));
     else mountStrip(article, postId, post);
     if (article.dataset.xtendHover === undefined) {
       article.dataset.xtendHover = "1";
@@ -343,6 +353,7 @@ const queueScan = () => {
 // Hover card: one element for the page, shown 400 ms after the pointer rests on an avatar or name.
 const card = (() => {
   const host = document.createElement("div");
+  host.setAttribute(OURS, "card");
   const root = host.attachShadow({ mode: "closed" });
   const style = document.createElement("style");
   style.textContent = STYLE;
@@ -421,6 +432,10 @@ const attachHover = (target: HTMLElement, postId: string, article: Element) => {
 
 ipcRenderer.on(OVERLAY_DATA_CHANNEL, (_event, data: OverlayData) => {
   for (const [id, post] of Object.entries(data.posts)) state.posts.set(id, post);
+  for (const id of state.posts.keys()) {
+    if (state.posts.size <= MAX_POSTS) break;
+    state.posts.delete(id);
+  }
   state.ownAverage = data.ownAverage;
   queueScan();
 });

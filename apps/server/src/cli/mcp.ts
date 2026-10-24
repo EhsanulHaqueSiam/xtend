@@ -12,6 +12,7 @@ import {
 import * as Schema from "effect/Schema";
 
 import packageJson from "../../package.json" with { type: "json" };
+import { RATE_CARD } from "../x/XClient.ts";
 
 /**
  * A hand-rolled MCP server: initialize, tools/list and tools/call over stdio.
@@ -28,8 +29,7 @@ export const MCP_TOOLS = [
   },
   {
     name: "queue_post",
-    description:
-      "Save a post and queue it for the next posting slot. Posting costs $0.015 ($0.20 with a link).",
+    description: `Save a post and queue it for the next posting slot. Posting costs $${RATE_CARD.post.toFixed(3)} ($${RATE_CARD.postWithLink.toFixed(2)} with a link).`,
     inputSchema: { type: "object", properties: { text }, required: ["text"] },
   },
   {
@@ -55,12 +55,20 @@ export const MCP_TOOLS = [
 
 export type Call = (method: string, payload: unknown) => Promise<unknown>;
 
+const Id = Schema.Union([Schema.Number, Schema.String, Schema.Null]);
 const Request = Schema.Struct({
-  id: Schema.optional(Schema.Union([Schema.Number, Schema.String, Schema.Null])),
+  id: Schema.optional(Id),
   method: Schema.String,
   params: Schema.optional(Schema.Unknown),
 });
 const decodeRequest = Schema.decodeUnknownResult(Request);
+const decodeId = Schema.decodeUnknownResult(Schema.Struct({ id: Id }));
+
+const errorReply = (id: typeof Id.Type, code: number, message: string) => ({
+  jsonrpc: "2.0",
+  id,
+  error: { code, message },
+});
 const ToolCall = Schema.Struct({
   name: Schema.String,
   arguments: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
@@ -76,7 +84,11 @@ const runTool = (name: string, args: Record<string, unknown>, call: Call): Promi
         call(Plan_METHODS.queue, { id: (draft as { id: string }).id }),
       );
     case "report_handle":
-      return call(Scores_METHODS.report, { handle: args["handle"] });
+      // People type handles as they read them on X; the contract stores them without the @.
+      return call(Scores_METHODS.report, {
+        handle:
+          typeof args["handle"] === "string" ? args["handle"].replace(/^@/, "") : args["handle"],
+      });
     case "search_library":
       return call(Library_METHODS.search, { query: args["query"], mode: args["mode"] ?? "top" });
     case "spend_summary":
@@ -86,18 +98,18 @@ const runTool = (name: string, args: Record<string, unknown>, call: Call): Promi
   }
 };
 
-/** Answers one JSON-RPC message; null for notifications and unparsable input. */
+/** Answers one JSON-RPC message; null for notifications. */
 export async function handleMcpMessage(message: unknown, call: Call): Promise<unknown> {
   const decoded = decodeRequest(message);
-  if (decoded._tag === "Failure") return null;
+  // Answered rather than dropped: a client waiting on this id would hang.
+  if (decoded._tag === "Failure") {
+    const id = decodeId(message);
+    return errorReply(id._tag === "Success" ? id.success.id : null, -32600, "invalid request");
+  }
   const { id, method, params } = decoded.success;
   if (id === undefined) return null;
   const reply = (result: unknown) => ({ jsonrpc: "2.0", id, result });
-  const fail = (code: number, detail: string) => ({
-    jsonrpc: "2.0",
-    id,
-    error: { code, message: detail },
-  });
+  const fail = (code: number, detail: string) => errorReply(id, code, detail);
   switch (method) {
     case "initialize":
       return reply({
@@ -134,11 +146,14 @@ export function runMcpStdio(input: Readable, output: Writable, call: Call): Prom
     try {
       message = JSON.parse(line);
     } catch {
-      return;
+      message = undefined;
     }
     // Answers go out in request order; a slow search must not reorder a ping after it.
     chain = chain.then(async () => {
-      const response = await handleMcpMessage(message, call);
+      const response =
+        message === undefined
+          ? errorReply(null, -32700, "parse error")
+          : await handleMcpMessage(message, call);
       if (response !== null) output.write(JSON.stringify(response) + "\n");
     });
   });

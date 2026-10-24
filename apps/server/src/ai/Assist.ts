@@ -75,24 +75,30 @@ const make = Effect.gen(function* () {
           detail: "AI assist is not included in this build of Xtend.",
         }),
     });
-    const run = sdk.query({
-      prompt,
-      options: {
-        cwd: config.baseDir,
-        systemPrompt: BASE_PROMPT + voice,
-        tools: [],
-        allowedTools: [],
-        settingSources: [],
-        permissionMode: "default",
-        maxTurns: 1,
-        outputFormat: { type: "json_schema", schema: jsonSchema as Record<string, unknown> },
-      },
-    });
-
     let output: unknown = undefined;
     let error: string | null = null;
     let costUsd = 0;
-    const consume = Stream.fromAsyncIterable(run, (cause) => cause).pipe(
+    // `query` spawns the model and sends the prompt at once, so it is called inside the budget's
+    // body: a refused reservation must not start a paid run.
+    const run = Stream.suspend(() =>
+      Stream.fromAsyncIterable(
+        sdk.query({
+          prompt,
+          options: {
+            cwd: config.baseDir,
+            systemPrompt: BASE_PROMPT + voice,
+            tools: [],
+            allowedTools: [],
+            settingSources: [],
+            permissionMode: "default",
+            maxTurns: 1,
+            outputFormat: { type: "json_schema", schema: jsonSchema as Record<string, unknown> },
+          },
+        }),
+        (cause) => cause,
+      ),
+    );
+    const consume = run.pipe(
       Stream.runForEach((message: SDKMessage) =>
         Effect.sync(() => {
           if (message.type !== "result") return;

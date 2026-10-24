@@ -21,8 +21,9 @@ export class Scores extends Context.Service<
   }
 >()("xtend/scores/Scores") {}
 
+// A ScoresError raised inside keeps its own operation; wrapping it would read "run failed: run failed".
 const fail = (operation: string) => (cause: { readonly message: string }) =>
-  new ScoresError({ operation, detail: cause.message });
+  cause instanceof ScoresError ? cause : new ScoresError({ operation, detail: cause.message });
 
 const make = Effect.gen(function* () {
   const x = yield* XClient.XClient;
@@ -52,7 +53,9 @@ const make = Effect.gen(function* () {
         return yield* new ScoresError({ operation: "run", detail: `@${handle} not found` });
       const now = yield* DateTime.now;
       yield* store.saveProfile(profile, DateTime.formatIso(now).slice(0, 10));
-      const followers: Array<XFollower> = [];
+      // Pages overlap when the follower list shifts mid-read; a repeat would count twice and
+      // collide on the stored scored set's (handle, day, user_id) key.
+      const byId = new Map<string, XFollower>();
       let cursor: string | null = null;
       let pages = 0;
       for (; pages < pageLimit; pages++) {
@@ -60,13 +63,14 @@ const make = Effect.gen(function* () {
           purpose,
           ...(cursor === null ? {} : { cursor }),
         });
-        followers.push(...result.items);
+        for (const f of result.items) byId.set(f.userId, f);
         cursor = result.nextCursor;
         if (cursor === null) {
           pages++;
           break;
         }
       }
+      const followers = [...byId.values()];
       const scored = ScoreEngine.score(followers, profile, now);
       yield* store.saveSample(
         {

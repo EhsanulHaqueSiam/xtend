@@ -1,6 +1,7 @@
 import {
   ComposeError,
   type Draft,
+  type DraftPatch,
   MEDIA_MAX_BYTES,
   MEDIA_MAX_IMAGES,
   type MediaKind,
@@ -31,11 +32,21 @@ export class Media extends Context.Service<
     /** Refuses files over MEDIA_MAX_BYTES and blocks that already hold 4 images or a video. */
     readonly add: (input: MediaAddInput) => Effect.Effect<Draft, ComposeError>;
     readonly remove: (draftId: string, id: string) => Effect.Effect<Draft, ComposeError>;
+    /** DraftStore.update, then deletes the files of attachments the edit dropped with their post. */
+    readonly update: (id: string, patch: DraftPatch) => Effect.Effect<Draft, ComposeError>;
+    /** Deletes the draft and its files; DraftStore.remove alone would leave them on disk. */
+    readonly removeDraft: (draftId: string) => Effect.Effect<void, ComposeError>;
   }
 >()("xtend/compose/Media") {}
 
-/** The X rule: one video alone, or up to four images. */
-const roomFor = (existing: Draft["media"], blockIndex: number, kind: MediaKind): string | null => {
+/** Why the block cannot take the file, or null. The X rule: one video alone, or up to four images. */
+export const roomFor = (draft: Draft, blockIndex: number, kind: MediaKind): string | null => {
+  // What a publisher has claimed or posted is final; a file removed now could vanish mid-upload.
+  if (draft.status === "posting" || draft.status === "posted")
+    return `Draft is ${draft.status}; start a new draft to change it`;
+  if (draft.kind === "thread" && blockIndex >= draft.blocks.length)
+    return `This draft has no post ${blockIndex + 1}`;
+  const existing = draft.media;
   const here = existing.filter((m) => m.blockIndex === blockIndex);
   if (here.some((m) => m.kind === "video")) return "This post already has a video";
   if (kind === "video" && here.length > 0) return "A video cannot share a post with images";
@@ -61,7 +72,7 @@ const make = Effect.gen(function* () {
           detail: `File is ${(input.bytes.byteLength / 1024 / 1024).toFixed(1)} MB; the limit is ${MEDIA_MAX_BYTES / 1024 / 1024} MB`,
         });
       const draft = yield* drafts.get(input.draftId);
-      const blocked = roomFor(draft.media, input.blockIndex, input.kind);
+      const blocked = roomFor(draft, input.blockIndex, input.kind);
       if (blocked !== null)
         return yield* new ComposeError({ operation: "mediaAdd", detail: blocked });
       const id = crypto.randomUUID();
@@ -83,6 +94,12 @@ const make = Effect.gen(function* () {
 
   const remove = Effect.fn("Media.remove")(
     function* (draftId: string, id: string) {
+      const { status } = yield* drafts.get(draftId);
+      if (status === "posting" || status === "posted")
+        return yield* new ComposeError({
+          operation: "mediaRemove",
+          detail: `Draft is ${status}; start a new draft to change it`,
+        });
       const file = yield* drafts.mediaRemove(draftId, id);
       // The row is gone either way; a file that is already missing is not an error.
       if (file !== null) yield* fs.remove(file).pipe(Effect.ignore);
@@ -91,7 +108,31 @@ const make = Effect.gen(function* () {
     Effect.mapError(fail("mediaRemove")),
   );
 
-  return Media.of({ add, remove });
+  const update = Effect.fn("Media.update")(
+    function* (id: string, patch: DraftPatch) {
+      const before = yield* drafts.get(id);
+      const after = yield* drafts.update(id, patch);
+      // shortcut: a file added between the two reads and dropped by this edit stays on disk until the draft is deleted.
+      for (const m of before.media)
+        if (!after.media.some((a) => a.id === m.id)) yield* fs.remove(m.path).pipe(Effect.ignore);
+      return after;
+    },
+    Effect.mapError(fail("update")),
+  );
+
+  const removeDraft = Effect.fn("Media.removeDraft")(
+    function* (draftId: string) {
+      yield* drafts.remove(draftId);
+      // Only a plain id may name a directory: this one is deleted recursively.
+      if (/^[\w-]+$/.test(draftId))
+        yield* fs
+          .remove(path.join(baseDir, "media", draftId), { recursive: true })
+          .pipe(Effect.ignore);
+    },
+    Effect.mapError(fail("remove")),
+  );
+
+  return Media.of({ add, remove, update, removeDraft });
 });
 
 export const layer = Layer.effect(Media, make);

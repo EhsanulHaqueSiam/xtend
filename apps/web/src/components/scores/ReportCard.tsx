@@ -2,6 +2,7 @@ import type { FollowerCategory, ScoreReport, TopFollower, XFollower } from "@xte
 import { BadgeCheck } from "lucide-react";
 import type { ReactNode } from "react";
 
+import { fmtDay } from "../../lib/time";
 import { Empty, fmt, LineChart, pct, Section, signed, Stat } from "../analyze/ui";
 
 const CATEGORIES: ReadonlyArray<{ category: FollowerCategory; label: string }> = [
@@ -88,7 +89,7 @@ function Moved({ moved }: { readonly moved: NonNullable<ScoreReport["moved"]> })
   ] as const;
   const changed = moved.changed.slice(0, 10);
   return (
-    <Section title={`Who moved your score since ${moved.sinceAt.slice(0, 10)}`}>
+    <Section title={`Who moved your score since ${fmtDay(moved.sinceAt)}`}>
       {moved.joined.length + moved.left.length + changed.length === 0 ? (
         <p className="text-xs text-muted-foreground">Same scored set as last time.</p>
       ) : (
@@ -145,7 +146,7 @@ export function ReportCard({
     return (
       <div className="flex flex-col gap-3">
         <Section title={`@${report.handle}`} actions={actions}>
-          <p className="text-2xs text-muted-foreground">sampled {s.at.slice(0, 10)}</p>
+          <p className="text-2xs text-muted-foreground">sampled {fmtDay(s.at)}</p>
         </Section>
         <BotCheck s={s} />
       </div>
@@ -178,7 +179,7 @@ export function ReportCard({
               label="Follow ratio"
               value={s.bot.followRatio === null ? "–" : s.bot.followRatio.toFixed(2)}
             />
-            <Stat label="Sampled" value={s.at.slice(0, 10)} />
+            <Stat label="Sampled" value={fmtDay(s.at)} />
           </div>
         )}
       </Section>
@@ -211,9 +212,7 @@ export function ReportCard({
       {report.moved === null ? null : <Moved moved={report.moved} />}
       {s === null ? null : <BotCheck s={s} />}
       <Section title="Score history">
-        <LineChart
-          points={report.history.map((h) => ({ label: h.at.slice(0, 10), value: h.score }))}
-        />
+        <LineChart points={report.history.map((h) => ({ label: fmtDay(h.at), value: h.score }))} />
       </Section>
       {report.profileHistory.length === 0 ? null : (
         <Section title="Name and bio history">

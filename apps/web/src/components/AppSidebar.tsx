@@ -106,10 +106,18 @@ function StatusStrip({ collapsed }: { readonly collapsed: boolean }) {
 function AccountSwitcher({ collapsed }: { readonly collapsed: boolean }) {
   const accounts = useAtomValue(accountsAtom);
   const select = useAtomSet(selectAccountAtom, { mode: "promise" });
+  const [error, setError] = useState<string | null>(null);
   if (!AsyncResult.isSuccess(accounts) || accounts.value.accounts.length < 2) return null;
   const { accounts: list, currentId } = accounts.value;
   const current = list.find((a) => a.id === currentId) ?? list[0]!;
-  const change = (id: number) => void select(id).then(() => switchAccount(id));
+  // A refused select leaves the picker on the current account; say why instead of nothing.
+  const change = (id: number) => {
+    setError(null);
+    void select(id).then(
+      () => switchAccount(id),
+      (e: unknown) => setError(e instanceof Error ? e.message : String(e)),
+    );
+  };
   if (collapsed)
     return (
       <Tooltip>
@@ -125,23 +133,30 @@ function AccountSwitcher({ collapsed }: { readonly collapsed: boolean }) {
         >
           {current.label.slice(0, 1).toUpperCase()}
         </TooltipTrigger>
-        <TooltipPopup side="right">{current.label}</TooltipPopup>
+        <TooltipPopup side="right">{error ?? current.label}</TooltipPopup>
       </Tooltip>
     );
   return (
-    <select
-      aria-label="Account"
-      className="no-drag h-8 w-full rounded-[var(--control-radius)] border border-sidebar-border bg-sidebar px-2 font-mono text-xs text-sidebar-foreground outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
-      value={currentId}
-      onChange={(e) => change(Number(e.target.value))}
-    >
-      {list.map((a) => (
-        <option key={a.id} value={a.id}>
-          {a.label}
-          {a.handle !== null ? ` @${a.handle}` : ""}
-        </option>
-      ))}
-    </select>
+    <>
+      <select
+        aria-label="Account"
+        className="no-drag h-8 w-full rounded-[var(--control-radius)] border border-sidebar-border bg-sidebar px-2 font-mono text-xs text-sidebar-foreground outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+        value={currentId}
+        onChange={(e) => change(Number(e.target.value))}
+      >
+        {list.map((a) => (
+          <option key={a.id} value={a.id}>
+            {a.label}
+            {a.handle !== null ? ` @${a.handle}` : ""}
+          </option>
+        ))}
+      </select>
+      {error !== null ? (
+        <p role="alert" className="pt-1 text-2xs text-error-foreground">
+          {error}
+        </p>
+      ) : null}
+    </>
   );
 }
 

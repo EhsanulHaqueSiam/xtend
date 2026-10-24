@@ -1,9 +1,9 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import type { Candidate, EngagementVia, LeadList } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 
-import { cn } from "../../lib/utils";
+import { cn, parsePostId } from "../../lib/utils";
 import {
   createListAtom,
   engagersAtom,
@@ -38,11 +38,12 @@ export function Lists() {
         {selected === null ? (
           <Empty>Pick a list, or create one.</Empty>
         ) : (
-          <>
+          // Keyed: a preview fetched for one list must not be added to the next one picked.
+          <Fragment key={selected}>
             <Builder listId={selected} />
             <EngagementBuilder listId={selected} />
             <People listId={selected} />
-          </>
+          </Fragment>
         )}
       </div>
     </div>
@@ -230,7 +231,8 @@ function EngagementBuilder({ listId }: { readonly listId: number }) {
   const refreshPeople = useAtomRefresh(peopleAtom(listId));
   const refreshLists = useAtomRefresh(listsAtom);
   const { busy, error, run } = useAction();
-  const [postId, setPostId] = useState("");
+  const [postText, setPostText] = useState("");
+  const postId = parsePostId(postText);
   const [via, setVia] = useState<EngagementVia>("repost");
   const quote = AsyncResult.getOrElse(useAtomValue(engagersQuoteAtom(via)), () => null);
   const [result, setResult] = useState<{
@@ -245,15 +247,16 @@ function EngagementBuilder({ listId }: { readonly listId: number }) {
         <Button
           size="xs"
           variant="outline"
-          disabled={busy || postId.trim() === ""}
-          onClick={() =>
+          disabled={busy || postId === null}
+          onClick={() => {
+            if (postId === null) return;
             void run(() =>
-              fetchEngagers({ postId: postId.trim(), via }).then((r) => {
+              fetchEngagers({ postId, via }).then((r) => {
                 setResult(r);
                 setAdded(null);
               }),
-            )
-          }
+            );
+          }}
         >
           {busy ? "Fetching…" : `Fetch (${quote === null ? "…" : usd(quote)})`}
         </Button>
@@ -262,9 +265,10 @@ function EngagementBuilder({ listId }: { readonly listId: number }) {
       <div className="flex gap-1.5">
         <input
           className={inputClass}
-          placeholder="Post id, e.g. 1835124037934367098"
-          value={postId}
-          onChange={(e) => setPostId(e.target.value.replace(/\D/g, ""))}
+          placeholder="Post id or URL, e.g. 1835124037934367098"
+          aria-label="Post id or URL"
+          value={postText}
+          onChange={(e) => setPostText(e.target.value)}
         />
         <select
           className={inputClass + " w-auto"}

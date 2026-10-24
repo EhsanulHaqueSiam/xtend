@@ -71,7 +71,8 @@ export type DraftPoll = typeof DraftPoll.Type;
 /** What the editor can change. Everything else on a Draft is owned by the service. */
 export const DraftPatch = Schema.Struct({
   kind: Schema.optional(DraftKind),
-  status: Schema.optional(DraftStatus),
+  /** Queued, posting, posted and failed are the service's to set: through Plan and the publisher. */
+  status: Schema.optional(Schema.Literals(["draft", "suggested"])),
   title: Schema.optional(Schema.String),
   body: Schema.optional(Schema.String),
   blocks: Schema.optional(Schema.Array(DraftBlock)),
@@ -113,6 +114,7 @@ export const Draft = Schema.Struct({
   media: Schema.Array(DraftMedia),
   /** When the scheduler should post it. Set by queue, schedule and retry backoff. */
   scheduledAt: Schema.NullOr(IsoDateTime),
+  /** The posts already on X, in block order. A retry resumes after them; editing what they say starts over. */
   postIds: Schema.Array(XId),
   /** Last X error detail, kept across retries so the UI can show why. */
   error: Schema.NullOr(Schema.String),

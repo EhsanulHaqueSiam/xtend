@@ -56,12 +56,20 @@ export const minuteIn = (zone: string, d: Date) => {
   return p.hour * 60 + p.minute;
 };
 
-/** The instant at which the zone's clock shows this wall time. One offset correction; DST gaps round. */
+/** The zone's offset from UTC at instant `t`, in ms. */
+const offsetAt = (zone: string, t: number) => {
+  const p = partsIn(zone, new Date(t));
+  return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute) - t;
+};
+
+/**
+ * The instant at which the zone's clock shows this wall time; a time in a DST gap rounds.
+ * The offset is read twice: on a change day, the offset at the first guess is the other side's.
+ */
 const instantIn = (zone: string, year: number, month: number, day: number, minute = 0) => {
-  const guess = Date.UTC(year, month - 1, day, Math.floor(minute / 60), minute % 60);
-  const p = partsIn(zone, new Date(guess));
-  const seen = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute);
-  return new Date(guess - (seen - guess));
+  const wall = Date.UTC(year, month - 1, day, Math.floor(minute / 60), minute % 60);
+  const first = wall - offsetAt(zone, wall);
+  return new Date(wall - offsetAt(zone, first));
 };
 
 /** A `datetime-local` value ("YYYY-MM-DDTHH:MM") read as wall time in the zone. */
@@ -109,3 +117,5 @@ export const setDisplayZone = (zone: string) => {
   whenFormat = makeWhen(zone);
 };
 export const fmtWhen = (iso: string) => whenFormat.format(new Date(iso));
+/** "YYYY-MM-DD" in the display zone; slicing the ISO string would give the UTC day. */
+export const fmtDay = (iso: string) => dayKeyIn(displayZone, new Date(iso));

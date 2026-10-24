@@ -6,6 +6,8 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import { HttpBody, HttpClient } from "effect/http";
 
+const decodeJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
+
 export class ApiError extends Schema.TaggedError<ApiError>()("ApiError", {
   detail: Schema.String,
 }) {
@@ -59,13 +61,14 @@ export const layer = (options: { readonly url: string; readonly token: string })
                 }),
             ),
           );
-        const body = yield* response.json.pipe(
-          Effect.mapError(() => new ApiError({ detail: `bad answer from ${method}` })),
-        );
-        if (response.status === 200) return body;
-        return yield* new ApiError({
-          detail: `${method} failed (${response.status}): ${Schema.encodeUnknownSync(Schema.fromJsonString(Schema.Unknown))(body)}`,
-        });
+        const badAnswer = () => new ApiError({ detail: `bad answer from ${method}` });
+        const text = yield* response.text.pipe(Effect.mapError(badAnswer));
+        // Errors are read as text: the auth guard answers a plain "unauthorized", not JSON.
+        if (response.status !== 200)
+          return yield* new ApiError({
+            detail: `${method} failed (${response.status}): ${text.slice(0, 500)}`,
+          });
+        return yield* decodeJson(text).pipe(Effect.mapError(badAnswer));
       });
       return Api.of({ url: options.url, call });
     }),

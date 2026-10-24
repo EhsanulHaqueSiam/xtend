@@ -64,9 +64,12 @@ export function Slots({
               <li key={s.key} className="flex items-center gap-2">
                 <input
                   type="time"
+                  aria-label="Slot time"
                   className={inputClass + " w-auto"}
                   value={hhmm(s.minuteOfDay)}
                   onChange={(e) => {
+                    // Cleared mid-edit; midnight would jump into the field under the cursor.
+                    if (e.target.value === "") return;
                     const [h = 0, m = 0] = e.target.value.split(":").map(Number);
                     set(i, { minuteOfDay: h * 60 + m });
                   }}

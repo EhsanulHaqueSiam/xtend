@@ -5,9 +5,18 @@ import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { markHandledAtom, mentionsAtom } from "../../state/engage";
 import { fmtWhen } from "../compose/DraftsList";
 import { Empty, ErrorText, errorText, fmt } from "../analyze/ui";
+import { useAction } from "../leads/ui";
 import { Button } from "../ui/button";
 
-function MentionRow({ mention, onHandled }: { mention: Mention; onHandled: () => void }) {
+function MentionRow({
+  mention,
+  busy,
+  onHandled,
+}: {
+  mention: Mention;
+  busy: boolean;
+  onHandled: () => void;
+}) {
   const { post } = mention;
   return (
     <article className="flex flex-col gap-1 rounded-lg px-3 py-2 hover:bg-accent/60">
@@ -30,7 +39,7 @@ function MentionRow({ mention, onHandled }: { mention: Mention; onHandled: () =>
         {mention.handled ? (
           <span className="font-mono text-2xs text-success-foreground">handled</span>
         ) : (
-          <Button variant="ghost" size="xs" onClick={onHandled}>
+          <Button variant="ghost" size="xs" disabled={busy} onClick={onHandled}>
             Mark handled
           </Button>
         )}
@@ -46,12 +55,15 @@ export function Mentions() {
   const result = useAtomValue(mentionsAtom);
   const refresh = useAtomRefresh(mentionsAtom);
   const markHandled = useAtomSet(markHandledAtom, { mode: "promise" });
+  const { busy, error, run } = useAction();
+  const handled = (postId: string) => () => void run(() => markHandled(postId).then(refresh));
   return AsyncResult.match(result, {
     onInitial: () => <Empty>Connecting to the service…</Empty>,
     onFailure: (f) => <ErrorText>{errorText(f.cause)}</ErrorText>,
     onSuccess: ({ value }) => (
       <div className="flex flex-col gap-0.5">
         {value.apiError !== null ? <ErrorText>{value.apiError}</ErrorText> : null}
+        {error !== null ? <ErrorText>{error}</ErrorText> : null}
         {value.mentions.length === 0 ? (
           <Empty>
             No mentions yet. Session mentions appear as you browse x.com in the desktop app.
@@ -61,10 +73,8 @@ export function Mentions() {
             <MentionRow
               key={m.post.postId}
               mention={m}
-              onHandled={async () => {
-                await markHandled(m.post.postId);
-                refresh();
-              }}
+              busy={busy}
+              onHandled={handled(m.post.postId)}
             />
           ))
         )}

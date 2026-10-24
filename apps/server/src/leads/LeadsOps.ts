@@ -4,6 +4,7 @@ import {
   LeadsError,
   type ListCriteria,
   type NewFollower,
+  type Person,
   type PersonReplyDraft,
   type XApiError,
   type XPost,
@@ -55,7 +56,7 @@ export class LeadsOps extends Context.Service<
       { readonly matches: ReadonlyArray<Candidate>; readonly costUsd: number },
       LeadsError | XApiError
     >;
-    /** The person's newest original post (cached 1h by XClient), to reply to from their page. */
+    /** The person's newest original post, else their newest reply (cached 1h by XClient), to reply to from their page. */
     readonly latestPost: (personId: number) => Effect.Effect<XPost | null, LeadsError | XApiError>;
     readonly draftReply: (
       personId: number,
@@ -103,6 +104,12 @@ const make = Effect.gen(function* () {
     return draft.text;
   });
 
+  // Reaching out moves a new lead along; it never pulls a replied lead or a customer back.
+  const markContacted = (person: Person) =>
+    person.stage === "new"
+      ? Effect.asVoid(people.update({ id: person.id, stage: "contacted" }))
+      : Effect.void;
+
   const sendDm = Effect.fn("LeadsOps.sendDm")(function* (personId: number, text: string) {
     const person = yield* people.get(personId);
     const userId = person.userId ?? (yield* profile(personId))?.userId;
@@ -114,7 +121,7 @@ const make = Effect.gen(function* () {
       });
     yield* x.sendDm(userId, text, "leads.dm");
     yield* people.logActivity(personId, "dm", text.slice(0, 140));
-    yield* people.update({ id: personId, stage: "contacted" });
+    yield* markContacted(person);
   });
 
   // One latest search, authors deduped and filtered; profiles are fetched only when a bio keyword needs them.
@@ -169,7 +176,7 @@ const make = Effect.gen(function* () {
         detail: "set your X handle in Settings first",
         cause: null,
       });
-    const page = yield* x.followers(handle, { purpose: "leads.newFollowers" });
+    const page = yield* x.followers(handle, { purpose: "leads.newFollowers", fresh: true });
     const fresh = yield* people.markFollowersSeen(page.items);
     const known = yield* people.knownHandles;
     return {
@@ -182,7 +189,7 @@ const make = Effect.gen(function* () {
             f,
           );
         }),
-      costUsd: rates.followersPage,
+      costUsd: page.fromCache ? 0 : rates.followersPage,
     };
   });
 
@@ -195,7 +202,9 @@ const make = Effect.gen(function* () {
   const latestPost = Effect.fn("LeadsOps.latestPost")(function* (personId: number) {
     const person = yield* people.get(personId);
     const page = yield* x.userPosts(person.handle, { purpose: "leads.latestPost" });
-    return page.items.find((p) => !p.isReply && !p.isRepost) ?? page.items[0] ?? null;
+    // A repost is someone else's post wearing this handle; a reply of theirs beats it.
+    const own = page.items.filter((p) => !p.isRepost);
+    return own.find((p) => !p.isReply) ?? own[0] ?? null;
   });
 
   const draftReply = Effect.fn("LeadsOps.draftReply")(function* (personId: number) {
@@ -223,9 +232,11 @@ const make = Effect.gen(function* () {
     postId: string,
     text: string,
   ) {
+    // Looked up before posting: a reply that went out must not end in an error the user retries.
+    const person = yield* people.get(personId);
     const created = yield* x.createPost({ text, replyToPostId: postId, purpose: "leads.reply" });
     yield* people.logActivity(personId, "replied", text.slice(0, 140));
-    yield* people.update({ id: personId, stage: "contacted" });
+    yield* markContacted(person);
     return { postId: created.postId };
   });
 

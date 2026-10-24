@@ -7,8 +7,13 @@ import { sessionUrlAtom } from "../state/shell";
 
 /** "settings" or "/i/bookmarks" become x.com URLs; anything already a URL is kept. */
 const toSessionUrl = (text: string): string => {
+  // "x.com/levelsio", as the placeholder shows it, has no scheme and would resolve as a path.
+  const trimmed = text.trim();
+  const absolute = /^(www\.)?(x|twitter)\.com(\/|$)/i.test(trimmed)
+    ? `https://${trimmed}`
+    : trimmed;
   try {
-    return new URL(text.trim(), "https://x.com/").toString();
+    return new URL(absolute, "https://x.com/").toString();
   } catch {
     return "https://x.com/home";
   }

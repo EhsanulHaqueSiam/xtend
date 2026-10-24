@@ -56,6 +56,11 @@ export type ObservationSource = typeof ObservationSource.Type;
 export const ObservationBatch = Schema.Struct({
   /** Handle of the logged-in account the session view belongs to, when known. */
   viewerHandle: Schema.NullOr(XHandle),
+  /**
+   * The Xtend account whose session view captured the batch. A batch queued while the service was
+   * away may arrive after a switch; it still belongs to this account, not the current one.
+   */
+  accountId: Schema.optional(Schema.Int),
   source: ObservationSource,
   observedAt: IsoDateTime,
   posts: Schema.Array(ObservedPost),

@@ -88,8 +88,9 @@ export class ScoreStore extends Context.Service<
   }
 >()("xtend/scores/ScoreStore") {}
 
+// A ScoresError raised inside keeps its own operation; wrapping it would read "run failed: run failed".
 const fail = (operation: string) => (cause: { readonly message: string }) =>
-  new ScoresError({ operation, detail: cause.message });
+  cause instanceof ScoresError ? cause : new ScoresError({ operation, detail: cause.message });
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -135,8 +136,11 @@ const make = Effect.gen(function* () {
 
   const history = Effect.fn("ScoreStore.history")(
     function* (handle: string) {
+      // The newest year, oldest first; a bare ASC LIMIT would freeze the chart a year in.
       return yield* sql<{ at: string; score: number }>`
-        SELECT at, score FROM score_samples WHERE handle = ${handle} ORDER BY day ASC LIMIT 365
+        SELECT at, score FROM (
+          SELECT day, at, score FROM score_samples WHERE handle = ${handle} ORDER BY day DESC LIMIT 365
+        ) ORDER BY day ASC
       `;
     },
     Effect.mapError(fail("history")),
@@ -184,8 +188,10 @@ const make = Effect.gen(function* () {
         bio: string | null;
         avatar_url: string | null;
       }>`
-        SELECT day, followers, name, bio, avatar_url FROM profile_snapshots
-        WHERE handle = ${handle} AND name IS NOT NULL ORDER BY day ASC LIMIT 365
+        SELECT * FROM (
+          SELECT day, followers, name, bio, avatar_url FROM profile_snapshots
+          WHERE handle = ${handle} AND name IS NOT NULL ORDER BY day DESC LIMIT 365
+        ) ORDER BY day ASC
       `;
       const changes: Array<ProfileChange> = [];
       for (const r of rows) {
@@ -200,7 +206,8 @@ const make = Effect.gen(function* () {
     Effect.mapError(fail("profileHistory")),
   );
 
-  // Latest sample per handle plus the newest sample at least N days old for each change window.
+  // Latest sample per handle plus, for each window, the newest sample at least N days before it.
+  // Counting from today instead would compare a stale latest sample with itself and show 0.
   const watchList = sql<{
     handle: string;
     added_at: string;
@@ -212,10 +219,10 @@ const make = Effect.gen(function* () {
     d30: number | null;
   }>`
     SELECT w.handle, w.added_at, s.score, s.tier,
-      (SELECT score FROM score_samples p WHERE p.handle = w.handle AND p.day <= date('now', '-1 days') ORDER BY p.day DESC LIMIT 1) AS d1,
-      (SELECT score FROM score_samples p WHERE p.handle = w.handle AND p.day <= date('now', '-7 days') ORDER BY p.day DESC LIMIT 1) AS d7,
-      (SELECT score FROM score_samples p WHERE p.handle = w.handle AND p.day <= date('now', '-14 days') ORDER BY p.day DESC LIMIT 1) AS d14,
-      (SELECT score FROM score_samples p WHERE p.handle = w.handle AND p.day <= date('now', '-30 days') ORDER BY p.day DESC LIMIT 1) AS d30
+      (SELECT score FROM score_samples p WHERE p.handle = w.handle AND p.day <= date(s.day, '-1 days') ORDER BY p.day DESC LIMIT 1) AS d1,
+      (SELECT score FROM score_samples p WHERE p.handle = w.handle AND p.day <= date(s.day, '-7 days') ORDER BY p.day DESC LIMIT 1) AS d7,
+      (SELECT score FROM score_samples p WHERE p.handle = w.handle AND p.day <= date(s.day, '-14 days') ORDER BY p.day DESC LIMIT 1) AS d14,
+      (SELECT score FROM score_samples p WHERE p.handle = w.handle AND p.day <= date(s.day, '-30 days') ORDER BY p.day DESC LIMIT 1) AS d30
     FROM watch w
     LEFT JOIN score_samples s ON s.handle = w.handle
       AND s.day = (SELECT MAX(day) FROM score_samples WHERE handle = w.handle)
@@ -245,14 +252,14 @@ const make = Effect.gen(function* () {
       }>`SELECT COUNT(*) AS n FROM watch WHERE account_id = ${sql.literal(CURRENT_ACCOUNT)}`;
       if ((count[0]?.n ?? 0) >= 100)
         return yield* new ScoresError({ operation: "watchAdd", detail: "watchlist is full (100)" });
-      yield* sql`INSERT OR IGNORE INTO watch (handle, added_at) VALUES (${handle.toLowerCase()}, ${at})`;
+      yield* sql`INSERT OR IGNORE INTO watch (account_id, handle, added_at) VALUES (${sql.literal(CURRENT_ACCOUNT)}, ${handle.toLowerCase()}, ${at})`;
     },
     Effect.mapError(fail("watchAdd")),
   );
 
   const watchRemove = Effect.fn("ScoreStore.watchRemove")(
     function* (handle: string) {
-      yield* sql`DELETE FROM watch WHERE handle = ${handle.toLowerCase()}`;
+      yield* sql`DELETE FROM watch WHERE handle = ${handle.toLowerCase()} AND account_id = ${sql.literal(CURRENT_ACCOUNT)}`;
     },
     Effect.mapError(fail("watchRemove")),
   );

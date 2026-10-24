@@ -23,3 +23,18 @@ it("address navigates x.com on Enter and closes", async () => {
   await userEvent.type(input, "i/bookmarks{Enter}");
   expect(calls.splice(0)).toEqual(["navigate https://x.com/i/bookmarks", "close bar"]);
 });
+
+it("address takes a URL typed without its scheme, as the placeholder shows it", async () => {
+  await using screen = await render(<AddressBar />);
+  const input = screen.getByLabelText("Session URL");
+  await userEvent.clear(input);
+  await userEvent.type(input, "x.com/levelsio{Enter}");
+  await userEvent.clear(input);
+  await userEvent.type(input, "https://x.com/i/bookmarks{Enter}");
+  expect(calls.splice(0)).toEqual([
+    "navigate https://x.com/levelsio",
+    "close bar",
+    "navigate https://x.com/i/bookmarks",
+    "close bar",
+  ]);
+});

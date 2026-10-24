@@ -52,6 +52,10 @@ export const dismiss = (current: SlotOpen | null): SlotOpen | null =>
 export const close = (current: SlotOpen | null, kind?: SlotKind): SlotOpen | null =>
   kind === undefined || current?.kind === kind ? null : current;
 
+/** A rect X reported mid-remount (display: none measures 0x0) or one left outside a shrunk window is no column. */
+const onScreen = (r: Rect | null, window: Size): Rect | null =>
+  r !== null && r.width > 0 && r.height > 0 && r.x < window.width && r.x + r.width > 0 ? r : null;
+
 /**
  * Bounds for an open slot, in window CSS pixels. `column` is X's primary
  * column when the page has one; otherwise a 600px column centered in the
@@ -61,18 +65,24 @@ export const close = (current: SlotOpen | null, kind?: SlotKind): SlotOpen | nul
 export function slotBounds(
   slot: SlotOpen,
   window: Size,
-  column: Rect | null,
-  sidebar: Rect | null = null,
+  reportedColumn: Rect | null,
+  reportedSidebar: Rect | null = null,
 ): Rect {
+  const column = onScreen(reportedColumn, window);
+  const sidebar = onScreen(reportedSidebar, window);
   const columnWidth = Math.min(column?.width ?? FALLBACK_COLUMN_WIDTH, window.width);
   const columnX = column?.x ?? (window.width - columnWidth) / 2;
   switch (slot.kind) {
     case "center": {
-      const right =
-        sidebar !== null && column !== null && isWide(slot.route)
-          ? Math.min(sidebar.x + sidebar.width, window.width)
-          : columnX + columnWidth;
-      return rect(columnX, 0, right - columnX, window.height);
+      if (sidebar === null || column === null || !isWide(slot.route))
+        return rect(columnX, 0, columnWidth, window.height);
+      // Right-to-left X puts its sidebar left of the column, so span whichever side it is on.
+      const left = Math.max(0, Math.min(columnX, sidebar.x));
+      const right = Math.min(
+        window.width,
+        Math.max(columnX + columnWidth, sidebar.x + sidebar.width),
+      );
+      return rect(left, 0, right - left, window.height);
     }
     case "bar":
       return rect(columnX, 0, columnWidth, BAR_HEIGHT);

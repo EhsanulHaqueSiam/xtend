@@ -27,9 +27,6 @@ const Blocks = Schema.fromJsonString(Schema.Array(Schema.String));
 const decodeBlocks = Schema.decodeUnknownSync(Blocks);
 const encodeBlocks = Schema.encodeSync(Blocks);
 
-/** The seeded read-only collection the picks of the day land in. */
-export const STAFF_PICKS_ID = 1;
-
 interface SavedRow {
   readonly id: number;
   readonly post_json: string;
@@ -129,6 +126,11 @@ export class LibraryStore extends Context.Service<
     readonly collectionCreate: (name: string) => Effect.Effect<Collection, LibraryError>;
     readonly collectionRename: (id: number, name: string) => Effect.Effect<void, LibraryError>;
     readonly collectionDelete: (id: number) => Effect.Effect<void, LibraryError>;
+    /** Unlinks the post from one of this account's own collections; Staff picks is read-only. */
+    readonly collectionRemovePost: (
+      collectionId: number,
+      savedId: number,
+    ) => Effect.Effect<void, LibraryError>;
     readonly picksForDay: (day: string) => Effect.Effect<ReadonlyArray<Pick>, LibraryError>;
     readonly pickFetchedKeywords: (
       day: string,
@@ -185,17 +187,20 @@ const make = Effect.gen(function* () {
     readonly note?: string | undefined;
   }) {
     const at = yield* now;
-    yield* sql`
-        INSERT INTO saved_posts (post_id, post_json, note, saved_at)
-        VALUES (${input.post.postId}, ${encodePost(input.post)}, ${input.note ?? ""}, ${at})
-        ON CONFLICT(post_id) DO UPDATE SET note = CASE WHEN excluded.note = '' THEN note ELSE excluded.note END
-      `;
+    // An explicit account_id: the conflict check runs before 014's trigger would stamp one.
     const rows = yield* sql<{ id: number }>`
-        SELECT id FROM saved_posts WHERE post_id = ${input.post.postId}
+        INSERT INTO saved_posts (account_id, post_id, post_json, note, saved_at)
+        VALUES (${sql.literal(CURRENT_ACCOUNT)}, ${input.post.postId}, ${encodePost(input.post)}, ${input.note ?? ""}, ${at})
+        ON CONFLICT(account_id, post_id) DO UPDATE SET note = CASE WHEN excluded.note = '' THEN note ELSE excluded.note END
+        RETURNING id
       `;
     const id = rows[0]!.id;
     if (input.collectionId !== null) {
-      yield* sql`INSERT OR IGNORE INTO collection_posts (collection_id, saved_id) VALUES (${input.collectionId}, ${id})`;
+      // Only into this account's own collections; another account's id links nothing.
+      yield* sql`
+        INSERT OR IGNORE INTO collection_posts (collection_id, saved_id)
+        SELECT id, ${id} FROM collections WHERE id = ${input.collectionId} AND account_id = ${sql.literal(CURRENT_ACCOUNT)}
+      `;
     }
     const saved = yield* savedSelect(sql`WHERE s.id = ${id}`, 1);
     return toSaved(saved[0]!);
@@ -205,23 +210,34 @@ const make = Effect.gen(function* () {
     readonly collectionId?: number | undefined;
     readonly query?: string | undefined;
   }) {
-    const like = `%${input.query ?? ""}%`;
-    const rows =
-      input.collectionId === undefined
-        ? yield* savedSelect(sql`WHERE (s.post_json LIKE ${like} OR s.note LIKE ${like})`, 200)
-        : yield* savedSelect(
-            sql`WHERE s.id IN (SELECT saved_id FROM collection_posts WHERE collection_id = ${input.collectionId})`,
-            200,
-          );
+    const query = input.query?.trim() ?? "";
+    // What the user typed is literal text, so % and _ match themselves.
+    const likeOf = (text: string) => `%${text.replace(/[\\%_]/g, "\\$&")}%`;
+    const matches = (column: Statement.Fragment, text = query) =>
+      sql`${column} LIKE ${likeOf(text)} ESCAPE '\\'`;
+    // The text, author and note the user sees; matching the raw JSON would hit its keys and URLs.
+    const rows = yield* savedSelect(
+      sql`WHERE 1 = 1
+        ${input.collectionId === undefined ? sql`` : sql`AND s.id IN (SELECT saved_id FROM collection_posts WHERE collection_id = ${input.collectionId})`}
+        ${
+          query === ""
+            ? sql``
+            : sql`AND (${matches(sql`json_extract(s.post_json, '$.text')`)}
+                OR ${matches(sql`json_extract(s.post_json, '$.author.handle')`, query.replace(/^@/, ""))}
+                OR ${matches(sql`json_extract(s.post_json, '$.author.name')`)}
+                OR ${matches(sql`s.note`)})`
+        }`,
+      200,
+    );
     return rows.map(toSaved);
   }, Effect.mapError(storeError));
 
   const savedSetNote = Effect.fn("LibraryStore.savedSetNote")(function* (id: number, note: string) {
-    yield* sql`UPDATE saved_posts SET note = ${note} WHERE id = ${id}`;
+    yield* sql`UPDATE saved_posts SET note = ${note} WHERE id = ${id} AND account_id = ${sql.literal(CURRENT_ACCOUNT)}`;
   }, Effect.mapError(storeError));
 
   const savedDelete = Effect.fn("LibraryStore.savedDelete")(function* (id: number) {
-    yield* sql`DELETE FROM saved_posts WHERE id = ${id}`;
+    yield* sql`DELETE FROM saved_posts WHERE id = ${id} AND account_id = ${sql.literal(CURRENT_ACCOUNT)}`;
   }, Effect.mapError(storeError));
 
   const getSavedPost = Effect.fn("LibraryStore.getSavedPost")(function* (postId: string) {
@@ -229,9 +245,26 @@ const make = Effect.gen(function* () {
     return rows.length === 0 ? null : toSaved(rows[0]!);
   }, Effect.mapError(storeError));
 
+  // Each account's read-only Staff picks. Account 1's is the row 005 seeded; a later account gets
+  // its own the first time picks land.
+  const staffPicksId = Effect.gen(function* () {
+    const found = yield* sql<{ id: number }>`
+      SELECT id FROM collections WHERE built_in = 1 AND account_id = ${sql.literal(CURRENT_ACCOUNT)} ORDER BY id LIMIT 1
+    `;
+    if (found[0] !== undefined) return found[0].id;
+    const created = yield* sql<{ id: number }>`
+      INSERT INTO collections (account_id, name, built_in, created_at)
+      VALUES (${sql.literal(CURRENT_ACCOUNT)}, 'Staff picks', 1, ${yield* now}) RETURNING id
+    `;
+    return created[0]!.id;
+  }).pipe(Effect.mapError(storeError));
+
+  // Counted as savedList lists them: a link 014-era picks made from another account's saved post
+  // into account 1's Staff picks would otherwise count a post the list never shows.
   const collectionsList = sql<CollectionRow>`
     SELECT c.id, c.name, c.built_in, c.created_at,
-      (SELECT COUNT(*) FROM collection_posts cp WHERE cp.collection_id = c.id) AS posts
+      (SELECT COUNT(*) FROM collection_posts cp JOIN saved_posts s ON s.id = cp.saved_id
+        WHERE cp.collection_id = c.id AND s.account_id = c.account_id) AS posts
     FROM collections c WHERE c.account_id = ${sql.literal(CURRENT_ACCOUNT)} ORDER BY c.built_in DESC, c.name
   `.pipe(
     Effect.map((rows) => rows.map(toCollection)),
@@ -250,11 +283,22 @@ const make = Effect.gen(function* () {
     id: number,
     name: string,
   ) {
-    yield* sql`UPDATE collections SET name = ${name} WHERE id = ${id} AND built_in = 0`;
+    yield* sql`UPDATE collections SET name = ${name} WHERE id = ${id} AND built_in = 0 AND account_id = ${sql.literal(CURRENT_ACCOUNT)}`;
   }, Effect.mapError(storeError));
 
   const collectionDelete = Effect.fn("LibraryStore.collectionDelete")(function* (id: number) {
-    yield* sql`DELETE FROM collections WHERE id = ${id} AND built_in = 0`;
+    yield* sql`DELETE FROM collections WHERE id = ${id} AND built_in = 0 AND account_id = ${sql.literal(CURRENT_ACCOUNT)}`;
+  }, Effect.mapError(storeError));
+
+  const collectionRemovePost = Effect.fn("LibraryStore.collectionRemovePost")(function* (
+    collectionId: number,
+    savedId: number,
+  ) {
+    yield* sql`
+      DELETE FROM collection_posts WHERE saved_id = ${savedId} AND collection_id IN (
+        SELECT id FROM collections WHERE id = ${collectionId} AND built_in = 0 AND account_id = ${sql.literal(CURRENT_ACCOUNT)}
+      )
+    `;
   }, Effect.mapError(storeError));
 
   const picksForDay = Effect.fn("LibraryStore.picksForDay")(function* (day: string) {
@@ -280,15 +324,21 @@ const make = Effect.gen(function* () {
     readonly keyword: string;
     readonly posts: ReadonlyArray<XPost>;
   }) {
-    yield* sql`INSERT OR IGNORE INTO pick_fetches (day, keyword) VALUES (${input.day}, ${input.keyword})`;
-    for (const post of input.posts) {
-      yield* sql`
-          INSERT OR IGNORE INTO picks (day, keyword, post_id, post_json)
-          VALUES (${input.day}, ${input.keyword}, ${post.postId}, ${encodePost(post)})
-        `;
-      // Staff picks mirrors the picks of the day.
-      yield* save({ post, collectionId: STAFF_PICKS_ID });
-    }
+    // All or nothing: a keyword marked fetched with half its posts would never be fetched again.
+    yield* sql.withTransaction(
+      Effect.gen(function* () {
+        yield* sql`INSERT OR IGNORE INTO pick_fetches (day, keyword) VALUES (${input.day}, ${input.keyword})`;
+        const collectionId = yield* staffPicksId;
+        for (const post of input.posts) {
+          yield* sql`
+            INSERT OR IGNORE INTO picks (day, keyword, post_id, post_json)
+            VALUES (${input.day}, ${input.keyword}, ${post.postId}, ${encodePost(post)})
+          `;
+          // Staff picks mirrors the picks of the day.
+          yield* save({ post, collectionId });
+        }
+      }),
+    );
   }, Effect.mapError(storeError));
 
   const pickRow = (postId: string) =>
@@ -324,9 +374,9 @@ const make = Effect.gen(function* () {
     const at = yield* now;
     for (const post of posts) {
       yield* sql`
-        INSERT INTO library_posts (post_id, post_json, author_followers, views, lang, year, format, first_seen_at, last_seen_at)
-        VALUES (${post.postId}, ${encodePost(post)}, ${post.author.followers}, ${post.metrics.views}, ${post.lang}, ${Number(post.createdAt.slice(0, 4))}, ${formatOf(post)}, ${at}, ${at})
-        ON CONFLICT(post_id) DO UPDATE SET
+        INSERT INTO library_posts (account_id, post_id, post_json, author_followers, views, lang, year, format, first_seen_at, last_seen_at)
+        VALUES (${sql.literal(CURRENT_ACCOUNT)}, ${post.postId}, ${encodePost(post)}, ${post.author.followers}, ${post.metrics.views}, ${post.lang}, ${Number(post.createdAt.slice(0, 4))}, ${formatOf(post)}, ${at}, ${at})
+        ON CONFLICT(account_id, post_id) DO UPDATE SET
           post_json = excluded.post_json, author_followers = excluded.author_followers,
           views = excluded.views, last_seen_at = excluded.last_seen_at
       `;
@@ -351,7 +401,8 @@ const make = Effect.gen(function* () {
 
   const libraryPost = Effect.fn("LibraryStore.libraryPost")(function* (postId: string) {
     const rows = yield* sql<LibraryRow>`
-      SELECT post_json, format, hook_pattern, last_seen_at FROM library_posts WHERE post_id = ${postId}
+      SELECT post_json, format, hook_pattern, last_seen_at FROM library_posts
+      WHERE post_id = ${postId} AND account_id = ${sql.literal(CURRENT_ACCOUNT)}
     `;
     return rows.length === 0 ? null : toLibraryPost(rows[0]!);
   }, Effect.mapError(storeError));
@@ -379,7 +430,7 @@ const make = Effect.gen(function* () {
     }>,
   ) {
     for (const l of labels)
-      yield* sql`UPDATE library_posts SET format = ${l.format}, hook_pattern = ${l.hookPattern} WHERE post_id = ${l.postId}`;
+      yield* sql`UPDATE library_posts SET format = ${l.format}, hook_pattern = ${l.hookPattern} WHERE post_id = ${l.postId} AND account_id = ${sql.literal(CURRENT_ACCOUNT)}`;
   }, Effect.mapError(storeError));
 
   return LibraryStore.of({
@@ -398,6 +449,7 @@ const make = Effect.gen(function* () {
     collectionCreate,
     collectionRename,
     collectionDelete,
+    collectionRemovePost,
     picksForDay,
     pickFetchedKeywords,
     picksRecord,

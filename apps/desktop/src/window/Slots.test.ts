@@ -49,6 +49,31 @@ it("stretches wide routes over X's right column when X shows one", () => {
   );
 });
 
+it("spans the sidebar on its left in right-to-left X", () => {
+  const rtlColumn = { x: 420, y: 0, width: 600, height: 920 };
+  const rtlSidebar = { x: 40, y: 0, width: 350, height: 920 };
+  expect(
+    slotBounds({ kind: "center", route: "/compose?new=1" }, win, rtlColumn, rtlSidebar),
+  ).toEqual({ x: 40, y: 0, width: 980, height: 920 });
+});
+
+it("falls back to the centered column when X reports an empty or off-screen column", () => {
+  const centered = { x: 420, y: 0, width: 600, height: 920 };
+  const hidden = { x: 0, y: 0, width: 0, height: 0 };
+  expect(slotBounds({ kind: "center", route: "/plan" }, win, hidden)).toEqual(centered);
+  // A stale rect from before the window shrank.
+  const gone = { x: 1600, y: 0, width: 600, height: 920 };
+  expect(slotBounds({ kind: "center", route: "/plan" }, win, gone)).toEqual(centered);
+  expect(slotBounds({ kind: "bar", route: "/bar/find" }, win, hidden).width).toBe(600);
+  // An empty sidebar leaves a wide route on the column alone.
+  expect(slotBounds({ kind: "center", route: "/compose?new=1" }, win, column, hidden)).toEqual({
+    x: 420,
+    y: 0,
+    width: 600,
+    height: 920,
+  });
+});
+
 it("hangs a popover below its anchor, flips above when there is no room, and stays inside", () => {
   const anchor = { x: 700, y: 100, width: 60, height: 20 };
   expect(slotBounds({ kind: "popover", route: "/p", anchor }, win, null)).toEqual({

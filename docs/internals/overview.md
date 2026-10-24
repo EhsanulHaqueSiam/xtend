@@ -51,7 +51,7 @@ How each client gets it:
 - **HTTP API, CLI, MCP**: `POST /api/rpc/<method>` with the bearer token; see
   [api.md](../operations/api.md).
 - **Remote browser**: opens the service URL once with `?token=`; the client keeps it in
-  sessionStorage and strips it from the address bar.
+  sessionStorage and strips it from the address bar, even when another token wins.
 - **Packaged web app**: the service serves `index.html` itself and injects
   `<meta name="xtend-token">`; the client reads the tag and opens `/ws?token=`.
 - **Web dev server**: the page POSTs `/api/auth/dev-token`, which the service only serves when a
@@ -70,7 +70,8 @@ The desktop makes sure a service answers before it opens its window
 (`apps/desktop/src/service/ServiceSupervisor.ts`): a remote URL is only probed, a loaded
 `com.xtend.service` launchd agent is waited for, and otherwise the service runs as a child of
 the desktop (Electron as Node, `XTEND_SUPERVISOR=child`), restarted with backoff and killed on
-quit. `xtend service install` writes the launchd agent so schedules fire with the app closed.
+quit. The child also exits when the desktop's end of its stdin pipe closes, so a crashed desktop
+leaves no service holding the port; launchd and shell runs ignore stdin. `xtend service install` writes the launchd agent so schedules fire with the app closed.
 The service reports `supervisor` in `server.info`; Settings shows it together with how the
 desktop reached the service (child, launchd, remote, none).
 
@@ -86,19 +87,26 @@ trigger stamps new rows with the current account, so a switch is one UPDATE. Sel
 account also sets `settings.handle`, which every handle-scoped screen reads. The desktop
 opens one session partition per account (`persist:x-session-<id>`; account 1 keeps the
 original `persist:x-session` so an existing login survives) and rebuilds the window on a
-switch. Scheduled work (queued drafts, agent and rule ticks) runs for the current account.
+switch. A switch publishes `account_switched`, and every other client reloads (or rebuilds its
+window) onto the new account. It is refused while a draft of the current account is posting,
+since the rest of a thread's media posts would go through the new account's session. Each
+observation batch names the account whose session captured it, so a batch queued before a
+switch is filed under that account. Scheduled work (queued drafts, agent and rule ticks) runs for
+the current account.
 
 ## Money
 
 `apps/server/src/budget/Budget.ts` is the one budget gate. Treg and Assist reserve the quoted
 price under a semaphore before a call and settle what the provider charged afterwards, so
 concurrent callers cannot overshoot the monthly budget. When treg sends no cost, the quoted price
-is charged rather than zero. Prices live only in `XClient.RATE_CARD`; clients ask the
+is charged rather than zero, and so is a call that timed out or whose caller went away mid-flight,
+since it may have been served. Prices live only in `XClient.RATE_CARD`; clients ask the
 `costs.quote` rpc for the rate card and per-action quotes, which also say when the read cache
 would make a click free.
 
 ## Time
 
 `settings.timeZone` (IANA, default: the service machine's zone) is the zone for posting slots,
-the calendar, schedule triggers and the best-time heatmap. The service does every conversion;
+the calendar, schedule triggers, the best-time heatmap and the spend meter's day and month (the
+budget's month with it). The service does every conversion;
 clients render instants in that zone and never use the browser's.

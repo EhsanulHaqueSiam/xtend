@@ -2,17 +2,21 @@ import { Automate_METHODS, type RuleInput } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 
 import { clientRuntime, XtendClient } from "../rpc/client";
+import { eventsOfTypeAtom } from "./shell";
 
-export const rulesAtom = clientRuntime.atom(
+// A rule that fires on the service's own clock changes its spend, the runs log and Needs you.
+export const rulesAtom = clientRuntime.atom((get) =>
   Effect.gen(function* () {
+    get(eventsOfTypeAtom("rule_fired"));
     const client = yield* XtendClient;
     return yield* client[Automate_METHODS.rulesList]({});
   }),
 );
 
 /** Newest first, capped by the service. Refresh after any run. */
-export const runsAtom = clientRuntime.atom(
+export const runsAtom = clientRuntime.atom((get) =>
   Effect.gen(function* () {
+    get(eventsOfTypeAtom("rule_fired"));
     const client = yield* XtendClient;
     return yield* client[Automate_METHODS.runsList]({});
   }),
@@ -40,7 +44,7 @@ export const runRuleNowAtom = clientRuntime.fn<number>()(
   }),
 );
 
-/** What every enabled rule would do right now. Reads X (cached), fires nothing. */
+/** What every enabled rule would do right now. Reads only stored or cached data, so it is free; fires nothing. */
 export const previewAtom = clientRuntime.fn<void>()(
   Effect.fnUntraced(function* () {
     const client = yield* XtendClient;
@@ -49,8 +53,9 @@ export const previewAtom = clientRuntime.fn<void>()(
 );
 
 /** Ask-first requests waiting for a click. Refresh after approving, dismissing or any run. */
-export const pendingAtom = clientRuntime.atom(
+export const pendingAtom = clientRuntime.atom((get) =>
   Effect.gen(function* () {
+    get(eventsOfTypeAtom("rule_fired"));
     const client = yield* XtendClient;
     return yield* client[Automate_METHODS.pendingList]({});
   }),
