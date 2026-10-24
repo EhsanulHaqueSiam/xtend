@@ -165,7 +165,10 @@ const make = Effect.gen(function* () {
   const requireHandle = Effect.flatMap(handle, (h) =>
     h === null
       ? Effect.fail(
-          new AnalyzeError({ operation: "handle", detail: "set your X handle in Settings" }),
+          new AnalyzeError({
+            operation: "handle",
+            detail: "no X handle yet; it comes from your X session, or set it in Settings",
+          }),
         )
       : Effect.succeed(h),
   );

@@ -166,7 +166,7 @@ const make = Effect.gen(function* () {
     if (handle === null)
       return yield* new LeadsError({
         operation: "newFollowers",
-        detail: "set your X handle in Settings first",
+        detail: "no X handle yet; it comes from your X session, or set it in Settings",
         cause: null,
       });
     const page = yield* x.followers(handle, { purpose: "leads.newFollowers" });
