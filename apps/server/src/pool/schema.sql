@@ -155,8 +155,16 @@ begin
 end $$;
 
 -- Trends. Hot posts: views gained over the last 24 hours, from the first and last sighting in
--- that window, counted only for posts three or more installs saw. Rising terms: words in the
--- last 24 hours against the week before, from those same posts.
+-- that window, counted only for posts three or more settled installs saw: an install counts
+-- toward trends a day after it registered, so a burst of fresh ids cannot vote. Rising terms:
+-- words in the last 24 hours against the week before, from those same posts.
+create or replace view pool_settled_posts as
+  select s.post_id, count(*) as settled_sightings
+  from pool_sightings s
+  join pool_installs i on i.install_id = s.install_id
+  where i.created_at < now() - interval '24 hours'
+  group by s.post_id
+  having count(*) >= 3;
 drop materialized view if exists pool_hot_posts;
 create materialized view pool_hot_posts as
 with window_metrics as (
@@ -173,7 +181,8 @@ with window_metrics as (
 select p.post_id, p.author_id, a.handle, p.text, p.created_at, p.sightings,
        w.views_24h, w.likes_24h, w.reposts_24h, w.last_seen
 from window_metrics w
-join pool_posts p on p.post_id = w.post_id and p.sightings >= 3
+join pool_settled_posts sp on sp.post_id = w.post_id
+join pool_posts p on p.post_id = w.post_id
 join pool_authors a on a.user_id = p.author_id
 order by w.views_24h desc nulls last
 limit 500;
@@ -183,15 +192,15 @@ drop materialized view if exists pool_rising_terms;
 create materialized view pool_rising_terms as
 with recent as (
   select word, count(*) as n
-  from pool_posts, regexp_split_to_table(lower(text), '[^a-z0-9_#@]+') as word
-  where created_at > now() - interval '24 hours' and sightings >= 3 and length(word) between 3 and 40
+  from pool_posts join pool_settled_posts using (post_id), regexp_split_to_table(lower(text), '[^a-z0-9_#@]+') as word
+  where created_at > now() - interval '24 hours' and length(word) between 3 and 40
   group by word
 ),
 before as (
   select word, count(*) / 7.0 as n_per_day
-  from pool_posts, regexp_split_to_table(lower(text), '[^a-z0-9_#@]+') as word
+  from pool_posts join pool_settled_posts using (post_id), regexp_split_to_table(lower(text), '[^a-z0-9_#@]+') as word
   where created_at between now() - interval '8 days' and now() - interval '24 hours'
-    and sightings >= 3 and length(word) between 3 and 40
+    and length(word) between 3 and 40
   group by word
 )
 select r.word, r.n as today, coalesce(b.n_per_day, 0) as per_day_before,
