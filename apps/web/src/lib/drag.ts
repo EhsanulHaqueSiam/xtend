@@ -38,3 +38,10 @@ export const carriesLink = (dt: DataTransfer | null) =>
 
 /** The drag type a draft card carries between the board, the Ready list and the calendar: its id. */
 export const DRAFT_TYPE = "application/x-xtend-draft";
+
+/**
+ * A Library card carries the whole post as JSON under this type, beside its URL, so a
+ * collection can file it without an observation lookup. The URL still serves every
+ * other drop target.
+ */
+export const POST_TYPE = "application/x-xtend-post";

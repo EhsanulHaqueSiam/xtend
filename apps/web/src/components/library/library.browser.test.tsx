@@ -310,3 +310,31 @@ it("prices trend ideas by the country whose trends are loaded", async () => {
     .element(screen.getByRole("button", { name: /^Write 5 ideas.*cached, free \+ \$0\.001$/ }))
     .toBeEnabled();
 });
+
+it("dragging a saved card onto another collection files it there", async () => {
+  const saves: Array<number | null> = [];
+  await using screen = await render(<CollectionsTab />, {
+    service: {
+      "library.collectionsList": () =>
+        Effect.succeed([
+          collection(1, "Staff picks", true),
+          collection(2, "Hooks"),
+          collection(3, "Threads"),
+        ]),
+      "library.savedList": ({ collectionId }) =>
+        Effect.succeed(collectionId === 2 ? [saved(5, first)] : []),
+      "library.save": ({ collectionId, post }) => {
+        saves.push(collectionId);
+        return Effect.succeed(saved(9, post));
+      },
+    },
+  });
+  await userEvent.click(screen.getByRole("button", { name: /^Hooks/ }));
+  await expect.element(screen.getByText(first.text)).toBeVisible();
+
+  await screen.getByText(first.text).dropTo(screen.getByRole("button", { name: /^Threads/ }));
+  await expect
+    .element(screen.getByRole("button", { name: /^Threads/ }))
+    .toHaveAttribute("data-active", "true");
+  expect(saves).toEqual([3]);
+});

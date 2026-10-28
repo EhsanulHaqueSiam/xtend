@@ -2,6 +2,7 @@ import type { XPost } from "@xtend/contracts";
 import { ArrowUpRight } from "lucide-react";
 import type { ReactNode } from "react";
 
+import { POST_TYPE } from "../../lib/drag";
 import { cn } from "../../lib/utils";
 import { XLink } from "../ui/x-link";
 import { QuickSave, RemixButton, useSavedIds } from "./SaveButton";
@@ -67,6 +68,12 @@ function PostCard({
   return (
     <article
       data-selected={selected}
+      draggable
+      onDragStart={(event) => {
+        event.dataTransfer.setData("text/uri-list", post.url);
+        event.dataTransfer.setData(POST_TYPE, JSON.stringify(post));
+        event.dataTransfer.effectAllowed = "copy";
+      }}
       className="group mb-3 break-inside-avoid rounded-[14px] border border-border bg-white/[0.02] transition-[border-color,background-color] duration-150 hover:border-white/13 hover:bg-white/[0.04] data-[selected=true]:border-white/30 data-[selected=true]:bg-white/[0.05]"
     >
       <button
