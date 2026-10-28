@@ -177,6 +177,7 @@ function PlanScreen() {
       search: {
         draft: undefined,
         inspire: undefined,
+        quote: undefined,
         reply: undefined,
         text: undefined,
         new: undefined,
