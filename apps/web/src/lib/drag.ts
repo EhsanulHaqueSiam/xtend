@@ -35,3 +35,6 @@ export const postFromTransfer = (dt: DataTransfer): DraggedPost | null => {
 /** True while a link or text drag is over the window; the data itself is only readable on drop. */
 export const carriesLink = (dt: DataTransfer | null) =>
   dt !== null && Array.from(dt.types).some((t) => t === "text/uri-list" || t === "text/plain");
+
+/** The drag type a draft card carries between the board, the Ready list and the calendar: its id. */
+export const DRAFT_TYPE = "application/x-xtend-draft";

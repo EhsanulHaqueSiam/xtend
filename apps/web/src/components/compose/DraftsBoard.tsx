@@ -2,6 +2,7 @@ import { useAtomSet } from "@effect/atom-react";
 import type { Draft } from "@xtend/contracts";
 import { useState } from "react";
 
+import { DRAFT_TYPE } from "../../lib/drag";
 import { cn } from "../../lib/utils";
 import { updateDraftAtom } from "../../state/compose";
 import { queueAtom, unscheduleAtom } from "../../state/plan";
@@ -9,8 +10,6 @@ import { errorMessage } from "../library/shared";
 import { Cost } from "../ui/layout";
 import { toastAtom } from "../ui/toast";
 import { draftTitle, fmtWhen } from "./DraftsList";
-
-const DRAFT_TYPE = "application/x-xtend-draft";
 
 /** The board's columns are the draft statuses the user moves between; the service owns the rest. */
 const COLUMNS = [

@@ -41,6 +41,7 @@ it("lays a DST week out in the account zone: past slots gone, drafts by status, 
       now={now}
       slots={slots}
       drafts={drafts}
+      heatmap={null}
       fillable={[draft("d1", "draft", { blocks: [{ text: "Fill me" }] })]}
       onFill={onFill}
       onOpen={onOpen}
