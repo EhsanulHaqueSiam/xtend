@@ -2,7 +2,24 @@
 
 ## Using Xtend
 
-User guides arrive with the first usable release.
+- [Install Xtend](./user/install.md)
+- [x.com inside Xtend](./user/x-view.md)
+- [Home and Seen](./user/seen.md)
+- [Compose](./user/compose.md)
+- [Plan](./user/plan.md)
+- [Library](./user/library.md)
+- [Engage](./user/engage.md)
+- [Leads](./user/leads.md)
+- [Automate](./user/automate.md)
+- [Analyze](./user/analyze.md)
+- [Scores](./user/scores.md)
+- [Costs and budget](./user/costs.md)
+- [Settings](./user/settings.md)
+- [Accounts](./user/accounts.md)
+- [Keys and the command palette](./user/keys-and-palette.md)
+- [Remote service](./user/remote-service.md)
+- [CLI, HTTP API and MCP](./user/api-and-mcp.md)
+- [FAQ](./user/faq.md)
 
 ## Working on Xtend
 
