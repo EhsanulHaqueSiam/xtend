@@ -1,6 +1,6 @@
 import type { AccountPost } from "@xtend/contracts";
 import * as Cause from "effect/Cause";
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
 import { table } from "../ui/layout";
@@ -61,7 +61,7 @@ export function ErrorBar({ children }: { readonly children: string | null }) {
   );
 }
 
-/** Inline SVG line over a faint area, fixed height, full width; first and last x labels. No library. */
+/** Inline SVG line over a gradient area, fixed height, full width; first and last x labels. No library. */
 export function LineChart({
   points,
   height = 120,
@@ -86,23 +86,30 @@ export function LineChart({
     .join(" ");
   const first = points[0]!;
   const last = points.at(-1)!;
+  const gradient = useId();
   return (
     <div className="flex flex-col gap-1.5">
-      {/* Stretched to the box, so the stroke opts out of scaling to stay 1.5px. */}
+      {/* Stretched to the box, so the stroke opts out of scaling to stay 2px. */}
       <svg
         viewBox={`0 0 ${width} ${height}`}
         preserveAspectRatio="none"
-        className="w-full border-b border-border text-foreground"
+        className="w-full text-foreground"
         style={{ height }}
         role="img"
         aria-label={`${first.label} to ${last.label}, max ${fmt(max)}`}
       >
-        <path d={`${line} L${width},${height} L0,${height} Z`} className="fill-white/4" />
+        <defs>
+          <linearGradient id={gradient} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="currentColor" stopOpacity={0.16} />
+            <stop offset="1" stopColor="currentColor" stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <path d={`${line} L${width},${height} L0,${height} Z`} fill={`url(#${gradient})`} />
         <path
           d={line}
           fill="none"
           stroke="currentColor"
-          strokeWidth={1.5}
+          strokeWidth={2}
           strokeLinejoin="round"
           vectorEffect="non-scaling-stroke"
         />

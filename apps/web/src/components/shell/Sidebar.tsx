@@ -24,7 +24,7 @@ const or = <A, B>(result: AsyncResult.AsyncResult<A, unknown>, fallback: B): A |
   AsyncResult.getOrElse(result, () => fallback);
 
 const ROW =
-  "no-drag flex h-[27px] w-full cursor-pointer items-center rounded-[var(--control-radius)] px-2 text-left text-sm text-sidebar-muted-foreground outline-hidden transition-colors duration-150 hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring data-[active=true]:font-medium data-[active=true]:text-sidebar-foreground";
+  "no-drag flex h-[27px] w-full cursor-pointer items-center rounded-[var(--control-radius)] px-2 text-left text-sm text-sidebar-muted-foreground outline-hidden transition-colors duration-150 hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring data-[active=true]:bg-sidebar-row-active data-[active=true]:font-medium data-[active=true]:text-sidebar-foreground";
 
 /** Label, the active dot and an optional count: the one row shape in the sidebar. */
 function RowBody({
@@ -67,7 +67,7 @@ const TOOLS: ReadonlyArray<Tool> = [
 const isOn = (pathname: string, to: string) => pathname === to || pathname.startsWith(`${to}/`);
 
 const SUB_ROW =
-  "no-drag flex h-[25px] w-full cursor-pointer items-center rounded-[var(--control-radius)] pr-2 pl-5 text-left text-[13.5px] text-sidebar-muted-foreground outline-hidden transition-colors duration-150 hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring data-[active=true]:text-sidebar-foreground";
+  "no-drag flex h-[25px] w-full cursor-pointer items-center rounded-[var(--control-radius)] pr-2 pl-5 text-left text-[13.5px] text-sidebar-muted-foreground outline-hidden transition-colors duration-150 hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring data-[active=true]:bg-sidebar-row-active data-[active=true]:text-sidebar-foreground";
 
 /** A tool, and under it while it is open, its sections: the page has no tab row of its own. */
 function ToolRow({

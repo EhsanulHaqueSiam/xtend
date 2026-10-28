@@ -4,7 +4,7 @@ import { cn } from "../../lib/utils";
 
 /** A text field, select or textarea: a hairline on the black canvas, brighter on hover and focus. */
 export const inputClass =
-  "w-full min-w-0 rounded-[var(--control-radius)] border border-white/13 bg-transparent px-2.5 py-1.5 text-[13px] text-foreground outline-hidden transition-[border-color] duration-150 [color-scheme:dark] placeholder:text-placeholder hover:border-white/20 focus-visible:border-white/30";
+  "w-full min-w-0 rounded-[var(--control-radius)] [&:is(textarea)]:rounded-xl border border-white/13 bg-transparent px-2.5 py-1.5 text-[13px] text-foreground outline-hidden transition-[border-color] duration-150 [color-scheme:dark] placeholder:text-placeholder hover:border-white/20 focus-visible:border-white/30";
 
 /** The same control 28px tall, for page headers, toolbars and dense rows. */
 export const compactInputClass = cn(inputClass, "h-7 px-2 py-0 text-xs");

@@ -9,14 +9,16 @@ import { useQuoteLabel } from "../../state/costs";
 import { PageHeader } from "../PageHeader";
 import { sectionLabel, useSection } from "../shell/sections";
 import { Button } from "../ui/button";
-import { Cost, Empty, PageBody } from "../ui/layout";
+import { Cost, Empty, Freshness, PageBody } from "../ui/layout";
 import { ErrorBar, errorText, when } from "./ui";
+
+const STALE_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Paid: the profile and up to 100 own posts, which every Analyze section reads.
  * Its failure shows under the page header, wherever the button was pressed.
  */
-export function RefreshPosts() {
+export function RefreshPosts({ stale = false }: { readonly stale?: boolean }) {
   const refresh = useAtomSet(refreshAnalyzeAtom, { mode: "promise" });
   const state = useAtomValue(refreshAnalyzeAtom);
   const refreshData = useAtomRefresh(analyzeDataAtom);
@@ -24,13 +26,13 @@ export function RefreshPosts() {
   return (
     <Button
       size="sm"
-      variant="outline"
+      variant={stale ? "default" : "outline"}
       disabled={state.waiting}
       // A failure lands in the atom, which the page header reads.
       onClick={() => void refresh().then(refreshData, () => {})}
     >
       <TextMorph duration={250}>{state.waiting ? "Refreshing" : "Refresh posts"}</TextMorph>
-      <Cost label={quote} />
+      <Cost label={quote} tone={stale ? "solid" : undefined} />
     </Button>
   );
 }
@@ -67,6 +69,11 @@ export function AnalyzePage({
   const section = useSection("/analyze");
   const refreshState = useAtomValue(refreshAnalyzeAtom);
   const hasHandle = data !== null && data.handle !== null;
+  // A day without a fetch is the one state that asks for a paid refresh.
+  const stale =
+    data?.fetchedAt !== null &&
+    data?.fetchedAt !== undefined &&
+    Date.now() - new Date(data.fetchedAt).getTime() > STALE_MS;
   return (
     <div className="flex h-full flex-col">
       <PageHeader
@@ -74,17 +81,29 @@ export function AnalyzePage({
         tabs={tabs}
         detail={
           detail ??
-          (data === null || data.handle === null
-            ? undefined
-            : data.fetchedAt === null
-              ? "not refreshed yet"
-              : `${data.posts.length} posts · ${when(data.fetchedAt)}`)
+          (data === null || data.handle === null ? undefined : (
+            <Freshness
+              state={
+                refreshState.waiting
+                  ? "refreshing"
+                  : data.fetchedAt === null || stale
+                    ? "stale"
+                    : "fresh"
+              }
+            >
+              {refreshState.waiting
+                ? "refreshing"
+                : data.fetchedAt === null
+                  ? "not fetched yet"
+                  : `fetched ${when(data.fetchedAt)} · ${data.posts.length} posts`}
+            </Freshness>
+          ))
         }
         actions={
           hasHandle ? (
             <>
               {actions}
-              <RefreshPosts />
+              <RefreshPosts stale={data.fetchedAt === null || stale} />
             </>
           ) : undefined
         }
