@@ -11,6 +11,7 @@ interface Env {
   readonly POOL: Hyperdrive;
   readonly REGISTER: RateLimit;
   readonly PUSH: RateLimit;
+  readonly PUSH_ADDRESS: RateLimit;
 }
 
 const json = (value: unknown, status = 200, headers: Record<string, string> = {}) =>
@@ -45,13 +46,21 @@ async function handle(request: Request, env: Env): Promise<Response> {
     const header = request.headers.get("x-install");
     if (!isInstallId(header)) return json({ error: "x-install must be an install id" }, 401);
     const install: string = header;
-    const length = Number(request.headers.get("content-length") ?? 0);
-    if (length > MAX_BODY_BYTES) return json({ error: "body too large" }, 413);
+    // Per address first, so a forged install id costs the sender its own budget, then per install.
+    const byAddress = await env.PUSH_ADDRESS.limit({ key: ip });
+    if (!byAddress.success) return json({ error: "too many pushes" }, 429);
     const { success } = await env.PUSH.limit({ key: install });
     if (!success) return json({ error: "too many pushes" }, 429);
+    // The body is read whole and measured; a missing length is refused rather than trusted.
+    const length = Number(request.headers.get("content-length"));
+    if (!Number.isFinite(length) || length <= 0)
+      return json({ error: "content-length required" }, 411);
+    if (length > MAX_BODY_BYTES) return json({ error: "body too large" }, 413);
+    const bytes = await request.arrayBuffer();
+    if (bytes.byteLength > MAX_BODY_BYTES) return json({ error: "body too large" }, 413);
     let body: unknown;
     try {
-      body = await request.json();
+      body = JSON.parse(new TextDecoder().decode(bytes));
     } catch {
       return json({ error: "body must be JSON" }, 400);
     }
@@ -63,11 +72,12 @@ async function handle(request: Request, env: Env): Promise<Response> {
         select pool_push(${install}::uuid, ${sql.json(batch.items as JSONValue)})`;
       return json({ accepted: row!.pool_push });
     } catch (error) {
-      // The function raises for an unknown install; everything else is ours.
+      // Only the function's own refusals reach the caller; anything else stays in the logs.
       const message = error instanceof Error ? error.message : String(error);
       if (message.includes("unknown install")) return json({ error: "unknown install" }, 401);
-      // A batch the database refused as a whole; the message names the check, never data.
-      return json({ error: message }, 500);
+      if (message.includes("batch too large")) return json({ error: "batch too large" }, 413);
+      console.warn(message);
+      return json({ error: "batch refused" }, 500);
     } finally {
       await sql.end();
     }
