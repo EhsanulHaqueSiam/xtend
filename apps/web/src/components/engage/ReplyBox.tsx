@@ -1,11 +1,14 @@
-import { useAtomSet } from "@effect/atom-react";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { postCostUsd, type XPost } from "@xtend/contracts";
 import * as Exit from "effect/Exit";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 import { TextMorph } from "torph/react";
 
+import { isElectron } from "../../env";
 import { usd, useQuote, useRates } from "../../state/costs";
 import { draftReplyAtom, likeAtom, sendReplyAtom } from "../../state/engage";
+import { settingsAtom } from "../../state/settings";
 import { cn } from "../../lib/utils";
 import { errorText } from "../analyze/ui";
 import { inputClass } from "../ui/field";
@@ -72,6 +75,13 @@ export function ReplyBox({
   const rates = useRates();
   // The service's price: the first like of the day also pays for the account lookup.
   const likeQuote = useQuote({ kind: "like" });
+  // The service sends a clicked reply through the session while that lane is on; the button says so.
+  const viaSession =
+    isElectron &&
+    AsyncResult.getOrElse(
+      AsyncResult.map(useAtomValue(settingsAtom), (s) => s.sessionPostingEnabled),
+      () => false,
+    );
   const { drafts, text, busy, error, replied, liked } = work;
 
   const onDraft = async () => {
@@ -139,13 +149,17 @@ export function ReplyBox({
         <button
           type="button"
           className={pillSolid}
-          disabled={busy !== null || replied || text.trim() === "" || rates === null}
+          disabled={
+            busy !== null || replied || text.trim() === "" || (rates === null && !viaSession)
+          }
           onClick={() => void onReply()}
         >
           <TextMorph duration={250}>
             {replied ? "Replied" : busy === "reply" ? "Replying…" : "Reply"}
           </TextMorph>
-          {replied ? null : rates === null ? (
+          {replied ? null : viaSession ? (
+            <Cost tone="solid" label="free · your session" />
+          ) : rates === null ? (
             <Cost tone="solid" label="…" />
           ) : (
             <Cost tone="solid" usd={postCostUsd(rates, text)} />

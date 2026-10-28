@@ -34,5 +34,5 @@ Post now goes out through X's API and shows its price first. Queue puts the draf
 free slot (see [Plan](./plan.md)); Post at picks a time. A draft that quotes a post or replies
 to one keeps that link when it posts.
 
-With session posting on in Settings, media posts can go through your own X session instead of
-the API. It is off by default.
+Posts with media go through your own X session, free, while "Act through X for what I click"
+is on in Settings (the default).

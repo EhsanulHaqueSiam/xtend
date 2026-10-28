@@ -16,6 +16,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
 import * as Assist from "../ai/Assist.ts";
+import * as SessionPosting from "../compose/SessionPosting.ts";
 import * as Events from "../events/Events.ts";
 import * as ObservationStore from "../observations/ObservationStore.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
@@ -91,6 +92,7 @@ const make = Effect.gen(function* () {
   const events = yield* Events.Events;
   const treg = yield* Treg.Treg;
 
+  const session = yield* SessionPosting.SessionPosting;
   const current = settings.get.pipe(Effect.mapError(settingsError));
   const observedError = (e: { readonly message: string }) =>
     new EngageError({ operation: "store", detail: e.message });
@@ -144,13 +146,25 @@ const make = Effect.gen(function* () {
     return drafts.filter((d) => d.text.length <= 280).slice(0, 3);
   });
 
+  // Free first: a clicked reply goes through the user's own session while that lane is on.
+  // Nothing attempted (lane off, no desktop, human pace) fails the call; a refusal or a
+  // desktop that went quiet after it may have clicked Post is kept on the row like X's own.
   const reply = Effect.fn("Engage.reply")(function* (post: XPost, text: string) {
-    const result = yield* x
-      .createPost({ text, replyToPostId: post.postId, purpose: "engage.reply" })
-      .pipe(
-        Effect.map((r) => ({ postId: r.postId, error: null })),
-        Effect.catchTag("XApiError", (e) => Effect.succeed({ postId: null, error: e.message })),
-      );
+    const { sessionPostingEnabled } = yield* current;
+    const result = sessionPostingEnabled
+      ? yield* session.post({ text, mediaPaths: [], replyToPostId: post.postId, paced: true }).pipe(
+          Effect.map((r) => ({ postId: r.postId, error: null })),
+          Effect.catch((e) =>
+            e._tag === "DesktopUnavailableError" &&
+            (e.reason === "timeout" || e.reason === "failed")
+              ? Effect.succeed({ postId: null, error: e.message })
+              : new EngageError({ operation: "session", detail: e.message }),
+          ),
+        )
+      : yield* x.createPost({ text, replyToPostId: post.postId, purpose: "engage.reply" }).pipe(
+          Effect.map((r) => ({ postId: r.postId, error: null })),
+          Effect.catchTag("XApiError", (e) => Effect.succeed({ postId: null, error: e.message })),
+        );
     return yield* store.recordReply({
       targetPostId: post.postId,
       targetUrl: post.url,

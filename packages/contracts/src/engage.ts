@@ -68,7 +68,7 @@ export const DmEvent = Schema.Struct({
 export type DmEvent = typeof DmEvent.Type;
 
 export class EngageError extends Schema.TaggedError<EngageError>()("EngageError", {
-  operation: Schema.Literals(["store", "assist", "settings"]),
+  operation: Schema.Literals(["store", "assist", "settings", "session"]),
   detail: Schema.String,
 }) {
   override get message(): string {

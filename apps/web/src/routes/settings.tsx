@@ -220,12 +220,12 @@ function SettingsForm({ current }: { readonly current: SettingsShape }) {
         <Section title="Desktop">
           <Field
             wide
-            label="Post media through X"
-            hint="Off by default. When on, posts with media go through your X session instead of the API."
+            label="Act through X for what I click"
+            hint="On by default. Replies you click and posts with media go through your own X session, one at a time at a human pace, free. Off: replies go through the API at the listed price. Rules never use your session."
           >
             <Switch
               className="mt-1"
-              label="Post media through the x.com session"
+              label="Act through my X session for what I click"
               checked={draft.sessionPostingEnabled ?? current.sessionPostingEnabled}
               onChange={(next) => setDraft((d) => ({ ...d, sessionPostingEnabled: next }))}
             />

@@ -276,9 +276,10 @@ describe("Publisher", () => {
       const settings = yield* SettingsStore.SettingsStore;
       const link = { blocks: [{ text: "read https://example.com/a" }], hideLinkPreviews: true };
 
+      yield* settings.update({ sessionPostingEnabled: false });
       const off = yield* publisher.post((yield* drafts.create(link)).id, postNow);
       expect(off.status).toBe("posted");
-      expect(off.linkPreviewNote).toContain("enable Session posting");
+      expect(off.linkPreviewNote).toContain("Session actions are off");
       expect(desktopCalls).toHaveLength(0);
 
       yield* settings.update({ sessionPostingEnabled: true });
@@ -365,9 +366,10 @@ describe("Publisher", () => {
         alt: "",
       });
 
+      yield* settings.update({ sessionPostingEnabled: false });
       const off = yield* publisher.post(d.id, postNow);
       expect(off.status).toBe("failed");
-      expect(off.error).toContain("enable Session posting");
+      expect(off.error).toContain("Session actions are off");
       expect(desktopCalls).toHaveLength(0);
       expect(calls).toHaveLength(0);
 

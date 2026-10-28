@@ -7,11 +7,17 @@ import * as DesktopChannel from "../desktop/DesktopChannel.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 
 const SESSION_POSTING_OFF =
-  "Media posts go through your x.com session; enable Session posting in Settings";
+  "Session actions are off in Settings; turn them on to go through your x.com session";
+
+/** A clicked action within this gap of the last one, or over the hourly count, is refused. */
+const PACE_GAP_MS = 8_000;
+const PACE_PER_HOUR = 30;
 
 /**
- * Posting through the desktop's x.com session view, the only path for media until treg
- * exposes media upload. Refuses unless the user turned session posting on.
+ * Posting through the desktop's x.com session view: the free lane for what the user clicks,
+ * and the only path for media until treg exposes media upload. Refuses when the user turned
+ * session actions off. `paced` writes are held to a human pace so a run of clicks never
+ * looks like a script to X.
  */
 export class SessionPosting extends Context.Service<
   SessionPosting,
@@ -24,6 +30,7 @@ export class SessionPosting extends Context.Service<
       readonly text: string;
       readonly mediaPaths: ReadonlyArray<string>;
       readonly replyToPostId?: string;
+      readonly paced?: boolean;
     }) => Effect.Effect<{ readonly postId: string }, ComposeError | DesktopUnavailableError>;
     /** Points the session view at a URL (used to hand a freshly posted link card to the desktop). */
     readonly navigate: (url: string) => Effect.Effect<void, ComposeError>;
@@ -42,12 +49,32 @@ const make = Effect.gen(function* () {
       return yield* new ComposeError({ operation: "sessionPost", detail: SESSION_POSTING_OFF });
   });
 
+  // Instants of paced writes in the last hour; a thread's blocks are one click and skip this.
+  const paced: Array<number> = [];
+  const humanPace = Effect.sync(() => {
+    const now = Date.now();
+    while (paced.length > 0 && paced[0]! < now - 3_600_000) paced.shift();
+    const last = paced.at(-1);
+    if (last !== undefined && now - last < PACE_GAP_MS)
+      return `Human pace: wait ${Math.ceil((PACE_GAP_MS - (now - last)) / 1000)}s`;
+    if (paced.length >= PACE_PER_HOUR)
+      return `Human pace: ${PACE_PER_HOUR} an hour; next in ${Math.ceil((paced[0]! + 3_600_000 - now) / 60_000)}m`;
+    paced.push(now);
+    return null;
+  });
+
   const post = Effect.fn("SessionPosting.post")(function* (input: {
     readonly text: string;
     readonly mediaPaths: ReadonlyArray<string>;
     readonly replyToPostId?: string;
+    readonly paced?: boolean;
   }) {
     yield* requireEnabled.pipe(Effect.mapError(fail("sessionPost")));
+    if (input.paced === true) {
+      const refused = yield* humanPace;
+      if (refused !== null)
+        return yield* new ComposeError({ operation: "sessionPost", detail: refused });
+    }
     const result = yield* desktop.request({
       type: "sessionPost",
       text: input.text,

@@ -13,8 +13,8 @@ Xtend is a desktop-first X (Twitter) growth suite: one app whose sidebar holds b
 
 ## What we never compromise on
 
-1. **The session view is read-only by default.** The desktop may read what X already sent to the user's browser. It never posts, likes, follows or DMs through the session unless the user turned on the session-posting setting, and automations never use it.
-2. **Every paid action shows its cost before it runs** and is capped by a budget. X API calls go through treg; the user pays from their treg balance. No second wallet.
+1. **The session view acts only for the user's own clicks.** The desktop may read what X already sent to the user's browser. It writes through the session only for an action the user just clicked (a reply, a post), one at a time at human pace, and only while the session-actions setting is on (the default). Rules, agents and anything unattended never use it: they go through the X API.
+2. **Free first, and every paid action shows its cost before it runs** and is capped by a budget. A capability takes the cheapest correct lane (session, then API, then a model) and the button says which. X API calls go through treg; the user pays from their treg balance. No second wallet.
 3. **One service, every surface.** A capability is a service method. The WebSocket handler, HTTP route, MCP tool, CLI command and scheduled task all call that method. Logic in a handler is a bug.
 4. **Performance.** No continuously repainting animations, no oversized WebSocket payloads, no unvirtualized long lists.
 
