@@ -21,7 +21,7 @@ import { xNavigate, xPanelOpenAtom, xPanelPinnedAtom, xUnreadAtom, xUrlAtom } fr
 import { Menu, MenuItem } from "../ui/menu";
 import { toastAtom } from "../ui/toast";
 import { DROP_VERBS, linkDragAtom, useDropPost } from "./drops";
-import { isSectionRoute, SECTIONS } from "./sections";
+import { ABOUT, isSectionRoute, SECTIONS } from "./sections";
 
 const or = <A, B>(result: AsyncResult.AsyncResult<A, unknown>, fallback: B): A | B =>
   AsyncResult.getOrElse(result, () => fallback);
@@ -109,6 +109,7 @@ function ToolRow({
     <>
       <Link
         to={tool.to}
+        title={ABOUT[tool.to]}
         data-active={on && sections.length === 0}
         className={cn(ROW, dragClass(dragging, verb !== undefined))}
         onDragOver={
