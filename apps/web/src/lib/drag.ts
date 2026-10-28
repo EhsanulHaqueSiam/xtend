@@ -1,3 +1,5 @@
+import type { XPost } from "@xtend/contracts";
+
 /**
  * What a drag carries. X renders every post as a link, so a post dragged out of
  * the session view, a browser tab or a saved card arrives as a URL; the only
@@ -38,3 +40,23 @@ export const carriesLink = (dt: DataTransfer | null) =>
 
 /** The drag type a draft card carries between the board, the Ready list and the calendar: its id. */
 export const DRAFT_TYPE = "application/x-xtend-draft";
+
+/**
+ * The drag type a Library card adds beside its URL, so a collection row knows a card is
+ * over it. It carries no data: a drop from another window could forge a body, so the
+ * post itself travels through `draggedPost`, set only by a card in this app.
+ */
+export const POST_TYPE = "application/x-xtend-post";
+
+let dragged: XPost | null = null;
+
+/** The card this app is dragging right now, or null; a drop never trusts the payload instead. */
+export const draggedPost = {
+  start: (post: XPost) => {
+    dragged = post;
+  },
+  end: () => {
+    dragged = null;
+  },
+  current: () => dragged,
+};

@@ -1,9 +1,10 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
-import type { Collection, SavedPost } from "@xtend/contracts";
+import type { Collection, SavedPost, XPost } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { Pencil, Plus, Trash2 } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useState, type DragEvent, type ReactNode } from "react";
 
+import { draggedPost, POST_TYPE } from "../../lib/drag";
 import { fmtDay } from "../../lib/time";
 import { cn } from "../../lib/utils";
 import {
@@ -14,6 +15,7 @@ import {
   deleteSavedAtom,
   removeFromCollectionAtom,
   renameCollectionAtom,
+  savePostAtom,
   setNoteAtom,
   swipeFileAtom,
 } from "../../state/library";
@@ -185,21 +187,42 @@ function CollectionPosts({ collection }: { readonly collection: Collection }) {
   );
 }
 
-/** One collection in the rail: open on click, rename inline, delete after a confirm. */
+/** One collection in the rail: open on click, rename inline, delete after a confirm, drop a card to file it. */
 function CollectionRow({
   collection,
   active,
   onOpen,
   onRename,
   onDelete,
+  onFile,
 }: {
   readonly collection: Collection;
   readonly active: boolean;
   readonly onOpen: () => void;
   readonly onRename: (name: string) => void;
   readonly onDelete: () => void;
+  readonly onFile: (post: XPost) => void;
 }) {
   const [editing, setEditing] = useState<string | null>(null);
+  // Staff picks fills itself, so it takes no drop.
+  const takesPost = collection.builtIn
+    ? {}
+    : {
+        onDragOver: (event: DragEvent<HTMLButtonElement>) => {
+          if (!event.dataTransfer.types.includes(POST_TYPE)) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "copy";
+          event.currentTarget.setAttribute("data-over", "");
+        },
+        onDragLeave: (event: DragEvent<HTMLButtonElement>) =>
+          event.currentTarget.removeAttribute("data-over"),
+        onDrop: (event: DragEvent<HTMLButtonElement>) => {
+          event.preventDefault();
+          event.currentTarget.removeAttribute("data-over");
+          const post = draggedPost.current();
+          if (post !== null) onFile(post);
+        },
+      };
   if (editing !== null)
     return (
       <li>
@@ -230,8 +253,9 @@ function CollectionRow({
       <button
         type="button"
         data-active={active}
-        className="flex h-7 min-w-0 flex-1 cursor-pointer items-center rounded-[var(--control-radius)] px-2 text-left text-[13px] text-muted-foreground outline-hidden transition-colors duration-150 hover:bg-white/[0.05] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[active=true]:bg-white/[0.06] data-[active=true]:text-foreground"
+        className="flex h-7 min-w-0 flex-1 cursor-pointer items-center rounded-[var(--control-radius)] px-2 text-left text-[13px] text-muted-foreground outline-hidden transition-colors duration-150 hover:bg-white/[0.05] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[active=true]:bg-white/[0.06] data-[active=true]:text-foreground data-over:ring-1 data-over:ring-inset data-over:ring-foreground"
         onClick={onOpen}
+        {...takesPost}
       >
         <span className="truncate">{collection.name}</span>
         <span className="ml-auto pl-2 font-mono text-2xs text-muted-foreground tabular-nums">
@@ -271,6 +295,8 @@ export function CollectionsTab() {
   const create = useAtomSet(createCollectionAtom, { mode: "promise" });
   const rename = useAtomSet(renameCollectionAtom, { mode: "promise" });
   const remove = useAtomSet(deleteCollectionAtom, { mode: "promise" });
+  const save = useAtomSet(savePostAtom, { mode: "promise" });
+  const refreshSwipe = useAtomRefresh(swipeFileAtom(""));
   const [name, setName] = useState("");
   const [openId, setOpenId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -333,6 +359,10 @@ export function CollectionsTab() {
                   onDelete={() => {
                     void guard(remove(c.id));
                     if (openId === c.id) setOpenId(null);
+                  }}
+                  onFile={(post) => {
+                    void guard(save({ post, collectionId: c.id }).then(refreshSwipe));
+                    setOpenId(c.id);
                   }}
                 />
               ))}
