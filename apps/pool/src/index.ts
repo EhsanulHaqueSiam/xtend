@@ -76,8 +76,8 @@ async function handle(request: Request, env: Env): Promise<Response> {
       const message = error instanceof Error ? error.message : String(error);
       if (message.includes("unknown install")) return json({ error: "unknown install" }, 401);
       if (message.includes("batch too large")) return json({ error: "batch too large" }, 413);
-      console.warn(message);
-      return json({ error: "batch refused" }, 500);
+      // Rethrown: the platform logs it to observability and answers with its own error page.
+      throw error;
     } finally {
       await sql.end();
     }
