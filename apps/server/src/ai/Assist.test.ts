@@ -121,3 +121,20 @@ describe("Assist.generate with the user's own model", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 });
+
+describe("Assist settings", () => {
+  it.effect(
+    "drops the key when the endpoint changes without a new one, and refuses non-model hosts",
+    () =>
+      Effect.gen(function* () {
+        const settings = yield* SettingsStore.SettingsStore;
+        yield* settings.update({ assistBaseUrl: "https://api.openai.com/v1", assistKey: "sk-a" });
+        expect((yield* settings.get).assistKeySet).toBe(true);
+        const moved = yield* settings.update({ assistBaseUrl: "http://169.254.169.254/v1" });
+        expect(moved.assistKeySet).toBe(false);
+        const assist = yield* Assist.Assist;
+        const refused = yield* assist.generate(request).pipe(Effect.flip);
+        expect(refused.detail).toContain("not a model host");
+      }).pipe(Effect.provide(layerTest)),
+  );
+});

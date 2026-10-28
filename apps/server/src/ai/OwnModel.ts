@@ -1,3 +1,4 @@
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import { HttpClient, HttpClientRequest } from "effect/http";
 import * as Schema from "effect/Schema";
@@ -12,6 +13,25 @@ const decodeCompletion = Schema.decodeUnknownEffect(Schema.fromJsonString(Comple
 const json = Schema.fromJsonString(Schema.Unknown);
 const encodeJson = Schema.encodeSync(json);
 const decodeJson = Schema.decodeUnknownEffect(json);
+
+/** Hosts a model never lives on; a pasted URL must not turn the service into a proxy for them. */
+const BLOCKED_HOSTS = new Set(["169.254.169.254", "metadata.google.internal", "metadata"]);
+
+/** `${baseUrl}/chat/completions` as a URL, or why it cannot be one. */
+const endpointOf = (baseUrl: string) => {
+  const url = (() => {
+    try {
+      return new URL(`${baseUrl.replace(/\/+$/, "")}/chat/completions`);
+    } catch {
+      return null;
+    }
+  })();
+  if (url === null || (url.protocol !== "http:" && url.protocol !== "https:"))
+    return { error: `${baseUrl} is not an http(s) endpoint` };
+  if (BLOCKED_HOSTS.has(url.hostname) || url.hostname.startsWith("169.254."))
+    return { error: `${url.hostname} is not a model host` };
+  return { url: url.toString() };
+};
 
 /** Models answer in fences more often than not, whatever the format asked for. */
 const unfence = (text: string) =>
@@ -35,7 +55,9 @@ export const complete = Effect.fn("OwnModel.complete")(function* (input: {
   readonly jsonSchema: unknown;
 }) {
   const http = yield* HttpClient.HttpClient;
-  const url = `${input.baseUrl.replace(/\/+$/, "")}/chat/completions`;
+  const endpoint = endpointOf(input.baseUrl);
+  if ("error" in endpoint) return yield* Effect.fail(endpoint.error);
+  const url = endpoint.url;
   const request = HttpClientRequest.post(url).pipe(
     HttpClientRequest.setHeaders({
       Accept: "application/json",
@@ -58,10 +80,16 @@ export const complete = Effect.fn("OwnModel.complete")(function* (input: {
         },
       }),
   );
-  const response = yield* http.execute(request);
+  // A refusal's body is for the provider's logs, not the UI; the status says enough.
+  const response = yield* http.execute(request).pipe(
+    Effect.timeoutOrElse({
+      duration: Duration.seconds(90),
+      orElse: () => Effect.fail(`${url} did not answer in 90s`),
+    }),
+  );
   const text = yield* response.text;
   if (response.status >= 400)
-    return yield* Effect.fail(`${input.model} at ${url}: ${response.status} ${text.slice(0, 200)}`);
+    return yield* Effect.fail(`${input.model} at ${url} answered ${response.status}`);
   const completion = yield* decodeCompletion(text).pipe(
     Effect.mapError(() => `${url} answered something that is not a chat completion`),
   );

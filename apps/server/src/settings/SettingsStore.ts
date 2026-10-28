@@ -114,14 +114,22 @@ const make = Effect.gen(function* () {
       const pasted = typeof patch.tregToken === "string" ? patch.tregToken.trim() : patch.tregToken;
       const token =
         pasted === undefined ? current.treg_token : pasted ? cipher.encrypt(pasted) : null;
-      const pastedKey =
-        typeof patch.assistKey === "string" ? patch.assistKey.trim() : patch.assistKey;
-      const assistKey =
-        pastedKey === undefined ? current.assist_key : pastedKey ? cipher.encrypt(pastedKey) : null;
       const assistBaseUrl =
         patch.assistBaseUrl === undefined
           ? current.assist_base_url
           : (patch.assistBaseUrl?.trim().replace(/\/+$/, "") ?? null) || null;
+      const pastedKey =
+        typeof patch.assistKey === "string" ? patch.assistKey.trim() : patch.assistKey;
+      // A key belongs to the endpoint it was pasted for: a new endpoint without a new key drops it,
+      // so a changed URL can never receive the old provider's secret.
+      const assistKey =
+        pastedKey === undefined
+          ? assistBaseUrl === current.assist_base_url
+            ? current.assist_key
+            : null
+          : pastedKey
+            ? cipher.encrypt(pastedKey)
+            : null;
       if (patch.timeZone !== undefined && DateTime.zoneMakeNamed(patch.timeZone)._tag === "None")
         return yield* Effect.fail(`unknown time zone ${patch.timeZone}`);
       yield* sql`
