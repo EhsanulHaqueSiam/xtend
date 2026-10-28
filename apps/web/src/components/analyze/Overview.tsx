@@ -1,7 +1,7 @@
 import type { AnalyzeData } from "@xtend/contracts";
 
 import { cn } from "../../lib/utils";
-import { Section, Stat } from "../ui/layout";
+import { Section, Stat, statRow } from "../ui/layout";
 import { AnalyzePage, NotLoaded } from "./AnalyzePage";
 import { fmt, insetTable, LineChart, pct, signed } from "./ui";
 
@@ -21,7 +21,7 @@ export function Overview({ data }: { readonly data: AnalyzeData }) {
   return (
     <AnalyzePage data={data}>
       <Section>
-        <div className="grid grid-cols-2 gap-x-6 gap-y-4 @xl:grid-cols-4">
+        <div className={cn(statRow, "grid-cols-2 gap-y-4 @xl:grid-cols-4")}>
           <Stat label="Followers" value={fmt(latest?.followers ?? null)} />
           {/* Until a snapshot is 30 days old there is nothing to compare against. */}
           <div title={delta === null ? "Needs a snapshot at least 30 days old" : undefined}>
@@ -71,14 +71,14 @@ export function Overview({ data }: { readonly data: AnalyzeData }) {
         </table>
       </Section>
 
-      <div className="grid @4xl:grid-cols-2 @4xl:divide-x @4xl:divide-border">
-        <Section title="Views by day published, 30 days" className="@4xl:border-b-0">
+      <div className="grid gap-5 px-6 pb-5 @4xl:grid-cols-2">
+        <Section title="Views" description="by day published, 30 days" className="m-0">
           <LineChart
             height={CHART_HEIGHT}
             points={data.viewsByPostDay.map((d) => ({ label: d.day, value: d.views }))}
           />
         </Section>
-        <Section title="Followers by day">
+        <Section title="Followers" description="by day" className="m-0">
           <LineChart
             height={CHART_HEIGHT}
             points={data.snapshots.map((s) => ({ label: s.day, value: s.followers }))}

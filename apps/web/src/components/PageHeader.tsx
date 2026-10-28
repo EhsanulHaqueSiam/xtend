@@ -10,8 +10,8 @@ export interface HeaderTab<T extends string> {
 }
 
 /**
- * Filters inside one section, as plain words: the open one in white, the rest
- * muted, no pill or underline. A section's own sections belong in the sidebar.
+ * Filters inside one section, as a segmented pill: the open one on a white
+ * thumb, the rest muted. A section's own sections belong in the sidebar.
  */
 export function HeaderTabs<T extends string>({
   tabs,
@@ -26,21 +26,23 @@ export function HeaderTabs<T extends string>({
   readonly label: string;
 }) {
   return (
-    <div role="tablist" aria-label={label} className="no-drag flex min-w-0 items-center gap-4">
+    <div
+      role="tablist"
+      aria-label={label}
+      className="no-drag flex min-w-0 items-center gap-0.5 rounded-full border border-border bg-card p-0.5"
+    >
       {tabs.map((tab) => (
         <button
           key={tab.id}
           type="button"
           role="tab"
           aria-selected={tab.id === value}
-          className="flex shrink-0 cursor-pointer items-baseline gap-1.5 text-[13.5px] text-muted-foreground outline-hidden transition-colors duration-150 hover:text-foreground focus-visible:text-foreground aria-selected:text-foreground"
+          className="flex h-6 shrink-0 cursor-pointer items-baseline gap-1.5 rounded-full px-2.5 text-[12.5px] leading-6 text-muted-foreground outline-hidden transition-colors duration-150 hover:text-foreground focus-visible:text-foreground aria-selected:bg-foreground aria-selected:font-medium aria-selected:text-background"
           onClick={() => onChange(tab.id)}
         >
           {tab.label}
           {tab.count !== undefined && tab.count > 0 ? (
-            <span className="font-mono text-2xs text-muted-foreground tabular-nums">
-              {tab.count}
-            </span>
+            <span className="font-mono text-2xs tabular-nums opacity-60">{tab.count}</span>
           ) : null}
         </button>
       ))}
@@ -71,7 +73,7 @@ export function PageHeader({
   return (
     <header
       className={cn(
-        "flex h-(--workspace-topbar-height) shrink-0 items-center gap-5 border-b border-border bg-background px-6",
+        "flex h-(--workspace-topbar-height) shrink-0 items-center gap-5 bg-background px-6",
         isElectron && "drag-region",
       )}
     >

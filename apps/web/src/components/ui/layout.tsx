@@ -5,12 +5,13 @@ import { usd as formatUsd } from "../../state/costs";
 
 /**
  * The shapes every screen is built from, so the tools read as one app:
- * a scrolling body, hairline-separated sections with a small label, tables
- * with mono numbers, one-line empty states, and the price next to a paid
- * action. No cards around groups: a group is a label and a hairline.
+ * a scrolling body, one raised surface per group with a numbered label,
+ * tables with mono numbers, one-line empty states, the price next to a paid
+ * action, and the freshness of what a page shows. Inside a surface, hairlines
+ * divide; surfaces never nest.
  */
 
-/** The scrolling area under a PageHeader. */
+/** The scrolling area under a PageHeader. Sections count up from 01 inside it. */
 export function PageBody({
   children,
   className,
@@ -18,27 +19,45 @@ export function PageBody({
   readonly children: ReactNode;
   readonly className?: string;
 }) {
-  return <div className={cn("min-h-0 flex-1 overflow-y-auto", className)}>{children}</div>;
+  return (
+    <div className={cn("min-h-0 flex-1 overflow-y-auto [counter-reset:section]", className)}>
+      {children}
+    </div>
+  );
 }
 
-/** A group on a page: its label and actions on one line, the content under it, a hairline after. */
+/**
+ * A group on a page: one raised surface. A titled one carries its number, name,
+ * one-line description and actions on the first line.
+ */
 export function Section({
   title,
+  description,
   aside,
   children,
   className,
 }: {
   readonly title?: string;
+  readonly description?: string;
   readonly aside?: ReactNode;
   readonly children: ReactNode;
   readonly className?: string;
 }) {
   return (
-    <section className={cn("border-b border-border px-6 py-5 last:border-b-0", className)}>
+    <section
+      className={cn("mx-6 my-5 rounded-2xl border border-border bg-card px-5 py-4", className)}
+    >
       {title !== undefined || aside !== undefined ? (
         <div className="mb-3 flex items-center justify-between gap-3">
           {title !== undefined ? (
-            <h2 className="text-[12.5px] font-semibold text-foreground/80">{title}</h2>
+            <h2 className="flex min-w-0 items-baseline gap-2.5 text-[12.5px] font-semibold text-foreground [counter-increment:section] before:font-mono before:text-2xs before:font-normal before:text-muted-foreground/60 before:content-[counter(section,decimal-leading-zero)]">
+              <span className="truncate">{title}</span>
+              {description !== undefined ? (
+                <span className="truncate text-xs font-normal text-muted-foreground">
+                  {description}
+                </span>
+              ) : null}
+            </h2>
           ) : (
             <span />
           )}
@@ -90,7 +109,7 @@ export function Cost(
   );
 }
 
-/** A number with its label: label small and muted, value in mono. */
+/** A number with its label: value in mono, label small and muted under it. */
 export function Stat({
   label,
   value,
@@ -101,18 +120,48 @@ export function Stat({
   readonly tone?: "up" | "down" | undefined;
 }) {
   return (
-    <div className="flex min-w-0 flex-col gap-1">
-      <span className="truncate text-xs text-muted-foreground">{label}</span>
+    <div className="flex min-w-0 flex-col gap-0.5">
       <span
         className={cn(
-          "font-mono text-lg tabular-nums",
+          "font-mono text-[22px] leading-7 tabular-nums",
           tone === "up" && "text-success-foreground",
           tone === "down" && "text-error-foreground",
         )}
       >
         {value}
       </span>
+      <span className="truncate text-xs text-muted-foreground">{label}</span>
     </div>
+  );
+}
+
+/** Stats side by side in one surface, a hairline between each. */
+export const statRow = "grid divide-x divide-border [&>*]:px-5 [&>*:first-child]:pl-0";
+
+const FRESHNESS = {
+  live: "bg-success",
+  fresh: "bg-muted-foreground",
+  stale: "bg-warning",
+  refreshing: "bg-info",
+} as const;
+
+/**
+ * How current a page's data is, as one mono line in the header: a dot and a
+ * fact. Observed data is "live" and needs no button; fetched data says its
+ * age; "stale" is the one state that asks for a paid refresh.
+ */
+export function Freshness({
+  state,
+  children,
+}: {
+  readonly state: keyof typeof FRESHNESS;
+  readonly children: ReactNode;
+}) {
+  return (
+    <span className="flex items-center gap-1.5 truncate font-mono text-2xs text-muted-foreground tabular-nums">
+      <span className={cn("size-1.5 shrink-0 rounded-full", FRESHNESS[state])} />
+      {children}
+    </span>
   );
 }
 
