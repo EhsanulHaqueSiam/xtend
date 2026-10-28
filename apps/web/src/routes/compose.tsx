@@ -382,6 +382,7 @@ function Options({ editor, onChange }: { editor: Editor; onChange: (e: Editor) =
 const composeSearch = (search: Partial<ComposeSearch>): ComposeSearch => ({
   draft: undefined,
   inspire: undefined,
+  quote: undefined,
   reply: undefined,
   text: undefined,
   new: undefined,
@@ -406,6 +407,7 @@ function ComposeScreen() {
     search.new === true ||
     search.inspire !== undefined ||
     search.reply !== undefined ||
+    search.quote !== undefined ||
     search.text !== undefined;
   if (!editing) {
     return (
@@ -418,9 +420,10 @@ function ComposeScreen() {
   }
   return (
     <ComposeEditor
-      key={`${search.draft ?? ""}|${search.inspire ?? ""}|${search.reply ?? ""}|${search.text ?? ""}`}
+      key={`${search.draft ?? ""}|${search.inspire ?? ""}|${search.reply ?? ""}|${search.quote ?? ""}|${search.text ?? ""}`}
       draftParam={search.draft}
       inspire={search.inspire}
+      quote={search.quote}
       reply={search.reply}
       text={search.text}
       onBack={(back) => go({ tab: back })}
@@ -435,6 +438,7 @@ function ComposeScreen() {
 export function ComposeEditor({
   draftParam,
   inspire,
+  quote: quoteParam,
   reply,
   text,
   onBack,
@@ -442,6 +446,7 @@ export function ComposeEditor({
 }: {
   readonly draftParam: string | undefined;
   readonly inspire: string | undefined;
+  readonly quote?: string | undefined;
   readonly reply: string | undefined;
   /** Text carried over from X's composer by the Schedule chip. */
   readonly text: string | undefined;
@@ -481,6 +486,7 @@ export function ComposeEditor({
   const initial: Editor = {
     ...empty,
     replyToPostId: reply ?? null,
+    quoteUrl: quoteParam ?? "",
     blocks: [{ text: text ?? "" }],
   };
   const [selected, setSelected] = useState<Draft | null>(null);
@@ -1167,6 +1173,8 @@ const isTab = (value: unknown): value is ComposeTab => COMPOSE_TABS.some((tab) =
 const validateSearch = (s: Record<string, unknown>) => ({
   draft: typeof s.draft === "string" ? s.draft : undefined,
   inspire: typeof s.inspire === "string" ? s.inspire : undefined,
+  /** A post URL to quote, from a drop on the sidebar. */
+  quote: typeof s.quote === "string" ? s.quote : undefined,
   reply: typeof s.reply === "string" ? s.reply : undefined,
   text: typeof s.text === "string" ? s.text : undefined,
   // `?new=1` parses as the number 1.

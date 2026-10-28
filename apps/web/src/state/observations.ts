@@ -16,3 +16,18 @@ export const serverInfoAtom = clientRuntime.atom(
     return yield* client[WS_METHODS.serverInfo]({});
   }),
 );
+
+/** One observed post by id, looked up fresh: a drop should find what the session just scrolled past. */
+export const observedPostAtom = clientRuntime.fn<{
+  readonly handle: string;
+  readonly postId: string;
+}>()(
+  Effect.fnUntraced(function* ({ handle, postId }) {
+    const client = yield* XtendClient;
+    const { posts } = yield* client[WS_METHODS.observationsListRecent]({
+      authorHandle: handle,
+      limit: 200,
+    });
+    return posts.find((p) => p.postId === postId);
+  }),
+);

@@ -10,6 +10,7 @@ import {
   xPanelWidthAtom,
   xSkinAtom,
 } from "../../state/x";
+import { Toasts } from "../ui/toast";
 import { CommandPalette } from "./CommandPalette";
 import { CompanionTarget } from "./Companion";
 import { GlanceSync } from "./GlanceSync";
@@ -98,6 +99,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
         </>
       ) : null}
       <CommandPalette />
+      <Toasts />
     </div>
   );
 }
