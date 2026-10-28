@@ -240,3 +240,33 @@ it("changes a stage, and prices a DM to someone without a user id with the profi
   await expect.element(dm).toHaveValue("");
   await expect.element(screen.getByRole("button", { name: /^Send DM.*\$0\.015$/ })).toBeDisabled();
 });
+
+it("dragging a card onto a stage column moves the person there", async () => {
+  const updates: Array<PersonUpdate> = [];
+  let people = [person(1), person(2)];
+  await using screen = await render(<PeopleSection />, {
+    service: {
+      "costs.quote": quoting(),
+      "leads.peopleList": () => Effect.sync(() => people),
+      "leads.personUpdate": (patch) =>
+        Effect.sync(() => {
+          updates.push(patch);
+          people = people.map((p) =>
+            p.id === patch.id ? { ...p, stage: patch.stage ?? p.stage } : p,
+          );
+          return people.find((p) => p.id === patch.id)!;
+        }),
+      "leads.personGet": ({ id }) =>
+        Effect.sync(() => ({ person: people.find((p) => p.id === id)!, activity: [] })),
+    },
+  });
+  await userEvent.click(screen.getByRole("button", { name: "Stages" }));
+  const card = screen.getByRole("button", { name: /^@lead2/ });
+  await card.dropTo(screen.getByRole("region", { name: "contacted" }));
+  await expect.poll(() => updates).toEqual([{ id: 2, stage: "contacted" }]);
+  await expect
+    .element(
+      screen.getByRole("region", { name: "contacted" }).getByRole("button", { name: /^@lead2/ }),
+    )
+    .toBeVisible();
+});

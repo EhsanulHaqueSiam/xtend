@@ -5,6 +5,7 @@ import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState, type ReactElement, type ReactNode } from "react";
 import { TextMorph } from "torph/react";
 
+import { PERSON_TYPE } from "../../lib/drag";
 import { fmtWhen } from "../../lib/time";
 import { cn } from "../../lib/utils";
 import { useQuoteLabel, useRates } from "../../state/costs";
@@ -25,6 +26,7 @@ import { HeaderTabs, PageHeader } from "../PageHeader";
 import { sectionHref } from "../shell/sections";
 import { inputClass } from "../ui/field";
 import { Cost, Empty, PageBody, Section } from "../ui/layout";
+import { toastAtom } from "../ui/toast";
 import {
   type Column,
   DetailSplit,
@@ -63,11 +65,13 @@ const COLUMNS: ReadonlyArray<Column<Person>> = [
 ];
 
 type StageFilter = "all" | Stage;
+type View = "table" | "stages";
 
-/** Everyone the screens have found, filtered by stage, with the selected person beside the table. */
+/** Everyone the screens have found, as a table by stage or a board of stages, with the selected person beside. */
 export function PeopleSection() {
   const people = useAtomValue(peopleAtom(null));
   const [stage, setStage] = useState<StageFilter>("all");
+  const [view, setView] = useState<View>("table");
   const all = AsyncResult.getOrElse(people, () => []);
   const tabs = [
     { id: "all" as const, label: "All", count: all.length },
@@ -82,14 +86,32 @@ export function PeopleSection() {
       <PageHeader
         title="People"
         tabs={
-          all.length === 0 ? undefined : (
+          all.length === 0 || view === "stages" ? undefined : (
             <HeaderTabs label="Stage" tabs={tabs} value={stage} onChange={setStage} />
+          )
+        }
+        actions={
+          all.length === 0 ? undefined : (
+            <div role="group" aria-label="View" className="flex items-center gap-1">
+              {(["table", "stages"] as const).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  aria-pressed={view === v}
+                  className={cn(pill, "aria-pressed:border-foreground")}
+                  onClick={() => setView(v)}
+                >
+                  {v === "table" ? "Table" : "Stages"}
+                </button>
+              ))}
+            </div>
           )
         }
       />
       <PeopleSplit
         listId={null}
-        stage={stage}
+        stage={view === "stages" ? "all" : stage}
+        board={view === "stages"}
         empty={stage === "all" ? <NoPeople /> : <Empty>No one at {stage} yet.</Empty>}
       />
     </>
@@ -123,17 +145,21 @@ function NoPeople() {
 export function PeopleSplit({
   listId,
   stage = "all",
+  board = false,
   aside = null,
   onPick,
   empty,
 }: {
   readonly listId: number | null;
   readonly stage?: StageFilter;
+  /** Stages as columns instead of the table; a card dragged to a column moves there. */
+  readonly board?: boolean;
   readonly aside?: ReactElement | null;
   readonly onPick?: () => void;
   readonly empty: ReactNode;
 }) {
   const result = useAtomValue(peopleAtom(listId));
+  const refreshList = useAtomRefresh(peopleAtom(listId));
   const all = AsyncResult.getOrElse(result, () => []);
   const people = stage === "all" ? all : all.filter((p) => p.stage === stage);
   const { selected, select } = useSelection(people.map((p) => p.id));
@@ -156,6 +182,16 @@ export function PeopleSplit({
         list={
           people.length === 0 ? (
             empty
+          ) : board ? (
+            <StagesBoard
+              people={people}
+              selected={aside === null ? selected : null}
+              onSelect={(id) => {
+                select(id);
+                onPick?.();
+              }}
+              onMoved={refreshList}
+            />
           ) : (
             <>
               <ListHead label="Person" columns={COLUMNS} />
@@ -187,6 +223,106 @@ export function PeopleSplit({
       />
     ),
   });
+}
+
+/** People as stage columns. Drop a card on a column to move them; the toast undoes it. */
+function StagesBoard({
+  people,
+  selected,
+  onSelect,
+  onMoved,
+}: {
+  readonly people: ReadonlyArray<Person>;
+  readonly selected: number | null;
+  readonly onSelect: (id: number) => void;
+  readonly onMoved: () => void;
+}) {
+  const update = useAtomSet(updatePersonAtom, { mode: "promise" });
+  const setToast = useAtomSet(toastAtom);
+  const [over, setOver] = useState<Stage | null>(null);
+  const [dragging, setDragging] = useState<number | null>(null);
+
+  const move = (person: Person, stage: Stage) => {
+    if (person.stage === stage) return;
+    void update({ id: person.id, stage })
+      .then(() => {
+        onMoved();
+        setToast({
+          text: `@${person.handle} moved to ${stage}`,
+          undo: () => update({ id: person.id, stage: person.stage }).then(onMoved),
+        });
+      })
+      .catch((e: unknown) => setToast({ text: e instanceof Error ? e.message : String(e) }));
+  };
+
+  return (
+    <div className="grid grid-cols-2 gap-4 px-6 py-5 @3xl:grid-cols-5">
+      {STAGES.map((stage) => {
+        const cards = people.filter((p) => p.stage === stage);
+        return (
+          <section
+            key={stage}
+            aria-label={stage}
+            data-over={over === stage || undefined}
+            className={cn(
+              "flex min-h-40 flex-col gap-2 rounded-2xl border border-border bg-card p-3 transition-colors duration-150",
+              dragging !== null && "border-white/15",
+              over === stage && "border-white/40",
+            )}
+            onDragOver={(event) => {
+              if (!event.dataTransfer.types.includes(PERSON_TYPE)) return;
+              event.preventDefault();
+              event.dataTransfer.dropEffect = "move";
+              if (over !== stage) setOver(stage);
+            }}
+            onDragLeave={() => setOver((o) => (o === stage ? null : o))}
+            onDrop={(event) => {
+              event.preventDefault();
+              setOver(null);
+              const id = Number(event.dataTransfer.getData(PERSON_TYPE));
+              const person = people.find((p) => p.id === id);
+              if (person !== undefined) move(person, stage);
+            }}
+          >
+            <h3 className="flex items-baseline gap-2 px-1 text-xs font-semibold text-muted-foreground">
+              {stage}
+              <span className="font-mono text-2xs font-normal tabular-nums">{cards.length}</span>
+            </h3>
+            {cards.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                draggable
+                aria-pressed={p.id === selected}
+                className={cn(
+                  "flex cursor-grab flex-col gap-1 rounded-xl border border-border bg-background px-3 py-2 text-left outline-hidden transition-[border-color,opacity] duration-150 hover:border-white/15 focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing aria-pressed:border-white/40",
+                  dragging === p.id && "opacity-40",
+                )}
+                onClick={() => onSelect(p.id)}
+                onDragStart={(event) => {
+                  event.dataTransfer.setData(PERSON_TYPE, String(p.id));
+                  event.dataTransfer.effectAllowed = "move";
+                  setDragging(p.id);
+                }}
+                onDragEnd={() => {
+                  setDragging(null);
+                  setOver(null);
+                }}
+              >
+                <span className="truncate text-[13px] font-medium">@{p.handle}</span>
+                <span className="truncate text-xs text-muted-foreground">{p.name}</span>
+                <span className="flex gap-2 font-mono text-2xs text-muted-foreground tabular-nums">
+                  {p.score === null ? null : <span>score {p.score}</span>}
+                  <span>{fmt(p.followers)} followers</span>
+                  <span>{ago(p.lastActivity)}</span>
+                </span>
+              </button>
+            ))}
+          </section>
+        );
+      })}
+    </div>
+  );
 }
 
 /**
