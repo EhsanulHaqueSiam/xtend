@@ -3,8 +3,10 @@
 ## Will Xtend get my account suspended?
 
 Reading what X sends to your own browser is what a browser does; Xtend reads it and never
-replays, clicks or posts through your session unless you turn session posting on. Writes go
-through X's official API with your treg balance, where they are declared and billed. See
+replays anything. The only writes through your session are the ones you click yourself, a
+reply or a post, one at a time at a human pace, which is no different from using X. Turn that
+off in Settings and they go through the API instead. Rules and schedules always go through
+X's official API with your treg balance, where they are declared and billed. See
 [X inside Xtend](./x-in-xtend.md).
 
 ## What does it cost?

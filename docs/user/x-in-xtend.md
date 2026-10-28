@@ -44,6 +44,7 @@ as it ships. The hidden rail and right column are part of Xtend's layout and sta
 ## Reading is free, writing is yours
 
 Xtend records the posts and numbers that scroll past in your session, which is why Analyze,
-Seen and Engage fill up as you browse. It never posts, likes, follows or messages through your
-session unless you turn on session posting in Settings, and automations never use the session
-at all; they go through X's API with your treg balance.
+Seen and Engage fill up as you browse. The only writes through your session are the ones you
+click, a reply or a post, one at a time at a human pace, and they are free. Settings has a
+switch to send them through the API instead. Automations never use the session at all; they go
+through X's API with your treg balance.

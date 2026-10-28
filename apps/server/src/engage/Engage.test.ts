@@ -1,11 +1,19 @@
 import { describe, expect, it } from "@effect/vitest";
-import { type ObservationBatch, XApiError, type XPost } from "@xtend/contracts";
+import {
+  type DesktopCommand,
+  DesktopUnavailableError,
+  type ObservationBatch,
+  XApiError,
+  type XPost,
+} from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as Stream from "effect/Stream";
 
 import * as Assist from "../ai/Assist.ts";
+import * as SessionPosting from "../compose/SessionPosting.ts";
+import { desktopStub } from "../compose/testStubs.ts";
 import * as Events from "../events/Events.ts";
 import * as ObservationStore from "../observations/ObservationStore.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
@@ -41,6 +49,8 @@ const target = (postId: string, handle: string): XPost => ({
 });
 
 const apiCalls: Array<string | undefined> = [];
+/** Texts sent to X's create-post endpoint, the paid lane. */
+const postedTexts: Array<string> = [];
 const published: Array<Events.EventInput> = [];
 const eventsStub = Layer.succeed(Events.Events)({
   publish: (event) =>
@@ -60,21 +70,34 @@ const tregStub = Layer.succeed(Treg.Treg)({
   isCached: () => Effect.succeed(false),
 });
 
+// The desktop answers a session reply with "s" plus the call count, or fails as `desktop.answer` says.
+const desktopCalls: Array<DesktopCommand> = [];
+const desktop = { answer: "ok" as "ok" | DesktopUnavailableError["reason"] };
 const layerTest = Engage.layer.pipe(
   Layer.provideMerge(
     Layer.mergeAll(
       EngageStore.layer,
+      SessionPosting.layer,
       ObservationStore.layer,
-      SettingsStore.layer,
       assistStub,
       tregStub,
       eventsStub,
     ),
   ),
+  Layer.provideMerge(SettingsStore.layer),
   Layer.provideMerge(
     Layer.mergeAll(
       Sqlite.layerMemory,
       TokenCipher.layerTest,
+      desktopStub(desktopCalls, (command) =>
+        desktop.answer === "ok"
+          ? (Effect.succeed(
+              command.type === "sessionPost"
+                ? { type: "sessionPost", postId: `${desktopCalls.length}0` }
+                : { type: command.type },
+            ) as never)
+          : Effect.fail(new DesktopUnavailableError({ reason: desktop.answer, detail: "test" })),
+      ),
       xClientStub({
         searchPosts: () =>
           Effect.succeed({
@@ -83,7 +106,7 @@ const layerTest = Engage.layer.pipe(
             fromCache: false,
           }),
         createPost: ({ text }) =>
-          text === "fail"
+          (postedTexts.push(text), text === "fail")
             ? Effect.fail(
                 new XApiError({
                   endpoint: "x/2/tweets",
@@ -213,9 +236,32 @@ describe("Engage.inbox", () => {
 });
 
 describe("Engage.reply", () => {
+  it.effect("goes through the session by default, at a human pace, and never pays", () =>
+    Effect.gen(function* () {
+      desktopCalls.length = 0;
+      const engage = yield* Engage.Engage;
+      const sent = yield* engage.reply(target("41", "ann"), "charge per call");
+      expect([sent.postId, sent.error, postedTexts.length]).toEqual(["10", null, 0]);
+      expect(desktopCalls[0]).toMatchObject({ type: "sessionPost", replyToPostId: "41" });
+      // A second click right away is held, and nothing is recorded for it.
+      const paced = yield* engage.reply(target("42", "ben"), "again").pipe(Effect.flip);
+      expect(paced.message).toContain("Human pace");
+      const store = yield* EngageStore.EngageStore;
+      expect(yield* store.sentList([])).toHaveLength(1);
+      // No desktop: nothing was attempted, so the user is told rather than a row kept.
+      desktop.answer = "no_desktop";
+      const away = yield* engage.reply(target("42", "ben"), "again").pipe(Effect.flip);
+      expect([away.operation, (yield* store.sentList([])).length]).toEqual(["session", 1]);
+      desktop.answer = "ok";
+    }).pipe(Effect.provide(layerTest)),
+  );
+
   it.effect("keeps a refused reply with X's reason; only a sent one marks the target replied", () =>
     Effect.gen(function* () {
-      yield* (yield* SettingsStore.SettingsStore).update({ keywords: ["api pricing"] });
+      yield* (yield* SettingsStore.SettingsStore).update({
+        keywords: ["api pricing"],
+        sessionPostingEnabled: false,
+      });
       const engage = yield* Engage.Engage;
       const failed = yield* engage.reply(target("31", "ann"), "fail");
       expect([failed.postId, failed.error]).toEqual([null, expect.stringContaining("budget")]);

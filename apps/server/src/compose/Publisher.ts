@@ -161,7 +161,7 @@ const make = Effect.gen(function* () {
       Effect.map((s) => s.sessionPostingEnabled),
       Effect.orElseSucceed(() => false),
     );
-    if (!enabled) return "Hide link preview not applied: enable Session posting in Settings";
+    if (!enabled) return "Hide link preview not applied: Session actions are off in Settings";
     return yield* session.navigate(`https://x.com/i/web/status/${postId}`).pipe(
       Effect.map(() => "Link card removal requested through your x.com session"),
       Effect.catch((e) => Effect.succeed(`Hide link preview not applied: ${e.message}`)),
