@@ -2,24 +2,38 @@ import type { Action, Conditions, RateCard, Rule, RuleRunStatus, Trigger } from 
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
-const describeTrigger = (t: Trigger): string => {
+/** A piece of the rule sentence: connective words, or a value the user set. */
+export type Segment = string | { readonly tag: string };
+const tag = (value: string | number): Segment => ({ tag: String(value) });
+
+const describeTrigger = (t: Trigger): ReadonlyArray<Segment> => {
   switch (t.kind) {
     case "post_crosses_threshold":
-      return `when my post reaches ${t.threshold.toLocaleString()} ${t.metric}`;
+      return ["when my post reaches ", tag(`${t.threshold.toLocaleString()} ${t.metric}`)];
     case "schedule":
-      return `every ${t.weekdays.map((d) => DAYS[d]).join(", ") || "(no day)"} ${t.time}`;
+      return [
+        "every ",
+        tag(t.weekdays.map((d) => DAYS[d]).join(", ") || "(no day)"),
+        " ",
+        tag(t.time),
+      ];
     case "new_engager":
-      return "when someone new engages with me";
+      return ["when someone new engages with me"];
     case "keyword_post":
-      return `when a post matches "${t.query}"`;
+      return ["when a post matches ", tag(`"${t.query}"`)];
     case "post_engaged":
-      return `when someone ${t.via === "like" ? "likes" : "reposts"} post ${t.postId}`;
+      return [
+        "when someone ",
+        tag(t.via === "like" ? "likes" : "reposts"),
+        " post ",
+        tag(t.postId),
+      ];
     case "new_follower":
-      return "when someone follows me";
+      return ["when someone follows me"];
     case "agent_match":
-      return `when an agent finds someone scoring ${t.minScore}+`;
+      return ["when an agent finds someone scoring ", tag(`${t.minScore}+`)];
     case "webhook":
-      return "when the webhook URL is called";
+      return ["when the webhook URL is called"];
   }
 };
 
@@ -48,54 +62,65 @@ export const triggerPoll = (
   }
 };
 
-const describeConditions = (c: Conditions): string =>
+const describeConditions = (c: Conditions): ReadonlyArray<Segment> =>
   [
-    c.withinHours !== undefined ? `within ${c.withinHours}h` : null,
-    c.link === "has" ? "has a link" : c.link === "none" ? "no link" : null,
-    c.notReply === true ? "not a reply" : null,
-    c.minAuthorFollowers !== undefined ? `author ${c.minAuthorFollowers}+ followers` : null,
-    c.notInListId !== undefined ? `not in list ${c.notInListId}` : null,
+    c.withinHours !== undefined ? tag(`within ${c.withinHours}h`) : null,
+    c.link === "has" ? tag("has a link") : c.link === "none" ? tag("no link") : null,
+    c.notReply === true ? tag("not a reply") : null,
+    c.minAuthorFollowers !== undefined ? tag(`author ${c.minAuthorFollowers}+ followers`) : null,
+    c.notInListId !== undefined ? tag(`not in list ${c.notInListId}`) : null,
   ]
     .filter((s) => s !== null)
-    .join(", ");
+    .flatMap((s, i) => (i === 0 ? [s] : [", ", s]));
 
-const describeAction = (a: Action): string => {
+const describeAction = (a: Action): ReadonlyArray<Segment> => {
   switch (a.kind) {
     case "auto_plug":
-      return `reply with "${a.text}"`;
+      return ["reply with ", tag(`"${a.text}"`)];
     case "auto_dm":
-      return `DM template "${a.template}"`;
+      return ["DM template ", tag(`"${a.template}"`)];
     case "auto_retweet":
-      return a.evergreen ? "repost one of my top posts" : "repost the post";
+      return a.evergreen ? ["repost one of my top posts"] : ["repost the post"];
     case "clean_profile":
-      return `undo my reposts of others after ${a.afterHours}h`;
+      return ["undo my reposts of others after ", tag(`${a.afterHours}h`)];
     case "auto_delete":
-      return `delete posts older than ${a.olderThanDays}d with under ${a.maxViews} views`;
+      return [
+        "delete posts older than ",
+        tag(`${a.olderThanDays}d`),
+        " with under ",
+        tag(`${a.maxViews} views`),
+      ];
     case "auto_like":
-      return "like the post";
+      return ["like the post"];
     case "unrepost":
-      return "undo the repost";
+      return ["undo the repost"];
     case "add_to_list":
-      return `add them to list ${a.listId}`;
+      return ["add them to list ", tag(a.listId)];
     case "notify":
-      return `notify me: "${a.message}"`;
+      return ["notify me: ", tag(`"${a.message}"`)];
     case "follow":
-      return "follow them";
+      return ["follow them"];
   }
 };
 
-/** The whole rule as one line: "When my post reaches 5,000 views, if no link, reply with …". */
-export const describeRule = (rule: Rule): string => {
+/** The whole rule as one sentence: "When my post reaches 5,000 views, if no link, reply with …". */
+export const describeRule = (rule: Rule): ReadonlyArray<Segment> => {
   const conditions = describeConditions(rule.conditions);
-  const line = [
-    describeTrigger(rule.trigger) + (conditions === "" ? "" : `, if ${conditions}`),
-    rule.waitMinutes > 0 ? `after ${rule.waitMinutes} min` : null,
+  const parts: ReadonlyArray<ReadonlyArray<Segment> | null> = [
+    [
+      ...describeTrigger(rule.trigger),
+      ...(conditions.length === 0 ? [] : [", if ", ...conditions]),
+    ],
+    rule.waitMinutes > 0 ? ["after ", tag(`${rule.waitMinutes} min`)] : null,
     describeAction(rule.action),
-    rule.undoAfterHours !== null ? `undo after ${rule.undoAfterHours}h` : null,
-  ]
+    rule.undoAfterHours !== null ? ["undo after ", tag(`${rule.undoAfterHours}h`)] : null,
+  ];
+  const [first, ...rest] = parts
     .filter((s) => s !== null)
-    .join(", ");
-  return line.charAt(0).toUpperCase() + line.slice(1);
+    .flatMap((s, i) => (i === 0 ? s : [", ", ...s]));
+  return typeof first === "string"
+    ? [first.charAt(0).toUpperCase() + first.slice(1), ...rest]
+    : [first!, ...rest];
 };
 
 export const statusLabel: Record<RuleRunStatus, string> = {
