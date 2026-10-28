@@ -5,7 +5,7 @@ const { decide, readWorkspace } = require("./ci-changes.cjs");
 
 // The real workspace, so a layout change that breaks readWorkspace fails here, not silently in CI.
 const packages = readWorkspace();
-const all = ["@xtend/contracts", "@xtend/desktop", "@xtend/web", "xtend"];
+const all = ["@xtend/contracts", "@xtend/desktop", "@xtend/pool", "@xtend/web", "xtend"];
 const run = (...files) => decide(files, packages);
 
 test("reads every workspace package", () => {
