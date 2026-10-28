@@ -48,6 +48,9 @@ export const DRAFT_TYPE = "application/x-xtend-draft";
  */
 export const POST_TYPE = "application/x-xtend-post";
 
+/** A Leads person on the move: the data is its id. */
+export const PERSON_TYPE = "application/x-xtend-person";
+
 let dragged: XPost | null = null;
 
 /** The card this app is dragging right now, or null; a drop never trusts the payload instead. */

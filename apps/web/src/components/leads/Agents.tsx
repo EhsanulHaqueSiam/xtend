@@ -25,7 +25,6 @@ import {
   DetailSplit,
   ListHead,
   ListRow,
-  Props,
   RowText,
   RowTitle,
   useSelection,
@@ -281,23 +280,24 @@ function AgentPanel({ agent }: { readonly agent: SignalAgent }) {
           <p className="mt-2 text-xs text-error-foreground">{running.error ?? toggling.error}</p>
         ) : null}
       </Section>
-      <Section title="Last run">
+      <Section title="Runs">
         {last === null ? (
           <p className="text-[13px] text-muted-foreground">Never run.</p>
         ) : (
-          <>
-            <Props
-              rows={[
-                ["When", fmtWhen(last.at)],
-                ["Found", last.found],
-                ["New people", last.inserted],
-                ["Spent", usd(last.costUsd)],
-              ]}
-            />
+          <p className="font-mono text-xs leading-relaxed break-words text-muted-foreground">
+            <span className="text-foreground">{fmtWhen(last.at)}</span> search{" "}
+            <span className="text-foreground">{agent.query}</span> · {last.found} posts ·{" "}
+            <span className={last.inserted > 0 ? "text-success-foreground" : ""}>
+              {last.inserted} new
+            </span>{" "}
+            · {usd(last.costUsd)}
             {last.error !== null ? (
-              <p className="mt-2 text-xs break-words text-error-foreground">{last.error}</p>
+              <>
+                {" "}
+                · <span className="text-error-foreground">{last.error}</span>
+              </>
             ) : null}
-          </>
+          </p>
         )}
       </Section>
       <AgentForm key={agent.id} title="Settings" initial={agent} onSaved={() => undefined} />
