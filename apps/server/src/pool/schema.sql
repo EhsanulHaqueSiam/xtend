@@ -60,17 +60,26 @@ create table if not exists pool_installs (
   pushes     bigint not null default 0
 );
 create table if not exists pool_sightings (
-  install_id uuid not null references pool_installs (install_id),
-  post_id    text not null references pool_posts (post_id),
+  install_id      uuid not null references pool_installs (install_id),
+  post_id         text not null references pool_posts (post_id),
+  -- One metrics row per install per post per hour, so a single install cannot flood velocity.
+  last_metrics_at timestamptz,
   primary key (install_id, post_id)
 );
 
 -- Installs are issued here, never self-asserted: the worker calls pool_register once per install
 -- and pushes with the id it got back. An unknown id is rejected.
+-- The worker also limits registrations per address; this cap is the backstop against a flood.
 create or replace function pool_register() returns uuid
-language sql as $$
-  insert into pool_installs (install_id) values (gen_random_uuid()) returning install_id;
-$$;
+language plpgsql as $$
+declare id uuid;
+begin
+  if (select count(*) from pool_installs where created_at > now() - interval '1 hour') >= 200 then
+    raise exception 'registration limit' using errcode = '53400';
+  end if;
+  insert into pool_installs (install_id) values (gen_random_uuid()) returning install_id into id;
+  return id;
+end $$;
 
 -- One call per batch from the worker. `batch` is a JSON array of
 -- {post:{postId,text,lang,createdAt,isReply,hasMedia,hasLink,author:{userId,handle,name,followers,verified}},
@@ -78,7 +87,8 @@ $$;
 -- Sightings are stamped with the server clock, so a client cannot move a post in time.
 -- Items that fail the shape checks are skipped, not the batch. Author identity is frozen at
 -- first sight apart from followers; a later install cannot rename or verify someone.
--- shortcut: post text is first-writer-wins, until a quorum of installs per text version exists.
+-- shortcut: post text and author identity are first-writer-wins, until per-install claims with a
+-- quorum exist; the sightings >= 3 floor on the views keeps a lone install out of trends meanwhile.
 create or replace function pool_push(install uuid, batch jsonb) returns integer
 language plpgsql as $$
 declare
@@ -121,11 +131,15 @@ begin
               coalesce((post->>'hasMedia')::boolean, false),
               coalesce((post->>'hasLink')::boolean, false))
       on conflict (post_id) do update set last_seen = now();
-    insert into pool_sightings (install_id, post_id) values (install, post->>'postId')
-      on conflict do nothing;
-    if found then
-      update pool_posts set sightings = sightings + 1 where post_id = post->>'postId';
-    end if;
+    insert into pool_sightings (install_id, post_id, last_metrics_at)
+      values (install, post->>'postId', now())
+      on conflict (install_id, post_id) do update set last_metrics_at = now()
+      where pool_sightings.last_metrics_at is null
+         or pool_sightings.last_metrics_at < now() - interval '1 hour';
+    continue when not found;
+    update pool_posts set sightings = sightings + 1
+      where post_id = post->>'postId'
+        and (select count(*) from pool_sightings s where s.post_id = post->>'postId') > sightings;
     insert into pool_metrics (post_id, observed_at, views, likes, reposts, replies, quotes, bookmarks)
       values (post->>'postId', now(), (m->>'views')::bigint, (m->>'likes')::integer,
               (m->>'reposts')::integer, (m->>'replies')::integer, (m->>'quotes')::integer,
@@ -137,7 +151,8 @@ begin
 end $$;
 
 -- Trends. Hot posts: views gained over the last 24 hours, from the first and last sighting in
--- that window. Rising terms: words in the last 24 hours against the week before.
+-- that window, counted only for posts three or more installs saw. Rising terms: words in the
+-- last 24 hours against the week before, from those same posts.
 create materialized view if not exists pool_hot_posts as
 with window_metrics as (
   select post_id,
@@ -153,7 +168,7 @@ with window_metrics as (
 select p.post_id, p.author_id, a.handle, p.text, p.created_at, p.sightings,
        w.views_24h, w.likes_24h, w.reposts_24h, w.last_seen
 from window_metrics w
-join pool_posts p on p.post_id = w.post_id
+join pool_posts p on p.post_id = w.post_id and p.sightings >= 3
 join pool_authors a on a.user_id = p.author_id
 order by w.views_24h desc nulls last
 limit 500;
@@ -163,14 +178,14 @@ create materialized view if not exists pool_rising_terms as
 with recent as (
   select word, count(*) as n
   from pool_posts, regexp_split_to_table(lower(text), '[^a-z0-9_#@]+') as word
-  where created_at > now() - interval '24 hours' and length(word) between 3 and 40
+  where created_at > now() - interval '24 hours' and sightings >= 3 and length(word) between 3 and 40
   group by word
 ),
 before as (
   select word, count(*) / 7.0 as n_per_day
   from pool_posts, regexp_split_to_table(lower(text), '[^a-z0-9_#@]+') as word
   where created_at between now() - interval '8 days' and now() - interval '24 hours'
-    and length(word) between 3 and 40
+    and sightings >= 3 and length(word) between 3 and 40
   group by word
 )
 select r.word, r.n as today, coalesce(b.n_per_day, 0) as per_day_before,
