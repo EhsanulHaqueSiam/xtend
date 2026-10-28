@@ -14,7 +14,7 @@ export const ABOUT: Readonly<Record<string, string>> = {
   "/library":
     "Posts worth learning from: daily picks for your keywords, search, and what you saved. Fetches are paid; saved posts are free.",
   "/engage":
-    "People to reply under and replies to you. A reply opens the post on X; nothing is sent for you.",
+    "People to reply under and replies to you. Pick a tone for drafts or write your own; a clicked reply goes through your own session, free.",
   "/leads":
     "People worth following up: who they are, which list, which stage. Agents find more for a price.",
   "/automate":

@@ -24,6 +24,18 @@ export const ReplyTarget = Schema.Struct({
 });
 export type ReplyTarget = typeof ReplyTarget.Type;
 
+/** The taste a reply draft takes; the chooser offers these in this order. */
+export const ReplyTone = Schema.Literals([
+  "agree",
+  "add",
+  "ask",
+  "contrarian",
+  "sarcastic",
+  "warm",
+  "short",
+]);
+export type ReplyTone = typeof ReplyTone.Type;
+
 export const ReplyDraft = Schema.Struct({ text: Schema.String });
 export type ReplyDraft = typeof ReplyDraft.Type;
 
@@ -97,7 +109,7 @@ export const EngageRpcGroup = RpcGroup.make(
     error: Schema.Union([EngageError, XApiError]),
   }),
   Rpc.make(Engage_METHODS.draftReply, {
-    payload: Schema.Struct({ post: XPost }),
+    payload: Schema.Struct({ post: XPost, tone: Schema.optional(ReplyTone) }),
     success: Schema.Array(ReplyDraft),
     error: EngageError,
   }),

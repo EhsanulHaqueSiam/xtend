@@ -60,7 +60,11 @@ const eventsStub = Layer.succeed(Events.Events)({
   stream: Stream.empty,
 });
 const tregCalls: Array<Treg.TregCall> = [];
-const assistStub = Layer.succeed(Assist.Assist)({ generate: () => Effect.die("no model here") });
+// Assist echoes the end of its instructions as the single draft, so a test can read what was asked.
+const assistStub = Layer.succeed(Assist.Assist)({
+  generate: (request) =>
+    Effect.succeed({ drafts: [{ text: request.instructions.slice(-120) }] } as never),
+});
 const tregStub = Layer.succeed(Treg.Treg)({
   call: (input) =>
     Effect.sync(() => {
@@ -294,6 +298,18 @@ describe("Engage.dms", () => {
       expect(Number(tregCalls[0]?.query?.max_results) * 0.01).toBeLessThanOrEqual(
         DM_EVENTS_QUOTE_USD,
       );
+    }).pipe(Effect.provide(layerTest)),
+  );
+});
+
+describe("Engage.draftReply", () => {
+  it.effect("asks for the chosen tone, and for none when the user picked none", () =>
+    Effect.gen(function* () {
+      const engage = yield* Engage.Engage;
+      const plain = yield* engage.draftReply(target("51", "ann"));
+      const dry = yield* engage.draftReply(target("51", "ann"), "sarcastic");
+      expect(plain[0]?.text).not.toContain("All three");
+      expect(dry[0]?.text).toContain("All three are dry and sarcastic");
     }).pipe(Effect.provide(layerTest)),
   );
 });

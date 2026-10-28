@@ -1,4 +1,4 @@
-import { Engage_METHODS, WS_METHODS, type XPost } from "@xtend/contracts";
+import { Engage_METHODS, WS_METHODS, type ReplyTone, type XPost } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import * as Atom from "effect/reactivity/Atom";
 
@@ -22,10 +22,10 @@ export const targetsAtom = Atom.keepAlive(
 // Per target post: a new write to a shared fn atom interrupts the call still running, so a
 // like on one row would cut off a paid like or reply in flight on another.
 export const draftReplyAtom = Atom.family((_postId: string) =>
-  clientRuntime.fn<XPost>()(
-    Effect.fnUntraced(function* (post) {
+  clientRuntime.fn<{ readonly post: XPost; readonly tone: ReplyTone | null }>()(
+    Effect.fnUntraced(function* ({ post, tone }) {
       const client = yield* XtendClient;
-      return yield* client[Engage_METHODS.draftReply]({ post });
+      return yield* client[Engage_METHODS.draftReply]({ post, ...(tone === null ? {} : { tone }) });
     }),
   ),
 );
