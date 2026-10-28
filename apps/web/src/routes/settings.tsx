@@ -385,10 +385,25 @@ function SpendMeter() {
     onFailure: () => null,
     onSuccess: ({ value }) => (
       <Section title="Spend">
-        <div className="grid grid-cols-3 gap-6 pb-4">
+        <div className="grid grid-cols-3 gap-6 pb-3">
           <Stat label="This month" value={usd(value.monthUsd)} />
           <Stat label="Today" value={usd(value.todayUsd)} />
           <Stat label="Budget" value={usd(value.monthlyBudgetUsd)} />
+        </div>
+        <div
+          role="meter"
+          aria-label="Spent of this month's budget"
+          aria-valuemin={0}
+          aria-valuemax={value.monthlyBudgetUsd}
+          aria-valuenow={value.monthUsd}
+          className="mb-4 h-1 overflow-hidden rounded-full bg-white/10"
+        >
+          <div
+            className="h-full bg-foreground"
+            style={{
+              width: `${value.monthlyBudgetUsd <= 0 ? 0 : Math.min(100, (value.monthUsd / value.monthlyBudgetUsd) * 100)}%`,
+            }}
+          />
         </div>
         {value.byPurpose.length > 0 ? (
           <dl>
