@@ -10,7 +10,7 @@ import { watchAddAtom, watchListAtom, watchRemoveAtom } from "../../state/scores
 import { Button } from "../ui/button";
 import { compactInputClass } from "../ui/field";
 import { Cost, Empty, table } from "../ui/layout";
-import { XLink } from "../ui/x-link";
+import { FreeOnX, profileUrl, XLink } from "../ui/x-link";
 import { AnalyzePage } from "./AnalyzePage";
 import { ErrorBar, errorText, fmt, when } from "./ui";
 
@@ -212,6 +212,7 @@ export function Competitors({ data }: { readonly data: AnalyzeData }) {
                         </td>
                         <td className={cn(table.td, "whitespace-nowrap")}>
                           <div className="flex justify-end gap-1.5">
+                            <FreeOnX href={profileUrl(w.handle)} label="Profile on X" />
                             <FetchButton
                               handle={w.handle}
                               label={report === undefined ? "Fetch" : "Refetch"}

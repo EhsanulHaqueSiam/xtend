@@ -13,6 +13,7 @@ import { errorText, fmt } from "../analyze/ui";
 import { HeaderTabs, PageHeader } from "../PageHeader";
 import { Cost, Empty, PageBody, Section } from "../ui/layout";
 import { NoHandle } from "../ui/no-handle";
+import { FreeOnX } from "../ui/x-link";
 import {
   type Column,
   DetailSplit,
@@ -73,10 +74,18 @@ export function Mentions() {
         </>
       }
       actions={
-        <button type="button" className={pill} disabled={fetching} onClick={() => void runFetch()}>
-          <TextMorph duration={250}>{fetching ? "Fetching…" : "Fetch new"}</TextMorph>
-          <Cost label={quote} />
-        </button>
+        <>
+          <FreeOnX href="https://x.com/notifications/mentions" label="Notifications on X" />
+          <button
+            type="button"
+            className={pill}
+            disabled={fetching}
+            onClick={() => void runFetch()}
+          >
+            <TextMorph duration={250}>{fetching ? "Fetching…" : "Fetch new"}</TextMorph>
+            <Cost label={quote} />
+          </button>
+        </>
       }
       empty={
         isElectron

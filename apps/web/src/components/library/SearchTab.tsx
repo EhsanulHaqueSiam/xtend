@@ -1,15 +1,19 @@
-import { useAtomSet } from "@effect/atom-react";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
 import type { XPost, XSearchMode } from "@xtend/contracts";
 import { Search } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { observedMatching, observedToXPost } from "../../lib/observed";
 import { cn } from "../../lib/utils";
 import { useQuoteLabel } from "../../state/costs";
 import { searchAtom } from "../../state/library";
+import { recentPostsAtom } from "../../state/observations";
 import { HeaderTabs, PageHeader } from "../PageHeader";
 import { compactInputClass } from "../ui/field";
 import { Cost, Empty } from "../ui/layout";
 import { DetailSplit } from "../ui/split";
+import { FreeOnX, searchUrl } from "../ui/x-link";
 import { xPill } from "../x";
 import { PostGrid } from "./PostCard";
 import { InspectorGroup, PostInspector } from "./PostInspector";
@@ -28,11 +32,14 @@ const excludedWords = (exclude: string) =>
     .filter((w) => w !== "");
 
 /**
- * Paid X search. Every run and every next page shows its price on the button.
+ * X search. The free way is X's own search page in the panel, whose results the
+ * session observes; what it already saw for the query lists first. The paid
+ * search is for volume and filters, and every run and next page shows its price.
  * Excluded words filter the results here, after they arrive.
  */
 export function SearchTab({ initialQuery }: { readonly initialQuery: string }) {
   const search = useAtomSet(searchAtom, { mode: "promise" });
+  const recent = useAtomValue(recentPostsAtom);
   const saved = useSavedIds();
   const [query, setQuery] = useState(initialQuery);
   const [mode, setMode] = useState<XSearchMode>("top");
@@ -95,7 +102,12 @@ export function SearchTab({ initialQuery }: { readonly initialQuery: string }) {
     const text = p.text.toLowerCase();
     return !words.some((w) => text.includes(w));
   });
-  const post = visible.find((p) => p.postId === selected);
+  const seen = observedMatching(AsyncResult.getOrElse(recent, () => ({ posts: [] })).posts, query)
+    .filter((p) => !items.some((q) => q.postId === p.postId))
+    .map(observedToXPost)
+    .filter((p) => !words.some((w) => p.text.toLowerCase().includes(w)));
+  const post =
+    visible.find((p) => p.postId === selected) ?? seen.find((p) => p.postId === selected);
 
   return (
     <>
@@ -130,6 +142,7 @@ export function SearchTab({ initialQuery }: { readonly initialQuery: string }) {
           value={exclude}
           onChange={(e) => setExclude(e.target.value)}
         />
+        {query.trim() === "" ? null : <FreeOnX href={searchUrl(query, mode)} label="Search on X" />}
         <button type="submit" className={xPill} disabled={busy || query.trim() === ""}>
           {busy ? "Searching" : "Search"}
           <Cost label={searchQuote} />
@@ -154,8 +167,25 @@ export function SearchTab({ initialQuery }: { readonly initialQuery: string }) {
         }
         list={
           <>
+            {seen.length > 0 ? (
+              <>
+                <p className="px-6 pt-4 font-mono text-2xs text-muted-foreground">
+                  seen on X · {seen.length} · free
+                </p>
+                <PostGrid
+                  items={seen.map((p) => ({ key: p.postId, post: p }))}
+                  selected={selected}
+                  onSelect={setSelected}
+                />
+              </>
+            ) : null}
             {searched === null ? (
-              <Empty>Find posts worth saving. X's own search syntax works here.</Empty>
+              seen.length > 0 ? null : (
+                <Empty>
+                  Find posts worth saving. Search on X is free; the paid search adds volume and
+                  filters.
+                </Empty>
+              )
             ) : visible.length === 0 ? (
               <Empty>
                 {items.length === 0

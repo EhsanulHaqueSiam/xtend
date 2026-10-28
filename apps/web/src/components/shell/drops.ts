@@ -1,9 +1,9 @@
 import { useAtomRefresh, useAtomSet } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
-import type { XPost } from "@xtend/contracts";
 import { Atom } from "effect/reactivity";
 
 import type { DraggedPost } from "../../lib/drag";
+import { observedToXPost } from "../../lib/observed";
 import { addPersonAtom } from "../../state/leads";
 import { collectionsAtom, deleteSavedAtom, savePostAtom, swipeFileAtom } from "../../state/library";
 import { observedPostAtom } from "../../state/observations";
@@ -49,13 +49,7 @@ export function useDropPost() {
           return { text: "Quoting in Compose" };
         case "/library": {
           if (observed === undefined) return { text: "Not seen yet. Open it on X and press Save." };
-          const full: XPost = {
-            ...observed,
-            url: post.url,
-            lang: null,
-            author: { ...observed.author, avatarUrl: null },
-          };
-          const saved = await save({ post: full, collectionId: null });
+          const saved = await save({ post: observedToXPost(observed), collectionId: null });
           refreshSwipe();
           refreshCollections();
           return {
