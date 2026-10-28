@@ -17,9 +17,11 @@ reading.
 ## Why a worker in front
 
 The service never holds the pool's credentials: a connection string in a desktop app leaks.
-A worker holds it, issues install ids (`pool_register`), rate limits per address and per
-install, and calls `pool_push(install, batch)`, one statement per batch. The schema is
-`apps/server/src/pool/schema.sql`; it re-applies in place.
+A Cloudflare Worker (`apps/pool`) holds it through Hyperdrive, issues install ids
+(`pool_register`), rate limits per address and per install, and calls
+`pool_push(install, batch)`, one statement per batch. Hyperdrive's query cache is off for this
+config: both functions are selects with side effects, and a cached select would skip them. The
+schema is `apps/server/src/pool/schema.sql`; it re-applies in place.
 
 ## What the database defends on its own
 
