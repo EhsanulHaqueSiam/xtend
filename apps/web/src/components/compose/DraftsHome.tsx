@@ -11,15 +11,28 @@ import { approvePendingAtom, dismissPendingAtom, pendingAtom } from "../../state
 import { deleteDraftAtom, draftsAtom } from "../../state/compose";
 import { usd } from "../../state/costs";
 import { queueAtom, unscheduleAtom } from "../../state/plan";
-import { PageHeader } from "../PageHeader";
+import { stored } from "../../state/x";
+import { HeaderTabs, PageHeader } from "../PageHeader";
 import { sectionLabel, SECTIONS, type SectionId } from "../shell/sections";
 import { Button } from "../ui/button";
 import { Cost, Empty, PageBody, table } from "../ui/layout";
 import { useOpenOnX } from "../ui/x-link";
 import { failText } from "./AssistPanel";
+import { DraftsBoard } from "./DraftsBoard";
 import { draftTitle, fmtWhen, sumUsd, useDraftCost } from "./DraftsList";
 
 export type ComposeTab = SectionId<"/compose">;
+
+/** Drafts as a board of columns or as the table; kept across launches. */
+const draftsViewAtom = stored<"board" | "list">(
+  "xtend:compose-view",
+  (raw) => (raw === "list" ? "list" : "board"),
+  "board",
+);
+const VIEWS = [
+  { id: "board", label: "Board" },
+  { id: "list", label: "List" },
+] as const;
 export const COMPOSE_TABS: ReadonlyArray<ComposeTab> = SECTIONS["/compose"].map((s) => s.id);
 
 const STATUSES: Record<ComposeTab, ReadonlyArray<Draft["status"]>> = {
@@ -292,6 +305,9 @@ export function DraftsHome({
   const approve = useAtomSet(approvePendingAtom, { mode: "promiseExit" });
   const dismiss = useAtomSet(dismissPendingAtom, { mode: "promiseExit" });
   const costOf = useDraftCost();
+  const view = useAtomValue(draftsViewAtom);
+  const setView = useAtomSet(draftsViewAtom);
+  const board = tab === "drafts" && view === "board";
   const [notice, setNotice] = useState<string | null>(null);
   // One action at a time: a second click would pay twice, and the rows share one rpc atom each.
   const [busy, setBusy] = useState(false);
@@ -351,6 +367,11 @@ export function DraftsHome({
     <div className="flex h-full flex-col">
       <PageHeader
         title={sectionLabel("/compose", tab)}
+        tabs={
+          tab === "drafts" ? (
+            <HeaderTabs tabs={VIEWS} value={view} onChange={setView} label="View" />
+          ) : undefined
+        }
         detail={detail}
         actions={
           <Button size="sm" onClick={onNew}>
@@ -370,8 +391,11 @@ export function DraftsHome({
           {notice}
         </p>
       ) : null}
-      <PageBody>
-        {asks.length > 0 ? (
+      <PageBody className="@container">
+        {board ? (
+          <DraftsBoard drafts={all} costOf={costOf} onOpen={onOpen} onChanged={refreshDrafts} />
+        ) : null}
+        {!board && asks.length > 0 ? (
           <Table
             head={
               <>
@@ -386,39 +410,43 @@ export function DraftsHome({
             ))}
           </Table>
         ) : null}
-        {AsyncResult.match(drafts, {
-          onInitial: () => <Empty>Loading drafts</Empty>,
-          onFailure: (f) => <Empty>{failText(f.cause)}</Empty>,
-          onSuccess: () =>
-            shown.length === 0 ? (
-              asks.length > 0 ? null : (
-                <EmptySection tab={tab} onNew={onNew} />
-              )
-            ) : (
-              <Table
-                head={
-                  <>
-                    <th className={table.th}>{tab === "automatic" ? "Suggested" : "Draft"}</th>
-                    <th className={cn(table.th, "text-right")}>Posts</th>
-                    {tab === "posted" ? null : <th className={cn(table.th, "text-right")}>Cost</th>}
-                    <th className={cn(table.th, "text-right")}>{WHEN[tab]}</th>
-                    <th className={table.th} />
-                  </>
-                }
-              >
-                {shown.map((d, i) => (
-                  <DraftRow
-                    key={d.id}
-                    draft={d}
-                    costUsd={costs[i] ?? null}
-                    busy={busy}
-                    onOpen={onOpen}
-                    onAct={act}
-                  />
-                ))}
-              </Table>
-            ),
-        })}
+        {board
+          ? null
+          : AsyncResult.match(drafts, {
+              onInitial: () => <Empty>Loading drafts</Empty>,
+              onFailure: (f) => <Empty>{failText(f.cause)}</Empty>,
+              onSuccess: () =>
+                shown.length === 0 ? (
+                  asks.length > 0 ? null : (
+                    <EmptySection tab={tab} onNew={onNew} />
+                  )
+                ) : (
+                  <Table
+                    head={
+                      <>
+                        <th className={table.th}>{tab === "automatic" ? "Suggested" : "Draft"}</th>
+                        <th className={cn(table.th, "text-right")}>Posts</th>
+                        {tab === "posted" ? null : (
+                          <th className={cn(table.th, "text-right")}>Cost</th>
+                        )}
+                        <th className={cn(table.th, "text-right")}>{WHEN[tab]}</th>
+                        <th className={table.th} />
+                      </>
+                    }
+                  >
+                    {shown.map((d, i) => (
+                      <DraftRow
+                        key={d.id}
+                        draft={d}
+                        costUsd={costs[i] ?? null}
+                        busy={busy}
+                        onOpen={onOpen}
+                        onAct={act}
+                      />
+                    ))}
+                  </Table>
+                ),
+            })}
       </PageBody>
     </div>
   );

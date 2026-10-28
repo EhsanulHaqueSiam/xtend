@@ -2,6 +2,8 @@ import { useAtom, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import {
   ArrowLeft,
+  Pin,
+  PinOff,
   ArrowRight,
   ChevronDown,
   ChevronUp,
@@ -22,6 +24,7 @@ import {
   xFindOpenAtom,
   xForward,
   xPanelOpenAtom,
+  xPanelPinnedAtom,
   xPanelWidthAtom,
   xReload,
   xUnreadAtom,
@@ -182,6 +185,8 @@ function BarButton({
 function PanelBar() {
   const url = useAtomValue(xUrlAtom);
   const setOpen = useAtomSet(xPanelOpenAtom);
+  const pinned = useAtomValue(xPanelPinnedAtom);
+  const setPinned = useAtomSet(xPanelPinnedAtom);
   const navigate = useNavigate();
   return (
     <div className="flex h-10 shrink-0 items-center gap-1 border-b border-border pr-1.5 pl-3">
@@ -196,6 +201,12 @@ function PanelBar() {
       </BarButton>
       <BarButton label="Reload" onClick={xReload}>
         <RotateCw />
+      </BarButton>
+      <BarButton
+        label={pinned ? "Unpin: X's pages take the main area" : "Pin: X's pages open here"}
+        onClick={() => setPinned(!pinned)}
+      >
+        {pinned ? <PinOff /> : <Pin />}
       </BarButton>
       <BarButton label="Open X full size" onClick={() => void navigate({ to: "/x" })}>
         <Maximize2 />
