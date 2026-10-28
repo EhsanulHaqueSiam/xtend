@@ -18,8 +18,9 @@ headline numbers with their change.
 
 Your posts as a sortable table with averages by type (text, image, video, link, thread), and
 the posts that gained followers. **Private metrics** (profile visits, link clicks, detail
-expands) are X's own analytics, read by a nightly job once per own post of the last 30 days;
-the section shows the last run and its price.
+expands) are X's own analytics, read once per own post of the last 30 days. **Fetch now** shows
+its price; your first one also turns on a nightly read at 03:00 at the same price. The section
+shows the last run.
 
 ## Audience
 

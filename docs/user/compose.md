@@ -60,7 +60,7 @@ went out marked, and a retry continues from there.
 
 ## Replies and quotes
 
-`r` anywhere, or Reply with AI on a post in X, opens Compose on a reply. The post you are
+Reply with AI on a post in X opens Compose on a reply. The post you are
 answering shows beside the editor, read from the Library when it is saved there, otherwise
 from what the session view showed. Remix in the Library opens Compose with the post it was
 inspired by beside it and linked on the draft. A post dropped on Compose in the sidebar starts

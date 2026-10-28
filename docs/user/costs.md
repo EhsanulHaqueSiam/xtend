@@ -52,6 +52,6 @@ These spend on the service's clock once you turn them on, so each is off until y
 - Library's morning jobs (Settings, Writing: **Daily Library jobs**).
 - Leads agents on their schedule.
 - Automation rules, each with its own daily cap and budget.
-- The nightly private-metrics read for Analyze.
+- The nightly private-metrics read for Analyze, from your first **Fetch now** there.
 
 `xtend spend` prints this month's spend from a terminal.
