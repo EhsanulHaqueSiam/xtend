@@ -30,7 +30,7 @@ export const layerHandlers = EngageRpcGroup.toLayer(
     const store = yield* EngageStore.EngageStore;
     return EngageRpcGroup.of({
       [Engage_METHODS.targets]: () => engage.targets,
-      [Engage_METHODS.draftReply]: ({ post }) => engage.draftReply(post),
+      [Engage_METHODS.draftReply]: ({ post, tone }) => engage.draftReply(post, tone),
       [Engage_METHODS.reply]: ({ post, text }) => engage.reply(post, text),
       [Engage_METHODS.like]: ({ postId }) => engage.like(postId),
       [Engage_METHODS.findKeywords]: () => engage.findKeywords,

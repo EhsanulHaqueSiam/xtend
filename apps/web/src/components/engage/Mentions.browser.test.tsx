@@ -69,6 +69,8 @@ function fakeService(): FakeService {
       })),
     [Engage_METHODS.inbox]: () => Effect.succeed({ sent: [], followUps: [], incoming: [] }),
     [Engage_METHODS.mentionHandled]: ({ postId }) => Effect.sync(() => void handled.add(postId)),
+    [Engage_METHODS.draftReply]: ({ tone }) =>
+      Effect.succeed([{ text: `${tone ?? "plain"} one` }, { text: `${tone ?? "plain"} two` }]),
   };
 }
 
@@ -94,4 +96,20 @@ it("j and k move the selection through the list", async () => {
 
   await userEvent.keyboard("k");
   await expect.element(detail.getByText("second mention")).toBeVisible();
+});
+
+it("a tone chip drafts in that taste, a candidate fills the editor, write my own clears", async () => {
+  await using screen = await render(<Mentions />, { service: fakeService() });
+  const detail = screen.getByRole("complementary");
+  await expect.element(detail.getByText("first mention")).toBeVisible();
+
+  await userEvent.click(detail.getByRole("button", { name: "Sarcastic" }));
+  const editor = detail.getByRole("textbox");
+  await expect.element(editor).toHaveValue("sarcastic one");
+  await userEvent.click(detail.getByRole("button", { name: /sarcastic two/ }));
+  await expect.element(editor).toHaveValue("sarcastic two");
+
+  await userEvent.click(detail.getByRole("button", { name: "Write my own" }));
+  await expect.element(detail.getByRole("list", { name: "Drafts" })).not.toBeInTheDocument();
+  await expect.element(editor).toHaveValue("sarcastic two");
 });
