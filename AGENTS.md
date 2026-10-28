@@ -46,6 +46,17 @@ Xtend is a desktop-first X (Twitter) growth suite: one app whose sidebar holds b
 - Screen tests render against a fake service: `render(ui, { service })`. See `docs/operations/development.md#screen-tests`.
 - Backend behaviour ships with a focused test beside it. Visual changes ship with a screenshot.
 
+## Documentation
+
+Most code changes do not need a documentation change. Agents can read the code.
+
+- `docs/internals/` is for architectural decisions and their reasons, constraints that span components, and implementation traps that are hard to discover from the source. Before adding a paragraph, ask what a maintainer would get wrong without it. If reading the code answers the question, leave it out.
+- Do not document every feature, enumerate fields or methods, narrate control flow, keep file catalogs, or append PR summaries. Types, tests and code record the implementation. The glossary defines shared vocabulary; it is not a feature index.
+- A local reason the code cannot show goes in a short nearby comment. An internal doc is for reasoning that crosses boundaries. Link to the source instead of copying it.
+- When a documented decision changes, rewrite or remove the affected text. Do not append another account of the new behaviour.
+- `docs/user/` helps users accomplish tasks: what a feature does, how to start, what costs money, and anything unintuitive. A settings path is useful; descriptions of buttons, layouts or every UI state are not. Keep the shipped product's voice, no implementation details.
+- `docs/operations/` holds maintainer setup, release and debugging procedures.
+
 ## Do not
 
 - Commit plans, research or agent scratch files. Keep them outside the worktree.
