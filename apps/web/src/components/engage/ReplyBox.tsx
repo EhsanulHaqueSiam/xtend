@@ -75,6 +75,7 @@ export function ReplyBox({
   const rates = useRates();
   // The service's price: the first like of the day also pays for the account lookup.
   const likeQuote = useQuote({ kind: "like" });
+  const assistQuote = useQuote({ kind: "assist" });
   // The service sends a clicked reply through the session while that lane is on; the button says so.
   const viaSession =
     isElectron &&
@@ -174,6 +175,7 @@ export function ReplyBox({
           <TextMorph duration={250}>
             {busy === "draft" ? "Drafting…" : drafts.length > 0 ? "Draft again" : "Draft with AI"}
           </TextMorph>
+          {assistQuote === null ? <Cost label="…" /> : <Cost usd={assistQuote.usd} />}
         </button>
         <button
           type="button"

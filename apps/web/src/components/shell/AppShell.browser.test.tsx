@@ -15,6 +15,9 @@ const { ShellHotkeys } = await import("./ShellHotkeys");
 const settings = {
   handle: "siamships",
   tregTokenSet: false,
+  assistBaseUrl: null,
+  assistModel: "",
+  assistKeySet: false,
   monthlyBudgetUsd: 20,
   sessionPostingEnabled: false,
   dailyLibraryJobs: false,

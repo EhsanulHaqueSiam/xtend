@@ -137,7 +137,10 @@ const make = Effect.gen(function* () {
             : yield* read(rates.searchPage, x.cached.userPosts(handle));
         });
       case "assist":
-        return Effect.succeed(paid(Assist.EXPECTED_CALL_USD));
+        // The user's own endpoint answers for nothing; the metered path reserves the usual amount.
+        return Effect.map(settings.get, (s) =>
+          s.assistBaseUrl === null ? paid(Assist.EXPECTED_CALL_USD) : { usd: 0, cached: false },
+        );
     }
   };
 
