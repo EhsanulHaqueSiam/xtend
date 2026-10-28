@@ -79,7 +79,7 @@ export const xUnreadAtom = Atom.make(0);
 /** Whether the find bar over x.com is open. */
 export const xFindOpenAtom = Atom.make(false);
 
-const stored = <A>(key: string, decode: (raw: string) => A | undefined, fallback: A) =>
+export const stored = <A>(key: string, decode: (raw: string) => A | undefined, fallback: A) =>
   Atom.keepAlive(
     Atom.writable(
       () => {
@@ -113,6 +113,12 @@ export const xPanelWidthAtom = stored(
   440,
 );
 export const clampXPanelWidth = clampWidth;
+
+/**
+ * Pinned: the sidebar's X rows load into the panel beside the open tool instead of taking
+ * the main area, so a tool and X stay side by side.
+ */
+export const xPanelPinnedAtom = stored("xtend:x-panel-pinned", (raw) => raw === "true", false);
 
 /** Whether the X skin (CSS that hides X's own nav and right column) is on. */
 export const xSkinAtom = stored("xtend:x-skin", (raw) => raw !== "false", true);

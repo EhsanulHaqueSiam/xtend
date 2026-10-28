@@ -66,7 +66,29 @@ const drafts = [
   draft("q1", "queued", "Queued one", { scheduledAt: "2030-01-07T09:30:00.000Z" }),
 ];
 
+it("shows drafts as a board, and dragging a draft onto Queued queues it", async () => {
+  localStorage.removeItem("xtend:compose-view");
+  const queued: string[] = [];
+  await using screen = await render(<DraftsHome tab="drafts" onOpen={vi.fn()} onNew={vi.fn()} />, {
+    service: {
+      ...prices,
+      "compose.draftsList": () => Effect.succeed({ drafts }),
+      "automate.pendingList": () => Effect.succeed([]),
+      "plan.queue": ({ id }) => {
+        queued.push(id);
+        return Effect.succeed(drafts[0]!);
+      },
+    },
+  });
+  await expect.element(screen.getByRole("heading", { name: /^Automatic/ })).toBeVisible();
+  const card = screen.getByRole("button", { name: /Three things I got wrong/ });
+  await expect.element(card).toBeVisible();
+  await card.dropTo(screen.getByRole("heading", { name: /^Queued/ }));
+  await expect.poll(() => queued).toEqual(["d1"]);
+});
+
 it("lists the open section's drafts with their price, and opens or starts one", async () => {
+  localStorage.setItem("xtend:compose-view", "list");
   const onOpen = vi.fn();
   const onNew = vi.fn();
   await using screen = await render(<DraftsHome tab="drafts" onOpen={onOpen} onNew={onNew} />, {
