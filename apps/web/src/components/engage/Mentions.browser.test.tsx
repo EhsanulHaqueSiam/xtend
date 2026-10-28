@@ -46,6 +46,9 @@ function fakeService(): FakeService {
       Effect.succeed({
         handle: "me",
         tregTokenSet: true,
+        assistBaseUrl: null,
+        assistModel: "",
+        assistKeySet: false,
         monthlyBudgetUsd: 50,
         sessionPostingEnabled: false,
         dailyLibraryJobs: false,

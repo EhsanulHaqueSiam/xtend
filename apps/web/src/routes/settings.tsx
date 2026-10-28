@@ -52,6 +52,16 @@ const isTimeZone = (zone: string) => {
   }
 };
 
+/** Where assist can run for free. The model names are each provider's cheap, capable default. */
+const ASSIST_PRESETS = [
+  { label: "Xtend", baseUrl: null, model: "" },
+  { label: "Local (Ollama)", baseUrl: "http://127.0.0.1:11434/v1", model: "llama3.1" },
+  { label: "OpenAI", baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini" },
+  { label: "Anthropic", baseUrl: "https://api.anthropic.com/v1", model: "claude-haiku-5-5" },
+  { label: "Groq", baseUrl: "https://api.groq.com/openai/v1", model: "llama-3.3-70b-versatile" },
+  { label: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", model: "openai/gpt-4o-mini" },
+] as const;
+
 function SettingsForm({ current }: { readonly current: SettingsShape }) {
   const update = useAtomSet(updateSettingsAtom, { mode: "promise" });
   const refreshSettings = useAtomRefresh(settingsAtom);
@@ -59,12 +69,15 @@ function SettingsForm({ current }: { readonly current: SettingsShape }) {
   const refreshSpend = useAtomRefresh(spendAtom);
   const [draft, setDraft] = useState<SettingsUpdate>({});
   const [tregToken, setTregToken] = useState("");
+  const [assistKey, setAssistKey] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [budgetInvalid, setBudgetInvalid] = useState(false);
   const [zoneInvalid, setZoneInvalid] = useState(false);
-  const dirty = Object.keys(draft).length > 0 || tregToken !== "";
+  const dirty = Object.keys(draft).length > 0 || tregToken !== "" || assistKey !== "";
   const invalid = budgetInvalid || zoneInvalid;
+  const assistBaseUrl =
+    draft.assistBaseUrl === undefined ? current.assistBaseUrl : draft.assistBaseUrl;
 
   const save = async () => {
     setError(null);
@@ -76,9 +89,11 @@ function SettingsForm({ current }: { readonly current: SettingsShape }) {
         ...draft,
         ...(handle === undefined ? {} : { handle }),
         ...(tregToken === "" ? {} : { tregToken }),
+        ...(assistKey === "" ? {} : { assistKey }),
       });
       setDraft({});
       setTregToken("");
+      setAssistKey("");
       refreshSettings();
       refreshSpend();
     } catch (e) {
@@ -154,6 +169,81 @@ function SettingsForm({ current }: { readonly current: SettingsShape }) {
           checked={draft.dailyLibraryJobs ?? current.dailyLibraryJobs}
           onChange={(next) => setDraft((d) => ({ ...d, dailyLibraryJobs: next }))}
         />
+      </Section>
+      <Section
+        title="AI assist"
+        description="free with your own model; otherwise metered through Xtend"
+      >
+        <Field
+          wide
+          label="Model"
+          hint={
+            assistBaseUrl === null
+              ? "Xtend's model, billed per call against the budget. Pick a preset to make assist free."
+              : "Your endpoint answers every assist for nothing through Xtend; the provider bills you directly, a local model costs nothing at all."
+          }
+        >
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {ASSIST_PRESETS.map((preset) => (
+              <Button
+                key={preset.label}
+                variant="outline"
+                size="xs"
+                aria-label={preset.label}
+                aria-pressed={assistBaseUrl === preset.baseUrl}
+                className="aria-pressed:border-foreground"
+                onClick={() =>
+                  setDraft((d) => ({
+                    ...d,
+                    assistBaseUrl: preset.baseUrl,
+                    assistModel: preset.model,
+                  }))
+                }
+              >
+                {preset.label}
+              </Button>
+            ))}
+          </div>
+        </Field>
+        {assistBaseUrl === null ? null : (
+          <>
+            <Field wide label="Endpoint" hint="OpenAI-compatible, ending in /v1.">
+              <input
+                className={settingsInput}
+                value={assistBaseUrl}
+                onChange={(e) => setDraft((d) => ({ ...d, assistBaseUrl: e.target.value }))}
+              />
+            </Field>
+            <Field
+              wide
+              label="Model name"
+              hint="As the provider names it; for Ollama, a model you pulled."
+            >
+              <input
+                className={settingsInput}
+                value={draft.assistModel ?? current.assistModel}
+                onChange={(e) => setDraft((d) => ({ ...d, assistModel: e.target.value }))}
+              />
+            </Field>
+            <Field
+              wide
+              label="API key"
+              hint={
+                current.assistKeySet
+                  ? "A key is stored. Paste a new one to replace it. A local model needs none."
+                  : "Needed at a provider; a local model needs none. Stored encrypted, never leaves this machine."
+              }
+            >
+              <input
+                className={settingsInput}
+                type="password"
+                placeholder="API key"
+                value={assistKey}
+                onChange={(e) => setAssistKey(e.target.value)}
+              />
+            </Field>
+          </>
+        )}
       </Section>
       <Section title="Time and voice">
         <Field

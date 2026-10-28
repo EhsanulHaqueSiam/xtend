@@ -1,6 +1,7 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import { HttpClient } from "effect/http";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
@@ -8,6 +9,7 @@ import * as Stream from "effect/Stream";
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
 import * as Budget from "../budget/Budget.ts";
+import * as OwnModel from "./OwnModel.ts";
 import * as ServerConfig from "../config.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 
@@ -54,6 +56,7 @@ const make = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;
   const settings = yield* SettingsStore.SettingsStore;
   const budget = yield* Budget.Budget;
+  const http = yield* HttpClient.HttpClient;
 
   const generate = Effect.fn("Assist.generate")(function* <A>(request: AssistRequest<A>) {
     const current = yield* settings.get.pipe(Effect.orElseSucceed(() => null));
@@ -63,6 +66,41 @@ const make = Effect.gen(function* () {
         : `\n\nAbout the user's account: ${current.voiceNotes || "(no notes yet)"}\nTheir niche keywords: ${current.keywords.join(", ") || "(none yet)"}`;
     const jsonSchema = Schema.toJsonSchemaDocument(request.output).schema;
     const prompt = `${request.instructions}\n\nInput:\n${encodeJson(request.input)}`;
+    const decode = (output: unknown) =>
+      Schema.decodeUnknownEffect(request.output)(output).pipe(
+        Effect.mapError(
+          (e) =>
+            new AssistError({
+              task: request.task,
+              reason: "decode",
+              detail: String(e).slice(0, 300),
+            }),
+        ),
+      );
+
+    // Free first: the user's own endpoint answers without touching the budget or the spend log.
+    if (current !== null && current.assistBaseUrl !== null) {
+      const key = yield* settings.assistKey.pipe(Effect.orElseSucceed(() => null));
+      const output = yield* OwnModel.complete({
+        baseUrl: current.assistBaseUrl,
+        model: current.assistModel,
+        key,
+        system: BASE_PROMPT + voice,
+        prompt,
+        jsonSchema,
+      }).pipe(
+        Effect.provideService(HttpClient.HttpClient, http),
+        Effect.mapError(
+          (e) =>
+            new AssistError({
+              task: request.task,
+              reason: "model",
+              detail: typeof e === "string" ? e : String(e).slice(0, 300),
+            }),
+        ),
+      );
+      return yield* decode(output);
+    }
 
     // Loaded on the first model call, not at start: the packaged app and the CLI ship without
     // the SDK's per-platform binaries, and everything but assist must still run there.
@@ -138,16 +176,7 @@ const make = Effect.gen(function* () {
 
     if (error !== null)
       return yield* new AssistError({ task: request.task, reason: "model", detail: error });
-    return yield* Schema.decodeUnknownEffect(request.output)(output).pipe(
-      Effect.mapError(
-        (e) =>
-          new AssistError({
-            task: request.task,
-            reason: "decode",
-            detail: String(e).slice(0, 300),
-          }),
-      ),
-    );
+    return yield* decode(output);
   });
 
   return Assist.of({ generate });

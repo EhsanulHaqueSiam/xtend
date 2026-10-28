@@ -5,6 +5,9 @@
 - **treg and budget**: your treg token and the monthly budget in USD. Paid calls stop before
   the month's spend would pass the budget. Daily Library jobs, off by default, fetch picks,
   detect hook patterns and write three ready drafts each morning at their listed prices.
+- **AI assist**: where assist runs. Xtend's model is metered per call; a preset for a local
+  Ollama or your own key at a provider makes every assist free through Xtend. The key is
+  stored encrypted on this machine.
 - **Time and voice**: the time zone for slots, the calendar and best hours; voice notes, one
   paragraph on what you post about and how you sound, which the assistant writes in; keywords,
   which Library, Engage and Leads search by default.

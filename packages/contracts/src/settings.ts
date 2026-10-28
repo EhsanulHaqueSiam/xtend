@@ -23,6 +23,10 @@ export const Settings = Schema.Struct({
   keywords: Schema.Array(Schema.String),
   /** IANA zone every slot, calendar and heatmap is expressed in. Defaults to the service machine's zone. */
   timeZone: Schema.String,
+  /** An OpenAI-compatible endpoint that answers assist for free (local Ollama, the user's own key); null is the metered path. */
+  assistBaseUrl: Schema.NullOr(Schema.String),
+  assistModel: Schema.String,
+  assistKeySet: Schema.Boolean,
 });
 export type Settings = typeof Settings.Type;
 
@@ -37,6 +41,9 @@ export const SettingsUpdate = Schema.Struct({
   voiceNotes: Schema.optional(Schema.String),
   keywords: Schema.optional(Schema.Array(Schema.String)),
   timeZone: Schema.optional(Schema.String.check(Schema.isMinLength(1))),
+  assistBaseUrl: Schema.optional(Schema.NullOr(Schema.String)),
+  assistModel: Schema.optional(Schema.String),
+  assistKey: Schema.optional(Schema.NullOr(Schema.String)),
 });
 export type SettingsUpdate = typeof SettingsUpdate.Type;
 
