@@ -1,7 +1,7 @@
 -- The shared pool: what every Xtend install saw on X, pooled in one Neon Postgres so
 -- trends come from everyone's timeline instead of one person's. Public posts only.
 -- Nothing identifies the viewer: no handle, no account, no DMs, no lists, no bookmarks.
--- An install id exists for rate limiting and is never joined to content.
+-- An install id exists for rate limiting and is never joined to content; the worker issues it.
 --
 -- Apply: psql "$XTEND_POOL_URL" -v ON_ERROR_STOP=1 -f apps/server/src/pool/schema.sql
 -- The service never holds the pool's credentials; a worker in front of the pool does, and
@@ -65,42 +65,71 @@ create table if not exists pool_sightings (
   primary key (install_id, post_id)
 );
 
+-- Installs are issued here, never self-asserted: the worker calls pool_register once per install
+-- and pushes with the id it got back. An unknown id is rejected.
+create or replace function pool_register() returns uuid
+language sql as $$
+  insert into pool_installs (install_id) values (gen_random_uuid()) returning install_id;
+$$;
+
 -- One call per batch from the worker. `batch` is a JSON array of
 -- {post:{postId,text,lang,createdAt,isReply,hasMedia,hasLink,author:{userId,handle,name,followers,verified}},
---  metrics:{views,likes,reposts,replies,quotes,bookmarks}, observedAt}.
+--  metrics:{views,likes,reposts,replies,quotes,bookmarks}}.
+-- Sightings are stamped with the server clock, so a client cannot move a post in time.
+-- Items that fail the shape checks are skipped, not the batch. Author identity is frozen at
+-- first sight apart from followers; a later install cannot rename or verify someone.
+-- shortcut: post text is first-writer-wins, until a quorum of installs per text version exists.
 create or replace function pool_push(install uuid, batch jsonb) returns integer
 language plpgsql as $$
 declare
   n integer := 0;
   item jsonb;
+  post jsonb;
+  author jsonb;
+  m jsonb;
 begin
-  insert into pool_installs (install_id) values (install)
-    on conflict (install_id) do update set last_push = now(), pushes = pool_installs.pushes + 1;
+  update pool_installs set last_push = now(), pushes = pushes + 1 where install_id = install;
+  if not found then
+    raise exception 'unknown install' using errcode = '28000';
+  end if;
+  if jsonb_array_length(batch) > 500 then
+    raise exception 'batch too large' using errcode = '22023';
+  end if;
   for item in select * from jsonb_array_elements(batch) loop
+    post := item->'post';
+    author := post->'author';
+    m := item->'metrics';
+    continue when post->>'postId' !~ '^[0-9]{1,25}$'
+      or author->>'userId' !~ '^[0-9]{1,25}$'
+      or author->>'handle' !~ '^[A-Za-z0-9_]{1,15}$'
+      or length(coalesce(post->>'text', '')) > 10000
+      or length(coalesce(author->>'name', '')) > 100
+      or (post->>'createdAt')::timestamptz > now() + interval '5 minutes'
+      or coalesce((m->>'likes')::bigint, -1) < 0 or coalesce((m->>'reposts')::bigint, -1) < 0
+      or coalesce((m->>'replies')::bigint, -1) < 0 or coalesce((m->>'quotes')::bigint, -1) < 0
+      or coalesce((m->>'bookmarks')::bigint, -1) < 0 or coalesce((m->>'views')::bigint, 0) < 0
+      or coalesce((author->>'followers')::bigint, 0) < 0;
     insert into pool_authors (user_id, handle, name, followers, verified)
-      values (item->'post'->'author'->>'userId', item->'post'->'author'->>'handle',
-              item->'post'->'author'->>'name', (item->'post'->'author'->>'followers')::integer,
-              coalesce((item->'post'->'author'->>'verified')::boolean, false))
-      on conflict (user_id) do update set handle = excluded.handle, name = excluded.name,
-        followers = coalesce(excluded.followers, pool_authors.followers),
-        verified = excluded.verified, last_seen = now();
+      values (author->>'userId', author->>'handle', coalesce(author->>'name', ''),
+              (author->>'followers')::integer, coalesce((author->>'verified')::boolean, false))
+      on conflict (user_id) do update set
+        followers = coalesce(excluded.followers, pool_authors.followers), last_seen = now();
     insert into pool_posts (post_id, author_id, text, lang, created_at, is_reply, has_media, has_link)
-      values (item->'post'->>'postId', item->'post'->'author'->>'userId', item->'post'->>'text',
-              item->'post'->>'lang', (item->'post'->>'createdAt')::timestamptz,
-              coalesce((item->'post'->>'isReply')::boolean, false),
-              coalesce((item->'post'->>'hasMedia')::boolean, false),
-              coalesce((item->'post'->>'hasLink')::boolean, false))
+      values (post->>'postId', author->>'userId', coalesce(post->>'text', ''), post->>'lang',
+              (post->>'createdAt')::timestamptz,
+              coalesce((post->>'isReply')::boolean, false),
+              coalesce((post->>'hasMedia')::boolean, false),
+              coalesce((post->>'hasLink')::boolean, false))
       on conflict (post_id) do update set last_seen = now();
-    insert into pool_sightings (install_id, post_id) values (install, item->'post'->>'postId')
+    insert into pool_sightings (install_id, post_id) values (install, post->>'postId')
       on conflict do nothing;
     if found then
-      update pool_posts set sightings = sightings + 1 where post_id = item->'post'->>'postId';
+      update pool_posts set sightings = sightings + 1 where post_id = post->>'postId';
     end if;
     insert into pool_metrics (post_id, observed_at, views, likes, reposts, replies, quotes, bookmarks)
-      values (item->'post'->>'postId', (item->>'observedAt')::timestamptz,
-              (item->'metrics'->>'views')::bigint, (item->'metrics'->>'likes')::integer,
-              (item->'metrics'->>'reposts')::integer, (item->'metrics'->>'replies')::integer,
-              (item->'metrics'->>'quotes')::integer, (item->'metrics'->>'bookmarks')::integer)
+      values (post->>'postId', now(), (m->>'views')::bigint, (m->>'likes')::integer,
+              (m->>'reposts')::integer, (m->>'replies')::integer, (m->>'quotes')::integer,
+              (m->>'bookmarks')::integer)
       on conflict do nothing;
     n := n + 1;
   end loop;
