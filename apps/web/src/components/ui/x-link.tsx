@@ -5,9 +5,12 @@ import type { ReactNode } from "react";
 import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
 import { xNavigate, xPanelOpenAtom } from "../../state/x";
+import { Cost } from "./layout";
 import { xPill, xPillSm } from "../x";
 
 export const profileUrl = (handle: string) => `https://x.com/${handle}`;
+export const searchUrl = (query: string, mode: "top" | "latest") =>
+  `https://x.com/search?q=${encodeURIComponent(query)}&src=typed_query${mode === "latest" ? "&f=live" : ""}`;
 
 /**
  * Opens an x.com post or profile. On the desktop it loads in the X panel beside
@@ -68,6 +71,20 @@ export function OpenOnX({
     <XLink href={href} className={cn(xPill, xPillSm)}>
       {label}
       <ArrowUpRight className="size-3.5 text-muted-foreground" />
+    </XLink>
+  );
+}
+
+/**
+ * The free twin of a paid fetch: the x.com page whose visit the session observes
+ * into the same screen. Desktop only, since a browser tab observes nothing.
+ */
+export function FreeOnX({ href, label }: { readonly href: string; readonly label: string }) {
+  if (!isElectron) return null;
+  return (
+    <XLink href={href} className={cn(xPill, xPillSm)}>
+      {label}
+      <Cost label="free" />
     </XLink>
   );
 }

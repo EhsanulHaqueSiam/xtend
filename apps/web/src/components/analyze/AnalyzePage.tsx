@@ -10,6 +10,7 @@ import { PageHeader } from "../PageHeader";
 import { sectionLabel, useSection } from "../shell/sections";
 import { Button } from "../ui/button";
 import { Cost, Empty, Freshness, PageBody } from "../ui/layout";
+import { FreeOnX, profileUrl } from "../ui/x-link";
 import { ErrorBar, errorText, when } from "./ui";
 
 const STALE_MS = 24 * 60 * 60 * 1000;
@@ -103,6 +104,7 @@ export function AnalyzePage({
           hasHandle ? (
             <>
               {actions}
+              <FreeOnX href={profileUrl(data.handle)} label="Profile on X" />
               <RefreshPosts stale={data.fetchedAt === null || stale} />
             </>
           ) : undefined
