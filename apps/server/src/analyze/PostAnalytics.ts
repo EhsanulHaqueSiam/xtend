@@ -80,10 +80,10 @@ const parseAnalytics = (body: unknown, day: string): ReadonlyArray<Row> =>
 export class PostAnalytics extends Context.Service<
   PostAnalytics,
   {
-    /** Paid: one analytics read per own post of the last 30 days. */
+    /** Paid: one analytics read per own post of the last 30 days, at the user's click; it opts the account into the nightly run. */
     readonly refresh: Effect.Effect<void, AnalyzeError>;
     readonly current: Effect.Effect<NonPublic, AnalyzeError>;
-    /** Runs `refresh` when it is RUN_HOUR in the account's zone and today has no run yet. */
+    /** Runs `refresh` when it is RUN_HOUR in the account's zone, the user fetched by hand once, and today has no run yet. */
     readonly nightlyTick: Effect.Effect<void, AnalyzeError>;
   }
 >()("xtend/analyze/PostAnalytics") {}
@@ -117,7 +117,7 @@ const make = Effect.gen(function* () {
     });
 
   const refresh = Effect.fn("PostAnalytics.refresh")(
-    function* () {
+    function* (manual: boolean) {
       const { handle } = yield* settings.get;
       if (handle === null) return;
       const now = yield* DateTime.now;
@@ -135,8 +135,8 @@ const make = Effect.gen(function* () {
       yield* sql.withTransaction(
         Effect.gen(function* () {
           yield* sql`
-            INSERT OR REPLACE INTO post_analytics_runs (at, posts, error)
-            VALUES (${DateTime.formatIso(now)}, ${result.rows.length}, ${result.error})
+            INSERT OR REPLACE INTO post_analytics_runs (at, posts, error, manual)
+            VALUES (${DateTime.formatIso(now)}, ${result.rows.length}, ${result.error}, ${manual ? 1 : 0})
           `;
           yield* Effect.forEach(
             result.rows,
@@ -195,18 +195,21 @@ const make = Effect.gen(function* () {
     const zone = SettingsStore.zoneOf(timeZone);
     const now = DateTime.setZone(yield* DateTime.now, zone);
     if (DateTime.toParts(now).hour !== RUN_HOUR) return;
+    // Each night is a paid read per recent post: it starts once the user ran the priced Fetch now.
+    const optedIn = yield* sql`
+      SELECT 1 FROM post_analytics_runs WHERE account_id = ${sql.literal(CURRENT_ACCOUNT)} AND manual = 1 LIMIT 1`;
+    if (optedIn.length === 0) return;
     const today = DateTime.formatIsoDate(now);
     const last = yield* sql<{
       at: string;
     }>`SELECT at FROM post_analytics_runs WHERE account_id = ${sql.literal(CURRENT_ACCOUNT)} ORDER BY at DESC LIMIT 1`;
-    const lastDay =
-      last[0] === undefined
-        ? null
-        : DateTime.formatIsoDate(DateTime.setZone(DateTime.makeUnsafe(last[0].at), zone));
-    if (lastDay !== today) yield* refresh();
+    const lastDay = DateTime.formatIsoDate(
+      DateTime.setZone(DateTime.makeUnsafe(last[0]!.at), zone),
+    );
+    if (lastDay !== today) yield* refresh(false);
   }).pipe(Effect.mapError(fail("nonPublic")));
 
-  return PostAnalytics.of({ refresh: refresh(), current, nightlyTick });
+  return PostAnalytics.of({ refresh: refresh(true), current, nightlyTick });
 });
 
 const layerService = Layer.effect(PostAnalytics, make);

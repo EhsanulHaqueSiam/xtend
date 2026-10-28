@@ -2,7 +2,7 @@ import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import type { XPost, XSearchMode } from "@xtend/contracts";
 import { Search } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { observedMatching, observedToXPost } from "../../lib/observed";
 import { cn } from "../../lib/utils";
@@ -34,8 +34,9 @@ const excludedWords = (exclude: string) =>
 /**
  * X search. The free way is X's own search page in the panel, whose results the
  * session observes; what it already saw for the query lists first. The paid
- * search is for volume and filters, and every run and next page shows its price.
- * Excluded words filter the results here, after they arrive.
+ * search is for volume and filters, and every run and next page shows its price;
+ * a `?q=` link (the palette) only fills the box. Excluded words filter the
+ * results here, after they arrive.
  */
 export function SearchTab({ initialQuery }: { readonly initialQuery: string }) {
   const search = useAtomSet(searchAtom, { mode: "promise" });
@@ -89,13 +90,6 @@ export function SearchTab({ initialQuery }: { readonly initialQuery: string }) {
       setBusy(false);
     }
   };
-
-  // A `?q=` link (the palette, Scores, the header's Search X) searches on arrival.
-  useEffect(() => {
-    // eslint-disable-next-line react/set-state-in-effect -- the search is the effect; its busy flag is its output.
-    if (initialQuery !== "") void run();
-    // eslint-disable-next-line react/exhaustive-effect-dependencies -- once per arrival, not per keystroke.
-  }, [initialQuery]);
 
   const words = excludedWords(exclude);
   const visible = items.filter((p) => {

@@ -61,7 +61,7 @@ it("arrows and Enter run the highlighted command; @handle offers its report; age
   );
   // Typing a command letter in the palette's box filters; it never navigates.
   await userEvent.keyboard("{Meta>}k{/Meta}");
-  await expect.element(page.getByText("paid run up to $0.01175")).toBeVisible();
+  await expect.element(page.getByText("paid run up to $0.01175 + $0.001")).toBeVisible();
   const box = page.getByRole("textbox", { name: "Command" });
   await userEvent.type(box, "a");
   expect(screen.router?.state.location.pathname).toBe("/");

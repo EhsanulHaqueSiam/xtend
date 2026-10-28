@@ -146,7 +146,7 @@ export const pickDraftAtom = Atom.family((postId: string) =>
 );
 
 export const saveSuggestedDraftAtom = clientRuntime.fn<{
-  readonly text: string;
+  readonly blocks: readonly [string, ...Array<string>];
   readonly source: string;
 }>()(
   Effect.fnUntraced(function* (input) {

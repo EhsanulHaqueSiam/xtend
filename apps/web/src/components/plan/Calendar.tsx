@@ -4,7 +4,8 @@ import { useState, type DragEvent } from "react";
 import { DRAFT_TYPE } from "../../lib/drag";
 import { dayKeyIn, dayStartIn, hhmm, localInputToInstant, minuteIn, partsIn } from "../../lib/time";
 import { cn } from "../../lib/utils";
-import { draftTitle } from "../compose/DraftsList";
+import { draftTitle, useDraftCost } from "../compose/DraftsList";
+import { Cost } from "../ui/layout";
 import { Menu, MenuItem } from "../ui/menu";
 import { DAYS, slotsOn, StatusDot } from "./ui";
 
@@ -77,17 +78,23 @@ function FillItems({
   readonly fillable: ReadonlyArray<Draft>;
   readonly onPick: (id: string) => void;
 }) {
+  // Filling a slot queues a paid post, so each draft carries its price.
+  const cost = useDraftCost();
   return fillable.length === 0 ? (
     <p className="px-2 py-1.5 text-xs text-muted-foreground">No drafts to place</p>
   ) : (
-    fillable.map((f) => (
-      <MenuItem key={f.id} onClick={() => onPick(f.id)}>
-        <span className="min-w-0 flex-1 truncate">{draftTitle(f)}</span>
-        <span className="font-mono text-2xs text-muted-foreground tabular-nums">
-          {f.kind === "article" ? "article" : f.blocks.length}
-        </span>
-      </MenuItem>
-    ))
+    fillable.map((f) => {
+      const usd = cost(f);
+      return (
+        <MenuItem key={f.id} onClick={() => onPick(f.id)}>
+          <span className="min-w-0 flex-1 truncate">{draftTitle(f)}</span>
+          <span className="font-mono text-2xs text-muted-foreground tabular-nums">
+            {f.kind === "article" ? "article" : f.blocks.length}
+          </span>
+          {usd === null ? <Cost label="…" /> : <Cost usd={usd} />}
+        </MenuItem>
+      );
+    })
   );
 }
 

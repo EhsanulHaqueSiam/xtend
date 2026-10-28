@@ -47,7 +47,7 @@ function IdeaRow({ idea }: { readonly idea: TrendIdea }) {
           onClick={() => {
             setSaving(true);
             setError(null);
-            void saveDraft({ text: idea.text, source: `trend:${idea.trend}` }).then(
+            void saveDraft({ blocks: [idea.text], source: `trend:${idea.trend}` }).then(
               () => setFiled(true),
               (e: unknown) => {
                 setSaving(false);

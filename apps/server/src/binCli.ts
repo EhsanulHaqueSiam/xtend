@@ -153,7 +153,9 @@ const spend = Command.make("spend").pipe(
 );
 
 const agentsRun = Command.make("run", { name: Argument.String("name") }).pipe(
-  Command.withDescription("Run a signal agent by name."),
+  Command.withDescription(
+    `Run a signal agent by name. Paid: one search ($${RATE_CARD.searchPage}), a profile read ($${RATE_CARD.scraperProfile}) per new author when it drops bots, and one model call to score them.`,
+  ),
   Command.withHandler(({ name }) =>
     withApi(
       Effect.gen(function* () {

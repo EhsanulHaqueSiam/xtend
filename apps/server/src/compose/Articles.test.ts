@@ -16,14 +16,24 @@ import * as DraftStore from "./DraftStore.ts";
 import * as Media from "./Media.ts";
 
 // Records every treg call; answers like X's article endpoints and Replicate's prediction flow.
-// With `failPublish` X refuses the publish step; `coverStatus` is what the image CDN answers.
+// With `failPublish` X refuses the publish step, with `failDraft` the draft step times out;
+// `coverStatus` is what the image CDN answers.
 const tregCalls: Array<Treg.TregCall> = [];
-const stub = { failPublish: false, coverStatus: 200 };
+const stub = { failPublish: false, failDraft: false, coverStatus: 200 };
 const tregStub = Layer.succeed(Treg.Treg)({
   isCached: () => Effect.succeed(false),
   call: (input) =>
     Effect.suspend(() => {
       tregCalls.push(input);
+      if (stub.failDraft && input.endpoint.endsWith("/draft"))
+        return Effect.fail(
+          new XApiError({
+            endpoint: input.endpoint,
+            reason: "http",
+            status: null,
+            detail: "no answer",
+          }),
+        );
       if (stub.failPublish && input.endpoint.endsWith("/publish"))
         return Effect.fail(
           new XApiError({
@@ -63,6 +73,7 @@ const httpStub = Layer.succeed(HttpClient.HttpClient)(
 const reset = () => {
   tregCalls.length = 0;
   stub.failPublish = false;
+  stub.failDraft = false;
   stub.coverStatus = 200;
 };
 
@@ -95,6 +106,18 @@ const layerTest = Articles.layer.pipe(
 );
 
 describe("Articles", () => {
+  it.effect("a draft step that timed out is an ordinary failure: nothing can be live yet", () =>
+    Effect.gen(function* () {
+      reset();
+      stub.failDraft = true;
+      const drafts = yield* DraftStore.DraftStore;
+      const articles = yield* Articles.Articles;
+      const d = yield* drafts.create({ kind: "article", title: "T", body: "b" });
+      // Only X's own error from the publish step tells the publisher the article may be live.
+      expect((yield* Effect.flip(articles.publish(d, "test")))._tag).toBe("ComposeError");
+    }).pipe(Effect.provide(layerTest)),
+  );
+
   it.effect("creates X's draft once: a retry after a failed publish reuses it", () =>
     Effect.gen(function* () {
       reset();

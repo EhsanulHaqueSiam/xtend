@@ -198,8 +198,10 @@ function PickInspector({
                   disabled={busy !== null}
                   onClick={() =>
                     void call("send", async () => {
+                      const [first, ...rest] = blocks;
+                      if (first === undefined) return;
                       await saveDraft({
-                        text: blocks.join("\n\n"),
+                        blocks: [first, ...rest],
                         source: `pick:${pick.post.postId}`,
                       });
                       setFiled(true);
