@@ -252,7 +252,16 @@ function ResizeHandle() {
  * nothing and X sees an ordinary Chromium tab. One webview for the window's
  * life; the pane moves it with CSS between the main area and the side panel.
  */
-export function XPane({ mode, width }: { readonly mode: XPaneMode; readonly width: number }) {
+export function XPane({
+  mode,
+  width,
+  inset = 0,
+}: {
+  readonly mode: XPaneMode;
+  readonly width: number;
+  /** Room left on the right in main mode, for Home's companion column. */
+  readonly inset?: number;
+}) {
   // The webview's own box: React renders nothing into it, so it never touches the element.
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   useXWebview(host);
@@ -266,7 +275,7 @@ export function XPane({ mode, width }: { readonly mode: XPaneMode; readonly widt
         mode === "panel" && "relative col-start-3 border-l border-border",
         mode === "hidden" && "invisible fixed top-0 -left-[10000px] h-full",
       )}
-      style={mode === "hidden" ? { width } : undefined}
+      style={mode === "hidden" ? { width } : mode === "main" ? { marginRight: inset } : undefined}
     >
       {mode === "panel" ? (
         <>
