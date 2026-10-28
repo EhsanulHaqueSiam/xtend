@@ -1,11 +1,10 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
-import { XPost, type Collection, type SavedPost } from "@xtend/contracts";
-import * as Schema from "effect/Schema";
+import type { Collection, SavedPost, XPost } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { useState, type DragEvent, type ReactNode } from "react";
 
-import { POST_TYPE } from "../../lib/drag";
+import { draggedPost, POST_TYPE } from "../../lib/drag";
 import { fmtDay } from "../../lib/time";
 import { cn } from "../../lib/utils";
 import {
@@ -188,8 +187,6 @@ function CollectionPosts({ collection }: { readonly collection: Collection }) {
   );
 }
 
-const PostJson = Schema.fromJsonString(XPost);
-
 /** One collection in the rail: open on click, rename inline, delete after a confirm, drop a card to file it. */
 function CollectionRow({
   collection,
@@ -222,8 +219,8 @@ function CollectionRow({
         onDrop: (event: DragEvent<HTMLButtonElement>) => {
           event.preventDefault();
           event.currentTarget.removeAttribute("data-over");
-          const raw = event.dataTransfer.getData(POST_TYPE);
-          if (raw !== "") onFile(Schema.decodeUnknownSync(PostJson)(raw));
+          const post = draggedPost.current();
+          if (post !== null) onFile(post);
         },
       };
   if (editing !== null)
