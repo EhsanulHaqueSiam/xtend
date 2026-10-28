@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { TextMorph } from "torph/react";
 
 import { cn } from "../../lib/utils";
 import { usd as formatUsd } from "../../state/costs";
@@ -109,7 +110,7 @@ export function Cost(
   );
 }
 
-/** A number with its label: value in mono, label small and muted under it. */
+/** A number with its label: value in mono, label small and muted under it. A changed value morphs by place. */
 export function Stat({
   label,
   value,
@@ -121,7 +122,9 @@ export function Stat({
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-0.5">
-      <span
+      <TextMorph
+        numbers
+        duration={250}
         className={cn(
           "font-mono text-[22px] leading-7 tabular-nums",
           tone === "up" && "text-success-foreground",
@@ -129,7 +132,7 @@ export function Stat({
         )}
       >
         {value}
-      </span>
+      </TextMorph>
       <span className="truncate text-xs text-muted-foreground">{label}</span>
     </div>
   );
@@ -160,7 +163,7 @@ export function Freshness({
   return (
     <span className="flex items-center gap-1.5 truncate font-mono text-2xs text-muted-foreground tabular-nums">
       <span className={cn("size-1.5 shrink-0 rounded-full", FRESHNESS[state])} />
-      {children}
+      <TextMorph duration={250}>{children}</TextMorph>
     </span>
   );
 }
