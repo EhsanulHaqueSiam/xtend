@@ -18,6 +18,7 @@ import { Button } from "../ui/button";
 import { compactInputClass } from "../ui/field";
 import { Cost } from "../ui/layout";
 import { Switch } from "../ui/switch";
+import { Select } from "../ui/select";
 import { Prop, PropGroup } from "./controls";
 import { triggerPoll } from "./describe";
 
@@ -53,6 +54,14 @@ const ACTIONS: Record<Action["kind"], { label: string; init: Action }> = {
   },
   clean_profile: { label: "Clean profile", init: { kind: "clean_profile", afterHours: 24 } },
 };
+
+// A choice reads as text like the values beside it until hovered; translate, not a negative
+// margin, lines it up, since a margin would squeeze the value out of its own width.
+const prop = "translate-x-2 border-transparent font-sans";
+
+/** A label table as Select options, keyed by the union it covers. */
+const entries = <K extends string>(table: Record<K, { readonly label: string }>) =>
+  (Object.keys(table) as Array<K>).map((value) => ({ value, label: table[value].label }));
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
@@ -146,18 +155,16 @@ function ListSelect({
 }) {
   const lists = AsyncResult.getOrElse(useAtomValue(listsAtom), () => []);
   return (
-    <select
-      className={field("w-auto max-w-48")}
-      value={value ?? ""}
-      onChange={(e) => onChange(e.target.value === "" ? undefined : Number(e.target.value))}
-    >
-      <option value="">{none}</option>
-      {lists.map((l) => (
-        <option key={l.id} value={l.id}>
-          {l.name}
-        </option>
-      ))}
-    </select>
+    <Select
+      compact
+      className={prop}
+      value={value}
+      onChange={onChange}
+      options={[
+        { value: undefined, label: none },
+        ...lists.map((l) => ({ value: l.id, label: l.name })),
+      ]}
+    />
   );
 }
 
@@ -225,17 +232,14 @@ export function RuleForm({
 
         <PropGroup title="When">
           <Prop label="Trigger">
-            <select
-              className={field("w-auto max-w-full")}
+            <Select
+              compact
+              label="Trigger"
+              className={prop}
               value={trigger.kind}
-              onChange={(e) => setTrigger(TRIGGERS[e.target.value as Trigger["kind"]].init)}
-            >
-              {Object.entries(TRIGGERS).map(([k, v]) => (
-                <option key={k} value={k}>
-                  {v.label}
-                </option>
-              ))}
-            </select>
+              onChange={(kind) => setTrigger(TRIGGERS[kind].init)}
+              options={entries(TRIGGERS)}
+            />
           </Prop>
           {trigger.kind === "post_crosses_threshold" ? (
             <Prop label="Reaches">
@@ -244,16 +248,17 @@ export function RuleForm({
                 value={trigger.threshold}
                 onChange={(threshold) => setTrigger({ ...trigger, threshold })}
               />
-              <select
-                className={field("w-auto")}
+              <Select
+                compact
+                label="Metric"
+                className={prop}
                 value={trigger.metric}
-                onChange={(e) =>
-                  setTrigger({ ...trigger, metric: e.target.value as typeof trigger.metric })
-                }
-              >
-                <option value="views">views</option>
-                <option value="likes">likes</option>
-              </select>
+                onChange={(metric) => setTrigger({ ...trigger, metric })}
+                options={[
+                  { value: "views", label: "views" },
+                  { value: "likes", label: "likes" },
+                ]}
+              />
             </Prop>
           ) : trigger.kind === "schedule" ? (
             <>
@@ -312,16 +317,17 @@ export function RuleForm({
                 />
               </Prop>
               <Prop label="Via">
-                <select
-                  className={field("w-auto max-w-full")}
+                <Select
+                  compact
+                  label="Via"
+                  className={prop}
                   value={trigger.via}
-                  onChange={(e) =>
-                    setTrigger({ ...trigger, via: e.target.value as typeof trigger.via })
-                  }
-                >
-                  <option value="repost">reposts, scraper</option>
-                  <option value="like">likes, X API, first 20</option>
-                </select>
+                  onChange={(via) => setTrigger({ ...trigger, via })}
+                  options={[
+                    { value: "repost", label: "reposts, scraper" },
+                    { value: "like", label: "likes, X API, first 20" },
+                  ]}
+                />
               </Prop>
             </>
           ) : trigger.kind === "agent_match" ? (
@@ -355,20 +361,18 @@ export function RuleForm({
             />
           </Prop>
           <Prop label="Link">
-            <select
-              className={field("w-auto")}
-              value={conditions.link ?? ""}
-              onChange={(e) =>
-                setConditions({
-                  ...conditions,
-                  link: e.target.value === "" ? undefined : (e.target.value as "has" | "none"),
-                })
-              }
-            >
-              <option value="">either</option>
-              <option value="has">has a link</option>
-              <option value="none">no link</option>
-            </select>
+            <Select
+              compact
+              label="Link"
+              className={prop}
+              value={conditions.link}
+              onChange={(link) => setConditions({ ...conditions, link })}
+              options={[
+                { value: undefined, label: "either" },
+                { value: "has", label: "has a link" },
+                { value: "none", label: "no link" },
+              ]}
+            />
           </Prop>
           <Prop label="Not a reply">
             <Switch
@@ -396,17 +400,14 @@ export function RuleForm({
 
         <PropGroup title="Then">
           <Prop label="Action">
-            <select
-              className={field("w-auto max-w-full")}
+            <Select
+              compact
+              label="Action"
+              className={prop}
               value={action.kind}
-              onChange={(e) => setAction(ACTIONS[e.target.value as Action["kind"]].init)}
-            >
-              {Object.entries(ACTIONS).map(([k, v]) => (
-                <option key={k} value={k}>
-                  {v.label}
-                </option>
-              ))}
-            </select>
+              onChange={(kind) => setAction(ACTIONS[kind].init)}
+              options={entries(ACTIONS)}
+            />
           </Prop>
           {action.kind === "auto_plug" ? (
             <Prop label="Reply text">

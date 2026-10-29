@@ -14,6 +14,7 @@ import {
 import { useQuoteLabel } from "../../state/costs";
 import { PageHeader } from "../PageHeader";
 import { compactInputClass } from "../ui/field";
+import { Select as SelectMenu } from "../ui/select";
 import { Cost, Empty } from "../ui/layout";
 import { DetailSplit } from "../ui/split";
 import { xPill, xPillSm } from "../x";
@@ -49,23 +50,17 @@ function Select<T extends string>({
   readonly onChange: (v: T | undefined) => void;
 }) {
   return (
-    <select
-      aria-label={label}
-      className={cn(
-        compactInputClass,
-        "w-auto cursor-pointer",
-        value === undefined && "text-muted-foreground",
-      )}
-      value={value ?? ""}
-      onChange={(e) => onChange(e.target.value === "" ? undefined : (e.target.value as T))}
-    >
-      <option value="">{placeholder}</option>
-      {options.map((o) => (
-        <option key={o} value={o}>
-          {o}
-        </option>
-      ))}
-    </select>
+    <SelectMenu
+      compact
+      label={label}
+      className={cn(value === undefined && "text-muted-foreground")}
+      value={value}
+      onChange={onChange}
+      options={[
+        { value: undefined, label: placeholder },
+        ...options.map((o) => ({ value: o, label: String(o) })),
+      ]}
+    />
   );
 }
 

@@ -8,7 +8,13 @@ import {
 import { RegistryProvider } from "@effect/atom-react";
 import { act as reactAct, createContext, use, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
-import { page, utils, type Locator, type LocatorSelectors } from "vite-plus/test/browser";
+import {
+  page,
+  userEvent,
+  utils,
+  type Locator,
+  type LocatorSelectors,
+} from "vite-plus/test/browser";
 
 import { fakeServiceValues, type FakeService } from "./fakeService";
 
@@ -123,4 +129,10 @@ export async function render(
     throw error;
   }
   return screen;
+}
+
+/** Picks `option` in a `ui/select.tsx` Select: opens its list, then clicks the option by name. */
+export async function choose(trigger: Locator, option: string) {
+  await userEvent.click(trigger);
+  await userEvent.click(page.getByRole("option", { name: option, exact: true }));
 }

@@ -53,6 +53,7 @@ import { savedPostAtom } from "../state/library";
 import { recentPostsAtom } from "../state/observations";
 import { queueAtom, scheduleAtom } from "../state/plan";
 import { settingsAtom, useSessionLane } from "../state/settings";
+import { Select } from "../components/ui/select";
 
 /** What the editor owns; the service owns status, schedule, outcome and the media files. */
 interface Editor {
@@ -238,17 +239,12 @@ function Options({ editor, onChange }: { editor: Editor; onChange: (e: Editor) =
     <div className="flex flex-col pb-2 text-[13px]">
       <label className={row}>
         <span>Who can reply to every post</span>
-        <select
-          className={cn(compactInputClass, "w-auto")}
+        <Select
+          compact
           value={editor.replySettings}
-          onChange={(e) => onChange({ ...editor, replySettings: e.target.value as ReplySettings })}
-        >
-          {REPLY_OPTIONS.map(([v, label]) => (
-            <option key={v} value={v}>
-              {label}
-            </option>
-          ))}
-        </select>
+          onChange={(replySettings) => onChange({ ...editor, replySettings })}
+          options={REPLY_OPTIONS.map(([value, label]) => ({ value, label }))}
+        />
       </label>
       <label className={cn(row, "flex-col items-stretch gap-1.5")}>
         <span className="flex items-baseline justify-between gap-3">
@@ -328,20 +324,15 @@ function Options({ editor, onChange }: { editor: Editor; onChange: (e: Editor) =
             >
               Add option
             </Button>
-            <select
-              aria-label="Poll length"
-              className={cn(compactInputClass, "w-auto")}
+            <Select
+              compact
+              label="Poll length"
               value={poll.durationMinutes}
-              onChange={(e) =>
-                onChange({ ...editor, poll: { ...poll, durationMinutes: Number(e.target.value) } })
+              onChange={(durationMinutes) =>
+                onChange({ ...editor, poll: { ...poll, durationMinutes } })
               }
-            >
-              {POLL_DURATIONS.map(([m, label]) => (
-                <option key={m} value={m}>
-                  {label}
-                </option>
-              ))}
-            </select>
+              options={POLL_DURATIONS.map(([value, label]) => ({ value, label }))}
+            />
           </div>
         </div>
       ) : null}

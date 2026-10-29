@@ -3,7 +3,7 @@ import { expect, it } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 import { useState } from "react";
 
-import { render } from "../../../test/render";
+import { choose, render } from "../../../test/render";
 import { FilterBar } from "./ArchiveTab";
 
 function Harness({
@@ -32,8 +32,8 @@ it("builds the filter set from the bar, and Clear keeps the header's format", as
   );
 
   await userEvent.fill(screen.getByLabelText("Min views"), "5000");
-  await userEvent.selectOptions(screen.getByLabelText("author size"), "1M+");
-  await userEvent.selectOptions(screen.getByLabelText("hook"), "number hook");
+  await choose(screen.getByLabelText("author size"), "1M+");
+  await choose(screen.getByLabelText("hook"), "number hook");
   expect(last).toEqual({
     format: "thread",
     minViews: 5000,
@@ -41,7 +41,7 @@ it("builds the filter set from the bar, and Clear keeps the header's format", as
     hookPattern: "number hook",
   });
 
-  await userEvent.selectOptions(screen.getByLabelText("author size"), "");
+  await choose(screen.getByLabelText("author size"), "Any author size");
   expect(last).toEqual({ format: "thread", minViews: 5000, hookPattern: "number hook" });
 
   await userEvent.click(screen.getByRole("button", { name: "Clear" }));
