@@ -706,7 +706,7 @@ describe("AutomationEngine", () => {
       expect(request.preview?.target?.href).toBe("https://x.com/kofibuilds");
       expect(request.costUsd).toBe(0);
       expect(calls.search).toBe(1);
-      expect(yield* people.list(list.id)).toEqual([]);
+      expect((yield* people.list({ listId: list.id })).people).toEqual([]);
     }).pipe(Effect.provide(layerTest)),
   );
 

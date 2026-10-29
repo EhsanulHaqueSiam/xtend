@@ -41,8 +41,9 @@ test("plan: a new slot takes a draft from the calendar's menu and the draft is q
   await monday.getByRole("button", { name: /21:45 Weekly build log/ }).waitFor();
   await page.getByRole("link", { name: "Queue", exact: true }).click();
   await page
-    .getByRole("row", { name: /Weekly build log/ })
-    .getByRole("button", { name: "Post now" })
+    .getByRole("listitem")
+    .filter({ hasText: "Weekly build log" })
+    .getByRole("button", { name: /^Post now/ })
     .waitFor();
 
   const { drafts } = await rpc("compose.draftsList", {});
