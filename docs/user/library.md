@@ -62,7 +62,8 @@ Trending uses. Nothing loads until you click **Load trends**, since the read is 
 Save puts a post in the swipe file, with its metrics frozen at save time. A post can also sit
 in any number of named collections; name one in the Collections rail to start it, rename it
 inline, delete it after a confirm. Drag a card onto a collection in the rail to file it there
-too. Staff picks fills itself and takes no drop. The selected saved post takes a note, more
+too, or check several cards and use **Add to collection** to file them together. Staff picks
+fills itself and takes no drop. The selected saved post takes a note, more
 collections and remix. Inside a collection, Remove takes the post out of that collection; in
 the swipe file, Delete saved post removes it everywhere, after a confirm. The swipe file is
 searchable by text and note.

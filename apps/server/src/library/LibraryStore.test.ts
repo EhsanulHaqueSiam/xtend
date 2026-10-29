@@ -83,6 +83,25 @@ describe("LibraryStore", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
+  it.effect("files several saved posts at once, counting only the new links", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const store = yield* LibraryStore.LibraryStore;
+      const hooks = yield* store.collectionCreate("Hooks");
+      const a = yield* store.save({ post: post("1", 1), collectionId: hooks.id });
+      const b = yield* store.save({ post: post("2", 1), collectionId: null });
+      const c = yield* store.save({ post: post("3", 1), collectionId: null });
+
+      expect(yield* store.collectionAddPosts(hooks.id, [a.id, b.id, c.id])).toBe(2);
+      expect((yield* store.getSavedPost("2"))?.collectionIds).toEqual([hooks.id]);
+      // Staff picks is read-only, and another account's collection links nothing.
+      const staff = (yield* store.collectionsList).find((x) => x.builtIn)!;
+      expect(yield* store.collectionAddPosts(staff.id, [a.id])).toBe(0);
+      yield* sql`UPDATE settings SET current_account_id = 2 WHERE id = 1`;
+      expect(yield* store.collectionAddPosts(hooks.id, [a.id])).toBe(0);
+    }).pipe(Effect.provide(layerTest)),
+  );
+
   it.effect(
     "searches saved posts by their text, author and note, with % and _ taken literally",
     () =>

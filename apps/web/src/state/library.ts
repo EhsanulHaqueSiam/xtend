@@ -123,6 +123,16 @@ export const removeFromCollectionAtom = clientRuntime.fn<{
   }),
 );
 
+export const addToCollectionAtom = clientRuntime.fn<{
+  readonly collectionId: number;
+  readonly savedIds: readonly [number, ...Array<number>];
+}>()(
+  Effect.fnUntraced(function* (input) {
+    const client = yield* XtendClient;
+    return yield* client[Library_METHODS.collectionAddPosts](input);
+  }),
+);
+
 export const picksAtom = clientRuntime.atom(
   Effect.gen(function* () {
     const client = yield* XtendClient;

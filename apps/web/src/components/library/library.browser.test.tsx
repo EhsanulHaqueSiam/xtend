@@ -13,6 +13,7 @@ import { SaveButton } from "./SaveButton";
 import { SearchTab } from "./SearchTab";
 import { SwipeTab } from "./SwipeTab";
 import { TrendsTab } from "./TrendsTab";
+import { Toasts } from "../ui/toast";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -199,6 +200,56 @@ it("Remove in a collection takes the post out of that collection only; Staff pic
   const staffPost = await inspect(screen, third.text);
   await expect.element(staffPost.getByRole("button", { name: "Remix" })).toBeVisible();
   expect(staffPost.getByRole("button", { name: "Remove" }).elements()).toHaveLength(0);
+});
+
+it("files checked cards into a collection from the bar, and keeps them checked when it fails", async () => {
+  const filed: Array<{ readonly collectionId: number; readonly savedIds: ReadonlyArray<number> }> =
+    [];
+  let fail = true;
+  await using screen = await render(
+    <>
+      <SwipeTab />
+      <Toasts />
+    </>,
+    {
+      service: {
+        "library.savedList": () =>
+          Effect.succeed([saved(1, first), saved(2, second), saved(3, third)]),
+        "library.collectionsList": () =>
+          Effect.succeed([collection(1, "Staff picks", true), collection(2, "Hooks")]),
+        "library.collectionAddPosts": (input) => {
+          filed.push(input);
+          return fail
+            ? Effect.fail(new LibraryError({ operation: "store", detail: "disk full" }))
+            : Effect.succeed({ added: 1 });
+        },
+      },
+    },
+  );
+  await userEvent.click(card(screen, first.text).getByRole("checkbox"));
+  await userEvent.click(card(screen, third.text).getByRole("checkbox"));
+  await expect.element(screen.getByText("2 selected")).toBeVisible();
+
+  const fileInto = async (name: string) => {
+    await userEvent.click(screen.getByRole("button", { name: "Add to collection" }));
+    // Staff picks is read-only, so it is no target.
+    expect(page.getByRole("menuitem", { name: /Staff picks/ }).elements()).toHaveLength(0);
+    await userEvent.click(page.getByRole("menuitem", { name: new RegExp(name) }));
+  };
+  await fileInto("Hooks");
+  await expect.element(screen.getByText(/disk full/)).toBeVisible();
+  await expect.element(screen.getByText("2 selected")).toBeVisible();
+
+  fail = false;
+  await fileInto("Hooks");
+  await expect
+    .element(page.getByRole("status"))
+    .toHaveTextContent("Added 1 to Hooks, 1 already there");
+  await expect.element(screen.getByText("2 selected")).not.toBeInTheDocument();
+  expect(filed).toEqual([
+    { collectionId: 2, savedIds: [1, 3] },
+    { collectionId: 2, savedIds: [1, 3] },
+  ]);
 });
 
 it("searches the swipe file, keeps a note on blur, and deletes a post only after a confirm", async () => {

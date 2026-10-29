@@ -135,6 +135,11 @@ export class LibraryStore extends Context.Service<
       collectionId: number,
       savedId: number,
     ) => Effect.Effect<void, LibraryError>;
+    /** Links this account's saved posts into one of its own collections; returns how many were new. */
+    readonly collectionAddPosts: (
+      collectionId: number,
+      savedIds: ReadonlyArray<number>,
+    ) => Effect.Effect<number, LibraryError>;
     readonly picksForDay: (day: string) => Effect.Effect<ReadonlyArray<Pick>, LibraryError>;
     readonly pickFetchedKeywords: (
       day: string,
@@ -310,6 +315,22 @@ const make = Effect.gen(function* () {
     `;
   }, Effect.mapError(storeError));
 
+  const collectionAddPosts = Effect.fn("LibraryStore.collectionAddPosts")(function* (
+    collectionId: number,
+    savedIds: ReadonlyArray<number>,
+  ) {
+    if (savedIds.length === 0) return 0;
+    // RETURNING lists only the links the IGNORE did not skip.
+    const rows = yield* sql<{ saved_id: number }>`
+      INSERT OR IGNORE INTO collection_posts (collection_id, saved_id)
+      SELECT c.id, s.id FROM collections c JOIN saved_posts s ON s.account_id = c.account_id
+      WHERE c.id = ${collectionId} AND c.built_in = 0 AND c.account_id = ${sql.literal(CURRENT_ACCOUNT)}
+        AND s.id IN ${sql.in(savedIds)}
+      RETURNING saved_id
+    `;
+    return rows.length;
+  }, Effect.mapError(storeError));
+
   const picksForDay = Effect.fn("LibraryStore.picksForDay")(function* (day: string) {
     const rows = yield* sql<PickRow>`
         SELECT day, keyword, post_json, why_it_works, draft_json FROM picks WHERE day = ${day}
@@ -476,6 +497,7 @@ const make = Effect.gen(function* () {
     collectionRename,
     collectionDelete,
     collectionRemovePost,
+    collectionAddPosts,
     picksForDay,
     pickFetchedKeywords,
     picksRecord,

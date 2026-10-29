@@ -57,11 +57,15 @@ function PostCard({
   selected,
   onSelect,
   actions,
+  pick,
 }: {
   readonly item: CardItem;
   readonly selected: boolean;
   readonly onSelect: (key: string) => void;
   readonly actions: ReactNode;
+  readonly pick:
+    | { readonly picked: boolean; readonly picking: boolean; readonly onPick: () => void }
+    | undefined;
 }) {
   const { post } = item;
   const format = formatOf(post);
@@ -76,15 +80,32 @@ function PostCard({
         draggedPost.start(post);
       }}
       onDragEnd={draggedPost.end}
-      className="group mb-3 break-inside-avoid rounded-[14px] border border-border bg-white/[0.02] transition-[border-color,background-color] duration-150 hover:border-white/13 hover:bg-white/[0.04] data-[selected=true]:border-white/30 data-[selected=true]:bg-white/[0.05]"
+      className="group relative mb-3 break-inside-avoid rounded-[14px] border border-border bg-white/[0.02] transition-[border-color,background-color] duration-150 hover:border-white/13 hover:bg-white/[0.04] data-[selected=true]:border-white/30 data-[selected=true]:bg-white/[0.05]"
     >
+      {pick === undefined ? null : (
+        <input
+          type="checkbox"
+          aria-label={`Select the post by @${post.author.handle}`}
+          checked={pick.picked}
+          onChange={pick.onPick}
+          className={cn(
+            "absolute top-3.5 right-3.5 size-3.5 cursor-pointer accent-foreground transition-opacity duration-150 group-hover:opacity-100 focus-visible:opacity-100",
+            !pick.picking && "[@media(hover:hover)]:opacity-0",
+          )}
+        />
+      )}
       <button
         type="button"
         aria-pressed={selected}
         className="block w-full cursor-pointer rounded-t-[14px] px-3.5 pt-3.5 text-left outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
         onClick={() => onSelect(item.key)}
       >
-        <p className="line-clamp-12 text-[13.5px] leading-normal break-words whitespace-pre-line text-foreground">
+        <p
+          className={cn(
+            "line-clamp-12 text-[13.5px] leading-normal break-words whitespace-pre-line text-foreground",
+            pick !== undefined && "pr-5",
+          )}
+        >
           {post.text}
         </p>
         {item.note !== undefined && item.note !== "" ? (
@@ -129,6 +150,8 @@ export function PostGrid({
   selected,
   onSelect,
   actions,
+  picked,
+  onPick,
   className,
 }: {
   readonly items: ReadonlyArray<CardItem>;
@@ -136,6 +159,9 @@ export function PostGrid({
   readonly onSelect: (key: string) => void;
   /** The footer's hover actions; Remix and Save by default. */
   readonly actions?: (item: CardItem) => ReactNode;
+  /** Cards checked for a bulk action; with `onPick`, every card gets a checkbox. */
+  readonly picked?: ReadonlySet<string>;
+  readonly onPick?: (key: string) => void;
   readonly className?: string;
 }) {
   const saved = useSavedIds();
@@ -162,6 +188,15 @@ export function PostGrid({
           item={item}
           selected={item.key === selected}
           onSelect={onSelect}
+          pick={
+            onPick === undefined
+              ? undefined
+              : {
+                  picked: picked?.has(item.key) ?? false,
+                  picking: (picked?.size ?? 0) > 0,
+                  onPick: () => onPick(item.key),
+                }
+          }
           actions={
             actions === undefined ? (
               <>

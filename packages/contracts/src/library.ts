@@ -131,6 +131,7 @@ export const Library_METHODS = {
   collectionRename: "library.collectionRename",
   collectionDelete: "library.collectionDelete",
   collectionRemovePost: "library.collectionRemovePost",
+  collectionAddPosts: "library.collectionAddPosts",
   picksGet: "library.picksGet",
   picksFetch: "library.picksFetch",
   pickWhy: "library.pickWhy",
@@ -231,6 +232,15 @@ export const LibraryRpcGroup = RpcGroup.make(
   Rpc.make(Library_METHODS.collectionRemovePost, {
     payload: Schema.Struct({ collectionId: CollectionId, savedId: SavedPostId }),
     success: Schema.Void,
+    error: LibraryError,
+  }),
+  /** Files saved posts in one collection; returns how many were not in it yet. */
+  Rpc.make(Library_METHODS.collectionAddPosts, {
+    payload: Schema.Struct({
+      collectionId: CollectionId,
+      savedIds: Schema.NonEmptyArray(SavedPostId).check(Schema.isMaxLength(1000)),
+    }),
+    success: Schema.Struct({ added: NonNegativeInt }),
     error: LibraryError,
   }),
   Rpc.make(Library_METHODS.picksGet, {
