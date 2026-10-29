@@ -1,4 +1,4 @@
-import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useAtom, useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import type { Collection, SavedPost, XPost } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { ChevronDown, Pencil, Plus, Trash2 } from "lucide-react";
@@ -9,6 +9,7 @@ import { fmtDay } from "../../lib/time";
 import { cn } from "../../lib/utils";
 import {
   addToCollectionAtom,
+  collectionPagesAtom,
   collectionPostsAtom,
   collectionsAtom,
   createCollectionAtom,
@@ -30,7 +31,7 @@ import { xAction, xIconButton, xPill, xPillSm, xPillSolid } from "../x";
 import { PostGrid } from "./PostCard";
 import { InspectorGroup, PostInspector } from "./PostInspector";
 import { RemixButton, SaveButton } from "./SaveButton";
-import { ErrorLine, causeMessage, errorMessage } from "./shared";
+import { ErrorLine, ShowMore, causeMessage, errorMessage } from "./shared";
 
 /**
  * The selected saved post: its note, more collections, remix, remove. Remove in a collection
@@ -196,21 +197,29 @@ export function SavedPosts({
   result,
   collection,
   onChange,
+  onMore,
   empty,
 }: {
-  readonly result: AsyncResult.AsyncResult<ReadonlyArray<SavedPost>, unknown>;
+  readonly result: AsyncResult.AsyncResult<
+    { readonly items: ReadonlyArray<SavedPost>; readonly total: number },
+    unknown
+  >;
   /** The collection listed; none is the swipe file. */
   readonly collection?: Collection;
   readonly onChange: () => void;
+  /** Loads the next page. */
+  readonly onMore: () => void;
   readonly empty: ReactNode;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
   // A removed post leaves at once, so the grid can hand focus to its neighbour before the refetch.
   const [removed, setRemoved] = useState<ReadonlySet<number>>(new Set());
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
-  const rows = AsyncResult.getOrElse(result, (): ReadonlyArray<SavedPost> => []).filter(
-    (s) => !removed.has(s.id),
-  );
+  const { items, total } = AsyncResult.getOrElse(result, () => ({
+    items: [] as ReadonlyArray<SavedPost>,
+    total: 0,
+  }));
+  const rows = items.filter((s) => !removed.has(s.id));
   const open = rows.find((s) => String(s.id) === selected);
   const pickedIds = rows.filter((s) => picked.has(String(s.id))).map((s) => s.id);
   return (
@@ -259,6 +268,17 @@ export function SavedPosts({
                   setPicked(next);
                 }}
               />
+              <ShowMore
+                shown={items.length}
+                total={total}
+                waiting={result.waiting}
+                onMore={onMore}
+                past={
+                  collection === undefined
+                    ? "Search to find the rest."
+                    : "Search the swipe file to find the rest."
+                }
+              />
               {pickedIds[0] === undefined ? null : (
                 <PickBar
                   savedIds={[pickedIds[0], ...pickedIds.slice(1)]}
@@ -279,6 +299,7 @@ export function SavedPosts({
 
 function CollectionPosts({ collection }: { readonly collection: Collection }) {
   const posts = useAtomValue(collectionPostsAtom(collection.id));
+  const [pages, setPages] = useAtom(collectionPagesAtom(collection.id));
   const refresh = useAtomRefresh(collectionPostsAtom(collection.id));
   const refreshAll = useAtomRefresh(swipeFileAtom(""));
   const refreshCollections = useAtomRefresh(collectionsAtom);
@@ -291,6 +312,7 @@ function CollectionPosts({ collection }: { readonly collection: Collection }) {
         refreshAll();
         refreshCollections();
       }}
+      onMore={() => setPages(pages + 1)}
       empty={
         <Empty>
           {collection.builtIn

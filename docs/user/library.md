@@ -38,7 +38,7 @@ free.
 
 ## Archive
 
-Every post a search or a pick has seen, the first 200 in the chosen order, with the model's labels for its
+Every post a search or a pick has seen, in the chosen order, with the model's labels for its
 format and its hook pattern. Filter by format, minimum views, year, author size, language and
 hook. **Find in archive** matches the wording, author handle or name of posts already archived,
 free; **Search X** in the header is the paid read of X itself. **Detect hooks** labels the next 20 unlabelled posts in one model call; the selected
@@ -67,3 +67,7 @@ fills itself and takes no drop. The selected saved post takes a note, more
 collections and remix. Inside a collection, Remove takes the post out of that collection; in
 the swipe file, Delete saved post removes it everywhere, after a confirm. The swipe file is
 searchable by text and note.
+
+The swipe file, each collection and the Archive show 200 posts at a time with the full count;
+**Show more** loads the next 200, up to 1,000 on screen. Past that, search or filter to find
+the rest.

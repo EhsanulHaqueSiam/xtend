@@ -38,6 +38,9 @@ const saved = (id: number, post: typeof first, note = ""): SavedPost => ({
   collectionIds: [],
 });
 
+/** A whole list as one page, as the service sends it. */
+const listed = <A,>(items: ReadonlyArray<A>) => ({ items, total: items.length });
+
 type Screen = Awaited<ReturnType<typeof render>>;
 /** A post's card in a Library grid. */
 const card = (screen: Screen, text: string) =>
@@ -75,7 +78,7 @@ it("prices a search by its mode, and Load more as the next page of the search on
         );
       },
       "library.collectionsList": () => Effect.succeed([]),
-      "library.savedList": () => Effect.succeed([]),
+      "library.savedList": () => Effect.succeed(listed([])),
     },
   });
   // A `?q=` link fills the box; the search waits for the priced click.
@@ -110,7 +113,7 @@ it("saves a post into a user collection and says when the save failed", async ()
     service: {
       "library.collectionsList": () =>
         Effect.succeed([collection(1, "Staff picks", true), collection(2, "Hooks")]),
-      "library.savedList": () => Effect.succeed([]),
+      "library.savedList": () => Effect.succeed(listed([])),
       "library.save": ({ collectionId }) => {
         saves.push(collectionId);
         return saves.length === 1
@@ -151,7 +154,7 @@ it("creates a collection, lists its posts, and clears the view when the open one
         return Effect.void;
       },
       "library.savedList": ({ collectionId }) =>
-        Effect.succeed(collectionId === 2 ? [saved(5, first)] : []),
+        Effect.succeed(listed(collectionId === 2 ? [saved(5, first)] : [])),
     },
   });
   await expect.element(screen.getByRole("button", { name: /^Staff picks/ })).toBeVisible();
@@ -180,7 +183,7 @@ it("Remove in a collection takes the post out of that collection only; Staff pic
         Effect.succeed([collection(1, "Staff picks", true), collection(2, "Hooks")]),
       "library.savedList": ({ collectionId }) =>
         Effect.sync(() =>
-          collectionId === 2 ? hooks : collectionId === 1 ? [saved(7, third)] : [...hooks],
+          listed(collectionId === 2 ? hooks : collectionId === 1 ? [saved(7, third)] : hooks),
         ),
       "library.collectionRemovePost": (input) => {
         removed.push(input);
@@ -214,7 +217,7 @@ it("files checked cards into a collection from the bar, and keeps them checked w
     {
       service: {
         "library.savedList": () =>
-          Effect.succeed([saved(1, first), saved(2, second), saved(3, third)]),
+          Effect.succeed(listed([saved(1, first), saved(2, second), saved(3, third)])),
         "library.collectionsList": () =>
           Effect.succeed([collection(1, "Staff picks", true), collection(2, "Hooks")]),
         "library.collectionAddPosts": (input) => {
@@ -252,6 +255,26 @@ it("files checked cards into a collection from the bar, and keeps them checked w
   ]);
 });
 
+it("says the true total and shows the next page of saved posts on Show more", async () => {
+  const rows = Array.from({ length: 450 }, (_, i) =>
+    saved(i + 1, xPost(String(i + 1), `Saved ${i + 1}`)),
+  );
+  await using screen = await render(<SwipeTab />, {
+    service: {
+      "library.savedList": ({ offset = 0 }) =>
+        Effect.succeed({ items: rows.slice(offset, offset + 200), total: rows.length }),
+    },
+  });
+  await expect.element(screen.getByText("450 saved")).toBeVisible();
+  await expect.element(screen.getByText("200 of 450")).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: "Show 200 more" }));
+  await expect.element(screen.getByText("400 of 450")).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: "Show 50 more" }));
+  await expect.element(screen.getByText("Saved 450", { exact: true })).toBeInTheDocument();
+  expect(screen.getByRole("article").elements()).toHaveLength(450);
+  await expect.element(screen.getByText(/ of 450$/)).not.toBeInTheDocument();
+});
+
 it("searches the swipe file, keeps a note on blur, and deletes a post only after a confirm", async () => {
   let rows = [saved(1, first), saved(2, second)];
   const notes: Array<{ readonly id: number; readonly note: string }> = [];
@@ -260,7 +283,7 @@ it("searches the swipe file, keeps a note on blur, and deletes a post only after
     service: {
       "library.savedList": ({ query }) =>
         Effect.sync(() =>
-          query === undefined ? rows : rows.filter((r) => r.post.text.includes(query)),
+          listed(query === undefined ? rows : rows.filter((r) => r.post.text.includes(query))),
         ),
       "library.savedSetNote": (input) => {
         notes.push(input);
@@ -308,7 +331,7 @@ it("moves focus into an opened post, back to its card on close, and to the next 
   await using screen = await render(<SwipeTab />, {
     container,
     service: {
-      "library.savedList": () => Effect.sync(() => rows),
+      "library.savedList": () => Effect.sync(() => listed(rows)),
       "library.savedDelete": ({ id }) => {
         rows = rows.filter((r) => r.id !== id);
         return Effect.void;
@@ -334,7 +357,7 @@ it("marks a post saved though the swipe file's latest 200 no longer hold it", as
     <PostGrid items={[{ key: "1", post: first }]} selected={null} onSelect={() => {}} />,
     {
       service: {
-        "library.savedList": () => Effect.succeed([]),
+        "library.savedList": () => Effect.succeed(listed([])),
         "library.savedIds": () => Effect.succeed([first.postId]),
       },
     },
@@ -359,7 +382,7 @@ it("keeps a paid search shut until its price arrives, Enter included", async () 
         return Effect.succeed({ items: [first], nextCursor: "c2" });
       },
       "library.collectionsList": () => Effect.succeed([]),
-      "library.savedList": () => Effect.succeed([]),
+      "library.savedList": () => Effect.succeed(listed([])),
     },
   });
   const box = screen.getByLabelText("Search query");
@@ -386,7 +409,7 @@ it("runs a paid search once while it is out, whatever submits it again", async (
         return Effect.promise(() => answered).pipe(Effect.as({ items: [first], nextCursor: null }));
       },
       "library.collectionsList": () => Effect.succeed([]),
-      "library.savedList": () => Effect.succeed([]),
+      "library.savedList": () => Effect.succeed(listed([])),
     },
   });
   await userEvent.click(screen.getByRole("button", { name: /^Search.*\$0\.00075$/ }));
@@ -409,7 +432,7 @@ it("declining a collection's delete deletes nothing and keeps it open", async ()
         return Effect.void;
       },
       "library.savedList": ({ collectionId }) =>
-        Effect.succeed(collectionId === 2 ? [saved(5, first)] : []),
+        Effect.succeed(listed(collectionId === 2 ? [saved(5, first)] : [])),
     },
   });
   await userEvent.click(screen.getByRole("button", { name: /^Hooks/ }));
@@ -434,7 +457,7 @@ it("renames a collection inline, and the rail shows the new name", async () => {
         collections = [collection(1, "Staff picks", true), collection(input.id, input.name)];
         return Effect.void;
       },
-      "library.savedList": () => Effect.succeed([]),
+      "library.savedList": () => Effect.succeed(listed([])),
     },
   });
   await userEvent.click(screen.getByRole("button", { name: "Rename Hooks" }));
@@ -450,10 +473,10 @@ it("asks the service for the archive in the chosen order", async () => {
     service: {
       "library.browse": ({ sort }) => {
         asked.push(sort);
-        return Effect.succeed([]);
+        return Effect.succeed(listed([]));
       },
       "costs.quote": quoting(),
-      "library.savedList": () => Effect.succeed([]),
+      "library.savedList": () => Effect.succeed(listed([])),
     },
   });
   await expect.poll(() => asked).toEqual(["views"]);
@@ -475,11 +498,13 @@ it("finds archived posts by wording in the service, with no paid read", async ()
       "library.browse": ({ query }) => {
         asked.push(query);
         return Effect.succeed(
-          archived.filter((r) => r.post.text.toLowerCase().includes(query?.toLowerCase() ?? "")),
+          listed(
+            archived.filter((r) => r.post.text.toLowerCase().includes(query?.toLowerCase() ?? "")),
+          ),
         );
       },
       "costs.quote": quoting(),
-      "library.savedList": () => Effect.succeed([]),
+      "library.savedList": () => Effect.succeed(listed([])),
     },
   });
   await expect.element(screen.getByText(second.text)).toBeVisible();
@@ -509,7 +534,7 @@ it("prices the day's fetches before they run and labels each model call", async 
         ]),
       "library.pickWhy": () => Effect.succeed("Hook names the pain.\nList format."),
       "library.collectionsList": () => Effect.succeed([]),
-      "library.savedList": () => Effect.succeed([]),
+      "library.savedList": () => Effect.succeed(listed([])),
       "costs.quote": ({ actions }) =>
         Effect.succeed({
           rates,
@@ -630,7 +655,7 @@ it("dragging a saved card onto another collection files it there", async () => {
           collection(3, "Threads"),
         ]),
       "library.savedList": ({ collectionId }) =>
-        Effect.succeed(collectionId === 2 ? [saved(5, first)] : []),
+        Effect.succeed(listed(collectionId === 2 ? [saved(5, first)] : [])),
       "library.save": ({ collectionId, post }) => {
         saves.push(collectionId);
         return Effect.succeed(saved(9, post));

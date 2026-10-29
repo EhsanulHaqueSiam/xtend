@@ -81,21 +81,21 @@ describe("payload budgets", () => {
       }),
     );
 
-    // The newest 200 of 3,450 saved posts (Staff picks mirror every daily pick). Measured
-    // 158,679 bytes.
+    // One page, the newest 200 of 3,450 saved posts (Staff picks mirror every daily pick); Show
+    // more reads the next page. Measured 158,679 bytes.
     it.effect("library.savedList", () =>
       Effect.gen(function* () {
         const saved = yield* (yield* LibraryStore.LibraryStore).savedList({});
-        expect(saved).toHaveLength(200);
+        expect([saved.items.length, saved.total]).toEqual([200, 3450]);
         expect(wireBytes(Library_METHODS.savedList, saved)).toBeLessThan(240_000);
       }),
     );
 
-    // The top 200 of 12,000 archived posts by views. Measured 160,474 bytes.
+    // One page, the top 200 of 12,000 archived posts by views. Measured 160,474 bytes.
     it.effect("library.browse", () =>
       Effect.gen(function* () {
         const posts = yield* (yield* LibraryStore.LibraryStore).browse({});
-        expect(posts).toHaveLength(200);
+        expect([posts.items.length, posts.total]).toEqual([200, 12_000]);
         expect(wireBytes(Library_METHODS.browse, posts)).toBeLessThan(250_000);
       }),
     );

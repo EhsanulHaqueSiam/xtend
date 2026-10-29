@@ -44,7 +44,7 @@ test("library: the palette fills the search box for free, the priced Search runs
   await page.getByText("1 saved").waitFor();
   await page.getByRole("article").filter({ hasText: SEARCH_HIT.text }).waitFor();
   const saved = await rpc("library.savedList", {});
-  expect(saved.map((s) => s.post.postId)).toEqual([SEARCH_HIT.id]);
+  expect(saved.items.map((s) => s.post.postId)).toEqual([SEARCH_HIT.id]);
   // Saving reuses what the search returned; it is not another read.
   expect(treg.calls).toHaveLength(1);
 });
