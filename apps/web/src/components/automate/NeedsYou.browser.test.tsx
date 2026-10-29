@@ -88,6 +88,40 @@ const previewed: PendingRequest = {
   },
 };
 
+it("shows every saved deletion target with its own post link and the batch price", async () => {
+  await using screen = await render(<NeedsYou />, {
+    service: {
+      "automate.pendingList": () =>
+        Effect.succeed([
+          {
+            ...request,
+            costUsd: 0.02,
+            preview: {
+              title: "delete 2 posts",
+              target: null,
+              post: null,
+              message: null,
+              because: "own post fresh at 5000 views",
+              posts: [
+                { text: "First old post", href: "https://x.com/i/status/old" },
+                { text: "Second old post", href: "https://x.com/i/status/day" },
+              ],
+            },
+          },
+        ]),
+      "automate.runsList": () => Effect.succeed([]),
+    },
+  });
+  await userEvent.click(screen.getByRole("button", { name: "delete 2 posts" }));
+  await expect
+    .element(screen.getByRole("link", { name: "First old post" }))
+    .toHaveAttribute("href", "https://x.com/i/status/old");
+  await expect
+    .element(screen.getByRole("link", { name: "Second old post" }))
+    .toHaveAttribute("href", "https://x.com/i/status/day");
+  await expect.element(screen.getByRole("button", { name: "Approve $0.02" })).toBeVisible();
+});
+
 it("expands the saved target, full post and resolved message in place, then approves with a", async () => {
   const approved: Array<number> = [];
   let open = [previewed];

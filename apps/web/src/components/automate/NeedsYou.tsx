@@ -243,6 +243,14 @@ export function NeedsYouList({
                       <XLink href={r.preview.post.href}>{r.preview.post.text}</XLink>
                     </blockquote>
                   )}
+                  {r.preview.posts?.map((post) => (
+                    <blockquote
+                      key={post.href}
+                      className="border-l border-border pl-3 whitespace-pre-wrap wrap-anywhere"
+                    >
+                      <XLink href={post.href}>{post.text}</XLink>
+                    </blockquote>
+                  ))}
                   {r.preview.message !== null && (
                     <div>
                       <p className="mb-1 text-xs text-muted-foreground">Message</p>

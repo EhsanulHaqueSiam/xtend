@@ -44,7 +44,15 @@ export const Subject = Schema.Struct({
   postId: Schema.optional(Schema.String),
   text: Schema.optional(Schema.String),
   /** Reuses subject_json so old queues need no migration and the preview survives a restart. */
-  approval: Schema.optional(Schema.Struct({ action: Action, preview: PendingPreview })),
+  approval: Schema.optional(
+    Schema.Struct({
+      action: Action,
+      preview: PendingPreview,
+      deletionTargets: Schema.optional(
+        Schema.Array(Schema.Struct({ postId: Schema.String, text: Schema.String })),
+      ),
+    }),
+  ),
   /** The own post an ask-first request showed; approving it acts on this post, whatever ranks first by then. */
   pinnedPostId: Schema.optional(Schema.String),
   post: Schema.optional(

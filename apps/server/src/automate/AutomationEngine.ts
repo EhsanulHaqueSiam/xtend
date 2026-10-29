@@ -513,6 +513,7 @@ const make = Effect.gen(function* () {
     /** The own post the plan picked; an ask-first request keeps it, so approval acts on the same one. */
     readonly pin?: string;
     readonly text?: string;
+    readonly deletionTargets?: NonNullable<Subject["approval"]>["deletionTargets"];
   }
   const skip = (detail: string): Plan => ({ costUsd: 0, detail, perform: null });
   const single = (
@@ -654,18 +655,23 @@ const make = Effect.gen(function* () {
         );
       case "auto_delete":
         return Effect.map(
-          Effect.all([
-            staleOwnPosts(rule, action.olderThanDays, action.maxViews),
-            rules.firedSubjects(rule.id),
-          ]),
-          ([seen, done]) => {
-            // The session view and the cached timeline still list posts after they are deleted.
-            const stale = seen.filter((p) => !done.has(deletedKey(p.postId)));
+          s.approval?.deletionTargets !== undefined
+            ? Effect.succeed(s.approval.deletionTargets)
+            : Effect.map(
+                Effect.all([
+                  staleOwnPosts(rule, action.olderThanDays, action.maxViews),
+                  rules.firedSubjects(rule.id),
+                ]),
+                // The session view and the cached timeline still list posts after they are deleted.
+                ([seen, done]) => seen.filter((p) => !done.has(deletedKey(p.postId))),
+              ),
+          (stale) => {
             return stale.length === 0
               ? skip("no post matches the age and view limits")
               : {
                   costUsd: cost * stale.length,
                   detail: `delete ${stale.length} posts`,
+                  deletionTargets: stale.map(({ postId, text }) => ({ postId, text })),
                   perform: Effect.gen(function* () {
                     let spent = 0;
                     for (const p of stale) {
@@ -701,6 +707,18 @@ const make = Effect.gen(function* () {
     p: Plan,
   ) {
     const action = rule.action;
+    if (p.deletionTargets !== undefined)
+      return {
+        title: p.detail,
+        target: null,
+        message: null,
+        post: null,
+        posts: p.deletionTargets.map(({ postId, text }) => ({
+          text,
+          href: `https://x.com/i/status/${postId}`,
+        })),
+        because: s.description,
+      } satisfies PendingPreview;
     const person = s.engager;
     const personLabel = person === undefined ? "" : `${person.name} · @${person.handle}`;
     const postId = p.pin ?? s.postId;
@@ -844,7 +862,11 @@ const make = Effect.gen(function* () {
           subject: {
             ...s,
             ...(p.pin === undefined ? {} : { pinnedPostId: p.pin }),
-            approval: { action: rule.action, preview },
+            approval: {
+              action: rule.action,
+              preview,
+              ...(p.deletionTargets === undefined ? {} : { deletionTargets: p.deletionTargets }),
+            },
           },
           description: `${s.description}; ${p.detail}`,
           costUsd: p.costUsd,
@@ -975,12 +997,17 @@ const make = Effect.gen(function* () {
       const changed =
         request.subject.approval !== undefined &&
         !sameAction(rule.action, request.subject.approval.action);
-      const run = yield* changed
+      const missingTargets =
+        rule.action.kind === "auto_delete" &&
+        request.subject.approval?.deletionTargets === undefined;
+      const run = yield* changed || missingTargets
         ? rules.recordRun({
             ruleId: rule.id,
             subjectId: request.subjectId,
             status: "skipped",
-            detail: "rule action changed; run the rule again to review it",
+            detail: missingTargets
+              ? "deletion targets were not saved; run the rule again to review them"
+              : "rule action changed; run the rule again to review it",
             costUsd: 0,
           })
         : fire(rule, request.subject, request.costUsd);

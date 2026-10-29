@@ -726,6 +726,74 @@ describe("AutomationEngine", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
+  it.live("previews and persists every deletion target, then deletes exactly those posts", () =>
+    Effect.gen(function* () {
+      const { rules, engine } = yield* setup;
+      const rule = yield* rules.upsert(
+        likeRule({
+          askFirst: true,
+          action: { kind: "auto_delete", olderThanDays: 1, maxViews: 10_000 },
+        }),
+      );
+      yield* engine.runRule(rule.id);
+      const request = (yield* rules.pendingList)[0]!;
+      const posts = ["old", "day"].map((id) => ({
+        text: "t",
+        href: `https://x.com/i/status/${id}`,
+      }));
+      expect(request.preview).toMatchObject({ target: null, post: null, posts });
+      expect((yield* rules.pending(request.id)).subject.approval).toMatchObject({
+        deletionTargets: ["old", "day"].map((postId) => ({ postId, text: "t" })),
+        preview: { posts },
+      });
+      // Two different posts now qualify at the same price; approval still covers only old and day.
+      fake.timelineExtra = [
+        post("old", 6 * 24 * HOUR, 20_000),
+        post("day", 30 * HOUR, 20_000),
+        post("replacement-a", 48 * HOUR, 5000),
+        post("replacement-b", 48 * HOUR, 5000),
+      ];
+      expect((yield* engine.approve(request.id)).status).toBe("ok");
+      expect(deleted).toEqual(["old", "day"]);
+    }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.live("requires re-approval for deletion previews without saved targets", () =>
+    Effect.gen(function* () {
+      const { rules, engine } = yield* setup;
+      const rule = yield* rules.upsert(
+        likeRule({
+          askFirst: true,
+          action: { kind: "auto_delete", olderThanDays: 1, maxViews: 10_000 },
+        }),
+      );
+      const request = yield* rules.createPending({
+        ruleId: rule.id,
+        subject: {
+          id: "fresh",
+          description: "own post fresh",
+          approval: {
+            action: rule.action,
+            preview: {
+              title: "delete 2 posts",
+              target: null,
+              post: null,
+              message: null,
+              because: "trigger",
+            },
+          },
+        },
+        description: "delete 2 posts",
+        costUsd: 0.02,
+      });
+      expect((yield* engine.approve(request.id)).status).toBe("skipped");
+      expect(deleted).toEqual([]);
+      expect((yield* rules.firedSubjects(rule.id)).has("fresh")).toBe(false);
+      yield* engine.runRule(rule.id);
+      expect((yield* rules.pendingList)[0]?.id).not.toBe(request.id);
+    }).pipe(Effect.provide(layerTest)),
+  );
+
   it.live("an approval only buys the price it showed; a plan that grew asks again", () =>
     Effect.gen(function* () {
       const { rules, engine } = yield* setup;

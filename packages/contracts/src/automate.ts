@@ -128,6 +128,8 @@ export const PendingPreview = Schema.Struct({
   target: Schema.NullOr(Schema.Struct({ label: Schema.String, href: Schema.String })),
   message: Schema.NullOr(Schema.String),
   post: Schema.NullOr(Schema.Struct({ text: Schema.String, href: Schema.String })),
+  /** All posts in a deletion batch, saved when the request was priced. */
+  posts: Schema.optional(Schema.Array(Schema.Struct({ text: Schema.String, href: Schema.String }))),
   because: Schema.String,
 });
 export type PendingPreview = typeof PendingPreview.Type;
