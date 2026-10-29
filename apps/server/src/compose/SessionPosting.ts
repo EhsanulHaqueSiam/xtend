@@ -34,6 +34,11 @@ export class SessionPosting extends Context.Service<
     }) => Effect.Effect<{ readonly postId: string }, ComposeError | DesktopUnavailableError>;
     /** Presses X's own like on the post in the session view, at human pace. */
     readonly like: (postId: string) => Effect.Effect<void, ComposeError | DesktopUnavailableError>;
+    /** Sends a DM through X's own message composer in the session view, at the same human pace. */
+    readonly dm: (
+      userId: string,
+      text: string,
+    ) => Effect.Effect<void, ComposeError | DesktopUnavailableError>;
     /** Points the session view at a URL (used to hand a freshly posted link card to the desktop). */
     readonly navigate: (url: string) => Effect.Effect<void, ComposeError>;
   }
@@ -95,6 +100,14 @@ const make = Effect.gen(function* () {
     yield* desktop.request({ type: "sessionLike", postId });
   });
 
+  const dm = Effect.fn("SessionPosting.dm")(function* (userId: string, text: string) {
+    yield* requireEnabled.pipe(Effect.mapError(fail("sessionDm")));
+    const refused = yield* humanPace;
+    if (refused !== null)
+      return yield* new ComposeError({ operation: "sessionDm", detail: refused });
+    yield* desktop.request({ type: "sessionDm", userId, text });
+  });
+
   const navigate = Effect.fn("SessionPosting.navigate")(
     function* (url: string) {
       yield* requireEnabled;
@@ -103,7 +116,7 @@ const make = Effect.gen(function* () {
     Effect.mapError(fail("sessionNavigate")),
   );
 
-  return SessionPosting.of({ post, like, navigate });
+  return SessionPosting.of({ post, like, dm, navigate });
 });
 
 export const layer = Layer.effect(SessionPosting, make);

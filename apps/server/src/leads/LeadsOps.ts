@@ -137,14 +137,30 @@ const make = Effect.gen(function* () {
 
   const sendDm = Effect.fn("LeadsOps.sendDm")(function* (personId: number, text: string) {
     const person = yield* people.get(personId);
-    const userId = person.userId ?? (yield* profile(personId))?.userId;
+    // Free first: their id as the session saw it on one of their posts, the paid lookup last.
+    const userId =
+      person.userId ??
+      (yield* seenPosts(person.handle))[0]?.author.userId ??
+      (yield* profile(personId))?.userId;
     if (userId === undefined)
       return yield* new LeadsError({
         operation: "sendDm",
         detail: `no X user id for @${person.handle}`,
         cause: null,
       });
-    yield* x.sendDm(userId, text, "leads.dm");
+    // A clicked DM goes through the user's own session while that lane is on.
+    const { sessionPostingEnabled } = yield* settings.get.pipe(
+      Effect.orElseSucceed(() => ({ sessionPostingEnabled: false })),
+    );
+    if (sessionPostingEnabled)
+      yield* session
+        .dm(userId, text)
+        .pipe(
+          Effect.mapError(
+            (e) => new LeadsError({ operation: "sendDm", detail: e.message, cause: e }),
+          ),
+        );
+    else yield* x.sendDm(userId, text, "leads.dm");
     yield* people.logActivity(personId, "dm", text.slice(0, 140));
     yield* markContacted(person);
   });

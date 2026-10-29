@@ -1,7 +1,12 @@
 import { DESKTOP_COMMAND_LIMIT_MS } from "@xtend/contracts";
 import { afterEach, expect, it, vi } from "vite-plus/test";
 
-import { commandRunner, likeOnPage, postThroughComposer } from "./DesktopCommands.ts";
+import {
+  commandRunner,
+  dmThroughComposer,
+  likeOnPage,
+  postThroughComposer,
+} from "./DesktopCommands.ts";
 
 // x.com's DOM over CDP: the home page's inline composer first, the compose modal after it in
 // X's layers root, with the same test ids. Node ids: 1x inline, 2x modal.
@@ -291,4 +296,74 @@ it("likes the post's own article on its page, waits for X to show it liked, and 
   await likeOnPage(contents, page(true), "9", Date.now() + 5_000);
   expect(loaded).toEqual(["https://x.com/i/web/status/9", "https://x.com/i/web/status/9"]);
   expect(presses).toEqual(["like"]);
+});
+
+it("DMs through X's message composer, presses Send once it enables, and waits for X to clear it", async () => {
+  const log: Array<string> = [];
+  // Send is disabled while the composer is empty: before typing and again once X sent the message.
+  let typed = "";
+  const cdp = async (method: string, params: Record<string, unknown> = {}) => {
+    switch (method) {
+      case "DOM.getDocument":
+        return { root: { nodeId: 1 } };
+      case "DOM.querySelectorAll":
+        if (params.selector === '[data-testid="dmComposerTextInput"]') return { nodeIds: [31] };
+        if (params.selector === 'button[data-testid="dmComposerSendButton"]')
+          return { nodeIds: [32] };
+        throw new Error(`unexpected selector ${String(params.selector)}`);
+      case "DOM.getAttributes":
+        return {
+          attributes: params.nodeId === 32 && typed === "" ? ["aria-disabled", "true"] : [],
+        };
+      case "DOM.getBoxModel":
+        return {
+          model: {
+            content:
+              params.nodeId === 32 ? [50, 0, 70, 0, 70, 20, 50, 20] : [0, 0, 20, 0, 20, 20, 0, 20],
+          },
+        };
+      case "Input.dispatchMouseEvent":
+        if (params.type === "mouseReleased") {
+          // 60 is the middle of Send's box; X clears the composer once the message is sent.
+          log.push(params.x === 60 ? "press Send" : "focus");
+          if (params.x === 60) typed = "";
+        }
+        return {};
+      case "Input.insertText":
+        typed = String(params.text);
+        log.push(`type ${typed}`);
+        return {};
+      default:
+        throw new Error(`unexpected ${method}`);
+    }
+  };
+  await dmThroughComposer(
+    { loadURL: async (url) => void log.push(`load ${url}`) },
+    cdp,
+    { type: "sessionDm", userId: "42", text: "hey" },
+    Date.now() + 5_000,
+  );
+  expect(log).toEqual([
+    "load https://x.com/messages/compose?recipient_id=42",
+    "focus",
+    "type hey",
+    "press Send",
+  ]);
+});
+
+it("refuses a DM untouched when X's message composer never draws", async () => {
+  vi.useFakeTimers();
+  const log: Array<string> = [];
+  const run = commandRunner({
+    contents: { loadURL: async (url) => void log.push(`load ${url}`) },
+    cdp: async (method) =>
+      method === "DOM.getDocument" ? { root: { nodeId: 1 } } : { nodeIds: [] },
+    navigate: () => {},
+    nextCreatedPost: () => new Promise(() => {}),
+    sessionPostingEnabled: async () => true,
+  });
+  const result = run({ type: "sessionDm", userId: "42", text: "hey" }).catch((e: unknown) => e);
+  await vi.advanceTimersByTimeAsync(15_000);
+  expect(await result).toMatchObject({ notAttempted: true });
+  expect(log).toEqual(["load https://x.com/messages/compose?recipient_id=42"]);
 });

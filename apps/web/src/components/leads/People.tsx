@@ -41,14 +41,18 @@ import {
   useSelection,
 } from "../ui/split";
 import { OpenOnX, profileUrl } from "../ui/x-link";
-import { STAGES, StageText, useAction } from "./ui";
+import { STAGES, StageText, TierText, useAction } from "./ui";
 
 const COLUMNS: ReadonlyArray<Column<Person>> = [
   { label: "Score", className: "w-10", cell: (p) => fmt(p.score) },
   {
     label: "Tier",
     className: "hidden w-20 @xl:block",
-    cell: (p) => <span className="text-muted-foreground">{p.tier ?? ""}</span>,
+    cell: (p) => (
+      <span className="text-muted-foreground">
+        <TierText tier={p.tier} />
+      </span>
+    ),
   },
   { label: "Followers", className: "w-18", cell: (p) => fmt(p.followers) },
   {
@@ -390,18 +394,17 @@ function PersonPanel({
         ) : null}
       </Section>
       <Section title="Stage">
-        <div
-          className="flex flex-wrap items-center gap-x-4 gap-y-1"
-          role="group"
-          aria-label="Stage"
-        >
+        <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Stage">
           {STAGES.map((s) => (
             <button
               key={s}
               type="button"
               aria-pressed={s === person.stage}
               disabled={edit.busy}
-              className="cursor-pointer text-[13px] text-muted-foreground transition-colors duration-150 hover:text-foreground aria-pressed:text-foreground aria-pressed:font-medium"
+              className={cn(
+                pill,
+                "text-muted-foreground aria-pressed:border-foreground aria-pressed:text-foreground",
+              )}
               onClick={() => void setStage(s)}
             >
               {s}
@@ -417,9 +420,13 @@ function PersonPanel({
           rows={[
             [
               "Score",
-              person.score === null
-                ? "–"
-                : `${person.score}${person.tier === null ? "" : ` ${person.tier}`}`,
+              person.score === null ? (
+                "–"
+              ) : (
+                <>
+                  {person.score} <TierText tier={person.tier} />
+                </>
+              ),
             ],
             ["Followers", fmt(person.followers)],
             ["Source", person.source],
@@ -466,7 +473,11 @@ function PersonPanel({
   );
 }
 
-/** A DM through the X connection. Without their user id the service reads the profile first, priced in. */
+/**
+ * A DM through the user's own session while that lane is on, else the X connection. The service
+ * needs their user id: known, or seen on a post the session saw, is free; else it reads the
+ * profile first, priced in.
+ */
 function DirectMessage({
   person,
   onSent,
@@ -485,8 +496,16 @@ function DirectMessage({
   const [drafts, setDrafts] = useState<ReadonlyArray<string>>([]);
   // The drafts read only what the session saw them post, then one model call.
   const assistQuote = useQuoteLabel({ kind: "assist" });
+  const viaSession = useSessionLane();
+  const seen = useAtomValue(seenByAtom(person.handle));
+  const lookup =
+    person.userId === null &&
+    AsyncResult.getOrElse(
+      AsyncResult.map(seen, ({ posts }) => posts.length === 0),
+      () => true,
+    );
   const sendUsd =
-    rates === null ? null : rates.dm + (person.userId === null ? rates.scraperProfile : 0);
+    rates === null ? null : (viaSession ? 0 : rates.dm) + (lookup ? rates.scraperProfile : 0);
   return (
     <Section title="Direct message" aside={<Cost label={`3 drafts · ${assistQuote}`} />}>
       <div className="mb-2 flex flex-col gap-2">
@@ -534,7 +553,13 @@ function DirectMessage({
           }
         >
           <TextMorph duration={250}>{send.busy ? "Sending…" : sent ? "Sent" : "Send DM"}</TextMorph>
-          {sendUsd === null ? <Cost tone="solid" label="…" /> : <Cost tone="solid" usd={sendUsd} />}
+          {viaSession && sendUsd === 0 ? (
+            <Cost tone="solid" label="free · your session" />
+          ) : sendUsd === null ? (
+            <Cost tone="solid" label="…" />
+          ) : (
+            <Cost tone="solid" usd={sendUsd} />
+          )}
         </button>
       </div>
       {(send.error ?? draft.error) ? (

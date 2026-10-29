@@ -22,6 +22,8 @@ export const DesktopCommand = Schema.Union([
   Schema.Struct({ type: Schema.Literal("sessionNavigate"), url: Schema.String }),
   /** Clicks X's own like on the post's page in the session view; same setting as sessionPost. */
   Schema.Struct({ type: Schema.Literal("sessionLike"), postId: XId }),
+  /** Sends a DM through X's own message composer in the session view; same setting as sessionPost. */
+  Schema.Struct({ type: Schema.Literal("sessionDm"), userId: XId, text: Schema.String }),
 ]);
 export type DesktopCommand = typeof DesktopCommand.Type;
 
@@ -35,6 +37,7 @@ export const DESKTOP_COMMAND_LIMIT_MS = {
   sessionNavigate: 20_000,
   sessionPost: 180_000,
   sessionLike: 30_000,
+  sessionDm: 45_000,
 } satisfies Record<DesktopCommand["type"], number>;
 
 export const DesktopCommandResult = Schema.Union([
@@ -42,6 +45,7 @@ export const DesktopCommandResult = Schema.Union([
   Schema.Struct({ type: Schema.Literal("sessionPost"), postId: XId }),
   Schema.Struct({ type: Schema.Literal("sessionNavigate") }),
   Schema.Struct({ type: Schema.Literal("sessionLike") }),
+  Schema.Struct({ type: Schema.Literal("sessionDm") }),
 ]);
 export type DesktopCommandResult = typeof DesktopCommandResult.Type;
 
