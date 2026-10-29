@@ -159,6 +159,44 @@ describe("ObservationStore", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
+  it.effect("searches text literally and pages older by cursor, ties included", () =>
+    Effect.gen(function* () {
+      const store = yield* ObservationStore.ObservationStore;
+      const b = batch("2026-10-22T10:00:00.000Z", 5);
+      const own = b.posts[0]!;
+      // One sighting, so all four tie on last_seen_at and created_at.
+      yield* store.record({
+        ...b,
+        posts: [
+          { ...own, postId: "1", text: "Pricing up 50% this week" },
+          { ...own, postId: "2", text: "pricing page v3" },
+          { ...own, postId: "3", text: "PRICING_V2 notes" },
+          { ...own, postId: "4", text: "Shipped the thing." },
+        ],
+      });
+      const ids = (r: { readonly posts: ReadonlyArray<{ readonly postId: string }> }) =>
+        r.posts.map((p) => p.postId);
+      expect(ids(yield* store.listRecent({ query: " pricing " }))).toEqual(["3", "2", "1"]);
+      // % and _ are the user's characters, not wildcards.
+      expect(ids(yield* store.listRecent({ query: "50%" }))).toEqual(["1"]);
+      expect(ids(yield* store.listRecent({ query: "g_v" }))).toEqual(["3"]);
+
+      const seen: Array<string> = [];
+      let page = yield* store.listRecent({ query: "pricing", limit: 2 });
+      seen.push(...ids(page));
+      expect(page.hasOlder).toBe(true);
+      const last = page.posts.at(-1)!;
+      page = yield* store.listRecent({
+        query: "pricing",
+        limit: 2,
+        before: { lastSeenAt: last.lastSeenAt, createdAt: last.createdAt, postId: last.postId },
+      });
+      seen.push(...ids(page));
+      expect(page.hasOlder).toBe(false);
+      expect(seen).toEqual(["3", "2", "1"]);
+    }).pipe(Effect.provide(layerTest)),
+  );
+
   it.effect("keeps repost wrappers and ads out of the feed", () =>
     Effect.gen(function* () {
       const store = yield* ObservationStore.ObservationStore;

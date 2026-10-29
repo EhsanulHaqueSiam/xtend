@@ -1,11 +1,12 @@
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
-import type { Mark, ObservedPostSummary } from "@xtend/contracts";
+import type { Mark, ObservationCursor, ObservedPostSummary } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { BadgeCheck, RefreshCw } from "lucide-react";
+import { BadgeCheck, RefreshCw, Search, X } from "lucide-react";
+import { useState } from "react";
 
 import { isElectron } from "../env";
 import { cn } from "../lib/utils";
-import { recentPostsAtom } from "../state/observations";
+import { seenPageAtom } from "../state/observations";
 import { PageHeader } from "./PageHeader";
 import { useDropPost } from "./shell/drops";
 import { Button } from "./ui/button";
@@ -46,11 +47,13 @@ function PostRow({
   marks,
   onOpen,
   onSave,
+  onAuthor,
 }: {
   readonly post: ObservedPostSummary;
   readonly marks: ReadonlyArray<Mark> | undefined;
   readonly onOpen: (post: ObservedPostSummary) => void;
   readonly onSave: (post: ObservedPostSummary) => void;
+  readonly onAuthor: (handle: string) => void;
 }) {
   return (
     // Dragged like a post on X: the row carries its status URL, so every sidebar drop takes it.
@@ -88,7 +91,17 @@ function PostRow({
             ) : null}
           </div>
           <div className="truncate font-mono text-2xs text-muted-foreground">
-            @{post.author.handle}
+            <button
+              type="button"
+              className="cursor-pointer outline-hidden hover:text-foreground hover:underline focus-visible:underline"
+              title={`Only posts by @${post.author.handle}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onAuthor(post.author.handle);
+              }}
+            >
+              @{post.author.handle}
+            </button>
             {post.author.followers !== null ? ` · ${fmt(post.author.followers)}` : ""}
           </div>
         </div>
@@ -121,37 +134,84 @@ function PostRow({
   );
 }
 
+const PAGE = 100;
+
 /** Everything the X session has shown, newest sighting first: free, read from X's own traffic. */
 export function SeenFeed() {
-  const result = useAtomValue(recentPostsAtom);
-  const refresh = useAtomRefresh(recentPostsAtom);
+  const [query, setQuery] = useState("");
+  const [author, setAuthor] = useState<string | null>(null);
+  // Where each page behind this one started; empty on the newest page.
+  const [cursors, setCursors] = useState<ReadonlyArray<ObservationCursor>>([]);
+  const before = cursors.at(-1);
+  const page = seenPageAtom({
+    limit: PAGE,
+    ...(query.trim() === "" ? {} : { query }),
+    ...(author === null ? {} : { authorHandle: author }),
+    ...(before === undefined ? {} : { before }),
+  });
+  const result = useAtomValue(page);
+  const refresh = useAtomRefresh(page);
   const openOnX = useOpenOnX();
   const drop = useDropPost();
-  const count = AsyncResult.getOrElse(
-    AsyncResult.map(result, (value) => value.posts.length),
+  const posts = AsyncResult.getOrElse(
+    AsyncResult.map(result, (value) => value.posts),
     () => null,
   );
-  const marks = useMarks(
-    AsyncResult.getOrElse(
-      AsyncResult.map(result, (value) =>
-        value.posts.map((p) => ({ postId: p.postId, handle: p.author.handle })),
-      ),
-      () => [],
-    ),
-  );
+  const hasOlder = AsyncResult.isSuccess(result) && result.value.hasOlder;
+  const paged = cursors.length > 0 || hasOlder;
+  const from = cursors.length * PAGE + 1;
+  const marks = useMarks((posts ?? []).map((p) => ({ postId: p.postId, handle: p.author.handle })));
+  const filtered = query.trim() !== "" || author !== null;
 
   return (
     <div className="flex h-full flex-col">
       <PageHeader
         title="Seen"
-        detail={count === null ? undefined : `${count} posts`}
+        detail={
+          posts === null
+            ? undefined
+            : paged && posts.length > 0
+              ? `${from}–${from + posts.length - 1}`
+              : `${posts.length} posts`
+        }
         actions={
-          <Button variant="ghost" size="icon-sm" aria-label="Refresh" onClick={refresh}>
-            <RefreshCw />
-          </Button>
+          <>
+            <label className="flex h-7 w-48 items-center @max-[44rem]:w-36 gap-1.5 rounded-[var(--control-radius)] border border-white/13 px-2 transition-[border-color] duration-150 focus-within:border-white/30">
+              <Search className="size-3.5 shrink-0 text-muted-foreground" />
+              <input
+                className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-hidden placeholder:text-muted-foreground"
+                aria-label="Search seen posts"
+                placeholder="Search"
+                maxLength={200}
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setCursors([]);
+                }}
+              />
+            </label>
+            {author === null ? null : (
+              <Button
+                variant="outline"
+                size="xs"
+                aria-label={`Clear author @${author}`}
+                onClick={() => {
+                  setAuthor(null);
+                  setCursors([]);
+                }}
+              >
+                @{author}
+                <X />
+              </Button>
+            )}
+            <Button variant="ghost" size="icon-sm" aria-label="Refresh" onClick={refresh}>
+              <RefreshCw />
+            </Button>
+          </>
         }
       />
-      <PageBody>
+      {/* Remounted per page, so an older page opens at its top. */}
+      <PageBody key={cursors.length}>
         {AsyncResult.match(result, {
           onInitial: () => <Empty>Connecting to the service.</Empty>,
           onFailure: (failure) => (
@@ -160,9 +220,11 @@ export function SeenFeed() {
           onSuccess: ({ value }) =>
             value.posts.length === 0 ? (
               <Empty>
-                {isElectron
-                  ? "Nothing yet. Posts you scroll past on X land here with their numbers."
-                  : "Nothing yet. Browse X in the desktop app and posts land here with their numbers."}
+                {filtered || cursors.length > 0
+                  ? "No seen post matches."
+                  : isElectron
+                    ? "Nothing yet. Posts you scroll past on X land here with their numbers."
+                    : "Nothing yet. Browse X in the desktop app and posts land here with their numbers."}
               </Empty>
             ) : (
               <div className="@container">
@@ -196,10 +258,44 @@ export function SeenFeed() {
                             url: statusUrl(p),
                           })
                         }
+                        onAuthor={(handle) => {
+                          setAuthor(handle);
+                          setCursors([]);
+                        }}
                       />
                     ))}
                   </tbody>
                 </table>
+                {paged ? (
+                  <div className="flex items-center justify-end gap-1 px-6 py-2">
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      disabled={cursors.length === 0}
+                      onClick={() => setCursors(cursors.slice(0, -1))}
+                    >
+                      Newer
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      disabled={!value.hasOlder}
+                      onClick={() => {
+                        const last = value.posts.at(-1)!;
+                        setCursors([
+                          ...cursors,
+                          {
+                            lastSeenAt: last.lastSeenAt,
+                            createdAt: last.createdAt,
+                            postId: last.postId,
+                          },
+                        ]);
+                      }}
+                    >
+                      Older
+                    </Button>
+                  </div>
+                ) : null}
               </div>
             ),
         })}

@@ -1,7 +1,7 @@
 // The stacked layout is container queries; without the stylesheet every width looks wide.
 import "../index.css";
 
-import type { ObservedPostSummary } from "@xtend/contracts";
+import type { ObservationListRecentInput, ObservedPostSummary } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import { expect, it, onTestFinished, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
@@ -30,7 +30,7 @@ it("opens a seen post from the keyboard: its row takes focus and Enter", async (
   onTestFinished(() => open.mockRestore());
   await using screen = await render(<SeenFeed />, {
     service: {
-      "observations.listRecent": () => Effect.succeed({ posts: [seen] }),
+      "observations.listRecent": () => Effect.succeed({ posts: [seen], hasOlder: false }),
     },
   });
   const row = screen.getByRole("row").filter({ hasText: "shipping beats planning" });
@@ -46,7 +46,9 @@ it("stacks rows under 720px so the text and every number fit beside the X panel"
     el.style.width = `${width}px`;
     return el;
   };
-  const service = { "observations.listRecent": () => Effect.succeed({ posts: [seen] }) };
+  const service = {
+    "observations.listRecent": () => Effect.succeed({ posts: [seen], hasOlder: false }),
+  };
   {
     await using narrow = await render(<SeenFeed />, { container: box(440), service });
     const save = narrow.getByRole("button", { name: /Save/ });
@@ -61,4 +63,44 @@ it("stacks rows under 720px so the text and every number fit beside the X panel"
   await using wide = await render(<SeenFeed />, { container: box(1000), service });
   await expect.element(wide.getByRole("button", { name: /Save/ })).toBeVisible();
   await expect.element(wide.getByText("Reposts", { exact: true })).toBeVisible();
+});
+
+it("pages older by cursor and narrows by text and by a clicked author", async () => {
+  const older: ObservedPostSummary = { ...seen, postId: "444", text: "older take" };
+  const asked: Array<ObservationListRecentInput> = [];
+  const open = vi.spyOn(window, "open").mockReturnValue(null);
+  onTestFinished(() => open.mockRestore());
+  await using screen = await render(<SeenFeed />, {
+    service: {
+      "observations.listRecent": (input) => {
+        asked.push(input);
+        return Effect.succeed(
+          input.before === undefined
+            ? { posts: [seen], hasOlder: true }
+            : { posts: [older], hasOlder: false },
+        );
+      },
+    },
+  });
+  await userEvent.click(screen.getByRole("button", { name: "Older" }));
+  await expect.element(screen.getByText("older take")).toBeVisible();
+  expect(asked.at(-1)?.before).toEqual({
+    lastSeenAt: seen.lastSeenAt,
+    createdAt: seen.createdAt,
+    postId: "555",
+  });
+  await expect.element(screen.getByRole("button", { name: "Older" })).toBeDisabled();
+  await userEvent.click(screen.getByRole("button", { name: "Newer" }));
+  await expect.element(screen.getByText("shipping beats planning")).toBeVisible();
+
+  // The handle filters to its author instead of opening the post.
+  await userEvent.click(screen.getByRole("button", { name: "@levelsio" }));
+  await expect
+    .element(screen.getByRole("button", { name: "Clear author @levelsio" }))
+    .toBeVisible();
+  expect(open).not.toHaveBeenCalled();
+  await userEvent.fill(screen.getByLabelText("Search seen posts"), "ship");
+  await expect
+    .poll(() => asked.at(-1))
+    .toEqual({ limit: 100, query: "ship", authorHandle: "levelsio" });
 });
