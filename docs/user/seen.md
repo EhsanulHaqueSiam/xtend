@@ -1,8 +1,15 @@
-# Seen
+# Home and Seen
 
-Everything your X session has shown, newest sighting first: author, post, views, likes,
-reposts, replies, engagement rate and when it was seen. Free, read from X's own traffic in the
-desktop.
+## Home
 
-In a browser without the desktop, Seen is the home page. Open a post on X from its row, or save
-it to the Library.
+On the desktop, Home is x.com itself. In a browser (see [Remote service](./remote-service.md))
+there is no X session, so Home shows what your desktop session has observed instead.
+
+## Seen
+
+Seen is everything the X session has shown you, newest sighting first: the posts that scrolled
+past on your timeline, in searches, on profiles, with the metrics X sent at the time. It is
+free and builds up as you browse.
+
+Refresh pulls in what arrived since. Save, reply and the author's numbers live on the post
+itself in X (see [x.com inside Xtend](./x-view.md)).

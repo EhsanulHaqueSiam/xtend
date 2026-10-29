@@ -1,34 +1,48 @@
-# Costs and the budget
+# Costs and budget
 
-Browsing X in Xtend is free. So is everything built from what your session saw: Seen, the
-numbers under posts, your own posts in Analyze, mentions and replies the session loaded, and
-the Home companion cards.
+Xtend has no wallet of its own. X API calls and model calls go through treg and are paid from
+your treg balance. Settings holds the token and a **monthly budget** in USD; the service will
+not start a paid call that would overshoot it, and the Settings meter shows this month's spend.
 
-Paid actions call X's API or a model through treg, and your treg balance pays:
+## Before a paid click
 
-| action                                              | charged for                                                     |
-| --------------------------------------------------- | --------------------------------------------------------------- |
-| Post now, queued posts, likes and replies by a rule | the X API write                                                 |
-| Refresh posts, fetch a competitor, follower pages   | the X API read                                                  |
-| Library search, picks, trends                       | the search or the scrape                                        |
-| Score a handle, bot check                           | the follower sample                                             |
-| Any assist: hook, rewrite, reply draft, ask, why    | the model call, unless Settings points assist at your own model |
+Every button that costs shows its price before you click. The price is what the rate card says
+for that action; where the read cache would make a click free, the button says so.
 
-Assist is free when Settings > AI assist points at your own model: a local Ollama, or your own
-key at OpenAI, Anthropic, Groq or OpenRouter, which then bills you directly and never through
-Xtend. Every paid button shows its price before you press it. A price that says "cached, free" means
-the same read is still in the cache and will not be charged again.
+| action                                  | price (USD) |
+| --------------------------------------- | ----------- |
+| post, like, repost, follow, DM          | 0.015       |
+| post with a link                        | 0.20        |
+| delete                                  | 0.01        |
+| search page                             | 0.00075     |
+| profile read                            | 0.01        |
+| followers page                          | 0.001       |
+| trending                                | 0.001       |
+| likers page (X bills per user, 20 each) | 0.20        |
+| reposters page                          | 0.001       |
 
-## Budget
+Posts with media through your x.com session are not billed (see
+[x.com inside Xtend](./x-view.md)).
 
-Settings, treg and budget: your treg token and a monthly budget in USD. Paid calls stop before
-this month's spend would pass the budget. The sidebar's Today block shows spend against it,
-and Settings, Spend shows today and this month.
+Model calls (assist actions, labels, drafts) reserve a small amount from the budget and settle
+what the call cost. They show a price on their button too.
 
-Rules carry their own limits too: a price per fire, a budget per day and per month, and an
-"ask first" switch that queues the action in Automate, Needs you until you approve it.
+## What is free
 
-## What is never charged
+- Browsing X, the Seen feed, the metrics rows and hover cards.
+- Drafts, queue, slots, calendar.
+- Lists, collections, the swipe file, watching a handle.
+- Stored reports, cached searches, cached trends, best time from observed posts.
+- Rules themselves, dry runs over stored data.
 
-Reading your own session. Opening a post on X. Saving to the Library. Drafting. Scheduling.
-Anything the session already observed.
+## What runs without you
+
+These spend on the service's clock once you turn them on, so each is off until you do:
+
+- Queued drafts post at their slot.
+- Library's morning jobs (Settings: **Daily Library jobs**).
+- Leads agents on their schedule.
+- Automation rules, each with its own daily cap and budget.
+- The nightly private-metrics read for Analyze.
+
+`xtend spend` prints this month's spend from a terminal.

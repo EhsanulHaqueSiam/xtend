@@ -1,38 +1,51 @@
-# Install
+# Install Xtend
 
-Xtend is a desktop app for macOS and Linux. It opens x.com in the middle of the window with
-your own login, and puts its tools around it. A headless service holds your data on your
-machine; the app is a client of it.
+Xtend is a desktop app for macOS and Linux. It opens x.com inside its own window, signed in as
+you, and puts the tools beside it. A headless service keeps your data on your machine.
 
-## Desktop
+## Download
 
-Download the latest release from the repository's Releases page: a `.dmg` for macOS (Apple
-Silicon and Intel) or an `.AppImage` for Linux. Open it, sign in to X in the middle of the
-window as you would in a browser. Your session stays in the app's own profile and never
-leaves the machine.
+Releases are on GitHub under the repository's Releases page. Each one ships:
 
-The first start creates `~/.xtend` with the database, the service token and logs. Everything
-Xtend knows lives there.
+| file               | what it is                                                          |
+| ------------------ | ------------------------------------------------------------------- |
+| `Xtend-*.dmg`      | the macOS app (unsigned until signing is set up: right-click, Open) |
+| `Xtend-*.zip`      | the same macOS app, zipped                                          |
+| `Xtend-*.AppImage` | the Linux app; make it executable and run it                        |
+| `xtend-cli-*.tgz`  | the service and CLI alone, for a server or a Mac mini               |
 
-## Paid actions need treg
+## First run
 
-Reading X through your own session is free. Anything that calls X's API or a model, such as
-posting through the API, fetching a competitor's posts or asking the assistant, is paid from
-your treg balance. Put your treg token in Settings and set a monthly budget; every paid button
-shows its price before you press it. See [Costs and the budget](./costs.md).
+1. Open the app. It starts its own service in the background and opens the window.
+2. The main area is x.com. Sign in there like in any browser. Your session stays in the app's
+   own cookie store, separate from your other browsers; the service never sees it.
+3. Open **Settings** and paste a treg token. Every X API call is paid from that balance, and
+   the monthly budget under it caps what the app may spend.
+4. Your handle is read from the X session once you are signed in. Set it by hand in Settings if
+   you want the tools to work on another account than the one you browse with.
 
-## CLI
+Nothing costs anything until you click a button that shows a price. Browsing X, the Seen feed,
+drafts, slots, lists and rules are all free.
 
-The service also runs on its own, without the window, for schedules, the HTTP API and MCP:
+## Where data lives
+
+The service keeps everything in `~/.xtend`: a SQLite database, the auth token, the media of
+your drafts and the service log. Back that folder up and you have backed up Xtend. Delete it
+and you start over.
+
+The X session itself lives in the app's Electron profile, not in `~/.xtend`.
+
+## Keep the service running with the app closed
+
+Queued posts, Library's morning jobs, signal agents and automation rules fire on the service's
+clock. With the app open, the app runs the service. To keep them firing with the app closed:
 
 ```sh
-sh scripts/install.sh        # needs the GitHub CLI logged in, and Node 24 or newer
-xtend --help
+xtend service install
 ```
 
-See [CLI, HTTP API and MCP](./cli.md).
+This writes a launchd agent on macOS that starts the service at login and restarts it if it
+stops. `xtend service status` shows whether it is loaded; `xtend service uninstall` removes it.
+Settings shows which one is running the service: the app, launchd, or a remote machine.
 
-## Updating
-
-The desktop checks the Releases page and installs updates on macOS (signed builds) and Linux.
-The CLI updates by running the install script again.
+See [Remote service](./remote-service.md) to run the service on another machine.
