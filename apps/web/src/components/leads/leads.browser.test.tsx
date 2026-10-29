@@ -312,9 +312,11 @@ const peopleService = (start: ReadonlyArray<Person>, extra: FakeService = {}): F
   return {
     "costs.quote": quoting(),
     "leads.peopleList": () => Effect.sync(() => people),
-    "leads.personUpdate": ({ id, ...patch }) =>
+    "leads.personUpdate": ({ id, stage, notes }) =>
       Effect.sync(() => {
-        people = people.map((p) => (p.id === id ? { ...p, ...patch } : p));
+        people = people.map((p) =>
+          p.id === id ? { ...p, stage: stage ?? p.stage, notes: notes ?? p.notes } : p,
+        );
         return people.find((p) => p.id === id)!;
       }),
     "leads.personGet": ({ id }) =>
@@ -355,7 +357,8 @@ it("a DM in flight cannot go twice, and its text is locked until it lands", asyn
   await userEvent.click(send);
   await expect.element(send).toBeDisabled();
   await expect.element(dm).toBeDisabled();
-  send.element().click();
+  // A click straight on the element skips the wait for it to be enabled.
+  send.element().dispatchEvent(new MouseEvent("click", { bubbles: true }));
   release();
   await expect.element(dm).toHaveValue("");
   expect(sent).toEqual([{ id: 1, text: "Loved your launch" }]);

@@ -259,7 +259,8 @@ it("a like in flight cannot be paid for twice", async () => {
   const like = detail.getByRole("button", { name: /^(Like|Liking)/ });
   await userEvent.click(like);
   await expect.element(like).toBeDisabled();
-  like.element().click();
+  // A click straight on the element skips the wait for it to be enabled.
+  like.element().dispatchEvent(new MouseEvent("click", { bubbles: true }));
   release();
   await expect.element(detail.getByRole("button", { name: /^Liked/ })).toBeVisible();
   expect(likes).toBe(1);
