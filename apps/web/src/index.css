@@ -8,6 +8,8 @@
  * x.com webview ("Lights out") and the app chrome read as one surface.
  */
 :root {
+  /* Native popups (select lists, date pickers) draw in the dark palette, not Chromium's white. */
+  color-scheme: dark;
   --radius: 0.625rem;
   --control-radius: 999px;
   --sidebar-width: 15rem;
