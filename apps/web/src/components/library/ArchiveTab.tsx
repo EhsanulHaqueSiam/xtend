@@ -1,6 +1,7 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { AuthorBand, HookPattern, type LibraryFilters, type LibraryPost } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
+import { ListFilter } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { fmtDay } from "../../lib/time";
@@ -81,6 +82,17 @@ export function FilterBar({
   const { format, ...rest } = value;
   return (
     <div className="flex flex-wrap items-center gap-1.5 border-b border-border px-6 py-2.5">
+      {/* Free: the service matches the archive's own rows, unlike Search X in the header. */}
+      <label className="flex h-7 w-44 items-center gap-1.5 rounded-[var(--control-radius)] border border-white/13 px-2 transition-[border-color] duration-150 focus-within:border-white/30">
+        <ListFilter className="size-3.5 shrink-0 text-muted-foreground" />
+        <input
+          className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-hidden placeholder:text-muted-foreground"
+          aria-label="Find in archive"
+          placeholder="Find in archive"
+          value={value.query ?? ""}
+          onChange={(e) => set("query", e.target.value === "" ? undefined : e.target.value)}
+        />
+      </label>
       <input
         className={cn(compactInputClass, "w-24 font-mono tabular-nums")}
         aria-label="Min views"

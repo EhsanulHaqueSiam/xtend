@@ -40,7 +40,8 @@ free.
 
 Every post a search or a pick has seen, the first 200 in the chosen order, with the model's labels for its
 format and its hook pattern. Filter by format, minimum views, year, author size, language and
-hook. **Detect hooks** labels the next 20 unlabelled posts in one model call; the selected
+hook. **Find in archive** matches the wording, author handle or name of posts already archived,
+free; **Search X** in the header is the paid read of X itself. **Detect hooks** labels the next 20 unlabelled posts in one model call; the selected
 post offers **Write mine in this format**, a model call that drafts your version.
 
 ## Trends

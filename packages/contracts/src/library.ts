@@ -79,6 +79,8 @@ export const LibraryFilters = Schema.Struct({
   authorBand: Schema.optional(AuthorBand),
   lang: Schema.optional(Schema.String),
   hookPattern: Schema.optional(HookPattern),
+  /** Words in the post's text or its author's handle or name; free, it reads only the archive. */
+  query: Schema.optional(Schema.String),
 });
 export type LibraryFilters = typeof LibraryFilters.Type;
 

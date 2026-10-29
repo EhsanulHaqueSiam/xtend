@@ -222,6 +222,9 @@ describe("LibraryStore", () => {
         expect(yield* ids({ authorBand: "under 10k" })).toEqual(["3"]);
         expect(yield* ids({ lang: "de" })).toEqual(["2"]);
         expect(yield* ids({ hookPattern: "list" })).toEqual(["3"]);
+        expect(yield* ids({ query: " post 2 " })).toEqual(["2"]);
+        expect(yield* ids({ query: "@levelsio", minViews: 500 })).toEqual(["1", "2"]);
+        expect(yield* ids({ query: "100%" })).toEqual([]);
         expect((yield* store.libraryPost("3"))?.post.metrics.views).toBe(20);
         expect(yield* store.undetectedCount).toBe(2);
         expect((yield* store.undetected(1)).map((r) => r.post.postId)).toEqual(["1"]);

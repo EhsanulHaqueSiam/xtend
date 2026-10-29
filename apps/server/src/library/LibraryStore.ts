@@ -103,6 +103,9 @@ const toPick = (r: PickRow): Pick => ({
   whyItWorks: r.why_it_works,
 });
 
+// What the user typed is literal text, so % and _ match themselves.
+const likeOf = (text: string) => `%${text.replace(/[\\%_]/g, "\\$&")}%`;
+
 const storeError = (cause: unknown) =>
   new LibraryError({ operation: "store", detail: String(cause).slice(0, 300) });
 
@@ -212,8 +215,6 @@ const make = Effect.gen(function* () {
     readonly query?: string | undefined;
   }) {
     const query = input.query?.trim() ?? "";
-    // What the user typed is literal text, so % and _ match themselves.
-    const likeOf = (text: string) => `%${text.replace(/[\\%_]/g, "\\$&")}%`;
     const matches = (column: Statement.Fragment, text = query) =>
       sql`${column} LIKE ${likeOf(text)} ESCAPE '\\'`;
     // The text, author and note the user sees; matching the raw JSON would hit its keys and URLs.
@@ -394,6 +395,9 @@ const make = Effect.gen(function* () {
   const browse = Effect.fn("LibraryStore.browse")(function* (filters: LibraryFilters) {
     const band = filters.authorBand === undefined ? null : BAND_RANGE[filters.authorBand];
     const metric = (name: string) => sql`json_extract(post_json, ${`$.metrics.${name}`})`;
+    const query = filters.query?.trim() ?? "";
+    const matches = (path: string, text = query) =>
+      sql`json_extract(post_json, ${path}) LIKE ${likeOf(text)} ESCAPE '\\'`;
     // Engagement over views as the cards show it; no views sorts last, as it does there.
     const order =
       filters.sort === "newest"
@@ -410,6 +414,11 @@ const make = Effect.gen(function* () {
         ${band === null ? sql`` : sql`AND author_followers >= ${band[0]} AND author_followers < ${band[1]}`}
         ${filters.lang === undefined ? sql`` : sql`AND lang = ${filters.lang}`}
         ${filters.hookPattern === undefined ? sql`` : sql`AND hook_pattern = ${filters.hookPattern}`}
+        ${
+          query === ""
+            ? sql``
+            : sql`AND (${matches("$.text")} OR ${matches("$.author.handle", query.replace(/^@/, ""))} OR ${matches("$.author.name")})`
+        }
       ORDER BY ${order} LIMIT 200
     `;
     return rows.map(toLibraryPost);

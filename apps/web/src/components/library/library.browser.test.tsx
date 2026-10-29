@@ -411,6 +411,37 @@ it("asks the service for the archive in the chosen order", async () => {
   await expect.poll(() => asked).toEqual(["views", "newest"]);
 });
 
+it("finds archived posts by wording in the service, with no paid read", async () => {
+  const asked: Array<string | undefined> = [];
+  const archived = [first, second, third].map((post) => ({
+    post,
+    format: "text" as const,
+    hookPattern: null,
+    lastSeenAt: "2026-10-23T12:00:00.000Z",
+  }));
+  await using screen = await render(<ArchiveTab />, {
+    service: {
+      "library.browse": ({ query }) => {
+        asked.push(query);
+        return Effect.succeed(
+          archived.filter((r) => r.post.text.toLowerCase().includes(query?.toLowerCase() ?? "")),
+        );
+      },
+      "costs.quote": quoting(),
+      "library.savedList": () => Effect.succeed([]),
+    },
+  });
+  await expect.element(screen.getByText(second.text)).toBeVisible();
+  await userEvent.fill(screen.getByLabelText("Find in archive"), "pricing");
+  await expect.element(screen.getByText(third.text)).toBeVisible();
+  await expect.element(screen.getByText(second.text)).not.toBeInTheDocument();
+  expect(asked.at(-1)).toBe("pricing");
+
+  await userEvent.click(screen.getByRole("button", { name: "Clear" }));
+  await expect.element(screen.getByText(second.text)).toBeVisible();
+  expect(asked.at(-1)).toBeUndefined();
+});
+
 it("prices the day's fetches before they run and labels each model call", async () => {
   await using screen = await render(<PicksTab />, {
     service: {
