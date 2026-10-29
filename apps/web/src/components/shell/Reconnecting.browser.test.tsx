@@ -2,7 +2,7 @@ import { RegistryProvider } from "@effect/atom-react";
 import { SettingsError } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import * as Atom from "effect/reactivity/Atom";
-import { expect, it, vi } from "vite-plus/test";
+import { expect, it, onTestFinished, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
 import { fakeServiceValues } from "../../../test/fakeService";
@@ -49,6 +49,13 @@ it("makes disconnected controls inert and moves focus to the recovery notice", a
 });
 
 it("keeps the real service configuration usable when service reads fail", async () => {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+  // A poll is itself a regression here; rejecting avoids navigating away on the broken version.
+  const health = vi.spyOn(window, "fetch").mockRejectedValue(new Error("unexpected health poll"));
+  onTestFinished(() => {
+    health.mockRestore();
+    vi.useRealTimers();
+  });
   const setRemote = vi.fn();
   const checkRemote = vi
     .fn()
@@ -80,10 +87,19 @@ it("keeps the real service configuration usable when service reads fail", async 
   const token = Array.from(inputs).find((input) => input.type === "password");
   expect(token).toBeDefined();
   await userEvent.fill(page.elementLocator(token!), "new-token");
+  await vi.advanceTimersByTimeAsync(10_000);
+  expect(health).not.toHaveBeenCalled();
+  await expect.element(page.elementLocator(token!)).toHaveValue("new-token");
   await userEvent.click(screen.getByRole("button", { name: "Check", exact: true }));
   await userEvent.click(screen.getByRole("button", { name: "Connect and relaunch" }));
   expect(setRemote).toHaveBeenCalledWith({ url: "http://mini:4820", token: "new-token" });
   await expect
     .element(screen.getByRole("status").filter({ hasText: "Service unreachable" }))
     .toBeVisible();
+  await screen.router?.navigate({ href: "/compose" });
+  await vi.advanceTimersByTimeAsync(5_000);
+  expect(health).toHaveBeenCalledOnce();
+  await userEvent.click(screen.getByRole("button", { name: "Service settings" }));
+  await vi.advanceTimersByTimeAsync(10_000);
+  expect(health).toHaveBeenCalledOnce();
 });

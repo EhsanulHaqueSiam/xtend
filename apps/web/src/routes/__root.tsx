@@ -39,16 +39,20 @@ export function Reconnecting({ children }: { readonly children: React.ReactNode 
     if (down) notice.current?.focus();
   }, [down]);
   useEffect(() => {
-    if (!down) return;
+    if (!down || serviceSettings) return;
+    let active = true;
     const timer = setInterval(() => {
       fetch("/api/health")
         .then((r) => {
-          if (r.ok) window.location.reload();
+          if (active && r.ok) window.location.reload();
         })
         .catch(() => {});
     }, HEALTH_POLL_MS);
-    return () => clearInterval(timer);
-  }, [down]);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [down, serviceSettings]);
   return (
     <div className="relative flex h-full flex-col">
       {down ? (
