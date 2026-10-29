@@ -1,3 +1,4 @@
+import { isXSkinToggle, X_SKIN_DEFAULTS, type XSkinToggle } from "@xtend/contracts";
 import * as Atom from "effect/reactivity/Atom";
 
 /**
@@ -120,5 +121,9 @@ export const clampXPanelWidth = clampWidth;
  */
 export const xPanelPinnedAtom = stored("xtend:x-panel-pinned", (raw) => raw === "true", false);
 
-/** Whether the X skin (CSS that hides X's own nav and right column) is on. */
-export const xSkinAtom = stored("xtend:x-skin", (raw) => raw !== "false", true);
+/** The enabled Clean X toggles, the CSS the desktop puts over x.com. Stored as a comma list. */
+export const xSkinAtom = stored<ReadonlyArray<XSkinToggle>>(
+  "xtend:x-skin-toggles",
+  (raw) => raw.split(",").filter(isXSkinToggle),
+  X_SKIN_DEFAULTS,
+);
