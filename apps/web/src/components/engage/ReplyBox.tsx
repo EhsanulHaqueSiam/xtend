@@ -107,7 +107,7 @@ export function ReplyBox({
 
   const onLike = async () => {
     // Read before the call: the like itself fills the lookup cache and requotes.
-    const price = likeQuote?.usd ?? 0;
+    const price = viaSession ? 0 : (likeQuote?.usd ?? 0);
     patch({ busy: "like", error: null });
     const exit = await like();
     patch(
@@ -184,14 +184,16 @@ export function ReplyBox({
         <button
           type="button"
           className={pill}
-          disabled={busy !== null || liked || likeQuote === null}
+          disabled={busy !== null || liked || (likeQuote === null && !viaSession)}
           onClick={() => void onLike()}
         >
           <TextMorph duration={250}>
             {liked ? "Liked" : busy === "like" ? "Liking…" : "Like"}
           </TextMorph>
           {liked ? (
-            <Cost label={`for ${usd(work.likedUsd)}`} />
+            <Cost label={work.likedUsd === 0 ? "free" : `for ${usd(work.likedUsd)}`} />
+          ) : viaSession ? (
+            <Cost label="free · your session" />
           ) : likeQuote === null ? (
             <Cost label="…" />
           ) : (

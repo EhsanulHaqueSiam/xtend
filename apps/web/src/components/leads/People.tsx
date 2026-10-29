@@ -8,7 +8,7 @@ import { TextMorph } from "torph/react";
 import { PERSON_TYPE } from "../../lib/drag";
 import { fmtWhen } from "../../lib/time";
 import { cn } from "../../lib/utils";
-import { costLabels, useQuoteLabel, useRates } from "../../state/costs";
+import { useQuoteLabel, useRates } from "../../state/costs";
 import { useSessionLane } from "../../state/settings";
 import {
   draftDmAtom,
@@ -21,12 +21,14 @@ import {
   sendReplyAtom,
   updatePersonAtom,
 } from "../../state/leads";
+import { seenByAtom } from "../../state/observations";
 import { errorText, fmt } from "../analyze/ui";
 import { ago, ErrorLine, pill, pillSolid } from "../engage/triage";
 import { HeaderTabs, PageHeader } from "../PageHeader";
 import { sectionHref } from "../shell/sections";
 import { Candidates, ToneRow } from "../ui/assist-choice";
 import { inputClass } from "../ui/field";
+import { observedToXPost } from "../../lib/observed";
 import { Cost, Empty, PageBody, Section } from "../ui/layout";
 import { toastAtom } from "../ui/toast";
 import {
@@ -481,16 +483,12 @@ function DirectMessage({
   const [sent, setSent] = useState(false);
   const [tone, setTone] = useState<ReplyTone | null>(null);
   const [drafts, setDrafts] = useState<ReadonlyArray<string>>([]);
-  // The drafts read their recent posts first, then one model call.
-  const postsQuote = useQuoteLabel({ kind: "userPosts", handle: person.handle });
+  // The drafts read only what the session saw them post, then one model call.
   const assistQuote = useQuoteLabel({ kind: "assist" });
   const sendUsd =
     rates === null ? null : rates.dm + (person.userId === null ? rates.scraperProfile : 0);
   return (
-    <Section
-      title="Direct message"
-      aside={<Cost label={`3 drafts · ${costLabels(postsQuote, assistQuote)}`} />}
-    >
+    <Section title="Direct message" aside={<Cost label={`3 drafts · ${assistQuote}`} />}>
       <div className="mb-2 flex flex-col gap-2">
         <ToneRow
           tone={tone}
@@ -546,7 +544,10 @@ function DirectMessage({
   );
 }
 
-/** Their latest post, an AI draft, and a reply through the X connection; every paid step is priced on its button. */
+/**
+ * Their latest post, drafts, and a reply. The post is what the session saw them post, free and
+ * already there; X is read only when the user asks for a fresher one, priced on the button.
+ */
 function Reply({
   id,
   handle,
@@ -560,7 +561,17 @@ function Reply({
   const draft = useAtomSet(draftReplyAtom, { mode: "promise" });
   const send = useAtomSet(sendReplyAtom, { mode: "promise" });
   const { busy, error, run } = useAction();
-  const [post, setPost] = useState<XPost | null | undefined>(undefined);
+  const [loaded, setLoaded] = useState<XPost | null | undefined>(undefined);
+  const seen = useAtomValue(seenByAtom(handle));
+  // A repost is someone else's post wearing this handle; a reply of theirs beats it.
+  const seenLatest = AsyncResult.getOrElse(
+    AsyncResult.map(seen, ({ posts }) => {
+      const own = posts.filter((p) => !p.isRepost).map(observedToXPost);
+      return own.find((p) => !p.isReply) ?? own[0];
+    }),
+    () => undefined,
+  );
+  const post = loaded === undefined ? seenLatest : loaded;
   const [text, setText] = useState("");
   const [tone, setTone] = useState<ReplyTone | null>(null);
   const [drafts, setDrafts] = useState<ReadonlyArray<string>>([]);
@@ -571,7 +582,7 @@ function Reply({
   // Priced here from the rate card: a quote rpc per keystroke would flash "…" on the button.
   const viaSession = useSessionLane();
   const rates = useRates();
-  const load = () => run(() => loadPost(id).then(setPost));
+  const load = () => run(() => loadPost({ id, fromX: true }).then(setLoaded));
   return (
     <Section
       title="Reply to their latest post"
@@ -583,7 +594,7 @@ function Reply({
             disabled={busy}
             onClick={() => void load()}
           >
-            Load again
+            From X
             <Cost label={postQuote} />
           </button>
         )
@@ -591,7 +602,9 @@ function Reply({
     >
       {post === undefined ? (
         <button type="button" className={pill} disabled={busy} onClick={() => void load()}>
-          <TextMorph duration={250}>{busy ? "Loading…" : "Load their latest post"}</TextMorph>
+          <TextMorph duration={250}>
+            {busy ? "Loading…" : "Load their latest post from X"}
+          </TextMorph>
           <Cost label={postQuote} />
         </button>
       ) : post === null ? (
@@ -606,16 +619,14 @@ function Reply({
               tone={tone}
               busy={drafting ? tone : undefined}
               disabled={busy}
-              cost={<Cost label={`3 drafts · ${costLabels(postQuote, assistQuote)}`} />}
+              cost={<Cost label={`3 drafts · ${assistQuote}`} />}
               onTone={(next) => {
                 setTone(next);
                 setDrafts([]);
                 if (next === null) return;
                 setDrafting(true);
-                // The drafts read their latest post again, then one model call.
                 void run(() =>
-                  draft({ id, tone: next }).then((d) => {
-                    setPost(d.post);
+                  draft({ post, tone: next }).then((d) => {
                     setDrafts(d.drafts);
                     setText(d.drafts[0] ?? text);
                   }),

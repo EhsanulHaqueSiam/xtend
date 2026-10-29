@@ -51,6 +51,7 @@ const target = (postId: string, handle: string): XPost => ({
 const apiCalls: Array<string | undefined> = [];
 /** Texts sent to X's create-post endpoint, the paid lane. */
 const postedTexts: Array<string> = [];
+const apiLikes: Array<string> = [];
 const published: Array<Events.EventInput> = [];
 const eventsStub = Layer.succeed(Events.Events)({
   publish: (event) =>
@@ -119,6 +120,7 @@ const layerTest = Engage.layer.pipe(
                 }),
               )
             : Effect.succeed({ postId: "900", costUsd: 0.015 }),
+        like: (postId) => Effect.sync(() => void apiLikes.push(postId)),
         mentions: ({ sinceId }) => {
           apiCalls.push(sinceId);
           return Effect.succeed(
@@ -234,6 +236,26 @@ describe("Engage.inbox", () => {
         });
         yield* inbox;
         expect(announced()).toEqual([2, 1, 1]);
+      }).pipe(Effect.provide(layerTest)),
+  );
+});
+
+describe("Engage.like", () => {
+  it.effect(
+    "presses X's own like through the session while the lane is on; the API only when off",
+    () =>
+      Effect.gen(function* () {
+        desktopCalls.length = 0;
+        apiLikes.length = 0;
+        const engage = yield* Engage.Engage;
+        const settings = yield* SettingsStore.SettingsStore;
+        yield* engage.like("61");
+        expect(desktopCalls).toEqual([{ type: "sessionLike", postId: "61" }]);
+        expect(apiLikes).toEqual([]);
+        yield* settings.update({ sessionPostingEnabled: false });
+        yield* engage.like("62");
+        expect(apiLikes).toEqual(["62"]);
+        expect(desktopCalls).toHaveLength(1);
       }).pipe(Effect.provide(layerTest)),
   );
 });

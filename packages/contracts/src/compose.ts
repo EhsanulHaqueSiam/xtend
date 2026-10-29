@@ -149,6 +149,9 @@ export const ContinuedBlocks = Schema.Struct({
 });
 export type ContinuedBlocks = typeof ContinuedBlocks.Type;
 
+/** Seen posts of the user's own that make a voice sample without reading X. */
+export const VOICE_MIN_SEEN = 5;
+
 export const VoiceMatch = Schema.Struct({
   score: Schema.Number.check(Schema.isBetween({ minimum: 0, maximum: 1 })),
   note: Schema.String,

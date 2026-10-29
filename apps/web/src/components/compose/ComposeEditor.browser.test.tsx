@@ -315,7 +315,7 @@ it("Use on a similar post drops the files of the posts it replaces, on screen an
   // The second post's file would go through the session, which is off.
   const sessionWarning = screen.getByText(/Turn on Session posting in Settings/);
   await expect.element(sessionWarning).toBeVisible();
-  await userEvent.click(screen.getByRole("button", { name: /^Find similar/ }));
+  await userEvent.click(screen.getByRole("button", { name: /^Search X/ }));
   await userEvent.click(screen.getByRole("button", { name: "Use", exact: true }));
 
   await expect.element(screen.getByLabelText("Post 1")).toHaveValue("Ship the ugly version");

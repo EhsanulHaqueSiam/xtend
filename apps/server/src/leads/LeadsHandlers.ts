@@ -56,8 +56,9 @@ export const layerHandlers = LeadsRpcGroup.toLayer(
       [Leads_METHODS.engagersQuote]: ({ via }) =>
         Effect.succeed({ costUsd: XExtra.engagersCostUsd(via) }),
       [Leads_METHODS.engagers]: ({ postId, via }) => ops.engagers(postId, via),
-      [Leads_METHODS.latestPost]: ({ id }) => ops.latestPost(id),
-      [Leads_METHODS.draftReply]: ({ id, tone }) => ops.draftReply(id, tone),
+      [Leads_METHODS.latestPost]: ({ id, fromX }) => ops.latestPost(id, fromX),
+      [Leads_METHODS.draftReply]: ({ post, tone }) =>
+        Effect.map(ops.draftReply(post, tone), (drafts) => ({ drafts })),
       [Leads_METHODS.sendReply]: ({ id, postId, text }) => ops.sendReply(id, postId, text),
     });
   }),

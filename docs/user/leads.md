@@ -8,6 +8,8 @@ fill them, and your new followers.
 Everyone found, as a table filtered by stage: new, contacted, replied, customer, ignored.
 **Stages** in the header turns the table into a board with one column per stage; drag a
 person to another column to move them there, with a toast to undo. **Table** goes back.
+Their latest post is the newest one your session saw, free; **From X** reads their timeline at
+its price. Drafts read only what you already saw, so they are free.
 
 The DM and reply boxes start as your own words; pick a tone for three drafts to choose from
 and edit.
@@ -16,8 +18,8 @@ The selected person opens beside it: who they are, their stage and notes, and tw
 through the X connection, each priced on its button:
 
 - **Send DM**. Without their user id the service reads their profile first; that read is in
-  the price. **Draft with AI** writes one from their recent posts.
-- **Reply** to their latest post once you load it, with **Draft with AI** to start from.
+  the price.
+- **Reply** to their latest post once you load it.
 
 What happened so far (replies, DMs, which agent found them) lists under the person. A post
 dropped on Leads in the sidebar adds its author here.

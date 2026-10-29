@@ -142,9 +142,6 @@ export type EngagementVia = typeof EngagementVia.Type;
 export const EngagersInput = Schema.Struct({ postId: XId, via: EngagementVia });
 export type EngagersInput = typeof EngagersInput.Type;
 
-/** Their latest post and three replies to it, for the chooser. */
-export const PersonReplyDraft = Schema.Struct({ post: XPost, drafts: Schema.Array(Schema.String) });
-export type PersonReplyDraft = typeof PersonReplyDraft.Type;
 export type NewFollower = typeof NewFollower.Type;
 
 export class LeadsError extends Schema.TaggedError<LeadsError>()("LeadsError", {
@@ -272,13 +269,15 @@ export const LeadsRpcGroup = RpcGroup.make(
     error: LeadsOrX,
   }),
   Rpc.make(Leads_METHODS.latestPost, {
-    payload: Schema.Struct({ id: Schema.Int }),
+    /** What the session saw first, free; `fromX` reads their timeline at its price. */
+    payload: Schema.Struct({ id: Schema.Int, fromX: Schema.optional(Schema.Boolean) }),
     success: Schema.NullOr(XPost),
     error: LeadsOrX,
   }),
   Rpc.make(Leads_METHODS.draftReply, {
-    payload: Schema.Struct({ id: Schema.Int, tone: Schema.optional(ReplyTone) }),
-    success: PersonReplyDraft,
+    /** Drafts for the post on screen, so drafting never reads X again. */
+    payload: Schema.Struct({ post: XPost, tone: Schema.optional(ReplyTone) }),
+    success: Schema.Struct({ drafts: Schema.Array(Schema.String) }),
     error: LeadsOrX,
   }),
   Rpc.make(Leads_METHODS.sendReply, {

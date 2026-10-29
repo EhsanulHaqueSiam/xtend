@@ -6,6 +6,8 @@ import * as Layer from "effect/Layer";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as Assist from "../ai/Assist.ts";
+import * as Events from "../events/Events.ts";
+import * as ObservationStore from "../observations/ObservationStore.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 import * as TokenCipher from "../settings/TokenCipher.ts";
@@ -83,15 +85,23 @@ const xExtraStub = Layer.succeed(XExtra.XExtra)({
 });
 
 const desktopCalls: Array<DesktopCommand> = [];
+const eventsStub = Layer.succeed(Events.Events)({ publish: () => Effect.void } as never);
 const layerTest = LeadsOps.layer.pipe(
   Layer.provideMerge(
-    Layer.mergeAll(PeopleStore.layer, SessionPosting.layer, assistStub, xExtraStub),
+    Layer.mergeAll(
+      PeopleStore.layer,
+      SessionPosting.layer,
+      ObservationStore.layer,
+      assistStub,
+      xExtraStub,
+    ),
   ),
   Layer.provideMerge(SettingsStore.layer),
   Layer.provideMerge(
     Layer.mergeAll(
       Sqlite.layerMemory,
       TokenCipher.layerTest,
+      eventsStub,
       desktopStub(
         desktopCalls,
         (command) =>
@@ -268,6 +278,37 @@ describe("LeadsOps", () => {
       expect((yield* ops.latestPost(ada.id))?.postId).toBe("8");
       timeline = [repost];
       expect(yield* ops.latestPost(ada.id)).toBeNull();
+    }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect("takes their latest post from what the session saw, free; X only when asked", () =>
+    Effect.gen(function* () {
+      const people = yield* PeopleStore.PeopleStore;
+      const ops = yield* LeadsOps.LeadsOps;
+      const observations = yield* ObservationStore.ObservationStore;
+      const bo = yield* people.add({ ...candidate("bo"), source: "manual" });
+      timeline = [postBy("30", "bo", 60)];
+      yield* observations.record({
+        viewerHandle: null,
+        source: "profile",
+        observedAt: "2026-10-22T05:00:00.000Z",
+        posts: [
+          {
+            postId: "21",
+            author: { userId: "u-bo", handle: "bo", name: "Bo", followers: 10, verified: false },
+            text: "seen by the session",
+            createdAt: "2026-10-22T04:00:00.000Z",
+            isReply: false,
+            isRepost: false,
+            isPromoted: false,
+            hasMedia: false,
+            hasLink: false,
+            metrics: { views: 5, likes: 1, reposts: 0, replies: 0, quotes: 0, bookmarks: 0 },
+          },
+        ],
+      });
+      expect((yield* ops.latestPost(bo.id))?.postId).toBe("21");
+      expect((yield* ops.latestPost(bo.id, true))?.postId).toBe("30");
     }).pipe(Effect.provide(layerTest)),
   );
 });

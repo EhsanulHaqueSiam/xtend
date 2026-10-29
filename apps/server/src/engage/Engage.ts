@@ -71,7 +71,7 @@ export class Engage extends Context.Service<
     ) => Effect.Effect<ReadonlyArray<ReplyDraft>, EngageError>;
     /** Posts the reply through X; a failure is recorded on the row, never thrown. */
     readonly reply: (post: XPost, text: string) => Effect.Effect<SentReply, EngageError>;
-    readonly like: (postId: string) => Effect.Effect<void, XApiError>;
+    readonly like: (postId: string) => Effect.Effect<void, XApiError | EngageError>;
     readonly findKeywords: Effect.Effect<KeywordSuggestions, EngageError | XApiError>;
     readonly mentions: (refresh: boolean) => Effect.Effect<MentionsResult, EngageError>;
     readonly inbox: Effect.Effect<InboxResult, EngageError>;
@@ -183,8 +183,13 @@ const make = Effect.gen(function* () {
     });
   });
 
+  // Free first, like a reply: a clicked like goes through the user's session while that lane is on.
   const like = Effect.fn("Engage.like")(function* (postId: string) {
-    yield* x.like(postId, "engage.like");
+    const { sessionPostingEnabled } = yield* current;
+    if (!sessionPostingEnabled) return yield* x.like(postId, "engage.like");
+    yield* session
+      .like(postId)
+      .pipe(Effect.mapError((e) => new EngageError({ operation: "session", detail: e.message })));
   });
 
   const findKeywords = Effect.gen(function* () {
