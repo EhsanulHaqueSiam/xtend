@@ -86,3 +86,29 @@ export class XApiError extends Schema.TaggedError<XApiError>()("XApiError", {
     return `X call ${this.endpoint} failed (${this.reason}): ${this.detail}`;
   }
 }
+
+/**
+ * Clean X: what the desktop hides inside x.com, one CSS rule set per toggle and never
+ * script. The ids travel from Settings to the desktop; the CSS lives there.
+ */
+export const X_SKIN_TOGGLES = [
+  { id: "ads", label: "Hide ads", on: true },
+  { id: "grok", label: "Hide Grok", on: true },
+  { id: "upsells", label: "Hide Premium upsells", on: true },
+  { id: "chrome", label: "Hide X's nav rail and right column", on: true },
+  { id: "discover", label: "Hide Discover more and More posts under a thread", on: true },
+  { id: "boosts", label: "Hide reply boosts and Subscribe", on: true },
+  { id: "extras", label: "Hide Communities, Jobs and Spaces", on: true },
+  { id: "forYou", label: "Hide the For you tab", on: false },
+  { id: "views", label: "Hide view counts", on: false },
+  { id: "badges", label: "Hide verified badges", on: false },
+  { id: "quietMedia", label: "Quiet media until hover", on: false },
+] as const;
+export type XSkinToggle = (typeof X_SKIN_TOGGLES)[number]["id"];
+
+export const isXSkinToggle = (id: unknown): id is XSkinToggle =>
+  X_SKIN_TOGGLES.some((t) => t.id === id);
+
+export const X_SKIN_DEFAULTS: ReadonlyArray<XSkinToggle> = X_SKIN_TOGGLES.filter((t) => t.on).map(
+  (t) => t.id,
+);

@@ -1,3 +1,5 @@
+import type { XSkinToggle } from "@xtend/contracts";
+
 /**
  * What the Electron preload exposes to the web app. Kept here rather than in
  * contracts because only the desktop shell and this UI ever see it.
@@ -58,8 +60,8 @@ export interface DesktopBridge {
   readonly selectAccount: (id: number) => void;
   /** Hands main the summary the x.com composer chip draws. */
   readonly pushGlance: (glance: Glance) => void;
-  /** Turns the X skin (CSS only) on or off in the webview. */
-  readonly setXSkin: (on: boolean) => void;
+  /** Rebuilds the X skin (CSS only) in the webview from the enabled Clean X toggles. */
+  readonly setXSkin: (on: ReadonlyArray<XSkinToggle>) => void;
   readonly openExternal: (url: string) => void;
   /** Routes asked for from outside the page: deep links and the x.com injections. */
   readonly onAppRoute: (cb: (route: string) => void) => () => void;

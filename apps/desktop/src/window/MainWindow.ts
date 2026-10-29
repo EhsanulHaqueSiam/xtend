@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
+import { isXSkinToggle, X_SKIN_DEFAULTS, type XSkinToggle } from "@xtend/contracts";
 import {
   app,
   BrowserWindow,
@@ -31,7 +32,7 @@ import {
   X_SKIN_CHANNEL,
 } from "../ipc/channels.ts";
 import { createOverlayFeed } from "../overlay/OverlayFeed.ts";
-import { X_SKIN_CSS } from "../overlay/xSkin.ts";
+import { xSkinCss } from "../overlay/xSkin.ts";
 import { attachDesktopCommands } from "../service/DesktopCommands.ts";
 import { attachSessionCapture } from "../xSession/SessionCapture.ts";
 import {
@@ -265,7 +266,7 @@ export function createMainWindow(options: MainWindowOptions) {
   xSession.on("will-download", onDownload);
 
   let glance: Glance | null = null;
-  let skinOn = true;
+  let skin: ReadonlyArray<XSkinToggle> = X_SKIN_DEFAULTS;
   let guest: { readonly contents: Electron.WebContents; readonly detach: () => void } | null = null;
 
   /** Everything x.com's webview needs, attached once per guest; returns the teardown. */
@@ -277,7 +278,7 @@ export function createMainWindow(options: MainWindowOptions) {
     let skinKey: string | null = null;
     const applySkin = async () => {
       if (skinKey !== null) await contents.removeInsertedCSS(skinKey).catch(() => {});
-      skinKey = skinOn ? await contents.insertCSS(X_SKIN_CSS, { cssOrigin: "user" }) : null;
+      skinKey = await contents.insertCSS(xSkinCss(skin), { cssOrigin: "user" });
     };
     contents.on("dom-ready", () => void applySkin());
 
@@ -465,8 +466,10 @@ export function createMainWindow(options: MainWindowOptions) {
       guest?.contents.send(OVERLAY_GLANCE_CHANNEL, glance);
     }),
     from<unknown>(X_SKIN_CHANNEL, (value) => {
-      if (typeof value !== "boolean" || value === skinOn) return;
-      skinOn = value;
+      if (!Array.isArray(value)) return;
+      const next = value.filter(isXSkinToggle);
+      if (next.join() === skin.join()) return;
+      skin = next;
       void applyGuestSkin();
     }),
   ];

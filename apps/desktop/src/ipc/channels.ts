@@ -12,7 +12,7 @@ export const REMOTE_CHECK_CHANNEL = "xtend:remote-check";
 export const BRIDGE_INFO_CHANNEL = "xtend:bridge-info";
 /** The app's summary for the composer chip; main forwards it to the overlay preload. */
 export const GLANCE_CHANNEL = "xtend:glance";
-/** Whether the X skin is on (boolean); main inserts or removes its CSS in the webview. */
+/** The enabled Clean X toggle ids (`XSkinToggle[]`); main rebuilds the skin CSS in the webview. */
 export const X_SKIN_CHANNEL = "xtend:x-skin";
 
 // Main -> app

@@ -1,9 +1,10 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
-import type {
-  AccountList,
-  ServerInfo,
-  Settings as SettingsShape,
-  SettingsUpdate,
+import {
+  type AccountList,
+  type ServerInfo,
+  type Settings as SettingsShape,
+  type SettingsUpdate,
+  X_SKIN_TOGGLES,
 } from "@xtend/contracts";
 import { createFileRoute } from "@tanstack/react-router";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
@@ -320,9 +321,9 @@ function SettingsForm({ current }: { readonly current: SettingsShape }) {
               onChange={(next) => setDraft((d) => ({ ...d, sessionPostingEnabled: next }))}
             />
           </Field>
-          <XSkinField />
         </Section>
       ) : null}
+      {isElectron ? <CleanX /> : null}
       {/* A field left invalid is an unsaved change too; the bar stays to say it cannot save. */}
       {dirty || invalid ? (
         <div className="sticky bottom-0 flex items-center justify-end gap-2 border-t border-border bg-background px-6 py-3">
@@ -363,18 +364,32 @@ function DailyJobsField({
   );
 }
 
-/** The CSS skin over x.com, applied at once; it is a desktop preference, not a service setting. */
-function XSkinField() {
+/** The CSS over x.com, one switch per rule set, applied at once; a desktop preference, not a service setting. */
+function CleanX() {
   const skin = useAtomValue(xSkinAtom);
   const setSkin = useAtomSet(xSkinAtom);
   return (
-    <Field
-      wide
-      label="Clean X"
-      hint="Hide X's own sidebar, right column and Grok prompts inside Xtend."
+    <Section
+      title="Clean X"
+      description="Hides parts of x.com inside Xtend with CSS only. X itself runs untouched."
     >
-      <Switch className="mt-1" label="Clean X" checked={skin} onChange={setSkin} />
-    </Field>
+      {X_SKIN_TOGGLES.map((t) => (
+        <Field key={t.id} wide label={t.label}>
+          <Switch
+            className="mt-1"
+            label={t.label}
+            checked={skin.includes(t.id)}
+            onChange={(on) =>
+              setSkin(
+                X_SKIN_TOGGLES.map((x) => x.id).filter((id) =>
+                  id === t.id ? on : skin.includes(id),
+                ),
+              )
+            }
+          />
+        </Field>
+      ))}
+    </Section>
   );
 }
 
