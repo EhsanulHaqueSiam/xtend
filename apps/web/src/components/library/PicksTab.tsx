@@ -16,7 +16,7 @@ import {
   staffPicksAtom,
 } from "../../state/library";
 import { PageHeader } from "../PageHeader";
-import { TREND_COUNTRIES } from "../scores/Trending";
+import { TREND_COUNTRIES } from "./trends";
 import { Cost, Empty, Section } from "../ui/layout";
 import { DetailSplit } from "../ui/split";
 import { profileUrl, XLink } from "../ui/x-link";

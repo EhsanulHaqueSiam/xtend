@@ -224,7 +224,8 @@ export function ReportCard({
   if (s === null)
     return (
       <Empty action={actions}>
-        No score for @{report.handle} yet. Scoring reads its profile and a sample of followers.
+        No score for @{report.handle} yet. Scoring reads its profile and a sample of followers
+        {botOnly ? ", then shows how many look fake." : "."}
       </Empty>
     );
   const next = nextTier(s.score);

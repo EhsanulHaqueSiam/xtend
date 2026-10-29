@@ -30,7 +30,7 @@ import { HeaderTabs, PageHeader } from "../components/PageHeader";
 import { Companion } from "../components/shell/Companion";
 import { sectionLabel, useSection } from "../components/shell/sections";
 import { Button } from "../components/ui/button";
-import { compactInputClass, inputClass } from "../components/ui/field";
+import { compactInputClass, inputClass, TimeField } from "../components/ui/field";
 import { Cost, PageBody } from "../components/ui/layout";
 import { Popover } from "../components/ui/popover";
 import { XLink } from "../components/ui/x-link";
@@ -879,13 +879,22 @@ export function ComposeEditor({
                       {schedulePast ? "That time has passed" : zone}
                     </span>
                   </span>
-                  <input
-                    type="datetime-local"
-                    aria-label="Post at"
-                    className={cn(inputClass, "font-mono text-xs")}
-                    value={when}
-                    onChange={(e) => setWhen(e.target.value)}
-                  />
+                  {/* Date and a 24-hour time, joined as the local "YYYY-MM-DDTHH:MM" the zone reads. */}
+                  <span className="flex gap-1.5">
+                    <input
+                      type="date"
+                      aria-label="Post on"
+                      className={cn(inputClass, "font-mono text-xs")}
+                      value={when.slice(0, 10)}
+                      onChange={(e) => setWhen(`${e.target.value}T${when.slice(11, 16)}`)}
+                    />
+                    <TimeField
+                      label="Post at"
+                      className="h-auto py-1.5"
+                      value={when.slice(11, 16)}
+                      onChange={(time) => setWhen(`${when.slice(0, 10)}T${time}`)}
+                    />
+                  </span>
                 </label>
                 <div className="mt-3 flex justify-end gap-1.5">
                   <Button variant="ghost" size="xs" onClick={() => setConfirm(null)}>
@@ -1109,6 +1118,31 @@ export function ComposeEditor({
               </details>
             )}
           </div>
+          {waiting || isArticle || locked ? null : (
+            <div className="mx-auto w-full max-w-[640px] px-6">
+              <AssistPanel
+                handle={handle}
+                blocks={blocks.map((b) => b.text)}
+                active={active}
+                onReplaceBlock={(i, text) =>
+                  setEditor((e) => ({
+                    ...e,
+                    blocks: e.blocks.map((b, j) => (j === i ? { ...b, text } : b)),
+                  }))
+                }
+                onAppend={(texts) =>
+                  setEditor((e) => ({
+                    ...e,
+                    blocks: [...e.blocks, ...texts.map((text) => ({ text }))],
+                  }))
+                }
+                onReplaceAll={(b) => setEditor((e) => withPosts(e, b.flatMap(splitBlocks)))}
+                onVoiceScore={(score) =>
+                  setVoice({ score, text: JSON.stringify(blocks.map((b) => b.text)) })
+                }
+              />
+            </div>
+          )}
           <Companion>
             {inspire !== undefined ? <Inspiration postId={inspire} /> : null}
             {editor.replyToPostId !== null ? <ReplyTarget postId={editor.replyToPostId} /> : null}
@@ -1134,31 +1168,6 @@ export function ComposeEditor({
             )}
           </Companion>
         </PageBody>
-        {waiting || isArticle || locked ? null : (
-          <div className="mx-auto w-full max-w-[640px] shrink-0 px-6">
-            <AssistPanel
-              handle={handle}
-              blocks={blocks.map((b) => b.text)}
-              active={active}
-              onReplaceBlock={(i, text) =>
-                setEditor((e) => ({
-                  ...e,
-                  blocks: e.blocks.map((b, j) => (j === i ? { ...b, text } : b)),
-                }))
-              }
-              onAppend={(texts) =>
-                setEditor((e) => ({
-                  ...e,
-                  blocks: [...e.blocks, ...texts.map((text) => ({ text }))],
-                }))
-              }
-              onReplaceAll={(b) => setEditor((e) => withPosts(e, b.flatMap(splitBlocks)))}
-              onVoiceScore={(score) =>
-                setVoice({ score, text: JSON.stringify(blocks.map((b) => b.text)) })
-              }
-            />
-          </div>
-        )}
       </div>
     </div>
   );

@@ -16,7 +16,7 @@ import {
 } from "../../state/library";
 import { poolTrendsAtom } from "../../state/pool";
 import { PageHeader } from "../PageHeader";
-import { CountrySelect, TREND_COUNTRIES, TrendTable, countryLabel } from "../scores/Trending";
+import { CountrySelect, TREND_COUNTRIES, TrendTable, countryLabel } from "./trends";
 import { ToneRow } from "../ui/assist-choice";
 import { Cost, Empty, PageBody, Section, table } from "../ui/layout";
 import { XLink } from "../ui/x-link";

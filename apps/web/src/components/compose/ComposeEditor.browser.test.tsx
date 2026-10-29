@@ -242,11 +242,13 @@ it("schedules at the picked wall time in the account's zone and refuses a time a
   await expect.element(picker.getByText("Asia/Dhaka")).toBeVisible();
   const submit = picker.getByRole("button", { name: /^Schedule/ });
 
-  await userEvent.fill(picker.getByLabelText("Post at"), "2020-01-01T09:00");
+  await userEvent.fill(picker.getByLabelText("Post on"), "2020-01-01");
+  await userEvent.fill(picker.getByLabelText("Post at"), "09:00");
   await expect.element(picker.getByText("That time has passed")).toBeVisible();
   await expect.element(submit).toBeDisabled();
 
-  await userEvent.fill(picker.getByLabelText("Post at"), "2030-01-07T09:30");
+  await userEvent.fill(picker.getByLabelText("Post on"), "2030-01-07");
+  await userEvent.fill(picker.getByLabelText("Post at"), "09:30");
   await userEvent.click(submit);
   // 09:30 in Dhaka (UTC+6), whatever zone the browser runs in.
   await expect.poll(() => scheduled).toEqual([{ id: "d1", at: "2030-01-07T03:30:00.000Z" }]);

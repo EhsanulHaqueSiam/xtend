@@ -108,13 +108,13 @@ export function NeedsYouList({
       </Empty>
     );
   return (
-    <ul className="flex flex-col gap-2 px-6 py-5" aria-label="Requests">
+    <ul className="flex flex-col px-6 py-3" aria-label="Requests">
       {requests.map((r) => (
         // Focus a card and press a to approve or s to skip; the buttons do the same by click.
         <li
           key={r.id}
           tabIndex={0}
-          className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl border border-border bg-card px-4 py-3 outline-hidden transition-colors duration-150 focus-visible:border-white/40"
+          className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border py-3 outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
           onKeyDown={(e) => {
             if (busy || e.target !== e.currentTarget) return;
             if (e.key === "a") onApprove(r.id);

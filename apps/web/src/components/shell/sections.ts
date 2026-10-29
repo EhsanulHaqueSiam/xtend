@@ -20,7 +20,7 @@ export const ABOUT: Readonly<Record<string, string>> = {
   "/automate":
     "Rules that act for you through the X API, each with a price, a budget and an approval step when you want one.",
   "/analyze":
-    "How your account is doing, from what X already sent this app. Free unless you refresh.",
+    "How your account is doing. Your posts and followers load with a paid Refresh; who you see most is free.",
   "/scores":
     "Account scores for you and anyone you watch. Stored reports are free; a score run reads their followers through treg, priced on the button.",
   "/seen": "Every post this app saw in your X session, newest first. Free.",
@@ -114,11 +114,15 @@ export const SECTIONS = {
     {
       id: "overview",
       label: "Overview",
-      about: "Views, followers and posts from what your session saw, free; Refresh is paid.",
+      about: "Followers, views and activity from your last Refresh, which is priced on the button.",
     },
-    { id: "posts", label: "Posts", about: "Each post's numbers, live from your session." },
-    { id: "audience", label: "Audience", about: "Who engages with you most. Free." },
-    { id: "best-time", label: "Best time", about: "Hours your posts drew views. Free." },
+    { id: "posts", label: "Posts", about: "Each post's numbers from your last Refresh." },
+    { id: "audience", label: "Audience", about: "Accounts your session saw most, by reach. Free." },
+    {
+      id: "best-time",
+      label: "Best time",
+      about: "Hours your posts drew views, from your last Refresh.",
+    },
     {
       id: "competitors",
       label: "Competitors",
@@ -130,11 +134,6 @@ export const SECTIONS = {
     { id: "mine", label: "Mine", about: "Your score and what moves it; Score runs are paid." },
     { id: "watchlist", label: "Watchlist", about: "Accounts you watch; each rescore is paid." },
     { id: "report", label: "Report", about: "One account in full; the last report is free." },
-    {
-      id: "trending",
-      label: "Trending",
-      about: "What X is talking about, by country, through treg; cached 30 min.",
-    },
     {
       id: "bot-check",
       label: "Bot check",
