@@ -139,7 +139,7 @@ it("requotes after a saved keyword change, so the daily jobs show the new search
   });
   await expect.element(screen.getByText(/\(\$0\.005 in searches\)/)).toBeVisible();
   // Assist runs on the user's own login, so its $0 quote reads as free.
-  await expect.element(screen.getByText(/\(free per model call\)/)).toBeVisible();
+  await expect.element(screen.getByText(/written on your login/)).toBeVisible();
   await userEvent.fill(screen.getByLabelText(/^Keywords/), "ai, agents");
   await userEvent.click(screen.getByRole("button", { name: "Save" }));
   await expect.element(screen.getByText(/\(\$0\.01 in searches\)/)).toBeVisible();
