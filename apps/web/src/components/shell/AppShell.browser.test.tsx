@@ -1,8 +1,10 @@
+import "../../index.css";
 import { AccountsError, type Settings, type SpendSummary } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import { expect, it } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
+import { quoting } from "../../../test/fixtures";
 import { installFakeBridge } from "../../../test/fakeBridge";
 import { render } from "../../../test/render";
 
@@ -36,11 +38,15 @@ const spend = {
 } satisfies SpendSummary;
 
 const service = {
+  "costs.quote": quoting(),
+  "leads.agentsList": () => Effect.succeed([]),
+  "leads.peopleList": () => Effect.succeed([]),
   "settings.get": () => Effect.succeed(settings),
   "spend.summary": () => Effect.succeed(spend),
   "compose.draftsList": () => Effect.succeed({ drafts: [] }),
   "engage.mentions": () => Effect.succeed({ mentions: [], apiError: null }),
   "plan.slotsGet": () => Effect.succeed({ slots: [] }),
+  "automate.pendingList": () => Effect.succeed([]),
   "accounts.list": () => Effect.succeed({ accounts: [], currentId: 1 }),
 } as const;
 
@@ -55,7 +61,7 @@ const shell = () => (
 
 it("puts x.com over the main area on X's pages and beside the tools, from one webview", async () => {
   await using screen = await render(shell(), { router: "/compose", service });
-  const pane = screen.getByRole("region", { name: "x.com" });
+  const pane = screen.getByRole("region", { name: "x.com", includeHidden: true });
   await expect.element(pane).toHaveAttribute("data-mode", "panel");
   const webview = screen.container.querySelector("webview");
   expect(webview?.getAttribute("partition")).toBe("persist:x-session");
@@ -80,11 +86,15 @@ it("puts x.com over the main area on X's pages and beside the tools, from one we
 it("opens routes sent from x.com beside it, and sends the Clean X defaults at start", async () => {
   window.localStorage.setItem("xtend:x-panel-open", "false");
   await using screen = await render(shell(), { router: "/x", service });
+  const guest = screen.container.querySelector("webview");
+  guest?.setAttribute("tabindex", "0");
+  (guest as HTMLElement | null)?.focus();
   bridge.emitRoute("/scores?handle=jack");
   await expect.poll(() => screen.router?.state.location.pathname).toBe("/scores");
   await expect
-    .element(screen.getByRole("region", { name: "x.com" }))
+    .element(screen.getByRole("region", { name: "x.com", includeHidden: true }))
     .toHaveAttribute("data-mode", "panel");
+  await expect.element(screen.getByRole("main")).toHaveFocus();
   expect(bridge.calls).toContain("skin ads,grok,upsells,chrome,discover,boosts,extras");
 });
 
@@ -120,4 +130,43 @@ it("says why the service refused an account switch instead of doing nothing", as
     .element(screen.getByRole("alert"))
     .toHaveTextContent("Accounts select failed: account 2 is gone");
   await expect.element(account).toBeVisible();
+});
+
+it("offers show and hide X panel commands in the palette", async () => {
+  await using screen = await render(shell(), { router: "/compose", service });
+  const pane = screen.getByRole("region", { name: "x.com", includeHidden: true });
+  await userEvent.keyboard("{Meta>}k{/Meta}");
+  await userEvent.click(page.getByRole("option", { name: "Hide X panel" }));
+  await expect.element(pane).toHaveAttribute("data-mode", "hidden");
+  await userEvent.keyboard("{Meta>}k{/Meta}");
+  await userEvent.click(page.getByRole("option", { name: "Show X panel" }));
+  await expect.element(pane).toHaveAttribute("data-mode", "panel");
+});
+
+it("counts pending requests on Automate and Needs you", async () => {
+  await using screen = await render(shell(), {
+    router: "/automate",
+    service: {
+      ...service,
+      "automate.pendingList": () =>
+        Effect.succeed([
+          {
+            id: 1,
+            ruleId: 1,
+            ruleName: "Ask",
+            subjectId: "20",
+            description: "Like hello",
+            status: "pending",
+            createdAt: "2026-10-23T00:00:00Z",
+            costUsd: 0.015,
+          },
+        ]),
+    },
+  });
+  await expect
+    .element(screen.getByRole("link", { name: /Automate\s*1/, exact: true }))
+    .toBeVisible();
+  await expect
+    .element(screen.getByRole("link", { name: /Needs you\s*1/, exact: true }))
+    .toBeVisible();
 });

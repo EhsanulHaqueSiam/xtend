@@ -32,7 +32,10 @@ export function Popover({
       <PopoverPrimitive.Trigger render={trigger} />
       <PopoverPrimitive.Portal>
         <PopoverPrimitive.Positioner side="bottom" align={align} sideOffset={6} className="z-50">
-          <PopoverPrimitive.Popup className={cn(popupClass, "w-80 p-3 text-[13px]", className)}>
+          <PopoverPrimitive.Popup
+            data-detail-popup
+            className={cn(popupClass, "w-80 p-3 text-[13px]", className)}
+          >
             {children}
           </PopoverPrimitive.Popup>
         </PopoverPrimitive.Positioner>

@@ -1,14 +1,17 @@
-import { useAtom, useAtomSet, useAtomValue } from "@effect/atom-react";
-import { useNavigate } from "@tanstack/react-router";
+import { Dialog } from "@base-ui/react/dialog";
+import { RegistryContext, useAtom, useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useLocation, useNavigate } from "@tanstack/react-router";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { AtSign, Bot, CalendarClock, Gauge, Search, Twitter, type LucideIcon } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
 
 import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
 import { useQuoteLabel, useRates } from "../../state/costs";
-import { agentsAtom, paletteOpenAtom, runAgentAtom } from "../../state/shell";
-import { xNavigate } from "../../state/x";
+import { agentsAtom, peopleAtom, runAgentAtom } from "../../state/leads";
+import { paletteOpenAtom } from "../../state/shell";
+import { toastAtom } from "../ui/toast";
+import { isXRoute, lastToolRoute, xNavigate, xPanelOpenAtom } from "../../state/x";
 import { agentRunCost } from "../leads/ui";
 import { SCREENS } from "./commands";
 import { SECTIONS } from "./sections";
@@ -18,6 +21,7 @@ interface Command {
   readonly group: "Actions" | "Go to" | "Sections" | "X";
   readonly label: string;
   readonly hint?: string;
+  readonly disabled?: boolean;
   readonly icon: LucideIcon;
   readonly run: () => void;
 }
@@ -45,12 +49,17 @@ const X_PAGES: ReadonlyArray<{ readonly label: string; readonly path: string }> 
 function PaletteBody({
   go,
   onClose,
+  runAgent,
+  running,
 }: {
   readonly go: (href: string) => void;
   readonly onClose: () => void;
+  readonly runAgent: (id: number) => void;
+  readonly running: boolean;
 }) {
   const agents = useAtomValue(agentsAtom);
-  const runAgent = useAtomSet(runAgentAtom);
+  const [panelOpen, setPanel] = useAtom(xPanelOpenAtom);
+  const pathname = useLocation({ select: (l) => l.pathname });
   const rates = useRates();
   const assistQuote = useQuoteLabel({ kind: "assist" });
   const [query, setQuery] = useState("");
@@ -100,13 +109,30 @@ function PaletteBody({
         group: "Actions" as const,
         label: "Schedule this",
         icon: CalendarClock,
-        run: to("/compose"),
+        run: to("/compose?new=1"),
       },
+      ...(isElectron
+        ? [
+            {
+              id: "x-panel",
+              group: "X" as const,
+              label: panelOpen && !isXRoute(pathname) ? "Hide X panel" : "Show X panel",
+              icon: Twitter,
+              run: () => {
+                if (isXRoute(pathname)) {
+                  setPanel(true);
+                  go(lastToolRoute());
+                } else setPanel(!panelOpen);
+              },
+            },
+          ]
+        : []),
       ...AsyncResult.getOrElse(agents, () => []).map((agent) => ({
         id: `agent:${agent.id}`,
         group: "Actions" as const,
         label: `Run agent ${agent.name}`,
         hint: `paid run ${agentRunCost(rates, assistQuote, agent)}`,
+        disabled: running || rates === null || assistQuote === "…",
         icon: Bot,
         run: () => runAgent(agent.id),
       })),
@@ -138,9 +164,10 @@ function PaletteBody({
         run: to(`/library?q=${encodeURIComponent(query.trim())}`),
       });
     return [...dynamic, ...fixed];
-  }, [agents, assistQuote, go, query, rates, runAgent]);
+  }, [agents, assistQuote, go, panelOpen, pathname, query, rates, runAgent, running, setPanel]);
 
   const pick = (command: Command) => {
+    if (command.disabled) return;
     command.run();
     onClose();
   };
@@ -152,13 +179,8 @@ function PaletteBody({
   }, [selected]);
 
   return (
-    <div
-      role="dialog"
-      aria-label="Command palette"
-      className="flex h-full flex-col overflow-hidden"
-    >
+    <div className="flex h-full flex-col overflow-hidden">
       <input
-        autoFocus
         value={query}
         placeholder="Type a command, @handle or search"
         aria-label="Command"
@@ -168,7 +190,6 @@ function PaletteBody({
           setCursor(0);
         }}
         onKeyDown={(e) => {
-          if (e.key === "Escape") return onClose();
           if (e.key === "ArrowDown") {
             e.preventDefault();
             setCursor((c) => Math.min(c + 1, commands.length - 1));
@@ -198,9 +219,11 @@ function PaletteBody({
               <div
                 role="option"
                 aria-selected={index === selected}
+                aria-disabled={command.disabled || undefined}
                 className={cn(
                   "flex h-[34px] cursor-pointer items-center gap-2.5 rounded-[var(--control-radius)] px-2.5 text-sm text-muted-foreground",
                   index === selected && "bg-white/[0.07] text-foreground",
+                  command.disabled && "cursor-default opacity-40",
                 )}
                 onMouseEnter={() => setCursor(index)}
                 onClick={() => pick(command)}
@@ -228,19 +251,48 @@ function PaletteBody({
 export function CommandPalette() {
   const [open, setOpen] = useAtom(paletteOpenAtom);
   const navigate = useNavigate();
-  if (!open) return null;
+  // Remains mounted when the popup closes, keeping the screen's run atom alive.
+  const runState = useAtomValue(runAgentAtom);
+  const run = useAtomSet(runAgentAtom, { mode: "promise" });
+  const registry = useContext(RegistryContext);
+  const setToast = useAtomSet(toastAtom);
+  const starting = useRef(false);
+  const runAgent = (id: number) => {
+    if (starting.current || runState.waiting) return;
+    starting.current = true;
+    setToast({ text: "Running agent" });
+    void navigate({ href: "/leads?tab=agents" });
+    void run(id)
+      .then(
+        (result) => {
+          registry.refresh(agentsAtom);
+          registry.refresh(peopleAtom(null));
+          setToast({ text: result.error ?? "Agent finished" });
+        },
+        (error: unknown) =>
+          setToast({ text: error instanceof Error ? error.message : String(error) }),
+      )
+      .finally(() => {
+        starting.current = false;
+      });
+  };
   const close = () => setOpen(false);
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/55 pt-[12vh]"
-      onMouseDown={close}
-    >
-      <div
-        className="h-[420px] w-[560px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-[calc(var(--radius)+4px)] border border-white/13 bg-surface-raised"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <PaletteBody go={(href) => void navigate({ href })} onClose={close} />
-      </div>
-    </div>
+    <Dialog.Root open={open} onOpenChange={setOpen}>
+      <Dialog.Portal>
+        <Dialog.Backdrop className="fixed inset-0 z-50 bg-black/55" />
+        <Dialog.Popup
+          aria-label="Command palette"
+          className="fixed top-[12vh] left-1/2 z-50 h-[420px] w-[560px] max-w-[calc(100vw-2rem)] -translate-x-1/2 overflow-hidden rounded-[calc(var(--radius)+4px)] border border-white/13 bg-surface-raised"
+        >
+          <PaletteBody
+            go={(href) => void navigate({ href })}
+            onClose={close}
+            runAgent={runAgent}
+            running={runState.waiting}
+          />
+        </Dialog.Popup>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }

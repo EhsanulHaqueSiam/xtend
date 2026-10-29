@@ -9,6 +9,7 @@ import { carriesLink, postFromTransfer } from "../../lib/drag";
 import { nextScheduledLabel } from "../../lib/glance";
 import { cn } from "../../lib/utils";
 import { accountsAtom, selectAccountAtom, switchAccount } from "../../state/accounts";
+import { pendingAtom } from "../../state/automate";
 import { mentionsAtom } from "../../state/engage";
 import { settingsAtom } from "../../state/settings";
 import {
@@ -148,7 +149,10 @@ function ToolRow({
               void navigate({ href });
             }}
           >
-            <RowBody label={section.label} />
+            <RowBody
+              label={section.label}
+              count={tool.to === "/automate" && section.id === "needs-you" ? count : undefined}
+            />
           </a>
         );
       })}
@@ -354,10 +358,12 @@ export function Sidebar() {
   const [accountError, setAccountError] = useState<string | null>(null);
   const queued = or(useAtomValue(queuedDraftsAtom), null);
   const mentions = or(useAtomValue(mentionsAtom), null);
+  const pending = or(useAtomValue(pendingAtom), null);
   const openMentions = mentions?.mentions.filter((m) => !m.handled).length ?? null;
   const counts: Readonly<Record<string, number | null>> = {
     "/compose": queued?.length ?? null,
     "/engage": openMentions,
+    "/automate": pending?.length ?? null,
   };
   const mod = window.desktopBridge?.platform === "darwin" ? "⌘" : "Ctrl";
   return (
