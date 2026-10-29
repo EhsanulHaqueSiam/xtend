@@ -37,6 +37,15 @@ function readAuthor(tweet: Json): ObservedPost["author"] | undefined {
   const legacy = isRecord(user.legacy) ? user.legacy : {};
   // 2025 moved handle and name from user.legacy to user.core; accept both.
   const userCore = isRecord(user.core) ? user.core : {};
+  // The protected flag moved from user.legacy to user.privacy; unknown stays unknown, so the
+  // pool (which shares only authors read as public) fails closed on a shape change.
+  const privacy = isRecord(user.privacy) ? user.privacy : {};
+  const isProtected =
+    typeof privacy.protected === "boolean"
+      ? privacy.protected
+      : typeof legacy.protected === "boolean"
+        ? legacy.protected
+        : undefined;
   const userId = asString(user.rest_id);
   const handle = asString(userCore.screen_name) ?? asString(legacy.screen_name);
   const name = asString(userCore.name) ?? asString(legacy.name) ?? handle;
@@ -54,7 +63,7 @@ function readAuthor(tweet: Json): ObservedPost["author"] | undefined {
     name: name ?? handle,
     followers: asCount(legacy.followers_count),
     verified: user.is_blue_verified === true || legacy.verified === true,
-    ...(legacy.protected === true ? { isProtected: true } : {}),
+    ...(isProtected === undefined ? {} : { isProtected }),
   };
 }
 

@@ -64,11 +64,12 @@ const SHARED_SOURCES: ReadonlySet<ObservationBatch["source"]> = new Set([
 
 /**
  * What one sighting sends: the public post, its author and the numbers seen. Promoted items,
- * repost wrappers and protected accounts stay home; so does everything about the viewer.
+ * repost wrappers and every author not positively read as public stay home; so does
+ * everything about the viewer.
  */
 export const toItems = (posts: ReadonlyArray<ObservedPost>) =>
   posts
-    .filter((p) => !p.isPromoted && !p.isRepost && p.author.isProtected !== true)
+    .filter((p) => !p.isPromoted && !p.isRepost && p.author.isProtected === false)
     .slice(0, MAX_ITEMS)
     .map((p) => ({
       post: {
