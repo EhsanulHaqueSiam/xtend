@@ -90,6 +90,9 @@ const layerServices = Layer.mergeAll(layerAreas, Costs.layer).pipe(
   Layer.provideMerge(layerFoundation),
 );
 
+// The Node server accepts connections from the moment it listens, but answers only once the
+// routes are served; the services build first, so a request at startup never meets a port
+// with no handler behind it (it would hang unanswered).
 const layerApplication = HttpRouter.serve(layerRoutes).pipe(
   Layer.tap(() =>
     Effect.gen(function* () {
@@ -97,8 +100,8 @@ const layerApplication = HttpRouter.serve(layerRoutes).pipe(
       yield* Effect.log(`xtend service listening on http://${config.host}:${config.port}`);
     }),
   ),
-  Layer.provideMerge(layerServices),
   Layer.provideMerge(layerHttpServer),
+  Layer.provideMerge(layerServices),
   Layer.provideMerge(NodeServices.layer),
 );
 
