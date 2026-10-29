@@ -114,7 +114,7 @@ export function Trending() {
   const onLoad = () =>
     loaded === country ? registry.refresh(trendingAtom(country)) : setLoaded(country);
   const load = (
-    <button type="button" className={cn(xPill, xPillSm)} onClick={onLoad}>
+    <button type="button" className={cn(xPill, xPillSm)} disabled={quote === "…"} onClick={onLoad}>
       Load
       <Cost label={quote} />
     </button>

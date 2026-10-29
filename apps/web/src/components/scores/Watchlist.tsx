@@ -32,7 +32,7 @@ function ScoreButton({
     <button
       type="button"
       className={cn(xPill, "h-6 gap-1 px-2 text-xs")}
-      disabled={disabled}
+      disabled={disabled || quote === "…"}
       onClick={onClick}
     >
       {label}

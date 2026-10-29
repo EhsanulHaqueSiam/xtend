@@ -4,7 +4,7 @@ import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 
 import { cn, NOT_A_HANDLE, parseHandle } from "../../lib/utils";
-import { useQuoteLabel, useRates } from "../../state/costs";
+import { usd, useQuoteLabel, useRates } from "../../state/costs";
 import { reportAtom, runScoreAtom } from "../../state/scores";
 import { settingsAtom } from "../../state/settings";
 import { PageHeader } from "../PageHeader";
@@ -31,6 +31,13 @@ function ScoreControls({
   const rates = useRates();
   const [pages, setPages] = useState(DEFAULT_PAGES);
   const [error, setError] = useState<string | null>(null);
+  // The service quotes the default run; other page counts are priced from its rate card.
+  const price =
+    pages === DEFAULT_PAGES
+      ? defaultQuote
+      : rates === null
+        ? "…"
+        : usd(rates.scraperProfile + pages * rates.followersPage);
 
   const score = async () => {
     setError(null);
@@ -64,16 +71,11 @@ function ScoreControls({
       <button
         type="button"
         className={cn(xPill, xPillSm)}
-        disabled={runState.waiting}
+        disabled={runState.waiting || price === "…"}
         onClick={() => void score()}
       >
         {runState.waiting ? "Scoring" : "Score"}
-        {/* The service quotes the default run; other page counts are priced from its rate card. */}
-        {pages === DEFAULT_PAGES || rates === null ? (
-          <Cost label={defaultQuote} />
-        ) : (
-          <Cost usd={rates.scraperProfile + pages * rates.followersPage} />
-        )}
+        <Cost label={price} />
       </button>
     </div>
   );
