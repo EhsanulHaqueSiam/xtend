@@ -1,7 +1,7 @@
 import type { RateCard, SignalAgentInput, Stage } from "@xtend/contracts";
 import { useState } from "react";
 
-import { cn } from "../../lib/utils";
+import { cn, readableError } from "../../lib/utils";
 import { usd } from "../../state/costs";
 
 export const STAGES: ReadonlyArray<Stage> = ["new", "contacted", "replied", "customer", "ignored"];
@@ -40,7 +40,7 @@ export function useAction() {
     try {
       await work();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(readableError(e));
     } finally {
       setBusy(false);
     }

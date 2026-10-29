@@ -297,7 +297,7 @@ it("prices trend ideas by the country whose trends are loaded", async () => {
   });
   // Ideas need loaded trends: before Load there is no tone to ask with.
   expect(screen.getByRole("group", { name: "Tone" }).elements()).toHaveLength(0);
-  // Before Load the empty state offers the header's Load too.
+  // Load lives in the header, beside the country it loads.
   await userEvent.click(
     screen.getByRole("button", { name: /^Load trends.*cached, free$/ }).first(),
   );

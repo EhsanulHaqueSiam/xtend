@@ -30,3 +30,14 @@ export const parsePostId = (text: string): string | null => {
   const id = /\/status(?:es)?\/(\d+)/.exec(text)?.[1] ?? text.trim();
   return isPostId(id) ? id : null;
 };
+
+/**
+ * A failure in words a user can act on. A dropped service socket surfaces as Effect's rpc
+ * defect ("RpcClientDefect: Unknown socket error"), which says nothing to anyone.
+ */
+export const readableError = (e: unknown): string => {
+  const text = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+  if (/RpcClient|socket/i.test(text))
+    return "Lost the connection to the service. It reconnects by itself; try again in a moment.";
+  return e instanceof Error ? e.message : typeof e === "string" ? e : "Something failed.";
+};

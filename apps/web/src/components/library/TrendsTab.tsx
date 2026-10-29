@@ -83,8 +83,9 @@ function PoolViews({ value }: { readonly value: PoolTrends }) {
   if (value.hot.length === 0 && value.rising.length === 0)
     return (
       <Empty>
-        Nothing pooled yet. Trends appear once three installs have shared for a day; yours counts
-        from tomorrow.
+        {value.installs < 3
+          ? `Trends start once three installs share for a day; ${value.installs} of 3 so far.`
+          : "Nothing gained views in the last day yet. The pool refreshes every 10 minutes."}
       </Empty>
     );
   return (
@@ -154,9 +155,9 @@ function PoolSection() {
     AsyncResult.map(
       result,
       (v) =>
-        `pool · ${num(v.posts)} posts from ${v.installs} installs · fetched ${fmtWhen(v.fetchedAt)}`,
+        `${num(v.posts)} posts from ${v.installs} installs · fetched ${fmtWhen(v.fetchedAt)} · free`,
     ),
-    () => "pool · free",
+    () => "free",
   );
   return (
     <Section
@@ -228,7 +229,10 @@ export function TrendsTab() {
       <PageBody>
         <PoolSection />
         {applied === null ? (
-          <Empty action={load}>Trends by country through treg, cached for 30 minutes.</Empty>
+          <Empty>
+            X trends by country through treg, cached for 30 minutes. Pick a country and Load trends
+            above.
+          </Empty>
         ) : (
           <div className="grid min-h-full grid-cols-1 @min-[52rem]:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
             <div className="border-b border-border py-2 @min-[52rem]:border-r @min-[52rem]:border-b-0">

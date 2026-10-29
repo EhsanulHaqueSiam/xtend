@@ -1,12 +1,12 @@
 import { useAtom, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { AtSign, Bot, CalendarClock, Gauge, Search, Twitter, type LucideIcon } from "lucide-react";
+import { AtSign, Bot, Gauge, Search, SquarePen, Twitter, type LucideIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
-import { useRates } from "../../state/costs";
+import { usd, useRates } from "../../state/costs";
 import { agentsAtom, paletteOpenAtom, runAgentAtom } from "../../state/shell";
 import { xNavigate } from "../../state/x";
 import { agentRunCost } from "../leads/ui";
@@ -95,11 +95,11 @@ function PaletteBody({
               : [],
           )),
       {
-        id: "schedule",
+        id: "new-draft",
         group: "Actions" as const,
-        label: "Schedule this",
-        icon: CalendarClock,
-        run: to("/compose"),
+        label: "New draft",
+        icon: SquarePen,
+        run: to("/compose?new=true"),
       },
       ...AsyncResult.getOrElse(agents, () => []).map((agent) => ({
         id: `agent:${agent.id}`,
@@ -132,7 +132,9 @@ function PaletteBody({
       dynamic.push({
         id: "search",
         group: "Actions",
-        label: `Search library for "${query.trim()}"`,
+        label: `Search X for "${query.trim()}"`,
+        // The search runs as Search opens; a cached one is free there, never dearer than this.
+        hint: rates === null ? "paid search" : `up to ${usd(rates.searchPage)}`,
         icon: Search,
         run: to(`/library?q=${encodeURIComponent(query.trim())}`),
       });

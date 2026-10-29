@@ -1,6 +1,6 @@
 import { expect, it } from "vite-plus/test";
 
-import { parseHandle, parsePostId } from "./utils";
+import { parseHandle, parsePostId, readableError } from "./utils";
 
 it("reads a handle the way people type it and rejects what X would not accept", () => {
   expect(parseHandle("  @levelsio ")).toBe("levelsio");
@@ -20,4 +20,11 @@ it("takes a post id or the id out of a pasted post URL, never digits from the ha
   expect(parsePostId("https://x.com/user123")).toBeNull();
   expect(parsePostId("12ab")).toBeNull();
   expect(parsePostId("")).toBeNull();
+});
+
+it("says a dropped service connection in plain words, and keeps every other message", () => {
+  const dropped = Object.assign(new Error("Unknown socket error"), { name: "RpcClientDefect" });
+  expect(readableError(dropped)).toMatch(/^Lost the connection to the service/);
+  expect(readableError(new Error("monthly budget reached"))).toBe("monthly budget reached");
+  expect(readableError(42)).toBe("Something failed.");
 });

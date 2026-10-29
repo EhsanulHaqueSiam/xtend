@@ -5,6 +5,7 @@ import { BadgeCheck, RefreshCw } from "lucide-react";
 
 import { isElectron } from "../env";
 import { cn } from "../lib/utils";
+import { errorText } from "./analyze/ui";
 import { recentPostsAtom } from "../state/observations";
 import { PageHeader } from "./PageHeader";
 import { useDropPost } from "./shell/drops";
@@ -21,6 +22,9 @@ function engagementRate(post: ObservedPostSummary): string {
   if (views === null || views === 0) return "–";
   return `${(((likes + reposts + replies + quotes + bookmarks) / views) * 100).toFixed(1)}%`;
 }
+
+// Reposts, replies, ER and sightings give way first when the window narrows.
+const wide = "max-xl:hidden";
 
 const statusUrl = (post: ObservedPostSummary) =>
   `https://x.com/${post.author.handle}/status/${post.postId}`;
@@ -47,7 +51,7 @@ function PostRow({
         e.dataTransfer.effectAllowed = "copy";
       }}
     >
-      <td className={cn(table.td, "w-56")}>
+      <td className={cn(table.td, "w-40 xl:w-56")}>
         <div className="flex min-w-0 items-center gap-1.5">
           <span className="truncate font-medium">{post.author.name}</span>
           {post.author.verified ? (
@@ -67,21 +71,27 @@ function PostRow({
       </td>
       <td className={cn(table.td, table.num)}>{fmt(post.metrics.views)}</td>
       <td className={cn(table.td, table.num)}>{fmt(post.metrics.likes)}</td>
-      <td className={cn(table.td, table.num)}>{fmt(post.metrics.reposts)}</td>
-      <td className={cn(table.td, table.num)}>{fmt(post.metrics.replies)}</td>
-      <td className={cn(table.td, table.num)}>{engagementRate(post)}</td>
-      <td className={cn(table.td, table.num, "text-muted-foreground")}>{post.observations}×</td>
+      <td className={cn(table.td, table.num, wide)}>{fmt(post.metrics.reposts)}</td>
+      <td className={cn(table.td, table.num, wide)}>{fmt(post.metrics.replies)}</td>
+      <td className={cn(table.td, table.num, wide)}>{engagementRate(post)}</td>
+      <td className={cn(table.td, table.num, wide, "text-muted-foreground")}>
+        {post.observations}×
+      </td>
       <td className={cn(table.td, "whitespace-nowrap")}>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={(e) => {
-            e.stopPropagation();
-            onSave(post);
-          }}
-        >
-          Save <Cost usd={0} />
-        </Button>
+        {marks?.some((m) => m.kind === "saved") ? (
+          <span className="px-3 text-xs text-muted-foreground">Saved</span>
+        ) : (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={(e) => {
+              e.stopPropagation();
+              onSave(post);
+            }}
+          >
+            Save <Cost usd={0} />
+          </Button>
+        )}
       </td>
     </tr>
   );
@@ -121,7 +131,7 @@ export function SeenFeed() {
         {AsyncResult.match(result, {
           onInitial: () => <Empty>Connecting to the service.</Empty>,
           onFailure: (failure) => (
-            <Empty>{`Could not load observations: ${String(failure.cause)}`}</Empty>
+            <Empty>{`Could not load observations: ${errorText(failure.cause)}`}</Empty>
           ),
           onSuccess: ({ value }) =>
             value.posts.length === 0 ? (
@@ -138,10 +148,10 @@ export function SeenFeed() {
                     <th className={table.th}>Post</th>
                     <th className={cn(table.th, "text-right")}>Views</th>
                     <th className={cn(table.th, "text-right")}>Likes</th>
-                    <th className={cn(table.th, "text-right")}>Reposts</th>
-                    <th className={cn(table.th, "text-right")}>Replies</th>
-                    <th className={cn(table.th, "text-right")}>ER</th>
-                    <th className={cn(table.th, "text-right")}>Seen</th>
+                    <th className={cn(table.th, "text-right", wide)}>Reposts</th>
+                    <th className={cn(table.th, "text-right", wide)}>Replies</th>
+                    <th className={cn(table.th, "text-right", wide)}>ER</th>
+                    <th className={cn(table.th, "text-right", wide)}>Seen</th>
                     <th className={table.th}>
                       <span className="sr-only">Actions</span>
                     </th>
