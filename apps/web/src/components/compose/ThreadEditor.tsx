@@ -1,49 +1,19 @@
 import {
+  charCount,
   type DraftBlock,
   type DraftMedia,
-  LINK_PATTERN,
   MEDIA_MAX_IMAGES,
+  POST_LIMIT,
   type ReplySettings,
 } from "@xtend/contracts";
 import { ArrowDown, ArrowUp, Film, Globe, Image, Plus, X } from "lucide-react";
 import type { ClipboardEvent, DragEvent, ReactNode } from "react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { compactInputClass } from "../ui/field";
-
-const POST_LIMIT = 280;
-
-// The contract's link rule, so the counter and the price agree with what the service charges.
-const LINK = new RegExp(LINK_PATTERN.source, "gi");
-
-// X's weighting (twitter-text v3): code points in these ranges count 1, every other one 2
-// (CJK, most symbols), an emoji sequence 2 however many code points it joins, a link 23.
-const LIGHT: ReadonlyArray<readonly [number, number]> = [
-  [0, 4351],
-  [8192, 8205],
-  [8208, 8223],
-  [8242, 8247],
-];
-const EMOJI = /\p{Emoji_Presentation}|️|\p{Regional_Indicator}|⃣/u;
-const graphemes = new Intl.Segmenter();
-
-/** The length X checks against 280. */
-export const charCount = (text: string) => {
-  let count = 0;
-  for (const { segment } of graphemes.segment(
-    text.normalize("NFC").replace(LINK, "x".repeat(23)),
-  )) {
-    if (EMOJI.test(segment)) count += 2;
-    else
-      for (const ch of segment) {
-        const cp = ch.codePointAt(0) ?? 0;
-        count += LIGHT.some(([from, to]) => cp >= from && cp <= to) ? 1 : 2;
-      }
-  }
-  return count;
-};
+import { quotedPostId } from "./PostPreview";
 
 /** The text X receives for post i; the service appends the quote link to the first post. */
 export const postText = (text: string, i: number, quoteUrl: string | null) =>
@@ -133,14 +103,13 @@ export function MediaList({
             )}
           </div>
           {m.kind === "image" ? (
+            // Disabled: the session composer uploads only the files, so X would never get it.
             <input
               className={compactInputClass}
               aria-label="Alt text"
-              placeholder="Alt text"
+              placeholder="Alt text not sent yet"
+              disabled
               value={m.alt}
-              onChange={(e) =>
-                onChange(media.map((x) => (x.id === m.id ? { ...x, alt: e.target.value } : x)))
-              }
             />
           ) : null}
           <Button
@@ -193,6 +162,7 @@ export function ThreadEditor({
   avatar,
   notes,
   onChange,
+  onQuote,
   onFocus,
   onAddFiles,
   onMediaChange,
@@ -209,6 +179,8 @@ export function ThreadEditor({
   /** A short fact beside each post's count, such as a link post's price. */
   readonly notes?: ReadonlyArray<ReactNode>;
   readonly onChange: (blocks: ReadonlyArray<DraftBlock>) => void;
+  /** A pasted post link on a line of its own, to become the draft's quote. */
+  readonly onQuote: (url: string) => void;
   readonly onFocus: (index: number) => void;
   readonly onAddFiles: (index: number, files: ReadonlyArray<File>) => void;
   readonly onMediaChange: (media: ReadonlyArray<DraftMedia>) => void;
@@ -216,14 +188,34 @@ export function ThreadEditor({
 }) {
   const picker = useRef<HTMLInputElement>(null);
   const pickFor = useRef(0);
+  const areas = useRef<Array<HTMLTextAreaElement | null>>([]);
+  // The post a move or an insert lands on takes the focus, and with it the tools.
+  const focusNext = useRef<number | null>(null);
+  useEffect(() => {
+    if (focusNext.current === null) return;
+    areas.current[focusNext.current]?.focus();
+    focusNext.current = null;
+  });
   const set = (i: number, text: string) =>
     onChange(blocks.map((b, j) => (j === i ? { ...b, text } : b)));
   const paste = (i: number, e: ClipboardEvent<HTMLTextAreaElement>) => {
-    const pieces = splitBlocks(e.clipboardData.getData("text/plain"));
+    const pasted = e.clipboardData.getData("text/plain");
+    const { value, selectionStart, selectionEnd } = e.currentTarget;
+    // A post link alone on its line quotes that post, as on X. With a quote already set it stays text.
+    if (
+      quoteUrl === null &&
+      !/\s/.test(pasted.trim()) &&
+      quotedPostId(pasted) !== null &&
+      /(^|\n)[^\S\n]*$/.test(value.slice(0, selectionStart)) &&
+      /^[^\S\n]*(\n|$)/.test(value.slice(selectionEnd))
+    ) {
+      e.preventDefault();
+      return onQuote(pasted.trim());
+    }
+    const pieces = splitBlocks(pasted);
     if (pieces.length < 2) return;
     e.preventDefault();
     // The post's own text stays around the pasted posts, split at the caret.
-    const { value, selectionStart, selectionEnd } = e.currentTarget;
     const texts = pieces.map((p, j) =>
       j === 0
         ? value.slice(0, selectionStart) + p
@@ -248,11 +240,12 @@ export function ThreadEditor({
       to,
     );
     onMediaChange(media.map((m) => ({ ...m, blockIndex: order.indexOf(m.blockIndex) })));
+    focusNext.current = to;
   };
   const insertAfter = (i: number) => {
     onChange([...blocks.slice(0, i + 1), { text: "" }, ...blocks.slice(i + 1)]);
     onMediaChange(shiftBlocks(media, i, 1));
-    onFocus(i + 1);
+    focusNext.current = i + 1;
   };
   return (
     <div className="flex flex-col">
@@ -290,6 +283,9 @@ export function ThreadEditor({
             </div>
             <div className="min-w-0 flex-1">
               <textarea
+                ref={(el) => {
+                  areas.current[i] = el;
+                }}
                 aria-label={`Post ${i + 1}`}
                 className={cn(
                   "block w-full resize-none bg-transparent pt-1 text-[15px] leading-normal text-foreground outline-hidden field-sizing-content placeholder:text-placeholder",

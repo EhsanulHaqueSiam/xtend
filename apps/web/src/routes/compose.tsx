@@ -1,11 +1,13 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import {
+  charCount,
   type Draft,
   type DraftBlock,
   type DraftMedia,
   type DraftPatch,
   type DraftPoll,
   MEDIA_MAX_BYTES,
+  POST_LIMIT,
   type ReplySettings,
 } from "@xtend/contracts";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
@@ -15,7 +17,7 @@ import { ArrowLeft, CalendarClock, ChevronRight } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { TextMorph } from "torph/react";
 
-import { AssistPanel, ComposeContext, failText } from "../components/compose/AssistPanel";
+import { AssistPanel, ComposeContext, failText, OnX } from "../components/compose/AssistPanel";
 import { COMPOSE_TABS, type ComposeTab, DraftsHome, tabOf } from "../components/compose/DraftsHome";
 import { fmtWhen, postCosts, sumUsd } from "../components/compose/DraftsList";
 import { PostPreview, quotedPostId } from "../components/compose/PostPreview";
@@ -51,7 +53,7 @@ import {
 import { useRates } from "../state/costs";
 import { savedPostAtom } from "../state/library";
 import { recentPostsAtom } from "../state/observations";
-import { queueAtom, scheduleAtom } from "../state/plan";
+import { queueAtom, scheduleAtom, unscheduleAtom } from "../state/plan";
 import { settingsAtom } from "../state/settings";
 
 /** What the editor owns; the service owns status, schedule, outcome and the media files. */
@@ -168,7 +170,7 @@ function Inspiration({ postId }: { readonly postId: string }) {
   const post = AsyncResult.getOrElse(saved, () => null);
   if (post === null) return null;
   return (
-    <XCard title={`Inspired by @${post.post.author.handle}`}>
+    <XCard title={`Inspired by @${post.post.author.handle}`} aside={<OnX href={post.post.url} />}>
       <p className="whitespace-pre-wrap text-[13.5px] leading-[1.4]">{post.post.text}</p>
     </XCard>
   );
@@ -189,7 +191,10 @@ function ReplyTarget({ postId }: { readonly postId: string }) {
         ? null
         : { handle: observed.author.handle, text: observed.text };
   return (
-    <XCard title={target === null ? "Replying" : `Replying to @${target.handle}`}>
+    <XCard
+      title={target === null ? "Replying" : `Replying to @${target.handle}`}
+      aside={target === null ? undefined : <OnX href={sourceUrl(postId)} />}
+    >
       {target !== null ? (
         <p className="line-clamp-6 whitespace-pre-wrap text-[13.5px] leading-[1.4]">
           {target.text}
@@ -349,12 +354,14 @@ function Options({ editor, onChange }: { editor: Editor; onChange: (e: Editor) =
         <span>
           Hide link previews
           <span className="block text-xs text-muted-foreground">
-            Removed through your x.com session after posting
+            Not available yet: X keeps the card
           </span>
         </span>
+        {/* Nothing removes the card after posting, so it can only be turned off. */}
         <input
           type="checkbox"
           className={check}
+          disabled={!editor.hideLinkPreviews}
           checked={editor.hideLinkPreviews}
           onChange={(e) => onChange({ ...editor, hideLinkPreviews: e.target.checked })}
         />
@@ -478,6 +485,7 @@ export function ComposeEditor({
   const update = useAtomSet(updateDraftAtom, { mode: "promise" });
   const queue = useAtomSet(queueAtom, { mode: "promiseExit" });
   const schedule = useAtomSet(scheduleAtom, { mode: "promiseExit" });
+  const unschedule = useAtomSet(unscheduleAtom, { mode: "promiseExit" });
   const postNow = useAtomSet(postNowAtom, { mode: "promiseExit" });
   const mediaAdd = useAtomSet(mediaAddAtom, { mode: "promiseExit" });
   const mediaRemove = useAtomSet(mediaRemoveAtom, { mode: "promiseExit" });
@@ -504,7 +512,9 @@ export function ComposeEditor({
   const schedulePast = scheduleAt !== null && scheduleAt.getTime() <= pickerOpenedAt;
   const [coverPrompt, setCoverPrompt] = useState("");
   // The paid or sending action in flight; its buttons stay disabled so a double click cannot repeat it.
-  const [busy, setBusy] = useState<"post" | "queue" | "schedule" | "cover" | null>(null);
+  const [busy, setBusy] = useState<"post" | "queue" | "schedule" | "unschedule" | "cover" | null>(
+    null,
+  );
   const lastSaved = useRef<string>(JSON.stringify(initial));
   const saving = useRef<Promise<Draft> | null>(null);
   const removals = useRef(Promise.resolve());
@@ -528,21 +538,24 @@ export function ComposeEditor({
   }, [draftParam, drafts]);
 
   // Autosave: one row per editor session, created on the first non-blank change. One save at a
-  // time: a caller during one gets its draft (a first create included), and the autosave effect,
-  // rerun by the new `selected`, sends what changed meanwhile.
+  // time: a caller during one waits for it (a first create included), then saves what changed
+  // meanwhile, so Post, Back and closing never go ahead of the last edits.
   const save = async (force = false): Promise<Draft | null> => {
-    if (saving.current !== null) return saving.current;
+    let base = selected;
+    // A save in flight that fails is its own caller's to report; this one saves again.
+    // eslint-disable-next-line no-await-in-loop -- waits out each save in turn, one at a time on purpose.
+    while (saving.current !== null) base = (await saving.current.catch(() => null)) ?? base;
     const json = JSON.stringify(editor);
-    if (json === lastSaved.current && !force) return selected;
-    if (selected === null && isBlank(editor) && !force) return null;
+    if (json === lastSaved.current && (!force || base !== null)) return base;
+    if (base === null && isBlank(editor) && !force) return null;
     const run = (async () => {
       const d =
-        selected === null
+        base === null
           ? await create({
               ...toPatch(editor),
               ...(inspire === undefined ? {} : { source: sourceUrl(inspire) }),
             })
-          : await update({ id: selected.id, patch: toPatch(editor) });
+          : await update({ id: base.id, patch: toPatch(editor) });
       lastSaved.current = json;
       setSelected(d);
       refresh();
@@ -552,7 +565,7 @@ export function ComposeEditor({
     try {
       return await run;
     } finally {
-      saving.current = null;
+      if (saving.current === run) saving.current = null;
     }
   };
   /** A failed save stays on screen as the notice instead of vanishing with the promise. */
@@ -634,7 +647,7 @@ export function ComposeEditor({
     });
   };
 
-  const act = async (what: "queue" | "schedule" | "post") => {
+  const act = async (what: "queue" | "schedule" | "post" | "unschedule") => {
     if (busy !== null) return;
     setBusy(what);
     try {
@@ -649,7 +662,9 @@ export function ComposeEditor({
           ? await queue(saved.id)
           : what === "schedule"
             ? await schedule({ id: saved.id, at: scheduleAt!.toISOString() })
-            : await postNow(saved.id);
+            : what === "unschedule"
+              ? await unschedule(saved.id)
+              : await postNow(saved.id);
       setConfirm(null);
       refreshContext();
       if (Exit.isFailure(exit)) {
@@ -665,7 +680,9 @@ export function ComposeEditor({
           ? `Failed: ${next.error}`
           : next.status === "posted"
             ? `Posted ${next.postIds.length} ${next.kind === "article" ? "article" : "posts"}${next.linkPreviewNote === null ? "" : `. ${next.linkPreviewNote}`}`
-            : `Queued for ${next.scheduledAt === null ? "later" : fmtWhen(next.scheduledAt)}`,
+            : next.status === "draft"
+              ? "Back in drafts"
+              : `Queued for ${next.scheduledAt === null ? "later" : fmtWhen(next.scheduledAt)}`,
       );
     } finally {
       setBusy(null);
@@ -719,6 +736,9 @@ export function ComposeEditor({
   const emptyAt = isArticle
     ? -1
     : blocks.findIndex((b, i) => postText(b.text, i, quoteUrl).trim() === "" && !hasMediaAt(i));
+  const longAt = isArticle
+    ? -1
+    : blocks.findIndex((b, i) => charCount(postText(b.text, i, quoteUrl)) > POST_LIMIT);
   const blocker =
     isBlank(editor) || quoteBad
       ? null
@@ -728,16 +748,13 @@ export function ComposeEditor({
           : null
         : emptyAt !== -1
           ? `Post ${emptyAt + 1} is empty`
-          : editor.poll !== null && editor.poll.options.some((o) => o.trim() === "")
-            ? "A poll option is empty"
-            : editor.poll !== null && hasMediaAt(0)
-              ? "A poll cannot share the first post with media"
-              : null;
-  const canSend =
-    !isBlank(editor) && !locked && rates !== null && !quoteBad && blocker === null && busy === null;
-  // Fields stay put while the service owns the draft or a post is going out.
-  const frozen = locked || busy === "post";
-  const sessionBlocked = hasMedia && (!sessionPosting || context?.desktopConnected === false);
+          : longAt !== -1
+            ? `Post ${longAt + 1} is over ${POST_LIMIT} characters`
+            : editor.poll !== null && editor.poll.options.some((o) => o.trim() === "")
+              ? "A poll option is empty"
+              : editor.poll !== null && hasMediaAt(0)
+                ? "A poll cannot share the first post with media"
+                : null;
   // What sending costs: a thread post by post, an article as its draft and publish requests.
   const sendUsd = isArticle
     ? quote === null
@@ -746,6 +763,17 @@ export function ComposeEditor({
     : rates === null
       ? null
       : total;
+  // Nothing sends until its price is known.
+  const canSend =
+    !isBlank(editor) &&
+    !locked &&
+    sendUsd !== null &&
+    !quoteBad &&
+    blocker === null &&
+    busy === null;
+  // Fields stay put while the service owns the draft or a post is going out.
+  const frozen = locked || busy === "post";
+  const sessionBlocked = hasMedia && (!sessionPosting || context?.desktopConnected === false);
   const price =
     sendUsd === null ? <Cost tone="solid" label="…" /> : <Cost tone="solid" usd={sendUsd} />;
 
@@ -851,7 +879,7 @@ export function ComposeEditor({
                   <Button variant="ghost" size="xs" onClick={() => setConfirm(null)}>
                     Cancel
                   </Button>
-                  <Button size="xs" disabled={busy !== null} onClick={() => act("post")}>
+                  <Button size="xs" disabled={!canSend} onClick={() => act("post")}>
                     {busy === "post" ? "Posting…" : "Confirm and post"}
                   </Button>
                 </div>
@@ -897,7 +925,7 @@ export function ComposeEditor({
                   </Button>
                   <Button
                     size="xs"
-                    disabled={scheduleAt === null || schedulePast || busy !== null}
+                    disabled={scheduleAt === null || schedulePast || !canSend}
                     onClick={() => act("schedule")}
                   >
                     Schedule
@@ -905,6 +933,16 @@ export function ComposeEditor({
                   </Button>
                 </div>
               </Popover>
+              {queued ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={busy !== null}
+                  onClick={() => act("unschedule")}
+                >
+                  Unschedule
+                </Button>
+              ) : null}
               <Button
                 size="sm"
                 variant={queued ? "outline" : "default"}
@@ -972,7 +1010,11 @@ export function ComposeEditor({
             ) : null}
             {waiting ? (
               <p className="py-10 text-center text-sm text-muted-foreground">
-                {AsyncResult.isSuccess(drafts) ? "This draft no longer exists." : "Loading draft"}
+                {AsyncResult.isSuccess(drafts)
+                  ? "This draft no longer exists."
+                  : AsyncResult.isFailure(drafts)
+                    ? failText(drafts.cause)
+                    : "Loading draft"}
               </p>
             ) : isArticle ? (
               <fieldset disabled={frozen} className="flex min-w-0 flex-col gap-3">
@@ -1091,6 +1133,7 @@ export function ComposeEditor({
                     ) : null,
                   )}
                   onChange={(b) => setEditor({ ...editor, blocks: b })}
+                  onQuote={(url) => setEditor((e) => ({ ...e, quoteUrl: url }))}
                   onFocus={setActive}
                   onAddFiles={addFiles}
                   onMediaChange={(m) => setEditor((e) => ({ ...e, media: m }))}

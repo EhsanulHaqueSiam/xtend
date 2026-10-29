@@ -163,7 +163,13 @@ function DraftRow({
       <td className={cn(table.td, "w-px")} onClick={(e) => e.stopPropagation()}>
         <div className="flex justify-end gap-0.5">
           {d.status === "draft" || d.status === "suggested" || d.status === "failed" ? (
-            <Button variant="ghost" size="xs" disabled={busy} onClick={() => onAct("queue", d.id)}>
+            // Queueing a paid post waits for its price.
+            <Button
+              variant="ghost"
+              size="xs"
+              disabled={busy || costUsd === null}
+              onClick={() => onAct("queue", d.id)}
+            >
               {d.status === "failed" ? "Retry at next slot" : "Queue"}
             </Button>
           ) : null}
@@ -187,7 +193,14 @@ function DraftRow({
               variant="ghost-destructive"
               size="xs"
               disabled={busy}
-              onClick={() => onAct("delete", d.id)}
+              onClick={() => {
+                // A draft and its media go for good; a suggestion is only dismissed.
+                if (
+                  d.status === "suggested" ||
+                  window.confirm(`Delete "${draftTitle(d)}"? This cannot be undone.`)
+                )
+                  onAct("delete", d.id);
+              }}
             >
               {d.status === "suggested" ? "Dismiss" : "Delete"}
             </Button>
@@ -295,7 +308,8 @@ export function DraftsHome({
 }) {
   const drafts = useAtomValue(draftsAtom);
   const refreshDrafts = useAtomRefresh(draftsAtom);
-  const pending = AsyncResult.getOrElse(useAtomValue(pendingAtom), () => []).filter(
+  const pendingResult = useAtomValue(pendingAtom);
+  const pending = AsyncResult.getOrElse(pendingResult, () => []).filter(
     (r) => r.status === "pending",
   );
   const refreshPending = useAtomRefresh(pendingAtom);
@@ -324,6 +338,9 @@ export function DraftsHome({
   const all = AsyncResult.getOrElse(drafts, () => [] as ReadonlyArray<Draft>);
   const shown = all.filter((d) => STATUSES[tab].includes(d.status));
   const asks = tab === "automatic" ? pending : [];
+  // Until the ask-first list answers, an empty Automatic section would be a guess.
+  const asksLoading = tab === "automatic" && AsyncResult.isInitial(pendingResult);
+  const asksFailed = tab === "automatic" && AsyncResult.isFailure(pendingResult);
   const costs = shown.map(costOf);
   const total = costs.every((c) => c !== null) ? sumUsd(costs) : null;
 
@@ -391,6 +408,11 @@ export function DraftsHome({
           {notice}
         </p>
       ) : null}
+      {tab === "automatic" && AsyncResult.isFailure(pendingResult) ? (
+        <p className="shrink-0 border-b border-border px-6 py-2 text-xs text-error-foreground">
+          {failText(pendingResult.cause)}
+        </p>
+      ) : null}
       <PageBody className="@container">
         {board ? (
           <DraftsBoard drafts={all} costOf={costOf} onOpen={onOpen} onChanged={refreshDrafts} />
@@ -417,7 +439,9 @@ export function DraftsHome({
               onFailure: (f) => <Empty>{failText(f.cause)}</Empty>,
               onSuccess: () =>
                 shown.length === 0 ? (
-                  asks.length > 0 ? null : (
+                  asks.length > 0 || asksFailed ? null : asksLoading ? (
+                    <Empty>Loading drafts</Empty>
+                  ) : (
                     <EmptySection tab={tab} onNew={onNew} />
                   )
                 ) : (

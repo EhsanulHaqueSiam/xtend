@@ -1,4 +1,10 @@
-import { ComposeError, type Draft, type PendingRequest, type XtendEvent } from "@xtend/contracts";
+import {
+  AutomateError,
+  ComposeError,
+  type Draft,
+  type PendingRequest,
+  type XtendEvent,
+} from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 import { expect, it, vi } from "vite-plus/test";
@@ -166,6 +172,7 @@ it("shows why a draft failed, retries it only when asked, and says when an actio
     postIds: ["11"],
   });
   const queued: Array<string> = [];
+  const deleted: Array<string> = [];
   await using screen = await render(
     <DraftsHome tab="failed" onOpen={() => {}} onNew={() => {}} />,
     {
@@ -177,8 +184,10 @@ it("shows why a draft failed, retries it only when asked, and says when an actio
           queued.push(id);
           return Effect.succeed(draft(id, "queued", "Launch thread"));
         },
-        "compose.draftDelete": () =>
-          Effect.fail(new ComposeError({ operation: "remove", detail: "Draft is posting" })),
+        "compose.draftDelete": ({ id }) => {
+          deleted.push(id);
+          return Effect.fail(new ComposeError({ operation: "remove", detail: "Draft is posting" }));
+        },
       },
     },
   );
@@ -188,7 +197,15 @@ it("shows why a draft failed, retries it only when asked, and says when an actio
   await userEvent.click(screen.getByRole("button", { name: "Retry at next slot" }));
   await expect.poll(() => queued).toEqual(["f1"]);
 
+  // Delete names the draft and does nothing until the user agrees.
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
   await userEvent.click(screen.getByRole("button", { name: "Delete" }));
+  expect(confirm).toHaveBeenCalledWith('Delete "Launch thread"? This cannot be undone.');
+  expect(deleted).toEqual([]);
+  confirm.mockReturnValue(true);
+  await userEvent.click(screen.getByRole("button", { name: "Delete" }));
+  confirm.mockRestore();
+  await expect.poll(() => deleted).toEqual(["f1"]);
   await expect
     .element(screen.getByRole("status"))
     .toHaveTextContent("Failed: Compose remove failed: Draft is posting");
@@ -225,4 +242,24 @@ it("offers nothing on a draft mid-publish and moves it on when its status change
   changed();
   await expect.element(screen.getByText("Going out now")).not.toBeInTheDocument();
   await expect.element(screen.getByText(/^Nothing queued\./)).toBeVisible();
+});
+
+it("says the ask-first list failed instead of calling Automatic empty", async () => {
+  await using screen = await render(
+    <DraftsHome tab="automatic" onOpen={() => {}} onNew={() => {}} />,
+    {
+      service: {
+        ...prices,
+        "compose.draftsList": () => Effect.succeed({ drafts: [] }),
+        "automate.pendingList": () =>
+          Effect.fail(
+            new AutomateError({ operation: "pendingList", detail: "locked", cause: null }),
+          ),
+      },
+    },
+  );
+  await expect
+    .element(screen.getByText("Automate failed during pendingList: locked"))
+    .toBeVisible();
+  expect(screen.getByText(/^Nothing waiting\./).elements()).toHaveLength(0);
 });

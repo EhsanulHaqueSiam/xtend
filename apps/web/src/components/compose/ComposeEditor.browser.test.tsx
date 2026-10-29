@@ -115,6 +115,11 @@ it("prices the thread before posting and posts it once however often Confirm is 
 const refusals: ReadonlyArray<readonly [string, Partial<Draft>, string | null]> = [
   ["an empty post in the thread", { blocks: [{ text: "one" }, { text: "  " }] }, "Post 2 is empty"],
   [
+    "a post over X's limit",
+    { blocks: [{ text: "one" }, { text: "x".repeat(281) }] },
+    "Post 2 is over 280 characters",
+  ],
+  [
     "a poll beside media on the first post",
     {
       poll: { options: ["yes", "no"], durationMinutes: 1440 },
@@ -371,4 +376,213 @@ it("saves the last keystrokes when the editor closes inside the autosave delay, 
     .toHaveTextContent("Failed: Compose update failed: database is locked");
   expect(backs).toEqual([]);
   await expect.element(screen.getByLabelText("Post 1")).toHaveValue("an edit the service refuses");
+});
+
+it("saves edits made while a save is running before it queues", async () => {
+  const order: Array<string> = [];
+  let release = () => {};
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  const row = draft("d1", "draft");
+  await using screen = await render(editor("d1"), {
+    service: {
+      ...editorService(() => [row]),
+      "compose.draftUpdate": ({ id, patch }) => {
+        order.push(`save ${patch.blocks?.[0]?.text}`);
+        return (order.length === 1 ? Effect.promise(() => gate) : Effect.void).pipe(
+          Effect.as(saved(id, patch)),
+        );
+      },
+      "plan.queue": ({ id }) => {
+        order.push("queue");
+        return Effect.succeed(draft(id, "queued", { scheduledAt: "2030-01-07T09:30:00.000Z" }));
+      },
+    },
+  });
+  await userEvent.fill(screen.getByLabelText("Post 1"), "first");
+  await expect.poll(() => order).toEqual(["save first"]);
+  await userEvent.fill(screen.getByLabelText("Post 1"), "first, then more");
+  await userEvent.click(screen.getByRole("button", { name: /^Queue/ }));
+  release();
+  await expect.poll(() => order).toEqual(["save first", "save first, then more", "queue"]);
+});
+
+it("holds back an article until its publish price is known", async () => {
+  const article = draft("a1", "draft", { kind: "article", title: "How I ship", body: "Daily." });
+  await using screen = await render(editor("a1"), {
+    service: { ...editorService(() => [article]), "compose.quote": () => Effect.never },
+  });
+  await expect.element(screen.getByLabelText("Title")).toHaveValue("How I ship");
+  await expect.element(screen.getByRole("button", { name: "Post now" })).toBeDisabled();
+  await expect.element(screen.getByRole("button", { name: /^Queue/ })).toBeDisabled();
+});
+
+const pasteInto = (target: HTMLElement, text: string) => {
+  const data = new DataTransfer();
+  data.setData("text/plain", text);
+  target.dispatchEvent(
+    new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }),
+  );
+};
+
+it("turns a post link pasted on its own line into the quote", async () => {
+  await using screen = await render(editor(), { service: editorService(() => []) });
+  const post = screen.getByLabelText("Post 1");
+  await expect.element(post).toBeEnabled();
+  pasteInto(post.element() as HTMLElement, "https://x.com/levelsio/status/99\n");
+  await expect
+    .element(screen.getByLabelText("Quote post link"))
+    .toHaveValue("https://x.com/levelsio/status/99");
+  await expect.element(post).toHaveValue("");
+});
+
+it("keeps the tools on a post as it moves, and focuses a post added below", async () => {
+  const row = draft("d1", "draft", { blocks: [{ text: "one" }, { text: "two" }] });
+  await using screen = await render(editor("d1"), { service: editorService(() => [row]) });
+  await userEvent.click(screen.getByLabelText("Post 1"));
+  await userEvent.click(screen.getByRole("button", { name: "Move down" }));
+  const second = screen.getByLabelText("Post 2");
+  await expect.element(second).toHaveValue("one");
+  await expect.element(second).toHaveFocus();
+  // The tools sit under the moved post, now last, so it cannot move further down.
+  await expect.element(screen.getByRole("button", { name: "Move down" })).toBeDisabled();
+
+  await userEvent.click(screen.getByRole("button", { name: "Add post below" }));
+  await expect.element(screen.getByLabelText("Post 3")).toHaveFocus();
+});
+
+it("unschedules a queued draft from its editor", async () => {
+  const unscheduled: Array<string> = [];
+  const sections: Array<string> = [];
+  const row = draft("d1", "queued", { scheduledAt: "2030-01-07T09:30:00.000Z" });
+  await using screen = await render(
+    <ComposeEditor
+      draftParam="d1"
+      inspire={undefined}
+      reply={undefined}
+      text={undefined}
+      onBack={() => {}}
+      onSection={(tab) => sections.push(tab)}
+    />,
+    {
+      service: {
+        ...editorService(() => [row]),
+        "plan.unschedule": ({ id }) => {
+          unscheduled.push(id);
+          return Effect.succeed(draft(id, "draft", { updatedAt: "2026-10-23T00:01:00.000Z" }));
+        },
+      },
+    },
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Unschedule" }));
+  await expect.element(screen.getByRole("status")).toHaveTextContent("Back in drafts");
+  expect(unscheduled).toEqual(["d1"]);
+  expect(sections).toEqual(["drafts"]);
+  await expect.element(screen.getByRole("button", { name: /^Queue/ })).toBeEnabled();
+});
+
+it("says why a draft could not load instead of loading forever", async () => {
+  await using screen = await render(editor("d1"), {
+    service: {
+      ...editorService(() => []),
+      "compose.draftsList": () =>
+        Effect.fail(new ComposeError({ operation: "list", detail: "database is locked" })),
+    },
+  });
+  await expect.element(screen.getByText("Compose list failed: database is locked")).toBeVisible();
+  expect(screen.getByText("Loading draft").elements()).toHaveLength(0);
+});
+
+it("saves a reply's target and links the post it answers on X", async () => {
+  const creates: Array<DraftPatch> = [];
+  await using screen = await render(
+    <ComposeEditor
+      draftParam={undefined}
+      inspire={undefined}
+      reply="1234"
+      text={undefined}
+      onBack={() => {}}
+      onSection={() => {}}
+    />,
+    {
+      service: {
+        ...editorService(() => []),
+        "library.getSavedPost": () =>
+          Effect.succeed({
+            id: 1,
+            post: xPost("1234", "What did you ship this week?"),
+            note: "",
+            savedAt: "2026-10-23T00:00:00.000Z",
+            collectionIds: [],
+          }),
+        "observations.listRecent": () => Effect.succeed({ posts: [] }),
+        "compose.draftCreate": (patch) => {
+          creates.push(patch);
+          return Effect.succeed(saved("d1", patch));
+        },
+      },
+    },
+  );
+  await expect.element(screen.getByText("Replying to @levelsio")).toBeVisible();
+  await expect
+    .element(screen.getByRole("link", { name: "Open on X" }))
+    .toHaveAttribute("href", "https://x.com/i/web/status/1234");
+  await userEvent.fill(screen.getByLabelText("Post 1"), "A parser and two tests.");
+  await expect.poll(() => creates.at(-1)?.replyToPostId).toBe("1234");
+});
+
+it("saves a poll and the delay between posts, and reopens with them", async () => {
+  let row: Draft | null = null;
+  const store = (patch: DraftPatch) => {
+    row = saved("d1", patch, {
+      poll: patch.poll ?? null,
+      threadDelaySeconds: patch.threadDelaySeconds ?? 0,
+    });
+    return Effect.succeed(row);
+  };
+  const service: FakeService = {
+    ...editorService(() => (row === null ? [] : [row])),
+    "compose.draftCreate": store,
+    "compose.draftUpdate": ({ patch }) => store(patch),
+  };
+  {
+    await using screen = await render(editor(), { service });
+    await userEvent.fill(screen.getByLabelText("Post 1"), "Which ships first?");
+    await userEvent.click(screen.getByText(/^Options/));
+    // Nothing removes a link card after posting, so the option stays off.
+    await expect
+      .element(screen.getByRole("checkbox", { name: /Hide link previews/ }))
+      .toBeDisabled();
+    await userEvent.click(screen.getByRole("checkbox", { name: "Poll on the first post" }));
+    await userEvent.fill(screen.getByPlaceholder("Option 1"), "web");
+    await userEvent.fill(screen.getByPlaceholder("Option 2"), "desktop");
+    await userEvent.selectOptions(screen.getByLabelText("Poll length"), "3 days");
+    await userEvent.fill(screen.getByRole("spinbutton"), "30");
+    await expect
+      .poll(() => row)
+      .toMatchObject({
+        poll: { options: ["web", "desktop"], durationMinutes: 4320 },
+        threadDelaySeconds: 30,
+      });
+  }
+  await using screen = await render(editor("d1"), { service });
+  // Reopened, the row also lists what is set: "poll · 30s apart".
+  await userEvent.click(screen.getByText(/^Options/));
+  await expect.element(screen.getByPlaceholder("Option 2")).toHaveValue("desktop");
+  await expect.element(screen.getByLabelText("Poll length")).toHaveValue("4320");
+  await expect.element(screen.getByRole("spinbutton")).toHaveValue(30);
+});
+
+it("puts a rewrite of the second post in the second post", async () => {
+  const row = draft("d1", "draft", { blocks: [{ text: "one" }, { text: "two" }] });
+  await using screen = await render(editor("d1"), {
+    service: {
+      ...editorService(() => [row]),
+      "compose.assistRewrite": ({ text }) => Effect.succeed({ variants: [`${text}, sharper`] }),
+    },
+  });
+  await userEvent.click(screen.getByLabelText("Post 2"));
+  await userEvent.click(screen.getByRole("button", { name: /^Rewrite/ }));
+  await userEvent.click(screen.getByRole("button", { name: "Use", exact: true }));
+  await expect.element(screen.getByLabelText("Post 2")).toHaveValue("two, sharper");
+  await expect.element(screen.getByLabelText("Post 1")).toHaveValue("one");
 });

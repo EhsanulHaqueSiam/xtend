@@ -1,4 +1,4 @@
-import type { DraftMedia } from "@xtend/contracts";
+import { charCount, type DraftMedia } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import { expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
@@ -8,7 +8,7 @@ import { paid, rates } from "../../../test/fixtures";
 import { render } from "../../../test/render";
 import { AssistPanel } from "./AssistPanel";
 import { QuoteCard, quotedPostId } from "./PostPreview";
-import { charCount, MediaList, postText, splitBlocks, ThreadEditor } from "./ThreadEditor";
+import { MediaList, postText, splitBlocks, ThreadEditor } from "./ThreadEditor";
 
 it("counts links as 23 characters, splits pasted paragraphs, reads quote links", () => {
   expect(charCount("hello")).toBe(5);
@@ -40,6 +40,7 @@ const editorProps = {
   quoteUrl: null,
   active: 0,
   avatar: "S",
+  onQuote: () => {},
   onFocus: () => {},
   onAddFiles: () => {},
   onMediaChange: () => {},
@@ -119,9 +120,9 @@ it("keeps a post's own text around a pasted thread and moves later posts' media 
   expect(onMediaChange).toHaveBeenLastCalledWith([{ ...later, blockIndex: 2 }]);
 });
 
-it("lists a block's media with alt text and removes one", async () => {
+it("lists a block's media, holds alt text it cannot send, and removes one", async () => {
   const media: ReadonlyArray<DraftMedia> = [
-    { id: "a", blockIndex: 0, path: "/m/cat.png", kind: "image", alt: "", position: 0 },
+    { id: "a", blockIndex: 0, path: "/m/cat.png", kind: "image", alt: "a cat", position: 0 },
     { id: "b", blockIndex: 0, path: "/m/clip.mp4", kind: "video", alt: "", position: 1 },
   ];
   const onChange = vi.fn();
@@ -131,10 +132,10 @@ it("lists a block's media with alt text and removes one", async () => {
   );
   await expect.element(screen.getByText("cat.png")).toBeVisible();
   await expect.element(screen.getByText("clip.mp4")).toBeVisible();
-  // Only images carry alt text.
+  // Only images carry alt text, and the session composer cannot hand it to X yet.
   expect(screen.getByLabelText("Alt text").elements()).toHaveLength(1);
-  await userEvent.fill(screen.getByLabelText("Alt text"), "a cat");
-  expect(onChange).toHaveBeenLastCalledWith([{ ...media[0], alt: "a cat" }, media[1]]);
+  await expect.element(screen.getByLabelText("Alt text")).toBeDisabled();
+  await expect.element(screen.getByLabelText("Alt text")).toHaveValue("a cat");
   await userEvent.click(screen.getByRole("button", { name: "Remove media" }).first());
   expect(onRemove).toHaveBeenCalledWith("a");
 });
@@ -180,6 +181,24 @@ it("prices every assist action before it runs, voice match with its read of the 
       ),
     );
     expect(quoted).toContain("userPosts");
+  }
+  {
+    // Until the price is known no assist runs, from a button or the topic box's Enter.
+    const asked: Array<string> = [];
+    await using screen = await render(panel("siamships"), {
+      service: {
+        "costs.quote": () => Effect.never,
+        "compose.assistThreadIdeas": ({ topic }) => {
+          asked.push(topic);
+          return Effect.succeed({ outlines: [] });
+        },
+      },
+    });
+    await expect.element(screen.getByRole("button", { name: /^Improve hook/ })).toBeDisabled();
+    await expect.element(screen.getByRole("button", { name: /^Voice match/ })).toBeDisabled();
+    await userEvent.type(screen.getByLabelText("Topic for thread ideas"), "pricing{Enter}");
+    await expect.element(screen.getByRole("button", { name: /^Ideas/ })).toBeDisabled();
+    expect(asked).toEqual([]);
   }
   quoted.length = 0;
   // Without a handle voice match reads nothing from X.

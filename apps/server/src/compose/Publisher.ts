@@ -1,8 +1,10 @@
 import {
+  charCount,
   ComposeError,
   type DesktopUnavailableError,
   type Draft,
   hasLink,
+  POST_LIMIT,
   type XApiError,
   XId,
 } from "@xtend/contracts";
@@ -15,7 +17,6 @@ import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
-import * as SettingsStore from "../settings/SettingsStore.ts";
 import * as XClient from "../x/XClient.ts";
 import * as Articles from "./Articles.ts";
 import * as DraftStore from "./DraftStore.ts";
@@ -67,6 +68,8 @@ const refusal = (draft: Draft): string | null => {
   if (draft.blocks.length === 0 || (blank !== -1 && draft.blocks.length === 1))
     return "Nothing to post";
   if (blank !== -1) return `Post ${blank + 1} is empty`;
+  const long = draft.blocks.findIndex((_, i) => charCount(blockText(draft, i)) > POST_LIMIT);
+  if (long !== -1) return `Post ${long + 1} is over ${POST_LIMIT} characters`;
   // Media goes out through the x.com session with X's default reply setting; a limit would not hold.
   const limited = draft.blocks.findIndex(
     (b, i) => hasMedia(i) && (b.replySettings ?? draft.replySettings) !== "everyone",
@@ -101,7 +104,6 @@ const make = Effect.gen(function* () {
   const drafts = yield* DraftStore.DraftStore;
   const session = yield* SessionPosting.SessionPosting;
   const articles = yield* Articles.Articles;
-  const settings = yield* SettingsStore.SettingsStore;
 
   const postBlocks = Effect.fn("Publisher.postBlocks")(function* (draft: Draft, purpose: string) {
     const ids = [...draft.postIds];
@@ -162,23 +164,12 @@ const make = Effect.gen(function* () {
     return [postId];
   });
 
-  /**
-   * X's API cannot drop a link card, so the desktop does it in the session after posting.
-   * shortcut: today the desktop only opens the post; removing the card is a TODO on the desktop side.
-   */
-  const hidePreview = Effect.fn("Publisher.hidePreview")(function* (draft: Draft, postId: string) {
-    if (!draft.hideLinkPreviews || !draft.blocks.some((_, i) => hasLink(blockText(draft, i))))
-      return null;
-    const enabled = yield* settings.get.pipe(
-      Effect.map((s) => s.sessionPostingEnabled),
-      Effect.orElseSucceed(() => false),
-    );
-    if (!enabled) return "Hide link preview not applied: Session actions are off in Settings";
-    return yield* session.navigate(`https://x.com/i/web/status/${postId}`).pipe(
-      Effect.map(() => "Link card removal requested through your x.com session"),
-      Effect.catch((e) => Effect.succeed(`Hide link preview not applied: ${e.message}`)),
-    );
-  });
+  // X's API cannot drop a link card and nothing removes one after posting, so a draft that
+  // asked for it (before the editor stopped offering it) is told it was kept.
+  const hidePreview = (draft: Draft) =>
+    draft.hideLinkPreviews && draft.blocks.some((_, i) => hasLink(blockText(draft, i)))
+      ? "Link preview kept: Xtend cannot hide it yet"
+      : null;
 
   const publish = Effect.fn("Publisher.publish")(function* (
     id: string,
@@ -214,7 +205,7 @@ const make = Effect.gen(function* () {
         error: null,
         attempts: attempt,
         postedAt: DateTime.formatIso(now),
-        linkPreviewNote: yield* hidePreview(draft, result.ids[0] ?? ""),
+        linkPreviewNote: hidePreview(draft),
       });
     const requeue = options.retry && result.retryable && attempt < MAX_ATTEMPTS;
     return yield* drafts.setOutcome(draft.id, {
