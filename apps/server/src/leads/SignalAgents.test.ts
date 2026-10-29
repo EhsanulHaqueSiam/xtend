@@ -226,4 +226,19 @@ describe("SignalAgents", () => {
       expect(error).toMatchObject({ _tag: "LeadsError", detail: "agent 999 not found" });
     }).pipe(Effect.provide(layerTest)),
   );
+
+  it.effect("lists only the current account's agents", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const agents = yield* SignalAgents.SignalAgents;
+      const switchTo = (id: number) =>
+        sql`UPDATE settings SET current_account_id = ${id} WHERE id = 1`;
+      yield* agents.upsert(agentInput({ name: "Mine" }));
+      yield* switchTo(2);
+      yield* agents.upsert(agentInput({ name: "Theirs" }));
+      expect((yield* agents.list).map((a) => a.name)).toEqual(["Theirs"]);
+      yield* switchTo(1);
+      expect((yield* agents.list).map((a) => a.name)).toEqual(["Mine"]);
+    }).pipe(Effect.provide(layerTest)),
+  );
 });

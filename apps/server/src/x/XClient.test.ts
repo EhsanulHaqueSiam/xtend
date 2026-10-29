@@ -72,6 +72,21 @@ const answering = (bodies: Record<string, unknown>) =>
     ),
   );
 
+/** An XClient over a treg that records each call and answers it with an empty body. */
+const recording = (calls: Array<Treg.TregCall>) =>
+  Layer.effect(XClient.XClient, XClient.make).pipe(
+    Layer.provide(
+      Layer.succeed(Treg.Treg)({
+        isCached: () => Effect.succeed(false),
+        call: (input) =>
+          Effect.sync(() => {
+            calls.push(input);
+            return { status: 200, cached: false, costUsd: 0, body: {} };
+          }),
+      }),
+    ),
+  );
+
 const row = (id: string, extra: Record<string, unknown>) => ({
   id,
   text: "hello",
@@ -169,6 +184,39 @@ describe("XClient", () => {
     }),
   );
 
+  it.effect("sends a DM into the recipient's conversation with the text as the message", () => {
+    const calls: Array<Treg.TregCall> = [];
+    return Effect.gen(function* () {
+      const x = yield* XClient.XClient;
+      yield* x.sendDm("123", "private message", "test");
+      expect(calls).toMatchObject([
+        {
+          endpoint: "x/2/dm_conversations/with/123/messages",
+          method: "POST",
+          body: { text: "private message" },
+        },
+      ]);
+    }).pipe(Effect.provide(recording(calls)));
+  });
+
+  it.effect("reserves X's $0.015 DM rate for a DM", () => {
+    const calls: Array<Treg.TregCall> = [];
+    return Effect.gen(function* () {
+      const x = yield* XClient.XClient;
+      yield* x.sendDm("123", "hi", "test");
+      expect(calls.map((c) => c.expectedCostUsd)).toEqual([0.015]);
+    }).pipe(Effect.provide(recording(calls)));
+  });
+
+  it.effect("bills a search to the screen that asked for it", () => {
+    const calls: Array<Treg.TregCall> = [];
+    return Effect.gen(function* () {
+      const x = yield* XClient.XClient;
+      yield* x.searchPosts("rust", { purpose: "leads.agent.Rustaceans" });
+      expect(calls.map((c) => c.purpose)).toEqual(["leads.agent.Rustaceans"]);
+    }).pipe(Effect.provide(recording(calls)));
+  });
+
   it("prices a post with a link at X's URL rate, but not one that merely names Node.js", () => {
     expect(XClient.postCostUsd("plain text")).toBe(0.015);
     expect(XClient.postCostUsd("see xtend.app")).toBe(0.2);
@@ -244,5 +292,24 @@ describe("XClient cache probes", () => {
         // A second click straight after is served from what the first one paid for.
         expect((yield* x.followers("siam", { purpose: "test", fresh: true })).fromCache).toBe(true);
       }).pipe(Effect.provide(layerCache)),
+  );
+});
+
+describe("XClient posting under the budget", () => {
+  it.effect("refuses a post the budget cannot cover at its real price, before calling treg", () =>
+    Effect.gen(function* () {
+      const settings = yield* SettingsStore.SettingsStore;
+      const x = yield* XClient.XClient;
+      const refusal = (text: string, monthlyBudgetUsd: number) =>
+        Effect.andThen(
+          settings.update({ tregToken: "trg_a", monthlyBudgetUsd }),
+          Effect.flip(x.createPost({ text, purpose: "test" })),
+        );
+      httpPaths.length = 0;
+      // Under X's $0.015 post rate; then over it but under the $0.20 link rate.
+      expect((yield* refusal("plain words", 0.01)).reason).toBe("budget");
+      expect((yield* refusal("read https://xtend.app", 0.1)).reason).toBe("budget");
+      expect(httpPaths).toEqual([]);
+    }).pipe(Effect.provide(layerCache)),
   );
 });

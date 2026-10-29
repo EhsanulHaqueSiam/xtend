@@ -189,6 +189,18 @@ describe("Scheduler", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
+  it.effect("Run now refuses a draft that was never queued and leaves it unposted", () =>
+    Effect.gen(function* () {
+      calls.length = 0;
+      const drafts = yield* DraftStore.DraftStore;
+      const scheduler = yield* Scheduler.Scheduler;
+      const d = yield* drafts.create({ blocks: [{ text: "not yet" }] });
+      expect((yield* Effect.flip(scheduler.runNow(d.id))).detail).toBe("Draft is draft");
+      expect((yield* drafts.get(d.id)).status).toBe("draft");
+      expect(calls).toEqual([]);
+    }).pipe(Effect.provide(layerTest)),
+  );
+
   it.effect("schedule stores any ISO time as UTC, so an offset time falls due on time", () =>
     Effect.gen(function* () {
       const drafts = yield* DraftStore.DraftStore;

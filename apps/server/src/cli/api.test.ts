@@ -33,4 +33,26 @@ describe("cli Api", () => {
       expect(error.detail).toBe("spend.summary failed (401): unauthorized");
     }).pipe(Effect.provide(answering(401, "unauthorized"))),
   );
+
+  it.effect("sends the configured service token as the bearer credential", () => {
+    const sent: Array<string | undefined> = [];
+    return Effect.gen(function* () {
+      const api = yield* Api.Api;
+      yield* api.call("spend.summary", {});
+      expect(sent).toEqual(["Bearer svc_7f3a"]);
+    }).pipe(
+      Effect.provide(
+        Api.layer({ url: "http://127.0.0.1:4820", token: "svc_7f3a" }).pipe(
+          Layer.provide(
+            Layer.succeed(HttpClient.HttpClient)(
+              HttpClient.make((request) => {
+                sent.push(request.headers["authorization"]);
+                return Effect.succeed(HttpClientResponse.fromWeb(request, new Response("{}")));
+              }),
+            ),
+          ),
+        ),
+      ),
+    );
+  });
 });

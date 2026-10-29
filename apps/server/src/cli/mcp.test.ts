@@ -91,3 +91,24 @@ it("reports a handle typed with its @", async () => {
   );
   expect(calls).toEqual([["scores.report", { handle: "levelsio" }]]);
 });
+
+it("queue_post queues the draft it just created", async () => {
+  const calls: Array<[string, unknown]> = [];
+  const call = (method: string, payload: unknown) => {
+    calls.push([method, payload]);
+    return Promise.resolve(method === "compose.draftCreate" ? { id: "draft_7f3a" } : {});
+  };
+  await handleMcpMessage(
+    {
+      jsonrpc: "2.0",
+      id: 12,
+      method: "tools/call",
+      params: { name: "queue_post", arguments: { text: "ship it" } },
+    },
+    call,
+  );
+  expect(calls).toEqual([
+    ["compose.draftCreate", { blocks: [{ text: "ship it" }] }],
+    ["plan.queue", { id: "draft_7f3a" }],
+  ]);
+});
