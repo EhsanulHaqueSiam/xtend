@@ -687,6 +687,44 @@ describe("AutomationEngine", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
+  it.live(
+    "settles legacy approvals without acting or firing, and queues a fresh message preview",
+    () =>
+      Effect.gen(function* () {
+        const { rules, engine } = yield* setup;
+        const rule = yield* rules.upsert(
+          likeRule({
+            askFirst: true,
+            action: { kind: "auto_plug", text: "Original message" },
+          }),
+        );
+        const request = yield* rules.createPending({
+          ruleId: rule.id,
+          subject: { id: "fresh", postId: "fresh", description: "own post fresh" },
+          description: "reply to fresh",
+          costUsd: 0.015,
+        });
+        yield* rules.upsert({ ...rule, action: { kind: "auto_plug", text: "Edited message" } });
+        // Approve all goes through the same service operation for each queued request.
+        for (const pending of yield* rules.pendingList) {
+          const run = yield* engine.approve(pending.id);
+          expect(run.status).toBe("skipped");
+          expect(run.costUsd).toBe(0);
+          expect(run.detail).toContain("run the rule again");
+          expect((yield* rules.pending(pending.id)).status).toBe("approved");
+        }
+        expect(messages).toEqual([]);
+        expect((yield* rules.firedSubjects(rule.id)).has(request.subjectId)).toBe(false);
+        expect(yield* rules.pendingList).toEqual([]);
+        yield* engine.runRule(rule.id);
+        const fresh = (yield* rules.pendingList)[0]!;
+        expect(fresh.id).not.toBe(request.id);
+        expect(fresh.preview?.message).toBe("Edited message");
+        yield* engine.approve(fresh.id);
+        expect(messages).toEqual([{ kind: "reply", target: "fresh", text: "Edited message" }]);
+      }).pipe(Effect.provide(layerTest)),
+  );
+
   it.live("resolves local list and target names without charging for a preview", () =>
     Effect.gen(function* () {
       const { rules, engine } = yield* setup;

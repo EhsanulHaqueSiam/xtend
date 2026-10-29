@@ -993,9 +993,9 @@ const make = Effect.gen(function* () {
           cause: null,
         });
       const rule = yield* rules.get(request.ruleId);
-      // An edited rule must ask again; this click approved the stored action and message.
+      // Approval needs a saved action and message, including for queues from older versions.
       const changed =
-        request.subject.approval !== undefined &&
+        request.subject.approval === undefined ||
         !sameAction(rule.action, request.subject.approval.action);
       const missingTargets =
         rule.action.kind === "auto_delete" &&
@@ -1005,9 +1005,12 @@ const make = Effect.gen(function* () {
             ruleId: rule.id,
             subjectId: request.subjectId,
             status: "skipped",
-            detail: missingTargets
-              ? "deletion targets were not saved; run the rule again to review them"
-              : "rule action changed; run the rule again to review it",
+            detail:
+              request.subject.approval === undefined
+                ? "approval snapshot missing; run the rule again to review it"
+                : missingTargets
+                  ? "deletion targets were not saved; run the rule again to review them"
+                  : "rule action changed; run the rule again to review it",
             costUsd: 0,
           })
         : fire(rule, request.subject, request.costUsd);
