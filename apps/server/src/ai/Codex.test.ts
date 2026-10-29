@@ -14,6 +14,8 @@ describe("Codex", () => {
       "/t/s.json",
       "--output-last-message",
       "/t/a.json",
+      "-c",
+      "mcp_servers={}",
       "-",
     ]);
     expect(codexArgs({ model: "m1", schemaPath: "s", outPath: "a" })).toContain("--model");
@@ -41,27 +43,29 @@ describe("Codex", () => {
     });
   });
 
-  it("keeps the login and model provider, and drops MCP servers and hooks", () => {
+  it("keeps only the model keys and provider sections; inline tables and dotted keys stay out", () => {
     const toml = [
       'model_provider = "p"',
+      'mcp_servers = { treg = { url = "https://example.test" } }',
+      "hooks.state.enabled = true",
       "[tui]",
       "x = 1",
       "[hooks.state]",
       "a = 1",
-      '[hooks.state."f:pre_tool_use:0:0"]',
-      "enabled = true",
       "[mcp_servers.treg]",
       'url = "https://example.test"',
       "[model_providers.p]",
       'base_url = "https://p.test/v1"',
+      "[model_providers.p.extra]",
+      "y = 2",
     ].join("\n");
     expect(isolatedConfig(toml)).toBe(
       [
         'model_provider = "p"',
-        "[tui]",
-        "x = 1",
         "[model_providers.p]",
         'base_url = "https://p.test/v1"',
+        "[model_providers.p.extra]",
+        "y = 2",
       ].join("\n"),
     );
   });

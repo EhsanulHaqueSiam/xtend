@@ -32,6 +32,8 @@ export const codexArgs = (input: {
   input.schemaPath,
   "--output-last-message",
   input.outPath,
+  "-c",
+  "mcp_servers={}",
   ...(input.model === "" ? [] : ["--model", input.model]),
   "-",
 ];
@@ -52,18 +54,24 @@ export const strictSchema = (node: unknown): unknown => {
 };
 
 /**
- * The user's Codex config without its MCP servers and hooks: the prompt carries text from
- * strangers' posts, so the run gets no tool a stranger could point at the machine. Table
- * headers open each TOML section; the login and model provider sections stay.
+ * The user's Codex config reduced to what a model call needs: the model keys at the top and the
+ * model provider sections. An allowlist, so MCP servers, hooks and anything new never come
+ * along; the prompt carries text from strangers' posts.
  */
 export const isolatedConfig = (toml: string) => {
-  let keep = true;
+  let inProvider = false;
+  let top = true;
   return toml
     .split("\n")
     .filter((line) => {
-      const header = /^\s*\[+\s*([^\]\s.]+)/.exec(line);
-      if (header !== null) keep = !/^(mcp_servers|hooks)$/.test(header[1]!);
-      return keep;
+      const header = /^\s*\[+\s*([^\]]*?)\s*\]+/.exec(line);
+      if (header !== null) {
+        top = false;
+        inProvider = /^model_providers(\.|$)/.test(header[1]!);
+        return inProvider;
+      }
+      if (top) return /^\s*(model|model_provider|model_reasoning_effort)\s*=/.test(line);
+      return inProvider;
     })
     .join("\n");
 };
@@ -101,8 +109,8 @@ export const complete = Effect.fn("Codex.complete")(function* (input: {
     yield* fs.writeFileString(path.join(home, "config.toml"), isolatedConfig(config));
     const codex = yield* ChildProcess.make("codex", codexArgs({ ...input, schemaPath, outPath }), {
       cwd: dir,
-      env: { CODEX_HOME: home },
-      extendEnv: true,
+      // Only what the CLI needs to find itself and its login; the service's own secrets stay out.
+      env: { PATH: process.env.PATH, HOME: process.env.HOME, CODEX_HOME: home },
       stdin: Stream.make(new TextEncoder().encode(`${input.system}\n\n${input.prompt}`)),
       stdout: "ignore",
     });
