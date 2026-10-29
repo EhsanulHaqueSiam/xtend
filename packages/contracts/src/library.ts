@@ -68,7 +68,11 @@ export const LibraryPost = Schema.Struct({
 });
 export type LibraryPost = typeof LibraryPost.Type;
 
+/** The archive's orders; the service sorts before its 200-row cap, so each one reads the whole archive. */
+export const LibrarySort = Schema.Literals(["views", "er", "newest"]);
+
 export const LibraryFilters = Schema.Struct({
+  sort: Schema.optional(LibrarySort),
   minViews: Schema.optional(NonNegativeInt),
   format: Schema.optional(PostFormat),
   year: Schema.optional(Schema.Int),
@@ -116,6 +120,7 @@ export const Library_METHODS = {
   search: "library.search",
   save: "library.save",
   savedList: "library.savedList",
+  savedIds: "library.savedIds",
   savedSetNote: "library.savedSetNote",
   savedDelete: "library.savedDelete",
   getSavedPost: "library.getSavedPost",
@@ -177,6 +182,12 @@ export const LibraryRpcGroup = RpcGroup.make(
       query: Schema.optional(Schema.String),
     }),
     success: Schema.Array(SavedPost),
+    error: LibraryError,
+  }),
+  /** Every saved post's X id, for the Saved mark on cards; the swipe file lists only the latest 200. */
+  Rpc.make(Library_METHODS.savedIds, {
+    payload: Schema.Struct({}),
+    success: Schema.Array(XId),
     error: LibraryError,
   }),
   Rpc.make(Library_METHODS.savedSetNote, {

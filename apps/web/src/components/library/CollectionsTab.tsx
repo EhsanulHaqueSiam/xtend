@@ -31,17 +31,19 @@ import { ErrorLine, causeMessage, errorMessage } from "./shared";
 
 /**
  * The selected saved post: its note, more collections, remix, remove. Remove in a collection
- * takes it out of that one; in the swipe file it deletes the saved post everywhere.
+ * takes it out of that one; in the swipe file it is Delete saved post, everywhere, after a confirm.
  */
 function SavedInspector({
   saved,
   collection,
   onChange,
+  onRemoved,
   onClose,
 }: {
   readonly saved: SavedPost;
   readonly collection: Collection | undefined;
   readonly onChange: () => void;
+  readonly onRemoved: () => void;
   readonly onClose: () => void;
 }) {
   const setNote = useAtomSet(setNoteAtom, { mode: "promise" });
@@ -73,18 +75,22 @@ function SavedInspector({
                   ? "Delete from the swipe file and every collection"
                   : `Take out of ${collection.name}; it stays in the swipe file`
               }
-              onClick={() =>
+              onClick={() => {
+                if (
+                  collection === undefined &&
+                  !window.confirm(
+                    "Delete this saved post? Its note goes with it, and it leaves every collection.",
+                  )
+                )
+                  return;
                 void (
                   collection === undefined
                     ? remove(saved.id)
                     : unlink({ collectionId: collection.id, savedId: saved.id })
-                ).then(() => {
-                  onClose();
-                  onChange();
-                }, fail)
-              }
+                ).then(onRemoved, fail);
+              }}
             >
-              <Trash2 /> Remove
+              <Trash2 /> {collection === undefined ? "Delete saved post" : "Remove"}
             </button>
           )}
         </div>
@@ -120,7 +126,11 @@ export function SavedPosts({
   readonly empty: ReactNode;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
-  const rows = AsyncResult.getOrElse(result, (): ReadonlyArray<SavedPost> => []);
+  // A removed post leaves at once, so the grid can hand focus to its neighbour before the refetch.
+  const [removed, setRemoved] = useState<ReadonlySet<number>>(new Set());
+  const rows = AsyncResult.getOrElse(result, (): ReadonlyArray<SavedPost> => []).filter(
+    (s) => !removed.has(s.id),
+  );
   const open = rows.find((s) => String(s.id) === selected);
   return (
     <DetailSplit
@@ -134,6 +144,11 @@ export function SavedPosts({
             saved={open}
             collection={collection}
             onChange={onChange}
+            onRemoved={() => {
+              setRemoved(new Set(removed).add(open.id));
+              setSelected(null);
+              onChange();
+            }}
             onClose={() => setSelected(null)}
           />
         )
@@ -141,12 +156,12 @@ export function SavedPosts({
       list={AsyncResult.match(result, {
         onInitial: () => <Empty>Loading saved posts</Empty>,
         onFailure: (f) => <ErrorLine className="py-4">{causeMessage(f.cause)}</ErrorLine>,
-        onSuccess: ({ value }) =>
-          value.length === 0 ? (
+        onSuccess: () =>
+          rows.length === 0 ? (
             empty
           ) : (
             <PostGrid
-              items={value.map((s) => ({
+              items={rows.map((s) => ({
                 key: String(s.id),
                 post: s.post,
                 tag: `saved ${fmtDay(s.savedAt)}`,

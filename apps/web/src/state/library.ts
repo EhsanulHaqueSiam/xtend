@@ -37,6 +37,18 @@ export const swipeFileAtom = Atom.family((query: string) =>
   ),
 );
 
+/**
+ * Every saved post's X id, for the Saved mark: the swipe file lists only the latest 200. Read
+ * after the swipe file, so whatever refreshes that after a save or delete refreshes this too.
+ */
+export const savedIdsAtom = clientRuntime.atom((get) =>
+  Effect.gen(function* () {
+    get(swipeFileAtom(""));
+    const client = yield* XtendClient;
+    return yield* client[Library_METHODS.savedIds]({});
+  }),
+);
+
 /** One saved post by X id; Compose reads the inspiration it was opened with. */
 export const savedPostAtom = Atom.family((postId: string) =>
   clientRuntime.atom(

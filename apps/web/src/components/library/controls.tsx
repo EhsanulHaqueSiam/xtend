@@ -80,7 +80,7 @@ const sortValue = (post: XPost, key: SortKey) =>
       ? (engagement(post.metrics) ?? -1)
       : Date.parse(post.createdAt);
 
-/** A sorted copy; the lists are bounded by the service (a day's picks, 200 archive rows). */
+/** A sorted copy, for a day's picks; the archive is sorted by the service before its cap. */
 export const sortItems = <T,>(
   items: ReadonlyArray<T>,
   postOf: (item: T) => XPost,
@@ -120,7 +120,7 @@ export function SortMenu({
 
 /**
  * "Search X" in a section's header, priced as you type. Submitting opens the
- * Search section with the query, which runs it. The `s` hotkey focuses it.
+ * Search section with the query, where the priced click runs it. The `s` hotkey focuses it.
  */
 export function SearchXField() {
   const navigate = useNavigate();

@@ -57,6 +57,7 @@ export const layerHandlers = LibraryRpcGroup.toLayer(
       [Library_METHODS.search]: (input) => library.search(input),
       [Library_METHODS.save]: (input) => store.save(input),
       [Library_METHODS.savedList]: (input) => store.savedList(input),
+      [Library_METHODS.savedIds]: () => store.savedIds,
       [Library_METHODS.savedSetNote]: ({ id, note }) => store.savedSetNote(id, note),
       [Library_METHODS.savedDelete]: ({ id }) => store.savedDelete(id),
       [Library_METHODS.getSavedPost]: ({ postId }) => store.getSavedPost(postId),

@@ -1,6 +1,6 @@
 import type { XPost } from "@xtend/contracts";
 import { ArrowUpRight } from "lucide-react";
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 
 import { draggedPost, POST_TYPE } from "../../lib/drag";
 import { cn } from "../../lib/utils";
@@ -139,8 +139,23 @@ export function PostGrid({
   readonly className?: string;
 }) {
   const saved = useSavedIds();
+  const grid = useRef<HTMLDivElement>(null);
+  // The open card, so closing its inspector can hand focus back: at panel width the column
+  // covers the grid, and closing it leaves focus nowhere.
+  const open = useRef<{ readonly key: string; readonly index: number } | null>(null);
+  useEffect(() => {
+    const closed = open.current;
+    const index = items.findIndex((i) => i.key === selected);
+    open.current = selected === null || index === -1 ? null : { key: selected, index };
+    // Only a close that dropped focus: never pull it from wherever the user moved it.
+    if (selected !== null || closed === null || document.activeElement !== document.body) return;
+    const at = items.findIndex((i) => i.key === closed.key);
+    const cards = grid.current?.querySelectorAll<HTMLElement>(":scope > article > button");
+    // Removed along with its inspector: the card that took its place.
+    cards?.[at === -1 ? Math.min(closed.index, items.length - 1) : at]?.focus();
+  });
   return (
-    <div className={cn("columns-[15rem] gap-3 px-6 py-5", className)}>
+    <div ref={grid} className={cn("columns-[15rem] gap-3 px-6 py-5", className)}>
       {items.map((item) => (
         <PostCard
           key={item.key}

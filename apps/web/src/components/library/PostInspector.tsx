@@ -48,7 +48,8 @@ export function DraftBlock({ children }: { readonly children: ReactNode }) {
 /**
  * The selected post in the grid's detail column (`DetailSplit`, closable):
  * author, the full text, the section's own groups (`children`), then every
- * number. Escape or the cross closes it.
+ * number. Escape or the cross closes it. It opens with focus on the cross;
+ * `PostGrid` hands focus back to the card on close.
  */
 export function PostInspector({
   post,
@@ -106,9 +107,11 @@ export function PostInspector({
         <XLink href={post.url} label="Open on X" className={cn(xIconButton, "size-7")}>
           <ArrowUpRight />
         </XLink>
+        {/* At panel width the column covers the grid, and the clicked card's focus with it. */}
         <button
           type="button"
           aria-label="Close"
+          autoFocus
           className={cn(xIconButton, "size-7")}
           onClick={onClose}
         >

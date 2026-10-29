@@ -1,7 +1,7 @@
-import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
+import { RegistryContext, useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import type { PoolTrends, TrendIdea } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { useState } from "react";
+import { useContext, useState } from "react";
 import { TextMorph } from "torph/react";
 
 import { fmtWhen } from "../../lib/time";
@@ -177,25 +177,24 @@ function PoolSection() {
   );
 }
 
-/** A country's trends, and post ideas the model ties to the ones that fit the user's keywords. */
-export function TrendsTab() {
-  const [country, setCountry] = useState<string>(TREND_COUNTRIES[0]);
-  const trendsQuote = useQuoteLabel({ kind: "trending", country });
+/**
+ * Post ideas for one loaded country. Keyed by it, so another country starts empty and a
+ * generation still out for the last one has nowhere to land.
+ */
+function Ideas({ country }: { readonly country: string }) {
+  // Ideas read the country's trends again once the 30-minute cache has gone.
+  const ideasQuote = useQuoteLabel({ kind: "trending", country });
   const assistQuote = useQuoteLabel({ kind: "assist" });
-  const [applied, setApplied] = useState<string | null>(null);
-  // Ideas read the loaded country's trends again once the 30-minute cache has gone.
-  const ideasQuote = useQuoteLabel({ kind: "trending", country: applied ?? country });
   const ideasFor = useAtomSet(trendIdeasAtom, { mode: "promise" });
   const [ideas, setIdeas] = useState<ReadonlyArray<TrendIdea> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const generate = async () => {
-    if (applied === null) return;
     setBusy(true);
     setError(null);
     try {
-      setIdeas(await ideasFor(applied));
+      setIdeas(await ideasFor(country));
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -203,21 +202,50 @@ export function TrendsTab() {
     }
   };
 
+  return (
+    <section className="px-6 py-4">
+      <div className="mb-1 flex items-center justify-between gap-3">
+        <h2 className="text-[12.5px] font-semibold text-foreground/80">Post ideas</h2>
+        <button
+          type="button"
+          className={button}
+          disabled={busy || ideasQuote === "…" || assistQuote === "…"}
+          onClick={() => void generate()}
+        >
+          {busy ? "Writing" : ideas === null ? "Write 5 ideas" : "Write 5 more"}
+          <Cost label={`${ideasQuote} + ${assistQuote}`} />
+        </button>
+      </div>
+      {error !== null ? <ErrorLine className="px-0">{error}</ErrorLine> : null}
+      {ideas === null ? (
+        <p className="py-6 text-sm text-muted-foreground">
+          Five posts tied to the trends that fit your keywords.
+        </p>
+      ) : (
+        <ul>
+          {ideas.map((idea) => (
+            <IdeaRow key={`${idea.trend}:${idea.angle}`} idea={idea} />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/** A country's trends, and post ideas the model ties to the ones that fit the user's keywords. */
+export function TrendsTab() {
+  const [country, setCountry] = useState<string>(TREND_COUNTRIES[0]);
+  const trendsQuote = useQuoteLabel({ kind: "trending", country });
+  const [applied, setApplied] = useState<string | null>(null);
+  const registry = useContext(RegistryContext);
+  // Load on the country already shown refetches it: a failed or stale load has no other retry.
+  const onLoad = () =>
+    applied === country ? registry.refresh(trendsAtom(country)) : setApplied(country);
+
   const load = (
-    <button type="button" className={button} onClick={() => setApplied(country)}>
+    <button type="button" className={button} disabled={trendsQuote === "…"} onClick={onLoad}>
       Load trends
       <Cost label={trendsQuote} />
-    </button>
-  );
-  const ideasButton = (
-    <button
-      type="button"
-      className={button}
-      disabled={busy || applied === null}
-      onClick={() => void generate()}
-    >
-      {busy ? "Writing" : ideas === null ? "Write 5 ideas" : "Write 5 more"}
-      <Cost label={`${ideasQuote} + ${assistQuote}`} />
     </button>
   );
 
@@ -242,24 +270,7 @@ export function TrendsTab() {
             <div className="border-b border-border py-2 @min-[52rem]:border-r @min-[52rem]:border-b-0">
               <TrendList country={applied} />
             </div>
-            <section className="px-6 py-4">
-              <div className="mb-1 flex items-center justify-between gap-3">
-                <h2 className="text-[12.5px] font-semibold text-foreground/80">Post ideas</h2>
-                {ideasButton}
-              </div>
-              {error !== null ? <ErrorLine className="px-0">{error}</ErrorLine> : null}
-              {ideas === null ? (
-                <p className="py-6 text-sm text-muted-foreground">
-                  Five posts tied to the trends that fit your keywords.
-                </p>
-              ) : (
-                <ul>
-                  {ideas.map((idea) => (
-                    <IdeaRow key={`${idea.trend}:${idea.angle}`} idea={idea} />
-                  ))}
-                </ul>
-              )}
-            </section>
+            <Ideas key={applied} country={applied} />
           </div>
         )}
       </PageBody>
