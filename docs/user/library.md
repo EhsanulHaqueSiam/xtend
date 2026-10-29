@@ -61,8 +61,8 @@ before. The line over them says how many posts and installs it holds and when it
 It reads the same with your own sharing off (see [Settings](./settings.md)).
 
 Under it, X's trending topics by country through treg, cached for 30 minutes, with post ideas
-the model ties to the trends that fit your keywords. The country list is the same one Scores'
-Trending uses. Nothing loads until you click **Load trends**, since the read is paid.
+the model ties to the trends that fit your keywords. Nothing loads until you click
+**Load trends**, since the read is paid.
 
 ## Collections and Swipe file
 
