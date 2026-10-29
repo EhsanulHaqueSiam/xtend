@@ -8,12 +8,12 @@ import { cn } from "../../lib/utils";
 import { rulesAtom, runsAtom } from "../../state/automate";
 import { usd } from "../../state/costs";
 import { errorText, when } from "../analyze/ui";
-import { compactInputClass } from "../ui/field";
 import { HeaderTabs, PageHeader } from "../PageHeader";
 import { sectionHref } from "../shell/sections";
 import { Button } from "../ui/button";
 import { Empty, PageBody, table } from "../ui/layout";
 import { statusLabel, statusTone } from "./describe";
+import { Select } from "../ui/select";
 
 type StatusFilter = RuleRunStatus | "all";
 
@@ -88,19 +88,17 @@ function RunsLog({
         tabs={<HeaderTabs label="Status" tabs={tabs} value={status} onChange={setStatus} />}
         detail={`${shown.length} runs · ${usd(total)}`}
         actions={
-          <select
-            aria-label="Rule"
-            className={cn(compactInputClass, "w-36")}
-            value={ruleId ?? ""}
-            onChange={(e) => setRuleId(e.target.value === "" ? null : Number(e.target.value))}
-          >
-            <option value="">All rules</option>
-            {rules.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name}
-              </option>
-            ))}
-          </select>
+          <Select
+            compact
+            label="Rule"
+            className="w-36"
+            value={ruleId}
+            onChange={setRuleId}
+            options={[
+              { value: null, label: "All rules" },
+              ...rules.map((r) => ({ value: r.id, label: r.name })),
+            ]}
+          />
         }
       />
       <PageBody className="@container">
