@@ -141,7 +141,10 @@ export function Competitors({ data }: { readonly data: AnalyzeData }) {
         ),
         onSuccess: ({ value }) =>
           value.length === 0 ? (
-            <Empty>No handles watched. Watching is free; the list is shared with Scores.</Empty>
+            <Empty>
+              Watch a handle above to compare its followers, posting and views with yours. Watching
+              is free and shared with Scores; each fetch is priced on its row.
+            </Empty>
           ) : (
             <table className={table.root}>
               <thead>
