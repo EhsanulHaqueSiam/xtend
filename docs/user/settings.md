@@ -21,8 +21,9 @@ shipped (on Writing that clears your voice notes and keywords); it asks for a se
   back to `XTEND_TREG_TOKEN` or the treg CLI login on its machine.
 - **Monthly budget (USD)**: paid calls stop before this month's spend would pass it. It starts
   at $50.
-- **Spend**: this month, today and the budget, a bar for how much of the budget is gone, and
-  what the month went on, by purpose. See [Costs](./costs.md).
+- **Spend**: this month, today and the budget, a bar for how much of the budget is gone, what
+  the month went on by purpose, and the last 50 paid calls with when, what asked and the exact
+  price. See [Costs](./costs.md).
 
 ## Writing
 
@@ -31,8 +32,9 @@ shipped (on Writing that clears your voice notes and keywords); it asks for a se
   apply. **Other model** takes any OpenAI-compatible endpoint ending in `/v1`: a local Ollama,
   or your own key at OpenAI, Anthropic, Groq or OpenRouter, which bill you directly. The key is
   stored encrypted and is dropped if you change the endpoint without pasting a new one.
-- **Time zone**: an IANA zone (`Europe/Berlin`). Posting slots, the calendar, schedule
-  triggers, the best-time grid and the spend meter's day and month use it. Defaults to the
+- **Time zone**: pick by city; each shows its current UTC offset, and typing a city jumps to
+  it. Posting slots, the calendar, schedule triggers, the best-time grid and the spend meter's
+  day and month use it. Defaults to the
   service machine's zone.
 - **Voice notes**: one paragraph on what you post about and how you sound. The assistant writes
   in this voice.

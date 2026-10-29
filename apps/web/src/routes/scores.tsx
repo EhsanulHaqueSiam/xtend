@@ -1,7 +1,6 @@
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 
 import { MineSection, ReportSection } from "../components/scores/HandleReport";
-import { Trending } from "../components/scores/Trending";
 import { Watchlist } from "../components/scores/Watchlist";
 import { useSection } from "../components/shell/sections";
 import { parseHandle } from "../lib/utils";
@@ -23,8 +22,6 @@ function ScoresScreen() {
         />
       ) : section === "report" ? (
         <ReportSection key={handle ?? ""} handle={handle} />
-      ) : section === "trending" ? (
-        <Trending />
       ) : (
         <ReportSection key={handle ?? ""} handle={handle} botOnly />
       )}

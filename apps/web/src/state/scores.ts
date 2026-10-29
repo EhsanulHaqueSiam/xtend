@@ -45,12 +45,3 @@ export const watchRemoveAtom = clientRuntime.fn<string>()(
     return yield* client[Scores_METHODS.watchRemove]({ handle });
   }),
 );
-
-export const trendingAtom = Atom.family((country: string) =>
-  clientRuntime.atom(
-    Effect.gen(function* () {
-      const client = yield* XtendClient;
-      return yield* client[Scores_METHODS.trending]({ country });
-    }),
-  ),
-);

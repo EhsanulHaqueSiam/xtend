@@ -177,8 +177,8 @@ export function ReportSection({
         {handle === undefined ? (
           <Empty>
             {botOnly
-              ? "Open a handle to see how many of its sampled followers look fake."
-              : "Open a handle to read its stored score and who its top followers are."}
+              ? "Open a handle to see how many of its sampled followers look fake. Opening is free; a new sample is priced on its button."
+              : "Open a handle to read its stored score and who its top followers are. Opening is free; a new score is priced on its button."}
           </Empty>
         ) : (
           <HandleReport key={handle} handle={handle} botOnly={botOnly} />

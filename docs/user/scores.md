@@ -32,11 +32,6 @@ A report holds: the score and its tier on the ladder, top followers by category,
 the score since the last sample (joined, left, re-weighted), the bot check, and the name and
 bio history.
 
-## Trending
-
-X's trending topics by country. Each opens X's search for it. Nothing loads until Load, since
-the read is paid and cached for 30 minutes.
-
 ## Bot check
 
 Just the bot part of a report: bot share, follow ratio and the sampled followers that look
