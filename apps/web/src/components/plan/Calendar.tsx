@@ -108,6 +108,7 @@ function DayRuler({
   now,
   heatmap,
   fillable,
+  busy,
   onFill,
 }: {
   readonly zone: string;
@@ -115,6 +116,7 @@ function DayRuler({
   readonly now: Date;
   readonly heatmap: Heatmap | null;
   readonly fillable: ReadonlyArray<Draft>;
+  readonly busy: boolean;
   readonly onFill: (id: string, at: Date) => void;
 }) {
   const key = dayKeyIn(zone, day);
@@ -171,7 +173,8 @@ function DayRuler({
                 <button
                   type="button"
                   aria-label={label}
-                  className="group flex h-full flex-1 cursor-pointer items-end rounded-sm transition-colors duration-150 hover:bg-white/[0.05] data-over:bg-white/[0.12] data-popup-open:bg-white/[0.08]"
+                  disabled={busy}
+                  className="group flex h-full flex-1 cursor-pointer items-end rounded-sm transition-colors duration-150 hover:bg-white/[0.05] data-over:bg-white/[0.12] data-popup-open:bg-white/[0.08] disabled:pointer-events-none disabled:opacity-40"
                   {...takesDraft((id) => onFill(id, at))}
                 >
                   {bar}
@@ -205,6 +208,7 @@ export function Calendar({
   drafts,
   heatmap,
   fillable,
+  busy,
   onFill,
   onOpen,
 }: {
@@ -217,6 +221,8 @@ export function Calendar({
   readonly heatmap: Heatmap | null;
   /** Drafts a user can drop into an empty slot. */
   readonly fillable: ReadonlyArray<Draft>;
+  /** A draft is being placed; times take another once it lands. */
+  readonly busy: boolean;
   readonly onFill: (id: string, at: Date) => void;
   readonly onOpen: (d: Draft) => void;
 }) {
@@ -309,7 +315,8 @@ export function Calendar({
                           type="button"
                           // Starts with the visible "09:00 open", so voice control can say what it shows.
                           aria-label={`${hhmm(e.minute)} open slot`}
-                          className="flex w-full cursor-pointer items-center gap-1.5 rounded-md border border-dashed border-white/13 px-1.5 py-1 text-left font-mono text-2xs text-muted-foreground tabular-nums transition-colors duration-150 hover:border-white/25 hover:text-foreground data-over:border-white/60 data-over:text-foreground data-popup-open:border-white/25 data-popup-open:text-foreground"
+                          disabled={busy}
+                          className="flex w-full cursor-pointer items-center gap-1.5 rounded-md border border-dashed border-white/13 px-1.5 py-1 text-left font-mono text-2xs text-muted-foreground tabular-nums transition-colors duration-150 hover:border-white/25 hover:text-foreground data-over:border-white/60 data-over:text-foreground data-popup-open:border-white/25 data-popup-open:text-foreground disabled:pointer-events-none disabled:opacity-40"
                           {...takesDraft((id) => onFill(id, at))}
                         >
                           {/* The space keeps "09:00 open" two words in the text; the flex gap draws it. */}
@@ -332,6 +339,7 @@ export function Calendar({
         now={now}
         heatmap={heatmap}
         fillable={fillable}
+        busy={busy}
         onFill={onFill}
       />
     </div>

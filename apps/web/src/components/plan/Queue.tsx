@@ -39,6 +39,7 @@ function Runs({ id }: { readonly id: string }) {
 /** Queued and failed drafts by time. Post now confirms with its treg price before it charges. */
 export function Queue({
   drafts,
+  busy,
   emptyAction,
   onSkip,
   onUnschedule,
@@ -46,6 +47,8 @@ export function Queue({
   onOpen,
 }: {
   readonly drafts: ReadonlyArray<Draft>;
+  /** A draft action is in flight; the others wait for it. */
+  readonly busy: boolean;
   /** What fills an empty queue, under its one line. */
   readonly emptyAction: ReactNode;
   readonly onSkip: (id: string) => void;
@@ -119,10 +122,15 @@ export function Queue({
                 </td>
                 <td className={cn(table.td, "w-px")}>
                   <div className="flex justify-end gap-0.5">
-                    <Button variant="ghost" size="xs" onClick={() => onSkip(d.id)}>
+                    <Button variant="ghost" size="xs" disabled={busy} onClick={() => onSkip(d.id)}>
                       Skip
                     </Button>
-                    <Button variant="ghost" size="xs" onClick={() => onUnschedule(d.id)}>
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      disabled={busy}
+                      onClick={() => onUnschedule(d.id)}
+                    >
                       Unschedule
                     </Button>
                     <Button
@@ -137,7 +145,11 @@ export function Queue({
                       open={confirm === d.id}
                       onOpenChange={(open) => setConfirm(open ? d.id : null)}
                       trigger={
-                        <Button variant="outline" size="xs" disabled={d.status !== "queued"}>
+                        <Button
+                          variant="outline"
+                          size="xs"
+                          disabled={busy || cost === null || d.status !== "queued"}
+                        >
                           Post now
                         </Button>
                       }

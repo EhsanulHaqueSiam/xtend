@@ -1,11 +1,13 @@
-import type { SlotInput } from "@xtend/contracts";
+import { ComposeError, type Draft, type SlotInput } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import { expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
-import { draft, rates } from "../../../test/fixtures";
+import type { FakeService } from "../../../test/fakeService";
+import { draft, quoting, rates, settings } from "../../../test/fixtures";
 import { render } from "../../../test/render";
 import { weekStartIn } from "../../lib/time";
+import { Route } from "../../routes/plan";
 import { Calendar, emptySlotCount } from "./Calendar";
 import { Queue } from "./Queue";
 import { Slots } from "./Slots";
@@ -43,6 +45,7 @@ it("lays a DST week out in the account zone: past slots gone, drafts by status, 
       drafts={drafts}
       heatmap={null}
       fillable={[draft("d1", "draft", { blocks: [{ text: "Fill me" }] })]}
+      busy={false}
       onFill={onFill}
       onOpen={onOpen}
     />,
@@ -81,6 +84,7 @@ it("prices each queued draft as Compose does and asks before posting one now", a
   await using screen = await render(
     <Queue
       drafts={[thread, article, failed]}
+      busy={false}
       emptyAction={null}
       onSkip={() => {}}
       onUnschedule={() => {}}
@@ -118,7 +122,9 @@ it("edits slot times and days, keeps a cleared time, and saves only slots with a
       slots={[{ id: 1, weekdayMask: 62, minuteOfDay: 9 * 60 }]}
       heatmap={{ cells: [], posts: 14, best: [{ weekday: 2, hour: 18 }] }}
       bestHoursEmpty={null}
-      onSave={(next) => (saved = next)}
+      onSave={async (next) => {
+        saved = next;
+      }}
     />,
   );
   // It reads "Saved" until something changes.
@@ -150,4 +156,88 @@ it("edits slot times and days, keeps a cleared time, and saves only slots with a
     { weekdayMask: 62, minuteOfDay: 7 * 60 + 15 },
     { weekdayMask: 1 << 2, minuteOfDay: 18 * 60 },
   ]);
+});
+
+it("freezes the slots while they save", async () => {
+  let release = () => {};
+  await using screen = await render(
+    <Slots
+      slots={[{ id: 1, weekdayMask: 62, minuteOfDay: 9 * 60 }]}
+      heatmap={null}
+      bestHoursEmpty={null}
+      onSave={() => new Promise<void>((resolve) => (release = resolve))}
+    />,
+  );
+  await userEvent.fill(screen.getByLabelText("Slot time"), "10:00");
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  await expect.element(screen.getByRole("button", { name: "Saving…" })).toBeDisabled();
+  await expect.element(screen.getByLabelText("Slot time")).toBeDisabled();
+  release();
+  await expect.element(screen.getByLabelText("Slot time")).toBeEnabled();
+});
+
+const PlanScreen = Route.options.component!;
+
+/** Everything Plan reads on open, with one daily slot late enough to still be ahead today. */
+const planService = (rows: () => ReadonlyArray<Draft>, extra: FakeService = {}): FakeService => ({
+  "settings.get": () => Effect.succeed(settings),
+  "plan.slotsGet": () =>
+    Effect.succeed({ slots: [{ id: 1, weekdayMask: DAILY, minuteOfDay: 23 * 60 + 59 }] }),
+  "plan.calendar": () => Effect.succeed({ drafts: [] }),
+  "plan.ready": () => Effect.succeed({ drafts: [] }),
+  "plan.heatmap": () => Effect.succeed({ cells: [], posts: 0, best: [] }),
+  "compose.draftsList": () => Effect.sync(() => ({ drafts: rows() })),
+  "compose.quote": () => Effect.succeed({ articleUsd: 0.02, coverUsd: 0.04, coverModel: "flux" }),
+  "costs.quote": quoting(),
+  ...extra,
+});
+
+it("says why the week or the suggestions did not load instead of showing open slots", async () => {
+  await using screen = await render(<PlanScreen />, {
+    service: planService(() => [], {
+      "plan.calendar": () =>
+        Effect.fail(new ComposeError({ operation: "calendar", detail: "locked" })),
+      "plan.ready": () => Effect.fail(new ComposeError({ operation: "ready", detail: "offline" })),
+    }),
+  });
+  await expect.element(screen.getByText("Compose calendar failed: locked")).toBeVisible();
+  await expect.element(screen.getByText("Compose ready failed: offline")).toBeVisible();
+  expect(screen.getByLabelText(/open slot$/).elements()).toHaveLength(0);
+  expect(screen.getByText(/^Nothing suggested/).elements()).toHaveLength(0);
+});
+
+it("unschedules a queued draft back to drafts, holding the other actions until it lands", async () => {
+  let rows = [
+    draft("q1", "queued", {
+      blocks: [{ text: "Weekly build log" }],
+      scheduledAt: "2030-01-07T09:30:00.000Z",
+    }),
+  ];
+  const unscheduled: Array<string> = [];
+  let release = () => {};
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  // Skip and Post now are not answered: calling either fails the action and the notice below.
+  await using screen = await render(<PlanScreen />, {
+    router: "/?tab=queue",
+    service: planService(() => rows, {
+      "plan.unschedule": ({ id }) => {
+        unscheduled.push(id);
+        return Effect.promise(() => gate).pipe(
+          Effect.map(() => {
+            rows = [draft(id, "draft", { blocks: [{ text: "Weekly build log" }] })];
+            return rows[0]!;
+          }),
+        );
+      },
+    }),
+  });
+  await userEvent.click(screen.getByRole("button", { name: "Unschedule" }));
+  // One draft action at a time, and the others look it.
+  await expect.element(screen.getByRole("button", { name: "Skip" })).toBeDisabled();
+  release();
+  await expect
+    .element(screen.getByRole("status"))
+    .toHaveTextContent('"Weekly build log" is a draft again');
+  await expect.element(screen.getByText("Nothing queued.")).toBeVisible();
+  expect(unscheduled).toEqual(["q1"]);
 });
