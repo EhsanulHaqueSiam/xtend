@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import type { ObservationBatch, WsRpcGroup } from "@xtend/contracts";
 import type * as Rpc from "effect/rpc/Rpc";
 import type * as RpcGroup from "effect/rpc/RpcGroup";
-import { chromium } from "playwright";
+import { type Locator, chromium } from "playwright";
 
 const ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -233,3 +233,9 @@ async function launch(dir: string, undo: Array<() => Promise<unknown>>) {
 }
 
 export type App = Awaited<ReturnType<typeof startApp>>;
+
+/** Picks an option in the app's own dropdown (ui/select.tsx), which is no native `<select>`. */
+export async function choose(trigger: Locator, label: string) {
+  await trigger.click();
+  await trigger.page().getByRole("option", { name: label, exact: true }).click();
+}
