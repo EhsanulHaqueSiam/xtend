@@ -17,6 +17,7 @@ import * as Schema from "effect/Schema";
 import {
   APP_ROUTE_CHANNEL,
   BRIDGE_INFO_CHANNEL,
+  RECOVERY_RETRY_CHANNEL,
   type BridgeInfo,
   GLANCE_CHANNEL,
   type Glance,
@@ -33,6 +34,7 @@ import {
 } from "../ipc/channels.ts";
 import { createOverlayFeed } from "../overlay/OverlayFeed.ts";
 import { xSkinCss } from "../overlay/xSkin.ts";
+import { recoveryPage } from "../service/recoveryPage.ts";
 import { attachDesktopCommands } from "../service/DesktopCommands.ts";
 import { attachSessionCapture } from "../xSession/SessionCapture.ts";
 import {
@@ -219,6 +221,7 @@ export function createMainWindow(options: MainWindowOptions) {
 
   // A route asked for before the page has its bridge (a deep link at launch) rides in the bridge info.
   let bridgeServed = false;
+  let recovering = false;
   let pendingRoute: string | null = null;
   // Answer the preload's synchronous bridge-info request, and only for the app page.
   const onBridgeInfo = (event: Electron.IpcMainEvent) => {
@@ -227,10 +230,12 @@ export function createMainWindow(options: MainWindowOptions) {
       ...options.bridgeInfo,
       xPartition: partition,
       xStartUrl: startUrl,
-      initialRoute: pendingRoute,
+      initialRoute: recovering ? null : pendingRoute,
     } satisfies BridgeInfo;
-    bridgeServed = true;
-    pendingRoute = null;
+    if (!recovering) {
+      bridgeServed = true;
+      pendingRoute = null;
+    }
   };
   ipcMain.on(BRIDGE_INFO_CHANNEL, onBridgeInfo);
 
@@ -471,7 +476,43 @@ export function createMainWindow(options: MainWindowOptions) {
     ipcMain.on(channel, listener);
     return () => ipcMain.off(channel, listener);
   };
+  let loading = false;
+  const showRecovery = async () => {
+    if (recovering || appContents.isDestroyed()) return;
+    recovering = true;
+    bridgeServed = false;
+    await appContents
+      .loadURL(
+        `data:text/html;charset=utf-8,${encodeURIComponent(recoveryPage(options.serviceUrl))}`,
+      )
+      .catch((error) => options.log("could not load recovery", String(error)));
+  };
+  const loadApp = async () => {
+    if (loading) return;
+    loading = true;
+    recovering = false;
+    const timeout = setTimeout(() => {
+      if (!appContents.isDestroyed()) {
+        appContents.stop();
+        void showRecovery();
+      }
+    }, 10_000);
+    try {
+      await appContents.loadURL(options.appUrl);
+    } catch {
+      await showRecovery();
+    } finally {
+      clearTimeout(timeout);
+      loading = false;
+    }
+  };
+  appContents.on("did-fail-load", (_event, code, _description, _url, isMainFrame) => {
+    if (isMainFrame && code !== -3) void showRecovery();
+  });
   const offIpc = [
+    from(RECOVERY_RETRY_CHANNEL, () => {
+      if (recovering) void loadApp();
+    }),
     from<string>(OPEN_EXTERNAL_CHANNEL, openExternalWeb),
     from<Glance>(GLANCE_CHANNEL, (value) => {
       glance = value;
@@ -497,7 +538,9 @@ export function createMainWindow(options: MainWindowOptions) {
   const importPath = options.importCookiesPath;
   void (
     importPath === undefined ? Promise.resolve() : importCookies(xSession, importPath, options.log)
-  ).then(() => appContents.loadURL(options.appUrl));
+  )
+    .then(loadApp)
+    .catch((error) => options.log("could not load app", String(error)));
 
   return {
     window,

@@ -82,11 +82,18 @@ const decodeRemote = Schema.decodeUnknownResult(Schema.NullOr(RemoteConfig));
 const openSocket = (url: string) =>
   new Promise<boolean>((resolve) => {
     const ws = new WebSocket(url);
-    ws.addEventListener("open", () => {
+    const finish = (accepted: boolean) => {
+      clearTimeout(timeout);
       ws.close();
-      resolve(true);
+      resolve(accepted);
+    };
+    const timeout = setTimeout(() => finish(false), 5_000);
+    ws.addEventListener("open", () => finish(true));
+    ws.addEventListener("error", () => finish(false));
+    ws.addEventListener("close", () => {
+      clearTimeout(timeout);
+      resolve(false);
     });
-    ws.addEventListener("error", () => resolve(false));
   });
 
 let main: ReturnType<typeof createMainWindow> | undefined;
@@ -190,7 +197,10 @@ void app.whenReady().then(async () => {
         auth: false,
         error: "needs an http(s) URL and a token",
       };
-    return checkRemote(decoded.success, { fetch, openSocket });
+    return checkRemote(decoded.success, {
+      fetch: (url) => fetch(url, { signal: AbortSignal.timeout(5_000) }),
+      openSocket,
+    });
   });
   // Changing the service means a different token, base dir and account: a relaunch is the honest reload.
   ipcMain.on(REMOTE_SET_CHANNEL, (event, config: unknown) => {

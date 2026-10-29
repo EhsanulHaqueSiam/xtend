@@ -5,6 +5,7 @@ import type { Mark, ReplyTone } from "@xtend/contracts";
 // App -> main
 export const OPEN_EXTERNAL_CHANNEL = "xtend:open-external";
 export const ACCOUNT_SELECT_CHANNEL = "xtend:account-select";
+export const RECOVERY_RETRY_CHANNEL = "xtend:recovery-retry";
 export const REMOTE_SET_CHANNEL = "xtend:remote-set";
 /** invoke: checks a remote service's health and token from the main process (no CORS, no leaked token). */
 export const REMOTE_CHECK_CHANNEL = "xtend:remote-check";

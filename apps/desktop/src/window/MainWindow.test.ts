@@ -112,3 +112,60 @@ it("skins x.com on every load and zooms it from the keyboard", async () => {
   press("0");
   expect(x.zoomLevel).toBe(0);
 });
+
+it("loads desktop recovery when the app cannot load and retries only for its renderer", async () => {
+  const { main, app, x } = open();
+  close = () => main.window.close();
+  const { RECOVERY_RETRY_CHANNEL } = await import("../ipc/channels.ts");
+  await vi.waitFor(() => expect(app.loaded).toHaveLength(1));
+  app.emit("did-fail-load", {}, -102, "ERR_CONNECTION_REFUSED", "http://127.0.0.1:4820", false);
+  expect(app.loaded).toHaveLength(1);
+  app.emit("did-fail-load", {}, -102, "ERR_CONNECTION_REFUSED", "http://127.0.0.1:4820", true);
+  await vi.waitFor(() => expect(app.loaded).toHaveLength(2));
+  const html = decodeURIComponent(app.loaded[1]!.split(",").slice(1).join(","));
+  expect(html).toContain("Can't reach the service");
+  expect(html).not.toContain("secret");
+  ipcMain.sendFrom(x, RECOVERY_RETRY_CHANNEL);
+  expect(app.loaded).toHaveLength(2);
+  main.openRoute("/compose?text=hello");
+  expect(ipcMain.sendSyncFrom(app, BRIDGE_INFO_CHANNEL)).toMatchObject({ initialRoute: null });
+  ipcMain.sendFrom(app, RECOVERY_RETRY_CHANNEL);
+  await vi.waitFor(() => expect(app.loaded).toHaveLength(3));
+  expect(app.loaded[2]).toBe("http://127.0.0.1:4820");
+  expect(ipcMain.sendSyncFrom(app, BRIDGE_INFO_CHANNEL)).toMatchObject({
+    initialRoute: "/compose?text=hello",
+  });
+});
+
+it("handles the initial load rejection with a bundled recovery page", async () => {
+  vi.spyOn(FakeContents.prototype, "loadURL").mockRejectedValueOnce(
+    new Error("connection refused"),
+  );
+  const { main, app } = open();
+  close = () => main.window.close();
+  await vi.waitFor(() => expect(app.loaded.at(-1)).toMatch(/^data:text\/html/));
+  vi.restoreAllMocks();
+});
+
+it("shows recovery after ten seconds when the app load hangs", async () => {
+  vi.useFakeTimers();
+  let rejectLoad = (_error: Error) => {};
+  vi.spyOn(FakeContents.prototype, "loadURL").mockImplementationOnce(
+    () =>
+      new Promise((_resolve, reject) => {
+        rejectLoad = reject;
+      }),
+  );
+  vi.spyOn(FakeContents.prototype, "stop").mockImplementation(() =>
+    rejectLoad(new Error("aborted")),
+  );
+  try {
+    const { main, app } = open();
+    close = () => main.window.close();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(app.loaded.at(-1)).toMatch(/^data:text\/html/);
+  } finally {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  }
+});
