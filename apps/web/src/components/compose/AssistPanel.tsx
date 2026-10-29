@@ -1,5 +1,5 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
-import type { ReplyTone, XPost } from "@xtend/contracts";
+import { type ReplyTone, VOICE_MIN_SEEN, type XPost } from "@xtend/contracts";
 import * as Cause from "effect/Cause";
 import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
@@ -16,8 +16,10 @@ import {
   assistVoiceMatchAtom,
   composeContextAtom,
 } from "../../state/compose";
-import { useQuoteLabel } from "../../state/costs";
+import { costLabels, useQuoteLabel } from "../../state/costs";
 import { searchAtom } from "../../state/library";
+import { recentPostsAtom, seenByAtom } from "../../state/observations";
+import { observedSimilar, observedToXPost } from "../../lib/observed";
 import { ToneRow } from "../ui/assist-choice";
 import { Button } from "../ui/button";
 import { compactInputClass } from "../ui/field";
@@ -38,7 +40,10 @@ function Fact({ label, children }: { readonly label: string; readonly children: 
   );
 }
 
-/** Where the draft would land (next free slot, best hours) and three library posts like its first line. */
+/**
+ * Where the draft would land (next free slot, best hours) and posts like its first line: what the
+ * session already saw, free and live, then an X search on request at its price.
+ */
 export function ComposeContext({
   firstLine,
   onUse,
@@ -47,6 +52,11 @@ export function ComposeContext({
   readonly onUse: (blocks: ReadonlyArray<string>) => void;
 }) {
   const context = useAtomValue(composeContextAtom);
+  const recent = useAtomValue(recentPostsAtom);
+  const seen = observedSimilar(
+    AsyncResult.getOrElse(recent, () => ({ posts: [] })).posts,
+    firstLine,
+  ).map(observedToXPost);
   const search = useAtomSet(searchAtom, { mode: "promiseExit" });
   const query = firstLine.trim().slice(0, 80);
   // The mode the search below runs with: each mode is cached apart, so it decides "cached, free".
@@ -64,7 +74,9 @@ export function ComposeContext({
         </Fact>
       ) : null}
       <div className="flex items-center justify-between gap-3 pt-2.5">
-        <span className="text-[13px] text-muted-foreground">Similar posts</span>
+        <span className="text-[13px] text-muted-foreground">
+          Similar posts{seen.length > 0 ? " you saw" : ""}
+        </span>
         <Button
           variant="outline"
           size="xs"
@@ -75,33 +87,48 @@ export function ComposeContext({
             setSimilar(Exit.isFailure(exit) ? failText(exit.cause) : exit.value.items.slice(0, 3));
           }}
         >
-          Find similar
+          Search X
           <Cost label={price} />
         </Button>
       </div>
-      {typeof similar === "string" ? (
+      {similar === null && seen.length > 0 ? (
+        <SimilarList posts={seen} onUse={onUse} />
+      ) : typeof similar === "string" ? (
         <p className="pt-2 text-xs text-muted-foreground">{similar}</p>
       ) : similar !== null ? (
-        <ul className="mt-2 flex flex-col">
-          {similar.length === 0 ? (
-            <li className="text-xs text-muted-foreground">Nothing similar found.</li>
-          ) : null}
-          {similar.map((p) => (
-            <li key={p.postId} className="flex items-start gap-2 border-t border-border py-2.5">
-              <div className="min-w-0 flex-1">
-                <p className="font-mono text-2xs text-muted-foreground">
-                  @{p.author.handle} · {p.metrics.likes} likes
-                </p>
-                <p className="mt-0.5 line-clamp-3 whitespace-pre-wrap text-[13px]">{p.text}</p>
-              </div>
-              <Button variant="ghost" size="xs" onClick={() => onUse(splitBlocks(p.text))}>
-                Use
-              </Button>
-            </li>
-          ))}
-        </ul>
+        <SimilarList posts={similar} onUse={onUse} />
       ) : null}
     </XCard>
+  );
+}
+
+/** Up to three posts with Use, which puts one's text in the editor to work from. */
+function SimilarList({
+  posts: similar,
+  onUse,
+}: {
+  readonly posts: ReadonlyArray<XPost>;
+  readonly onUse: (blocks: ReadonlyArray<string>) => void;
+}) {
+  return (
+    <ul className="mt-2 flex flex-col">
+      {similar.length === 0 ? (
+        <li className="text-xs text-muted-foreground">Nothing similar found.</li>
+      ) : null}
+      {similar.map((p) => (
+        <li key={p.postId} className="flex items-start gap-2 border-t border-border py-2.5">
+          <div className="min-w-0 flex-1">
+            <p className="font-mono text-2xs text-muted-foreground">
+              @{p.author.handle} · {p.metrics.likes} likes
+            </p>
+            <p className="mt-0.5 line-clamp-3 whitespace-pre-wrap text-[13px]">{p.text}</p>
+          </div>
+          <Button variant="ghost" size="xs" onClick={() => onUse(splitBlocks(p.text))}>
+            Use
+          </Button>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -117,9 +144,18 @@ export const failText = (cause: Cause.Cause<unknown>) => {
   return e instanceof Error ? e.message : String(e);
 };
 
-/** Voice match reads the handle's recent posts from X before its model call. */
+/**
+ * Voice match compares with the posts of yours the session saw, free; with fewer than
+ * VOICE_MIN_SEEN it reads X's timeline first, at its price.
+ */
 function VoiceMatchCost({ handle, model }: { readonly handle: string; readonly model: string }) {
-  return <Cost label={`${useQuoteLabel({ kind: "userPosts", handle })} + ${model}`} />;
+  const seen = useAtomValue(seenByAtom(handle));
+  const read = useQuoteLabel({ kind: "userPosts", handle });
+  const enough = AsyncResult.getOrElse(
+    AsyncResult.map(seen, ({ posts }) => posts.length >= VOICE_MIN_SEEN),
+    () => false,
+  );
+  return <Cost label={costLabels(enough ? "free" : read, model)} />;
 }
 
 /**

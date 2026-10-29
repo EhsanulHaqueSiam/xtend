@@ -7,6 +7,7 @@ import {
   type PersonUpdate,
   type ReplyTone,
   type SignalAgentInput,
+  type XPost,
 } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import * as Atom from "effect/reactivity/Atom";
@@ -156,15 +157,15 @@ export const engagersAtom = clientRuntime.fn<{
   }),
 );
 
-export const latestPostAtom = clientRuntime.fn<number>()(
-  Effect.fnUntraced(function* (id) {
+export const latestPostAtom = clientRuntime.fn<{ readonly id: number; readonly fromX: boolean }>()(
+  Effect.fnUntraced(function* (input) {
     const client = yield* XtendClient;
-    return yield* client[Leads_METHODS.latestPost]({ id });
+    return yield* client[Leads_METHODS.latestPost](input);
   }),
 );
 
 export const draftReplyAtom = clientRuntime.fn<{
-  readonly id: number;
+  readonly post: XPost;
   readonly tone?: ReplyTone | undefined;
 }>()(
   Effect.fnUntraced(function* (input) {

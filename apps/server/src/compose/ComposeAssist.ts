@@ -5,6 +5,7 @@ import {
   RewriteVariants,
   ThreadIdeas,
   type ReplyTone,
+  VOICE_MIN_SEEN,
   type VoiceMatch,
 } from "@xtend/contracts";
 import * as Context from "effect/Context";
@@ -13,6 +14,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
 import * as Assist from "../ai/Assist.ts";
+import * as ObservationStore from "../observations/ObservationStore.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 import * as XClient from "../x/XClient.ts";
 
@@ -37,7 +39,10 @@ export class ComposeAssist extends Context.Service<
       blocks: Blocks,
       tone?: ReplyTone,
     ) => Effect.Effect<ContinuedBlocks, ComposeError>;
-    /** Compares the draft with the Settings handle's recent posts (up to 20). */
+    /**
+     * Compares the draft with the Settings handle's recent posts (up to 20): the ones the session
+     * saw, free, and X's timeline only when it saw fewer than VOICE_MIN_SEEN.
+     */
     readonly voiceMatch: (blocks: Blocks) => Effect.Effect<VoiceMatch, ComposeError>;
   }
 >()("xtend/compose/ComposeAssist") {}
@@ -46,6 +51,7 @@ const make = Effect.gen(function* () {
   const assist = yield* Assist.Assist;
   const settings = yield* SettingsStore.SettingsStore;
   const x = yield* XClient.XClient;
+  const observations = yield* ObservationStore.ObservationStore;
   const fail = (operation: string) => (cause: { readonly message: string }) =>
     new ComposeError({ operation, detail: cause.message });
 
@@ -104,13 +110,20 @@ const make = Effect.gen(function* () {
   const voiceMatch = Effect.fn("ComposeAssist.voiceMatch")(
     function* (blocks: Blocks) {
       const { handle } = yield* settings.get.pipe(Effect.mapError(fail("assistVoiceMatch")));
-      const samples =
+      const seen =
         handle === null
           ? []
-          : (yield* x.userPosts(handle, { purpose: "compose.voiceMatch" })).items
-              .filter((p) => !p.isRepost)
-              .slice(0, 20)
-              .map((p) => p.text);
+          : (yield* observations
+              .listRecent({ authorHandle: handle, limit: 20 })
+              .pipe(Effect.orElseSucceed(() => ({ posts: [] })))).posts;
+      const posts =
+        handle === null || seen.length >= VOICE_MIN_SEEN
+          ? seen
+          : (yield* x.userPosts(handle, { purpose: "compose.voiceMatch" })).items;
+      const samples = posts
+        .filter((p) => !p.isRepost)
+        .slice(0, 20)
+        .map((p) => p.text);
       const result = yield* assist.generate({
         task: "compose.voiceMatch",
         instructions:

@@ -6,9 +6,10 @@ People who might become customers, and the agents that find them.
 
 Everyone you added, with a stage: new, contacted, replied, customer or ignored. A person's
 detail shows their profile, your notes, their latest post with a reply box, and a DM box.
-Both boxes start as your own words; pick a tone for three drafts to choose from and edit. The
-drafts read their recent posts first, priced on the row. A DM goes through X's API at its price;
-a reply goes through your own session for free while that lane is on.
+Their latest post is the newest one your session saw, free; From X reads their timeline
+at its price. Both boxes start as your own words; pick a tone for three drafts to choose from
+and edit. Drafts read only what you already saw, so they are free. A DM goes through X's API at
+its price; a reply goes through your own session for free while that lane is on.
 
 Add a person by handle, from a post's author, from New followers, or by dragging a post onto
 Leads in the sidebar.

@@ -109,7 +109,7 @@ export const EngageRpcGroup = RpcGroup.make(
   Rpc.make(Engage_METHODS.like, {
     payload: Schema.Struct({ postId: XId }),
     success: Schema.Void,
-    error: XApiError,
+    error: Schema.Union([XApiError, EngageError]),
   }),
   Rpc.make(Engage_METHODS.findKeywords, {
     payload: Schema.Struct({}),

@@ -18,13 +18,14 @@ type Handlers = { readonly [Current in Rpcs as Current["_tag"]]: Rpc.ToHandlerFn
 export type FakeService = Partial<Handlers>;
 
 /**
- * The real rpc client and server, in memory, with `handlers` behind them. Live events
- * marks default to none and settings to the fixture; any other rpc dies with its name, so a test that forgot one says which.
+ * The real rpc client and server, in memory, with `handlers` behind them. Live events,
+ * marks and observed posts default to none and settings to the fixture; any other rpc dies with its name, so a test that forgot one says which.
  */
 const layerFakeClient = (handlers: FakeService) => {
   const answered: FakeService = {
     [Events_METHODS.subscribe]: () => Stream.never,
     [Marks_METHODS.forPosts]: () => Effect.succeed({}),
+    [WS_METHODS.observationsListRecent]: () => Effect.succeed({ posts: [] }),
     // Most screens read settings for a lane or a zone; the fixture row answers unless a test overrides it.
     [WS_METHODS.settingsGet]: () => Effect.succeed(settings),
     ...handlers,

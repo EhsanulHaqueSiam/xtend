@@ -5,7 +5,6 @@ import {
   type ListCriteria,
   type NewFollower,
   type Person,
-  type PersonReplyDraft,
   type ReplyTone,
   type XApiError,
   type XPost,
@@ -17,6 +16,8 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
 import * as Assist from "../ai/Assist.ts";
+import { observedToPost } from "../engage/inbox.ts";
+import * as ObservationStore from "../observations/ObservationStore.ts";
 import * as SessionPosting from "../compose/SessionPosting.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 import * as XClient from "../x/XClient.ts";
@@ -62,12 +63,19 @@ export class LeadsOps extends Context.Service<
       { readonly matches: ReadonlyArray<Candidate>; readonly costUsd: number },
       LeadsError | XApiError
     >;
-    /** The person's newest original post, else their newest reply (cached 1h by XClient), to reply to from their page. */
-    readonly latestPost: (personId: number) => Effect.Effect<XPost | null, LeadsError | XApiError>;
-    readonly draftReply: (
+    /**
+     * The person's newest original post, else their newest reply, to reply to from their page:
+     * from what the session saw unless `fromX` (cached 1h by XClient), or when it saw nothing.
+     */
+    readonly latestPost: (
       personId: number,
+      fromX?: boolean,
+    ) => Effect.Effect<XPost | null, LeadsError | XApiError>;
+    /** Three replies to the post on screen, in the picked tone. */
+    readonly draftReply: (
+      post: XPost,
       tone?: ReplyTone,
-    ) => Effect.Effect<PersonReplyDraft, LeadsError | XApiError>;
+    ) => Effect.Effect<ReadonlyArray<string>, LeadsError>;
     readonly sendReply: (
       personId: number,
       postId: string,
@@ -82,6 +90,13 @@ const make = Effect.gen(function* () {
   const settings = yield* SettingsStore.SettingsStore;
   const session = yield* SessionPosting.SessionPosting;
   const people = yield* PeopleStore.PeopleStore;
+  const observations = yield* ObservationStore.ObservationStore;
+  // What the session saw them post, newest first; reading it costs nothing.
+  const seenPosts = (handle: string) =>
+    observations.listRecent({ authorHandle: handle, limit: 20 }).pipe(
+      Effect.map(({ posts }) => posts.map(observedToPost)),
+      Effect.orElseSucceed((): ReadonlyArray<XPost> => []),
+    );
   const extra = yield* XExtra.XExtra;
   const rates = XClient.RATE_CARD;
   const assistFail = (operation: string) => (e: Assist.AssistError) =>
@@ -96,7 +111,8 @@ const make = Effect.gen(function* () {
 
   const draftDm = Effect.fn("LeadsOps.draftDm")(function* (personId: number, tone?: ReplyTone) {
     const person = yield* people.get(personId);
-    const posts = yield* x.userPosts(person.handle, { purpose: "leads.draftDm" });
+    // Free first: only what the session saw them post; the bio carries the draft without it.
+    const posts = yield* seenPosts(person.handle);
     const drafts = yield* assist
       .generate({
         task: "leads.draftDm",
@@ -105,7 +121,7 @@ const make = Effect.gen(function* () {
           "Write 3 different short DM openers (each under 300 characters) to this person. Each references something specific from one of their recent posts. Curious, not salesy, no pitch, no links, one question at most.",
         input: {
           person: { handle: person.handle, name: person.name, bio: person.bio },
-          recentPosts: posts.items.slice(0, DM_CONTEXT_POSTS).map((p) => p.text),
+          recentPosts: posts.slice(0, DM_CONTEXT_POSTS).map((p) => p.text),
         },
         output: Drafts,
       })
@@ -208,25 +224,21 @@ const make = Effect.gen(function* () {
     return { matches: matches.filter((m) => !ignored.has(m.handle)), costUsd };
   });
 
-  const latestPost = Effect.fn("LeadsOps.latestPost")(function* (personId: number) {
-    const person = yield* people.get(personId);
-    const page = yield* x.userPosts(person.handle, { purpose: "leads.latestPost" });
-    // A repost is someone else's post wearing this handle; a reply of theirs beats it.
-    const own = page.items.filter((p) => !p.isRepost);
+  // A repost is someone else's post wearing this handle; a reply of theirs beats it.
+  const newestOwn = (posts: ReadonlyArray<XPost>) => {
+    const own = posts.filter((p) => !p.isRepost);
     return own.find((p) => !p.isReply) ?? own[0] ?? null;
+  };
+
+  const latestPost = Effect.fn("LeadsOps.latestPost")(function* (personId: number, fromX = false) {
+    const person = yield* people.get(personId);
+    const seen = fromX ? null : newestOwn(yield* seenPosts(person.handle));
+    if (seen !== null) return seen;
+    const page = yield* x.userPosts(person.handle, { purpose: "leads.latestPost" });
+    return newestOwn(page.items);
   });
 
-  const draftReply = Effect.fn("LeadsOps.draftReply")(function* (
-    personId: number,
-    tone?: ReplyTone,
-  ) {
-    const post = yield* latestPost(personId);
-    if (post === null)
-      return yield* new LeadsError({
-        operation: "draftReply",
-        detail: "no recent post to reply to",
-        cause: null,
-      });
+  const draftReply = Effect.fn("LeadsOps.draftReply")(function* (post: XPost, tone?: ReplyTone) {
     const drafts = yield* assist
       .generate({
         task: "leads.draftReply",
@@ -237,7 +249,7 @@ const make = Effect.gen(function* () {
         output: Drafts,
       })
       .pipe(Effect.mapError(assistFail("draftReply")));
-    return { post, drafts: texts(drafts) };
+    return texts(drafts);
   });
 
   const sendReply = Effect.fn("LeadsOps.sendReply")(function* (

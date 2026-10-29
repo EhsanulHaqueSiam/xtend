@@ -1,7 +1,7 @@
 import { DESKTOP_COMMAND_LIMIT_MS } from "@xtend/contracts";
 import { afterEach, expect, it, vi } from "vite-plus/test";
 
-import { commandRunner, postThroughComposer } from "./DesktopCommands.ts";
+import { commandRunner, likeOnPage, postThroughComposer } from "./DesktopCommands.ts";
 
 // x.com's DOM over CDP: the home page's inline composer first, the compose modal after it in
 // X's layers root, with the same test ids. Node ids: 1x inline, 2x modal.
@@ -252,4 +252,43 @@ it("tells a composer that never drew its text box from one that failed after typ
   expect(error).toMatchObject({ message: "x.com did not confirm the post" });
   expect(error).not.toHaveProperty("notAttempted");
   expect(log.filter((l) => !l.startsWith("load"))).toEqual(["type second", "press Post"]);
+});
+
+it("likes the post's own article on its page, waits for X to show it liked, and skips a liked one", async () => {
+  const article = 'article:has(a[href$="/status/9"] time)';
+  const either = `${article} button[data-testid="like"], ${article} button[data-testid="unlike"]`;
+  const presses: Array<string> = [];
+  const page = (likedAlready: boolean) => {
+    let liked = likedAlready;
+    return async (method: string, params: Record<string, unknown> = {}) => {
+      switch (method) {
+        case "DOM.getDocument":
+          return { root: { nodeId: 1 } };
+        case "DOM.querySelectorAll":
+          if (params.selector === either) return { nodeIds: [5] };
+          if (params.selector === `${article} button[data-testid="unlike"]`)
+            return { nodeIds: liked ? [5] : [] };
+          throw new Error(`unexpected selector ${String(params.selector)}`);
+        case "DOM.getAttributes":
+          return { attributes: ["data-testid", liked ? "unlike" : "like"] };
+        case "DOM.getBoxModel":
+          return { model: { content: [0, 0, 20, 0, 20, 20, 0, 20] } };
+        case "Input.dispatchMouseEvent":
+          if (params.type === "mouseReleased") {
+            presses.push("like");
+            liked = true;
+          }
+          return {};
+        default:
+          throw new Error(`unexpected ${method}`);
+      }
+    };
+  };
+  const loaded: Array<string> = [];
+  const contents = { loadURL: async (url: string) => void loaded.push(url) };
+
+  await likeOnPage(contents, page(false), "9", Date.now() + 5_000);
+  await likeOnPage(contents, page(true), "9", Date.now() + 5_000);
+  expect(loaded).toEqual(["https://x.com/i/web/status/9", "https://x.com/i/web/status/9"]);
+  expect(presses).toEqual(["like"]);
 });

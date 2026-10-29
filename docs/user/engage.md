@@ -17,5 +17,7 @@ Conversations that are worth your time.
 ## Replying
 
 Select a post to see its numbers and a reply box. Write your own, or pick a tone (Agree, Add a
-point, Ask, Contrarian, Sarcastic, Warm, Short) for three drafts to choose from and edit; Reply sends it through X's API and Like likes it, each with its price shown first. Open on X
-shows the post in the panel beside Engage, where you can reply with your own session for free.
+point, Ask, Contrarian, Sarcastic, Warm, Short) for three drafts to choose from and edit. On the
+desktop with session actions on (the default), Reply and Like go through your own x.com session
+for free, at a human pace: at least 8 seconds apart and 30 an hour. With them off, both go
+through X's API, with the price shown first.

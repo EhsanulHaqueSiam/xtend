@@ -27,7 +27,11 @@ Under the editor, pick a tone (Agree, Add a point, Ask, Contrarian, Sarcastic, W
 any), then ask for a hook, a rewrite, a continuation, thread ideas on a topic, or a check against
 your voice. Every action uses the tone you picked and returns three options; Use puts one in the
 editor, where it is yours to change. Assist runs on your own Claude or Codex login, so it is
-free. Voice notes and keywords from Settings go into every call.
+free. Voice match compares with your posts the session saw, and reads X only when it saw
+fewer than five. Voice notes and keywords from Settings go into every call.
+
+Context beside the editor lists posts you already saw that are like your first line, free;
+Search X looks further at its price.
 
 ## Posting
 
