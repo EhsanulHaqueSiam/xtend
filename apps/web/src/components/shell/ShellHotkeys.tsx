@@ -50,7 +50,6 @@ export function ShellHotkeys() {
         );
         return;
       }
-      if (key === "r") return void navigate({ href: "/compose?reply=1" });
       const screen = SCREENS.find((s) => s.key === key)?.to;
       if (screen !== undefined) void navigate({ to: screen });
     };

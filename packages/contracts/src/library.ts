@@ -103,6 +103,19 @@ export const TrendIdea = Schema.Struct({
 });
 export type TrendIdea = typeof TrendIdea.Type;
 
+/**
+ * A topic ranked against the user's own interests: their posts, keywords, saved posts and the
+ * accounts their session shows. `outside` is the one slot kept for a topic off their usual lane.
+ */
+export const ForYouTopic = Schema.Struct({
+  term: Schema.String,
+  source: Schema.Literals(["feed", "pool", "outside"]),
+  /** Plain words, e.g. "4 accounts in your feed today · in your keywords". */
+  reason: Schema.String,
+  score: Schema.Number,
+});
+export type ForYouTopic = typeof ForYouTopic.Type;
+
 export class LibraryError extends Schema.TaggedError<LibraryError>()("LibraryError", {
   operation: Schema.Literals(["store", "assist", "settings"]),
   detail: Schema.String,
@@ -137,6 +150,7 @@ export const Library_METHODS = {
   staffPicks: "library.staffPicks",
   staffPicksFetch: "library.staffPicksFetch",
   generateReady: "library.generateReady",
+  forYou: "library.forYou",
 } as const;
 
 const SearchResult = Schema.Struct({
@@ -242,7 +256,8 @@ export const LibraryRpcGroup = RpcGroup.make(
     error: LibraryError,
   }),
   Rpc.make(Library_METHODS.suggestedDraftSave, {
-    payload: Schema.Struct({ text: Schema.String, source: Schema.String }),
+    /** One text per post: a generated thread stays a thread. */
+    payload: Schema.Struct({ blocks: Schema.NonEmptyArray(Schema.String), source: Schema.String }),
     /** The id of a real Compose draft with status `suggested`. */
     success: Schema.Struct({ id: Schema.String }),
     error: LibraryError,
@@ -286,7 +301,13 @@ export const LibraryRpcGroup = RpcGroup.make(
     success: Schema.Array(StaffPick),
     error: Schema.Union([LibraryError, XApiError]),
   }),
-  /** Three posts in the user's voice from today's trends and picks, filed as suggested drafts. */
+  /** Topics ranked locally against the user's interests, from their session and the pool. Free. */
+  Rpc.make(Library_METHODS.forYou, {
+    payload: Schema.Struct({}),
+    success: Schema.Array(ForYouTopic),
+    error: LibraryError,
+  }),
+  /** Three posts in the user's voice from today's for-you topics and picks, filed as suggested drafts. */
   Rpc.make(Library_METHODS.generateReady, {
     payload: Schema.Struct({ country: Schema.String }),
     success: Schema.Array(ReadyPost),

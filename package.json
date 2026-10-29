@@ -19,9 +19,12 @@
     "typecheck": "vp run -r --cache --concurrency-limit 4 typecheck",
     "tc": "vp run -r --cache --concurrency-limit 4 typecheck",
     "check:changed": "node scripts/check-changed.ts",
+    "bench": "pnpm --filter xtend --filter @xtend/desktop exec vp test bench --no-file-parallelism --reporter=verbose",
+    "bench:web": "pnpm --filter @xtend/web exec vp test bench",
     "lint": "vp lint --report-unused-disable-directives",
     "knip": "knip",
     "test": "vp run -r test && vp test run --dir scripts && node --test .github/scripts",
+    "test:e2e": "pnpm --filter @xtend/e2e test:e2e",
     "fmt": "vp fmt",
     "fmt:check": "vp fmt --check",
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/*/dist apps/*/dist-electron packages/*/dist .vite-plus apps/*/.vite-plus packages/*/.vite-plus"

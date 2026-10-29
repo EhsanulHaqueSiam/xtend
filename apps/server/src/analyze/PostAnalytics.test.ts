@@ -4,6 +4,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
+import * as TestClock from "effect/testing/TestClock";
 
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
@@ -93,6 +94,37 @@ describe("PostAnalytics", () => {
       ),
     ),
   );
+
+  it.effect("the nightly run starts only after the user fetched once at its shown price", () => {
+    let calls = 0;
+    return Effect.gen(function* () {
+      yield* seed;
+      // The test clock starts at 00:00 UTC, which is 03:00 here: the nightly hour.
+      yield* (yield* SettingsStore.SettingsStore).update({ timeZone: "Etc/GMT-3" });
+      const analytics = yield* PostAnalytics.PostAnalytics;
+      // A run the old nightly loop made on its own opts nobody in.
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`INSERT INTO post_analytics_runs (at, posts, error) VALUES ('1969-12-30T00:00:00.000Z', 2, NULL)`;
+      yield* analytics.nightlyTick;
+      expect(calls).toBe(0);
+      yield* analytics.refresh;
+      expect(calls).toBe(1);
+      // The service's own loop makes the next night's run.
+      yield* TestClock.adjust("24 hours");
+      expect(calls).toBe(2);
+    }).pipe(
+      Effect.provide(
+        layerTest(
+          fakeTreg(() =>
+            Effect.sync(() => {
+              calls++;
+              return { data: [] };
+            }),
+          ),
+        ),
+      ),
+    );
+  });
 
   it.effect("records a failed run instead of failing, so the screen can say why", () =>
     Effect.gen(function* () {

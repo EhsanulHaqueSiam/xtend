@@ -1,21 +1,55 @@
 # Engage
 
-Conversations that are worth your time.
+Engage is replying: who to reply to, who replied to you, and what you sent. Every section is a
+list with the selected post beside it, its numbers, and a reply box. The selected post carries
+the same marks as on X (`replied`, `saved`, `lead`, `watching`, `auto`).
 
-## Sections
+## The reply box
 
-- **Targets**: posts worth replying to right now, ranked by the service from your niche
-  profile and keywords. Fetching targets is paid; your niche is built from your own posts and
-  rebuilt on request. Suggested keywords finds more.
-- **Mentions**: posts that mention you. Fetch new is paid; mentions the session already loaded
-  are free. Mark one handled to clear it.
-- **Inbox**: replies and quotes to your posts that the session saw. Free.
-- **Sent**: replies sent from Xtend.
-- **Follow-ups**: conversations to return to.
-- **DMs**: your DM history through treg's X tool.
+A row of tones sits over the text: **Write my own** first, then Agree, Add a point, Ask,
+Contrarian, Sarcastic, Warm and Short. A tone is one model call that writes three replies in
+that tone, in your voice, listed A, B and C; click one to put it in the box and edit it there.
+**Draft again** asks for three more. Drafts are free through Xtend: they run on the model set in
+Settings, Writing. Write my own skips the model.
 
-## Replying
+**Reply** sends what is in the box. While **Act through X for what I click** is on in Settings
+(the default), it goes through your own x.com session in the desktop app, free, and the button
+says free · your session. Off, it goes through the X API at the price on the button. Session
+replies keep a human pace: a second reply within 8 seconds, or past 30 in an hour, is refused
+with how long to wait. **Like** goes through the X API at its price.
 
-Select a post to see its numbers and a reply box. Write your own, or pick a tone (Agree, Add a
-point, Ask, Contrarian, Sarcastic, Warm, Short) for three drafts to choose from and edit; Reply sends it through X's API and Like likes it, each with its price shown first. Open on X
-shows the post in the panel beside Engage, where you can reply with your own session for free.
+Your work on a post survives moving to the next one and back.
+
+## Targets
+
+Posts worth replying to, ranked by the service from what the session has seen and from your
+keywords. The profile of who you reply to and about what is rebuilt nightly at 03:00 or on
+demand from the header. **Suggested keywords** are handles and terms the model drew from your
+posts, one click into Settings.
+
+## Mentions
+
+Mentions of you: what the session saw for free, plus what a paid fetch brings in.
+**Notifications on X** opens X's mentions page in the panel, free, and the session files what
+it shows here. **Fetch new** is the paid read, priced on the button. Open or every mention in a
+list; the selected one has **Mark handled** and a reply. New mentions raise an OS notification.
+
+## Inbox
+
+Replies and quotes to your posts that the session saw.
+
+## Sent
+
+Replies sent from Xtend.
+
+## Follow-ups
+
+Replies you sent that are worth a second touch: older than two days with nothing since.
+
+## DMs
+
+DM history through the X connection. This connection is currently broken upstream, so its
+error shows as is.
+
+All sections need your handle; set it in Settings or sign in to X so it is read from the
+session.

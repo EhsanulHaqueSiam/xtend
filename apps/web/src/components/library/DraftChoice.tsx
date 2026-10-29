@@ -3,6 +3,7 @@ import type { ReplyTone } from "@xtend/contracts";
 import { useState } from "react";
 
 import { cn } from "../../lib/utils";
+import { splitBlocks } from "../compose/ThreadEditor";
 import { useQuoteLabel } from "../../state/costs";
 import { saveSuggestedDraftAtom } from "../../state/library";
 import { Candidates, ToneRow } from "../ui/assist-choice";
@@ -83,7 +84,9 @@ export function DraftChoice({
               disabled={busy !== null}
               onClick={() =>
                 void call("send", async () => {
-                  await save({ text: picked, source });
+                  // A thread comes back as posts split by blank lines, as Compose's paste does.
+                  const [first = picked, ...rest] = splitBlocks(picked);
+                  await save({ blocks: [first, ...rest], source });
                   setFiled(true);
                 })
               }

@@ -67,6 +67,11 @@ const refusal = (draft: Draft): string | null => {
   if (draft.blocks.length === 0 || (blank !== -1 && draft.blocks.length === 1))
     return "Nothing to post";
   if (blank !== -1) return `Post ${blank + 1} is empty`;
+  // Media goes out through the x.com session with X's default reply setting; a limit would not hold.
+  const limited = draft.blocks.findIndex(
+    (b, i) => hasMedia(i) && (b.replySettings ?? draft.replySettings) !== "everyone",
+  );
+  if (limited !== -1) return `Post ${limited + 1} has media, so it cannot limit who replies yet`;
   if (draft.poll === null) return null;
   if (draft.poll.options.some((o) => o.trim() === "")) return "Poll has a blank option";
   // X takes a poll or media on a post, not both; the session composer would silently drop the poll.
@@ -158,7 +163,14 @@ const make = Effect.gen(function* () {
   const postArticle = Effect.fn("Publisher.postArticle")(function* (draft: Draft, purpose: string) {
     // Already published by an attempt that failed afterwards; publishing again would pay twice.
     if (draft.postIds.length > 0) return [...draft.postIds];
-    const { articleId, postId } = yield* articles.publish(draft, purpose);
+    // A publish that timed out may be live on X; like a post, it is never retried on its own.
+    const { articleId, postId } = yield* articles
+      .publish(draft, purpose)
+      .pipe(
+        Effect.catch((e) =>
+          Effect.fail(mayHavePosted(e) ? new Unconfirmed({ post: 1, detail: e.message }) : e),
+        ),
+      );
     if (!isXId(postId))
       return yield* new Unconfirmed({
         post: 1,

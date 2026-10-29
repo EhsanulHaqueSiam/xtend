@@ -61,8 +61,12 @@ export const handlerFor = <R extends Rpc.AnyWithProps>(group: RpcGroup.RpcGroup<
         : result;
       if (!Effect.isEffect(run)) return yield* json({ error: "stream_only_over_ws", method }, 400);
       const exit = yield* Effect.exit(Effect.provide(run, entry.context));
+      // A void success encodes to undefined, which is no JSON body at all; callers parse one.
       if (Exit.isSuccess(exit))
-        return yield* json(Schema.encodeUnknownSync(erased(rpc.successSchema))(exit.value), 200);
+        return yield* json(
+          Schema.encodeUnknownSync(erased(rpc.successSchema))(exit.value) ?? null,
+          200,
+        );
       const failure = Cause.findErrorOption(exit.cause);
       if (Option.isSome(failure))
         return yield* json(

@@ -139,7 +139,8 @@ export function Watchlist({ onOpen }: { readonly onOpen: (handle: string) => voi
                       <th key={w} className={cn(table.th, "text-right")}>
                         <button
                           type="button"
-                          aria-label={`Sort by ${w.slice(1)} day change`}
+                          // Starts with the visible "7d" so voice control can say what it shows.
+                          aria-label={`${w.slice(1)}d, sort by ${w.slice(1)} day change`}
                           className={cn(
                             "cursor-pointer transition-colors duration-150 hover:text-foreground",
                             w === sortBy && "text-foreground",

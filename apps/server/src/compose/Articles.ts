@@ -1,4 +1,4 @@
-import { ComposeError, type Draft } from "@xtend/contracts";
+import { ComposeError, type Draft, type XApiError } from "@xtend/contracts";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -30,11 +30,17 @@ const str = (v: unknown): string => (typeof v === "string" ? v : "");
 export class Articles extends Context.Service<
   Articles,
   {
-    /** Creates X's draft (once; retries reuse `draft.articleId`) and publishes it. Returns the article's post id. */
+    /**
+     * Creates X's draft (once; retries reuse `draft.articleId`) and publishes it. Returns the
+     * article's post id. X's own errors pass through, so a publish that may be live is told apart.
+     */
     readonly publish: (
       draft: Draft,
       purpose: string,
-    ) => Effect.Effect<{ readonly articleId: string; readonly postId: string }, ComposeError>;
+    ) => Effect.Effect<
+      { readonly articleId: string; readonly postId: string },
+      ComposeError | XApiError
+    >;
     /** Paid: one image from COVER.model, stored as the article's cover (media on block 0). */
     readonly generateCover: (
       draftId: string,
@@ -66,14 +72,17 @@ const make = Effect.gen(function* () {
         str(
           obj(
             obj(
-              (yield* treg.call({
-                endpoint: ARTICLE.createDraft,
-                method: "POST",
-                // shortcut: X's article body shape is undocumented in treg's catalog; title + markdown content, revisit on the first real call.
-                body: { title: draft.title, content: draft.body },
-                purpose,
-                expectedCostUsd: ARTICLE.usd,
-              })).body,
+              (yield* treg
+                .call({
+                  endpoint: ARTICLE.createDraft,
+                  method: "POST",
+                  // shortcut: X's article body shape is undocumented in treg's catalog; title + markdown content, revisit on the first real call.
+                  body: { title: draft.title, content: draft.body },
+                  purpose,
+                  expectedCostUsd: ARTICLE.usd,
+                })
+                // Only the publish call below can leave the article live; a draft that failed is retried.
+                .pipe(Effect.mapError(fail("articlePublish")))).body,
             ).data,
           ).id,
         );
@@ -95,7 +104,7 @@ const make = Effect.gen(function* () {
       const postId = str(data.tweet_id) || str(data.post_id) || str(data.id) || articleId;
       return { articleId, postId };
     },
-    Effect.mapError(fail("articlePublish")),
+    Effect.mapError((e) => (e._tag === "XApiError" ? e : fail("articlePublish")(e))),
   );
 
   const generateCover = Effect.fn("Articles.generateCover")(

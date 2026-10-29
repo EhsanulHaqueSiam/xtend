@@ -152,7 +152,7 @@ export const pickDraftAtom = Atom.family((postId: string) =>
 );
 
 export const saveSuggestedDraftAtom = clientRuntime.fn<{
-  readonly text: string;
+  readonly blocks: readonly [string, ...Array<string>];
   readonly source: string;
 }>()(
   Effect.fnUntraced(function* (input) {
@@ -228,5 +228,13 @@ export const generateReadyAtom = clientRuntime.fn<string>()(
   Effect.fnUntraced(function* (country) {
     const client = yield* XtendClient;
     return yield* client[Library_METHODS.generateReady]({ country });
+  }),
+);
+
+/** For-you topics, ranked by the service from the session, saved posts and the pool. Free. */
+export const forYouAtom = clientRuntime.atom(
+  Effect.gen(function* () {
+    const client = yield* XtendClient;
+    return yield* client[Library_METHODS.forYou]({});
   }),
 );

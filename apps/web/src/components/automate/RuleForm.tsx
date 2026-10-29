@@ -406,7 +406,10 @@ export function RuleForm({
               className={prop}
               value={action.kind}
               onChange={(kind) => setAction(ACTIONS[kind].init)}
-              options={entries(ACTIONS)}
+              // The engine skips clean_profile (Undo repost replaced it); only an old rule shows it.
+              options={entries(ACTIONS).filter(
+                (o) => o.value !== "clean_profile" || o.value === action.kind,
+              )}
             />
           </Prop>
           {action.kind === "auto_plug" ? (

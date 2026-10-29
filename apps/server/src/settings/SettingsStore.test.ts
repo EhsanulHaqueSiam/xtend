@@ -35,6 +35,19 @@ describe("SettingsStore", () => {
       }).pipe(Effect.provide(layerTest)),
   );
 
+  it.effect("seals a token stored in plain text before encryption landed", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`UPDATE settings SET treg_token = 'trg_plain' WHERE id = 1`;
+      const token = yield* Effect.flatMap(SettingsStore.SettingsStore, (s) => s.tregToken).pipe(
+        Effect.provide(SettingsStore.layer),
+      );
+      expect(token).toBe("trg_plain");
+      const rows = yield* sql<{ treg_token: string }>`SELECT treg_token FROM settings`;
+      expect(rows[0]?.treg_token).not.toContain("trg_plain");
+    }).pipe(Effect.provide(Layer.mergeAll(Sqlite.layerMemory, TokenCipher.layerTest))),
+  );
+
   it.effect("counts today and this month, budget included, in the user's zone", () =>
     Effect.gen(function* () {
       const store = yield* SettingsStore.SettingsStore;

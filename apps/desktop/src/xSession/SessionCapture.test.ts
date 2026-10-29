@@ -73,6 +73,8 @@ let debug: FakeDebugger;
 let queueDir: string;
 let sent: Array<ObservationBatch>;
 let serviceUp: boolean;
+/** What a reachable service answers; a 5xx is its own failure, not a verdict on the batch. */
+let serviceStatus: number;
 let detach: () => void;
 
 const start = (onCreatedPost?: (postId: string) => void, accountId = 1) => {
@@ -92,10 +94,12 @@ beforeEach(() => {
   queueDir = fs.mkdtempSync(path.join(os.tmpdir(), "xtend-capture-"));
   sent = [];
   serviceUp = true;
+  serviceStatus = 202;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: URL, init: RequestInit) => {
       if (!serviceUp) throw new TypeError("fetch failed");
+      if (serviceStatus >= 500) return new Response(null, { status: serviceStatus });
       expect(url.toString()).toBe("http://127.0.0.1:4820/api/observations");
       expect(init.headers).toMatchObject({ authorization: "Bearer tok" });
       sent.push(JSON.parse(String(init.body)) as ObservationBatch);
@@ -156,6 +160,20 @@ it("keeps batches on disk while the service is down and replays them, past a cor
     ["home", "2"],
     ["profile", "1"],
   ]);
+});
+
+it("keeps a batch the service failed on (a proxy's 502) and sends it once the service is back", async () => {
+  start();
+  serviceStatus = 502;
+  debug.received("1", `${GRAPHQL}/UserTweets`, { data: [tweet("1")] });
+  debug.finished("1");
+  await vi.waitFor(() => expect(fs.readdirSync(queueDir)).toHaveLength(1));
+
+  serviceStatus = 202;
+  debug.received("2", `${GRAPHQL}/HomeTimeline`, { data: [tweet("2")] });
+  debug.finished("2");
+  await vi.waitFor(() => expect(fs.readdirSync(queueDir)).toEqual([]));
+  expect(sent.map((b) => b.posts[0]?.postId)).toEqual(["2", "1"]);
 });
 
 it("a batch queued before an account switch still names the account that captured it", async () => {

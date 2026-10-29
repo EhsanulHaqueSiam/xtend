@@ -14,9 +14,26 @@ const encodeJson = Schema.encodeSync(JsonText);
 const decodeJson = Schema.decodeUnknownEffect(JsonText);
 
 /**
+ * Every Codex tool that can read files or reach out. The prompt carries strangers' post text, and
+ * the read-only sandbox still lets a shell or the JS REPL read any file the service can, straight
+ * into a draft. A Codex too old to know one of these names refuses to start: it fails closed.
+ */
+const TOOL_FEATURES = [
+  "shell_tool",
+  "unified_exec",
+  "code_mode_host",
+  "browser_use",
+  "computer_use",
+  "in_app_browser",
+  "apps",
+  "plugins",
+];
+
+/**
  * The arguments for one structured answer from the Codex CLI, the way T3 Code drives it: no repo,
- * nothing kept, a read-only sandbox, the prompt on stdin, the answer's shape from a schema file
- * and the final message written to a file. An empty model leaves the user's Codex config in charge.
+ * nothing kept, a read-only sandbox, no tools, the prompt on stdin, the answer's shape from a
+ * schema file and the final message written to a file. An empty model leaves the user's Codex
+ * config in charge.
  */
 export const codexArgs = (input: {
   readonly model: string;
@@ -34,6 +51,7 @@ export const codexArgs = (input: {
   input.outPath,
   "-c",
   "mcp_servers={}",
+  ...TOOL_FEATURES.flatMap((feature) => ["--disable", feature]),
   ...(input.model === "" ? [] : ["--model", input.model]),
   "-",
 ];
@@ -97,8 +115,6 @@ export const complete = Effect.fn("Codex.complete")(function* (input: {
     yield* fs.writeFileString(schemaPath, encodeJson(strictSchema(input.jsonSchema)));
     // A home of its own with only the login and the stripped config, so nothing from the user's
     // Codex setup (MCP servers, hooks) is reachable from a run that reads strangers' text.
-    // shortcut: the read-only sandbox still allows commands that read files; drop it when Codex
-    // exposes a switch for the shell tool.
     const userHome = process.env.CODEX_HOME ?? path.join(process.env.HOME ?? ".", ".codex");
     const home = path.join(dir, "home");
     yield* fs.makeDirectory(home);
