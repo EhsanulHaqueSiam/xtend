@@ -174,6 +174,12 @@ describe("ObservationStore", () => {
       });
       const { posts } = yield* store.listRecent({});
       expect(posts.map((p) => p.postId)).toEqual(["1"]);
+
+      // The same post seen organically later is no longer an ad.
+      const later = batch("2026-10-22T11:00:00.000Z", 6);
+      yield* store.record({ ...later, posts: [{ ...later.posts[0]!, postId: "3" }] });
+      const after = yield* store.listRecent({});
+      expect(after.posts.map((p) => p.postId).sort()).toEqual(["1", "3"]);
     }).pipe(Effect.provide(layerTest)),
   );
 });

@@ -124,7 +124,8 @@ function BotCheck({ s }: { readonly s: Sample }) {
           label="Follow ratio"
           value={s.bot.followRatio === null ? "–" : s.bot.followRatio.toFixed(2)}
         />
-        <Stat label="Suspicious" value={String(s.bot.suspicious.length)} />
+        {/* The list stops at ten; the share covers the whole sample. */}
+        <Stat label="Suspicious" value={String(Math.round(s.bot.botShare * s.sampled))} />
       </div>
       {s.bot.suspicious.length === 0 ? (
         quiet("No suspicious followers in the sample.")

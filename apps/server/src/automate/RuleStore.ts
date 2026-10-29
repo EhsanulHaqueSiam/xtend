@@ -41,6 +41,8 @@ export const Subject = Schema.Struct({
   /** When the subject came to be; wait and the within-hours condition measure from it. */
   at: Schema.optional(Schema.String),
   postId: Schema.optional(Schema.String),
+  /** The own post an ask-first request showed; approving it acts on this post, whatever ranks first by then. */
+  pinnedPostId: Schema.optional(Schema.String),
   post: Schema.optional(
     Schema.Struct({
       hasLink: Schema.Boolean,

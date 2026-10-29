@@ -143,14 +143,16 @@ async function importCookies(
 }
 
 /**
- * x.com may ask for notifications; nothing else (camera, geolocation, clipboard reads) has a reason to.
- * Granted web notifications are shown by the OS notification centre; Electron does that itself.
+ * x.com may ask for notifications and fullscreen (its video player); nothing else (camera,
+ * geolocation, clipboard reads) has a reason to. Granted web notifications are shown by the OS
+ * notification centre; Electron does that itself.
  */
-const allowNotificationsOnly = (s: Electron.Session) => {
+const ALLOWED_PERMISSIONS = new Set(["notifications", "fullscreen"]);
+const allowXPermissions = (s: Electron.Session) => {
   s.setPermissionRequestHandler((_contents, permission, callback) =>
-    callback(permission === "notifications"),
+    callback(ALLOWED_PERMISSIONS.has(permission)),
   );
-  s.setPermissionCheckHandler((_contents, permission) => permission === "notifications");
+  s.setPermissionCheckHandler((_contents, permission) => ALLOWED_PERMISSIONS.has(permission));
 };
 
 const openExternalWeb = (url: string) => {
@@ -178,7 +180,7 @@ const useSystemSpellcheckLanguages = (s: Electron.Session) => {
 export function createMainWindow(options: MainWindowOptions) {
   const partition = sessionPartition(options.accountId);
   const xSession = session.fromPartition(partition);
-  allowNotificationsOnly(xSession);
+  allowXPermissions(xSession);
   useSystemSpellcheckLanguages(xSession);
 
   const window = new BrowserWindow({
@@ -202,7 +204,7 @@ export function createMainWindow(options: MainWindowOptions) {
   // the sidebar and ⌘K are the menu, as in T3 Code. macOS keeps its app menu for the chords.
   if (process.platform !== "darwin") window.removeMenu();
   const appContents = window.webContents;
-  allowNotificationsOnly(appContents.session);
+  allowXPermissions(appContents.session);
   appContents.on("page-title-updated", (event) => event.preventDefault());
   reloadWhenGone("app", appContents, options.log);
   const toApp = (channel: string, value: unknown) => {

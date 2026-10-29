@@ -75,11 +75,12 @@ it("prices a search by its mode, and Load more as the next page of the search on
       "library.savedList": () => Effect.succeed([]),
     },
   });
-  // A `?q=` link searches on arrival.
+  // A `?q=` link fills the box; the search waits for the priced click.
+  const searchButton = screen.getByRole("button", { name: /^Search.*cached, free$/ });
+  await expect.element(searchButton).toBeVisible();
+  expect(searches).toEqual([]);
+  await userEvent.click(searchButton);
   await expect.poll(() => searches).toEqual([{ query: "ai agents", mode: "top" }]);
-  await expect
-    .element(screen.getByRole("button", { name: /^Search.*cached, free$/ }))
-    .toBeVisible();
   // The next page is a read of its own, paid though the first one was cached.
   const loadMore = screen.getByRole("button", { name: /^Load more.*\$0\.00075$/ });
   await expect.element(loadMore).toBeVisible();

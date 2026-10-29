@@ -11,7 +11,7 @@ import { userEvent } from "vite-plus/test/browser";
 
 import { installFakeBridge } from "../../test/fakeBridge";
 import type { FakeService } from "../../test/fakeService";
-import { settings } from "../../test/fixtures";
+import { paid, quoting, settings } from "../../test/fixtures";
 import { render } from "../../test/render";
 import { NOT_A_HANDLE } from "../lib/utils";
 import { SettingsScreen } from "../routes/settings";
@@ -120,6 +120,29 @@ it("runs assist on the Codex login with a chosen model, and keeps the endpoint f
   await expect.element(screen.getByText("Endpoint", { exact: true })).not.toBeInTheDocument();
   await userEvent.click(screen.getByRole("button", { name: "Save" }));
   await expect.poll(() => updates).toEqual([{ assistProvider: "codex", assistModel: "m1" }]);
+});
+
+it("requotes after a saved keyword change, so the daily jobs show the new search price", async () => {
+  // The picks price is one search per keyword, read from the saved settings.
+  let keywords: ReadonlyArray<string> = ["ai"];
+  await using screen = await render(<SettingsScreen />, {
+    service: service([], () => false, {
+      "settings.get": () => Effect.sync(() => ({ ...settings, keywords })),
+      "settings.update": (patch) =>
+        Effect.sync(() => {
+          keywords = patch.keywords ?? keywords;
+          return { ...settings, keywords };
+        }),
+      "costs.quote": quoting((a) => paid(a.kind === "picksFetch" ? 0.005 * keywords.length : 0)),
+    }),
+    router: "/settings?tab=writing",
+  });
+  await expect.element(screen.getByText(/\(\$0\.005 in searches\)/)).toBeVisible();
+  // Assist runs on the user's own login, so its $0 quote reads as free.
+  await expect.element(screen.getByText(/written on your login/)).toBeVisible();
+  await userEvent.fill(screen.getByLabelText(/^Keywords/), "ai, agents");
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  await expect.element(screen.getByText(/\(\$0\.01 in searches\)/)).toBeVisible();
 });
 
 it("finds a row on another page by its label and shows the page as a crumb", async () => {

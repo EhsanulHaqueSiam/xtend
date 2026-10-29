@@ -708,6 +708,44 @@ describe("AutomationEngine", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
+  it.live("a new engager replied to the user, not to whoever else the session showed", () =>
+    Effect.gen(function* () {
+      const { rules, engine } = yield* setup;
+      yield* observe([
+        { ...post("r1", HOUR, 0, false, "alice"), text: "@siam love this", isReply: true },
+        { ...post("r2", HOUR, 0, false, "carol"), text: "@bob agreed", isReply: true },
+        { ...post("r3", HOUR, 0, false, "dave"), text: "@siamese cats", isReply: true },
+      ]);
+      const rule = yield* rules.upsert({
+        ...likeRule({ name: "greet", dryRun: true }),
+        trigger: { kind: "new_engager" },
+        action: { kind: "notify", message: "{name} replied" },
+      });
+      const runs = yield* engine.runRule(rule.id);
+      expect(runs.map((r) => r.subjectId)).toEqual(["id-alice"]);
+    }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.live("approving an evergreen repost reposts the post the request showed", () =>
+    Effect.gen(function* () {
+      const { rules, engine } = yield* setup;
+      // A pool of ten, so a fresh random pick would rarely land on the shown post again.
+      fake.timelineExtra = Array.from({ length: 9 }, (_, i) => post(`e${i}`, 3 * HOUR, 4000 + i));
+      const rule = yield* rules.upsert({
+        ...likeRule({ name: "evergreen", askFirst: true }),
+        trigger: { kind: "schedule", weekdays: [0, 1, 2, 3, 4, 5, 6], time: "00:00" },
+        action: { kind: "auto_retweet", evergreen: true },
+      });
+      yield* engine.runRule(rule.id);
+      const request = (yield* rules.pendingList)[0]!;
+      // The ranking moves before the user approves; the approval still means the post it showed.
+      fake.timelineExtra = [post("newtop", HOUR, 99_999), ...fake.timelineExtra.slice(1)];
+      yield* engine.approve(request.id);
+      expect(reposted).toHaveLength(1);
+      expect(request.description).toContain(`repost ${reposted[0]} (`);
+    }).pipe(Effect.provide(layerTest)),
+  );
+
   it.live("undoAfterHours schedules the inverse and the tick runs it when due", () =>
     Effect.gen(function* () {
       const { rules, engine } = yield* setup;

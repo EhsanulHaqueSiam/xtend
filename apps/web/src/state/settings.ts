@@ -23,13 +23,6 @@ export const settingsAtom = clientRuntime.atom((get) =>
   }),
 );
 
-export const spendAtom = clientRuntime.atom(
-  Effect.gen(function* () {
-    const client = yield* XtendClient;
-    return yield* client[WS_METHODS.spendSummary]({});
-  }),
-);
-
 export const updateSettingsAtom = clientRuntime.fn<SettingsUpdate>()(
   Effect.fnUntraced(function* (patch) {
     const client = yield* XtendClient;
