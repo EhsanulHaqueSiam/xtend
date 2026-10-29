@@ -44,11 +44,19 @@ export function Section({
   readonly className?: string;
 }) {
   return (
-    <section className={cn("mx-6 my-5 border-t border-border pt-3", className)}>
+    <section
+      // The count steps on the section, not its heading: Chrome carries a counter between
+      // siblings, so a step inside one section's heading never reaches the next.
+      className={cn(
+        "mx-6 my-5 border-t border-border pt-3",
+        title !== undefined && "[counter-increment:section]",
+        className,
+      )}
+    >
       {title !== undefined || aside !== undefined ? (
         <div className="mb-3 flex items-center justify-between gap-3">
           {title !== undefined ? (
-            <h2 className="flex min-w-0 items-baseline gap-2.5 text-[12.5px] font-semibold text-foreground [counter-increment:section] before:font-mono before:text-2xs before:font-normal before:text-muted-foreground/60 before:content-[counter(section,decimal-leading-zero)]">
+            <h2 className="flex min-w-0 items-baseline gap-2.5 text-[12.5px] font-semibold text-foreground before:font-mono before:text-2xs before:font-normal before:text-muted-foreground/60 before:content-[counter(section,decimal-leading-zero)]">
               <span className="truncate">{title}</span>
               {description !== undefined ? (
                 <span className="truncate text-xs font-normal text-muted-foreground">

@@ -1,13 +1,13 @@
 # Analyze
 
-Analyze is your own numbers. One paid **Refresh posts** reads your profile and up to 100 of
-your own posts; every section then reads from that load. The header's freshness line says when
-it was fetched and how many posts it holds, or that it is not fetched yet. The button only
-stands out once the load is a day old or missing. Until the first refresh each section shows
-one line and the button.
+Analyze is your own numbers. Every post of yours the session sees on X (your profile, your
+timeline, a thread) lands here with its numbers, free, and the header says "live from your
+session". One paid **Refresh posts** reads your profile and up to 100 of your posts for a fuller
+picture and your follower count; a post seen after the refresh keeps its newer numbers. The
+button only stands out when nothing is loaded or the refresh is a day old.
 
-In the desktop app, **Profile on X** beside it opens your profile in the X panel for free, to
-read your numbers on X itself; the paid refresh is what fills these sections.
+In the desktop app, **Profile on X** opens your profile in the X panel for free, which is also
+how your posts arrive without a refresh.
 
 ## Overview
 
@@ -32,7 +32,7 @@ It is one model call, cached per set of posts: asking again for the same posts i
 ## Best time
 
 A 7x24 grid of average views per hour of week in your time zone. Opacity follows the value.
-It needs refreshed posts; Plan's Slots turn its best hours into posting slots.
+It reads the posts above, seen or refreshed; Plan's Slots turn its best hours into posting slots.
 
 ## Competitors
 

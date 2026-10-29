@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import type { AccountPost, XPost, XProfile } from "@xtend/contracts";
+import type { AccountPost, ObservedPostSummary, XPost, XProfile } from "@xtend/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -15,7 +15,7 @@ import * as TokenCipher from "../settings/TokenCipher.ts";
 import { xClientStub } from "../testing/xClientStub.ts";
 import * as Treg from "../x/Treg.ts";
 import * as Analytics from "./Analytics.ts";
-import { heatmapOf, summarize } from "./Analytics.ts";
+import { heatmapOf, summarize, withSeen } from "./Analytics.ts";
 import * as AnalyticsStore from "./AnalyticsStore.ts";
 import * as PostAnalytics from "./PostAnalytics.ts";
 
@@ -82,6 +82,48 @@ describe("Analytics.summarize", () => {
       sinceDay: "2026-09-20",
     });
     expect(summarize([], snapshots.slice(2), now, utc).followerDelta30d).toBeNull();
+  });
+});
+
+describe("Analytics.withSeen", () => {
+  const sighting = (
+    postId: string,
+    likes: number,
+    lastSeenAt: string,
+    isRepost = false,
+  ): ObservedPostSummary => ({
+    postId,
+    author: { userId: "1", handle: "me", name: "Me", followers: 10, verified: false },
+    text: "seen",
+    createdAt: "2026-10-21T00:00:00.000Z",
+    isReply: false,
+    isRepost,
+    isPromoted: false,
+    hasMedia: false,
+    hasLink: false,
+    metrics: { views: 100, likes, reposts: 0, replies: 0, quotes: 0, bookmarks: 0 },
+    firstSeenAt: lastSeenAt,
+    lastSeenAt,
+    observations: 1,
+  });
+
+  it("adds what the session saw, takes fresher numbers than the Refresh, and skips reposts", () => {
+    const refreshed = { ...post(1, 50, 3), postId: "a" };
+    const merged = withSeen([refreshed], "2026-10-22T06:00:00.000Z", [
+      sighting("a", 9, "2026-10-22T08:00:00.000Z"),
+      sighting("b", 1, "2026-10-22T01:00:00.000Z"),
+      sighting("c", 7, "2026-10-22T09:00:00.000Z", true),
+    ]);
+    expect(merged.map((p) => [p.postId, p.likes])).toEqual([
+      ["a", 9],
+      ["b", 1],
+    ]);
+    // A sighting older than the Refresh leaves the Refresh's numbers.
+    expect(
+      withSeen([refreshed], "2026-10-22T09:00:00.000Z", [
+        sighting("a", 9, "2026-10-22T08:00:00.000Z"),
+      ])[0]?.likes,
+    ).toBe(3);
   });
 });
 

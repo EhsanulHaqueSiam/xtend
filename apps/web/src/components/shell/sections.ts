@@ -20,7 +20,7 @@ export const ABOUT: Readonly<Record<string, string>> = {
   "/automate":
     "Rules that act for you through the X API, each with a price, a budget and an approval step when you want one.",
   "/analyze":
-    "How your account is doing. Your posts and followers load with a paid Refresh; who you see most is free.",
+    "How your account is doing, from your posts your session saw, free. Refresh reads your full timeline and follower count, priced on the button.",
   "/scores":
     "Account scores for you and anyone you watch. Stored reports are free; a score run reads their followers through treg, priced on the button.",
   "/seen": "Every post this app saw in your X session, newest first. Free.",
@@ -114,14 +114,19 @@ export const SECTIONS = {
     {
       id: "overview",
       label: "Overview",
-      about: "Followers, views and activity from your last Refresh, which is priced on the button.",
+      about:
+        "Views and activity from your posts your session saw, free; followers come with a paid Refresh.",
     },
-    { id: "posts", label: "Posts", about: "Each post's numbers from your last Refresh." },
+    {
+      id: "posts",
+      label: "Posts",
+      about: "Each post's numbers, live from your session; Refresh fills in the rest.",
+    },
     { id: "audience", label: "Audience", about: "Accounts your session saw most, by reach. Free." },
     {
       id: "best-time",
       label: "Best time",
-      about: "Hours your posts drew views, from your last Refresh.",
+      about: "Hours your posts drew views. Free.",
     },
     {
       id: "competitors",
