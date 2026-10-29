@@ -1,6 +1,9 @@
+import { useAtomValue } from "@effect/atom-react";
 import type { AnalyzeData } from "@xtend/contracts";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
 
 import { cn } from "../../lib/utils";
+import { seenByAtom } from "../../state/observations";
 import { Section, Stat, statRow } from "../ui/layout";
 import { AnalyzePage, NotLoaded } from "./AnalyzePage";
 import { fmt, insetTable, LineChart, pct, signed } from "./ui";
@@ -10,9 +13,15 @@ const CHART_HEIGHT = 140;
 /** Numbers come computed from the service; this only lays them out. */
 export function Overview({ data }: { readonly data: AnalyzeData }) {
   const latest = data.snapshots.at(-1);
+  // Until a Refresh takes a snapshot, the count the session last saw on one of your posts.
+  const seen = useAtomValue(seenByAtom(data.handle ?? ""));
+  const seenFollowers = AsyncResult.getOrElse(
+    AsyncResult.map(seen, ({ posts }) => posts[0]?.author.followers ?? null),
+    () => null,
+  );
   const delta = data.followerDelta30d;
   const t = insetTable;
-  if (data.fetchedAt === null)
+  if (data.fetchedAt === null && data.posts.length === 0)
     return (
       <AnalyzePage data={data}>
         <NotLoaded />
@@ -22,7 +31,10 @@ export function Overview({ data }: { readonly data: AnalyzeData }) {
     <AnalyzePage data={data}>
       <Section>
         <div className={cn(statRow, "grid-cols-2 gap-y-4 @xl:grid-cols-4")}>
-          <Stat label="Followers" value={fmt(latest?.followers ?? null)} />
+          <Stat
+            label={latest === undefined && seenFollowers !== null ? "Followers, seen" : "Followers"}
+            value={fmt(latest?.followers ?? seenFollowers)}
+          />
           {/* Until a snapshot is 30 days old there is nothing to compare against. */}
           <div title={delta === null ? "Needs a snapshot at least 30 days old" : undefined}>
             <Stat
