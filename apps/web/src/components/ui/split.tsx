@@ -46,11 +46,14 @@ export function DetailSplit({
   const previousRow = useRef<HTMLElement | null>(null);
   const wasOpen = useRef(false);
   const previousKey = useRef(detailKey);
+  // Read while rendering, before the detail mounts: an editor that focuses its first field on
+  // mount would otherwise be taken for its own opener.
+  /* oxlint-disable react/refs -- deliberate: an effect runs after the detail's own autofocus. */
+  if (detail !== null && (!wasOpen.current || detailKey !== previousKey.current))
+    opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  /* oxlint-enable react/refs */
   useLayoutEffect(() => {
-    if (detail !== null && (!wasOpen.current || detailKey !== previousKey.current)) {
-      opener.current =
-        document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    } else if (detail === null && wasOpen.current && opener.current?.isConnected) {
+    if (detail === null && wasOpen.current && opener.current?.isConnected) {
       opener.current.focus();
     }
     wasOpen.current = detail !== null;

@@ -105,3 +105,27 @@ it("closes a detail on Escape and restores its opener, respecting editors and po
   expect(screen.getByRole("button", { name: "Detail action" }).query()).toBeNull();
   await expect.element(screen.getByRole("button", { name: "Open detail" })).toHaveFocus();
 });
+
+function Autofocusing() {
+  const [open, setOpen] = useState(false);
+  return (
+    <DetailSplit
+      onClose={() => setOpen(false)}
+      list={<button onClick={() => setOpen(true)}>Open detail</button>}
+      detail={
+        open ? (
+          // oxlint-disable-next-line jsx-a11y/no-autofocus -- the case under test: a detail that takes focus on mount.
+          <button autoFocus>First field</button>
+        ) : null
+      }
+    />
+  );
+}
+
+it("returns focus to what opened a detail that focused its own first control", async () => {
+  await using screen = await render(<Autofocusing />, { router: false });
+  await userEvent.click(screen.getByRole("button", { name: "Open detail" }));
+  await expect.element(screen.getByRole("button", { name: "First field" })).toHaveFocus();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(screen.getByRole("button", { name: "Open detail" })).toHaveFocus();
+});

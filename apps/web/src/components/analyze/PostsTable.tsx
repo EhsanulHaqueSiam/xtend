@@ -113,7 +113,8 @@ function NonPublicStatus({
         <Switch
           label="Nightly fetch"
           checked={nonPublic.nightly === true}
-          disabled={nightlyState.waiting}
+          // Turning it on authorizes a paid read every night, so it waits for the price; off never does.
+          disabled={nightlyState.waiting || (rates === null && nonPublic.nightly !== true)}
           onChange={(on) => void setNightly(on).then(refreshData, () => {})}
         />
         <p className="text-xs text-muted-foreground">

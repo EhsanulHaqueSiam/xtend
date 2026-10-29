@@ -216,9 +216,12 @@ const make = Effect.gen(function* () {
     const last = yield* sql<{
       at: string;
     }>`SELECT at FROM post_analytics_runs WHERE account_id = ${sql.literal(CURRENT_ACCOUNT)} ORDER BY at DESC LIMIT 1`;
-    const lastDay = DateTime.formatIsoDate(
-      DateTime.setZone(DateTime.makeUnsafe(last[0]!.at), zone),
-    );
+    // Switched on before any fetch: no run yet, so tonight's is due.
+    const lastAt = last[0]?.at;
+    const lastDay =
+      lastAt === undefined
+        ? null
+        : DateTime.formatIsoDate(DateTime.setZone(DateTime.makeUnsafe(lastAt), zone));
     if (lastDay !== today) yield* refresh(false);
   }).pipe(Effect.mapError(fail("nonPublic")));
 

@@ -126,6 +126,30 @@ describe("PostAnalytics", () => {
     );
   });
 
+  it.effect("a nightly run switched on before any fetch runs that night", () => {
+    let calls = 0;
+    return Effect.gen(function* () {
+      yield* seed;
+      // 03:00 here at the test clock's start: the nightly hour.
+      yield* (yield* SettingsStore.SettingsStore).update({ timeZone: "Etc/GMT-3" });
+      const analytics = yield* PostAnalytics.PostAnalytics;
+      yield* analytics.setNightly(true);
+      yield* analytics.nightlyTick;
+      expect(calls).toBe(1);
+    }).pipe(
+      Effect.provide(
+        layerTest(
+          fakeTreg(() =>
+            Effect.sync(() => {
+              calls++;
+              return { data: [] };
+            }),
+          ),
+        ),
+      ),
+    );
+  });
+
   it.effect("the first Fetch now turns the nightly run on, and off stays off", () => {
     let calls = 0;
     return Effect.gen(function* () {

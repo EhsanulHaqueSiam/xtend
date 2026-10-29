@@ -271,6 +271,24 @@ it("turns the nightly private-metrics fetch off beside its status", async () => 
   expect(set).toEqual([false]);
 });
 
+it("turns the nightly fetch on only once its price is known, and off at any time", async () => {
+  const unpriced = (nightly: boolean) =>
+    render(<AnalyzeScreen />, {
+      router: "/analyze?tab=posts",
+      service: {
+        "costs.quote": () => Effect.never,
+        "analyze.data": () =>
+          Effect.succeed({ ...data([post("1", 10)]), nonPublic: { ...noPrivate, nightly } }),
+      },
+    });
+  {
+    await using screen = await unpriced(false);
+    await expect.element(screen.getByRole("switch", { name: "Nightly fetch" })).toBeDisabled();
+  }
+  await using screen = await unpriced(true);
+  await expect.element(screen.getByRole("switch", { name: "Nightly fetch" })).toBeEnabled();
+});
+
 const answering = (asked: Array<string>) => ({
   "costs.quote": quoting(),
   "analyze.ask": ({ question }: { readonly question: string }) =>
