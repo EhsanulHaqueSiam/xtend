@@ -1,6 +1,6 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
-import { postCostUsd, type Person, type Stage, type XPost } from "@xtend/contracts";
+import { postCostUsd, type Person, type ReplyTone, type Stage, type XPost } from "@xtend/contracts";
 import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState, type ReactElement, type ReactNode } from "react";
@@ -10,6 +10,7 @@ import { PERSON_TYPE } from "../../lib/drag";
 import { fmtWhen } from "../../lib/time";
 import { cn } from "../../lib/utils";
 import { useQuoteLabel, useRates } from "../../state/costs";
+import { useSessionLane } from "../../state/settings";
 import {
   draftDmAtom,
   draftReplyAtom,
@@ -21,12 +22,15 @@ import {
   sendReplyAtom,
   updatePersonAtom,
 } from "../../state/leads";
+import { seenByAtom } from "../../state/observations";
 import { errorText, fmt } from "../analyze/ui";
 import { useWorkBy } from "../engage/ReplyBox";
 import { ago, ErrorLine, pill, pillSolid } from "../engage/triage";
 import { HeaderTabs, PageHeader } from "../PageHeader";
 import { sectionHref } from "../shell/sections";
+import { Candidates, ToneRow } from "../ui/assist-choice";
 import { inputClass } from "../ui/field";
+import { observedToXPost } from "../../lib/observed";
 import { Cost, Empty, PageBody, Section } from "../ui/layout";
 import { toastAtom } from "../ui/toast";
 import {
@@ -39,14 +43,18 @@ import {
   useSelection,
 } from "../ui/split";
 import { OpenOnX, profileUrl } from "../ui/x-link";
-import { STAGES, StageText, useAction } from "./ui";
+import { STAGES, StageText, TierText, useAction } from "./ui";
 
 const COLUMNS: ReadonlyArray<Column<Person>> = [
   { label: "Score", className: "w-10", cell: (p) => fmt(p.score) },
   {
     label: "Tier",
     className: "hidden w-20 @xl:block",
-    cell: (p) => <span className="text-muted-foreground">{p.tier ?? ""}</span>,
+    cell: (p) => (
+      <span className="text-muted-foreground">
+        <TierText tier={p.tier} />
+      </span>
+    ),
   },
   { label: "Followers", className: "w-18", cell: (p) => fmt(p.followers) },
   {
@@ -75,12 +83,17 @@ interface Outreach {
   readonly dmSent: boolean;
   readonly dmBusy: "draft" | "send" | null;
   readonly dmError: string | null;
+  /** The pressed tone chip and the drafts it brought: null is the user's own words. */
+  readonly dmTone: ReplyTone | null;
+  readonly dmDrafts: ReadonlyArray<string>;
   /** Their latest post once loaded, null when they have none. */
   readonly post: XPost | null | undefined;
   readonly reply: string;
   readonly replied: boolean;
   readonly replyBusy: "load" | "draft" | "send" | null;
   readonly replyError: string | null;
+  readonly replyTone: ReplyTone | null;
+  readonly replyDrafts: ReadonlyArray<string>;
 }
 
 type OutreachPatch = (change: Partial<Outreach>) => void;
@@ -90,11 +103,15 @@ const idle: Outreach = {
   dmSent: false,
   dmBusy: null,
   dmError: null,
+  dmTone: null,
+  dmDrafts: [],
   post: undefined,
   reply: "",
   replied: false,
   replyBusy: null,
   replyError: null,
+  replyTone: null,
+  replyDrafts: [],
 };
 
 /** Everyone the screens have found, as a table by stage or a board of stages, with the selected person beside. */
@@ -434,18 +451,17 @@ function PersonPanel({
         ) : null}
       </Section>
       <Section title="Stage">
-        <div
-          className="flex flex-wrap items-center gap-x-4 gap-y-1"
-          role="group"
-          aria-label="Stage"
-        >
+        <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Stage">
           {STAGES.map((s) => (
             <button
               key={s}
               type="button"
               aria-pressed={s === person.stage}
               disabled={edit.busy}
-              className="cursor-pointer text-[13px] text-muted-foreground transition-colors duration-150 hover:text-foreground aria-pressed:text-foreground aria-pressed:font-medium"
+              className={cn(
+                pill,
+                "text-muted-foreground aria-pressed:border-foreground aria-pressed:text-foreground",
+              )}
               onClick={() => void setStage(s)}
             >
               {s}
@@ -461,9 +477,13 @@ function PersonPanel({
           rows={[
             [
               "Score",
-              person.score === null
-                ? "–"
-                : `${person.score}${person.tier === null ? "" : ` ${person.tier}`}`,
+              person.score === null ? (
+                "–"
+              ) : (
+                <>
+                  {person.score} <TierText tier={person.tier} />
+                </>
+              ),
             ],
             ["Followers", fmt(person.followers)],
             ["Source", person.source],
@@ -514,7 +534,11 @@ function PersonPanel({
   );
 }
 
-/** A DM through the X connection. Without their user id the service reads the profile first, priced in. */
+/**
+ * A DM through the user's own session while that lane is on, else the X connection. The service
+ * needs their user id: known, or seen on a post the session saw, is free; else it reads the
+ * profile first, priced in.
+ */
 function DirectMessage({
   person,
   work,
@@ -529,12 +553,19 @@ function DirectMessage({
   const rates = useRates();
   const draftDm = useAtomSet(draftDmAtom(person.id), { mode: "promiseExit" });
   const sendDm = useAtomSet(sendDmAtom(person.id), { mode: "promiseExit" });
-  const { dm, dmSent, dmBusy, dmError } = work;
-  // The draft reads their recent posts first, then one model call.
-  const postsQuote = useQuoteLabel({ kind: "userPosts", handle: person.handle });
+  const { dm, dmSent, dmBusy, dmError, dmTone, dmDrafts } = work;
+  // The drafts read only what the session saw them post, then one model call.
   const assistQuote = useQuoteLabel({ kind: "assist" });
+  const viaSession = useSessionLane();
+  const seen = useAtomValue(seenByAtom(person.handle));
+  const lookup =
+    person.userId === null &&
+    AsyncResult.getOrElse(
+      AsyncResult.map(seen, ({ posts }) => posts.length === 0),
+      () => true,
+    );
   const sendUsd =
-    rates === null ? null : rates.dm + (person.userId === null ? rates.scraperProfile : 0);
+    rates === null ? null : (viaSession ? 0 : rates.dm) + (lookup ? rates.scraperProfile : 0);
 
   const onSend = async () => {
     patch({ dmBusy: "send", dmError: null });
@@ -543,21 +574,37 @@ function DirectMessage({
     patch({ dmBusy: null, dm: "", dmSent: true });
     onSent();
   };
-  const onDraft = async () => {
+  const onTone = async (next: ReplyTone | null) => {
+    patch({ dmTone: next, dmDrafts: [] });
+    if (next === null) return;
     patch({ dmBusy: "draft", dmError: null });
-    const exit = await draftDm();
+    const exit = await draftDm(next);
     patch(
       Exit.isFailure(exit)
         ? { dmBusy: null, dmError: errorText(exit.cause) }
-        : { dmBusy: null, dm: exit.value, dmSent: false },
+        : { dmBusy: null, dmDrafts: exit.value, dm: exit.value[0] ?? dm, dmSent: false },
     );
   };
-
   return (
-    <Section title="Direct message">
+    <Section title="Direct message" aside={<Cost label={`3 drafts · ${assistQuote}`} />}>
+      <div className="mb-2 flex flex-col gap-2">
+        <ToneRow
+          tone={dmTone}
+          busy={dmBusy === "draft" ? dmTone : undefined}
+          disabled={dmBusy !== null}
+          assistDisabled={assistQuote === "…"}
+          onTone={(next) => void onTone(next)}
+        />
+        <Candidates
+          drafts={dmDrafts}
+          picked={dm}
+          onPick={(text) => patch({ dm: text, dmSent: false })}
+        />
+      </div>
       <textarea
         className={cn(inputClass, "min-h-20 resize-y leading-relaxed")}
-        placeholder="Write a DM, or draft one"
+        aria-label="DM text"
+        placeholder={dmTone === null ? "Write a DM" : "Pick a draft above, or edit it here"}
         value={dm}
         // Locked while sending: success clears the box, which would take text typed meanwhile.
         disabled={dmBusy === "send"}
@@ -573,16 +620,13 @@ function DirectMessage({
           <TextMorph duration={250}>
             {dmBusy === "send" ? "Sending…" : dmSent ? "Sent" : "Send DM"}
           </TextMorph>
-          {sendUsd === null ? <Cost tone="solid" label="…" /> : <Cost tone="solid" usd={sendUsd} />}
-        </button>
-        <button
-          type="button"
-          className={pill}
-          disabled={dmBusy !== null || postsQuote === "…" || assistQuote === "…"}
-          onClick={() => void onDraft()}
-        >
-          <TextMorph duration={250}>{dmBusy === "draft" ? "Drafting…" : "Draft with AI"}</TextMorph>
-          <Cost label={`${postsQuote} + ${assistQuote}`} />
+          {viaSession && sendUsd === 0 ? (
+            <Cost tone="solid" label="free · your session" />
+          ) : sendUsd === null ? (
+            <Cost tone="solid" label="…" />
+          ) : (
+            <Cost tone="solid" usd={sendUsd} />
+          )}
         </button>
       </div>
       {dmError !== null ? <p className="mt-2 text-xs text-error-foreground">{dmError}</p> : null}
@@ -590,7 +634,10 @@ function DirectMessage({
   );
 }
 
-/** Their latest post, an AI draft, and a reply through the X connection; every paid step is priced on its button. */
+/**
+ * Their latest post, drafts, and a reply. The post is what the session saw them post, free and
+ * already there; X is read only when the user asks for a fresher one, priced on the button.
+ */
 function Reply({
   id,
   handle,
@@ -607,11 +654,22 @@ function Reply({
   const loadPost = useAtomSet(latestPostAtom(id), { mode: "promiseExit" });
   const draft = useAtomSet(draftReplyAtom(id), { mode: "promiseExit" });
   const send = useAtomSet(sendReplyAtom(id), { mode: "promiseExit" });
-  const { post, reply, replied, replyBusy, replyError } = work;
+  const { reply, replied, replyBusy, replyError, replyTone, replyDrafts } = work;
   const busy = replyBusy !== null;
+  const seen = useAtomValue(seenByAtom(handle));
+  // A repost is someone else's post wearing this handle; a reply of theirs beats it.
+  const seenLatest = AsyncResult.getOrElse(
+    AsyncResult.map(seen, ({ posts }) => {
+      const own = posts.filter((p) => !p.isRepost).map(observedToXPost);
+      return own.find((p) => !p.isReply) ?? own[0];
+    }),
+    () => undefined,
+  );
+  const post = work.post === undefined ? seenLatest : work.post;
   const postQuote = useQuoteLabel({ kind: "userPosts", handle });
   const assistQuote = useQuoteLabel({ kind: "assist" });
   // Priced here from the rate card: a quote rpc per keystroke would flash "…" on the button.
+  const viaSession = useSessionLane();
   const rates = useRates();
 
   const load = async () => {
@@ -622,14 +680,24 @@ function Reply({
     patch(
       exit.value?.postId === post?.postId
         ? { replyBusy: null, post: exit.value }
-        : { replyBusy: null, post: exit.value, reply: "", replied: false },
+        : { replyBusy: null, post: exit.value, reply: "", replied: false, replyDrafts: [] },
     );
   };
-  const onDraft = async () => {
+  const onTone = async (next: ReplyTone | null, to: XPost) => {
+    patch({ replyTone: next, replyDrafts: [] });
+    if (next === null) return;
     patch({ replyBusy: "draft", replyError: null });
-    const exit = await draft();
-    if (Exit.isFailure(exit)) return patch({ replyBusy: null, replyError: errorText(exit.cause) });
-    patch({ replyBusy: null, post: exit.value.post, reply: exit.value.text, replied: false });
+    const exit = await draft({ post: to, tone: next });
+    patch(
+      Exit.isFailure(exit)
+        ? { replyBusy: null, replyError: errorText(exit.cause) }
+        : {
+            replyBusy: null,
+            replyDrafts: exit.value.drafts,
+            reply: exit.value.drafts[0] ?? reply,
+            replied: false,
+          },
+    );
   };
   const onSend = async (to: XPost) => {
     patch({ replyBusy: "send", replyError: null });
@@ -638,7 +706,6 @@ function Reply({
     patch({ replyBusy: null, reply: "", replied: true });
     onSent();
   };
-
   return (
     <Section
       title="Reply to their latest post"
@@ -650,7 +717,7 @@ function Reply({
             disabled={busy || postQuote === "…"}
             onClick={() => void load()}
           >
-            Load again
+            From X
             <Cost label={postQuote} />
           </button>
         )
@@ -664,7 +731,7 @@ function Reply({
           onClick={() => void load()}
         >
           <TextMorph duration={250}>
-            {replyBusy === "load" ? "Loading…" : "Load their latest post"}
+            {replyBusy === "load" ? "Loading…" : "Load their latest post from X"}
           </TextMorph>
           <Cost label={postQuote} />
         </button>
@@ -675,9 +742,26 @@ function Reply({
           <p className="line-clamp-4 border-l border-white/13 pl-3 text-[13px] leading-relaxed text-foreground/80">
             {post.text}
           </p>
+          <div className="mt-3 flex flex-col gap-2">
+            <ToneRow
+              tone={replyTone}
+              busy={replyBusy === "draft" ? replyTone : undefined}
+              disabled={busy}
+              assistDisabled={assistQuote === "…"}
+              cost={<Cost label={`3 drafts · ${assistQuote}`} />}
+              onTone={(next) => void onTone(next, post)}
+            />
+            <Candidates
+              drafts={replyDrafts}
+              picked={reply}
+              onPick={(text) => patch({ reply: text, replied: false })}
+            />
+          </div>
           <textarea
             className={cn(inputClass, "mt-3 min-h-20 resize-y leading-relaxed")}
-            placeholder="Write a reply, or draft one"
+            placeholder={
+              replyTone === null ? "Write a reply" : "Pick a draft above, or edit it here"
+            }
             value={reply}
             maxLength={280}
             // Locked while sending: success clears the box, which would take text typed meanwhile.
@@ -692,21 +776,13 @@ function Reply({
               onClick={() => void onSend(post)}
             >
               <TextMorph duration={250}>{replied ? "Replied" : "Reply"}</TextMorph>
-              {rates === null ? (
+              {viaSession ? (
+                <Cost tone="solid" label="free · your session" />
+              ) : rates === null ? (
                 <Cost tone="solid" label="…" />
               ) : (
                 <Cost tone="solid" usd={postCostUsd(rates, reply)} />
               )}
-            </button>
-            <button
-              type="button"
-              className={pill}
-              disabled={busy || postQuote === "…" || assistQuote === "…"}
-              onClick={() => void onDraft()}
-            >
-              Draft with AI
-              {/* The draft reads their latest post again, then one model call. */}
-              <Cost label={`${postQuote} + ${assistQuote}`} />
             </button>
           </div>
         </>

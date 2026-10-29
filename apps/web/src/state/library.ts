@@ -1,4 +1,10 @@
-import { Library_METHODS, LibraryFilters, type XPost, type XSearchMode } from "@xtend/contracts";
+import {
+  Library_METHODS,
+  LibraryFilters,
+  type ReplyTone,
+  type XPost,
+  type XSearchMode,
+} from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as Atom from "effect/reactivity/Atom";
@@ -149,10 +155,10 @@ export const pickWhyAtom = Atom.family((postId: string) =>
 );
 
 export const pickDraftAtom = Atom.family((postId: string) =>
-  clientRuntime.fn<void>()(
-    Effect.fnUntraced(function* () {
+  clientRuntime.fn<ReplyTone | undefined>()(
+    Effect.fnUntraced(function* (tone) {
       const client = yield* XtendClient;
-      return yield* client[Library_METHODS.pickDraft]({ postId });
+      return yield* client[Library_METHODS.pickDraft]({ postId, tone });
     }),
   ),
 );
@@ -176,10 +182,13 @@ export const trendsAtom = Atom.family((country: string) =>
   ),
 );
 
-export const trendIdeasAtom = clientRuntime.fn<string>()(
-  Effect.fnUntraced(function* (country) {
+export const trendIdeasAtom = clientRuntime.fn<{
+  readonly country: string;
+  readonly tone?: ReplyTone | undefined;
+}>()(
+  Effect.fnUntraced(function* (input) {
     const client = yield* XtendClient;
-    return yield* client[Library_METHODS.trendIdeas]({ country });
+    return yield* client[Library_METHODS.trendIdeas](input);
   }),
 );
 
@@ -205,10 +214,10 @@ export const detectPatternsAtom = clientRuntime.fn<void>()(
 
 /** One per post, like `pickWhyAtom`. */
 export const writeInFormatAtom = Atom.family((postId: string) =>
-  clientRuntime.fn<void>()(
-    Effect.fnUntraced(function* () {
+  clientRuntime.fn<ReplyTone | undefined>()(
+    Effect.fnUntraced(function* (tone) {
       const client = yield* XtendClient;
-      return yield* client[Library_METHODS.writeInFormat]({ postId });
+      return yield* client[Library_METHODS.writeInFormat]({ postId, tone });
     }),
   ),
 );
@@ -231,5 +240,13 @@ export const generateReadyAtom = clientRuntime.fn<string>()(
   Effect.fnUntraced(function* (country) {
     const client = yield* XtendClient;
     return yield* client[Library_METHODS.generateReady]({ country });
+  }),
+);
+
+/** For-you topics, ranked by the service from the session, saved posts and the pool. Free. */
+export const forYouAtom = clientRuntime.atom(
+  Effect.gen(function* () {
+    const client = yield* XtendClient;
+    return yield* client[Library_METHODS.forYou]({});
   }),
 );

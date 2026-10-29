@@ -19,6 +19,7 @@ import { errorText } from "../analyze/ui";
 import { ago, ErrorLine, pill, pillSolid } from "../engage/triage";
 import { PageHeader } from "../PageHeader";
 import { Field, inputClass } from "../ui/field";
+import { Switch } from "../ui/switch";
 import { Cost, Empty, PageBody, Section } from "../ui/layout";
 import {
   type Column,
@@ -31,6 +32,7 @@ import {
 } from "../ui/split";
 import { xAction } from "../x";
 import { agentRunCost, useAction } from "./ui";
+import { Select } from "../ui/select";
 
 const blank: SignalAgentInput = {
   name: "",
@@ -405,11 +407,10 @@ function AgentForm({
         </Field>
         <Field label="Drop bots">
           <span className="flex min-h-9 items-center gap-2">
-            <input
-              type="checkbox"
-              className="size-3.5 cursor-pointer accent-foreground"
+            <Switch
+              label="Drop bots"
               checked={a.excludeBots}
-              onChange={(e) => setA({ ...a, excludeBots: e.target.checked })}
+              onChange={(excludeBots) => setA({ ...a, excludeBots })}
             />
             <span className="text-[13px] text-muted-foreground">per new author</span>
             {rates === null ? <Cost label="…" /> : <Cost usd={rates.scraperProfile} />}
@@ -430,20 +431,14 @@ function AgentForm({
           />
         </Field>
         <Field label="Into list">
-          <select
-            className={cn(inputClass, "bg-background")}
-            value={a.listId ?? ""}
-            onChange={(e) =>
-              setA({ ...a, listId: e.target.value === "" ? null : Number(e.target.value) })
-            }
-          >
-            <option value="">none</option>
-            {lists.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-              </option>
-            ))}
-          </select>
+          <Select
+            value={a.listId}
+            onChange={(listId) => setA({ ...a, listId })}
+            options={[
+              { value: null, label: "none" },
+              ...lists.map((l) => ({ value: l.id, label: l.name })),
+            ]}
+          />
         </Field>
         <Field label="Scoring">
           <textarea

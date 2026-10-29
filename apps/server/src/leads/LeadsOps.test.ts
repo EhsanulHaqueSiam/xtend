@@ -1,3 +1,4 @@
+import type { DesktopCommand } from "@xtend/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import type { Candidate, XFollower, XPost, XProfile } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
@@ -5,10 +6,14 @@ import * as Layer from "effect/Layer";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as Assist from "../ai/Assist.ts";
+import * as Events from "../events/Events.ts";
+import * as ObservationStore from "../observations/ObservationStore.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 import * as TokenCipher from "../settings/TokenCipher.ts";
 import { xClientStub } from "../testing/xClientStub.ts";
+import * as SessionPosting from "../compose/SessionPosting.ts";
+import { desktopStub } from "../compose/testStubs.ts";
 import * as XClient from "../x/XClient.ts";
 import * as LeadsOps from "./LeadsOps.ts";
 import * as PeopleStore from "./PeopleStore.ts";
@@ -79,14 +84,33 @@ const xExtraStub = Layer.succeed(XExtra.XExtra)({
   unfollow: () => Effect.die("unused"),
 });
 
+const desktopCalls: Array<DesktopCommand> = [];
+const eventsStub = Layer.succeed(Events.Events)({ publish: () => Effect.void } as never);
 const layerTest = LeadsOps.layer.pipe(
   Layer.provideMerge(
-    Layer.mergeAll(PeopleStore.layer, SettingsStore.layer, assistStub, xExtraStub),
+    Layer.mergeAll(
+      PeopleStore.layer,
+      SessionPosting.layer,
+      ObservationStore.layer,
+      assistStub,
+      xExtraStub,
+    ),
   ),
+  Layer.provideMerge(SettingsStore.layer),
   Layer.provideMerge(
     Layer.mergeAll(
       Sqlite.layerMemory,
       TokenCipher.layerTest,
+      eventsStub,
+      desktopStub(
+        desktopCalls,
+        (command) =>
+          Effect.succeed(
+            command.type === "sessionPost"
+              ? { type: "sessionPost", postId: "900" }
+              : { type: command.type },
+          ) as never,
+      ),
       xClientStub({
         profile: (handle) =>
           Effect.sync(() => {
@@ -127,32 +151,69 @@ const layerTest = LeadsOps.layer.pipe(
 const reset = Effect.sync(() => {
   dms.length = 0;
   posted.length = 0;
+  desktopCalls.length = 0;
   profileReads.length = 0;
   followerReads.length = 0;
   followersFromCache = false;
 });
 
 describe("LeadsOps", () => {
-  it.effect("DMs the person's X id, looked up once when unknown, and only moves a new lead", () =>
+  it.effect("DMs through the session, free, to the id the session saw on their posts", () =>
     Effect.gen(function* () {
       yield* reset;
       const people = yield* PeopleStore.PeopleStore;
       const ops = yield* LeadsOps.LeadsOps;
-      const alice = yield* people.add({ ...candidate("alice"), source: "manual" });
-      yield* ops.sendDm(alice.id, "hey, loved the parser post");
-      expect(dms).toEqual([{ to: "42", text: "hey, loved the parser post" }]);
-      const after = yield* people.get(alice.id);
-      expect([after.userId, after.stage]).toEqual(["42", "contacted"]);
-      expect((yield* people.activity(alice.id)).map((a) => a.kind)).toContain("dm");
-
-      yield* ops.sendDm(alice.id, "following up");
-      expect(profileReads).toEqual(["alice"]);
-
-      const customer = yield* people.add({ ...candidate("bob"), source: "manual" });
-      yield* people.update({ id: customer.id, stage: "customer" });
-      yield* ops.sendDm(customer.id, "thanks for buying");
-      expect((yield* people.get(customer.id)).stage).toBe("customer");
+      const observations = yield* ObservationStore.ObservationStore;
+      const bo = yield* people.add({ ...candidate("bo"), source: "manual" });
+      yield* observations.record({
+        viewerHandle: null,
+        source: "profile",
+        observedAt: "2026-10-22T05:00:00.000Z",
+        posts: [
+          {
+            postId: "21",
+            author: { userId: "u-bo", handle: "bo", name: "Bo", followers: 10, verified: false },
+            text: "seen by the session",
+            createdAt: "2026-10-22T04:00:00.000Z",
+            isReply: false,
+            isRepost: false,
+            isPromoted: false,
+            hasMedia: false,
+            hasLink: false,
+            metrics: { views: 5, likes: 1, reposts: 0, replies: 0, quotes: 0, bookmarks: 0 },
+          },
+        ],
+      });
+      yield* ops.sendDm(bo.id, "hey bo");
+      expect(desktopCalls).toEqual([{ type: "sessionDm", userId: "u-bo", text: "hey bo" }]);
+      expect([dms, profileReads]).toEqual([[], []]);
+      expect((yield* people.get(bo.id)).stage).toBe("contacted");
     }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect(
+    "DMs over the API with the lane off, looking the id up once, and only moves a new lead",
+    () =>
+      Effect.gen(function* () {
+        yield* reset;
+        const people = yield* PeopleStore.PeopleStore;
+        const ops = yield* LeadsOps.LeadsOps;
+        yield* (yield* SettingsStore.SettingsStore).update({ sessionPostingEnabled: false });
+        const alice = yield* people.add({ ...candidate("alice"), source: "manual" });
+        yield* ops.sendDm(alice.id, "hey, loved the parser post");
+        expect(dms).toEqual([{ to: "42", text: "hey, loved the parser post" }]);
+        const after = yield* people.get(alice.id);
+        expect([after.userId, after.stage]).toEqual(["42", "contacted"]);
+        expect((yield* people.activity(alice.id)).map((a) => a.kind)).toContain("dm");
+
+        yield* ops.sendDm(alice.id, "following up");
+        expect(profileReads).toEqual(["alice"]);
+
+        const customer = yield* people.add({ ...candidate("bob"), source: "manual" });
+        yield* people.update({ id: customer.id, stage: "customer" });
+        yield* ops.sendDm(customer.id, "thanks for buying");
+        expect((yield* people.get(customer.id)).stage).toBe("customer");
+      }).pipe(Effect.provide(layerTest)),
   );
 
   it.effect("refuses a reply for an unknown person before posting, and keeps a replied lead", () =>
@@ -165,11 +226,18 @@ describe("LeadsOps", () => {
       });
       expect(posted).toEqual([]);
 
+      // Free first: the clicked reply goes through the session while that lane is on.
       const p = yield* people.add({ ...candidate("carol"), source: "manual" });
       yield* people.update({ id: p.id, stage: "replied" });
       expect(yield* ops.sendReply(p.id, "5", "same here")).toEqual({ postId: "900" });
-      expect(posted.map((x) => [x.replyToPostId, x.text])).toEqual([["5", "same here"]]);
+      expect(desktopCalls.map((c) => c.type)).toEqual(["sessionPost"]);
+      expect(posted).toEqual([]);
       expect((yield* people.get(p.id)).stage).toBe("replied");
+
+      const settings = yield* SettingsStore.SettingsStore;
+      yield* settings.update({ sessionPostingEnabled: false });
+      yield* ops.sendReply(p.id, "6", "and this");
+      expect(posted.map((x) => [x.replyToPostId, x.text])).toEqual([["6", "and this"]]);
     }).pipe(Effect.provide(layerTest)),
   );
 
@@ -247,6 +315,37 @@ describe("LeadsOps", () => {
       expect((yield* ops.latestPost(ada.id))?.postId).toBe("8");
       timeline = [repost];
       expect(yield* ops.latestPost(ada.id)).toBeNull();
+    }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect("takes their latest post from what the session saw, free; X only when asked", () =>
+    Effect.gen(function* () {
+      const people = yield* PeopleStore.PeopleStore;
+      const ops = yield* LeadsOps.LeadsOps;
+      const observations = yield* ObservationStore.ObservationStore;
+      const bo = yield* people.add({ ...candidate("bo"), source: "manual" });
+      timeline = [postBy("30", "bo", 60)];
+      yield* observations.record({
+        viewerHandle: null,
+        source: "profile",
+        observedAt: "2026-10-22T05:00:00.000Z",
+        posts: [
+          {
+            postId: "21",
+            author: { userId: "u-bo", handle: "bo", name: "Bo", followers: 10, verified: false },
+            text: "seen by the session",
+            createdAt: "2026-10-22T04:00:00.000Z",
+            isReply: false,
+            isRepost: false,
+            isPromoted: false,
+            hasMedia: false,
+            hasLink: false,
+            metrics: { views: 5, likes: 1, reposts: 0, replies: 0, quotes: 0, bookmarks: 0 },
+          },
+        ],
+      });
+      expect((yield* ops.latestPost(bo.id))?.postId).toBe("21");
+      expect((yield* ops.latestPost(bo.id, true))?.postId).toBe("30");
     }).pipe(Effect.provide(layerTest)),
   );
 });

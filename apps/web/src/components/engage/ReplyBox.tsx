@@ -10,6 +10,7 @@ import { draftReplyAtom, likeAtom, sendReplyAtom } from "../../state/engage";
 import { settingsAtom } from "../../state/settings";
 import { cn } from "../../lib/utils";
 import { errorText } from "../analyze/ui";
+import { Candidates, ToneRow } from "../ui/assist-choice";
 import { inputClass } from "../ui/field";
 import { Cost, Section } from "../ui/layout";
 import { pill, pillSolid } from "./triage";
@@ -58,18 +59,6 @@ export function useWorkBy<Id, W extends object>(idle: W) {
 
 /** Reply work per post id. */
 export const useWork = () => useWorkBy<string, Work>(idle);
-
-/** The chooser's tones, in the order the spec shows them. */
-const TONES: ReadonlyArray<{ readonly tone: ReplyTone; readonly label: string }> = [
-  { tone: "agree", label: "Agree" },
-  { tone: "add", label: "Add a point" },
-  { tone: "ask", label: "Ask" },
-  { tone: "contrarian", label: "Contrarian" },
-  { tone: "sarcastic", label: "Sarcastic" },
-  { tone: "warm", label: "Warm" },
-  { tone: "short", label: "Short" },
-];
-
 /**
  * A reply to one post. Assist is a choice: a tone row with "write my own" first, three
  * candidates to pick from, the editor, then Reply and Like with their prices.
@@ -123,7 +112,7 @@ export function ReplyBox({
 
   const onLike = async () => {
     // Read before the call: the like itself fills the lookup cache and requotes.
-    const price = likeQuote?.usd ?? 0;
+    const price = viaSession ? 0 : (likeQuote?.usd ?? 0);
     patch({ busy: "like", error: null });
     const exit = await like();
     patch(
@@ -142,47 +131,23 @@ export function ReplyBox({
         )
       }
     >
-      <div className="mb-2 flex flex-wrap gap-1.5" role="group" aria-label="Tone">
-        <button
-          type="button"
-          className={pill}
-          aria-pressed={tone === null}
+      <div className="mb-2 flex flex-col gap-2">
+        <ToneRow
+          tone={tone}
+          busy={busy === "draft" ? tone : undefined}
           disabled={busy !== null || replied}
-          onClick={() => patch({ tone: null, drafts: [] })}
-        >
-          Write my own
-        </button>
-        {TONES.map((t) => (
-          <button
-            key={t.tone}
-            type="button"
-            className={pill}
-            aria-pressed={tone === t.tone}
-            disabled={busy !== null || replied || assistQuote === null}
-            onClick={() => void onDraft(t.tone)}
-          >
-            {busy === "draft" && tone === t.tone ? "Drafting…" : t.label}
-          </button>
-        ))}
+          assistDisabled={assistQuote === null}
+          onTone={(next) =>
+            next === null ? patch({ tone: null, drafts: [] }) : void onDraft(next)
+          }
+        />
+        <Candidates
+          drafts={drafts}
+          picked={text}
+          disabled={replied}
+          onPick={(d) => patch({ text: d })}
+        />
       </div>
-      {drafts.length > 0 ? (
-        <ol className="mb-2 divide-y divide-border border-y border-border" aria-label="Drafts">
-          {drafts.map((d, i) => (
-            <li key={d}>
-              <button
-                type="button"
-                aria-pressed={d === text}
-                className="flex w-full cursor-pointer gap-2.5 py-1.5 text-left text-[13px] leading-snug text-muted-foreground transition-colors duration-150 hover:text-foreground aria-pressed:text-foreground"
-                disabled={replied}
-                onClick={() => patch({ text: d })}
-              >
-                <span className="font-mono text-xs">{String.fromCharCode(65 + i)}</span>
-                <span>{d}</span>
-              </button>
-            </li>
-          ))}
-        </ol>
-      ) : null}
       <textarea
         className={cn(inputClass, "min-h-24 resize-y px-3 py-2 text-[13.5px] leading-relaxed")}
         value={text}
@@ -223,14 +188,16 @@ export function ReplyBox({
         <button
           type="button"
           className={pill}
-          disabled={busy !== null || liked || likeQuote === null}
+          disabled={busy !== null || liked || (likeQuote === null && !viaSession)}
           onClick={() => void onLike()}
         >
           <TextMorph duration={250}>
             {liked ? "Liked" : busy === "like" ? "Liking…" : "Like"}
           </TextMorph>
           {liked ? (
-            <Cost label={`for ${usd(work.likedUsd)}`} />
+            <Cost label={work.likedUsd === 0 ? "free" : `for ${usd(work.likedUsd)}`} />
+          ) : viaSession ? (
+            <Cost label="free · your session" />
           ) : likeQuote === null ? (
             <Cost label="…" />
           ) : (

@@ -32,6 +32,13 @@ export class SessionPosting extends Context.Service<
       readonly replyToPostId?: string;
       readonly paced?: boolean;
     }) => Effect.Effect<{ readonly postId: string }, ComposeError | DesktopUnavailableError>;
+    /** Presses X's own like on the post in the session view, at human pace. */
+    readonly like: (postId: string) => Effect.Effect<void, ComposeError | DesktopUnavailableError>;
+    /** Sends a DM through X's own message composer in the session view, at the same human pace. */
+    readonly dm: (
+      userId: string,
+      text: string,
+    ) => Effect.Effect<void, ComposeError | DesktopUnavailableError>;
     /** Points the session view at a URL (used to hand a freshly posted link card to the desktop). */
     readonly navigate: (url: string) => Effect.Effect<void, ComposeError>;
   }
@@ -84,6 +91,23 @@ const make = Effect.gen(function* () {
     return { postId: result.postId };
   });
 
+  // Shares the pace with posts: to X, a like and a reply are both one person clicking.
+  const like = Effect.fn("SessionPosting.like")(function* (postId: string) {
+    yield* requireEnabled.pipe(Effect.mapError(fail("sessionLike")));
+    const refused = yield* humanPace;
+    if (refused !== null)
+      return yield* new ComposeError({ operation: "sessionLike", detail: refused });
+    yield* desktop.request({ type: "sessionLike", postId });
+  });
+
+  const dm = Effect.fn("SessionPosting.dm")(function* (userId: string, text: string) {
+    yield* requireEnabled.pipe(Effect.mapError(fail("sessionDm")));
+    const refused = yield* humanPace;
+    if (refused !== null)
+      return yield* new ComposeError({ operation: "sessionDm", detail: refused });
+    yield* desktop.request({ type: "sessionDm", userId, text });
+  });
+
   const navigate = Effect.fn("SessionPosting.navigate")(
     function* (url: string) {
       yield* requireEnabled;
@@ -92,7 +116,7 @@ const make = Effect.gen(function* () {
     Effect.mapError(fail("sessionNavigate")),
   );
 
-  return SessionPosting.of({ post, navigate });
+  return SessionPosting.of({ post, like, dm, navigate });
 });
 
 export const layer = Layer.effect(SessionPosting, make);

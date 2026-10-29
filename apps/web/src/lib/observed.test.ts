@@ -1,7 +1,7 @@
 import type { ObservedPostSummary } from "@xtend/contracts";
 import { expect, it } from "vite-plus/test";
 
-import { observedMatching } from "./observed";
+import { observedMatching, observedSimilar } from "./observed";
 
 const post = (postId: string, text: string): ObservedPostSummary => ({
   postId,
@@ -27,4 +27,17 @@ it("matches every plain word and ignores X's operators", () => {
     "2",
   ]);
   expect(observedMatching(posts, "from:a")).toEqual([]);
+});
+
+it("finds seen posts sharing two longer words, most shared first, and skips ads", () => {
+  const posts = [
+    post("1", "Shipped the pricing page today"),
+    post("2", "Pricing page teardown: shipped in a week, signups doubled"),
+    { ...post("3", "Shipped pricing page signups"), isPromoted: true },
+    post("4", "The of and a"),
+  ];
+  expect(
+    observedSimilar(posts, "Shipped the new pricing page, 40 signups").map((p) => p.postId),
+  ).toEqual(["2", "1"]);
+  expect(observedSimilar(posts, "nothing alike here")).toEqual([]);
 });

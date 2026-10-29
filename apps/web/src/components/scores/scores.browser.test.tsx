@@ -5,12 +5,11 @@ import { expect, it, onTestFinished } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
 import { paid, quoting } from "../../../test/fixtures";
-import { render } from "../../../test/render";
+import { choose, render } from "../../../test/render";
 import { setDisplayZone } from "../../lib/time";
 import { NOT_A_HANDLE } from "../../lib/utils";
 import { ScoresScreen } from "../../routes/scores";
 import { ReportSection } from "./HandleReport";
-import { Trending } from "./Trending";
 import { Watchlist } from "./Watchlist";
 
 const entry = (handle: string, addedAt: string): WatchEntry => ({
@@ -144,30 +143,21 @@ it("scores the follower pages picked, at their price, and shows the new score", 
         }),
     },
   });
-  const slider = screen.getByRole("slider", { name: "Follower pages" });
-  (slider.element() as HTMLElement).focus();
-  // Five by default; three steps down is two pages: the profile and two followers pages.
-  await userEvent.keyboard("{ArrowLeft}{ArrowLeft}{ArrowLeft}");
+  // Two pages: the profile and two followers pages.
+  await choose(screen.getByRole("combobox", { name: "Follower pages" }), "2 follower pages");
   await userEvent.click(screen.getByRole("button", { name: /^Score\s*\$0\.00222$/ }));
   await expect.element(screen.getByTestId("tier")).toHaveTextContent("Credible");
   expect(runs).toEqual([2]);
 });
 
-it("keeps paid score and trend loads off until their price arrives", async () => {
-  await using screen = await render(
-    <>
-      <ReportSection handle="levelsio" />
-      <Trending />
-    </>,
-    {
-      service: {
-        "costs.quote": () => Effect.never,
-        "scores.report": () => Effect.succeed(unscored("levelsio")),
-      },
+it("keeps a paid score off until its price arrives", async () => {
+  await using screen = await render(<ReportSection handle="levelsio" />, {
+    service: {
+      "costs.quote": () => Effect.never,
+      "scores.report": () => Effect.succeed(unscored("levelsio")),
     },
-  );
+  });
   await expect.element(screen.getByRole("button", { name: /^Score/ })).toBeDisabled();
-  await expect.element(screen.getByRole("button", { name: /^Load/ }).first()).toBeDisabled();
 });
 
 it("Report and Bot check keep the handle when the sidebar switches between them", async () => {

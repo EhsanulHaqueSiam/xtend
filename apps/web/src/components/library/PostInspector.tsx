@@ -36,15 +36,6 @@ export function InspectorGroup({
   );
 }
 
-/** A short draft the model wrote, shown where the user can read it before sending it on. */
-export function DraftBlock({ children }: { readonly children: ReactNode }) {
-  return (
-    <div className="rounded-[10px] border border-white/13 bg-white/[0.02] px-3 py-2.5 text-[13.5px] leading-normal whitespace-pre-wrap">
-      {children}
-    </div>
-  );
-}
-
 /**
  * The selected post in the grid's detail column (`DetailSplit`, closable):
  * author, the full text, the section's own groups (`children`), then every

@@ -5,7 +5,9 @@ import {
   type ListCriteria,
   type PersonAdd,
   type PersonUpdate,
+  type ReplyTone,
   type SignalAgentInput,
+  type XPost,
 } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import * as Atom from "effect/reactivity/Atom";
@@ -69,10 +71,10 @@ export const personProfileAtom = clientRuntime.fn<number>()(
 // Outreach atoms are per person: a new write to a shared fn atom interrupts the call still
 // running, so drafting for one person would cut off a paid call in flight for the one just left.
 export const draftDmAtom = Atom.family((id: number) =>
-  clientRuntime.fn<void>()(
-    Effect.fnUntraced(function* () {
+  clientRuntime.fn<ReplyTone>()(
+    Effect.fnUntraced(function* (tone) {
       const client = yield* XtendClient;
-      return (yield* client[Leads_METHODS.draftDm]({ id })).text;
+      return (yield* client[Leads_METHODS.draftDm]({ id, tone })).drafts;
     }),
   ),
 );
@@ -158,20 +160,21 @@ export const engagersAtom = clientRuntime.fn<{
   }),
 );
 
+// Only the button reads X; what the session saw is read straight from observations.
 export const latestPostAtom = Atom.family((id: number) =>
   clientRuntime.fn<void>()(
     Effect.fnUntraced(function* () {
       const client = yield* XtendClient;
-      return yield* client[Leads_METHODS.latestPost]({ id });
+      return yield* client[Leads_METHODS.latestPost]({ id, fromX: true });
     }),
   ),
 );
 
-export const draftReplyAtom = Atom.family((id: number) =>
-  clientRuntime.fn<void>()(
-    Effect.fnUntraced(function* () {
+export const draftReplyAtom = Atom.family((_id: number) =>
+  clientRuntime.fn<{ readonly post: XPost; readonly tone: ReplyTone }>()(
+    Effect.fnUntraced(function* (input) {
       const client = yield* XtendClient;
-      return yield* client[Leads_METHODS.draftReply]({ id });
+      return yield* client[Leads_METHODS.draftReply](input);
     }),
   ),
 );

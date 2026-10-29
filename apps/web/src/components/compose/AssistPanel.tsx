@@ -1,5 +1,5 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
-import type { XPost } from "@xtend/contracts";
+import { type ReplyTone, VOICE_MIN_SEEN, type XPost } from "@xtend/contracts";
 import * as Cause from "effect/Cause";
 import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
@@ -7,7 +7,7 @@ import { ArrowUpRight, Sparkles, X } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
 import { fmtWhen } from "../../lib/time";
-import { cn } from "../../lib/utils";
+import { cn, readableError } from "../../lib/utils";
 import {
   assistContinueAtom,
   assistHookAtom,
@@ -16,8 +16,11 @@ import {
   assistVoiceMatchAtom,
   composeContextAtom,
 } from "../../state/compose";
-import { useQuoteLabel } from "../../state/costs";
+import { costLabels, useQuoteLabel } from "../../state/costs";
 import { searchAtom } from "../../state/library";
+import { recentPostsAtom, seenByAtom } from "../../state/observations";
+import { observedSimilar, observedToXPost } from "../../lib/observed";
+import { ToneRow } from "../ui/assist-choice";
 import { Button } from "../ui/button";
 import { compactInputClass } from "../ui/field";
 import { Cost } from "../ui/layout";
@@ -47,7 +50,10 @@ export function OnX({ href }: { readonly href: string }) {
   );
 }
 
-/** Where the draft would land (next free slot, best hours) and three library posts like its first line. */
+/**
+ * Where the draft would land (next free slot, best hours) and posts like its first line: what the
+ * session already saw, free and live, then an X search on request at its price.
+ */
 export function ComposeContext({
   firstLine,
   onUse,
@@ -56,6 +62,11 @@ export function ComposeContext({
   readonly onUse: (blocks: ReadonlyArray<string>) => void;
 }) {
   const context = useAtomValue(composeContextAtom);
+  const recent = useAtomValue(recentPostsAtom);
+  const seen = observedSimilar(
+    AsyncResult.getOrElse(recent, () => ({ posts: [] })).posts,
+    firstLine,
+  ).map(observedToXPost);
   const search = useAtomSet(searchAtom, { mode: "promiseExit" });
   const query = firstLine.trim().slice(0, 80);
   // The mode the search below runs with: each mode is cached apart, so it decides "cached, free".
@@ -73,7 +84,9 @@ export function ComposeContext({
         </Fact>
       ) : null}
       <div className="flex items-center justify-between gap-3 pt-2.5">
-        <span className="text-[13px] text-muted-foreground">Similar posts</span>
+        <span className="text-[13px] text-muted-foreground">
+          Similar posts{seen.length > 0 ? " you saw" : ""}
+        </span>
         <Button
           variant="outline"
           size="xs"
@@ -84,34 +97,49 @@ export function ComposeContext({
             setSimilar(Exit.isFailure(exit) ? failText(exit.cause) : exit.value.items.slice(0, 3));
           }}
         >
-          Find similar
+          Search X
           <Cost label={price} />
         </Button>
       </div>
-      {typeof similar === "string" ? (
+      {similar === null && seen.length > 0 ? (
+        <SimilarList posts={seen} onUse={onUse} />
+      ) : typeof similar === "string" ? (
         <p className="pt-2 text-xs text-muted-foreground">{similar}</p>
       ) : similar !== null ? (
-        <ul className="mt-2 flex flex-col">
-          {similar.length === 0 ? (
-            <li className="text-xs text-muted-foreground">Nothing similar found.</li>
-          ) : null}
-          {similar.map((p) => (
-            <li key={p.postId} className="flex items-start gap-2 border-t border-border py-2.5">
-              <div className="min-w-0 flex-1">
-                <p className="font-mono text-2xs text-muted-foreground">
-                  @{p.author.handle} · {p.metrics.likes} likes
-                </p>
-                <p className="mt-0.5 line-clamp-3 whitespace-pre-wrap text-[13px]">{p.text}</p>
-              </div>
-              <OnX href={p.url} />
-              <Button variant="ghost" size="xs" onClick={() => onUse(splitBlocks(p.text))}>
-                Use
-              </Button>
-            </li>
-          ))}
-        </ul>
+        <SimilarList posts={similar} onUse={onUse} />
       ) : null}
     </XCard>
+  );
+}
+
+/** Up to three posts with Use, which puts one's text in the editor to work from. */
+function SimilarList({
+  posts: similar,
+  onUse,
+}: {
+  readonly posts: ReadonlyArray<XPost>;
+  readonly onUse: (blocks: ReadonlyArray<string>) => void;
+}) {
+  return (
+    <ul className="mt-2 flex flex-col">
+      {similar.length === 0 ? (
+        <li className="text-xs text-muted-foreground">Nothing similar found.</li>
+      ) : null}
+      {similar.map((p) => (
+        <li key={p.postId} className="flex items-start gap-2 border-t border-border py-2.5">
+          <div className="min-w-0 flex-1">
+            <p className="font-mono text-2xs text-muted-foreground">
+              @{p.author.handle} · {p.metrics.likes} likes
+            </p>
+            <p className="mt-0.5 line-clamp-3 whitespace-pre-wrap text-[13px]">{p.text}</p>
+          </div>
+          <OnX href={p.url} />
+          <Button variant="ghost" size="xs" onClick={() => onUse(splitBlocks(p.text))}>
+            Use
+          </Button>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -122,15 +150,27 @@ interface Suggestion {
   readonly blocks: ReadonlyArray<string>;
 }
 
-export const failText = (cause: Cause.Cause<unknown>) => {
-  const e = Cause.squash(cause);
-  return e instanceof Error ? e.message : String(e);
-};
+export const failText = (cause: Cause.Cause<unknown>) => readableError(Cause.squash(cause));
 
 /**
- * The model's help at the foot of the writing column: one row of actions on the draft and a
- * topic box for thread ideas. Answers open above the row, each with Use and Dismiss. Each action
- * is one model call and shows its price; voice match also reads X.
+ * Voice match compares with the posts of yours the session saw, free; with fewer than
+ * VOICE_MIN_SEEN it reads X's timeline first, at its price.
+ */
+function VoiceMatchCost({ handle, model }: { readonly handle: string; readonly model: string }) {
+  const seen = useAtomValue(seenByAtom(handle));
+  const read = useQuoteLabel({ kind: "userPosts", handle });
+  const enough = AsyncResult.getOrElse(
+    AsyncResult.map(seen, ({ posts }) => posts.length >= VOICE_MIN_SEEN),
+    () => false,
+  );
+  return <Cost label={costLabels(enough ? "free" : read, model)} />;
+}
+
+/**
+ * The model's help at the foot of the writing column: a tone that every action takes, one row of
+ * actions on the draft and a topic box for thread ideas. Answers open above as three options,
+ * each with Use and Dismiss; the editor stays the user's own words. Each action is one model call
+ * and shows its price; voice match also reads X.
  */
 export function AssistPanel({
   handle,
@@ -158,13 +198,16 @@ export function AssistPanel({
   const cont = useAtomSet(assistContinueAtom, { mode: "promiseExit" });
   const voice = useAtomSet(assistVoiceMatchAtom, { mode: "promiseExit" });
   const model = useQuoteLabel({ kind: "assist" });
-  // Voice match reads the handle's recent posts from X before its model call; with no handle,
+  // Voice match may read the handle's recent posts from X before its model call; with no handle,
   // no read, and this is the model's own quote.
   const read = useQuoteLabel(handle === null ? { kind: "assist" } : { kind: "userPosts", handle });
   // A paid action stays off until its price is known.
   const unpriced = model === "…";
 
   const [topic, setTopic] = useState("");
+  // Picked once, used by every action below until changed; null asks for no particular tone.
+  const [picked, setPicked] = useState<ReplyTone | null>(null);
+  const tone = picked ?? undefined;
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [title, setTitle] = useState("");
@@ -260,12 +303,15 @@ export function AssistPanel({
             : null}
         </div>
       ) : null}
+      <div className="pt-2.5">
+        <ToneRow tone={picked} first="Any tone" disabled={busy !== null} onTone={setPicked} />
+      </div>
       <div className="flex flex-wrap items-center gap-x-0.5 gap-y-1 py-2.5">
         <Sparkles aria-hidden className="mr-1 size-3.5 text-muted-foreground" />
         {action("Improve hook", first.trim() === "", () =>
           run(
             "Improve hook",
-            () => hook(blocks),
+            () => hook({ blocks, tone }),
             (r) => r.alternatives.map((a) => ({ text: a.text, note: a.reason, blocks: [] })),
             (s) => onReplaceBlock(0, s.text),
           ),
@@ -273,7 +319,7 @@ export function AssistPanel({
         {action("Rewrite", current.trim() === "", () =>
           run(
             `Rewrite post ${active + 1}`,
-            () => rewrite(current),
+            () => rewrite({ text: current, tone }),
             (r) => r.variants.map((text) => ({ text, blocks: [] })),
             (s) => onReplaceBlock(active, s.text),
           ),
@@ -281,8 +327,8 @@ export function AssistPanel({
         {action("Continue thread", first.trim() === "", () =>
           run(
             "Continue thread",
-            () => cont(blocks),
-            (r) => [{ text: r.blocks.join("\n\n"), blocks: r.blocks }],
+            () => cont({ blocks, tone }),
+            (r) => r.options.map((o) => ({ text: o.blocks.join("\n\n"), blocks: o.blocks })),
             (s) => onAppend(s.blocks),
           ),
         )}
@@ -305,7 +351,7 @@ export function AssistPanel({
               },
               () => {},
             ),
-          handle === null ? undefined : <Cost label={`${read} + ${model}`} />,
+          handle === null ? undefined : <VoiceMatchCost handle={handle} model={model} />,
         )}
         <form
           className="ml-auto flex items-center gap-1"
@@ -314,7 +360,7 @@ export function AssistPanel({
             if (topic.trim() === "" || busy !== null || unpriced) return;
             void run(
               "Thread ideas",
-              () => ideas(topic),
+              () => ideas({ topic, tone }),
               (r) =>
                 r.outlines.map((o) => ({
                   text: o.hook,

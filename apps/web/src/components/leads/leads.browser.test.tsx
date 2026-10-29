@@ -261,7 +261,7 @@ it("changes a stage, and prices a DM to someone without a user id with the profi
   await expect.element(contacted).toHaveAttribute("aria-pressed", "true");
 
   await userEvent.click(screen.getByRole("button", { name: /^@lead1/ }));
-  const dm = screen.getByPlaceholder("Write a DM, or draft one");
+  const dm = screen.getByPlaceholder("Write a DM");
   await userEvent.fill(dm, "Loved your launch");
   // $0.015 for the DM, plus the $0.00022 profile read that finds the user id.
   await userEvent.click(screen.getByRole("button", { name: /^Send DM.*\$0\.01522$/ }));
@@ -274,6 +274,37 @@ it("changes a stage, and prices a DM to someone without a user id with the profi
   await userEvent.click(screen.getByRole("button", { name: /^@lead2/ }));
   await expect.element(dm).toHaveValue("");
   await expect.element(screen.getByRole("button", { name: /^Send DM.*\$0\.015$/ })).toBeDisabled();
+});
+
+it("a DM starts as your own words; a tone asks for three drafts to pick and edit", async () => {
+  const asked: Array<string | undefined> = [];
+  await using screen = await render(<PeopleSection />, {
+    service: {
+      "costs.quote": quoting(),
+      "leads.peopleList": () => Effect.succeed([person(1)]),
+      "leads.personGet": () => Effect.succeed({ person: person(1), activity: [] }),
+      "leads.draftDm": ({ tone }) =>
+        Effect.sync(() => {
+          asked.push(tone);
+          return { drafts: ["one", "two", "three"] };
+        }),
+    },
+  });
+  await userEvent.click(screen.getByRole("button", { name: /^@lead1/ }));
+  const dm = screen.getByLabelText("DM text");
+  await expect
+    .element(screen.getByRole("button", { name: "Write my own" }).first())
+    .toHaveAttribute("aria-pressed", "true");
+
+  await userEvent.click(screen.getByRole("button", { name: "Sarcastic" }).first());
+  await expect.element(dm).toHaveValue("one");
+  expect(asked).toEqual(["sarcastic"]);
+  await userEvent.click(screen.getByRole("button", { name: /^B/ }));
+  await expect.element(dm).toHaveValue("two");
+  // Back to your own words: the drafts go, what is in the box stays yours to edit.
+  await userEvent.click(screen.getByRole("button", { name: "Write my own" }).first());
+  expect(screen.getByRole("list", { name: "Drafts" }).elements()).toHaveLength(0);
+  await expect.element(dm).toHaveValue("two");
 });
 
 it("dragging a card onto a stage column moves the person there", async () => {
@@ -351,7 +382,7 @@ it("a DM in flight cannot go twice, and its text is locked until it lands", asyn
         }),
     }),
   });
-  const dm = screen.getByPlaceholder("Write a DM, or draft one");
+  const dm = screen.getByLabelText("DM text");
   await userEvent.fill(dm, "Loved your launch");
   const send = screen.getByRole("button", { name: /^(Send DM|Sending)/ });
   await userEvent.click(send);
@@ -375,8 +406,8 @@ it("a person's DM, reply and paid post survive picking someone else, even mid-lo
         ),
     }),
   });
-  const dm = screen.getByPlaceholder("Write a DM, or draft one");
-  const reply = screen.getByPlaceholder("Write a reply, or draft one");
+  const dm = screen.getByLabelText("DM text");
+  const reply = screen.getByPlaceholder("Write a reply");
   const load = screen.getByRole("button", { name: /^Load their latest post/ });
   await userEvent.fill(dm, "hi lead 1");
   await userEvent.click(load);
@@ -396,16 +427,16 @@ it("a person's DM, reply and paid post survive picking someone else, even mid-lo
   await expect.element(screen.getByText("post by lead 2")).toBeVisible();
 });
 
-it("a reply written for one post is dropped when Load again finds a newer one", async () => {
+it("a reply written for one post is dropped when From X finds a newer one", async () => {
   let latest = xPost("100", "first post");
   await using screen = await render(<PeopleSection />, {
     service: peopleService([person(1)], { "leads.latestPost": () => Effect.sync(() => latest) }),
   });
   await userEvent.click(screen.getByRole("button", { name: /^Load their latest post/ }));
-  const reply = screen.getByPlaceholder("Write a reply, or draft one");
+  const reply = screen.getByPlaceholder("Write a reply");
   await userEvent.fill(reply, "about the first post");
   latest = xPost("101", "second post");
-  await userEvent.click(screen.getByRole("button", { name: /^Load again/ }));
+  await userEvent.click(screen.getByRole("button", { name: /^From X/ }));
   await expect.element(screen.getByText("second post")).toBeVisible();
   await expect.element(reply).toHaveValue("");
 });

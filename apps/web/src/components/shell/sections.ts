@@ -6,11 +6,11 @@ import { useLocation } from "@tanstack/react-router";
  * from, what costs money.
  */
 export const ABOUT: Readonly<Record<string, string>> = {
-  "/x": "X as you know it, with what Xtend noticed beside it.",
+  "/x": "X as you know it, in your own session, with what Xtend noticed beside it. Free.",
   "/compose":
-    "Write posts, threads and articles. Posting goes through the X API and shows its price first.",
+    "Write posts, threads and articles. What you click posts through your own X session, free; the queue goes through the X API at the price shown. Assist runs on your login.",
   "/plan":
-    "When your posts go out: a week of slots, the queue and your best hours, in your time zone.",
+    "When your posts go out: a week of slots, the queue and your best hours, in your time zone. Planning is free; a queued post pays the X API when it goes out.",
   "/library":
     "Posts worth learning from: daily picks for your keywords, search, and what you saved. Fetches are paid; saved posts are free.",
   "/engage":
@@ -20,8 +20,9 @@ export const ABOUT: Readonly<Record<string, string>> = {
   "/automate":
     "Rules that act for you through the X API, each with a price, a budget and an approval step when you want one.",
   "/analyze":
-    "How your account is doing, from what X already sent this app. Free unless you refresh.",
-  "/scores": "Account scores for you and anyone you watch, from what the session observed.",
+    "How your account is doing, from your posts your session saw, free. Refresh reads your full timeline and follower count, priced on the button.",
+  "/scores":
+    "Account scores for you and anyone you watch. Stored reports are free; a score run reads their followers through treg, priced on the button.",
   "/seen": "Every post this app saw in your X session, newest first. Free.",
   "/settings": "Your handle, token, budget, voice, and the app itself.",
 };
@@ -56,32 +57,52 @@ export const SECTIONS = {
   "/library": [
     { id: "picks", label: "Picks", about: "A daily fetch for your keywords, paid." },
     { id: "search", label: "Search", about: "X search through treg, price before Enter." },
-    { id: "archive", label: "Archive", about: "Every post a search or pick returned." },
+    { id: "archive", label: "Archive", about: "Every post a search or pick saw, free to browse." },
     {
       id: "trends",
       label: "Trends",
-      about: "The shared pool, free, and X trends by country through treg.",
+      about: "Topics for you and the shared pool, free; X trends by country through treg.",
     },
     {
       id: "collections",
       label: "Collections",
-      about: "Tags for saved posts; a post can be in many.",
+      about: "Tags for saved posts; a post can be in many. Free.",
     },
-    { id: "swipe", label: "Swipe file", about: "Saved posts as cards to read." },
+    { id: "swipe", label: "Swipe file", about: "Saved posts as cards to read. Free." },
   ],
   "/engage": [
-    { id: "targets", label: "Targets", about: "Accounts to reply under, with their fresh posts." },
-    { id: "mentions", label: "Mentions", about: "Posts that name you." },
-    { id: "inbox", label: "Inbox", about: "Replies to your posts." },
-    { id: "sent", label: "Sent", about: "Replies you made." },
-    { id: "follow-ups", label: "Follow-ups", about: "Conversations to come back to." },
-    { id: "dms", label: "DMs", about: "Your direct messages, read through the API." },
+    {
+      id: "targets",
+      label: "Targets",
+      about: "Fresh posts for your keywords to reply under; Refresh is one paid search each.",
+    },
+    {
+      id: "mentions",
+      label: "Mentions",
+      about: "Posts that name you: what your session saw, free; Fetch new asks X, paid.",
+    },
+    { id: "inbox", label: "Inbox", about: "Replies to your posts your session saw. Free." },
+    { id: "sent", label: "Sent", about: "Replies you made. Free." },
+    { id: "follow-ups", label: "Follow-ups", about: "Conversations to come back to. Free." },
+    { id: "dms", label: "DMs", about: "Your direct messages, read through the X API, paid." },
   ],
   "/leads": [
-    { id: "people", label: "People", about: "Everyone found, by stage." },
-    { id: "lists", label: "Lists", about: "Groups of people." },
+    {
+      id: "people",
+      label: "People",
+      about: "Everyone found, by stage. Free; a profile fetch or a DM is priced on its button.",
+    },
+    {
+      id: "lists",
+      label: "Lists",
+      about: "Groups of people. Free; building one from a search is priced first.",
+    },
     { id: "agents", label: "Agents", about: "Finders that run on a schedule, paid per run." },
-    { id: "followers", label: "New followers", about: "Who followed you since the last check." },
+    {
+      id: "followers",
+      label: "New followers",
+      about: "Who followed you since the last check; each check reads a paid follower page.",
+    },
   ],
   "/automate": [
     { id: "rules", label: "Rules", about: "What runs, when, and for how much." },
@@ -90,19 +111,39 @@ export const SECTIONS = {
     { id: "runs", label: "Runs", about: "What ran, with cost and result." },
   ],
   "/analyze": [
-    { id: "overview", label: "Overview", about: "Views, followers, posts and the trend." },
-    { id: "posts", label: "Posts", about: "Each post's numbers." },
-    { id: "audience", label: "Audience", about: "Who sees you most." },
-    { id: "best-time", label: "Best time", about: "Hours your posts drew views." },
-    { id: "competitors", label: "Competitors", about: "Accounts to compare against." },
-    { id: "ask", label: "Ask", about: "A question over your own data, paid per answer." },
+    {
+      id: "overview",
+      label: "Overview",
+      about:
+        "Views and activity from your posts your session saw, free; followers come with a paid Refresh.",
+    },
+    {
+      id: "posts",
+      label: "Posts",
+      about: "Each post's numbers, live from your session; Refresh fills in the rest.",
+    },
+    { id: "audience", label: "Audience", about: "Accounts your session saw most, by reach. Free." },
+    {
+      id: "best-time",
+      label: "Best time",
+      about: "Hours your posts drew views. Free.",
+    },
+    {
+      id: "competitors",
+      label: "Competitors",
+      about: "Accounts to compare against; each fetch is priced on its row.",
+    },
+    { id: "ask", label: "Ask", about: "A question over your own data, answered on your login." },
   ],
   "/scores": [
-    { id: "mine", label: "Mine", about: "Your score and what moves it." },
-    { id: "watchlist", label: "Watchlist", about: "Accounts you watch." },
-    { id: "report", label: "Report", about: "One account in full." },
-    { id: "trending", label: "Trending", about: "What X is talking about, by country." },
-    { id: "bot-check", label: "Bot check", about: "Whether an account looks real." },
+    { id: "mine", label: "Mine", about: "Your score and what moves it; Score runs are paid." },
+    { id: "watchlist", label: "Watchlist", about: "Accounts you watch; each rescore is paid." },
+    { id: "report", label: "Report", about: "One account in full; the last report is free." },
+    {
+      id: "bot-check",
+      label: "Bot check",
+      about: "Whether an account's followers look real, from a paid sample.",
+    },
   ],
   "/settings": [
     { id: "account", label: "Account", about: "Your handle and every connected account." },

@@ -6,7 +6,7 @@ import { page, userEvent } from "vite-plus/test/browser";
 
 import type { FakeService } from "../../../test/fakeService";
 import { draft, paid, rates, settings, xPost } from "../../../test/fixtures";
-import { render } from "../../../test/render";
+import { choose, render } from "../../../test/render";
 import { ComposeEditor } from "../../routes/compose";
 
 /** What every editor reads on open; `drafts` is the list `?draft=` is looked up in. */
@@ -99,7 +99,7 @@ it("prices the thread before posting and posts it once however often Confirm is 
   // The price rides on the send buttons, and the post with a link says so beside it.
   await expect.element(screen.getByRole("button", { name: /^Queue/ })).toMatchTextContent("$0.215");
   await expect.element(screen.getByText(/^link\s*\$0\.2$/)).toBeVisible();
-  await userEvent.click(screen.getByRole("button", { name: "Post now" }));
+  await userEvent.click(screen.getByRole("button", { name: /^Post now/ }));
   const confirm = page.getByRole("dialog");
   await expect.element(confirm.getByText("Post 2 posts now.")).toBeVisible();
   await expect.element(confirm.getByText("1 with a link")).toBeVisible();
@@ -143,7 +143,7 @@ const refusals: ReadonlyArray<readonly [string, Partial<Draft>, string | null]> 
 it.each(refusals)("holds back what the publisher would refuse: %s", async (_, extra, refusal) => {
   const row = draft("d1", "draft", extra);
   await using screen = await render(editor("d1"), { service: editorService(() => [row]) });
-  const send = screen.getByRole("button", { name: "Post now" });
+  const send = screen.getByRole("button", { name: /^Post now/ });
   if (refusal === null) {
     await expect.element(send).toBeEnabled();
     await expect.element(screen.getByRole("button", { name: /^Queue/ })).toMatchTextContent("$0.2");
@@ -203,7 +203,7 @@ it("locks the editor when the scheduler claims the open draft", async () => {
     .toBeVisible();
   await expect.element(screen.getByLabelText("Post 1")).toBeDisabled();
   // Nothing sends a draft the publisher owns.
-  await expect.element(screen.getByRole("button", { name: "Post now" })).not.toBeInTheDocument();
+  await expect.element(screen.getByRole("button", { name: /^Post now/ })).not.toBeInTheDocument();
   // No paid assist on a draft that can no longer change.
   await expect
     .element(screen.getByRole("button", { name: /^Improve hook/ }))
@@ -247,11 +247,13 @@ it("schedules at the picked wall time in the account's zone and refuses a time a
   await expect.element(picker.getByText("Asia/Dhaka")).toBeVisible();
   const submit = picker.getByRole("button", { name: /^Schedule/ });
 
-  await userEvent.fill(picker.getByLabelText("Post at"), "2020-01-01T09:00");
+  await userEvent.fill(picker.getByLabelText("Post on"), "2020-01-01");
+  await userEvent.fill(picker.getByLabelText("Post at"), "09:00");
   await expect.element(picker.getByText("That time has passed")).toBeVisible();
   await expect.element(submit).toBeDisabled();
 
-  await userEvent.fill(picker.getByLabelText("Post at"), "2030-01-07T09:30");
+  await userEvent.fill(picker.getByLabelText("Post on"), "2030-01-07");
+  await userEvent.fill(picker.getByLabelText("Post at"), "09:30");
   await userEvent.click(submit);
   // 09:30 in Dhaka (UTC+6), whatever zone the browser runs in.
   await expect.poll(() => scheduled).toEqual([{ id: "d1", at: "2030-01-07T03:30:00.000Z" }]);
@@ -320,7 +322,7 @@ it("Use on a similar post drops the files of the posts it replaces, on screen an
   // The second post's file would go through the session, which is off.
   const sessionWarning = screen.getByText(/Turn on Session posting in Settings/);
   await expect.element(sessionWarning).toBeVisible();
-  await userEvent.click(screen.getByRole("button", { name: /^Find similar/ }));
+  await userEvent.click(screen.getByRole("button", { name: /^Search X/ }));
   await userEvent.click(screen.getByRole("button", { name: "Use", exact: true }));
 
   await expect.element(screen.getByLabelText("Post 1")).toHaveValue("Ship the ugly version");
@@ -412,7 +414,7 @@ it("holds back an article until its publish price is known", async () => {
     service: { ...editorService(() => [article]), "compose.quote": () => Effect.never },
   });
   await expect.element(screen.getByLabelText("Title")).toHaveValue("How I ship");
-  await expect.element(screen.getByRole("button", { name: "Post now" })).toBeDisabled();
+  await expect.element(screen.getByRole("button", { name: /^Post now/ })).toBeDisabled();
   await expect.element(screen.getByRole("button", { name: /^Queue/ })).toBeDisabled();
 });
 
@@ -549,13 +551,11 @@ it("saves a poll and the delay between posts, and reopens with them", async () =
     await userEvent.fill(screen.getByLabelText("Post 1"), "Which ships first?");
     await userEvent.click(screen.getByText(/^Options/));
     // Nothing removes a link card after posting, so the option stays off.
-    await expect
-      .element(screen.getByRole("checkbox", { name: /Hide link previews/ }))
-      .toBeDisabled();
-    await userEvent.click(screen.getByRole("checkbox", { name: "Poll on the first post" }));
+    await expect.element(screen.getByRole("switch", { name: /Hide link previews/ })).toBeDisabled();
+    await userEvent.click(screen.getByRole("switch", { name: "Poll on the first post" }));
     await userEvent.fill(screen.getByPlaceholder("Option 1"), "web");
     await userEvent.fill(screen.getByPlaceholder("Option 2"), "desktop");
-    await userEvent.selectOptions(screen.getByLabelText("Poll length"), "3 days");
+    await choose(screen.getByRole("combobox", { name: "Poll length" }), "3 days");
     await userEvent.fill(screen.getByRole("spinbutton"), "30");
     await expect
       .poll(() => row)
@@ -568,7 +568,9 @@ it("saves a poll and the delay between posts, and reopens with them", async () =
   // Reopened, the row also lists what is set: "poll · 30s apart".
   await userEvent.click(screen.getByText(/^Options/));
   await expect.element(screen.getByPlaceholder("Option 2")).toHaveValue("desktop");
-  await expect.element(screen.getByLabelText("Poll length")).toHaveValue("4320");
+  await expect
+    .element(screen.getByRole("combobox", { name: "Poll length" }))
+    .toHaveTextContent("3 days");
   await expect.element(screen.getByRole("spinbutton")).toHaveValue(30);
 });
 

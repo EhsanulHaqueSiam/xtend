@@ -25,6 +25,7 @@ import { Popover } from "../ui/popover";
 import { xIconButton } from "../x";
 import { PeopleSplit } from "./People";
 import { useAction } from "./ui";
+import { Select } from "../ui/select";
 
 type Builder = "search" | "engagement";
 
@@ -444,14 +445,14 @@ function EngagementBuilder({ listId }: { readonly listId: number }) {
             />
           </Field>
           <Field label="Who">
-            <select
-              className={cn(inputClass, "bg-background")}
+            <Select
               value={via}
-              onChange={(e) => setVia(e.target.value === "like" ? "like" : "repost")}
-            >
-              <option value="repost">reposted it (scraper)</option>
-              <option value="like">liked it (X API, first 20)</option>
-            </select>
+              onChange={setVia}
+              options={[
+                { value: "repost", label: "reposted it (scraper)" },
+                { value: "like", label: "liked it (X API, first 20)" },
+              ]}
+            />
           </Field>
           <div className="mt-3 flex items-center gap-1.5">
             <button

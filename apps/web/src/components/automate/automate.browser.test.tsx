@@ -10,7 +10,7 @@ import { expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
 import { liveEvents, quoting } from "../../../test/fixtures";
-import { render } from "../../../test/render";
+import { choose, render } from "../../../test/render";
 import { DryRun } from "./DryRun";
 import { NeedsYou } from "./NeedsYou";
 import { RuleDetail } from "./RuleDetail";
@@ -140,7 +140,7 @@ it("prices what each polled trigger reads from X, per poll and per day, from the
     .element(screen.getByText(/^Polls X every hour: \$0\.00075 a poll, up to \$0\.018 a day/))
     .toBeVisible();
 
-  await userEvent.selectOptions(when, "Someone reposts or likes a post");
+  await choose(when, "Someone reposts or likes a post");
   await expect
     .element(
       screen.getByText(
@@ -149,14 +149,14 @@ it("prices what each polled trigger reads from X, per poll and per day, from the
     )
     .toBeVisible();
   // Likes come from X's liking_users at up to $0.20 a page, so they are polled hourly.
-  await userEvent.selectOptions(screen.getByRole("combobox").nth(1), "likes, X API, first 20");
+  await choose(screen.getByRole("combobox").nth(1), "likes, X API, first 20");
   await expect
     .element(screen.getByText(/^Polls X every hour: \$0\.2 a poll, up to \$4\.8 a day/))
     .toBeVisible();
 
-  await userEvent.selectOptions(when, "New follower");
+  await choose(when, "New follower");
   await expect.element(screen.getByText(/^Polls X every 15 min: \$0\.001 a poll/)).toBeVisible();
-  await userEvent.selectOptions(when, "Webhook call");
+  await choose(when, "Webhook call");
   expect(screen.getByText(/^Polls X/).elements()).toHaveLength(0);
 });
 
@@ -173,11 +173,11 @@ it("prices the own timeline a repost or delete reads when the trigger polls noth
   // A schedule reads nothing to fire, and a plug picks no post of its own.
   await expect.element(screen.getByText("Create rule")).toBeVisible();
   expect(screen.getByText(/^Polls X/).elements()).toHaveLength(0);
-  await userEvent.selectOptions(screen.getByLabelText(/^Action/), "Evergreen repost");
+  await choose(screen.getByRole("combobox", { name: "Action" }), "Evergreen repost");
   await expect
     .element(screen.getByText(/^Polls X every hour: \$0\.00075 a poll, up to \$0\.018 a day/))
     .toBeVisible();
-  await userEvent.selectOptions(screen.getByLabelText(/^Action/), "Auto delete");
+  await choose(screen.getByRole("combobox", { name: "Action" }), "Auto delete");
   await expect.element(screen.getByText(/^Polls X every hour: \$0\.00075 a poll/)).toBeVisible();
 });
 
@@ -188,10 +188,7 @@ it("saves a post trigger only with a real post id, taking it out of a pasted pos
     { service: formService },
   );
   await userEvent.fill(screen.getByPlaceholder("Thank reposters"), "  thank reposters ");
-  await userEvent.selectOptions(
-    screen.getByRole("combobox").first(),
-    "Someone reposts or likes a post",
-  );
+  await choose(screen.getByRole("combobox").first(), "Someone reposts or likes a post");
   const save = screen.getByRole("button", { name: "Create rule" });
   await expect.element(save).toBeDisabled();
 
@@ -219,7 +216,7 @@ it("a schedule needs a day; clearing a number field lets the user retype it", as
     />,
     { service: formService },
   );
-  await userEvent.selectOptions(screen.getByRole("combobox").first(), "Schedule");
+  await choose(screen.getByRole("combobox").first(), "Schedule");
   const save = screen.getByRole("button", { name: "Create rule" });
   await expect.element(save).toBeEnabled();
   // The default days are Mon and Thu; with neither the rule could never fire.
@@ -382,10 +379,10 @@ it("simulates the first rule once rules arrive, and says the evaluation is free"
   expect(simulated).toEqual([3]);
 
   // The picked rule was deleted: the select and the button fall back to what is left.
-  await userEvent.selectOptions(screen.getByRole("combobox", { name: "Rule" }), "rule 4");
+  await choose(screen.getByRole("combobox", { name: "Rule" }), "rule 4");
   rules = [rule(3)];
   events.emit("rule_fired");
-  await expect.element(screen.getByRole("combobox", { name: "Rule" })).toHaveValue("3");
+  await expect.element(screen.getByRole("combobox", { name: "Rule" })).toHaveTextContent("rule 3");
   await userEvent.click(screen.getByRole("button", { name: /^Simulate/ }));
   await expect.poll(() => simulated).toEqual([3, 3]);
 });
@@ -440,11 +437,11 @@ it("a simulation that ends after another rule is picked stays with its own rule"
   });
   const pick = screen.getByRole("combobox", { name: "Rule" });
   await userEvent.click(screen.getByRole("button", { name: /^Simulate/ }));
-  await userEvent.selectOptions(pick, "rule 4");
+  await choose(pick, "rule 4");
   release();
-  await userEvent.selectOptions(pick, "rule 3");
+  await choose(pick, "rule 3");
   await expect.element(screen.getByText("1 firings in 7 days")).toBeVisible();
-  await userEvent.selectOptions(pick, "rule 4");
+  await choose(pick, "rule 4");
   await expect.element(screen.getByText(/^Replays one rule/)).toBeVisible();
   expect(screen.getByText("1 firings in 7 days").elements()).toHaveLength(0);
 });

@@ -1,10 +1,12 @@
 import { describe, expect, it } from "@effect/vitest";
-import type { XPost } from "@xtend/contracts";
+import { VOICE_MIN_SEEN, type XPost } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
 import * as Assist from "../ai/Assist.ts";
+import * as Events from "../events/Events.ts";
+import * as ObservationStore from "../observations/ObservationStore.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 import * as TokenCipher from "../settings/TokenCipher.ts";
@@ -44,12 +46,14 @@ const post = (n: number, isRepost: boolean): XPost => ({
   metrics: { views: 10, likes: 0, reposts: 0, replies: 0, quotes: 0, bookmarks: 0 },
 });
 
+const eventsStub = Layer.succeed(Events.Events)({ publish: () => Effect.void } as never);
 const layerTest = ComposeAssist.layer.pipe(
-  Layer.provideMerge(SettingsStore.layer),
+  Layer.provideMerge(Layer.mergeAll(SettingsStore.layer, ObservationStore.layer)),
   Layer.provideMerge(
     Layer.mergeAll(
       Sqlite.layerMemory,
       TokenCipher.layerTest,
+      eventsStub,
       assistStub,
       xClientStub({
         userPosts: (handle) =>
@@ -84,6 +88,22 @@ describe("ComposeAssist", () => {
           Schema.Struct({ samples: Schema.Array(Schema.String) }),
         )(seen.at(-1));
         expect(samples.every((t) => t.startsWith("mine"))).toBe(true);
+        expect(reads).toEqual(["siam"]);
+
+        // Once the session has seen enough of the user's own posts, X is not read at all.
+        const observations = yield* ObservationStore.ObservationStore;
+        yield* observations.record({
+          viewerHandle: "siam",
+          source: "profile",
+          observedAt: "2026-10-22T10:00:00.000Z",
+          posts: Array.from({ length: VOICE_MIN_SEEN }, (_, i) => {
+            const { url: _url, lang: _lang, author, ...rest } = post(100 + i, false);
+            const { avatarUrl: _avatar, ...observedAuthor } = author;
+            return { ...rest, text: `seen ${i}`, author: observedAuthor, isPromoted: false };
+          }),
+        });
+        const free = yield* assist.voiceMatch(["draft"]);
+        expect([free.samples, reads]).toEqual([VOICE_MIN_SEEN, ["siam"]]);
       }).pipe(Effect.provide(layerTest)),
   );
 });

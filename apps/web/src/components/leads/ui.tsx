@@ -1,7 +1,7 @@
-import type { RateCard, SignalAgentInput, Stage } from "@xtend/contracts";
+import type { RateCard, SignalAgentInput, Stage, Tier } from "@xtend/contracts";
 import { useState } from "react";
 
-import { cn } from "../../lib/utils";
+import { cn, readableError } from "../../lib/utils";
 import { usd } from "../../state/costs";
 
 export const STAGES: ReadonlyArray<Stage> = ["new", "contacted", "replied", "customer", "ignored"];
@@ -16,6 +16,19 @@ const stageTone = (stage: Stage) =>
 /** A stage as a word: green once they answered, struck through when ignored. */
 export function StageText({ stage }: { readonly stage: Stage }) {
   return <span className={cn("font-mono text-xs", stageTone(stage))}>{stage}</span>;
+}
+
+// Bands from PeopleStore.tierOf: the Scores tiers, scaled to the 0-100 person score.
+const TIER_SCALE =
+  "Tier from the 0-100 score: Supreme 90+, Significant 60+, Credible 40+, Noted 20+, Unknown below. The score counts followers on a log scale, plus verified and a bio.";
+
+/** A tier word that explains the scale on hover. */
+export function TierText({ tier }: { readonly tier: Tier | null }) {
+  return tier === null ? null : (
+    <span title={TIER_SCALE} className="cursor-help">
+      {tier}
+    </span>
+  );
 }
 
 /**
@@ -46,7 +59,7 @@ export function useAction() {
     try {
       await work();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(readableError(e));
     } finally {
       setBusy(false);
     }

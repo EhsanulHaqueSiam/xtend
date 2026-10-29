@@ -13,15 +13,14 @@ import {
   pickDraftAtom,
   pickWhyAtom,
   picksAtom,
-  saveSuggestedDraftAtom,
   staffPicksAtom,
 } from "../../state/library";
 import { PageHeader } from "../PageHeader";
-import { TREND_COUNTRIES } from "../scores/Trending";
+import { TREND_COUNTRIES } from "./trends";
 import { Cost, Empty, Section } from "../ui/layout";
 import { DetailSplit } from "../ui/split";
 import { profileUrl, XLink } from "../ui/x-link";
-import { xPill, xPillSm, xPillSolid } from "../x";
+import { xPill, xPillSm } from "../x";
 import {
   FormatTabs,
   SearchXField,
@@ -33,12 +32,12 @@ import {
   type SortKey,
 } from "./controls";
 import { PostGrid } from "./PostCard";
-import { DraftBlock, InspectorGroup, PostInspector } from "./PostInspector";
+import { DraftChoice } from "./DraftChoice";
+import { InspectorGroup, PostInspector } from "./PostInspector";
 import { RemixButton, SaveButton, useSavedIds } from "./SaveButton";
 import { AppLink, ErrorLine, causeMessage, errorMessage } from "./shared";
 
 const button = cn(xPill, xPillSm);
-const solid = cn(xPillSolid, xPillSm);
 
 /** A staff pick whose text has arrived. */
 type FetchedStaffPick = StaffPick & { readonly post: XPost };
@@ -92,7 +91,7 @@ function useRuns() {
       type="button"
       className={button}
       disabled={busy !== null || trendingQuote === "…" || assistQuote === "…"}
-      title="Three posts for today in your voice, from the trends and the picks. Filed as suggested drafts."
+      title="Three posts for today in your voice, from your for-you topics and the picks. Filed as suggested drafts."
       onClick={() =>
         void call("ready", async () => {
           const posts = await generate(TREND_COUNTRIES[0]);
@@ -101,7 +100,7 @@ function useRuns() {
       }
     >
       {busy === "ready" ? "Writing" : "Write 3 ready posts"}
-      {/* One trends read, then one model call writes all three. */}
+      {/* One model call writes all three; country trends are read only before any topic exists. */}
       <Cost label={`${trendingQuote} + ${assistQuote}`} />
     </button>
   );
@@ -120,15 +119,12 @@ function PickInspector({
 }) {
   const why = useAtomSet(pickWhyAtom(pick.post.postId), { mode: "promise" });
   const draft = useAtomSet(pickDraftAtom(pick.post.postId), { mode: "promise" });
-  const saveDraft = useAtomSet(saveSuggestedDraftAtom, { mode: "promise" });
   const assistQuote = useQuoteLabel({ kind: "assist" });
   const [whyText, setWhyText] = useState(pick.whyItWorks);
-  const [blocks, setBlocks] = useState<ReadonlyArray<string> | null>(null);
-  const [filed, setFiled] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"why" | "draft" | "send" | null>(null);
+  const [busy, setBusy] = useState<"why" | null>(null);
 
-  const call = async (which: "why" | "draft" | "send", work: () => Promise<void>) => {
+  const call = async (which: "why", work: () => Promise<void>) => {
     setBusy(which);
     setError(null);
     try {
@@ -167,54 +163,11 @@ function PickInspector({
           </button>
         )}
       </InspectorGroup>
-      <InspectorGroup title="Ready to post" aside={<Cost label={assistQuote} />}>
-        {blocks === null ? (
-          <button
-            type="button"
-            className={button}
-            disabled={busy !== null || assistQuote === "…"}
-            onClick={() => void call("draft", async () => setBlocks(await draft()))}
-          >
-            {busy === "draft" ? "Writing" : "Write one in your voice"}
-          </button>
-        ) : (
-          <div className="flex flex-col gap-2">
-            {blocks.map((b, i) => (
-              // eslint-disable-next-line react/no-array-index-key -- model output; two posts can share a text.
-              <DraftBlock key={i}>{b}</DraftBlock>
-            ))}
-            {filed ? (
-              <p className="text-xs text-muted-foreground">
-                Filed as a suggested draft.{" "}
-                <AppLink href="/compose?tab=automatic" className="text-foreground hover:underline">
-                  Open Compose
-                </AppLink>
-              </p>
-            ) : (
-              <div>
-                <button
-                  type="button"
-                  className={solid}
-                  disabled={busy !== null}
-                  onClick={() =>
-                    void call("send", async () => {
-                      const [first, ...rest] = blocks;
-                      if (first === undefined) return;
-                      await saveDraft({
-                        blocks: [first, ...rest],
-                        source: `pick:${pick.post.postId}`,
-                      });
-                      setFiled(true);
-                    })
-                  }
-                >
-                  Send to Compose
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-      </InspectorGroup>
+      <DraftChoice
+        title="Ready to post"
+        source={`pick:${pick.post.postId}`}
+        write={(tone) => draft(tone).then((options) => options.map((o) => o.join("\n\n")))}
+      />
       {error !== null ? <ErrorLine className="px-5 pt-3 pb-0">{error}</ErrorLine> : null}
     </PostInspector>
   );

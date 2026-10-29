@@ -4,6 +4,8 @@ import {
   HookAlternatives,
   RewriteVariants,
   ThreadIdeas,
+  type ReplyTone,
+  VOICE_MIN_SEEN,
   type VoiceMatch,
 } from "@xtend/contracts";
 import * as Context from "effect/Context";
@@ -12,6 +14,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
 import * as Assist from "../ai/Assist.ts";
+import * as ObservationStore from "../observations/ObservationStore.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 import * as XClient from "../x/XClient.ts";
 
@@ -20,11 +23,26 @@ type Blocks = ReadonlyArray<string>;
 export class ComposeAssist extends Context.Service<
   ComposeAssist,
   {
-    readonly improveHook: (blocks: Blocks) => Effect.Effect<HookAlternatives, ComposeError>;
-    readonly rewrite: (text: string) => Effect.Effect<RewriteVariants, ComposeError>;
-    readonly threadIdeas: (topic: string) => Effect.Effect<ThreadIdeas, ComposeError>;
-    readonly continueThread: (blocks: Blocks) => Effect.Effect<ContinuedBlocks, ComposeError>;
-    /** Compares the draft with the Settings handle's recent posts (up to 20). */
+    readonly improveHook: (
+      blocks: Blocks,
+      tone?: ReplyTone,
+    ) => Effect.Effect<HookAlternatives, ComposeError>;
+    readonly rewrite: (
+      text: string,
+      tone?: ReplyTone,
+    ) => Effect.Effect<RewriteVariants, ComposeError>;
+    readonly threadIdeas: (
+      topic: string,
+      tone?: ReplyTone,
+    ) => Effect.Effect<ThreadIdeas, ComposeError>;
+    readonly continueThread: (
+      blocks: Blocks,
+      tone?: ReplyTone,
+    ) => Effect.Effect<ContinuedBlocks, ComposeError>;
+    /**
+     * Compares the draft with the Settings handle's recent posts (up to 20): the ones the session
+     * saw, free, and X's timeline only when it saw fewer than VOICE_MIN_SEEN.
+     */
     readonly voiceMatch: (blocks: Blocks) => Effect.Effect<VoiceMatch, ComposeError>;
   }
 >()("xtend/compose/ComposeAssist") {}
@@ -33,13 +51,15 @@ const make = Effect.gen(function* () {
   const assist = yield* Assist.Assist;
   const settings = yield* SettingsStore.SettingsStore;
   const x = yield* XClient.XClient;
+  const observations = yield* ObservationStore.ObservationStore;
   const fail = (operation: string) => (cause: { readonly message: string }) =>
     new ComposeError({ operation, detail: cause.message });
 
   const improveHook = Effect.fn("ComposeAssist.improveHook")(
-    (blocks: Blocks) =>
+    (blocks: Blocks, tone?: ReplyTone) =>
       assist.generate({
         task: "compose.improveHook",
+        tone,
         instructions:
           "Rewrite the first line (the hook) of this X post. Return exactly 3 alternatives, each under 200 characters, with a one-line reason why it should stop the scroll. Keep the rest of the post as context only.",
         input: { hook: blocks[0] ?? "", rest: blocks.slice(1) },
@@ -49,9 +69,10 @@ const make = Effect.gen(function* () {
   );
 
   const rewrite = Effect.fn("ComposeAssist.rewrite")(
-    (text: string) =>
+    (text: string, tone?: ReplyTone) =>
       assist.generate({
         task: "compose.rewrite",
+        tone,
         instructions:
           "Rewrite this X post 3 different ways, each under 280 characters, same meaning, different angle or rhythm.",
         input: { text },
@@ -61,11 +82,12 @@ const make = Effect.gen(function* () {
   );
 
   const threadIdeas = Effect.fn("ComposeAssist.threadIdeas")(
-    (topic: string) =>
+    (topic: string, tone?: ReplyTone) =>
       assist.generate({
         task: "compose.threadIdeas",
+        tone,
         instructions:
-          "Propose 5 X thread outlines on the topic. Each has a hook (first post, under 280 characters) and 3 to 5 beats, one line each, that the following posts would cover.",
+          "Propose 3 X thread outlines on the topic. Each has a hook (first post, under 280 characters) and 3 to 5 beats, one line each, that the following posts would cover.",
         input: { topic },
         output: ThreadIdeas,
       }),
@@ -73,11 +95,12 @@ const make = Effect.gen(function* () {
   );
 
   const continueThread = Effect.fn("ComposeAssist.continueThread")(
-    (blocks: Blocks) =>
+    (blocks: Blocks, tone?: ReplyTone) =>
       assist.generate({
         task: "compose.continueThread",
+        tone,
         instructions:
-          "Write the next 2 posts of this X thread, each under 280 characters, continuing the argument without repeating it.",
+          "Write 3 different options for the next 2 posts of this X thread, each post under 280 characters, continuing the argument without repeating it.",
         input: { blocks },
         output: ContinuedBlocks,
       }),
@@ -87,13 +110,20 @@ const make = Effect.gen(function* () {
   const voiceMatch = Effect.fn("ComposeAssist.voiceMatch")(
     function* (blocks: Blocks) {
       const { handle } = yield* settings.get.pipe(Effect.mapError(fail("assistVoiceMatch")));
-      const samples =
+      const seen =
         handle === null
           ? []
-          : (yield* x.userPosts(handle, { purpose: "compose.voiceMatch" })).items
-              .filter((p) => !p.isRepost)
-              .slice(0, 20)
-              .map((p) => p.text);
+          : (yield* observations
+              .listRecent({ authorHandle: handle, limit: 20 })
+              .pipe(Effect.orElseSucceed(() => ({ posts: [] })))).posts;
+      const posts =
+        handle === null || seen.length >= VOICE_MIN_SEEN
+          ? seen
+          : (yield* x.userPosts(handle, { purpose: "compose.voiceMatch" })).items;
+      const samples = posts
+        .filter((p) => !p.isRepost)
+        .slice(0, 20)
+        .map((p) => p.text);
       const result = yield* assist.generate({
         task: "compose.voiceMatch",
         instructions:

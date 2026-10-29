@@ -14,12 +14,14 @@ import {
 import { useQuoteLabel } from "../../state/costs";
 import { PageHeader } from "../PageHeader";
 import { compactInputClass } from "../ui/field";
+import { Select as SelectMenu } from "../ui/select";
 import { Cost, Empty } from "../ui/layout";
 import { DetailSplit } from "../ui/split";
 import { xPill, xPillSm } from "../x";
 import { FormatTabs, SearchXField, SortMenu, type FormatFilter, type SortKey } from "./controls";
 import { PostGrid } from "./PostCard";
-import { DraftBlock, InspectorGroup, PostInspector } from "./PostInspector";
+import { DraftChoice } from "./DraftChoice";
+import { InspectorGroup, PostInspector } from "./PostInspector";
 import { RemixButton, SaveButton, useSavedIds } from "./SaveButton";
 import { AppLink, ErrorLine, causeMessage, errorMessage } from "./shared";
 
@@ -42,23 +44,17 @@ function Select<T extends string>({
   readonly onChange: (v: T | undefined) => void;
 }) {
   return (
-    <select
-      aria-label={label}
-      className={cn(
-        compactInputClass,
-        "w-auto cursor-pointer",
-        value === undefined && "text-muted-foreground",
-      )}
-      value={value ?? ""}
-      onChange={(e) => onChange(e.target.value === "" ? undefined : (e.target.value as T))}
-    >
-      <option value="">{placeholder}</option>
-      {options.map((o) => (
-        <option key={o} value={o}>
-          {o}
-        </option>
-      ))}
-    </select>
+    <SelectMenu
+      compact
+      label={label}
+      className={cn(value === undefined && "text-muted-foreground")}
+      value={value}
+      onChange={onChange}
+      options={[
+        { value: undefined, label: placeholder },
+        ...options.map((o) => ({ value: o, label: String(o) })),
+      ]}
+    />
   );
 }
 
@@ -147,10 +143,6 @@ function ArchiveInspector({
   readonly onClose: () => void;
 }) {
   const write = useAtomSet(writeInFormatAtom(entry.post.postId), { mode: "promise" });
-  const assistQuote = useQuoteLabel({ kind: "assist" });
-  const [draft, setDraft] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
   return (
     <PostInspector
       post={entry.post}
@@ -167,39 +159,11 @@ function ArchiveInspector({
           <RemixButton post={entry.post} />
         </div>
       </InspectorGroup>
-      <InspectorGroup title="Write mine in this format" aside={<Cost label={assistQuote} />}>
-        {draft === null ? (
-          <button
-            type="button"
-            className={cn(xPill, xPillSm)}
-            disabled={busy || assistQuote === "…"}
-            onClick={async () => {
-              setBusy(true);
-              setError(null);
-              try {
-                setDraft((await write()).text);
-              } catch (e) {
-                setError(errorMessage(e));
-              } finally {
-                setBusy(false);
-              }
-            }}
-          >
-            {busy ? "Writing" : "Write it"}
-          </button>
-        ) : (
-          <div className="flex flex-col gap-2">
-            <DraftBlock>{draft}</DraftBlock>
-            <p className="text-xs text-muted-foreground">
-              Filed as a suggested draft.{" "}
-              <AppLink href="/compose?tab=automatic" className="text-foreground hover:underline">
-                Open Compose
-              </AppLink>
-            </p>
-          </div>
-        )}
-        {error !== null ? <ErrorLine className="px-0">{error}</ErrorLine> : null}
-      </InspectorGroup>
+      <DraftChoice
+        title="Write mine in this format"
+        source={`format:${entry.hookPattern ?? "other"}:${entry.post.postId}`}
+        write={write}
+      />
     </PostInspector>
   );
 }

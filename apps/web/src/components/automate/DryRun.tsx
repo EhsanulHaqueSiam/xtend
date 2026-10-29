@@ -9,11 +9,11 @@ import { cn } from "../../lib/utils";
 import { dryRun7dAtom, previewAtom, rulesAtom } from "../../state/automate";
 import { usd } from "../../state/costs";
 import { ErrorBar, errorText, insetTable, Note, when } from "../analyze/ui";
-import { compactInputClass } from "../ui/field";
 import { PageHeader } from "../PageHeader";
 import { sectionHref } from "../shell/sections";
 import { Button } from "../ui/button";
 import { Cost, PageBody, Section } from "../ui/layout";
+import { Select } from "../ui/select";
 
 /** Rows of what would fire, each with its price, and the total. */
 function WouldFire({
@@ -146,18 +146,14 @@ export function DryRun() {
           aside={
             rules.length === 0 ? undefined : (
               <>
-                <select
-                  aria-label="Rule"
-                  className={cn(compactInputClass, "w-48")}
-                  value={ruleId ?? ""}
-                  onChange={(e) => setPicked(Number(e.target.value))}
-                >
-                  {rules.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.name}
-                    </option>
-                  ))}
-                </select>
+                <Select
+                  compact
+                  label="Rule"
+                  className="w-48"
+                  value={ruleId}
+                  onChange={setPicked}
+                  options={rules.map((r) => ({ value: r.id, label: r.name }))}
+                />
                 <Button
                   size="sm"
                   variant="outline"

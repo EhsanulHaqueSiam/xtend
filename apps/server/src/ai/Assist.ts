@@ -11,6 +11,8 @@ import * as Stream from "effect/Stream";
 
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
+import type { ReplyTone } from "@xtend/contracts";
+
 import * as Codex from "./Codex.ts";
 import * as OwnModel from "./OwnModel.ts";
 import * as ServerConfig from "../config.ts";
@@ -35,7 +37,20 @@ export interface AssistRequest<A> {
   readonly input: unknown;
   /** Shape of the answer. The model is forced to return exactly this. */
   readonly output: Schema.Codec<A>;
+  /** The taste the user picked in a chooser; every option the model writes takes it. */
+  readonly tone?: ReplyTone | undefined;
 }
+
+/** How each tone in the chooser reads to the model, after "Every option". */
+const TONES: Record<ReplyTone, string> = {
+  agree: "agrees with the author and says why from the user's own experience",
+  add: "adds a point, example or number the author left out",
+  ask: "asks one specific question the author would want to answer",
+  contrarian: "pushes back on the claim with a reason",
+  sarcastic: "is dry and sarcastic, without insulting anyone",
+  warm: "is warm and personal, like talking to a friend",
+  short: "is one short sentence",
+};
 
 const BASE_PROMPT = `You are the writing and research assistant inside Xtend, a desktop app for growing on X (Twitter).
 You never post, like, follow or message anyone yourself; you produce text and judgements the app shows to the user.
@@ -68,7 +83,8 @@ const make = Effect.gen(function* () {
         ? ""
         : `\n\nAbout the user's account: ${current.voiceNotes || "(no notes yet)"}\nTheir niche keywords: ${current.keywords.join(", ") || "(none yet)"}`;
     const jsonSchema = Schema.toJsonSchemaDocument(request.output).schema;
-    const prompt = `${request.instructions}\n\nInput:\n${encodeJson(request.input)}`;
+    const tone = request.tone === undefined ? "" : ` Every option ${TONES[request.tone]}.`;
+    const prompt = `${request.instructions}${tone}\n\nInput:\n${encodeJson(request.input)}`;
     const decode = (output: unknown) =>
       Schema.decodeUnknownEffect(request.output)(output).pipe(
         Effect.mapError(

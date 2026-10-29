@@ -16,7 +16,7 @@ Settings, Writing. Write my own skips the model.
 (the default), it goes through your own x.com session in the desktop app, free, and the button
 says free · your session. Off, it goes through the X API at the price on the button. Session
 replies keep a human pace: a second reply within 8 seconds, or past 30 in an hour, is refused
-with how long to wait. **Like** goes through the X API at its price.
+with how long to wait. **Like** takes the same lane and pace.
 
 Your work on a post survives moving to the next one and back.
 
