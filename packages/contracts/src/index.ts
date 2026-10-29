@@ -17,3 +17,4 @@ export * from "./desktop.ts";
 export * from "./events.ts";
 export * from "./accounts.ts";
 export * from "./marks.ts";
+export * from "./pool.ts";

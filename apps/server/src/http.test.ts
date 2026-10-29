@@ -16,6 +16,7 @@ import * as RuleStore from "./automate/RuleStore.ts";
 import * as ServerConfig from "./config.ts";
 import * as ServerHttp from "./http.ts";
 import * as ObservationStore from "./observations/ObservationStore.ts";
+import * as Pool from "./pool/Pool.ts";
 import * as Sqlite from "./persistence/Sqlite.ts";
 import * as SettingsStore from "./settings/SettingsStore.ts";
 import * as TokenCipher from "./settings/TokenCipher.ts";
@@ -72,7 +73,7 @@ const layerPackaged = HttpRouter.serve(
   ),
   serveOptions,
 ).pipe(
-  Layer.provideMerge(Layer.mergeAll(ObservationStore.layer, RuleStore.layer)),
+  Layer.provideMerge(Layer.mergeAll(ObservationStore.layer, RuleStore.layer, Pool.layerNoop)),
   Layer.provideMerge(SettingsStore.layer),
   Layer.provideMerge(
     Layer.mergeAll(config(undefined), layerAuth, Sqlite.layerMemory, TokenCipher.layerTest),

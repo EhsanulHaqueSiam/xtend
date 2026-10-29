@@ -27,6 +27,8 @@ export const Settings = Schema.Struct({
   assistBaseUrl: Schema.NullOr(Schema.String),
   assistModel: Schema.String,
   assistKeySet: Schema.Boolean,
+  /** Push public sightings to the shared pool. Off stops the push and keeps reading trends. */
+  poolSharing: Schema.Boolean,
 });
 export type Settings = typeof Settings.Type;
 
@@ -44,6 +46,7 @@ export const SettingsUpdate = Schema.Struct({
   assistBaseUrl: Schema.optional(Schema.NullOr(Schema.String)),
   assistModel: Schema.optional(Schema.String),
   assistKey: Schema.optional(Schema.NullOr(Schema.String)),
+  poolSharing: Schema.optional(Schema.Boolean),
 });
 export type SettingsUpdate = typeof SettingsUpdate.Type;
 

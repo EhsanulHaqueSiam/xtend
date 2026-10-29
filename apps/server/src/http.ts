@@ -17,6 +17,7 @@ import * as RuleStore from "./automate/RuleStore.ts";
 import * as Webhooks from "./automate/Webhooks.ts";
 import * as ServerConfig from "./config.ts";
 import * as ObservationStore from "./observations/ObservationStore.ts";
+import * as Pool from "./pool/Pool.ts";
 
 /** Name of the meta tag the packaged web app reads its token from. */
 const TOKEN_META = "xtend-token";
@@ -41,7 +42,9 @@ export const layerObservationsRoute = HttpRouter.add(
     Effect.gen(function* () {
       const batch = yield* HttpServerRequest.schemaBodyJson(ObservationBatch);
       const store = yield* ObservationStore.ObservationStore;
+      const pool = yield* Pool.Pool;
       const result = yield* store.record(batch);
+      yield* pool.push(batch);
       return yield* HttpServerResponse.json(result);
     }).pipe(
       Effect.catchTags({

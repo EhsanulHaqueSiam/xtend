@@ -324,6 +324,23 @@ function SettingsForm({ current }: { readonly current: SettingsShape }) {
         </Section>
       ) : null}
       {isElectron ? <CleanX /> : null}
+      <Section
+        title="Pool"
+        description="Trends from everyone's X. Library · Trends reads it free either way."
+      >
+        <Field
+          wide
+          label="Share what you see with the pool"
+          hint="Leaves this machine: public posts with their text, author handle, name, follower count and the numbers you saw, plus a random install id. Never: ads, reposts, DMs, lists, bookmarks, your handle or which account saw what."
+        >
+          <Switch
+            className="mt-1"
+            label="Share what you see with the pool"
+            checked={draft.poolSharing ?? current.poolSharing}
+            onChange={(next) => setDraft((d) => ({ ...d, poolSharing: next }))}
+          />
+        </Field>
+      </Section>
       {/* A field left invalid is an unsaved change too; the bar stays to say it cannot save. */}
       {dirty || invalid ? (
         <div className="sticky bottom-0 flex items-center justify-end gap-2 border-t border-border bg-background px-6 py-3">

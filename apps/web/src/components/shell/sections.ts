@@ -57,7 +57,11 @@ export const SECTIONS = {
     { id: "picks", label: "Picks", about: "A daily fetch for your keywords, paid." },
     { id: "search", label: "Search", about: "X search through treg, price before Enter." },
     { id: "archive", label: "Archive", about: "Everything you saved." },
-    { id: "trends", label: "Trends", about: "What X is talking about, by country." },
+    {
+      id: "trends",
+      label: "Trends",
+      about: "The shared pool, free, and X trends by country through treg.",
+    },
     {
       id: "collections",
       label: "Collections",

@@ -22,6 +22,7 @@ import { DesktopRpcGroup } from "./desktop.ts";
 import { EventsRpcGroup } from "./events.ts";
 import { AccountsRpcGroup } from "./accounts.ts";
 import { MarksRpcGroup } from "./marks.ts";
+import { PoolRpcGroup } from "./pool.ts";
 
 import { CostAction, CostQuoteResult, Costs_METHODS } from "./costs.ts";
 import { Settings, SettingsError, SettingsUpdate, SpendSummary } from "./settings.ts";
@@ -107,4 +108,5 @@ export const WsRpcGroup = CoreRpcGroup.merge(
   EventsRpcGroup,
   AccountsRpcGroup,
   MarksRpcGroup,
+  PoolRpcGroup,
 );
