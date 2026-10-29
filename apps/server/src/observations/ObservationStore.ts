@@ -140,6 +140,8 @@ const make = Effect.gen(function* () {
                 VALUES (${post.postId}, ${a.userId}, ${post.text}, ${post.createdAt}, ${post.isReply ? 1 : 0}, ${post.isRepost ? 1 : 0}, ${post.isPromoted ? 1 : 0}, ${post.hasMedia ? 1 : 0}, ${post.hasLink ? 1 : 0}, ${batch.observedAt}, ${batch.observedAt}, 0)
                 ON CONFLICT(post_id) DO UPDATE SET
                   text = IIF(excluded.last_seen_at >= observed_posts.last_seen_at, excluded.text, observed_posts.text),
+                  -- An ad is often seen organically too; once it is, recent lists stop skipping it.
+                  is_promoted = MIN(observed_posts.is_promoted, excluded.is_promoted),
                   first_seen_at = MIN(observed_posts.first_seen_at, excluded.first_seen_at),
                   last_seen_at = MAX(observed_posts.last_seen_at, excluded.last_seen_at)
               `;

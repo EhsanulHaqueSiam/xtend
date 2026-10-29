@@ -4,7 +4,8 @@ import { useState, type DragEvent } from "react";
 import { DRAFT_TYPE } from "../../lib/drag";
 import { dayKeyIn, dayStartIn, hhmm, localInputToInstant, minuteIn, partsIn } from "../../lib/time";
 import { cn } from "../../lib/utils";
-import { draftTitle } from "../compose/DraftsList";
+import { draftTitle, useDraftCost } from "../compose/DraftsList";
+import { Cost } from "../ui/layout";
 import { Menu, MenuItem } from "../ui/menu";
 import { DAYS, slotsOn, StatusDot } from "./ui";
 
@@ -77,17 +78,23 @@ function FillItems({
   readonly fillable: ReadonlyArray<Draft>;
   readonly onPick: (id: string) => void;
 }) {
+  // Filling a slot queues a paid post, so each draft carries its price.
+  const cost = useDraftCost();
   return fillable.length === 0 ? (
     <p className="px-2 py-1.5 text-xs text-muted-foreground">No drafts to place</p>
   ) : (
-    fillable.map((f) => (
-      <MenuItem key={f.id} onClick={() => onPick(f.id)}>
-        <span className="min-w-0 flex-1 truncate">{draftTitle(f)}</span>
-        <span className="font-mono text-2xs text-muted-foreground tabular-nums">
-          {f.kind === "article" ? "article" : f.blocks.length}
-        </span>
-      </MenuItem>
-    ))
+    fillable.map((f) => {
+      const usd = cost(f);
+      return (
+        <MenuItem key={f.id} onClick={() => onPick(f.id)}>
+          <span className="min-w-0 flex-1 truncate">{draftTitle(f)}</span>
+          <span className="font-mono text-2xs text-muted-foreground tabular-nums">
+            {f.kind === "article" ? "article" : f.blocks.length}
+          </span>
+          {usd === null ? <Cost label="…" /> : <Cost usd={usd} />}
+        </MenuItem>
+      );
+    })
   );
 }
 
@@ -146,7 +153,13 @@ function DayRuler({
           );
           if (past)
             return (
-              <span key={h} aria-label={label} className="flex h-full flex-1 items-end opacity-40">
+              // A bar, not a control: aria-label needs a role to be read on a span.
+              <span
+                key={h}
+                role="img"
+                aria-label={label}
+                className="flex h-full flex-1 items-end opacity-40"
+              >
                 {bar}
               </span>
             );
@@ -294,12 +307,13 @@ export function Calendar({
                       trigger={
                         <button
                           type="button"
-                          aria-label={`Empty slot ${hhmm(e.minute)}`}
+                          // Starts with the visible "09:00 open", so voice control can say what it shows.
+                          aria-label={`${hhmm(e.minute)} open slot`}
                           className="flex w-full cursor-pointer items-center gap-1.5 rounded-md border border-dashed border-white/13 px-1.5 py-1 text-left font-mono text-2xs text-muted-foreground tabular-nums transition-colors duration-150 hover:border-white/25 hover:text-foreground data-over:border-white/60 data-over:text-foreground data-popup-open:border-white/25 data-popup-open:text-foreground"
                           {...takesDraft((id) => onFill(id, at))}
                         >
-                          {hhmm(e.minute)}
-                          <span className="font-sans">open</span>
+                          {/* The space keeps "09:00 open" two words in the text; the flex gap draws it. */}
+                          {hhmm(e.minute)} <span className="font-sans">open</span>
                         </button>
                       }
                     >

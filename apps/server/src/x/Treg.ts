@@ -14,7 +14,8 @@ import { HttpClient, HttpClientRequest } from "effect/http";
 import * as Budget from "../budget/Budget.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 
-const TREG_BASE = "https://treg.to";
+// Overridable only so the end-to-end suite (apps/e2e) can point the service at its fake treg.
+const TREG_BASE = process.env.XTEND_TREG_URL ?? "https://treg.to";
 /**
  * A call treg has not answered by then is given up on, so a hung socket cannot hold a
  * reservation forever. It may still have been served, so like a silent answer it costs its quote.

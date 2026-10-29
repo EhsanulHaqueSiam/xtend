@@ -15,10 +15,11 @@ import * as Sqlite from "../persistence/Sqlite.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 import * as TokenCipher from "../settings/TokenCipher.ts";
 import { xClientStub } from "../testing/xClientStub.ts";
+import * as Articles from "./Articles.ts";
 import * as DraftStore from "./DraftStore.ts";
 import * as Publisher from "./Publisher.ts";
 import * as SessionPosting from "./SessionPosting.ts";
-import { articlesStub, desktopStub } from "./testStubs.ts";
+import { desktopStub } from "./testStubs.ts";
 
 // Records every post X accepted. Text with "boom" is refused by X, "noid" is accepted without an
 // id, "lost" times out and "garbled" gets an unreadable 200 (either may be on X), and "crash" dies
@@ -28,8 +29,18 @@ const crash = { on: false };
 const desktop = { answer: "ok" as "ok" | DesktopUnavailableError["reason"] };
 const desktopCalls: Array<DesktopCommand> = [];
 const unsure = { lost: "http", garbled: "decode" } as const;
+// How an article publish fails; unset, it dies, so a test that reaches it unasked fails.
+const article = { failure: null as XApiError | null };
+const articlesFake = Layer.succeed(Articles.Articles)({
+  publish: () =>
+    article.failure === null
+      ? Effect.die("articles not stubbed for this test")
+      : Effect.fail(article.failure),
+  generateCover: () => Effect.die("articles not stubbed for this test"),
+  quote: { articleUsd: 0, coverUsd: 0, coverModel: "stub" },
+});
 const layerTest = Publisher.layer.pipe(
-  Layer.provideMerge(Layer.mergeAll(DraftStore.layer, SessionPosting.layer, articlesStub)),
+  Layer.provideMerge(Layer.mergeAll(DraftStore.layer, SessionPosting.layer, articlesFake)),
   Layer.provideMerge(SettingsStore.layer),
   Layer.provideMerge(
     Layer.mergeAll(
@@ -78,6 +89,7 @@ const reset = () => {
   desktopCalls.length = 0;
   crash.on = false;
   desktop.answer = "ok";
+  article.failure = null;
 };
 
 /** What the Compose editor sends on every autosave: every field, changed or not. */
@@ -328,6 +340,19 @@ describe("Publisher", () => {
       });
       const out = yield* publisher.post(withImage.id, postNow);
       expect(out.error).toContain("poll cannot share");
+
+      const limited = yield* drafts.create({
+        blocks: [{ text: "pic" }],
+        replySettings: "following",
+      });
+      yield* drafts.mediaInsert(limited.id, {
+        id: "img2",
+        blockIndex: 0,
+        path: "/m/b.png",
+        kind: "image",
+        alt: "",
+      });
+      expect((yield* publisher.post(limited.id, postNow)).error).toContain("limit who replies");
       expect(calls).toHaveLength(0);
       expect(desktopCalls).toHaveLength(0);
     }).pipe(Effect.provide(layerTest)),
@@ -341,11 +366,31 @@ describe("Publisher", () => {
       const d = yield* drafts.create({ kind: "article", title: "T", body: "b" });
       // The publish went out, then the attempt failed before it was marked posted.
       yield* drafts.setOutcome(d.id, { status: "failed", articleId: "5", postIds: ["77"] });
-      // articlesStub dies on publish, so reaching it fails the test.
+      // The articles fake dies on publish here, so reaching it fails the test.
       const out = yield* publisher.post(d.id, postNow);
       expect(out.status).toBe("posted");
       expect(out.postIds).toEqual(["77"]);
     }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect(
+    "an article publish that timed out may be live, so the scheduler never retries it",
+    () =>
+      Effect.gen(function* () {
+        reset();
+        const drafts = yield* DraftStore.DraftStore;
+        const publisher = yield* Publisher.Publisher;
+        const d = yield* drafts.create({ kind: "article", title: "T", body: "b" });
+        article.failure = new XApiError({
+          endpoint: "x/articles/publish",
+          reason: "http",
+          status: null,
+          detail: "no answer",
+        });
+        const out = yield* publisher.post(d.id, scheduled);
+        expect(out.status).toBe("failed");
+        expect(out.error).toContain("Post 1 may already be on X");
+      }).pipe(Effect.provide(layerTest)),
   );
 
   it.live("blocks with media go through the x.com session, only when the setting is on", () =>

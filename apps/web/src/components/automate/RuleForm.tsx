@@ -401,11 +401,14 @@ export function RuleForm({
               value={action.kind}
               onChange={(e) => setAction(ACTIONS[e.target.value as Action["kind"]].init)}
             >
-              {Object.entries(ACTIONS).map(([k, v]) => (
-                <option key={k} value={k}>
-                  {v.label}
-                </option>
-              ))}
+              {Object.entries(ACTIONS)
+                // The engine skips clean_profile (Undo repost replaced it); only an old rule shows it.
+                .filter(([k]) => k !== "clean_profile" || k === action.kind)
+                .map(([k, v]) => (
+                  <option key={k} value={k}>
+                    {v.label}
+                  </option>
+                ))}
             </select>
           </Prop>
           {action.kind === "auto_plug" ? (

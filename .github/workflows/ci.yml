@@ -143,3 +143,4 @@ jobs:
           fi
 
       - run: pnpm test
+      - run: pnpm test:e2e

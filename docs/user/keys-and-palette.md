@@ -8,8 +8,8 @@
 - X's pages (Home, Notifications, Messages, Bookmarks, Explore)
 - **Schedule this**: a new draft in Compose
 - `@handle`: report on the handle in Scores, or open the profile on X
-- run a Leads agent by name
-- search the Library
+- run a Leads agent by name, with its price beside it
+- search the Library: the query lands in Library search, and its priced **Search** runs it
 
 ## Keys in the app
 
@@ -19,7 +19,6 @@
 | `⌘\`  | dock or hide x.com beside the tool     |
 | `⌘F`  | find in x.com                          |
 | `c`   | Compose                                |
-| `r`   | Compose, reply                         |
 | `p`   | Plan                                   |
 | `a`   | Analyze                                |
 | `e`   | Engage                                 |

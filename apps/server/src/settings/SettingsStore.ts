@@ -75,6 +75,17 @@ const make = Effect.gen(function* () {
     Effect.map((rows) => rows[0]!),
   );
 
+  // A token saved before encryption landed is plain text, and a save that leaves the token alone
+  // keeps it as stored; seal it once here so a copied database never carries it readable.
+  yield* row.pipe(
+    Effect.flatMap(({ treg_token: stored }) =>
+      stored === null || TokenCipher.isSealed(stored)
+        ? Effect.void
+        : sql`UPDATE settings SET treg_token = ${cipher.encrypt(stored)} WHERE id = 1`,
+    ),
+    Effect.catchCause((cause) => Effect.logWarning("could not seal the stored treg token", cause)),
+  );
+
   const toSettings = (r: SettingsRow): Settings => ({
     handle: r.handle,
     tregTokenSet: r.treg_token !== null,

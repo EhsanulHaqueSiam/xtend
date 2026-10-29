@@ -241,7 +241,8 @@ export const LibraryRpcGroup = RpcGroup.make(
     error: LibraryError,
   }),
   Rpc.make(Library_METHODS.suggestedDraftSave, {
-    payload: Schema.Struct({ text: Schema.String, source: Schema.String }),
+    /** One text per post: a generated thread stays a thread. */
+    payload: Schema.Struct({ blocks: Schema.NonEmptyArray(Schema.String), source: Schema.String }),
     /** The id of a real Compose draft with status `suggested`. */
     success: Schema.Struct({ id: Schema.String }),
     error: LibraryError,

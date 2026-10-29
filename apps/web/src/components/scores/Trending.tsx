@@ -1,7 +1,7 @@
-import { useAtomValue } from "@effect/atom-react";
+import { RegistryContext, useAtomValue } from "@effect/atom-react";
 import type { XTrend } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { useState } from "react";
+import { useContext, useState } from "react";
 
 import { cn } from "../../lib/utils";
 import { useQuoteLabel } from "../../state/costs";
@@ -109,8 +109,12 @@ export function Trending() {
   const [country, setCountry] = useState<string>(TREND_COUNTRIES[0]);
   const [loaded, setLoaded] = useState<string | null>(null);
   const quote = useQuoteLabel({ kind: "trending", country });
+  const registry = useContext(RegistryContext);
+  // Load on the country already shown refetches it: a failed or stale load has no other retry.
+  const onLoad = () =>
+    loaded === country ? registry.refresh(trendingAtom(country)) : setLoaded(country);
   const load = (
-    <button type="button" className={cn(xPill, xPillSm)} onClick={() => setLoaded(country)}>
+    <button type="button" className={cn(xPill, xPillSm)} onClick={onLoad}>
       Load
       <Cost label={quote} />
     </button>

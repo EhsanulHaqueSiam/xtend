@@ -29,6 +29,7 @@ const Group = RpcGroup.make(
     payload: Schema.Struct({ from: Schema.optional(Schema.Number) }),
     success: Schema.Number,
   }),
+  Rpc.make("math.forget", { payload: Schema.Struct({}), success: Schema.Void }),
 );
 
 const routes = HttpRouter.add(
@@ -40,6 +41,7 @@ const routes = HttpRouter.add(
         "math.double": ({ n }) =>
           n < 0 ? new Boom({ why: "negative" }) : Effect.succeed({ doubled: n * 2 }),
         "math.count": ({ from }) => Effect.succeed(from ?? 0),
+        "math.forget": () => Effect.void,
       }),
     ),
   ),
@@ -91,6 +93,8 @@ describe("HTTP rpc bridge", () => {
       });
       expect((yield* post(p, "math.double", { n: "x" }, TOKEN)).status).toBe(400);
       expect((yield* post(p, "math.nope", {}, TOKEN)).status).toBe(404);
+      // A void method still answers JSON, so the CLI does not call a sent DM a bad answer.
+      expect(yield* post(p, "math.forget", {}, TOKEN)).toEqual({ status: 200, body: null });
     }).pipe(Effect.provide(layerServer)),
   );
 

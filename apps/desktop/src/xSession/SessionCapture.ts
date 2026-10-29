@@ -114,7 +114,10 @@ export function attachSessionCapture(
     });
   };
 
-  /** Throws only when the service is unreachable; a batch it refused is logged and dropped, as resending it would fail the same way. */
+  /**
+   * Throws when the service is unreachable or failed on its side (5xx, a proxy's 502), so the
+   * batch stays queued; a batch it refused (4xx) is logged and dropped, as resending would fail the same way.
+   */
   const post = async (batch: ObservationBatch): Promise<void> => {
     const response = await fetch(new URL("/api/observations", options.serviceUrl), {
       method: "POST",
@@ -124,6 +127,7 @@ export function attachSessionCapture(
       },
       body: JSON.stringify(batch),
     });
+    if (response.status >= 500) throw new Error(`service answered ${response.status}`);
     if (!response.ok) options.log("service rejected batch", { status: response.status });
   };
 

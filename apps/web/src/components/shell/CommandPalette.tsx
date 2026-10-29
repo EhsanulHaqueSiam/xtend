@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
-import { useRates } from "../../state/costs";
+import { useQuoteLabel, useRates } from "../../state/costs";
 import { agentsAtom, paletteOpenAtom, runAgentAtom } from "../../state/shell";
 import { xNavigate } from "../../state/x";
 import { agentRunCost } from "../leads/ui";
@@ -52,6 +52,7 @@ function PaletteBody({
   const agents = useAtomValue(agentsAtom);
   const runAgent = useAtomSet(runAgentAtom);
   const rates = useRates();
+  const assistQuote = useQuoteLabel({ kind: "assist" });
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
   const list = useRef<HTMLUListElement>(null);
@@ -105,7 +106,7 @@ function PaletteBody({
         id: `agent:${agent.id}`,
         group: "Actions" as const,
         label: `Run agent ${agent.name}`,
-        hint: `paid run ${agentRunCost(rates, agent)}`,
+        hint: `paid run ${agentRunCost(rates, assistQuote, agent)}`,
         icon: Bot,
         run: () => runAgent(agent.id),
       })),
@@ -137,7 +138,7 @@ function PaletteBody({
         run: to(`/library?q=${encodeURIComponent(query.trim())}`),
       });
     return [...dynamic, ...fixed];
-  }, [agents, go, query, rates, runAgent]);
+  }, [agents, assistQuote, go, query, rates, runAgent]);
 
   const pick = (command: Command) => {
     command.run();

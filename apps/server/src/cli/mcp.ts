@@ -39,7 +39,7 @@ export const MCP_TOOLS = [
   },
   {
     name: "search_library",
-    description: "Search X posts (advanced search syntax works). A paid read unless cached.",
+    description: `Search X posts (advanced search syntax works). A paid read ($${RATE_CARD.searchPage} a page) unless cached.`,
     inputSchema: {
       type: "object",
       properties: { query: text, mode: { type: "string", enum: ["top", "latest"] } },
