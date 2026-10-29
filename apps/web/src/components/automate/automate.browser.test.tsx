@@ -59,6 +59,22 @@ it("after a save the editor holds what was stored, not the list's copy from befo
   await expect.element(screen.getByRole("button", { name: "Save" })).toBeDisabled();
 });
 
+it("Escape closes the rule editor", async () => {
+  await using screen = await render(<Rules />, {
+    service: {
+      ...formService,
+      "events.subscribe": liveEvents().subscribe,
+      "automate.rulesList": () => Effect.succeed([rule(1, { name: "thanks" })]),
+      "automate.runsList": () => Effect.succeed([]),
+      "automate.pendingList": () => Effect.succeed([]),
+    },
+  });
+  await userEvent.click(screen.getByText("thanks"));
+  await expect.element(screen.getByPlaceholder("Thank reposters")).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(screen.getByPlaceholder("Thank reposters")).not.toBeInTheDocument();
+});
+
 it("keeps the monthly cap and the undo interval as typed through a save and a reopen", async () => {
   let stored = rule(1, {
     name: "like keyword posts",

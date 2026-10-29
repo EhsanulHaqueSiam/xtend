@@ -366,7 +366,17 @@ export function DraftsHome({
     });
   const decide = (yes: boolean, id: number) =>
     guarded(async () => {
-      report(yes ? await approve(id) : await dismiss(id), yes ? "Approved" : "Dismissed");
+      if (yes) {
+        const exit = await approve(id);
+        // The service settles an approved request whatever its run did; only the run says it acted.
+        const run = Exit.isSuccess(exit) ? exit.value : null;
+        report(
+          exit,
+          run === null || run.status === "ok"
+            ? "Approved"
+            : `Not done, ${run.status}: ${run.detail}`,
+        );
+      } else report(await dismiss(id), "Dismissed");
       refreshPending();
       refreshDrafts();
     });

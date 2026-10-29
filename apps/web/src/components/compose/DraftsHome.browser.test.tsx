@@ -263,3 +263,30 @@ it("says the ask-first list failed instead of calling Automatic empty", async ()
     .toBeVisible();
   expect(screen.getByText(/^Nothing waiting\./).elements()).toHaveLength(0);
 });
+
+it("an approval the service did not act on says why instead of Approved", async () => {
+  await using screen = await render(
+    <DraftsHome tab="automatic" onOpen={() => {}} onNew={() => {}} />,
+    {
+      service: {
+        ...prices,
+        "compose.draftsList": () => Effect.succeed({ drafts }),
+        "automate.pendingList": () => Effect.succeed([pending]),
+        "automate.pendingApprove": () =>
+          Effect.succeed({
+            id: 2,
+            ruleId: 1,
+            at: "2026-10-23T00:00:00.000Z",
+            subjectId: "1",
+            status: "skipped" as const,
+            detail: "over the daily budget",
+            costUsd: 0,
+            xId: null,
+          }),
+      },
+    },
+  );
+  await userEvent.click(screen.getByRole("button", { name: /^Approve/ }));
+  await expect.element(screen.getByText("Not done, skipped: over the daily budget")).toBeVisible();
+  expect(screen.getByText("Approved", { exact: true }).elements()).toHaveLength(0);
+});
