@@ -51,7 +51,7 @@ const describeTrigger = (t: Trigger): ReadonlyArray<Segment> => {
  * cadence is AutomationEngine's POLL_MS and the read cache's lifetime (search 30 min, own posts
  * 1 h). Dry runs never poll. Null for triggers that only read stored data.
  */
-export const triggerPoll = (
+const triggerPoll = (
   rates: RateCard,
   t: Trigger,
 ): { readonly usd: number; readonly every: string; readonly perDay: number } | null => {

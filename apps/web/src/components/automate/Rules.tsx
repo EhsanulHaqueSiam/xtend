@@ -109,6 +109,7 @@ export function Rules() {
       <DetailSplit
         closable
         detailKey={open}
+        onClose={() => setOpen(null)}
         label={current === null ? "New rule" : current.name}
         list={AsyncResult.match(rules, {
           onInitial: () => <Empty>Connecting to the service.</Empty>,
