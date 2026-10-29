@@ -60,17 +60,6 @@ export interface DmsResult {
   readonly quoteUsd: number;
 }
 
-/** What each chooser tone asks of the model. */
-const TONES: Record<ReplyTone, string> = {
-  agree: "agree with the author and say why from the user's own experience",
-  add: "add a point, example or number the author left out",
-  ask: "ask one specific question the author would want to answer",
-  contrarian: "push back on the author's claim with a reason",
-  sarcastic: "are dry and sarcastic, without insulting the author",
-  warm: "are warm and personal, like a reply to a friend",
-  short: "are one short sentence",
-};
-
 /** Reply targets, AI reply drafts, X writes and mentions. Persistence is EngageStore. */
 export class Engage extends Context.Service<
   Engage,
@@ -157,7 +146,8 @@ const make = Effect.gen(function* () {
     const { drafts } = yield* assist
       .generate({
         task: "engage.draftReply",
-        instructions: `Write 3 different replies to this post in the user's voice. Each under 280 characters, no praise or flattery, no questions for the sake of it; each adds one concrete point, example, number or counterpoint the author did not say. The user's replies that did best are their taste: match their length, rhythm and attitude, never their wording.${tone === undefined ? "" : ` All three ${TONES[tone]}.`}`,
+        instructions: `Write 3 different replies to this post in the user's voice. Each under 280 characters, no praise or flattery, no questions for the sake of it; each adds one concrete point, example, number or counterpoint the author did not say. The user's replies that did best are their taste: match their length, rhythm and attitude, never their wording.`,
+        tone,
         input: { author: post.author.handle, text: post.text, yourBestReplies: own },
         output: Schema.Struct({ drafts: Schema.Array(Schema.Struct({ text: Schema.String })) }),
       })

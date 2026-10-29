@@ -60,10 +60,9 @@ const eventsStub = Layer.succeed(Events.Events)({
   stream: Stream.empty,
 });
 const tregCalls: Array<Treg.TregCall> = [];
-// Assist echoes the end of its instructions as the single draft, so a test can read what was asked.
+// Assist echoes the tone it was asked for as the single draft, so a test can read what was asked.
 const assistStub = Layer.succeed(Assist.Assist)({
-  generate: (request) =>
-    Effect.succeed({ drafts: [{ text: request.instructions.slice(-120) }] } as never),
+  generate: (request) => Effect.succeed({ drafts: [{ text: request.tone ?? "none" }] } as never),
 });
 const tregStub = Layer.succeed(Treg.Treg)({
   call: (input) =>
@@ -308,8 +307,8 @@ describe("Engage.draftReply", () => {
       const engage = yield* Engage.Engage;
       const plain = yield* engage.draftReply(target("51", "ann"));
       const dry = yield* engage.draftReply(target("51", "ann"), "sarcastic");
-      expect(plain[0]?.text).not.toContain("All three");
-      expect(dry[0]?.text).toContain("All three are dry and sarcastic");
+      expect(plain[0]?.text).toBe("none");
+      expect(dry[0]?.text).toBe("sarcastic");
     }).pipe(Effect.provide(layerTest)),
   );
 });

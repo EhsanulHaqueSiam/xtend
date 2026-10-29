@@ -1,5 +1,5 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
-import type { XPost } from "@xtend/contracts";
+import type { ReplyTone, XPost } from "@xtend/contracts";
 import * as Cause from "effect/Cause";
 import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
@@ -18,6 +18,7 @@ import {
 } from "../../state/compose";
 import { useQuoteLabel } from "../../state/costs";
 import { searchAtom } from "../../state/library";
+import { ToneRow } from "../ui/assist-choice";
 import { Button } from "../ui/button";
 import { compactInputClass } from "../ui/field";
 import { Cost } from "../ui/layout";
@@ -122,9 +123,10 @@ function VoiceMatchCost({ handle, model }: { readonly handle: string; readonly m
 }
 
 /**
- * The model's help at the foot of the writing column: one row of actions on the draft and a
- * topic box for thread ideas. Answers open above the row, each with Use and Dismiss. Each action
- * is one model call and shows its price; voice match also reads X.
+ * The model's help at the foot of the writing column: a tone that every action takes, one row of
+ * actions on the draft and a topic box for thread ideas. Answers open above as three options,
+ * each with Use and Dismiss; the editor stays the user's own words. Each action is one model call
+ * and shows its price; voice match also reads X.
  */
 export function AssistPanel({
   handle,
@@ -154,6 +156,9 @@ export function AssistPanel({
   const model = useQuoteLabel({ kind: "assist" });
 
   const [topic, setTopic] = useState("");
+  // Picked once, used by every action below until changed; null asks for no particular tone.
+  const [picked, setPicked] = useState<ReplyTone | null>(null);
+  const tone = picked ?? undefined;
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [title, setTitle] = useState("");
@@ -244,12 +249,15 @@ export function AssistPanel({
             : null}
         </div>
       ) : null}
+      <div className="pt-2.5">
+        <ToneRow tone={picked} first="Any tone" disabled={busy !== null} onTone={setPicked} />
+      </div>
       <div className="flex flex-wrap items-center gap-x-0.5 gap-y-1 py-2.5">
         <Sparkles aria-hidden className="mr-1 size-3.5 text-muted-foreground" />
         {action("Improve hook", first.trim() === "", () =>
           run(
             "Improve hook",
-            () => hook(blocks),
+            () => hook({ blocks, tone }),
             (r) => r.alternatives.map((a) => ({ text: a.text, note: a.reason, blocks: [] })),
             (s) => onReplaceBlock(0, s.text),
           ),
@@ -257,7 +265,7 @@ export function AssistPanel({
         {action("Rewrite", current.trim() === "", () =>
           run(
             `Rewrite post ${active + 1}`,
-            () => rewrite(current),
+            () => rewrite({ text: current, tone }),
             (r) => r.variants.map((text) => ({ text, blocks: [] })),
             (s) => onReplaceBlock(active, s.text),
           ),
@@ -265,8 +273,8 @@ export function AssistPanel({
         {action("Continue thread", first.trim() === "", () =>
           run(
             "Continue thread",
-            () => cont(blocks),
-            (r) => [{ text: r.blocks.join("\n\n"), blocks: r.blocks }],
+            () => cont({ blocks, tone }),
+            (r) => r.options.map((o) => ({ text: o.blocks.join("\n\n"), blocks: o.blocks })),
             (s) => onAppend(s.blocks),
           ),
         )}
@@ -298,7 +306,7 @@ export function AssistPanel({
             if (topic.trim() === "" || busy !== null) return;
             void run(
               "Thread ideas",
-              () => ideas(topic),
+              () => ideas({ topic, tone }),
               (r) =>
                 r.outlines.map((o) => ({
                   text: o.hook,

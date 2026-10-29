@@ -69,7 +69,8 @@ a draft that quotes it.
 ## Assist
 
 At the foot of the writing column the model's help is one row of actions on the draft and a
-topic box for thread ideas. Each action is one model call. Answers open
+topic box for thread ideas. Pick a tone first (Agree, Add a point, Ask, Contrarian, Sarcastic,
+Warm, Short, or any); every action uses it and returns three options. Each action is one model call. Answers open
 above the row, each with **Use** and **Dismiss**; nothing changes your draft until you click
 Use.
 

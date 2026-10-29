@@ -71,7 +71,7 @@ export const layerHandlers = LibraryRpcGroup.toLayer(
       [Library_METHODS.picksGet]: () => library.picksGet,
       [Library_METHODS.picksFetch]: () => library.picksFetch,
       [Library_METHODS.pickWhy]: ({ postId }) => library.pickWhy(postId),
-      [Library_METHODS.pickDraft]: ({ postId }) => library.pickDraft(postId),
+      [Library_METHODS.pickDraft]: ({ postId, tone }) => library.pickDraft(postId, tone),
       // A suggestion is a real Compose draft, so the Ready shelf and the editor see it.
       [Library_METHODS.suggestedDraftSave]: ({ blocks, source }) =>
         drafts
@@ -81,10 +81,10 @@ export const layerHandlers = LibraryRpcGroup.toLayer(
             Effect.mapError((e) => new LibraryError({ operation: "store", detail: e.message })),
           ),
       [Library_METHODS.trends]: ({ country }) => library.trends(country),
-      [Library_METHODS.trendIdeas]: ({ country }) => library.trendIdeas(country),
+      [Library_METHODS.trendIdeas]: ({ country, tone }) => library.trendIdeas(country, tone),
       [Library_METHODS.browse]: (filters) => store.browse(filters),
       [Library_METHODS.detectPatterns]: () => library.detectPatterns,
-      [Library_METHODS.writeInFormat]: ({ postId }) => library.writeInFormat(postId),
+      [Library_METHODS.writeInFormat]: ({ postId, tone }) => library.writeInFormat(postId, tone),
       [Library_METHODS.staffPicks]: () => library.staffPicks,
       [Library_METHODS.staffPicksFetch]: () => library.staffPicksFetch,
       [Library_METHODS.forYou]: () => library.forYou,

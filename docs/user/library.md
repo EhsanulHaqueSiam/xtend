@@ -15,7 +15,9 @@ anywhere opens Picks with Search X focused.
 
 Today's top posts for your keywords (Settings), and the staff picks under them: curated
 evergreen posts whose text arrives with one search per author. The selected pick offers **Why
-it works** and a **ready-to-post version** in your voice, each a model call.
+it works** and a **ready-to-post version** in your voice, each a model call. Ready to post,
+Archive's **Write mine in this format** and Trends' post ideas take a tone, or any, and offer
+three to pick from; the one you send lands in Compose as a suggested draft.
 
 The picks are gathered by a morning run that spends treg with nobody clicking, so it is off
 until **Daily Library jobs** is turned on in Settings. The section says when today's picks

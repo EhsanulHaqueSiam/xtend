@@ -5,6 +5,7 @@ import {
   type ListCriteria,
   type PersonAdd,
   type PersonUpdate,
+  type ReplyTone,
   type SignalAgentInput,
 } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
@@ -66,10 +67,13 @@ export const personProfileAtom = clientRuntime.fn<number>()(
   }),
 );
 
-export const draftDmAtom = clientRuntime.fn<number>()(
-  Effect.fnUntraced(function* (id) {
+export const draftDmAtom = clientRuntime.fn<{
+  readonly id: number;
+  readonly tone?: ReplyTone | undefined;
+}>()(
+  Effect.fnUntraced(function* (input) {
     const client = yield* XtendClient;
-    return (yield* client[Leads_METHODS.draftDm]({ id })).text;
+    return (yield* client[Leads_METHODS.draftDm](input)).drafts;
   }),
 );
 
@@ -159,10 +163,13 @@ export const latestPostAtom = clientRuntime.fn<number>()(
   }),
 );
 
-export const draftReplyAtom = clientRuntime.fn<number>()(
-  Effect.fnUntraced(function* (id) {
+export const draftReplyAtom = clientRuntime.fn<{
+  readonly id: number;
+  readonly tone?: ReplyTone | undefined;
+}>()(
+  Effect.fnUntraced(function* (input) {
     const client = yield* XtendClient;
-    return yield* client[Leads_METHODS.draftReply]({ id });
+    return yield* client[Leads_METHODS.draftReply](input);
   }),
 );
 

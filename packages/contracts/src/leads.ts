@@ -2,7 +2,7 @@ import * as Schema from "effect/Schema";
 import * as Rpc from "effect/rpc/Rpc";
 import * as RpcGroup from "effect/rpc/RpcGroup";
 
-import { IsoDateTime, NonNegativeInt, XHandle, XId } from "./baseSchemas.ts";
+import { IsoDateTime, NonNegativeInt, ReplyTone, XHandle, XId } from "./baseSchemas.ts";
 import { Tier } from "./scores.ts";
 import { XApiError, XFollower, XPost, XProfile } from "./x.ts";
 
@@ -142,7 +142,8 @@ export type EngagementVia = typeof EngagementVia.Type;
 export const EngagersInput = Schema.Struct({ postId: XId, via: EngagementVia });
 export type EngagersInput = typeof EngagersInput.Type;
 
-export const PersonReplyDraft = Schema.Struct({ post: XPost, text: Schema.String });
+/** Their latest post and three replies to it, for the chooser. */
+export const PersonReplyDraft = Schema.Struct({ post: XPost, drafts: Schema.Array(Schema.String) });
 export type PersonReplyDraft = typeof PersonReplyDraft.Type;
 export type NewFollower = typeof NewFollower.Type;
 
@@ -205,8 +206,8 @@ export const LeadsRpcGroup = RpcGroup.make(
     error: LeadsError,
   }),
   Rpc.make(Leads_METHODS.draftDm, {
-    payload: Schema.Struct({ id: Schema.Int }),
-    success: Schema.Struct({ text: Schema.String }),
+    payload: Schema.Struct({ id: Schema.Int, tone: Schema.optional(ReplyTone) }),
+    success: Schema.Struct({ drafts: Schema.Array(Schema.String) }),
     error: LeadsOrX,
   }),
   Rpc.make(Leads_METHODS.sendDm, {
@@ -276,7 +277,7 @@ export const LeadsRpcGroup = RpcGroup.make(
     error: LeadsOrX,
   }),
   Rpc.make(Leads_METHODS.draftReply, {
-    payload: Schema.Struct({ id: Schema.Int }),
+    payload: Schema.Struct({ id: Schema.Int, tone: Schema.optional(ReplyTone) }),
     success: PersonReplyDraft,
     error: LeadsOrX,
   }),

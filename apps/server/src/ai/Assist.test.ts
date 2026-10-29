@@ -89,6 +89,20 @@ describe("Assist.generate", () => {
       expect(spend.byPurpose).toEqual([]);
     }).pipe(Effect.provide(layerTest)),
   );
+
+  it.effect("puts the picked tone after the instructions, and nothing without one", () =>
+    Effect.gen(function* () {
+      sdk.query.mockClear();
+      const assist = yield* Assist.Assist;
+      yield* assist.generate(request);
+      yield* assist.generate({ ...request, tone: "sarcastic" });
+      const prompts = sdk.query.mock.calls.map((c) => String(c[0]?.prompt).split("\n")[0]);
+      expect(prompts).toEqual([
+        "Improve the hook.",
+        "Improve the hook. Every option is dry and sarcastic, without insulting anyone.",
+      ]);
+    }).pipe(Effect.provide(layerTest)),
+  );
 });
 
 describe("Assist.generate with the user's own model", () => {

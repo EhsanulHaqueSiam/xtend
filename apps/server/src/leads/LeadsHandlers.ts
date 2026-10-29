@@ -38,7 +38,8 @@ export const layerHandlers = LeadsRpcGroup.toLayer(
       [Leads_METHODS.personProfile]: ({ id }) => ops.profile(id),
       [Leads_METHODS.personAdd]: (input) => people.add(input),
       [Leads_METHODS.personUpdate]: (patch) => people.update(patch),
-      [Leads_METHODS.draftDm]: ({ id }) => Effect.map(ops.draftDm(id), (text) => ({ text })),
+      [Leads_METHODS.draftDm]: ({ id, tone }) =>
+        Effect.map(ops.draftDm(id, tone), (drafts) => ({ drafts })),
       [Leads_METHODS.sendDm]: ({ id, text }) => ops.sendDm(id, text),
       [Leads_METHODS.listsList]: () => people.lists,
       [Leads_METHODS.listCreate]: ({ name }) => people.createList(name),
@@ -56,7 +57,7 @@ export const layerHandlers = LeadsRpcGroup.toLayer(
         Effect.succeed({ costUsd: XExtra.engagersCostUsd(via) }),
       [Leads_METHODS.engagers]: ({ postId, via }) => ops.engagers(postId, via),
       [Leads_METHODS.latestPost]: ({ id }) => ops.latestPost(id),
-      [Leads_METHODS.draftReply]: ({ id }) => ops.draftReply(id),
+      [Leads_METHODS.draftReply]: ({ id, tone }) => ops.draftReply(id, tone),
       [Leads_METHODS.sendReply]: ({ id, postId, text }) => ops.sendReply(id, postId, text),
     });
   }),

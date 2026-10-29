@@ -2,7 +2,7 @@ import * as Schema from "effect/Schema";
 import * as Rpc from "effect/rpc/Rpc";
 import * as RpcGroup from "effect/rpc/RpcGroup";
 
-import { IsoDateTime, NonNegativeInt, XId } from "./baseSchemas.ts";
+import { IsoDateTime, NonNegativeInt, ReplyTone, XId } from "./baseSchemas.ts";
 import { XApiError, XPost, XSearchMode, XTrend } from "./x.ts";
 
 /** Library screen contracts: schemas, errors, method names and the RPC group. Owned by the library area. */
@@ -250,8 +250,9 @@ export const LibraryRpcGroup = RpcGroup.make(
     error: LibraryError,
   }),
   Rpc.make(Library_METHODS.pickDraft, {
-    payload: Schema.Struct({ postId: XId }),
-    success: Schema.Array(Schema.String),
+    payload: Schema.Struct({ postId: XId, tone: Schema.optional(ReplyTone) }),
+    /** Three options, each one post or a short thread. */
+    success: Schema.Array(Schema.Array(Schema.String)),
     error: LibraryError,
   }),
   Rpc.make(Library_METHODS.suggestedDraftSave, {
@@ -267,7 +268,7 @@ export const LibraryRpcGroup = RpcGroup.make(
     error: XApiError,
   }),
   Rpc.make(Library_METHODS.trendIdeas, {
-    payload: Schema.Struct({ country: Schema.String }),
+    payload: Schema.Struct({ country: Schema.String, tone: Schema.optional(ReplyTone) }),
     success: Schema.Array(TrendIdea),
     error: Schema.Union([LibraryError, XApiError]),
   }),
@@ -284,8 +285,9 @@ export const LibraryRpcGroup = RpcGroup.make(
   }),
   /** Writes a post in the user's voice with the same format and hook pattern, saved as a suggested draft. */
   Rpc.make(Library_METHODS.writeInFormat, {
-    payload: Schema.Struct({ postId: XId }),
-    success: Schema.Struct({ id: Schema.String, text: Schema.String }),
+    payload: Schema.Struct({ postId: XId, tone: Schema.optional(ReplyTone) }),
+    /** Three options; the user keeps one as a draft with `suggestedDraftSave`. */
+    success: Schema.Array(Schema.String),
     error: LibraryError,
   }),
   Rpc.make(Library_METHODS.staffPicks, {

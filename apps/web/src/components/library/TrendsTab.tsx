@@ -1,5 +1,5 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
-import type { ForYouTopic, PoolTrends, TrendIdea } from "@xtend/contracts";
+import type { ForYouTopic, PoolTrends, ReplyTone, TrendIdea } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 import { TextMorph } from "torph/react";
@@ -17,6 +17,7 @@ import {
 import { poolTrendsAtom } from "../../state/pool";
 import { PageHeader } from "../PageHeader";
 import { CountrySelect, TREND_COUNTRIES, TrendTable, countryLabel } from "../scores/Trending";
+import { ToneRow } from "../ui/assist-choice";
 import { Cost, Empty, PageBody, Section, table } from "../ui/layout";
 import { XLink } from "../ui/x-link";
 import { xPill, xPillSm } from "../x";
@@ -299,13 +300,15 @@ export function TrendsTab() {
   const [ideas, setIdeas] = useState<ReadonlyArray<TrendIdea> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [tone, setTone] = useState<ReplyTone | null | undefined>(undefined);
 
-  const generate = async () => {
+  const generate = async (next: ReplyTone | null) => {
     if (applied === null) return;
+    setTone(next);
     setBusy(true);
     setError(null);
     try {
-      setIdeas(await ideasFor(applied));
+      setIdeas(await ideasFor({ country: applied, tone: next ?? undefined }));
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -317,17 +320,6 @@ export function TrendsTab() {
     <button type="button" className={button} onClick={() => setApplied(country)}>
       Load trends
       <Cost label={trendsQuote} />
-    </button>
-  );
-  const ideasButton = (
-    <button
-      type="button"
-      className={button}
-      disabled={busy || applied === null}
-      onClick={() => void generate()}
-    >
-      {busy ? "Writing" : ideas === null ? "Write 5 ideas" : "Write 5 more"}
-      <Cost label={costLabels(ideasQuote, assistQuote)} />
     </button>
   );
 
@@ -354,14 +346,21 @@ export function TrendsTab() {
               <TrendList country={applied} />
             </div>
             <section className="px-6 py-4">
-              <div className="mb-1 flex items-center justify-between gap-3">
+              <div className="mb-2 flex items-baseline justify-between gap-3">
                 <h2 className="text-[12.5px] font-semibold text-foreground/80">Post ideas</h2>
-                {ideasButton}
+                <Cost label={`3 ideas · ${costLabels(ideasQuote, assistQuote)}`} />
               </div>
+              <ToneRow
+                tone={tone}
+                first="Any tone"
+                busy={busy ? tone : undefined}
+                disabled={busy}
+                onTone={(next) => void generate(next)}
+              />
               {error !== null ? <ErrorLine className="px-0">{error}</ErrorLine> : null}
               {ideas === null ? (
                 <p className="py-6 text-sm text-muted-foreground">
-                  Five posts tied to the trends that fit your keywords.
+                  Pick a tone for three posts tied to the trends that fit your keywords.
                 </p>
               ) : (
                 <ul>

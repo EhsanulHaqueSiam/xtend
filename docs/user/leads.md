@@ -9,6 +9,9 @@ Everyone found, as a table filtered by stage: new, contacted, replied, customer,
 **Stages** in the header turns the table into a board with one column per stage; drag a
 person to another column to move them there, with a toast to undo. **Table** goes back.
 
+The DM and reply boxes start as your own words; pick a tone for three drafts to choose from
+and edit.
+
 The selected person opens beside it: who they are, their stage and notes, and two actions
 through the X connection, each priced on its button:
 
