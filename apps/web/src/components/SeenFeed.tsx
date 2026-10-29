@@ -217,17 +217,17 @@ export function SeenFeed() {
           onFailure: (failure) => (
             <Empty>{`Could not load observations: ${String(failure.cause)}`}</Empty>
           ),
-          onSuccess: ({ value }) =>
-            value.posts.length === 0 ? (
-              <Empty>
-                {filtered || cursors.length > 0
-                  ? "No seen post matches."
-                  : isElectron
-                    ? "Nothing yet. Posts you scroll past on X land here with their numbers."
-                    : "Nothing yet. Browse X in the desktop app and posts land here with their numbers."}
-              </Empty>
-            ) : (
-              <div className="@container">
+          onSuccess: ({ value }) => (
+            <div className="@container">
+              {value.posts.length === 0 ? (
+                <Empty>
+                  {filtered || cursors.length > 0
+                    ? "No seen post matches."
+                    : isElectron
+                      ? "Nothing yet. Posts you scroll past on X land here with their numbers."
+                      : "Nothing yet. Browse X in the desktop app and posts land here with their numbers."}
+                </Empty>
+              ) : (
                 <table className={cn(table.root, "@max-[720px]:block")}>
                   <thead className="@max-[720px]:hidden">
                     <tr>
@@ -266,38 +266,39 @@ export function SeenFeed() {
                     ))}
                   </tbody>
                 </table>
-                {paged ? (
-                  <div className="flex items-center justify-end gap-1 px-6 py-2">
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      disabled={cursors.length === 0}
-                      onClick={() => setCursors(cursors.slice(0, -1))}
-                    >
-                      Newer
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      disabled={!value.hasOlder}
-                      onClick={() => {
-                        const last = value.posts.at(-1)!;
-                        setCursors([
-                          ...cursors,
-                          {
-                            lastSeenAt: last.lastSeenAt,
-                            createdAt: last.createdAt,
-                            postId: last.postId,
-                          },
-                        ]);
-                      }}
-                    >
-                      Older
-                    </Button>
-                  </div>
-                ) : null}
-              </div>
-            ),
+              )}
+              {paged ? (
+                <div className="flex items-center justify-end gap-1 px-6 py-2">
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    disabled={cursors.length === 0}
+                    onClick={() => setCursors(cursors.slice(0, -1))}
+                  >
+                    Newer
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    disabled={!value.hasOlder}
+                    onClick={() => {
+                      const last = value.posts.at(-1)!;
+                      setCursors([
+                        ...cursors,
+                        {
+                          lastSeenAt: last.lastSeenAt,
+                          createdAt: last.createdAt,
+                          postId: last.postId,
+                        },
+                      ]);
+                    }}
+                  >
+                    Older
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          ),
         })}
       </PageBody>
     </div>

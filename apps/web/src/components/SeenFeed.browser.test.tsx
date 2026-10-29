@@ -65,6 +65,26 @@ it("stacks rows under 720px so the text and every number fit beside the X panel"
   await expect.element(wide.getByText("Reposts", { exact: true })).toBeVisible();
 });
 
+it("keeps Newer available when an older page is empty", async () => {
+  await using screen = await render(<SeenFeed />, {
+    service: {
+      "observations.listRecent": (input) =>
+        Effect.succeed(
+          input.before === undefined
+            ? { posts: [seen], hasOlder: true }
+            : { posts: [], hasOlder: false },
+        ),
+    },
+  });
+  await userEvent.click(screen.getByRole("button", { name: "Older" }));
+  await expect.element(screen.getByText("No seen post matches.")).toBeVisible();
+  await expect.element(screen.getByRole("button", { name: "Newer" })).toBeEnabled();
+  await expect.element(screen.getByRole("button", { name: "Older" })).toBeDisabled();
+  await userEvent.click(screen.getByRole("button", { name: "Newer" }));
+  await expect.element(screen.getByText(seen.text)).toBeVisible();
+  await expect.element(screen.getByRole("button", { name: "Newer" })).toBeDisabled();
+});
+
 it("pages older by cursor and narrows by text and by a clicked author", async () => {
   const older: ObservedPostSummary = { ...seen, postId: "444", text: "older take" };
   const asked: Array<ObservationListRecentInput> = [];
