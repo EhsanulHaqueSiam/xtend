@@ -98,6 +98,7 @@ export function ListsSection() {
                 )
               }
               onPick={() => setBuilder(null)}
+              onClose={() => setBuilder(null)}
               empty={
                 <Empty
                   action={

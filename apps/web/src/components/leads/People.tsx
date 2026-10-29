@@ -178,6 +178,7 @@ export function PeopleSplit({
   board = false,
   aside = null,
   onPick,
+  onClose,
   empty,
 }: {
   readonly listId: number | null;
@@ -186,6 +187,8 @@ export function PeopleSplit({
   readonly board?: boolean;
   readonly aside?: ReactElement | null;
   readonly onPick?: () => void;
+  /** Escape closes the aside; the split hands focus back to what opened it. */
+  readonly onClose?: () => void;
   readonly empty: ReactNode;
 }) {
   const result = useAtomValue(peopleAtom(listId));
@@ -212,6 +215,7 @@ export function PeopleSplit({
     onSuccess: () => (
       <DetailSplit
         detailKey={aside !== null ? "aside" : selected}
+        onClose={aside === null ? undefined : onClose}
         list={
           people.length === 0 ? (
             empty

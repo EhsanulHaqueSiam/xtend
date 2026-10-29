@@ -131,6 +131,7 @@ export function AgentsSection() {
         onSuccess: () => (
           <DetailSplit
             detailKey={draft !== null ? "new" : selected}
+            onClose={draft === null ? undefined : () => setDraft(null)}
             list={
               <>
                 {suggesting.error !== null ? <ErrorLine>{suggesting.error}</ErrorLine> : null}

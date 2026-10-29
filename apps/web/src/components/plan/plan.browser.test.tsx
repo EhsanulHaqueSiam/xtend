@@ -49,6 +49,7 @@ it("lays a DST week out in the account zone: past slots gone, drafts by status, 
       onFill={onFill}
       onOpen={onOpen}
     />,
+    { service: { "costs.quote": quoting() } },
   );
   await expect.element(screen.getByText("Mon 2")).toBeVisible();
   // Each draft sits at its time in the zone, with its status beside it.

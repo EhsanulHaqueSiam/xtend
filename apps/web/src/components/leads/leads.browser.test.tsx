@@ -499,3 +499,19 @@ it("a new agent's save says it starts the paid runs, beside their price", async 
   await userEvent.click(screen.getByRole("button", { name: "Save and start" }));
   await expect.poll(() => saved.map((a) => a.enabled)).toEqual([true]);
 });
+
+it("Escape closes the new-agent editor and hands focus back to New agent", async () => {
+  await using screen = await render(<AgentsSection />, {
+    service: {
+      "costs.quote": quoting(),
+      "leads.listsList": () => Effect.succeed([]),
+      "leads.agentsList": () => Effect.succeed([]),
+    },
+  });
+  const open = screen.getByRole("button", { name: "New agent" }).first();
+  await userEvent.click(open);
+  await expect.element(screen.getByPlaceholder("Typefully switchers")).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(screen.getByPlaceholder("Typefully switchers")).not.toBeInTheDocument();
+  await expect.element(open).toHaveFocus();
+});

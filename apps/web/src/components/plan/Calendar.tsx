@@ -86,7 +86,7 @@ function FillItems({
     fillable.map((f) => {
       const usd = cost(f);
       return (
-        <MenuItem key={f.id} onClick={() => onPick(f.id)}>
+        <MenuItem key={f.id} disabled={usd === null} onClick={() => onPick(f.id)}>
           <span className="min-w-0 flex-1 truncate">{draftTitle(f)}</span>
           <span className="font-mono text-2xs text-muted-foreground tabular-nums">
             {f.kind === "article" ? "article" : f.blocks.length}
