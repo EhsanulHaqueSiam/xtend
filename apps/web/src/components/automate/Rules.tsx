@@ -26,7 +26,7 @@ import { RuleDetail } from "./RuleDetail";
 import { RuleRow } from "./RuleRow";
 
 /** Where a rule's runs live: the Runs section filtered to it. */
-const runsOf = (ruleId: number) => `${sectionHref("/automate", "runs")}&rule=${ruleId}`;
+export const runsOf = (ruleId: number) => `${sectionHref("/automate", "runs")}&rule=${ruleId}`;
 
 /** Rules: the list fills the page; opening a rule (or New rule) adds its detail column. */
 export function Rules() {

@@ -1,4 +1,10 @@
-import type { PendingRequest, Rule, RuleInput } from "@xtend/contracts";
+import {
+  AutomateError,
+  type PendingRequest,
+  type Rule,
+  type RuleInput,
+  type RuleRun,
+} from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import { expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
@@ -10,6 +16,7 @@ import { NeedsYou } from "./NeedsYou";
 import { RuleDetail } from "./RuleDetail";
 import { emptyRule, RuleForm } from "./RuleForm";
 import { Rules } from "./Rules";
+import { Runs } from "./RunsLog";
 
 const rule = (id: number, extra: Partial<Rule> = {}): Rule => ({
   ...emptyRule,
@@ -52,6 +59,60 @@ it("after a save the editor holds what was stored, not the list's copy from befo
   await expect.element(screen.getByRole("button", { name: "Save" })).toBeDisabled();
 });
 
+it("keeps the monthly cap and the undo interval as typed through a save and a reopen", async () => {
+  let stored = rule(1, {
+    name: "like keyword posts",
+    trigger: { kind: "keyword_post", query: "x growth" },
+    action: { kind: "auto_like" },
+  });
+  const saved: Array<RuleInput> = [];
+  await using screen = await render(<Rules />, {
+    service: {
+      ...formService,
+      "automate.rulesList": () => Effect.sync(() => [stored]),
+      "automate.runsList": () => Effect.succeed([]),
+      "automate.pendingList": () => Effect.succeed([]),
+      "automate.ruleUpsert": (input) =>
+        Effect.sync(() => {
+          saved.push(input);
+          stored = { ...stored, ...input, id: 1 };
+          return stored;
+        }),
+    },
+  });
+  await userEvent.click(screen.getByText("like keyword posts"));
+  await userEvent.fill(screen.getByLabelText(/^Budget per month/), "7.5");
+  await userEvent.fill(screen.getByLabelText(/^Undo after hours/), "12");
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  await expect.poll(() => saved).toHaveLength(1);
+  expect(saved[0]).toEqual({
+    id: 1,
+    name: "like keyword posts",
+    enabled: true,
+    trigger: { kind: "keyword_post", query: "x growth" },
+    conditions: {},
+    waitMinutes: 0,
+    action: { kind: "auto_like" },
+    budgetUsdDay: 0.5,
+    budgetUsdMonth: 7.5,
+    undoAfterHours: 12,
+    askFirst: false,
+    dryRun: false,
+  });
+
+  // The editor restarts from the stored rule once the save lands.
+  await expect.element(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  await userEvent.click(
+    screen.getByRole("complementary").getByRole("button", { name: "Close", exact: true }).first(),
+  );
+  await expect
+    .element(screen.getByRole("heading", { name: "like keyword posts" }))
+    .not.toBeInTheDocument();
+  await userEvent.click(screen.getByText("like keyword posts"));
+  await expect.element(screen.getByLabelText(/^Budget per month/)).toHaveValue(7.5);
+  await expect.element(screen.getByLabelText(/^Undo after hours/)).toHaveValue("12");
+});
+
 it("prices what each polled trigger reads from X, per poll and per day, from the rate card", async () => {
   await using screen = await render(
     <RuleForm initial={emptyRule} saving={false} onSave={() => {}} onCancel={() => {}} />,
@@ -81,6 +142,27 @@ it("prices what each polled trigger reads from X, per poll and per day, from the
   await expect.element(screen.getByText(/^Polls X every 15 min: \$0\.001 a poll/)).toBeVisible();
   await userEvent.selectOptions(when, "Webhook call");
   expect(screen.getByText(/^Polls X/).elements()).toHaveLength(0);
+});
+
+it("prices the own timeline a repost or delete reads when the trigger polls nothing", async () => {
+  await using screen = await render(
+    <RuleForm
+      initial={{ ...emptyRule, trigger: { kind: "schedule", weekdays: [1], time: "18:00" } }}
+      saving={false}
+      onSave={() => {}}
+      onCancel={() => {}}
+    />,
+    { service: formService },
+  );
+  // A schedule reads nothing to fire, and a plug picks no post of its own.
+  await expect.element(screen.getByText("Create rule")).toBeVisible();
+  expect(screen.getByText(/^Polls X/).elements()).toHaveLength(0);
+  await userEvent.selectOptions(screen.getByLabelText(/^Action/), "Evergreen repost");
+  await expect
+    .element(screen.getByText(/^Polls X every hour: \$0\.00075 a poll, up to \$0\.018 a day/))
+    .toBeVisible();
+  await userEvent.selectOptions(screen.getByLabelText(/^Action/), "Auto delete");
+  await expect.element(screen.getByText(/^Polls X every hour: \$0\.00075 a poll/)).toBeVisible();
 });
 
 it("saves a post trigger only with a real post id, taking it out of a pasted post URL", async () => {
@@ -290,4 +372,110 @@ it("simulates the first rule once rules arrive, and says the evaluation is free"
   await expect.element(screen.getByRole("combobox", { name: "Rule" })).toHaveValue("3");
   await userEvent.click(screen.getByRole("button", { name: /^Simulate/ }));
   await expect.poll(() => simulated).toEqual([3, 3]);
+});
+
+const ruleRun = (id: number, extra: Partial<RuleRun>): RuleRun => ({
+  id,
+  ruleId: 1,
+  at: "2026-10-23T09:00:00.000Z",
+  subjectId: "repost:7",
+  status: "ok",
+  detail: "DM Ada",
+  costUsd: 0.015,
+  xId: null,
+  ...extra,
+});
+
+it("an approval the service did not act on says why, and opens that rule's runs", async () => {
+  let open: ReadonlyArray<PendingRequest> = [request(7, "@ada reposted 555; DM Ada")];
+  await using screen = await render(<NeedsYou />, {
+    router: "/automate?tab=needs-you",
+    service: {
+      "automate.pendingList": () => Effect.sync(() => open),
+      "automate.runsList": () => Effect.succeed([]),
+      // The service settles the request even when the budget refuses the action.
+      "automate.pendingApprove": () =>
+        Effect.sync(() => {
+          open = [];
+          return ruleRun(2, { status: "skipped", detail: "daily budget reached", costUsd: 0 });
+        }),
+    },
+  });
+  await userEvent.click(screen.getByRole("button", { name: "Approve $0.015" }));
+  await expect.element(screen.getByText("skipped: daily budget reached")).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: "Open runs" }));
+  await expect.poll(() => screen.router?.state.location.href).toBe("/automate?tab=runs&rule=1");
+});
+
+it("a simulation that ends after another rule is picked stays with its own rule", async () => {
+  let release = () => {};
+  const done = new Promise<void>((resolve) => (release = resolve));
+  await using screen = await render(<DryRun />, {
+    service: {
+      "automate.rulesList": () => Effect.succeed([rule(3), rule(4)]),
+      "automate.dryRun7d": () =>
+        Effect.promise(() => done).pipe(
+          Effect.as({
+            fired: [{ at: "2026-10-22T10:00:00.000Z", description: "like 555", costUsd: 0.015 }],
+            totalUsd: 0.015,
+          }),
+        ),
+    },
+  });
+  const pick = screen.getByRole("combobox", { name: "Rule" });
+  await userEvent.click(screen.getByRole("button", { name: /^Simulate/ }));
+  await userEvent.selectOptions(pick, "rule 4");
+  release();
+  await userEvent.selectOptions(pick, "rule 3");
+  await expect.element(screen.getByText("1 firings in 7 days")).toBeVisible();
+  await userEvent.selectOptions(pick, "rule 4");
+  await expect.element(screen.getByText(/^Replays one rule/)).toBeVisible();
+  expect(screen.getByText("1 firings in 7 days").elements()).toHaveLength(0);
+});
+
+it("rules that failed to load say so, not that there are none", async () => {
+  await using screen = await render(<DryRun />, {
+    service: {
+      "automate.rulesList": () =>
+        Effect.fail(
+          new AutomateError({ operation: "rulesList", detail: "database is locked", cause: null }),
+        ),
+    },
+  });
+  await expect
+    .element(screen.getByRole("alert"))
+    .toHaveTextContent("Automate failed during rulesList: database is locked");
+  expect(screen.getByText("No rules yet.").elements()).toHaveLength(0);
+  expect(screen.getByText(/^No rule is on/).elements()).toHaveLength(0);
+});
+
+it("a run's detail opens the post or person it acted on, at any width", async () => {
+  await using screen = await render(<Runs />, {
+    router: "/automate?tab=runs",
+    service: {
+      "automate.runsList": () =>
+        Effect.succeed([
+          ruleRun(1, { ruleId: 1, subjectId: "555", detail: "like 555", xId: "555" }),
+          ruleRun(2, { ruleId: 2, subjectId: "77", detail: "follow @bo", xId: "77" }),
+          ruleRun(3, { ruleId: 3, subjectId: "2026-10-22 18:00", detail: "notify: hi" }),
+        ]),
+      "automate.rulesList": () =>
+        Effect.succeed([
+          rule(1, { trigger: { kind: "keyword_post", query: "x" }, action: { kind: "auto_like" } }),
+          rule(2, { trigger: { kind: "new_follower" }, action: { kind: "follow" } }),
+          rule(3, {
+            trigger: { kind: "schedule", weekdays: [1], time: "18:00" },
+            action: { kind: "notify", message: "hi" },
+          }),
+        ]),
+    },
+  });
+  await expect
+    .element(screen.getByRole("link", { name: "like 555" }))
+    .toHaveAttribute("href", "https://x.com/i/status/555");
+  await expect
+    .element(screen.getByRole("link", { name: "follow @bo" }))
+    .toHaveAttribute("href", "https://x.com/i/user/77");
+  await expect.element(screen.getByText("notify: hi")).toBeVisible();
+  expect(screen.getByRole("link", { name: "notify: hi" }).elements()).toHaveLength(0);
 });

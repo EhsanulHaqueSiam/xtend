@@ -1,8 +1,10 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
-import type { PendingRequest } from "@xtend/contracts";
+import type { PendingRequest, RuleRun } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
+import { useEffect, useRef, useState } from "react";
 
+import { cn } from "../../lib/utils";
 import {
   approvePendingAtom,
   dismissPendingAtom,
@@ -16,6 +18,34 @@ import { PageHeader } from "../PageHeader";
 import { sectionHref } from "../shell/sections";
 import { Button } from "../ui/button";
 import { Cost, Empty, PageBody } from "../ui/layout";
+import { statusLabel, statusTone } from "./describe";
+import { runsOf } from "./Rules";
+
+/** Approvals that did not act (a budget skipped it, X refused it), one line under the header. */
+function NotDone({
+  runs,
+  onOpenRuns,
+}: {
+  readonly runs: ReadonlyArray<RuleRun>;
+  readonly onOpenRuns: () => void;
+}) {
+  const first = runs[0];
+  if (first === undefined) return null;
+  const why = `${statusLabel[first.status]}: ${first.detail}`;
+  return (
+    <div
+      role="status"
+      className="flex shrink-0 items-center gap-3 border-b border-border px-6 py-1.5 text-xs"
+    >
+      <p className={cn("min-w-0 flex-1 truncate", statusTone[first.status])} title={why}>
+        {runs.length === 1 ? why : `${runs.length} not done, the first ${why}`}
+      </p>
+      <Button size="xs" variant="ghost" onClick={onOpenRuns}>
+        Open runs
+      </Button>
+    </div>
+  );
+}
 
 /** Ask-first requests. Approve performs the action at the price shown; Skip closes it for good. */
 export function NeedsYou() {
@@ -26,12 +56,26 @@ export function NeedsYou() {
   const dismiss = useAtomSet(dismissPendingAtom, { mode: "promise" });
   const navigate = useNavigate();
   const { busy, error, run } = useAction();
+  // The service settles an approved request whatever its run did, so only the run says it did not act.
+  const [notDone, setNotDone] = useState<ReadonlyArray<RuleRun>>([]);
   const after = () => {
     refresh();
     refreshRuns();
   };
+  const approveAll = (ids: ReadonlyArray<number>) =>
+    void run(async () => {
+      setNotDone([]);
+      const runs: Array<RuleRun> = [];
+      try {
+        for (const id of ids) runs.push(await approve(id));
+      } finally {
+        setNotDone(runs.filter((r) => r.status !== "ok"));
+        after();
+      }
+    });
   const requests = AsyncResult.getOrElse(pending, () => [] as ReadonlyArray<PendingRequest>);
   const total = requests.reduce((s, r) => s + r.costUsd, 0);
+  const ruleIds = new Set(notDone.map((r) => r.ruleId));
   return (
     <div className="flex h-full flex-col">
       <PageHeader
@@ -43,12 +87,7 @@ export function NeedsYou() {
               size="sm"
               variant="outline"
               disabled={busy || pending.waiting}
-              onClick={() =>
-                void run(async () => {
-                  for (const r of requests) await approve(r.id);
-                  after();
-                })
-              }
+              onClick={() => approveAll(requests.map((r) => r.id))}
             >
               Approve all <Cost usd={total} />
             </Button>
@@ -56,6 +95,15 @@ export function NeedsYou() {
         }
       />
       <ErrorBar>{error}</ErrorBar>
+      <NotDone
+        runs={notDone}
+        onOpenRuns={() =>
+          void navigate({
+            href:
+              ruleIds.size === 1 ? runsOf(notDone[0]!.ruleId) : sectionHref("/automate", "runs"),
+          })
+        }
+      />
       <PageBody className="@container">
         {AsyncResult.match(pending, {
           onInitial: () => <Empty>Connecting to the service.</Empty>,
@@ -69,7 +117,7 @@ export function NeedsYou() {
               requests={value}
               // Until the refetch drops an approved request, its Approve would pay a second time.
               busy={busy || pending.waiting}
-              onApprove={(id) => void run(() => approve(id).then(after))}
+              onApprove={(id) => approveAll([id])}
               onDismiss={(id) => void run(() => dismiss(id).then(after))}
               onOpenRules={() => void navigate({ href: sectionHref("/automate", "rules") })}
             />
@@ -93,6 +141,22 @@ export function NeedsYouList({
   readonly onDismiss: (id: number) => void;
   readonly onOpenRules?: () => void;
 }) {
+  const list = useRef<HTMLUListElement>(null);
+  // The card last acted on: once the refetch drops it, focus moves to the card now in its place.
+  const acted = useRef<{ readonly id: number; readonly index: number } | null>(null);
+  useEffect(() => {
+    const card = acted.current;
+    if (card === null || requests.some((r) => r.id === card.id)) return;
+    acted.current = null;
+    const cards = list.current?.children;
+    if (cards !== undefined && cards.length > 0)
+      (cards[Math.min(card.index, cards.length - 1)] as HTMLElement).focus();
+  }, [requests]);
+  const act = (r: PendingRequest, index: number, yes: boolean) => {
+    acted.current = { id: r.id, index };
+    (yes ? onApprove : onDismiss)(r.id);
+  };
+
   if (requests.length === 0)
     return (
       <Empty
@@ -108,17 +172,19 @@ export function NeedsYouList({
       </Empty>
     );
   return (
-    <ul className="flex flex-col gap-2 px-6 py-5" aria-label="Requests">
-      {requests.map((r) => (
+    <ul ref={list} className="flex flex-col gap-2 px-6 py-5" aria-label="Requests">
+      {requests.map((r, i) => (
         // Focus a card and press a to approve or s to skip; the buttons do the same by click.
         <li
           key={r.id}
           tabIndex={0}
           className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl border border-border bg-card px-4 py-3 outline-hidden transition-colors duration-150 focus-visible:border-white/40"
           onKeyDown={(e) => {
-            if (busy || e.target !== e.currentTarget) return;
-            if (e.key === "a") onApprove(r.id);
-            if (e.key === "s") onDismiss(r.id);
+            if (e.target !== e.currentTarget || e.metaKey || e.ctrlKey || e.altKey) return;
+            if (e.key !== "a" && e.key !== "s") return;
+            // Taken here, so the shell's letter shortcuts (a is Analyze) leave it alone.
+            e.preventDefault();
+            if (!busy) act(r, i, e.key === "a");
           }}
         >
           <div className="min-w-0 flex-1">
@@ -128,10 +194,10 @@ export function NeedsYouList({
             </p>
           </div>
           <div className="flex items-center gap-1.5">
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => onDismiss(r.id)}>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => act(r, i, false)}>
               Skip
             </Button>
-            <Button size="sm" variant="outline" disabled={busy} onClick={() => onApprove(r.id)}>
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => act(r, i, true)}>
               Approve <Cost usd={r.costUsd} />
             </Button>
           </div>

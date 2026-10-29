@@ -13,7 +13,8 @@ import { HeaderTabs, PageHeader } from "../PageHeader";
 import { sectionHref } from "../shell/sections";
 import { Button } from "../ui/button";
 import { Empty, PageBody, table } from "../ui/layout";
-import { statusLabel, statusTone } from "./describe";
+import { XLink } from "../ui/x-link";
+import { runLinks, statusLabel, statusTone } from "./describe";
 
 type StatusFilter = RuleRunStatus | "all";
 
@@ -53,6 +54,17 @@ function RunsPage({ children }: { readonly children: ReactNode }) {
   );
 }
 
+/** An id as text, or as a link where it has a page on X. */
+function IdLink({ href, children }: { readonly href: string | null; readonly children: string }) {
+  return href === null ? (
+    children
+  ) : (
+    <XLink href={href} className="transition-colors duration-150 hover:text-foreground">
+      {children}
+    </XLink>
+  );
+}
+
 function RunsLog({
   runs,
   rules,
@@ -65,7 +77,7 @@ function RunsLog({
   const [status, setStatus] = useState<StatusFilter>("all");
   const [ruleId, setRuleId] = useState<number | null>(initialRuleId);
   const navigate = useNavigate();
-  const names = new Map(rules.map((r) => [r.id, r.name]));
+  const byId = new Map(rules.map((r) => [r.id, r]));
   const ofRule = runs.filter((r) => ruleId === null || r.ruleId === ruleId);
   const shown = ofRule.filter((r) => status === "all" || r.status === status);
   const total = shown.reduce((s, r) => s + r.costUsd, 0);
@@ -134,62 +146,78 @@ function RunsLog({
               </tr>
             </thead>
             <tbody>
-              {shown.map((r) => (
-                <tr key={r.id} className={table.row}>
-                  <td
-                    className={cn(
-                      table.td,
-                      "font-mono text-xs whitespace-nowrap text-muted-foreground tabular-nums",
-                    )}
-                  >
-                    {when(r.at)}
-                  </td>
-                  <td className={cn(table.td, "whitespace-nowrap")}>
-                    {names.get(r.ruleId) ?? `#${r.ruleId}`}
-                  </td>
-                  <td
-                    className={cn(
-                      table.td,
-                      "font-mono text-xs whitespace-nowrap",
-                      statusTone[r.status],
-                    )}
-                  >
-                    {statusLabel[r.status]}
-                  </td>
-                  <td className={cn(table.td, "w-full max-w-0")}>
-                    <p
+              {shown.map((r) => {
+                const rule = byId.get(r.ruleId);
+                const links = runLinks(rule, r);
+                // The detail is the one cell every width shows, so it carries the link.
+                const target = links.result ?? links.subject;
+                return (
+                  <tr key={r.id} className={table.row}>
+                    <td
                       className={cn(
-                        "truncate",
-                        r.status === "failed" ? "text-error-foreground" : "text-foreground/90",
+                        table.td,
+                        "font-mono text-xs whitespace-nowrap text-muted-foreground tabular-nums",
                       )}
-                      title={r.detail}
                     >
-                      {r.detail}
-                    </p>
-                  </td>
-                  <td
-                    className={cn(
-                      table.td,
-                      "hidden max-w-40 truncate font-mono text-xs text-muted-foreground @4xl:table-cell",
-                    )}
-                  >
-                    {r.subjectId}
-                  </td>
-                  <td
-                    className={cn(
-                      table.td,
-                      "hidden max-w-40 truncate font-mono text-xs text-muted-foreground @4xl:table-cell",
-                    )}
-                  >
-                    {r.xId ?? ""}
-                  </td>
-                  <td
-                    className={cn(table.td, table.num, r.costUsd === 0 && "text-muted-foreground")}
-                  >
-                    {usd(r.costUsd)}
-                  </td>
-                </tr>
-              ))}
+                      {when(r.at)}
+                    </td>
+                    <td className={cn(table.td, "whitespace-nowrap")}>
+                      {rule?.name ?? `#${r.ruleId}`}
+                    </td>
+                    <td
+                      className={cn(
+                        table.td,
+                        "font-mono text-xs whitespace-nowrap",
+                        statusTone[r.status],
+                      )}
+                    >
+                      {statusLabel[r.status]}
+                    </td>
+                    <td className={cn(table.td, "w-full max-w-0")}>
+                      <p
+                        className={cn(
+                          "truncate",
+                          r.status === "failed" ? "text-error-foreground" : "text-foreground/90",
+                        )}
+                        title={r.detail}
+                      >
+                        {target === null ? (
+                          r.detail
+                        ) : (
+                          <XLink href={target} className="hover:underline">
+                            {r.detail}
+                          </XLink>
+                        )}
+                      </p>
+                    </td>
+                    <td
+                      className={cn(
+                        table.td,
+                        "hidden max-w-40 truncate font-mono text-xs text-muted-foreground @4xl:table-cell",
+                      )}
+                    >
+                      <IdLink href={links.subject}>{r.subjectId}</IdLink>
+                    </td>
+                    <td
+                      className={cn(
+                        table.td,
+                        "hidden max-w-40 truncate font-mono text-xs text-muted-foreground @4xl:table-cell",
+                      )}
+                    >
+                      <IdLink href={links.result}>{r.xId ?? ""}</IdLink>
+                    </td>
+                    <td
+                      className={cn(
+                        table.td,
+                        table.num,
+                        r.costUsd === 0 && "text-muted-foreground",
+                      )}
+                    >
+                      {usd(r.costUsd)}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
