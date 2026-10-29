@@ -1,6 +1,7 @@
 import { useAtomSet } from "@effect/atom-react";
 import {
   actionCostUsd,
+  hasLink,
   type Rule,
   type RuleInput,
   type RuleRun,
@@ -74,6 +75,12 @@ function RuleState({
       <PropGroup title="Numbers">
         <Prop as="div" label={`Per ${per}`}>
           {cost === null ? "…" : usd(cost)}
+          {/* X prices a post with a link at 13x a plain one; say which this is. */}
+          {rule.action.kind === "auto_plug" ? (
+            <span className="font-sans text-muted-foreground">
+              {hasLink(rule.action.text) ? "reply with a link" : "reply"}
+            </span>
+          ) : null}
         </Prop>
         {poll !== null ? (
           <Prop as="div" label="Per poll">

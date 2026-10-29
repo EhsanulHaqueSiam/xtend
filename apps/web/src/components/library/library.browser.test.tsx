@@ -195,7 +195,7 @@ it("Remove in a collection takes the post out of that collection only; Staff pic
 
   await userEvent.click(screen.getByRole("button", { name: /^Staff picks/ }));
   const staffPost = await inspect(screen, third.text);
-  await expect.element(staffPost.getByRole("button", { name: "Remix" })).toBeVisible();
+  await expect.element(staffPost.getByRole("button", { name: /^Remix in Compose/ })).toBeVisible();
   expect(staffPost.getByRole("button", { name: "Remove" }).elements()).toHaveLength(0);
 });
 

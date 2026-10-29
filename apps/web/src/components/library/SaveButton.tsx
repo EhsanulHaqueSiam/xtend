@@ -7,6 +7,7 @@ import { useMemo, useState } from "react";
 import { TextMorph } from "torph/react";
 
 import { cn } from "../../lib/utils";
+import { Cost } from "../ui/layout";
 import { collectionsAtom, savePostAtom, swipeFileAtom } from "../../state/library";
 import { Menu, MenuItem } from "../ui/menu";
 import { xPill, xPillSm, xPillSolid } from "../x";
@@ -134,7 +135,8 @@ export function RemixButton({ post }: { readonly post: XPost }) {
         )
       }
     >
-      <TextMorph duration={250}>{error !== null ? "Retry" : "Remix"}</TextMorph>
+      <TextMorph duration={250}>{error !== null ? "Retry" : "Remix in Compose"}</TextMorph>
+      {error !== null ? null : <Cost usd={0} />}
     </button>
   );
 }

@@ -15,7 +15,7 @@ import { cn, parsePostId } from "../../lib/utils";
 import { usd, useRates } from "../../state/costs";
 import { listsAtom } from "../../state/leads";
 import { Button } from "../ui/button";
-import { compactInputClass } from "../ui/field";
+import { compactInputClass, TimeField } from "../ui/field";
 import { Cost } from "../ui/layout";
 import { Switch } from "../ui/switch";
 import { Select } from "../ui/select";
@@ -222,7 +222,7 @@ export function RuleForm({
             <input
               // A new rule's first step is its name; a saved one opens on its numbers.
               autoFocus={isNew}
-              className={inputField("w-48")}
+              className={cn(inputField("w-48"), "font-sans")}
               value={rule.name}
               placeholder="Thank reposters"
               onChange={(e) => edit({ ...rule, name: e.target.value })}
@@ -283,11 +283,11 @@ export function RuleForm({
                 ))}
               </Prop>
               <Prop label="Time">
-                <input
-                  type="time"
-                  className={inputField("w-auto")}
+                <TimeField
+                  label="Time"
+                  className="translate-x-2 border-transparent text-right"
                   value={trigger.time}
-                  onChange={(e) => setTrigger({ ...trigger, time: e.target.value })}
+                  onChange={(time) => setTrigger({ ...trigger, time })}
                 />
               </Prop>
             </>
