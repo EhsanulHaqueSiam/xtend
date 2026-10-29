@@ -1,3 +1,6 @@
+// The stacked layout is container queries; without the stylesheet every width looks wide.
+import "../index.css";
+
 import type { ObservedPostSummary } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import { expect, it, onTestFinished, vi } from "vite-plus/test";
@@ -35,4 +38,27 @@ it("opens a seen post from the keyboard: its row takes focus and Enter", async (
   await expect.element(row).toHaveFocus();
   await userEvent.keyboard("{Enter}");
   expect(open).toHaveBeenCalledWith("https://x.com/levelsio/status/555", "_blank", "noreferrer");
+});
+
+it("stacks rows under 720px so the text and every number fit beside the X panel", async () => {
+  const box = (width: number) => {
+    const el = document.createElement("div");
+    el.style.width = `${width}px`;
+    return el;
+  };
+  const service = { "observations.listRecent": () => Effect.succeed({ posts: [seen] }) };
+  {
+    await using narrow = await render(<SeenFeed />, { container: box(440), service });
+    const save = narrow.getByRole("button", { name: /Save/ });
+    await expect.element(save).toBeVisible();
+    // Nothing falls off the right edge, and each number says what it is.
+    expect(save.element().getBoundingClientRect().right).toBeLessThanOrEqual(
+      narrow.container.getBoundingClientRect().right,
+    );
+    await expect.element(narrow.getByText("4.4% ER")).toBeVisible();
+    await expect.element(narrow.getByText("Reposts", { exact: true })).not.toBeVisible();
+  }
+  await using wide = await render(<SeenFeed />, { container: box(1000), service });
+  await expect.element(wide.getByRole("button", { name: /Save/ })).toBeVisible();
+  await expect.element(wide.getByText("Reposts", { exact: true })).toBeVisible();
 });
