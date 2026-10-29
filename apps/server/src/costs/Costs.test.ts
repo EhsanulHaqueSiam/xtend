@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import type { XPost } from "@xtend/contracts";
+import { VOICE_MIN_SEEN, type XPost } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as TestClock from "effect/testing/TestClock";
@@ -10,6 +10,7 @@ import * as EngageStore from "../engage/EngageStore.ts";
 import * as Events from "../events/Events.ts";
 import * as Library from "../library/Library.ts";
 import * as LibraryStore from "../library/LibraryStore.ts";
+import * as ObservationStore from "../observations/ObservationStore.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 import * as TokenCipher from "../settings/TokenCipher.ts";
@@ -23,11 +24,14 @@ let meWarm = false;
 let mentionsWarm: ReadonlyArray<string> = [];
 
 const layerTest = Costs.layer.pipe(
-  Layer.provideMerge(Layer.mergeAll(SettingsStore.layer, EngageStore.layer)),
+  Layer.provideMerge(
+    Layer.mergeAll(SettingsStore.layer, EngageStore.layer, ObservationStore.layer),
+  ),
   Layer.provideMerge(
     Layer.mergeAll(
       Sqlite.layerMemory,
       TokenCipher.layerTest,
+      Events.layer,
       xClientStub({
         cached: {
           // Only the first top-mode page of "warm" is cached.
@@ -49,7 +53,7 @@ const layerTest = Costs.layer.pipe(
 // Costs and Library over one database, so the quote reads the same pick_fetches the fetch writes.
 let searches = 0;
 const layerPicks = Layer.mergeAll(Costs.layer, Library.layer).pipe(
-  Layer.provideMerge(Layer.mergeAll(LibraryStore.layer, DraftStore.layer)),
+  Layer.provideMerge(Layer.mergeAll(LibraryStore.layer, DraftStore.layer, ObservationStore.layer)),
   Layer.provideMerge(
     Layer.mergeAll(
       SettingsStore.layer,
@@ -94,6 +98,36 @@ const mentionPost = (postId: string): XPost => ({
 });
 
 describe("Costs", () => {
+  it.effect("prices Find keywords free once the session saw enough of the user's own posts", () =>
+    Effect.gen(function* () {
+      const costs = yield* Costs.Costs;
+      const settings = yield* SettingsStore.SettingsStore;
+      const observations = yield* ObservationStore.ObservationStore;
+      yield* settings.update({ handle: "siam" });
+      const quote = () =>
+        Effect.map(costs.quote([{ kind: "findKeywords" }]), (r) => r.quotes[0]?.usd);
+      expect(yield* quote()).toBe(XClient.RATE_CARD.searchPage);
+      yield* observations.record({
+        viewerHandle: "siam",
+        source: "profile",
+        observedAt: "2026-10-22T10:00:00.000Z",
+        posts: Array.from({ length: VOICE_MIN_SEEN }, (_, i) => ({
+          postId: String(500 + i),
+          author: { userId: "1", handle: "siam", name: "Siam", followers: 10, verified: false },
+          text: `mine ${i}`,
+          createdAt: "2026-10-22T09:00:00.000Z",
+          isReply: false,
+          isRepost: false,
+          isPromoted: false,
+          hasMedia: false,
+          hasLink: false,
+          metrics: { views: 1, likes: 0, reposts: 0, replies: 0, quotes: 0, bookmarks: 0 },
+        })),
+      });
+      expect(yield* quote()).toBe(0);
+    }).pipe(Effect.provide(layerTest)),
+  );
+
   it.effect("quotes from the one rate card and marks cached reads free", () =>
     Effect.gen(function* () {
       const costs = yield* Costs.Costs;
