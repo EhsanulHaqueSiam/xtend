@@ -323,6 +323,76 @@ it("keeps a paid search shut until its price arrives, Enter included", async () 
   await expect.element(screen.getByRole("button", { name: /^Load more/ })).toBeDisabled();
 });
 
+it("runs a paid search once while it is out, whatever submits it again", async () => {
+  let release = () => {};
+  const answered = new Promise<void>((resolve) => (release = resolve));
+  const searches: Array<string> = [];
+  await using screen = await render(<SearchTab initialQuery="ai agents" />, {
+    service: {
+      "costs.quote": quoting(() => paid(0.00075)),
+      "library.search": ({ query }) => {
+        searches.push(query);
+        return Effect.promise(() => answered).pipe(Effect.as({ items: [first], nextCursor: null }));
+      },
+      "library.collectionsList": () => Effect.succeed([]),
+      "library.savedList": () => Effect.succeed([]),
+    },
+  });
+  await userEvent.click(screen.getByRole("button", { name: /^Search.*\$0\.00075$/ }));
+  await expect.poll(() => searches).toEqual(["ai agents"]);
+  await userEvent.type(screen.getByLabelText("Search query"), "{Enter}");
+  release();
+  await expect.element(screen.getByText(first.text)).toBeVisible();
+  expect(searches).toEqual(["ai agents"]);
+});
+
+it("declining a collection's delete deletes nothing and keeps it open", async () => {
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  const deleted: Array<number> = [];
+  await using screen = await render(<CollectionsTab />, {
+    service: {
+      "library.collectionsList": () =>
+        Effect.succeed([collection(1, "Staff picks", true), collection(2, "Hooks")]),
+      "library.collectionDelete": ({ id }) => {
+        deleted.push(id);
+        return Effect.void;
+      },
+      "library.savedList": ({ collectionId }) =>
+        Effect.succeed(collectionId === 2 ? [saved(5, first)] : []),
+    },
+  });
+  await userEvent.click(screen.getByRole("button", { name: /^Hooks/ }));
+  await expect.element(screen.getByText(first.text)).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: "Delete Hooks" }));
+  expect(confirm).toHaveBeenCalledOnce();
+  await expect
+    .element(screen.getByRole("button", { name: /^Hooks/ }))
+    .toHaveAttribute("data-active", "true");
+  await expect.element(screen.getByText(first.text)).toBeVisible();
+  expect(deleted).toEqual([]);
+});
+
+it("renames a collection inline, and the rail shows the new name", async () => {
+  let collections = [collection(1, "Staff picks", true), collection(2, "Hooks")];
+  const renames: Array<{ readonly id: number; readonly name: string }> = [];
+  await using screen = await render(<CollectionsTab />, {
+    service: {
+      "library.collectionsList": () => Effect.sync(() => collections),
+      "library.collectionRename": (input) => {
+        renames.push(input);
+        collections = [collection(1, "Staff picks", true), collection(input.id, input.name)];
+        return Effect.void;
+      },
+      "library.savedList": () => Effect.succeed([]),
+    },
+  });
+  await userEvent.click(screen.getByRole("button", { name: "Rename Hooks" }));
+  await userEvent.fill(screen.getByLabelText("Collection name"), "  Openers ");
+  await userEvent.keyboard("{Enter}");
+  await expect.element(screen.getByRole("button", { name: /^Openers/ })).toBeVisible();
+  expect(renames).toEqual([{ id: 2, name: "Openers" }]);
+});
+
 it("asks the service for the archive in the chosen order", async () => {
   const asked: Array<string | undefined> = [];
   await using screen = await render(<ArchiveTab />, {
