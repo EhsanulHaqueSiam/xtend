@@ -15,10 +15,12 @@ import { PageHeader } from "../components/PageHeader";
 import { sectionLabel, type SectionId, useSection } from "../components/shell/sections";
 import { Button } from "../components/ui/button";
 import { Field, inputClass } from "../components/ui/field";
-import { PageBody, Section, Stat } from "../components/ui/layout";
+import { Empty, PageBody, Section, Stat, table } from "../components/ui/layout";
+import { Select } from "../components/ui/select";
 import { Switch } from "../components/ui/switch";
 import type { Reachability, ServiceMode } from "../desktopBridge";
 import { isElectron } from "../env";
+import { fmtWhen } from "../lib/time";
 import { cn, NOT_A_HANDLE, parseHandle } from "../lib/utils";
 import {
   accountsAtom,
@@ -27,7 +29,7 @@ import {
   switchAccount,
 } from "../state/accounts";
 import { serverInfoAtom } from "../state/observations";
-import { useQuoteLabel } from "../state/costs";
+import { usd as price, useQuoteLabel } from "../state/costs";
 import { settingsAtom, updateSettingsAtom } from "../state/settings";
 import { spendLiveAtom } from "../state/shell";
 import { xSkinAtom } from "../state/x";
@@ -146,15 +148,23 @@ function RestoreDefaults({ onRestored }: { readonly onRestored: () => void }) {
   );
 }
 
-/** What the service accepts too: Intl knows the zone. A typo would come back as a bare "update failed". */
-const isTimeZone = (zone: string) => {
-  try {
-    // Throws a RangeError for a zone Intl does not know.
-    return Boolean(new Intl.DateTimeFormat("en", { timeZone: zone }));
-  } catch {
-    return false;
-  }
+/** "UTC+06:00" now; longOffset spells zero as a bare "GMT". */
+const utcOffset = (zone: string) => {
+  const name =
+    new Intl.DateTimeFormat("en", { timeZone: zone, timeZoneName: "longOffset" })
+      .formatToParts()
+      .find((p) => p.type === "timeZoneName")?.value ?? "GMT";
+  return name === "GMT" ? "UTC+00:00" : name.replace("GMT", "UTC");
 };
+
+/** Every zone Intl knows as "Dhaka (UTC+06:00)", by city so typing a city jumps to it. */
+const zoneOptions = (current: string) =>
+  [...new Set([current, ...Intl.supportedValuesOf("timeZone")])]
+    .map((zone) => ({
+      value: zone,
+      label: `${zone.split("/").at(-1)?.replaceAll("_", " ") ?? zone} (${utcOffset(zone)})`,
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label));
 
 /** What answers assist, as T3 Code picks a provider: the two logins first, any other model after. */
 const ASSIST_PROVIDERS = [
@@ -198,9 +208,8 @@ function SettingsForm({ current }: { readonly current: SettingsShape }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [budgetInvalid, setBudgetInvalid] = useState(false);
-  const [zoneInvalid, setZoneInvalid] = useState(false);
   const dirty = Object.keys(draft).length > 0 || tregToken !== "" || assistKey !== "";
-  const invalid = budgetInvalid || zoneInvalid;
+  const invalid = budgetInvalid;
   const assistBaseUrl =
     draft.assistBaseUrl === undefined ? current.assistBaseUrl : draft.assistBaseUrl;
   const assistProvider =
@@ -419,30 +428,15 @@ function SettingsForm({ current }: { readonly current: SettingsShape }) {
           <SField
             wide
             label="Time zone"
-            hint={
-              zoneInvalid
-                ? "Not a time zone. Pick one from the list."
-                : "IANA name. Posting slots, the calendar and the best-time heatmap are all in this zone."
-            }
+            hint="Posting slots, the calendar and the best-time heatmap are all in this zone."
           >
-            <input
-              className={settingsInput}
-              list="xtend-zones"
-              aria-invalid={zoneInvalid}
-              defaultValue={current.timeZone}
-              onChange={(e) => {
-                const value = e.target.value.trim();
-                const valid = value === "" || isTimeZone(value);
-                setZoneInvalid(!valid);
-                if (valid)
-                  setDraft((d) => ({ ...d, timeZone: value === "" ? current.timeZone : value }));
-              }}
+            <Select
+              label="Time zone"
+              className="font-mono text-xs"
+              value={draft.timeZone ?? current.timeZone}
+              onChange={(timeZone) => setDraft((d) => ({ ...d, timeZone }))}
+              options={zoneOptions(current.timeZone)}
             />
-            <datalist id="xtend-zones">
-              {Intl.supportedValuesOf("timeZone").map((z) => (
-                <option key={z} value={z} />
-              ))}
-            </datalist>
           </SField>
           <SField
             wide
@@ -487,7 +481,7 @@ function SettingsForm({ current }: { readonly current: SettingsShape }) {
             <SField
               wide
               label="Act through X for what I click"
-              hint="On by default. Replies you click and posts with media go through your own X session, one at a time at a human pace, free. Off: replies go through the API at the listed price. Rules never use your session."
+              hint="On by default. Posts and replies you click go through your own X session, one at a time at a human pace, free. Off: they go through the API at the listed price. Scheduled posts and rules never use your session."
             >
               <Switch
                 className="mt-1"
@@ -555,12 +549,11 @@ function DailyJobsField({
   readonly onChange: (next: boolean) => void;
 }) {
   const searches = useQuoteLabel({ kind: "picksFetch" });
-  const call = useQuoteLabel({ kind: "assist" });
   return (
     <SField
       wide
       label="Daily Library jobs"
-      hint={`Each morning: picks for your keywords (${searches} in searches), hook detection and three ready posts (${call} per model call).`}
+      hint={`Each morning: picks for your keywords (${searches} in searches), hook detection and three ready posts, written on your login.`}
     >
       <Switch className="mt-1" label="Daily Library jobs" checked={checked} onChange={onChange} />
     </SField>
@@ -596,6 +589,32 @@ function CleanX() {
   );
 }
 
+const AREAS: Record<string, string> = {
+  compose: "Compose",
+  plan: "Plan",
+  analyze: "Analyze",
+  scores: "Scores",
+  library: "Library",
+  engage: "Engage",
+  leads: "Leads",
+  automate: "Automation",
+};
+
+/** "compose.postNow" reads as "Compose: post now"; a rule's own name stays as typed. */
+const purposeLabel = (purpose: string) => {
+  const [area = "", ...rest] = purpose.split(".");
+  const name = AREAS[area];
+  if (name === undefined || rest.length === 0) return name ?? purpose;
+  const what =
+    area === "automate"
+      ? rest.join(".")
+      : rest
+          .join(" ")
+          .replace(/([a-z])([A-Z])/g, "$1 $2")
+          .toLowerCase();
+  return `${name}: ${what}`;
+};
+
 function SpendMeter() {
   const spend = useAtomValue(spendLiveAtom);
   return AsyncResult.match(spend, {
@@ -624,14 +643,51 @@ function SpendMeter() {
           />
         </div>
         {value.byPurpose.length > 0 ? (
-          <dl>
-            {value.byPurpose.slice(0, 8).map((p) => (
-              <Row key={p.purpose} label={p.purpose}>
-                {usd(p.costUsd)}
-              </Row>
-            ))}
-          </dl>
+          <>
+            <h3 className="pt-3 pb-2 text-xs font-medium text-muted-foreground">
+              This month by purpose
+            </h3>
+            <dl>
+              {value.byPurpose.slice(0, 8).map((p) => (
+                <Row key={p.purpose} label={purposeLabel(p.purpose)}>
+                  {price(p.costUsd)}
+                </Row>
+              ))}
+            </dl>
+          </>
         ) : null}
+        <h3 className="pt-6 pb-2 text-xs font-medium text-muted-foreground">Recent calls</h3>
+        {value.recent.length === 0 ? (
+          <Empty>Nothing spent yet. Every paid call lands here with what asked for it.</Empty>
+        ) : (
+          <table className={table.root}>
+            <thead>
+              <tr>
+                <th className={cn(table.th, "w-40 pl-0!")}>When</th>
+                <th className={table.th}>For</th>
+                <th className={cn(table.th, "w-24 pr-0! text-right")}>Cost</th>
+              </tr>
+            </thead>
+            <tbody>
+              {value.recent.map((r) => (
+                <tr key={`${r.at} ${r.purpose} ${r.endpoint}`}>
+                  <td
+                    className={cn(
+                      table.td,
+                      "h-8 pl-0! font-mono text-xs whitespace-nowrap text-muted-foreground",
+                    )}
+                  >
+                    {fmtWhen(r.at)}
+                  </td>
+                  <td className={cn(table.td, "h-8 max-w-0 truncate")} title={r.endpoint}>
+                    {purposeLabel(r.purpose)}
+                  </td>
+                  <td className={cn(table.td, table.num, "h-8 pr-0!")}>{price(r.costUsd)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </Section>
     ),
   });

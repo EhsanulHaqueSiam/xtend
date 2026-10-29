@@ -32,7 +32,7 @@ import { HeaderTabs, PageHeader } from "../components/PageHeader";
 import { Companion } from "../components/shell/Companion";
 import { sectionLabel, useSection } from "../components/shell/sections";
 import { Button } from "../components/ui/button";
-import { compactInputClass, inputClass } from "../components/ui/field";
+import { compactInputClass, inputClass, TimeField } from "../components/ui/field";
 import { Cost, PageBody } from "../components/ui/layout";
 import { Popover } from "../components/ui/popover";
 import { XLink } from "../components/ui/x-link";
@@ -54,7 +54,9 @@ import { useRates } from "../state/costs";
 import { savedPostAtom } from "../state/library";
 import { recentPostsAtom } from "../state/observations";
 import { queueAtom, scheduleAtom, unscheduleAtom } from "../state/plan";
-import { settingsAtom } from "../state/settings";
+import { settingsAtom, useSessionLane } from "../state/settings";
+import { Select } from "../components/ui/select";
+import { Switch } from "../components/ui/switch";
 
 /** What the editor owns; the service owns status, schedule, outcome and the media files. */
 interface Editor {
@@ -234,7 +236,6 @@ const optionsSummary = (e: Editor) =>
     .join(" · ");
 
 const row = "flex items-center justify-between gap-3 border-t border-border py-2.5";
-const check = "size-4 cursor-pointer accent-foreground";
 
 function Options({ editor, onChange }: { editor: Editor; onChange: (e: Editor) => void }) {
   const poll = editor.poll;
@@ -243,17 +244,12 @@ function Options({ editor, onChange }: { editor: Editor; onChange: (e: Editor) =
     <div className="flex flex-col pb-2 text-[13px]">
       <label className={row}>
         <span>Who can reply to every post</span>
-        <select
-          className={cn(compactInputClass, "w-auto")}
+        <Select
+          compact
           value={editor.replySettings}
-          onChange={(e) => onChange({ ...editor, replySettings: e.target.value as ReplySettings })}
-        >
-          {REPLY_OPTIONS.map(([v, label]) => (
-            <option key={v} value={v}>
-              {label}
-            </option>
-          ))}
-        </select>
+          onChange={(replySettings) => onChange({ ...editor, replySettings })}
+          options={REPLY_OPTIONS.map(([value, label]) => ({ value, label }))}
+        />
       </label>
       <label className={cn(row, "flex-col items-stretch gap-1.5")}>
         <span className="flex items-baseline justify-between gap-3">
@@ -273,14 +269,12 @@ function Options({ editor, onChange }: { editor: Editor; onChange: (e: Editor) =
       </label>
       <label className={row}>
         <span>Poll on the first post</span>
-        <input
-          type="checkbox"
-          className={check}
+        <Switch
           checked={poll !== null}
-          onChange={(e) =>
+          onChange={(on) =>
             onChange({
               ...editor,
-              poll: e.target.checked ? { options: ["", ""], durationMinutes: 1440 } : null,
+              poll: on ? { options: ["", ""], durationMinutes: 1440 } : null,
             })
           }
         />
@@ -333,20 +327,15 @@ function Options({ editor, onChange }: { editor: Editor; onChange: (e: Editor) =
             >
               Add option
             </Button>
-            <select
-              aria-label="Poll length"
-              className={cn(compactInputClass, "w-auto")}
+            <Select
+              compact
+              label="Poll length"
               value={poll.durationMinutes}
-              onChange={(e) =>
-                onChange({ ...editor, poll: { ...poll, durationMinutes: Number(e.target.value) } })
+              onChange={(durationMinutes) =>
+                onChange({ ...editor, poll: { ...poll, durationMinutes } })
               }
-            >
-              {POLL_DURATIONS.map(([m, label]) => (
-                <option key={m} value={m}>
-                  {label}
-                </option>
-              ))}
-            </select>
+              options={POLL_DURATIONS.map(([value, label]) => ({ value, label }))}
+            />
           </div>
         </div>
       ) : null}
@@ -358,12 +347,10 @@ function Options({ editor, onChange }: { editor: Editor; onChange: (e: Editor) =
           </span>
         </span>
         {/* Nothing removes the card after posting, so it can only be turned off. */}
-        <input
-          type="checkbox"
-          className={check}
+        <Switch
           disabled={!editor.hideLinkPreviews}
           checked={editor.hideLinkPreviews}
-          onChange={(e) => onChange({ ...editor, hideLinkPreviews: e.target.checked })}
+          onChange={(hideLinkPreviews) => onChange({ ...editor, hideLinkPreviews })}
         />
       </label>
       <label className={row}>
@@ -499,6 +486,9 @@ export function ComposeEditor({
   };
   const [selected, setSelected] = useState<Draft | null>(null);
   const [editor, setEditor] = useState<Editor>(initial);
+  // Free first: on the desktop with the lane on, every clicked post goes through the session,
+  // except a poll, which X's composer cannot take.
+  const laneText = useSessionLane() && editor.poll === null;
   const [previews, setPreviews] = useState<Record<string, string>>({});
   const [active, setActive] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
@@ -726,10 +716,10 @@ export function ComposeEditor({
   const costs =
     rates === null
       ? []
-      : postCosts(rates, blocks, media, quoteUrl).map((c, i) => (i < skipped ? 0 : c));
+      : postCosts(rates, blocks, media, quoteUrl, laneText).map((c, i) => (i < skipped ? 0 : c));
   const total = sumUsd(costs);
   const linkCount = rates === null ? 0 : costs.filter((c) => c === rates.postWithLink).length;
-  const sessionCount = blocks.filter((_, i) => i >= skipped && hasMediaAt(i)).length;
+  const sessionCount = blocks.filter((_, i) => i >= skipped && (laneText || hasMediaAt(i))).length;
   const toPost = blocks.length - skipped;
   const cover = media.find((m) => m.blockIndex === 0 && m.kind === "image");
   // What the publisher would refuse (Publisher.refusal), caught before a thread stops halfway.
@@ -835,6 +825,7 @@ export function ComposeEditor({
                 trigger={
                   <Button variant="ghost" size="sm" disabled={!canSend}>
                     Post now
+                    {sendUsd === null ? <Cost label="…" /> : <Cost usd={sendUsd} />}
                   </Button>
                 }
               >
@@ -857,7 +848,10 @@ export function ComposeEditor({
                       ) : null}
                       {sessionCount > 0 ? (
                         <div className="flex justify-between py-0.5 text-muted-foreground">
-                          <dt>{sessionCount} with media, through your x.com session</dt>
+                          <dt>
+                            {sessionCount}
+                            {laneText ? "" : " with media,"} through your x.com session
+                          </dt>
                           <dd>free</dd>
                         </div>
                       ) : null}
@@ -874,7 +868,9 @@ export function ComposeEditor({
                     <dd>{sendUsd === null ? "…" : <Cost usd={sendUsd} />}</dd>
                   </div>
                 </dl>
-                <p className="mt-2 text-xs text-muted-foreground">Charges your treg balance.</p>
+                {sendUsd !== null && sendUsd > 0 ? (
+                  <p className="mt-2 text-xs text-muted-foreground">Charges your treg balance.</p>
+                ) : null}
                 <div className="mt-3 flex justify-end gap-1.5">
                   <Button variant="ghost" size="xs" onClick={() => setConfirm(null)}>
                     Cancel
@@ -911,13 +907,22 @@ export function ComposeEditor({
                       {schedulePast ? "That time has passed" : zone}
                     </span>
                   </span>
-                  <input
-                    type="datetime-local"
-                    aria-label="Post at"
-                    className={cn(inputClass, "font-mono text-xs")}
-                    value={when}
-                    onChange={(e) => setWhen(e.target.value)}
-                  />
+                  {/* Date and a 24-hour time, joined as the local "YYYY-MM-DDTHH:MM" the zone reads. */}
+                  <span className="flex gap-1.5">
+                    <input
+                      type="date"
+                      aria-label="Post on"
+                      className={cn(inputClass, "font-mono text-xs")}
+                      value={when.slice(0, 10)}
+                      onChange={(e) => setWhen(`${e.target.value}T${when.slice(11, 16)}`)}
+                    />
+                    <TimeField
+                      label="Post at"
+                      className="h-auto py-1.5"
+                      value={when.slice(11, 16)}
+                      onChange={(time) => setWhen(`${when.slice(0, 10)}T${time}`)}
+                    />
+                  </span>
                 </label>
                 <div className="mt-3 flex justify-end gap-1.5">
                   <Button variant="ghost" size="xs" onClick={() => setConfirm(null)}>
@@ -1156,6 +1161,31 @@ export function ComposeEditor({
               </details>
             )}
           </div>
+          {waiting || isArticle || locked ? null : (
+            <div className="mx-auto w-full max-w-[640px] px-6">
+              <AssistPanel
+                handle={handle}
+                blocks={blocks.map((b) => b.text)}
+                active={active}
+                onReplaceBlock={(i, text) =>
+                  setEditor((e) => ({
+                    ...e,
+                    blocks: e.blocks.map((b, j) => (j === i ? { ...b, text } : b)),
+                  }))
+                }
+                onAppend={(texts) =>
+                  setEditor((e) => ({
+                    ...e,
+                    blocks: [...e.blocks, ...texts.map((text) => ({ text }))],
+                  }))
+                }
+                onReplaceAll={(b) => setEditor((e) => withPosts(e, b.flatMap(splitBlocks)))}
+                onVoiceScore={(score) =>
+                  setVoice({ score, text: JSON.stringify(blocks.map((b) => b.text)) })
+                }
+              />
+            </div>
+          )}
           <Companion>
             {inspire !== undefined ? <Inspiration postId={inspire} /> : null}
             {editor.replyToPostId !== null ? <ReplyTarget postId={editor.replyToPostId} /> : null}
@@ -1181,31 +1211,6 @@ export function ComposeEditor({
             )}
           </Companion>
         </PageBody>
-        {waiting || isArticle || locked ? null : (
-          <div className="mx-auto w-full max-w-[640px] shrink-0 px-6">
-            <AssistPanel
-              handle={handle}
-              blocks={blocks.map((b) => b.text)}
-              active={active}
-              onReplaceBlock={(i, text) =>
-                setEditor((e) => ({
-                  ...e,
-                  blocks: e.blocks.map((b, j) => (j === i ? { ...b, text } : b)),
-                }))
-              }
-              onAppend={(texts) =>
-                setEditor((e) => ({
-                  ...e,
-                  blocks: [...e.blocks, ...texts.map((text) => ({ text }))],
-                }))
-              }
-              onReplaceAll={(b) => setEditor((e) => withPosts(e, b.flatMap(splitBlocks)))}
-              onVoiceScore={(score) =>
-                setVoice({ score, text: JSON.stringify(blocks.map((b) => b.text)) })
-              }
-            />
-          </div>
-        )}
       </div>
     </div>
   );

@@ -6,6 +6,7 @@ import { Fragment, useState } from "react";
 import { cn, NOT_A_HANDLE, parseHandle } from "../../lib/utils";
 import { competitorsAtom, fetchCompetitorAtom } from "../../state/analyze";
 import { useQuoteLabel } from "../../state/costs";
+import { seenByAtom } from "../../state/observations";
 import { watchAddAtom, watchListAtom, watchRemoveAtom } from "../../state/scores";
 import { Button } from "../ui/button";
 import { compactInputClass } from "../ui/field";
@@ -144,7 +145,10 @@ export function Competitors({ data }: { readonly data: AnalyzeData }) {
         ),
         onSuccess: ({ value }) =>
           value.length === 0 ? (
-            <Empty>No handles watched. Watching is free; the list is shared with Scores.</Empty>
+            <Empty>
+              Watch a handle above to compare its followers, posting and views with yours. Watching
+              is free and shared with Scores; each fetch is priced on its row.
+            </Empty>
           ) : (
             <table className={table.root}>
               <thead>
@@ -200,7 +204,11 @@ export function Competitors({ data }: { readonly data: AnalyzeData }) {
                           )}
                         </td>
                         <td className={cn(table.td, table.num)}>
-                          {fmt(report?.profile?.followers ?? null)}
+                          {report?.profile?.followers != null ? (
+                            fmt(report.profile.followers)
+                          ) : (
+                            <SeenFollowers handle={w.handle} />
+                          )}
                         </td>
                         <td className={cn(table.td, table.num, "hidden @3xl:table-cell")}>
                           {fmt(report?.profile?.posts ?? null)}
@@ -267,5 +275,24 @@ export function Competitors({ data }: { readonly data: AnalyzeData }) {
           ),
       })}
     </AnalyzePage>
+  );
+}
+
+/**
+ * Followers as the session last saw them on one of the handle's posts, free, until a fetch
+ * brings the profile. Marked "seen" so it does not pass for a fetched number.
+ */
+function SeenFollowers({ handle }: { readonly handle: string }) {
+  const seen = useAtomValue(seenByAtom(handle));
+  const followers = AsyncResult.getOrElse(
+    AsyncResult.map(seen, ({ posts }) => posts[0]?.author.followers ?? null),
+    () => null,
+  );
+  return followers === null ? (
+    "–"
+  ) : (
+    <span title="From a post your session saw; Fetch reads the profile">
+      {fmt(followers)} <span className="text-muted-foreground">seen</span>
+    </span>
   );
 }

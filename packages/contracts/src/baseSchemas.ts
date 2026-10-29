@@ -13,3 +13,15 @@ export type XId = typeof XId.Type;
 
 export const XHandle = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_]{1,15}$/));
 export type XHandle = typeof XHandle.Type;
+
+/** The taste an assist draft takes (replies, DMs, posts); the chooser offers these in this order. */
+export const ReplyTone = Schema.Literals([
+  "agree",
+  "add",
+  "ask",
+  "contrarian",
+  "sarcastic",
+  "warm",
+  "short",
+]);
+export type ReplyTone = typeof ReplyTone.Type;

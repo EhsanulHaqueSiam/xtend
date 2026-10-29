@@ -39,11 +39,12 @@ export function RefreshPosts({ stale = false }: { readonly stale?: boolean }) {
   );
 }
 
-/** Before the first refresh there is nothing to lay out: one line and the refresh. */
+/** No posts seen and none refreshed: one line, the free path, then the paid refresh. */
 export function NotLoaded() {
   return (
     <Empty action={<RefreshPosts />}>
-      No posts loaded yet. Refresh reads your profile and up to 100 posts.
+      No posts of yours yet. Open your profile on X and they land here with their numbers, free;
+      Refresh reads your profile and up to 100 posts.
     </Empty>
   );
 }
@@ -77,8 +78,7 @@ export function AnalyzePage({
     data?.fetchedAt !== undefined &&
     Date.now() - new Date(data.fetchedAt).getTime() > STALE_MS;
   return (
-    // The container sits above PageBody: on PageBody it would contain the section counter.
-    <div className="@container flex h-full flex-col">
+    <div className="flex h-full flex-col">
       <PageHeader
         title={sectionLabel("/analyze", section)}
         tabs={tabs}
@@ -89,15 +89,21 @@ export function AnalyzePage({
               state={
                 refreshState.waiting
                   ? "refreshing"
-                  : data.fetchedAt === null || stale
-                    ? "stale"
-                    : "fresh"
+                  : data.fetchedAt === null
+                    ? data.posts.length > 0
+                      ? "live"
+                      : "stale"
+                    : stale
+                      ? "stale"
+                      : "fresh"
               }
             >
               {refreshState.waiting
                 ? "refreshing"
                 : data.fetchedAt === null
-                  ? "not fetched yet"
+                  ? data.posts.length > 0
+                    ? `live from your session · ${data.posts.length} posts`
+                    : "not fetched yet"
                   : `fetched ${when(data.fetchedAt)} · ${data.posts.length} posts`}
             </Freshness>
           ))
@@ -107,7 +113,7 @@ export function AnalyzePage({
             <>
               {actions}
               <FreeOnX href={profileUrl(data.handle)} label="Profile on X" />
-              <RefreshPosts stale={data.fetchedAt === null || stale} />
+              <RefreshPosts stale={data.posts.length === 0 || stale} />
             </>
           ) : undefined
         }
@@ -115,7 +121,7 @@ export function AnalyzePage({
       <ErrorBar>
         {AsyncResult.isFailure(refreshState) ? errorText(refreshState.cause) : null}
       </ErrorBar>
-      <PageBody>{children}</PageBody>
+      <PageBody className="@container">{children}</PageBody>
     </div>
   );
 }

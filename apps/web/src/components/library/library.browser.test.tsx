@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
 import { paid, quoting, rates, xPost } from "../../../test/fixtures";
-import { render } from "../../../test/render";
+import { choose, render } from "../../../test/render";
 import { ArchiveTab } from "./ArchiveTab";
 import { CollectionsTab } from "./CollectionsTab";
 import { PicksTab } from "./PicksTab";
@@ -201,7 +201,7 @@ it("Remove in a collection takes the post out of that collection only; Staff pic
 
   await userEvent.click(screen.getByRole("button", { name: /^Staff picks/ }));
   const staffPost = await inspect(screen, third.text);
-  await expect.element(staffPost.getByRole("button", { name: "Remix" })).toBeVisible();
+  await expect.element(staffPost.getByRole("button", { name: /^Remix in Compose/ })).toBeVisible();
   expect(staffPost.getByRole("button", { name: "Remove" }).elements()).toHaveLength(0);
 });
 
@@ -555,7 +555,8 @@ it("prices the day's fetches before they run and labels each model call", async 
   // Why it works and Ready to post are each one model call, priced beside it.
   const pickPost = await inspect(screen, first.text);
   await expect.element(pickPost.getByRole("button", { name: "Explain it" })).toBeVisible();
-  expect(pickPost.getByText("$0.00075", { exact: true }).elements()).toHaveLength(2);
+  expect(pickPost.getByText("$0.00075", { exact: true }).elements()).toHaveLength(1);
+  await expect.element(pickPost.getByText("3 options · $0.00075")).toBeVisible();
   await userEvent.click(pickPost.getByRole("button", { name: "Explain it" }));
   await expect.element(pickPost.getByText("Hook names the pain.", { exact: false })).toBeVisible();
 });
@@ -577,21 +578,21 @@ it("prices trend ideas by the country whose trends are loaded", async () => {
         Effect.succeed([{ name: "#buildinpublic", context: null, postCount: 1200 }]),
     },
   });
-  // Ideas need loaded trends: before Load there is no button for them.
-  expect(screen.getByRole("button", { name: /^Write 5 ideas/ }).elements()).toHaveLength(0);
-  // Before Load the empty state offers the header's Load too.
+  // Ideas need loaded trends: before Load there is no tone to ask with.
+  expect(screen.getByRole("group", { name: "Tone" }).elements()).toHaveLength(0);
+  // Load lives in the header, beside the country it loads.
   await userEvent.click(
     screen.getByRole("button", { name: /^Load trends.*cached, free$/ }).first(),
   );
   await expect.element(screen.getByText("#buildinpublic")).toBeVisible();
 
-  await userEvent.selectOptions(screen.getByLabelText("Country"), "UnitedKingdom");
+  await choose(screen.getByLabelText("Country"), "United Kingdom");
   await expect
     .element(screen.getByRole("button", { name: /^Load trends.*\$0\.001$/ }))
     .toBeVisible();
-  await expect
-    .element(screen.getByRole("button", { name: /^Write 5 ideas.*cached, free \+ \$0\.001$/ }))
-    .toBeEnabled();
+  // Ideas stay on the loaded country, whose trends are cached: only the model is priced.
+  await expect.element(screen.getByText("3 ideas · $0.001")).toBeVisible();
+  await expect.element(screen.getByRole("button", { name: "Sarcastic" })).toBeEnabled();
 });
 
 it("Load trends on the country already shown reads it again", async () => {
@@ -630,14 +631,15 @@ it("ideas stay with the country they were written for", async () => {
     },
   });
   await userEvent.click(screen.getByRole("button", { name: /^Load trends/ }).first());
-  await userEvent.click(screen.getByRole("button", { name: /^Write 5 ideas/ }));
+  const anyTone = screen.getByRole("button", { name: /^Any tone/ });
+  await userEvent.click(anyTone);
   await expect.element(screen.getByText("UnitedStates idea 1")).toBeVisible();
-  await userEvent.click(screen.getByRole("button", { name: /^Write 5 more/ }));
+  await userEvent.click(anyTone);
 
-  await userEvent.selectOptions(screen.getByLabelText("Country"), "UnitedKingdom");
+  await choose(screen.getByRole("combobox", { name: "Country" }), "United Kingdom");
   await userEvent.click(screen.getByRole("button", { name: /^Load trends/ }));
   await expect.element(screen.getByText("UnitedStates idea 1")).not.toBeInTheDocument();
-  await expect.element(screen.getByRole("button", { name: /^Write 5 ideas/ })).toBeEnabled();
+  await expect.element(anyTone).toBeEnabled();
   // The late answer for the United States has nowhere to land.
   release();
   await new Promise((resolve) => setTimeout(resolve, 100));

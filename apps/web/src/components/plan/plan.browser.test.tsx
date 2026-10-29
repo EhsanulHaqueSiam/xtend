@@ -129,9 +129,9 @@ it("edits slot times and days, keeps a cleared time, and saves only slots with a
       }}
     />,
   );
-  // It reads "Saved" until something changes.
-  const save = screen.getByRole("button", { name: /^Saved?$/ });
-  await expect.element(save).toBeDisabled();
+  // Nothing to save until something changes.
+  await expect.element(screen.getByText("All changes saved")).toBeVisible();
+  const save = screen.getByRole("button", { name: "Save", exact: true });
 
   // A best hour becomes a slot on that day.
   await userEvent.click(
@@ -143,8 +143,9 @@ it("edits slot times and days, keeps a cleared time, and saves only slots with a
   const times = screen.getByLabelText("Slot time");
   expect(times.elements()).toHaveLength(2);
   await userEvent.fill(times.first(), "07:15");
-  // Clearing the field mid-edit keeps the time instead of jumping to midnight.
+  // Clearing the field mid-edit keeps the time instead of jumping to midnight; leaving it shows it again.
   await userEvent.clear(times.first());
+  await userEvent.tab();
   await expect.element(times.first()).toHaveValue("07:15");
 
   // A slot with no day cannot be saved.

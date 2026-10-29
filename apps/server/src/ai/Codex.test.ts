@@ -3,7 +3,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { codexArgs, isolatedConfig, strictSchema } from "./Codex.ts";
 
 describe("Codex", () => {
-  it("asks for one read-only, unsaved run with the schema, the answer file and the prompt on stdin", () => {
+  it("asks for one read-only, unsaved, tool-less run with the schema, the answer file and the prompt on stdin", () => {
     expect(codexArgs({ model: "", schemaPath: "/t/s.json", outPath: "/t/a.json" })).toEqual([
       "exec",
       "--skip-git-repo-check",
@@ -16,6 +16,22 @@ describe("Codex", () => {
       "/t/a.json",
       "-c",
       "mcp_servers={}",
+      "--disable",
+      "shell_tool",
+      "--disable",
+      "unified_exec",
+      "--disable",
+      "code_mode_host",
+      "--disable",
+      "browser_use",
+      "--disable",
+      "computer_use",
+      "--disable",
+      "in_app_browser",
+      "--disable",
+      "apps",
+      "--disable",
+      "plugins",
       "-",
     ]);
     expect(codexArgs({ model: "m1", schemaPath: "s", outPath: "a" })).toContain("--model");

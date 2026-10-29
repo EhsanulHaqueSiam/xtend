@@ -51,6 +51,7 @@ const target = (postId: string, handle: string): XPost => ({
 const apiCalls: Array<string | undefined> = [];
 /** Texts sent to X's create-post endpoint, the paid lane. */
 const postedTexts: Array<string> = [];
+const apiLikes: Array<string> = [];
 const published: Array<Events.EventInput> = [];
 const eventsStub = Layer.succeed(Events.Events)({
   publish: (event) =>
@@ -60,10 +61,9 @@ const eventsStub = Layer.succeed(Events.Events)({
   stream: Stream.empty,
 });
 const tregCalls: Array<Treg.TregCall> = [];
-// Assist echoes the end of its instructions as the single draft, so a test can read what was asked.
+// Assist echoes the tone it was asked for as the single draft, so a test can read what was asked.
 const assistStub = Layer.succeed(Assist.Assist)({
-  generate: (request) =>
-    Effect.succeed({ drafts: [{ text: request.instructions.slice(-120) }] } as never),
+  generate: (request) => Effect.succeed({ drafts: [{ text: request.tone ?? "none" }] } as never),
 });
 const tregStub = Layer.succeed(Treg.Treg)({
   call: (input) =>
@@ -120,6 +120,7 @@ const layerTest = Engage.layer.pipe(
                 }),
               )
             : Effect.succeed({ postId: "900", costUsd: 0.015 }),
+        like: (postId) => Effect.sync(() => void apiLikes.push(postId)),
         mentions: ({ sinceId }) => {
           apiCalls.push(sinceId);
           return Effect.succeed(
@@ -243,6 +244,26 @@ describe("Engage.inbox", () => {
   );
 });
 
+describe("Engage.like", () => {
+  it.effect(
+    "presses X's own like through the session while the lane is on; the API only when off",
+    () =>
+      Effect.gen(function* () {
+        desktopCalls.length = 0;
+        apiLikes.length = 0;
+        const engage = yield* Engage.Engage;
+        const settings = yield* SettingsStore.SettingsStore;
+        yield* engage.like("61");
+        expect(desktopCalls).toEqual([{ type: "sessionLike", postId: "61" }]);
+        expect(apiLikes).toEqual([]);
+        yield* settings.update({ sessionPostingEnabled: false });
+        yield* engage.like("62");
+        expect(apiLikes).toEqual(["62"]);
+        expect(desktopCalls).toHaveLength(1);
+      }).pipe(Effect.provide(layerTest)),
+  );
+});
+
 describe("Engage.reply", () => {
   it.effect("goes through the session by default, at a human pace, and never pays", () =>
     Effect.gen(function* () {
@@ -312,8 +333,8 @@ describe("Engage.draftReply", () => {
       const engage = yield* Engage.Engage;
       const plain = yield* engage.draftReply(target("51", "ann"));
       const dry = yield* engage.draftReply(target("51", "ann"), "sarcastic");
-      expect(plain[0]?.text).not.toContain("All three");
-      expect(dry[0]?.text).toContain("All three are dry and sarcastic");
+      expect(plain[0]?.text).toBe("none");
+      expect(dry[0]?.text).toBe("sarcastic");
     }).pipe(Effect.provide(layerTest)),
   );
 });

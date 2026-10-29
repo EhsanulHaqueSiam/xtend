@@ -2,7 +2,7 @@ import * as Schema from "effect/Schema";
 import * as Rpc from "effect/rpc/Rpc";
 import * as RpcGroup from "effect/rpc/RpcGroup";
 
-import { IsoDateTime, NonNegativeInt, XId } from "./baseSchemas.ts";
+import { IsoDateTime, NonNegativeInt, ReplyTone, XId } from "./baseSchemas.ts";
 import { XApiError, XPost } from "./x.ts";
 
 /** Engage screen contracts: schemas, errors, method names and the RPC group. Owned by the engage area. */
@@ -23,18 +23,6 @@ export const ReplyTarget = Schema.Struct({
   repliesToAuthor: NonNegativeInt,
 });
 export type ReplyTarget = typeof ReplyTarget.Type;
-
-/** The taste a reply draft takes; the chooser offers these in this order. */
-export const ReplyTone = Schema.Literals([
-  "agree",
-  "add",
-  "ask",
-  "contrarian",
-  "sarcastic",
-  "warm",
-  "short",
-]);
-export type ReplyTone = typeof ReplyTone.Type;
 
 export const ReplyDraft = Schema.Struct({ text: Schema.String });
 export type ReplyDraft = typeof ReplyDraft.Type;
@@ -130,7 +118,7 @@ export const EngageRpcGroup = RpcGroup.make(
   Rpc.make(Engage_METHODS.like, {
     payload: Schema.Struct({ postId: XId }),
     success: Schema.Void,
-    error: XApiError,
+    error: Schema.Union([XApiError, EngageError]),
   }),
   Rpc.make(Engage_METHODS.findKeywords, {
     payload: Schema.Struct({}),

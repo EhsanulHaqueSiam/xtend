@@ -8,13 +8,21 @@ fill them, and your new followers.
 Search everyone found by handle, name or bio, filter by stage, and page through People or a list 50 at a time; stage counts cover every match.
 **Stages** in the header turns the table into a board with one column per stage; drag a
 person to another column to move them there, with a toast to undo. **Table** goes back.
+Their latest post is the newest one your session saw, free; **From X** reads their timeline at
+its price. Drafts read only what you already saw, so they are free.
 
-The selected person opens beside it: who they are, their stage and notes, and two actions
-through the X connection, each priced on its button:
+The DM and reply boxes start as your own words; pick a tone for three drafts to choose from
+and edit.
 
-- **Send DM**. Without their user id the service reads their profile first; that read is in
-  the price. **Draft with AI** writes one from their recent posts.
-- **Reply** to their latest post once you load it, with **Draft with AI** to start from.
+The selected person opens beside it: who they are, their stage and notes, and two actions,
+each priced on its button. In the desktop app with session actions on (Settings, the default)
+both go through your own x.com session and are free; otherwise they go through the X connection:
+
+- **Send DM**. It needs their user id: one your session already saw is free, otherwise the
+  service reads their profile first, and that read is in the price.
+- **Reply** to their latest post once you load it.
+
+Hover a tier (Noted, Credible, Significant, Supreme) to see its band on the 0-100 score.
 
 What happened so far (replies, DMs, which agent found them) lists under the person. A post
 dropped on Leads in the sidebar adds its author here.

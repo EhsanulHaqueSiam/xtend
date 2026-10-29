@@ -23,7 +23,7 @@ import {
   useSelection,
 } from "../ui/split";
 import { OpenOnX, profileUrl } from "../ui/x-link";
-import { useAction } from "./ui";
+import { TierText, useAction } from "./ui";
 
 /** A follower as the list shows it: in People once it was there or added here. */
 type Row = NewFollower & { readonly listed: boolean };
@@ -33,7 +33,11 @@ const COLUMNS: ReadonlyArray<Column<Row>> = [
   {
     label: "Tier",
     className: "hidden w-24 @lg:block",
-    cell: (f) => <span className="text-muted-foreground">{f.tier}</span>,
+    cell: (f) => (
+      <span className="text-muted-foreground">
+        <TierText tier={f.tier} />
+      </span>
+    ),
   },
   { label: "Followers", className: "w-18", cell: (f) => fmt(f.followers) },
   {
@@ -232,7 +236,7 @@ function FollowerDetail({
         <Props
           rows={[
             ["Score", f.score],
-            ["Tier", f.tier],
+            ["Tier", <TierText key="tier" tier={f.tier} />],
             ["Followers", fmt(f.followers)],
             ["Following", fmt(f.following)],
             ["Verified", f.verified ? "yes" : "no"],

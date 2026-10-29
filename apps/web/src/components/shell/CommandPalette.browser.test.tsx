@@ -208,7 +208,7 @@ it.each(["rates", "assist"] as const)(
   },
 );
 
-it("Schedule this opens a new draft", async () => {
+it("New draft opens a new draft", async () => {
   await using screen = await render(
     <>
       <ShellHotkeys />
@@ -224,8 +224,8 @@ it("Schedule this opens a new draft", async () => {
     },
   );
   await userEvent.keyboard("{Meta>}k{/Meta}");
-  await userEvent.click(page.getByRole("option", { name: "Schedule this" }));
-  await expect.poll(() => screen.router?.state.location.href).toBe("/compose?new=1");
+  await userEvent.click(page.getByRole("option", { name: "New draft" }));
+  await expect.poll(() => screen.router?.state.location.href).toBe("/compose?new=true");
 });
 
 it("contains Tab focus, closes from anywhere on Escape and restores focus", async () => {

@@ -2,7 +2,7 @@ import { Dialog } from "@base-ui/react/dialog";
 import { RegistryContext, useAtom, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { AtSign, Bot, CalendarClock, Gauge, Search, Twitter, type LucideIcon } from "lucide-react";
+import { AtSign, Bot, Gauge, Search, SquarePen, Twitter, type LucideIcon } from "lucide-react";
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 
 import { isElectron } from "../../env";
@@ -105,11 +105,11 @@ function PaletteBody({
               : [],
           )),
       {
-        id: "schedule",
+        id: "new-draft",
         group: "Actions" as const,
-        label: "Schedule this",
-        icon: CalendarClock,
-        run: to("/compose?new=1"),
+        label: "New draft",
+        icon: SquarePen,
+        run: to("/compose?new=true"),
       },
       ...(isElectron
         ? [

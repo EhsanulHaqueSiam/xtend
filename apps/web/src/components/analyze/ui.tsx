@@ -2,7 +2,7 @@ import type { AccountPost } from "@xtend/contracts";
 import * as Cause from "effect/Cause";
 import { useId, useState, type ReactNode } from "react";
 
-import { cn } from "../../lib/utils";
+import { cn, readableError } from "../../lib/utils";
 import { table } from "../ui/layout";
 
 const compact = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
@@ -16,10 +16,8 @@ export const engagementRate = (p: AccountPost): number =>
     ? 0
     : (p.likes + p.reposts + p.replies + p.quotes + p.bookmarks) / p.views;
 
-export const errorText = (cause: Cause.Cause<unknown>): string => {
-  const e = Cause.squash(cause);
-  return e instanceof Error ? e.message : String(e);
-};
+export const errorText = (cause: Cause.Cause<unknown>): string =>
+  readableError(Cause.squash(cause));
 
 /** `table` for a table inside a Section: the Section already pads the sides. */
 export const insetTable = {

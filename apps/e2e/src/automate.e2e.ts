@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "vite-plus/test";
 
-import { type App, startApp } from "./harness.ts";
+import { type App, choose, startApp } from "./harness.ts";
 
 let app: App;
 beforeAll(async () => {
@@ -15,10 +15,10 @@ test("automate: a scheduled notify rule saves as a dry run and the editor keeps 
 
   const editor = page.getByRole("complementary", { name: "New rule" });
   await editor.getByRole("textbox", { name: "Name", exact: true }).fill("Monday reminder");
-  await editor.getByRole("combobox", { name: "Trigger" }).selectOption({ label: "Schedule" });
+  await choose(editor.getByRole("combobox", { name: "Trigger" }), "Schedule");
   await editor.getByRole("button", { name: "Thu" }).click();
   await editor.getByRole("textbox", { name: "Time" }).fill("07:30");
-  await editor.getByRole("combobox", { name: "Action" }).selectOption({ label: "Notify me" });
+  await choose(editor.getByRole("combobox", { name: "Action" }), "Notify me");
   await editor.getByRole("textbox", { name: "Message, {name}" }).fill("Write the weekly thread");
   // New rules start as a dry run; it stays on.
   const dryRun = editor.getByRole("switch", { name: "Dry run, charge nothing" });
@@ -32,7 +32,7 @@ test("automate: a scheduled notify rule saves as a dry run and the editor keeps 
   expect(await saved.getByRole("textbox", { name: "Name", exact: true }).inputValue()).toBe(
     "Monday reminder",
   );
-  expect(await saved.getByRole("combobox", { name: "Trigger" }).inputValue()).toBe("schedule");
+  expect(await saved.getByRole("combobox", { name: "Trigger" }).innerText()).toBe("Schedule");
   expect(await saved.getByRole("button", { name: "Mon" }).getAttribute("aria-pressed")).toBe(
     "true",
   );
@@ -40,7 +40,7 @@ test("automate: a scheduled notify rule saves as a dry run and the editor keeps 
     "false",
   );
   expect(await saved.getByRole("textbox", { name: "Time" }).inputValue()).toBe("07:30");
-  expect(await saved.getByRole("combobox", { name: "Action" }).inputValue()).toBe("notify");
+  expect(await saved.getByRole("combobox", { name: "Action" }).innerText()).toBe("Notify me");
   expect(await saved.getByRole("textbox", { name: "Message, {name}" }).inputValue()).toBe(
     "Write the weekly thread",
   );

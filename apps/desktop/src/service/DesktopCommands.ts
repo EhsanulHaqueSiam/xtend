@@ -246,6 +246,22 @@ export function commandRunner(deps: CommandRunnerDeps) {
         );
         return { type: "sessionPost", postId };
       }
+      case "sessionLike": {
+        const enabled = await deps.sessionPostingEnabled().catch((error: unknown) => {
+          throw untouched(error);
+        });
+        if (!enabled) throw new NotAttempted("session posting is off in Settings");
+        await likeOnPage(deps.contents, deps.cdp, command.postId, deadline);
+        return { type: "sessionLike" };
+      }
+      case "sessionDm": {
+        const enabled = await deps.sessionPostingEnabled().catch((error: unknown) => {
+          throw untouched(error);
+        });
+        if (!enabled) throw new NotAttempted("session posting is off in Settings");
+        await dmThroughComposer(deps.contents, deps.cdp, command, deadline);
+        return { type: "sessionDm" };
+      }
     }
   };
 
@@ -359,4 +375,71 @@ export async function postThroughComposer(
   const button = await waitForNode(cdp, 'button[data-testid="tweetButton"]', deadline, enabled);
   await click(cdp, button);
   return until(created, step(CREATED_TIMEOUT_MS), "x.com did not confirm the post");
+}
+
+/**
+ * Likes a post as the user would: opens its page and presses X's own like on that post, then
+ * waits for X to show it as liked. A post already liked is left alone. The post's own article is
+ * the one whose timestamp links to it; a thread's parents above it link elsewhere.
+ */
+export async function likeOnPage(
+  contents: Pick<Electron.WebContents, "loadURL">,
+  cdp: Cdp,
+  postId: string,
+  deadline: number,
+): Promise<void> {
+  const step = (ms: number) => Math.min(Date.now() + ms, deadline);
+  const article = `article:has(a[href$="/status/${postId}"] time)`;
+  const button = await until(
+    contents.loadURL(`https://x.com/i/web/status/${postId}`),
+    deadline,
+    "x.com did not load the post",
+  )
+    .then(() =>
+      waitForNode(
+        cdp,
+        `${article} button[data-testid="like"], ${article} button[data-testid="unlike"]`,
+        step(COMPOSER_TIMEOUT_MS),
+      ),
+    )
+    .catch((error: unknown) => {
+      throw untouched(error);
+    });
+  if ((await attributes(cdp, button))["data-testid"] === "unlike") return;
+  await click(cdp, button);
+  await waitForNode(cdp, `${article} button[data-testid="unlike"]`, step(CREATED_TIMEOUT_MS)).catch(
+    () => {
+      throw new Error("x.com did not show the post as liked");
+    },
+  );
+}
+
+/**
+ * Sends a DM as the user would: opens X's message composer for the recipient, types and presses
+ * Send, then waits for X to clear the composer, which it does once the message is sent and which
+ * shows as Send turning disabled again.
+ */
+export async function dmThroughComposer(
+  contents: Pick<Electron.WebContents, "loadURL">,
+  cdp: Cdp,
+  command: Extract<DesktopCommand, { type: "sessionDm" }>,
+  deadline: number,
+): Promise<void> {
+  const step = (ms: number) => Math.min(Date.now() + ms, deadline);
+  const send = 'button[data-testid="dmComposerSendButton"]';
+  const input = await until(
+    contents.loadURL(`https://x.com/messages/compose?recipient_id=${command.userId}`),
+    deadline,
+    "x.com's message composer did not load",
+  )
+    .then(() => waitForNode(cdp, '[data-testid="dmComposerTextInput"]', step(COMPOSER_TIMEOUT_MS)))
+    .catch((error: unknown) => {
+      throw untouched(error);
+    });
+  await click(cdp, input);
+  await cdp("Input.insertText", { text: command.text });
+  await click(cdp, await waitForNode(cdp, send, step(COMPOSER_TIMEOUT_MS), enabled));
+  await waitForNode(cdp, send, step(CREATED_TIMEOUT_MS), (attrs) => !enabled(attrs)).catch(() => {
+    throw new Error("x.com did not confirm the message");
+  });
 }

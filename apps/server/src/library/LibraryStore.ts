@@ -24,9 +24,6 @@ import { CURRENT_ACCOUNT } from "../persistence/account.ts";
 const PostJson = Schema.fromJsonString(XPost);
 const decodePost = Schema.decodeUnknownSync(PostJson);
 const encodePost = Schema.encodeSync(PostJson);
-const Blocks = Schema.fromJsonString(Schema.Array(Schema.String));
-const decodeBlocks = Schema.decodeUnknownSync(Blocks);
-const encodeBlocks = Schema.encodeSync(Blocks);
 
 interface SavedRow {
   readonly id: number;
@@ -159,13 +156,6 @@ export class LibraryStore extends Context.Service<
     }) => Effect.Effect<void, LibraryError>;
     readonly pickGet: (postId: string) => Effect.Effect<Pick | null, LibraryError>;
     readonly pickSetWhy: (postId: string, why: string) => Effect.Effect<void, LibraryError>;
-    readonly pickDraftGet: (
-      postId: string,
-    ) => Effect.Effect<ReadonlyArray<string> | null, LibraryError>;
-    readonly pickSetDraft: (
-      postId: string,
-      blocks: ReadonlyArray<string>,
-    ) => Effect.Effect<void, LibraryError>;
     /** Adds posts to the archive or refreshes their metrics; a detected format and pattern survive. */
     readonly upsertPosts: (posts: ReadonlyArray<XPost>) => Effect.Effect<void, LibraryError>;
     readonly browse: (
@@ -395,18 +385,6 @@ const make = Effect.gen(function* () {
     yield* sql`UPDATE picks SET why_it_works = ${why} WHERE post_id = ${postId}`;
   }, Effect.mapError(storeError));
 
-  const pickDraftGet = Effect.fn("LibraryStore.pickDraftGet")(function* (postId: string) {
-    const row = yield* pickRow(postId);
-    return row?.draft_json == null ? null : decodeBlocks(row.draft_json);
-  }, Effect.mapError(storeError));
-
-  const pickSetDraft = Effect.fn("LibraryStore.pickSetDraft")(function* (
-    postId: string,
-    blocks: ReadonlyArray<string>,
-  ) {
-    yield* sql`UPDATE picks SET draft_json = ${encodeBlocks(blocks)} WHERE post_id = ${postId}`;
-  }, Effect.mapError(storeError));
-
   const upsertPosts = Effect.fn("LibraryStore.upsertPosts")(function* (
     posts: ReadonlyArray<XPost>,
   ) {
@@ -516,8 +494,6 @@ const make = Effect.gen(function* () {
     picksRecord,
     pickGet,
     pickSetWhy,
-    pickDraftGet,
-    pickSetDraft,
   });
 });
 

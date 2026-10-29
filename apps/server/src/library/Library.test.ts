@@ -7,7 +7,9 @@ import * as TestClock from "effect/testing/TestClock";
 import * as Assist from "../ai/Assist.ts";
 import * as DraftStore from "../compose/DraftStore.ts";
 import * as Events from "../events/Events.ts";
+import * as ObservationStore from "../observations/ObservationStore.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
+import * as Pool from "../pool/Pool.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 import * as TokenCipher from "../settings/TokenCipher.ts";
 import { xClientStub } from "../testing/xClientStub.ts";
@@ -48,8 +50,10 @@ const answers: Record<string, unknown> = {
     ],
   },
   "library.pickWhy": { why: "A blunt hook.\nOne line, no media." },
-  "library.pickDraft": { blocks: ["Ship weekly."] },
-  "library.writeInFormat": { text: "5 things a cofounder costs you" },
+  "library.pickDraft": {
+    options: [{ blocks: ["Ship weekly."] }, { blocks: ["Ship daily.", "Here is why."] }],
+  },
+  "library.writeInFormat": { drafts: ["5 things a cofounder costs you", "a", "b", "c"] },
   "library.generateReady": {
     posts: [
       { text: "one", basis: "#effect", voiceMatch: 80 },
@@ -68,7 +72,9 @@ const assistFake = Layer.succeed(Assist.Assist)({
 
 const layerWith = (searchPosts: XClient.XClient["Service"]["searchPosts"]) =>
   Library.layer.pipe(
-    Layer.provideMerge(Layer.mergeAll(LibraryStore.layer, DraftStore.layer)),
+    Layer.provideMerge(
+      Layer.mergeAll(LibraryStore.layer, DraftStore.layer, ObservationStore.layer, Pool.layerNoop),
+    ),
     Layer.provideMerge(Layer.mergeAll(SettingsStore.layer, assistFake, Events.layer)),
     Layer.provideMerge(
       Layer.mergeAll(
@@ -243,7 +249,7 @@ describe("Library", () => {
     }).pipe(Effect.provide(search.layer));
   });
 
-  it.effect("asks the model once per pick for why it worked and for a draft", () =>
+  it.effect("caches why a pick worked, and drafts options in the picked tone every time", () =>
     Effect.gen(function* () {
       requests.length = 0;
       const store = yield* LibraryStore.LibraryStore;
@@ -256,14 +262,21 @@ describe("Library", () => {
 
       for (let i = 0; i < 2; i++) {
         expect(yield* library.pickWhy("5")).toBe("A blunt hook.\nOne line, no media.");
-        expect(yield* library.pickDraft("5")).toEqual(["Ship weekly."]);
+        expect(yield* library.pickDraft("5", "short")).toEqual([
+          ["Ship weekly."],
+          ["Ship daily.", "Here is why."],
+        ]);
       }
-      expect(requests.map((r) => r.task)).toEqual(["library.pickWhy", "library.pickDraft"]);
+      expect(requests.map((r) => [r.task, r.tone])).toEqual([
+        ["library.pickWhy", undefined],
+        ["library.pickDraft", "short"],
+        ["library.pickDraft", "short"],
+      ]);
       expect((yield* Effect.flip(library.pickWhy("404"))).detail).toBe("Pick not found.");
     }).pipe(Effect.provide(layerTest)),
   );
 
-  it.effect("writes a post in an archive post's format and hook as a suggested draft", () =>
+  it.effect("writes three options in an archive post's format and hook, filing none", () =>
     Effect.gen(function* () {
       requests.length = 0;
       const store = yield* LibraryStore.LibraryStore;
@@ -273,23 +286,21 @@ describe("Library", () => {
       yield* store.setPatterns([{ postId: "7", format: "text", hookPattern: "number hook" }]);
 
       const written = yield* library.writeInFormat("7");
-      expect(written.text).toBe("5 things a cofounder costs you");
+      expect(written).toEqual(["5 things a cofounder costs you", "a", "b"]);
       expect(requests[0]?.input).toEqual({
         example: "3 things I learned",
         format: "text",
         hookPattern: "number hook",
       });
-      const suggested = yield* drafts.byStatus("suggested");
-      expect(suggested.map((d) => [d.id, d.source])).toEqual([
-        [written.id, "format:number hook:7"],
-      ]);
+      // The user keeps one through suggestedDraftSave; nothing lands in Compose on its own.
+      expect(yield* drafts.byStatus("suggested")).toEqual([]);
       expect((yield* Effect.flip(library.writeInFormat("404"))).detail).toBe(
         "Post not in the archive.",
       );
     }).pipe(Effect.provide(layerTest)),
   );
 
-  it.effect("files three ready-to-post drafts from trends and picks as suggested drafts", () =>
+  it.effect("falls back to country trends for ready posts before any topic exists", () =>
     Effect.gen(function* () {
       requests.length = 0;
       const library = yield* Library.Library;
@@ -297,8 +308,8 @@ describe("Library", () => {
       const ready = yield* library.generateReady("UnitedStates");
 
       expect(ready.map((r) => r.text)).toEqual(["one", "two", "three"]);
-      const input = requests[0]?.input as { trends: ReadonlyArray<string> };
-      expect(input.trends).toEqual(["#effect", "#vite"]);
+      const input = requests[0]?.input as { topics: ReadonlyArray<{ topic: string }> };
+      expect(input.topics.map((t) => t.topic)).toEqual(["#effect", "#vite"]);
       const suggested = yield* drafts.byStatus("suggested");
       expect(suggested.map((d) => d.source).sort()).toEqual([
         "ready-to-post: #effect (voice 80)",
@@ -307,5 +318,50 @@ describe("Library", () => {
       ]);
       expect(suggested.map((d) => d.id).sort()).toEqual(ready.map((r) => r.draftId).sort());
     }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect(
+    "writes ready posts from for-you topics and the user's best posts, not country trends",
+    () =>
+      Effect.gen(function* () {
+        requests.length = 0;
+        yield* TestClock.setTime(Date.parse("2026-10-29T12:00:00.000Z"));
+        const settings = yield* SettingsStore.SettingsStore;
+        yield* settings.update({ handle: "me", keywords: ["effect"] });
+        const observed = (postId: string, handle: string, text: string, likes = 0) => ({
+          postId,
+          author: { userId: `u-${handle}`, handle, name: handle, followers: 100, verified: false },
+          text,
+          createdAt: "2026-10-29T09:00:00.000Z",
+          isReply: false,
+          isRepost: false,
+          isPromoted: false,
+          hasMedia: false,
+          hasLink: false,
+          metrics: { views: 10, likes, reposts: 0, replies: 0, quotes: 0, bookmarks: 0 },
+        });
+        yield* (yield* ObservationStore.ObservationStore).record({
+          viewerHandle: "me",
+          source: "home",
+          observedAt: "2026-10-29T11:00:00.000Z",
+          posts: [
+            observed("101", "ann", "Effect schema just shipped"),
+            observed("102", "bob", "Trying effect schema today"),
+            observed("103", "me", "Typed errors beat exceptions", 40),
+          ],
+        });
+        const library = yield* Library.Library;
+        const topics = yield* library.forYou;
+        expect(topics[0]).toMatchObject({ term: "effect schema", source: "feed" });
+        expect(topics[0]?.reason).toBe("2 accounts in your feed today · in your keywords");
+
+        yield* library.generateReady("UnitedStates");
+        const input = requests[0]?.input as {
+          topics: ReadonlyArray<{ topic: string }>;
+          yourBestPosts: ReadonlyArray<string>;
+        };
+        expect(input.topics[0]?.topic).toBe("effect schema");
+        expect(input.yourBestPosts).toEqual(["Typed errors beat exceptions"]);
+      }).pipe(Effect.provide(layerTest)),
   );
 });

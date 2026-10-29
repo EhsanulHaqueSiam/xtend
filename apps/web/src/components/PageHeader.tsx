@@ -157,7 +157,8 @@ export function PageHeader({
         {tabs}
         <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
           {detail !== undefined ? (
-            <span className="truncate font-mono text-2xs text-muted-foreground tabular-nums">
+            // The title gives way first: a count beside the actions must not shrink to nothing.
+            <span className="max-w-64 shrink-0 truncate font-mono text-2xs text-muted-foreground tabular-nums">
               {detail}
             </span>
           ) : null}
@@ -168,14 +169,14 @@ export function PageHeader({
         {isElectron ? <XPanelToggle /> : null}
       </header>
       {about !== null && about.open ? (
-        <p
-          role="note"
-          className="mx-6 mb-3 flex shrink-0 items-baseline gap-2 rounded-xl border border-border px-4 py-2 text-xs leading-5"
-        >
-          <span className="shrink-0 font-medium">{about.name}</span>
-          <span className="min-w-0 text-muted-foreground">
+        // One line, no box: a first-visit guide the ⓘ brings back, not a subtitle.
+        <p role="note" className="mx-6 mb-2 flex shrink-0 items-center gap-2 text-xs leading-5">
+          <span
+            className="min-w-0 truncate text-muted-foreground"
+            title={about.section === undefined ? about.tool : `${about.tool} ${about.section}`}
+          >
             <span className="text-foreground/80">{about.tool}</span>
-            {about.section === undefined ? null : ` · ${about.section}`}
+            {about.section === undefined ? null : <span> {about.section}</span>}
           </span>
           <Button
             variant="ghost-muted"

@@ -7,6 +7,7 @@ import {
   type ReplyDraft,
   type ReplyTarget,
   type ReplyTone,
+  VOICE_MIN_SEEN,
   type SentReply,
   type XApiError,
   type XPost,
@@ -21,6 +22,7 @@ import * as Assist from "../ai/Assist.ts";
 import * as SessionPosting from "../compose/SessionPosting.ts";
 import * as Events from "../events/Events.ts";
 import * as ObservationStore from "../observations/ObservationStore.ts";
+import { bestOwn, leadingHandles } from "../observations/own.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 import * as Treg from "../x/Treg.ts";
 import * as XClient from "../x/XClient.ts";
@@ -60,24 +62,6 @@ export interface DmsResult {
   readonly quoteUsd: number;
 }
 
-/** Handles a reply opens with, lowercased: "@a @b text" gives a and b. */
-const leadingHandles = (text: string) =>
-  (text.match(/^(?:@\w+\s*)+/)?.[0] ?? "")
-    .split(/\s+/)
-    .filter((t) => t !== "")
-    .map((t) => t.slice(1).toLowerCase());
-
-/** What each chooser tone asks of the model. */
-const TONES: Record<ReplyTone, string> = {
-  agree: "agree with the author and say why from the user's own experience",
-  add: "add a point, example or number the author left out",
-  ask: "ask one specific question the author would want to answer",
-  contrarian: "push back on the author's claim with a reason",
-  sarcastic: "are dry and sarcastic, without insulting the author",
-  warm: "are warm and personal, like a reply to a friend",
-  short: "are one short sentence",
-};
-
 /** Reply targets, AI reply drafts, X writes and mentions. Persistence is EngageStore. */
 export class Engage extends Context.Service<
   Engage,
@@ -89,7 +73,7 @@ export class Engage extends Context.Service<
     ) => Effect.Effect<ReadonlyArray<ReplyDraft>, EngageError>;
     /** Posts the reply through X; a failure is recorded on the row, never thrown. */
     readonly reply: (post: XPost, text: string) => Effect.Effect<SentReply, EngageError>;
-    readonly like: (postId: string) => Effect.Effect<void, XApiError>;
+    readonly like: (postId: string) => Effect.Effect<void, XApiError | EngageError>;
     readonly findKeywords: Effect.Effect<KeywordSuggestions, EngageError | XApiError>;
     readonly mentions: (refresh: boolean) => Effect.Effect<MentionsResult, EngageError>;
     readonly inbox: Effect.Effect<InboxResult, EngageError>;
@@ -150,11 +134,23 @@ const make = Effect.gen(function* () {
   });
 
   const draftReply = Effect.fn("Engage.draftReply")(function* (post: XPost, tone?: ReplyTone) {
+    const { handle } = yield* current;
+    // Taste: the user's own replies that landed, read free from the session capture.
+    const own =
+      handle === null
+        ? []
+        : bestOwn(
+            (yield* observations
+              .listRecent({ limit: 200, authorHandle: handle })
+              .pipe(Effect.orElseSucceed(() => ({ posts: [] })))).posts,
+            "replies",
+          );
     const { drafts } = yield* assist
       .generate({
         task: "engage.draftReply",
-        instructions: `Write 3 different replies to this post in the user's voice. Each under 280 characters, no praise or flattery, no questions for the sake of it; each adds one concrete point, example, number or counterpoint the author did not say.${tone === undefined ? "" : ` All three ${TONES[tone]}.`}`,
-        input: { author: post.author.handle, text: post.text },
+        instructions: `Write 3 different replies to this post in the user's voice. Each under 280 characters, no praise or flattery, no questions for the sake of it; each adds one concrete point, example, number or counterpoint the author did not say. The user's replies that did best are their taste: match their length, rhythm and attitude, never their wording.`,
+        tone,
+        input: { author: post.author.handle, text: post.text, yourBestReplies: own },
         output: Schema.Struct({ drafts: Schema.Array(Schema.Struct({ text: Schema.String })) }),
       })
       .pipe(Effect.mapError(assistError));
@@ -183,8 +179,13 @@ const make = Effect.gen(function* () {
     return yield* store.recordReply(post, { text, ...result });
   });
 
+  // Free first, like a reply: a clicked like goes through the user's session while that lane is on.
   const like = Effect.fn("Engage.like")(function* (postId: string) {
-    yield* x.like(postId, "engage.like");
+    const { sessionPostingEnabled } = yield* current;
+    if (!sessionPostingEnabled) return yield* x.like(postId, "engage.like");
+    yield* session
+      .like(postId)
+      .pipe(Effect.mapError((e) => new EngageError({ operation: "session", detail: e.message })));
   });
 
   const findKeywords = Effect.gen(function* () {
@@ -194,13 +195,20 @@ const make = Effect.gen(function* () {
         operation: "settings",
         detail: "No X handle yet. It comes from your X session, or set it in Settings.",
       });
-    const page = yield* x.userPosts(handle, { purpose: "engage.findKeywords" });
+    // Free first: the posts of theirs the session saw, X's timeline only when it saw too few.
+    const seen = (yield* observations
+      .listRecent({ authorHandle: handle, limit: 20 })
+      .pipe(Effect.orElseSucceed(() => ({ posts: [] })))).posts;
+    const posts =
+      seen.length >= VOICE_MIN_SEEN
+        ? seen
+        : (yield* x.userPosts(handle, { purpose: "engage.findKeywords" })).items;
     return yield* assist
       .generate({
         task: "engage.findKeywords",
         instructions:
           "From the user's own recent posts and current keywords, return 10 search keywords (2 to 3 words each, the phrases their audience actually types) that would surface posts worth replying to, and 5 X handles (without @) of accounts in this niche whose posts get replies. Do not repeat current keywords.",
-        input: { keywords, posts: page.items.slice(0, 20).map((p) => p.text) },
+        input: { keywords, posts: posts.slice(0, 20).map((p) => p.text) },
         output: Schema.Struct({
           keywords: Schema.Array(Schema.String),
           handles: Schema.Array(Schema.String),

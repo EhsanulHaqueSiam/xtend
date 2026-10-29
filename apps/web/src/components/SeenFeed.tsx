@@ -6,6 +6,7 @@ import { useState } from "react";
 
 import { isElectron } from "../env";
 import { cn } from "../lib/utils";
+import { errorText } from "./analyze/ui";
 import { seenPageAtom } from "../state/observations";
 import { PageHeader } from "./PageHeader";
 import { useDropPost } from "./shell/drops";
@@ -119,16 +120,20 @@ function PostRow({
       <Num value={engagementRate(post)} name="ER" />
       <Num value={`${post.observations}×`} />
       <td className={cn(table.td, "whitespace-nowrap", stack, "@max-[720px]:-order-1")}>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={(e) => {
-            e.stopPropagation();
-            onSave(post);
-          }}
-        >
-          Save <Cost usd={0} />
-        </Button>
+        {marks?.some((m) => m.kind === "saved") ? (
+          <span className="px-3 text-xs text-muted-foreground">Saved</span>
+        ) : (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={(e) => {
+              e.stopPropagation();
+              onSave(post);
+            }}
+          >
+            Save <Cost usd={0} />
+          </Button>
+        )}
       </td>
     </tr>
   );
@@ -215,7 +220,7 @@ export function SeenFeed() {
         {AsyncResult.match(result, {
           onInitial: () => <Empty>Connecting to the service.</Empty>,
           onFailure: (failure) => (
-            <Empty>{`Could not load observations: ${String(failure.cause)}`}</Empty>
+            <Empty>{`Could not load observations: ${errorText(failure.cause)}`}</Empty>
           ),
           onSuccess: ({ value }) => (
             <div className="@container">

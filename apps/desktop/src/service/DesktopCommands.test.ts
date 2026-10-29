@@ -3,7 +3,13 @@ import { afterEach, expect, it, vi } from "vite-plus/test";
 
 import type { XPost } from "@xtend/contracts";
 import type { OverlaySave } from "../ipc/channels.ts";
-import { commandRunner, overlaySaver, postThroughComposer } from "./DesktopCommands.ts";
+import {
+  commandRunner,
+  dmThroughComposer,
+  likeOnPage,
+  overlaySaver,
+  postThroughComposer,
+} from "./DesktopCommands.ts";
 
 // x.com's DOM over CDP: the home page's inline composer first, the compose modal after it in
 // X's layers root, with the same test ids. Node ids: 1x inline, 2x modal.
@@ -298,4 +304,113 @@ it("acknowledges saving and success, and permits retry after a disconnected or f
   await expect.poll(() => statuses.at(-1)?.state).toBe("saved");
   expect(statuses.map((status) => status.state)).toEqual(["saving", "failed", "saving", "saved"]);
   expect(statuses.every((status) => status.postId === "20")).toBe(true);
+});
+
+it("likes the post's own article on its page, waits for X to show it liked, and skips a liked one", async () => {
+  const article = 'article:has(a[href$="/status/9"] time)';
+  const either = `${article} button[data-testid="like"], ${article} button[data-testid="unlike"]`;
+  const presses: Array<string> = [];
+  const page = (likedAlready: boolean) => {
+    let liked = likedAlready;
+    return async (method: string, params: Record<string, unknown> = {}) => {
+      switch (method) {
+        case "DOM.getDocument":
+          return { root: { nodeId: 1 } };
+        case "DOM.querySelectorAll":
+          if (params.selector === either) return { nodeIds: [5] };
+          if (params.selector === `${article} button[data-testid="unlike"]`)
+            return { nodeIds: liked ? [5] : [] };
+          throw new Error(`unexpected selector ${String(params.selector)}`);
+        case "DOM.getAttributes":
+          return { attributes: ["data-testid", liked ? "unlike" : "like"] };
+        case "DOM.getBoxModel":
+          return { model: { content: [0, 0, 20, 0, 20, 20, 0, 20] } };
+        case "Input.dispatchMouseEvent":
+          if (params.type === "mouseReleased") {
+            presses.push("like");
+            liked = true;
+          }
+          return {};
+        default:
+          throw new Error(`unexpected ${method}`);
+      }
+    };
+  };
+  const loaded: Array<string> = [];
+  const contents = { loadURL: async (url: string) => void loaded.push(url) };
+
+  await likeOnPage(contents, page(false), "9", Date.now() + 5_000);
+  await likeOnPage(contents, page(true), "9", Date.now() + 5_000);
+  expect(loaded).toEqual(["https://x.com/i/web/status/9", "https://x.com/i/web/status/9"]);
+  expect(presses).toEqual(["like"]);
+});
+
+it("DMs through X's message composer, presses Send once it enables, and waits for X to clear it", async () => {
+  const log: Array<string> = [];
+  // Send is disabled while the composer is empty: before typing and again once X sent the message.
+  let typed = "";
+  const cdp = async (method: string, params: Record<string, unknown> = {}) => {
+    switch (method) {
+      case "DOM.getDocument":
+        return { root: { nodeId: 1 } };
+      case "DOM.querySelectorAll":
+        if (params.selector === '[data-testid="dmComposerTextInput"]') return { nodeIds: [31] };
+        if (params.selector === 'button[data-testid="dmComposerSendButton"]')
+          return { nodeIds: [32] };
+        throw new Error(`unexpected selector ${String(params.selector)}`);
+      case "DOM.getAttributes":
+        return {
+          attributes: params.nodeId === 32 && typed === "" ? ["aria-disabled", "true"] : [],
+        };
+      case "DOM.getBoxModel":
+        return {
+          model: {
+            content:
+              params.nodeId === 32 ? [50, 0, 70, 0, 70, 20, 50, 20] : [0, 0, 20, 0, 20, 20, 0, 20],
+          },
+        };
+      case "Input.dispatchMouseEvent":
+        if (params.type === "mouseReleased") {
+          // 60 is the middle of Send's box; X clears the composer once the message is sent.
+          log.push(params.x === 60 ? "press Send" : "focus");
+          if (params.x === 60) typed = "";
+        }
+        return {};
+      case "Input.insertText":
+        typed = String(params.text);
+        log.push(`type ${typed}`);
+        return {};
+      default:
+        throw new Error(`unexpected ${method}`);
+    }
+  };
+  await dmThroughComposer(
+    { loadURL: async (url) => void log.push(`load ${url}`) },
+    cdp,
+    { type: "sessionDm", userId: "42", text: "hey" },
+    Date.now() + 5_000,
+  );
+  expect(log).toEqual([
+    "load https://x.com/messages/compose?recipient_id=42",
+    "focus",
+    "type hey",
+    "press Send",
+  ]);
+});
+
+it("refuses a DM untouched when X's message composer never draws", async () => {
+  vi.useFakeTimers();
+  const log: Array<string> = [];
+  const run = commandRunner({
+    contents: { loadURL: async (url) => void log.push(`load ${url}`) },
+    cdp: async (method) =>
+      method === "DOM.getDocument" ? { root: { nodeId: 1 } } : { nodeIds: [] },
+    navigate: () => {},
+    nextCreatedPost: () => new Promise(() => {}),
+    sessionPostingEnabled: async () => true,
+  });
+  const result = run({ type: "sessionDm", userId: "42", text: "hey" }).catch((e: unknown) => e);
+  await vi.advanceTimersByTimeAsync(15_000);
+  expect(await result).toMatchObject({ notAttempted: true });
+  expect(log).toEqual(["load https://x.com/messages/compose?recipient_id=42"]);
 });

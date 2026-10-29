@@ -28,6 +28,16 @@ export const recentPostsAtom = clientRuntime.atom(
   }),
 );
 
+/** What the session saw one handle post, newest first: free to read, never a call to X. */
+export const seenByAtom = Atom.family((handle: string) =>
+  clientRuntime.atom(
+    Effect.gen(function* () {
+      const client = yield* XtendClient;
+      return yield* client[WS_METHODS.observationsListRecent]({ authorHandle: handle, limit: 20 });
+    }),
+  ),
+);
+
 export const serverInfoAtom = clientRuntime.atom(
   Effect.gen(function* () {
     const client = yield* XtendClient;

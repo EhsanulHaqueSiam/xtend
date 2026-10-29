@@ -10,6 +10,8 @@ afterAll(() => app.close());
 
 test("compose: a two-post thread autosaves, shows its price, posts in order and moves the meter", async () => {
   const { page, rpc, treg } = app;
+  // No desktop here, so the session lane is off and Post now goes through the priced API.
+  await rpc("settings.update", { sessionPostingEnabled: false });
   await page.goto("/compose");
   await page.getByRole("button", { name: "New draft" }).first().click();
   await page.getByRole("textbox", { name: "Post 1" }).fill("Ship small, every day.");

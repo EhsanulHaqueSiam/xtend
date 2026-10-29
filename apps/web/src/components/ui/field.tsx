@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
 
@@ -47,5 +47,43 @@ export function Field({
       </span>
       <span className={cn("min-w-0", wide && "max-w-md")}>{children}</span>
     </label>
+  );
+}
+
+const TIME = /^([01]?\d|2[0-3]):([0-5]\d)$/;
+
+/**
+ * A 24-hour time typed as HH:MM, the way every other time in the app reads. The native time
+ * field follows the OS locale (AM/PM) and opens a native picker. Only a whole, valid time
+ * reaches `onChange`, so a half-typed one never jumps; leaving the field restores the value.
+ */
+export function TimeField({
+  value,
+  onChange,
+  label,
+  className,
+}: {
+  /** "HH:MM", 24-hour. */
+  readonly value: string;
+  readonly onChange: (time: string) => void;
+  readonly label?: string;
+  readonly className?: string;
+}) {
+  const [text, setText] = useState<string | null>(null);
+  return (
+    <input
+      inputMode="numeric"
+      aria-label={label}
+      placeholder="HH:MM"
+      maxLength={5}
+      className={cn(compactInputClass, "w-16 font-mono tabular-nums", className)}
+      value={text ?? value}
+      onChange={(e) => {
+        setText(e.target.value);
+        const m = TIME.exec(e.target.value.trim());
+        if (m !== null) onChange(`${m[1]!.padStart(2, "0")}:${m[2]}`);
+      }}
+      onBlur={() => setText(null)}
+    />
   );
 }

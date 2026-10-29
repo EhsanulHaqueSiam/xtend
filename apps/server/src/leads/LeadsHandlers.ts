@@ -2,6 +2,8 @@ import { Leads_METHODS, LeadsRpcGroup } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
+import * as SessionPosting from "../compose/SessionPosting.ts";
+import * as DesktopChannel from "../desktop/DesktopChannel.ts";
 import * as Treg from "../x/Treg.ts";
 import * as LeadsOps from "./LeadsOps.ts";
 import * as PeopleStore from "./PeopleStore.ts";
@@ -12,7 +14,11 @@ import * as XExtra from "./XExtra.ts";
 export const layer = Layer.mergeAll(
   SignalAgents.layerScheduler,
   SignalAgents.layer,
-  LeadsOps.layer,
+  // SessionPosting and DesktopChannel are compose's and the desktop's; Effect memoizes layers by
+  // reference, so this is the same lane and the same channel.
+  LeadsOps.layer.pipe(
+    Layer.provide(SessionPosting.layer.pipe(Layer.provide(DesktopChannel.layer))),
+  ),
 ).pipe(
   Layer.provideMerge(
     Layer.mergeAll(PeopleStore.layer, XExtra.layer.pipe(Layer.provide(Treg.layer))),
@@ -32,7 +38,8 @@ export const layerHandlers = LeadsRpcGroup.toLayer(
       [Leads_METHODS.personProfile]: ({ id }) => ops.profile(id),
       [Leads_METHODS.personAdd]: (input) => people.add(input),
       [Leads_METHODS.personUpdate]: (patch) => people.update(patch),
-      [Leads_METHODS.draftDm]: ({ id }) => Effect.map(ops.draftDm(id), (text) => ({ text })),
+      [Leads_METHODS.draftDm]: ({ id, tone }) =>
+        Effect.map(ops.draftDm(id, tone), (drafts) => ({ drafts })),
       [Leads_METHODS.sendDm]: ({ id, text }) => ops.sendDm(id, text),
       [Leads_METHODS.listsList]: () => people.lists,
       [Leads_METHODS.listCreate]: ({ name }) => people.createList(name),
@@ -51,8 +58,9 @@ export const layerHandlers = LeadsRpcGroup.toLayer(
       [Leads_METHODS.engagersQuote]: ({ via }) =>
         Effect.succeed({ costUsd: XExtra.engagersCostUsd(via) }),
       [Leads_METHODS.engagers]: ({ postId, via }) => ops.engagers(postId, via),
-      [Leads_METHODS.latestPost]: ({ id }) => ops.latestPost(id),
-      [Leads_METHODS.draftReply]: ({ id }) => ops.draftReply(id),
+      [Leads_METHODS.latestPost]: ({ id, fromX }) => ops.latestPost(id, fromX),
+      [Leads_METHODS.draftReply]: ({ post, tone }) =>
+        Effect.map(ops.draftReply(post, tone), (drafts) => ({ drafts })),
       [Leads_METHODS.sendReply]: ({ id, postId, text }) => ops.sendReply(id, postId, text),
     });
   }),

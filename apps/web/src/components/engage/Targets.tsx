@@ -6,7 +6,7 @@ import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useEffect, useState, type ReactNode } from "react";
 import { TextMorph } from "torph/react";
 
-import { quoteAtom, useQuote, useQuoteLabel } from "../../state/costs";
+import { quoteAtom, useQuote, costLabels, useQuoteLabel } from "../../state/costs";
 import {
   addKeywordsAtom,
   findKeywordsAtom,
@@ -110,12 +110,12 @@ export function Targets() {
     ) : (
       <Empty
         action={
-          <Link to="/settings" className={pill}>
-            Settings
+          <Link to="/settings" search={{ tab: "writing" }} className={pill}>
+            Set keywords
           </Link>
         }
       >
-        No keywords yet. Find some from your posts, or add your own in Settings.
+        No keywords yet. Find keywords from your posts above, or type your own in Settings.
       </Empty>
     );
 
@@ -136,16 +136,18 @@ export function Targets() {
               type="button"
               className={pill}
               disabled={finding || noHandle || findQuote === "…" || assistQuote === "…"}
+              title={noHandle ? "Needs your handle, from your X session or Settings" : undefined}
               onClick={() => void runFind()}
             >
               <TextMorph duration={250}>{finding ? "Finding…" : "Find keywords"}</TextMorph>
               {/* One page of your posts, then one model call over it. */}
-              <Cost label={`${findQuote} + ${assistQuote}`} />
+              <Cost label={costLabels(findQuote, assistQuote)} />
             </button>
             <button
               type="button"
               className={pill}
-              disabled={result.waiting || targetsQuote === "…"}
+              disabled={result.waiting || noKeywords !== null || targetsQuote === "…"}
+              title={noKeywords !== null ? "Add keywords first" : undefined}
               onClick={() => load()}
             >
               <TextMorph duration={250}>{result.waiting ? "Searching…" : "Refresh"}</TextMorph>
@@ -185,7 +187,7 @@ export function Targets() {
               noKeywords ?? (
                 <Empty
                   action={
-                    <Link to="/settings" className={pill}>
+                    <Link to="/settings" search={{ tab: "writing" }} className={pill}>
                       Edit keywords
                     </Link>
                   }
