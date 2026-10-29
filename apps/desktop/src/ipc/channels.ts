@@ -1,4 +1,4 @@
-import type { Mark } from "@xtend/contracts";
+import type { Mark, ReplyTone } from "@xtend/contracts";
 
 /** IPC between the main process, the app window's preload and the x.com webview's overlay preload. */
 
@@ -29,6 +29,8 @@ export const OVERLAY_HIDE_CHANNEL = "xtend:overlay-hide";
 export const OVERLAY_GLANCE_CHANNEL = "xtend:overlay-glance";
 /** Marks per post id (`OverlayMarks`) for a batch the capture just saw, or one post after a Save. */
 export const OVERLAY_MARKS_CHANNEL = "xtend:overlay-marks";
+/** Drafts or the outcome of a reply for one strip (`OverlayReply`). */
+export const OVERLAY_REPLY_CHANNEL = "xtend:overlay-reply";
 // Overlay preload -> main
 export const OVERLAY_ACTION_CHANNEL = "xtend:overlay-action";
 /** The signed-in handle read from X's nav (string), when the capture has not seen it. */
@@ -97,4 +99,14 @@ export interface Glance {
 
 export type OverlayAction =
   | { readonly type: "save"; readonly postId: string }
-  | { readonly type: "openRoute"; readonly route: string };
+  | { readonly type: "openRoute"; readonly route: string }
+  /** Three reply drafts in a tone, from the service's assist; null tone is its default. */
+  | { readonly type: "draft"; readonly postId: string; readonly tone: ReplyTone }
+  /** One reply the user clicked; the service sends it through the session lane when on. */
+  | { readonly type: "reply"; readonly postId: string; readonly text: string };
+
+/** What came back for a strip's reply panel: drafts, a sent reply, or why not. */
+export type OverlayReply =
+  | { readonly postId: string; readonly drafts: ReadonlyArray<string> }
+  | { readonly postId: string; readonly replied: true }
+  | { readonly postId: string; readonly error: string };

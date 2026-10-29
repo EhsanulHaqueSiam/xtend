@@ -405,7 +405,7 @@ export function createMainWindow(options: MainWindowOptions) {
       }
       const post = overlay.get(action.postId);
       if (post === undefined) return;
-      commands.save({
+      const xPost = {
         postId: post.postId,
         url: `https://x.com/${post.author.handle}/status/${post.postId}`,
         text: post.text,
@@ -417,7 +417,14 @@ export function createMainWindow(options: MainWindowOptions) {
         hasLink: post.hasLink,
         author: { ...post.author, avatarUrl: null },
         metrics: post.metrics,
-      });
+      };
+      if (action.type === "draft") return commands.draft(xPost, action.tone);
+      if (action.type === "reply") {
+        if (typeof action.text === "string" && action.text.trim() !== "")
+          commands.reply(xPost, action.text.slice(0, 280));
+        return;
+      }
+      commands.save(xPost);
     };
     ipcMain.on(OVERLAY_ACTION_CHANNEL, onAction);
     const onViewer = (event: Electron.IpcMainEvent, handle: unknown) => {
