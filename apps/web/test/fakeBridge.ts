@@ -27,7 +27,7 @@ export function installFakeBridge(overrides: Partial<DesktopBridge> = {}) {
     setRemote: () => {},
     selectAccount: () => {},
     pushGlance: () => {},
-    setXSkin: (on) => calls.push(`skin ${on}`),
+    setXSkin: (on) => calls.push(`skin ${on.join(",")}`),
     openExternal: (url) => calls.push(`external ${url}`),
     onAppRoute: subscribe(routes),
     onSessionDownload: () => () => {},

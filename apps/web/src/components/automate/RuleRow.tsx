@@ -59,13 +59,23 @@ export function RuleRow({
         />
       </td>
       <td className={cn(table.td, "w-full max-w-0 py-2")}>
-        <div className="flex min-w-0 items-baseline gap-2">
-          <span className={cn("truncate font-medium", !rule.enabled && "text-muted-foreground")}>
-            {rule.name}
-          </span>
+        <p className={cn("truncate text-[13px]", !rule.enabled && "text-muted-foreground")}>
+          {describeRule(rule).map((s, i) =>
+            typeof s === "string" ? (
+              <span key={i} className="text-muted-foreground">
+                {s}
+              </span>
+            ) : (
+              <span key={i} className={cn("font-medium", rule.enabled && "text-foreground")}>
+                {s.tag}
+              </span>
+            ),
+          )}
+        </p>
+        <div className="flex min-w-0 items-baseline gap-2 text-xs text-muted-foreground">
+          <span className="truncate">{rule.name}</span>
           <RuleModes rule={rule} />
         </div>
-        <p className="truncate text-xs text-muted-foreground">{describeRule(rule)}</p>
       </td>
       <td className={cn(table.td, table.num, "whitespace-nowrap")}>
         {cost === null ? "…" : usd(cost)}

@@ -15,11 +15,14 @@ import * as AutomateHandlers from "./automate/AutomateHandlers.ts";
 import * as DesktopHandlers from "./desktop/DesktopHandlers.ts";
 import * as EventsHandlers from "./events/EventsHandlers.ts";
 import * as AccountsHandlers from "./accounts/AccountsHandlers.ts";
+import * as MarksHandlers from "./marks/MarksHandlers.ts";
+import * as PoolHandlers from "./pool/PoolHandlers.ts";
 
 import * as ServiceAuth from "./auth/ServiceAuth.ts";
 import * as ServerConfig from "./config.ts";
 import * as Costs from "./costs/Costs.ts";
 import * as ObservationStore from "./observations/ObservationStore.ts";
+import * as Pool from "./pool/Pool.ts";
 import * as SettingsStore from "./settings/SettingsStore.ts";
 
 /** Handlers decode, call one service method, and map errors. Nothing else. */
@@ -27,6 +30,7 @@ const layerCoreHandlers = CoreRpcGroup.toLayer(
   Effect.gen(function* () {
     const config = yield* ServerConfig.ServerConfig;
     const observations = yield* ObservationStore.ObservationStore;
+    const pool = yield* Pool.Pool;
     const settings = yield* SettingsStore.SettingsStore;
     const costs = yield* Costs.Costs;
     return CoreRpcGroup.of({
@@ -38,7 +42,8 @@ const layerCoreHandlers = CoreRpcGroup.toLayer(
           host: config.host,
           supervisor: config.supervisor,
         }),
-      [WS_METHODS.observationsRecord]: (batch) => observations.record(batch),
+      [WS_METHODS.observationsRecord]: (batch) =>
+        Effect.tap(observations.record(batch), () => pool.push(batch)),
       [WS_METHODS.observationsListRecent]: (input) => observations.listRecent(input),
       [WS_METHODS.settingsGet]: () => settings.get,
       [WS_METHODS.settingsUpdate]: (patch) => settings.update(patch),
@@ -62,6 +67,8 @@ export const layerHandlers = Layer.mergeAll(
   DesktopHandlers.layerHandlers,
   EventsHandlers.layerHandlers,
   AccountsHandlers.layerHandlers,
+  MarksHandlers.layerHandlers,
+  PoolHandlers.layerHandlers,
 );
 
 export const layerRoute = HttpRouter.add(

@@ -48,8 +48,15 @@ function RuleState({
   const rates = useRates();
   const cost = rates === null ? null : actionCostUsd(rates, rule.action);
   const per = rule.action.kind === "auto_delete" ? "post" : "fire";
-  // Dry runs never poll.
-  const poll = rates === null || rule.dryRun ? null : triggerPoll(rates, rule.trigger);
+  // Dry runs never poll. Picking an own post to repost or delete reads the own timeline, cached
+  // for an hour, so those rules pay a read even when their trigger polls nothing.
+  const poll =
+    rates === null || rule.dryRun
+      ? null
+      : (triggerPoll(rates, rule.trigger) ??
+        (rule.action.kind === "auto_retweet" || rule.action.kind === "auto_delete"
+          ? { usd: rates.searchPage, every: "hour", perDay: 24 }
+          : null));
   // Dry runs charge nothing. An ask-first rule only queues, but a polled trigger still pays X
   // for the poll first, so it asks to confirm too.
   const paid = !rule.dryRun && (!rule.askFirst || poll !== null);
@@ -228,6 +235,7 @@ export function RuleDetail({
   saving,
   running,
   formKey,
+  saved,
   onClose,
   onSave,
   onToggle,
@@ -244,6 +252,8 @@ export function RuleDetail({
   readonly running: boolean;
   /** Changes after a save, so the editor restarts from what the service stored. */
   readonly formKey: string;
+  /** What the last save of this rule stored, ahead of the refetched list. */
+  readonly saved?: Rule | null;
   readonly onClose: () => void;
   readonly onSave: (input: RuleInput) => void;
   readonly onToggle: () => void;
@@ -276,7 +286,7 @@ export function RuleDetail({
       )}
       <RuleForm
         key={formKey}
-        initial={rule ?? emptyRule}
+        initial={saved ?? rule ?? emptyRule}
         saving={saving}
         onSave={onSave}
         onCancel={onClose}

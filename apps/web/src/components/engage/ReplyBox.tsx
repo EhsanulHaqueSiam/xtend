@@ -1,11 +1,12 @@
 import { useAtomSet } from "@effect/atom-react";
-import { postCostUsd, type XPost } from "@xtend/contracts";
+import { postCostUsd, type ReplyTone, type XPost } from "@xtend/contracts";
 import * as Exit from "effect/Exit";
 import { useState } from "react";
 import { TextMorph } from "torph/react";
 
 import { usd, useQuote, useRates } from "../../state/costs";
 import { draftReplyAtom, likeAtom, sendReplyAtom } from "../../state/engage";
+import { useSessionLane } from "../../state/settings";
 import { cn } from "../../lib/utils";
 import { errorText } from "../analyze/ui";
 import { inputClass } from "../ui/field";
@@ -14,6 +15,8 @@ import { pill, pillSolid } from "./triage";
 
 /** What the user did with one post here: drafts, the reply text, and what already went out. */
 export interface Work {
+  /** The taste the drafts were asked for; null is "write my own". */
+  readonly tone: ReplyTone | null;
   readonly drafts: ReadonlyArray<string>;
   readonly text: string;
   readonly busy: "draft" | "reply" | "like" | null;
@@ -27,6 +30,7 @@ export interface Work {
 export type Patch = (change: Partial<Work>) => void;
 
 const idle: Work = {
+  tone: null,
   drafts: [],
   text: "",
   busy: null,
@@ -54,7 +58,21 @@ export function useWork() {
   return { get, patch } as const;
 }
 
-/** A reply to one post: AI drafts to pick from, the text, and Reply and Like with their prices. */
+/** The chooser's tones, in the order the spec shows them. */
+const TONES: ReadonlyArray<{ readonly tone: ReplyTone; readonly label: string }> = [
+  { tone: "agree", label: "Agree" },
+  { tone: "add", label: "Add a point" },
+  { tone: "ask", label: "Ask" },
+  { tone: "contrarian", label: "Contrarian" },
+  { tone: "sarcastic", label: "Sarcastic" },
+  { tone: "warm", label: "Warm" },
+  { tone: "short", label: "Short" },
+];
+
+/**
+ * A reply to one post. Assist is a choice: a tone row with "write my own" first, three
+ * candidates to pick from, the editor, then Reply and Like with their prices.
+ */
 export function ReplyBox({
   post,
   work,
@@ -72,11 +90,14 @@ export function ReplyBox({
   const rates = useRates();
   // The service's price: the first like of the day also pays for the account lookup.
   const likeQuote = useQuote({ kind: "like" });
-  const { drafts, text, busy, error, replied, liked } = work;
+  const assistQuote = useQuote({ kind: "assist" });
+  // The service sends a clicked reply through the session while that lane is on; the button says so.
+  const viaSession = useSessionLane();
+  const { tone, drafts, text, busy, error, replied, liked } = work;
 
-  const onDraft = async () => {
-    patch({ busy: "draft", error: null });
-    const exit = await draft(post);
+  const onDraft = async (tone: ReplyTone) => {
+    patch({ busy: "draft", error: null, tone });
+    const exit = await draft({ post, tone });
     if (Exit.isFailure(exit)) return patch({ busy: null, error: errorText(exit.cause) });
     const list = exit.value.map((d) => d.text);
     patch({ busy: null, drafts: list, text: list[0] ?? text });
@@ -110,28 +131,57 @@ export function ReplyBox({
     <Section
       title="Reply"
       aside={
-        drafts.length > 1 ? (
-          <span className="flex items-center gap-3" role="group" aria-label="Drafts">
-            {drafts.map((d, i) => (
-              <button
-                key={d}
-                type="button"
-                aria-pressed={d === text}
-                className="cursor-pointer font-mono text-xs text-muted-foreground transition-colors duration-150 hover:text-foreground aria-pressed:text-foreground"
-                onClick={() => patch({ text: d })}
-              >
-                {String.fromCharCode(65 + i)}
-              </button>
-            ))}
-          </span>
-        ) : undefined
+        assistQuote === null ? undefined : (
+          <Cost label={`3 drafts · ${assistQuote.usd === 0 ? "free" : usd(assistQuote.usd)}`} />
+        )
       }
     >
+      <div className="mb-2 flex flex-wrap gap-1.5" role="group" aria-label="Tone">
+        <button
+          type="button"
+          className={pill}
+          aria-pressed={tone === null}
+          disabled={busy !== null || replied}
+          onClick={() => patch({ tone: null, drafts: [] })}
+        >
+          Write my own
+        </button>
+        {TONES.map((t) => (
+          <button
+            key={t.tone}
+            type="button"
+            className={pill}
+            aria-pressed={tone === t.tone}
+            disabled={busy !== null || replied || assistQuote === null}
+            onClick={() => void onDraft(t.tone)}
+          >
+            {busy === "draft" && tone === t.tone ? "Drafting…" : t.label}
+          </button>
+        ))}
+      </div>
+      {drafts.length > 0 ? (
+        <ol className="mb-2 divide-y divide-border border-y border-border" aria-label="Drafts">
+          {drafts.map((d, i) => (
+            <li key={d}>
+              <button
+                type="button"
+                aria-pressed={d === text}
+                className="flex w-full cursor-pointer gap-2.5 py-1.5 text-left text-[13px] leading-snug text-muted-foreground transition-colors duration-150 hover:text-foreground aria-pressed:text-foreground"
+                disabled={replied}
+                onClick={() => patch({ text: d })}
+              >
+                <span className="font-mono text-xs">{String.fromCharCode(65 + i)}</span>
+                <span>{d}</span>
+              </button>
+            </li>
+          ))}
+        </ol>
+      ) : null}
       <textarea
         className={cn(inputClass, "min-h-24 resize-y px-3 py-2 text-[13.5px] leading-relaxed")}
         value={text}
         maxLength={280}
-        placeholder="Write a reply, or draft one"
+        placeholder={tone === null ? "Write your reply" : "Pick a draft above, or edit it here"}
         disabled={replied}
         onChange={(e) => patch({ text: e.target.value })}
       />
@@ -139,28 +189,32 @@ export function ReplyBox({
         <button
           type="button"
           className={pillSolid}
-          disabled={busy !== null || replied || text.trim() === "" || rates === null}
+          disabled={
+            busy !== null || replied || text.trim() === "" || (rates === null && !viaSession)
+          }
           onClick={() => void onReply()}
         >
           <TextMorph duration={250}>
             {replied ? "Replied" : busy === "reply" ? "Replying…" : "Reply"}
           </TextMorph>
-          {replied ? null : rates === null ? (
+          {replied ? null : viaSession ? (
+            <Cost tone="solid" label="free · your session" />
+          ) : rates === null ? (
             <Cost tone="solid" label="…" />
           ) : (
             <Cost tone="solid" usd={postCostUsd(rates, text)} />
           )}
         </button>
-        <button
-          type="button"
-          className={pill}
-          disabled={busy !== null || replied}
-          onClick={() => void onDraft()}
-        >
-          <TextMorph duration={250}>
-            {busy === "draft" ? "Drafting…" : drafts.length > 0 ? "Draft again" : "Draft with AI"}
-          </TextMorph>
-        </button>
+        {tone === null ? null : (
+          <button
+            type="button"
+            className={pill}
+            disabled={busy !== null || replied}
+            onClick={() => void onDraft(tone)}
+          >
+            Draft again
+          </button>
+        )}
         <button
           type="button"
           className={pill}

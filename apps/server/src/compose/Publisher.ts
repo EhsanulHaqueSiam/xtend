@@ -67,6 +67,11 @@ const refusal = (draft: Draft): string | null => {
   if (draft.blocks.length === 0 || (blank !== -1 && draft.blocks.length === 1))
     return "Nothing to post";
   if (blank !== -1) return `Post ${blank + 1} is empty`;
+  // Media goes out through the x.com session with X's default reply setting; a limit would not hold.
+  const limited = draft.blocks.findIndex(
+    (b, i) => hasMedia(i) && (b.replySettings ?? draft.replySettings) !== "everyone",
+  );
+  if (limited !== -1) return `Post ${limited + 1} has media, so it cannot limit who replies yet`;
   if (draft.poll === null) return null;
   if (draft.poll.options.some((o) => o.trim() === "")) return "Poll has a blank option";
   // X takes a poll or media on a post, not both; the session composer would silently drop the poll.
@@ -86,7 +91,13 @@ export class Publisher extends Context.Service<
      */
     readonly post: (
       id: string,
-      options: { readonly purpose: string; readonly retry: boolean; readonly due?: string },
+      options: {
+        readonly purpose: string;
+        readonly retry: boolean;
+        readonly due?: string;
+        /** The user just clicked Post: free first, so text goes through their session while that lane is on. */
+        readonly clicked?: boolean;
+      },
     ) => Effect.Effect<Draft, ComposeError>;
   }
 >()("xtend/compose/Publisher") {}
@@ -98,8 +109,20 @@ const make = Effect.gen(function* () {
   const articles = yield* Articles.Articles;
   const settings = yield* SettingsStore.SettingsStore;
 
-  const postBlocks = Effect.fn("Publisher.postBlocks")(function* (draft: Draft, purpose: string) {
+  const postBlocks = Effect.fn("Publisher.postBlocks")(function* (
+    draft: Draft,
+    purpose: string,
+    clicked: boolean,
+  ) {
     const ids = [...draft.postIds];
+    // X's composer takes no poll and no reply-settings choice; those posts keep the API lane.
+    const sessionText =
+      clicked &&
+      draft.poll === null &&
+      (yield* settings.get.pipe(
+        Effect.map((s) => s.sessionPostingEnabled),
+        Effect.orElseSucceed(() => false),
+      ));
     // Resume after the last block that already went out, so a retry never double-posts.
     for (let i = ids.length; i < draft.blocks.length; i++) {
       if (i > 0 && draft.threadDelaySeconds > 0)
@@ -111,7 +134,7 @@ const make = Effect.gen(function* () {
       const unsure = <E extends ComposeError | XApiError | DesktopUnavailableError>(e: E) =>
         Effect.fail(mayHavePosted(e) ? new Unconfirmed({ post: i + 1, detail: e.message }) : e);
       const { postId } =
-        media.length > 0
+        media.length > 0 || (sessionText && replySettings === "everyone")
           ? yield* session
               .post({
                 text,
@@ -140,7 +163,14 @@ const make = Effect.gen(function* () {
   const postArticle = Effect.fn("Publisher.postArticle")(function* (draft: Draft, purpose: string) {
     // Already published by an attempt that failed afterwards; publishing again would pay twice.
     if (draft.postIds.length > 0) return [...draft.postIds];
-    const { articleId, postId } = yield* articles.publish(draft, purpose);
+    // A publish that timed out may be live on X; like a post, it is never retried on its own.
+    const { articleId, postId } = yield* articles
+      .publish(draft, purpose)
+      .pipe(
+        Effect.catch((e) =>
+          Effect.fail(mayHavePosted(e) ? new Unconfirmed({ post: 1, detail: e.message }) : e),
+        ),
+      );
     if (!isXId(postId))
       return yield* new Unconfirmed({
         post: 1,
@@ -161,7 +191,7 @@ const make = Effect.gen(function* () {
       Effect.map((s) => s.sessionPostingEnabled),
       Effect.orElseSucceed(() => false),
     );
-    if (!enabled) return "Hide link preview not applied: enable Session posting in Settings";
+    if (!enabled) return "Hide link preview not applied: Session actions are off in Settings";
     return yield* session.navigate(`https://x.com/i/web/status/${postId}`).pipe(
       Effect.map(() => "Link card removal requested through your x.com session"),
       Effect.catch((e) => Effect.succeed(`Hide link preview not applied: ${e.message}`)),
@@ -170,7 +200,7 @@ const make = Effect.gen(function* () {
 
   const publish = Effect.fn("Publisher.publish")(function* (
     id: string,
-    options: { readonly purpose: string; readonly retry: boolean },
+    options: { readonly purpose: string; readonly retry: boolean; readonly clicked?: boolean },
   ) {
     // Read after the claim so the editor's last autosave is what goes out.
     const draft = yield* drafts.get(id);
@@ -182,7 +212,7 @@ const make = Effect.gen(function* () {
         : yield* (
             draft.kind === "article"
               ? postArticle(draft, options.purpose)
-              : postBlocks(draft, options.purpose)
+              : postBlocks(draft, options.purpose, options.clicked === true)
           ).pipe(
             Effect.map((ids) => ({ error: null, ids, retryable: false })),
             Effect.catch((e) =>
@@ -219,7 +249,12 @@ const make = Effect.gen(function* () {
 
   const post = Effect.fn("Publisher.post")(function* (
     id: string,
-    options: { readonly purpose: string; readonly retry: boolean; readonly due?: string },
+    options: {
+      readonly purpose: string;
+      readonly retry: boolean;
+      readonly due?: string;
+      readonly clicked?: boolean;
+    },
   ) {
     if (!(yield* drafts.claim(id, options.due)))
       return yield* new ComposeError({

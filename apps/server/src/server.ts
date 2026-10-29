@@ -25,6 +25,8 @@ import * as AutomateHandlers from "./automate/AutomateHandlers.ts";
 import * as DesktopHandlers from "./desktop/DesktopHandlers.ts";
 import * as EventsHandlers from "./events/EventsHandlers.ts";
 import * as AccountsHandlers from "./accounts/AccountsHandlers.ts";
+import * as MarksHandlers from "./marks/MarksHandlers.ts";
+import * as PoolHandlers from "./pool/PoolHandlers.ts";
 
 import * as ServerConfig from "./config.ts";
 import * as ServerHttp from "./http.ts";
@@ -80,12 +82,17 @@ const layerAreas = Layer.mergeAll(
   DesktopHandlers.layer,
   EventsHandlers.layer,
   AccountsHandlers.layer,
+  MarksHandlers.layer,
+  PoolHandlers.layer,
 );
 
 const layerServices = Layer.mergeAll(layerAreas, Costs.layer).pipe(
   Layer.provideMerge(layerFoundation),
 );
 
+// The Node server accepts connections from the moment it listens, but answers only once the
+// routes are served; the services build first, so a request at startup never meets a port
+// with no handler behind it (it would hang unanswered).
 const layerApplication = HttpRouter.serve(layerRoutes).pipe(
   Layer.tap(() =>
     Effect.gen(function* () {
@@ -93,8 +100,8 @@ const layerApplication = HttpRouter.serve(layerRoutes).pipe(
       yield* Effect.log(`xtend service listening on http://${config.host}:${config.port}`);
     }),
   ),
-  Layer.provideMerge(layerServices),
   Layer.provideMerge(layerHttpServer),
+  Layer.provideMerge(layerServices),
   Layer.provideMerge(NodeServices.layer),
 );
 

@@ -13,8 +13,8 @@ Xtend is a desktop-first X (Twitter) growth suite: one app whose sidebar holds b
 
 ## What we never compromise on
 
-1. **The session view is read-only by default.** The desktop may read what X already sent to the user's browser. It never posts, likes, follows or DMs through the session unless the user turned on the session-posting setting, and automations never use it.
-2. **Every paid action shows its cost before it runs** and is capped by a budget. X API calls go through treg; the user pays from their treg balance. No second wallet.
+1. **The session view acts only for the user's own clicks.** The desktop may read what X already sent to the user's browser. It writes through the session only for an action the user just clicked (a reply, a post), one at a time at human pace, and only while the session-actions setting is on (the default). Rules, agents and anything unattended never use it: they go through the X API.
+2. **Free first, and every paid action shows its cost before it runs** and is capped by a budget. A capability takes the cheapest correct lane (session, then API, then a model) and the button says which. X API calls go through treg; the user pays from their treg balance. No second wallet.
 3. **One service, every surface.** A capability is a service method. The WebSocket handler, HTTP route, MCP tool, CLI command and scheduled task all call that method. Logic in a handler is a bug.
 4. **Performance.** No continuously repainting animations, no oversized WebSocket payloads, no unvirtualized long lists.
 
@@ -25,6 +25,7 @@ Xtend is a desktop-first X (Twitter) growth suite: one app whose sidebar holds b
 - Each suite area (compose, plan, analyze, scores, library, engage, leads, automate) owns `packages/contracts/src/<area>.ts` (schemas, method names, its RpcGroup, merged into `WsRpcGroup`), `apps/server/src/<area>/<Area>Handlers.ts` (`layer` for its services, `layerHandlers` for its rpcs, both pre-merged in `server.ts` and `ws.ts`), one migration per area pair, and its own routes, components and state files in `apps/web`. Adding a screen never edits another screen's files. Read `docs/internals/effect-services.md` in T3 Code (vendored reference at `~/Work/ref/t3code`) before adding server code; the same rules apply here.
 - `apps/web` - React, Vite, TanStack Router, Tailwind 4, `@effect/atom-react`. The desktop wraps it.
 - Screens share one shape: `PageHeader` on top (the open section's name, plain-word filters, actions), then `components/ui/layout.tsx` (`PageBody`, `Section`, `Empty`, `Cost`, `Stat`, `table`). A tool's sections live in `components/shell/sections.ts` and show as rows under it in the sidebar; the page reads the open one with `useSection` and never draws its own tab row. Groups are a label and a hairline, not a card. Shared pieces live in `components/ui/` (`split.tsx` list plus detail column, `menu.tsx`, `popover.tsx`, `switch.tsx`, `field.tsx`, `x-link.tsx` to open a post on X beside the tool, `no-handle.tsx`); use them before writing a local one.
+- `apps/pool` - the Cloudflare Worker in front of the shared pool (Neon Postgres through Hyperdrive): issues install ids, takes observation batches, serves trends. The only thing that holds the pool's credentials. `pnpm --filter @xtend/pool deploy`.
 - `apps/desktop` - Electron. Loads the app as the window, gates and wires the x.com webview, runs or connects to the service, captures observations.
 
 ## Conventions
@@ -45,6 +46,17 @@ Xtend is a desktop-first X (Twitter) growth suite: one app whose sidebar holds b
 - `pnpm check:changed` before you hand work back: it checks only what you changed. Otherwise `vp run typecheck` (tsc-rs), `vp test run <files>`, `vp lint`, `vp fmt`. Do not run repo-wide checks unless asked.
 - Screen tests render against a fake service: `render(ui, { service })`. See `docs/operations/development.md#screen-tests`.
 - Backend behaviour ships with a focused test beside it. Visual changes ship with a screenshot.
+
+## Documentation
+
+Most code changes do not need a documentation change. Agents can read the code.
+
+- `docs/internals/` is for architectural decisions and their reasons, constraints that span components, and implementation traps that are hard to discover from the source. Before adding a paragraph, ask what a maintainer would get wrong without it. If reading the code answers the question, leave it out.
+- Do not document every feature, enumerate fields or methods, narrate control flow, keep file catalogs, or append PR summaries. Types, tests and code record the implementation. The glossary defines shared vocabulary; it is not a feature index.
+- A local reason the code cannot show goes in a short nearby comment. An internal doc is for reasoning that crosses boundaries. Link to the source instead of copying it.
+- When a documented decision changes, rewrite or remove the affected text. Do not append another account of the new behaviour.
+- `docs/user/` helps users accomplish tasks: what a feature does, how to start, what costs money, and anything unintuitive. A settings path is useful; descriptions of buttons, layouts or every UI state are not. Keep the shipped product's voice, no implementation details.
+- `docs/operations/` holds maintainer setup, release and debugging procedures.
 
 ## Do not
 

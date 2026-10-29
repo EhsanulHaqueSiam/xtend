@@ -1,14 +1,38 @@
 import { expect, it } from "vite-plus/test";
 
-import { X_SKIN_CSS } from "./xSkin.ts";
+import { X_SKIN_CSS, xSkinCss } from "./xSkin.ts";
 
 // A selector the browser cannot parse (nested :has(), say) drops its whole rule without a
 // word, so the skin would quietly stop hiding something. Every rule must survive parsing.
-it("parses every rule of the skin", () => {
+it("parses every rule of the skin, every toggle on", () => {
+  const css = xSkinCss([
+    "ads",
+    "grok",
+    "upsells",
+    "chrome",
+    "discover",
+    "boosts",
+    "extras",
+    "forYou",
+    "views",
+    "badges",
+    "quietMedia",
+  ]);
   const sheet = new CSSStyleSheet();
-  sheet.replaceSync(X_SKIN_CSS);
-  const written = X_SKIN_CSS.split("{").length - 1;
+  sheet.replaceSync(css);
+  const written = css.split("{").length - 1;
   expect(sheet.cssRules.length).toBe(written);
+});
+
+it("hides only what its toggles say", () => {
+  document.body.innerHTML = `<article><svg data-testid="icon-verified" id="badge"></svg><header role="banner" id="banner"></header></article>`;
+  const style = document.createElement("style");
+  style.textContent = xSkinCss(["badges"]);
+  document.head.append(style);
+  const display = (id: string) => getComputedStyle(document.getElementById(id)!).display;
+  expect(display("badge")).toBe("none");
+  expect(display("banner")).not.toBe("none");
+  style.remove();
 });
 
 it("hides X's navigation and right column in the newer client", () => {

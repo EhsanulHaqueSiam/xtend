@@ -1,0 +1,21 @@
+{
+  "name": "@xtend/pool",
+  "private": true,
+  "description": "The worker in front of the shared pool: issues install ids, takes batches, serves trends.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc-rs --noEmit -p tsconfig.json",
+    "test": "vp test run"
+  },
+  "dependencies": {
+    "postgres": "^3.4.9"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261028.1",
+    "typescript": "catalog:",
+    "vite-plus": "catalog:",
+    "wrangler": "^4.154.0"
+  }
+}

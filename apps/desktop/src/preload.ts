@@ -1,3 +1,4 @@
+import type { XSkinToggle } from "@xtend/contracts";
 import { contextBridge, ipcRenderer } from "electron";
 
 import {
@@ -44,7 +45,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   setRemote: (config: unknown) => ipcRenderer.send(REMOTE_SET_CHANNEL, config),
   selectAccount: (id: number) => ipcRenderer.send(ACCOUNT_SELECT_CHANNEL, id),
   pushGlance: (glance: Glance) => ipcRenderer.send(GLANCE_CHANNEL, glance),
-  setXSkin: (on: boolean) => ipcRenderer.send(X_SKIN_CHANNEL, on),
+  setXSkin: (on: ReadonlyArray<XSkinToggle>) => ipcRenderer.send(X_SKIN_CHANNEL, on),
   openExternal: (url: string) => ipcRenderer.send(OPEN_EXTERNAL_CHANNEL, url),
   onAppRoute: listen<string>(APP_ROUTE_CHANNEL),
   onSessionDownload: listen<SessionDownload>(SESSION_DOWNLOAD_CHANNEL),

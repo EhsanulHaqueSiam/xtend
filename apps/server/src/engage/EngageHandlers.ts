@@ -3,13 +3,17 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import { layerDaily } from "../library/DailyJobs.ts";
+import * as SessionPosting from "../compose/SessionPosting.ts";
+import * as DesktopChannel from "../desktop/DesktopChannel.ts";
 import * as Treg from "../x/Treg.ts";
 import * as Engage from "./Engage.ts";
 import * as EngageStore from "./EngageStore.ts";
 
+// Treg and DesktopChannel by reference, as in ComposeHandlers: Effect memoizes one build each.
 const layerService = Engage.layer.pipe(
   Layer.provideMerge(EngageStore.layer),
-  Layer.provide(Treg.layer),
+  Layer.provide(SessionPosting.layer),
+  Layer.provide(Layer.mergeAll(Treg.layer, DesktopChannel.layer)),
 );
 
 const layerJobs = layerDaily([
@@ -26,7 +30,7 @@ export const layerHandlers = EngageRpcGroup.toLayer(
     const store = yield* EngageStore.EngageStore;
     return EngageRpcGroup.of({
       [Engage_METHODS.targets]: () => engage.targets,
-      [Engage_METHODS.draftReply]: ({ post }) => engage.draftReply(post),
+      [Engage_METHODS.draftReply]: ({ post, tone }) => engage.draftReply(post, tone),
       [Engage_METHODS.reply]: ({ post, text }) => engage.reply(post, text),
       [Engage_METHODS.like]: ({ postId }) => engage.like(postId),
       [Engage_METHODS.findKeywords]: () => engage.findKeywords,

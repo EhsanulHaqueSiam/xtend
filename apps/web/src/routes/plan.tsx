@@ -18,6 +18,7 @@ import { sectionLabel, useSection } from "../components/shell/sections";
 import { Button } from "../components/ui/button";
 import { Cost, PageBody } from "../components/ui/layout";
 import { XCard } from "../components/x";
+import { DRAFT_TYPE } from "../lib/drag";
 import { cn } from "../lib/utils";
 import { dayStartIn, weekStartIn } from "../lib/time";
 import { draftsAtom } from "../state/compose";
@@ -36,7 +37,7 @@ import {
 } from "../state/plan";
 import { settingsAtom } from "../state/settings";
 
-/** Suggested drafts from Library and Automate, each one click from the next free slot. */
+/** Suggested drafts from Library and Automate, one click from the next free slot or a drag onto the calendar. */
 function ReadyToPost({
   drafts,
   onOpen,
@@ -67,7 +68,15 @@ function ReadyToPost({
           {drafts.map((d) => {
             const cost = costOf(d);
             return (
-              <li key={d.id} className="border-b border-border py-2.5 last:border-b-0">
+              <li
+                key={d.id}
+                draggable
+                className="cursor-grab border-b border-border py-2.5 last:border-b-0 active:cursor-grabbing"
+                onDragStart={(event) => {
+                  event.dataTransfer.setData(DRAFT_TYPE, d.id);
+                  event.dataTransfer.effectAllowed = "move";
+                }}
+              >
                 <button
                   type="button"
                   className="line-clamp-2 w-full cursor-pointer text-left text-[13px] leading-snug hover:underline"
@@ -177,6 +186,7 @@ function PlanScreen() {
       search: {
         draft: undefined,
         inspire: undefined,
+        quote: undefined,
         reply: undefined,
         text: undefined,
         new: undefined,
@@ -265,12 +275,16 @@ function PlanScreen() {
             now={now}
             slots={slotList}
             drafts={weekList}
+            heatmap={AsyncResult.getOrElse(heatmap, () => null)}
             fillable={fillable}
             onFill={(id, at) =>
-              act(
-                () => schedule({ id, at: at.toISOString() }),
-                (d) => `Scheduled "${draftTitle(d)}" for ${monthDay.format(at)}`,
-              )
+              // The calendar's clock stops when Plan opens; a slot gone since would post on the next tick.
+              at.getTime() <= Date.now()
+                ? setNotice("Failed: that slot has passed")
+                : act(
+                    () => schedule({ id, at: at.toISOString() }),
+                    (d) => `Scheduled "${draftTitle(d)}" for ${monthDay.format(at)}`,
+                  )
             }
             onOpen={open}
           />

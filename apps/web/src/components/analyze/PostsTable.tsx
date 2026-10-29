@@ -96,10 +96,14 @@ function NonPublicStatus({
     >
       <p className="text-xs text-muted-foreground">
         {last === null
-          ? "Nightly at 03:00 in your time zone. Impressions, profile visits, link clicks and follows per post need the treg X connection."
+          ? "Impressions, profile visits, link clicks and follows per post need the treg X connection."
           : last.error === null
             ? `Last run ${when(last.at)}, ${last.posts} posts.`
             : `Last run ${when(last.at)} failed: needs the treg X connection (${last.error}).`}
+      </p>
+      {/* Shown whatever the last run was: older runs may have been the nightly job's own. */}
+      <p className="text-xs text-muted-foreground">
+        Fetch now also turns on a nightly fetch at 03:00 in your time zone, at the same price.
       </p>
       {AsyncResult.isFailure(state) ? (
         <p role="alert" className="pt-1 text-xs text-error-foreground">

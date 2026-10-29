@@ -3,7 +3,11 @@ import {
   Desktop_METHODS,
   type DesktopCommand,
   type DesktopCommandResult,
+  Engage_METHODS,
   Library_METHODS,
+  type MarkSubject,
+  type ReplyTone,
+  Marks_METHODS,
   WS_METHODS,
   WS_PATH,
   WsRpcGroup,
@@ -18,6 +22,12 @@ import * as RpcSerialization from "effect/rpc/RpcSerialization";
 import * as Schedule from "effect/Schedule";
 import * as Socket from "effect/socket/Socket";
 import * as Stream from "effect/Stream";
+
+import {
+  OVERLAY_MARKS_CHANNEL,
+  OVERLAY_REPLY_CHANNEL,
+  type OverlayReply,
+} from "../ipc/channels.ts";
 
 const RECONNECT_MS = 2_000;
 const POLL_MS = 250;
@@ -120,11 +130,45 @@ export function attachDesktopCommands(
   );
   const fiber = Effect.runFork(serve);
 
+  /** Asks the service what it knows about these posts and hands the marks to the overlay. */
+  const marks = (posts: ReadonlyArray<MarkSubject>) => {
+    if (client === undefined || posts.length === 0) return;
+    void Effect.runPromise(client[Marks_METHODS.forPosts]({ posts })).then(
+      (found) => contents.send(OVERLAY_MARKS_CHANNEL, found),
+      (error: unknown) => options.log("marks failed", String(error)),
+    );
+  };
+
+  const subject = (post: XPost) => [{ postId: post.postId, handle: post.author.handle }];
+  const reply = (postId: string, outcome: Omit<OverlayReply, "postId">) =>
+    contents.send(OVERLAY_REPLY_CHANNEL, { postId, ...outcome });
+
   return {
+    marks,
+    /** Three drafts in a tone for the strip's reply panel. */
+    draft: (post: XPost, tone: ReplyTone) => {
+      if (client === undefined) return reply(post.postId, { error: "Service not connected." });
+      void Effect.runPromise(client[Engage_METHODS.draftReply]({ post, tone })).then(
+        (drafts) => reply(post.postId, { drafts: drafts.map((d) => d.text) }),
+        (error: unknown) => reply(post.postId, { error: String(error).slice(0, 200) }),
+      );
+    },
+    /** The reply the user clicked; the service picks the lane and records it. */
+    reply: (post: XPost, text: string) => {
+      if (client === undefined) return reply(post.postId, { error: "Service not connected." });
+      void Effect.runPromise(client[Engage_METHODS.reply]({ post, text })).then(
+        (sent) => {
+          reply(post.postId, sent.error === null ? { replied: true } : { error: sent.error });
+          marks(subject(post));
+        },
+        (error: unknown) => reply(post.postId, { error: String(error).slice(0, 200) }),
+      );
+    },
     /** Saves a post to the library with its metrics frozen; the overlay's Save action. */
     save: (post: XPost) => {
       if (client === undefined) return options.log("save skipped, service not connected");
-      void Effect.runPromise(client[Library_METHODS.save]({ post, collectionId: null })).catch(
+      void Effect.runPromise(client[Library_METHODS.save]({ post, collectionId: null })).then(
+        () => marks(subject(post)),
         (error: unknown) => options.log("save failed", String(error)),
       );
     },

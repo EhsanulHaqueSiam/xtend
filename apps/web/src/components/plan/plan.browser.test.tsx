@@ -41,6 +41,7 @@ it("lays a DST week out in the account zone: past slots gone, drafts by status, 
       now={now}
       slots={slots}
       drafts={drafts}
+      heatmap={null}
       fillable={[draft("d1", "draft", { blocks: [{ text: "Fill me" }] })]}
       onFill={onFill}
       onOpen={onOpen}
@@ -55,11 +56,11 @@ it("lays a DST week out in the account zone: past slots gone, drafts by status, 
   await expect.element(postedAt).toMatchTextContent("10:00");
   await expect.element(postedAt).toMatchTextContent("posted");
   // Only Sunday's slots are still ahead; each earlier one would post on the scheduler's next tick.
-  expect(screen.getByLabelText("Empty slot 03:30").elements()).toHaveLength(1);
-  expect(screen.getByLabelText("Empty slot 09:00").elements()).toHaveLength(1);
+  expect(screen.getByLabelText("03:30 open slot").elements()).toHaveLength(1);
+  expect(screen.getByLabelText("09:00 open slot").elements()).toHaveLength(1);
   expect(emptySlotCount(zone, start, now, slots, drafts)).toBe(2);
 
-  await userEvent.click(screen.getByRole("button", { name: "Empty slot 03:30" }));
+  await userEvent.click(screen.getByRole("button", { name: "03:30 open slot" }));
   await userEvent.click(page.getByRole("menuitem", { name: /Fill me/ }));
   // 03:30 on Sunday is already summer time: 07:30 UTC, not the 08:30 of a winter offset.
   expect(onFill).toHaveBeenCalledWith("d1", new Date("2026-03-08T07:30:00.000Z"));

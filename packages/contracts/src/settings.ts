@@ -6,6 +6,9 @@ import { IsoDateTime, XHandle } from "./baseSchemas.ts";
  * Everything the user can change about how the service behaves. One row per
  * install; accounts beyond the connected handle come later.
  */
+export const AssistProvider = Schema.Literals(["claude", "codex", "endpoint"]);
+export type AssistProvider = typeof AssistProvider.Type;
+
 export const Settings = Schema.Struct({
   /** The X account treg is connected to. Null until Settings reads it from treg. */
   handle: Schema.NullOr(XHandle),
@@ -23,6 +26,14 @@ export const Settings = Schema.Struct({
   keywords: Schema.Array(Schema.String),
   /** IANA zone every slot, calendar and heatmap is expressed in. Defaults to the service machine's zone. */
   timeZone: Schema.String,
+  /** What answers assist: the Claude or Codex login on the service machine, as T3 Code runs them, or an OpenAI-compatible endpoint. None is billed through Xtend. */
+  assistProvider: AssistProvider,
+  /** The endpoint when `assistProvider` is "endpoint" (local Ollama, a provider with the user's key). */
+  assistBaseUrl: Schema.NullOr(Schema.String),
+  assistModel: Schema.String,
+  assistKeySet: Schema.Boolean,
+  /** Push public sightings to the shared pool. Off stops the push and keeps reading trends. */
+  poolSharing: Schema.Boolean,
 });
 export type Settings = typeof Settings.Type;
 
@@ -37,6 +48,11 @@ export const SettingsUpdate = Schema.Struct({
   voiceNotes: Schema.optional(Schema.String),
   keywords: Schema.optional(Schema.Array(Schema.String)),
   timeZone: Schema.optional(Schema.String.check(Schema.isMinLength(1))),
+  assistProvider: Schema.optional(AssistProvider),
+  assistBaseUrl: Schema.optional(Schema.NullOr(Schema.String)),
+  assistModel: Schema.optional(Schema.String),
+  assistKey: Schema.optional(Schema.NullOr(Schema.String)),
+  poolSharing: Schema.optional(Schema.Boolean),
 });
 export type SettingsUpdate = typeof SettingsUpdate.Type;
 

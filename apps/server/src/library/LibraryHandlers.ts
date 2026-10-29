@@ -3,18 +3,20 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import * as DraftStore from "../compose/DraftStore.ts";
+import * as Pool from "../pool/Pool.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 import { layerDaily } from "./DailyJobs.ts";
 import * as Library from "./Library.ts";
 import * as LibraryStore from "./LibraryStore.ts";
 
-/** Trends country for the ready-to-post job; the Trends tab lets the user pick others by hand. */
+/** Cold-start trends country for the ready-to-post job, used until for-you topics exist. */
 const READY_COUNTRY = "UnitedStates";
 
-// DraftStore is compose's; Effect memoizes layers by reference, so this is the same store.
+// DraftStore is compose's and Pool the pool area's; Effect memoizes layers by reference, so
+// these are the same instances.
 const layerService = Library.layer.pipe(
   Layer.provideMerge(LibraryStore.layer),
-  Layer.provide(DraftStore.layer),
+  Layer.provide(Layer.mergeAll(DraftStore.layer, Pool.layer)),
 );
 
 // Each job spends (searches, model calls) with nobody clicking, so all of them wait for the
@@ -71,11 +73,13 @@ export const layerHandlers = LibraryRpcGroup.toLayer(
       [Library_METHODS.pickWhy]: ({ postId }) => library.pickWhy(postId),
       [Library_METHODS.pickDraft]: ({ postId }) => library.pickDraft(postId),
       // A suggestion is a real Compose draft, so the Ready shelf and the editor see it.
-      [Library_METHODS.suggestedDraftSave]: ({ text, source }) =>
-        drafts.create({ blocks: [{ text }], status: "suggested", source }).pipe(
-          Effect.map((d) => ({ id: d.id })),
-          Effect.mapError((e) => new LibraryError({ operation: "store", detail: e.message })),
-        ),
+      [Library_METHODS.suggestedDraftSave]: ({ blocks, source }) =>
+        drafts
+          .create({ blocks: blocks.map((text) => ({ text })), status: "suggested", source })
+          .pipe(
+            Effect.map((d) => ({ id: d.id })),
+            Effect.mapError((e) => new LibraryError({ operation: "store", detail: e.message })),
+          ),
       [Library_METHODS.trends]: ({ country }) => library.trends(country),
       [Library_METHODS.trendIdeas]: ({ country }) => library.trendIdeas(country),
       [Library_METHODS.browse]: (filters) => store.browse(filters),
@@ -83,6 +87,7 @@ export const layerHandlers = LibraryRpcGroup.toLayer(
       [Library_METHODS.writeInFormat]: ({ postId }) => library.writeInFormat(postId),
       [Library_METHODS.staffPicks]: () => library.staffPicks,
       [Library_METHODS.staffPicksFetch]: () => library.staffPicksFetch,
+      [Library_METHODS.forYou]: () => library.forYou,
       [Library_METHODS.generateReady]: ({ country }) => library.generateReady(country),
     });
   }),

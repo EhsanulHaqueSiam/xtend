@@ -10,6 +10,7 @@ import {
   xPanelWidthAtom,
   xSkinAtom,
 } from "../../state/x";
+import { Toasts } from "../ui/toast";
 import { CommandPalette } from "./CommandPalette";
 import { CompanionTarget } from "./Companion";
 import { GlanceSync } from "./GlanceSync";
@@ -18,6 +19,7 @@ import { XPane, type XPaneMode } from "./XPane";
 
 /** Below this the main area keeps companion cards under the page instead of in a column. */
 const COMPANION_MIN_MAIN = 980;
+const COMPANION_WIDTH = 340;
 
 function useWidth(el: HTMLElement | null) {
   const [width, setWidth] = useState(0);
@@ -75,6 +77,8 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
     if (!onX) rememberToolRoute(href);
   }, [href, onX]);
   const mode: XPaneMode = onX ? "main" : panelOpen ? "panel" : "hidden";
+  // On Home the companion column takes X's hidden right column, so the pane leaves it room.
+  const companionWidth = onX && wide ? COMPANION_WIDTH : 0;
   const columns = `auto minmax(0, 1fr) ${isElectron && mode === "panel" ? `${panelWidth}px` : "0px"}`;
 
   return (
@@ -87,17 +91,18 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
         <aside
           ref={setCompanion}
           aria-label="Companion"
-          className="flex w-[340px] shrink-0 flex-col gap-4 overflow-y-auto border-l border-border p-4 empty:hidden"
+          className="flex w-[340px] shrink-0 flex-col gap-3 overflow-y-auto border-l border-border p-4 empty:hidden"
         />
       </main>
       {isElectron ? (
         <>
-          <XPane mode={mode} width={panelWidth} />
+          <XPane mode={mode} width={panelWidth} inset={companionWidth} />
           <AppRoutes />
           <GlanceSync />
         </>
       ) : null}
       <CommandPalette />
+      <Toasts />
     </div>
   );
 }

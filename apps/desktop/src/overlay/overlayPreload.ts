@@ -1,3 +1,4 @@
+import type { Mark, ReplyTone } from "@xtend/contracts";
 import { ipcRenderer } from "electron";
 
 import {
@@ -6,11 +7,15 @@ import {
   OVERLAY_DATA_CHANNEL,
   OVERLAY_GLANCE_CHANNEL,
   OVERLAY_HIDE_CHANNEL,
+  OVERLAY_MARKS_CHANNEL,
+  OVERLAY_REPLY_CHANNEL,
   OVERLAY_TOGGLE_CHANNEL,
   OVERLAY_VIEWER_CHANNEL,
   type OverlayAction,
   type OverlayData,
+  type OverlayMarks,
   type OverlayPost,
+  type OverlayReply,
 } from "../ipc/channels.ts";
 import {
   X_DOM_VERSION,
@@ -24,6 +29,7 @@ import {
   isDmPath,
   viewerHandleFromNav,
 } from "./xDom.ts";
+import { emptyPanel, panelHtml, type ReplyPanel } from "./replyPanel.ts";
 
 /**
  * x.com webview preload: the native injections. A metrics row under every post,
@@ -50,6 +56,25 @@ const STYLE = `
   .strip { display: flex; gap: 14px; align-items: center; margin-top: 8px; font: 12px/16px ${MONO}; color: #868a93; }
   .strip b { color: #c4c7ce; font-weight: 400; }
   .up { color: #4ade80; } .down { color: #f87171; }
+  .mark { color: #f1f3f7; font-family: ${FONT}; }
+  .mark::before { content: "●"; margin-right: 5px; font-size: 8px; vertical-align: 1px; }
+  .panel { display: grid; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.08); font: 13px/18px ${FONT}; }
+  .tones, .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .chip { padding: 3px 10px; border: 1px solid rgba(255,255,255,0.14); border-radius: 999px; color: #c4c7ce; font-size: 12.5px; line-height: 16px; transition: border-color 150ms ease, color 150ms ease; }
+  .chip:hover { color: #f1f3f7; }
+  .chip[aria-pressed="true"] { border-color: #f1f3f7; color: #f1f3f7; }
+  .chip[disabled], .draft[disabled], .send[disabled] { opacity: 0.5; cursor: default; }
+  .drafts { margin: 0; padding: 0; list-style: none; border-top: 1px solid rgba(255,255,255,0.08); }
+  .drafts li { border-bottom: 1px solid rgba(255,255,255,0.08); }
+  .draft { display: flex; gap: 10px; width: 100%; padding: 6px 0; color: #868a93; text-align: left; box-sizing: border-box; }
+  .draft:hover, .draft[aria-pressed="true"] { color: #f1f3f7; }
+  .draft .n { font: 12px/18px ${MONO}; }
+  .text { all: unset; display: block; box-sizing: border-box; width: 100%; min-height: 64px; padding: 8px 10px; border: 1px solid rgba(255,255,255,0.14); border-radius: 10px; color: #f1f3f7; font: 13.5px/19px ${FONT}; white-space: pre-wrap; }
+  .text:focus { border-color: rgba(255,255,255,0.4); }
+  .send { padding: 4px 12px; border-radius: 999px; background: #f1f3f7; color: #000; font-weight: 500; transition: transform 160ms ease; }
+  .send:active { transform: scale(0.97); }
+  .send b { margin-left: 8px; font: 400 11px/16px ${MONO}; opacity: 0.6; }
+  .err { margin: 0; color: #f87171; font-size: 12px; }
   .act { margin-left: auto; display: flex; gap: 14px; font: 500 13px/16px ${FONT}; }
   button { all: unset; cursor: pointer; color: #c4c7ce; font: inherit; transition: color 150ms ease; }
   button:hover { color: #f1f3f7; }
@@ -72,7 +97,7 @@ const shadowHost = (cls: string) => {
   const body = document.createElement("div");
   body.className = cls;
   root.append(style, body);
-  return { host, body };
+  return { host, root, body };
 };
 
 const compact = (n: number): string =>
@@ -111,13 +136,19 @@ const state = {
   posts: new Map<string, OverlayPost>(),
   ownAverage: null as OverlayData["ownAverage"],
   glance: null as Glance | null,
+  marks: new Map<string, ReadonlyArray<Mark>>(),
   enabled: true,
   killed: false,
-  strips: new Map<string, { host: HTMLElement; body: HTMLElement; html: string }>(),
+  strips: new Map<
+    string,
+    { host: HTMLElement; root: ShadowRoot; body: HTMLElement; html: string }
+  >(),
+  /** Open reply panels by post id; absent means closed. */
+  panels: new Map<string, ReplyPanel>(),
   chips: [] as Array<{ host: HTMLElement; body: HTMLElement; toolbar: HTMLElement }>,
 };
 
-const stripHtml = (p: OverlayPost): string => {
+const stripHtml = (postId: string, p: OverlayPost): string => {
   const er = engagementRate(p);
   const vph = viewsPerHour(p, Date.now());
   // Unknown values are left out rather than dashed, as X does with its own counts.
@@ -132,29 +163,98 @@ const stripHtml = (p: OverlayPost): string => {
       `<span class="${delta >= 0 ? "up" : "down"}">${delta >= 0 ? "+" : ""}${delta}% vs your avg</span>`,
     );
   }
-  return `${cells.join("")}<span class="act"><button data-act="save">Save</button><button data-act="reply">Reply with AI</button></span>`;
+  for (const m of state.marks.get(postId) ?? [])
+    cells.push(`<span class="mark">${markText(m)}</span>`);
+  const open = state.panels.has(postId);
+  return `${cells.join("")}<span class="act"><button data-act="save">Save</button><button data-act="reply" aria-expanded="${open}">${open ? "Close" : "Reply"}</button></span>`;
+};
+
+const ago = (iso: string): string => {
+  const m = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000));
+  return m < 60
+    ? `${m}m ago`
+    : m < 1_440
+      ? `${Math.round(m / 60)}h ago`
+      : `${Math.round(m / 1_440)}d ago`;
+};
+/** Same words as the tool rows: "replied 1h ago", "saved", "lead · warm", "watching", "auto · rule". */
+const markText = (m: Mark): string =>
+  m.kind === "replied"
+    ? `replied ${m.at === null ? "" : ago(m.at)}`.trim()
+    : m.kind === "lead"
+      ? `lead · ${m.detail}`
+      : m.kind === "auto"
+        ? `auto · ${m.detail}`
+        : m.kind;
+
+/** The panel element under a strip's row, drawn from its state; removed when closed. */
+const renderPanel = (postId: string) => {
+  const strip = state.strips.get(postId);
+  if (strip === undefined) return;
+  const panel = state.panels.get(postId);
+  let el = strip.root.querySelector<HTMLElement>(".panel");
+  if (panel === undefined) {
+    el?.remove();
+    return;
+  }
+  if (el === null) {
+    el = document.createElement("div");
+    el.className = "panel";
+    strip.body.after(el);
+  }
+  // The textarea keeps what the user typed across redraws: only state changes redraw it.
+  el.innerHTML = panelHtml(panel);
+};
+
+const setPanel = (postId: string, change: Partial<ReplyPanel> | null) => {
+  if (change === null) state.panels.delete(postId);
+  else state.panels.set(postId, { ...(state.panels.get(postId) ?? emptyPanel), ...change });
+  renderPanel(postId);
+  const strip = state.strips.get(postId);
+  const post = state.posts.get(postId);
+  if (strip !== undefined && post !== undefined) render(strip, stripHtml(postId, post));
 };
 
 const mountStrip = (article: HTMLElement, postId: string, post: OverlayPost) => {
   const row = articleActionRow(article);
   if (row === null) return;
-  const { host, body } = shadowHost("strip");
+  const { host, root, body } = shadowHost("strip");
   host.setAttribute(HOST_ATTR, postId);
-  const html = stripHtml(post);
+  const html = stripHtml(postId, post);
   body.innerHTML = html;
-  body.addEventListener("click", (e) => {
-    const act = (e.target as HTMLElement).dataset.act;
-    if (act === undefined) return;
+  // Listeners sit inside the closed root: outside it every target reads as the host. Typing in
+  // the panel must not reach x.com's own key handling (j/k scroll, l likes).
+  for (const type of ["keydown", "keyup", "keypress"])
+    root.addEventListener(type, (e) => e.stopPropagation());
+  root.addEventListener("click", (e) => {
+    const target = e.target as HTMLElement;
+    const act = target.dataset.act;
+    const chip = target.closest<HTMLElement>("[data-tone],[data-draft],[data-send],[data-cancel]");
+    if (act === undefined && chip === null) return;
     e.preventDefault();
     e.stopPropagation();
-    send(
-      act === "save"
-        ? { type: "save", postId }
-        : { type: "openRoute", route: `/compose?reply=${postId}` },
-    );
+    if (act === "save") return send({ type: "save", postId });
+    if (act === "reply")
+      return setPanel(postId, state.panels.has(postId) ? null : { ...emptyPanel });
+    if (chip === null) return;
+    const panel = state.panels.get(postId) ?? emptyPanel;
+    const text = () => root.querySelector("textarea")?.value ?? panel.text;
+    if (chip.dataset.cancel !== undefined) return setPanel(postId, null);
+    if (chip.dataset.draft !== undefined)
+      return setPanel(postId, { text: panel.drafts[Number(chip.dataset.draft)] ?? panel.text });
+    if (chip.dataset.send !== undefined) {
+      const value = text().trim();
+      if (value === "") return;
+      setPanel(postId, { busy: "reply", error: null, text: value });
+      return send({ type: "reply", postId, text: value });
+    }
+    const tone = chip.dataset.tone;
+    if (tone === "") return setPanel(postId, { tone: null, drafts: [], text: text() });
+    setPanel(postId, { tone: tone as ReplyTone, busy: "draft", error: null, text: text() });
+    send({ type: "draft", postId, tone: tone as ReplyTone });
   });
   row.after(host);
-  state.strips.set(postId, { host, body, html });
+  state.strips.set(postId, { host, root, body, html });
 };
 
 const applyVisibility = () => {
@@ -220,7 +320,7 @@ const scan = () => {
       strip?.host.remove();
       continue;
     }
-    if (strip !== undefined) render(strip, stripHtml(post));
+    if (strip !== undefined) render(strip, stripHtml(postId, post));
     else mountStrip(article, postId, post);
     if (article.dataset.xtendHover === undefined) {
       article.dataset.xtendHover = "1";
@@ -331,6 +431,21 @@ ipcRenderer.on(OVERLAY_TOGGLE_CHANNEL, () => {
 ipcRenderer.on(OVERLAY_HIDE_CHANNEL, (_event, hidden: boolean) => {
   state.killed = hidden;
   applyVisibility();
+});
+ipcRenderer.on(OVERLAY_MARKS_CHANNEL, (_event, marks: OverlayMarks) => {
+  for (const [id, found] of Object.entries(marks)) state.marks.set(id, found);
+  queueScan();
+});
+ipcRenderer.on(OVERLAY_REPLY_CHANNEL, (_event, outcome: OverlayReply) => {
+  if (!state.panels.has(outcome.postId)) return;
+  setPanel(
+    outcome.postId,
+    "drafts" in outcome
+      ? { busy: null, drafts: outcome.drafts, text: outcome.drafts[0] ?? "" }
+      : "replied" in outcome
+        ? { busy: null, replied: true }
+        : { busy: null, error: outcome.error },
+  );
 });
 ipcRenderer.on(OVERLAY_GLANCE_CHANNEL, (_event, glance: Glance) => {
   state.glance = glance;

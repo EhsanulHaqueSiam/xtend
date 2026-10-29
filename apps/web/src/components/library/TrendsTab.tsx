@@ -1,17 +1,26 @@
-import { useAtomSet, useAtomValue } from "@effect/atom-react";
-import type { TrendIdea } from "@xtend/contracts";
+import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
+import type { ForYouTopic, PoolTrends, TrendIdea } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 import { TextMorph } from "torph/react";
 
+import { fmtWhen } from "../../lib/time";
 import { cn } from "../../lib/utils";
-import { useQuoteLabel } from "../../state/costs";
-import { saveSuggestedDraftAtom, trendIdeasAtom, trendsAtom } from "../../state/library";
+import { costLabels, useQuoteLabel } from "../../state/costs";
+import {
+  forYouAtom,
+  generateReadyAtom,
+  saveSuggestedDraftAtom,
+  trendIdeasAtom,
+  trendsAtom,
+} from "../../state/library";
+import { poolTrendsAtom } from "../../state/pool";
 import { PageHeader } from "../PageHeader";
 import { CountrySelect, TREND_COUNTRIES, TrendTable, countryLabel } from "../scores/Trending";
-import { Cost, Empty, PageBody } from "../ui/layout";
+import { Cost, Empty, PageBody, Section, table } from "../ui/layout";
+import { XLink } from "../ui/x-link";
 import { xPill, xPillSm } from "../x";
-import { ErrorLine, causeMessage, errorMessage } from "./shared";
+import { AppLink, ErrorLine, causeMessage, errorMessage } from "./shared";
 
 const button = cn(xPill, xPillSm);
 
@@ -44,7 +53,7 @@ function IdeaRow({ idea }: { readonly idea: TrendIdea }) {
           onClick={() => {
             setSaving(true);
             setError(null);
-            void saveDraft({ text: idea.text, source: `trend:${idea.trend}` }).then(
+            void saveDraft({ blocks: [idea.text], source: `trend:${idea.trend}` }).then(
               () => setFiled(true),
               (e: unknown) => {
                 setSaving(false);
@@ -69,6 +78,213 @@ function TrendList({ country }: { readonly country: string }) {
     onFailure: (f) => <ErrorLine className="py-4">{causeMessage(f.cause)}</ErrorLine>,
     onSuccess: ({ value }) => <TrendTable trends={value.slice(0, 30)} />,
   });
+}
+
+const compact = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
+const num = (n: number | null) => (n === null ? "–" : compact.format(n));
+
+/** The pool's two views side by side: posts gaining the most in 24h, and words rising against the week before. */
+function PoolViews({ value }: { readonly value: PoolTrends }) {
+  if (value.hot.length === 0 && value.rising.length === 0)
+    return (
+      <Empty>
+        Nothing pooled yet. Trends appear once three installs have shared for a day; yours counts
+        from tomorrow.
+      </Empty>
+    );
+  return (
+    <div className="grid grid-cols-1 gap-6 @min-[52rem]:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+      <table className={table.root}>
+        <thead>
+          <tr>
+            <th className={table.th}>Post</th>
+            <th className={cn(table.th, "text-right")}>Views 24h</th>
+            <th className={cn(table.th, "text-right")}>Likes</th>
+            <th className={cn(table.th, "text-right")}>Seen by</th>
+          </tr>
+        </thead>
+        <tbody>
+          {value.hot.map((p) => (
+            <tr key={p.postId} className={table.row}>
+              <td className={cn(table.td, "max-w-0")}>
+                <XLink
+                  href={`https://x.com/${p.handle}/status/${p.postId}`}
+                  className="block truncate hover:underline"
+                >
+                  <span className="font-mono text-2xs text-muted-foreground">@{p.handle}</span>{" "}
+                  {p.text}
+                </XLink>
+              </td>
+              <td className={cn(table.td, table.num)}>{num(p.views24h)}</td>
+              <td className={cn(table.td, table.num)}>{num(p.likes24h)}</td>
+              <td className={cn(table.td, table.num, "text-muted-foreground")}>{p.sightings}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <table className={table.root}>
+        <thead>
+          <tr>
+            <th className={table.th}>Rising</th>
+            <th className={cn(table.th, "text-right")}>Today</th>
+            <th className={cn(table.th, "text-right")}>Lift</th>
+          </tr>
+        </thead>
+        <tbody>
+          {value.rising.map((t) => (
+            <tr key={t.word} className={table.row}>
+              <td className={table.td}>
+                <XLink
+                  href={`https://x.com/search?q=${encodeURIComponent(t.word)}`}
+                  className="hover:underline"
+                >
+                  {t.word}
+                </XLink>
+              </td>
+              <td className={cn(table.td, table.num)}>{t.today}</td>
+              <td className={cn(table.td, table.num)}>{t.lift.toFixed(1)}×</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** What everyone's X is doing, from the shared pool. Free, and read even with sharing off. */
+function PoolSection() {
+  const result = useAtomValue(poolTrendsAtom);
+  const refresh = useAtomRefresh(poolTrendsAtom);
+  const freshness = AsyncResult.getOrElse(
+    AsyncResult.map(
+      result,
+      (v) =>
+        `pool · ${num(v.posts)} posts from ${v.installs} installs · fetched ${fmtWhen(v.fetchedAt)}`,
+    ),
+    () => "pool · free",
+  );
+  return (
+    <Section
+      title="Pool"
+      description={freshness}
+      aside={
+        <button type="button" className={button} onClick={refresh}>
+          Refresh
+          <Cost usd={0} />
+        </button>
+      }
+    >
+      {AsyncResult.match(result, {
+        onInitial: () => <Empty>Reading the pool.</Empty>,
+        onFailure: (f) => <ErrorLine className="py-2">{causeMessage(f.cause)}</ErrorLine>,
+        onSuccess: ({ value }) => <PoolViews value={value} />,
+      })}
+    </Section>
+  );
+}
+
+function TopicRows({ topics }: { readonly topics: ReadonlyArray<ForYouTopic> }) {
+  if (topics.length === 0)
+    return (
+      <Empty>
+        No topics yet. They come from what your X session shows, your posts, keywords and saved
+        posts; browse X for a while or add keywords in Settings.
+      </Empty>
+    );
+  return (
+    <table className={table.root}>
+      <thead>
+        <tr>
+          <th className={cn(table.th, "w-0 pr-8")}>Topic</th>
+          <th className={table.th}>Why</th>
+        </tr>
+      </thead>
+      <tbody>
+        {topics.map((t) => (
+          <tr key={t.term} className={table.row}>
+            <td className={cn(table.td, "pr-8 whitespace-nowrap")}>
+              <XLink
+                href={`https://x.com/search?q=${encodeURIComponent(t.term)}`}
+                className={cn("hover:underline", t.source === "outside" && "text-muted-foreground")}
+              >
+                {t.term}
+              </XLink>
+            </td>
+            <td className={cn(table.td, "max-w-0 truncate text-muted-foreground")}>{t.reason}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/**
+ * Topics ranked on this machine against the user's posts, keywords, saved posts and the
+ * accounts they reply to. The daily ready posts are written from these.
+ */
+function ForYouSection() {
+  const result = useAtomValue(forYouAtom);
+  const refresh = useAtomRefresh(forYouAtom);
+  const generate = useAtomSet(generateReadyAtom, { mode: "promise" });
+  const assistQuote = useQuoteLabel({ kind: "assist" });
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<{ readonly text: string; readonly error: boolean } | null>(
+    null,
+  );
+  const write = async () => {
+    setBusy(true);
+    setNotice(null);
+    try {
+      const posts = await generate(TREND_COUNTRIES[0]);
+      setNotice({ text: `${posts.length} drafts written from these topics.`, error: false });
+    } catch (e) {
+      setNotice({ text: errorMessage(e), error: true });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Section
+      title="For you"
+      description="from your session, posts and keywords · ranked here, free"
+      aside={
+        <div className="flex items-center gap-1.5">
+          <button type="button" className={button} onClick={refresh}>
+            Refresh
+            <Cost usd={0} />
+          </button>
+          <button
+            type="button"
+            className={button}
+            disabled={busy}
+            title="Three posts for today in your voice, from these topics and the day's picks. Filed in Compose, Automatic."
+            onClick={() => void write()}
+          >
+            {busy ? "Writing" : "Write 3 for today"}
+            <Cost label={assistQuote} />
+          </button>
+        </div>
+      }
+    >
+      {notice !== null ? (
+        notice.error ? (
+          <ErrorLine className="px-0 pb-2">{notice.text}</ErrorLine>
+        ) : (
+          <p className="pb-2 text-xs text-muted-foreground">
+            {notice.text}{" "}
+            <AppLink href="/compose?tab=automatic" className="text-foreground hover:underline">
+              Open Automatic
+            </AppLink>
+          </p>
+        )
+      ) : null}
+      {AsyncResult.match(result, {
+        onInitial: () => <Empty>Ranking topics.</Empty>,
+        onFailure: (f) => <ErrorLine className="py-2">{causeMessage(f.cause)}</ErrorLine>,
+        onSuccess: ({ value }) => <TopicRows topics={value} />,
+      })}
+    </Section>
+  );
 }
 
 /** A country's trends, and post ideas the model ties to the ones that fit the user's keywords. */
@@ -111,7 +327,7 @@ export function TrendsTab() {
       onClick={() => void generate()}
     >
       {busy ? "Writing" : ideas === null ? "Write 5 ideas" : "Write 5 more"}
-      <Cost label={`${ideasQuote} + ${assistQuote}`} />
+      <Cost label={costLabels(ideasQuote, assistQuote)} />
     </button>
   );
 
@@ -128,8 +344,10 @@ export function TrendsTab() {
         }
       />
       <PageBody>
+        <ForYouSection />
+        <PoolSection />
         {applied === null ? (
-          <Empty action={load}>Trends by country, cached for 30 minutes.</Empty>
+          <Empty action={load}>Trends by country through treg, cached for 30 minutes.</Empty>
         ) : (
           <div className="grid min-h-full grid-cols-1 @min-[52rem]:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
             <div className="border-b border-border py-2 @min-[52rem]:border-r @min-[52rem]:border-b-0">

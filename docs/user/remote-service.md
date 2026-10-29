@@ -19,8 +19,9 @@ the service, so share it only with your own devices.
 
 ## Point the desktop at it
 
-Settings, **Remote service**: the URL (`http://<tailnet ip or host>:4820`) and that machine's
-token. The app relaunches against it. The x.com session stays in the desktop; the service
+Settings, Service page, **Remote service**: the URL (`http://<tailnet ip or host>:4820`) and
+that machine's token. **Check** tests both; **Connect and relaunch** relaunches the app against
+it, and **Use local service** goes back. The x.com session stays in the desktop; the service
 never holds it. Observations the desktop captures are posted to the remote service.
 
 ## Use it from a browser

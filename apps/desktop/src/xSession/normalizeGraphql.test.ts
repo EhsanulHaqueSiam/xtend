@@ -17,6 +17,7 @@ const tweet = (id: string, overrides: Record<string, unknown> = {}) => ({
         rest_id: "44196397",
         is_blue_verified: true,
         core: { screen_name: "levelsio", name: "Pieter Levels" },
+        privacy: { protected: false },
         legacy: { followers_count: 621000 },
       },
     },
@@ -74,6 +75,7 @@ describe("normalizeGraphqlResponse", () => {
         name: "Pieter Levels",
         followers: 621000,
         verified: true,
+        isProtected: false,
       },
       text: "Shipped the thing.",
       createdAt: "2026-10-22T04:00:00.000Z",
@@ -97,7 +99,7 @@ describe("normalizeGraphqlResponse", () => {
         user_results: {
           result: {
             rest_id: "10",
-            legacy: { screen_name: "old_shape", name: "Old", followers_count: 5 },
+            legacy: { screen_name: "old_shape", name: "Old", followers_count: 5, protected: true },
           },
         },
       },
@@ -118,7 +120,13 @@ describe("normalizeGraphqlResponse", () => {
     });
     const [post] = normalizeGraphqlResponse(body);
     expect(post).toMatchObject({
-      author: { handle: "old_shape", name: "Old", followers: 5, verified: false },
+      author: {
+        handle: "old_shape",
+        name: "Old",
+        followers: 5,
+        verified: false,
+        isProtected: true,
+      },
       text: "The whole long post.",
       isReply: true,
       hasMedia: true,

@@ -52,7 +52,7 @@ const make = Effect.gen(function* () {
     const draft = yield* drafts.get(id);
     if (draft.status !== "queued")
       return yield* new ComposeError({ operation: "runNow", detail: `Draft is ${draft.status}` });
-    return yield* publisher.post(id, { purpose: "plan.runNow", retry: true });
+    return yield* publisher.post(id, { purpose: "plan.runNow", retry: true, clicked: true });
   });
 
   const queueAfter = (id: string, after: DateTime.Utc) =>

@@ -15,9 +15,14 @@ const { ShellHotkeys } = await import("./ShellHotkeys");
 const settings = {
   handle: "siamships",
   tregTokenSet: false,
+  assistProvider: "claude",
+  assistBaseUrl: null,
+  assistModel: "",
+  assistKeySet: false,
   monthlyBudgetUsd: 20,
   sessionPostingEnabled: false,
   dailyLibraryJobs: false,
+  poolSharing: true,
   voiceNotes: "",
   keywords: [],
   timeZone: "UTC",
@@ -72,7 +77,7 @@ it("puts x.com over the main area on X's pages and beside the tools, from one we
   expect(screen.container.querySelector("webview")).toBe(webview);
 });
 
-it("opens routes sent from x.com beside it, and turns the skin on at start", async () => {
+it("opens routes sent from x.com beside it, and sends the Clean X defaults at start", async () => {
   window.localStorage.setItem("xtend:x-panel-open", "false");
   await using screen = await render(shell(), { router: "/x", service });
   bridge.emitRoute("/scores?handle=jack");
@@ -80,7 +85,7 @@ it("opens routes sent from x.com beside it, and turns the skin on at start", asy
   await expect
     .element(screen.getByRole("region", { name: "x.com" }))
     .toHaveAttribute("data-mode", "panel");
-  expect(bridge.calls).toContain("skin true");
+  expect(bridge.calls).toContain("skin ads,grok,upsells,chrome,discover,boosts,extras");
 });
 
 it("opens the palette on ⌘K sent from inside x.com", async () => {

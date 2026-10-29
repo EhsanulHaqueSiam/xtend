@@ -1,3 +1,4 @@
+import { isXSkinToggle, X_SKIN_DEFAULTS, type XSkinToggle } from "@xtend/contracts";
 import * as Atom from "effect/reactivity/Atom";
 
 /**
@@ -79,7 +80,7 @@ export const xUnreadAtom = Atom.make(0);
 /** Whether the find bar over x.com is open. */
 export const xFindOpenAtom = Atom.make(false);
 
-const stored = <A>(key: string, decode: (raw: string) => A | undefined, fallback: A) =>
+export const stored = <A>(key: string, decode: (raw: string) => A | undefined, fallback: A) =>
   Atom.keepAlive(
     Atom.writable(
       () => {
@@ -114,5 +115,15 @@ export const xPanelWidthAtom = stored(
 );
 export const clampXPanelWidth = clampWidth;
 
-/** Whether the X skin (CSS that hides X's own nav and right column) is on. */
-export const xSkinAtom = stored("xtend:x-skin", (raw) => raw !== "false", true);
+/**
+ * Pinned: the sidebar's X rows load into the panel beside the open tool instead of taking
+ * the main area, so a tool and X stay side by side.
+ */
+export const xPanelPinnedAtom = stored("xtend:x-panel-pinned", (raw) => raw === "true", false);
+
+/** The enabled Clean X toggles, the CSS the desktop puts over x.com. Stored as a comma list. */
+export const xSkinAtom = stored<ReadonlyArray<XSkinToggle>>(
+  "xtend:x-skin-toggles",
+  (raw) => raw.split(",").filter(isXSkinToggle),
+  X_SKIN_DEFAULTS,
+);

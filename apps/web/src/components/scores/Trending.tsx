@@ -1,17 +1,17 @@
-import { useAtomValue } from "@effect/atom-react";
+import { RegistryContext, useAtomValue } from "@effect/atom-react";
 import type { XTrend } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { useState } from "react";
+import { useContext, useState } from "react";
 
 import { cn } from "../../lib/utils";
 import { useQuoteLabel } from "../../state/costs";
 import { trendingAtom } from "../../state/scores";
 import { PageHeader } from "../PageHeader";
-import { compactInputClass } from "../ui/field";
 import { Cost, Empty, PageBody, table } from "../ui/layout";
 import { xPill, xPillSm } from "../x";
 import { ErrorLine, causeMessage, fmt } from "../library/shared";
 import { XLink } from "../ui/x-link";
+import { Select } from "../ui/select";
 
 /** The scraper's country names; Library's trends section uses the same list. */
 export const TREND_COUNTRIES = [
@@ -35,18 +35,13 @@ export function CountrySelect({
   readonly onChange: (country: string) => void;
 }) {
   return (
-    <select
-      aria-label="Country"
-      className={cn(compactInputClass, "w-auto cursor-pointer")}
+    <Select
+      compact
+      label="Country"
       value={value}
-      onChange={(e) => onChange(e.target.value)}
-    >
-      {TREND_COUNTRIES.map((c) => (
-        <option key={c} value={c}>
-          {countryLabel(c)}
-        </option>
-      ))}
-    </select>
+      onChange={onChange}
+      options={TREND_COUNTRIES.map((c) => ({ value: c, label: countryLabel(c) }))}
+    />
   );
 }
 
@@ -109,8 +104,12 @@ export function Trending() {
   const [country, setCountry] = useState<string>(TREND_COUNTRIES[0]);
   const [loaded, setLoaded] = useState<string | null>(null);
   const quote = useQuoteLabel({ kind: "trending", country });
+  const registry = useContext(RegistryContext);
+  // Load on the country already shown refetches it: a failed or stale load has no other retry.
+  const onLoad = () =>
+    loaded === country ? registry.refresh(trendingAtom(country)) : setLoaded(country);
   const load = (
-    <button type="button" className={cn(xPill, xPillSm)} onClick={() => setLoaded(country)}>
+    <button type="button" className={cn(xPill, xPillSm)} onClick={onLoad}>
       Load
       <Cost label={quote} />
     </button>

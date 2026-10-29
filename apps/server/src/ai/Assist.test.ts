@@ -1,10 +1,11 @@
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import { HttpClient, HttpClientResponse, type HttpClientRequest } from "effect/http";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { vi } from "vite-plus/test";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 
-import * as Budget from "../budget/Budget.ts";
 import * as ServerConfig from "../config.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
@@ -26,12 +27,33 @@ const sdk = vi.hoisted(() => ({
 }));
 vi.mock("@anthropic-ai/claude-agent-sdk", () => sdk);
 
+// The user's own endpoint: records what it was sent and answers like an OpenAI-compatible server,
+// in the fences models tend to add.
+const ownCalls: Array<HttpClientRequest.HttpClientRequest> = [];
+const ownModel = Layer.succeed(HttpClient.HttpClient)(
+  HttpClient.make((request) => {
+    ownCalls.push(request);
+    return Effect.succeed(
+      HttpClientResponse.fromWeb(
+        request,
+        new Response(
+          JSON.stringify({
+            choices: [{ message: { content: '```json\n{"hook":"Local hook"}\n```' } }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      ),
+    );
+  }),
+);
+
 const layerTest = Assist.layer.pipe(
-  Layer.provideMerge(Budget.layer),
   Layer.provideMerge(SettingsStore.layer),
   Layer.provideMerge(
     Layer.mergeAll(
       Sqlite.layerMemory,
+      NodeServices.layer,
+      ownModel,
       TokenCipher.layerTest,
       ServerConfig.layer({
         version: "test",
@@ -55,26 +77,58 @@ const request = {
 };
 
 describe("Assist.generate", () => {
-  it.effect("returns the structured answer and logs what the model run cost", () =>
+  it.effect("runs on the Claude login with the chosen model, and logs no spend", () =>
     Effect.gen(function* () {
       sdk.query.mockClear();
       const assist = yield* Assist.Assist;
       const settings = yield* SettingsStore.SettingsStore;
+      yield* settings.update({ assistModel: "test-model", monthlyBudgetUsd: 0 });
       expect(yield* assist.generate(request)).toEqual({ hook: "Ship it" });
+      expect(sdk.query.mock.calls[0]?.[0]).toMatchObject({ options: { model: "test-model" } });
       const spend = yield* settings.spendSummary;
-      expect(spend.byPurpose).toEqual([{ purpose: "compose.improveHook", costUsd: 0.02 }]);
+      expect(spend.byPurpose).toEqual([]);
     }).pipe(Effect.provide(layerTest)),
   );
+});
 
-  it.effect("starts no model run when the budget refuses the reservation", () =>
+describe("Assist.generate with the user's own model", () => {
+  it.effect("asks the user's endpoint instead of the SDK, with the key, and pays nothing", () =>
     Effect.gen(function* () {
       sdk.query.mockClear();
-      const assist = yield* Assist.Assist;
       const settings = yield* SettingsStore.SettingsStore;
-      yield* settings.update({ monthlyBudgetUsd: 0.01 });
-      const error = yield* Effect.flip(assist.generate(request));
-      expect(error.reason).toBe("budget");
+      yield* settings.update({
+        assistProvider: "endpoint",
+        assistBaseUrl: "http://127.0.0.1:11434/v1/",
+        assistModel: "llama3.1",
+        assistKey: "sk-own",
+      });
+      const assist = yield* Assist.Assist;
+      expect(yield* assist.generate(request)).toEqual({ hook: "Local hook" });
       expect(sdk.query).not.toHaveBeenCalled();
+      const [sent] = ownCalls;
+      expect(sent?.url).toBe("http://127.0.0.1:11434/v1/chat/completions");
+      expect(sent?.headers.authorization).toBe("Bearer sk-own");
+      expect((yield* settings.spendSummary).recent).toHaveLength(0);
     }).pipe(Effect.provide(layerTest)),
+  );
+});
+
+describe("Assist settings", () => {
+  it.effect(
+    "drops the key when the endpoint changes without a new one, and refuses non-model hosts",
+    () =>
+      Effect.gen(function* () {
+        const settings = yield* SettingsStore.SettingsStore;
+        yield* settings.update({ assistBaseUrl: "https://api.openai.com/v1", assistKey: "sk-a" });
+        expect((yield* settings.get).assistKeySet).toBe(true);
+        const moved = yield* settings.update({
+          assistProvider: "endpoint",
+          assistBaseUrl: "http://169.254.169.254/v1",
+        });
+        expect(moved.assistKeySet).toBe(false);
+        const assist = yield* Assist.Assist;
+        const refused = yield* assist.generate(request).pipe(Effect.flip);
+        expect(refused.detail).toContain("not a model host");
+      }).pipe(Effect.provide(layerTest)),
   );
 });

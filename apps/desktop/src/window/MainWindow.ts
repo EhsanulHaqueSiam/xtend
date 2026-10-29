@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
+import { isXSkinToggle, X_SKIN_DEFAULTS, type XSkinToggle } from "@xtend/contracts";
 import {
   app,
   BrowserWindow,
@@ -31,7 +32,7 @@ import {
   X_SKIN_CHANNEL,
 } from "../ipc/channels.ts";
 import { createOverlayFeed } from "../overlay/OverlayFeed.ts";
-import { X_SKIN_CSS } from "../overlay/xSkin.ts";
+import { xSkinCss } from "../overlay/xSkin.ts";
 import { attachDesktopCommands } from "../service/DesktopCommands.ts";
 import { attachSessionCapture } from "../xSession/SessionCapture.ts";
 import {
@@ -199,6 +200,9 @@ export function createMainWindow(options: MainWindowOptions) {
       webviewTag: true,
     },
   });
+  // Linux and Windows would otherwise draw Electron's stock File/Edit/View bar over the app;
+  // the sidebar and ⌘K are the menu, as in T3 Code. macOS keeps its app menu for the chords.
+  if (process.platform !== "darwin") window.removeMenu();
   const appContents = window.webContents;
   allowXPermissions(appContents.session);
   appContents.on("page-title-updated", (event) => event.preventDefault());
@@ -267,7 +271,7 @@ export function createMainWindow(options: MainWindowOptions) {
   xSession.on("will-download", onDownload);
 
   let glance: Glance | null = null;
-  let skinOn = true;
+  let skin: ReadonlyArray<XSkinToggle> = X_SKIN_DEFAULTS;
   let guest: { readonly contents: Electron.WebContents; readonly detach: () => void } | null = null;
 
   /** Everything x.com's webview needs, attached once per guest; returns the teardown. */
@@ -279,7 +283,7 @@ export function createMainWindow(options: MainWindowOptions) {
     let skinKey: string | null = null;
     const applySkin = async () => {
       if (skinKey !== null) await contents.removeInsertedCSS(skinKey).catch(() => {});
-      skinKey = skinOn ? await contents.insertCSS(X_SKIN_CSS, { cssOrigin: "user" }) : null;
+      skinKey = await contents.insertCSS(xSkinCss(skin), { cssOrigin: "user" });
     };
     contents.on("dom-ready", () => void applySkin());
 
@@ -367,19 +371,6 @@ export function createMainWindow(options: MainWindowOptions) {
     const overlay = createOverlayFeed(contents);
     const createdListeners = new Set<(postId: string) => void>();
     let navViewer: string | null = null;
-    const detachCapture = attachSessionCapture(contents, {
-      serviceUrl: options.serviceUrl,
-      serviceToken: options.serviceToken,
-      accountId: options.accountId,
-      queueDir: options.queueDir,
-      log: options.log,
-      onPosts: overlay.observe,
-      onCreatedPost: (postId) => {
-        for (const listener of createdListeners) listener(postId);
-        createdListeners.clear();
-      },
-      fallbackViewer: () => navViewer,
-    });
     const commands = attachDesktopCommands(contents, {
       serviceUrl: options.serviceUrl,
       serviceToken: options.serviceToken,
@@ -388,6 +379,22 @@ export function createMainWindow(options: MainWindowOptions) {
       },
       nextCreatedPost: () => new Promise((resolve) => createdListeners.add(resolve)),
       log: options.log,
+    });
+    const detachCapture = attachSessionCapture(contents, {
+      serviceUrl: options.serviceUrl,
+      serviceToken: options.serviceToken,
+      accountId: options.accountId,
+      queueDir: options.queueDir,
+      log: options.log,
+      onPosts: (batch, viewer) => {
+        overlay.observe(batch, viewer);
+        commands.marks(batch.map((p) => ({ postId: p.postId, handle: p.author.handle })));
+      },
+      onCreatedPost: (postId) => {
+        for (const listener of createdListeners) listener(postId);
+        createdListeners.clear();
+      },
+      fallbackViewer: () => navViewer,
     });
 
     const onAction = (event: Electron.IpcMainEvent, action: OverlayAction) => {
@@ -400,7 +407,7 @@ export function createMainWindow(options: MainWindowOptions) {
       }
       const post = overlay.get(action.postId);
       if (post === undefined) return;
-      commands.save({
+      const xPost = {
         postId: post.postId,
         url: `https://x.com/${post.author.handle}/status/${post.postId}`,
         text: post.text,
@@ -412,7 +419,14 @@ export function createMainWindow(options: MainWindowOptions) {
         hasLink: post.hasLink,
         author: { ...post.author, avatarUrl: null },
         metrics: post.metrics,
-      });
+      };
+      if (action.type === "draft") return commands.draft(xPost, action.tone);
+      if (action.type === "reply") {
+        if (typeof action.text === "string" && action.text.trim() !== "")
+          commands.reply(xPost, action.text.slice(0, 280));
+        return;
+      }
+      commands.save(xPost);
     };
     ipcMain.on(OVERLAY_ACTION_CHANNEL, onAction);
     const onViewer = (event: Electron.IpcMainEvent, handle: unknown) => {
@@ -464,8 +478,10 @@ export function createMainWindow(options: MainWindowOptions) {
       guest?.contents.send(OVERLAY_GLANCE_CHANNEL, glance);
     }),
     from<unknown>(X_SKIN_CHANNEL, (value) => {
-      if (typeof value !== "boolean" || value === skinOn) return;
-      skinOn = value;
+      if (!Array.isArray(value)) return;
+      const next = value.filter(isXSkinToggle);
+      if (next.join() === skin.join()) return;
+      skin = next;
       void applyGuestSkin();
     }),
   ];

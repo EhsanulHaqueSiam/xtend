@@ -53,7 +53,7 @@ export function DetailSplit({
           key={detailKey ?? undefined}
           aria-label={label}
           className={cn(
-            "w-[min(380px,45%)] min-w-[300px] shrink-0 overflow-y-auto border-l border-border",
+            "w-[min(380px,45%)] min-w-[300px] shrink-0 overflow-y-auto border-l border-border [counter-reset:section]",
             cover && "@max-[46rem]/split:w-full @max-[46rem]/split:border-l-0",
           )}
         >

@@ -5,6 +5,7 @@ import {
   type NicheProfile,
   type ReplyDraft,
   type ReplyTarget,
+  type ReplyTone,
   type SentReply,
   type XApiError,
   type XPost,
@@ -16,8 +17,10 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
 import * as Assist from "../ai/Assist.ts";
+import * as SessionPosting from "../compose/SessionPosting.ts";
 import * as Events from "../events/Events.ts";
 import * as ObservationStore from "../observations/ObservationStore.ts";
+import { bestOwn, leadingHandles } from "../observations/own.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 import * as Treg from "../x/Treg.ts";
 import * as XClient from "../x/XClient.ts";
@@ -57,19 +60,26 @@ export interface DmsResult {
   readonly quoteUsd: number;
 }
 
-/** Handles a reply opens with, lowercased: "@a @b text" gives a and b. */
-const leadingHandles = (text: string) =>
-  (text.match(/^(?:@\w+\s*)+/)?.[0] ?? "")
-    .split(/\s+/)
-    .filter((t) => t !== "")
-    .map((t) => t.slice(1).toLowerCase());
+/** What each chooser tone asks of the model. */
+const TONES: Record<ReplyTone, string> = {
+  agree: "agree with the author and say why from the user's own experience",
+  add: "add a point, example or number the author left out",
+  ask: "ask one specific question the author would want to answer",
+  contrarian: "push back on the author's claim with a reason",
+  sarcastic: "are dry and sarcastic, without insulting the author",
+  warm: "are warm and personal, like a reply to a friend",
+  short: "are one short sentence",
+};
 
 /** Reply targets, AI reply drafts, X writes and mentions. Persistence is EngageStore. */
 export class Engage extends Context.Service<
   Engage,
   {
     readonly targets: Effect.Effect<ReadonlyArray<ReplyTarget>, EngageError | XApiError>;
-    readonly draftReply: (post: XPost) => Effect.Effect<ReadonlyArray<ReplyDraft>, EngageError>;
+    readonly draftReply: (
+      post: XPost,
+      tone?: ReplyTone,
+    ) => Effect.Effect<ReadonlyArray<ReplyDraft>, EngageError>;
     /** Posts the reply through X; a failure is recorded on the row, never thrown. */
     readonly reply: (post: XPost, text: string) => Effect.Effect<SentReply, EngageError>;
     readonly like: (postId: string) => Effect.Effect<void, XApiError>;
@@ -91,6 +101,7 @@ const make = Effect.gen(function* () {
   const events = yield* Events.Events;
   const treg = yield* Treg.Treg;
 
+  const session = yield* SessionPosting.SessionPosting;
   const current = settings.get.pipe(Effect.mapError(settingsError));
   const observedError = (e: { readonly message: string }) =>
     new EngageError({ operation: "store", detail: e.message });
@@ -131,26 +142,48 @@ const make = Effect.gen(function* () {
     return all.sort((a, b) => b.score - a.score).slice(0, MAX_TARGETS);
   });
 
-  const draftReply = Effect.fn("Engage.draftReply")(function* (post: XPost) {
+  const draftReply = Effect.fn("Engage.draftReply")(function* (post: XPost, tone?: ReplyTone) {
+    const { handle } = yield* current;
+    // Taste: the user's own replies that landed, read free from the session capture.
+    const own =
+      handle === null
+        ? []
+        : bestOwn(
+            (yield* observations
+              .listRecent({ limit: 200, authorHandle: handle })
+              .pipe(Effect.orElseSucceed(() => ({ posts: [] })))).posts,
+            "replies",
+          );
     const { drafts } = yield* assist
       .generate({
         task: "engage.draftReply",
-        instructions:
-          "Write 3 different replies to this post in the user's voice. Each under 280 characters, no praise or flattery, no questions for the sake of it; each adds one concrete point, example, number or counterpoint the author did not say.",
-        input: { author: post.author.handle, text: post.text },
+        instructions: `Write 3 different replies to this post in the user's voice. Each under 280 characters, no praise or flattery, no questions for the sake of it; each adds one concrete point, example, number or counterpoint the author did not say. The user's replies that did best are their taste: match their length, rhythm and attitude, never their wording.${tone === undefined ? "" : ` All three ${TONES[tone]}.`}`,
+        input: { author: post.author.handle, text: post.text, yourBestReplies: own },
         output: Schema.Struct({ drafts: Schema.Array(Schema.Struct({ text: Schema.String })) }),
       })
       .pipe(Effect.mapError(assistError));
     return drafts.filter((d) => d.text.length <= 280).slice(0, 3);
   });
 
+  // Free first: a clicked reply goes through the user's own session while that lane is on.
+  // Nothing attempted (lane off, no desktop, human pace) fails the call; a refusal or a
+  // desktop that went quiet after it may have clicked Post is kept on the row like X's own.
   const reply = Effect.fn("Engage.reply")(function* (post: XPost, text: string) {
-    const result = yield* x
-      .createPost({ text, replyToPostId: post.postId, purpose: "engage.reply" })
-      .pipe(
-        Effect.map((r) => ({ postId: r.postId, error: null })),
-        Effect.catchTag("XApiError", (e) => Effect.succeed({ postId: null, error: e.message })),
-      );
+    const { sessionPostingEnabled } = yield* current;
+    const result = sessionPostingEnabled
+      ? yield* session.post({ text, mediaPaths: [], replyToPostId: post.postId, paced: true }).pipe(
+          Effect.map((r) => ({ postId: r.postId, error: null })),
+          Effect.catch((e) =>
+            e._tag === "DesktopUnavailableError" &&
+            (e.reason === "timeout" || e.reason === "failed")
+              ? Effect.succeed({ postId: null, error: e.message })
+              : new EngageError({ operation: "session", detail: e.message }),
+          ),
+        )
+      : yield* x.createPost({ text, replyToPostId: post.postId, purpose: "engage.reply" }).pipe(
+          Effect.map((r) => ({ postId: r.postId, error: null })),
+          Effect.catchTag("XApiError", (e) => Effect.succeed({ postId: null, error: e.message })),
+        );
     return yield* store.recordReply({
       targetPostId: post.postId,
       targetUrl: post.url,

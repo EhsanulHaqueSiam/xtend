@@ -38,6 +38,8 @@ const browserTestProject = {
   test: {
     name: "browser",
     include: ["src/**/*.browser.test.ts"],
+    // `vp test bench` gives every project a "(bench)" twin; the benches here are Node's.
+    benchmark: { include: [] },
     browser: {
       enabled: true,
       headless: true,

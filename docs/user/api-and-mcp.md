@@ -5,15 +5,17 @@ a script or an agent, and costs and logs exactly what the click would.
 
 ## CLI
 
-The service binary doubles as the CLI. It reads the token from `~/.xtend` and the URL from
-`XTEND_SERVICE_URL` or `--port`.
+The service binary doubles as the CLI. On its own, `xtend` runs the service (`--host`,
+`--port` and `--base-dir` set where it listens and keeps its data). The commands below drive a
+running service: they read the token from `~/.xtend` and the URL from `XTEND_SERVICE_URL` or
+`--port`.
 
 ```
 xtend post "<text>"        draft the text and post it now (paid)
 xtend queue                drafts waiting in the queue
-xtend report <handle>      score report as JSON
+xtend report <handle>      the stored score report as JSON
 xtend spend                this month's spend against the budget
-xtend agents run <name>    run a Leads agent by name
+xtend agents run <name>    run a Leads agent by name (paid)
 xtend mcp                  serve MCP over stdio
 xtend service install      keep the service running with the app closed (macOS launchd)
 xtend service uninstall

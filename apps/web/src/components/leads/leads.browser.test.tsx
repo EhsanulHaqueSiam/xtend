@@ -5,6 +5,7 @@ import type {
   Person,
   PersonUpdate,
   SignalAgent,
+  SignalAgentInput,
 } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import { expect, it } from "vite-plus/test";
@@ -166,6 +167,34 @@ const agent = (id: number, name: string, extra: Partial<SignalAgent> = {}): Sign
   ...extra,
 });
 
+it("saving an agent's settings after Pause keeps it paused", async () => {
+  let stored = agent(1, "founders");
+  const upserts: Array<SignalAgentInput> = [];
+  await using screen = await render(<AgentsSection />, {
+    service: {
+      "costs.quote": quoting(),
+      "leads.listsList": () => Effect.succeed([]),
+      "leads.agentsList": () => Effect.sync(() => [stored]),
+      "leads.agentUpsert": (input) =>
+        Effect.sync(() => {
+          upserts.push(input);
+          stored = { ...stored, ...input, id: 1 };
+          return stored;
+        }),
+    },
+  });
+  await userEvent.click(screen.getByRole("button", { name: "Pause" }));
+  await expect.element(screen.getByRole("button", { name: "Resume" })).toBeVisible();
+  await userEvent.fill(screen.getByPlaceholder('"typefully alternative" OR "tweet hunter"'), "new");
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  await expect
+    .poll(() => upserts.map((u) => [u.query, u.enabled]))
+    .toEqual([
+      ["founders query", false],
+      ["new", false],
+    ]);
+});
+
 it("edits the agent that was clicked, and prices a bot-checking run with its profile reads", async () => {
   const saved: Array<string> = [];
   await using screen = await render(<AgentsSection />, {
@@ -181,16 +210,18 @@ it("edits the agent that was clicked, and prices a bot-checking run with its pro
         }),
     },
   });
-  // The first agent opens beside the list: one search page per run.
+  // The first agent opens beside the list: one search page per run, plus the model call that scores.
   const query = screen.getByPlaceholder('"typefully alternative" OR "tweet hunter"');
   await expect.element(query).toHaveValue("founders query");
-  await expect.element(screen.getByRole("button", { name: /^Run now.*\$0\.00075$/ })).toBeVisible();
+  await expect
+    .element(screen.getByRole("button", { name: /^Run now.*\$0\.00075 \+ \$0\.001$/ }))
+    .toBeVisible();
 
   // Dropping bots reads a profile per author, up to 50.
   await userEvent.click(screen.getByRole("button", { name: /^devtools/ }));
   await expect.element(query).toHaveValue("devtools query");
   await expect
-    .element(screen.getByRole("button", { name: /^Run now.*up to \$0\.01175$/ }))
+    .element(screen.getByRole("button", { name: /^Run now.*up to \$0\.01175 \+ \$0\.001$/ }))
     .toBeVisible();
 
   await userEvent.fill(query, "devtools launch");
@@ -239,4 +270,34 @@ it("changes a stage, and prices a DM to someone without a user id with the profi
   await userEvent.click(screen.getByRole("button", { name: /^@lead2/ }));
   await expect.element(dm).toHaveValue("");
   await expect.element(screen.getByRole("button", { name: /^Send DM.*\$0\.015$/ })).toBeDisabled();
+});
+
+it("dragging a card onto a stage column moves the person there", async () => {
+  const updates: Array<PersonUpdate> = [];
+  let people = [person(1), person(2)];
+  await using screen = await render(<PeopleSection />, {
+    service: {
+      "costs.quote": quoting(),
+      "leads.peopleList": () => Effect.sync(() => people),
+      "leads.personUpdate": (patch) =>
+        Effect.sync(() => {
+          updates.push(patch);
+          people = people.map((p) =>
+            p.id === patch.id ? { ...p, stage: patch.stage ?? p.stage } : p,
+          );
+          return people.find((p) => p.id === patch.id)!;
+        }),
+      "leads.personGet": ({ id }) =>
+        Effect.sync(() => ({ person: people.find((p) => p.id === id)!, activity: [] })),
+    },
+  });
+  await userEvent.click(screen.getByRole("button", { name: "Stages" }));
+  const card = screen.getByRole("button", { name: /^@lead2/ });
+  await card.dropTo(screen.getByRole("region", { name: "contacted" }));
+  await expect.poll(() => updates).toEqual([{ id: 2, stage: "contacted" }]);
+  await expect
+    .element(
+      screen.getByRole("region", { name: "contacted" }).getByRole("button", { name: /^@lead2/ }),
+    )
+    .toBeVisible();
 });

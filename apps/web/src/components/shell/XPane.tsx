@@ -2,6 +2,8 @@ import { useAtom, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import {
   ArrowLeft,
+  Pin,
+  PinOff,
   ArrowRight,
   ChevronDown,
   ChevronUp,
@@ -22,6 +24,7 @@ import {
   xFindOpenAtom,
   xForward,
   xPanelOpenAtom,
+  xPanelPinnedAtom,
   xPanelWidthAtom,
   xReload,
   xUnreadAtom,
@@ -182,6 +185,8 @@ function BarButton({
 function PanelBar() {
   const url = useAtomValue(xUrlAtom);
   const setOpen = useAtomSet(xPanelOpenAtom);
+  const pinned = useAtomValue(xPanelPinnedAtom);
+  const setPinned = useAtomSet(xPanelPinnedAtom);
   const navigate = useNavigate();
   return (
     <div className="flex h-10 shrink-0 items-center gap-1 border-b border-border pr-1.5 pl-3">
@@ -196,6 +201,12 @@ function PanelBar() {
       </BarButton>
       <BarButton label="Reload" onClick={xReload}>
         <RotateCw />
+      </BarButton>
+      <BarButton
+        label={pinned ? "Unpin: X's pages take the main area" : "Pin: X's pages open here"}
+        onClick={() => setPinned(!pinned)}
+      >
+        {pinned ? <PinOff /> : <Pin />}
       </BarButton>
       <BarButton label="Open X full size" onClick={() => void navigate({ to: "/x" })}>
         <Maximize2 />
@@ -252,7 +263,16 @@ function ResizeHandle() {
  * nothing and X sees an ordinary Chromium tab. One webview for the window's
  * life; the pane moves it with CSS between the main area and the side panel.
  */
-export function XPane({ mode, width }: { readonly mode: XPaneMode; readonly width: number }) {
+export function XPane({
+  mode,
+  width,
+  inset = 0,
+}: {
+  readonly mode: XPaneMode;
+  readonly width: number;
+  /** Room left on the right in main mode, for Home's companion column. */
+  readonly inset?: number;
+}) {
   // The webview's own box: React renders nothing into it, so it never touches the element.
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   useXWebview(host);
@@ -266,7 +286,7 @@ export function XPane({ mode, width }: { readonly mode: XPaneMode; readonly widt
         mode === "panel" && "relative col-start-3 border-l border-border",
         mode === "hidden" && "invisible fixed top-0 -left-[10000px] h-full",
       )}
-      style={mode === "hidden" ? { width } : undefined}
+      style={mode === "hidden" ? { width } : mode === "main" ? { marginRight: inset } : undefined}
     >
       {mode === "panel" ? (
         <>

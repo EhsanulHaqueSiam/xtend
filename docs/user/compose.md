@@ -1,19 +1,31 @@
 # Compose
 
-Compose is drafts first. The section open in the sidebar picks which drafts you see; a row or
-**New draft** opens the composer. Press `c` anywhere in the app to start a draft.
+Compose is drafts first. The section open in the sidebar picks which drafts you see; a card,
+a row or **New draft** opens the composer. Press `c` anywhere in the app to open Compose.
 
 ## Sections
 
-| section   | what is there                                                                                                                            |
-| --------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| Drafts    | what you wrote and have not sent                                                                                                         |
-| Queued    | drafts waiting for their slot, with the time                                                                                             |
-| Automatic | drafts written for you by Library's morning run and by Automate, each with its source, and ask-first automation runs waiting for a click |
-| Failed    | posts that did not go through, with why; a row opens the draft to retry                                                                  |
-| Posted    | what went out from Xtend, with the link on X                                                                                             |
+| section   | what is there                                                                                                                                                                                                                        |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Drafts    | the board of every draft, or what you wrote and have not sent as a list                                                                                                                                                              |
+| Queued    | drafts waiting for their slot, with the time                                                                                                                                                                                         |
+| Automatic | drafts written for you by Library's morning run and by Automate, each with its source, and ask-first automation runs waiting for a click. Library writes from your For you topics, with your best posts as the example of your taste |
+| Failed    | posts that did not go through, with why; a row opens the draft to retry                                                                                                                                                              |
+| Posted    | what went out from Xtend, with the link on X                                                                                                                                                                                         |
 
-Each row shows the first line, how many posts the thread has, its price to post and its time.
+In a list each row shows the first line, how many posts the thread has, its price to post and
+its time.
+
+## The drafts board
+
+Drafts opens as four columns: Automatic, Drafts, Queued, Posted. Each card shows its first
+line, how many posts, its time and its price. **Board** and **List** in the header switch
+between the board and the list, and the choice is kept.
+
+Drag a card to the right to move it on: an automatic draft becomes yours, and a draft dropped
+on Queued takes the next free slot. Drag a queued card back to Drafts to unschedule it, or a
+draft back to Automatic. A queued draft goes back to Drafts before it can go further. Each move
+is one toast with Undo. Failed drafts sit in Drafts, marked failed. Posted cards do not move.
 
 ## The thread
 
@@ -33,36 +45,43 @@ The preview beside the editor shows the thread as X will render it, with your av
 
 ## Sending
 
-Every send button carries its price. The rate is per post, and a post with a link costs more
-than one without; the price on the button is what you will pay.
+Every send carries its price. The rate is per post, and a post with a link costs more than one
+without.
 
-- **Post now** sends the thread through the X API.
-- **Queue** puts it on the next free slot from [Plan](./plan.md). The button names the slot.
-- **Schedule** picks a time of your own.
-- Posts with media go through your x.com session when **Post media through X** is on in
-  Settings, and are then not billed.
+- **Post now** shows the total, with the posts that carry a link or media counted apart, and
+  sends the thread once you **Confirm and post**.
+- **Queue** puts it on the next free slot from [Plan](./plan.md). The button beside it shows
+  that slot; open it to pick a time of your own and **Schedule**.
+- Posts with media go through your x.com session and are not billed (see
+  [x.com inside Xtend](./x-view.md)).
 
 A thread posts one post at a time. If a later post fails, the draft lands in Failed with what
 went out marked, and a retry continues from there.
 
 ## Replies and quotes
 
-`r` anywhere, or Reply with AI on a post in X, opens Compose on a reply. The post you are
+Reply with AI on a post in X opens Compose on a reply. The post you are
 answering shows beside the editor, read from the Library when it is saved there, otherwise
 from what the session view showed. Remix in the Library opens Compose with the post it was
-inspired by beside it and linked on the draft.
+inspired by beside it and linked on the draft. A post dropped on Compose in the sidebar starts
+a draft that quotes it.
 
 ## Assist
 
 At the foot of the writing column the model's help is one row of actions on the draft and a
-topic box for thread ideas. Each action is one model call and shows its price. Answers open
-above the row, each with **Use** and **Dismiss**; nothing changes your draft until you click Use.
+topic box for thread ideas. Each action is one model call. Answers open
+above the row, each with **Use** and **Dismiss**; nothing changes your draft until you click
+Use.
 
+- **Improve hook** offers new first lines.
 - **Rewrite** reworks the current post.
-- **Voice match** scores the draft against your recent posts (0 to 1, shown in the header). It
-  reads your recent posts from X first, so it is priced as a read plus a model call.
-- **Thread ideas** writes a thread on the topic in the box and adds it after your last post.
-- **Where this lands** is free: the next free slot, your best hours, and three Library posts
-  like your first line.
+- **Continue thread** writes the next posts after your last one.
+- **Voice match** scores the draft against your recent posts. It reads your recent posts from
+  X first, so it is priced as a read.
+- **Ideas** writes thread outlines on the topic in the box; Use replaces the draft with one.
 
-Your voice notes and keywords from Settings go with every call. See [Costs](./costs.md).
+Beside the editor, the Context card shows the next free slot and your best hours for free, and
+**Find similar** runs a priced X search for three posts like your first line.
+
+Your voice notes and keywords from Settings go with every call. Model calls run on the model set
+in Settings, Writing, and cost nothing through Xtend. See [Costs](./costs.md).

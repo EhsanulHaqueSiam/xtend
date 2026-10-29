@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
 import { Section } from "../ui/layout";
+import { Marks, useMarks } from "../ui/marks";
 import { xPill, xPillSm, xPillSolid } from "../x";
 
 /**
@@ -25,6 +26,7 @@ export function PostHead({
   readonly meta: string;
   readonly actions: ReactNode;
 }) {
+  const marks = useMarks([{ postId: post.postId, handle: post.author.handle }]);
   return (
     <Section>
       <div className="flex items-center gap-1.5 text-sm font-semibold">
@@ -36,6 +38,7 @@ export function PostHead({
       <p className="truncate text-[12.5px] text-muted-foreground">
         @{post.author.handle} · {meta}
       </p>
+      <Marks marks={marks[post.postId]} />
       <p className="mt-3 text-sm leading-relaxed break-words whitespace-pre-wrap">{post.text}</p>
       <div className="mt-4 flex flex-wrap items-center gap-1.5">{actions}</div>
     </Section>

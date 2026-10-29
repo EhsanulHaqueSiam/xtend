@@ -33,6 +33,11 @@ interface SettingsRow {
   readonly voice_notes: string;
   readonly keywords_json: string;
   readonly time_zone: string | null;
+  readonly assist_provider: Settings["assistProvider"];
+  readonly assist_base_url: string | null;
+  readonly assist_model: string;
+  readonly assist_key: string | null;
+  readonly pool_sharing: number;
 }
 
 interface SpendRow {
@@ -49,6 +54,8 @@ export class SettingsStore extends Context.Service<
     readonly get: Effect.Effect<Settings, SettingsError>;
     /** The stored treg token, if the user pasted one. Never leaves the service. */
     readonly tregToken: Effect.Effect<string | null, SettingsError>;
+    /** The key for the user's own assist endpoint, if any. Never leaves the service. */
+    readonly assistKey: Effect.Effect<string | null, SettingsError>;
     readonly update: (patch: SettingsUpdate) => Effect.Effect<Settings, SettingsError>;
     readonly recordSpend: (entry: Omit<SpendEntry, "at">) => Effect.Effect<void, SettingsError>;
     readonly spendSummary: Effect.Effect<SpendSummary, SettingsError>;
@@ -68,6 +75,17 @@ const make = Effect.gen(function* () {
     Effect.map((rows) => rows[0]!),
   );
 
+  // A token saved before encryption landed is plain text, and a save that leaves the token alone
+  // keeps it as stored; seal it once here so a copied database never carries it readable.
+  yield* row.pipe(
+    Effect.flatMap(({ treg_token: stored }) =>
+      stored === null || TokenCipher.isSealed(stored)
+        ? Effect.void
+        : sql`UPDATE settings SET treg_token = ${cipher.encrypt(stored)} WHERE id = 1`,
+    ),
+    Effect.catchCause((cause) => Effect.logWarning("could not seal the stored treg token", cause)),
+  );
+
   const toSettings = (r: SettingsRow): Settings => ({
     handle: r.handle,
     tregTokenSet: r.treg_token !== null,
@@ -77,6 +95,11 @@ const make = Effect.gen(function* () {
     voiceNotes: r.voice_notes,
     keywords: decodeKeywords(r.keywords_json),
     timeZone: r.time_zone ?? defaultZone,
+    assistProvider: r.assist_provider,
+    assistBaseUrl: r.assist_base_url,
+    assistModel: r.assist_model,
+    assistKeySet: r.assist_key !== null,
+    poolSharing: r.pool_sharing === 1,
   });
 
   const get = row.pipe(
@@ -86,12 +109,16 @@ const make = Effect.gen(function* () {
 
   // A token sealed with another secret-key (a database copied without its base dir) fails
   // here as a SettingsError, so callers fall back to the CLI login instead of dying.
-  const tregToken = row.pipe(
-    Effect.flatMap(({ treg_token: stored }) =>
-      stored === null ? Effect.succeed(null) : Effect.try(() => cipher.decrypt(stored)),
-    ),
-    Effect.mapError((cause) => new SettingsError({ operation: "get", cause })),
-  );
+  const secret = (pick: (r: SettingsRow) => string | null) =>
+    row.pipe(
+      Effect.flatMap((r) => {
+        const stored = pick(r);
+        return stored === null ? Effect.succeed(null) : Effect.try(() => cipher.decrypt(stored));
+      }),
+      Effect.mapError((cause) => new SettingsError({ operation: "get", cause })),
+    );
+  const tregToken = secret((r) => r.treg_token);
+  const assistKey = secret((r) => r.assist_key);
 
   const update = Effect.fn("SettingsStore.update")(
     function* (patch: SettingsUpdate) {
@@ -102,6 +129,22 @@ const make = Effect.gen(function* () {
       const pasted = typeof patch.tregToken === "string" ? patch.tregToken.trim() : patch.tregToken;
       const token =
         pasted === undefined ? current.treg_token : pasted ? cipher.encrypt(pasted) : null;
+      const assistBaseUrl =
+        patch.assistBaseUrl === undefined
+          ? current.assist_base_url
+          : (patch.assistBaseUrl?.trim().replace(/\/+$/, "") ?? null) || null;
+      const pastedKey =
+        typeof patch.assistKey === "string" ? patch.assistKey.trim() : patch.assistKey;
+      // A key belongs to the endpoint it was pasted for: a new endpoint without a new key drops it,
+      // so a changed URL can never receive the old provider's secret.
+      const assistKey =
+        pastedKey === undefined
+          ? assistBaseUrl === current.assist_base_url
+            ? current.assist_key
+            : null
+          : pastedKey
+            ? cipher.encrypt(pastedKey)
+            : null;
       if (patch.timeZone !== undefined && DateTime.zoneMakeNamed(patch.timeZone)._tag === "None")
         return yield* Effect.fail(`unknown time zone ${patch.timeZone}`);
       yield* sql`
@@ -114,6 +157,11 @@ const make = Effect.gen(function* () {
           voice_notes = ${patch.voiceNotes ?? current.voice_notes},
           keywords_json = ${patch.keywords === undefined ? current.keywords_json : encodeKeywords(patch.keywords)},
           time_zone = ${patch.timeZone ?? current.time_zone},
+          assist_provider = ${patch.assistProvider ?? current.assist_provider},
+          assist_base_url = ${assistBaseUrl},
+          assist_model = ${patch.assistModel?.trim() ?? current.assist_model},
+          assist_key = ${assistKey},
+          pool_sharing = ${patch.poolSharing === undefined ? current.pool_sharing : patch.poolSharing ? 1 : 0},
           updated_at = ${at}
         WHERE id = 1
       `;
@@ -196,7 +244,15 @@ const make = Effect.gen(function* () {
     Effect.mapError((cause) => new SettingsError({ operation: "spend", cause })),
   );
 
-  return SettingsStore.of({ get, tregToken, update, recordSpend, spendSummary, wouldExceedBudget });
+  return SettingsStore.of({
+    get,
+    tregToken,
+    assistKey,
+    update,
+    recordSpend,
+    spendSummary,
+    wouldExceedBudget,
+  });
 });
 
 export const layer = Layer.effect(SettingsStore, make);
