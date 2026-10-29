@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
-import { usd, useQuoteLabel, useRates } from "../../state/costs";
+import { useQuoteLabel, useRates } from "../../state/costs";
 import { agentsAtom, paletteOpenAtom, runAgentAtom } from "../../state/shell";
 import { xNavigate } from "../../state/x";
 import { agentRunCost } from "../leads/ui";
@@ -133,9 +133,7 @@ function PaletteBody({
       dynamic.push({
         id: "search",
         group: "Actions",
-        label: `Search X for "${query.trim()}"`,
-        // The search runs as Search opens; a cached one is free there, never dearer than this.
-        hint: rates === null ? "paid search" : `up to ${usd(rates.searchPage)}`,
+        label: `Search library for "${query.trim()}"`,
         icon: Search,
         run: to(`/library?q=${encodeURIComponent(query.trim())}`),
       });
