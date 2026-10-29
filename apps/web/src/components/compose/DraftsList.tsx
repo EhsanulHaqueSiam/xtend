@@ -11,6 +11,7 @@ import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { fmtWhen } from "../../lib/time";
 import { composeQuoteAtom } from "../../state/compose";
 import { useRates } from "../../state/costs";
+import { useSessionLane } from "../../state/settings";
 
 export { fmtWhen };
 
@@ -26,9 +27,11 @@ export const postCosts = (
   blocks: ReadonlyArray<DraftBlock>,
   media: ReadonlyArray<Pick<DraftMedia, "blockIndex">>,
   quoteUrl: string | null,
+  /** Every block goes through the user's session (free), not only the ones with media. */
+  viaSession = false,
 ) =>
   blocks.map((b, i) =>
-    media.some((m) => m.blockIndex === i)
+    viaSession || media.some((m) => m.blockIndex === i)
       ? 0
       : postCostUsd(rates, i === 0 && quoteUrl !== null ? `${b.text} ${quoteUrl}` : b.text),
   );
@@ -39,6 +42,7 @@ export const sumUsd = (costs: ReadonlyArray<number>) => costs.reduce((a, b) => a
 export function useDraftCost() {
   const rates = useRates();
   const quote = AsyncResult.getOrElse(useAtomValue(composeQuoteAtom), () => null);
+  const lane = useSessionLane();
   return (d: Draft): number | null =>
     d.kind === "article"
       ? quote === null
@@ -46,5 +50,5 @@ export function useDraftCost() {
         : quote.articleUsd * 2
       : rates === null
         ? null
-        : sumUsd(postCosts(rates, d.blocks, d.media, d.quoteUrl));
+        : sumUsd(postCosts(rates, d.blocks, d.media, d.quoteUrl, lane && d.poll === null));
 }

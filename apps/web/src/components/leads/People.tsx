@@ -8,7 +8,8 @@ import { TextMorph } from "torph/react";
 import { PERSON_TYPE } from "../../lib/drag";
 import { fmtWhen } from "../../lib/time";
 import { cn } from "../../lib/utils";
-import { useQuoteLabel, useRates } from "../../state/costs";
+import { costLabels, useQuoteLabel, useRates } from "../../state/costs";
+import { useSessionLane } from "../../state/settings";
 import {
   draftDmAtom,
   draftReplyAtom,
@@ -518,7 +519,7 @@ function DirectMessage({
           onClick={() => void draft.run(() => draftDm(person.id).then(setText))}
         >
           <TextMorph duration={250}>{draft.busy ? "Drafting…" : "Draft with AI"}</TextMorph>
-          <Cost label={`${postsQuote} + ${assistQuote}`} />
+          <Cost label={costLabels(postsQuote, assistQuote)} />
         </button>
       </div>
       {(send.error ?? draft.error) ? (
@@ -548,6 +549,7 @@ function Reply({
   const postQuote = useQuoteLabel({ kind: "userPosts", handle });
   const assistQuote = useQuoteLabel({ kind: "assist" });
   // Priced here from the rate card: a quote rpc per keystroke would flash "…" on the button.
+  const viaSession = useSessionLane();
   const rates = useRates();
   const load = () => run(() => loadPost(id).then(setPost));
   return (
@@ -605,7 +607,9 @@ function Reply({
               }
             >
               <TextMorph duration={250}>{sentId !== null ? "Replied" : "Reply"}</TextMorph>
-              {rates === null ? (
+              {viaSession ? (
+                <Cost tone="solid" label="free · your session" />
+              ) : rates === null ? (
                 <Cost tone="solid" label="…" />
               ) : (
                 <Cost tone="solid" usd={postCostUsd(rates, text)} />
@@ -626,7 +630,7 @@ function Reply({
             >
               Draft with AI
               {/* The draft reads their latest post again, then one model call. */}
-              <Cost label={`${postQuote} + ${assistQuote}`} />
+              <Cost label={costLabels(postQuote, assistQuote)} />
             </button>
           </div>
         </>

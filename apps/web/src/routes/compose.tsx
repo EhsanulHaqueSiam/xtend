@@ -52,7 +52,7 @@ import { useRates } from "../state/costs";
 import { savedPostAtom } from "../state/library";
 import { recentPostsAtom } from "../state/observations";
 import { queueAtom, scheduleAtom } from "../state/plan";
-import { settingsAtom } from "../state/settings";
+import { settingsAtom, useSessionLane } from "../state/settings";
 
 /** What the editor owns; the service owns status, schedule, outcome and the media files. */
 interface Editor {
@@ -491,6 +491,9 @@ export function ComposeEditor({
   };
   const [selected, setSelected] = useState<Draft | null>(null);
   const [editor, setEditor] = useState<Editor>(initial);
+  // Free first: on the desktop with the lane on, every clicked post goes through the session,
+  // except a poll, which X's composer cannot take.
+  const laneText = useSessionLane() && editor.poll === null;
   const [previews, setPreviews] = useState<Record<string, string>>({});
   const [active, setActive] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
@@ -709,10 +712,10 @@ export function ComposeEditor({
   const costs =
     rates === null
       ? []
-      : postCosts(rates, blocks, media, quoteUrl).map((c, i) => (i < skipped ? 0 : c));
+      : postCosts(rates, blocks, media, quoteUrl, laneText).map((c, i) => (i < skipped ? 0 : c));
   const total = sumUsd(costs);
   const linkCount = rates === null ? 0 : costs.filter((c) => c === rates.postWithLink).length;
-  const sessionCount = blocks.filter((_, i) => i >= skipped && hasMediaAt(i)).length;
+  const sessionCount = blocks.filter((_, i) => i >= skipped && (laneText || hasMediaAt(i))).length;
   const toPost = blocks.length - skipped;
   const cover = media.find((m) => m.blockIndex === 0 && m.kind === "image");
   // What the publisher would refuse (Publisher.refusal), caught before a thread stops halfway.
@@ -829,7 +832,10 @@ export function ComposeEditor({
                       ) : null}
                       {sessionCount > 0 ? (
                         <div className="flex justify-between py-0.5 text-muted-foreground">
-                          <dt>{sessionCount} with media, through your x.com session</dt>
+                          <dt>
+                            {sessionCount}
+                            {laneText ? "" : " with media,"} through your x.com session
+                          </dt>
                           <dd>free</dd>
                         </div>
                       ) : null}

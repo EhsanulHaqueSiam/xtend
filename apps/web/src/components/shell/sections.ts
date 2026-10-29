@@ -8,7 +8,7 @@ import { useLocation } from "@tanstack/react-router";
 export const ABOUT: Readonly<Record<string, string>> = {
   "/x": "X as you know it, with what Xtend noticed beside it.",
   "/compose":
-    "Write posts, threads and articles. Posting goes through the X API and shows its price first.",
+    "Write posts, threads and articles. What you click posts through your own X session, free; the queue goes through the X API at the price shown. Assist runs on your login.",
   "/plan":
     "When your posts go out: a week of slots, the queue and your best hours, in your time zone.",
   "/library":
@@ -95,7 +95,7 @@ export const SECTIONS = {
     { id: "audience", label: "Audience", about: "Who sees you most." },
     { id: "best-time", label: "Best time", about: "Hours your posts drew views." },
     { id: "competitors", label: "Competitors", about: "Accounts to compare against." },
-    { id: "ask", label: "Ask", about: "A question over your own data, paid per answer." },
+    { id: "ask", label: "Ask", about: "A question over your own data, answered on your login." },
   ],
   "/scores": [
     { id: "mine", label: "Mine", about: "Your score and what moves it." },

@@ -348,6 +348,32 @@ describe("Publisher", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
+  it.live(
+    "a clicked text post goes through the x.com session while the lane is on; a scheduled one takes the API",
+    () =>
+      Effect.gen(function* () {
+        reset();
+        const publisher = yield* Publisher.Publisher;
+        const drafts = yield* DraftStore.DraftStore;
+        const clicked = yield* drafts.create({ blocks: [{ text: "hello" }, { text: "again" }] });
+        yield* publisher.post(clicked.id, { ...postNow, clicked: true });
+        expect(desktopCalls.map((c) => c.type)).toEqual(["sessionPost", "sessionPost"]);
+        expect(calls).toEqual([]);
+
+        const scheduled = yield* drafts.create({ blocks: [{ text: "later" }] });
+        yield* publisher.post(scheduled.id, { purpose: "plan.scheduler", retry: false });
+        expect(calls.map((c) => c.text)).toEqual(["later"]);
+
+        // A poll cannot go through X's composer; it keeps the API even when clicked.
+        const poll = yield* drafts.create({
+          blocks: [{ text: "which?" }],
+          poll: { options: ["a", "b"], durationMinutes: 60 },
+        });
+        yield* publisher.post(poll.id, { ...postNow, clicked: true });
+        expect(calls.map((c) => c.text)).toEqual(["later", "which?"]);
+      }).pipe(Effect.provide(layerTest)),
+  );
+
   it.live("blocks with media go through the x.com session, only when the setting is on", () =>
     Effect.gen(function* () {
       reset();

@@ -30,9 +30,9 @@ call.
 
 ## Posting
 
-Post now goes out through X's API and shows its price first. Queue puts the draft on your next
+Post now goes out through your own X session, free, while "Act through X for what I click" is on
+in Settings (the default); a poll goes through X's API, which shows its price first. Queue puts the draft on your next
 free slot (see [Plan](./plan.md)); Post at picks a time. A draft that quotes a post or replies
 to one keeps that link when it posts.
 
-Posts with media go through your own X session, free, while "Act through X for what I click"
-is on in Settings (the default).
+Queued posts go out through X's API at the price shown, since nobody is clicking.
