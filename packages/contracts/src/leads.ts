@@ -33,6 +33,28 @@ export const Person = Schema.Struct({
 });
 export type Person = typeof Person.Type;
 
+export const PeopleQuery = Schema.Struct({
+  listId: Schema.optional(Schema.Int),
+  search: Schema.optional(Schema.String.check(Schema.isMaxLength(200))),
+  stage: Schema.optional(Stage),
+  offset: Schema.optional(NonNegativeInt),
+});
+export type PeopleQuery = typeof PeopleQuery.Type;
+
+export const PeoplePage = Schema.Struct({
+  people: Schema.Array(Person).check(Schema.isMaxLength(50)),
+  total: NonNegativeInt,
+  counts: Schema.Struct({
+    new: NonNegativeInt,
+    contacted: NonNegativeInt,
+    replied: NonNegativeInt,
+    customer: NonNegativeInt,
+    ignored: NonNegativeInt,
+  }),
+  offset: NonNegativeInt,
+});
+export type PeoplePage = typeof PeoplePage.Type;
+
 export const ActivityKind = Schema.Literals(["found", "replied", "liked", "dm", "note"]);
 
 export const Activity = Schema.Struct({
@@ -184,8 +206,8 @@ export const Leads_METHODS = {
 
 export const LeadsRpcGroup = RpcGroup.make(
   Rpc.make(Leads_METHODS.peopleList, {
-    payload: Schema.Struct({ listId: Schema.optional(Schema.Int) }),
-    success: Schema.Array(Person),
+    payload: PeopleQuery,
+    success: PeoplePage,
     error: LeadsError,
   }),
   Rpc.make(Leads_METHODS.personGet, {

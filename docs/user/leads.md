@@ -5,7 +5,7 @@ fill them, and your new followers.
 
 ## People
 
-Everyone found, as a table filtered by stage: new, contacted, replied, customer, ignored.
+Search everyone found by handle, name or bio, filter by stage, and page through People or a list 50 at a time; stage counts cover every match.
 **Stages** in the header turns the table into a board with one column per stage; drag a
 person to another column to move them there, with a toast to undo. **Table** goes back.
 

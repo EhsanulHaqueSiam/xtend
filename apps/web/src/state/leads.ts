@@ -4,6 +4,7 @@ import {
   type EngagementVia,
   type ListCriteria,
   type PersonAdd,
+  type PeopleQuery,
   type PersonUpdate,
   type SignalAgentInput,
 } from "@xtend/contracts";
@@ -12,14 +13,19 @@ import * as Atom from "effect/reactivity/Atom";
 
 import { clientRuntime, XtendClient } from "../rpc/client";
 
-/** People in one list, or everyone when the key is null. */
+/** Each list keeps one bounded query, shared by its header and rows. */
+export const peopleQueryAtom = Atom.family((listId: number | null) =>
+  Atom.make<PeopleQuery>(listId === null ? {} : { listId }),
+);
+
 export const peopleAtom = Atom.family((listId: number | null) =>
-  clientRuntime.atom(
-    Effect.gen(function* () {
+  clientRuntime.atom((get) => {
+    const query = get(peopleQueryAtom(listId));
+    return Effect.gen(function* () {
       const client = yield* XtendClient;
-      return yield* client[Leads_METHODS.peopleList](listId === null ? {} : { listId });
-    }),
-  ),
+      return yield* client[Leads_METHODS.peopleList](query);
+    });
+  }),
 );
 
 export const personAtom = Atom.family((id: number) =>

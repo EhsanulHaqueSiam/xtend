@@ -42,12 +42,13 @@ describe("payload budgets", () => {
       }),
     );
 
-    // A full page of 200 of the 1,000 people. Measured 77,578 bytes.
+    // A bounded page of 50 of the 1,000 people, plus totals for every stage.
     it.effect("leads.peopleList", () =>
       Effect.gen(function* () {
         const people = yield* (yield* PeopleStore.PeopleStore).list();
-        expect(people).toHaveLength(200);
-        expect(wireBytes(Leads_METHODS.peopleList, people)).toBeLessThan(120_000);
+        expect(people.people).toHaveLength(50);
+        expect(people.total).toBe(1000);
+        expect(wireBytes(Leads_METHODS.peopleList, people)).toBeLessThan(30_000);
       }),
     );
 

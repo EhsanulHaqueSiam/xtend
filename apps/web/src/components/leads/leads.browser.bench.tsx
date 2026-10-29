@@ -12,13 +12,13 @@ import {
   timeMount,
 } from "../../../test/bench";
 import type { FakeService } from "../../../test/fakeService";
-import { quoting } from "../../../test/fixtures";
+import { peoplePage, quoting } from "../../../test/fixtures";
 import { render } from "../../../test/render";
 import { peopleAtom } from "../../state/leads";
 import { PeopleSection } from "./People";
 import { STAGES } from "./ui";
 
-/** 200 people, as many as `leads.peopleList` returns, spread over stages, scores and sources. */
+/** 200 people in the service, with a bounded page of 50 on screen. */
 const people = Array.from({ length: 200 }, (_, i): Person => ({
   id: i + 1,
   handle: `founder${i + 1}`,
@@ -44,7 +44,7 @@ it("People with 200 people", async ({ bench }) => {
   let refresh = () => {};
   const service: FakeService = {
     "costs.quote": quoting(),
-    "leads.peopleList": () => Effect.sync(() => listed),
+    "leads.peopleList": (query) => Effect.sync(() => peoplePage(listed, query)),
     "leads.personGet": ({ id }) =>
       Effect.sync(() => ({ person: listed.find((p) => p.id === id)!, activity: [] })),
   };
@@ -54,9 +54,9 @@ it("People with 200 people", async ({ bench }) => {
       <Refresh atom={peopleAtom(null)} bind={(r) => (refresh = r)} />
     </>
   );
-  const all = (root: HTMLElement) => rows(root).length === people.length;
+  const all = (root: HTMLElement) => rows(root).length === 50;
 
-  const mount = await bench("People: mount 200", timeMount(ui, { service }, all)).run(SAMPLES);
+  const mount = await bench("People: mount 50", timeMount(ui, { service }, all)).run(SAMPLES);
   expect(mount.latency.p50).toBeLessThan(150); // 14ms
 
   await using screen = await render(ui, { service });

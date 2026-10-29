@@ -1,6 +1,12 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
-import { postCostUsd, type Person, type Stage, type XPost } from "@xtend/contracts";
+import {
+  postCostUsd,
+  type Person,
+  type PeoplePage,
+  type Stage,
+  type XPost,
+} from "@xtend/contracts";
 import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState, type ReactElement, type ReactNode } from "react";
@@ -15,6 +21,7 @@ import {
   draftReplyAtom,
   latestPostAtom,
   peopleAtom,
+  peopleQueryAtom,
   personAtom,
   personProfileAtom,
   sendDmAtom,
@@ -66,7 +73,6 @@ const COLUMNS: ReadonlyArray<Column<Person>> = [
   },
 ];
 
-type StageFilter = "all" | Stage;
 type View = "table" | "stages";
 
 /** What the user did for one person here: the DM and reply drafts, their latest post, what went out. */
@@ -100,15 +106,21 @@ const idle: Outreach = {
 /** Everyone the screens have found, as a table by stage or a board of stages, with the selected person beside. */
 export function PeopleSection() {
   const people = useAtomValue(peopleAtom(null));
-  const [stage, setStage] = useState<StageFilter>("all");
+  const query = useAtomValue(peopleQueryAtom(null));
+  const setQuery = useAtomSet(peopleQueryAtom(null));
+  const stage = query.stage ?? "all";
   const [view, setView] = useState<View>("table");
-  const all = AsyncResult.getOrElse(people, () => []);
+  const page = AsyncResult.getOrElse(people, () => null);
   const tabs = [
-    { id: "all" as const, label: "All", count: all.length },
+    {
+      id: "all" as const,
+      label: "All",
+      count: page === null ? 0 : Object.values(page.counts).reduce((sum, n) => sum + n, 0),
+    },
     ...STAGES.map((s) => ({
       id: s,
       label: s[0]!.toUpperCase() + s.slice(1),
-      count: all.filter((p) => p.stage === s).length,
+      count: page?.counts[s] ?? 0,
     })),
   ];
   return (
@@ -116,31 +128,38 @@ export function PeopleSection() {
       <PageHeader
         title="People"
         tabs={
-          all.length === 0 || view === "stages" ? undefined : (
-            <HeaderTabs label="Stage" tabs={tabs} value={stage} onChange={setStage} />
+          view === "stages" ? undefined : (
+            <HeaderTabs
+              label="Stage"
+              tabs={tabs}
+              value={stage}
+              onChange={(stage) =>
+                setQuery({ ...query, stage: stage === "all" ? undefined : stage, offset: 0 })
+              }
+            />
           )
         }
         actions={
-          all.length === 0 ? undefined : (
-            <div role="group" aria-label="View" className="flex items-center gap-1">
-              {(["table", "stages"] as const).map((v) => (
-                <button
-                  key={v}
-                  type="button"
-                  aria-pressed={view === v}
-                  className={cn(pill, "aria-pressed:border-foreground")}
-                  onClick={() => setView(v)}
-                >
-                  {v === "table" ? "Table" : "Stages"}
-                </button>
-              ))}
-            </div>
-          )
+          <div role="group" aria-label="View" className="flex items-center gap-1">
+            {(["table", "stages"] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                aria-pressed={view === v}
+                className={cn(pill, "aria-pressed:border-foreground")}
+                onClick={() => {
+                  setView(v);
+                  if (v === "stages") setQuery({ ...query, stage: undefined, offset: 0 });
+                }}
+              >
+                {v === "table" ? "Table" : "Stages"}
+              </button>
+            ))}
+          </div>
         }
       />
       <PeopleSplit
         listId={null}
-        stage={view === "stages" ? "all" : stage}
         board={view === "stages"}
         empty={stage === "all" ? <NoPeople /> : <Empty>No one at {stage} yet.</Empty>}
       />
@@ -174,7 +193,6 @@ function NoPeople() {
  */
 export function PeopleSplit({
   listId,
-  stage = "all",
   board = false,
   aside = null,
   onPick,
@@ -182,7 +200,6 @@ export function PeopleSplit({
   empty,
 }: {
   readonly listId: number | null;
-  readonly stage?: StageFilter;
   /** Stages as columns instead of the table; a card dragged to a column moves there. */
   readonly board?: boolean;
   readonly aside?: ReactElement | null;
@@ -193,89 +210,156 @@ export function PeopleSplit({
 }) {
   const result = useAtomValue(peopleAtom(listId));
   const refreshList = useAtomRefresh(peopleAtom(listId));
-  const all = AsyncResult.getOrElse(result, () => []);
-  const people = stage === "all" ? all : all.filter((p) => p.stage === stage);
+  const query = useAtomValue(peopleQueryAtom(listId));
+  const setQuery = useAtomSet(peopleQueryAtom(listId));
+  const page = AsyncResult.getOrElse(result, () => null);
+  const people = page?.people ?? [];
   const { selected, select } = useSelection(people.map((p) => p.id));
   const current = people.find((p) => p.id === selected) ?? null;
   // Kept here, not in the panel: picking someone else remounts it, and a paid result still in
   // flight lands on the person it was for.
   const outreach = useWorkBy<number, Outreach>(idle);
 
-  return AsyncResult.match(result, {
-    onInitial: () => (
-      <PageBody>
-        <Empty>Loading people…</Empty>
-      </PageBody>
-    ),
-    onFailure: (f) => (
-      <PageBody>
-        <ErrorLine>{errorText(f.cause)}</ErrorLine>
-      </PageBody>
-    ),
-    onSuccess: () => (
-      <DetailSplit
-        detailKey={aside !== null ? "aside" : selected}
-        onClose={aside === null ? undefined : onClose}
-        list={
-          people.length === 0 ? (
-            empty
-          ) : board ? (
-            <StagesBoard
-              people={people}
-              selected={aside === null ? selected : null}
-              onSelect={(id) => {
-                select(id);
-                onPick?.();
-              }}
-              onMoved={refreshList}
-            />
-          ) : (
-            <>
-              <ListHead label="Person" columns={COLUMNS} />
-              {people.map((p) => (
-                <ListRow
-                  key={p.id}
-                  selected={aside === null && p.id === selected}
-                  onSelect={() => {
-                    select(p.id);
-                    onPick?.();
-                  }}
-                  muted={p.stage === "ignored"}
-                  item={p}
-                  columns={COLUMNS}
-                >
-                  <RowTitle name={`@${p.handle}`} meta={p.name} />
-                </ListRow>
-              ))}
-            </>
-          )
-        }
-        detail={
-          aside !== null ? (
-            aside
-          ) : current === null ? null : (
-            <PersonPanel
-              key={current.id}
-              listed={current}
-              listId={listId}
-              work={outreach.get(current.id)}
-              patch={outreach.patch(current.id)}
-            />
-          )
-        }
-      />
-    ),
-  });
+  return (
+    <>
+      <div className="flex items-center gap-3 border-b border-border px-6 py-2">
+        <input
+          className={cn(inputClass, "h-8 max-w-64")}
+          aria-label="Search people"
+          placeholder="Search people"
+          value={query.search ?? ""}
+          maxLength={200}
+          onChange={(e) => setQuery({ ...query, search: e.target.value, offset: 0 })}
+        />
+      </div>
+      {AsyncResult.match(result, {
+        onInitial: () => (
+          <PageBody>
+            <Empty>Loading people…</Empty>
+          </PageBody>
+        ),
+        onFailure: (f) => (
+          <PageBody>
+            <ErrorLine>{errorText(f.cause)}</ErrorLine>
+          </PageBody>
+        ),
+        onSuccess: () => (
+          <DetailSplit
+            detailKey={aside !== null ? "aside" : selected}
+            onClose={aside === null ? undefined : onClose}
+            list={
+              <>
+                {people.length === 0 ? (
+                  query.search ? (
+                    <Empty>No matching people.</Empty>
+                  ) : (
+                    empty
+                  )
+                ) : board ? (
+                  <StagesBoard
+                    people={people}
+                    counts={page!.counts}
+                    selected={aside === null ? selected : null}
+                    onSelect={(id) => {
+                      select(id);
+                      onPick?.();
+                    }}
+                    onMoved={refreshList}
+                  />
+                ) : (
+                  <>
+                    <ListHead label="Person" columns={COLUMNS} />
+                    {people.map((p) => (
+                      <ListRow
+                        key={p.id}
+                        selected={aside === null && p.id === selected}
+                        onSelect={() => {
+                          select(p.id);
+                          onPick?.();
+                        }}
+                        muted={p.stage === "ignored"}
+                        item={p}
+                        columns={COLUMNS}
+                      >
+                        <RowTitle name={`@${p.handle}`} meta={p.name} />
+                      </ListRow>
+                    ))}
+                  </>
+                )}
+                <PeoplePager
+                  total={page!.total}
+                  offset={page!.offset}
+                  onPage={(offset) => setQuery({ ...query, offset })}
+                />
+              </>
+            }
+            detail={
+              aside !== null ? (
+                aside
+              ) : current === null ? null : (
+                <PersonPanel
+                  key={current.id}
+                  listed={current}
+                  onChanged={refreshList}
+                  work={outreach.get(current.id)}
+                  patch={outreach.patch(current.id)}
+                />
+              )
+            }
+          />
+        ),
+      })}
+    </>
+  );
+}
+
+function PeoplePager({
+  total,
+  offset,
+  onPage,
+}: {
+  readonly total: number;
+  readonly offset: number;
+  readonly onPage: (offset: number) => void;
+}) {
+  return (
+    <nav
+      aria-label="People pages"
+      className="sticky bottom-0 flex items-center gap-3 border-t border-border bg-background px-6 py-2 text-xs"
+    >
+      <span className="mr-auto font-mono tabular-nums">
+        {total === 0 ? 0 : offset + 1}-{Math.min(offset + 50, total)} of {total}
+      </span>
+      <button
+        type="button"
+        className={pill}
+        disabled={offset === 0}
+        onClick={() => onPage(Math.max(0, offset - 50))}
+      >
+        Previous
+      </button>
+      <button
+        type="button"
+        className={pill}
+        disabled={offset + 50 >= total}
+        onClick={() => onPage(offset + 50)}
+      >
+        Next
+      </button>
+    </nav>
+  );
 }
 
 /** People as stage columns. Drop a card on a column to move them; the toast undoes it. */
 function StagesBoard({
   people,
+  counts,
   selected,
   onSelect,
   onMoved,
 }: {
   readonly people: ReadonlyArray<Person>;
+  readonly counts: PeoplePage["counts"];
   readonly selected: number | null;
   readonly onSelect: (id: number) => void;
   readonly onMoved: () => void;
@@ -329,7 +413,7 @@ function StagesBoard({
           >
             <h3 className="flex items-baseline gap-2 px-1 text-xs font-semibold text-muted-foreground">
               {stage}
-              <span className="font-mono text-2xs font-normal tabular-nums">{cards.length}</span>
+              <span className="font-mono text-2xs font-normal tabular-nums">{counts[stage]}</span>
             </h3>
             {cards.map((p) => (
               <button
@@ -376,12 +460,12 @@ function StagesBoard({
  */
 function PersonPanel({
   listed,
-  listId,
+  onChanged,
   work,
   patch,
 }: {
   readonly listed: Person;
-  readonly listId: number | null;
+  readonly onChanged: () => void;
   readonly work: Outreach;
   readonly patch: OutreachPatch;
 }) {
@@ -389,7 +473,6 @@ function PersonPanel({
   const rates = useRates();
   const data = useAtomValue(personAtom(id));
   const refresh = useAtomRefresh(personAtom(id));
-  const refreshList = useAtomRefresh(peopleAtom(listId));
   const update = useAtomSet(updatePersonAtom, { mode: "promise" });
   const fetchProfile = useAtomSet(personProfileAtom, { mode: "promise" });
   const profile = useAction();
@@ -399,7 +482,7 @@ function PersonPanel({
   const person = loaded?.person ?? listed;
   const refreshBoth = () => {
     refresh();
-    refreshList();
+    onChanged();
   };
 
   const setStage = (stage: Stage) => edit.run(() => update({ id, stage }).then(refreshBoth));

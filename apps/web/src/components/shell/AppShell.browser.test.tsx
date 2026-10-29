@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect";
 import { beforeEach, expect, it } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
-import { quoting } from "../../../test/fixtures";
+import { peoplePage, quoting } from "../../../test/fixtures";
 import { installFakeBridge } from "../../../test/fakeBridge";
 import { render } from "../../../test/render";
 
@@ -41,7 +41,7 @@ const spend = {
 const service = {
   "costs.quote": quoting(),
   "leads.agentsList": () => Effect.succeed([]),
-  "leads.peopleList": () => Effect.succeed([]),
+  "leads.peopleList": () => Effect.succeed(peoplePage()),
   "settings.get": () => Effect.succeed(settings),
   "spend.summary": () => Effect.succeed(spend),
   "compose.draftsList": () => Effect.succeed({ drafts: [] }),

@@ -4,6 +4,8 @@ import {
   type LeadList,
   LeadsError,
   type Person,
+  type PeopleQuery,
+  type PeoplePage,
   type PersonAdd,
   type PersonUpdate,
   type Stage,
@@ -102,7 +104,7 @@ const toActivity = (r: ActivityRow): Activity => ({
 export class PeopleStore extends Context.Service<
   PeopleStore,
   {
-    readonly list: (listId?: number) => Effect.Effect<ReadonlyArray<Person>, LeadsError>;
+    readonly list: (query?: PeopleQuery) => Effect.Effect<PeoplePage, LeadsError>;
     readonly get: (id: number) => Effect.Effect<Person, LeadsError>;
     readonly activity: (personId: number) => Effect.Effect<ReadonlyArray<Activity>, LeadsError>;
     /** Insert or return the existing row for the handle; appends a "found" activity on insert. */
@@ -161,16 +163,36 @@ const make = Effect.gen(function* () {
     );
 
   const list = Effect.fn("PeopleStore.list")(
-    function* (listId?: number) {
-      const rows =
-        listId === undefined
-          ? yield* sql<PersonRow>`
-              SELECT * FROM people WHERE account_id = ${sql.literal(CURRENT_ACCOUNT)} ORDER BY last_activity DESC LIMIT ${LIST_LIMIT}`
-          : yield* sql<PersonRow>`
-              SELECT p.* FROM people p JOIN list_members m ON m.person_id = p.id
-              WHERE m.list_id = ${listId} AND p.account_id = ${sql.literal(CURRENT_ACCOUNT)}
-              ORDER BY p.last_activity DESC LIMIT ${LIST_LIMIT}`;
-      return rows.map(toPerson);
+    function* (query: PeopleQuery = {}) {
+      const search = query.search?.trim().replace(/^@/, "").toLowerCase() ?? "";
+      const where = sql`p.account_id = ${sql.literal(CURRENT_ACCOUNT)}
+        AND (${query.listId ?? null} IS NULL OR EXISTS (
+          SELECT 1 FROM list_members m JOIN lists l ON l.id = m.list_id
+          WHERE m.person_id = p.id AND m.list_id = ${query.listId ?? null}
+            AND l.account_id = ${sql.literal(CURRENT_ACCOUNT)}))
+        AND (${search} = '' OR instr(lower(p.handle), ${search}) > 0
+          OR instr(lower(p.name), ${search}) > 0 OR instr(lower(p.bio), ${search}) > 0)`;
+      return yield* sql.withTransaction(
+        Effect.gen(function* () {
+          const grouped = yield* sql<{ stage: Stage; count: number }>`
+          SELECT p.stage, COUNT(*) AS count FROM people p WHERE ${where} GROUP BY p.stage`;
+          const counts = { new: 0, contacted: 0, replied: 0, customer: 0, ignored: 0 };
+          for (const row of grouped) counts[row.stage] = row.count;
+          const total =
+            query.stage === undefined
+              ? Object.values(counts).reduce((sum, n) => sum + n, 0)
+              : counts[query.stage];
+          // Clamp a page after a move or removal empties its last row.
+          const offset = Math.min(
+            Math.max(0, query.offset ?? 0),
+            Math.max(0, Math.ceil(total / 50) - 1) * 50,
+          );
+          const rows = yield* sql<PersonRow>`SELECT p.* FROM people p WHERE ${where}
+          AND (${query.stage ?? null} IS NULL OR p.stage = ${query.stage ?? null})
+          ORDER BY p.last_activity DESC, p.id DESC LIMIT 50 OFFSET ${offset}`;
+          return { people: rows.map(toPerson), total, counts, offset };
+        }),
+      );
     },
     Effect.mapError(fail("list")),
   );
