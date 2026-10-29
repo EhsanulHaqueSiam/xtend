@@ -713,13 +713,23 @@ export function ComposeEditor({
     current !== null && onX > 0 && said({ ...editor, quoteUrl }, onX) === said(current, onX)
       ? onX
       : 0;
-  const costs =
+  // Post now is a click and can go through the session; Queue and Schedule publish unattended,
+  // through the API (Publisher's `clicked`), so they carry the API price.
+  const priced = (sessionText: boolean) =>
     rates === null
       ? []
-      : postCosts(rates, blocks, media, quoteUrl, laneText).map((c, i) => (i < skipped ? 0 : c));
+      : postCosts(rates, blocks, media, quoteUrl, sessionText, editor.replySettings).map((c, i) =>
+          i < skipped ? 0 : c,
+        );
+  const costs = priced(laneText);
   const total = sumUsd(costs);
+  const scheduledTotal = sumUsd(priced(false));
   const linkCount = rates === null ? 0 : costs.filter((c) => c === rates.postWithLink).length;
-  const sessionCount = blocks.filter((_, i) => i >= skipped && (laneText || hasMediaAt(i))).length;
+  const sessionCount = blocks.filter(
+    (b, i) =>
+      i >= skipped &&
+      (hasMediaAt(i) || (laneText && (b.replySettings ?? editor.replySettings) === "everyone")),
+  ).length;
   const toPost = blocks.length - skipped;
   const cover = media.find((m) => m.blockIndex === 0 && m.kind === "image");
   // What the publisher would refuse (Publisher.refusal), caught before a thread stops halfway.
@@ -753,6 +763,7 @@ export function ComposeEditor({
     : rates === null
       ? null
       : total;
+  const scheduledUsd = isArticle || rates === null ? sendUsd : scheduledTotal;
   // Nothing sends until its price is known.
   const canSend =
     !isBlank(editor) &&
@@ -764,8 +775,13 @@ export function ComposeEditor({
   // Fields stay put while the service owns the draft or a post is going out.
   const frozen = locked || busy === "post";
   const sessionBlocked = hasMedia && (!sessionPosting || context?.desktopConnected === false);
+  // Queue and Schedule: what the slot will charge.
   const price =
-    sendUsd === null ? <Cost tone="solid" label="…" /> : <Cost tone="solid" usd={sendUsd} />;
+    scheduledUsd === null ? (
+      <Cost tone="solid" label="…" />
+    ) : (
+      <Cost tone="solid" usd={scheduledUsd} />
+    );
 
   const waiting = draftParam !== undefined && selected === null;
   const queued = current?.status === "queued";
@@ -955,7 +971,15 @@ export function ComposeEditor({
                 onClick={() => act("queue")}
               >
                 <TextMorph duration={250}>{queued ? "Queued" : "Queue"}</TextMorph>
-                {queued ? sendUsd === null ? <Cost label="…" /> : <Cost usd={sendUsd} /> : price}
+                {queued ? (
+                  scheduledUsd === null ? (
+                    <Cost label="…" />
+                  ) : (
+                    <Cost usd={scheduledUsd} />
+                  )
+                ) : (
+                  price
+                )}
               </Button>
             </>
           )

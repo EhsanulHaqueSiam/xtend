@@ -11,6 +11,9 @@ const { draft, quoting, settings } = await import("../../../test/fixtures");
 const { render } = await import("../../../test/render");
 const { Queue } = await import("./Queue");
 const { Calendar } = await import("./Calendar");
+const { postCosts } = await import("../compose/DraftsList");
+const { ComposeEditor } = await import("../../routes/compose");
+const { rates } = await import("../../../test/fixtures");
 delete window.desktopBridge;
 
 const service = {
@@ -57,4 +60,50 @@ it("prices Post now free through the session, but a slot fill at the API's price
   );
   await userEvent.click(screen.getByRole("button", { name: "13:00 open slot" }).first());
   await expect.element(page.getByRole("menu").getByText("$0.015", { exact: true })).toBeVisible();
+});
+
+it("keeps a post with restricted replies on the API, as Publisher does, block by block", () => {
+  const thread = [{ text: "open" }, { text: "closed", replySettings: "following" as const }];
+  expect(postCosts(rates, thread, [], null, true)).toEqual([0, rates.post]);
+  // The draft's own control applies where a block sets none.
+  expect(
+    postCosts(
+      rates,
+      [{ text: "a" }, { text: "b", replySettings: "everyone" }],
+      [],
+      null,
+      true,
+      "following",
+    ),
+  ).toEqual([rates.post, 0]);
+  // Unattended, nothing but media goes through the session.
+  expect(postCosts(rates, thread, [], null, false)).toEqual([rates.post, rates.post]);
+});
+
+it("prices the editor's Post now through the session, and Queue and Schedule at the API's rate", async () => {
+  const d1 = draft("d1", "draft", { blocks: [{ text: "Plain text post" }] });
+  await using screen = await render(
+    <ComposeEditor
+      draftParam="d1"
+      inspire={undefined}
+      reply={undefined}
+      text={undefined}
+      onBack={() => {}}
+      onSection={() => {}}
+    />,
+    {
+      service: {
+        ...service,
+        "compose.draftsList": () => Effect.succeed({ drafts: [d1] }),
+        "compose.quote": () =>
+          Effect.succeed({ articleUsd: 0.02, coverUsd: 0.04, coverModel: "flux" }),
+        "compose.context": () =>
+          Effect.succeed({ nextSlot: null, bestHours: [], desktopConnected: true }),
+      },
+    },
+  );
+  // Button text as the user reads it (the morphing label repeats its word, so match loosely).
+  const buttons = () => [...document.querySelectorAll("button")].map((b) => b.textContent ?? "");
+  await expect.poll(() => buttons().find((t) => t.startsWith("Post now"))).toMatch(/free$/);
+  await expect.poll(() => buttons().find((t) => t.startsWith("Queue"))).toMatch(/\$0\.015$/);
 });
