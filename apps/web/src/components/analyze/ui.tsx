@@ -1,6 +1,6 @@
 import type { AccountPost } from "@xtend/contracts";
 import * as Cause from "effect/Cause";
-import { useId, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
 import { table } from "../ui/layout";
@@ -61,7 +61,7 @@ export function ErrorBar({ children }: { readonly children: string | null }) {
   );
 }
 
-/** Inline SVG line over a gradient area, fixed height, full width; first and last x labels. No library. */
+/** One focus stop for a history: pointer or arrows inspect samples on a fitted y range. */
 export function LineChart({
   points,
   height = 120,
@@ -69,6 +69,9 @@ export function LineChart({
   readonly points: ReadonlyArray<{ readonly label: string; readonly value: number }>;
   readonly height?: number;
 }) {
+  const gradient = useId();
+  const hint = useId();
+  const [inspected, setInspected] = useState<number | null>(null);
   const width = 600;
   const pad = 2;
   if (points.length < 2)
@@ -77,48 +80,133 @@ export function LineChart({
         Not enough data for a chart yet.
       </p>
     );
-  const max = Math.max(...points.map((p) => p.value), 1);
-  const min = Math.min(...points.map((p) => p.value), 0);
+  const max = Math.max(...points.map((p) => p.value));
+  const min = Math.min(...points.map((p) => p.value));
+  // Breathing room keeps extrema and constant histories clear without forcing zero into the range.
+  const margin = max === min ? Math.max(Math.abs(max) * 0.05, 1) : (max - min) * 0.1;
+  const lower = min - margin;
+  const upper = max + margin;
   const x = (i: number) => (i / (points.length - 1)) * width;
-  const y = (v: number) => height - pad - ((v - min) / (max - min || 1)) * (height - pad * 2);
+  const y = (v: number) => height - pad - ((v - lower) / (upper - lower)) * (height - pad * 2);
   const line = points
     .map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(p.value).toFixed(1)}`)
     .join(" ");
   const first = points[0]!;
   const last = points.at(-1)!;
-  const gradient = useId();
+  const index = inspected === null ? null : Math.min(inspected, points.length - 1);
+  const point = index === null ? null : points[index]!;
+  const readout =
+    point === null
+      ? null
+      : `${point.label} · ${point.value.toLocaleString("en", { maximumFractionDigits: 20 })}`;
   return (
     <div className="flex flex-col gap-1.5">
-      {/* Stretched to the box, so the stroke opts out of scaling to stay 2px. */}
-      <svg
-        viewBox={`0 0 ${width} ${height}`}
-        preserveAspectRatio="none"
-        className="w-full text-foreground"
+      <div
+        className="relative outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         style={{ height }}
-        role="img"
-        aria-label={`${first.label} to ${last.label}, max ${fmt(max)}`}
+        role="slider"
+        tabIndex={0}
+        aria-label={`${first.label} to ${last.label} history`}
+        aria-roledescription="history chart"
+        aria-orientation="horizontal"
+        aria-valuemin={1}
+        aria-valuemax={points.length}
+        aria-valuenow={(index ?? 0) + 1}
+        aria-valuetext={
+          readout ??
+          `${first.label} · ${first.value.toLocaleString("en", { maximumFractionDigits: 20 })}`
+        }
+        aria-describedby={hint}
+        onFocus={() => setInspected((previous) => previous ?? 0)}
+        onBlur={() => setInspected(null)}
+        onPointerMove={(event) => {
+          const box = event.currentTarget.getBoundingClientRect();
+          if (box.width === 0) return;
+          const ratio = Math.max(0, Math.min(1, (event.clientX - box.left) / box.width));
+          setInspected(Math.round(ratio * (points.length - 1)));
+        }}
+        onPointerLeave={(event) => {
+          if (!event.currentTarget.matches(":focus")) setInspected(null);
+        }}
+        onKeyDown={(event) => {
+          const current = index ?? 0;
+          const next =
+            event.key === "ArrowRight"
+              ? current + 1
+              : event.key === "ArrowLeft"
+                ? current - 1
+                : event.key === "Home"
+                  ? 0
+                  : event.key === "End"
+                    ? points.length - 1
+                    : null;
+          if (next === null || event.altKey || event.ctrlKey || event.metaKey) return;
+          event.preventDefault();
+          setInspected(Math.max(0, Math.min(points.length - 1, next)));
+        }}
       >
-        <defs>
-          <linearGradient id={gradient} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor="currentColor" stopOpacity={0.16} />
-            <stop offset="1" stopColor="currentColor" stopOpacity={0} />
-          </linearGradient>
-        </defs>
-        <path d={`${line} L${width},${height} L0,${height} Z`} fill={`url(#${gradient})`} />
-        <path
-          d={line}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={2}
-          strokeLinejoin="round"
-          vectorEffect="non-scaling-stroke"
-        />
-      </svg>
-      <div className="flex justify-between font-mono text-2xs text-muted-foreground tabular-nums">
-        <span>{first.label}</span>
-        <span>max {fmt(max)}</span>
-        <span>{last.label}</span>
+        {/* Stretched to the box, so the stroke opts out of scaling to stay 2px. */}
+        <svg
+          viewBox={`0 0 ${width} ${height}`}
+          preserveAspectRatio="none"
+          className="h-full w-full text-foreground"
+          aria-hidden="true"
+        >
+          <defs>
+            <linearGradient id={gradient} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stopColor="currentColor" stopOpacity={0.16} />
+              <stop offset="1" stopColor="currentColor" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <path d={`${line} L${width},${height} L0,${height} Z`} fill={`url(#${gradient})`} />
+          <path
+            d={line}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            strokeLinejoin="round"
+            vectorEffect="non-scaling-stroke"
+          />
+          {index !== null && (
+            <line
+              x1={x(index)}
+              x2={x(index)}
+              y1={0}
+              y2={height}
+              stroke="currentColor"
+              strokeOpacity={0.35}
+              vectorEffect="non-scaling-stroke"
+            />
+          )}
+        </svg>
+        {index !== null && point !== null && (
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute size-2 -translate-1/2 rounded-full bg-foreground"
+            style={{ left: `${(index / (points.length - 1)) * 100}%`, top: y(point.value) }}
+          />
+        )}
       </div>
+      <div
+        className="flex min-h-4 justify-between font-mono text-2xs text-muted-foreground tabular-nums"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {readout === null ? (
+          <>
+            <span>{first.label}</span>
+            <span>
+              {fmt(min)} to {fmt(max)}
+            </span>
+            <span>{last.label}</span>
+          </>
+        ) : (
+          <span className="text-foreground">{readout}</span>
+        )}
+      </div>
+      <p id={hint} className="font-mono text-2xs text-muted-foreground">
+        ← → point · Home End
+      </p>
     </div>
   );
 }
