@@ -54,6 +54,7 @@ import { recentPostsAtom } from "../state/observations";
 import { queueAtom, scheduleAtom } from "../state/plan";
 import { settingsAtom, useSessionLane } from "../state/settings";
 import { Select } from "../components/ui/select";
+import { Switch } from "../components/ui/switch";
 
 /** What the editor owns; the service owns status, schedule, outcome and the media files. */
 interface Editor {
@@ -230,7 +231,6 @@ const optionsSummary = (e: Editor) =>
     .join(" · ");
 
 const row = "flex items-center justify-between gap-3 border-t border-border py-2.5";
-const check = "size-4 cursor-pointer accent-foreground";
 
 function Options({ editor, onChange }: { editor: Editor; onChange: (e: Editor) => void }) {
   const poll = editor.poll;
@@ -264,14 +264,12 @@ function Options({ editor, onChange }: { editor: Editor; onChange: (e: Editor) =
       </label>
       <label className={row}>
         <span>Poll on the first post</span>
-        <input
-          type="checkbox"
-          className={check}
+        <Switch
           checked={poll !== null}
-          onChange={(e) =>
+          onChange={(on) =>
             onChange({
               ...editor,
-              poll: e.target.checked ? { options: ["", ""], durationMinutes: 1440 } : null,
+              poll: on ? { options: ["", ""], durationMinutes: 1440 } : null,
             })
           }
         />
@@ -343,11 +341,9 @@ function Options({ editor, onChange }: { editor: Editor; onChange: (e: Editor) =
             Removed through your x.com session after posting
           </span>
         </span>
-        <input
-          type="checkbox"
-          className={check}
+        <Switch
           checked={editor.hideLinkPreviews}
-          onChange={(e) => onChange({ ...editor, hideLinkPreviews: e.target.checked })}
+          onChange={(hideLinkPreviews) => onChange({ ...editor, hideLinkPreviews })}
         />
       </label>
       <label className={row}>

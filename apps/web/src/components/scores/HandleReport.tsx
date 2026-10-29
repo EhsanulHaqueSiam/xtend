@@ -9,6 +9,7 @@ import { reportAtom, runScoreAtom } from "../../state/scores";
 import { settingsAtom } from "../../state/settings";
 import { PageHeader } from "../PageHeader";
 import { compactInputClass } from "../ui/field";
+import { Select } from "../ui/select";
 import { Cost, Empty, PageBody } from "../ui/layout";
 import { NoHandle } from "../ui/no-handle";
 import { xPill, xPillSm } from "../x";
@@ -49,18 +50,16 @@ function ScoreControls({
           {error}
         </span>
       ) : null}
-      <label className="flex items-center gap-2 font-mono text-2xs text-muted-foreground tabular-nums">
-        <input
-          type="range"
-          min={1}
-          max={10}
-          value={pages}
-          aria-label="Follower pages"
-          className="w-20 cursor-pointer accent-foreground"
-          onChange={(e) => setPages(Number(e.target.value))}
-        />
-        <span className="w-14">{pages} pages</span>
-      </label>
+      <Select
+        compact
+        label="Follower pages"
+        value={pages}
+        onChange={setPages}
+        options={Array.from({ length: 10 }, (_, i) => ({
+          value: i + 1,
+          label: i === 0 ? "1 follower page" : `${i + 1} follower pages`,
+        }))}
+      />
       <button
         type="button"
         className={cn(xPill, xPillSm)}
