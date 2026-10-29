@@ -32,7 +32,8 @@ posts, one click into Settings.
 Mentions of you: what the session saw for free, plus what a paid fetch brings in.
 **Notifications on X** opens X's mentions page in the panel, free, and the session files what
 it shows here. **Fetch new** is the paid read, priced on the button. Open or every mention in a
-list; the selected one has **Mark handled** and a reply. New mentions raise an OS notification.
+list; the selected one has **Mark handled** and a reply. A handled mention reopens from All, and
+Mark handled offers Undo right after. New mentions raise an OS notification.
 
 ## Inbox
 
