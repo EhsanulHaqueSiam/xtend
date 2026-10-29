@@ -4,8 +4,8 @@ import { HttpClient, HttpClientResponse, type HttpClientRequest } from "effect/h
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { vi } from "vite-plus/test";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 
-import * as Budget from "../budget/Budget.ts";
 import * as ServerConfig from "../config.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
@@ -48,11 +48,11 @@ const ownModel = Layer.succeed(HttpClient.HttpClient)(
 );
 
 const layerTest = Assist.layer.pipe(
-  Layer.provideMerge(Budget.layer),
   Layer.provideMerge(SettingsStore.layer),
   Layer.provideMerge(
     Layer.mergeAll(
       Sqlite.layerMemory,
+      NodeServices.layer,
       ownModel,
       TokenCipher.layerTest,
       ServerConfig.layer({
@@ -77,26 +77,16 @@ const request = {
 };
 
 describe("Assist.generate", () => {
-  it.effect("returns the structured answer and logs what the model run cost", () =>
+  it.effect("runs on the Claude login with the chosen model, and logs no spend", () =>
     Effect.gen(function* () {
       sdk.query.mockClear();
       const assist = yield* Assist.Assist;
       const settings = yield* SettingsStore.SettingsStore;
+      yield* settings.update({ assistModel: "test-model", monthlyBudgetUsd: 0 });
       expect(yield* assist.generate(request)).toEqual({ hook: "Ship it" });
+      expect(sdk.query.mock.calls[0]?.[0]).toMatchObject({ options: { model: "test-model" } });
       const spend = yield* settings.spendSummary;
-      expect(spend.byPurpose).toEqual([{ purpose: "compose.improveHook", costUsd: 0.02 }]);
-    }).pipe(Effect.provide(layerTest)),
-  );
-
-  it.effect("starts no model run when the budget refuses the reservation", () =>
-    Effect.gen(function* () {
-      sdk.query.mockClear();
-      const assist = yield* Assist.Assist;
-      const settings = yield* SettingsStore.SettingsStore;
-      yield* settings.update({ monthlyBudgetUsd: 0.01 });
-      const error = yield* Effect.flip(assist.generate(request));
-      expect(error.reason).toBe("budget");
-      expect(sdk.query).not.toHaveBeenCalled();
+      expect(spend.byPurpose).toEqual([]);
     }).pipe(Effect.provide(layerTest)),
   );
 });
@@ -107,6 +97,7 @@ describe("Assist.generate with the user's own model", () => {
       sdk.query.mockClear();
       const settings = yield* SettingsStore.SettingsStore;
       yield* settings.update({
+        assistProvider: "endpoint",
         assistBaseUrl: "http://127.0.0.1:11434/v1/",
         assistModel: "llama3.1",
         assistKey: "sk-own",
@@ -130,7 +121,10 @@ describe("Assist settings", () => {
         const settings = yield* SettingsStore.SettingsStore;
         yield* settings.update({ assistBaseUrl: "https://api.openai.com/v1", assistKey: "sk-a" });
         expect((yield* settings.get).assistKeySet).toBe(true);
-        const moved = yield* settings.update({ assistBaseUrl: "http://169.254.169.254/v1" });
+        const moved = yield* settings.update({
+          assistProvider: "endpoint",
+          assistBaseUrl: "http://169.254.169.254/v1",
+        });
         expect(moved.assistKeySet).toBe(false);
         const assist = yield* Assist.Assist;
         const refused = yield* assist.generate(request).pipe(Effect.flip);

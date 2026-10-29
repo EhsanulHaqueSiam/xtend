@@ -4,7 +4,6 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
-import * as Assist from "../ai/Assist.ts";
 import { POST_PAGES } from "../analyze/Analytics.ts";
 import { MAX_KEYWORDS } from "../engage/Engage.ts";
 import * as EngageStore from "../engage/EngageStore.ts";
@@ -137,10 +136,8 @@ const make = Effect.gen(function* () {
             : yield* read(rates.searchPage, x.cached.userPosts(handle));
         });
       case "assist":
-        // The user's own endpoint answers for nothing; the metered path reserves the usual amount.
-        return Effect.map(settings.get, (s) =>
-          s.assistBaseUrl === null ? paid(Assist.EXPECTED_CALL_USD) : { usd: 0, cached: false },
-        );
+        // Assist runs on the user's own login or endpoint; nothing goes through Xtend's budget.
+        return Effect.succeed({ usd: 0, cached: false });
     }
   };
 

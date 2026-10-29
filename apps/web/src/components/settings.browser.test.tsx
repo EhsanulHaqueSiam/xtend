@@ -106,6 +106,22 @@ it("saves a time zone only once Intl knows it", async () => {
   await expect.poll(() => updates).toEqual([{ timeZone: "Asia/Dhaka" }]);
 });
 
+it("runs assist on the Codex login with a chosen model, and keeps the endpoint fields away", async () => {
+  const updates: Array<SettingsUpdate> = [];
+  await using screen = await render(<SettingsScreen />, {
+    service: service(updates),
+    router: "/settings?tab=writing",
+  });
+  await expect
+    .element(screen.getByRole("button", { name: "Claude" }))
+    .toHaveAttribute("aria-pressed", "true");
+  await userEvent.click(screen.getByRole("button", { name: "Codex" }));
+  await userEvent.fill(screen.getByPlaceholder("default"), "m1");
+  await expect.element(screen.getByText("Endpoint", { exact: true })).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  await expect.poll(() => updates).toEqual([{ assistProvider: "codex", assistModel: "m1" }]);
+});
+
 it("finds a row on another page by its label and shows the page as a crumb", async () => {
   await using screen = await render(<SettingsScreen />, { service: service([]) });
   await expect.element(screen.getByPlaceholder("handle without @")).toBeVisible();

@@ -1,24 +1,24 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import type * as FileSystem from "effect/FileSystem";
 import { HttpClient } from "effect/http";
 import * as Layer from "effect/Layer";
+import type * as Path from "effect/Path";
+import type * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
-import * as Budget from "../budget/Budget.ts";
+import * as Codex from "./Codex.ts";
 import * as OwnModel from "./OwnModel.ts";
 import * as ServerConfig from "../config.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 
-/** Reserved before every model call; one structured call lands well under this and the actual cost settles it. */
-export const EXPECTED_CALL_USD = 0.05;
-
 export class AssistError extends Schema.TaggedError<AssistError>()("AssistError", {
   task: Schema.String,
-  reason: Schema.Literals(["model", "decode", "budget"]),
+  reason: Schema.Literals(["model", "decode"]),
   detail: Schema.String,
 }) {
   override get message(): string {
@@ -44,8 +44,8 @@ user's own posts use them, no em dashes. Hooks are the first line and must creat
 Respect X limits: 280 characters per post unless told the account is Premium.`;
 
 /**
- * One structured call to Claude. Screens call this with a task-specific
- * instruction and a schema; they never see the model, prompts or the SDK.
+ * One structured model call on the user's own login (Claude or Codex, as T3 Code runs them) or
+ * their own endpoint. Screens pass an instruction and a schema; they never see the provider.
  */
 export class Assist extends Context.Service<
   Assist,
@@ -55,8 +55,11 @@ export class Assist extends Context.Service<
 const make = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;
   const settings = yield* SettingsStore.SettingsStore;
-  const budget = yield* Budget.Budget;
   const http = yield* HttpClient.HttpClient;
+  // The Codex CLI runs through the platform services the service already has.
+  const platform = yield* Effect.context<
+    FileSystem.FileSystem | Path.Path | ChildProcessSpawner.ChildProcessSpawner
+  >();
 
   const generate = Effect.fn("Assist.generate")(function* <A>(request: AssistRequest<A>) {
     const current = yield* settings.get.pipe(Effect.orElseSucceed(() => null));
@@ -78,26 +81,36 @@ const make = Effect.gen(function* () {
         ),
       );
 
-    // Free first: the user's own endpoint answers without touching the budget or the spend log.
-    if (current !== null && current.assistBaseUrl !== null) {
+    const modelError = (e: unknown) =>
+      new AssistError({
+        task: request.task,
+        reason: "model",
+        detail: typeof e === "string" ? e : String(e).slice(0, 300),
+      });
+    const system = BASE_PROMPT + voice;
+    const provider = current?.assistProvider ?? "claude";
+    const model = current?.assistModel ?? "";
+
+    // Every provider is the user's own: nothing here reserves budget or writes the spend log.
+    if (provider === "endpoint") {
+      if (current === null || current.assistBaseUrl === null)
+        return yield* modelError("Set an endpoint in Settings, Writing.");
       const key = yield* settings.assistKey.pipe(Effect.orElseSucceed(() => null));
       const output = yield* OwnModel.complete({
         baseUrl: current.assistBaseUrl,
-        model: current.assistModel,
+        model,
         key,
-        system: BASE_PROMPT + voice,
+        system,
         prompt,
         jsonSchema,
-      }).pipe(
-        Effect.provideService(HttpClient.HttpClient, http),
-        Effect.mapError(
-          (e) =>
-            new AssistError({
-              task: request.task,
-              reason: "model",
-              detail: typeof e === "string" ? e : String(e).slice(0, 300),
-            }),
-        ),
+      }).pipe(Effect.provideService(HttpClient.HttpClient, http), Effect.mapError(modelError));
+      return yield* decode(output);
+    }
+
+    if (provider === "codex") {
+      const output = yield* Codex.complete({ model, system, prompt, jsonSchema }).pipe(
+        Effect.provide(platform),
+        Effect.mapError(modelError),
       );
       return yield* decode(output);
     }
@@ -106,41 +119,30 @@ const make = Effect.gen(function* () {
     // the SDK's per-platform binaries, and everything but assist must still run there.
     const sdk = yield* Effect.tryPromise({
       try: () => import("@anthropic-ai/claude-agent-sdk"),
-      catch: () =>
-        new AssistError({
-          task: request.task,
-          reason: "model",
-          detail: "AI assist is not included in this build of Xtend.",
-        }),
+      catch: () => modelError("AI assist is not included in this build of Xtend."),
     });
     let output: unknown = undefined;
     let error: string | null = null;
-    let costUsd = 0;
-    // `query` spawns the model and sends the prompt at once, so it is called inside the budget's
-    // body: a refused reservation must not start a paid run.
-    const run = Stream.suspend(() =>
-      Stream.fromAsyncIterable(
-        sdk.query({
-          prompt,
-          options: {
-            cwd: config.baseDir,
-            systemPrompt: BASE_PROMPT + voice,
-            tools: [],
-            allowedTools: [],
-            settingSources: [],
-            permissionMode: "default",
-            maxTurns: 1,
-            outputFormat: { type: "json_schema", schema: jsonSchema as Record<string, unknown> },
-          },
-        }),
-        (cause) => cause,
-      ),
-    );
-    const consume = run.pipe(
+    yield* Stream.fromAsyncIterable(
+      sdk.query({
+        prompt,
+        options: {
+          cwd: config.baseDir,
+          systemPrompt: system,
+          ...(model === "" ? {} : { model }),
+          tools: [],
+          allowedTools: [],
+          settingSources: [],
+          permissionMode: "default",
+          maxTurns: 1,
+          outputFormat: { type: "json_schema", schema: jsonSchema as Record<string, unknown> },
+        },
+      }),
+      (cause) => cause,
+    ).pipe(
       Stream.runForEach((message: SDKMessage) =>
         Effect.sync(() => {
           if (message.type !== "result") return;
-          costUsd = message.total_cost_usd ?? 0;
           if (message.is_error) {
             error =
               "errors" in message && message.errors.length > 0
@@ -156,23 +158,7 @@ const make = Effect.gen(function* () {
           error ??= String(cause).slice(0, 300);
         }),
       ),
-      Effect.map(() => ({ value: undefined, costUsd })),
     );
-    yield* budget
-      .spend(
-        {
-          expectedUsd: EXPECTED_CALL_USD,
-          provider: "claude",
-          endpoint: "agent-sdk",
-          purpose: request.task,
-        },
-        consume,
-      )
-      .pipe(
-        Effect.catchTag("BudgetExceeded", (e) =>
-          Effect.fail(new AssistError({ task: request.task, reason: "budget", detail: e.message })),
-        ),
-      );
 
     if (error !== null)
       return yield* new AssistError({ task: request.task, reason: "model", detail: error });

@@ -17,6 +17,7 @@ import * as Stream from "effect/Stream";
 export const settings = {
   handle: "siamships",
   tregTokenSet: true,
+  assistProvider: "claude",
   assistBaseUrl: null,
   assistModel: "",
   assistKeySet: false,
