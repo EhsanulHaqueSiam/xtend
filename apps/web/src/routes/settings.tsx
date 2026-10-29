@@ -93,6 +93,7 @@ function SField({
 const DEFAULTS: Partial<Record<Page, SettingsUpdate>> = {
   money: { monthlyBudgetUsd: 50 },
   writing: {
+    assistProvider: "claude",
     assistBaseUrl: null,
     assistModel: "",
     assistKey: null,
@@ -154,9 +155,30 @@ const isTimeZone = (zone: string) => {
   }
 };
 
-/** Where assist can run for free. The model names are each provider's cheap, capable default. */
+/** What answers assist, as T3 Code picks a provider: the two logins first, any other model after. */
+const ASSIST_PROVIDERS = [
+  {
+    id: "claude",
+    label: "Claude",
+    hint: "The Claude login on the machine running the service, as T3 Code uses it. Free through Xtend; your plan's limits apply.",
+    models: ["claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"],
+  },
+  {
+    id: "codex",
+    label: "Codex",
+    hint: "The Codex login on the machine running the service, ChatGPT or its own key. Free through Xtend; your plan's limits apply.",
+    models: [],
+  },
+  {
+    id: "endpoint",
+    label: "Other model",
+    hint: "Any OpenAI-compatible endpoint. The provider bills you directly; a local model costs nothing.",
+    models: [],
+  },
+] as const;
+
+/** Endpoints for "Other model". The model names are each provider's cheap, capable default. */
 const ASSIST_PRESETS = [
-  { label: "Xtend", baseUrl: null, model: "" },
   { label: "Local (Ollama)", baseUrl: "http://127.0.0.1:11434/v1", model: "llama3.1" },
   { label: "OpenAI", baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini" },
   { label: "Anthropic", baseUrl: "https://api.anthropic.com/v1", model: "claude-haiku-5-5" },
@@ -180,6 +202,9 @@ function SettingsForm({ current }: { readonly current: SettingsShape }) {
   const invalid = budgetInvalid || zoneInvalid;
   const assistBaseUrl =
     draft.assistBaseUrl === undefined ? current.assistBaseUrl : draft.assistBaseUrl;
+  const assistProvider =
+    ASSIST_PROVIDERS.find((p) => p.id === (draft.assistProvider ?? current.assistProvider)) ??
+    ASSIST_PROVIDERS[0];
 
   const save = async () => {
     setError(null);
@@ -273,81 +298,121 @@ function SettingsForm({ current }: { readonly current: SettingsShape }) {
         </Section>
       </Page>
       <Page id="writing">
-        <Section
-          title="AI assist"
-          description="free with your own model; otherwise metered through Xtend"
-        >
-          <SField
-            wide
-            label="Model"
-            hint={
-              assistBaseUrl === null
-                ? "Xtend's model, billed per call against the budget. Pick a preset to make assist free."
-                : "Your endpoint answers every assist for nothing through Xtend; the provider bills you directly, a local model costs nothing at all."
-            }
-          >
+        <Section title="AI assist" description="runs on your own logins, free through Xtend">
+          <SField wide label="Runs on" hint={assistProvider.hint}>
             <div className="mt-1 flex flex-wrap gap-1.5">
-              {ASSIST_PRESETS.map((preset) => (
+              {ASSIST_PROVIDERS.map((p) => (
                 <Button
-                  key={preset.label}
+                  key={p.id}
                   variant="outline"
                   size="xs"
-                  aria-label={preset.label}
-                  aria-pressed={assistBaseUrl === preset.baseUrl}
+                  aria-label={p.label}
+                  aria-pressed={assistProvider.id === p.id}
                   className="aria-pressed:border-foreground"
                   onClick={() =>
                     setDraft((d) => ({
                       ...d,
-                      assistBaseUrl: preset.baseUrl,
-                      assistModel: preset.model,
+                      assistProvider: p.id,
+                      // A model name belongs to one provider; an endpoint starts on the local preset.
+                      assistModel: p.id === "endpoint" && assistBaseUrl === null ? "llama3.1" : "",
+                      ...(p.id === "endpoint" && assistBaseUrl === null
+                        ? { assistBaseUrl: ASSIST_PRESETS[0].baseUrl }
+                        : {}),
                     }))
                   }
                 >
-                  {preset.label}
+                  {p.label}
                 </Button>
               ))}
             </div>
           </SField>
-          {assistBaseUrl === null ? null : (
-            <>
-              <SField wide label="Endpoint" hint="OpenAI-compatible, ending in /v1.">
-                <input
-                  className={settingsInput}
-                  value={assistBaseUrl}
-                  onChange={(e) => setDraft((d) => ({ ...d, assistBaseUrl: e.target.value }))}
-                />
-              </SField>
-              <SField
-                wide
-                label="Model name"
-                hint="As the provider names it; for Ollama, a model you pulled."
-              >
-                <input
-                  className={settingsInput}
-                  value={draft.assistModel ?? current.assistModel}
-                  onChange={(e) => setDraft((d) => ({ ...d, assistModel: e.target.value }))}
-                />
-              </SField>
-              <SField
-                wide
-                label="API key"
-                hint={
-                  current.assistKeySet
-                    ? "A key is stored. Paste a new one to replace it. A local model needs none."
-                    : "Needed at a provider; a local model needs none. Stored encrypted, never leaves this machine."
-                }
-              >
-                <input
-                  className={settingsInput}
-                  type="password"
-                  placeholder="API key"
-                  value={assistKey}
-                  onChange={(e) => setAssistKey(e.target.value)}
-                />
-              </SField>
-            </>
+          {assistProvider.id === "endpoint" ? null : (
+            <SField
+              wide
+              label="Model"
+              hint={`Empty uses the ${assistProvider.label} CLI's own default.`}
+            >
+              <input
+                className={settingsInput}
+                list={`xtend-${assistProvider.id}-models`}
+                placeholder="default"
+                value={draft.assistModel ?? current.assistModel}
+                onChange={(e) => setDraft((d) => ({ ...d, assistModel: e.target.value.trim() }))}
+              />
+              <datalist id={`xtend-${assistProvider.id}-models`}>
+                {assistProvider.models.map((m) => (
+                  <option key={m} value={m} />
+                ))}
+              </datalist>
+            </SField>
           )}
         </Section>
+        {assistProvider.id !== "endpoint" ? null : (
+          <Section title="Other model">
+            <SField
+              wide
+              label="Preset"
+              hint="Fills the endpoint and a sensible model; edit either below."
+            >
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                {ASSIST_PRESETS.map((preset) => (
+                  <Button
+                    key={preset.label}
+                    variant="outline"
+                    size="xs"
+                    aria-label={preset.label}
+                    aria-pressed={assistBaseUrl === preset.baseUrl}
+                    className="aria-pressed:border-foreground"
+                    onClick={() =>
+                      setDraft((d) => ({
+                        ...d,
+                        assistBaseUrl: preset.baseUrl,
+                        assistModel: preset.model,
+                      }))
+                    }
+                  >
+                    {preset.label}
+                  </Button>
+                ))}
+              </div>
+            </SField>
+            <SField wide label="Endpoint" hint="OpenAI-compatible, ending in /v1.">
+              <input
+                className={settingsInput}
+                value={assistBaseUrl ?? ""}
+                onChange={(e) => setDraft((d) => ({ ...d, assistBaseUrl: e.target.value }))}
+              />
+            </SField>
+            <SField
+              wide
+              label="Model name"
+              hint="As the provider names it; for Ollama, a model you pulled."
+            >
+              <input
+                className={settingsInput}
+                value={draft.assistModel ?? current.assistModel}
+                onChange={(e) => setDraft((d) => ({ ...d, assistModel: e.target.value }))}
+              />
+            </SField>
+            <SField
+              wide
+              label="API key"
+              hint={
+                current.assistKeySet
+                  ? "A key is stored. Paste a new one to replace it. A local model needs none."
+                  : "Needed at a provider; a local model needs none. Stored encrypted, never leaves this machine."
+              }
+            >
+              <input
+                className={settingsInput}
+                type="password"
+                placeholder="API key"
+                value={assistKey}
+                onChange={(e) => setAssistKey(e.target.value)}
+              />
+            </SField>
+          </Section>
+        )}
         <Section title="Time and voice">
           <SField
             wide

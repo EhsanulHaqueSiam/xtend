@@ -124,7 +124,7 @@ describe("Costs", () => {
         rates.scraperProfile + 4 * rates.followersPage,
         4 * rates.followersPage,
         rates.followersPage,
-        Assist.EXPECTED_CALL_USD,
+        0,
       ]);
       expect(quotes.map((q) => q.cached)).toEqual([
         false,

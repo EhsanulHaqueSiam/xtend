@@ -33,6 +33,7 @@ interface SettingsRow {
   readonly voice_notes: string;
   readonly keywords_json: string;
   readonly time_zone: string | null;
+  readonly assist_provider: Settings["assistProvider"];
   readonly assist_base_url: string | null;
   readonly assist_model: string;
   readonly assist_key: string | null;
@@ -83,6 +84,7 @@ const make = Effect.gen(function* () {
     voiceNotes: r.voice_notes,
     keywords: decodeKeywords(r.keywords_json),
     timeZone: r.time_zone ?? defaultZone,
+    assistProvider: r.assist_provider,
     assistBaseUrl: r.assist_base_url,
     assistModel: r.assist_model,
     assistKeySet: r.assist_key !== null,
@@ -144,6 +146,7 @@ const make = Effect.gen(function* () {
           voice_notes = ${patch.voiceNotes ?? current.voice_notes},
           keywords_json = ${patch.keywords === undefined ? current.keywords_json : encodeKeywords(patch.keywords)},
           time_zone = ${patch.timeZone ?? current.time_zone},
+          assist_provider = ${patch.assistProvider ?? current.assist_provider},
           assist_base_url = ${assistBaseUrl},
           assist_model = ${patch.assistModel?.trim() ?? current.assist_model},
           assist_key = ${assistKey},
