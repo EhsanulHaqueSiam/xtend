@@ -45,7 +45,10 @@ Replies sent from Xtend.
 
 ## Follow-ups
 
-Replies you sent that are worth a second touch: older than two days with nothing since.
+Replies you sent that are worth a second touch: older than two days with nothing since. Reply
+again here and it leaves the list. Xtend cannot see a follow-up you make on X itself, so mark
+that one **Done**; **Dismiss** drops one not worth a second touch. Replies sent before this
+version show only a link to the post.
 
 ## DMs
 

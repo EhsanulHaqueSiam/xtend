@@ -114,6 +114,17 @@ export const inboxAtom = clientRuntime.atom((get) =>
   }),
 );
 
+/** Done or dismissed takes a follow-up off the due list; `state: null` puts it back. */
+export const closeFollowUpAtom = clientRuntime.fn<{
+  readonly id: number;
+  readonly state: "done" | "dismissed" | null;
+}>()(
+  Effect.fnUntraced(function* (input) {
+    const client = yield* XtendClient;
+    return yield* client[Engage_METHODS.followUpClose](input);
+  }),
+);
+
 export const nicheAtom = clientRuntime.atom(
   Effect.gen(function* () {
     const client = yield* XtendClient;
