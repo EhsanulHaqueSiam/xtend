@@ -4,6 +4,8 @@ import {
   type DesktopCommand,
   type DesktopCommandResult,
   Library_METHODS,
+  type MarkSubject,
+  Marks_METHODS,
   WS_METHODS,
   WS_PATH,
   WsRpcGroup,
@@ -18,6 +20,8 @@ import * as RpcSerialization from "effect/rpc/RpcSerialization";
 import * as Schedule from "effect/Schedule";
 import * as Socket from "effect/socket/Socket";
 import * as Stream from "effect/Stream";
+
+import { OVERLAY_MARKS_CHANNEL } from "../ipc/channels.ts";
 
 const RECONNECT_MS = 2_000;
 const POLL_MS = 250;
@@ -120,11 +124,22 @@ export function attachDesktopCommands(
   );
   const fiber = Effect.runFork(serve);
 
+  /** Asks the service what it knows about these posts and hands the marks to the overlay. */
+  const marks = (posts: ReadonlyArray<MarkSubject>) => {
+    if (client === undefined || posts.length === 0) return;
+    void Effect.runPromise(client[Marks_METHODS.forPosts]({ posts })).then(
+      (found) => contents.send(OVERLAY_MARKS_CHANNEL, found),
+      (error: unknown) => options.log("marks failed", String(error)),
+    );
+  };
+
   return {
+    marks,
     /** Saves a post to the library with its metrics frozen; the overlay's Save action. */
     save: (post: XPost) => {
       if (client === undefined) return options.log("save skipped, service not connected");
-      void Effect.runPromise(client[Library_METHODS.save]({ post, collectionId: null })).catch(
+      void Effect.runPromise(client[Library_METHODS.save]({ post, collectionId: null })).then(
+        () => marks([{ postId: post.postId, handle: post.author.handle }]),
         (error: unknown) => options.log("save failed", String(error)),
       );
     },

@@ -1,3 +1,4 @@
+import type { Mark } from "@xtend/contracts";
 import { ipcRenderer } from "electron";
 
 import {
@@ -6,10 +7,12 @@ import {
   OVERLAY_DATA_CHANNEL,
   OVERLAY_GLANCE_CHANNEL,
   OVERLAY_HIDE_CHANNEL,
+  OVERLAY_MARKS_CHANNEL,
   OVERLAY_TOGGLE_CHANNEL,
   OVERLAY_VIEWER_CHANNEL,
   type OverlayAction,
   type OverlayData,
+  type OverlayMarks,
   type OverlayPost,
 } from "../ipc/channels.ts";
 import {
@@ -50,6 +53,8 @@ const STYLE = `
   .strip { display: flex; gap: 14px; align-items: center; margin-top: 8px; font: 12px/16px ${MONO}; color: #868a93; }
   .strip b { color: #c4c7ce; font-weight: 400; }
   .up { color: #4ade80; } .down { color: #f87171; }
+  .mark { color: #f1f3f7; font-family: ${FONT}; }
+  .mark::before { content: "●"; margin-right: 5px; font-size: 8px; vertical-align: 1px; }
   .act { margin-left: auto; display: flex; gap: 14px; font: 500 13px/16px ${FONT}; }
   button { all: unset; cursor: pointer; color: #c4c7ce; font: inherit; transition: color 150ms ease; }
   button:hover { color: #f1f3f7; }
@@ -111,13 +116,14 @@ const state = {
   posts: new Map<string, OverlayPost>(),
   ownAverage: null as OverlayData["ownAverage"],
   glance: null as Glance | null,
+  marks: new Map<string, ReadonlyArray<Mark>>(),
   enabled: true,
   killed: false,
   strips: new Map<string, { host: HTMLElement; body: HTMLElement; html: string }>(),
   chips: [] as Array<{ host: HTMLElement; body: HTMLElement; toolbar: HTMLElement }>,
 };
 
-const stripHtml = (p: OverlayPost): string => {
+const stripHtml = (postId: string, p: OverlayPost): string => {
   const er = engagementRate(p);
   const vph = viewsPerHour(p, Date.now());
   // Unknown values are left out rather than dashed, as X does with its own counts.
@@ -132,15 +138,35 @@ const stripHtml = (p: OverlayPost): string => {
       `<span class="${delta >= 0 ? "up" : "down"}">${delta >= 0 ? "+" : ""}${delta}% vs your avg</span>`,
     );
   }
+  for (const m of state.marks.get(postId) ?? [])
+    cells.push(`<span class="mark">${markText(m)}</span>`);
   return `${cells.join("")}<span class="act"><button data-act="save">Save</button><button data-act="reply">Reply with AI</button></span>`;
 };
+
+const ago = (iso: string): string => {
+  const m = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000));
+  return m < 60
+    ? `${m}m ago`
+    : m < 1_440
+      ? `${Math.round(m / 60)}h ago`
+      : `${Math.round(m / 1_440)}d ago`;
+};
+/** Same words as the tool rows: "replied 1h ago", "saved", "lead · warm", "watching", "auto · rule". */
+const markText = (m: Mark): string =>
+  m.kind === "replied"
+    ? `replied ${m.at === null ? "" : ago(m.at)}`.trim()
+    : m.kind === "lead"
+      ? `lead · ${m.detail}`
+      : m.kind === "auto"
+        ? `auto · ${m.detail}`
+        : m.kind;
 
 const mountStrip = (article: HTMLElement, postId: string, post: OverlayPost) => {
   const row = articleActionRow(article);
   if (row === null) return;
   const { host, body } = shadowHost("strip");
   host.setAttribute(HOST_ATTR, postId);
-  const html = stripHtml(post);
+  const html = stripHtml(postId, post);
   body.innerHTML = html;
   body.addEventListener("click", (e) => {
     const act = (e.target as HTMLElement).dataset.act;
@@ -220,7 +246,7 @@ const scan = () => {
       strip?.host.remove();
       continue;
     }
-    if (strip !== undefined) render(strip, stripHtml(post));
+    if (strip !== undefined) render(strip, stripHtml(postId, post));
     else mountStrip(article, postId, post);
     if (article.dataset.xtendHover === undefined) {
       article.dataset.xtendHover = "1";
@@ -331,6 +357,10 @@ ipcRenderer.on(OVERLAY_TOGGLE_CHANNEL, () => {
 ipcRenderer.on(OVERLAY_HIDE_CHANNEL, (_event, hidden: boolean) => {
   state.killed = hidden;
   applyVisibility();
+});
+ipcRenderer.on(OVERLAY_MARKS_CHANNEL, (_event, marks: OverlayMarks) => {
+  for (const [id, found] of Object.entries(marks)) state.marks.set(id, found);
+  queueScan();
 });
 ipcRenderer.on(OVERLAY_GLANCE_CHANNEL, (_event, glance: Glance) => {
   state.glance = glance;

@@ -1,3 +1,5 @@
+import type { Mark } from "@xtend/contracts";
+
 /** IPC between the main process, the app window's preload and the x.com webview's overlay preload. */
 
 // App -> main
@@ -25,6 +27,8 @@ export const OVERLAY_DATA_CHANNEL = "xtend:overlay-data";
 export const OVERLAY_TOGGLE_CHANNEL = "xtend:overlay-toggle";
 export const OVERLAY_HIDE_CHANNEL = "xtend:overlay-hide";
 export const OVERLAY_GLANCE_CHANNEL = "xtend:overlay-glance";
+/** Marks per post id (`OverlayMarks`) for a batch the capture just saw, or one post after a Save. */
+export const OVERLAY_MARKS_CHANNEL = "xtend:overlay-marks";
 // Overlay preload -> main
 export const OVERLAY_ACTION_CHANNEL = "xtend:overlay-action";
 /** The signed-in handle read from X's nav (string), when the capture has not seen it. */
@@ -67,6 +71,8 @@ export interface OverlayPost {
   readonly isOwn: boolean;
   readonly isPromoted: boolean;
 }
+
+export type OverlayMarks = Readonly<Record<string, ReadonlyArray<Mark>>>;
 
 export interface OverlayData {
   readonly posts: Readonly<Record<string, OverlayPost>>;

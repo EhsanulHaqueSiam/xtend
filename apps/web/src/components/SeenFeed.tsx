@@ -1,5 +1,5 @@
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
-import type { ObservedPostSummary } from "@xtend/contracts";
+import type { Mark, ObservedPostSummary } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { BadgeCheck, RefreshCw } from "lucide-react";
 
@@ -10,6 +10,7 @@ import { PageHeader } from "./PageHeader";
 import { useDropPost } from "./shell/drops";
 import { Button } from "./ui/button";
 import { Cost, Empty, PageBody, table } from "./ui/layout";
+import { Marks, useMarks } from "./ui/marks";
 import { useOpenOnX } from "./ui/x-link";
 
 const compact = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
@@ -26,10 +27,12 @@ const statusUrl = (post: ObservedPostSummary) =>
 
 function PostRow({
   post,
+  marks,
   onOpen,
   onSave,
 }: {
   readonly post: ObservedPostSummary;
+  readonly marks: ReadonlyArray<Mark> | undefined;
   readonly onOpen: (post: ObservedPostSummary) => void;
   readonly onSave: (post: ObservedPostSummary) => void;
 }) {
@@ -60,6 +63,7 @@ function PostRow({
         <p className="line-clamp-2 max-w-2xl text-[13px] leading-snug text-foreground/90">
           {post.text}
         </p>
+        <Marks marks={marks} />
       </td>
       <td className={cn(table.td, table.num)}>{fmt(post.metrics.views)}</td>
       <td className={cn(table.td, table.num)}>{fmt(post.metrics.likes)}</td>
@@ -92,6 +96,14 @@ export function SeenFeed() {
   const count = AsyncResult.getOrElse(
     AsyncResult.map(result, (value) => value.posts.length),
     () => null,
+  );
+  const marks = useMarks(
+    AsyncResult.getOrElse(
+      AsyncResult.map(result, (value) =>
+        value.posts.map((p) => ({ postId: p.postId, handle: p.author.handle })),
+      ),
+      () => [],
+    ),
   );
 
   return (
@@ -140,6 +152,7 @@ export function SeenFeed() {
                     <PostRow
                       key={post.postId}
                       post={post}
+                      marks={marks[post.postId]}
                       onOpen={(p) => openOnX(statusUrl(p))}
                       onSave={(p) =>
                         drop("/library", {

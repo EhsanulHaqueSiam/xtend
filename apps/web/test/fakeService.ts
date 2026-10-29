@@ -1,4 +1,4 @@
-import { Events_METHODS, WsRpcGroup } from "@xtend/contracts";
+import { Events_METHODS, Marks_METHODS, WsRpcGroup } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Atom from "effect/reactivity/Atom";
@@ -18,10 +18,14 @@ export type FakeService = Partial<Handlers>;
 
 /**
  * The real rpc client and server, in memory, with `handlers` behind them. Live events
- * default to none; any other rpc dies with its name, so a test that forgot one says which.
+ * and marks default to none; any other rpc dies with its name, so a test that forgot one says which.
  */
 const layerFakeClient = (handlers: FakeService) => {
-  const answered: FakeService = { [Events_METHODS.subscribe]: () => Stream.never, ...handlers };
+  const answered: FakeService = {
+    [Events_METHODS.subscribe]: () => Stream.never,
+    [Marks_METHODS.forPosts]: () => Effect.succeed({}),
+    ...handlers,
+  };
   // The proxy fills in every rpc the test left out, which the type cannot see.
   const all = new Proxy(answered as Handlers, {
     get: (target, tag) =>
