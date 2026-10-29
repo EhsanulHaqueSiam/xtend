@@ -89,7 +89,7 @@ function Themes({ data }: { readonly data: AnalyzeData }) {
         <Button
           size="sm"
           variant="outline"
-          disabled={result.waiting || noPosts}
+          disabled={result.waiting || noPosts || quote === "…"}
           title="Cached per set of posts: asking again for the same posts is free."
           onClick={() => run()}
         >

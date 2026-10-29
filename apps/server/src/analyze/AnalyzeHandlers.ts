@@ -28,6 +28,7 @@ export const layerHandlers = AnalyzeRpcGroup.toLayer(
       [Analyze_METHODS.competitorFetch]: ({ handle }) => analytics.competitorFetch(handle),
       [Analyze_METHODS.ask]: ({ question }) => analytics.ask(question),
       [Analyze_METHODS.refreshNonPublic]: () => analytics.refreshNonPublic,
+      [Analyze_METHODS.nightlySet]: ({ on }) => analytics.nightlySet(on),
       [Analyze_METHODS.postStrip]: ({ postIds }) => analytics.postStrip(postIds),
     });
   }),

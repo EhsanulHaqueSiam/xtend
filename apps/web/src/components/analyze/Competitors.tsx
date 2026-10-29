@@ -30,7 +30,7 @@ function FetchButton({
     <Button
       size="sm"
       variant="outline"
-      disabled={disabled}
+      disabled={disabled || quote === "…"}
       onClick={(e) => {
         e.stopPropagation();
         onClick();
@@ -84,9 +84,10 @@ export function Competitors({ data }: { readonly data: AnalyzeData }) {
       ? null
       : nonPublic.byPost.reduce((s, r) => s + r.impressions, 0) / nonPublic.byPost.length;
   const mine = myImpressions ?? myAvg;
-  const byHandle = new Map(
-    AsyncResult.getOrElse(reports, () => []).map((r) => [r.handle, r] as const),
-  );
+  // null until the stored reports load: a failed read must not show them as never fetched, which
+  // would invite paying to fetch them again.
+  const stored = AsyncResult.getOrElse(reports, () => null);
+  const byHandle = new Map((stored ?? []).map((r) => [r.handle, r] as const));
   const watched = AsyncResult.getOrElse(watch, () => []);
 
   // True when the work succeeded, so the add form only clears what actually went in.
@@ -131,7 +132,9 @@ export function Competitors({ data }: { readonly data: AnalyzeData }) {
         </form>
       }
     >
-      <ErrorBar>{error}</ErrorBar>
+      <ErrorBar>
+        {error ?? (AsyncResult.isFailure(reports) ? errorText(reports.cause) : null)}
+      </ErrorBar>
       {AsyncResult.match(watch, {
         onInitial: () => <Empty>Loading.</Empty>,
         onFailure: (f) => (
@@ -176,13 +179,26 @@ export function Competitors({ data }: { readonly data: AnalyzeData }) {
                     <Fragment key={w.handle}>
                       <tr
                         data-selected={expanded}
-                        aria-expanded={report === undefined ? undefined : expanded}
                         className={cn(table.row, report !== undefined && "cursor-pointer")}
                         onClick={() =>
                           report !== undefined && setOpen(open === w.handle ? null : w.handle)
                         }
                       >
-                        <td className={cn(table.td, "font-mono text-xs")}>@{w.handle}</td>
+                        <td className={cn(table.td, "font-mono text-xs")}>
+                          {report === undefined ? (
+                            `@${w.handle}`
+                          ) : (
+                            // The keyboard's way in: Enter or Space clicks it, and the click
+                            // reaches the row's handler, so there is no handler here.
+                            <button
+                              type="button"
+                              aria-expanded={expanded}
+                              className="cursor-pointer outline-hidden focus-visible:underline"
+                            >
+                              @{w.handle}
+                            </button>
+                          )}
+                        </td>
                         <td className={cn(table.td, table.num)}>
                           {fmt(report?.profile?.followers ?? null)}
                         </td>
@@ -208,7 +224,11 @@ export function Competitors({ data }: { readonly data: AnalyzeData }) {
                             "hidden font-mono text-xs whitespace-nowrap text-muted-foreground @4xl:table-cell",
                           )}
                         >
-                          {report === undefined ? "not yet" : when(report.fetchedAt)}
+                          {report !== undefined
+                            ? when(report.fetchedAt)
+                            : stored === null
+                              ? "–"
+                              : "not yet"}
                         </td>
                         <td className={cn(table.td, "whitespace-nowrap")}>
                           <div className="flex justify-end gap-1.5">
@@ -216,7 +236,7 @@ export function Competitors({ data }: { readonly data: AnalyzeData }) {
                             <FetchButton
                               handle={w.handle}
                               label={report === undefined ? "Fetch" : "Refetch"}
-                              disabled={fetching}
+                              disabled={fetching || stored === null}
                               onClick={() => void run(() => fetchOne(w.handle))}
                             />
                             <Button

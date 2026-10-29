@@ -149,6 +149,8 @@ export class Analytics extends Context.Service<
     readonly ask: (question: string) => Effect.Effect<AskAnswer, AnalyzeError>;
     /** Paid: X's private metrics for the last 30 days of own posts, then `data`. */
     readonly refreshNonPublic: Effect.Effect<AnalyzeData, AnalyzeError>;
+    /** Turns the nightly private-metrics read on or off, then `data`. */
+    readonly nightlySet: (on: boolean) => Effect.Effect<AnalyzeData, AnalyzeError>;
     /** The overlay's own-post strip; posts without a stored analytics row are left out. */
     readonly postStrip: (
       postIds: ReadonlyArray<string>,
@@ -349,6 +351,7 @@ const make = Effect.gen(function* () {
   );
 
   const refreshNonPublic = Effect.andThen(postAnalytics.refresh, data);
+  const nightlySet = (on: boolean) => Effect.andThen(postAnalytics.setNightly(on), data);
 
   const postStrip = Effect.fn("Analytics.postStrip")(function* (postIds: ReadonlyArray<string>) {
     const { byPost } = yield* postAnalytics.current;
@@ -376,6 +379,7 @@ const make = Effect.gen(function* () {
     competitorFetch,
     ask,
     refreshNonPublic,
+    nightlySet,
     postStrip,
   });
 });

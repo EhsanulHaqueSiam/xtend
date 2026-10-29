@@ -89,6 +89,8 @@ export const NonPublic = Schema.Struct({
     }),
   ),
   byPost: Schema.Array(PostAnalytics),
+  /** Whether the paid nightly read runs; null until the first Fetch now, which turns it on. */
+  nightly: Schema.NullOr(Schema.Boolean),
 });
 export type NonPublic = typeof NonPublic.Type;
 
@@ -168,6 +170,7 @@ export const Analyze_METHODS = {
   competitorFetch: "analyze.competitorFetch",
   ask: "analyze.ask",
   refreshNonPublic: "analyze.refreshNonPublic",
+  nightlySet: "analyze.nightlySet",
   postStrip: "analyze.postStrip",
 } as const;
 
@@ -210,6 +213,12 @@ export const AnalyzeRpcGroup = RpcGroup.make(
   /** Paid: one analytics read per own post of the last 30 days. Runs nightly too. */
   Rpc.make(Analyze_METHODS.refreshNonPublic, {
     payload: Schema.Struct({}),
+    success: AnalyzeData,
+    error: AnalyzeError,
+  }),
+  /** Turns the nightly private-metrics read on or off for the current account. */
+  Rpc.make(Analyze_METHODS.nightlySet, {
+    payload: Schema.Struct({ on: Schema.Boolean }),
     success: AnalyzeData,
     error: AnalyzeError,
   }),

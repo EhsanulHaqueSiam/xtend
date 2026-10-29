@@ -13,11 +13,12 @@ import { TextMorph } from "torph/react";
 
 import { fmtDay } from "../../lib/time";
 import { cn } from "../../lib/utils";
-import { analyzeDataAtom, refreshNonPublicAtom } from "../../state/analyze";
+import { analyzeDataAtom, nightlySetAtom, refreshNonPublicAtom } from "../../state/analyze";
 import { useRates } from "../../state/costs";
 import { HeaderTabs } from "../PageHeader";
 import { Button } from "../ui/button";
 import { Cost, Empty, Section, Stat, table } from "../ui/layout";
+import { Switch } from "../ui/switch";
 import { useOpenOnX, XLink } from "../ui/x-link";
 import { AnalyzePage, NotLoaded } from "./AnalyzePage";
 import { engagementRate, errorText, fmt, insetTable, pct, when } from "./ui";
@@ -75,8 +76,15 @@ function NonPublicStatus({
   const rates = useRates();
   const refresh = useAtomSet(refreshNonPublicAtom, { mode: "promise" });
   const state = useAtomValue(refreshNonPublicAtom);
+  const setNightly = useAtomSet(nightlySetAtom, { mode: "promise" });
+  const nightlyState = useAtomValue(nightlySetAtom);
   const refreshData = useAtomRefresh(analyzeDataAtom);
   const last = nonPublic.lastRun;
+  const failed = AsyncResult.isFailure(state)
+    ? state
+    : AsyncResult.isFailure(nightlyState)
+      ? nightlyState
+      : null;
   return (
     <Section
       title="Private metrics"
@@ -85,7 +93,7 @@ function NonPublicStatus({
         <Button
           size="sm"
           variant="outline"
-          disabled={state.waiting}
+          disabled={state.waiting || rates === null}
           // A failure lands in the atom, shown under the status line.
           onClick={() => void refresh().then(refreshData, () => {})}
         >
@@ -101,13 +109,24 @@ function NonPublicStatus({
             ? `Last run ${when(last.at)}, ${last.posts} posts.`
             : `Last run ${when(last.at)} failed: needs the treg X connection (${last.error}).`}
       </p>
-      {/* Shown whatever the last run was: older runs may have been the nightly job's own. */}
-      <p className="text-xs text-muted-foreground">
-        Fetch now also turns on a nightly fetch at 03:00 in your time zone, at the same price.
-      </p>
-      {AsyncResult.isFailure(state) ? (
+      <div className="flex items-center gap-2 pt-1">
+        <Switch
+          label="Nightly fetch"
+          checked={nonPublic.nightly === true}
+          disabled={nightlyState.waiting}
+          onChange={(on) => void setNightly(on).then(refreshData, () => {})}
+        />
+        <p className="text-xs text-muted-foreground">
+          {nonPublic.nightly === null
+            ? "Nightly at 03:00 in your time zone, same price. Your first Fetch now turns it on."
+            : nonPublic.nightly
+              ? "Nightly at 03:00 in your time zone, same price."
+              : "Nightly fetch off."}
+        </p>
+      </div>
+      {failed !== null ? (
         <p role="alert" className="pt-1 text-xs text-error-foreground">
-          {errorText(state.cause)}
+          {errorText(failed.cause)}
         </p>
       ) : null}
     </Section>

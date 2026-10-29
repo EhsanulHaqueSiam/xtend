@@ -126,6 +126,36 @@ describe("PostAnalytics", () => {
     );
   });
 
+  it.effect("the first Fetch now turns the nightly run on, and off stays off", () => {
+    let calls = 0;
+    return Effect.gen(function* () {
+      yield* seed;
+      // 03:00 here at the test clock's start: the nightly hour.
+      yield* (yield* SettingsStore.SettingsStore).update({ timeZone: "Etc/GMT-3" });
+      const analytics = yield* PostAnalytics.PostAnalytics;
+      expect((yield* analytics.current).nightly).toBeNull();
+      yield* analytics.refresh;
+      expect((yield* analytics.current).nightly).toBe(true);
+      yield* analytics.setNightly(false);
+      // Another Fetch now is one read, not a way back into the nightly run.
+      yield* analytics.refresh;
+      expect((yield* analytics.current).nightly).toBe(false);
+      yield* TestClock.adjust("24 hours");
+      expect(calls).toBe(2);
+    }).pipe(
+      Effect.provide(
+        layerTest(
+          fakeTreg(() =>
+            Effect.sync(() => {
+              calls++;
+              return { data: [] };
+            }),
+          ),
+        ),
+      ),
+    );
+  });
+
   it.effect("records a failed run instead of failing, so the screen can say why", () =>
     Effect.gen(function* () {
       yield* seed;
@@ -207,7 +237,7 @@ describe("PostAnalytics accounts", () => {
       yield* analytics.refresh;
 
       yield* sql`UPDATE settings SET current_account_id = 2 WHERE id = 1`;
-      expect(yield* analytics.current).toEqual({ lastRun: null, byPost: [] });
+      expect(yield* analytics.current).toEqual({ lastRun: null, byPost: [], nightly: null });
       yield* sql`UPDATE settings SET current_account_id = 1 WHERE id = 1`;
       const mine = yield* analytics.current;
       expect([mine.lastRun?.posts, mine.byPost.map((r) => r.postId)]).toEqual([1, ["1"]]);

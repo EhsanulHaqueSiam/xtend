@@ -27,8 +27,10 @@ export function Ask({ data }: { readonly data: AnalyzeData }) {
   const quote = useQuoteLabel({ kind: "assist" });
   const [question, setQuestion] = useState("");
   const input = useRef<HTMLInputElement>(null);
+  // Paid per question: needs its price, and posts to answer from (the service would still call the model).
+  const blocked = result.waiting || quote === "…" || data.posts.length === 0;
   const submit = (q: string) => {
-    if (q.trim() === "" || result.waiting) return;
+    if (q.trim() === "" || blocked) return;
     setQuestion(q);
     ask(q.trim());
   };
@@ -50,11 +52,7 @@ export function Ask({ data }: { readonly data: AnalyzeData }) {
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
           />
-          <Button
-            variant="outline"
-            type="submit"
-            disabled={result.waiting || question.trim() === ""}
-          >
+          <Button variant="outline" type="submit" disabled={blocked || question.trim() === ""}>
             <TextMorph duration={250}>{result.waiting ? "Asking" : "Ask"}</TextMorph>
             <Cost label={quote} />
           </Button>
@@ -99,7 +97,13 @@ export function Ask({ data }: { readonly data: AnalyzeData }) {
             {value.followUps.length > 0 ? (
               <div className="mt-4 flex flex-wrap gap-1.5">
                 {value.followUps.slice(0, 3).map((f) => (
-                  <Button key={f} size="sm" variant="outline" onClick={() => submit(f)}>
+                  <Button
+                    key={f}
+                    size="sm"
+                    variant="outline"
+                    disabled={blocked}
+                    onClick={() => submit(f)}
+                  >
                     {f}
                     <Cost label={quote} />
                   </Button>

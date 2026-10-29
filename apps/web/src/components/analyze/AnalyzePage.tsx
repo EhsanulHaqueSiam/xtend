@@ -28,7 +28,8 @@ export function RefreshPosts({ stale = false }: { readonly stale?: boolean }) {
     <Button
       size="sm"
       variant={stale ? "default" : "outline"}
-      disabled={state.waiting}
+      // Paid: off until the quote says what it costs.
+      disabled={state.waiting || quote === "…"}
       // A failure lands in the atom, which the page header reads.
       onClick={() => void refresh().then(refreshData, () => {})}
     >

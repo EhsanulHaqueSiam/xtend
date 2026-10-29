@@ -27,6 +27,7 @@ import Migration0023 from "./Migrations/023_PoolSharing.ts";
 import Migration0024 from "./Migrations/024_AssistLogins.ts";
 import Migration0025 from "./Migrations/025_PrivateMetricsOptIn.ts";
 import Migration0026 from "./Migrations/026_SavedCollectionsIndex.ts";
+import Migration0027 from "./Migrations/027_PrivateMetricsNightly.ts";
 
 export const migrationEntries = [
   [1, "Observations", Migration0001],
@@ -55,6 +56,7 @@ export const migrationEntries = [
   [24, "AssistLogins", Migration0024],
   [25, "PrivateMetricsOptIn", Migration0025],
   [26, "SavedCollectionsIndex", Migration0026],
+  [27, "PrivateMetricsNightly", Migration0027],
 ] as const;
 
 const run = Migrator.make({});

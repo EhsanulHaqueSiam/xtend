@@ -40,6 +40,7 @@ const data = (rows: ReadonlyArray<AccountPost>): AnalyzeData => ({
   followerDelta30d: null,
   nonPublic: {
     lastRun: { at: "2026-10-28T03:00:00.000Z", posts: rows.length, error: null },
+    nightly: true,
     byPost: rows.map((p, i) => ({
       postId: p.postId,
       day: "2026-10-28",
