@@ -7,6 +7,7 @@ import {
   CompetitorReport,
   type Engager,
   type HeatmapCell,
+  type ObservedPostSummary,
   type PostStripEntry,
   Theme,
   type XPost,
@@ -18,6 +19,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
 import * as Assist from "../ai/Assist.ts";
+import { observedToPost } from "../engage/inbox.ts";
 import * as ObservationStore from "../observations/ObservationStore.ts";
 import * as ScoreStore from "../scores/ScoreStore.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
@@ -56,6 +58,27 @@ const toAccountPost = (p: XPost): AccountPost => ({
   quotes: p.metrics.quotes,
   bookmarks: p.metrics.bookmarks,
 });
+
+/**
+ * The account's posts: what the last Refresh read, joined by what the session saw since, free.
+ * A sighting newer than the Refresh carries fresher numbers; reposts are someone else's post.
+ */
+export const withSeen = (
+  stored: ReadonlyArray<AccountPost>,
+  fetchedAt: string | null,
+  seen: ReadonlyArray<ObservedPostSummary>,
+): ReadonlyArray<AccountPost> => {
+  const byId = new Map(stored.map((p) => [p.postId, p]));
+  for (const o of seen) {
+    if (o.isRepost) continue;
+    const prev = byId.get(o.postId);
+    if (prev === undefined || fetchedAt === null || o.lastSeenAt > fetchedAt)
+      byId.set(o.postId, { ...prev, ...toAccountPost(observedToPost(o)) });
+  }
+  return [...byId.values()]
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .slice(0, MAX_POSTS);
+};
 
 const DAY_MS = 86_400_000;
 const engagements = (p: AccountPost) => p.likes + p.reposts + p.replies + p.quotes + p.bookmarks;
@@ -216,7 +239,12 @@ const make = Effect.gen(function* () {
         ...summarize([], [], nowMs, zone),
         nonPublic,
       };
-    const { posts, fetchedAt } = yield* store.listPosts(h);
+    const stored = yield* store.listPosts(h);
+    const seen = yield* observations
+      .listRecent({ authorHandle: h, limit: 200 })
+      .pipe(Effect.orElseSucceed(() => ({ posts: [] })));
+    const posts = withSeen(stored.posts, stored.fetchedAt, seen.posts);
+    const { fetchedAt } = stored;
     const snapshots = yield* store.listSnapshots(h);
     const { avatarUrl } = yield* scoreStore.profileHistory(h).pipe(Effect.mapError(fail("data")));
     return {

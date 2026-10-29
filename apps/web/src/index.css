@@ -211,6 +211,9 @@ body {
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  /* Section numbers count up page-wide even where a screen skips PageBody's own reset;
+     without an ancestor reset, each heading would start its own counter at 01. */
+  counter-reset: section;
 }
 
 html.electron.electron-mac {
