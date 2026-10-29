@@ -18,8 +18,12 @@ Add a note to say why you kept it.
 - **Archive**: everything saved, with filters for format, hook pattern, author size, language,
   year, minimum views and excluded words. Detect patterns labels the hook pattern of the next
   twenty unlabelled posts.
-- **Trends**: what X is talking about, by country, cached for 30 minutes. Trend ideas asks the
-  assistant for post ideas on one.
+- **Trends**: For you first: topics ranked on your machine against what you post, your
+  keywords, your saved posts and the accounts you reply to, each with the reason it is there.
+  They come from posts several accounts in your X session made today and words rising in the
+  shared pool; one row is kept for a topic outside your usual lane. Free, and nothing about you
+  leaves the app. Write 3 for today drafts posts from them into Compose, Automatic. Below it, the
+  pool, and X trends by country (paid, cached for 30 minutes) with post ideas.
 - **Collections**: tags for saved posts. A post can be in many. Rename or delete a collection
   without losing the posts.
 - **Swipe file**: every saved post, searchable by text and notes.

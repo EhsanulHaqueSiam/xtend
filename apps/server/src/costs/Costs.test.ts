@@ -8,9 +8,11 @@ import * as Assist from "../ai/Assist.ts";
 import * as DraftStore from "../compose/DraftStore.ts";
 import * as EngageStore from "../engage/EngageStore.ts";
 import * as Events from "../events/Events.ts";
+import * as ObservationStore from "../observations/ObservationStore.ts";
 import * as Library from "../library/Library.ts";
 import * as LibraryStore from "../library/LibraryStore.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
+import * as Pool from "../pool/Pool.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 import * as TokenCipher from "../settings/TokenCipher.ts";
 import { xClientStub } from "../testing/xClientStub.ts";
@@ -49,7 +51,9 @@ const layerTest = Costs.layer.pipe(
 // Costs and Library over one database, so the quote reads the same pick_fetches the fetch writes.
 let searches = 0;
 const layerPicks = Layer.mergeAll(Costs.layer, Library.layer).pipe(
-  Layer.provideMerge(Layer.mergeAll(LibraryStore.layer, DraftStore.layer)),
+  Layer.provideMerge(
+    Layer.mergeAll(LibraryStore.layer, DraftStore.layer, ObservationStore.layer, Pool.layerNoop),
+  ),
   Layer.provideMerge(
     Layer.mergeAll(
       SettingsStore.layer,
