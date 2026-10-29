@@ -69,7 +69,8 @@ Three small pieces sit on X's pages, drawn from what X already rendered, never f
 
 - **Metrics row** under each post: views, engagement rate, views per hour, the author's
   followers and how the post compares to your average. Two actions: Save to the Library and
-  Reply with AI, which opens Compose on a reply.
+  Reply, which opens a chooser under the post: write your own, or pick a tone for three drafts.
+  The reply goes out the same way as a reply sent from Engage.
 - **Schedule chip** in X's composer, before Post. Click it and what you typed moves into
   Compose, where it can be queued for a slot.
 - **Hover card** on an author's avatar or name after a short pause: their followers and a

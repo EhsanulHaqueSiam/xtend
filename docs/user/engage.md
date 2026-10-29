@@ -9,8 +9,8 @@ the same marks as on X (`replied`, `saved`, `lead`, `watching`, `auto`).
 A row of tones sits over the text: **Write my own** first, then Agree, Add a point, Ask,
 Contrarian, Sarcastic, Warm and Short. A tone is one model call that writes three replies in
 that tone, in your voice, listed A, B and C; click one to put it in the box and edit it there.
-**Draft again** asks for three more. The price of the three drafts is beside the title; it says
-free when assist runs on your own model (Settings, Writing). Write my own skips the model.
+**Draft again** asks for three more. Drafts are free through Xtend: they run on the model set in
+Settings, Writing. Write my own skips the model.
 
 **Reply** sends what is in the box. While **Act through X for what I click** is on in Settings
 (the default), it goes through your own x.com session in the desktop app, free, and the button

@@ -26,12 +26,11 @@ shipped (on Writing that clears your voice notes and keywords); it asks for a se
 
 ## Writing
 
-- **AI assist**: where assist runs. **Xtend** is metered per call against the budget. A preset
-  makes every assist free through Xtend: **Local (Ollama)**, or your own key at **OpenAI**,
-  **Anthropic**, **Groq** or **OpenRouter**, which bill you directly. A preset fills
-  **Endpoint** (any OpenAI-compatible URL ending in `/v1`) and **Model name**; paste the
-  **API key** for a provider. The key is stored encrypted and is dropped if you change the
-  endpoint without pasting a new one.
+- **AI assist**: what answers every assist, free through Xtend. **Claude** (the default) and
+  **Codex** use that tool's login on the machine running the service, so your plan's limits
+  apply. **Other model** takes any OpenAI-compatible endpoint ending in `/v1`: a local Ollama,
+  or your own key at OpenAI, Anthropic, Groq or OpenRouter, which bill you directly. The key is
+  stored encrypted and is dropped if you change the endpoint without pasting a new one.
 - **Time zone**: an IANA zone (`Europe/Berlin`). Posting slots, the calendar, schedule
   triggers, the best-time grid and the spend meter's day and month use it. Defaults to the
   service machine's zone.

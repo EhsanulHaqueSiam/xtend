@@ -15,7 +15,7 @@ anywhere opens Picks with Search X focused.
 
 Today's top posts for your keywords (Settings), and the staff picks under them: curated
 evergreen posts whose text arrives with one search per author. The selected pick offers **Why
-it works** and a **ready-to-post version** in your voice, each a priced model call.
+it works** and a **ready-to-post version** in your voice, each a model call.
 
 The picks are gathered by a morning run that spends treg with nobody clicking, so it is off
 until **Daily Library jobs** is turned on in Settings. The section says when today's picks
@@ -41,7 +41,7 @@ free.
 Every post a search or a pick has seen, up to the latest 200, with the model's labels for its
 format and its hook pattern. Filter by format, minimum views, year, author size, language and
 hook. **Detect hooks** labels the next 20 unlabelled posts in one model call; the selected
-post offers **Write mine in this format**, a priced model call that drafts your version.
+post offers **Write mine in this format**, a model call that drafts your version.
 
 ## Trends
 

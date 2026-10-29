@@ -69,7 +69,7 @@ a draft that quotes it.
 ## Assist
 
 At the foot of the writing column the model's help is one row of actions on the draft and a
-topic box for thread ideas. Each action is one model call and shows its price. Answers open
+topic box for thread ideas. Each action is one model call. Answers open
 above the row, each with **Use** and **Dismiss**; nothing changes your draft until you click
 Use.
 
@@ -77,11 +77,11 @@ Use.
 - **Rewrite** reworks the current post.
 - **Continue thread** writes the next posts after your last one.
 - **Voice match** scores the draft against your recent posts. It reads your recent posts from
-  X first, so it is priced as a read plus a model call.
+  X first, so it is priced as a read.
 - **Ideas** writes thread outlines on the topic in the box; Use replaces the draft with one.
 
 Beside the editor, the Context card shows the next free slot and your best hours for free, and
 **Find similar** runs a priced X search for three posts like your first line.
 
-Your voice notes and keywords from Settings go with every call. With assist on your own model
-(Settings, Writing) the model calls cost nothing through Xtend. See [Costs](./costs.md).
+Your voice notes and keywords from Settings go with every call. Model calls run on the model set
+in Settings, Writing, and cost nothing through Xtend. See [Costs](./costs.md).
