@@ -123,6 +123,15 @@ export type RulePreview = typeof RulePreview.Type;
 
 export const PendingStatus = Schema.Literals(["pending", "approved", "dismissed"]);
 
+export const PendingPreview = Schema.Struct({
+  title: Schema.String,
+  target: Schema.NullOr(Schema.Struct({ label: Schema.String, href: Schema.String })),
+  message: Schema.NullOr(Schema.String),
+  post: Schema.NullOr(Schema.Struct({ text: Schema.String, href: Schema.String })),
+  because: Schema.String,
+});
+export type PendingPreview = typeof PendingPreview.Type;
+
 /** An ask-first rule waiting for a click. */
 export const PendingRequest = Schema.Struct({
   id: Schema.Int,
@@ -130,6 +139,8 @@ export const PendingRequest = Schema.Struct({
   ruleName: Schema.String,
   subjectId: Schema.String,
   description: Schema.String,
+  /** Stored when queued; older requests may predate previews. */
+  preview: Schema.optional(PendingPreview),
   costUsd: Schema.Number,
   createdAt: IsoDateTime,
   status: PendingStatus,

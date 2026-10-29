@@ -1,6 +1,7 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import type { PendingRequest, RuleRun } from "@xtend/contracts";
+import { ChevronDown } from "lucide-react";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useEffect, useRef, useState } from "react";
 
@@ -17,6 +18,7 @@ import { useAction } from "../leads/ui";
 import { PageHeader } from "../PageHeader";
 import { sectionHref } from "../shell/sections";
 import { Button } from "../ui/button";
+import { XLink } from "../ui/x-link";
 import { Cost, Empty, PageBody } from "../ui/layout";
 import { statusLabel, statusTone } from "./describe";
 import { runsOf } from "./Rules";
@@ -142,6 +144,7 @@ export function NeedsYouList({
   readonly onOpenRules?: () => void;
 }) {
   const list = useRef<HTMLUListElement>(null);
+  const [expanded, setExpanded] = useState<ReadonlySet<number>>(new Set());
   // The card last acted on: once the refetch drops it, focus moves to the card now in its place.
   const acted = useRef<{ readonly id: number; readonly index: number } | null>(null);
   useEffect(() => {
@@ -178,7 +181,7 @@ export function NeedsYouList({
         <li
           key={r.id}
           tabIndex={0}
-          className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl border border-border bg-card px-4 py-3 outline-hidden transition-colors duration-150 focus-visible:border-white/40"
+          className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border py-3 outline-hidden focus-visible:border-white/40"
           onKeyDown={(e) => {
             if (e.target !== e.currentTarget || e.metaKey || e.ctrlKey || e.altKey) return;
             if (e.key !== "a" && e.key !== "s") return;
@@ -188,12 +191,80 @@ export function NeedsYouList({
           }}
         >
           <div className="min-w-0 flex-1">
-            <p className="text-[13px] text-foreground/90">{r.description}</p>
+            <button
+              type="button"
+              className="flex w-full items-start gap-2 text-left text-[13px] outline-hidden focus-visible:underline"
+              aria-expanded={expanded.has(r.id)}
+              aria-controls={`request-${r.id}`}
+              onClick={() =>
+                setExpanded((before) => {
+                  const next = new Set(before);
+                  if (next.has(r.id)) next.delete(r.id);
+                  else next.add(r.id);
+                  return next;
+                })
+              }
+            >
+              <span className="min-w-0 flex-1">{r.preview?.title ?? r.description}</span>
+              <ChevronDown
+                className={cn(
+                  "mt-0.5 size-3.5 shrink-0 text-muted-foreground",
+                  expanded.has(r.id) && "rotate-180",
+                )}
+              />
+            </button>
             <p className="mt-0.5 font-mono text-2xs text-muted-foreground tabular-nums">
               {r.ruleName} · {when(r.createdAt)}
             </p>
           </div>
-          <div className="flex items-center gap-1.5">
+          {expanded.has(r.id) && (
+            <div id={`request-${r.id}`} className="order-3 w-full space-y-2 text-[13px]">
+              {r.preview === undefined ? (
+                <p className="text-muted-foreground">
+                  This older request has no saved message preview. Skip it and run the rule again to
+                  review one.
+                </p>
+              ) : (
+                <>
+                  {r.preview.target !== null && (
+                    <p>
+                      <span className="mr-3 text-muted-foreground">Target</span>
+                      <XLink href={r.preview.target.href} className="underline underline-offset-4">
+                        {r.preview.target.label} ↗
+                      </XLink>
+                    </p>
+                  )}
+                  <p className="whitespace-pre-wrap wrap-anywhere">
+                    <span className="mr-3 text-muted-foreground">Because</span>
+                    {r.preview.because}
+                  </p>
+                  {r.preview.post !== null && (
+                    <blockquote className="border-l border-border pl-3 whitespace-pre-wrap wrap-anywhere">
+                      <XLink href={r.preview.post.href}>{r.preview.post.text}</XLink>
+                    </blockquote>
+                  )}
+                  {r.preview.message !== null && (
+                    <div>
+                      <p className="mb-1 text-xs text-muted-foreground">Message</p>
+                      <p className="border-l border-border pl-3 whitespace-pre-wrap wrap-anywhere">
+                        {r.preview.message}
+                      </p>
+                    </div>
+                  )}
+                </>
+              )}
+              <p className="font-mono text-2xs text-muted-foreground">
+                {r.costUsd > 0 ? "API · " : null}
+                <Cost usd={r.costUsd} />
+              </p>
+            </div>
+          )}
+          <div
+            className={cn(
+              "flex items-center gap-1.5",
+              expanded.has(r.id) && "order-4 w-full justify-end",
+            )}
+          >
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => act(r, i, false)}>
               Skip
             </Button>

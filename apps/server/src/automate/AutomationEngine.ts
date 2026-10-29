@@ -1,11 +1,12 @@
 import {
-  type Action,
+  Action,
   actionCostUsd,
   AutomateError,
   type Conditions,
   type DryRunReport,
   type LeadsError,
   type ObservationStoreError,
+  type PendingPreview,
   type Rule,
   type RulePreview,
   type RuleRun,
@@ -16,6 +17,7 @@ import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
 import * as Schedule from "effect/Schedule";
 import * as Semaphore from "effect/Semaphore";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -29,6 +31,8 @@ import * as ObservationStore from "../observations/ObservationStore.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 import * as XClient from "../x/XClient.ts";
 import * as RuleStore from "./RuleStore.ts";
+
+const sameAction = Schema.toEquivalence(Action);
 
 const TICK = "60 seconds";
 const OWN_POSTS_LIMIT = 200;
@@ -64,6 +68,7 @@ type Subject = RuleStore.Subject;
 type Undo = RuleStore.Undo;
 
 interface OwnPost {
+  readonly text: string;
   readonly postId: string;
   readonly createdAt: string;
   readonly views: number;
@@ -124,6 +129,7 @@ const authoredSubject = (p: AuthoredPost): Subject => ({
   id: p.postId,
   at: p.createdAt,
   postId: p.postId,
+  text: p.text,
   post: { hasLink: p.hasLink, isReply: p.isReply, authorFollowers: p.author.followers },
   engager: {
     userId: p.author.userId,
@@ -131,7 +137,7 @@ const authoredSubject = (p: AuthoredPost): Subject => ({
     name: p.author.name,
     followers: p.author.followers,
   },
-  description: `@${p.author.handle}: ${p.text.slice(0, 60)}`,
+  description: `@${p.author.handle}: ${p.text}`,
 });
 
 /** Why the rule's own caps refuse spending `costUsd` more, or null when they allow it. */
@@ -251,6 +257,7 @@ const make = Effect.gen(function* () {
       for (const p of [...timeline, ...seen.posts].filter((p) => !p.isRepost))
         byId.set(p.postId, {
           postId: p.postId,
+          text: p.text,
           createdAt: p.createdAt,
           views: p.metrics.views ?? 0,
           likes: p.metrics.likes,
@@ -263,6 +270,7 @@ const make = Effect.gen(function* () {
   const postSubject = (p: OwnPost, description: string): Subject => ({
     id: p.postId,
     postId: p.postId,
+    text: p.text,
     at: p.createdAt,
     post: { hasLink: p.hasLink, isReply: p.isReply, authorFollowers: null },
     description,
@@ -504,6 +512,7 @@ const make = Effect.gen(function* () {
     readonly undo?: Undo["kind"];
     /** The own post the plan picked; an ask-first request keeps it, so approval acts on the same one. */
     readonly pin?: string;
+    readonly text?: string;
   }
   const skip = (detail: string): Plan => ({ costUsd: 0, detail, perform: null });
   const single = (
@@ -623,11 +632,12 @@ const make = Effect.gen(function* () {
             .pipe(Effect.as({ costUsd: 0, xId: s.postId ?? e?.userId ?? null })),
         });
       case "auto_retweet": {
-        const repost = (postId: string, detail: string): Plan => ({
+        const repost = (postId: string, detail: string, text?: string): Plan => ({
           costUsd: cost,
           detail,
           undo: "unrepost",
           pin: postId,
+          ...(text === undefined ? {} : { text }),
           perform: single(cost, postId, x.repost(postId, purpose)),
         });
         if (s.pinnedPostId !== undefined)
@@ -635,7 +645,7 @@ const make = Effect.gen(function* () {
         return Effect.map(bestOwnPost(rule, action.evergreen), (best) =>
           best === null
             ? skip("no own post in the last 7 days")
-            : repost(best.postId, `repost ${best.postId} (${best.views} views)`),
+            : repost(best.postId, `repost ${best.postId} (${best.views} views)`, best.text),
         );
       }
       case "clean_profile":
@@ -684,6 +694,84 @@ const make = Effect.gen(function* () {
         );
     }
   };
+
+  const pendingPreview = Effect.fn("AutomationEngine.pendingPreview")(function* (
+    rule: Rule,
+    s: Subject,
+    p: Plan,
+  ) {
+    const action = rule.action;
+    const person = s.engager;
+    const personLabel = person === undefined ? "" : `${person.name} · @${person.handle}`;
+    const postId = p.pin ?? s.postId;
+    const postHref = postId === undefined ? null : `https://x.com/i/status/${postId}`;
+    const text = p.text ?? s.text;
+    // Only stored observations fill missing context. Opening a request must not buy an X read.
+    const observed =
+      postId === undefined || text !== undefined
+        ? undefined
+        : (yield* observations.listRecent({ limit: OWN_POSTS_LIMIT })).posts.find(
+            (post) => post.postId === postId,
+          );
+    const postText = text ?? observed?.text;
+    const postLabel =
+      p.pin !== undefined || person === undefined ? "Your post" : `@${person.handle}'s post`;
+    const recipient =
+      action.kind === "auto_dm" || action.kind === "follow" || action.kind === "add_to_list";
+    const target =
+      recipient && person !== undefined
+        ? { label: personLabel, href: `https://x.com/${person.handle}` }
+        : postHref === null
+          ? null
+          : { label: postLabel, href: postHref };
+    let title: string;
+    switch (action.kind) {
+      case "auto_dm":
+        title = `DM ${person?.name ?? "engager"}`;
+        break;
+      case "auto_plug":
+        title = `Reply to ${postLabel.toLowerCase()}`;
+        break;
+      case "auto_like":
+        title = `Like ${postLabel.toLowerCase()}`;
+        break;
+      case "unrepost":
+        title = `Unrepost ${postLabel.toLowerCase()}`;
+        break;
+      case "auto_retweet":
+        title = "Repost your post";
+        break;
+      case "follow":
+        title = `Follow ${person?.name ?? "engager"}`;
+        break;
+      case "add_to_list": {
+        const list = (yield* people.lists).find((list) => list.id === action.listId);
+        title = `Add ${person?.name ?? "engager"} to ${list?.name ?? "unavailable list"}`;
+        break;
+      }
+      default:
+        title = p.detail;
+    }
+    return {
+      title,
+      target,
+      message:
+        action.kind === "auto_plug"
+          ? action.text
+          : action.kind === "auto_dm"
+            ? action.template.replaceAll("{name}", person?.name ?? "")
+            : action.kind === "notify"
+              ? action.message.replaceAll("{name}", person?.name ?? "")
+              : null,
+      post: postHref === null || postText === undefined ? null : { text: postText, href: postHref },
+      because:
+        person !== undefined && s.description.startsWith(`@${person.handle}:`)
+          ? `@${person.handle} posted`
+          : s.description
+              .replace(`own post ${s.postId}`, "your post")
+              .replace(` ${s.postId}`, " your post"),
+    } satisfies PendingPreview;
+  });
 
   // Subjects the rule has not fired on, that pass its conditions and are past its wait.
   const pending = (rule: Rule) =>
@@ -750,9 +838,14 @@ const make = Effect.gen(function* () {
       if (rule.dryRun)
         return yield* rules.recordRun({ ...base, status: "dry_run", detail: `would ${p.detail}` });
       if (rule.askFirst && approvedUsd === undefined) {
+        const preview = yield* pendingPreview(rule, s, p);
         const request = yield* rules.createPending({
           ruleId: rule.id,
-          subject: p.pin === undefined ? s : { ...s, pinnedPostId: p.pin },
+          subject: {
+            ...s,
+            ...(p.pin === undefined ? {} : { pinnedPostId: p.pin }),
+            approval: { action: rule.action, preview },
+          },
           description: `${s.description}; ${p.detail}`,
           costUsd: p.costUsd,
         });
@@ -878,7 +971,19 @@ const make = Effect.gen(function* () {
           cause: null,
         });
       const rule = yield* rules.get(request.ruleId);
-      const run = yield* fire(rule, request.subject, request.costUsd);
+      // An edited rule must ask again; this click approved the stored action and message.
+      const changed =
+        request.subject.approval !== undefined &&
+        !sameAction(rule.action, request.subject.approval.action);
+      const run = yield* changed
+        ? rules.recordRun({
+            ruleId: rule.id,
+            subjectId: request.subjectId,
+            status: "skipped",
+            detail: "rule action changed; run the rule again to review it",
+            costUsd: 0,
+          })
+        : fire(rule, request.subject, request.costUsd);
       yield* rules.settlePending(pendingId, "approved", run.id);
       return run;
     },
