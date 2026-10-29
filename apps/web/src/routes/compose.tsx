@@ -797,6 +797,7 @@ export function ComposeEditor({
                 trigger={
                   <Button variant="ghost" size="sm" disabled={!canSend}>
                     Post now
+                    {sendUsd === null ? <Cost label="…" /> : <Cost usd={sendUsd} />}
                   </Button>
                 }
               >
@@ -839,7 +840,9 @@ export function ComposeEditor({
                     <dd>{sendUsd === null ? "…" : <Cost usd={sendUsd} />}</dd>
                   </div>
                 </dl>
-                <p className="mt-2 text-xs text-muted-foreground">Charges your treg balance.</p>
+                {sendUsd !== null && sendUsd > 0 ? (
+                  <p className="mt-2 text-xs text-muted-foreground">Charges your treg balance.</p>
+                ) : null}
                 <div className="mt-3 flex justify-end gap-1.5">
                   <Button variant="ghost" size="xs" onClick={() => setConfirm(null)}>
                     Cancel

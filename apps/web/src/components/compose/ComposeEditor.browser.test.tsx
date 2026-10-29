@@ -99,7 +99,7 @@ it("prices the thread before posting and posts it once however often Confirm is 
   // The price rides on the send buttons, and the post with a link says so beside it.
   await expect.element(screen.getByRole("button", { name: /^Queue/ })).toMatchTextContent("$0.215");
   await expect.element(screen.getByText(/^link\s*\$0\.2$/)).toBeVisible();
-  await userEvent.click(screen.getByRole("button", { name: "Post now" }));
+  await userEvent.click(screen.getByRole("button", { name: /^Post now/ }));
   const confirm = page.getByRole("dialog");
   await expect.element(confirm.getByText("Post 2 posts now.")).toBeVisible();
   await expect.element(confirm.getByText("1 with a link")).toBeVisible();
@@ -138,7 +138,7 @@ const refusals: ReadonlyArray<readonly [string, Partial<Draft>, string | null]> 
 it.each(refusals)("holds back what the publisher would refuse: %s", async (_, extra, refusal) => {
   const row = draft("d1", "draft", extra);
   await using screen = await render(editor("d1"), { service: editorService(() => [row]) });
-  const send = screen.getByRole("button", { name: "Post now" });
+  const send = screen.getByRole("button", { name: /^Post now/ });
   if (refusal === null) {
     await expect.element(send).toBeEnabled();
     await expect.element(screen.getByRole("button", { name: /^Queue/ })).toMatchTextContent("$0.2");
@@ -198,7 +198,7 @@ it("locks the editor when the scheduler claims the open draft", async () => {
     .toBeVisible();
   await expect.element(screen.getByLabelText("Post 1")).toBeDisabled();
   // Nothing sends a draft the publisher owns.
-  await expect.element(screen.getByRole("button", { name: "Post now" })).not.toBeInTheDocument();
+  await expect.element(screen.getByRole("button", { name: /^Post now/ })).not.toBeInTheDocument();
   // No paid assist on a draft that can no longer change.
   await expect
     .element(screen.getByRole("button", { name: /^Improve hook/ }))

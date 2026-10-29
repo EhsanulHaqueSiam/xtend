@@ -79,7 +79,7 @@ export const SECTIONS = {
     {
       id: "mentions",
       label: "Mentions",
-      about: "Posts that name you: what your session saw, free; Refresh asks X, paid.",
+      about: "Posts that name you: what your session saw, free; Fetch new asks X, paid.",
     },
     { id: "inbox", label: "Inbox", about: "Replies to your posts your session saw. Free." },
     { id: "sent", label: "Sent", about: "Replies you made. Free." },

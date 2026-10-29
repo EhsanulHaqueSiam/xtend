@@ -7,7 +7,7 @@ import { Sparkles, X } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
 import { fmtWhen } from "../../lib/time";
-import { cn } from "../../lib/utils";
+import { cn, readableError } from "../../lib/utils";
 import {
   assistContinueAtom,
   assistHookAtom,
@@ -139,10 +139,7 @@ interface Suggestion {
   readonly blocks: ReadonlyArray<string>;
 }
 
-export const failText = (cause: Cause.Cause<unknown>) => {
-  const e = Cause.squash(cause);
-  return e instanceof Error ? e.message : String(e);
-};
+export const failText = (cause: Cause.Cause<unknown>) => readableError(Cause.squash(cause));
 
 /**
  * Voice match compares with the posts of yours the session saw, free; with fewer than

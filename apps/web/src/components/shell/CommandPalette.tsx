@@ -1,7 +1,7 @@
 import { useAtom, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { AtSign, Bot, CalendarClock, Gauge, Search, Twitter, type LucideIcon } from "lucide-react";
+import { AtSign, Bot, Gauge, Search, SquarePen, Twitter, type LucideIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { isElectron } from "../../env";
@@ -96,11 +96,11 @@ function PaletteBody({
               : [],
           )),
       {
-        id: "schedule",
+        id: "new-draft",
         group: "Actions" as const,
-        label: "Schedule this",
-        icon: CalendarClock,
-        run: to("/compose"),
+        label: "New draft",
+        icon: SquarePen,
+        run: to("/compose?new=true"),
       },
       ...AsyncResult.getOrElse(agents, () => []).map((agent) => ({
         id: `agent:${agent.id}`,

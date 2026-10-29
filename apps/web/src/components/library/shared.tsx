@@ -3,7 +3,7 @@ import { useNavigate, useRouter } from "@tanstack/react-router";
 import * as Cause from "effect/Cause";
 import type { ReactNode } from "react";
 
-import { cn } from "../../lib/utils";
+import { cn, readableError } from "../../lib/utils";
 
 /** Shared bits for the Library and Scores screens: post formatting, errors, links. */
 
@@ -34,8 +34,7 @@ export const formatOf = (post: XPost): Exclude<PostFormat, "thread"> =>
   post.hasMedia ? "media" : post.hasLink ? "link" : "text";
 
 /** Promise rejections from `useAtomSet(..., { mode: "promise" })` carry the typed error. */
-export const errorMessage = (e: unknown) =>
-  e instanceof Error ? e.message : typeof e === "string" ? e : "Something failed.";
+export const errorMessage = readableError;
 
 /** The readable failure of an AsyncResult. */
 export const causeMessage = (cause: Cause.Cause<unknown>) => errorMessage(Cause.squash(cause));

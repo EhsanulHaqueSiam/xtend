@@ -176,8 +176,8 @@ export function SearchTab({ initialQuery }: { readonly initialQuery: string }) {
             {searched === null ? (
               seen.length > 0 ? null : (
                 <Empty>
-                  Find posts worth saving. Search on X is free; the paid search adds volume and
-                  filters.
+                  Type a query. Search on X runs it in your own session, free, and what you scroll
+                  lands here; Search asks treg for more results and filters, priced first.
                 </Empty>
               )
             ) : visible.length === 0 ? (
