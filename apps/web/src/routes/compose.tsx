@@ -52,7 +52,8 @@ import { useRates } from "../state/costs";
 import { savedPostAtom } from "../state/library";
 import { recentPostsAtom } from "../state/observations";
 import { queueAtom, scheduleAtom } from "../state/plan";
-import { settingsAtom } from "../state/settings";
+import { settingsAtom, useSessionLane } from "../state/settings";
+import { Select } from "../components/ui/select";
 
 /** What the editor owns; the service owns status, schedule, outcome and the media files. */
 interface Editor {
@@ -238,17 +239,12 @@ function Options({ editor, onChange }: { editor: Editor; onChange: (e: Editor) =
     <div className="flex flex-col pb-2 text-[13px]">
       <label className={row}>
         <span>Who can reply to every post</span>
-        <select
-          className={cn(compactInputClass, "w-auto")}
+        <Select
+          compact
           value={editor.replySettings}
-          onChange={(e) => onChange({ ...editor, replySettings: e.target.value as ReplySettings })}
-        >
-          {REPLY_OPTIONS.map(([v, label]) => (
-            <option key={v} value={v}>
-              {label}
-            </option>
-          ))}
-        </select>
+          onChange={(replySettings) => onChange({ ...editor, replySettings })}
+          options={REPLY_OPTIONS.map(([value, label]) => ({ value, label }))}
+        />
       </label>
       <label className={cn(row, "flex-col items-stretch gap-1.5")}>
         <span className="flex items-baseline justify-between gap-3">
@@ -328,20 +324,15 @@ function Options({ editor, onChange }: { editor: Editor; onChange: (e: Editor) =
             >
               Add option
             </Button>
-            <select
-              aria-label="Poll length"
-              className={cn(compactInputClass, "w-auto")}
+            <Select
+              compact
+              label="Poll length"
               value={poll.durationMinutes}
-              onChange={(e) =>
-                onChange({ ...editor, poll: { ...poll, durationMinutes: Number(e.target.value) } })
+              onChange={(durationMinutes) =>
+                onChange({ ...editor, poll: { ...poll, durationMinutes } })
               }
-            >
-              {POLL_DURATIONS.map(([m, label]) => (
-                <option key={m} value={m}>
-                  {label}
-                </option>
-              ))}
-            </select>
+              options={POLL_DURATIONS.map(([value, label]) => ({ value, label }))}
+            />
           </div>
         </div>
       ) : null}
@@ -491,6 +482,9 @@ export function ComposeEditor({
   };
   const [selected, setSelected] = useState<Draft | null>(null);
   const [editor, setEditor] = useState<Editor>(initial);
+  // Free first: on the desktop with the lane on, every clicked post goes through the session,
+  // except a poll, which X's composer cannot take.
+  const laneText = useSessionLane() && editor.poll === null;
   const [previews, setPreviews] = useState<Record<string, string>>({});
   const [active, setActive] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
@@ -709,10 +703,10 @@ export function ComposeEditor({
   const costs =
     rates === null
       ? []
-      : postCosts(rates, blocks, media, quoteUrl).map((c, i) => (i < skipped ? 0 : c));
+      : postCosts(rates, blocks, media, quoteUrl, laneText).map((c, i) => (i < skipped ? 0 : c));
   const total = sumUsd(costs);
   const linkCount = rates === null ? 0 : costs.filter((c) => c === rates.postWithLink).length;
-  const sessionCount = blocks.filter((_, i) => i >= skipped && hasMediaAt(i)).length;
+  const sessionCount = blocks.filter((_, i) => i >= skipped && (laneText || hasMediaAt(i))).length;
   const toPost = blocks.length - skipped;
   const cover = media.find((m) => m.blockIndex === 0 && m.kind === "image");
   // What the publisher would refuse (Publisher.refusal), caught before a thread stops halfway.
@@ -829,7 +823,10 @@ export function ComposeEditor({
                       ) : null}
                       {sessionCount > 0 ? (
                         <div className="flex justify-between py-0.5 text-muted-foreground">
-                          <dt>{sessionCount} with media, through your x.com session</dt>
+                          <dt>
+                            {sessionCount}
+                            {laneText ? "" : " with media,"} through your x.com session
+                          </dt>
                           <dd>free</dd>
                         </div>
                       ) : null}

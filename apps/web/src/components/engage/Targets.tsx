@@ -6,7 +6,7 @@ import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useEffect, useState, type ReactNode } from "react";
 import { TextMorph } from "torph/react";
 
-import { quoteAtom, useQuote, useQuoteLabel } from "../../state/costs";
+import { quoteAtom, useQuote, costLabels, useQuoteLabel } from "../../state/costs";
 import {
   addKeywordsAtom,
   findKeywordsAtom,
@@ -140,7 +140,7 @@ export function Targets() {
             >
               <TextMorph duration={250}>{finding ? "Finding…" : "Find keywords"}</TextMorph>
               {/* One page of your posts, then one model call over it. */}
-              <Cost label={`${findQuote} + ${assistQuote}`} />
+              <Cost label={costLabels(findQuote, assistQuote)} />
             </button>
             <button type="button" className={pill} disabled={result.waiting} onClick={() => load()}>
               <TextMorph duration={250}>{result.waiting ? "Searching…" : "Refresh"}</TextMorph>

@@ -486,7 +486,7 @@ function SettingsForm({ current }: { readonly current: SettingsShape }) {
             <SField
               wide
               label="Act through X for what I click"
-              hint="On by default. Replies you click and posts with media go through your own X session, one at a time at a human pace, free. Off: replies go through the API at the listed price. Rules never use your session."
+              hint="On by default. Posts and replies you click go through your own X session, one at a time at a human pace, free. Off: they go through the API at the listed price. Scheduled posts and rules never use your session."
             >
               <Switch
                 className="mt-1"
@@ -554,12 +554,11 @@ function DailyJobsField({
   readonly onChange: (next: boolean) => void;
 }) {
   const searches = useQuoteLabel({ kind: "picksFetch" });
-  const call = useQuoteLabel({ kind: "assist" });
   return (
     <SField
       wide
       label="Daily Library jobs"
-      hint={`Each morning: picks for your keywords (${searches} in searches), hook detection and three ready posts (${call} per model call).`}
+      hint={`Each morning: picks for your keywords (${searches} in searches), hook detection and three ready posts, written on your login.`}
     >
       <Switch className="mt-1" label="Daily Library jobs" checked={checked} onChange={onChange} />
     </SField>

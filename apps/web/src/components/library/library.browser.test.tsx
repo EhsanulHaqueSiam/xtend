@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
 import { paid, rates, xPost } from "../../../test/fixtures";
-import { render } from "../../../test/render";
+import { choose, render } from "../../../test/render";
 import { CollectionsTab } from "./CollectionsTab";
 import { PicksTab } from "./PicksTab";
 import { SaveButton } from "./SaveButton";
@@ -303,12 +303,12 @@ it("prices trend ideas by the country whose trends are loaded", async () => {
   );
   await expect.element(screen.getByText("#buildinpublic")).toBeVisible();
 
-  await userEvent.selectOptions(screen.getByLabelText("Country"), "UnitedKingdom");
+  await choose(screen.getByLabelText("Country"), "United Kingdom");
   await expect
     .element(screen.getByRole("button", { name: /^Load trends.*\$0\.001$/ }))
     .toBeVisible();
   await expect
-    .element(screen.getByRole("button", { name: /^Write 5 ideas.*cached, free \+ \$0\.001$/ }))
+    .element(screen.getByRole("button", { name: /^Write 5 ideas.*\$0\.001$/ }))
     .toBeEnabled();
 });
 

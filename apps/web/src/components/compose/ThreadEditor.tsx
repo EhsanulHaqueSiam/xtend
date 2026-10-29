@@ -12,6 +12,7 @@ import { useRef, useState } from "react";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { compactInputClass } from "../ui/field";
+import { Select } from "../ui/select";
 
 const POST_LIMIT = 280;
 
@@ -326,29 +327,30 @@ export function ThreadEditor({
                     </button>
                     <label className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-xs text-muted-foreground transition-colors duration-150 hover:bg-white/[0.05] hover:text-foreground">
                       <Globe className="size-3.5" />
-                      <select
-                        aria-label={`Who can reply to post ${i + 1}`}
-                        className="cursor-pointer appearance-none bg-transparent outline-hidden field-sizing-content"
-                        value={replySettings ?? ""}
-                        onChange={(e) =>
+                      <Select
+                        compact
+                        label={`Who can reply to post ${i + 1}`}
+                        className="border-transparent text-muted-foreground hover:text-foreground"
+                        value={replySettings}
+                        onChange={(next) =>
                           onChange(
                             blocks.map((b, j) =>
                               j === i
-                                ? e.target.value === ""
+                                ? next === undefined
                                   ? { text: b.text }
-                                  : { ...b, replySettings: e.target.value as ReplySettings }
+                                  : { ...b, replySettings: next }
                                 : b,
                             ),
                           )
                         }
-                      >
-                        <option value="">Default replies</option>
-                        {REPLY_OPTIONS.map(([v, label]) => (
-                          <option key={v} value={v}>
-                            {label} can reply
-                          </option>
-                        ))}
-                      </select>
+                        options={[
+                          { value: undefined, label: "Default replies" },
+                          ...REPLY_OPTIONS.map(([v, label]) => ({
+                            value: v,
+                            label: `${label} can reply`,
+                          })),
+                        ]}
+                      />
                     </label>
                     {/* Order and removal only mean something once there is a thread. */}
                     {blocks.length > 1 ? (

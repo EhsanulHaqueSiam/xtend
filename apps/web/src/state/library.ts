@@ -221,3 +221,11 @@ export const generateReadyAtom = clientRuntime.fn<string>()(
     return yield* client[Library_METHODS.generateReady]({ country });
   }),
 );
+
+/** For-you topics, ranked by the service from the session, saved posts and the pool. Free. */
+export const forYouAtom = clientRuntime.atom(
+  Effect.gen(function* () {
+    const client = yield* XtendClient;
+    return yield* client[Library_METHODS.forYou]({});
+  }),
+);

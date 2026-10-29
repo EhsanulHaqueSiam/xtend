@@ -42,7 +42,7 @@ export const layerHandlers = ComposeRpcGroup.toLayer(
       [Compose_METHODS.draftUpdate]: ({ id, patch }) => media.update(id, patch),
       [Compose_METHODS.draftDelete]: ({ id }) => media.removeDraft(id),
       [Compose_METHODS.postNow]: ({ id }) =>
-        publisher.post(id, { purpose: "compose.postNow", retry: false }),
+        publisher.post(id, { purpose: "compose.postNow", retry: false, clicked: true }),
       [Compose_METHODS.assistHook]: ({ blocks }) => assist.improveHook(blocks),
       [Compose_METHODS.assistRewrite]: ({ text }) => assist.rewrite(text),
       [Compose_METHODS.assistThreadIdeas]: ({ topic }) => assist.threadIdeas(topic),

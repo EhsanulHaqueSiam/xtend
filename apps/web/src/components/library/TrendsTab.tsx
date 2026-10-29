@@ -1,20 +1,26 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
-import type { PoolTrends, TrendIdea } from "@xtend/contracts";
+import type { ForYouTopic, PoolTrends, TrendIdea } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 import { TextMorph } from "torph/react";
 
 import { fmtWhen } from "../../lib/time";
 import { cn } from "../../lib/utils";
-import { useQuoteLabel } from "../../state/costs";
-import { saveSuggestedDraftAtom, trendIdeasAtom, trendsAtom } from "../../state/library";
+import { costLabels, useQuoteLabel } from "../../state/costs";
+import {
+  forYouAtom,
+  generateReadyAtom,
+  saveSuggestedDraftAtom,
+  trendIdeasAtom,
+  trendsAtom,
+} from "../../state/library";
 import { poolTrendsAtom } from "../../state/pool";
 import { PageHeader } from "../PageHeader";
 import { CountrySelect, TREND_COUNTRIES, TrendTable, countryLabel } from "../scores/Trending";
 import { Cost, Empty, PageBody, Section, table } from "../ui/layout";
 import { XLink } from "../ui/x-link";
 import { xPill, xPillSm } from "../x";
-import { ErrorLine, causeMessage, errorMessage } from "./shared";
+import { AppLink, ErrorLine, causeMessage, errorMessage } from "./shared";
 
 const button = cn(xPill, xPillSm);
 
@@ -177,6 +183,110 @@ function PoolSection() {
   );
 }
 
+function TopicRows({ topics }: { readonly topics: ReadonlyArray<ForYouTopic> }) {
+  if (topics.length === 0)
+    return (
+      <Empty>
+        No topics yet. They come from what your X session shows, your posts, keywords and saved
+        posts; browse X for a while or add keywords in Settings.
+      </Empty>
+    );
+  return (
+    <table className={table.root}>
+      <thead>
+        <tr>
+          <th className={cn(table.th, "w-0 pr-8")}>Topic</th>
+          <th className={table.th}>Why</th>
+        </tr>
+      </thead>
+      <tbody>
+        {topics.map((t) => (
+          <tr key={t.term} className={table.row}>
+            <td className={cn(table.td, "pr-8 whitespace-nowrap")}>
+              <XLink
+                href={`https://x.com/search?q=${encodeURIComponent(t.term)}`}
+                className={cn("hover:underline", t.source === "outside" && "text-muted-foreground")}
+              >
+                {t.term}
+              </XLink>
+            </td>
+            <td className={cn(table.td, "max-w-0 truncate text-muted-foreground")}>{t.reason}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/**
+ * Topics ranked on this machine against the user's posts, keywords, saved posts and the
+ * accounts they reply to. The daily ready posts are written from these.
+ */
+function ForYouSection() {
+  const result = useAtomValue(forYouAtom);
+  const refresh = useAtomRefresh(forYouAtom);
+  const generate = useAtomSet(generateReadyAtom, { mode: "promise" });
+  const assistQuote = useQuoteLabel({ kind: "assist" });
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<{ readonly text: string; readonly error: boolean } | null>(
+    null,
+  );
+  const write = async () => {
+    setBusy(true);
+    setNotice(null);
+    try {
+      const posts = await generate(TREND_COUNTRIES[0]);
+      setNotice({ text: `${posts.length} drafts written from these topics.`, error: false });
+    } catch (e) {
+      setNotice({ text: errorMessage(e), error: true });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Section
+      title="For you"
+      description="from your session, posts and keywords · ranked here, free"
+      aside={
+        <div className="flex items-center gap-1.5">
+          <button type="button" className={button} onClick={refresh}>
+            Refresh
+            <Cost usd={0} />
+          </button>
+          <button
+            type="button"
+            className={button}
+            disabled={busy}
+            title="Three posts for today in your voice, from these topics and the day's picks. Filed in Compose, Automatic."
+            onClick={() => void write()}
+          >
+            {busy ? "Writing" : "Write 3 for today"}
+            <Cost label={assistQuote} />
+          </button>
+        </div>
+      }
+    >
+      {notice !== null ? (
+        notice.error ? (
+          <ErrorLine className="px-0 pb-2">{notice.text}</ErrorLine>
+        ) : (
+          <p className="pb-2 text-xs text-muted-foreground">
+            {notice.text}{" "}
+            <AppLink href="/compose?tab=automatic" className="text-foreground hover:underline">
+              Open Automatic
+            </AppLink>
+          </p>
+        )
+      ) : null}
+      {AsyncResult.match(result, {
+        onInitial: () => <Empty>Ranking topics.</Empty>,
+        onFailure: (f) => <ErrorLine className="py-2">{causeMessage(f.cause)}</ErrorLine>,
+        onSuccess: ({ value }) => <TopicRows topics={value} />,
+      })}
+    </Section>
+  );
+}
+
 /** A country's trends, and post ideas the model ties to the ones that fit the user's keywords. */
 export function TrendsTab() {
   const [country, setCountry] = useState<string>(TREND_COUNTRIES[0]);
@@ -217,7 +327,7 @@ export function TrendsTab() {
       onClick={() => void generate()}
     >
       {busy ? "Writing" : ideas === null ? "Write 5 ideas" : "Write 5 more"}
-      <Cost label={`${ideasQuote} + ${assistQuote}`} />
+      <Cost label={costLabels(ideasQuote, assistQuote)} />
     </button>
   );
 
@@ -234,6 +344,7 @@ export function TrendsTab() {
         }
       />
       <PageBody>
+        <ForYouSection />
         <PoolSection />
         {applied === null ? (
           <Empty action={load}>Trends by country through treg, cached for 30 minutes.</Empty>

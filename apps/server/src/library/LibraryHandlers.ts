@@ -3,18 +3,20 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import * as DraftStore from "../compose/DraftStore.ts";
+import * as Pool from "../pool/Pool.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 import { layerDaily } from "./DailyJobs.ts";
 import * as Library from "./Library.ts";
 import * as LibraryStore from "./LibraryStore.ts";
 
-/** Trends country for the ready-to-post job; the Trends tab lets the user pick others by hand. */
+/** Cold-start trends country for the ready-to-post job, used until for-you topics exist. */
 const READY_COUNTRY = "UnitedStates";
 
-// DraftStore is compose's; Effect memoizes layers by reference, so this is the same store.
+// DraftStore is compose's and Pool the pool area's; Effect memoizes layers by reference, so
+// these are the same instances.
 const layerService = Library.layer.pipe(
   Layer.provideMerge(LibraryStore.layer),
-  Layer.provide(DraftStore.layer),
+  Layer.provide(Layer.mergeAll(DraftStore.layer, Pool.layer)),
 );
 
 // Each job spends (searches, model calls) with nobody clicking, so all of them wait for the
@@ -85,6 +87,7 @@ export const layerHandlers = LibraryRpcGroup.toLayer(
       [Library_METHODS.writeInFormat]: ({ postId }) => library.writeInFormat(postId),
       [Library_METHODS.staffPicks]: () => library.staffPicks,
       [Library_METHODS.staffPicksFetch]: () => library.staffPicksFetch,
+      [Library_METHODS.forYou]: () => library.forYou,
       [Library_METHODS.generateReady]: ({ country }) => library.generateReady(country),
     });
   }),

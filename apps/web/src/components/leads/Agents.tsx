@@ -31,6 +31,7 @@ import {
 } from "../ui/split";
 import { xAction } from "../x";
 import { agentRunCost, useAction } from "./ui";
+import { Select } from "../ui/select";
 
 const blank: SignalAgentInput = {
   name: "",
@@ -425,20 +426,14 @@ function AgentForm({
           />
         </Field>
         <Field label="Into list">
-          <select
-            className={cn(inputClass, "bg-background")}
-            value={a.listId ?? ""}
-            onChange={(e) =>
-              setA({ ...a, listId: e.target.value === "" ? null : Number(e.target.value) })
-            }
-          >
-            <option value="">none</option>
-            {lists.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-              </option>
-            ))}
-          </select>
+          <Select
+            value={a.listId}
+            onChange={(listId) => setA({ ...a, listId })}
+            options={[
+              { value: null, label: "none" },
+              ...lists.map((l) => ({ value: l.id, label: l.name })),
+            ]}
+          />
         </Field>
         <Field label="Scoring">
           <textarea

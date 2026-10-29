@@ -16,6 +16,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
 import * as Assist from "../ai/Assist.ts";
+import * as SessionPosting from "../compose/SessionPosting.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 import * as XClient from "../x/XClient.ts";
 import * as PeopleStore from "./PeopleStore.ts";
@@ -73,6 +74,7 @@ const make = Effect.gen(function* () {
   const x = yield* XClient.XClient;
   const assist = yield* Assist.Assist;
   const settings = yield* SettingsStore.SettingsStore;
+  const session = yield* SessionPosting.SessionPosting;
   const people = yield* PeopleStore.PeopleStore;
   const extra = yield* XExtra.XExtra;
   const rates = XClient.RATE_CARD;
@@ -234,7 +236,19 @@ const make = Effect.gen(function* () {
   ) {
     // Looked up before posting: a reply that went out must not end in an error the user retries.
     const person = yield* people.get(personId);
-    const created = yield* x.createPost({ text, replyToPostId: postId, purpose: "leads.reply" });
+    // Free first: a clicked reply goes through the user's own session while that lane is on.
+    const { sessionPostingEnabled } = yield* settings.get.pipe(
+      Effect.orElseSucceed(() => ({ sessionPostingEnabled: false })),
+    );
+    const created = sessionPostingEnabled
+      ? yield* session
+          .post({ text, mediaPaths: [], replyToPostId: postId, paced: true })
+          .pipe(
+            Effect.mapError(
+              (e) => new LeadsError({ operation: "reply", detail: e.message, cause: e }),
+            ),
+          )
+      : yield* x.createPost({ text, replyToPostId: postId, purpose: "leads.reply" });
     yield* people.logActivity(personId, "replied", text.slice(0, 140));
     yield* markContacted(person);
     return { postId: created.postId };

@@ -5,13 +5,13 @@ a row or **New draft** opens the composer. Press `c` anywhere in the app to open
 
 ## Sections
 
-| section   | what is there                                                                                                                            |
-| --------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| Drafts    | the board of every draft, or what you wrote and have not sent as a list                                                                  |
-| Queued    | drafts waiting for their slot, with the time                                                                                             |
-| Automatic | drafts written for you by Library's morning run and by Automate, each with its source, and ask-first automation runs waiting for a click |
-| Failed    | posts that did not go through, with why; a row opens the draft to retry                                                                  |
-| Posted    | what went out from Xtend, with the link on X                                                                                             |
+| section   | what is there                                                                                                                                                                                                                        |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Drafts    | the board of every draft, or what you wrote and have not sent as a list                                                                                                                                                              |
+| Queued    | drafts waiting for their slot, with the time                                                                                                                                                                                         |
+| Automatic | drafts written for you by Library's morning run and by Automate, each with its source, and ask-first automation runs waiting for a click. Library writes from your For you topics, with your best posts as the example of your taste |
+| Failed    | posts that did not go through, with why; a row opens the draft to retry                                                                                                                                                              |
+| Posted    | what went out from Xtend, with the link on X                                                                                                                                                                                         |
 
 In a list each row shows the first line, how many posts the thread has, its price to post and
 its time.
