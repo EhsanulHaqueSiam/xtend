@@ -38,7 +38,7 @@ free.
 
 ## Archive
 
-Every post a search or a pick has seen, up to the latest 200, with the model's labels for its
+Every post a search or a pick has seen, the first 200 in the chosen order, with the model's labels for its
 format and its hook pattern. Filter by format, minimum views, year, author size, language and
 hook. **Detect hooks** labels the next 20 unlabelled posts in one model call; the selected
 post offers **Write mine in this format**, a model call that drafts your version.
@@ -62,6 +62,6 @@ Save puts a post in the swipe file, with its metrics frozen at save time. A post
 in any number of named collections; name one in the Collections rail to start it, rename it
 inline, delete it after a confirm. Drag a card onto a collection in the rail to file it there
 too. Staff picks fills itself and takes no drop. The selected saved post takes a note, more
-collections, remix and remove. Remove inside a collection takes the post out of that
-collection; in the swipe file it deletes the saved post everywhere. The swipe file is
+collections and remix. Inside a collection, Remove takes the post out of that collection; in
+the swipe file, Delete saved post removes it everywhere, after a confirm. The swipe file is
 searchable by text and note.
