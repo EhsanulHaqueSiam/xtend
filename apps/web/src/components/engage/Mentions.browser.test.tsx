@@ -52,6 +52,7 @@ function fakeService(): FakeService {
         monthlyBudgetUsd: 50,
         sessionPostingEnabled: false,
         dailyLibraryJobs: false,
+        poolSharing: true,
         voiceNotes: "",
         keywords: [],
         timeZone: "UTC",

@@ -23,6 +23,8 @@ export const ObservedAuthor = Schema.Struct({
   name: Schema.String,
   followers: Schema.NullOr(NonNegativeInt),
   verified: Schema.Boolean,
+  /** Protected accounts show posts only to approved followers. Absent when the capture could not tell; the pool shares only `false`. */
+  isProtected: Schema.optional(Schema.Boolean),
 });
 export type ObservedAuthor = typeof ObservedAuthor.Type;
 

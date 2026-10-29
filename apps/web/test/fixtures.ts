@@ -23,6 +23,7 @@ export const settings = {
   monthlyBudgetUsd: 20,
   sessionPostingEnabled: false,
   dailyLibraryJobs: false,
+  poolSharing: true,
   voiceNotes: "",
   keywords: [],
   timeZone: "UTC",

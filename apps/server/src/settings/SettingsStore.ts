@@ -36,6 +36,7 @@ interface SettingsRow {
   readonly assist_base_url: string | null;
   readonly assist_model: string;
   readonly assist_key: string | null;
+  readonly pool_sharing: number;
 }
 
 interface SpendRow {
@@ -85,6 +86,7 @@ const make = Effect.gen(function* () {
     assistBaseUrl: r.assist_base_url,
     assistModel: r.assist_model,
     assistKeySet: r.assist_key !== null,
+    poolSharing: r.pool_sharing === 1,
   });
 
   const get = row.pipe(
@@ -145,6 +147,7 @@ const make = Effect.gen(function* () {
           assist_base_url = ${assistBaseUrl},
           assist_model = ${patch.assistModel?.trim() ?? current.assist_model},
           assist_key = ${assistKey},
+          pool_sharing = ${patch.poolSharing === undefined ? current.pool_sharing : patch.poolSharing ? 1 : 0},
           updated_at = ${at}
         WHERE id = 1
       `;
