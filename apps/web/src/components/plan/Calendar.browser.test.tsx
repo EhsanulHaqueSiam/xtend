@@ -57,11 +57,11 @@ it("puts a draft into an open slot from the slot's menu, and opens a placed one"
     />,
   );
   // Monday's 13:00 is open; Tuesday's is taken by the queued draft.
-  await userEvent.click(screen.getByRole("button", { name: "Empty slot 13:00" }));
+  await userEvent.click(screen.getByRole("button", { name: "13:00 open slot" }));
   await userEvent.click(page.getByRole("menuitem", { name: /Most dashboards/ }));
   expect(onFill).toHaveBeenCalledWith("d1", new Date("2030-01-07T13:00:00.000Z"));
 
-  expect(screen.getByRole("button", { name: "Empty slot 13:00" }).elements()).toHaveLength(1);
+  expect(screen.getByRole("button", { name: "13:00 open slot" }).elements()).toHaveLength(1);
   await userEvent.click(screen.getByRole("button", { name: /Weekly build log/ }));
   expect(onOpen).toHaveBeenCalledWith(placed);
 });
@@ -84,7 +84,7 @@ it("drags a queued post to another open slot, and a draft onto an hour of the da
   );
   await screen
     .getByRole("button", { name: /Weekly build log/ })
-    .dropTo(screen.getByRole("button", { name: "Empty slot 13:00" }));
+    .dropTo(screen.getByRole("button", { name: "13:00 open slot" }));
   expect(onFill).toHaveBeenCalledWith("q1", new Date("2030-01-07T13:00:00.000Z"));
 
   // The ruler shows Monday (the week has no today); its 09:00 bar takes a draft from its menu.

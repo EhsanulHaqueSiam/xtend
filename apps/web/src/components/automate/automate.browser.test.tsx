@@ -9,6 +9,7 @@ import { DryRun } from "./DryRun";
 import { NeedsYou } from "./NeedsYou";
 import { RuleDetail } from "./RuleDetail";
 import { emptyRule, RuleForm } from "./RuleForm";
+import { Rules } from "./Rules";
 
 const rule = (id: number, extra: Partial<Rule> = {}): Rule => ({
   ...emptyRule,
@@ -26,6 +27,30 @@ const formService = {
   "costs.quote": quoting(),
   "leads.listsList": () => Effect.succeed([]),
 };
+
+it("after a save the editor holds what was stored, not the list's copy from before it", async () => {
+  let stored = rule(1, { name: "old name" });
+  await using screen = await render(<Rules />, {
+    service: {
+      ...formService,
+      "events.subscribe": liveEvents().subscribe,
+      "automate.rulesList": () => Effect.sync(() => [stored]),
+      "automate.runsList": () => Effect.succeed([]),
+      "automate.pendingList": () => Effect.succeed([]),
+      "automate.ruleUpsert": (input) =>
+        Effect.sync(() => {
+          stored = { ...stored, ...input, id: 1 };
+          return stored;
+        }),
+    },
+  });
+  await userEvent.click(screen.getByText("old name"));
+  await userEvent.fill(screen.getByPlaceholder("Thank reposters"), "new name");
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  await expect.poll(() => stored.name).toBe("new name");
+  await expect.element(screen.getByPlaceholder("Thank reposters")).toHaveValue("new name");
+  await expect.element(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+});
 
 it("prices what each polled trigger reads from X, per poll and per day, from the rate card", async () => {
   await using screen = await render(

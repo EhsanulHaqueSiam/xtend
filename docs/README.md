@@ -2,9 +2,9 @@
 
 ## Using Xtend
 
-- [Install](./user/install.md)
-- [X inside Xtend](./user/x-in-xtend.md)
-- [Costs and the budget](./user/costs.md)
+- [Install Xtend](./user/install.md)
+- [x.com inside Xtend](./user/x-view.md)
+- [Home and Seen](./user/seen.md)
 - [Compose](./user/compose.md)
 - [Plan](./user/plan.md)
 - [Library](./user/library.md)
@@ -13,14 +13,14 @@
 - [Automate](./user/automate.md)
 - [Analyze](./user/analyze.md)
 - [Scores](./user/scores.md)
-- [Seen](./user/seen.md)
 - [Drag and drop](./user/drag-and-drop.md)
-- [Keyboard](./user/keyboard.md)
-- [Settings and accounts](./user/settings.md)
-- [CLI, HTTP API and MCP](./user/cli.md)
+- [Costs and budget](./user/costs.md)
+- [Settings](./user/settings.md)
+- [Accounts](./user/accounts.md)
+- [Keys and the command palette](./user/keys-and-palette.md)
+- [Remote service](./user/remote-service.md)
+- [CLI, HTTP API and MCP](./user/api-and-mcp.md)
 - [FAQ](./user/faq.md)
-
----
 
 ## Working on Xtend
 

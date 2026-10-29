@@ -19,6 +19,11 @@ const unitTestProject = {
     environment: "node",
     include: ["src/**/*.test.{ts,tsx}"],
     exclude: ["src/**/*.browser.test.{ts,tsx}"],
+    // `vp test bench` gives every project a "(bench)" twin; browser benches must not run in node.
+    benchmark: {
+      include: ["src/**/*.bench.{ts,tsx}"],
+      exclude: ["src/**/*.browser.bench.{ts,tsx}"],
+    },
   },
 } satisfies TestProjectInlineConfiguration;
 
@@ -34,6 +39,8 @@ const browserTestProject = {
   test: {
     name: "browser",
     include: ["src/**/*.browser.test.{ts,tsx}"],
+    // Render benchmarks: measurements, not gates, so only `vp test bench` runs them.
+    benchmark: { include: ["src/**/*.browser.bench.{ts,tsx}"] },
     hookTimeout: 15_000,
     testTimeout: 15_000,
     setupFiles: ["./test/browserSetup.ts"],

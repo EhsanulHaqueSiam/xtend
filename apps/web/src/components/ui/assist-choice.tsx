@@ -7,7 +7,7 @@ import { xPill, xPillSm } from "../x";
 const pill = cn(xPill, xPillSm);
 
 /** The chooser's tones, in the order the spec shows them. */
-export const TONES: ReadonlyArray<{ readonly tone: ReplyTone; readonly label: string }> = [
+const TONES: ReadonlyArray<{ readonly tone: ReplyTone; readonly label: string }> = [
   { tone: "agree", label: "Agree" },
   { tone: "add", label: "Add a point" },
   { tone: "ask", label: "Ask" },
