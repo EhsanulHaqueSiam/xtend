@@ -68,38 +68,69 @@ const service = (
   };
 };
 
-it("saves a budget and time zone only once both are valid, and the meter shows the new budget", async () => {
+it("saves a budget only once it is valid, and the meter shows the new budget", async () => {
   const updates: Array<SettingsUpdate> = [];
-  await using screen = await render(<SettingsScreen />, { service: service(updates) });
+  await using screen = await render(<SettingsScreen />, {
+    service: service(updates),
+    router: "/settings?tab=money",
+  });
   // The meter's budget, beside this month's $1.50.
   await expect.element(screen.getByText("$20.00", { exact: true })).toBeVisible();
-  const save = screen.getByRole("button", { name: "Save" });
   const budget = screen.getByRole("spinbutton");
 
   // Empty is not $0: a cleared field would otherwise stop every paid call.
   await userEvent.clear(budget);
   await expect.element(screen.getByText("Enter an amount of 0 or more.")).toBeVisible();
+  const save = screen.getByRole("button", { name: "Save" });
   await expect.element(save).toBeDisabled();
   await userEvent.type(budget, "35.5");
   await expect.element(save).toBeEnabled();
-
-  const zone = screen.getByLabelText(/^Time zone/);
-  await userEvent.fill(zone, "Asia/Dhak");
-  await expect.element(screen.getByText("Not a time zone. Pick one from the list.")).toBeVisible();
-  await expect.element(save).toBeDisabled();
-  await userEvent.fill(zone, "Asia/Dhaka");
   await userEvent.click(save);
 
-  await expect.poll(() => updates).toEqual([{ monthlyBudgetUsd: 35.5, timeZone: "Asia/Dhaka" }]);
+  await expect.poll(() => updates).toEqual([{ monthlyBudgetUsd: 35.5 }]);
   await expect.element(screen.getByText("$35.50", { exact: true })).toBeVisible();
 });
 
-it("saves a handle as X spells it, refuses one X would not accept, and says why a save failed", async () => {
+it("saves a time zone only once Intl knows it", async () => {
   const updates: Array<SettingsUpdate> = [];
-  let refuse = false;
   await using screen = await render(<SettingsScreen />, {
-    service: service(updates, () => refuse),
+    service: service(updates),
+    router: "/settings?tab=writing",
   });
+  const zone = screen.getByLabelText(/^Time zone/);
+  await userEvent.fill(zone, "Asia/Dhak");
+  await expect.element(screen.getByText("Not a time zone. Pick one from the list.")).toBeVisible();
+  await expect.element(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  await userEvent.fill(zone, "Asia/Dhaka");
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  await expect.poll(() => updates).toEqual([{ timeZone: "Asia/Dhaka" }]);
+});
+
+it("finds a row on another page by its label and shows the page as a crumb", async () => {
+  await using screen = await render(<SettingsScreen />, { service: service([]) });
+  await expect.element(screen.getByPlaceholder("handle without @")).toBeVisible();
+  await userEvent.fill(screen.getByRole("searchbox", { name: "Search settings" }), "budget");
+  await expect.element(screen.getByRole("spinbutton")).toBeVisible();
+  await expect.element(screen.getByText("Money", { exact: true })).toBeVisible();
+  await expect.element(screen.getByPlaceholder("handle without @")).not.toBeInTheDocument();
+});
+
+it("restores a page's defaults only after a second click", async () => {
+  const updates: Array<SettingsUpdate> = [];
+  await using screen = await render(<SettingsScreen />, {
+    service: service(updates),
+    router: "/settings?tab=pool",
+  });
+  const restore = screen.getByRole("button", { name: "Restore defaults" });
+  await userEvent.click(restore);
+  expect(updates).toEqual([]);
+  await userEvent.click(screen.getByRole("button", { name: "Confirm restore" }));
+  await expect.poll(() => updates).toEqual([{ poolSharing: true }]);
+});
+
+it("saves a handle as X spells it and refuses one X would not accept", async () => {
+  const updates: Array<SettingsUpdate> = [];
+  await using screen = await render(<SettingsScreen />, { service: service(updates) });
   const handle = screen.getByPlaceholder("handle without @");
   await userEvent.fill(handle, "two words");
   await userEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -107,12 +138,23 @@ it("saves a handle as X spells it, refuses one X would not accept, and says why 
   expect(updates).toEqual([]);
 
   await userEvent.fill(handle, " @NewHandle ");
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  await expect.poll(() => updates).toEqual([{ handle: "NewHandle" }]);
+  await expect.element(screen.getByRole("alert")).not.toBeInTheDocument();
+});
+
+it("stores a treg token without showing it again, and says why a save failed", async () => {
+  const updates: Array<SettingsUpdate> = [];
+  let refuse = false;
+  await using screen = await render(<SettingsScreen />, {
+    service: service(updates, () => refuse),
+    router: "/settings?tab=money",
+  });
   await userEvent.fill(screen.getByPlaceholder("treg token"), "tk_live_123");
   await userEvent.click(screen.getByRole("button", { name: "Save" }));
-  await expect.poll(() => updates).toEqual([{ handle: "NewHandle", tregToken: "tk_live_123" }]);
+  await expect.poll(() => updates).toEqual([{ tregToken: "tk_live_123" }]);
   // The token never shows again; the field empties and the hint says one is stored.
   await expect.element(screen.getByPlaceholder("treg token")).toHaveValue("");
-  await expect.element(screen.getByRole("alert")).not.toBeInTheDocument();
 
   refuse = true;
   await userEvent.fill(screen.getByPlaceholder("treg token"), "tk_live_456");
