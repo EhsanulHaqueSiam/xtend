@@ -61,8 +61,16 @@ const service = (
         monthUsd: 1.5,
         todayUsd: 0.25,
         monthlyBudgetUsd: current.monthlyBudgetUsd,
-        byPurpose: [],
-        recent: [],
+        byPurpose: [{ purpose: "compose.postNow", costUsd: 0.015 }],
+        recent: [
+          {
+            at: "2026-10-22T05:10:00.000Z",
+            provider: "treg",
+            endpoint: "x/posts.create",
+            purpose: "compose.postNow",
+            costUsd: 0.015,
+          },
+        ],
       })),
     ...extra,
   };
@@ -76,6 +84,9 @@ it("saves a budget only once it is valid, and the meter shows the new budget", a
   });
   // The meter's budget, beside this month's $1.50.
   await expect.element(screen.getByText("$20.00", { exact: true })).toBeVisible();
+  // The log names each call in plain words with its exact price.
+  await expect.element(screen.getByRole("cell", { name: "Compose: post now" })).toBeVisible();
+  await expect.element(screen.getByRole("cell", { name: "$0.015" })).toBeVisible();
   const budget = screen.getByRole("spinbutton");
 
   // Empty is not $0: a cleared field would otherwise stop every paid call.
@@ -91,17 +102,22 @@ it("saves a budget only once it is valid, and the meter shows the new budget", a
   await expect.element(screen.getByText("$35.50", { exact: true })).toBeVisible();
 });
 
-it("saves a time zone only once Intl knows it", async () => {
+it("picks a time zone by city and UTC offset", async () => {
   const updates: Array<SettingsUpdate> = [];
   await using screen = await render(<SettingsScreen />, {
     service: service(updates),
     router: "/settings?tab=writing",
   });
-  const zone = screen.getByLabelText(/^Time zone/);
-  await userEvent.fill(zone, "Asia/Dhak");
-  await expect.element(screen.getByText("Not a time zone. Pick one from the list.")).toBeVisible();
-  await expect.element(screen.getByRole("button", { name: "Save" })).toBeDisabled();
-  await userEvent.fill(zone, "Asia/Dhaka");
+  // The fixture's UTC is not in Intl's list, so it is offered anyway.
+  const zone = screen.getByRole("combobox", { name: "Time zone" });
+  await expect.element(zone).toHaveTextContent("UTC (UTC+00:00)");
+  // Over 400 zones: typing a city jumps to it.
+  await userEvent.click(zone);
+  await userEvent.keyboard("Dhaka");
+  await expect
+    .element(screen.getByRole("option", { name: "Dhaka (UTC+06:00)" }))
+    .toHaveAttribute("data-highlighted");
+  await userEvent.keyboard("{Enter}");
   await userEvent.click(screen.getByRole("button", { name: "Save" }));
   await expect.poll(() => updates).toEqual([{ timeZone: "Asia/Dhaka" }]);
 });
