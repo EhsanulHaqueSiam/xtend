@@ -25,7 +25,8 @@ Settings.
 On a tool, x.com docks as a panel on the right, so a post you are replying to or a profile you
 are scoring stays in view. A post or profile you open from a tool (a mention, a saved post, a
 lead) opens in this panel and the tool stays on screen. The panel bar has back, forward,
-reload, pin, full size, open in your browser and close. Drag its left edge to resize it.
+reload, pin, full size, open in your browser and close. Drag its left edge to resize it. In a narrow window the sidebar becomes an icon rail and
+the panel narrows to leave room for the tool; your preferred panel width returns when the window grows.
 
 Pinned, the sidebar's X rows load into the panel and the open tool stays. Unpinned, they take
 the main area.

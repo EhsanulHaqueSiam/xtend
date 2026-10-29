@@ -1,7 +1,7 @@
 import "../../index.css";
 import { AccountsError, type Settings, type SpendSummary } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
-import { expect, it } from "vite-plus/test";
+import { beforeEach, expect, it } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
 import { quoting } from "../../../test/fixtures";
@@ -12,6 +12,7 @@ import { render } from "../../../test/render";
 window.localStorage.removeItem("xtend:x-panel-open");
 const bridge = installFakeBridge();
 const { AppShell } = await import("./AppShell");
+const { PageHeader } = await import("../PageHeader");
 const { ShellHotkeys } = await import("./ShellHotkeys");
 
 const settings = {
@@ -50,11 +51,17 @@ const service = {
   "accounts.list": () => Effect.succeed({ accounts: [], currentId: 1 }),
 } as const;
 
+beforeEach(async () => {
+  await page.viewport(1440, 920);
+});
+
 const shell = () => (
   <>
     <ShellHotkeys />
     <AppShell>
-      <div>page</div>
+      <div className="flex h-full flex-col">
+        <PageHeader title="Queue" />
+      </div>
     </AppShell>
   </>
 );
@@ -123,7 +130,7 @@ it("says why the service refused an account switch instead of doing nothing", as
         Effect.fail(new AccountsError({ operation: "select", detail: "account 2 is gone" })),
     },
   });
-  const account = screen.getByRole("button", { name: "@siamships" });
+  const account = screen.getByRole("button", { name: "Switch account" });
   await userEvent.click(account);
   await userEvent.click(page.getByRole("menuitem", { name: /^Brand/ }));
   await expect
@@ -170,3 +177,31 @@ it("counts pending requests on Automate and Needs you", async () => {
     .element(screen.getByRole("link", { name: /Needs you\s*1/, exact: true }))
     .toBeVisible();
 });
+
+for (const savedWidth of [440, 760]) {
+  it(`clamps a restored ${savedWidth}px panel on resize without changing the preference`, async () => {
+    window.localStorage.setItem("xtend:x-panel-open", "true");
+    window.localStorage.setItem("xtend:x-panel-width", String(savedWidth));
+    const container = document.createElement("div");
+    container.style.cssText = "width:900px;height:700px";
+    await using screen = await render(shell(), { container, router: "/plan", service });
+    const pane = screen.getByRole("region", { name: "x.com" });
+    const width = (element: Element) => Math.round(element.getBoundingClientRect().width);
+    await expect.poll(() => width(pane.element())).toBe(360);
+    await expect.poll(() => width(screen.getByRole("main").element())).toBe(496);
+    expect(width(screen.getByRole("complementary", { name: "Sidebar" }).element())).toBe(44);
+    expect(
+      screen.getByRole("button", { name: "Close X panel" }).element().getBoundingClientRect().right,
+    ).toBeLessThanOrEqual(container.getBoundingClientRect().right);
+    await userEvent.click(screen.getByRole("button", { name: "Plan sections" }));
+    await userEvent.click(page.getByRole("menuitem", { name: "Queue", exact: true }));
+    expect(screen.router?.state.location.searchStr).toBe("?tab=queue");
+    const guest = container.querySelector("webview");
+    container.style.width = "1600px";
+    await expect.poll(() => width(pane.element())).toBe(savedWidth);
+    expect(container.querySelector("webview")).toBe(guest);
+    expect(window.localStorage.getItem("xtend:x-panel-width")).toBe(String(savedWidth));
+    container.style.width = "900px";
+    await expect.poll(() => width(pane.element())).toBe(360);
+  });
+}

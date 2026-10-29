@@ -20,6 +20,10 @@ import { XPane, type XPaneMode } from "./XPane";
 /** Below this the main area keeps companion cards under the page instead of in a column. */
 const COMPANION_MIN_MAIN = 980;
 const COMPANION_WIDTH = 340;
+const SIDEBAR_WIDTH = 232;
+const RAIL_WIDTH = 44;
+const TOOL_MIN_WIDTH = 496;
+const RAIL_THRESHOLD = SIDEBAR_WIDTH + TOOL_MIN_WIDTH + 360;
 
 function useWidth(el: HTMLElement | null) {
   const [width, setWidth] = useState(0);
@@ -30,6 +34,20 @@ function useWidth(el: HTMLElement | null) {
     return () => observer.disconnect();
   }, [el]);
   return width;
+}
+
+function usePanelLayout(savedPanelWidth: number) {
+  const [frame, setFrame] = useState<HTMLDivElement | null>(null);
+  const frameWidth = useWidth(frame);
+  const compact = isElectron && frameWidth > 0 && frameWidth < RAIL_THRESHOLD;
+  const sidebarWidth = compact ? RAIL_WIDTH : SIDEBAR_WIDTH;
+  // A temporary clamp must not overwrite the user's width when the window grows again.
+  const panelWidth = Math.min(
+    savedPanelWidth,
+    Math.max(360, frameWidth - sidebarWidth - TOOL_MIN_WIDTH),
+  );
+  const titlebar = compact && window.desktopBridge?.platform === "darwin";
+  return { setFrame, compact, panelWidth, titlebar };
 }
 
 /**
@@ -67,7 +85,8 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
   const href = useLocation({ select: (l) => l.href });
   const pathname = useLocation({ select: (l) => l.pathname });
   const panelOpen = useAtomValue(xPanelOpenAtom);
-  const panelWidth = useAtomValue(xPanelWidthAtom);
+  const savedPanelWidth = useAtomValue(xPanelWidthAtom);
+  const { setFrame, compact, panelWidth, titlebar } = usePanelLayout(savedPanelWidth);
   const [main, setMain] = useState<HTMLElement | null>(null);
   const [companion, setCompanion] = useState<HTMLElement | null>(null);
   const wide = useWidth(main) >= COMPANION_MIN_MAIN;
@@ -82,8 +101,13 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
   const columns = `auto minmax(0, 1fr) ${isElectron && mode === "panel" ? `${panelWidth}px` : "0px"}`;
 
   return (
-    <div className="grid h-full w-full bg-background" style={{ gridTemplateColumns: columns }}>
-      <Sidebar />
+    <div
+      ref={setFrame}
+      className="relative grid h-full w-full bg-background"
+      style={{ gridTemplateColumns: columns, paddingTop: titlebar ? 28 : undefined }}
+    >
+      {titlebar ? <div className="drag-region absolute inset-x-0 top-0 h-7" /> : null}
+      <Sidebar compact={compact} />
       <main tabIndex={-1} ref={setMain} className="col-start-2 row-start-1 flex min-h-0 min-w-0">
         <CompanionTarget value={wide ? companion : null}>
           <div className="min-h-0 min-w-0 flex-1 overflow-hidden">{children}</div>
