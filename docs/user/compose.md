@@ -34,7 +34,7 @@ last 20 characters, red past the limit. The post you are writing shows its tools
 can reply, move up or down, remove, add below.
 
 - Paste plain text with blank lines between paragraphs and each paragraph becomes a post.
-- Up to four images or a video per post, with alt text. Drag to reorder.
+- Up to four images or a video per post. Drag to reorder. Alt text cannot reach X yet.
 - A link to an x.com post as its own line becomes a quote. The quoted post shows as a card
   when the Library has it; otherwise the bare link, which is what X will get. The quote rides
   on the first post and counts against its 280.
