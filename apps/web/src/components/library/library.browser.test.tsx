@@ -307,7 +307,7 @@ it("prices trend ideas by the country whose trends are loaded", async () => {
     .element(screen.getByRole("button", { name: /^Load trends.*\$0\.001$/ }))
     .toBeVisible();
   await expect
-    .element(screen.getByRole("button", { name: /^Write 5 ideas.*cached, free \+ \$0\.001$/ }))
+    .element(screen.getByRole("button", { name: /^Write 5 ideas.*\$0\.001$/ }))
     .toBeEnabled();
 });
 

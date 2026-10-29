@@ -45,7 +45,7 @@ export const engagersAtom = clientRuntime.atom(
 );
 
 /**
- * Paid (model call) unless the service has the result cached for the same posts. Kept alive, as is
+ * A model call on the user's login unless the service has the result cached for the same posts. Kept alive, as is
  * askAtom: the click does not await either, so leaving the tab would interrupt the call.
  */
 export const themesAtom = Atom.keepAlive(

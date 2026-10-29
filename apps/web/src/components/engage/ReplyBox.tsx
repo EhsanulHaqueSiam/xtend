@@ -1,14 +1,12 @@
-import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useAtomSet } from "@effect/atom-react";
 import { postCostUsd, type ReplyTone, type XPost } from "@xtend/contracts";
 import * as Exit from "effect/Exit";
-import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 import { TextMorph } from "torph/react";
 
-import { isElectron } from "../../env";
 import { usd, useQuote, useRates } from "../../state/costs";
 import { draftReplyAtom, likeAtom, sendReplyAtom } from "../../state/engage";
-import { settingsAtom } from "../../state/settings";
+import { useSessionLane } from "../../state/settings";
 import { cn } from "../../lib/utils";
 import { errorText } from "../analyze/ui";
 import { inputClass } from "../ui/field";
@@ -94,12 +92,7 @@ export function ReplyBox({
   const likeQuote = useQuote({ kind: "like" });
   const assistQuote = useQuote({ kind: "assist" });
   // The service sends a clicked reply through the session while that lane is on; the button says so.
-  const viaSession =
-    isElectron &&
-    AsyncResult.getOrElse(
-      AsyncResult.map(useAtomValue(settingsAtom), (s) => s.sessionPostingEnabled),
-      () => false,
-    );
+  const viaSession = useSessionLane();
   const { tone, drafts, text, busy, error, replied, liked } = work;
 
   const onDraft = async (tone: ReplyTone) => {

@@ -86,7 +86,13 @@ export class Publisher extends Context.Service<
      */
     readonly post: (
       id: string,
-      options: { readonly purpose: string; readonly retry: boolean; readonly due?: string },
+      options: {
+        readonly purpose: string;
+        readonly retry: boolean;
+        readonly due?: string;
+        /** The user just clicked Post: free first, so text goes through their session while that lane is on. */
+        readonly clicked?: boolean;
+      },
     ) => Effect.Effect<Draft, ComposeError>;
   }
 >()("xtend/compose/Publisher") {}
@@ -98,8 +104,20 @@ const make = Effect.gen(function* () {
   const articles = yield* Articles.Articles;
   const settings = yield* SettingsStore.SettingsStore;
 
-  const postBlocks = Effect.fn("Publisher.postBlocks")(function* (draft: Draft, purpose: string) {
+  const postBlocks = Effect.fn("Publisher.postBlocks")(function* (
+    draft: Draft,
+    purpose: string,
+    clicked: boolean,
+  ) {
     const ids = [...draft.postIds];
+    // X's composer takes no poll and no reply-settings choice; those posts keep the API lane.
+    const sessionText =
+      clicked &&
+      draft.poll === null &&
+      (yield* settings.get.pipe(
+        Effect.map((s) => s.sessionPostingEnabled),
+        Effect.orElseSucceed(() => false),
+      ));
     // Resume after the last block that already went out, so a retry never double-posts.
     for (let i = ids.length; i < draft.blocks.length; i++) {
       if (i > 0 && draft.threadDelaySeconds > 0)
@@ -111,7 +129,7 @@ const make = Effect.gen(function* () {
       const unsure = <E extends ComposeError | XApiError | DesktopUnavailableError>(e: E) =>
         Effect.fail(mayHavePosted(e) ? new Unconfirmed({ post: i + 1, detail: e.message }) : e);
       const { postId } =
-        media.length > 0
+        media.length > 0 || (sessionText && replySettings === "everyone")
           ? yield* session
               .post({
                 text,
@@ -170,7 +188,7 @@ const make = Effect.gen(function* () {
 
   const publish = Effect.fn("Publisher.publish")(function* (
     id: string,
-    options: { readonly purpose: string; readonly retry: boolean },
+    options: { readonly purpose: string; readonly retry: boolean; readonly clicked?: boolean },
   ) {
     // Read after the claim so the editor's last autosave is what goes out.
     const draft = yield* drafts.get(id);
@@ -182,7 +200,7 @@ const make = Effect.gen(function* () {
         : yield* (
             draft.kind === "article"
               ? postArticle(draft, options.purpose)
-              : postBlocks(draft, options.purpose)
+              : postBlocks(draft, options.purpose, options.clicked === true)
           ).pipe(
             Effect.map((ids) => ({ error: null, ids, retryable: false })),
             Effect.catch((e) =>
@@ -219,7 +237,12 @@ const make = Effect.gen(function* () {
 
   const post = Effect.fn("Publisher.post")(function* (
     id: string,
-    options: { readonly purpose: string; readonly retry: boolean; readonly due?: string },
+    options: {
+      readonly purpose: string;
+      readonly retry: boolean;
+      readonly due?: string;
+      readonly clicked?: boolean;
+    },
   ) {
     if (!(yield* drafts.claim(id, options.due)))
       return yield* new ComposeError({

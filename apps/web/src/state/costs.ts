@@ -47,8 +47,14 @@ export function useQuote(action: CostAction): CostQuote | null {
 /** "($0.00075)" or "(cached, free)" for a button label; "…" until the quote arrives. */
 export function useQuoteLabel(action: CostAction): string {
   const q = useQuote(action);
-  return q === null ? "…" : q.cached ? "cached, free" : usd(q.usd);
+  return q === null ? "…" : q.cached ? "cached, free" : q.usd === 0 ? "free" : usd(q.usd);
 }
+
+/** Several quotes as one label: the free parts drop out, so "$0.00075 + free" reads "$0.00075". */
+export const costLabels = (...labels: ReadonlyArray<string>) => {
+  const paid = labels.filter((l) => l !== "free" && l !== "cached, free");
+  return paid.length === 0 ? "free" : paid.join(" + ");
+};
 
 export function useRates() {
   return AsyncResult.getOrElse(useAtomValue(ratesAtom), () => null);

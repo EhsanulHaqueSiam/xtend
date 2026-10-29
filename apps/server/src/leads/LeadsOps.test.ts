@@ -1,3 +1,4 @@
+import type { DesktopCommand } from "@xtend/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import type { Candidate, XFollower, XPost, XProfile } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
@@ -9,6 +10,8 @@ import * as Sqlite from "../persistence/Sqlite.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 import * as TokenCipher from "../settings/TokenCipher.ts";
 import { xClientStub } from "../testing/xClientStub.ts";
+import * as SessionPosting from "../compose/SessionPosting.ts";
+import { desktopStub } from "../compose/testStubs.ts";
 import * as XClient from "../x/XClient.ts";
 import * as LeadsOps from "./LeadsOps.ts";
 import * as PeopleStore from "./PeopleStore.ts";
@@ -79,14 +82,25 @@ const xExtraStub = Layer.succeed(XExtra.XExtra)({
   unfollow: () => Effect.die("unused"),
 });
 
+const desktopCalls: Array<DesktopCommand> = [];
 const layerTest = LeadsOps.layer.pipe(
   Layer.provideMerge(
-    Layer.mergeAll(PeopleStore.layer, SettingsStore.layer, assistStub, xExtraStub),
+    Layer.mergeAll(PeopleStore.layer, SessionPosting.layer, assistStub, xExtraStub),
   ),
+  Layer.provideMerge(SettingsStore.layer),
   Layer.provideMerge(
     Layer.mergeAll(
       Sqlite.layerMemory,
       TokenCipher.layerTest,
+      desktopStub(
+        desktopCalls,
+        (command) =>
+          Effect.succeed(
+            command.type === "sessionPost"
+              ? { type: "sessionPost", postId: "900" }
+              : { type: command.type },
+          ) as never,
+      ),
       xClientStub({
         profile: (handle) =>
           Effect.sync(() => {
@@ -165,11 +179,18 @@ describe("LeadsOps", () => {
       });
       expect(posted).toEqual([]);
 
+      // Free first: the clicked reply goes through the session while that lane is on.
       const p = yield* people.add({ ...candidate("carol"), source: "manual" });
       yield* people.update({ id: p.id, stage: "replied" });
       expect(yield* ops.sendReply(p.id, "5", "same here")).toEqual({ postId: "900" });
-      expect(posted.map((x) => [x.replyToPostId, x.text])).toEqual([["5", "same here"]]);
+      expect(desktopCalls.map((c) => c.type)).toEqual(["sessionPost"]);
+      expect(posted).toEqual([]);
       expect((yield* people.get(p.id)).stage).toBe("replied");
+
+      const settings = yield* SettingsStore.SettingsStore;
+      yield* settings.update({ sessionPostingEnabled: false });
+      yield* ops.sendReply(p.id, "6", "and this");
+      expect(posted.map((x) => [x.replyToPostId, x.text])).toEqual([["6", "and this"]]);
     }).pipe(Effect.provide(layerTest)),
   );
 

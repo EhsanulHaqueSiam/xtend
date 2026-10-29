@@ -6,7 +6,7 @@ import { TextMorph } from "torph/react";
 
 import { fmtWhen } from "../../lib/time";
 import { cn } from "../../lib/utils";
-import { useQuoteLabel } from "../../state/costs";
+import { costLabels, useQuoteLabel } from "../../state/costs";
 import { saveSuggestedDraftAtom, trendIdeasAtom, trendsAtom } from "../../state/library";
 import { poolTrendsAtom } from "../../state/pool";
 import { PageHeader } from "../PageHeader";
@@ -217,7 +217,7 @@ export function TrendsTab() {
       onClick={() => void generate()}
     >
       {busy ? "Writing" : ideas === null ? "Write 5 ideas" : "Write 5 more"}
-      <Cost label={`${ideasQuote} + ${assistQuote}`} />
+      <Cost label={costLabels(ideasQuote, assistQuote)} />
     </button>
   );
 
