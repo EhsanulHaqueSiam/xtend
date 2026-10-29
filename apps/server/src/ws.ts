@@ -15,6 +15,7 @@ import * as AutomateHandlers from "./automate/AutomateHandlers.ts";
 import * as DesktopHandlers from "./desktop/DesktopHandlers.ts";
 import * as EventsHandlers from "./events/EventsHandlers.ts";
 import * as AccountsHandlers from "./accounts/AccountsHandlers.ts";
+import * as MarksHandlers from "./marks/MarksHandlers.ts";
 
 import * as ServiceAuth from "./auth/ServiceAuth.ts";
 import * as ServerConfig from "./config.ts";
@@ -62,6 +63,7 @@ export const layerHandlers = Layer.mergeAll(
   DesktopHandlers.layerHandlers,
   EventsHandlers.layerHandlers,
   AccountsHandlers.layerHandlers,
+  MarksHandlers.layerHandlers,
 );
 
 export const layerRoute = HttpRouter.add(

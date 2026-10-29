@@ -365,19 +365,6 @@ export function createMainWindow(options: MainWindowOptions) {
     const overlay = createOverlayFeed(contents);
     const createdListeners = new Set<(postId: string) => void>();
     let navViewer: string | null = null;
-    const detachCapture = attachSessionCapture(contents, {
-      serviceUrl: options.serviceUrl,
-      serviceToken: options.serviceToken,
-      accountId: options.accountId,
-      queueDir: options.queueDir,
-      log: options.log,
-      onPosts: overlay.observe,
-      onCreatedPost: (postId) => {
-        for (const listener of createdListeners) listener(postId);
-        createdListeners.clear();
-      },
-      fallbackViewer: () => navViewer,
-    });
     const commands = attachDesktopCommands(contents, {
       serviceUrl: options.serviceUrl,
       serviceToken: options.serviceToken,
@@ -386,6 +373,22 @@ export function createMainWindow(options: MainWindowOptions) {
       },
       nextCreatedPost: () => new Promise((resolve) => createdListeners.add(resolve)),
       log: options.log,
+    });
+    const detachCapture = attachSessionCapture(contents, {
+      serviceUrl: options.serviceUrl,
+      serviceToken: options.serviceToken,
+      accountId: options.accountId,
+      queueDir: options.queueDir,
+      log: options.log,
+      onPosts: (batch, viewer) => {
+        overlay.observe(batch, viewer);
+        commands.marks(batch.map((p) => ({ postId: p.postId, handle: p.author.handle })));
+      },
+      onCreatedPost: (postId) => {
+        for (const listener of createdListeners) listener(postId);
+        createdListeners.clear();
+      },
+      fallbackViewer: () => navViewer,
     });
 
     const onAction = (event: Electron.IpcMainEvent, action: OverlayAction) => {
