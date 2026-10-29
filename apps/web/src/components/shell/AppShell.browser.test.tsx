@@ -205,3 +205,25 @@ for (const savedWidth of [440, 760]) {
     await expect.poll(() => width(pane.element())).toBe(360);
   });
 }
+
+it("reopens X from the shared tool header and preserves its webview", async () => {
+  window.localStorage.setItem("xtend:x-panel-open", "true");
+  const container = document.createElement("div");
+  container.style.cssText = "width:1440px;height:920px";
+  await using screen = await render(shell(), { container, router: "/plan?tab=queue", service });
+  const pane = screen.getByRole("region", { name: "x.com", includeHidden: true });
+  const guest = container.querySelector("webview");
+  await userEvent.click(screen.getByRole("button", { name: "Close X panel" }));
+  const show = screen.getByRole("button", { name: "Show X panel" });
+  await expect.element(show).toBeVisible();
+  await expect.element(show).toHaveAttribute("title", "Show X panel (⌘\\)");
+  await expect.element(show).toHaveAttribute("aria-pressed", "false");
+  await userEvent.click(show);
+  await expect.element(pane).toHaveAttribute("data-mode", "panel");
+  const hide = screen.getByRole("button", { name: "Hide X panel" });
+  await expect.element(hide).toHaveAttribute("aria-pressed", "true");
+  await userEvent.click(hide);
+  await expect.element(pane).toHaveAttribute("data-mode", "hidden");
+  expect(container.querySelector("webview")).toBe(guest);
+  expect(screen.router?.state.location.href).toBe("/plan?tab=queue");
+});

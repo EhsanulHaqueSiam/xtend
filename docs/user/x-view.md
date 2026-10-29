@@ -31,7 +31,7 @@ the panel narrows to leave room for the tool; your preferred panel width returns
 Pinned, the sidebar's X rows load into the panel and the open tool stays. Unpinned, they take
 the main area.
 
-`⌘\` toggles the panel. From X itself it returns you to the last tool with the panel open.
+Use the panel toggle in any tool header or `⌘\` to show or hide X. From X itself it returns you to the last tool with the panel open.
 Closing the panel parks it; your place on X and your scroll position survive.
 
 ## The companion column
