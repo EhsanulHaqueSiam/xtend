@@ -1,4 +1,4 @@
-import { Compose_METHODS, type DraftPatch, type MediaKind } from "@xtend/contracts";
+import { Compose_METHODS, type DraftPatch, type MediaKind, type ReplyTone } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 
 import { clientRuntime, XtendClient } from "../rpc/client";
@@ -44,31 +44,43 @@ export const postNowAtom = clientRuntime.fn<string>()(
   }),
 );
 
-export const assistHookAtom = clientRuntime.fn<ReadonlyArray<string>>()(
-  Effect.fnUntraced(function* (blocks) {
+export const assistHookAtom = clientRuntime.fn<{
+  readonly blocks: ReadonlyArray<string>;
+  readonly tone?: ReplyTone | undefined;
+}>()(
+  Effect.fnUntraced(function* (input) {
     const client = yield* XtendClient;
-    return yield* client[Compose_METHODS.assistHook]({ blocks });
+    return yield* client[Compose_METHODS.assistHook](input);
   }),
 );
 
-export const assistRewriteAtom = clientRuntime.fn<string>()(
-  Effect.fnUntraced(function* (text) {
+export const assistRewriteAtom = clientRuntime.fn<{
+  readonly text: string;
+  readonly tone?: ReplyTone | undefined;
+}>()(
+  Effect.fnUntraced(function* (input) {
     const client = yield* XtendClient;
-    return yield* client[Compose_METHODS.assistRewrite]({ text });
+    return yield* client[Compose_METHODS.assistRewrite](input);
   }),
 );
 
-export const assistThreadIdeasAtom = clientRuntime.fn<string>()(
-  Effect.fnUntraced(function* (topic) {
+export const assistThreadIdeasAtom = clientRuntime.fn<{
+  readonly topic: string;
+  readonly tone?: ReplyTone | undefined;
+}>()(
+  Effect.fnUntraced(function* (input) {
     const client = yield* XtendClient;
-    return yield* client[Compose_METHODS.assistThreadIdeas]({ topic });
+    return yield* client[Compose_METHODS.assistThreadIdeas](input);
   }),
 );
 
-export const assistContinueAtom = clientRuntime.fn<ReadonlyArray<string>>()(
-  Effect.fnUntraced(function* (blocks) {
+export const assistContinueAtom = clientRuntime.fn<{
+  readonly blocks: ReadonlyArray<string>;
+  readonly tone?: ReplyTone | undefined;
+}>()(
+  Effect.fnUntraced(function* (input) {
     const client = yield* XtendClient;
-    return yield* client[Compose_METHODS.assistContinue]({ blocks });
+    return yield* client[Compose_METHODS.assistContinue](input);
   }),
 );
 

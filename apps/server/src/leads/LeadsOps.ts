@@ -6,6 +6,7 @@ import {
   type NewFollower,
   type Person,
   type PersonReplyDraft,
+  type ReplyTone,
   type XApiError,
   type XPost,
   type XProfile,
@@ -25,8 +26,8 @@ import * as XExtra from "./XExtra.ts";
 const PREVIEW_LIMIT = 50;
 const DM_CONTEXT_POSTS = 5;
 
-const DmDraft = Schema.Struct({ text: Schema.String });
-const ReplyText = Schema.Struct({ text: Schema.String });
+const Drafts = Schema.Struct({ drafts: Schema.Array(Schema.Struct({ text: Schema.String })) });
+const texts = ({ drafts }: typeof Drafts.Type) => drafts.map((d) => d.text).slice(0, 3);
 
 /** The leads operations that touch X or the assistant: profiles, DMs, list building, follower diffs. */
 export class LeadsOps extends Context.Service<
@@ -34,7 +35,11 @@ export class LeadsOps extends Context.Service<
   {
     /** Cached 6h by XClient; writes the user id, bio and follower count back onto the person. */
     readonly profile: (personId: number) => Effect.Effect<XProfile | null, LeadsError | XApiError>;
-    readonly draftDm: (personId: number) => Effect.Effect<string, LeadsError | XApiError>;
+    /** Three openers in the picked tone, for the chooser. */
+    readonly draftDm: (
+      personId: number,
+      tone?: ReplyTone,
+    ) => Effect.Effect<ReadonlyArray<string>, LeadsError | XApiError>;
     readonly sendDm: (
       personId: number,
       text: string,
@@ -61,6 +66,7 @@ export class LeadsOps extends Context.Service<
     readonly latestPost: (personId: number) => Effect.Effect<XPost | null, LeadsError | XApiError>;
     readonly draftReply: (
       personId: number,
+      tone?: ReplyTone,
     ) => Effect.Effect<PersonReplyDraft, LeadsError | XApiError>;
     readonly sendReply: (
       personId: number,
@@ -88,22 +94,23 @@ const make = Effect.gen(function* () {
     return found;
   });
 
-  const draftDm = Effect.fn("LeadsOps.draftDm")(function* (personId: number) {
+  const draftDm = Effect.fn("LeadsOps.draftDm")(function* (personId: number, tone?: ReplyTone) {
     const person = yield* people.get(personId);
     const posts = yield* x.userPosts(person.handle, { purpose: "leads.draftDm" });
-    const draft = yield* assist
+    const drafts = yield* assist
       .generate({
         task: "leads.draftDm",
+        tone,
         instructions:
-          "Write a short DM opener (under 300 characters) to this person. Reference something specific from one of their recent posts. Friendly, curious, not salesy, no pitch, no links, one question at most.",
+          "Write 3 different short DM openers (each under 300 characters) to this person. Each references something specific from one of their recent posts. Curious, not salesy, no pitch, no links, one question at most.",
         input: {
           person: { handle: person.handle, name: person.name, bio: person.bio },
           recentPosts: posts.items.slice(0, DM_CONTEXT_POSTS).map((p) => p.text),
         },
-        output: DmDraft,
+        output: Drafts,
       })
       .pipe(Effect.mapError(assistFail("draftDm")));
-    return draft.text;
+    return texts(drafts);
   });
 
   // Reaching out moves a new lead along; it never pulls a replied lead or a customer back.
@@ -209,7 +216,10 @@ const make = Effect.gen(function* () {
     return own.find((p) => !p.isReply) ?? own[0] ?? null;
   });
 
-  const draftReply = Effect.fn("LeadsOps.draftReply")(function* (personId: number) {
+  const draftReply = Effect.fn("LeadsOps.draftReply")(function* (
+    personId: number,
+    tone?: ReplyTone,
+  ) {
     const post = yield* latestPost(personId);
     if (post === null)
       return yield* new LeadsError({
@@ -217,16 +227,17 @@ const make = Effect.gen(function* () {
         detail: "no recent post to reply to",
         cause: null,
       });
-    const draft = yield* assist
+    const drafts = yield* assist
       .generate({
         task: "leads.draftReply",
+        tone,
         instructions:
-          "Write a reply (under 240 characters) to this post that adds something: a specific observation, a question or a short related experience. Warm, no flattery, no pitch, no links, no hashtags.",
+          "Write 3 different replies (each under 240 characters) to this post. Each adds something: a specific observation, a question or a short related experience. No flattery, no pitch, no links, no hashtags.",
         input: { author: post.author.handle, post: post.text },
-        output: ReplyText,
+        output: Drafts,
       })
       .pipe(Effect.mapError(assistFail("draftReply")));
-    return { post, text: draft.text };
+    return { post, drafts: texts(drafts) };
   });
 
   const sendReply = Effect.fn("LeadsOps.sendReply")(function* (

@@ -18,13 +18,15 @@ Add a note to say why you kept it.
 - **Archive**: everything saved, with filters for format, hook pattern, author size, language,
   year, minimum views and excluded words. Detect patterns labels the hook pattern of the next
   twenty unlabelled posts.
-- **Trends**: what X is talking about, by country, cached for 30 minutes. Trend ideas asks the
-  assistant for post ideas on one.
+- **Trends**: what X is talking about, by country, cached for 30 minutes. Pick a tone for three
+  post ideas tied to the trends that fit your keywords.
 - **Collections**: tags for saved posts. A post can be in many. Rename or delete a collection
   without losing the posts.
 - **Swipe file**: every saved post, searchable by text and notes.
 
 ## Writing from a saved post
 
-Open a post's inspector for "Write mine in this format", which drafts a post of yours with the
-same shape, and "Why it works". Both are paid model calls and show their price.
+Open a post's inspector for "Write mine in this format" (Archive) or "Ready to post" (Picks):
+pick a tone, or any, for three posts of yours with the same shape, then send the one you like
+to Compose as a suggested draft. "Why it works" explains the post. Assist runs on your own
+login, so both are free.

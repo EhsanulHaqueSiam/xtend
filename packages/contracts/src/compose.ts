@@ -2,7 +2,7 @@ import * as Schema from "effect/Schema";
 import * as Rpc from "effect/rpc/Rpc";
 import * as RpcGroup from "effect/rpc/RpcGroup";
 
-import { IsoDateTime, NonNegativeInt, XId } from "./baseSchemas.ts";
+import { IsoDateTime, NonNegativeInt, ReplyTone, XId } from "./baseSchemas.ts";
 
 /** Compose screen contracts: drafts, assist calls and the RPC group. Owned by the compose area. */
 
@@ -143,7 +143,10 @@ export const ThreadIdeas = Schema.Struct({
 });
 export type ThreadIdeas = typeof ThreadIdeas.Type;
 
-export const ContinuedBlocks = Schema.Struct({ blocks: Schema.Array(Schema.String) });
+/** Options for the next posts of a thread, each a run of posts to append. */
+export const ContinuedBlocks = Schema.Struct({
+  options: Schema.Array(Schema.Struct({ blocks: Schema.Array(Schema.String) })),
+});
 export type ContinuedBlocks = typeof ContinuedBlocks.Type;
 
 export const VoiceMatch = Schema.Struct({
@@ -199,6 +202,8 @@ export const Compose_METHODS = {
 
 const DraftId = Schema.Struct({ id: Schema.String });
 const Blocks = Schema.Struct({ blocks: Schema.Array(Schema.String) });
+const tone = Schema.optional(ReplyTone);
+const ToneBlocks = Schema.Struct({ blocks: Schema.Array(Schema.String), tone });
 
 export const ComposeRpcGroup = RpcGroup.make(
   Rpc.make(Compose_METHODS.draftsList, {
@@ -224,22 +229,22 @@ export const ComposeRpcGroup = RpcGroup.make(
   /** Posts the thread right away. The returned draft is posted or failed with the X error detail. */
   Rpc.make(Compose_METHODS.postNow, { payload: DraftId, success: Draft, error: ComposeError }),
   Rpc.make(Compose_METHODS.assistHook, {
-    payload: Blocks,
+    payload: ToneBlocks,
     success: HookAlternatives,
     error: ComposeError,
   }),
   Rpc.make(Compose_METHODS.assistRewrite, {
-    payload: Schema.Struct({ text: Schema.String }),
+    payload: Schema.Struct({ text: Schema.String, tone }),
     success: RewriteVariants,
     error: ComposeError,
   }),
   Rpc.make(Compose_METHODS.assistThreadIdeas, {
-    payload: Schema.Struct({ topic: Schema.String }),
+    payload: Schema.Struct({ topic: Schema.String, tone }),
     success: ThreadIdeas,
     error: ComposeError,
   }),
   Rpc.make(Compose_METHODS.assistContinue, {
-    payload: Blocks,
+    payload: ToneBlocks,
     success: ContinuedBlocks,
     error: ComposeError,
   }),

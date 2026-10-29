@@ -23,10 +23,11 @@ generate.
 
 ## Assist
 
-Chips under the editor ask the assistant for a hook, a rewrite, a continuation, thread ideas on
-a topic, or a check against your voice. Each shows its price. Suggestions appear beside the
-editor; pick one to replace the text. Voice notes and keywords from Settings go into every
-call.
+Under the editor, pick a tone (Agree, Add a point, Ask, Contrarian, Sarcastic, Warm, Short, or
+any), then ask for a hook, a rewrite, a continuation, thread ideas on a topic, or a check against
+your voice. Every action uses the tone you picked and returns three options; Use puts one in the
+editor, where it is yours to change. Assist runs on your own Claude or Codex login, so it is
+free. Voice notes and keywords from Settings go into every call.
 
 ## Posting
 

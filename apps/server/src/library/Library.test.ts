@@ -48,8 +48,10 @@ const answers: Record<string, unknown> = {
     ],
   },
   "library.pickWhy": { why: "A blunt hook.\nOne line, no media." },
-  "library.pickDraft": { blocks: ["Ship weekly."] },
-  "library.writeInFormat": { text: "5 things a cofounder costs you" },
+  "library.pickDraft": {
+    options: [{ blocks: ["Ship weekly."] }, { blocks: ["Ship daily.", "Here is why."] }],
+  },
+  "library.writeInFormat": { drafts: ["5 things a cofounder costs you", "a", "b", "c"] },
   "library.generateReady": {
     posts: [
       { text: "one", basis: "#effect", voiceMatch: 80 },
@@ -243,7 +245,7 @@ describe("Library", () => {
     }).pipe(Effect.provide(search.layer));
   });
 
-  it.effect("asks the model once per pick for why it worked and for a draft", () =>
+  it.effect("caches why a pick worked, and drafts options in the picked tone every time", () =>
     Effect.gen(function* () {
       requests.length = 0;
       const store = yield* LibraryStore.LibraryStore;
@@ -256,14 +258,21 @@ describe("Library", () => {
 
       for (let i = 0; i < 2; i++) {
         expect(yield* library.pickWhy("5")).toBe("A blunt hook.\nOne line, no media.");
-        expect(yield* library.pickDraft("5")).toEqual(["Ship weekly."]);
+        expect(yield* library.pickDraft("5", "short")).toEqual([
+          ["Ship weekly."],
+          ["Ship daily.", "Here is why."],
+        ]);
       }
-      expect(requests.map((r) => r.task)).toEqual(["library.pickWhy", "library.pickDraft"]);
+      expect(requests.map((r) => [r.task, r.tone])).toEqual([
+        ["library.pickWhy", undefined],
+        ["library.pickDraft", "short"],
+        ["library.pickDraft", "short"],
+      ]);
       expect((yield* Effect.flip(library.pickWhy("404"))).detail).toBe("Pick not found.");
     }).pipe(Effect.provide(layerTest)),
   );
 
-  it.effect("writes a post in an archive post's format and hook as a suggested draft", () =>
+  it.effect("writes three options in an archive post's format and hook, filing none", () =>
     Effect.gen(function* () {
       requests.length = 0;
       const store = yield* LibraryStore.LibraryStore;
@@ -273,16 +282,14 @@ describe("Library", () => {
       yield* store.setPatterns([{ postId: "7", format: "text", hookPattern: "number hook" }]);
 
       const written = yield* library.writeInFormat("7");
-      expect(written.text).toBe("5 things a cofounder costs you");
+      expect(written).toEqual(["5 things a cofounder costs you", "a", "b"]);
       expect(requests[0]?.input).toEqual({
         example: "3 things I learned",
         format: "text",
         hookPattern: "number hook",
       });
-      const suggested = yield* drafts.byStatus("suggested");
-      expect(suggested.map((d) => [d.id, d.source])).toEqual([
-        [written.id, "format:number hook:7"],
-      ]);
+      // The user keeps one through suggestedDraftSave; nothing lands in Compose on its own.
+      expect(yield* drafts.byStatus("suggested")).toEqual([]);
       expect((yield* Effect.flip(library.writeInFormat("404"))).detail).toBe(
         "Post not in the archive.",
       );

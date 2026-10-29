@@ -1,6 +1,6 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
-import { postCostUsd, type Person, type Stage, type XPost } from "@xtend/contracts";
+import { postCostUsd, type Person, type ReplyTone, type Stage, type XPost } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState, type ReactElement, type ReactNode } from "react";
 import { TextMorph } from "torph/react";
@@ -25,6 +25,7 @@ import { errorText, fmt } from "../analyze/ui";
 import { ago, ErrorLine, pill, pillSolid } from "../engage/triage";
 import { HeaderTabs, PageHeader } from "../PageHeader";
 import { sectionHref } from "../shell/sections";
+import { Candidates, ToneRow } from "../ui/assist-choice";
 import { inputClass } from "../ui/field";
 import { Cost, Empty, PageBody, Section } from "../ui/layout";
 import { toastAtom } from "../ui/toast";
@@ -478,16 +479,41 @@ function DirectMessage({
   const send = useAction();
   const [text, setText] = useState("");
   const [sent, setSent] = useState(false);
-  // The draft reads their recent posts first, then one model call.
+  const [tone, setTone] = useState<ReplyTone | null>(null);
+  const [drafts, setDrafts] = useState<ReadonlyArray<string>>([]);
+  // The drafts read their recent posts first, then one model call.
   const postsQuote = useQuoteLabel({ kind: "userPosts", handle: person.handle });
   const assistQuote = useQuoteLabel({ kind: "assist" });
   const sendUsd =
     rates === null ? null : rates.dm + (person.userId === null ? rates.scraperProfile : 0);
   return (
-    <Section title="Direct message">
+    <Section
+      title="Direct message"
+      aside={<Cost label={`3 drafts · ${costLabels(postsQuote, assistQuote)}`} />}
+    >
+      <div className="mb-2 flex flex-col gap-2">
+        <ToneRow
+          tone={tone}
+          busy={draft.busy ? tone : undefined}
+          disabled={send.busy || draft.busy}
+          onTone={(next) => {
+            setTone(next);
+            setDrafts([]);
+            if (next !== null)
+              void draft.run(() =>
+                draftDm({ id: person.id, tone: next }).then((list) => {
+                  setDrafts(list);
+                  setText(list[0] ?? text);
+                }),
+              );
+          }}
+        />
+        <Candidates drafts={drafts} picked={text} onPick={setText} />
+      </div>
       <textarea
         className={cn(inputClass, "min-h-20 resize-y leading-relaxed")}
-        placeholder="Write a DM, or draft one"
+        aria-label="DM text"
+        placeholder={tone === null ? "Write a DM" : "Pick a draft above, or edit it here"}
         value={text}
         onChange={(e) => {
           setText(e.target.value);
@@ -511,15 +537,6 @@ function DirectMessage({
         >
           <TextMorph duration={250}>{send.busy ? "Sending…" : sent ? "Sent" : "Send DM"}</TextMorph>
           {sendUsd === null ? <Cost tone="solid" label="…" /> : <Cost tone="solid" usd={sendUsd} />}
-        </button>
-        <button
-          type="button"
-          className={pill}
-          disabled={send.busy || draft.busy}
-          onClick={() => void draft.run(() => draftDm(person.id).then(setText))}
-        >
-          <TextMorph duration={250}>{draft.busy ? "Drafting…" : "Draft with AI"}</TextMorph>
-          <Cost label={costLabels(postsQuote, assistQuote)} />
         </button>
       </div>
       {(send.error ?? draft.error) ? (
@@ -545,6 +562,9 @@ function Reply({
   const { busy, error, run } = useAction();
   const [post, setPost] = useState<XPost | null | undefined>(undefined);
   const [text, setText] = useState("");
+  const [tone, setTone] = useState<ReplyTone | null>(null);
+  const [drafts, setDrafts] = useState<ReadonlyArray<string>>([]);
+  const [drafting, setDrafting] = useState(false);
   const [sentId, setSentId] = useState<string | null>(null);
   const postQuote = useQuoteLabel({ kind: "userPosts", handle });
   const assistQuote = useQuoteLabel({ kind: "assist" });
@@ -581,9 +601,32 @@ function Reply({
           <p className="line-clamp-4 border-l border-white/13 pl-3 text-[13px] leading-relaxed text-foreground/80">
             {post.text}
           </p>
+          <div className="mt-3 flex flex-col gap-2">
+            <ToneRow
+              tone={tone}
+              busy={drafting ? tone : undefined}
+              disabled={busy}
+              cost={<Cost label={`3 drafts · ${costLabels(postQuote, assistQuote)}`} />}
+              onTone={(next) => {
+                setTone(next);
+                setDrafts([]);
+                if (next === null) return;
+                setDrafting(true);
+                // The drafts read their latest post again, then one model call.
+                void run(() =>
+                  draft({ id, tone: next }).then((d) => {
+                    setPost(d.post);
+                    setDrafts(d.drafts);
+                    setText(d.drafts[0] ?? text);
+                  }),
+                ).finally(() => setDrafting(false));
+              }}
+            />
+            <Candidates drafts={drafts} picked={text} onPick={setText} />
+          </div>
           <textarea
             className={cn(inputClass, "mt-3 min-h-20 resize-y leading-relaxed")}
-            placeholder="Write a reply, or draft one"
+            placeholder={tone === null ? "Write a reply" : "Pick a draft above, or edit it here"}
             value={text}
             maxLength={280}
             onChange={(e) => {
@@ -614,23 +657,6 @@ function Reply({
               ) : (
                 <Cost tone="solid" usd={postCostUsd(rates, text)} />
               )}
-            </button>
-            <button
-              type="button"
-              className={pill}
-              disabled={busy}
-              onClick={() =>
-                void run(() =>
-                  draft(id).then((d) => {
-                    setPost(d.post);
-                    setText(d.text);
-                  }),
-                )
-              }
-            >
-              Draft with AI
-              {/* The draft reads their latest post again, then one model call. */}
-              <Cost label={costLabels(postQuote, assistQuote)} />
             </button>
           </div>
         </>

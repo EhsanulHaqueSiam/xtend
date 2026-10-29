@@ -4,6 +4,7 @@ import {
   HookAlternatives,
   RewriteVariants,
   ThreadIdeas,
+  type ReplyTone,
   type VoiceMatch,
 } from "@xtend/contracts";
 import * as Context from "effect/Context";
@@ -20,10 +21,22 @@ type Blocks = ReadonlyArray<string>;
 export class ComposeAssist extends Context.Service<
   ComposeAssist,
   {
-    readonly improveHook: (blocks: Blocks) => Effect.Effect<HookAlternatives, ComposeError>;
-    readonly rewrite: (text: string) => Effect.Effect<RewriteVariants, ComposeError>;
-    readonly threadIdeas: (topic: string) => Effect.Effect<ThreadIdeas, ComposeError>;
-    readonly continueThread: (blocks: Blocks) => Effect.Effect<ContinuedBlocks, ComposeError>;
+    readonly improveHook: (
+      blocks: Blocks,
+      tone?: ReplyTone,
+    ) => Effect.Effect<HookAlternatives, ComposeError>;
+    readonly rewrite: (
+      text: string,
+      tone?: ReplyTone,
+    ) => Effect.Effect<RewriteVariants, ComposeError>;
+    readonly threadIdeas: (
+      topic: string,
+      tone?: ReplyTone,
+    ) => Effect.Effect<ThreadIdeas, ComposeError>;
+    readonly continueThread: (
+      blocks: Blocks,
+      tone?: ReplyTone,
+    ) => Effect.Effect<ContinuedBlocks, ComposeError>;
     /** Compares the draft with the Settings handle's recent posts (up to 20). */
     readonly voiceMatch: (blocks: Blocks) => Effect.Effect<VoiceMatch, ComposeError>;
   }
@@ -37,9 +50,10 @@ const make = Effect.gen(function* () {
     new ComposeError({ operation, detail: cause.message });
 
   const improveHook = Effect.fn("ComposeAssist.improveHook")(
-    (blocks: Blocks) =>
+    (blocks: Blocks, tone?: ReplyTone) =>
       assist.generate({
         task: "compose.improveHook",
+        tone,
         instructions:
           "Rewrite the first line (the hook) of this X post. Return exactly 3 alternatives, each under 200 characters, with a one-line reason why it should stop the scroll. Keep the rest of the post as context only.",
         input: { hook: blocks[0] ?? "", rest: blocks.slice(1) },
@@ -49,9 +63,10 @@ const make = Effect.gen(function* () {
   );
 
   const rewrite = Effect.fn("ComposeAssist.rewrite")(
-    (text: string) =>
+    (text: string, tone?: ReplyTone) =>
       assist.generate({
         task: "compose.rewrite",
+        tone,
         instructions:
           "Rewrite this X post 3 different ways, each under 280 characters, same meaning, different angle or rhythm.",
         input: { text },
@@ -61,11 +76,12 @@ const make = Effect.gen(function* () {
   );
 
   const threadIdeas = Effect.fn("ComposeAssist.threadIdeas")(
-    (topic: string) =>
+    (topic: string, tone?: ReplyTone) =>
       assist.generate({
         task: "compose.threadIdeas",
+        tone,
         instructions:
-          "Propose 5 X thread outlines on the topic. Each has a hook (first post, under 280 characters) and 3 to 5 beats, one line each, that the following posts would cover.",
+          "Propose 3 X thread outlines on the topic. Each has a hook (first post, under 280 characters) and 3 to 5 beats, one line each, that the following posts would cover.",
         input: { topic },
         output: ThreadIdeas,
       }),
@@ -73,11 +89,12 @@ const make = Effect.gen(function* () {
   );
 
   const continueThread = Effect.fn("ComposeAssist.continueThread")(
-    (blocks: Blocks) =>
+    (blocks: Blocks, tone?: ReplyTone) =>
       assist.generate({
         task: "compose.continueThread",
+        tone,
         instructions:
-          "Write the next 2 posts of this X thread, each under 280 characters, continuing the argument without repeating it.",
+          "Write 3 different options for the next 2 posts of this X thread, each post under 280 characters, continuing the argument without repeating it.",
         input: { blocks },
         output: ContinuedBlocks,
       }),
