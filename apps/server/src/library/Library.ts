@@ -1,4 +1,5 @@
 import {
+  type ForYouTopic,
   HookPattern,
   LibraryError,
   type Pick,
@@ -20,8 +21,12 @@ import * as Schema from "effect/Schema";
 
 import * as Assist from "../ai/Assist.ts";
 import * as DraftStore from "../compose/DraftStore.ts";
+import * as ObservationStore from "../observations/ObservationStore.ts";
+import { bestOwn, leadingHandles } from "../observations/own.ts";
+import * as Pool from "../pool/Pool.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 import * as XClient from "../x/XClient.ts";
+import { interests, rankTopics } from "./forYou.ts";
 import * as LibraryStore from "./LibraryStore.ts";
 import staffPicksJson from "./staffPicks.json" with { type: "json" };
 
@@ -55,7 +60,7 @@ const assistError = (e: Assist.AssistError) =>
 const settingsError = (e: { readonly message: string }) =>
   new LibraryError({ operation: "settings", detail: e.message });
 
-/** Library reads and model calls: search, daily picks, trend ideas. Persistence is LibraryStore. */
+/** Library reads and model calls: search, daily picks, trends, for-you topics. Persistence is LibraryStore. */
 export class Library extends Context.Service<
   Library,
   {
@@ -81,6 +86,8 @@ export class Library extends Context.Service<
     ) => Effect.Effect<{ readonly id: string; readonly text: string }, LibraryError>;
     readonly staffPicks: Effect.Effect<ReadonlyArray<StaffPick>, LibraryError>;
     readonly staffPicksFetch: Effect.Effect<ReadonlyArray<StaffPick>, LibraryError | XApiError>;
+    /** Free: the session capture, saved posts and the pool, ranked on this machine. */
+    readonly forYou: Effect.Effect<ReadonlyArray<ForYouTopic>, LibraryError>;
     readonly generateReady: (
       country: string,
     ) => Effect.Effect<ReadonlyArray<ReadyPost>, LibraryError | XApiError>;
@@ -93,6 +100,8 @@ const make = Effect.gen(function* () {
   const settings = yield* SettingsStore.SettingsStore;
   const store = yield* LibraryStore.LibraryStore;
   const drafts = yield* DraftStore.DraftStore;
+  const observations = yield* ObservationStore.ObservationStore;
+  const pool = yield* Pool.Pool;
 
   // The user's local day, the one DailyJobs runs the picks job on; a UTC day would roll over and
   // hide the morning's picks partway through the user's day.
@@ -284,18 +293,65 @@ const make = Effect.gen(function* () {
     return yield* staffPicks;
   });
 
+  const observedError = (e: { readonly message: string }) =>
+    new LibraryError({ operation: "store", detail: e.message });
+  const ownPosts = (handle: string | null) =>
+    handle === null
+      ? Effect.succeed([])
+      : observations.listRecent({ limit: 200, authorHandle: handle }).pipe(
+          Effect.map((r) => r.posts),
+          Effect.mapError(observedError),
+        );
+
+  const forYou = Effect.gen(function* () {
+    const s = yield* settings.get.pipe(Effect.mapError(settingsError));
+    const own = yield* ownPosts(s.handle);
+    const saved = yield* store.savedList({});
+    const feed = yield* observations
+      .listRecent({ limit: 200 })
+      .pipe(Effect.mapError(observedError));
+    // The pool is a bonus: offline or empty, the feed alone still ranks.
+    const rising = yield* pool.trends.pipe(
+      Effect.map((t) => t.rising),
+      Effect.orElseSucceed(() => []),
+    );
+    const profile = interests({
+      keywords: s.keywords,
+      ownTexts: own.map((p) => p.text),
+      savedTexts: saved.map((p) => p.post.text),
+      closeHandles: [
+        ...own.filter((p) => p.isReply).flatMap((p) => leadingHandles(p.text)),
+        ...saved.map((p) => p.post.author.handle),
+      ],
+    });
+    return rankTopics({
+      profile,
+      feed: feed.posts,
+      rising,
+      self: s.handle,
+      nowMs: DateTime.toEpochMillis(yield* DateTime.now),
+    });
+  });
+
   const generateReady = Effect.fn("Library.generateReady")(function* (country: string) {
-    const list = yield* trends(country);
+    const topics = yield* forYou;
+    // Country trends are the cold start, before the session or the pool knows the user.
+    const basis =
+      topics.length > 0
+        ? topics.map((t) => ({ topic: t.term, why: t.reason }))
+        : (yield* trends(country)).slice(0, 15).map((t) => ({ topic: t.name, why: "trending" }));
     const picks = yield* store.picksForDay(yield* today);
+    const { handle } = yield* settings.get.pipe(Effect.mapError(settingsError));
     const { posts } = yield* assist
       .generate({
         task: "library.generateReady",
-        instructions: `Write exactly ${READY_COUNT} posts the user could publish today, each built on one of the trends or picks given, in the user's voice, under 280 characters, no hashtags. For each give the basis (the trend name or the pick's author handle) and voiceMatch, 0 to 100, your honest estimate of how close the text is to the user's voice notes and past tone.`,
+        instructions: `Write exactly ${READY_COUNT} posts the user could publish today, each built on one of the topics or picks given, in the user's voice, under 280 characters, no hashtags. Topics come ranked by fit with the user; prefer the top ones, and use an "outside your usual topics" one only with an honest link to the niche. The user's own posts that did best are their taste: match their length, structure and attitude, never their wording. For each give the basis (the topic or the pick's author handle) and voiceMatch, 0 to 100, your honest estimate of how close the text is to the user's voice notes and past tone.`,
         input: {
-          trends: list.slice(0, 15).map((t) => t.name),
+          topics: basis,
           picks: picks
             .slice(0, 10)
             .map((p) => ({ author: p.post.author.handle, text: p.post.text })),
+          yourBestPosts: bestOwn(yield* ownPosts(handle), "posts"),
         },
         output: Schema.Struct({
           posts: Schema.Array(
@@ -330,6 +386,7 @@ const make = Effect.gen(function* () {
     writeInFormat,
     staffPicks,
     staffPicksFetch,
+    forYou,
     generateReady,
   });
 });

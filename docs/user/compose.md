@@ -7,7 +7,9 @@ Press `c` anywhere in the app to start a draft.
 
 - **Drafts**: everything you are writing.
 - **Queued**: drafts waiting for a slot, with the time each will post.
-- **Automatic**: drafts the Library's daily jobs wrote for you, ready to edit or queue.
+- **Automatic**: drafts the Library's daily jobs wrote for you, ready to edit or queue. They are
+  written from your For you topics (Library, Trends) and the day's picks, with your best posts
+  as the example of your taste.
 - **Failed**: posts that did not go out, with the reason; retry or edit.
 - **Posted**: what went out from Xtend, with live numbers from your session.
 
