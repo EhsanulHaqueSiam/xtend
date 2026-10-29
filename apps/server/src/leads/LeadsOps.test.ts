@@ -151,32 +151,69 @@ const layerTest = LeadsOps.layer.pipe(
 const reset = Effect.sync(() => {
   dms.length = 0;
   posted.length = 0;
+  desktopCalls.length = 0;
   profileReads.length = 0;
   followerReads.length = 0;
   followersFromCache = false;
 });
 
 describe("LeadsOps", () => {
-  it.effect("DMs the person's X id, looked up once when unknown, and only moves a new lead", () =>
+  it.effect("DMs through the session, free, to the id the session saw on their posts", () =>
     Effect.gen(function* () {
       yield* reset;
       const people = yield* PeopleStore.PeopleStore;
       const ops = yield* LeadsOps.LeadsOps;
-      const alice = yield* people.add({ ...candidate("alice"), source: "manual" });
-      yield* ops.sendDm(alice.id, "hey, loved the parser post");
-      expect(dms).toEqual([{ to: "42", text: "hey, loved the parser post" }]);
-      const after = yield* people.get(alice.id);
-      expect([after.userId, after.stage]).toEqual(["42", "contacted"]);
-      expect((yield* people.activity(alice.id)).map((a) => a.kind)).toContain("dm");
-
-      yield* ops.sendDm(alice.id, "following up");
-      expect(profileReads).toEqual(["alice"]);
-
-      const customer = yield* people.add({ ...candidate("bob"), source: "manual" });
-      yield* people.update({ id: customer.id, stage: "customer" });
-      yield* ops.sendDm(customer.id, "thanks for buying");
-      expect((yield* people.get(customer.id)).stage).toBe("customer");
+      const observations = yield* ObservationStore.ObservationStore;
+      const bo = yield* people.add({ ...candidate("bo"), source: "manual" });
+      yield* observations.record({
+        viewerHandle: null,
+        source: "profile",
+        observedAt: "2026-10-22T05:00:00.000Z",
+        posts: [
+          {
+            postId: "21",
+            author: { userId: "u-bo", handle: "bo", name: "Bo", followers: 10, verified: false },
+            text: "seen by the session",
+            createdAt: "2026-10-22T04:00:00.000Z",
+            isReply: false,
+            isRepost: false,
+            isPromoted: false,
+            hasMedia: false,
+            hasLink: false,
+            metrics: { views: 5, likes: 1, reposts: 0, replies: 0, quotes: 0, bookmarks: 0 },
+          },
+        ],
+      });
+      yield* ops.sendDm(bo.id, "hey bo");
+      expect(desktopCalls).toEqual([{ type: "sessionDm", userId: "u-bo", text: "hey bo" }]);
+      expect([dms, profileReads]).toEqual([[], []]);
+      expect((yield* people.get(bo.id)).stage).toBe("contacted");
     }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect(
+    "DMs over the API with the lane off, looking the id up once, and only moves a new lead",
+    () =>
+      Effect.gen(function* () {
+        yield* reset;
+        const people = yield* PeopleStore.PeopleStore;
+        const ops = yield* LeadsOps.LeadsOps;
+        yield* (yield* SettingsStore.SettingsStore).update({ sessionPostingEnabled: false });
+        const alice = yield* people.add({ ...candidate("alice"), source: "manual" });
+        yield* ops.sendDm(alice.id, "hey, loved the parser post");
+        expect(dms).toEqual([{ to: "42", text: "hey, loved the parser post" }]);
+        const after = yield* people.get(alice.id);
+        expect([after.userId, after.stage]).toEqual(["42", "contacted"]);
+        expect((yield* people.activity(alice.id)).map((a) => a.kind)).toContain("dm");
+
+        yield* ops.sendDm(alice.id, "following up");
+        expect(profileReads).toEqual(["alice"]);
+
+        const customer = yield* people.add({ ...candidate("bob"), source: "manual" });
+        yield* people.update({ id: customer.id, stage: "customer" });
+        yield* ops.sendDm(customer.id, "thanks for buying");
+        expect((yield* people.get(customer.id)).stage).toBe("customer");
+      }).pipe(Effect.provide(layerTest)),
   );
 
   it.effect("refuses a reply for an unknown person before posting, and keeps a replied lead", () =>
