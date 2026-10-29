@@ -104,6 +104,22 @@ export const SECTIONS = {
     { id: "trending", label: "Trending", about: "What X is talking about, by country." },
     { id: "bot-check", label: "Bot check", about: "Whether an account looks real." },
   ],
+  "/settings": [
+    { id: "account", label: "Account", about: "Your handle and every connected account." },
+    {
+      id: "money",
+      label: "Money",
+      about: "The treg token, the monthly budget and what was spent.",
+    },
+    {
+      id: "writing",
+      label: "Writing",
+      about: "Assist, your voice, keywords, time zone and the morning jobs.",
+    },
+    { id: "x", label: "X session", about: "What goes through your own X session, and Clean X." },
+    { id: "pool", label: "Pool", about: "Sharing public sightings with everyone's trends." },
+    { id: "service", label: "Service", about: "Where the service runs and how to reach it." },
+  ],
 } as const;
 
 export type SectionRoute = keyof typeof SECTIONS;
