@@ -9,6 +9,8 @@ import {
   OVERLAY_HIDE_CHANNEL,
   OVERLAY_MARKS_CHANNEL,
   OVERLAY_REPLY_CHANNEL,
+  OVERLAY_SAVE_CHANNEL,
+  type OverlaySave,
   OVERLAY_TOGGLE_CHANNEL,
   OVERLAY_VIEWER_CHANNEL,
   type OverlayAction,
@@ -145,6 +147,7 @@ const state = {
   >(),
   /** Open reply panels by post id; absent means closed. */
   panels: new Map<string, ReplyPanel>(),
+  saves: new Map<string, OverlaySave["state"]>(),
   chips: [] as Array<{ host: HTMLElement; body: HTMLElement; toolbar: HTMLElement }>,
 };
 
@@ -166,7 +169,18 @@ const stripHtml = (postId: string, p: OverlayPost): string => {
   for (const m of state.marks.get(postId) ?? [])
     cells.push(`<span class="mark">${markText(m)}</span>`);
   const open = state.panels.has(postId);
-  return `${cells.join("")}<span class="act"><button data-act="save">Save</button><button data-act="reply" aria-expanded="${open}">${open ? "Close" : "Reply"}</button></span>`;
+  const saved =
+    state.saves.get(postId) ??
+    (state.marks.get(postId)?.some((mark) => mark.kind === "saved") ? "saved" : undefined);
+  const saveLabel =
+    saved === "saving"
+      ? "Saving"
+      : saved === "saved"
+        ? "Saved"
+        : saved === "failed"
+          ? "Save failed, try again"
+          : "Save";
+  return `${cells.join("")}<span class="act"><button data-act="save"${saved === "saving" || saved === "saved" ? " disabled" : ""}>${saveLabel}</button><button data-act="reply" aria-expanded="${open}">${open ? "Close" : "Reply"}</button></span>`;
 };
 
 const ago = (iso: string): string => {
@@ -233,7 +247,14 @@ const mountStrip = (article: HTMLElement, postId: string, post: OverlayPost) => 
     if (act === undefined && chip === null) return;
     e.preventDefault();
     e.stopPropagation();
-    if (act === "save") return send({ type: "save", postId });
+    if (act === "save") {
+      if (state.saves.get(postId) === "saving" || state.saves.get(postId) === "saved") return;
+      state.saves.set(postId, "saving");
+      const strip = state.strips.get(postId);
+      const post = state.posts.get(postId);
+      if (strip !== undefined && post !== undefined) render(strip, stripHtml(postId, post));
+      return send({ type: "save", postId });
+    }
     if (act === "reply")
       return setPanel(postId, state.panels.has(postId) ? null : { ...emptyPanel });
     if (chip === null) return;
@@ -274,16 +295,29 @@ const mountChips = () => {
     if (state.chips.some((c) => c.toolbar === toolbar)) continue;
     const post = toolbar.lastElementChild;
     if (post === null) continue;
-    const { host, body } = shadowHost("chips");
+    const { host, root, body } = shadowHost("chips");
     body.innerHTML = chipsHtml();
     // Pointer-down, not click: focusing a collapsed composer makes X remount the toolbar
     // before the click would fire. preventDefault keeps X's editor from losing focus.
-    body.addEventListener("pointerdown", (e) => {
-      if ((e.target as HTMLElement).closest("[data-act]") === null) return;
-      e.preventDefault();
+    const schedule = () => {
       const text = composerText(toolbar)?.innerText.trim() ?? "";
       const route = text === "" ? "/compose?new=1" : `/compose?text=${encodeURIComponent(text)}`;
       send({ type: "openRoute", route });
+    };
+    for (const type of ["keydown", "keyup", "keypress"])
+      root.addEventListener(type, (e) => e.stopPropagation());
+    body.addEventListener("pointerdown", (e) => {
+      if ((e.target as HTMLElement).closest("[data-act]") === null) return;
+      e.preventDefault();
+      schedule();
+    });
+    // Native buttons emit detail=0 clicks for Enter, Space and assistive activation.
+    // Pointer clicks already ran on pointerdown, before X could replace the toolbar.
+    body.addEventListener("click", (e) => {
+      if ((e.target as HTMLElement).closest("[data-act]") === null) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.detail === 0) schedule();
     });
     post.before(host);
     state.chips.push({ host, body, toolbar });
@@ -353,6 +387,13 @@ const card = (() => {
     if (pinned) return;
     host.remove();
   };
+  const cancelDismiss = () => clearTimeout(timer);
+  const dismiss = () => {
+    clearTimeout(timer);
+    timer = setTimeout(hide, 200);
+  };
+  body.addEventListener("mouseenter", cancelDismiss);
+  body.addEventListener("mouseleave", dismiss);
   const show = (target: Element, postId: string, handle: string) => {
     const post = state.posts.get(postId);
     if (post === undefined || !state.enabled || state.killed) return;
@@ -387,7 +428,7 @@ const card = (() => {
       clearTimeout(timer);
       timer = setTimeout(() => show(target, postId, handle), HOVER_DELAY_MS);
     },
-    cancel: hide,
+    cancel: dismiss,
     pin: () => {
       pinned = host.isConnected;
       return pinned;
@@ -420,6 +461,7 @@ ipcRenderer.on(OVERLAY_DATA_CHANNEL, (_event, data: OverlayData) => {
   for (const id of state.posts.keys()) {
     if (state.posts.size <= MAX_POSTS) break;
     state.posts.delete(id);
+    state.saves.delete(id);
   }
   state.ownAverage = data.ownAverage;
   queueScan();
@@ -434,6 +476,10 @@ ipcRenderer.on(OVERLAY_HIDE_CHANNEL, (_event, hidden: boolean) => {
 });
 ipcRenderer.on(OVERLAY_MARKS_CHANNEL, (_event, marks: OverlayMarks) => {
   for (const [id, found] of Object.entries(marks)) state.marks.set(id, found);
+  queueScan();
+});
+ipcRenderer.on(OVERLAY_SAVE_CHANNEL, (_event, status: OverlaySave) => {
+  state.saves.set(status.postId, status.state);
   queueScan();
 });
 ipcRenderer.on(OVERLAY_REPLY_CHANNEL, (_event, outcome: OverlayReply) => {

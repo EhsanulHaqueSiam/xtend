@@ -30,6 +30,11 @@ export const OVERLAY_GLANCE_CHANNEL = "xtend:overlay-glance";
 /** Marks per post id (`OverlayMarks`) for a batch the capture just saw, or one post after a Save. */
 export const OVERLAY_MARKS_CHANNEL = "xtend:overlay-marks";
 /** Drafts or the outcome of a reply for one strip (`OverlayReply`). */
+export const OVERLAY_SAVE_CHANNEL = "xtend:overlay-save";
+export interface OverlaySave {
+  readonly postId: string;
+  readonly state: "saving" | "saved" | "failed";
+}
 export const OVERLAY_REPLY_CHANNEL = "xtend:overlay-reply";
 // Overlay preload -> main
 export const OVERLAY_ACTION_CHANNEL = "xtend:overlay-action";

@@ -1,7 +1,9 @@
 import { DESKTOP_COMMAND_LIMIT_MS } from "@xtend/contracts";
 import { afterEach, expect, it, vi } from "vite-plus/test";
 
-import { commandRunner, postThroughComposer } from "./DesktopCommands.ts";
+import type { XPost } from "@xtend/contracts";
+import type { OverlaySave } from "../ipc/channels.ts";
+import { commandRunner, overlaySaver, postThroughComposer } from "./DesktopCommands.ts";
 
 // x.com's DOM over CDP: the home page's inline composer first, the compose modal after it in
 // X's layers root, with the same test ids. Node ids: 1x inline, 2x modal.
@@ -252,4 +254,48 @@ it("tells a composer that never drew its text box from one that failed after typ
   expect(error).toMatchObject({ message: "x.com did not confirm the post" });
   expect(error).not.toHaveProperty("notAttempted");
   expect(log.filter((l) => !l.startsWith("load"))).toEqual(["type second", "press Post"]);
+});
+
+it("acknowledges saving and success, and permits retry after a disconnected or failed save", async () => {
+  const post: XPost = {
+    postId: "20",
+    url: "https://x.com/jack/status/20",
+    text: "hello",
+    createdAt: "2026-10-23T00:00:00Z",
+    lang: "en",
+    isReply: false,
+    isRepost: false,
+    hasMedia: false,
+    hasLink: false,
+    author: {
+      userId: "1",
+      handle: "jack",
+      name: "Jack",
+      followers: 500,
+      verified: false,
+      avatarUrl: null,
+    },
+    metrics: { views: 1000, likes: 2, reposts: 0, replies: 0, quotes: 0, bookmarks: 0 },
+  };
+  const statuses: Array<OverlaySave> = [];
+  let finish = () => {};
+  let connected = false;
+  const write = vi.fn(async () => {
+    if (!connected) throw new Error("Service not connected");
+    await new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+  });
+  const save = overlaySaver({ save: write, acknowledge: (status) => statuses.push(status) });
+  save(post);
+  await expect.poll(() => statuses.at(-1)?.state).toBe("failed");
+  connected = true;
+  save(post);
+  save(post);
+  expect(write).toHaveBeenCalledTimes(2);
+  expect(statuses.at(-1)?.state).toBe("saving");
+  finish();
+  await expect.poll(() => statuses.at(-1)?.state).toBe("saved");
+  expect(statuses.map((status) => status.state)).toEqual(["saving", "failed", "saving", "saved"]);
+  expect(statuses.every((status) => status.postId === "20")).toBe(true);
 });

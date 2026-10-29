@@ -26,6 +26,8 @@ import * as Stream from "effect/Stream";
 import {
   OVERLAY_MARKS_CHANNEL,
   OVERLAY_REPLY_CHANNEL,
+  OVERLAY_SAVE_CHANNEL,
+  type OverlaySave,
   type OverlayReply,
 } from "../ipc/channels.ts";
 
@@ -165,14 +167,37 @@ export function attachDesktopCommands(
       );
     },
     /** Saves a post to the library with its metrics frozen; the overlay's Save action. */
-    save: (post: XPost) => {
-      if (client === undefined) return options.log("save skipped, service not connected");
-      void Effect.runPromise(client[Library_METHODS.save]({ post, collectionId: null })).then(
-        () => marks(subject(post)),
-        (error: unknown) => options.log("save failed", String(error)),
-      );
-    },
+    save: overlaySaver({
+      save: async (post) => {
+        if (client === undefined) throw new Error("Service not connected");
+        await Effect.runPromise(client[Library_METHODS.save]({ post, collectionId: null }));
+        marks(subject(post));
+      },
+      acknowledge: (status) => contents.send(OVERLAY_SAVE_CHANNEL, status),
+    }),
     detach: () => void Effect.runPromise(Fiber.interrupt(fiber)),
+  };
+}
+
+/** A click can be retried after failure; duplicate clicks while saving are ignored. */
+export function overlaySaver({
+  save,
+  acknowledge,
+}: {
+  readonly save: (post: XPost) => Promise<void>;
+  readonly acknowledge: (status: OverlaySave) => void;
+}) {
+  const pending = new Set<string>();
+  return (post: XPost) => {
+    if (pending.has(post.postId)) return;
+    pending.add(post.postId);
+    acknowledge({ postId: post.postId, state: "saving" });
+    void save(post)
+      .then(
+        () => acknowledge({ postId: post.postId, state: "saved" }),
+        () => acknowledge({ postId: post.postId, state: "failed" }),
+      )
+      .finally(() => pending.delete(post.postId));
   };
 }
 
