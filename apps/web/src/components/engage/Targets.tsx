@@ -135,14 +135,19 @@ export function Targets() {
             <button
               type="button"
               className={pill}
-              disabled={finding || noHandle}
+              disabled={finding || noHandle || findQuote === "…" || assistQuote === "…"}
               onClick={() => void runFind()}
             >
               <TextMorph duration={250}>{finding ? "Finding…" : "Find keywords"}</TextMorph>
               {/* One page of your posts, then one model call over it. */}
               <Cost label={`${findQuote} + ${assistQuote}`} />
             </button>
-            <button type="button" className={pill} disabled={result.waiting} onClick={() => load()}>
+            <button
+              type="button"
+              className={pill}
+              disabled={result.waiting || targetsQuote === "…"}
+              onClick={() => load()}
+            >
               <TextMorph duration={250}>{result.waiting ? "Searching…" : "Refresh"}</TextMorph>
               <Cost label={targetsQuote} />
             </button>
