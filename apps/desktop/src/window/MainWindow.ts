@@ -198,6 +198,9 @@ export function createMainWindow(options: MainWindowOptions) {
       webviewTag: true,
     },
   });
+  // Linux and Windows would otherwise draw Electron's stock File/Edit/View bar over the app;
+  // the sidebar and ⌘K are the menu, as in T3 Code. macOS keeps its app menu for the chords.
+  if (process.platform !== "darwin") window.removeMenu();
   const appContents = window.webContents;
   allowNotificationsOnly(appContents.session);
   appContents.on("page-title-updated", (event) => event.preventDefault());

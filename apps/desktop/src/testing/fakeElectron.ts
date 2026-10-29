@@ -90,6 +90,7 @@ export class BrowserWindow extends EventEmitter {
     return this.closed;
   }
   show() {}
+  removeMenu() {}
   close() {
     this.closed = true;
     this.emit("closed");
