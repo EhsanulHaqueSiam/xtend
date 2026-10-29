@@ -59,7 +59,8 @@ export function Queue({
 }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<string | null>(null);
-  const costOf = useDraftCost();
+  // The only price here is Post now's, and Post now is a click.
+  const costOf = useDraftCost(true);
   if (drafts.length === 0) return <Empty action={emptyAction}>Nothing queued.</Empty>;
   return (
     <ul>

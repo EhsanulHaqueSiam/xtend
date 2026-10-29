@@ -38,8 +38,12 @@ export const postCosts = (
 
 export const sumUsd = (costs: ReadonlyArray<number>) => costs.reduce((a, b) => a + b, 0);
 
-/** A saved draft's price to post, or null until the rate card arrives. Articles are two requests. */
-export function useDraftCost() {
+/**
+ * A saved draft's price to post, or null until the rate card arrives. Articles are two requests.
+ * Only a clicked Post now sends text through the session; a post published at its slot is
+ * unattended and goes through the API, so it is priced as paid.
+ */
+export function useDraftCost(clicked = false) {
   const rates = useRates();
   const quote = AsyncResult.getOrElse(useAtomValue(composeQuoteAtom), () => null);
   const lane = useSessionLane();
@@ -50,5 +54,7 @@ export function useDraftCost() {
         : quote.articleUsd * 2
       : rates === null
         ? null
-        : sumUsd(postCosts(rates, d.blocks, d.media, d.quoteUrl, lane && d.poll === null));
+        : sumUsd(
+            postCosts(rates, d.blocks, d.media, d.quoteUrl, clicked && lane && d.poll === null),
+          );
 }
