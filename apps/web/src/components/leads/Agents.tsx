@@ -6,7 +6,7 @@ import { TextMorph } from "torph/react";
 
 import { fmtWhen } from "../../lib/time";
 import { cn } from "../../lib/utils";
-import { useRates, usd } from "../../state/costs";
+import { useQuoteLabel, useRates, usd } from "../../state/costs";
 import {
   agentsAtom,
   listsAtom,
@@ -77,6 +77,7 @@ const COLUMNS: ReadonlyArray<Column<SignalAgent>> = [
 /** Signal agents: saved searches the service runs on a schedule and files into people. */
 export function AgentsSection() {
   const rates = useRates();
+  const assistQuote = useQuoteLabel({ kind: "assist" });
   const result = useAtomValue(agentsAtom);
   const agents = AsyncResult.getOrElse(result, () => []);
   const suggest = useAtomSet(suggestAgentsAtom, { mode: "promise" });
@@ -110,6 +111,7 @@ export function AgentsSection() {
               <TextMorph duration={250}>
                 {suggesting.busy ? "Thinking…" : "Suggest with AI"}
               </TextMorph>
+              <Cost label={assistQuote} />
             </button>
             <button type="button" className={pillSolid} onClick={() => setDraft(blank)}>
               New agent
@@ -176,7 +178,7 @@ export function AgentsSection() {
                     }
                   >
                     No agents yet. Each run is one search
-                    {rates === null ? "" : ` (${agentRunCost(rates, blank)})`}.
+                    {rates === null ? "" : ` (${agentRunCost(rates, assistQuote, blank)})`}.
                   </Empty>
                 ) : (
                   <>
@@ -232,6 +234,7 @@ export function AgentsSection() {
 /** The selected agent: run it, pause it, its last run, and its settings in place. */
 function AgentPanel({ agent }: { readonly agent: SignalAgent }) {
   const rates = useRates();
+  const assistQuote = useQuoteLabel({ kind: "assist" });
   const refresh = useAtomRefresh(agentsAtom);
   const refreshPeople = useAtomRefresh(peopleAtom(null));
   const runAgent = useAtomSet(runAgentAtom, { mode: "promise" });
@@ -265,7 +268,7 @@ function AgentPanel({ agent }: { readonly agent: SignalAgent }) {
             }
           >
             <TextMorph duration={250}>{running.busy ? "Running…" : "Run now"}</TextMorph>
-            <Cost label={agentRunCost(rates, agent)} />
+            <Cost label={agentRunCost(rates, assistQuote, agent)} />
           </button>
           <button
             type="button"
@@ -320,10 +323,13 @@ function AgentForm({
   readonly onCancel?: () => void;
 }) {
   const rates = useRates();
+  const assistQuote = useQuoteLabel({ kind: "assist" });
   const refresh = useAtomRefresh(agentsAtom);
   const upsert = useAtomSet(upsertAgentAtom, { mode: "promise" });
   const { busy, error, run } = useAction();
-  const [a, setA] = useState(initial);
+  const [edited, setA] = useState(initial);
+  // Pause and Resume change the agent under the open form; a save must not undo them.
+  const a = { ...edited, enabled: initial.enabled };
   const lists = AsyncResult.getOrElse(useAtomValue(listsAtom), () => []);
   const valid = a.name.trim() !== "" && a.query.trim() !== "" && a.intervalMinutes >= 1;
   const dirty = JSON.stringify(a) !== JSON.stringify(initial);
@@ -452,7 +458,7 @@ function AgentForm({
           ) : null}
           <span className="ml-auto flex items-baseline gap-1.5 text-xs text-muted-foreground">
             per run
-            <Cost label={agentRunCost(rates, a)} />
+            <Cost label={agentRunCost(rates, assistQuote, a)} />
           </span>
         </div>
         {error !== null ? <p className="mt-2 text-xs text-error-foreground">{error}</p> : null}

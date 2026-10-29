@@ -331,12 +331,14 @@ function Found({
   const addKeywords = useAtomSet(addKeywordsAtom, { mode: "promise" });
   const adding = useAtomValue(addKeywordsAtom).waiting;
   const refreshTargetsQuote = useAtomRefresh(quoteAtom([{ kind: "engageTargets" }]));
+  const refreshSettings = useAtomRefresh(settingsAtom);
   // New keywords are searches the cache has not seen: requote, and let the priced Refresh run them.
   const add = async () => {
     try {
       await addKeywords(found.keywords);
       onAdded();
       refreshTargetsQuote();
+      refreshSettings();
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e));
     }

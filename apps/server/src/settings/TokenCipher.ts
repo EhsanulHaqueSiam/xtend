@@ -12,6 +12,9 @@ import * as ServerConfig from "../config.ts";
 const KEY_FILE = "secret-key";
 const PREFIX = "v1:";
 
+/** False for a token stored before encryption landed, which is plain text. */
+export const isSealed = (stored: string) => stored.startsWith(PREFIX);
+
 /**
  * Encrypts the treg token at rest. The key is a 600-mode file in the base
  * dir, so the database alone (backups, copies) does not leak the token; an
@@ -32,9 +35,9 @@ const make = (key: Buffer): TokenCipher["Service"] => ({
     const body = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
     return `${PREFIX}${iv.toString("hex")}:${cipher.getAuthTag().toString("hex")}:${body.toString("hex")}`;
   },
-  // Rows written before encryption landed are plain text; they are re-encrypted on the next save.
+  // Rows written before encryption landed are plain text until SettingsStore seals them at startup.
   decrypt: (stored) => {
-    if (!stored.startsWith(PREFIX)) return stored;
+    if (!isSealed(stored)) return stored;
     const [iv, tag, body] = stored.slice(PREFIX.length).split(":");
     const decipher = NodeCrypto.createDecipheriv("aes-256-gcm", key, Buffer.from(iv!, "hex"));
     decipher.setAuthTag(Buffer.from(tag!, "hex"));

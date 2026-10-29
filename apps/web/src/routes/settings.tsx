@@ -28,7 +28,8 @@ import {
 } from "../state/accounts";
 import { serverInfoAtom } from "../state/observations";
 import { useQuoteLabel } from "../state/costs";
-import { settingsAtom, spendAtom, updateSettingsAtom } from "../state/settings";
+import { settingsAtom, updateSettingsAtom } from "../state/settings";
+import { spendLiveAtom } from "../state/shell";
 import { xSkinAtom } from "../state/x";
 
 const usd = (n: number) => `$${n.toFixed(2)}`;
@@ -190,7 +191,7 @@ function SettingsForm({ current }: { readonly current: SettingsShape }) {
   const update = useAtomSet(updateSettingsAtom, { mode: "promise" });
   const refreshSettings = useAtomRefresh(settingsAtom);
   // The meter shows the budget, and today and this month are days in the saved time zone.
-  const refreshSpend = useAtomRefresh(spendAtom);
+  const refreshSpend = useAtomRefresh(spendLiveAtom);
   const [draft, setDraft] = useState<SettingsUpdate>({});
   const [tregToken, setTregToken] = useState("");
   const [assistKey, setAssistKey] = useState("");
@@ -594,7 +595,7 @@ function CleanX() {
 }
 
 function SpendMeter() {
-  const spend = useAtomValue(spendAtom);
+  const spend = useAtomValue(spendLiveAtom);
   return AsyncResult.match(spend, {
     onInitial: () => null,
     onFailure: () => null,
@@ -836,7 +837,7 @@ export function SettingsScreen() {
   const info = useAtomValue(serverInfoAtom);
   const settings = useAtomValue(settingsAtom);
   const refreshSettings = useAtomRefresh(settingsAtom);
-  const refreshSpend = useAtomRefresh(spendAtom);
+  const refreshSpend = useAtomRefresh(spendLiveAtom);
   const page = useSection("/settings");
   const [query, setQuery] = useState("");
   // The form's inputs are uncontrolled, so restored values show by remounting it.

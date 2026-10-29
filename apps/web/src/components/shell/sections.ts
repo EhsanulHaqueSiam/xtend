@@ -61,7 +61,7 @@ export const SECTIONS = {
     {
       id: "trends",
       label: "Trends",
-      about: "The shared pool, free, and X trends by country through treg.",
+      about: "Topics for you and the shared pool, free; X trends by country through treg.",
     },
     {
       id: "collections",

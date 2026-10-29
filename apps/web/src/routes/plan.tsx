@@ -278,10 +278,13 @@ function PlanScreen() {
             heatmap={AsyncResult.getOrElse(heatmap, () => null)}
             fillable={fillable}
             onFill={(id, at) =>
-              act(
-                () => schedule({ id, at: at.toISOString() }),
-                (d) => `Scheduled "${draftTitle(d)}" for ${monthDay.format(at)}`,
-              )
+              // The calendar's clock stops when Plan opens; a slot gone since would post on the next tick.
+              at.getTime() <= Date.now()
+                ? setNotice("Failed: that slot has passed")
+                : act(
+                    () => schedule({ id, at: at.toISOString() }),
+                    (d) => `Scheduled "${draftTitle(d)}" for ${monthDay.format(at)}`,
+                  )
             }
             onOpen={open}
           />

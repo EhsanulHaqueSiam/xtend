@@ -218,6 +218,20 @@ const make = Effect.gen(function* () {
       : Effect.succeed(handle),
   );
 
+  // Observations carry no parent post id, but a reply's text keeps the @handle of whoever it
+  // answers; one that does not name the user is someone else's conversation the session showed.
+  const repliesToUser = (
+    handle: string,
+    p: {
+      readonly isReply: boolean;
+      readonly text: string;
+      readonly author: { readonly handle: string };
+    },
+  ) =>
+    p.isReply &&
+    p.author.handle !== handle &&
+    new RegExp(`@${handle.replace(/\W/g, "")}\\b`, "i").test(p.text);
+
   // Session observations first (free, fresh), the scraper timeline (cached 1h) fills what the session never showed.
   // Rules share the read; whichever rule finds it cold pays for it: its caps refuse the read
   // (leaving the session's posts) and it counts against them. A dry run reads it only cached.
@@ -408,15 +422,14 @@ const make = Effect.gen(function* () {
             { id: `${day} ${trigger.time}`, description: `schedule slot ${day} ${trigger.time}` },
           ];
         });
-      // Limitation: observations carry no parent post id, so every reply the session view showed
-      // from someone else counts as an engager, and engagers the session never scrolled past are invisible.
+      // Limitation: engagers the session never scrolled past are invisible.
       case "new_engager":
         return Effect.gen(function* () {
           const handle = yield* ownHandle;
           const { posts } = yield* observations.listRecent({ limit: OWN_POSTS_LIMIT });
           const byUser = new Map<string, Subject>();
           for (const p of posts) {
-            if (!p.isReply || p.author.handle === handle) continue;
+            if (!repliesToUser(handle, p)) continue;
             byUser.set(p.author.userId, {
               id: p.author.userId,
               at: p.createdAt,
@@ -489,6 +502,8 @@ const make = Effect.gen(function* () {
     readonly perform: Effect.Effect<Performed, PerformFailure> | null;
     /** The inverse to schedule when the rule has undoAfterHours. */
     readonly undo?: Undo["kind"];
+    /** The own post the plan picked; an ask-first request keeps it, so approval acts on the same one. */
+    readonly pin?: string;
   }
   const skip = (detail: string): Plan => ({ costUsd: 0, detail, perform: null });
   const single = (
@@ -607,17 +622,22 @@ const make = Effect.gen(function* () {
             })
             .pipe(Effect.as({ costUsd: 0, xId: s.postId ?? e?.userId ?? null })),
         });
-      case "auto_retweet":
+      case "auto_retweet": {
+        const repost = (postId: string, detail: string): Plan => ({
+          costUsd: cost,
+          detail,
+          undo: "unrepost",
+          pin: postId,
+          perform: single(cost, postId, x.repost(postId, purpose)),
+        });
+        if (s.pinnedPostId !== undefined)
+          return Effect.succeed(repost(s.pinnedPostId, `repost ${s.pinnedPostId}`));
         return Effect.map(bestOwnPost(rule, action.evergreen), (best) =>
           best === null
             ? skip("no own post in the last 7 days")
-            : {
-                costUsd: cost,
-                detail: `repost ${best.postId} (${best.views} views)`,
-                undo: "unrepost",
-                perform: single(cost, best.postId, x.repost(best.postId, purpose)),
-              },
+            : repost(best.postId, `repost ${best.postId} (${best.views} views)`),
         );
+      }
       case "clean_profile":
         return Effect.succeed(
           skip("clean_profile is replaced by an unrepost action with undoAfterHours"),
@@ -732,7 +752,7 @@ const make = Effect.gen(function* () {
       if (rule.askFirst && approvedUsd === undefined) {
         const request = yield* rules.createPending({
           ruleId: rule.id,
-          subject: s,
+          subject: p.pin === undefined ? s : { ...s, pinnedPostId: p.pin },
           description: `${s.description}; ${p.detail}`,
           costUsd: p.costUsd,
         });
@@ -971,9 +991,7 @@ const make = Effect.gen(function* () {
           const handle = yield* ownHandle;
           const { posts } = yield* observations.listRecent({ limit: OWN_POSTS_LIMIT });
           return posts
-            .filter(
-              (p) => p.isReply && p.author.handle !== handle && Date.parse(p.createdAt) >= sinceMs,
-            )
+            .filter((p) => repliesToUser(handle, p) && Date.parse(p.createdAt) >= sinceMs)
             .map((p): Subject => ({
               id: p.author.userId,
               at: p.createdAt,

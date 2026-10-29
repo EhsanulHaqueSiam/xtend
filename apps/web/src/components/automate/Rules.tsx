@@ -46,8 +46,10 @@ export function Rules() {
   const { busy, error, run } = useAction();
   // null = no detail column, "new" = creating, a number = that rule open.
   const [open, setOpen] = useState<"new" | number | null>(null);
-  // Bumped after a save so the editor restarts from what the service stored.
+  // Bumped after a save so the editor restarts from what the service stored: the rule the save
+  // returned, since the refetched list lands after the editor remounts.
   const [saves, setSaves] = useState(0);
+  const [saved, setSaved] = useState<Rule | null>(null);
   const [doing, setDoing] = useState<"save" | "run" | null>(null);
 
   const list = AsyncResult.getOrElse(rules, () => [] as ReadonlyArray<Rule>);
@@ -70,8 +72,11 @@ export function Rules() {
   const save = (input: RuleInput) =>
     void act(async () => {
       // A saved rule is switched from its row, so the editor never carries a stale Enabled.
-      const saved = await upsert(current === null ? input : { ...input, enabled: current.enabled });
-      setOpen(saved.id);
+      const stored = await upsert(
+        current === null ? input : { ...input, enabled: current.enabled },
+      );
+      setOpen(stored.id);
+      setSaved(stored);
       setSaves((n) => n + 1);
     }, "save");
   const toggle = (rule: Rule) => void act(() => upsert({ ...rule, enabled: !rule.enabled }));
@@ -103,6 +108,7 @@ export function Rules() {
       <ErrorBar>{error}</ErrorBar>
       <DetailSplit
         closable
+        detailKey={open}
         label={current === null ? "New rule" : current.name}
         list={AsyncResult.match(rules, {
           onInitial: () => <Empty>Connecting to the service.</Empty>,
@@ -166,6 +172,7 @@ export function Rules() {
               saving={doing === "save"}
               running={doing === "run"}
               formKey={`${open}:${saves}`}
+              saved={saved !== null && saved.id === open ? saved : null}
               onClose={() => setOpen(null)}
               onSave={save}
               onToggle={() => current !== null && toggle(current)}

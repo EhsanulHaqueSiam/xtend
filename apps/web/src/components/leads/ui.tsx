@@ -18,17 +18,23 @@ export function StageText({ stage }: { readonly stage: Stage }) {
   return <span className={cn("font-mono text-xs", stageTone(stage))}>{stage}</span>;
 }
 
-/** The price of one agent run: a search page, plus a profile per new author when it drops bots. */
+/**
+ * The price of one agent run: a search page, plus a profile per new author when it drops bots,
+ * plus the model call that scores what it found (`assist`, the assist quote's label).
+ */
 export const agentRunCost = (
   rates: RateCard | null,
+  assist: string,
   agent: Pick<SignalAgentInput, "excludeBots">,
 ) =>
   rates === null
     ? "…"
-    : agent.excludeBots
-      ? // SignalAgents reads one 50-post search page, so at most 50 new authors.
-        `up to ${usd(rates.searchPage + 50 * rates.scraperProfile)}`
-      : usd(rates.searchPage);
+    : `${
+        agent.excludeBots
+          ? // SignalAgents reads one 50-post search page, so at most 50 new authors.
+            `up to ${usd(rates.searchPage + 50 * rates.scraperProfile)}`
+          : usd(rates.searchPage)
+      }${assist === "free" ? "" : ` + ${assist}`}`;
 
 /** Busy flag plus the last error for a button that awaits an rpc atom in promise mode. */
 export function useAction() {

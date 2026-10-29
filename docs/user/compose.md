@@ -1,43 +1,88 @@
 # Compose
 
-Write posts, threads and articles, keep drafts, and send them now or through the queue.
-Press `c` anywhere in the app to start a draft.
+Compose is drafts first. The section open in the sidebar picks which drafts you see; a card,
+a row or **New draft** opens the composer. Press `c` anywhere in the app to open Compose.
 
 ## Sections
 
-- **Drafts**: everything you are writing.
-- **Queued**: drafts waiting for a slot, with the time each will post.
-- **Automatic**: drafts the Library's daily jobs wrote for you, ready to edit or queue.
-- **Failed**: posts that did not go out, with the reason; retry or edit.
-- **Posted**: what went out from Xtend, with live numbers from your session.
+| section   | what is there                                                                                                                                                                                                                        |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Drafts    | the board of every draft, or what you wrote and have not sent as a list                                                                                                                                                              |
+| Queued    | drafts waiting for their slot, with the time                                                                                                                                                                                         |
+| Automatic | drafts written for you by Library's morning run and by Automate, each with its source, and ask-first automation runs waiting for a click. Library writes from your For you topics, with your best posts as the example of your taste |
+| Failed    | posts that did not go through, with why; a row opens the draft to retry                                                                                                                                                              |
+| Posted    | what went out from Xtend, with the link on X                                                                                                                                                                                         |
 
-## The editor
+In a list each row shows the first line, how many posts the thread has, its price to post and
+its time.
 
-A thread is a stack of posts; add one below, move them up or down, remove one. Each post can
-carry media with alt text. The first post can hold a poll. Paste an x.com status link into the
-quote field to quote it. "Who can reply" sets the reply setting for every post in the thread,
-and "Seconds between thread posts" spaces them out.
+## The drafts board
 
-An article has a title and a markdown body; Cover describes an image for the assistant to
-generate.
+Drafts opens as four columns: Automatic, Drafts, Queued, Posted. Each card shows its first
+line, how many posts, its time and its price. **Board** and **List** in the header switch
+between the board and the list, and the choice is kept.
+
+Drag a card to the right to move it on: an automatic draft becomes yours, and a draft dropped
+on Queued takes the next free slot. Drag a queued card back to Drafts to unschedule it, or a
+draft back to Automatic. A queued draft goes back to Drafts before it can go further. Each move
+is one toast with Undo. Failed drafts sit in Drafts, marked failed. Posted cards do not move.
+
+## The thread
+
+A draft is one or more posts on a rail, each with its own `n/280` count in mono: amber in the
+last 20 characters, red past the limit. The post you are writing shows its tools: media, who
+can reply, move up or down, remove, add below.
+
+- Paste plain text with blank lines between paragraphs and each paragraph becomes a post.
+- Up to four images or a video per post, with alt text. Drag to reorder.
+- A link to an x.com post as its own line becomes a quote. The quoted post shows as a card
+  when the Library has it; otherwise the bare link, which is what X will get. The quote rides
+  on the first post and counts against its 280.
+- **Options** holds the rest: a poll on the first post, who can reply to every post, seconds
+  between thread posts.
+
+The preview beside the editor shows the thread as X will render it, with your avatar and name.
+
+## Sending
+
+Every send carries its price. The rate is per post, and a post with a link costs more than one
+without.
+
+- **Post now** shows the total, with the posts that carry a link or media counted apart, and
+  sends the thread once you **Confirm and post**.
+- **Queue** puts it on the next free slot from [Plan](./plan.md). The button beside it shows
+  that slot; open it to pick a time of your own and **Schedule**.
+- Posts with media go through your x.com session and are not billed (see
+  [x.com inside Xtend](./x-view.md)).
+
+A thread posts one post at a time. If a later post fails, the draft lands in Failed with what
+went out marked, and a retry continues from there.
+
+## Replies and quotes
+
+Reply with AI on a post in X opens Compose on a reply. The post you are
+answering shows beside the editor, read from the Library when it is saved there, otherwise
+from what the session view showed. Remix in the Library opens Compose with the post it was
+inspired by beside it and linked on the draft. A post dropped on Compose in the sidebar starts
+a draft that quotes it.
 
 ## Assist
 
-Under the editor, pick a tone (Agree, Add a point, Ask, Contrarian, Sarcastic, Warm, Short, or
-any), then ask for a hook, a rewrite, a continuation, thread ideas on a topic, or a check against
-your voice. Every action uses the tone you picked and returns three options; Use puts one in the
-editor, where it is yours to change. Assist runs on your own Claude or Codex login, so it is
-free. Voice match compares with your posts the session saw, and reads X only when it saw
-fewer than five. Voice notes and keywords from Settings go into every call.
+At the foot of the writing column the model's help is one row of actions on the draft and a
+topic box for thread ideas. Pick a tone first (Agree, Add a point, Ask, Contrarian, Sarcastic,
+Warm, Short, or any); every action uses it and returns three options. Each action is one model call. Answers open
+above the row, each with **Use** and **Dismiss**; nothing changes your draft until you click
+Use.
 
-Context beside the editor lists posts you already saw that are like your first line, free;
-Search X looks further at its price.
+- **Improve hook** offers new first lines.
+- **Rewrite** reworks the current post.
+- **Continue thread** writes the next posts after your last one.
+- **Voice match** scores the draft against your posts the session saw, and reads X only when it
+  saw fewer than five.
+- **Ideas** writes thread outlines on the topic in the box; Use replaces the draft with one.
 
-## Posting
+Beside the editor, the Context card shows the next free slot and your best hours, and posts you
+already saw that are like your first line, all free; **Search X** looks further at its price.
 
-Post now goes out through your own X session, free, while "Act through X for what I click" is on
-in Settings (the default); a poll goes through X's API, which shows its price first. Queue puts the draft on your next
-free slot (see [Plan](./plan.md)); Post at picks a time. A draft that quotes a post or replies
-to one keeps that link when it posts.
-
-Queued posts go out through X's API at the price shown, since nobody is clicking.
+Your voice notes and keywords from Settings go with every call. Model calls run on the model set
+in Settings, Writing, and cost nothing through Xtend. See [Costs](./costs.md).

@@ -156,6 +156,9 @@ app.on("open-url", (event, url) => {
   event.preventDefault();
   handleDeepLink(url);
 });
+// Windows and Linux hand the link that launched the app in argv, not as an event.
+const launchLink = process.argv.find((a) => a.startsWith("xtend://"));
+if (launchLink !== undefined) handleDeepLink(launchLink);
 
 // Xtend is dark-only; x.com's "follow the system" theme should land on dark too.
 nativeTheme.themeSource = "dark";

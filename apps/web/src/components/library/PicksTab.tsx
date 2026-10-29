@@ -91,7 +91,7 @@ function useRuns() {
       type="button"
       className={button}
       disabled={busy !== null}
-      title="Three posts for today in your voice, from the trends and the picks. Filed as suggested drafts."
+      title="Three posts for today in your voice, from your for-you topics and the picks. Filed as suggested drafts."
       onClick={() =>
         void call("ready", async () => {
           const posts = await generate(TREND_COUNTRIES[0]);
@@ -100,7 +100,7 @@ function useRuns() {
       }
     >
       {busy === "ready" ? "Writing" : "Write 3 ready posts"}
-      {/* One trends read, then one model call writes all three. */}
+      {/* One model call writes all three; country trends are read only before any topic exists. */}
       <Cost label={`${trendingQuote} + ${assistQuote}`} />
     </button>
   );

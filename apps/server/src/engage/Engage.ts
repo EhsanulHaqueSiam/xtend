@@ -21,6 +21,7 @@ import * as Assist from "../ai/Assist.ts";
 import * as SessionPosting from "../compose/SessionPosting.ts";
 import * as Events from "../events/Events.ts";
 import * as ObservationStore from "../observations/ObservationStore.ts";
+import { bestOwn, leadingHandles } from "../observations/own.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 import * as Treg from "../x/Treg.ts";
 import * as XClient from "../x/XClient.ts";
@@ -59,13 +60,6 @@ export interface DmsResult {
   readonly error: string | null;
   readonly quoteUsd: number;
 }
-
-/** Handles a reply opens with, lowercased: "@a @b text" gives a and b. */
-const leadingHandles = (text: string) =>
-  (text.match(/^(?:@\w+\s*)+/)?.[0] ?? "")
-    .split(/\s+/)
-    .filter((t) => t !== "")
-    .map((t) => t.slice(1).toLowerCase());
 
 /** Reply targets, AI reply drafts, X writes and mentions. Persistence is EngageStore. */
 export class Engage extends Context.Service<
@@ -139,12 +133,23 @@ const make = Effect.gen(function* () {
   });
 
   const draftReply = Effect.fn("Engage.draftReply")(function* (post: XPost, tone?: ReplyTone) {
+    const { handle } = yield* current;
+    // Taste: the user's own replies that landed, read free from the session capture.
+    const own =
+      handle === null
+        ? []
+        : bestOwn(
+            (yield* observations
+              .listRecent({ limit: 200, authorHandle: handle })
+              .pipe(Effect.orElseSucceed(() => ({ posts: [] })))).posts,
+            "replies",
+          );
     const { drafts } = yield* assist
       .generate({
         task: "engage.draftReply",
-        instructions: `Write 3 different replies to this post in the user's voice. Each under 280 characters, no praise or flattery, no questions for the sake of it; each adds one concrete point, example, number or counterpoint the author did not say.`,
+        instructions: `Write 3 different replies to this post in the user's voice. Each under 280 characters, no praise or flattery, no questions for the sake of it; each adds one concrete point, example, number or counterpoint the author did not say. The user's replies that did best are their taste: match their length, rhythm and attitude, never their wording.`,
         tone,
-        input: { author: post.author.handle, text: post.text },
+        input: { author: post.author.handle, text: post.text, yourBestReplies: own },
         output: Schema.Struct({ drafts: Schema.Array(Schema.Struct({ text: Schema.String })) }),
       })
       .pipe(Effect.mapError(assistError));
