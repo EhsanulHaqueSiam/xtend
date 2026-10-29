@@ -2,14 +2,20 @@
 
 ## Home
 
-On the desktop, Home is x.com itself. In a browser (see [Remote service](./remote-service.md))
-there is no X session, so Home shows what your desktop session has observed instead.
+On the desktop, Home is x.com itself, with the companion column beside it when the window is
+wide (see [x.com inside Xtend](./x-view.md)). In a browser (see
+[Remote service](./remote-service.md)) there is no X session, so Home shows what your desktop
+session has observed instead.
 
 ## Seen
 
 Seen is everything the X session has shown you, newest sighting first: the posts that scrolled
-past on your timeline, in searches, on profiles, with the metrics X sent at the time. It is
-free and builds up as you browse.
+past on your timeline, in searches, on profiles, with the metrics X sent at the time and how
+many times you saw each. It is free and builds up as you browse.
 
-Refresh pulls in what arrived since. Save, reply and the author's numbers live on the post
-itself in X (see [x.com inside Xtend](./x-view.md)).
+A row opens the post on X beside the tool. **Save** puts it in the Library for free, from what
+the session already saw. A row drags like a post on X, onto Compose, Library, Leads or Scores
+in the sidebar (see [Drag and drop](./drag-and-drop.md)). Marks under a post say what you
+already did with it: replied, saved, lead, watching, auto.
+
+Refresh pulls in what arrived since.

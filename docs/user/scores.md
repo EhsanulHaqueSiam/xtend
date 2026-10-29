@@ -18,7 +18,8 @@ Your own score. The handle comes from the signed-in session or Settings.
 ## Watchlist
 
 Watched handles with score, tier and change over 1 to 30 days, sortable by any window. The list
-is shared with Analyze's Competitors. Watching is free; scoring is the paid run.
+is shared with Analyze's Competitors. Watching is free; scoring is the paid run. A post dropped
+on Scores in the sidebar watches its author.
 
 ## Report
 

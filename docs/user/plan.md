@@ -5,16 +5,27 @@ Everything here is in the time zone from Settings, never the browser's.
 
 ## Calendar
 
-The week as seven columns. Each day lists its posts and its open slots by time: queued drafts on
-their slot, posted ones with their status dot, and empty slots still ahead. An empty slot takes
-a draft from its menu. The header counts the empty slots left this week as a nudge to fill
-them. Suggested drafts from Library and Automate sit above the week, each one click from the
-next free slot.
+The week as seven columns, with arrows in the header for the weeks before and after. Each day
+lists its posts and its open slots by time: queued drafts on their slot, posted ones with
+their status dot, and empty slots still ahead. The header counts the open slots left this week
+as a nudge to fill them.
+
+An open slot takes a draft from its menu, or a draft dropped on it. A queued post drags to
+another slot. **Ready to post** lists the suggested drafts from Library and Automate, beside
+the week when the window is wide and under it otherwise; each is one click (**Next slot**)
+from the next free slot, or drag it onto the calendar.
+
+Under the week, the day ruler shows one day's 24 hours as bars for the views your observed
+posts drew at each hour, your best hours solid. Click a day's name to put it on the
+ruler. Every hour still ahead takes a dropped draft or offers drafts from its menu, so a post
+can go out at a time that is not a slot.
 
 ## Queue
 
-Queued and failed drafts by time. A row opens the draft in Compose, where it can be unqueued.
-**Post now** confirms with the treg price before it charges.
+Queued and failed drafts by time, with what the queue costs in the header. A row opens the
+draft in Compose. **Skip** moves a draft to the next slot, **Unschedule** makes it a draft
+again, **Runs** lists its attempts, and **Post now** confirms with the treg price before it
+charges.
 
 ## Slots
 

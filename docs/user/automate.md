@@ -7,10 +7,11 @@ x.com session.
 
 ## Rules
 
-The list shows each rule's switch, what it does in one line ("When my post reaches 5,000
-views, if no link, reply with …"), its price per firing and what it has spent. Opening a rule,
-or **New rule**, adds the editor beside the list: a properties list with When, Only if, Then,
-Limits, and what one firing costs beside Save.
+The list shows each rule's switch, then the rule as one sentence with the values you set
+standing out ("When my post reaches 5,000 views, if no link, reply with …"), its name and its
+modes under it, its price per firing, and what it has spent today and this month against
+each budget. Opening a rule, or **New rule**, adds the editor beside the list: a properties
+list with When, Only if, Then, Limits, and what one firing costs beside Save.
 
 **When** (the trigger):
 
@@ -28,9 +29,9 @@ Limits, and what one firing costs beside Save.
 **Only if** (all optional): within so many hours of the post, has or has no link, author not in
 a list, not a reply, author has at least N followers.
 
-**Then** (the action): reply with a plug, DM a template, repost (optionally an evergreen post),
-clean the profile after N hours, delete the post, like, unrepost, add to a list, notify you,
-follow.
+**Then** (the action): reply with a plug, DM a template, repost (or one of your top posts),
+undo your reposts of others after N hours, delete your posts older than N days with under N
+views, like, unrepost, add to a list, notify you, follow.
 
 **Limits**: a budget per day and per month in USD, how many minutes a subject must be old
 before the action runs, and for like, repost and follow, how many hours later to undo it. A
@@ -45,9 +46,11 @@ followers, agent matches, schedules, webhooks) cost nothing to watch.
 
 ## Needs you
 
-Ask-first requests. **Approve** performs the action at the price shown on the button;
-**Dismiss** closes it for good. The same requests appear under Compose's Automatic section and
-as OS notifications.
+Ask-first requests as cards, each with what the rule wants to do, the rule's name and when it
+asked. **Approve** performs the action at the price shown on the button; **Skip** closes it for
+good. Focus a card and press `a` to approve or `s` to skip. The header shows how many wait and
+their total; with two or more, **Approve all** pays that total. The same requests appear under
+Compose's Automatic section (with **Dismiss** for Skip) and as OS notifications.
 
 ## Dry run
 

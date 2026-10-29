@@ -1,8 +1,13 @@
 # Analyze
 
-Analyze is your own numbers. One paid **Refresh** reads your profile and up to 100 of your own
-posts; every section then reads from that load, and the header says how many posts it holds
-and when. Until the first refresh each section shows one line and the button.
+Analyze is your own numbers. One paid **Refresh posts** reads your profile and up to 100 of
+your own posts; every section then reads from that load. The header's freshness line says when
+it was fetched and how many posts it holds, or that it is not fetched yet. The button only
+stands out once the load is a day old or missing. Until the first refresh each section shows
+one line and the button.
+
+In the desktop app, **Profile on X** beside it opens your profile in the X panel for free, to
+read your numbers on X itself; the paid refresh is what fills these sections.
 
 ## Overview
 
@@ -31,7 +36,8 @@ It needs refreshed posts; Plan's Slots turn its best hours into posting slots.
 ## Competitors
 
 Watched handles side by side with you: followers, posting rate, average views. A row opens
-their top posts. Watching is free; the list is shared with Scores' Watchlist.
+their top posts. Watching is free; the list is shared with Scores' Watchlist. Each row has
+**Profile on X**, free, beside **Fetch**, the paid read that fills the row, with its price.
 
 ## Ask
 

@@ -1,10 +1,24 @@
 # Engage
 
 Engage is replying: who to reply to, who replied to you, and what you sent. Every section is a
-list with the selected post beside it, its numbers, and a reply box.
+list with the selected post beside it, its numbers, and a reply box. The selected post carries
+the same marks as on X (`replied`, `saved`, `lead`, `watching`, `auto`).
 
-The reply box offers AI drafts to pick from (each a priced model call), the text, and **Reply**
-and **Like** with their prices. Your work on a post survives moving to the next one and back.
+## The reply box
+
+A row of tones sits over the text: **Write my own** first, then Agree, Add a point, Ask,
+Contrarian, Sarcastic, Warm and Short. A tone is one model call that writes three replies in
+that tone, in your voice, listed A, B and C; click one to put it in the box and edit it there.
+**Draft again** asks for three more. The price of the three drafts is beside the title; it says
+free when assist runs on your own model (Settings, Writing). Write my own skips the model.
+
+**Reply** sends what is in the box. While **Act through X for what I click** is on in Settings
+(the default), it goes through your own x.com session in the desktop app, free, and the button
+says free · your session. Off, it goes through the X API at the price on the button. Session
+replies keep a human pace: a second reply within 8 seconds, or past 30 in an hour, is refused
+with how long to wait. **Like** goes through the X API at its price.
+
+Your work on a post survives moving to the next one and back.
 
 ## Targets
 
@@ -15,9 +29,10 @@ posts, one click into Settings.
 
 ## Mentions
 
-Mentions of you: what the session saw for free, plus what a paid fetch brings in. Open or every
-mention in a list; the selected one has **Mark handled** and a reply. New mentions raise an OS
-notification.
+Mentions of you: what the session saw for free, plus what a paid fetch brings in.
+**Notifications on X** opens X's mentions page in the panel, free, and the session files what
+it shows here. **Fetch new** is the paid read, priced on the button. Open or every mention in a
+list; the selected one has **Mark handled** and a reply. New mentions raise an OS notification.
 
 ## Inbox
 

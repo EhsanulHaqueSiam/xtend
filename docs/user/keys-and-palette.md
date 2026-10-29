@@ -4,9 +4,9 @@
 
 `⌘K` opens the palette over everything, x.com included. Type a command, `@handle` or a search:
 
-- a screen or a section (Compose, Plan's Slots, …)
-- X's pages (Home, Notifications, Messages, Bookmarks, Profile)
-- **Schedule** a new draft
+- a screen, or once you type, a section (Compose, Plan: Slots, …)
+- X's pages (Home, Notifications, Messages, Bookmarks, Explore)
+- **Schedule this**: a new draft in Compose
 - `@handle`: report on the handle in Scores, or open the profile on X
 - run a Leads agent by name
 - search the Library
@@ -18,17 +18,19 @@
 | `⌘K`  | command palette                        |
 | `⌘\`  | dock or hide x.com beside the tool     |
 | `⌘F`  | find in x.com                          |
-| `c`   | Compose, new draft                     |
+| `c`   | Compose                                |
 | `r`   | Compose, reply                         |
 | `p`   | Plan                                   |
 | `a`   | Analyze                                |
 | `e`   | Engage                                 |
 | `l`   | Library                                |
-| `s`   | Library search                         |
+| `s`   | Library, with Search X focused         |
 | `x`   | x.com full size                        |
 | `Esc` | close the detail column or the palette |
 
 Single letters only act when no text field has focus. On Linux, `Ctrl` stands in for `⌘`.
+
+In Automate's Needs you, a focused card takes `a` to approve and `s` to skip.
 
 ## Keys in x.com
 
