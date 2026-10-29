@@ -1,6 +1,6 @@
 import { ComposeError, type Draft, type SlotInput } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
-import { expect, it, vi } from "vite-plus/test";
+import { expect, it, onTestFinished, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
 import type { FakeService } from "../../../test/fakeService";
@@ -8,6 +8,7 @@ import { draft, quoting, rates, settings } from "../../../test/fixtures";
 import { render } from "../../../test/render";
 import { weekStartIn } from "../../lib/time";
 import { Route } from "../../routes/plan";
+import { CompanionTarget } from "../shell/Companion";
 import { Calendar, emptySlotCount } from "./Calendar";
 import { Queue } from "./Queue";
 import { Slots } from "./Slots";
@@ -191,6 +192,41 @@ const planService = (rows: () => ReadonlyArray<Draft>, extra: FakeService = {}):
   "compose.quote": () => Effect.succeed({ articleUsd: 0.02, coverUsd: 0.04, coverModel: "flux" }),
   "costs.quote": quoting(),
   ...extra,
+});
+
+it("puts Ready to post above the week without the companion column, and in it when wide", async () => {
+  const service = planService(() => [], {
+    "plan.ready": () =>
+      Effect.succeed({
+        drafts: [draft("s1", "suggested", { blocks: [{ text: "Pricing lesson" }] })],
+      }),
+  });
+  {
+    await using narrow = await render(<PlanScreen />, { service });
+    const strip = narrow.getByRole("region", { name: "Ready to post" });
+    await expect.element(strip.getByRole("button", { name: /Next slot/ })).toBeVisible();
+    await expect.element(narrow.getByLabelText(/open slot$/).first()).toBeVisible();
+    const day = narrow
+      .getByLabelText(/open slot$/)
+      .first()
+      .element();
+    // Above the week, so it is in view and a chip drags down onto a day.
+    expect(strip.element().compareDocumentPosition(day) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  }
+  const column = document.createElement("aside");
+  document.body.append(column);
+  onTestFinished(() => column.remove());
+  await using wide = await render(
+    <CompanionTarget value={column}>
+      <PlanScreen />
+    </CompanionTarget>,
+    { service },
+  );
+  await expect.element(page.getByRole("button", { name: "Pricing lesson" })).toBeVisible();
+  expect(column.textContent).toContain("Ready to post");
+  expect(wide.getByRole("region", { name: "Ready to post" }).elements()).toHaveLength(0);
 });
 
 it("says why the week or the suggestions did not load instead of showing open slots", async () => {

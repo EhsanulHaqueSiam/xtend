@@ -4,7 +4,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useState } from "react";
+import { use, useState } from "react";
 
 import { failText } from "../components/compose/AssistPanel";
 import { tabOf } from "../components/compose/DraftsHome";
@@ -13,7 +13,7 @@ import { PageHeader } from "../components/PageHeader";
 import { Calendar, emptySlotCount } from "../components/plan/Calendar";
 import { Queue } from "../components/plan/Queue";
 import { Slots } from "../components/plan/Slots";
-import { Companion } from "../components/shell/Companion";
+import { Companion, CompanionTarget } from "../components/shell/Companion";
 import { sectionLabel, useSection } from "../components/shell/sections";
 import { Button } from "../components/ui/button";
 import { Cost, Empty, PageBody } from "../components/ui/layout";
@@ -37,32 +37,29 @@ import {
 } from "../state/plan";
 import { settingsAtom } from "../state/settings";
 
-/** Suggested drafts from Library and Automate, one click from the next free slot or a drag onto the calendar. */
+/**
+ * Suggested drafts from Library and Automate, one click from the next free slot or a drag onto
+ * the calendar. A companion card when the main area is wide; a strip above the week otherwise,
+ * so it stays in view while a draft is dragged onto a day.
+ */
 function ReadyToPost({
   ready,
   busy,
+  strip,
   onOpen,
   onQueue,
 }: {
   readonly ready: AsyncResult.AsyncResult<ReadonlyArray<Draft>, unknown>;
   /** Another draft action is in flight. */
   readonly busy: boolean;
+  readonly strip: boolean;
   readonly onOpen: (d: Draft) => void;
   readonly onQueue: (d: Draft) => void;
 }) {
   const costOf = useDraftCost();
   const drafts = AsyncResult.getOrElse(ready, (): ReadonlyArray<Draft> => []);
-  return (
-    <XCard
-      title="Ready to post"
-      aside={
-        drafts.length > 0 ? (
-          <span className="font-mono text-2xs font-normal text-muted-foreground">
-            {drafts.length}
-          </span>
-        ) : undefined
-      }
-    >
+  const body = (
+    <>
       {AsyncResult.isFailure(ready) ? (
         <p className="text-xs text-error-foreground">{failText(ready.cause)}</p>
       ) : AsyncResult.isInitial(ready) ? (
@@ -72,14 +69,19 @@ function ReadyToPost({
           Nothing suggested. Library and Automate leave drafts here.
         </p>
       ) : (
-        <ul className="flex flex-col">
+        <ul className={strip ? "flex gap-4" : "flex flex-col"}>
           {drafts.map((d) => {
             const cost = costOf(d);
             return (
               <li
                 key={d.id}
                 draggable
-                className="cursor-grab border-b border-border py-2.5 last:border-b-0 active:cursor-grabbing"
+                className={cn(
+                  "cursor-grab active:cursor-grabbing",
+                  strip
+                    ? "w-60 shrink-0 border-r border-border pr-4 last:border-r-0"
+                    : "border-b border-border py-2.5 last:border-b-0",
+                )}
                 onDragStart={(event) => {
                   event.dataTransfer.setData(DRAFT_TYPE, d.id);
                   event.dataTransfer.effectAllowed = "move";
@@ -87,7 +89,10 @@ function ReadyToPost({
               >
                 <button
                   type="button"
-                  className="line-clamp-2 w-full cursor-pointer text-left text-[13px] leading-snug hover:underline"
+                  className={cn(
+                    "w-full cursor-pointer text-left text-[13px] leading-snug hover:underline",
+                    strip ? "truncate" : "line-clamp-2",
+                  )}
                   onClick={() => onOpen(d)}
                 >
                   {draftTitle(d)}
@@ -113,6 +118,30 @@ function ReadyToPost({
           })}
         </ul>
       )}
+    </>
+  );
+  return strip ? (
+    <section
+      aria-label="Ready to post"
+      className="flex shrink-0 items-start gap-4 overflow-x-auto border-b border-border px-6 py-2.5"
+    >
+      <h2 className="shrink-0 py-0.5 font-mono text-2xs text-muted-foreground tabular-nums">
+        Ready {drafts.length}
+      </h2>
+      {body}
+    </section>
+  ) : (
+    <XCard
+      title="Ready to post"
+      aside={
+        drafts.length > 0 ? (
+          <span className="font-mono text-2xs font-normal text-muted-foreground">
+            {drafts.length}
+          </span>
+        ) : undefined
+      }
+    >
+      {body}
     </XCard>
   );
 }
@@ -139,6 +168,9 @@ function PlanScreen() {
   const [notice, setNotice] = useState<string | null>(null);
   const navigate = useNavigate();
   const costOf = useDraftCost();
+  // Without the wide companion column, Ready to post would sit under a full-height week.
+  const companion = use(CompanionTarget);
+  const readyStrip = section === "calendar" && companion === null;
 
   const slots = useAtomValue(slotsAtom);
   const week = useAtomValue(calendarAtom(range));
@@ -280,6 +312,9 @@ function PlanScreen() {
           {notice}
         </p>
       ) : null}
+      {readyStrip ? (
+        <ReadyToPost ready={ready} busy={acting} strip onOpen={open} onQueue={queueNext} />
+      ) : null}
       <PageBody>
         {section === "calendar"
           ? AsyncResult.match(calendar, {
@@ -388,9 +423,15 @@ function PlanScreen() {
               ),
             })
           : null}
-        {section === "slots" ? null : (
+        {section === "slots" || readyStrip ? null : (
           <Companion>
-            <ReadyToPost ready={ready} busy={acting} onOpen={open} onQueue={queueNext} />
+            <ReadyToPost
+              ready={ready}
+              busy={acting}
+              strip={false}
+              onOpen={open}
+              onQueue={queueNext}
+            />
           </Companion>
         )}
       </PageBody>
