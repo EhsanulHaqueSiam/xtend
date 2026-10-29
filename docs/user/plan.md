@@ -23,9 +23,9 @@ can go out at a time that is not a slot.
 ## Queue
 
 Queued and failed drafts by time, with what the queue costs in the header. A row opens the
-draft in Compose. **Skip** moves a draft to the next slot, **Unschedule** makes it a draft
-again, **Runs** lists its attempts, and **Post now** confirms with the treg price before it
-charges.
+draft in Compose. **Post now** shows its treg price and confirms before it charges. The ⋯ menu
+holds the rest: **Skip this slot** moves a draft to the next slot, **Unschedule** makes it a
+draft again, and **Runs** lists its attempts.
 
 ## Slots
 

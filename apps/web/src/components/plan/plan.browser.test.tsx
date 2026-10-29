@@ -100,15 +100,15 @@ it("prices each queued draft as Compose does and asks before posting one now", a
       },
     },
   );
-  const row = (text: string) => screen.getByRole("row").filter({ hasText: text });
+  const row = (text: string) => screen.getByRole("listitem").filter({ hasText: text });
   // The quote link makes the first post a link post; the post with media goes through the session.
   await expect.element(row("Three tips").getByText("$0.2", { exact: true })).toBeVisible();
   await expect.element(row("How I ship").getByText("$0.04", { exact: true })).toBeVisible();
   await expect.element(row("broke").getByText("X refused it")).toBeVisible();
   // Run now only takes a queued draft.
-  await expect.element(row("broke").getByRole("button", { name: "Post now" })).toBeDisabled();
+  await expect.element(row("broke").getByRole("button", { name: /Post now/ })).toBeDisabled();
 
-  await userEvent.click(row("Three tips").getByRole("button", { name: "Post now" }));
+  await userEvent.click(row("Three tips").getByRole("button", { name: /Post now/ }));
   await expect.element(page.getByText("Post 2 posts now for $0.2.")).toBeVisible();
   await expect.element(page.getByText("Charges your treg balance.")).toBeVisible();
   expect(onRunNow).not.toHaveBeenCalled();
@@ -232,9 +232,12 @@ it("unschedules a queued draft back to drafts, holding the other actions until i
       },
     }),
   });
-  await userEvent.click(screen.getByRole("button", { name: "Unschedule" }));
+  const postNow = screen.getByRole("button", { name: /Post now/ });
+  await expect.element(postNow).toBeEnabled();
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  await userEvent.click(page.getByRole("menuitem", { name: "Unschedule" }));
   // One draft action at a time, and the others look it.
-  await expect.element(screen.getByRole("button", { name: "Skip" })).toBeDisabled();
+  await expect.element(postNow).toBeDisabled();
   release();
   await expect
     .element(screen.getByRole("status"))
