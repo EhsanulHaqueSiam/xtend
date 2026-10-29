@@ -58,7 +58,9 @@ export function Queue({
 }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<string | null>(null);
+  // The column is the slot's price (unattended, through the API); Post now is a click.
   const costOf = useDraftCost();
+  const nowCostOf = useDraftCost(true);
   if (drafts.length === 0) return <Empty action={emptyAction}>Nothing queued.</Empty>;
   return (
     <table className={table.root}>
@@ -74,6 +76,7 @@ export function Queue({
       <tbody>
         {drafts.map((d) => {
           const cost = costOf(d);
+          const now = nowCostOf(d);
           const media =
             d.media.length === 0
               ? null
@@ -148,7 +151,7 @@ export function Queue({
                         <Button
                           variant="outline"
                           size="xs"
-                          disabled={busy || cost === null || d.status !== "queued"}
+                          disabled={busy || now === null || d.status !== "queued"}
                         >
                           Post now
                         </Button>
@@ -158,7 +161,7 @@ export function Queue({
                         {d.kind === "article"
                           ? "Publish this article"
                           : `Post ${d.blocks.length} ${d.blocks.length === 1 ? "post" : "posts"}`}{" "}
-                        now for {cost === null ? "…" : <Cost usd={cost} />}.
+                        now for {now === null ? "…" : <Cost usd={now} />}.
                       </p>
                       <p className="mt-1 text-xs text-muted-foreground">
                         Charges your treg balance.
@@ -169,7 +172,7 @@ export function Queue({
                         </Button>
                         <Button
                           size="xs"
-                          disabled={cost === null}
+                          disabled={now === null}
                           onClick={() => {
                             setConfirm(null);
                             onRunNow(d.id);
