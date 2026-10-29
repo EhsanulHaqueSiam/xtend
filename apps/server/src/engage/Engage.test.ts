@@ -187,17 +187,17 @@ describe("Engage.mentions, session", () => {
             ["21", "@siamships is someone else"],
           ]),
         );
-        yield* store.setHandled("12", true);
+        yield* store.setHandled(["12", "10"], true);
         const { mentions } = yield* engage.mentions(true);
         expect(mentions.map((m) => [m.post.postId, m.source, m.handled])).toEqual([
           ["20", "session", false],
           ["12", "api", true],
-          ["10", "api", false],
+          ["10", "api", true],
         ]);
-        // Reopened, it is open again.
-        yield* store.setHandled("12", false);
+        // Reopened together, both are open again.
+        yield* store.setHandled(["12", "10"], false);
         const reopened = (yield* engage.mentions(false)).mentions;
-        expect(reopened.find((m) => m.post.postId === "12")?.handled).toBe(false);
+        expect(reopened.filter((m) => m.handled)).toEqual([]);
       }).pipe(Effect.provide(layerTest)),
   );
 });

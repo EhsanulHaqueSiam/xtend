@@ -150,9 +150,9 @@ export const EngageRpcGroup = RpcGroup.make(
     }),
     error: EngageError,
   }),
-  /** `handled: false` reopens a mention marked handled. */
+  /** Marks the mentions handled in one write; `handled: false` reopens them. */
   Rpc.make(Engage_METHODS.mentionHandled, {
-    payload: Schema.Struct({ postId: XId, handled: Schema.Boolean }),
+    payload: Schema.Struct({ postIds: Schema.Array(XId), handled: Schema.Boolean }),
     success: Schema.Void,
     error: EngageError,
   }),

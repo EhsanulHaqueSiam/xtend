@@ -6,6 +6,7 @@ import { userEvent } from "vite-plus/test/browser";
 import type { FakeService } from "../../../test/fakeService";
 import { rates } from "../../../test/fixtures";
 import { render } from "../../../test/render";
+import { Toasts } from "../ui/toast";
 import { Mentions } from "./Mentions";
 
 const mention = (n: number, text: string): Mention => ({
@@ -70,8 +71,8 @@ function fakeService(): FakeService {
         apiError: null,
       })),
     [Engage_METHODS.inbox]: () => Effect.succeed({ sent: [], followUps: [], incoming: [] }),
-    [Engage_METHODS.mentionHandled]: ({ postId, handled: done }) =>
-      Effect.sync(() => void (done ? handled.add(postId) : handled.delete(postId))),
+    [Engage_METHODS.mentionHandled]: ({ postIds, handled: done }) =>
+      Effect.sync(() => postIds.forEach((id) => (done ? handled.add(id) : handled.delete(id)))),
     [Engage_METHODS.draftReply]: ({ tone }) =>
       Effect.succeed([{ text: `${tone ?? "plain"} one` }, { text: `${tone ?? "plain"} two` }]),
   };
@@ -127,5 +128,28 @@ it("a handled mention reopens from All", async () => {
   await userEvent.click(screen.getByRole("tab", { name: /All/ }));
   await userEvent.click(screen.getByRole("button", { name: /first mention/ }));
   await userEvent.click(detail.getByRole("button", { name: "Reopen" }));
+  await expect.element(open).toHaveTextContent("Open3");
+});
+
+it("checked rows are marked handled together, and Undo reopens them all", async () => {
+  await using screen = await render(
+    <>
+      <Mentions />
+      <Toasts />
+    </>,
+    { service: fakeService() },
+  );
+  const open = screen.getByRole("tab", { name: /Open/ });
+  await expect.element(open).toHaveTextContent("Open3");
+
+  await userEvent.click(screen.getByRole("checkbox", { name: "Pick Author 1" }));
+  await userEvent.click(screen.getByRole("checkbox", { name: "Pick Author 3" }));
+  await userEvent.click(screen.getByRole("button", { name: "Mark 2 handled" }));
+  await expect.element(open).toHaveTextContent("Open1");
+  await expect.element(screen.getByText(/2 marked handled/)).toBeVisible();
+  // The bar goes once its rows are gone; the header actions are back.
+  await expect.element(screen.getByRole("button", { name: /Fetch new/ })).toBeVisible();
+
+  await userEvent.click(screen.getByRole("button", { name: "Undo" }));
   await expect.element(open).toHaveTextContent("Open3");
 });

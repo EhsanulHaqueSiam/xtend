@@ -94,9 +94,9 @@ export const refreshMentionsAtom = clientRuntime.fn<void>()(
   }),
 );
 
-/** `handled: false` reopens it. */
+/** `handled: false` reopens them. */
 export const markHandledAtom = clientRuntime.fn<{
-  readonly postId: string;
+  readonly postIds: ReadonlyArray<string>;
   readonly handled: boolean;
 }>()(
   Effect.fnUntraced(function* (input) {

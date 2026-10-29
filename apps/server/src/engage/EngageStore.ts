@@ -65,8 +65,11 @@ export class EngageStore extends Context.Service<
     ) => Effect.Effect<void, EngageError>;
     readonly repliedPostIds: Effect.Effect<ReadonlySet<string>, EngageError>;
     readonly handledMentionIds: Effect.Effect<ReadonlySet<string>, EngageError>;
-    /** Marks a mention handled, or reopens it with `handled` false. */
-    readonly setHandled: (postId: string, handled: boolean) => Effect.Effect<void, EngageError>;
+    /** Marks mentions handled, or reopens them with `handled` false. */
+    readonly setHandled: (
+      postIds: ReadonlyArray<string>,
+      handled: boolean,
+    ) => Effect.Effect<void, EngageError>;
     /** Records the incoming rows as announced for the current account; returns how many were not yet. */
     readonly announce: (postIds: ReadonlyArray<string>) => Effect.Effect<number, EngageError>;
     /** Mentions fetched from X so far, newest first. */
@@ -172,13 +175,14 @@ const make = Effect.gen(function* () {
   );
 
   const setHandled = Effect.fn("EngageStore.setHandled")(function* (
-    postId: string,
+    postIds: ReadonlyArray<string>,
     handled: boolean,
   ) {
     const at = yield* now;
+    const ids = encodeIds(postIds);
     yield* handled
-      ? sql`INSERT OR IGNORE INTO handled_mentions (post_id, at) VALUES (${postId}, ${at})`
-      : sql`DELETE FROM handled_mentions WHERE post_id = ${postId}`;
+      ? sql`INSERT OR IGNORE INTO handled_mentions (post_id, at) SELECT value, ${at} FROM json_each(${ids})`
+      : sql`DELETE FROM handled_mentions WHERE post_id IN (SELECT value FROM json_each(${ids}))`;
   }, Effect.mapError(storeError));
 
   const announce = Effect.fn("EngageStore.announce")(function* (postIds: ReadonlyArray<string>) {

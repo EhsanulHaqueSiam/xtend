@@ -35,7 +35,7 @@ export const layerHandlers = EngageRpcGroup.toLayer(
       [Engage_METHODS.like]: ({ postId }) => engage.like(postId),
       [Engage_METHODS.findKeywords]: () => engage.findKeywords,
       [Engage_METHODS.mentions]: ({ refresh }) => engage.mentions(refresh === true),
-      [Engage_METHODS.mentionHandled]: ({ postId, handled }) => store.setHandled(postId, handled),
+      [Engage_METHODS.mentionHandled]: ({ postIds, handled }) => store.setHandled(postIds, handled),
       [Engage_METHODS.inbox]: () => engage.inbox,
       [Engage_METHODS.followUpClose]: ({ id, state }) => store.closeFollowUp(id, state),
       [Engage_METHODS.nicheProfile]: () => store.nicheGet,
