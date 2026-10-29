@@ -52,6 +52,23 @@ export const strictSchema = (node: unknown): unknown => {
 };
 
 /**
+ * The user's Codex config without its MCP servers and hooks: the prompt carries text from
+ * strangers' posts, so the run gets no tool a stranger could point at the machine. Table
+ * headers open each TOML section; the login and model provider sections stay.
+ */
+export const isolatedConfig = (toml: string) => {
+  let keep = true;
+  return toml
+    .split("\n")
+    .filter((line) => {
+      const header = /^\s*\[+\s*([^\]\s.]+)/.exec(line);
+      if (header !== null) keep = !/^(mcp_servers|hooks)$/.test(header[1]!);
+      return keep;
+    })
+    .join("\n");
+};
+
+/**
  * One structured answer through the Codex login on the service machine (ChatGPT or its own key).
  * Fails with a short reason the screen can show.
  * shortcut: strict mode makes every field required, so an optional field in an assist output
@@ -70,8 +87,22 @@ export const complete = Effect.fn("Codex.complete")(function* (input: {
     const schemaPath = path.join(dir, "schema.json");
     const outPath = path.join(dir, "answer.json");
     yield* fs.writeFileString(schemaPath, encodeJson(strictSchema(input.jsonSchema)));
+    // A home of its own with only the login and the stripped config, so nothing from the user's
+    // Codex setup (MCP servers, hooks) is reachable from a run that reads strangers' text.
+    // shortcut: the read-only sandbox still allows commands that read files; drop it when Codex
+    // exposes a switch for the shell tool.
+    const userHome = process.env.CODEX_HOME ?? path.join(process.env.HOME ?? ".", ".codex");
+    const home = path.join(dir, "home");
+    yield* fs.makeDirectory(home);
+    yield* fs.copyFile(path.join(userHome, "auth.json"), path.join(home, "auth.json"));
+    const config = yield* fs
+      .readFileString(path.join(userHome, "config.toml"))
+      .pipe(Effect.orElseSucceed(() => ""));
+    yield* fs.writeFileString(path.join(home, "config.toml"), isolatedConfig(config));
     const codex = yield* ChildProcess.make("codex", codexArgs({ ...input, schemaPath, outPath }), {
       cwd: dir,
+      env: { CODEX_HOME: home },
+      extendEnv: true,
       stdin: Stream.make(new TextEncoder().encode(`${input.system}\n\n${input.prompt}`)),
       stdout: "ignore",
     });
@@ -92,7 +123,7 @@ export const complete = Effect.fn("Codex.complete")(function* (input: {
       typeof e === "string"
         ? e
         : String(e).includes("ENOENT")
-          ? "Codex is not installed on the machine running Xtend's service."
+          ? "Codex is not installed or not logged in on the machine running Xtend's service."
           : String(e).slice(0, 300),
     ),
   );
