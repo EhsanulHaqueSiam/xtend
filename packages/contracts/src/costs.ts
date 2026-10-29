@@ -75,7 +75,7 @@ export const CostAction = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("picksFetch") }),
   /** One search per keyword in Settings, up to the engage limit. */
   Schema.Struct({ kind: Schema.Literal("engageTargets") }),
-  /** One own-timeline page; the model call is billed separately. */
+  /** One own-timeline page, free once the session saw VOICE_MIN_SEEN of the user's posts. */
   Schema.Struct({ kind: Schema.Literal("findKeywords") }),
   /**
    * One model call (draft, remix, reply, Ask). Quoted at what Assist reserves against the

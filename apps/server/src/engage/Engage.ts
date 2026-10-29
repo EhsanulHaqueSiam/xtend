@@ -6,6 +6,7 @@ import {
   type ReplyDraft,
   type ReplyTarget,
   type ReplyTone,
+  VOICE_MIN_SEEN,
   type SentReply,
   type XApiError,
   type XPost,
@@ -199,13 +200,20 @@ const make = Effect.gen(function* () {
         operation: "settings",
         detail: "No X handle yet. It comes from your X session, or set it in Settings.",
       });
-    const page = yield* x.userPosts(handle, { purpose: "engage.findKeywords" });
+    // Free first: the posts of theirs the session saw, X's timeline only when it saw too few.
+    const seen = (yield* observations
+      .listRecent({ authorHandle: handle, limit: 20 })
+      .pipe(Effect.orElseSucceed(() => ({ posts: [] })))).posts;
+    const posts =
+      seen.length >= VOICE_MIN_SEEN
+        ? seen
+        : (yield* x.userPosts(handle, { purpose: "engage.findKeywords" })).items;
     return yield* assist
       .generate({
         task: "engage.findKeywords",
         instructions:
           "From the user's own recent posts and current keywords, return 10 search keywords (2 to 3 words each, the phrases their audience actually types) that would surface posts worth replying to, and 5 X handles (without @) of accounts in this niche whose posts get replies. Do not repeat current keywords.",
-        input: { keywords, posts: page.items.slice(0, 20).map((p) => p.text) },
+        input: { keywords, posts: posts.slice(0, 20).map((p) => p.text) },
         output: Schema.Struct({
           keywords: Schema.Array(Schema.String),
           handles: Schema.Array(Schema.String),

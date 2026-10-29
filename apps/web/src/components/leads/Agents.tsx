@@ -19,6 +19,7 @@ import { errorText } from "../analyze/ui";
 import { ago, ErrorLine, pill, pillSolid } from "../engage/triage";
 import { PageHeader } from "../PageHeader";
 import { Field, inputClass } from "../ui/field";
+import { Switch } from "../ui/switch";
 import { Cost, Empty, PageBody, Section } from "../ui/layout";
 import {
   type Column,
@@ -401,11 +402,10 @@ function AgentForm({
         </Field>
         <Field label="Drop bots">
           <span className="flex min-h-9 items-center gap-2">
-            <input
-              type="checkbox"
-              className="size-3.5 cursor-pointer accent-foreground"
+            <Switch
+              label="Drop bots"
               checked={a.excludeBots}
-              onChange={(e) => setA({ ...a, excludeBots: e.target.checked })}
+              onChange={(excludeBots) => setA({ ...a, excludeBots })}
             />
             <span className="text-[13px] text-muted-foreground">per new author</span>
             {rates === null ? <Cost label="…" /> : <Cost usd={rates.scraperProfile} />}

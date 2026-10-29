@@ -1,4 +1,10 @@
-import type { CostAction, CostQuote, CostQuoteResult, SettingsError } from "@xtend/contracts";
+import {
+  type CostAction,
+  type CostQuote,
+  type CostQuoteResult,
+  type SettingsError,
+  VOICE_MIN_SEEN,
+} from "@xtend/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -9,6 +15,7 @@ import { MAX_KEYWORDS } from "../engage/Engage.ts";
 import * as EngageStore from "../engage/EngageStore.ts";
 import { MAX_PICK_KEYWORDS } from "../library/Library.ts";
 import * as LibraryStore from "../library/LibraryStore.ts";
+import * as ObservationStore from "../observations/ObservationStore.ts";
 import { FOLLOWER_PAGES } from "../scores/Scores.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 import * as XClient from "../x/XClient.ts";
@@ -31,6 +38,7 @@ const make = Effect.gen(function* () {
   const settings = yield* SettingsStore.SettingsStore;
   const library = yield* LibraryStore.LibraryStore;
   const engage = yield* EngageStore.EngageStore;
+  const observations = yield* ObservationStore.ObservationStore;
   const rates = XClient.RATE_CARD;
 
   const paid = (usd: number): CostQuote => ({ usd, cached: false });
@@ -131,8 +139,13 @@ const make = Effect.gen(function* () {
       case "findKeywords":
         return Effect.gen(function* () {
           const { handle } = yield* settings.get;
-          return handle === null
-            ? paid(rates.searchPage)
+          if (handle === null) return paid(rates.searchPage);
+          // Enough of the user's own posts seen by the session make the read unneeded.
+          const seen = yield* observations
+            .listRecent({ authorHandle: handle, limit: VOICE_MIN_SEEN })
+            .pipe(Effect.orElseSucceed(() => ({ posts: [] })));
+          return seen.posts.length >= VOICE_MIN_SEEN
+            ? paid(0)
             : yield* read(rates.searchPage, x.cached.userPosts(handle));
         });
       case "assist":
