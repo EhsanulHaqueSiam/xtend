@@ -22,6 +22,8 @@ import {
   latestPostAtom,
   peopleAtom,
   peopleQueryAtom,
+  listRemovePersonAtom,
+  listsAtom,
   personAtom,
   personProfileAtom,
   sendDmAtom,
@@ -300,6 +302,7 @@ export function PeopleSplit({
                 <PersonPanel
                   key={current.id}
                   listed={current}
+                  listId={listId}
                   onChanged={refreshList}
                   work={outreach.get(current.id)}
                   patch={outreach.patch(current.id)}
@@ -313,12 +316,14 @@ export function PeopleSplit({
   );
 }
 
-function PeoplePager({
+export function PeoplePager({
   total,
+  disabled = false,
   offset,
   onPage,
 }: {
   readonly total: number;
+  readonly disabled?: boolean;
   readonly offset: number;
   readonly onPage: (offset: number) => void;
 }) {
@@ -333,7 +338,7 @@ function PeoplePager({
       <button
         type="button"
         className={pill}
-        disabled={offset === 0}
+        disabled={disabled || offset === 0}
         onClick={() => onPage(Math.max(0, offset - 50))}
       >
         Previous
@@ -341,7 +346,7 @@ function PeoplePager({
       <button
         type="button"
         className={pill}
-        disabled={offset + 50 >= total}
+        disabled={disabled || offset + 50 >= total}
         onClick={() => onPage(offset + 50)}
       >
         Next
@@ -460,11 +465,13 @@ function StagesBoard({
  */
 function PersonPanel({
   listed,
+  listId,
   onChanged,
   work,
   patch,
 }: {
   readonly listed: Person;
+  readonly listId: number | null;
   readonly onChanged: () => void;
   readonly work: Outreach;
   readonly patch: OutreachPatch;
@@ -475,6 +482,9 @@ function PersonPanel({
   const refresh = useAtomRefresh(personAtom(id));
   const update = useAtomSet(updatePersonAtom, { mode: "promise" });
   const fetchProfile = useAtomSet(personProfileAtom, { mode: "promise" });
+  const remove = useAtomSet(listRemovePersonAtom, { mode: "promise" });
+  const refreshLists = useAtomRefresh(listsAtom);
+  const membership = useAction();
   const profile = useAction();
   const edit = useAction();
   const [notes, setNotes] = useState<string | null>(null);
@@ -511,7 +521,30 @@ function PersonPanel({
             {rates === null ? <Cost label="…" /> : <Cost usd={rates.scraperProfile} />}
           </button>
           <OpenOnX href={profileUrl(person.handle)} />
+          {listId === null ? null : (
+            <button
+              type="button"
+              className={pill}
+              disabled={membership.busy}
+              onClick={() =>
+                void membership.run(() =>
+                  remove({ listId, personId: id }).then(() => {
+                    onChanged();
+                    refreshLists();
+                  }),
+                )
+              }
+            >
+              Remove from list
+              <Cost label="free" />
+            </button>
+          )}
         </div>
+        {membership.error === null ? null : (
+          <p role="alert" className="mt-2 text-xs text-error-foreground">
+            {membership.error}
+          </p>
+        )}
         {profile.error !== null ? (
           <p className="mt-2 text-xs text-error-foreground">{profile.error}</p>
         ) : null}

@@ -35,6 +35,7 @@ export type Person = typeof Person.Type;
 
 export const PeopleQuery = Schema.Struct({
   listId: Schema.optional(Schema.Int),
+  excludeListId: Schema.optional(Schema.Int),
   search: Schema.optional(Schema.String.check(Schema.isMaxLength(200))),
   stage: Schema.optional(Stage),
   offset: Schema.optional(NonNegativeInt),
@@ -192,6 +193,8 @@ export const Leads_METHODS = {
   listCreate: "leads.listCreate",
   listPreview: "leads.listPreview",
   listAddAll: "leads.listAddAll",
+  listAddPeople: "leads.listAddPeople",
+  listRemovePerson: "leads.listRemovePerson",
   agentsList: "leads.agentsList",
   agentUpsert: "leads.agentUpsert",
   agentRun: "leads.agentRun",
@@ -255,6 +258,19 @@ export const LeadsRpcGroup = RpcGroup.make(
   Rpc.make(Leads_METHODS.listAddAll, {
     payload: Schema.Struct({ listId: Schema.Int, people: Schema.Array(Candidate) }),
     success: Schema.Struct({ added: NonNegativeInt }),
+    error: LeadsError,
+  }),
+  Rpc.make(Leads_METHODS.listAddPeople, {
+    payload: Schema.Struct({
+      listId: Schema.Int,
+      personIds: Schema.Array(Schema.Int).check(Schema.isMinLength(1), Schema.isMaxLength(50)),
+    }),
+    success: Schema.Struct({ added: NonNegativeInt }),
+    error: LeadsError,
+  }),
+  Rpc.make(Leads_METHODS.listRemovePerson, {
+    payload: Schema.Struct({ listId: Schema.Int, personId: Schema.Int }),
+    success: Schema.Void,
     error: LeadsError,
   }),
   Rpc.make(Leads_METHODS.agentsList, {

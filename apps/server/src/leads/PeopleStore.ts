@@ -120,6 +120,11 @@ export class PeopleStore extends Context.Service<
       listId: number,
       people: ReadonlyArray<Candidate>,
     ) => Effect.Effect<number, LeadsError>;
+    readonly addPeopleToList: (
+      listId: number,
+      personIds: ReadonlyArray<number>,
+    ) => Effect.Effect<{ readonly added: number }, LeadsError>;
+    readonly removeFromList: (listId: number, personId: number) => Effect.Effect<void, LeadsError>;
     readonly update: (patch: PersonUpdate) => Effect.Effect<Person, LeadsError>;
     readonly setProfile: (
       id: number,
@@ -170,6 +175,8 @@ const make = Effect.gen(function* () {
           SELECT 1 FROM list_members m JOIN lists l ON l.id = m.list_id
           WHERE m.person_id = p.id AND m.list_id = ${query.listId ?? null}
             AND l.account_id = ${sql.literal(CURRENT_ACCOUNT)}))
+        AND (${query.excludeListId ?? null} IS NULL OR NOT EXISTS (
+          SELECT 1 FROM list_members m WHERE m.person_id = p.id AND m.list_id = ${query.excludeListId ?? null}))
         AND (${search} = '' OR instr(lower(p.handle), ${search}) > 0
           OR instr(lower(p.name), ${search}) > 0 OR instr(lower(p.bio), ${search}) > 0)`;
       return yield* sql.withTransaction(
@@ -275,6 +282,46 @@ const make = Effect.gen(function* () {
       );
     },
     Effect.mapError(fail("addToList")),
+  );
+
+  const ownList = Effect.fn("PeopleStore.ownList")((listId: number) =>
+    sql<{ id: number }>`
+    SELECT id FROM lists WHERE id = ${listId} AND account_id = ${sql.literal(CURRENT_ACCOUNT)}`.pipe(
+      Effect.flatMap((rows) => (rows.length === 0 ? Effect.fail("list not found") : Effect.void)),
+    ),
+  );
+
+  const addPeopleToList = Effect.fn("PeopleStore.addPeopleToList")(
+    function* (listId: number, personIds: ReadonlyArray<number>) {
+      if (personIds.length === 0 || personIds.length > 50)
+        return yield* Effect.fail("select 1 to 50 people");
+      return yield* sql.withTransaction(
+        Effect.gen(function* () {
+          yield* ownList(listId);
+          const ids = [...new Set(personIds)];
+          const rows = yield* sql<{ id: number }>`SELECT id FROM people
+          WHERE account_id = ${sql.literal(CURRENT_ACCOUNT)} AND id IN ${sql.in(ids)}`;
+          if (rows.length !== ids.length) return yield* Effect.fail("person not found");
+          const before = yield* members(listId);
+          yield* sql`INSERT OR IGNORE INTO list_members ${sql.insert(ids.map((personId) => ({ list_id: listId, person_id: personId })))}`;
+          return { added: (yield* members(listId)) - before };
+        }),
+      );
+    },
+    Effect.mapError(fail("addPeopleToList")),
+  );
+
+  const removeFromList = Effect.fn("PeopleStore.removeFromList")(
+    function* (listId: number, personId: number) {
+      yield* sql.withTransaction(
+        Effect.gen(function* () {
+          yield* ownList(listId);
+          yield* sql`DELETE FROM list_members WHERE list_id = ${listId} AND person_id = ${personId}
+          AND EXISTS (SELECT 1 FROM people WHERE id = ${personId} AND account_id = ${sql.literal(CURRENT_ACCOUNT)})`;
+        }),
+      );
+    },
+    Effect.mapError(fail("removeFromList")),
   );
 
   const update = Effect.fn("PeopleStore.update")(
@@ -408,6 +455,8 @@ const make = Effect.gen(function* () {
     add,
     addMany,
     addToList,
+    addPeopleToList,
+    removeFromList,
     update,
     setProfile,
     logActivity,

@@ -130,6 +130,72 @@ describe("PeopleStore", () => {
       }).pipe(Effect.provide(layerTest)),
   );
 
+  it.effect("adds existing people for free, excludes members, and removes only membership", () =>
+    Effect.gen(function* () {
+      const people = yield* PeopleStore.PeopleStore;
+      const founders = yield* people.createList("Founders");
+      const investors = yield* people.createList("Investors");
+      const alice = yield* people.add({ ...candidate("alice"), source: "agent:founders" });
+      const bob = yield* people.add({ ...candidate("bob"), source: "manual" });
+      yield* people.update({ id: alice.id, stage: "contacted", notes: "keep this" });
+      const before = yield* people.get(alice.id);
+      const activity = yield* people.activity(alice.id);
+      expect(yield* people.addPeopleToList(founders.id, [alice.id, bob.id, alice.id])).toEqual({
+        added: 2,
+      });
+      expect(yield* people.addPeopleToList(founders.id, [alice.id])).toEqual({ added: 0 });
+      yield* people.addPeopleToList(investors.id, [alice.id]);
+      expect((yield* people.list({ excludeListId: founders.id })).total).toBe(0);
+      yield* people.removeFromList(founders.id, alice.id);
+      yield* people.removeFromList(founders.id, alice.id);
+      expect((yield* people.list({ listId: founders.id })).people.map((p) => p.id)).toEqual([
+        bob.id,
+      ]);
+      expect((yield* people.list({ listId: investors.id })).people.map((p) => p.id)).toEqual([
+        alice.id,
+      ]);
+      expect(
+        (yield* people.list({ search: "ALICE", excludeListId: founders.id })).counts.contacted,
+      ).toBe(1);
+      expect(yield* people.get(alice.id)).toEqual(before);
+      expect(yield* people.activity(alice.id)).toEqual(activity);
+    }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect("rejects foreign lists and people without partial membership writes", () =>
+    Effect.gen(function* () {
+      const people = yield* PeopleStore.PeopleStore;
+      const mine = yield* people.createList("Mine");
+      const alice = yield* people.add({ ...candidate("alice"), source: "manual", listId: mine.id });
+      yield* switchAccount(2);
+      const theirs = yield* people.createList("Theirs");
+      const bob = yield* people.add({ ...candidate("bob"), source: "manual" });
+      expect(yield* Effect.flip(people.addPeopleToList(mine.id, [bob.id]))).toMatchObject({
+        _tag: "LeadsError",
+      });
+      expect(yield* Effect.flip(people.removeFromList(mine.id, alice.id))).toMatchObject({
+        _tag: "LeadsError",
+      });
+      expect(
+        yield* Effect.flip(people.addPeopleToList(theirs.id, [bob.id, alice.id])),
+      ).toMatchObject({ _tag: "LeadsError" });
+      expect((yield* people.list({ listId: theirs.id })).total).toBe(0);
+      expect(yield* Effect.flip(people.addPeopleToList(theirs.id, []))).toMatchObject({
+        _tag: "LeadsError",
+      });
+      expect(
+        yield* Effect.flip(
+          people.addPeopleToList(
+            theirs.id,
+            Array.from({ length: 51 }, () => bob.id),
+          ),
+        ),
+      ).toMatchObject({ _tag: "LeadsError" });
+      yield* switchAccount(1);
+      expect((yield* people.list({ listId: mine.id })).total).toBe(1);
+    }).pipe(Effect.provide(layerTest)),
+  );
+
   it.effect("logs a stage change once, as the move it was", () =>
     Effect.gen(function* () {
       const people = yield* PeopleStore.PeopleStore;

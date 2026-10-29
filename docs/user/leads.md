@@ -22,8 +22,9 @@ dropped on Leads in the sidebar adds its author here.
 ## Lists
 
 One list's people, with a switcher for the others in the header. Lists are free; only filling
-them costs. Two builders fill a list from the detail column:
+them from X costs. Add existing People for free, or discover people from the detail column:
 
+- **From people**: search and select existing people who are not in the list, then add them for free. **Remove from list** in a member's detail keeps them in People and other lists.
 - **From a search**: criteria, a paid preview of who matched, then everyone into the list in
   one click.
 - **From a post**: who reposted or liked one post, priced by the service before the fetch,

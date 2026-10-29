@@ -580,3 +580,104 @@ it("pages list members beyond the old cap and searches within the list", async (
   await expect.element(screen.getByRole("button", { name: /^@lead251/ })).toBeVisible();
   expect(queries.at(-1)).toMatchObject({ listId: 1, search: "lead251", offset: 0 });
 });
+
+it("adds existing people from the free paged builder, then removes only list membership", async () => {
+  const people = Array.from({ length: 61 }, (_, i) => person(i + 1));
+  const memberIds = new Set([1]);
+  const added: Array<ReadonlyArray<number>> = [];
+  const removed: Array<number> = [];
+  const queries: Array<import("@xtend/contracts").PeopleQuery> = [];
+  await using screen = await render(<ListsSection />, {
+    service: peopleService(people, {
+      "leads.listsList": () =>
+        Effect.sync(() => [{ ...list(1, "Founders"), members: memberIds.size }]),
+      "leads.peopleList": (query) =>
+        Effect.sync(() => {
+          queries.push(query);
+          const rows =
+            query.listId === 1
+              ? people.filter((p) => memberIds.has(p.id))
+              : query.excludeListId === 1
+                ? people.filter((p) => !memberIds.has(p.id))
+                : people;
+          return peoplePage(rows, query);
+        }),
+      "leads.listAddPeople": ({ listId, personIds }) =>
+        Effect.sync(() => {
+          expect(listId).toBe(1);
+          added.push(personIds);
+          let count = 0;
+          for (const id of personIds) {
+            if (!memberIds.has(id)) count++;
+            memberIds.add(id);
+          }
+          return { added: count };
+        }),
+      "leads.listRemovePerson": ({ listId, personId }) =>
+        Effect.sync(() => {
+          expect(listId).toBe(1);
+          removed.push(personId);
+          memberIds.delete(personId);
+        }),
+    }),
+  });
+  await userEvent.click(screen.getByRole("button", { name: "Add people", exact: true }).first());
+  await userEvent.click(screen.getByRole("button", { name: /^From people.*free/ }));
+  await expect.element(screen.getByText("60 not in Founders")).toBeVisible();
+  expect(
+    screen.getByRole("checkbox", { name: "Select @lead1", exact: true }).elements(),
+  ).toHaveLength(0);
+  await userEvent.click(screen.getByRole("checkbox", { name: "Select @lead2", exact: true }));
+  await userEvent.click(screen.getByRole("button", { name: "Next", exact: true }).last());
+  await expect.element(screen.getByText("51-60 of 60")).toBeVisible();
+  expect(queries.at(-1)).toMatchObject({ excludeListId: 1, offset: 50 });
+  await userEvent.click(screen.getByRole("checkbox", { name: "Select @lead61", exact: true }));
+  await userEvent.fill(screen.getByRole("textbox", { name: "Search existing people" }), "lead61");
+  await expect.element(screen.getByText("1 not in Founders")).toBeVisible();
+  expect(queries.at(-1)).toMatchObject({ excludeListId: 1, search: "lead61", offset: 0 });
+  await userEvent.click(screen.getByRole("button", { name: /^Add 2 to Founders.*free/ }));
+  await expect.element(screen.getByRole("status")).toHaveTextContent("Added 2");
+  expect(added).toEqual([[2, 61]]);
+  await expect.element(screen.getByText("0 not in Founders")).toBeVisible();
+  await expect.element(screen.getByText("1-3 of 3")).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: /^@lead2/ }));
+  await userEvent.click(screen.getByRole("button", { name: /^Remove from list.*free/ }));
+  await expect.element(screen.getByText("1-2 of 2")).toBeVisible();
+  expect(removed).toEqual([2]);
+  expect(people).toHaveLength(61);
+  await expect.element(screen.getByRole("button", { name: /^Founders.*2/ })).toBeVisible();
+});
+
+it("keeps the selection on a failed free add and resets it when switching lists", async () => {
+  await using screen = await render(<ListsSection />, {
+    service: peopleService([person(1), person(2)], {
+      "leads.listsList": () => Effect.succeed([list(1, "Founders"), list(2, "Investors")]),
+      "leads.peopleList": (query) =>
+        Effect.succeed(
+          peoplePage(query.excludeListId === undefined ? [] : [person(1), person(2)], query),
+        ),
+      "leads.listAddPeople": () =>
+        Effect.fail(
+          new LeadsError({ operation: "addPeopleToList", detail: "Unavailable", cause: null }),
+        ),
+    }),
+  });
+  await userEvent.click(screen.getByRole("button", { name: "Add people", exact: true }).first());
+  await userEvent.click(screen.getByRole("button", { name: /^From people.*free/ }));
+  await userEvent.click(screen.getByRole("checkbox", { name: "Select @lead1", exact: true }));
+  await userEvent.click(screen.getByRole("button", { name: /^Add 1 to Founders.*free/ }));
+  await expect.element(screen.getByRole("alert")).toBeVisible();
+  await expect
+    .element(screen.getByRole("checkbox", { name: "Select @lead1", exact: true }))
+    .toBeChecked();
+  await userEvent.click(screen.getByRole("button", { name: /^Founders/ }));
+  await userEvent.click(page.getByRole("button", { name: /^Investors/ }));
+  await userEvent.click(screen.getByRole("button", { name: "Add people", exact: true }).first());
+  await userEvent.click(screen.getByRole("button", { name: /^From people.*free/ }));
+  await expect
+    .element(screen.getByRole("checkbox", { name: "Select @lead1", exact: true }))
+    .not.toBeChecked();
+  await expect
+    .element(screen.getByRole("button", { name: /^Add 0 to Investors.*free/ }))
+    .toBeDisabled();
+});

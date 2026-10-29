@@ -190,3 +190,36 @@ export const sendReplyAtom = Atom.family((id: number) =>
     }),
   ),
 );
+
+/** Separate query state so the builder never changes the list or People filters. */
+export const listPeopleQueryAtom = Atom.family((listId: number) =>
+  Atom.make<PeopleQuery>({ excludeListId: listId }),
+);
+export const listPeopleAtom = Atom.family((listId: number) =>
+  clientRuntime.atom((get) => {
+    const query = get(listPeopleQueryAtom(listId));
+    get(peopleAtom(listId));
+    return Effect.gen(function* () {
+      const client = yield* XtendClient;
+      return yield* client[Leads_METHODS.peopleList](query);
+    });
+  }),
+);
+
+export const listAddPeopleAtom = clientRuntime.fn<{
+  readonly listId: number;
+  readonly personIds: ReadonlyArray<number>;
+}>()(
+  Effect.fnUntraced(function* (input) {
+    return yield* (yield* XtendClient)[Leads_METHODS.listAddPeople](input);
+  }),
+);
+
+export const listRemovePersonAtom = clientRuntime.fn<{
+  readonly listId: number;
+  readonly personId: number;
+}>()(
+  Effect.fnUntraced(function* (input) {
+    return yield* (yield* XtendClient)[Leads_METHODS.listRemovePerson](input);
+  }),
+);
