@@ -12,7 +12,10 @@ import { usd as formatUsd } from "../../state/costs";
  * divide; surfaces never nest.
  */
 
-/** The scrolling area under a PageHeader. Sections count up from 01 inside it. */
+/**
+ * The scrolling area under a PageHeader. Sections count up from 01 inside it. Put `@container`
+ * on a parent, not here: a container contains style, which restarts the count in every section.
+ */
 export function PageBody({
   children,
   className,

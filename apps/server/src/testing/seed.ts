@@ -386,7 +386,7 @@ const seedDays = Effect.gen(function* () {
     const list = lists[day % lists.length]!;
     const ids = yield* people.addMany(
       Array.from({ length: p1 - p0 }, (_, i) => candidate(p0 + i)),
-      `list:${list.id}`,
+      `list:${list.name}`,
       list.id,
     );
     for (const [i, id] of ids.entries()) {

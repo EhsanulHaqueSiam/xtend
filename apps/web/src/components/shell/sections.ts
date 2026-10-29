@@ -56,7 +56,7 @@ export const SECTIONS = {
   "/library": [
     { id: "picks", label: "Picks", about: "A daily fetch for your keywords, paid." },
     { id: "search", label: "Search", about: "X search through treg, price before Enter." },
-    { id: "archive", label: "Archive", about: "Everything you saved." },
+    { id: "archive", label: "Archive", about: "Every post a search or pick returned." },
     {
       id: "trends",
       label: "Trends",

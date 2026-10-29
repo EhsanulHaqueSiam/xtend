@@ -77,7 +77,8 @@ export function AnalyzePage({
     data?.fetchedAt !== undefined &&
     Date.now() - new Date(data.fetchedAt).getTime() > STALE_MS;
   return (
-    <div className="flex h-full flex-col">
+    // The container sits above PageBody: on PageBody it would contain the section counter.
+    <div className="@container flex h-full flex-col">
       <PageHeader
         title={sectionLabel("/analyze", section)}
         tabs={tabs}
@@ -114,7 +115,7 @@ export function AnalyzePage({
       <ErrorBar>
         {AsyncResult.isFailure(refreshState) ? errorText(refreshState.cause) : null}
       </ErrorBar>
-      <PageBody className="@container">{children}</PageBody>
+      <PageBody>{children}</PageBody>
     </div>
   );
 }

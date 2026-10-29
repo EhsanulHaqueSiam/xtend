@@ -244,7 +244,10 @@ const make = Effect.gen(function* () {
       return yield* sql.withTransaction(
         Effect.gen(function* () {
           const before = yield* members(listId);
-          yield* Effect.forEach(people, (c) => insertOne(c, `list:${listId}`, listId));
+          // The source reads as the list's name: People shows it, and an id means nothing there.
+          const [list] = yield* sql<{ name: string }>`SELECT name FROM lists WHERE id = ${listId}`;
+          const source = `list:${list?.name ?? listId}`;
+          yield* Effect.forEach(people, (c) => insertOne(c, source, listId));
           return (yield* members(listId)) - before;
         }),
       );

@@ -354,7 +354,8 @@ function StagesBoard({
               >
                 <span className="truncate text-[13px] font-medium">@{p.handle}</span>
                 <span className="truncate text-xs text-muted-foreground">{p.name}</span>
-                <span className="flex gap-2 font-mono text-2xs text-muted-foreground tabular-nums">
+                {/* Each figure wraps as a whole, so a narrow column never pairs "score" with the follower count. */}
+                <span className="flex flex-wrap gap-x-2 font-mono text-2xs whitespace-nowrap text-muted-foreground tabular-nums">
                   {p.score === null ? null : <span>score {p.score}</span>}
                   <span>{fmt(p.followers)} followers</span>
                   <span>{ago(p.lastActivity)}</span>
