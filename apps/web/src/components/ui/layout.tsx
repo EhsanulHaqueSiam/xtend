@@ -6,10 +6,9 @@ import { usd as formatUsd } from "../../state/costs";
 
 /**
  * The shapes every screen is built from, so the tools read as one app:
- * a scrolling body, one raised surface per group with a numbered label,
- * tables with mono numbers, one-line empty states, the price next to a paid
- * action, and the freshness of what a page shows. Inside a surface, hairlines
- * divide; surfaces never nest.
+ * a scrolling body, groups that are a numbered label over a hairline (never a
+ * card), tables with mono numbers, one-line empty states, the price next to a
+ * paid action, and the freshness of what a page shows.
  */
 
 /** The scrolling area under a PageHeader. Sections count up from 01 inside it. */
@@ -28,8 +27,8 @@ export function PageBody({
 }
 
 /**
- * A group on a page: one raised surface. A titled one carries its number, name,
- * one-line description and actions on the first line.
+ * A group on a page: a hairline and, when titled, its number, name, one-line
+ * description and actions on the first line. No fill, no border box.
  */
 export function Section({
   title,
@@ -45,9 +44,7 @@ export function Section({
   readonly className?: string;
 }) {
   return (
-    <section
-      className={cn("mx-6 my-5 rounded-2xl border border-border bg-card px-5 py-4", className)}
-    >
+    <section className={cn("mx-6 my-5 border-t border-border pt-3", className)}>
       {title !== undefined || aside !== undefined ? (
         <div className="mb-3 flex items-center justify-between gap-3">
           {title !== undefined ? (

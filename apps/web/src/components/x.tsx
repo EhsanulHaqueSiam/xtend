@@ -31,7 +31,7 @@ export function XCard({
   readonly children: ReactNode;
 }) {
   return (
-    <section className="rounded-2xl border border-border bg-card px-4 pt-2 pb-3">
+    <section className="border-t border-border pb-3">
       <h2 className="flex items-center gap-2 py-2 text-[12.5px] font-semibold">
         <span className="flex-1">{title}</span>
         {aside}

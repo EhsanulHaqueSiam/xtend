@@ -1,15 +1,16 @@
 import type { Heatmap, Slot, SlotInput } from "@xtend/contracts";
 import { Plus, Trash2 } from "lucide-react";
 import { useState, type ReactNode } from "react";
-import { TextMorph } from "torph/react";
 
 import { cn } from "../../lib/utils";
 import { Companion } from "../shell/Companion";
 import { Button } from "../ui/button";
-import { compactInputClass } from "../ui/field";
+import { TimeField } from "../ui/field";
 import { table } from "../ui/layout";
 import { XCard } from "../x";
 import { DAYS, hhmm } from "./ui";
+
+const WEEK = [1, 2, 3, 4, 5, 6, 0] as const;
 
 const toInput = ({ weekdayMask, minuteOfDay }: Slot): SlotInput => ({ weekdayMask, minuteOfDay });
 // Unsaved rows have no id yet, so each edit row carries its own key.
@@ -101,41 +102,40 @@ export function Slots({
           {edit.map((s, i) => (
             <tr key={s.key} className={table.row}>
               <td className={cn(table.td, "py-1.5")}>
-                <input
-                  type="time"
-                  aria-label="Slot time"
-                  className={cn(compactInputClass, "w-auto font-mono tabular-nums")}
+                <TimeField
+                  label="Slot time"
                   value={hhmm(s.minuteOfDay)}
-                  onChange={(e) => {
-                    // Cleared mid-edit; midnight would jump into the field under the cursor.
-                    if (e.target.value === "") return;
-                    const [h = 0, m = 0] = e.target.value.split(":").map(Number);
+                  onChange={(time) => {
+                    const [h = 0, m = 0] = time.split(":").map(Number);
                     set(i, { minuteOfDay: h * 60 + m });
                   }}
                 />
               </td>
               <td className={table.td}>
                 <div className="flex gap-0.5">
-                  {DAYS.map((day, weekday) => (
-                    <label
-                      key={day}
-                      className="flex h-7 w-10 cursor-pointer items-center justify-center rounded-md font-mono text-2xs text-muted-foreground/60 transition-colors duration-150 select-none hover:bg-white/[0.05] has-checked:bg-white/[0.07] has-checked:text-foreground has-focus-visible:ring-2 has-focus-visible:ring-ring"
-                    >
-                      <input
-                        type="checkbox"
-                        className="sr-only"
-                        checked={(s.weekdayMask & (1 << weekday)) !== 0}
-                        onChange={(e) =>
-                          set(i, {
-                            weekdayMask: e.target.checked
-                              ? s.weekdayMask | (1 << weekday)
-                              : s.weekdayMask & ~(1 << weekday),
-                          })
-                        }
-                      />
-                      {day}
-                    </label>
-                  ))}
+                  {/* Monday first, as the calendar reads; weekday stays 0 for Sunday underneath. */}
+                  {WEEK.map((weekday) => [DAYS[weekday], weekday] as const).map(
+                    ([day, weekday]) => (
+                      <label
+                        key={day}
+                        className="flex h-7 w-10 cursor-pointer items-center justify-center rounded-md font-mono text-2xs text-muted-foreground/60 transition-colors duration-150 select-none hover:bg-white/[0.05] has-checked:bg-white/[0.07] has-checked:text-foreground has-focus-visible:ring-2 has-focus-visible:ring-ring"
+                      >
+                        <input
+                          type="checkbox"
+                          className="sr-only"
+                          checked={(s.weekdayMask & (1 << weekday)) !== 0}
+                          onChange={(e) =>
+                            set(i, {
+                              weekdayMask: e.target.checked
+                                ? s.weekdayMask | (1 << weekday)
+                                : s.weekdayMask & ~(1 << weekday),
+                            })
+                          }
+                        />
+                        {day}
+                      </label>
+                    ),
+                  )}
                 </div>
               </td>
               <td className={cn(table.td, "w-px")}>
@@ -166,14 +166,13 @@ export function Slots({
         </tbody>
       </table>
       <div className="flex items-center gap-3 px-6 pt-2 pb-6">
-        <Button
-          size="sm"
-          variant={dirty ? "default" : "outline"}
-          disabled={!dirty || dayless}
-          onClick={() => onSave(edit.map(strip))}
-        >
-          <TextMorph duration={250}>{dirty ? "Save" : "Saved"}</TextMorph>
-        </Button>
+        {dirty ? (
+          <Button size="sm" disabled={dayless} onClick={() => onSave(edit.map(strip))}>
+            Save
+          </Button>
+        ) : (
+          <span className="text-xs text-muted-foreground">All changes saved</span>
+        )}
         {edit.length === 0 ? (
           <span className="text-xs text-muted-foreground">
             The queue needs at least one slot to place drafts.

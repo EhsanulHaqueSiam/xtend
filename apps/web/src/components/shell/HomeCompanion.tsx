@@ -34,7 +34,7 @@ function Card({
   return (
     <Link
       to={to}
-      className="no-drag block rounded-2xl border border-border bg-card px-4 py-3 outline-hidden transition-colors duration-150 hover:border-white/15 focus-visible:ring-2 focus-visible:ring-ring"
+      className="no-drag block border-t border-border py-3 outline-hidden transition-colors duration-150 hover:bg-white/[0.03] focus-visible:ring-2 focus-visible:ring-ring"
     >
       <span className="flex items-baseline gap-2 text-[12.5px] font-semibold">
         {title}
