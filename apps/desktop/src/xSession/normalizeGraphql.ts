@@ -54,6 +54,7 @@ function readAuthor(tweet: Json): ObservedPost["author"] | undefined {
     name: name ?? handle,
     followers: asCount(legacy.followers_count),
     verified: user.is_blue_verified === true || legacy.verified === true,
+    ...(legacy.protected === true ? { isProtected: true } : {}),
   };
 }
 

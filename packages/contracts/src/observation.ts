@@ -23,6 +23,8 @@ export const ObservedAuthor = Schema.Struct({
   name: Schema.String,
   followers: Schema.NullOr(NonNegativeInt),
   verified: Schema.Boolean,
+  /** A protected account: its posts are visible only to approved followers and never leave the machine. */
+  isProtected: Schema.optional(Schema.Boolean),
 });
 export type ObservedAuthor = typeof ObservedAuthor.Type;
 

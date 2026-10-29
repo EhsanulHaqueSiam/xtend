@@ -54,13 +54,21 @@ const RisingRows = Schema.fromJsonString(
   }),
 );
 
+/** Surfaces whose posts are public by construction. Notifications and unknown pages stay home. */
+const SHARED_SOURCES: ReadonlySet<ObservationBatch["source"]> = new Set([
+  "home",
+  "profile",
+  "detail",
+  "search",
+]);
+
 /**
- * What one sighting sends: the public post, its author and the numbers seen. Promoted items
- * and repost wrappers stay home; so does everything about the viewer.
+ * What one sighting sends: the public post, its author and the numbers seen. Promoted items,
+ * repost wrappers and protected accounts stay home; so does everything about the viewer.
  */
 export const toItems = (posts: ReadonlyArray<ObservedPost>) =>
   posts
-    .filter((p) => !p.isPromoted && !p.isRepost)
+    .filter((p) => !p.isPromoted && !p.isRepost && p.author.isProtected !== true)
     .slice(0, MAX_ITEMS)
     .map((p) => ({
       post: {
@@ -131,7 +139,7 @@ const make = Effect.gen(function* () {
 
   const send = Effect.fn("Pool.send")(function* (batch: ObservationBatch) {
     const { poolSharing } = yield* settings.get.pipe(Effect.mapError(httpError));
-    if (!poolSharing) return;
+    if (!poolSharing || !SHARED_SOURCES.has(batch.source)) return;
     const items = toItems(batch.posts);
     if (items.length === 0) return;
     const push = (install: string) =>

@@ -18,11 +18,12 @@ const post = (patch: Partial<ObservedPost>): ObservedPost => ({
 });
 
 describe("Pool", () => {
-  it("sends public posts with their author and numbers, and keeps ads and reposts home", () => {
+  it("sends public posts with their author and numbers; ads, reposts and protected accounts stay home", () => {
     const items = toItems([
       post({}),
       post({ postId: "2", isPromoted: true }),
       post({ postId: "3", isRepost: true }),
+      post({ postId: "4", author: { ...post({}).author, isProtected: true } }),
     ]);
     expect(items).toEqual([
       {
