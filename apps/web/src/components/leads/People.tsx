@@ -1,6 +1,7 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import { postCostUsd, type Person, type Stage, type XPost } from "@xtend/contracts";
+import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState, type ReactElement, type ReactNode } from "react";
 import { TextMorph } from "torph/react";
@@ -21,6 +22,7 @@ import {
   updatePersonAtom,
 } from "../../state/leads";
 import { errorText, fmt } from "../analyze/ui";
+import { useWorkBy } from "../engage/ReplyBox";
 import { ago, ErrorLine, pill, pillSolid } from "../engage/triage";
 import { HeaderTabs, PageHeader } from "../PageHeader";
 import { sectionHref } from "../shell/sections";
@@ -66,6 +68,34 @@ const COLUMNS: ReadonlyArray<Column<Person>> = [
 
 type StageFilter = "all" | Stage;
 type View = "table" | "stages";
+
+/** What the user did for one person here: the DM and reply drafts, their latest post, what went out. */
+interface Outreach {
+  readonly dm: string;
+  readonly dmSent: boolean;
+  readonly dmBusy: "draft" | "send" | null;
+  readonly dmError: string | null;
+  /** Their latest post once loaded, null when they have none. */
+  readonly post: XPost | null | undefined;
+  readonly reply: string;
+  readonly replied: boolean;
+  readonly replyBusy: "load" | "draft" | "send" | null;
+  readonly replyError: string | null;
+}
+
+type OutreachPatch = (change: Partial<Outreach>) => void;
+
+const idle: Outreach = {
+  dm: "",
+  dmSent: false,
+  dmBusy: null,
+  dmError: null,
+  post: undefined,
+  reply: "",
+  replied: false,
+  replyBusy: null,
+  replyError: null,
+};
 
 /** Everyone the screens have found, as a table by stage or a board of stages, with the selected person beside. */
 export function PeopleSection() {
@@ -164,6 +194,9 @@ export function PeopleSplit({
   const people = stage === "all" ? all : all.filter((p) => p.stage === stage);
   const { selected, select } = useSelection(people.map((p) => p.id));
   const current = people.find((p) => p.id === selected) ?? null;
+  // Kept here, not in the panel: picking someone else remounts it, and a paid result still in
+  // flight lands on the person it was for.
+  const outreach = useWorkBy<number, Outreach>(idle);
 
   return AsyncResult.match(result, {
     onInitial: () => (
@@ -217,7 +250,13 @@ export function PeopleSplit({
           aside !== null ? (
             aside
           ) : current === null ? null : (
-            <PersonPanel key={current.id} listed={current} listId={listId} />
+            <PersonPanel
+              key={current.id}
+              listed={current}
+              listId={listId}
+              work={outreach.get(current.id)}
+              patch={outreach.patch(current.id)}
+            />
           )
         }
       />
@@ -333,9 +372,13 @@ function StagesBoard({
 function PersonPanel({
   listed,
   listId,
+  work,
+  patch,
 }: {
   readonly listed: Person;
   readonly listId: number | null;
+  readonly work: Outreach;
+  readonly patch: OutreachPatch;
 }) {
   const { id } = listed;
   const rates = useRates();
@@ -436,11 +479,15 @@ function PersonPanel({
           }}
         />
       </Section>
-      <DirectMessage person={person} onSent={refreshBoth} />
-      <Reply id={id} handle={person.handle} onSent={refreshBoth} />
+      <DirectMessage person={person} work={work} patch={patch} onSent={refreshBoth} />
+      <Reply id={id} handle={person.handle} work={work} patch={patch} onSent={refreshBoth} />
       <Section title="Activity">
         {loaded === null ? (
-          <p className="text-[13px] text-muted-foreground">Loading…</p>
+          AsyncResult.isFailure(data) ? (
+            <p className="text-xs text-error-foreground">{errorText(data.cause)}</p>
+          ) : (
+            <p className="text-[13px] text-muted-foreground">Loading…</p>
+          )
         ) : loaded.activity.length === 0 ? (
           <p className="text-[13px] text-muted-foreground">Nothing yet.</p>
         ) : (
@@ -465,65 +512,75 @@ function PersonPanel({
 /** A DM through the X connection. Without their user id the service reads the profile first, priced in. */
 function DirectMessage({
   person,
+  work,
+  patch,
   onSent,
 }: {
   readonly person: Person;
+  readonly work: Outreach;
+  readonly patch: OutreachPatch;
   readonly onSent: () => void;
 }) {
   const rates = useRates();
-  const draftDm = useAtomSet(draftDmAtom, { mode: "promise" });
-  const sendDm = useAtomSet(sendDmAtom, { mode: "promise" });
-  const draft = useAction();
-  const send = useAction();
-  const [text, setText] = useState("");
-  const [sent, setSent] = useState(false);
+  const draftDm = useAtomSet(draftDmAtom(person.id), { mode: "promiseExit" });
+  const sendDm = useAtomSet(sendDmAtom(person.id), { mode: "promiseExit" });
+  const { dm, dmSent, dmBusy, dmError } = work;
   // The draft reads their recent posts first, then one model call.
   const postsQuote = useQuoteLabel({ kind: "userPosts", handle: person.handle });
   const assistQuote = useQuoteLabel({ kind: "assist" });
   const sendUsd =
     rates === null ? null : rates.dm + (person.userId === null ? rates.scraperProfile : 0);
+
+  const onSend = async () => {
+    patch({ dmBusy: "send", dmError: null });
+    const exit = await sendDm(dm);
+    if (Exit.isFailure(exit)) return patch({ dmBusy: null, dmError: errorText(exit.cause) });
+    patch({ dmBusy: null, dm: "", dmSent: true });
+    onSent();
+  };
+  const onDraft = async () => {
+    patch({ dmBusy: "draft", dmError: null });
+    const exit = await draftDm();
+    patch(
+      Exit.isFailure(exit)
+        ? { dmBusy: null, dmError: errorText(exit.cause) }
+        : { dmBusy: null, dm: exit.value, dmSent: false },
+    );
+  };
+
   return (
     <Section title="Direct message">
       <textarea
         className={cn(inputClass, "min-h-20 resize-y leading-relaxed")}
         placeholder="Write a DM, or draft one"
-        value={text}
-        onChange={(e) => {
-          setText(e.target.value);
-          setSent(false);
-        }}
+        value={dm}
+        // Locked while sending: success clears the box, which would take text typed meanwhile.
+        disabled={dmBusy === "send"}
+        onChange={(e) => patch({ dm: e.target.value, dmSent: false })}
       />
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
         <button
           type="button"
           className={pillSolid}
-          disabled={send.busy || draft.busy || text.trim() === "" || sendUsd === null}
-          onClick={() =>
-            void send.run(() =>
-              sendDm({ id: person.id, text }).then(() => {
-                setText("");
-                setSent(true);
-                onSent();
-              }),
-            )
-          }
+          disabled={dmBusy !== null || dm.trim() === "" || sendUsd === null}
+          onClick={() => void onSend()}
         >
-          <TextMorph duration={250}>{send.busy ? "Sending…" : sent ? "Sent" : "Send DM"}</TextMorph>
+          <TextMorph duration={250}>
+            {dmBusy === "send" ? "Sending…" : dmSent ? "Sent" : "Send DM"}
+          </TextMorph>
           {sendUsd === null ? <Cost tone="solid" label="…" /> : <Cost tone="solid" usd={sendUsd} />}
         </button>
         <button
           type="button"
           className={pill}
-          disabled={send.busy || draft.busy}
-          onClick={() => void draft.run(() => draftDm(person.id).then(setText))}
+          disabled={dmBusy !== null || postsQuote === "…" || assistQuote === "…"}
+          onClick={() => void onDraft()}
         >
-          <TextMorph duration={250}>{draft.busy ? "Drafting…" : "Draft with AI"}</TextMorph>
+          <TextMorph duration={250}>{dmBusy === "draft" ? "Drafting…" : "Draft with AI"}</TextMorph>
           <Cost label={`${postsQuote} + ${assistQuote}`} />
         </button>
       </div>
-      {(send.error ?? draft.error) ? (
-        <p className="mt-2 text-xs text-error-foreground">{send.error ?? draft.error}</p>
-      ) : null}
+      {dmError !== null ? <p className="mt-2 text-xs text-error-foreground">{dmError}</p> : null}
     </Section>
   );
 }
@@ -532,24 +589,51 @@ function DirectMessage({
 function Reply({
   id,
   handle,
+  work,
+  patch,
   onSent,
 }: {
   readonly id: number;
   readonly handle: string;
+  readonly work: Outreach;
+  readonly patch: OutreachPatch;
   readonly onSent: () => void;
 }) {
-  const loadPost = useAtomSet(latestPostAtom, { mode: "promise" });
-  const draft = useAtomSet(draftReplyAtom, { mode: "promise" });
-  const send = useAtomSet(sendReplyAtom, { mode: "promise" });
-  const { busy, error, run } = useAction();
-  const [post, setPost] = useState<XPost | null | undefined>(undefined);
-  const [text, setText] = useState("");
-  const [sentId, setSentId] = useState<string | null>(null);
+  const loadPost = useAtomSet(latestPostAtom(id), { mode: "promiseExit" });
+  const draft = useAtomSet(draftReplyAtom(id), { mode: "promiseExit" });
+  const send = useAtomSet(sendReplyAtom(id), { mode: "promiseExit" });
+  const { post, reply, replied, replyBusy, replyError } = work;
+  const busy = replyBusy !== null;
   const postQuote = useQuoteLabel({ kind: "userPosts", handle });
   const assistQuote = useQuoteLabel({ kind: "assist" });
   // Priced here from the rate card: a quote rpc per keystroke would flash "…" on the button.
   const rates = useRates();
-  const load = () => run(() => loadPost(id).then(setPost));
+
+  const load = async () => {
+    patch({ replyBusy: "load", replyError: null });
+    const exit = await loadPost();
+    if (Exit.isFailure(exit)) return patch({ replyBusy: null, replyError: errorText(exit.cause) });
+    // A reply written for one post must not go to another: a new post starts a new reply.
+    patch(
+      exit.value?.postId === post?.postId
+        ? { replyBusy: null, post: exit.value }
+        : { replyBusy: null, post: exit.value, reply: "", replied: false },
+    );
+  };
+  const onDraft = async () => {
+    patch({ replyBusy: "draft", replyError: null });
+    const exit = await draft();
+    if (Exit.isFailure(exit)) return patch({ replyBusy: null, replyError: errorText(exit.cause) });
+    patch({ replyBusy: null, post: exit.value.post, reply: exit.value.text, replied: false });
+  };
+  const onSend = async (to: XPost) => {
+    patch({ replyBusy: "send", replyError: null });
+    const exit = await send({ postId: to.postId, text: reply });
+    if (Exit.isFailure(exit)) return patch({ replyBusy: null, replyError: errorText(exit.cause) });
+    patch({ replyBusy: null, reply: "", replied: true });
+    onSent();
+  };
+
   return (
     <Section
       title="Reply to their latest post"
@@ -558,7 +642,7 @@ function Reply({
           <button
             type="button"
             className="flex cursor-pointer items-baseline gap-1.5 text-xs text-muted-foreground transition-colors duration-150 hover:text-foreground disabled:opacity-50"
-            disabled={busy}
+            disabled={busy || postQuote === "…"}
             onClick={() => void load()}
           >
             Load again
@@ -568,8 +652,15 @@ function Reply({
       }
     >
       {post === undefined ? (
-        <button type="button" className={pill} disabled={busy} onClick={() => void load()}>
-          <TextMorph duration={250}>{busy ? "Loading…" : "Load their latest post"}</TextMorph>
+        <button
+          type="button"
+          className={pill}
+          disabled={busy || postQuote === "…"}
+          onClick={() => void load()}
+        >
+          <TextMorph duration={250}>
+            {replyBusy === "load" ? "Loading…" : "Load their latest post"}
+          </TextMorph>
           <Cost label={postQuote} />
         </button>
       ) : post === null ? (
@@ -582,47 +673,31 @@ function Reply({
           <textarea
             className={cn(inputClass, "mt-3 min-h-20 resize-y leading-relaxed")}
             placeholder="Write a reply, or draft one"
-            value={text}
+            value={reply}
             maxLength={280}
-            onChange={(e) => {
-              setText(e.target.value);
-              setSentId(null);
-            }}
+            // Locked while sending: success clears the box, which would take text typed meanwhile.
+            disabled={replyBusy === "send"}
+            onChange={(e) => patch({ reply: e.target.value, replied: false })}
           />
           <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
             <button
               type="button"
               className={pillSolid}
-              disabled={busy || text.trim() === "" || rates === null}
-              onClick={() =>
-                void run(() =>
-                  send({ id, postId: post.postId, text }).then((r) => {
-                    setSentId(r.postId);
-                    setText("");
-                    onSent();
-                  }),
-                )
-              }
+              disabled={busy || reply.trim() === "" || rates === null}
+              onClick={() => void onSend(post)}
             >
-              <TextMorph duration={250}>{sentId !== null ? "Replied" : "Reply"}</TextMorph>
+              <TextMorph duration={250}>{replied ? "Replied" : "Reply"}</TextMorph>
               {rates === null ? (
                 <Cost tone="solid" label="…" />
               ) : (
-                <Cost tone="solid" usd={postCostUsd(rates, text)} />
+                <Cost tone="solid" usd={postCostUsd(rates, reply)} />
               )}
             </button>
             <button
               type="button"
               className={pill}
-              disabled={busy}
-              onClick={() =>
-                void run(() =>
-                  draft(id).then((d) => {
-                    setPost(d.post);
-                    setText(d.text);
-                  }),
-                )
-              }
+              disabled={busy || postQuote === "…" || assistQuote === "…"}
+              onClick={() => void onDraft()}
             >
               Draft with AI
               {/* The draft reads their latest post again, then one model call. */}
@@ -631,7 +706,9 @@ function Reply({
           </div>
         </>
       )}
-      {error !== null ? <p className="mt-2 text-xs text-error-foreground">{error}</p> : null}
+      {replyError !== null ? (
+        <p className="mt-2 text-xs text-error-foreground">{replyError}</p>
+      ) : null}
     </Section>
   );
 }

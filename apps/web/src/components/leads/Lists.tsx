@@ -295,7 +295,7 @@ function Matches({ listId, found }: { readonly listId: number; readonly found: F
             onClick={() =>
               void run(() =>
                 addAll({ listId, people: found.matches }).then((r) => {
-                  setAdded(r.inserted);
+                  setAdded(r.added);
                   refreshPeople();
                   refreshLists();
                 }),
@@ -350,7 +350,8 @@ function SearchBuilder({ listId }: { readonly listId: number }) {
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            if (query.trim() === "") return;
+            // Enter submits too: what disables the button stops it here.
+            if (busy || query.trim() === "" || rates === null) return;
             void run(() =>
               preview({
                 query,
@@ -389,7 +390,11 @@ function SearchBuilder({ listId }: { readonly listId: number }) {
             />
           </Field>
           <div className="mt-3 flex items-center gap-1.5">
-            <button type="submit" className={pill} disabled={busy || query.trim() === ""}>
+            <button
+              type="submit"
+              className={pill}
+              disabled={busy || query.trim() === "" || rates === null}
+            >
               <TextMorph duration={250}>{busy ? "Searching…" : "Preview"}</TextMorph>
               <Cost label={quote} />
             </button>
@@ -420,7 +425,7 @@ function EngagementBuilder({ listId }: { readonly listId: number }) {
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            if (postId === null) return;
+            if (busy || postId === null || quote === null) return;
             void run(() =>
               fetchEngagers({ postId, via }).then((r) => {
                 setFound(r);
@@ -448,7 +453,11 @@ function EngagementBuilder({ listId }: { readonly listId: number }) {
             </select>
           </Field>
           <div className="mt-3 flex items-center gap-1.5">
-            <button type="submit" className={pill} disabled={busy || postId === null}>
+            <button
+              type="submit"
+              className={pill}
+              disabled={busy || postId === null || quote === null}
+            >
               <TextMorph duration={250}>{busy ? "Fetching…" : "Fetch"}</TextMorph>
               {quote === null ? <Cost label="…" /> : <Cost usd={quote} />}
             </button>

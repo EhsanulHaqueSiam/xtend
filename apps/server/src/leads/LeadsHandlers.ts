@@ -38,9 +38,7 @@ export const layerHandlers = LeadsRpcGroup.toLayer(
       [Leads_METHODS.listCreate]: ({ name }) => people.createList(name),
       [Leads_METHODS.listPreview]: (criteria) => ops.listPreview(criteria),
       [Leads_METHODS.listAddAll]: ({ listId, people: rows }) =>
-        Effect.map(people.addMany(rows, `list:${listId}`, listId), (ids) => ({
-          inserted: ids.filter((id) => id !== null).length,
-        })),
+        Effect.map(people.addToList(listId, rows), (added) => ({ added })),
       [Leads_METHODS.agentsList]: () => agents.list,
       [Leads_METHODS.agentUpsert]: (input) => agents.upsert(input),
       [Leads_METHODS.agentRun]: ({ id }) => agents.run(id),

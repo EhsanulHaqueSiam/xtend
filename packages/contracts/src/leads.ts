@@ -229,9 +229,10 @@ export const LeadsRpcGroup = RpcGroup.make(
     success: Schema.Struct({ matches: Schema.Array(Candidate), costUsd: Schema.Number }),
     error: LeadsOrX,
   }),
+  /** `added` counts who joined the list, whether or not they were in People already. */
   Rpc.make(Leads_METHODS.listAddAll, {
     payload: Schema.Struct({ listId: Schema.Int, people: Schema.Array(Candidate) }),
-    success: Schema.Struct({ inserted: NonNegativeInt }),
+    success: Schema.Struct({ added: NonNegativeInt }),
     error: LeadsError,
   }),
   Rpc.make(Leads_METHODS.agentsList, {

@@ -1,17 +1,20 @@
-import type {
-  CostAction,
-  LeadList,
-  ListCriteria,
-  Person,
-  PersonUpdate,
-  SignalAgent,
-  SignalAgentInput,
+import {
+  LeadsError,
+  SettingsError,
+  type CostAction,
+  type LeadList,
+  type ListCriteria,
+  type Person,
+  type PersonUpdate,
+  type SignalAgent,
+  type SignalAgentInput,
 } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import { expect, it } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
-import { paid, quoting, settings } from "../../../test/fixtures";
+import type { FakeService } from "../../../test/fakeService";
+import { paid, quoting, settings, xPost } from "../../../test/fixtures";
 import { render } from "../../../test/render";
 import { AgentsSection } from "./Agents";
 import { FollowersSection } from "./Followers";
@@ -231,7 +234,7 @@ it("edits the agent that was clicked, and prices a bot-checking run with its pro
 
 it("changes a stage, and prices a DM to someone without a user id with the profile lookup", async () => {
   const updates: Array<PersonUpdate> = [];
-  const dms: Array<string> = [];
+  const dms: Array<{ readonly id: number; readonly text: string }> = [];
   let people = [person(1), person(2, { userId: "22" })];
   await using screen = await render(<PeopleSection />, {
     service: {
@@ -247,7 +250,7 @@ it("changes a stage, and prices a DM to someone without a user id with the profi
         }),
       "leads.personGet": ({ id }) =>
         Effect.sync(() => ({ person: people.find((p) => p.id === id)!, activity: [] })),
-      "leads.sendDm": ({ text }) => Effect.sync(() => void dms.push(text)),
+      "leads.sendDm": (input) => Effect.sync(() => void dms.push(input)),
     },
   });
   // The stage is set from the selected person's panel.
@@ -262,7 +265,8 @@ it("changes a stage, and prices a DM to someone without a user id with the profi
   await userEvent.fill(dm, "Loved your launch");
   // $0.015 for the DM, plus the $0.00022 profile read that finds the user id.
   await userEvent.click(screen.getByRole("button", { name: /^Send DM.*\$0\.01522$/ }));
-  await expect.poll(() => dms).toEqual(["Loved your launch"]);
+  // To the person whose panel it was typed in.
+  await expect.poll(() => dms).toEqual([{ id: 1, text: "Loved your launch" }]);
   await expect.element(dm).toHaveValue("");
 
   // The panel follows the person: what was typed for one is not sent to the next.
@@ -300,4 +304,195 @@ it("dragging a card onto a stage column moves the person there", async () => {
       screen.getByRole("region", { name: "contacted" }).getByRole("button", { name: /^@lead2/ }),
     )
     .toBeVisible();
+});
+
+/** People and the reads and writes their panel makes, kept as the service keeps them. */
+const peopleService = (start: ReadonlyArray<Person>, extra: FakeService = {}): FakeService => {
+  let people = start;
+  return {
+    "costs.quote": quoting(),
+    "leads.peopleList": () => Effect.sync(() => people),
+    "leads.personUpdate": ({ id, ...patch }) =>
+      Effect.sync(() => {
+        people = people.map((p) => (p.id === id ? { ...p, ...patch } : p));
+        return people.find((p) => p.id === id)!;
+      }),
+    "leads.personGet": ({ id }) =>
+      Effect.sync(() => ({ person: people.find((p) => p.id === id)!, activity: [] })),
+    ...extra,
+  };
+};
+
+it("a note written, left and returned to is still there", async () => {
+  await using screen = await render(<PeopleSection />, {
+    service: peopleService([person(1), person(2)]),
+  });
+  const notes = screen.getByPlaceholder("What you know about them");
+  await userEvent.fill(notes, "met at a meetup");
+  // Picking someone else blurs the box, which saves it.
+  await userEvent.click(screen.getByRole("button", { name: /^@lead2/ }));
+  await expect.element(notes).toHaveValue("");
+  await userEvent.click(screen.getByRole("button", { name: /^@lead1/ }));
+  await expect.element(notes).toHaveValue("met at a meetup");
+});
+
+it("a DM in flight cannot go twice, and its text is locked until it lands", async () => {
+  const sent: Array<{ readonly id: number; readonly text: string }> = [];
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await using screen = await render(<PeopleSection />, {
+    service: peopleService([person(1)], {
+      "leads.sendDm": (input) =>
+        Effect.promise(() => {
+          sent.push(input);
+          return held;
+        }),
+    }),
+  });
+  const dm = screen.getByPlaceholder("Write a DM, or draft one");
+  await userEvent.fill(dm, "Loved your launch");
+  const send = screen.getByRole("button", { name: /^(Send DM|Sending)/ });
+  await userEvent.click(send);
+  await expect.element(send).toBeDisabled();
+  await expect.element(dm).toBeDisabled();
+  send.element().click();
+  release();
+  await expect.element(dm).toHaveValue("");
+  expect(sent).toEqual([{ id: 1, text: "Loved your launch" }]);
+});
+
+it("a person's DM, reply and paid post survive picking someone else, even mid-load", async () => {
+  let releaseSecond = () => {};
+  const second = new Promise<void>((resolve) => (releaseSecond = resolve));
+  await using screen = await render(<PeopleSection />, {
+    service: peopleService([person(1), person(2)], {
+      "leads.latestPost": ({ id }) =>
+        Effect.promise(() => (id === 2 ? second : Promise.resolve())).pipe(
+          Effect.as(xPost(`${id}00`, `post by lead ${id}`)),
+        ),
+    }),
+  });
+  const dm = screen.getByPlaceholder("Write a DM, or draft one");
+  const reply = screen.getByPlaceholder("Write a reply, or draft one");
+  const load = screen.getByRole("button", { name: /^Load their latest post/ });
+  await userEvent.fill(dm, "hi lead 1");
+  await userEvent.click(load);
+  await userEvent.fill(reply, "reply to lead 1");
+
+  // Lead 2's paid read is still out when the user goes back to lead 1.
+  await userEvent.click(screen.getByRole("button", { name: /^@lead2/ }));
+  await expect.element(dm).toHaveValue("");
+  await userEvent.click(load);
+  await userEvent.click(screen.getByRole("button", { name: /^@lead1/ }));
+  await expect.element(dm).toHaveValue("hi lead 1");
+  await expect.element(screen.getByText("post by lead 1")).toBeVisible();
+  await expect.element(reply).toHaveValue("reply to lead 1");
+
+  releaseSecond();
+  await userEvent.click(screen.getByRole("button", { name: /^@lead2/ }));
+  await expect.element(screen.getByText("post by lead 2")).toBeVisible();
+});
+
+it("a reply written for one post is dropped when Load again finds a newer one", async () => {
+  let latest = xPost("100", "first post");
+  await using screen = await render(<PeopleSection />, {
+    service: peopleService([person(1)], { "leads.latestPost": () => Effect.sync(() => latest) }),
+  });
+  await userEvent.click(screen.getByRole("button", { name: /^Load their latest post/ }));
+  const reply = screen.getByPlaceholder("Write a reply, or draft one");
+  await userEvent.fill(reply, "about the first post");
+  latest = xPost("101", "second post");
+  await userEvent.click(screen.getByRole("button", { name: /^Load again/ }));
+  await expect.element(screen.getByText("second post")).toBeVisible();
+  await expect.element(reply).toHaveValue("");
+});
+
+it("says why a person's record or the settings failed, instead of waiting forever", async () => {
+  {
+    await using screen = await render(<PeopleSection />, {
+      service: peopleService([person(1)], {
+        "leads.personGet": () =>
+          Effect.fail(
+            new LeadsError({ operation: "get", detail: "database is locked", cause: null }),
+          ),
+      }),
+    });
+    await expect.element(screen.getByText(/database is locked/)).toBeVisible();
+    expect(screen.getByText("Loading…").elements()).toHaveLength(0);
+  }
+  await using screen = await render(<FollowersSection />, {
+    service: {
+      "settings.get": () => Effect.fail(new SettingsError({ operation: "get", cause: null })),
+      "costs.quote": quoting(),
+    },
+  });
+  await expect.element(screen.getByText("Settings failed during get.")).toBeVisible();
+});
+
+it("paid builders and agent actions wait for their price, from the button and from Enter", async () => {
+  const calls: Array<string> = [];
+  {
+    await using screen = await render(<ListsSection />, {
+      service: {
+        "costs.quote": () => Effect.never,
+        "leads.engagersQuote": () => Effect.never,
+        "leads.listsList": () => Effect.succeed([list(1, "Founders")]),
+        "leads.peopleList": () => Effect.succeed([]),
+        "leads.listPreview": () =>
+          Effect.sync(() => {
+            calls.push("preview");
+            return { matches: [], costUsd: 0 };
+          }),
+        "leads.engagers": () =>
+          Effect.sync(() => {
+            calls.push("engagers");
+            return { matches: [], costUsd: 0 };
+          }),
+      },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Add people" }).first());
+    await userEvent.fill(screen.getByPlaceholder('"typefully alternative"'), "saas founder");
+    await expect.element(screen.getByRole("button", { name: /^Preview/ })).toBeDisabled();
+    await userEvent.keyboard("{Enter}");
+    await userEvent.click(screen.getByRole("button", { name: "From a post" }));
+    await userEvent.fill(screen.getByPlaceholder("Post URL or id"), "456");
+    await expect.element(screen.getByRole("button", { name: /^Fetch/ })).toBeDisabled();
+    await userEvent.keyboard("{Enter}");
+  }
+  await using screen = await render(<AgentsSection />, {
+    service: {
+      "costs.quote": () => Effect.never,
+      "leads.listsList": () => Effect.succeed([]),
+      "leads.agentsList": () => Effect.succeed([]),
+    },
+  });
+  await expect.element(screen.getByRole("button", { name: /^Suggest with AI/ })).toBeDisabled();
+  await userEvent.click(screen.getByRole("button", { name: "New agent" }).first());
+  await userEvent.fill(screen.getByPlaceholder("Typefully switchers"), "founders");
+  await userEvent.fill(screen.getByPlaceholder('"typefully alternative" OR "tweet hunter"'), "q");
+  await expect.element(screen.getByRole("button", { name: "Save and start" })).toBeDisabled();
+  expect(calls).toEqual([]);
+});
+
+it("a new agent's save says it starts the paid runs, beside their price", async () => {
+  const saved: Array<SignalAgentInput> = [];
+  await using screen = await render(<AgentsSection />, {
+    service: {
+      "costs.quote": quoting(),
+      "leads.listsList": () => Effect.succeed([]),
+      "leads.agentsList": () => Effect.succeed([]),
+      "leads.agentUpsert": (input) =>
+        Effect.sync(() => {
+          saved.push(input);
+          return { ...input, id: 1, lastRun: null };
+        }),
+    },
+  });
+  await userEvent.click(screen.getByRole("button", { name: "New agent" }).first());
+  await userEvent.fill(screen.getByPlaceholder("Typefully switchers"), "founders");
+  await userEvent.fill(screen.getByPlaceholder('"typefully alternative" OR "tweet hunter"'), "q");
+  // The price of a run stays beside the button that starts them.
+  await expect.element(screen.getByText("$0.00075 + $0.001", { exact: true })).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: "Save and start" }));
+  await expect.poll(() => saved.map((a) => a.enabled)).toEqual([true]);
 });

@@ -66,18 +66,24 @@ export const personProfileAtom = clientRuntime.fn<number>()(
   }),
 );
 
-export const draftDmAtom = clientRuntime.fn<number>()(
-  Effect.fnUntraced(function* (id) {
-    const client = yield* XtendClient;
-    return (yield* client[Leads_METHODS.draftDm]({ id })).text;
-  }),
+// Outreach atoms are per person: a new write to a shared fn atom interrupts the call still
+// running, so drafting for one person would cut off a paid call in flight for the one just left.
+export const draftDmAtom = Atom.family((id: number) =>
+  clientRuntime.fn<void>()(
+    Effect.fnUntraced(function* () {
+      const client = yield* XtendClient;
+      return (yield* client[Leads_METHODS.draftDm]({ id })).text;
+    }),
+  ),
 );
 
-export const sendDmAtom = clientRuntime.fn<{ readonly id: number; readonly text: string }>()(
-  Effect.fnUntraced(function* (input) {
-    const client = yield* XtendClient;
-    return yield* client[Leads_METHODS.sendDm](input);
-  }),
+export const sendDmAtom = Atom.family((id: number) =>
+  clientRuntime.fn<string>()(
+    Effect.fnUntraced(function* (text) {
+      const client = yield* XtendClient;
+      return yield* client[Leads_METHODS.sendDm]({ id, text });
+    }),
+  ),
 );
 
 export const createListAtom = clientRuntime.fn<string>()(
@@ -152,27 +158,29 @@ export const engagersAtom = clientRuntime.fn<{
   }),
 );
 
-export const latestPostAtom = clientRuntime.fn<number>()(
-  Effect.fnUntraced(function* (id) {
-    const client = yield* XtendClient;
-    return yield* client[Leads_METHODS.latestPost]({ id });
-  }),
+export const latestPostAtom = Atom.family((id: number) =>
+  clientRuntime.fn<void>()(
+    Effect.fnUntraced(function* () {
+      const client = yield* XtendClient;
+      return yield* client[Leads_METHODS.latestPost]({ id });
+    }),
+  ),
 );
 
-export const draftReplyAtom = clientRuntime.fn<number>()(
-  Effect.fnUntraced(function* (id) {
-    const client = yield* XtendClient;
-    return yield* client[Leads_METHODS.draftReply]({ id });
-  }),
+export const draftReplyAtom = Atom.family((id: number) =>
+  clientRuntime.fn<void>()(
+    Effect.fnUntraced(function* () {
+      const client = yield* XtendClient;
+      return yield* client[Leads_METHODS.draftReply]({ id });
+    }),
+  ),
 );
 
-export const sendReplyAtom = clientRuntime.fn<{
-  readonly id: number;
-  readonly postId: string;
-  readonly text: string;
-}>()(
-  Effect.fnUntraced(function* (input) {
-    const client = yield* XtendClient;
-    return yield* client[Leads_METHODS.sendReply](input);
-  }),
+export const sendReplyAtom = Atom.family((id: number) =>
+  clientRuntime.fn<{ readonly postId: string; readonly text: string }>()(
+    Effect.fnUntraced(function* ({ postId, text }) {
+      const client = yield* XtendClient;
+      return yield* client[Leads_METHODS.sendReply]({ id, postId, text });
+    }),
+  ),
 );

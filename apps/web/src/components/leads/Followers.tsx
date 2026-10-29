@@ -7,7 +7,7 @@ import { TextMorph } from "torph/react";
 import { useQuoteLabel, usd } from "../../state/costs";
 import { addPersonAtom, newFollowersAtom, peopleAtom } from "../../state/leads";
 import { settingsAtom } from "../../state/settings";
-import { fmt } from "../analyze/ui";
+import { errorText, fmt } from "../analyze/ui";
 import { ErrorLine, pill, pillSolid } from "../engage/triage";
 import { PageHeader } from "../PageHeader";
 import { Cost, Empty, PageBody, Section } from "../ui/layout";
@@ -68,7 +68,8 @@ function CheckButton({
 
 /** Followers gained since the last check. One followers page per check, priced up front. */
 export function FollowersSection() {
-  const settings = AsyncResult.getOrElse(useAtomValue(settingsAtom), () => null);
+  const settingsResult = useAtomValue(settingsAtom);
+  const settings = AsyncResult.getOrElse(settingsResult, () => null);
   const check = useAtomSet(newFollowersAtom, { mode: "promise" });
   const { busy, error, run } = useAction();
   const [result, setResult] = useState<Checked | null>(null);
@@ -96,7 +97,12 @@ export function FollowersSection() {
         // Before the first check the button sits where the followers will be.
         actions={result === null ? undefined : button("Check again")}
       />
-      {settings !== null && settings.handle === null ? (
+      {AsyncResult.isFailure(settingsResult) ? (
+        // The check needs the handle from settings; without them there is nothing to price.
+        <PageBody>
+          <ErrorLine>{errorText(settingsResult.cause)}</ErrorLine>
+        </PageBody>
+      ) : settings !== null && settings.handle === null ? (
         <PageBody>
           <NoHandle subject="New followers need" />
         </PageBody>
