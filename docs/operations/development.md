@@ -131,16 +131,27 @@ mapping returns. The script is tested by `node --test .github/scripts`, part of 
 Runners stay pinned. `ubuntu-latest` moved to 26.04 before Playwright supported it, and every
 run failed at the browser install.
 
-A `v*` tag runs `.github/workflows/release-desktop.yml`. A macOS job builds the dmgs and zips
-with `pnpm dist:desktop:dmg`, a Linux job the AppImage with `pnpm dist:desktop:appimage` and the
-CLI tarball with `pnpm cli:pack --check`, both taking the version from the tag and running
-`pnpm release:smoke`. Only when both pass does a third job publish one draft GitHub release with
-all the files, their blockmaps, `latest-mac.yml` and `latest-linux.yml`. A manual run builds the
-same files as workflow artifacts. macOS builds are unsigned until the `CSC_LINK` and
-`CSC_KEY_PASSWORD` secrets exist; notarization also needs the Apple ID secrets and
-`mac.notarize: true` in `electron-builder.yml`, and the macOS updater only works on signed builds.
+`.github/workflows/release-desktop.yml` ships two channels, as T3 Code does. A push to `main`
+that touches the app is a **nightly**: version `X.Y.Z-nightly.YYYYMMDD.RUN`, where `X.Y.Z` is one
+patch past the newest `vX.Y.Z` tag, published as a GitHub prerelease. Merges in a row cancel the
+older run, so only the newest builds. A `vX.Y.Z` tag is **stable**, published as the latest
+release; to promote a nightly, tag its commit. A version job picks the version once; a macOS job
+builds the dmgs and zips with `pnpm dist:desktop:dmg`, a Linux job the AppImage with
+`pnpm dist:desktop:appimage` and the CLI tarball with `pnpm cli:pack --check`, both stamping the
+version and running `pnpm release:smoke`. Only when both pass does a third job publish the
+release with every file. electron-builder names the updater files after the channel in the
+version: `latest-*.yml` for stable, `nightly-*.yml` for nightlies. A manual run builds the same
+files as workflow artifacts and publishes nothing.
+
+The app (`apps/desktop/src/updates.ts`) follows the channel it was built on until the user picks
+the other in Settings, Service, checks at start and hourly, and shows "Restart to update" once a
+build is downloaded. macOS builds are unsigned until the `CSC_LINK` and `CSC_KEY_PASSWORD`
+secrets exist, and Squirrel.Mac will not install into an unsigned app, so on macOS the app links
+to the release instead; notarization also needs the Apple ID secrets and `mac.notarize: true`
+in `electron-builder.yml`. The repo is public, which the updater needs: GitHub Releases of a
+private repo need a token the app must not carry.
 
 `.github/workflows/desktop-preview.yml` builds an unsigned arm64 macOS app and the AppImage for
 every pull request that touches the app, runs `pnpm release:smoke` on each, and uploads them as
 artifacts for 14 days, linked from the run summary. A manual run picks macOS, Linux or both.
-macOS runner minutes count ten times on a private repo.
+Runner minutes are free on a public repo.

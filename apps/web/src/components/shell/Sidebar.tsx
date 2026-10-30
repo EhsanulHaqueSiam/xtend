@@ -30,6 +30,7 @@ import { accountsAtom, selectAccountAtom, switchAccount } from "../../state/acco
 import { pendingAtom } from "../../state/automate";
 import { mentionsAtom } from "../../state/engage";
 import { settingsAtom } from "../../state/settings";
+import { useDesktopUpdate } from "../../state/update";
 import {
   connectionAtom,
   paletteOpenAtom,
@@ -371,6 +372,44 @@ function useMinuteClock() {
   return now;
 }
 
+/**
+ * The desktop's update, above the day's lines once there is one: a ready build restarts into
+ * it, an unsigned macOS build links to its download. Nothing shows while up to date.
+ */
+function UpdateLine() {
+  const update = useDesktopUpdate();
+  if (update === null) return null;
+  const action =
+    update.status === "ready"
+      ? { label: `${update.next} · restart`, run: () => window.desktopBridge?.restartToUpdate() }
+      : update.status === "available"
+        ? {
+            label: `${update.next} · download`,
+            run: () => window.desktopBridge?.openExternal(update.url),
+          }
+        : null;
+  if (action !== null)
+    return (
+      <button
+        type="button"
+        className="flex cursor-pointer items-center justify-between gap-2 text-sidebar-foreground"
+        onClick={action.run}
+      >
+        <span>update</span>
+        <span className="truncate">{action.label}</span>
+      </button>
+    );
+  if (update.status !== "downloading") return null;
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span>update</span>
+      <span className="truncate text-sidebar-foreground/80">
+        {update.next} · {update.percent}%
+      </span>
+    </div>
+  );
+}
+
 /** The day at a glance, all from free reads: next post, queue, spend against budget, service. */
 function Today() {
   const queued = or(useAtomValue(queuedDraftsAtom), null);
@@ -394,35 +433,35 @@ function Today() {
     </div>
   );
   return (
-    <Link
-      to="/settings"
-      className="no-drag mt-auto grid gap-1 border-t border-sidebar-border px-2 pt-3 font-mono text-2xs text-sidebar-muted-foreground hover:text-sidebar-foreground"
-    >
-      {line("next", next ?? "nothing queued")}
-      {line("queued", queued?.length ?? "–")}
-      {line(
-        "spend",
-        spend === null
-          ? "–"
-          : `$${spend.monthUsd.toFixed(2)} / $${spend.monthlyBudgetUsd.toFixed(0)}`,
-      )}
-      {line(
-        "service",
-        <>
-          <span
-            className={cn(
-              "size-1.5 rounded-full",
-              connection === "connected"
-                ? "bg-success"
-                : connection === "connecting"
-                  ? "bg-warning"
-                  : "bg-error",
-            )}
-          />
-          {mode}
-        </>,
-      )}
-    </Link>
+    <div className="no-drag mt-auto grid gap-1 border-t border-sidebar-border px-2 pt-3 font-mono text-2xs text-sidebar-muted-foreground">
+      <UpdateLine />
+      <Link to="/settings" className="grid gap-1 hover:text-sidebar-foreground">
+        {line("next", next ?? "nothing queued")}
+        {line("queued", queued?.length ?? "–")}
+        {line(
+          "spend",
+          spend === null
+            ? "–"
+            : `$${spend.monthUsd.toFixed(2)} / $${spend.monthlyBudgetUsd.toFixed(0)}`,
+        )}
+        {line(
+          "service",
+          <>
+            <span
+              className={cn(
+                "size-1.5 rounded-full",
+                connection === "connected"
+                  ? "bg-success"
+                  : connection === "connecting"
+                    ? "bg-warning"
+                    : "bg-error",
+              )}
+            />
+            {mode}
+          </>,
+        )}
+      </Link>
+    </div>
   );
 }
 

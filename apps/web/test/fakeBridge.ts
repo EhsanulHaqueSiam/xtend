@@ -32,6 +32,11 @@ export function installFakeBridge(overrides: Partial<DesktopBridge> = {}) {
     onAppRoute: subscribe(routes),
     onSessionDownload: () => () => {},
     onShortcut: subscribe(shortcuts),
+    getUpdate: () => Promise.resolve({ channel: "stable", version: "0.0.1", status: "idle" }),
+    onUpdate: () => () => {},
+    checkUpdate: () => calls.push("update check"),
+    setUpdateChannel: (channel) => calls.push(`update channel ${channel}`),
+    restartToUpdate: () => calls.push("update restart"),
     ...overrides,
   };
   window.desktopBridge = bridge;

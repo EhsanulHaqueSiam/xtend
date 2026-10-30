@@ -1,33 +1,75 @@
 name: Release
 
-# A v* tag builds the macOS app (dmg, zip), the Linux AppImage and the CLI tarball, checks each
-# with the release smoke tests, and only then publishes one draft GitHub release with all of them
-# plus latest-mac.yml and latest-linux.yml for the updater. A manual run builds the same files as
-# workflow artifacts only. macOS builds are unsigned until the signing secrets exist; see
-# apps/desktop/electron-builder.yml.
+# Two channels, as T3 Code ships them. Every push to main that touches the app is a nightly,
+# X.Y.Z-nightly.YYYYMMDD.RUN where X.Y.Z is one patch past the last stable tag, published as a
+# GitHub prerelease with nightly-*.yml for the updater. A vX.Y.Z tag is a stable release, marked
+# latest, with latest-*.yml. Each builds the macOS app (dmg, zip), the Linux AppImage and the CLI
+# tarball, checks them with the release smoke tests, and only then publishes. A manual run builds
+# the same files as workflow artifacts and publishes nothing. macOS builds are unsigned until the
+# signing secrets exist (see apps/desktop/electron-builder.yml), so macOS installs link to the
+# download instead of updating in place.
 on:
   push:
     tags:
       - "v*"
+    branches:
+      - main
+    paths:
+      - "apps/**"
+      - "packages/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - ".github/workflows/release-desktop.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# Merges in a row build only the newest nightly; a tag is never canceled.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref == 'refs/heads/main' }}
+
 jobs:
+  version:
+    name: Version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      nightly: ${{ steps.v.outputs.nightly }}
+    steps:
+      - id: v
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+            echo "nightly=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          last=$(gh api "repos/$GITHUB_REPOSITORY/tags" --paginate -q '.[].name' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed 's/^v//' | sort -V | tail -1)
+          IFS=. read -r major minor patch <<< "${last:-0.0.0}"
+          echo "version=$major.$minor.$((patch + 1))-nightly.$(date -u +%Y%m%d).$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "nightly=true" >> "$GITHUB_OUTPUT"
+
   mac:
     name: macOS
+    needs: version
     runs-on: macos-15
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
 
-      - name: Take the version from the tag
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Stamp the version
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
-          (cd apps/desktop && npm pkg set version="${GITHUB_REF_NAME#v}")
-          (cd apps/server && npm pkg set version="${GITHUB_REF_NAME#v}")
+          (cd apps/desktop && npm pkg set version="$VERSION")
+          (cd apps/server && npm pkg set version="$VERSION")
 
       # The local entry point: build, verify the preloads, package. The desktop `dist` script drops
       # an empty CSC_LINK, which would otherwise send electron-builder after a missing certificate.
@@ -47,22 +89,24 @@ jobs:
             apps/desktop/release/*.dmg
             apps/desktop/release/*.zip
             apps/desktop/release/*.blockmap
-            apps/desktop/release/latest-mac.yml
+            apps/desktop/release/*.yml
           if-no-files-found: error
 
   linux:
     name: Linux AppImage and CLI
+    needs: version
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
 
-      - name: Take the version from the tag
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Stamp the version
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
-          (cd apps/desktop && npm pkg set version="${GITHUB_REF_NAME#v}")
-          (cd apps/server && npm pkg set version="${GITHUB_REF_NAME#v}")
+          (cd apps/desktop && npm pkg set version="$VERSION")
+          (cd apps/server && npm pkg set version="$VERSION")
 
       - name: Build and package
         run: pnpm dist:desktop:appimage --publish never
@@ -76,14 +120,14 @@ jobs:
           name: xtend-linux
           path: |
             apps/desktop/release/*.AppImage
-            apps/desktop/release/latest-linux.yml
+            apps/desktop/release/*.yml
             dist-cli/*.tgz
           if-no-files-found: error
 
   publish:
-    name: Draft release
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [mac, linux]
+    name: Publish
+    if: github.event_name == 'push'
+    needs: [version, mac, linux]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -93,10 +137,19 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
-      # Only builds that passed their smoke checks get here.
-      - name: Publish a draft release
+      # Only builds that passed their smoke checks get here. electron-builder also writes
+      # builder-debug.yml; the updater reads only latest-*.yml and nightly-*.yml.
+      - name: Publish the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.version.outputs.version }}
+          NIGHTLY: ${{ needs.version.outputs.nightly }}
         run: |
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft \
-            --title "Xtend ${GITHUB_REF_NAME#v}" --generate-notes artifacts/*
+          rm -f artifacts/builder-debug.yml
+          if [ "$NIGHTLY" = true ]; then
+            gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --prerelease --title "Xtend $VERSION" --generate-notes artifacts/*
+          else
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --latest \
+              --title "Xtend $VERSION" --generate-notes artifacts/*
+          fi

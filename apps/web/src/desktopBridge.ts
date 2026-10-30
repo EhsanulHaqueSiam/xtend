@@ -23,6 +23,17 @@ export interface Glance {
   readonly connected: boolean;
 }
 
+type UpdateChannel = "stable" | "nightly";
+
+/** The desktop's own update; mirrors `UpdateState` in apps/desktop/src/ipc/channels.ts. */
+export type UpdateState = { readonly channel: UpdateChannel; readonly version: string } & (
+  | { readonly status: "idle" }
+  | { readonly status: "available"; readonly next: string; readonly url: string }
+  | { readonly status: "downloading"; readonly next: string; readonly percent: number }
+  | { readonly status: "ready"; readonly next: string }
+  | { readonly status: "error"; readonly message: string }
+);
+
 export type ServiceMode = "child" | "launchd" | "remote" | "none";
 
 interface RemoteConfig {
@@ -67,4 +78,11 @@ export interface DesktopBridge {
   readonly onAppRoute: (cb: (route: string) => void) => () => void;
   readonly onSessionDownload: (cb: (download: SessionDownload) => void) => () => void;
   readonly onShortcut: (cb: (key: ShortcutKey) => void) => () => void;
+  readonly getUpdate: () => Promise<UpdateState>;
+  readonly onUpdate: (cb: (state: UpdateState) => void) => () => void;
+  readonly checkUpdate: () => void;
+  /** Follows another channel from now on, and checks it at once. */
+  readonly setUpdateChannel: (channel: UpdateChannel) => void;
+  /** Quits and installs a downloaded update; does nothing before one is ready. */
+  readonly restartToUpdate: () => void;
 }

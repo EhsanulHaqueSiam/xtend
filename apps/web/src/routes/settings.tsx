@@ -32,6 +32,7 @@ import { serverInfoAtom } from "../state/observations";
 import { usd as price, useQuoteLabel } from "../state/costs";
 import { settingsAtom, updateSettingsAtom } from "../state/settings";
 import { spendLiveAtom } from "../state/shell";
+import { useDesktopUpdate } from "../state/update";
 import { xSkinAtom } from "../state/x";
 
 const usd = (n: number) => `$${n.toFixed(2)}`;
@@ -727,6 +728,72 @@ const modeLabel = (info: ServerInfo): string => {
 };
 
 /** Desktop only: point this window at a service on another machine. */
+const UPDATE_CHANNELS = [
+  { id: "stable", label: "Stable" },
+  { id: "nightly", label: "Nightly" },
+] as const;
+
+/** The desktop's version, which release channel it follows, and the update in hand. */
+function Updates() {
+  const update = useDesktopUpdate();
+  const bridge = window.desktopBridge;
+  if (update === null || bridge === undefined) return null;
+  const status =
+    update.status === "idle"
+      ? "up to date"
+      : update.status === "downloading"
+        ? `downloading ${update.next} · ${update.percent}%`
+        : update.status === "ready"
+          ? `${update.next} ready`
+          : update.status === "available"
+            ? `${update.next} available`
+            : update.message;
+  return (
+    <dl>
+      <Row label="Version">{update.version}</Row>
+      <Row label="Channel">
+        <span className="inline-flex gap-1.5">
+          {UPDATE_CHANNELS.map((c) => (
+            <Button
+              key={c.id}
+              variant="outline"
+              size="xs"
+              aria-pressed={update.channel === c.id}
+              className="aria-pressed:border-foreground"
+              onClick={() => bridge.setUpdateChannel(c.id)}
+            >
+              {c.label}
+            </Button>
+          ))}
+        </span>
+      </Row>
+      <Row label="Status">
+        <span className={cn(update.status === "error" && "text-error-foreground")}>{status}</span>
+      </Row>
+      <div className="flex justify-end pt-2.5">
+        {update.status === "ready" ? (
+          <Button size="xs" onClick={() => bridge.restartToUpdate()}>
+            Restart to update
+          </Button>
+        ) : update.status === "available" ? (
+          <Button size="xs" onClick={() => bridge.openExternal(update.url)}>
+            Download {update.next}
+          </Button>
+        ) : (
+          <Button
+            variant="outline"
+            size="xs"
+            disabled={update.status === "downloading"}
+            onClick={() => bridge.checkUpdate()}
+          >
+            Check now
+          </Button>
+        )}
+      </div>
+    </dl>
+  );
+}
+
 function RemoteService() {
   const bridge = window.desktopBridge;
   const [url, setUrl] = useState(bridge?.remote?.url ?? "");
@@ -982,6 +1049,14 @@ export function SettingsScreen() {
                   </Row>
                 </dl>
               </Section>
+              {isElectron ? (
+                <Section
+                  title="Updates"
+                  description="nightly gets every merge to main, stable only tagged releases"
+                >
+                  <Updates />
+                </Section>
+              ) : null}
               <Section title="Remote service">
                 <RemoteService />
               </Section>

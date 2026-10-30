@@ -9,11 +9,18 @@ import {
   ACCOUNT_SELECT_CHANNEL,
   REMOTE_CHECK_CHANNEL,
   REMOTE_SET_CHANNEL,
+  UPDATE_CHANNEL_SET_CHANNEL,
+  UPDATE_CHECK_CHANNEL,
+  UPDATE_GET_CHANNEL,
+  UPDATE_RESTART_CHANNEL,
+  UPDATE_STATE_CHANNEL,
+  type UpdateState,
 } from "./ipc/channels.ts";
 import { checkRemote, readRemote, RemoteConfig, writeRemote } from "./service/remote.ts";
 import { superviseService } from "./service/ServiceSupervisor.ts";
 import { deepLinkToRoute, type ServiceMode } from "./service/supervision.ts";
 import { createTray } from "./tray.ts";
+import { defaultChannel, startUpdates } from "./updates.ts";
 import { createMainWindow } from "./window/MainWindow.ts";
 import * as Schema from "effect/Schema";
 
@@ -231,11 +238,33 @@ void app.whenReady().then(async () => {
     if (BrowserWindow.getAllWindows().length === 0) openWindow();
   });
 
-  if (app.isPackaged) {
-    autoUpdater.on("error", (error) => log("updater", String(error)));
-    // A private repo or no network rejects here; the error listener has already logged it.
-    autoUpdater.checkForUpdatesAndNotify().catch(() => {});
-  }
+  // A dev build has no feed: it reports idle and never checks.
+  const version = app.getVersion();
+  const updates = app.isPackaged
+    ? startUpdates({
+        updater: autoUpdater,
+        version,
+        platform: process.platform,
+        channelFile: path.join(app.getPath("userData"), "updates.json"),
+        broadcast: (state: UpdateState) => main?.appContents.send(UPDATE_STATE_CHANNEL, state),
+        log,
+      })
+    : null;
+  ipcMain.handle(
+    UPDATE_GET_CHANNEL,
+    (): UpdateState =>
+      updates?.state ?? { channel: defaultChannel(version), version, status: "idle" },
+  );
+  ipcMain.on(UPDATE_CHECK_CHANNEL, (event) => {
+    if (fromApp(event)) updates?.check();
+  });
+  ipcMain.on(UPDATE_CHANNEL_SET_CHANNEL, (event, channel: unknown) => {
+    if (fromApp(event) && (channel === "stable" || channel === "nightly"))
+      updates?.setChannel(channel);
+  });
+  ipcMain.on(UPDATE_RESTART_CHANNEL, (event) => {
+    if (fromApp(event)) updates?.restart();
+  });
 });
 
 // The tray keeps the app alive on macOS; elsewhere closing the window quits.
