@@ -1,6 +1,7 @@
 import {
   type DmEvent,
   EngageError,
+  type FollowUp,
   type Mention,
   type NicheProfile,
   type ReplyDraft,
@@ -51,7 +52,7 @@ export interface MentionsResult {
 
 export interface InboxResult {
   readonly sent: ReadonlyArray<SentReply>;
-  readonly followUps: ReadonlyArray<SentReply>;
+  readonly followUps: ReadonlyArray<FollowUp>;
   readonly incoming: ReadonlyArray<Mention>;
 }
 
@@ -175,13 +176,7 @@ const make = Effect.gen(function* () {
           Effect.map((r) => ({ postId: r.postId, error: null })),
           Effect.catchTag("XApiError", (e) => Effect.succeed({ postId: null, error: e.message })),
         );
-    return yield* store.recordReply({
-      targetPostId: post.postId,
-      targetUrl: post.url,
-      targetHandle: post.author.handle,
-      text,
-      ...result,
-    });
+    return yield* store.recordReply(post, { text, ...result });
   });
 
   // Free first, like a reply: a clicked like goes through the user's session while that lane is on.

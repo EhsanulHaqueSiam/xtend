@@ -33,7 +33,9 @@ Mentions of you: what the session saw for free, plus what a paid fetch brings in
 **Notifications on X** opens X's mentions page in the panel, free, and the session files what
 it shows here. **Fetch new** is the paid read, priced on the button. Open or every mention in a
 list; the selected one has **Mark handled** and a reply. A handled mention reopens from All, and
-Mark handled offers Undo right after. New mentions raise an OS notification.
+Mark handled offers Undo right after. To clear a backlog, check rows and mark them handled
+together; Undo reopens all of them. Inbox works the same way. New mentions raise an OS
+notification.
 
 ## Inbox
 
@@ -45,7 +47,10 @@ Replies sent from Xtend.
 
 ## Follow-ups
 
-Replies you sent that are worth a second touch: older than two days with nothing since.
+Replies you sent that are worth a second touch: older than two days with nothing since. Reply
+again here and it leaves the list. Xtend cannot see a follow-up you make on X itself, so mark
+that one **Done**; **Dismiss** drops one not worth a second touch. Replies sent before this
+version show only a link to the post.
 
 ## DMs
 

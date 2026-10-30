@@ -516,7 +516,7 @@ it("saves a reply's target and links the post it answers on X", async () => {
             savedAt: "2026-10-23T00:00:00.000Z",
             collectionIds: [],
           }),
-        "observations.listRecent": () => Effect.succeed({ posts: [] }),
+        "observations.listRecent": () => Effect.succeed({ posts: [], hasOlder: false }),
         "compose.draftCreate": (patch) => {
           creates.push(patch);
           return Effect.succeed(saved("d1", patch));

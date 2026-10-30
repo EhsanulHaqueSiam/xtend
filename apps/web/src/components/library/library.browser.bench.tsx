@@ -51,7 +51,9 @@ beforeAll(() => page.viewport(DESKTOP.width, DESKTOP.height));
 it("Library swipe file with 100 cards", async ({ bench }) => {
   let listed = saved;
   let refresh = () => {};
-  const service: FakeService = { "library.savedList": () => Effect.sync(() => listed) };
+  const service: FakeService = {
+    "library.savedList": () => Effect.sync(() => ({ items: listed, total: listed.length })),
+  };
   const ui = (
     <>
       <SwipeTab />

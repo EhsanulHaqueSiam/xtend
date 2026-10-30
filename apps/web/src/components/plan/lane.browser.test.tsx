@@ -39,10 +39,8 @@ it("prices Post now free through the session, but a slot fill at the API's price
       />,
       { service },
     );
-    // The row's column is what its slot will charge; Post now, a click, goes through the session.
-    await expect.element(screen.getByText("$0.015", { exact: true })).toBeVisible();
-    await userEvent.click(screen.getByRole("button", { name: "Post now" }));
-    await expect.element(page.getByText(/now for free/)).toBeVisible();
+    // Post now is a click, so it goes through the session: free.
+    await expect.element(screen.getByText("free", { exact: true })).toBeVisible();
   }
   // A filled slot posts unattended at its time, through the API.
   await using screen = await render(

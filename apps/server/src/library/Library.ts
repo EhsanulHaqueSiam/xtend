@@ -317,7 +317,8 @@ const make = Effect.gen(function* () {
   const forYou = Effect.gen(function* () {
     const s = yield* settings.get.pipe(Effect.mapError(settingsError));
     const own = yield* ownPosts(s.handle);
-    const saved = yield* store.savedList({});
+    // The newest page of saved posts is taste enough.
+    const saved = (yield* store.savedList({})).items;
     const feed = yield* observations
       .listRecent({ limit: 200 })
       .pipe(Effect.mapError(observedError));

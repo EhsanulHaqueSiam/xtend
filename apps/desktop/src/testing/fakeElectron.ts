@@ -66,6 +66,7 @@ export class FakeContents extends EventEmitter {
     return `css-${this.insertedCss.length}`;
   }
   async removeInsertedCSS() {}
+  stop() {}
   stopFindInPage() {}
   findInPage() {}
   close() {}

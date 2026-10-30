@@ -94,9 +94,9 @@ export const refreshMentionsAtom = clientRuntime.fn<void>()(
   }),
 );
 
-/** `handled: false` reopens it. */
+/** `handled: false` reopens them. */
 export const markHandledAtom = clientRuntime.fn<{
-  readonly postId: string;
+  readonly postIds: ReadonlyArray<string>;
   readonly handled: boolean;
 }>()(
   Effect.fnUntraced(function* (input) {
@@ -111,6 +111,17 @@ export const inboxAtom = clientRuntime.atom((get) =>
     get(observedAtom);
     const client = yield* XtendClient;
     return yield* client[Engage_METHODS.inbox]({});
+  }),
+);
+
+/** Done or dismissed takes a follow-up off the due list; `state: null` puts it back. */
+export const closeFollowUpAtom = clientRuntime.fn<{
+  readonly id: number;
+  readonly state: "done" | "dismissed" | null;
+}>()(
+  Effect.fnUntraced(function* (input) {
+    const client = yield* XtendClient;
+    return yield* client[Engage_METHODS.followUpClose](input);
   }),
 );
 

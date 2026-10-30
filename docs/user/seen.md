@@ -18,4 +18,6 @@ the session already saw. A row drags like a post on X, onto Compose, Library, Le
 in the sidebar (see [Drag and drop](./drag-and-drop.md)). Marks under a post say what you
 already did with it: replied, saved, lead, watching, auto.
 
+Search finds posts by their text. Click an @handle to see only that author's posts; the
+handle in the header clears it. Seen shows 100 posts at a time: **Older** goes further back.
 Refresh pulls in what arrived since.

@@ -1,7 +1,25 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { Link, useLocation, useNavigate, useRouter } from "@tanstack/react-router";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { ChevronDown, Search } from "lucide-react";
+import {
+  ChevronDown,
+  Search,
+  Home,
+  Bell,
+  Mail,
+  Bookmark,
+  UserRound,
+  PenLine,
+  CalendarDays,
+  Library,
+  MessageCircle,
+  Users,
+  Workflow,
+  ChartNoAxesCombined,
+  Gauge,
+  Eye,
+  Settings,
+} from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { isElectron } from "../../env";
@@ -34,15 +52,38 @@ const ROW =
  * Label, the active dot and an optional count: the one row shape in the sidebar.
  * While a post is being dragged, a row that accepts it shows its verb instead.
  */
+const ICONS = {
+  Home,
+  Notifications: Bell,
+  Messages: Mail,
+  Bookmarks: Bookmark,
+  Profile: UserRound,
+  Compose: PenLine,
+  Plan: CalendarDays,
+  Library,
+  Engage: MessageCircle,
+  Leads: Users,
+  Automate: Workflow,
+  Analyze: ChartNoAxesCombined,
+  Scores: Gauge,
+  Seen: Eye,
+  Settings,
+};
+
 function RowBody({
   label,
   count,
   verb,
+  compact = false,
 }: {
   readonly label: string;
   readonly count?: number | null | undefined;
   readonly verb?: string | undefined;
+  readonly compact?: boolean;
 }) {
+  const Icon = ICONS[label as keyof typeof ICONS];
+  if (compact && Icon !== undefined)
+    return <Icon aria-hidden="true" className="mx-auto size-4 shrink-0" />;
   return (
     <>
       <span className="truncate">{label}</span>
@@ -88,7 +129,9 @@ const SUB_ROW =
 function ToolRow({
   tool,
   count,
+  compact = false,
 }: {
+  readonly compact?: boolean;
   readonly tool: Tool;
   readonly count?: number | null | undefined;
 }) {
@@ -110,8 +153,9 @@ function ToolRow({
     <>
       <Link
         to={tool.to}
-        title={ABOUT[tool.to]}
-        data-active={on && sections.length === 0}
+        title={compact ? tool.label : ABOUT[tool.to]}
+        aria-label={compact ? tool.label : undefined}
+        data-active={on && (compact || sections.length === 0)}
         className={cn(ROW, dragClass(dragging, verb !== undefined))}
         onDragOver={
           verb === undefined
@@ -133,9 +177,38 @@ function ToolRow({
               }
         }
       >
-        <RowBody label={tool.label} count={count} verb={dragging ? verb : undefined} />
+        <RowBody
+          label={tool.label}
+          count={count}
+          verb={dragging ? verb : undefined}
+          compact={compact}
+        />
       </Link>
-      {sections.map((section) => {
+      {compact && sections.length > 0 ? (
+        <Menu
+          label={`${tool.label} sections`}
+          trigger={
+            <button
+              type="button"
+              aria-label={`${tool.label} sections`}
+              title={`${tool.label} sections`}
+              className={ROW}
+            >
+              <ChevronDown className="mx-auto size-3" />
+            </button>
+          }
+        >
+          {sections.map((section) => (
+            <MenuItem
+              key={section.id}
+              onClick={() => void navigate({ href: `${tool.to}?tab=${section.id}` })}
+            >
+              {section.label}
+            </MenuItem>
+          ))}
+        </Menu>
+      ) : null}
+      {(compact ? [] : sections).map((section) => {
         const href = `${tool.to}?tab=${section.id}`;
         return (
           <a
@@ -161,7 +234,7 @@ function ToolRow({
 }
 
 /** X's own pages; each loads in the one x.com webview, shown in the main area. */
-function XRows() {
+function XRows({ compact }: { readonly compact: boolean }) {
   const navigate = useNavigate();
   const pathname = useLocation({ select: (l) => l.pathname });
   const url = useAtomValue(xUrlAtom);
@@ -190,6 +263,8 @@ function XRows() {
       {pages.map((page) => (
         <button
           key={page.label}
+          aria-label={compact ? page.label : undefined}
+          title={compact ? page.label : undefined}
           type="button"
           data-active={onX && (path === page.path || path.startsWith(`${page.path}/`))}
           className={cn(ROW, dragClass(dragging, false))}
@@ -200,7 +275,7 @@ function XRows() {
             else void navigate({ to: "/x" });
           }}
         >
-          <RowBody label={page.label} count={page.count} />
+          <RowBody label={page.label} count={page.count} compact={compact} />
         </button>
       ))}
     </>
@@ -211,7 +286,13 @@ function XRows() {
  * The current account; with more than one, a menu that rebuilds the window on another. A refused
  * switch (a post going out, a removed account) goes to `onError`, so the sidebar can say why.
  */
-function AccountMenu({ onError }: { readonly onError: (message: string | null) => void }) {
+function AccountMenu({
+  onError,
+  compact = false,
+}: {
+  readonly onError: (message: string | null) => void;
+  readonly compact?: boolean;
+}) {
   const accounts = useAtomValue(accountsAtom);
   const select = useAtomSet(selectAccountAtom, { mode: "promise" });
   const handle = or(
@@ -223,7 +304,7 @@ function AccountMenu({ onError }: { readonly onError: (message: string | null) =
   const current = list.find((a) => a.id === currentId);
   const label = current?.handle ?? handle;
   if (list.length < 2)
-    return label === null || label === undefined ? null : (
+    return compact || label === null || label === undefined ? null : (
       <span className="truncate text-xs text-sidebar-muted-foreground">@{label}</span>
     );
   return (
@@ -232,9 +313,17 @@ function AccountMenu({ onError }: { readonly onError: (message: string | null) =
       trigger={
         <button
           type="button"
+          aria-label="Switch account"
+          title="Switch account"
           className="no-drag flex cursor-pointer items-center gap-1 rounded-[var(--control-radius)] px-1.5 py-0.5 text-xs text-sidebar-muted-foreground outline-hidden hover:text-sidebar-foreground"
         >
-          {label === null || label === undefined ? (current?.label ?? "Account") : `@${label}`}
+          {compact ? (
+            <UserRound className="size-4" />
+          ) : label === null || label === undefined ? (
+            (current?.label ?? "Account")
+          ) : (
+            `@${label}`
+          )}
           <ChevronDown className="size-3" />
         </button>
       }
@@ -331,7 +420,7 @@ function Today() {
  * The one navigation for X and the tools. X's pages come first (desktop only:
  * a browser has no x.com session), then the tools, then the day's numbers.
  */
-export function Sidebar() {
+export function Sidebar({ compact = false }: { readonly compact?: boolean }) {
   const setPalette = useAtomSet(paletteOpenAtom);
   const setDragging = useAtomSet(linkDragAtom);
   // The window sees every drag, including one coming out of the x.com webview; the data is only
@@ -367,16 +456,27 @@ export function Sidebar() {
   };
   const mod = window.desktopBridge?.platform === "darwin" ? "⌘" : "Ctrl";
   return (
-    <aside className="col-start-1 row-start-1 flex h-full w-[232px] flex-col border-r border-sidebar-border bg-sidebar px-3 pb-3 text-sidebar-foreground">
-      <div className="drag-region flex h-[52px] shrink-0 items-center justify-between gap-2 pr-1 pl-[calc(var(--desktop-window-controls-inset)+8px)]">
-        <span className="flex items-center gap-2 text-sm font-semibold tracking-tight">
-          <span className="grid size-[22px] place-items-center rounded-md bg-sidebar-foreground text-[13px] leading-none font-bold text-sidebar">
-            x
+    <aside
+      aria-label="Sidebar"
+      data-compact={compact}
+      className="col-start-1 row-start-1 flex h-full flex-col border-r border-sidebar-border bg-sidebar pb-3 text-sidebar-foreground"
+      style={{ width: compact ? 44 : 232, paddingInline: compact ? 4 : 12 }}
+    >
+      {compact ? (
+        <div className="drag-region flex h-6 shrink-0 items-center justify-center">
+          <AccountMenu compact onError={setAccountError} />
+        </div>
+      ) : (
+        <div className="drag-region flex h-[52px] shrink-0 items-center justify-between gap-2 pr-1 pl-[calc(var(--desktop-window-controls-inset)+8px)]">
+          <span className="flex items-center gap-2 text-sm font-semibold tracking-tight">
+            <span className="grid size-[22px] place-items-center rounded-md bg-sidebar-foreground text-[13px] leading-none font-bold text-sidebar">
+              x
+            </span>
+            Xtend
           </span>
-          Xtend
-        </span>
-        <AccountMenu onError={setAccountError} />
-      </div>
+          <AccountMenu onError={setAccountError} />
+        </div>
+      )}
       {accountError !== null ? (
         <p role="alert" className="-mt-1 mb-2 px-1 text-2xs text-error-foreground">
           {accountError}
@@ -384,27 +484,33 @@ export function Sidebar() {
       ) : null}
       <button
         type="button"
+        aria-label={compact ? "Search" : undefined}
+        title={compact ? `Search (${mod} K)` : undefined}
         className="no-drag mb-3 flex h-[30px] w-full cursor-pointer items-center gap-2 rounded-[var(--control-radius)] bg-sidebar-control-surface pr-1.5 pl-2.5 text-[13px] text-sidebar-muted-foreground outline-hidden hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring"
         onClick={() => setPalette(true)}
       >
         <Search className="size-3.5" />
-        Search
-        <kbd className="ml-auto rounded-[5px] border border-white/13 px-1.5 font-mono text-2xs leading-[18px] text-sidebar-foreground/80">
-          {mod} K
-        </kbd>
+        {compact ? null : (
+          <>
+            Search
+            <kbd className="ml-auto rounded-[5px] border border-white/13 px-1.5 font-mono text-2xs leading-[18px] text-sidebar-foreground/80">
+              {mod} K
+            </kbd>
+          </>
+        )}
       </button>
       <nav className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {isElectron ? (
           <>
-            <XRows />
+            <XRows compact={compact} />
             <div className="mx-2 my-2.5 h-px shrink-0 bg-sidebar-border" />
           </>
         ) : null}
         {TOOLS.map((tool) => (
-          <ToolRow key={tool.to} tool={tool} count={counts[tool.to]} />
+          <ToolRow key={tool.to} tool={tool} count={counts[tool.to]} compact={compact} />
         ))}
-        <ToolRow tool={{ to: "/settings", label: "Settings" }} />
-        <Today />
+        <ToolRow tool={{ to: "/settings", label: "Settings" }} compact={compact} />
+        {compact ? null : <Today />}
       </nav>
     </aside>
   );

@@ -83,14 +83,27 @@ export const ObservedPostSummary = Schema.Struct({
 });
 export type ObservedPostSummary = typeof ObservedPostSummary.Type;
 
+/** Where an older page starts: the last post of the page before it, in the list's order. */
+export const ObservationCursor = Schema.Struct({
+  lastSeenAt: IsoDateTime,
+  createdAt: IsoDateTime,
+  postId: XId,
+});
+export type ObservationCursor = typeof ObservationCursor.Type;
+
 export const ObservationListRecentInput = Schema.Struct({
   limit: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 200 }))),
   authorHandle: Schema.optional(XHandle),
+  /** Literal text the post contains, any case. */
+  query: Schema.optional(Schema.String.check(Schema.isMaxLength(200))),
+  before: Schema.optional(ObservationCursor),
 });
 export type ObservationListRecentInput = typeof ObservationListRecentInput.Type;
 
 export const ObservationListRecentResult = Schema.Struct({
   posts: Schema.Array(ObservedPostSummary),
+  /** More posts match past this page. */
+  hasOlder: Schema.Boolean,
 });
 export type ObservationListRecentResult = typeof ObservationListRecentResult.Type;
 

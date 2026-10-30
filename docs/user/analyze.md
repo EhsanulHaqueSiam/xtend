@@ -12,7 +12,9 @@ how your posts arrive without a refresh.
 ## Overview
 
 Followers by day, views by day published over 30 days, engagements over views, and the
-headline numbers with their change.
+headline numbers with their change. Move over a history chart to read a date and its value,
+or focus it and use the arrow keys. Home and End jump to the first and last sample. The
+vertical range fits the data, including score histories in Scores.
 
 ## Posts
 

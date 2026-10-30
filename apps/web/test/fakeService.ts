@@ -25,7 +25,7 @@ const layerFakeClient = (handlers: FakeService) => {
   const answered: FakeService = {
     [Events_METHODS.subscribe]: () => Stream.never,
     [Marks_METHODS.forPosts]: () => Effect.succeed({}),
-    [WS_METHODS.observationsListRecent]: () => Effect.succeed({ posts: [] }),
+    [WS_METHODS.observationsListRecent]: () => Effect.succeed({ posts: [], hasOlder: false }),
     // Most screens read settings for a lane or a zone; the fixture row answers unless a test overrides it.
     [WS_METHODS.settingsGet]: () => Effect.succeed(settings),
     ...handlers,

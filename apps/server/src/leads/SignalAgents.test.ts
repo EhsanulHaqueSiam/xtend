@@ -137,7 +137,11 @@ describe("SignalAgents", () => {
         const first = yield* agents.run(agent.id);
         expect(first).toMatchObject({ found: 2, inserted: 2, error: null });
         expect(first.costUsd).toBe(XClient.RATE_CARD.searchPage);
-        const filed = (yield* people.list(list.id)).map((p) => [p.handle, p.score, p.source]);
+        const filed = (yield* people.list({ listId: list.id })).people.map((p) => [
+          p.handle,
+          p.score,
+          p.source,
+        ]);
         expect(filed.toSorted()).toEqual([
           ["ada", 80, "agent:Rust"],
           ["erin", 40, "agent:Rust"],

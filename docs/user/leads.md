@@ -5,7 +5,7 @@ fill them, and your new followers.
 
 ## People
 
-Everyone found, as a table filtered by stage: new, contacted, replied, customer, ignored.
+Search everyone found by handle, name or bio, filter by stage, and page through People or a list 50 at a time; stage counts cover every match.
 **Stages** in the header turns the table into a board with one column per stage; drag a
 person to another column to move them there, with a toast to undo. **Table** goes back.
 Their latest post is the newest one your session saw, free; **From X** reads their timeline at
@@ -30,8 +30,9 @@ dropped on Leads in the sidebar adds its author here.
 ## Lists
 
 One list's people, with a switcher for the others in the header. Lists are free; only filling
-them costs. Two builders fill a list from the detail column:
+them from X costs. Add existing People for free, or discover people from the detail column:
 
+- **From people**: search and select existing people who are not in the list, then add them for free. **Remove from list** in a member's detail keeps them in People and other lists.
 - **From a search**: criteria, a paid preview of who matched, then everyone into the list in
   one click.
 - **From a post**: who reposted or liked one post, priced by the service before the fetch,

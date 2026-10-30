@@ -14,7 +14,7 @@ import { expect, it } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
 import type { FakeService } from "../../../test/fakeService";
-import { paid, quoting, settings, xPost } from "../../../test/fixtures";
+import { peoplePage, paid, quoting, settings, xPost } from "../../../test/fixtures";
 import { render } from "../../../test/render";
 import { AgentsSection } from "./Agents";
 import { FollowersSection } from "./Followers";
@@ -52,7 +52,7 @@ it("prices the follower check from the service's quote, free while a fresh page 
           added.push(input.handle);
           return person(1, { handle: input.handle });
         }),
-      "leads.peopleList": () => Effect.succeed([]),
+      "leads.peopleList": () => Effect.succeed(peoplePage()),
     },
   });
   await userEvent.click(
@@ -109,7 +109,7 @@ it("a preview belongs to the list it was built in, and a pasted post URL fetches
     service: {
       "costs.quote": quoting(),
       "leads.listsList": () => Effect.succeed([list(1, "Founders"), list(2, "Investors")]),
-      "leads.peopleList": () => Effect.succeed([]),
+      "leads.peopleList": () => Effect.succeed(peoplePage()),
       "leads.engagersQuote": ({ via }) => Effect.succeed({ costUsd: via === "like" ? 0.2 : 0.001 }),
       "leads.listPreview": (criteria) =>
         Effect.sync(() => {
@@ -239,7 +239,7 @@ it("changes a stage, and prices a DM to someone without a user id with the profi
   await using screen = await render(<PeopleSection />, {
     service: {
       "costs.quote": quoting(),
-      "leads.peopleList": () => Effect.sync(() => people),
+      "leads.peopleList": (query) => Effect.sync(() => peoplePage(people, query)),
       "leads.personUpdate": (patch) =>
         Effect.sync(() => {
           updates.push(patch);
@@ -281,7 +281,7 @@ it("a DM starts as your own words; a tone asks for three drafts to pick and edit
   await using screen = await render(<PeopleSection />, {
     service: {
       "costs.quote": quoting(),
-      "leads.peopleList": () => Effect.succeed([person(1)]),
+      "leads.peopleList": () => Effect.succeed(peoplePage([person(1)])),
       "leads.personGet": () => Effect.succeed({ person: person(1), activity: [] }),
       "leads.draftDm": ({ tone }) =>
         Effect.sync(() => {
@@ -313,7 +313,7 @@ it("dragging a card onto a stage column moves the person there", async () => {
   await using screen = await render(<PeopleSection />, {
     service: {
       "costs.quote": quoting(),
-      "leads.peopleList": () => Effect.sync(() => people),
+      "leads.peopleList": (query) => Effect.sync(() => peoplePage(people, query)),
       "leads.personUpdate": (patch) =>
         Effect.sync(() => {
           updates.push(patch);
@@ -342,7 +342,7 @@ const peopleService = (start: ReadonlyArray<Person>, extra: FakeService = {}): F
   let people = start;
   return {
     "costs.quote": quoting(),
-    "leads.peopleList": () => Effect.sync(() => people),
+    "leads.peopleList": (query) => Effect.sync(() => peoplePage(people, query)),
     "leads.personUpdate": ({ id, stage, notes }) =>
       Effect.sync(() => {
         people = people.map((p) =>
@@ -471,7 +471,7 @@ it("paid builders and agent actions wait for their price, from the button and fr
         "costs.quote": () => Effect.never,
         "leads.engagersQuote": () => Effect.never,
         "leads.listsList": () => Effect.succeed([list(1, "Founders")]),
-        "leads.peopleList": () => Effect.succeed([]),
+        "leads.peopleList": () => Effect.succeed(peoplePage()),
         "leads.listPreview": () =>
           Effect.sync(() => {
             calls.push("preview");
@@ -545,4 +545,170 @@ it("Escape closes the new-agent editor and hands focus back to New agent", async
   await userEvent.keyboard("{Escape}");
   await expect.element(screen.getByPlaceholder("Typefully switchers")).not.toBeInTheDocument();
   await expect.element(open).toHaveFocus();
+});
+
+it("pages and searches all People with true stage counts in the table and board", async () => {
+  const people = Array.from({ length: 251 }, (_, i) =>
+    person(i + 1, { stage: i < 240 ? "new" : "contacted" }),
+  );
+  const queries: Array<import("@xtend/contracts").PeopleQuery> = [];
+  await using screen = await render(<PeopleSection />, {
+    service: peopleService(people, {
+      "leads.peopleList": (query) =>
+        Effect.sync(() => {
+          queries.push(query);
+          return peoplePage(people, query);
+        }),
+    }),
+  });
+  await expect.element(screen.getByText("1-50 of 251")).toBeVisible();
+  await expect.element(screen.getByRole("tab", { name: /^New.*240/ })).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: "Next", exact: true }));
+  await expect.element(screen.getByText("51-100 of 251")).toBeVisible();
+  expect(queries.at(-1)?.offset).toBe(50);
+  await userEvent.fill(screen.getByRole("textbox", { name: "Search people" }), "lead251");
+  await expect.element(screen.getByText("1-1 of 1")).toBeVisible();
+  expect(queries.at(-1)).toMatchObject({ search: "lead251", offset: 0 });
+  await userEvent.fill(screen.getByRole("textbox", { name: "Search people" }), "");
+  await userEvent.click(screen.getByRole("tab", { name: /^Contacted.*11/ }));
+  await expect.element(screen.getByText("1-11 of 11")).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: "Stages", exact: true }));
+  await expect
+    .element(screen.getByRole("region", { name: "new", exact: true }).getByRole("heading"))
+    .toHaveTextContent("new240");
+  await expect
+    .element(screen.getByRole("region", { name: "contacted", exact: true }).getByRole("heading"))
+    .toHaveTextContent("contacted11");
+  await userEvent.click(screen.getByRole("button", { name: "Next", exact: true }));
+  await expect.element(screen.getByText("51-100 of 251")).toBeVisible();
+});
+
+it("pages list members beyond the old cap and searches within the list", async () => {
+  const members = Array.from({ length: 251 }, (_, i) => person(i + 1));
+  const queries: Array<import("@xtend/contracts").PeopleQuery> = [];
+  await using screen = await render(<ListsSection />, {
+    service: peopleService(members, {
+      "leads.listsList": () => Effect.succeed([{ ...list(1, "Founders"), members: 251 }]),
+      "leads.peopleList": (query) =>
+        Effect.sync(() => {
+          queries.push(query);
+          return peoplePage(members, query);
+        }),
+    }),
+  });
+  await expect.element(screen.getByText("1-50 of 251")).toBeVisible();
+  // Each page must settle before its Next button can request the following page.
+  /* oxlint-disable no-await-in-loop */
+  for (let i = 0; i < 4; i++) {
+    await userEvent.click(screen.getByRole("button", { name: "Next", exact: true }));
+    await expect
+      .element(screen.getByText(`${(i + 1) * 50 + 1}-${(i + 2) * 50} of 251`))
+      .toBeVisible();
+  }
+  /* oxlint-enable no-await-in-loop */
+  expect(queries.at(-1)).toMatchObject({ listId: 1, offset: 200 });
+  await userEvent.fill(screen.getByRole("textbox", { name: "Search people" }), "lead251");
+  await expect.element(screen.getByRole("button", { name: /^@lead251/ })).toBeVisible();
+  expect(queries.at(-1)).toMatchObject({ listId: 1, search: "lead251", offset: 0 });
+});
+
+it("adds existing people from the free paged builder, then removes only list membership", async () => {
+  const people = Array.from({ length: 61 }, (_, i) => person(i + 1));
+  const memberIds = new Set([1]);
+  const added: Array<ReadonlyArray<number>> = [];
+  const removed: Array<number> = [];
+  const queries: Array<import("@xtend/contracts").PeopleQuery> = [];
+  await using screen = await render(<ListsSection />, {
+    service: peopleService(people, {
+      "leads.listsList": () =>
+        Effect.sync(() => [{ ...list(1, "Founders"), members: memberIds.size }]),
+      "leads.peopleList": (query) =>
+        Effect.sync(() => {
+          queries.push(query);
+          const rows =
+            query.listId === 1
+              ? people.filter((p) => memberIds.has(p.id))
+              : query.excludeListId === 1
+                ? people.filter((p) => !memberIds.has(p.id))
+                : people;
+          return peoplePage(rows, query);
+        }),
+      "leads.listAddPeople": ({ listId, personIds }) =>
+        Effect.sync(() => {
+          expect(listId).toBe(1);
+          added.push(personIds);
+          let count = 0;
+          for (const id of personIds) {
+            if (!memberIds.has(id)) count++;
+            memberIds.add(id);
+          }
+          return { added: count };
+        }),
+      "leads.listRemovePerson": ({ listId, personId }) =>
+        Effect.sync(() => {
+          expect(listId).toBe(1);
+          removed.push(personId);
+          memberIds.delete(personId);
+        }),
+    }),
+  });
+  await userEvent.click(screen.getByRole("button", { name: "Add people", exact: true }).first());
+  await userEvent.click(screen.getByRole("button", { name: /^From people.*free/ }));
+  await expect.element(screen.getByText("60 not in Founders")).toBeVisible();
+  expect(
+    screen.getByRole("checkbox", { name: "Select @lead1", exact: true }).elements(),
+  ).toHaveLength(0);
+  await userEvent.click(screen.getByRole("checkbox", { name: "Select @lead2", exact: true }));
+  await userEvent.click(screen.getByRole("button", { name: "Next", exact: true }).last());
+  await expect.element(screen.getByText("51-60 of 60")).toBeVisible();
+  expect(queries.at(-1)).toMatchObject({ excludeListId: 1, offset: 50 });
+  await userEvent.click(screen.getByRole("checkbox", { name: "Select @lead61", exact: true }));
+  await userEvent.fill(screen.getByRole("textbox", { name: "Search existing people" }), "lead61");
+  await expect.element(screen.getByText("1 not in Founders")).toBeVisible();
+  expect(queries.at(-1)).toMatchObject({ excludeListId: 1, search: "lead61", offset: 0 });
+  await userEvent.click(screen.getByRole("button", { name: /^Add 2 to Founders.*free/ }));
+  await expect.element(screen.getByRole("status")).toHaveTextContent("Added 2");
+  expect(added).toEqual([[2, 61]]);
+  await expect.element(screen.getByText("0 not in Founders")).toBeVisible();
+  await expect.element(screen.getByText("1-3 of 3")).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: /^@lead2/ }));
+  await userEvent.click(screen.getByRole("button", { name: /^Remove from list.*free/ }));
+  await expect.element(screen.getByText("1-2 of 2")).toBeVisible();
+  expect(removed).toEqual([2]);
+  expect(people).toHaveLength(61);
+  await expect.element(screen.getByRole("button", { name: /^Founders.*2/ })).toBeVisible();
+});
+
+it("keeps the selection on a failed free add and resets it when switching lists", async () => {
+  await using screen = await render(<ListsSection />, {
+    service: peopleService([person(1), person(2)], {
+      "leads.listsList": () => Effect.succeed([list(1, "Founders"), list(2, "Investors")]),
+      "leads.peopleList": (query) =>
+        Effect.succeed(
+          peoplePage(query.excludeListId === undefined ? [] : [person(1), person(2)], query),
+        ),
+      "leads.listAddPeople": () =>
+        Effect.fail(
+          new LeadsError({ operation: "addPeopleToList", detail: "Unavailable", cause: null }),
+        ),
+    }),
+  });
+  await userEvent.click(screen.getByRole("button", { name: "Add people", exact: true }).first());
+  await userEvent.click(screen.getByRole("button", { name: /^From people.*free/ }));
+  await userEvent.click(screen.getByRole("checkbox", { name: "Select @lead1", exact: true }));
+  await userEvent.click(screen.getByRole("button", { name: /^Add 1 to Founders.*free/ }));
+  await expect.element(screen.getByRole("alert")).toBeVisible();
+  await expect
+    .element(screen.getByRole("checkbox", { name: "Select @lead1", exact: true }))
+    .toBeChecked();
+  await userEvent.click(screen.getByRole("button", { name: /^Founders/ }));
+  await userEvent.click(page.getByRole("button", { name: /^Investors/ }));
+  await userEvent.click(screen.getByRole("button", { name: "Add people", exact: true }).first());
+  await userEvent.click(screen.getByRole("button", { name: /^From people.*free/ }));
+  await expect
+    .element(screen.getByRole("checkbox", { name: "Select @lead1", exact: true }))
+    .not.toBeChecked();
+  await expect
+    .element(screen.getByRole("button", { name: /^Add 0 to Investors.*free/ }))
+    .toBeDisabled();
 });

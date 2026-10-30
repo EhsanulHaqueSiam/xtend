@@ -1,6 +1,6 @@
 import { ComposeError, type Draft, type SlotInput } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
-import { expect, it, vi } from "vite-plus/test";
+import { expect, it, onTestFinished, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
 import type { FakeService } from "../../../test/fakeService";
@@ -8,6 +8,7 @@ import { draft, quoting, rates, settings } from "../../../test/fixtures";
 import { render } from "../../../test/render";
 import { weekStartIn } from "../../lib/time";
 import { Route } from "../../routes/plan";
+import { CompanionTarget } from "../shell/Companion";
 import { Calendar, emptySlotCount } from "./Calendar";
 import { Queue } from "./Queue";
 import { Slots } from "./Slots";
@@ -100,15 +101,15 @@ it("prices each queued draft as Compose does and asks before posting one now", a
       },
     },
   );
-  const row = (text: string) => screen.getByRole("row").filter({ hasText: text });
+  const row = (text: string) => screen.getByRole("listitem").filter({ hasText: text });
   // The quote link makes the first post a link post; the post with media goes through the session.
   await expect.element(row("Three tips").getByText("$0.2", { exact: true })).toBeVisible();
   await expect.element(row("How I ship").getByText("$0.04", { exact: true })).toBeVisible();
   await expect.element(row("broke").getByText("X refused it")).toBeVisible();
   // Run now only takes a queued draft.
-  await expect.element(row("broke").getByRole("button", { name: "Post now" })).toBeDisabled();
+  await expect.element(row("broke").getByRole("button", { name: /Post now/ })).toBeDisabled();
 
-  await userEvent.click(row("Three tips").getByRole("button", { name: "Post now" }));
+  await userEvent.click(row("Three tips").getByRole("button", { name: /Post now/ }));
   await expect.element(page.getByText("Post 2 posts now for $0.2.")).toBeVisible();
   await expect.element(page.getByText("Charges your treg balance.")).toBeVisible();
   expect(onRunNow).not.toHaveBeenCalled();
@@ -194,6 +195,41 @@ const planService = (rows: () => ReadonlyArray<Draft>, extra: FakeService = {}):
   ...extra,
 });
 
+it("puts Ready to post above the week without the companion column, and in it when wide", async () => {
+  const service = planService(() => [], {
+    "plan.ready": () =>
+      Effect.succeed({
+        drafts: [draft("s1", "suggested", { blocks: [{ text: "Pricing lesson" }] })],
+      }),
+  });
+  {
+    await using narrow = await render(<PlanScreen />, { service });
+    const strip = narrow.getByRole("region", { name: "Ready to post" });
+    await expect.element(strip.getByRole("button", { name: /Next slot/ })).toBeVisible();
+    await expect.element(narrow.getByLabelText(/open slot$/).first()).toBeVisible();
+    const day = narrow
+      .getByLabelText(/open slot$/)
+      .first()
+      .element();
+    // Above the week, so it is in view and a chip drags down onto a day.
+    expect(strip.element().compareDocumentPosition(day) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  }
+  const column = document.createElement("aside");
+  document.body.append(column);
+  onTestFinished(() => column.remove());
+  await using wide = await render(
+    <CompanionTarget value={column}>
+      <PlanScreen />
+    </CompanionTarget>,
+    { service },
+  );
+  await expect.element(page.getByRole("button", { name: "Pricing lesson" })).toBeVisible();
+  expect(column.textContent).toContain("Ready to post");
+  expect(wide.getByRole("region", { name: "Ready to post" }).elements()).toHaveLength(0);
+});
+
 it("says why the week or the suggestions did not load instead of showing open slots", async () => {
   await using screen = await render(<PlanScreen />, {
     service: planService(() => [], {
@@ -233,9 +269,12 @@ it("unschedules a queued draft back to drafts, holding the other actions until i
       },
     }),
   });
-  await userEvent.click(screen.getByRole("button", { name: "Unschedule" }));
+  const postNow = screen.getByRole("button", { name: /Post now/ });
+  await expect.element(postNow).toBeEnabled();
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  await userEvent.click(page.getByRole("menuitem", { name: "Unschedule" }));
   // One draft action at a time, and the others look it.
-  await expect.element(screen.getByRole("button", { name: "Skip" })).toBeDisabled();
+  await expect.element(postNow).toBeDisabled();
   release();
   await expect
     .element(screen.getByRole("status"))

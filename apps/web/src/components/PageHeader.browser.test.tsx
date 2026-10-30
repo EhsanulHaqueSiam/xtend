@@ -21,3 +21,10 @@ it("explains the tool and its open section on a first visit, and stays closed on
   await userEvent.click(screen.getByRole("button", { name: "About Plan" }));
   await expect.element(screen.getByText(/When your posts go out/)).toBeVisible();
 });
+
+it("does not offer an X panel in a browser", async () => {
+  await using screen = await render(<PageHeader title="Calendar" />, { router: "/plan" });
+  await expect
+    .element(screen.getByRole("button", { name: /^(Show|Hide) X panel$/ }))
+    .not.toBeInTheDocument();
+});

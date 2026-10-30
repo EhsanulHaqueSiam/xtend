@@ -1,5 +1,8 @@
 import type {
   CostAction,
+  Person,
+  PeopleQuery,
+  PeoplePage,
   CostQuote,
   Draft,
   RateCard,
@@ -115,3 +118,20 @@ export const xPost = (postId: string, text: string, extra: Partial<XPost> = {}):
   metrics: { views: 5000, likes: 200, reposts: 10, replies: 5, quotes: 1, bookmarks: 3 },
   ...extra,
 });
+
+/** Bounded fake-service page, including stage counts before the stage filter. */
+export const peoplePage = (
+  people: ReadonlyArray<Person> = [],
+  query: PeopleQuery = {},
+): PeoplePage => {
+  const search = query.search?.trim().replace(/^@/, "").toLowerCase() ?? "";
+  const matching = people.filter((p) =>
+    [p.handle, p.name, p.bio].some((text) => text.toLowerCase().includes(search)),
+  );
+  const counts = { new: 0, contacted: 0, replied: 0, customer: 0, ignored: 0 };
+  for (const p of matching) counts[p.stage]++;
+  const filtered =
+    query.stage === undefined ? matching : matching.filter((p) => p.stage === query.stage);
+  const offset = Math.min(query.offset ?? 0, Math.max(0, Math.ceil(filtered.length / 50) - 1) * 50);
+  return { people: filtered.slice(offset, offset + 50), total: filtered.length, counts, offset };
+};

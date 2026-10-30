@@ -12,7 +12,7 @@ as a nudge to fill them.
 
 An open slot takes a draft from its menu, or a draft dropped on it. A queued post drags to
 another slot. **Ready to post** lists the suggested drafts from Library and Automate, beside
-the week when the window is wide and under it otherwise; each is one click (**Next slot**)
+the week when the window is wide and in a strip above it otherwise; each is one click (**Next slot**)
 from the next free slot, or drag it onto the calendar.
 
 Under the week, the day ruler shows one day's 24 hours as bars for the views your observed
@@ -23,9 +23,9 @@ can go out at a time that is not a slot.
 ## Queue
 
 Queued and failed drafts by time, with what the queue costs in the header. A row opens the
-draft in Compose. **Skip** moves a draft to the next slot, **Unschedule** makes it a draft
-again, **Runs** lists its attempts, and **Post now** confirms with the treg price before it
-charges.
+draft in Compose. **Post now** shows its treg price and confirms before it charges. The ⋯ menu
+holds the rest: **Skip this slot** moves a draft to the next slot, **Unschedule** makes it a
+draft again, and **Runs** lists its attempts.
 
 ## Slots
 

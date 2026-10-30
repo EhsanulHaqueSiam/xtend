@@ -136,7 +136,7 @@ describe("Library", () => {
         { postId: "2", format: "text", text: "1/ Ten lessons" },
       ]);
       const labelled = yield* store.browse({ hookPattern: "list" });
-      expect(labelled.map((p) => [p.post.postId, p.format])).toEqual([["2", "thread"]]);
+      expect(labelled.items.map((p) => [p.post.postId, p.format])).toEqual([["2", "thread"]]);
       // Nothing left: no second call.
       expect(yield* library.detectPatterns).toEqual({ detected: 0, remaining: 0 });
       expect(requests).toHaveLength(1);
@@ -184,7 +184,7 @@ describe("Library", () => {
       ]);
       yield* library.detectPatterns;
 
-      const formats = (yield* store.browse({})).map((p) => [p.post.postId, p.format]);
+      const formats = (yield* store.browse({})).items.map((p) => [p.post.postId, p.format]);
       expect(formats.sort()).toEqual([
         ["1", "media"],
         ["2", "thread"],

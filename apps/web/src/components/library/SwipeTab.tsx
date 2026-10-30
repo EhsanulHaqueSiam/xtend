@@ -1,10 +1,10 @@
-import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
+import { useAtom, useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { Search } from "lucide-react";
 import { useState } from "react";
 
 import { cn } from "../../lib/utils";
-import { swipeFileAtom } from "../../state/library";
+import { swipeFileAtom, swipePagesAtom } from "../../state/library";
 import { PageHeader } from "../PageHeader";
 import { Empty } from "../ui/layout";
 import { xPill, xPillSm } from "../x";
@@ -17,8 +17,9 @@ export function SwipeTab() {
   const result = useAtomValue(swipeFileAtom(query));
   const refresh = useAtomRefresh(swipeFileAtom(query));
   const refreshAll = useAtomRefresh(swipeFileAtom(""));
+  const [pages, setPages] = useAtom(swipePagesAtom(query));
   const count = AsyncResult.getOrElse(
-    AsyncResult.map(result, (rows) => rows.length),
+    AsyncResult.map(result, (page) => page.total.toLocaleString("en")),
     () => null,
   );
   return (
@@ -45,6 +46,7 @@ export function SwipeTab() {
           refresh();
           refreshAll();
         }}
+        onMore={() => setPages(pages + 1)}
         empty={
           query === "" ? (
             <Empty

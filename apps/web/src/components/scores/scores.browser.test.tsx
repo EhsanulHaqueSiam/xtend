@@ -1,3 +1,5 @@
+import "../../index.css";
+
 import { useLocation } from "@tanstack/react-router";
 import { ScoresError, type ScoreReport, type WatchEntry } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
@@ -180,4 +182,30 @@ it("Report and Bot check keep the handle when the sidebar switches between them"
   await expect.element(screen.getByRole("heading", { name: "Bot check" })).toBeVisible();
   await expect.element(screen.getByText(/^No score for @levelsio yet/)).toBeVisible();
   expect(new Set(reports)).toEqual(new Set(["levelsio"]));
+});
+
+it("fits a narrow score history to its data and exposes each exact score to keyboard inspection", async () => {
+  const report = scored("levelsio", 5);
+  const history = [52, 54.3, 61].map((score, index) => ({
+    at: `2026-10-${20 + index}T03:00:00.000Z`,
+    score,
+  }));
+  await using screen = await render(<ReportSection handle="levelsio" />, {
+    router: "/scores?tab=report&handle=levelsio",
+    service: {
+      "costs.quote": quoting(),
+      "scores.report": () => Effect.succeed({ ...report, history }),
+    },
+  });
+  const chart = screen.getByRole("slider", { name: "2026-10-20 to 2026-10-22 history" });
+  await expect.element(chart).toBeVisible();
+  const line = chart.element().querySelector("path[stroke]") as SVGPathElement;
+  // Nine points of score movement should use most of the 120px chart, not a few pixels at zero.
+  expect(line.getBBox().height).toBeGreaterThan(90);
+  (chart.element() as HTMLElement).focus();
+  await userEvent.keyboard("{ArrowRight}");
+  await expect.element(chart).toHaveAttribute("aria-valuetext", "2026-10-21 · 54.3");
+  await expect.element(screen.getByText("2026-10-21 · 54.3")).toBeVisible();
+  await userEvent.keyboard("{End}");
+  await expect.element(chart).toHaveAttribute("aria-valuetext", "2026-10-22 · 61");
 });

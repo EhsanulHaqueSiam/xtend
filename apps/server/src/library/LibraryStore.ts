@@ -2,6 +2,7 @@ import {
   type AuthorBand,
   type Collection,
   type HookPattern,
+  LIBRARY_PAGE_SIZE,
   LibraryError,
   type LibraryFilters,
   type LibraryPost,
@@ -100,6 +101,14 @@ const toPick = (r: PickRow): Pick => ({
   whyItWorks: r.why_it_works,
 });
 
+// What the user typed is literal text, so % and _ match themselves.
+const likeOf = (text: string) => `%${text.replace(/[\\%_]/g, "\\$&")}%`;
+
+interface Page<A> {
+  readonly items: ReadonlyArray<A>;
+  readonly total: number;
+}
+
 const storeError = (cause: unknown) =>
   new LibraryError({ operation: "store", detail: String(cause).slice(0, 300) });
 
@@ -115,7 +124,8 @@ export class LibraryStore extends Context.Service<
     readonly savedList: (input: {
       readonly collectionId?: number | undefined;
       readonly query?: string | undefined;
-    }) => Effect.Effect<ReadonlyArray<SavedPost>, LibraryError>;
+      readonly offset?: number | undefined;
+    }) => Effect.Effect<Page<SavedPost>, LibraryError>;
     readonly savedIds: Effect.Effect<ReadonlyArray<string>, LibraryError>;
     readonly savedSetNote: (id: number, note: string) => Effect.Effect<void, LibraryError>;
     readonly savedDelete: (id: number) => Effect.Effect<void, LibraryError>;
@@ -129,6 +139,11 @@ export class LibraryStore extends Context.Service<
       collectionId: number,
       savedId: number,
     ) => Effect.Effect<void, LibraryError>;
+    /** Links this account's saved posts into one of its own collections; returns how many were new. */
+    readonly collectionAddPosts: (
+      collectionId: number,
+      savedIds: ReadonlyArray<number>,
+    ) => Effect.Effect<number, LibraryError>;
     readonly picksForDay: (day: string) => Effect.Effect<ReadonlyArray<Pick>, LibraryError>;
     readonly pickFetchedKeywords: (
       day: string,
@@ -144,8 +159,8 @@ export class LibraryStore extends Context.Service<
     /** Adds posts to the archive or refreshes their metrics; a detected format and pattern survive. */
     readonly upsertPosts: (posts: ReadonlyArray<XPost>) => Effect.Effect<void, LibraryError>;
     readonly browse: (
-      filters: LibraryFilters,
-    ) => Effect.Effect<ReadonlyArray<LibraryPost>, LibraryError>;
+      filters: LibraryFilters & { readonly offset?: number | undefined },
+    ) => Effect.Effect<Page<LibraryPost>, LibraryError>;
     readonly libraryPost: (postId: string) => Effect.Effect<LibraryPost | null, LibraryError>;
     /** Archive posts no detection batch has labelled yet, most viewed first. */
     readonly undetected: (limit: number) => Effect.Effect<ReadonlyArray<LibraryPost>, LibraryError>;
@@ -164,12 +179,12 @@ const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const now = Effect.map(DateTime.now, DateTime.formatIso);
 
-  const savedSelect = (where: Statement.Fragment, limit: number) => sql<SavedRow>`
+  const savedSelect = (where: Statement.Fragment, limit: number, offset = 0) => sql<SavedRow>`
     SELECT s.id, s.post_json, s.note, s.saved_at,
       (SELECT group_concat(cp.collection_id) FROM collection_posts cp WHERE cp.saved_id = s.id) AS collection_ids
     FROM saved_posts s
     ${where} AND s.account_id = ${sql.literal(CURRENT_ACCOUNT)}
-    ORDER BY s.id DESC LIMIT ${limit}
+    ORDER BY s.id DESC LIMIT ${limit} OFFSET ${offset}
   `;
 
   const save = Effect.fn("LibraryStore.save")(function* (input: {
@@ -200,15 +215,13 @@ const make = Effect.gen(function* () {
   const savedList = Effect.fn("LibraryStore.savedList")(function* (input: {
     readonly collectionId?: number | undefined;
     readonly query?: string | undefined;
+    readonly offset?: number | undefined;
   }) {
     const query = input.query?.trim() ?? "";
-    // What the user typed is literal text, so % and _ match themselves.
-    const likeOf = (text: string) => `%${text.replace(/[\\%_]/g, "\\$&")}%`;
     const matches = (column: Statement.Fragment, text = query) =>
       sql`${column} LIKE ${likeOf(text)} ESCAPE '\\'`;
     // The text, author and note the user sees; matching the raw JSON would hit its keys and URLs.
-    const rows = yield* savedSelect(
-      sql`WHERE 1 = 1
+    const where = sql`WHERE 1 = 1
         ${input.collectionId === undefined ? sql`` : sql`AND s.id IN (SELECT saved_id FROM collection_posts WHERE collection_id = ${input.collectionId})`}
         ${
           query === ""
@@ -217,10 +230,12 @@ const make = Effect.gen(function* () {
                 OR ${matches(sql`json_extract(s.post_json, '$.author.handle')`, query.replace(/^@/, ""))}
                 OR ${matches(sql`json_extract(s.post_json, '$.author.name')`)}
                 OR ${matches(sql`s.note`)})`
-        }`,
-      200,
-    );
-    return rows.map(toSaved);
+        }`;
+    const rows = yield* savedSelect(where, LIBRARY_PAGE_SIZE, input.offset);
+    const count = yield* sql<{ n: number }>`
+      SELECT COUNT(*) AS n FROM saved_posts s ${where} AND s.account_id = ${sql.literal(CURRENT_ACCOUNT)}
+    `;
+    return { items: rows.map(toSaved), total: count[0]!.n };
   }, Effect.mapError(storeError));
 
   const savedIds = sql<{ post_id: string }>`
@@ -299,6 +314,22 @@ const make = Effect.gen(function* () {
     `;
   }, Effect.mapError(storeError));
 
+  const collectionAddPosts = Effect.fn("LibraryStore.collectionAddPosts")(function* (
+    collectionId: number,
+    savedIds: ReadonlyArray<number>,
+  ) {
+    if (savedIds.length === 0) return 0;
+    // RETURNING lists only the links the IGNORE did not skip.
+    const rows = yield* sql<{ saved_id: number }>`
+      INSERT OR IGNORE INTO collection_posts (collection_id, saved_id)
+      SELECT c.id, s.id FROM collections c JOIN saved_posts s ON s.account_id = c.account_id
+      WHERE c.id = ${collectionId} AND c.built_in = 0 AND c.account_id = ${sql.literal(CURRENT_ACCOUNT)}
+        AND s.id IN ${sql.in(savedIds)}
+      RETURNING saved_id
+    `;
+    return rows.length;
+  }, Effect.mapError(storeError));
+
   const picksForDay = Effect.fn("LibraryStore.picksForDay")(function* (day: string) {
     const rows = yield* sql<PickRow>`
         SELECT day, keyword, post_json, why_it_works, draft_json FROM picks WHERE day = ${day}
@@ -369,9 +400,14 @@ const make = Effect.gen(function* () {
     }
   }, Effect.mapError(storeError));
 
-  const browse = Effect.fn("LibraryStore.browse")(function* (filters: LibraryFilters) {
+  const browse = Effect.fn("LibraryStore.browse")(function* (
+    filters: LibraryFilters & { readonly offset?: number | undefined },
+  ) {
     const band = filters.authorBand === undefined ? null : BAND_RANGE[filters.authorBand];
     const metric = (name: string) => sql`json_extract(post_json, ${`$.metrics.${name}`})`;
+    const query = filters.query?.trim() ?? "";
+    const matches = (path: string, text = query) =>
+      sql`json_extract(post_json, ${path}) LIKE ${likeOf(text)} ESCAPE '\\'`;
     // Engagement over views as the cards show it; no views sorts last, as it does there.
     const order =
       filters.sort === "newest"
@@ -379,8 +415,7 @@ const make = Effect.gen(function* () {
         : filters.sort === "er"
           ? sql`(${metric("likes")} + ${metric("reposts")} + ${metric("replies")} + ${metric("quotes")} + ${metric("bookmarks")}) * 1.0 / NULLIF(views, 0) DESC`
           : sql`views DESC`;
-    const rows = yield* sql<LibraryRow>`
-      SELECT post_json, format, hook_pattern, last_seen_at FROM library_posts
+    const where = sql`
       WHERE account_id = ${sql.literal(CURRENT_ACCOUNT)}
         ${filters.minViews === undefined ? sql`` : sql`AND views >= ${filters.minViews}`}
         ${filters.format === undefined ? sql`` : sql`AND format = ${filters.format}`}
@@ -388,9 +423,17 @@ const make = Effect.gen(function* () {
         ${band === null ? sql`` : sql`AND author_followers >= ${band[0]} AND author_followers < ${band[1]}`}
         ${filters.lang === undefined ? sql`` : sql`AND lang = ${filters.lang}`}
         ${filters.hookPattern === undefined ? sql`` : sql`AND hook_pattern = ${filters.hookPattern}`}
-      ORDER BY ${order} LIMIT 200
+        ${
+          query === ""
+            ? sql``
+            : sql`AND (${matches("$.text")} OR ${matches("$.author.handle", query.replace(/^@/, ""))} OR ${matches("$.author.name")})`
+        }`;
+    const rows = yield* sql<LibraryRow>`
+      SELECT post_json, format, hook_pattern, last_seen_at FROM library_posts ${where}
+      ORDER BY ${order} LIMIT ${LIBRARY_PAGE_SIZE} OFFSET ${filters.offset ?? 0}
     `;
-    return rows.map(toLibraryPost);
+    const count = yield* sql<{ n: number }>`SELECT COUNT(*) AS n FROM library_posts ${where}`;
+    return { items: rows.map(toLibraryPost), total: count[0]!.n };
   }, Effect.mapError(storeError));
 
   const libraryPost = Effect.fn("LibraryStore.libraryPost")(function* (postId: string) {
@@ -445,6 +488,7 @@ const make = Effect.gen(function* () {
     collectionRename,
     collectionDelete,
     collectionRemovePost,
+    collectionAddPosts,
     picksForDay,
     pickFetchedKeywords,
     picksRecord,

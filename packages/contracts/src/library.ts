@@ -68,7 +68,10 @@ export const LibraryPost = Schema.Struct({
 });
 export type LibraryPost = typeof LibraryPost.Type;
 
-/** The archive's orders; the service sorts before its 200-row cap, so each one reads the whole archive. */
+/** Rows per page of the swipe file, a collection or the archive; Show more reads the next page. */
+export const LIBRARY_PAGE_SIZE = 200;
+
+/** The archive's orders; the service sorts before it pages, so each one reads the whole archive. */
 export const LibrarySort = Schema.Literals(["views", "er", "newest"]);
 
 export const LibraryFilters = Schema.Struct({
@@ -79,6 +82,8 @@ export const LibraryFilters = Schema.Struct({
   authorBand: Schema.optional(AuthorBand),
   lang: Schema.optional(Schema.String),
   hookPattern: Schema.optional(HookPattern),
+  /** Words in the post's text or its author's handle or name; free, it reads only the archive. */
+  query: Schema.optional(Schema.String),
 });
 export type LibraryFilters = typeof LibraryFilters.Type;
 
@@ -142,6 +147,7 @@ export const Library_METHODS = {
   collectionRename: "library.collectionRename",
   collectionDelete: "library.collectionDelete",
   collectionRemovePost: "library.collectionRemovePost",
+  collectionAddPosts: "library.collectionAddPosts",
   picksGet: "library.picksGet",
   picksFetch: "library.picksFetch",
   pickWhy: "library.pickWhy",
@@ -194,11 +200,14 @@ export const LibraryRpcGroup = RpcGroup.make(
     payload: Schema.Struct({
       collectionId: Schema.optional(CollectionId),
       query: Schema.optional(Schema.String),
+      /** Rows to skip, newest first; a page holds LIBRARY_PAGE_SIZE. */
+      offset: Schema.optional(NonNegativeInt),
     }),
-    success: Schema.Array(SavedPost),
+    /** One page and how many match in all. */
+    success: Schema.Struct({ items: Schema.Array(SavedPost), total: NonNegativeInt }),
     error: LibraryError,
   }),
-  /** Every saved post's X id, for the Saved mark on cards; the swipe file lists only the latest 200. */
+  /** Every saved post's X id, for the Saved mark on cards; the swipe file lists a page at a time. */
   Rpc.make(Library_METHODS.savedIds, {
     payload: Schema.Struct({}),
     success: Schema.Array(XId),
@@ -245,6 +254,15 @@ export const LibraryRpcGroup = RpcGroup.make(
     success: Schema.Void,
     error: LibraryError,
   }),
+  /** Files saved posts in one collection; returns how many were not in it yet. */
+  Rpc.make(Library_METHODS.collectionAddPosts, {
+    payload: Schema.Struct({
+      collectionId: CollectionId,
+      savedIds: Schema.NonEmptyArray(SavedPostId).check(Schema.isMaxLength(1000)),
+    }),
+    success: Schema.Struct({ added: NonNegativeInt }),
+    error: LibraryError,
+  }),
   Rpc.make(Library_METHODS.picksGet, {
     payload: Schema.Struct({}),
     success: PicksState,
@@ -284,8 +302,8 @@ export const LibraryRpcGroup = RpcGroup.make(
     error: Schema.Union([LibraryError, XApiError]),
   }),
   Rpc.make(Library_METHODS.browse, {
-    payload: LibraryFilters,
-    success: Schema.Array(LibraryPost),
+    payload: Schema.Struct({ ...LibraryFilters.fields, offset: Schema.optional(NonNegativeInt) }),
+    success: Schema.Struct({ items: Schema.Array(LibraryPost), total: NonNegativeInt }),
     error: LibraryError,
   }),
   /** One model call over the next 20 posts without a hook pattern; returns how many it labelled. */

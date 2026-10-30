@@ -5,7 +5,7 @@ import * as Effect from "effect/Effect";
 import { expect, it } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
-import { quoting, settings } from "../../../test/fixtures";
+import { peoplePage, quoting, settings } from "../../../test/fixtures";
 import { render } from "../../../test/render";
 import { runAgentAtom } from "../../state/leads";
 import { Toasts } from "../ui/toast";
@@ -22,7 +22,7 @@ it("opens on ⌘K, filters commands and closes on Escape", async () => {
       service: {
         "costs.quote": quoting(),
         "settings.get": () => Effect.succeed(settings),
-        "leads.peopleList": () => Effect.succeed([]),
+        "leads.peopleList": () => Effect.succeed(peoplePage()),
         "leads.agentsList": () => Effect.succeed([]),
       },
     },
@@ -68,7 +68,7 @@ it("arrows and Enter run the highlighted command; @handle offers its report; age
       service: {
         "costs.quote": quoting(),
         "settings.get": () => Effect.succeed(settings),
-        "leads.peopleList": () => Effect.succeed([]),
+        "leads.peopleList": () => Effect.succeed(peoplePage()),
         "leads.agentsList": () => Effect.succeed([agent]),
       },
     },
@@ -120,7 +120,7 @@ it("an agent run started from the palette finishes after the palette closes", as
       service: {
         "costs.quote": quoting(),
         "settings.get": () => Effect.succeed(settings),
-        "leads.peopleList": () => Effect.succeed([]),
+        "leads.peopleList": () => Effect.succeed(peoplePage()),
         "leads.agentsList": () => Effect.succeed([agent]),
         "leads.agentRun": ({ id }) =>
           Effect.promise(() => {
@@ -218,7 +218,7 @@ it("New draft opens a new draft", async () => {
       service: {
         "costs.quote": quoting(),
         "settings.get": () => Effect.succeed(settings),
-        "leads.peopleList": () => Effect.succeed([]),
+        "leads.peopleList": () => Effect.succeed(peoplePage()),
         "leads.agentsList": () => Effect.succeed([]),
       },
     },
@@ -240,7 +240,7 @@ it("contains Tab focus, closes from anywhere on Escape and restores focus", asyn
       service: {
         "costs.quote": quoting(),
         "settings.get": () => Effect.succeed(settings),
-        "leads.peopleList": () => Effect.succeed([]),
+        "leads.peopleList": () => Effect.succeed(peoplePage()),
         "leads.agentsList": () => Effect.succeed([]),
       },
     },
@@ -269,7 +269,7 @@ it("reports a failed palette run after navigating to Agents", async () => {
       service: {
         "costs.quote": quoting(),
         "settings.get": () => Effect.succeed(settings),
-        "leads.peopleList": () => Effect.succeed([]),
+        "leads.peopleList": () => Effect.succeed(peoplePage()),
         "leads.agentsList": () => Effect.succeed([agent]),
         "leads.agentRun": () =>
           Effect.fail(new LeadsError({ operation: "run", detail: "Budget exceeded", cause: null })),

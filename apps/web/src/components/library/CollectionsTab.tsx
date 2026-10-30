@@ -1,13 +1,15 @@
-import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useAtom, useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import type { Collection, SavedPost, XPost } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, Pencil, Plus, Trash2 } from "lucide-react";
 import { useState, type DragEvent, type ReactNode } from "react";
 
 import { draggedPost, POST_TYPE } from "../../lib/drag";
 import { fmtDay } from "../../lib/time";
 import { cn } from "../../lib/utils";
 import {
+  addToCollectionAtom,
+  collectionPagesAtom,
   collectionPostsAtom,
   collectionsAtom,
   createCollectionAtom,
@@ -22,12 +24,14 @@ import {
 import { PageHeader } from "../PageHeader";
 import { compactInputClass, inputClass } from "../ui/field";
 import { Empty } from "../ui/layout";
+import { Menu, MenuItem } from "../ui/menu";
 import { DetailSplit } from "../ui/split";
-import { xAction, xIconButton, xPill, xPillSm } from "../x";
+import { toastAtom } from "../ui/toast";
+import { xAction, xIconButton, xPill, xPillSm, xPillSolid } from "../x";
 import { PostGrid } from "./PostCard";
 import { InspectorGroup, PostInspector } from "./PostInspector";
 import { RemixButton, SaveButton } from "./SaveButton";
-import { ErrorLine, causeMessage, errorMessage } from "./shared";
+import { ErrorLine, ShowMore, causeMessage, errorMessage } from "./shared";
 
 /**
  * The selected saved post: its note, more collections, remix, remove. Remove in a collection
@@ -112,26 +116,112 @@ function SavedInspector({
   );
 }
 
+/** The checked cards' actions, pinned under the grid while any card is checked. */
+function PickBar({
+  savedIds,
+  collection,
+  onDone,
+  onClear,
+}: {
+  readonly savedIds: readonly [number, ...Array<number>];
+  readonly collection: Collection | undefined;
+  readonly onDone: () => void;
+  readonly onClear: () => void;
+}) {
+  const collections = useAtomValue(collectionsAtom);
+  const refreshCollections = useAtomRefresh(collectionsAtom);
+  const add = useAtomSet(addToCollectionAtom, { mode: "promise" });
+  const setToast = useAtomSet(toastAtom);
+  const [error, setError] = useState<string | null>(null);
+  // Staff picks is read-only, and the open collection already holds them.
+  const targets = AsyncResult.getOrElse(collections, (): ReadonlyArray<Collection> => []).filter(
+    (c) => !c.builtIn && c.id !== collection?.id,
+  );
+  const n = savedIds.length;
+  const file = (target: Collection) => {
+    setError(null);
+    add({ collectionId: target.id, savedIds }).then(
+      ({ added }) => {
+        setToast({
+          text:
+            added === n
+              ? `Added ${n} to ${target.name}`
+              : `Added ${added} to ${target.name}, ${n - added} already there`,
+        });
+        refreshCollections();
+        onDone();
+      },
+      (e: unknown) => setError(errorMessage(e)),
+    );
+  };
+  return (
+    <div className="sticky bottom-0 flex items-center gap-2 border-t border-border bg-background px-6 py-2">
+      <span className="font-mono text-xs tabular-nums">{n} selected</span>
+      <Menu
+        label="Collections"
+        trigger={
+          <button type="button" className={cn(xPillSolid, xPillSm, "[&_svg]:size-3.5")}>
+            Add to collection <ChevronDown className="opacity-60" />
+          </button>
+        }
+      >
+        {targets.length === 0 ? (
+          <MenuItem disabled onClick={() => {}}>
+            No other collection yet
+          </MenuItem>
+        ) : (
+          targets.map((c) => (
+            <MenuItem key={c.id} onClick={() => file(c)}>
+              <span className="truncate">{c.name}</span>
+              <span className="ml-auto font-mono text-2xs tabular-nums">{c.posts}</span>
+            </MenuItem>
+          ))
+        )}
+      </Menu>
+      {error !== null ? (
+        <span className="truncate text-xs text-error-foreground">{error}</span>
+      ) : null}
+      <button
+        type="button"
+        className="ml-auto h-7 cursor-pointer px-2 text-xs text-muted-foreground transition-colors duration-150 hover:text-foreground"
+        onClick={onClear}
+      >
+        Clear
+      </button>
+    </div>
+  );
+}
+
 /** Saved posts as cards, the selected one in the detail column. Collections and the swipe file share it. */
 export function SavedPosts({
   result,
   collection,
   onChange,
+  onMore,
   empty,
 }: {
-  readonly result: AsyncResult.AsyncResult<ReadonlyArray<SavedPost>, unknown>;
+  readonly result: AsyncResult.AsyncResult<
+    { readonly items: ReadonlyArray<SavedPost>; readonly total: number },
+    unknown
+  >;
   /** The collection listed; none is the swipe file. */
   readonly collection?: Collection;
   readonly onChange: () => void;
+  /** Loads the next page. */
+  readonly onMore: () => void;
   readonly empty: ReactNode;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
   // A removed post leaves at once, so the grid can hand focus to its neighbour before the refetch.
   const [removed, setRemoved] = useState<ReadonlySet<number>>(new Set());
-  const rows = AsyncResult.getOrElse(result, (): ReadonlyArray<SavedPost> => []).filter(
-    (s) => !removed.has(s.id),
-  );
+  const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
+  const { items, total } = AsyncResult.getOrElse(result, () => ({
+    items: [] as ReadonlyArray<SavedPost>,
+    total: 0,
+  }));
+  const rows = items.filter((s) => !removed.has(s.id));
   const open = rows.find((s) => String(s.id) === selected);
+  const pickedIds = rows.filter((s) => picked.has(String(s.id))).map((s) => s.id);
   return (
     <DetailSplit
       closable
@@ -160,17 +250,47 @@ export function SavedPosts({
           rows.length === 0 ? (
             empty
           ) : (
-            <PostGrid
-              items={rows.map((s) => ({
-                key: String(s.id),
-                post: s.post,
-                tag: `saved ${fmtDay(s.savedAt)}`,
-                note: s.note,
-              }))}
-              selected={selected}
-              onSelect={setSelected}
-              actions={(item) => <RemixButton post={item.post} />}
-            />
+            <>
+              <PostGrid
+                items={rows.map((s) => ({
+                  key: String(s.id),
+                  post: s.post,
+                  tag: `saved ${fmtDay(s.savedAt)}`,
+                  note: s.note,
+                }))}
+                selected={selected}
+                onSelect={setSelected}
+                actions={(item) => <RemixButton post={item.post} />}
+                picked={picked}
+                onPick={(key) => {
+                  const next = new Set(picked);
+                  if (!next.delete(key)) next.add(key);
+                  setPicked(next);
+                }}
+              />
+              <ShowMore
+                shown={items.length}
+                total={total}
+                waiting={result.waiting}
+                onMore={onMore}
+                past={
+                  collection === undefined
+                    ? "Search to find the rest."
+                    : "Search the swipe file to find the rest."
+                }
+              />
+              {pickedIds[0] === undefined ? null : (
+                <PickBar
+                  savedIds={[pickedIds[0], ...pickedIds.slice(1)]}
+                  collection={collection}
+                  onDone={() => {
+                    setPicked(new Set());
+                    onChange();
+                  }}
+                  onClear={() => setPicked(new Set())}
+                />
+              )}
+            </>
           ),
       })}
     />
@@ -179,6 +299,7 @@ export function SavedPosts({
 
 function CollectionPosts({ collection }: { readonly collection: Collection }) {
   const posts = useAtomValue(collectionPostsAtom(collection.id));
+  const [pages, setPages] = useAtom(collectionPagesAtom(collection.id));
   const refresh = useAtomRefresh(collectionPostsAtom(collection.id));
   const refreshAll = useAtomRefresh(swipeFileAtom(""));
   const refreshCollections = useAtomRefresh(collectionsAtom);
@@ -191,6 +312,7 @@ function CollectionPosts({ collection }: { readonly collection: Collection }) {
         refreshAll();
         refreshCollections();
       }}
+      onMore={() => setPages(pages + 1)}
       empty={
         <Empty>
           {collection.builtIn

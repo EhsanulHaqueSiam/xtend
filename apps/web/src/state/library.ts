@@ -33,18 +33,46 @@ export const savePostAtom = clientRuntime.fn<{
   }),
 );
 
+// How many pages each list shows; Show more adds one. Each resets when its list unmounts.
+export const swipePagesAtom = Atom.family((_query: string) => Atom.make(1));
+export const collectionPagesAtom = Atom.family((_collectionId: number) => Atom.make(1));
+export const archivePagesAtom = Atom.family((_filtersKey: string) => Atom.make(1));
+
+/**
+ * The first `pages` pages of a list, one bounded request each, and the true total. Show more
+ * re-reads the earlier pages too, so a refresh after an edit keeps every loaded row correct.
+ */
+const firstPages = Effect.fnUntraced(function* <A, E, R>(
+  pages: number,
+  read: (
+    offset: number,
+  ) => Effect.Effect<{ readonly items: ReadonlyArray<A>; readonly total: number }, E, R>,
+) {
+  const items: Array<A> = [];
+  let total = 0;
+  for (let i = 0; i < pages; i++) {
+    const page = yield* read(items.length);
+    items.push(...page.items);
+    total = page.total;
+    if (page.items.length === 0 || items.length >= total) break;
+  }
+  return { items, total };
+});
+
 /** The swipe file: every saved post, filtered by a text query. */
 export const swipeFileAtom = Atom.family((query: string) =>
-  clientRuntime.atom(
+  clientRuntime.atom((get) =>
     Effect.gen(function* () {
       const client = yield* XtendClient;
-      return yield* client[Library_METHODS.savedList](query === "" ? {} : { query });
+      return yield* firstPages(get(swipePagesAtom(query)), (offset) =>
+        client[Library_METHODS.savedList](query === "" ? { offset } : { query, offset }),
+      );
     }),
   ),
 );
 
 /**
- * Every saved post's X id, for the Saved mark: the swipe file lists only the latest 200. Read
+ * Every saved post's X id, for the Saved mark: the swipe file lists a page at a time. Read
  * after the swipe file, so whatever refreshes that after a save or delete refreshes this too.
  */
 export const savedIdsAtom = clientRuntime.atom((get) =>
@@ -66,10 +94,12 @@ export const savedPostAtom = Atom.family((postId: string) =>
 );
 
 export const collectionPostsAtom = Atom.family((collectionId: number) =>
-  clientRuntime.atom(
+  clientRuntime.atom((get) =>
     Effect.gen(function* () {
       const client = yield* XtendClient;
-      return yield* client[Library_METHODS.savedList]({ collectionId });
+      return yield* firstPages(get(collectionPagesAtom(collectionId)), (offset) =>
+        client[Library_METHODS.savedList]({ collectionId, offset }),
+      );
     }),
   ),
 );
@@ -126,6 +156,16 @@ export const removeFromCollectionAtom = clientRuntime.fn<{
   Effect.fnUntraced(function* (input) {
     const client = yield* XtendClient;
     return yield* client[Library_METHODS.collectionRemovePost](input);
+  }),
+);
+
+export const addToCollectionAtom = clientRuntime.fn<{
+  readonly collectionId: number;
+  readonly savedIds: readonly [number, ...Array<number>];
+}>()(
+  Effect.fnUntraced(function* (input) {
+    const client = yield* XtendClient;
+    return yield* client[Library_METHODS.collectionAddPosts](input);
   }),
 );
 
@@ -197,10 +237,13 @@ const FiltersJson = Schema.fromJsonString(LibraryFilters);
 const decodeFilters = Schema.decodeSync(FiltersJson);
 export const encodeFilters = Schema.encodeSync(FiltersJson);
 export const browseAtom = Atom.family((key: string) =>
-  clientRuntime.atom(
+  clientRuntime.atom((get) =>
     Effect.gen(function* () {
       const client = yield* XtendClient;
-      return yield* client[Library_METHODS.browse](decodeFilters(key));
+      const filters = decodeFilters(key);
+      return yield* firstPages(get(archivePagesAtom(key)), (offset) =>
+        client[Library_METHODS.browse]({ ...filters, offset }),
+      );
     }),
   ),
 );

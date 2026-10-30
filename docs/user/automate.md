@@ -47,8 +47,10 @@ followers, agent matches, schedules, webhooks) cost nothing to watch.
 ## Needs you
 
 Ask-first requests as cards, each with what the rule wants to do, the rule's name and when it
-asked. **Approve** performs the action at the price shown on the button; **Skip** closes it for
-good. Focus a card and press `a` to approve or `s` to skip. The header shows how many wait and
+asked. Expand a request to review its target on X, the full post, and the resolved reply or DM
+with its price. If the action changed since it asked, approval skips it; run the rule again
+to review the new action. **Approve** performs the action at the price shown on the button;
+**Skip** closes it for good. Focus a card and press `a` to approve or `s` to skip. The header shows how many wait and
 their total; with two or more, **Approve all** pays that total. The same requests appear under
 Compose's Automatic section (with **Dismiss** for Skip) and as OS notifications.
 

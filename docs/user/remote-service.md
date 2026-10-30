@@ -30,6 +30,9 @@ Open `http://<host>:4820/?token=<token>` once. The web app keeps the token for t
 strips it from the address bar. The browser has no X session, so Home shows what the desktop
 observed and there is no x.com panel; every tool works otherwise.
 
+If the service is unreachable at launch, the desktop offers Retry and connection settings;
+if it disconnects later, Service settings stays available from the connection notice.
+
 ## Health
 
 `GET /api/health` answers without a token. Everything else needs it.

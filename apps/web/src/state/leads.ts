@@ -4,6 +4,7 @@ import {
   type EngagementVia,
   type ListCriteria,
   type PersonAdd,
+  type PeopleQuery,
   type PersonUpdate,
   type ReplyTone,
   type SignalAgentInput,
@@ -14,14 +15,19 @@ import * as Atom from "effect/reactivity/Atom";
 
 import { clientRuntime, XtendClient } from "../rpc/client";
 
-/** People in one list, or everyone when the key is null. */
+/** Each list keeps one bounded query, shared by its header and rows. */
+export const peopleQueryAtom = Atom.family((listId: number | null) =>
+  Atom.make<PeopleQuery>(listId === null ? {} : { listId }),
+);
+
 export const peopleAtom = Atom.family((listId: number | null) =>
-  clientRuntime.atom(
-    Effect.gen(function* () {
+  clientRuntime.atom((get) => {
+    const query = get(peopleQueryAtom(listId));
+    return Effect.gen(function* () {
       const client = yield* XtendClient;
-      return yield* client[Leads_METHODS.peopleList](listId === null ? {} : { listId });
-    }),
-  ),
+      return yield* client[Leads_METHODS.peopleList](query);
+    });
+  }),
 );
 
 export const personAtom = Atom.family((id: number) =>
@@ -186,4 +192,37 @@ export const sendReplyAtom = Atom.family((id: number) =>
       return yield* client[Leads_METHODS.sendReply]({ id, postId, text });
     }),
   ),
+);
+
+/** Separate query state so the builder never changes the list or People filters. */
+export const listPeopleQueryAtom = Atom.family((listId: number) =>
+  Atom.make<PeopleQuery>({ excludeListId: listId }),
+);
+export const listPeopleAtom = Atom.family((listId: number) =>
+  clientRuntime.atom((get) => {
+    const query = get(listPeopleQueryAtom(listId));
+    get(peopleAtom(listId));
+    return Effect.gen(function* () {
+      const client = yield* XtendClient;
+      return yield* client[Leads_METHODS.peopleList](query);
+    });
+  }),
+);
+
+export const listAddPeopleAtom = clientRuntime.fn<{
+  readonly listId: number;
+  readonly personIds: ReadonlyArray<number>;
+}>()(
+  Effect.fnUntraced(function* (input) {
+    return yield* (yield* XtendClient)[Leads_METHODS.listAddPeople](input);
+  }),
+);
+
+export const listRemovePersonAtom = clientRuntime.fn<{
+  readonly listId: number;
+  readonly personId: number;
+}>()(
+  Effect.fnUntraced(function* (input) {
+    return yield* (yield* XtendClient)[Leads_METHODS.listRemovePerson](input);
+  }),
 );

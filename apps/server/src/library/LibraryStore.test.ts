@@ -48,9 +48,9 @@ describe("LibraryStore", () => {
 
       expect(again.note).toBe("great hook");
       expect(again.collectionIds).toEqual([ideas.id, hooks.id]);
-      expect(yield* store.savedList({})).toHaveLength(2);
-      expect(yield* store.savedList({ collectionId: hooks.id })).toHaveLength(1);
-      expect(yield* store.savedList({ query: "great" })).toHaveLength(1);
+      expect((yield* store.savedList({})).total).toBe(2);
+      expect((yield* store.savedList({ collectionId: hooks.id })).items).toHaveLength(1);
+      expect((yield* store.savedList({ query: "great" })).items).toHaveLength(1);
 
       yield* store.collectionDelete(ideas.id);
       const cols = yield* store.collectionsList;
@@ -72,7 +72,7 @@ describe("LibraryStore", () => {
       const saved = yield* store.save({ post: post("1", 100), collectionId: hooks.id });
 
       yield* store.collectionRemovePost(ideas.id, saved.id);
-      expect(yield* store.savedList({ collectionId: ideas.id })).toEqual([]);
+      expect((yield* store.savedList({ collectionId: ideas.id })).items).toEqual([]);
       const kept = yield* store.getSavedPost("1");
       expect([kept?.note, kept?.collectionIds]).toEqual(["great hook", [hooks.id]]);
       expect((yield* store.collectionsList).map((c) => [c.name, c.posts])).toEqual([
@@ -80,6 +80,25 @@ describe("LibraryStore", () => {
         ["Hooks", 1],
         ["Ideas", 0],
       ]);
+    }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect("files several saved posts at once, counting only the new links", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const store = yield* LibraryStore.LibraryStore;
+      const hooks = yield* store.collectionCreate("Hooks");
+      const a = yield* store.save({ post: post("1", 1), collectionId: hooks.id });
+      const b = yield* store.save({ post: post("2", 1), collectionId: null });
+      const c = yield* store.save({ post: post("3", 1), collectionId: null });
+
+      expect(yield* store.collectionAddPosts(hooks.id, [a.id, b.id, c.id])).toBe(2);
+      expect((yield* store.getSavedPost("2"))?.collectionIds).toEqual([hooks.id]);
+      // Staff picks is read-only, and another account's collection links nothing.
+      const staff = (yield* store.collectionsList).find((x) => x.builtIn)!;
+      expect(yield* store.collectionAddPosts(staff.id, [a.id])).toBe(0);
+      yield* sql`UPDATE settings SET current_account_id = 2 WHERE id = 1`;
+      expect(yield* store.collectionAddPosts(hooks.id, [a.id])).toBe(0);
     }).pipe(Effect.provide(layerTest)),
   );
 
@@ -101,7 +120,7 @@ describe("LibraryStore", () => {
         yield* store.save({ post: post("4", 1, { text: "snakeXcase loses" }), collectionId: null });
         yield* store.save({ post: post("5", 1), collectionId: hooks.id, note: "Great hook" });
         const ids = (input: Parameters<typeof store.savedList>[0]) =>
-          Effect.map(store.savedList(input), (rows) => rows.map((r) => r.post.postId));
+          Effect.map(store.savedList(input), (page) => page.items.map((r) => r.post.postId));
 
         expect(yield* ids({ query: "100%" })).toEqual(["1"]);
         expect(yield* ids({ query: "snake_case" })).toEqual(["3"]);
@@ -135,10 +154,10 @@ describe("LibraryStore", () => {
       expect(theirs.id).not.toBe(mine.id);
       expect(theirs.note).toBe("");
       expect(theirs.collectionIds).toEqual([]);
-      expect((yield* store.savedList({})).map((s) => s.id)).toEqual([theirs.id]);
+      expect((yield* store.savedList({})).items.map((s) => s.id)).toEqual([theirs.id]);
       expect(yield* store.savedIds).toEqual(["1"]);
       expect(yield* store.collectionsList).toEqual([]);
-      expect(yield* store.browse({})).toEqual([]);
+      expect(yield* store.browse({})).toEqual({ items: [], total: 0 });
       // Ids from the other account change nothing here.
       yield* store.savedSetNote(mine.id, "hijacked");
       yield* store.savedDelete(mine.id);
@@ -183,13 +202,13 @@ describe("LibraryStore", () => {
       expect(yield* store.pickFetchedKeywords("2026-10-22")).toEqual(["effect", "typescript"]);
       const staff = (yield* store.collectionsList).find((c) => c.builtIn);
       expect(staff?.posts).toBe(2);
-      expect(yield* store.savedList({ collectionId: staff!.id })).toHaveLength(2);
+      expect((yield* store.savedList({ collectionId: staff!.id })).items).toHaveLength(2);
       // Read-only: a rename, delete or removal leaves it as it is.
       yield* store.collectionRename(staff!.id, "Mine now");
       yield* store.collectionDelete(staff!.id);
       yield* store.collectionRemovePost(
         staff!.id,
-        (yield* store.savedList({ collectionId: staff!.id }))[0]!.id,
+        (yield* store.savedList({ collectionId: staff!.id })).items[0]!.id,
       );
       expect((yield* store.collectionsList).map((c) => [c.name, c.posts])).toEqual([
         ["Staff picks", 2],
@@ -212,7 +231,7 @@ describe("LibraryStore", () => {
         yield* store.upsertPosts([post("3", 20, { followers: 500 })]);
 
         const ids = (filters: Parameters<typeof store.browse>[0]) =>
-          Effect.map(store.browse(filters), (rows) => rows.map((r) => r.post.postId));
+          Effect.map(store.browse(filters), (page) => page.items.map((r) => r.post.postId));
         expect(yield* ids({})).toEqual(["1", "2", "3"]);
         expect(yield* ids({ minViews: 500 })).toEqual(["1", "2"]);
         expect(yield* ids({ format: "media" })).toEqual(["1"]);
@@ -222,6 +241,9 @@ describe("LibraryStore", () => {
         expect(yield* ids({ authorBand: "under 10k" })).toEqual(["3"]);
         expect(yield* ids({ lang: "de" })).toEqual(["2"]);
         expect(yield* ids({ hookPattern: "list" })).toEqual(["3"]);
+        expect(yield* ids({ query: " post 2 " })).toEqual(["2"]);
+        expect(yield* ids({ query: "@levelsio", minViews: 500 })).toEqual(["1", "2"]);
+        expect(yield* ids({ query: "100%" })).toEqual([]);
         expect((yield* store.libraryPost("3"))?.post.metrics.views).toBe(20);
         expect(yield* store.undetectedCount).toBe(2);
         expect((yield* store.undetected(1)).map((r) => r.post.postId)).toEqual(["1"]);
@@ -240,19 +262,29 @@ describe("LibraryStore", () => {
       yield* store.upsertPosts([post("1", 20, { createdAt: "2026-10-28T00:00:00.000Z" })]);
 
       const ids = (filters: Parameters<typeof store.browse>[0]) =>
-        Effect.map(store.browse(filters), (rows) => rows.map((r) => r.post.postId));
+        Effect.map(store.browse(filters), (page) => page.items.map((r) => r.post.postId));
       expect(yield* ids({})).not.toContain("1");
       expect((yield* ids({ sort: "newest" }))[0]).toBe("1");
       expect((yield* ids({ sort: "er" }))[0]).toBe("1");
     }).pipe(Effect.provide(layerTest)),
   );
 
-  it.effect("lists every saved post id, past the swipe file's 200", () =>
+  it.effect("pages saved posts and the archive with the true total, and lists every saved id", () =>
     Effect.gen(function* () {
       const store = yield* LibraryStore.LibraryStore;
       for (let i = 1; i <= 201; i++)
         yield* store.save({ post: post(String(i), 1), collectionId: null });
-      expect((yield* store.savedList({})).map((s) => s.post.postId)).not.toContain("1");
+      const first = yield* store.savedList({});
+      expect([first.items.length, first.total]).toEqual([200, 201]);
+      expect(first.items.map((s) => s.post.postId)).not.toContain("1");
+      const next = yield* store.savedList({ offset: 200 });
+      expect([next.items.map((s) => s.post.postId), next.total]).toEqual([["1"], 201]);
+      expect((yield* store.savedList({ query: "Post 20", offset: 0 })).total).toBe(3);
+
+      yield* store.upsertPosts(Array.from({ length: 201 }, (_, i) => post(String(i), i)));
+      const archive = yield* store.browse({ offset: 200 });
+      expect([archive.items.map((r) => r.post.postId), archive.total]).toEqual([["0"], 201]);
+      expect((yield* store.browse({ minViews: 101 })).total).toBe(100);
       const ids = yield* store.savedIds;
       expect(ids).toHaveLength(201);
       expect(ids).toContain("1");

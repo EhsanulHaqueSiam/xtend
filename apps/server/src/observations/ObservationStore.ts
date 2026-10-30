@@ -178,6 +178,18 @@ const make = Effect.gen(function* () {
         input.authorHandle === undefined
           ? sql``
           : sql`AND a.handle = ${input.authorHandle.toLowerCase()}`;
+      const query = input.query?.trim() ?? "";
+      // What the user typed is literal text, so % and _ match themselves.
+      const textFilter =
+        query === ""
+          ? sql``
+          : sql`AND p.text LIKE ${`%${query.replace(/[\\%_]/g, "\\$&")}%`} ESCAPE '\\'`;
+      // A cursor, not an offset: a fresh sighting moves a post to the top and would shift offsets.
+      const b = input.before;
+      const olderThan =
+        b === undefined
+          ? sql``
+          : sql`AND (p.last_seen_at, p.created_at, p.post_id) < (${b.lastSeenAt}, ${b.createdAt}, ${b.postId})`;
       // Repost wrappers and ads are kept for the record but are nobody's content to analyse.
       // A post belongs to every account that saw it; the post row only knows the first.
       const rows = yield* sql<ObservedPostRow>`
@@ -189,12 +201,13 @@ const make = Effect.gen(function* () {
         JOIN observed_authors a ON a.user_id = p.author_id
         JOIN post_metrics m ON m.post_id = p.post_id
           AND m.observed_at = (SELECT MAX(observed_at) FROM post_metrics WHERE post_id = p.post_id)
-        WHERE p.is_repost = 0 AND p.is_promoted = 0 ${authorFilter}
+        WHERE p.is_repost = 0 AND p.is_promoted = 0 ${authorFilter} ${textFilter} ${olderThan}
           AND EXISTS (SELECT 1 FROM post_metrics s WHERE s.post_id = p.post_id AND s.account_id = ${sql.literal(CURRENT_ACCOUNT)})
-        ORDER BY p.last_seen_at DESC, p.created_at DESC
-        LIMIT ${limit}
+        ORDER BY p.last_seen_at DESC, p.created_at DESC, p.post_id DESC
+        LIMIT ${limit + 1}
       `;
-      return { posts: rows.map(summaryFromRow) };
+      // The extra row only says whether an older page exists.
+      return { posts: rows.slice(0, limit).map(summaryFromRow), hasOlder: rows.length > limit };
     },
     Effect.mapError((cause) => new ObservationStoreError({ operation: "listRecent", cause })),
   );

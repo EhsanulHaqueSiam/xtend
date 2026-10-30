@@ -1,4 +1,4 @@
-import { EngageError, NicheProfile, type SentReply, XPost } from "@xtend/contracts";
+import { EngageError, type FollowUp, NicheProfile, type SentReply, XPost } from "@xtend/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
@@ -47,19 +47,29 @@ const storeError = (cause: unknown) =>
 export class EngageStore extends Context.Service<
   EngageStore,
   {
+    /** Keeps the reply and the post it answered; `postId` null with `error` is a refused write. */
     readonly recordReply: (
-      input: Omit<SentReply, "id" | "at" | "attributedFollowers">,
+      target: XPost,
+      reply: Pick<SentReply, "text" | "postId" | "error">,
     ) => Effect.Effect<SentReply, EngageError>;
     /** `engagerIds` are people who replied to the user; a new follower among them counts for a reply too. */
     readonly sentList: (
       engagerIds: ReadonlyArray<string>,
     ) => Effect.Effect<ReadonlyArray<SentReply>, EngageError>;
-    /** Successful replies older than two days with no later reply to the same target. */
-    readonly followUps: Effect.Effect<ReadonlyArray<SentReply>, EngageError>;
+    /** Successful replies older than two days, not closed, with no later reply to the same target. */
+    readonly followUps: Effect.Effect<ReadonlyArray<FollowUp>, EngageError>;
+    /** Marks a follow-up done or dismissed, or puts it back on the due list with null. */
+    readonly closeFollowUp: (
+      id: number,
+      state: "done" | "dismissed" | null,
+    ) => Effect.Effect<void, EngageError>;
     readonly repliedPostIds: Effect.Effect<ReadonlySet<string>, EngageError>;
     readonly handledMentionIds: Effect.Effect<ReadonlySet<string>, EngageError>;
-    /** Marks a mention handled, or reopens it with `handled` false. */
-    readonly setHandled: (postId: string, handled: boolean) => Effect.Effect<void, EngageError>;
+    /** Marks mentions handled, or reopens them with `handled` false. */
+    readonly setHandled: (
+      postIds: ReadonlyArray<string>,
+      handled: boolean,
+    ) => Effect.Effect<void, EngageError>;
     /** Records the incoming rows as announced for the current account; returns how many were not yet. */
     readonly announce: (postIds: ReadonlyArray<string>) => Effect.Effect<number, EngageError>;
     /** Mentions fetched from X so far, newest first. */
@@ -85,15 +95,22 @@ const make = Effect.gen(function* () {
   const now = Effect.map(DateTime.now, DateTime.formatIso);
 
   const recordReply = Effect.fn("EngageStore.recordReply")(function* (
-    input: Omit<SentReply, "id" | "at" | "attributedFollowers">,
+    target: XPost,
+    reply: Pick<SentReply, "text" | "postId" | "error">,
   ) {
     const at = yield* now;
+    const row = {
+      targetPostId: target.postId,
+      targetUrl: target.url,
+      targetHandle: target.author.handle,
+      ...reply,
+    };
     const rows = yield* sql<{ id: number }>`
-        INSERT INTO replies_sent (target_post_id, target_url, target_handle, text, post_id, error, at)
-        VALUES (${input.targetPostId}, ${input.targetUrl}, ${input.targetHandle}, ${input.text}, ${input.postId}, ${input.error}, ${at})
+        INSERT INTO replies_sent (target_post_id, target_url, target_handle, text, post_id, error, at, target_json)
+        VALUES (${row.targetPostId}, ${row.targetUrl}, ${row.targetHandle}, ${row.text}, ${row.postId}, ${row.error}, ${at}, ${encodePost(target)})
         RETURNING id
       `;
-    return { ...input, id: rows[0]!.id, at, attributedFollowers: 0 };
+    return { ...row, id: rows[0]!.id, at, attributedFollowers: 0 };
   }, Effect.mapError(storeError));
 
   // followers_seen is the leads area's table; reading it here beats a second follower snapshot.
@@ -120,9 +137,10 @@ const make = Effect.gen(function* () {
     );
     // shortcut: "no new interaction" means no later reply from us; checking X for the
     // author's answer would cost a read per target, upgrade when the inbox gets a refresh button.
-    const rows = yield* sql<SentRow>`
+    const rows = yield* sql<SentRow & { readonly target_json: string | null }>`
       SELECT r.*, 0 AS attributed_followers FROM replies_sent r
       WHERE r.post_id IS NOT NULL AND r.at < ${cutoff} AND r.account_id = ${sql.literal(CURRENT_ACCOUNT)}
+        AND r.follow_up IS NULL
         AND NOT EXISTS (
           SELECT 1 FROM replies_sent later
           WHERE later.target_post_id = r.target_post_id AND later.id > r.id
@@ -130,8 +148,19 @@ const make = Effect.gen(function* () {
         )
       ORDER BY r.id DESC LIMIT 100
     `;
-    return rows.map(toSent);
+    return rows.map((r): FollowUp =>
+      Object.assign(toSent(r), {
+        target: r.target_json === null ? null : decodePost(r.target_json),
+      }),
+    );
   }).pipe(Effect.mapError(storeError));
+
+  const closeFollowUp = Effect.fn("EngageStore.closeFollowUp")(function* (
+    id: number,
+    state: "done" | "dismissed" | null,
+  ) {
+    yield* sql`UPDATE replies_sent SET follow_up = ${state} WHERE id = ${id} AND account_id = ${sql.literal(CURRENT_ACCOUNT)}`;
+  }, Effect.mapError(storeError));
 
   const repliedPostIds = sql<{ target_post_id: string }>`
     SELECT DISTINCT target_post_id FROM replies_sent WHERE post_id IS NOT NULL AND account_id = ${sql.literal(CURRENT_ACCOUNT)}
@@ -146,13 +175,14 @@ const make = Effect.gen(function* () {
   );
 
   const setHandled = Effect.fn("EngageStore.setHandled")(function* (
-    postId: string,
+    postIds: ReadonlyArray<string>,
     handled: boolean,
   ) {
     const at = yield* now;
+    const ids = encodeIds(postIds);
     yield* handled
-      ? sql`INSERT OR IGNORE INTO handled_mentions (post_id, at) VALUES (${postId}, ${at})`
-      : sql`DELETE FROM handled_mentions WHERE post_id = ${postId}`;
+      ? sql`INSERT OR IGNORE INTO handled_mentions (post_id, at) SELECT value, ${at} FROM json_each(${ids})`
+      : sql`DELETE FROM handled_mentions WHERE post_id IN (SELECT value FROM json_each(${ids}))`;
   }, Effect.mapError(storeError));
 
   const announce = Effect.fn("EngageStore.announce")(function* (postIds: ReadonlyArray<string>) {
@@ -244,6 +274,7 @@ const make = Effect.gen(function* () {
     recordReply,
     sentList,
     followUps,
+    closeFollowUp,
     repliedPostIds,
     handledMentionIds,
     setHandled,

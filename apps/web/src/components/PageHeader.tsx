@@ -1,11 +1,11 @@
 import { useAtom } from "@effect/atom-react";
 import { useLocation } from "@tanstack/react-router";
-import { Info, X } from "lucide-react";
+import { Info, PanelRight, X } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { isElectron } from "../env";
 import { cn } from "../lib/utils";
-import { stored } from "../state/x";
+import { stored, xPanelOpenAtom } from "../state/x";
 import { ABOUT, isSectionRoute, sectionAbout } from "./shell/sections";
 import { Button } from "./ui/button";
 
@@ -88,6 +88,26 @@ function useAbout() {
   };
 }
 
+function XPanelToggle() {
+  const [open, setOpen] = useAtom(xPanelOpenAtom);
+  const label = open ? "Hide X panel" : "Show X panel";
+  const mod = window.desktopBridge?.platform === "darwin" ? "⌘" : "Ctrl";
+  return (
+    <div className="no-drag shrink-0 border-l border-border pl-3">
+      <Button
+        variant="ghost-muted"
+        size="icon-xs"
+        aria-label={label}
+        aria-pressed={open}
+        title={`${label} (${mod}\\)`}
+        onClick={() => setOpen(!open)}
+      >
+        <PanelRight />
+      </Button>
+    </div>
+  );
+}
+
 /**
  * The top of every screen: 52px, the section's name (a long one truncates
  * before the actions do), an optional row of filters right after it, and the
@@ -146,6 +166,7 @@ export function PageHeader({
             <div className="no-drag flex shrink-0 items-center gap-1.5">{actions}</div>
           ) : null}
         </div>
+        {isElectron ? <XPanelToggle /> : null}
       </header>
       {about !== null && about.open ? (
         // One line, no box: a first-visit guide the ⓘ brings back, not a subtitle.

@@ -14,6 +14,9 @@ import {
   listAddAllAtom,
   listPreviewAtom,
   listsAtom,
+  listPeopleAtom,
+  listPeopleQueryAtom,
+  listAddPeopleAtom,
   peopleAtom,
 } from "../../state/leads";
 import { errorText, fmt } from "../analyze/ui";
@@ -23,11 +26,11 @@ import { Field, inputClass } from "../ui/field";
 import { Cost, Empty, PageBody, Section } from "../ui/layout";
 import { Popover } from "../ui/popover";
 import { xIconButton } from "../x";
-import { PeopleSplit } from "./People";
+import { PeoplePager, PeopleSplit } from "./People";
 import { useAction } from "./ui";
 import { Select } from "../ui/select";
 
-type Builder = "search" | "engagement";
+type Builder = "search" | "engagement" | "people";
 
 /** One list's people, a switcher for the others in the header, and the builders that fill it. */
 export function ListsSection() {
@@ -81,7 +84,7 @@ export function ListsSection() {
           current === null ? (
             <PageBody>
               <Empty action={<NewList onCreated={setPicked} />}>
-                No lists yet. Name one, then fill it from a search or a post's engagement.
+                No lists yet. Name one, then fill it from People, a search or a post's engagement.
               </Empty>
             </PageBody>
           ) : (
@@ -92,6 +95,7 @@ export function ListsSection() {
                 builder === null ? null : (
                   <BuilderPanel
                     listId={current.id}
+                    listName={current.name}
                     mode={builder}
                     onMode={setBuilder}
                     onClose={() => setBuilder(null)}
@@ -222,11 +226,13 @@ function NewList({ onCreated }: { readonly onCreated: (id: number) => void }) {
 /** The detail column while adding people: a search, or who engaged with one post. */
 function BuilderPanel({
   listId,
+  listName,
   mode,
   onMode,
   onClose,
 }: {
   readonly listId: number;
+  readonly listName: string;
   readonly mode: Builder;
   readonly onMode: (mode: Builder) => void;
   readonly onClose: () => void;
@@ -234,12 +240,13 @@ function BuilderPanel({
   const modes = [
     { id: "search", label: "From a search" },
     { id: "engagement", label: "From a post" },
+    { id: "people", label: "From people" },
   ] as const;
   return (
-    <>
-      <div className="flex h-11 items-center gap-4 border-b border-border px-6">
+    <div className={mode === "people" ? "flex h-full flex-col" : undefined}>
+      <div className="flex h-11 shrink-0 items-center gap-3 border-b border-border px-4">
         <div
-          className="flex min-w-0 flex-1 items-center gap-4"
+          className="flex min-w-0 flex-1 items-center gap-3"
           role="group"
           aria-label="Add people"
         >
@@ -248,10 +255,11 @@ function BuilderPanel({
               key={m.id}
               type="button"
               aria-pressed={m.id === mode}
-              className="cursor-pointer text-[13px] text-muted-foreground transition-colors duration-150 hover:text-foreground aria-pressed:text-foreground"
+              className="inline-flex cursor-pointer items-center gap-1 whitespace-nowrap text-xs text-muted-foreground transition-colors duration-150 hover:text-foreground aria-pressed:text-foreground"
               onClick={() => onMode(m.id)}
             >
               {m.label}
+              {m.id === "people" ? <Cost label="free" /> : null}
             </button>
           ))}
         </div>
@@ -266,10 +274,127 @@ function BuilderPanel({
       </div>
       {mode === "search" ? (
         <SearchBuilder key="search" listId={listId} />
+      ) : mode === "people" ? (
+        <PeopleBuilder listId={listId} listName={listName} />
       ) : (
         <EngagementBuilder key="engagement" listId={listId} />
       )}
-    </>
+    </div>
+  );
+}
+
+/** Pick up to a page of existing people; membership changes never call X. */
+function PeopleBuilder({
+  listId,
+  listName,
+}: {
+  readonly listId: number;
+  readonly listName: string;
+}) {
+  const query = useAtomValue(listPeopleQueryAtom(listId));
+  const setQuery = useAtomSet(listPeopleQueryAtom(listId));
+  const result = useAtomValue(listPeopleAtom(listId));
+  const refresh = useAtomRefresh(listPeopleAtom(listId));
+  const refreshMembers = useAtomRefresh(peopleAtom(listId));
+  const refreshLists = useAtomRefresh(listsAtom);
+  const add = useAtomSet(listAddPeopleAtom, { mode: "promise" });
+  const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
+  const [added, setAdded] = useState<number | null>(null);
+  const { busy, error, run } = useAction();
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="shrink-0 px-4 py-3">
+        <input
+          className={inputClass}
+          aria-label="Search existing people"
+          placeholder="Search people"
+          maxLength={200}
+          value={query.search ?? ""}
+          disabled={busy}
+          onChange={(e) => setQuery({ ...query, search: e.target.value, offset: 0 })}
+        />
+      </div>
+      {AsyncResult.match(result, {
+        onInitial: () => <Empty>Loading people…</Empty>,
+        onFailure: (f) => <ErrorLine>{errorText(f.cause)}</ErrorLine>,
+        onSuccess: ({ value }) => (
+          <div className="flex min-h-0 flex-1 flex-col">
+            <p className="px-6 pb-2 text-xs text-muted-foreground">
+              {value.total} not in {listName}
+            </p>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              {value.people.length === 0 ? (
+                <Empty>No matching people to add.</Empty>
+              ) : (
+                value.people.map((person) => (
+                  <label
+                    key={person.id}
+                    className="flex cursor-pointer items-center gap-3 border-t border-border px-6 py-2 text-[13px]"
+                  >
+                    <input
+                      type="checkbox"
+                      aria-label={`Select @${person.handle}`}
+                      checked={selected.has(person.id)}
+                      disabled={busy || (!selected.has(person.id) && selected.size >= 50)}
+                      onChange={(e) => {
+                        setAdded(null);
+                        setSelected((current) => {
+                          const next = new Set(current);
+                          if (e.target.checked) next.add(person.id);
+                          else next.delete(person.id);
+                          return next;
+                        });
+                      }}
+                    />
+                    <span className="min-w-0 flex-1 truncate">
+                      @{person.handle} <span className="text-muted-foreground">{person.stage}</span>
+                    </span>
+                    <span className="font-mono text-xs tabular-nums">{fmt(person.followers)}</span>
+                  </label>
+                ))
+              )}
+            </div>
+            <PeoplePager
+              total={value.total}
+              offset={value.offset}
+              disabled={busy}
+              onPage={(offset) => setQuery({ ...query, offset })}
+            />
+          </div>
+        ),
+      })}
+      <div className="shrink-0 border-t border-border px-4 py-3">
+        <button
+          type="button"
+          className={pillSolid}
+          disabled={busy || selected.size === 0 || !AsyncResult.isSuccess(result)}
+          onClick={() =>
+            void run(() =>
+              add({ listId, personIds: [...selected] }).then(({ added }) => {
+                setAdded(added);
+                setSelected(new Set());
+                refresh();
+                refreshMembers();
+                refreshLists();
+              }),
+            )
+          }
+        >
+          Add {selected.size} to {listName}
+          <Cost label="free" />
+        </button>
+        {added === null ? null : (
+          <p role="status" className="mt-2 text-xs text-muted-foreground">
+            Added {added}
+          </p>
+        )}
+        {error === null ? null : (
+          <p role="alert" className="mt-2 text-xs text-error-foreground">
+            {error}
+          </p>
+        )}
+      </div>
+    </div>
   );
 }
 

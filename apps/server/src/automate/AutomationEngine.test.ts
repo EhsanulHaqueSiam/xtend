@@ -69,6 +69,7 @@ const deleted: Array<string> = [];
 const reposted: Array<string> = [];
 const followed: Array<string> = [];
 const replies: Array<string> = [];
+const messages: Array<{ kind: string; text: string; target: string }> = [];
 const calls = { userPosts: 0, engagers: 0, search: 0 };
 const fake = {
   likeError: null as XApiError | null,
@@ -185,7 +186,12 @@ const layerTest = AutomationEngine.layer.pipe(
         createPost: (input) =>
           Effect.sync(() => {
             replies.push(input.replyToPostId ?? "");
+            messages.push({ kind: "reply", text: input.text, target: input.replyToPostId ?? "" });
             return { postId: `reply-${replies.length}`, costUsd: 0.015 };
+          }),
+        sendDm: (target, text) =>
+          Effect.sync(() => {
+            messages.push({ kind: "dm", text, target });
           }),
         deletePost: (id) =>
           fake.deleteErrors[id] === undefined
@@ -223,7 +229,8 @@ const likeRule = (patch: Partial<RuleInput>): RuleInput => ({
 });
 
 const setup = Effect.gen(function* () {
-  for (const list of [liked, unliked, deleted, reposted, followed, replies]) list.length = 0;
+  for (const list of [liked, unliked, deleted, reposted, followed, replies, messages])
+    list.length = 0;
   Object.assign(calls, { userPosts: 0, engagers: 0, search: 0 });
   Object.assign(fake, {
     likeError: null,
@@ -621,6 +628,126 @@ describe("AutomationEngine", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
+  it.live(
+    "queues the full post and resolved DM, persists its preview, and sends exactly that message",
+    () =>
+      Effect.gen(function* () {
+        const { rules, engine } = yield* setup;
+        const text =
+          "Shipped the drafts board today. Drag a draft onto a day and it posts at that day's best hour.";
+        const found = post("555", HOUR, 100, false, "priyaships");
+        fake.searchResults = [{ ...found, text, author: { ...found.author, name: "Priya Nair" } }];
+        const rule = yield* rules.upsert(
+          likeRule({
+            askFirst: true,
+            trigger: { kind: "keyword_post", query: "drafts" },
+            action: { kind: "auto_dm", template: "Hey {name}, thanks for shipping!" },
+          }),
+        );
+        yield* engine.runRule(rule.id);
+        const request = (yield* rules.pendingList)[0]!;
+        expect(request.description).toContain(text);
+        expect(request.preview).toMatchObject({
+          title: "DM Priya Nair",
+          target: { label: "Priya Nair · @priyaships", href: "https://x.com/priyaships" },
+          message: "Hey Priya Nair, thanks for shipping!",
+          post: { text, href: "https://x.com/i/status/555" },
+        });
+        expect((yield* rules.pending(request.id)).preview).toEqual(request.preview);
+        expect(request.costUsd).toBe(0.015);
+        expect(messages).toEqual([]);
+        yield* engine.approve(request.id);
+        expect(messages).toEqual([
+          { kind: "dm", target: "id-priyaships", text: request.preview?.message },
+        ]);
+      }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.live("previews a reply and refuses a message edited after the request was queued", () =>
+    Effect.gen(function* () {
+      const { rules, engine } = yield* setup;
+      const rule = yield* rules.upsert(
+        likeRule({ askFirst: true, action: { kind: "auto_plug", text: "Read the full guide" } }),
+      );
+      yield* engine.runRule(rule.id);
+      const request = (yield* rules.pendingList)[0]!;
+      expect(request.preview).toMatchObject({
+        target: { href: "https://x.com/i/status/fresh" },
+        message: "Read the full guide",
+        post: { text: "t" },
+      });
+      yield* rules.upsert({ ...rule, action: { kind: "auto_plug", text: "Different message" } });
+      expect((yield* engine.approve(request.id)).status).toBe("skipped");
+      expect(messages).toEqual([]);
+      yield* engine.runRule(rule.id);
+      const next = (yield* rules.pendingList)[0]!;
+      expect(next.preview?.message).toBe("Different message");
+      yield* engine.approve(next.id);
+      expect(messages).toEqual([{ kind: "reply", target: "fresh", text: "Different message" }]);
+    }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.live(
+    "settles legacy approvals without acting or firing, and queues a fresh message preview",
+    () =>
+      Effect.gen(function* () {
+        const { rules, engine } = yield* setup;
+        const rule = yield* rules.upsert(
+          likeRule({
+            askFirst: true,
+            action: { kind: "auto_plug", text: "Original message" },
+          }),
+        );
+        const request = yield* rules.createPending({
+          ruleId: rule.id,
+          subject: { id: "fresh", postId: "fresh", description: "own post fresh" },
+          description: "reply to fresh",
+          costUsd: 0.015,
+        });
+        yield* rules.upsert({ ...rule, action: { kind: "auto_plug", text: "Edited message" } });
+        // Approve all goes through the same service operation for each queued request.
+        for (const pending of yield* rules.pendingList) {
+          const run = yield* engine.approve(pending.id);
+          expect(run.status).toBe("skipped");
+          expect(run.costUsd).toBe(0);
+          expect(run.detail).toContain("run the rule again");
+          expect((yield* rules.pending(pending.id)).status).toBe("approved");
+        }
+        expect(messages).toEqual([]);
+        expect((yield* rules.firedSubjects(rule.id)).has(request.subjectId)).toBe(false);
+        expect(yield* rules.pendingList).toEqual([]);
+        yield* engine.runRule(rule.id);
+        const fresh = (yield* rules.pendingList)[0]!;
+        expect(fresh.id).not.toBe(request.id);
+        expect(fresh.preview?.message).toBe("Edited message");
+        yield* engine.approve(fresh.id);
+        expect(messages).toEqual([{ kind: "reply", target: "fresh", text: "Edited message" }]);
+      }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.live("resolves local list and target names without charging for a preview", () =>
+    Effect.gen(function* () {
+      const { rules, engine } = yield* setup;
+      const people = yield* PeopleStore.PeopleStore;
+      const list = yield* people.createList("Founders");
+      fake.searchResults = [post("555", HOUR, 100, false, "kofibuilds")];
+      const rule = yield* rules.upsert(
+        likeRule({
+          askFirst: true,
+          trigger: { kind: "keyword_post", query: "builds" },
+          action: { kind: "add_to_list", listId: list.id },
+        }),
+      );
+      yield* engine.runRule(rule.id);
+      const request = (yield* rules.pendingList)[0]!;
+      expect(request.preview?.title).toBe("Add kofibuilds to Founders");
+      expect(request.preview?.target?.href).toBe("https://x.com/kofibuilds");
+      expect(request.costUsd).toBe(0);
+      expect(calls.search).toBe(1);
+      expect((yield* people.list({ listId: list.id })).people).toEqual([]);
+    }).pipe(Effect.provide(layerTest)),
+  );
+
   it.live("approving twice at once performs the action once", () =>
     Effect.gen(function* () {
       const { rules, engine } = yield* setup;
@@ -634,6 +761,74 @@ describe("AutomationEngine", () => {
       );
       expect([first._tag, second._tag].sort()).toEqual(["Failure", "Success"]);
       expect(liked).toEqual(["fresh"]);
+    }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.live("previews and persists every deletion target, then deletes exactly those posts", () =>
+    Effect.gen(function* () {
+      const { rules, engine } = yield* setup;
+      const rule = yield* rules.upsert(
+        likeRule({
+          askFirst: true,
+          action: { kind: "auto_delete", olderThanDays: 1, maxViews: 10_000 },
+        }),
+      );
+      yield* engine.runRule(rule.id);
+      const request = (yield* rules.pendingList)[0]!;
+      const posts = ["old", "day"].map((id) => ({
+        text: "t",
+        href: `https://x.com/i/status/${id}`,
+      }));
+      expect(request.preview).toMatchObject({ target: null, post: null, posts });
+      expect((yield* rules.pending(request.id)).subject.approval).toMatchObject({
+        deletionTargets: ["old", "day"].map((postId) => ({ postId, text: "t" })),
+        preview: { posts },
+      });
+      // Two different posts now qualify at the same price; approval still covers only old and day.
+      fake.timelineExtra = [
+        post("old", 6 * 24 * HOUR, 20_000),
+        post("day", 30 * HOUR, 20_000),
+        post("replacement-a", 48 * HOUR, 5000),
+        post("replacement-b", 48 * HOUR, 5000),
+      ];
+      expect((yield* engine.approve(request.id)).status).toBe("ok");
+      expect(deleted).toEqual(["old", "day"]);
+    }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.live("requires re-approval for deletion previews without saved targets", () =>
+    Effect.gen(function* () {
+      const { rules, engine } = yield* setup;
+      const rule = yield* rules.upsert(
+        likeRule({
+          askFirst: true,
+          action: { kind: "auto_delete", olderThanDays: 1, maxViews: 10_000 },
+        }),
+      );
+      const request = yield* rules.createPending({
+        ruleId: rule.id,
+        subject: {
+          id: "fresh",
+          description: "own post fresh",
+          approval: {
+            action: rule.action,
+            preview: {
+              title: "delete 2 posts",
+              target: null,
+              post: null,
+              message: null,
+              because: "trigger",
+            },
+          },
+        },
+        description: "delete 2 posts",
+        costUsd: 0.02,
+      });
+      expect((yield* engine.approve(request.id)).status).toBe("skipped");
+      expect(deleted).toEqual([]);
+      expect((yield* rules.firedSubjects(rule.id)).has("fresh")).toBe(false);
+      yield* engine.runRule(rule.id);
+      expect((yield* rules.pendingList)[0]?.id).not.toBe(request.id);
     }).pipe(Effect.provide(layerTest)),
   );
 

@@ -42,12 +42,13 @@ describe("payload budgets", () => {
       }),
     );
 
-    // A full page of 200 of the 1,000 people. Measured 77,578 bytes.
+    // A bounded page of 50 of the 1,000 people, plus totals for every stage.
     it.effect("leads.peopleList", () =>
       Effect.gen(function* () {
         const people = yield* (yield* PeopleStore.PeopleStore).list();
-        expect(people).toHaveLength(200);
-        expect(wireBytes(Leads_METHODS.peopleList, people)).toBeLessThan(120_000);
+        expect(people.people).toHaveLength(50);
+        expect(people.total).toBe(1000);
+        expect(wireBytes(Leads_METHODS.peopleList, people)).toBeLessThan(30_000);
       }),
     );
 
@@ -81,21 +82,21 @@ describe("payload budgets", () => {
       }),
     );
 
-    // The newest 200 of 3,450 saved posts (Staff picks mirror every daily pick). Measured
-    // 158,679 bytes.
+    // One page, the newest 200 of 3,450 saved posts (Staff picks mirror every daily pick); Show
+    // more reads the next page. Measured 158,679 bytes.
     it.effect("library.savedList", () =>
       Effect.gen(function* () {
         const saved = yield* (yield* LibraryStore.LibraryStore).savedList({});
-        expect(saved).toHaveLength(200);
+        expect([saved.items.length, saved.total]).toEqual([200, 3450]);
         expect(wireBytes(Library_METHODS.savedList, saved)).toBeLessThan(240_000);
       }),
     );
 
-    // The top 200 of 12,000 archived posts by views. Measured 160,474 bytes.
+    // One page, the top 200 of 12,000 archived posts by views. Measured 160,474 bytes.
     it.effect("library.browse", () =>
       Effect.gen(function* () {
         const posts = yield* (yield* LibraryStore.LibraryStore).browse({});
-        expect(posts).toHaveLength(200);
+        expect([posts.items.length, posts.total]).toEqual([200, 12_000]);
         expect(wireBytes(Library_METHODS.browse, posts)).toBeLessThan(250_000);
       }),
     );

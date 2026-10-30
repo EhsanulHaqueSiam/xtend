@@ -1,11 +1,13 @@
-import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useAtom, useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { AuthorBand, HookPattern, type LibraryFilters, type LibraryPost } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
+import { ListFilter } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { fmtDay } from "../../lib/time";
 import { cn } from "../../lib/utils";
 import {
+  archivePagesAtom,
   browseAtom,
   detectPatternsAtom,
   encodeFilters,
@@ -23,7 +25,7 @@ import { PostGrid } from "./PostCard";
 import { DraftChoice } from "./DraftChoice";
 import { InspectorGroup, PostInspector } from "./PostInspector";
 import { RemixButton, SaveButton, useSavedIds } from "./SaveButton";
-import { AppLink, ErrorLine, causeMessage, errorMessage } from "./shared";
+import { AppLink, ErrorLine, ShowMore, causeMessage, errorMessage } from "./shared";
 
 const THIS_YEAR = new Date().getFullYear();
 const YEARS = Array.from({ length: 6 }, (_, i) => THIS_YEAR - i);
@@ -77,6 +79,17 @@ export function FilterBar({
   const { format, ...rest } = value;
   return (
     <div className="flex flex-wrap items-center gap-1.5 border-b border-border px-6 py-2.5">
+      {/* Free: the service matches the archive's own rows, unlike Search X in the header. */}
+      <label className="flex h-7 w-44 items-center gap-1.5 rounded-[var(--control-radius)] border border-white/13 px-2 transition-[border-color] duration-150 focus-within:border-white/30">
+        <ListFilter className="size-3.5 shrink-0 text-muted-foreground" />
+        <input
+          className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-hidden placeholder:text-muted-foreground"
+          aria-label="Find in archive"
+          placeholder="Find in archive"
+          value={value.query ?? ""}
+          onChange={(e) => set("query", e.target.value === "" ? undefined : e.target.value)}
+        />
+      </label>
       <input
         className={cn(compactInputClass, "w-24 font-mono tabular-nums")}
         aria-label="Min views"
@@ -178,9 +191,10 @@ export function ArchiveTab() {
   const [filters, setFilters] = useState<LibraryFilters>({});
   const [sort, setSort] = useState<SortKey>("views");
   const [selected, setSelected] = useState<string | null>(null);
-  // The service sorts before its 200-row cap; sorting the 200 most viewed here would miss the rest.
+  // The service sorts before it pages; sorting the loaded pages here would miss the rest.
   const key = encodeFilters({ ...filters, sort });
   const result = useAtomValue(browseAtom(key));
+  const [pages, setPages] = useAtom(archivePagesAtom(key));
   const refresh = useAtomRefresh(browseAtom(key));
   const detect = useAtomSet(detectPatternsAtom, { mode: "promise" });
   const saved = useSavedIds();
@@ -202,7 +216,10 @@ export function ArchiveTab() {
     }
   };
 
-  const rows = AsyncResult.getOrElse(result, (): ReadonlyArray<LibraryPost> => []);
+  const { items: rows, total } = AsyncResult.getOrElse(result, () => ({
+    items: [] as ReadonlyArray<LibraryPost>,
+    total: 0,
+  }));
   const entry = rows.find((r) => r.post.postId === selected);
   const format: FormatFilter = filters.format ?? "all";
 
@@ -220,7 +237,7 @@ export function ArchiveTab() {
             }}
           />
         }
-        detail={AsyncResult.isSuccess(result) ? `${rows.length} posts` : undefined}
+        detail={AsyncResult.isSuccess(result) ? `${total.toLocaleString("en")} posts` : undefined}
         actions={
           <>
             <SortMenu value={sort} onChange={setSort} />
@@ -267,8 +284,8 @@ export function ArchiveTab() {
         list={AsyncResult.match(result, {
           onInitial: () => <Empty>Loading the archive</Empty>,
           onFailure: (f) => <ErrorLine className="py-4">{causeMessage(f.cause)}</ErrorLine>,
-          onSuccess: ({ value }) =>
-            value.length === 0 ? (
+          onSuccess: () =>
+            rows.length === 0 ? (
               Object.keys(filters).length > 0 ? (
                 <Empty
                   action={
@@ -295,15 +312,24 @@ export function ArchiveTab() {
                 </Empty>
               )
             ) : (
-              <PostGrid
-                items={value.map((r) => ({
-                  key: r.post.postId,
-                  post: r.post,
-                  tag: tagOf(r),
-                }))}
-                selected={selected}
-                onSelect={setSelected}
-              />
+              <>
+                <PostGrid
+                  items={rows.map((r) => ({
+                    key: r.post.postId,
+                    post: r.post,
+                    tag: tagOf(r),
+                  }))}
+                  selected={selected}
+                  onSelect={setSelected}
+                />
+                <ShowMore
+                  shown={rows.length}
+                  total={total}
+                  waiting={result.waiting}
+                  onMore={() => setPages(pages + 1)}
+                  past="Filter to find the rest."
+                />
+              </>
             ),
         })}
       />

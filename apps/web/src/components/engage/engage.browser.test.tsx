@@ -172,7 +172,7 @@ it("says when X refuses the paid mentions read, and marks a mention handled", as
             ? { mentions: [], apiError: "X refused the read: 429 Too Many Requests" }
             : { mentions: [mention("7", handledIds.includes("7"))], apiError: null },
         ),
-      "engage.mentionHandled": ({ postId }) => Effect.sync(() => void handledIds.push(postId)),
+      "engage.mentionHandled": ({ postIds }) => Effect.sync(() => void handledIds.push(...postIds)),
     },
   });
   const open = screen.getByRole("tab", { name: /Open/ });

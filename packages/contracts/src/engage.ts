@@ -42,6 +42,14 @@ export const SentReply = Schema.Struct({
 });
 export type SentReply = typeof SentReply.Type;
 
+/** A sent reply due a second touch, with the post it answered so the detail can show and reply to it. */
+export const FollowUp = Schema.Struct({
+  ...SentReply.fields,
+  /** Null for replies sent before the post was kept with them. */
+  target: Schema.NullOr(XPost),
+});
+export type FollowUp = typeof FollowUp.Type;
+
 export const Mention = Schema.Struct({
   post: XPost,
   /** "api" is X's mentions endpoint (paid); "session" is what the desktop observed (free). */
@@ -85,6 +93,7 @@ export const Engage_METHODS = {
   mentions: "engage.mentions",
   mentionHandled: "engage.mentionHandled",
   inbox: "engage.inbox",
+  followUpClose: "engage.followUpClose",
   nicheProfile: "engage.nicheProfile",
   nicheRebuild: "engage.nicheRebuild",
   dms: "engage.dms",
@@ -129,9 +138,9 @@ export const EngageRpcGroup = RpcGroup.make(
     }),
     error: EngageError,
   }),
-  /** `handled: false` reopens a mention marked handled. */
+  /** Marks the mentions handled in one write; `handled: false` reopens them. */
   Rpc.make(Engage_METHODS.mentionHandled, {
-    payload: Schema.Struct({ postId: XId, handled: Schema.Boolean }),
+    payload: Schema.Struct({ postIds: Schema.Array(XId), handled: Schema.Boolean }),
     success: Schema.Void,
     error: EngageError,
   }),
@@ -139,10 +148,19 @@ export const EngageRpcGroup = RpcGroup.make(
     payload: Schema.Struct({}),
     success: Schema.Struct({
       sent: Schema.Array(SentReply),
-      followUps: Schema.Array(SentReply),
+      followUps: Schema.Array(FollowUp),
       /** Replies and quotes to the user's own posts that the session saw. */
       incoming: Schema.Array(Mention),
     }),
+    error: EngageError,
+  }),
+  /** Done or dismissed takes a follow-up off the due list; `state: null` puts it back. */
+  Rpc.make(Engage_METHODS.followUpClose, {
+    payload: Schema.Struct({
+      id: Schema.Int,
+      state: Schema.NullOr(Schema.Literals(["done", "dismissed"])),
+    }),
+    success: Schema.Void,
     error: EngageError,
   }),
   Rpc.make(Engage_METHODS.nicheProfile, {

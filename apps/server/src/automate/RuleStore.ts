@@ -2,6 +2,7 @@ import {
   Action,
   AutomateError,
   Conditions,
+  PendingPreview,
   type PendingRequest,
   type PendingStatus,
   type Rule,
@@ -41,6 +42,17 @@ export const Subject = Schema.Struct({
   /** When the subject came to be; wait and the within-hours condition measure from it. */
   at: Schema.optional(Schema.String),
   postId: Schema.optional(Schema.String),
+  text: Schema.optional(Schema.String),
+  /** Reuses subject_json so old queues need no migration and the preview survives a restart. */
+  approval: Schema.optional(
+    Schema.Struct({
+      action: Action,
+      preview: PendingPreview,
+      deletionTargets: Schema.optional(
+        Schema.Array(Schema.Struct({ postId: Schema.String, text: Schema.String })),
+      ),
+    }),
+  ),
   /** The own post an ask-first request showed; approving it acts on this post, whatever ranks first by then. */
   pinnedPostId: Schema.optional(Schema.String),
   post: Schema.optional(
@@ -412,17 +424,21 @@ const make = Effect.gen(function* () {
     Effect.mapError(fail("runsList")),
   );
 
-  const toPending = (r: PendingRow): Pending => ({
-    id: r.id,
-    ruleId: r.rule_id,
-    ruleName: r.rule_name,
-    subjectId: r.subject_id,
-    subject: decodeSubject(r.subject_json),
-    description: r.description,
-    costUsd: r.cost_usd,
-    createdAt: r.created_at,
-    status: r.status,
-  });
+  const toPending = (r: PendingRow): Pending => {
+    const subject = decodeSubject(r.subject_json);
+    return {
+      id: r.id,
+      ruleId: r.rule_id,
+      ruleName: r.rule_name,
+      subjectId: r.subject_id,
+      subject,
+      ...(subject.approval === undefined ? {} : { preview: subject.approval.preview }),
+      description: r.description,
+      costUsd: r.cost_usd,
+      createdAt: r.created_at,
+      status: r.status,
+    };
+  };
 
   const pendingRow = (id: number) =>
     Effect.flatMap(

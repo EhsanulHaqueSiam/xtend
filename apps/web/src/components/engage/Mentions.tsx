@@ -27,7 +27,7 @@ import {
 import { toastAtom } from "../ui/toast";
 import { OpenOnX } from "../ui/x-link";
 import { ReplyBox, useWork } from "./ReplyBox";
-import { ago, ErrorLine, pill, PostHead } from "./triage";
+import { ago, ErrorLine, pill, pillSolid, PostHead } from "./triage";
 
 const COLUMNS: ReadonlyArray<Column<Mention>> = [
   { label: "Likes", className: "w-14", cell: (m) => fmt(m.post.metrics.likes) },
@@ -97,7 +97,10 @@ export function Mentions() {
   );
 }
 
-/** Open or every mention in a list, the selected one beside it with Mark handled and a reply. */
+/**
+ * Open or every mention in a list, the selected one beside it with Mark handled and a reply.
+ * Checked rows swap the header actions for one Mark handled over all of them.
+ */
 export function MentionTriage({
   title,
   noHandle,
@@ -117,9 +120,38 @@ export function MentionTriage({
   readonly empty: string;
 }) {
   const [filter, setFilter] = useState<Filter>("open");
+  const [picks, setPicks] = useState<ReadonlySet<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const setHandled = useSetHandled();
+  const setToast = useAtomSet(toastAtom);
   const all = AsyncResult.getOrElse(result, () => []);
   const open = all.filter((m) => !m.handled);
   const shown = filter === "open" ? open : all;
+  // Only rows on screen count: a pick that left the list (handled, other filter) is not marked.
+  const picked = shown.filter((m) => picks.has(m.post.postId)).map((m) => m.post.postId);
+  const pick = (ids: ReadonlyArray<string>, on: boolean) =>
+    setPicks((prev) => {
+      const next = new Set(prev);
+      for (const id of ids)
+        if (on) next.add(id);
+        else next.delete(id);
+      return next;
+    });
+
+  const onMarkPicked = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await setHandled(picked, true);
+      setPicks(new Set());
+      setToast({ text: `${picked.length} marked handled`, undo: () => setHandled(picked, false) });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
   const settings = AsyncResult.getOrElse(useAtomValue(settingsAtom), () => null);
   const tabs = [
     { id: "open", label: "Open", count: open.length },
@@ -131,7 +163,25 @@ export function MentionTriage({
       <PageHeader
         title={title}
         tabs={<HeaderTabs label="Show" tabs={tabs} value={filter} onChange={setFilter} />}
-        actions={actions}
+        actions={
+          picked.length === 0 ? (
+            actions
+          ) : (
+            <>
+              <button
+                type="button"
+                className={pillSolid}
+                disabled={busy}
+                onClick={() => void onMarkPicked()}
+              >
+                Mark {picked.length} handled
+              </button>
+              <button type="button" className={pill} onClick={() => setPicks(new Set())}>
+                Clear
+              </button>
+            </>
+          )
+        }
       />
       {AsyncResult.match(result, {
         onInitial: () => (
@@ -148,7 +198,14 @@ export function MentionTriage({
           <MentionList
             mentions={shown}
             kind={kind}
-            top={top}
+            picks={picks}
+            pick={pick}
+            top={
+              <>
+                {top}
+                {error !== null ? <ErrorLine>{error}</ErrorLine> : null}
+              </>
+            }
             empty={
               settings !== null && settings.handle === null ? (
                 <NoHandle subject={noHandle} />
@@ -168,17 +225,22 @@ export function MentionTriage({
 function MentionList({
   mentions,
   kind,
+  picks,
+  pick,
   top,
   empty,
 }: {
   readonly mentions: ReadonlyArray<Mention>;
   readonly kind: (m: Mention) => string;
+  readonly picks: ReadonlySet<string>;
+  readonly pick: (ids: ReadonlyArray<string>, on: boolean) => void;
   readonly top: ReactNode;
   readonly empty: ReactNode;
 }) {
   const { selected, select } = useSelection(mentions.map((m) => m.post.postId));
   const work = useWork();
   const current = mentions.find((m) => m.post.postId === selected) ?? null;
+  const pickedCount = mentions.filter((m) => picks.has(m.post.postId)).length;
   return (
     <DetailSplit
       detailKey={selected}
@@ -189,23 +251,51 @@ function MentionList({
             empty
           ) : (
             <>
-              <ListHead label="Post" columns={COLUMNS} />
+              {/* The checks sit in the rows' left padding, beside the row buttons rather than
+                  inside them: a control inside a button is not reachable on its own. */}
+              <div className="sticky top-0 z-10">
+                <input
+                  type="checkbox"
+                  aria-label="Pick all"
+                  className={check}
+                  checked={pickedCount > 0 && pickedCount === mentions.length}
+                  ref={(el) => {
+                    if (el !== null)
+                      el.indeterminate = pickedCount > 0 && pickedCount < mentions.length;
+                  }}
+                  onChange={(e) =>
+                    pick(
+                      mentions.map((m) => m.post.postId),
+                      e.target.checked,
+                    )
+                  }
+                />
+                <ListHead label="Post" columns={COLUMNS} />
+              </div>
               {mentions.map((m) => (
-                <ListRow
-                  key={m.post.postId}
-                  selected={m.post.postId === selected}
-                  onSelect={() => select(m.post.postId)}
-                  muted={m.handled}
-                  item={m}
-                  columns={COLUMNS}
-                >
-                  <RowTitle
-                    name={m.post.author.name}
-                    meta={`@${m.post.author.handle} · ${kind(m)}`}
-                    mark={m.handled ? "handled" : undefined}
+                <div key={m.post.postId} className="relative">
+                  <input
+                    type="checkbox"
+                    aria-label={`Pick ${m.post.author.name}`}
+                    className={check}
+                    checked={picks.has(m.post.postId)}
+                    onChange={(e) => pick([m.post.postId], e.target.checked)}
                   />
-                  <RowText>{m.post.text}</RowText>
-                </ListRow>
+                  <ListRow
+                    selected={m.post.postId === selected}
+                    onSelect={() => select(m.post.postId)}
+                    muted={m.handled}
+                    item={m}
+                    columns={COLUMNS}
+                  >
+                    <RowTitle
+                      name={m.post.author.name}
+                      meta={`@${m.post.author.handle} · ${kind(m)}`}
+                      mark={m.handled ? "handled" : undefined}
+                    />
+                    <RowText>{m.post.text}</RowText>
+                  </ListRow>
+                </div>
               ))}
             </>
           )}
@@ -231,6 +321,22 @@ function MentionList({
   );
 }
 
+const check =
+  "absolute top-1/2 left-[5px] z-20 size-3.5 -translate-y-1/2 cursor-pointer accent-foreground";
+
+/** Marks mentions handled or reopens them, then refetches every list that reads the flag. */
+function useSetHandled() {
+  const markHandled = useAtomSet(markHandledAtom, { mode: "promise" });
+  const refreshMentions = useAtomRefresh(mentionsAtom);
+  const refreshInbox = useAtomRefresh(inboxAtom);
+  // Both lists read the same handled flag, and the sidebar counts open mentions.
+  return (postIds: ReadonlyArray<string>, handled: boolean) =>
+    markHandled({ postIds, handled }).then(() => {
+      refreshMentions();
+      refreshInbox();
+    });
+}
+
 function MentionDetail({
   mention,
   kind,
@@ -241,28 +347,20 @@ function MentionDetail({
   readonly reply: ReactNode;
 }) {
   const { post } = mention;
-  const markHandled = useAtomSet(markHandledAtom, { mode: "promise" });
-  const refreshMentions = useAtomRefresh(mentionsAtom);
-  const refreshInbox = useAtomRefresh(inboxAtom);
+  const setHandled = useSetHandled();
   const setToast = useAtomSet(toastAtom);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Both lists read the same handled flag, and the sidebar counts open mentions.
-  const setHandled = (handled: boolean) =>
-    markHandled({ postId: post.postId, handled }).then(() => {
-      refreshMentions();
-      refreshInbox();
-    });
 
   const onToggle = async () => {
     setBusy(true);
     setError(null);
     try {
       const handled = !mention.handled;
-      await setHandled(handled);
+      await setHandled([post.postId], handled);
       // Under Open the mention leaves the list at once; the toast brings it back.
-      if (handled) setToast({ text: "Marked handled", undo: () => setHandled(false) });
+      if (handled)
+        setToast({ text: "Marked handled", undo: () => setHandled([post.postId], false) });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {

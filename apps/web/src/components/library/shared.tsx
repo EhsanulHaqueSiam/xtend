@@ -1,9 +1,10 @@
-import type { PostFormat, XPost } from "@xtend/contracts";
+import { LIBRARY_PAGE_SIZE, type PostFormat, type XPost } from "@xtend/contracts";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import * as Cause from "effect/Cause";
 import type { ReactNode } from "react";
 
 import { cn, readableError } from "../../lib/utils";
+import { xPill, xPillSm } from "../x";
 
 /** Shared bits for the Library and Scores screens: post formatting, errors, links. */
 
@@ -47,6 +48,41 @@ export function ErrorLine({
   readonly className?: string;
 }) {
   return <p className={cn("px-6 py-2 text-xs text-error-foreground", className)}>{children}</p>;
+}
+
+/** Past this many cards the grid is long enough; a search or a filter finds the rest faster. */
+const MAX_SHOWN = 1000;
+
+/** Under a paged grid: how many of the total show, and Show more for the next page. */
+export function ShowMore({
+  shown,
+  total,
+  waiting,
+  onMore,
+  past,
+}: {
+  readonly shown: number;
+  readonly total: number;
+  readonly waiting: boolean;
+  readonly onMore: () => void;
+  /** What to do instead once MAX_SHOWN are on screen. */
+  readonly past: string;
+}) {
+  if (shown >= total) return null;
+  return (
+    <div className="flex items-center justify-center gap-2.5 px-6 pb-6">
+      <span className="font-mono text-xs text-muted-foreground tabular-nums">
+        {shown.toLocaleString("en")} of {total.toLocaleString("en")}
+      </span>
+      {shown >= MAX_SHOWN ? (
+        <span className="text-xs text-muted-foreground">{past}</span>
+      ) : (
+        <button type="button" className={cn(xPill, xPillSm)} disabled={waiting} onClick={onMore}>
+          {waiting ? "Loading" : `Show ${Math.min(LIBRARY_PAGE_SIZE, total - shown)} more`}
+        </button>
+      )}
+    </div>
+  );
 }
 
 /**

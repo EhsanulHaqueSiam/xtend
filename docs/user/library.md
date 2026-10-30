@@ -40,9 +40,10 @@ free.
 
 ## Archive
 
-Every post a search or a pick has seen, the first 200 in the chosen order, with the model's labels for its
+Every post a search or a pick has seen, in the chosen order, with the model's labels for its
 format and its hook pattern. Filter by format, minimum views, year, author size, language and
-hook. **Detect hooks** labels the next 20 unlabelled posts in one model call; the selected
+hook. **Find in archive** matches the wording, author handle or name of posts already archived,
+free; **Search X** in the header is the paid read of X itself. **Detect hooks** labels the next 20 unlabelled posts in one model call; the selected
 post offers **Write mine in this format**, a model call that drafts your version.
 
 ## Trends
@@ -69,7 +70,12 @@ the model ties to the trends that fit your keywords. Nothing loads until you cli
 Save puts a post in the swipe file, with its metrics frozen at save time. A post can also sit
 in any number of named collections; name one in the Collections rail to start it, rename it
 inline, delete it after a confirm. Drag a card onto a collection in the rail to file it there
-too. Staff picks fills itself and takes no drop. The selected saved post takes a note, more
+too, or check several cards and use **Add to collection** to file them together. Staff picks
+fills itself and takes no drop. The selected saved post takes a note, more
 collections and remix. Inside a collection, Remove takes the post out of that collection; in
 the swipe file, Delete saved post removes it everywhere, after a confirm. The swipe file is
 searchable by text and note.
+
+The swipe file, each collection and the Archive show 200 posts at a time with the full count;
+**Show more** loads the next 200, up to 1,000 on screen. Past that, search or filter to find
+the rest.
