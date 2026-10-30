@@ -63,9 +63,12 @@ export function ErrorBar({ children }: { readonly children: string | null }) {
 export function LineChart({
   points,
   height = 120,
+  unit,
 }: {
   readonly points: ReadonlyArray<{ readonly label: string; readonly value: number }>;
   readonly height?: number;
+  /** Named after the number in the readout, e.g. "views". */
+  readonly unit?: string;
 }) {
   const gradient = useId();
   const hint = useId();
@@ -96,7 +99,7 @@ export function LineChart({
   const readout =
     point === null
       ? null
-      : `${point.label} · ${point.value.toLocaleString("en", { maximumFractionDigits: 20 })}`;
+      : `${point.label} · ${point.value.toLocaleString("en", { maximumFractionDigits: 20 })}${unit === undefined ? "" : ` ${unit}`}`;
   return (
     <div className="flex flex-col gap-1.5">
       <div

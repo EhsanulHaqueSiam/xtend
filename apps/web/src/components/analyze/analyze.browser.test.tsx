@@ -346,21 +346,21 @@ it("inspects Overview history with arrows, Home and End without triggering a pai
   const chart = screen.getByRole("slider", { name: "2026-10-20 to 2026-10-22 history" }).first();
   await expect.element(chart).toBeVisible();
   (chart.element() as HTMLElement).focus();
-  await expect.element(chart).toHaveAttribute("aria-valuetext", "2026-10-20 · 1,200");
+  await expect.element(chart).toHaveAttribute("aria-valuetext", "2026-10-20 · 1,200 views");
   await userEvent.keyboard("{ArrowRight}");
-  await expect.element(screen.getByText("2026-10-21 · 182,456")).toBeVisible();
-  await expect.element(chart).toHaveAttribute("aria-valuetext", "2026-10-21 · 182,456");
+  await expect.element(screen.getByText("2026-10-21 · 182,456 views")).toBeVisible();
+  await expect.element(chart).toHaveAttribute("aria-valuetext", "2026-10-21 · 182,456 views");
   await userEvent.keyboard("{End}{ArrowRight}");
-  await expect.element(chart).toHaveAttribute("aria-valuetext", "2026-10-22 · 209,100");
+  await expect.element(chart).toHaveAttribute("aria-valuetext", "2026-10-22 · 209,100 views");
   await userEvent.keyboard("{Home}{ArrowLeft}");
-  await expect.element(chart).toHaveAttribute("aria-valuetext", "2026-10-20 · 1,200");
+  await expect.element(chart).toHaveAttribute("aria-valuetext", "2026-10-20 · 1,200 views");
   await userEvent.keyboard("{ArrowRight}{ArrowLeft}");
   await expect.element(chart).toHaveAttribute("aria-valuenow", "1");
   // The followers chart uses the same interaction and keeps an independent selection.
   const followers = screen.getByRole("slider").nth(1);
   (followers.element() as HTMLElement).focus();
   await userEvent.keyboard("{End}");
-  await expect.element(followers).toHaveAttribute("aria-valuetext", "2026-10-22 · 1,022");
+  await expect.element(followers).toHaveAttribute("aria-valuetext", "2026-10-22 · 1,022 followers");
 });
 
 it("the pointer selects the nearest history point, and leaving restores its dates and fitted range", async () => {

@@ -101,9 +101,16 @@ export function Queue({
                   {d.status === "failed" ? (
                     <span className="shrink-0 text-error-foreground">failed ·</span>
                   ) : null}
-                  <span className="truncate">{meta.join(" · ")}</span>
+                  {/* A failed row says why on its second line, so every row stays two lines. */}
+                  {d.status === "failed" && d.error !== null ? (
+                    <span className="truncate text-error-foreground" title={d.error}>
+                      {d.error}
+                    </span>
+                  ) : (
+                    <span className="truncate">{meta.join(" · ")}</span>
+                  )}
                 </p>
-                {d.error !== null ? (
+                {d.error !== null && d.status !== "failed" ? (
                   <p className="truncate text-xs text-error-foreground">{d.error}</p>
                 ) : null}
               </div>

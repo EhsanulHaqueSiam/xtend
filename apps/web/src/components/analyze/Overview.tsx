@@ -87,12 +87,14 @@ export function Overview({ data }: { readonly data: AnalyzeData }) {
         <Section title="Views" description="by day published, 30 days" className="m-0">
           <LineChart
             height={CHART_HEIGHT}
+            unit="views"
             points={data.viewsByPostDay.map((d) => ({ label: d.day, value: d.views }))}
           />
         </Section>
         <Section title="Followers" description="by day" className="m-0">
           <LineChart
             height={CHART_HEIGHT}
+            unit="followers"
             points={data.snapshots.map((s) => ({ label: s.day, value: s.followers }))}
           />
         </Section>
