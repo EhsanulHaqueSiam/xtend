@@ -2,8 +2,9 @@ name: Release
 
 # Two channels, as T3 Code ships them. Every push to main that touches the app is a nightly,
 # X.Y.Z-nightly.YYYYMMDD.RUN where X.Y.Z is one patch past the last stable tag, published as a
-# GitHub prerelease with nightly-*.yml for the updater. A vX.Y.Z tag is a stable release, marked
-# latest, with latest-*.yml. Each builds the macOS app (dmg, zip), the Linux AppImage and the CLI
+# GitHub prerelease. A vX.Y.Z tag is a stable release, marked latest. Both carry latest-*.yml
+# (electron-builder's GitHub publisher ignores the prerelease channel); a nightly app finds its
+# release by the -nightly tag and electron-updater falls back to that release's latest-*.yml. Each builds the macOS app (dmg, zip), the Linux AppImage and the CLI
 # tarball, checks them with the release smoke tests, and only then publishes. A manual run builds
 # the same files as workflow artifacts and publishes nothing. macOS builds are unsigned until the
 # signing secrets exist (see apps/desktop/electron-builder.yml), so macOS installs link to the
@@ -138,18 +139,19 @@ jobs:
           path: artifacts
           merge-multiple: true
       # Only builds that passed their smoke checks get here. electron-builder also writes
-      # builder-debug.yml; the updater reads only latest-*.yml and nightly-*.yml.
+      # builder-debug.yml; the updater reads only latest-*.yml. The Linux artifact
+      # keeps its two source folders (apps/desktop/release, dist-cli), so collect files, not globs.
       - name: Publish the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.version.outputs.version }}
           NIGHTLY: ${{ needs.version.outputs.nightly }}
         run: |
-          rm -f artifacts/builder-debug.yml
+          mapfile -t files < <(find artifacts -type f ! -name builder-debug.yml)
           if [ "$NIGHTLY" = true ]; then
             gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-              --prerelease --title "Xtend $VERSION" --generate-notes artifacts/*
+              --prerelease --title "Xtend $VERSION" --generate-notes "${files[@]}"
           else
             gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --latest \
-              --title "Xtend $VERSION" --generate-notes artifacts/*
+              --title "Xtend $VERSION" --generate-notes "${files[@]}"
           fi
