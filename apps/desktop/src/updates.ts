@@ -29,7 +29,8 @@ export interface Updater {
   allowPrerelease: boolean;
   allowDowngrade: boolean;
   autoDownload: boolean;
-  checkForUpdates(): Promise<unknown>;
+  autoInstallOnAppQuit: boolean;
+  checkForUpdates(): Promise<{ downloadPromise?: Promise<unknown> | null } | null>;
   quitAndInstall(): void;
   on(
     event: "update-available" | "update-downloaded",
@@ -65,8 +66,15 @@ export function startUpdates(options: {
     state = { ...next, channel, version };
     options.broadcast(state);
   };
+  // The channel the updater is set up for. Until a switch is applied its events are the old
+  // channel's, and are dropped.
+  let applied = channel;
+  const report = (next: UpdateStatus) => {
+    if (applied === channel) set(next);
+  };
 
   const configure = () => {
+    applied = channel;
     // electron-updater calls stable "latest"; nightly also needs prereleases in view.
     updater.channel = channel === "nightly" ? "nightly" : "latest";
     updater.allowPrerelease = channel === "nightly";
@@ -77,7 +85,7 @@ export function startUpdates(options: {
   configure();
 
   updater.on("update-available", (info) =>
-    set(
+    report(
       canInstall
         ? { status: "downloading", next: info.version, percent: 0 }
         : { status: "available", next: info.version, url: releaseUrl(info.version) },
@@ -85,20 +93,25 @@ export function startUpdates(options: {
   );
   updater.on("download-progress", (progress) => {
     if (state.status === "downloading")
-      set({ status: "downloading", next: state.next, percent: Math.round(progress.percent) });
+      report({ status: "downloading", next: state.next, percent: Math.round(progress.percent) });
   });
-  updater.on("update-downloaded", (info) => set({ status: "ready", next: info.version }));
-  updater.on("update-not-available", () => set({ status: "idle" }));
+  updater.on("update-downloaded", (info) => report({ status: "ready", next: info.version }));
+  updater.on("update-not-available", () => report({ status: "idle" }));
   updater.on("error", (error) => {
     options.log("updater", String(error));
     // A failed download leaves the running build in place: say so once, check again next hour.
-    if (state.status !== "ready") set({ status: "error", message: error.message.slice(0, 200) });
+    if (state.status !== "ready") report({ status: "error", message: error.message.slice(0, 200) });
   });
 
+  // The running check and its download, settled either way.
+  let busy: Promise<unknown> = Promise.resolve();
   const check = () => {
-    if (state.status === "ready" || state.status === "downloading") return;
-    // The error listener already reported a rejection.
-    updater.checkForUpdates()?.catch(() => {});
+    if (applied !== channel || state.status === "ready" || state.status === "downloading") return;
+    // The error listener already reported a rejection, of the check or of its download.
+    busy = updater
+      .checkForUpdates()
+      .then((result) => result?.downloadPromise)
+      .catch(() => {});
   };
   check();
   const timer = setInterval(check, HOUR_MS);
@@ -116,9 +129,14 @@ export function startUpdates(options: {
       } catch (error) {
         options.log("update channel not saved", String(error));
       }
-      configure();
+      // A build already fetched for the old channel must not install on quit; Restart still works.
+      updater.autoInstallOnAppQuit = false;
       set({ status: "idle" });
-      check();
+      // electron-updater hands a new check the one already running, so switch once it settles.
+      void busy.then(() => {
+        configure();
+        check();
+      });
     },
     restart: () => {
       if (state.status === "ready") updater.quitAndInstall();
