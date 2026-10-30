@@ -96,11 +96,14 @@ export const isolatedConfig = (toml: string) => {
 
 /**
  * One structured answer through the Codex login on the service machine (ChatGPT or its own key).
+ * `binary` is the user's command for it; PATH is the login shell's.
  * Fails with a short reason the screen can show.
  * shortcut: strict mode makes every field required, so an optional field in an assist output
  * schema always comes back; give such outputs explicit nulls if one ever needs to be absent.
  */
 export const complete = Effect.fn("Codex.complete")(function* (input: {
+  readonly binary: string;
+  readonly path: string;
   readonly model: string;
   readonly system: string;
   readonly prompt: string;
@@ -123,13 +126,17 @@ export const complete = Effect.fn("Codex.complete")(function* (input: {
       .readFileString(path.join(userHome, "config.toml"))
       .pipe(Effect.orElseSucceed(() => ""));
     yield* fs.writeFileString(path.join(home, "config.toml"), isolatedConfig(config));
-    const codex = yield* ChildProcess.make("codex", codexArgs({ ...input, schemaPath, outPath }), {
-      cwd: dir,
-      // Only what the CLI needs to find itself and its login; the service's own secrets stay out.
-      env: { PATH: process.env.PATH, HOME: process.env.HOME, CODEX_HOME: home },
-      stdin: Stream.make(new TextEncoder().encode(`${input.system}\n\n${input.prompt}`)),
-      stdout: "ignore",
-    });
+    const codex = yield* ChildProcess.make(
+      input.binary,
+      codexArgs({ ...input, schemaPath, outPath }),
+      {
+        cwd: dir,
+        // Only what the CLI needs to find itself and its login; the service's own secrets stay out.
+        env: { PATH: input.path, HOME: process.env.HOME, CODEX_HOME: home },
+        stdin: Stream.make(new TextEncoder().encode(`${input.system}\n\n${input.prompt}`)),
+        stdout: "ignore",
+      },
+    );
     const [code, stderr] = yield* Effect.all(
       [codex.exitCode, codex.stderr.pipe(Stream.decodeText(), Stream.mkString)],
       { concurrency: 2 },
@@ -146,8 +153,8 @@ export const complete = Effect.fn("Codex.complete")(function* (input: {
     Effect.mapError((e) =>
       typeof e === "string"
         ? e
-        : String(e).includes("ENOENT")
-          ? "Codex is not installed or not logged in on the machine running Xtend's service."
+        : String(e).includes("NotFound")
+          ? `${input.binary} is not installed or not logged in on the machine running Xtend's service.`
           : String(e).slice(0, 300),
     ),
   );

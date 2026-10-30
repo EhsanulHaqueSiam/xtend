@@ -142,9 +142,12 @@ it("runs assist on the Codex login with a chosen model, and keeps the endpoint f
     .toHaveAttribute("aria-pressed", "true");
   await userEvent.click(screen.getByRole("button", { name: "Codex" }));
   await userEvent.fill(screen.getByPlaceholder("default"), "m1");
+  await userEvent.fill(screen.getByPlaceholder("codex", { exact: true }), "/opt/bin/codex");
   await expect.element(screen.getByText("Endpoint", { exact: true })).not.toBeInTheDocument();
   await userEvent.click(screen.getByRole("button", { name: "Save" }));
-  await expect.poll(() => updates).toEqual([{ assistProvider: "codex", assistModel: "m1" }]);
+  await expect
+    .poll(() => updates)
+    .toEqual([{ assistProvider: "codex", assistModel: "m1", assistBinaryPath: "/opt/bin/codex" }]);
 });
 
 it("requotes after a saved keyword change, so the daily jobs show the new search price", async () => {

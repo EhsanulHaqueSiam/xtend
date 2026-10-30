@@ -13,6 +13,7 @@ const settings = {
   assistProvider: "claude",
   assistBaseUrl: null,
   assistModel: "",
+  assistBinaryPath: "",
   assistKeySet: false,
   monthlyBudgetUsd: 20,
   sessionPostingEnabled: false,

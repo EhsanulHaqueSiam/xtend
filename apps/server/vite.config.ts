@@ -14,9 +14,8 @@ export default mergeConfig(
       dts: false,
       sourcemap: true,
       outExtensions: () => ({ js: ".mjs" }),
-      // One self-contained file for the desktop to ship; only the agent SDK (platform binaries) stays outside.
-      external: (id: string) => id.startsWith("@anthropic-ai/"),
-      noExternal: [/^@xtend\//, /^effect(\/|$)/, /^@effect\//, /^undici/, /^zod/],
+      // One self-contained file for the desktop to ship.
+      noExternal: [/^@xtend\//, /^effect(\/|$)/, /^@effect\//, /^undici/],
     },
   }),
 );

@@ -29,6 +29,7 @@ import Migration0025 from "./Migrations/025_PrivateMetricsOptIn.ts";
 import Migration0026 from "./Migrations/026_SavedCollectionsIndex.ts";
 import Migration0027 from "./Migrations/027_PrivateMetricsNightly.ts";
 import Migration0028 from "./Migrations/028_FollowUpTriage.ts";
+import Migration0029 from "./Migrations/029_AssistBinaryPath.ts";
 
 export const migrationEntries = [
   [1, "Observations", Migration0001],
@@ -59,6 +60,7 @@ export const migrationEntries = [
   [26, "SavedCollectionsIndex", Migration0026],
   [27, "PrivateMetricsNightly", Migration0027],
   [28, "FollowUpTriage", Migration0028],
+  [29, "AssistBinaryPath", Migration0029],
 ] as const;
 
 const run = Migrator.make({});

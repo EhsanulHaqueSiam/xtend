@@ -1,9 +1,12 @@
+// @effect-diagnostics nodeBuiltinImport:off -- a real executable on disk stands in for the CLI.
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import { HttpClient, HttpClientResponse, type HttpClientRequest } from "effect/http";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
-import { vi } from "vite-plus/test";
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 
 import * as ServerConfig from "../config.ts";
@@ -12,20 +15,29 @@ import * as SettingsStore from "../settings/SettingsStore.ts";
 import * as TokenCipher from "../settings/TokenCipher.ts";
 import * as Assist from "./Assist.ts";
 
-// The real SDK spawns a model run; this one answers with one result message per call.
-const sdk = vi.hoisted(() => ({
-  query: vi.fn((_input: { readonly prompt: string }) =>
-    (async function* () {
-      yield {
-        type: "result",
-        is_error: false,
-        total_cost_usd: 0.02,
-        structured_output: { hook: "Ship it" },
-      };
-    })(),
-  ),
-}));
-vi.mock("@anthropic-ai/claude-agent-sdk", () => sdk);
+// A stand-in Claude CLI: logs each call's arguments and stdin, then answers like
+// `claude -p --output-format json`. \x1f ends an argument, \x1e a call.
+const fakeDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "xtend-fake-claude-"));
+const fakeClaude = NodePath.join(fakeDir, "claude");
+const fakeLog = NodePath.join(fakeDir, "calls.log");
+NodeFS.writeFileSync(
+  fakeClaude,
+  `#!/bin/sh
+printf '%s\\037' "$@" >> "${fakeLog}"
+cat >> "${fakeLog}"
+printf '\\036' >> "${fakeLog}"
+echo '{"type":"result","is_error":false,"result":"","structured_output":{"hook":"Ship it"}}'
+`,
+  { mode: 0o755 },
+);
+/** Each call as its arguments and the prompt it read on stdin. */
+const calls = () =>
+  (NodeFS.existsSync(fakeLog) ? NodeFS.readFileSync(fakeLog, "utf8").split("\x1e") : [])
+    .slice(0, -1)
+    .map((call) => {
+      const parts = call.split("\x1f");
+      return { args: parts.slice(0, -1), prompt: parts.at(-1)! };
+    });
 
 // The user's own endpoint: records what it was sent and answers like an OpenAI-compatible server,
 // in the fences models tend to add.
@@ -77,14 +89,26 @@ const request = {
 };
 
 describe("Assist.generate", () => {
-  it.effect("runs on the Claude login with the chosen model, and logs no spend", () =>
+  it.effect("runs the user's Claude command with the chosen model, and logs no spend", () =>
     Effect.gen(function* () {
-      sdk.query.mockClear();
+      NodeFS.rmSync(fakeLog, { force: true });
       const assist = yield* Assist.Assist;
       const settings = yield* SettingsStore.SettingsStore;
-      yield* settings.update({ assistModel: "test-model", monthlyBudgetUsd: 0 });
+      yield* settings.update({
+        assistModel: "test-model",
+        assistBinaryPath: fakeClaude,
+        monthlyBudgetUsd: 0,
+      });
       expect(yield* assist.generate(request)).toEqual({ hook: "Ship it" });
-      expect(sdk.query.mock.calls[0]?.[0]).toMatchObject({ options: { model: "test-model" } });
+      const { args } = calls()[0]!;
+      expect(args.slice(args.indexOf("--model"), args.indexOf("--model") + 2)).toEqual([
+        "--model",
+        "test-model",
+      ]);
+      expect(args.slice(args.indexOf("--tools"), args.indexOf("--tools") + 2)).toEqual([
+        "--tools",
+        "",
+      ]);
       const spend = yield* settings.spendSummary;
       expect(spend.byPurpose).toEqual([]);
     }).pipe(Effect.provide(layerTest)),
@@ -92,11 +116,13 @@ describe("Assist.generate", () => {
 
   it.effect("puts the picked tone after the instructions, and nothing without one", () =>
     Effect.gen(function* () {
-      sdk.query.mockClear();
+      NodeFS.rmSync(fakeLog, { force: true });
       const assist = yield* Assist.Assist;
+      const settings = yield* SettingsStore.SettingsStore;
+      yield* settings.update({ assistBinaryPath: fakeClaude });
       yield* assist.generate(request);
       yield* assist.generate({ ...request, tone: "sarcastic" });
-      const prompts = sdk.query.mock.calls.map((c) => String(c[0]?.prompt).split("\n")[0]);
+      const prompts = calls().map((c) => c.prompt.split("\n")[0]);
       expect(prompts).toEqual([
         "Improve the hook.",
         "Improve the hook. Every option is dry and sarcastic, without insulting anyone.",
@@ -106,9 +132,9 @@ describe("Assist.generate", () => {
 });
 
 describe("Assist.generate with the user's own model", () => {
-  it.effect("asks the user's endpoint instead of the SDK, with the key, and pays nothing", () =>
+  it.effect("asks the user's endpoint instead of a CLI, with the key, and pays nothing", () =>
     Effect.gen(function* () {
-      sdk.query.mockClear();
+      NodeFS.rmSync(fakeLog, { force: true });
       const settings = yield* SettingsStore.SettingsStore;
       yield* settings.update({
         assistProvider: "endpoint",
@@ -118,7 +144,7 @@ describe("Assist.generate with the user's own model", () => {
       });
       const assist = yield* Assist.Assist;
       expect(yield* assist.generate(request)).toEqual({ hook: "Local hook" });
-      expect(sdk.query).not.toHaveBeenCalled();
+      expect(calls()).toEqual([]);
       const [sent] = ownCalls;
       expect(sent?.url).toBe("http://127.0.0.1:11434/v1/chat/completions");
       expect(sent?.headers.authorization).toBe("Bearer sk-own");

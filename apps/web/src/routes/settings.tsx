@@ -99,6 +99,7 @@ const DEFAULTS: Partial<Record<Page, SettingsUpdate>> = {
     assistProvider: "claude",
     assistBaseUrl: null,
     assistModel: "",
+    assistBinaryPath: "",
     assistKey: null,
     voiceNotes: "",
     keywords: [],
@@ -324,8 +325,9 @@ function SettingsForm({ current }: { readonly current: SettingsShape }) {
                     setDraft((d) => ({
                       ...d,
                       assistProvider: p.id,
-                      // A model name belongs to one provider; an endpoint starts on the local preset.
+                      // A model name and a command belong to one provider; an endpoint starts on the local preset.
                       assistModel: p.id === "endpoint" && assistBaseUrl === null ? "llama3.1" : "",
+                      assistBinaryPath: "",
                       ...(p.id === "endpoint" && assistBaseUrl === null
                         ? { assistBaseUrl: ASSIST_PRESETS[0].baseUrl }
                         : {}),
@@ -355,6 +357,22 @@ function SettingsForm({ current }: { readonly current: SettingsShape }) {
                   <option key={m} value={m} />
                 ))}
               </datalist>
+            </SField>
+          )}
+          {assistProvider.id === "endpoint" ? null : (
+            <SField
+              wide
+              label="Command"
+              hint={`Empty runs ${assistProvider.id} from your shell's PATH. Set a path or a wrapper, as in T3 Code.`}
+            >
+              <input
+                className={settingsInput}
+                placeholder={assistProvider.id}
+                value={draft.assistBinaryPath ?? current.assistBinaryPath}
+                onChange={(e) =>
+                  setDraft((d) => ({ ...d, assistBinaryPath: e.target.value.trim() }))
+                }
+              />
             </SField>
           )}
         </Section>

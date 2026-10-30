@@ -29,7 +29,8 @@ shipped (on Writing that clears your voice notes and keywords); it asks for a se
 
 - **AI assist**: what answers every assist, free through Xtend. **Claude** (the default) and
   **Codex** use that tool's login on the machine running the service, so your plan's limits
-  apply. **Other model** takes any OpenAI-compatible endpoint ending in `/v1`: a local Ollama,
+  apply. Xtend finds them on your shell's PATH; if yours lives elsewhere or goes through a
+  wrapper that picks an account, put its path in **Command**. **Other model** takes any OpenAI-compatible endpoint ending in `/v1`: a local Ollama,
   or your own key at OpenAI, Anthropic, Groq or OpenRouter, which bill you directly. The key is
   stored encrypted and is dropped if you change the endpoint without pasting a new one.
 - **Time zone**: pick by city; each shows its current UTC offset, and typing a city jumps to
