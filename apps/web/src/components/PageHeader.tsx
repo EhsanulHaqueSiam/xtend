@@ -42,9 +42,9 @@ export function HeaderTabs<T extends string>({
     <div
       role="tablist"
       aria-label={label}
-      // Beside the X panel the header runs out of room: the tabs give way first and scroll, rather
-      // than truncate the title or run under the actions.
-      className="no-drag flex min-w-0 shrink-[100] items-center gap-0.5 overflow-x-auto rounded-full border border-border bg-card p-0.5 [scrollbar-width:none]"
+      // Sized from zero up to their content: they take the room the actions leave and scroll in
+      // less, and the header's wrapping never counts them, so they never push the actions down.
+      className="no-drag flex max-w-fit min-w-0 flex-1 basis-0 items-center gap-0.5 overflow-x-auto rounded-full border border-border bg-card p-0.5 [scrollbar-width:none]"
     >
       {tabs.map((tab) => (
         <button
@@ -97,7 +97,7 @@ function XPanelToggle() {
   const label = open ? "Hide X panel" : "Show X panel";
   const mod = window.desktopBridge?.platform === "darwin" ? "⌘" : "Ctrl";
   return (
-    <div className="no-drag shrink-0 border-l border-border pl-3">
+    <div className="no-drag ml-3 shrink-0 border-l border-border pl-3">
       <Button
         variant="ghost-muted"
         size="icon-xs"
@@ -138,7 +138,8 @@ export function PageHeader({
     <>
       <header
         className={cn(
-          "flex h-(--workspace-topbar-height) shrink-0 items-center gap-5 bg-background px-6",
+          // Beside the X panel, actions that do not fit beside the title wrap onto a second row.
+          "flex min-h-(--workspace-topbar-height) shrink-0 flex-wrap content-center items-center gap-x-5 gap-y-2 bg-background px-6 py-2",
           isElectron && "drag-region",
         )}
       >
@@ -159,9 +160,10 @@ export function PageHeader({
           </Button>
         )}
         {tabs}
-        <div className="flex min-w-0 flex-auto items-center justify-end gap-2 overflow-x-clip">
+        {/* One block with the X panel toggle, so a wrap moves them together and the toggle stays last. */}
+        <div className="ml-auto flex min-w-0 items-center justify-end gap-2 overflow-x-clip">
           {detail !== undefined ? (
-            // The tabs give way first: a count beside the actions must not shrink to nothing.
+            // The tabs give way first, then the actions wrap: a count beside them never shrinks to nothing.
             <span className="max-w-64 shrink-0 truncate font-mono text-2xs text-muted-foreground tabular-nums">
               {detail}
             </span>
@@ -169,8 +171,8 @@ export function PageHeader({
           {actions !== undefined ? (
             <div className="no-drag flex shrink-0 items-center gap-1.5">{actions}</div>
           ) : null}
+          {isElectron ? <XPanelToggle /> : null}
         </div>
-        {isElectron ? <XPanelToggle /> : null}
       </header>
       {about !== null && about.open ? (
         // One line, no box: a first-visit guide the ⓘ brings back, not a subtitle.
