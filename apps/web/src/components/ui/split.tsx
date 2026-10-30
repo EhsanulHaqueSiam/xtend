@@ -1,7 +1,7 @@
 import {
   Fragment,
   useEffect,
-  useEffectEvent,
+  useLayoutEffect,
   useRef,
   useState,
   type ReactElement,
@@ -29,6 +29,7 @@ export function DetailSplit({
   detailKey,
   label,
   closable = false,
+  onClose,
 }: {
   readonly list: ReactNode;
   readonly detail: ReactElement | null;
@@ -36,11 +37,95 @@ export function DetailSplit({
   /** Names the column for screen readers. */
   readonly label?: string;
   readonly closable?: boolean;
+  readonly onClose?: (() => void) | undefined;
 }) {
   const cover = detail !== null && closable;
+  const root = useRef<HTMLDivElement>(null);
+  const listRoot = useRef<HTMLDivElement>(null);
+  const opener = useRef<HTMLElement | null>(null);
+  const previousRow = useRef<HTMLElement | null>(null);
+  const wasOpen = useRef(false);
+  const previousKey = useRef(detailKey);
+  // Read while rendering, before the detail mounts: an editor that focuses its first field on
+  // mount would otherwise be taken for its own opener.
+  /* oxlint-disable react/refs -- deliberate: an effect runs after the detail's own autofocus. */
+  if (detail !== null && (!wasOpen.current || detailKey !== previousKey.current))
+    opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  /* oxlint-enable react/refs */
+  useLayoutEffect(() => {
+    if (detail === null && wasOpen.current && opener.current?.isConnected) {
+      opener.current.focus();
+    }
+    wasOpen.current = detail !== null;
+    previousKey.current = detailKey;
+    const row =
+      listRoot.current?.querySelector<HTMLElement>('[data-list-row][data-selected="true"]') ?? null;
+    if (previousRow.current !== null && !previousRow.current.isConnected) row?.focus();
+    previousRow.current = row;
+  });
+  useEffect(() => {
+    if (detail === null || onClose === undefined) return;
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || isEditable(event.target)) return;
+      if (
+        !(event.target instanceof Node) ||
+        (!root.current?.contains(event.target) && event.target !== opener.current)
+      )
+        return;
+      if (document.querySelector('[role="menu"], [role="dialog"], [data-detail-popup]')) return;
+      event.preventDefault();
+      onClose();
+      if (opener.current?.isConnected) opener.current.focus();
+    };
+    window.addEventListener("keydown", escape);
+    return () => window.removeEventListener("keydown", escape);
+  }, [detail, onClose]);
+  useEffect(() => {
+    const navigate = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        isEditable(event.target)
+      )
+        return;
+      const step =
+        event.key === "j" || event.key === "ArrowDown"
+          ? 1
+          : event.key === "k" || event.key === "ArrowUp"
+            ? -1
+            : 0;
+      if (step === 0 || !(event.target instanceof Node)) return;
+      if (document.querySelector('[role="menu"], [role="dialog"], [data-detail-popup]')) return;
+      const inSplit = root.current?.contains(event.target);
+      // With one list, triage keys also work before a row has received focus.
+      if (
+        !inSplit &&
+        (event.target !== document.body ||
+          document.querySelectorAll("[data-selection-list]:has([data-list-row])").length !== 1)
+      )
+        return;
+      const rows = [
+        ...(listRoot.current?.querySelectorAll<HTMLButtonElement>("[data-list-row]") ?? []),
+      ];
+      const focused = rows.findIndex((row) => row.contains(event.target as Node));
+      const index =
+        focused === -1 ? rows.findIndex((row) => row.dataset.selected === "true") : focused;
+      if (index === -1) return;
+      event.preventDefault();
+      const next = rows[Math.max(0, Math.min(rows.length - 1, index + step))];
+      next?.click();
+      next?.focus();
+    };
+    window.addEventListener("keydown", navigate);
+    return () => window.removeEventListener("keydown", navigate);
+  }, []);
   return (
-    <div className="@container/split flex min-h-0 flex-1">
+    <div ref={root} className="@container/split flex min-h-0 flex-1">
       <div
+        ref={listRoot}
+        data-selection-list
         className={cn(
           "@container/list min-w-0 flex-1 overflow-y-auto",
           cover && "@max-[46rem]/split:hidden",
@@ -129,6 +214,7 @@ export function ListRow<T>({
     <button
       ref={ref}
       type="button"
+      data-list-row
       data-selected={selected}
       aria-current={selected || undefined}
       className={cn(
@@ -181,7 +267,7 @@ const isEditable = (target: EventTarget | null) =>
 /**
  * The selected id of a list, kept valid as the list changes: when the selected
  * item leaves (handled, skipped) its neighbour takes its place. The first item
- * is selected until the user picks one. j/k and the arrows move it.
+ * is selected until the user picks one. DetailSplit scopes j/k and arrows to its rows.
  */
 export function useSelection<Id extends string | number>(ids: ReadonlyArray<Id>) {
   const [chosen, setChosen] = useState<{ readonly id: Id; readonly index: number } | null>(null);
@@ -189,25 +275,6 @@ export function useSelection<Id extends string | number>(ids: ReadonlyArray<Id>)
   const index = found !== -1 ? found : Math.min(chosen?.index ?? 0, ids.length - 1);
   const selected = ids[index] ?? null;
   const select = (id: Id) => setChosen({ id, index: ids.indexOf(id) });
-
-  const onKey = useEffectEvent((event: KeyboardEvent) => {
-    if (event.metaKey || event.ctrlKey || event.altKey || isEditable(event.target)) return;
-    const step =
-      event.key === "j" || event.key === "ArrowDown"
-        ? 1
-        : event.key === "k" || event.key === "ArrowUp"
-          ? -1
-          : 0;
-    const next = step === 0 ? undefined : ids[Math.max(0, Math.min(ids.length - 1, index + step))];
-    if (next === undefined) return;
-    event.preventDefault();
-    select(next);
-  });
-  useEffect(() => {
-    const listener = (event: KeyboardEvent) => onKey(event);
-    window.addEventListener("keydown", listener);
-    return () => window.removeEventListener("keydown", listener);
-  }, []);
 
   return { selected, select } as const;
 }

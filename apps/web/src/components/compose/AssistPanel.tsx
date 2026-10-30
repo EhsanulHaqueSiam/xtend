@@ -3,7 +3,7 @@ import { type ReplyTone, VOICE_MIN_SEEN, type XPost } from "@xtend/contracts";
 import * as Cause from "effect/Cause";
 import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { Sparkles, X } from "lucide-react";
+import { ArrowUpRight, Sparkles, X } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
 import { fmtWhen } from "../../lib/time";
@@ -24,7 +24,8 @@ import { ToneRow } from "../ui/assist-choice";
 import { Button } from "../ui/button";
 import { compactInputClass } from "../ui/field";
 import { Cost } from "../ui/layout";
-import { XCard } from "../x";
+import { XLink } from "../ui/x-link";
+import { XCard, xIconButton } from "../x";
 import { splitBlocks } from "./ThreadEditor";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -37,6 +38,15 @@ function Fact({ label, children }: { readonly label: string; readonly children: 
       <span className="shrink-0 text-muted-foreground">{label}</span>
       <span className="truncate text-right font-mono text-xs tabular-nums">{children}</span>
     </div>
+  );
+}
+
+/** The arrow beside a referenced post that opens it on X beside the editor. */
+export function OnX({ href }: { readonly href: string }) {
+  return (
+    <XLink href={href} label="Open on X" className={cn(xIconButton, "size-6 [&_svg]:size-3.5")}>
+      <ArrowUpRight />
+    </XLink>
   );
 }
 
@@ -80,7 +90,7 @@ export function ComposeContext({
         <Button
           variant="outline"
           size="xs"
-          disabled={query === "" || similar === SEARCHING}
+          disabled={query === "" || similar === SEARCHING || price === "…"}
           onClick={async () => {
             setSimilar(SEARCHING);
             const exit = await search({ query, mode: "top" });
@@ -123,6 +133,7 @@ function SimilarList({
             </p>
             <p className="mt-0.5 line-clamp-3 whitespace-pre-wrap text-[13px]">{p.text}</p>
           </div>
+          <OnX href={p.url} />
           <Button variant="ghost" size="xs" onClick={() => onUse(splitBlocks(p.text))}>
             Use
           </Button>
@@ -187,6 +198,11 @@ export function AssistPanel({
   const cont = useAtomSet(assistContinueAtom, { mode: "promiseExit" });
   const voice = useAtomSet(assistVoiceMatchAtom, { mode: "promiseExit" });
   const model = useQuoteLabel({ kind: "assist" });
+  // Voice match may read the handle's recent posts from X before its model call; with no handle,
+  // no read, and this is the model's own quote.
+  const read = useQuoteLabel(handle === null ? { kind: "assist" } : { kind: "userPosts", handle });
+  // A paid action stays off until its price is known.
+  const unpriced = model === "…";
 
   const [topic, setTopic] = useState("");
   // Picked once, used by every action below until changed; null asks for no particular tone.
@@ -226,7 +242,12 @@ export function AssistPanel({
     onClick: () => void,
     cost: ReactNode = <Cost label={model} />,
   ) => (
-    <Button variant="ghost-muted" size="xs" disabled={busy !== null || disabled} onClick={onClick}>
+    <Button
+      variant="ghost-muted"
+      size="xs"
+      disabled={busy !== null || unpriced || disabled}
+      onClick={onClick}
+    >
       {label}
       {cost}
     </Button>
@@ -313,7 +334,7 @@ export function AssistPanel({
         )}
         {action(
           "Voice match",
-          first.trim() === "",
+          first.trim() === "" || read === "…",
           () =>
             run(
               "Voice match",
@@ -336,7 +357,7 @@ export function AssistPanel({
           className="ml-auto flex items-center gap-1"
           onSubmit={(e) => {
             e.preventDefault();
-            if (topic.trim() === "" || busy !== null) return;
+            if (topic.trim() === "" || busy !== null || unpriced) return;
             void run(
               "Thread ideas",
               () => ideas({ topic, tone }),
@@ -361,7 +382,7 @@ export function AssistPanel({
             type="submit"
             variant="outline"
             size="xs"
-            disabled={busy !== null || topic.trim() === ""}
+            disabled={busy !== null || unpriced || topic.trim() === ""}
           >
             Ideas
             <Cost label={model} />

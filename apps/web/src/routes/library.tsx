@@ -32,7 +32,7 @@ function LibraryScreen() {
   );
 }
 
-/** `?q=` prefills and runs a search; the palette and the header's Search X link here. */
+/** `?q=` fills the search box, priced, for a click; the palette and the header's Search X link here. */
 export const Route = createFileRoute("/library")({
   validateSearch: (search: Record<string, unknown>) => ({
     q: typeof search.q === "string" && search.q !== "" ? search.q : undefined,

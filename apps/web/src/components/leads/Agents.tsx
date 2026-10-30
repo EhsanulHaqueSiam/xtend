@@ -105,7 +105,7 @@ export function AgentsSection() {
             <button
               type="button"
               className={pill}
-              disabled={suggesting.busy}
+              disabled={suggesting.busy || assistQuote === "…"}
               onClick={() => void suggesting.run(() => suggest().then(setSuggestions))}
             >
               <TextMorph duration={250}>
@@ -133,6 +133,7 @@ export function AgentsSection() {
         onSuccess: () => (
           <DetailSplit
             detailKey={draft !== null ? "new" : selected}
+            onClose={draft === null ? undefined : () => setDraft(null)}
             list={
               <>
                 {suggesting.error !== null ? <ErrorLine>{suggesting.error}</ErrorLine> : null}
@@ -246,6 +247,7 @@ function AgentPanel({ agent }: { readonly agent: SignalAgent }) {
   const runInFlight = useAtomValue(runAgentAtom).waiting;
   const upsertInFlight = useAtomValue(upsertAgentAtom).waiting;
   const last = agent.lastRun;
+  const runCost = agentRunCost(rates, assistQuote, agent);
   return (
     <>
       <Section>
@@ -257,7 +259,7 @@ function AgentPanel({ agent }: { readonly agent: SignalAgent }) {
           <button
             type="button"
             className={pill}
-            disabled={running.busy || runInFlight || rates === null}
+            disabled={running.busy || runInFlight || runCost.includes("…")}
             onClick={() =>
               void running.run(() =>
                 runAgent(agent.id).then(() => {
@@ -268,7 +270,7 @@ function AgentPanel({ agent }: { readonly agent: SignalAgent }) {
             }
           >
             <TextMorph duration={250}>{running.busy ? "Running…" : "Run now"}</TextMorph>
-            <Cost label={agentRunCost(rates, assistQuote, agent)} />
+            <Cost label={runCost} />
           </button>
           <button
             type="button"
@@ -334,14 +336,17 @@ function AgentForm({
   const valid = a.name.trim() !== "" && a.query.trim() !== "" && a.intervalMinutes >= 1;
   const dirty = JSON.stringify(a) !== JSON.stringify(initial);
   // A new agent (blank or suggested) saves as soon as it is valid; a saved one once it changed.
-  const canSave = valid && (initial.id === undefined || dirty);
+  // A new one starts its paid runs on save, so it waits for their price.
+  const isNew = initial.id === undefined;
+  const runCost = agentRunCost(rates, assistQuote, a);
+  const canSave = valid && !busy && (isNew ? !runCost.includes("…") : dirty);
   const num = (v: string) => Number(v.replace(/\D/g, "")) || 0;
   return (
     <Section title={title}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (valid)
+          if (canSave)
             void run(() =>
               upsert(a).then((saved) => {
                 refresh();
@@ -444,8 +449,8 @@ function AgentForm({
           />
         </Field>
         <div className="mt-3 flex items-center gap-1.5">
-          <button type="submit" className={pillSolid} disabled={busy || !canSave}>
-            {busy ? "Saving…" : "Save"}
+          <button type="submit" className={pillSolid} disabled={!canSave}>
+            {busy ? "Saving…" : isNew ? "Save and start" : "Save"}
           </button>
           {onCancel !== undefined ? (
             <button type="button" className={xAction} onClick={onCancel}>
@@ -458,7 +463,7 @@ function AgentForm({
           ) : null}
           <span className="ml-auto flex items-baseline gap-1.5 text-xs text-muted-foreground">
             per run
-            <Cost label={agentRunCost(rates, assistQuote, a)} />
+            <Cost label={runCost} />
           </span>
         </div>
         {error !== null ? <p className="mt-2 text-xs text-error-foreground">{error}</p> : null}

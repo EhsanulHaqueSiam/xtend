@@ -5,6 +5,7 @@ import {
   type DraftMedia,
   postCostUsd,
   type RateCard,
+  type ReplySettings,
 } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 
@@ -27,19 +28,26 @@ export const postCosts = (
   blocks: ReadonlyArray<DraftBlock>,
   media: ReadonlyArray<Pick<DraftMedia, "blockIndex">>,
   quoteUrl: string | null,
-  /** Every block goes through the user's session (free), not only the ones with media. */
-  viaSession = false,
+  /** A clicked post's text goes through the user's session (free), as Publisher sends it. */
+  sessionText = false,
+  /** The draft's reply control; X's composer has none, so a restricted block keeps the API. */
+  replySettings: ReplySettings = "everyone",
 ) =>
   blocks.map((b, i) =>
-    viaSession || media.some((m) => m.blockIndex === i)
+    media.some((m) => m.blockIndex === i) ||
+    (sessionText && (b.replySettings ?? replySettings) === "everyone")
       ? 0
       : postCostUsd(rates, i === 0 && quoteUrl !== null ? `${b.text} ${quoteUrl}` : b.text),
   );
 
 export const sumUsd = (costs: ReadonlyArray<number>) => costs.reduce((a, b) => a + b, 0);
 
-/** A saved draft's price to post, or null until the rate card arrives. Articles are two requests. */
-export function useDraftCost() {
+/**
+ * A saved draft's price to post, or null until the rate card arrives. Articles are two requests.
+ * Only a clicked Post now sends text through the session; a post published at its slot is
+ * unattended and goes through the API, so it is priced as paid.
+ */
+export function useDraftCost(clicked = false) {
   const rates = useRates();
   const quote = AsyncResult.getOrElse(useAtomValue(composeQuoteAtom), () => null);
   const lane = useSessionLane();
@@ -50,5 +58,14 @@ export function useDraftCost() {
         : quote.articleUsd * 2
       : rates === null
         ? null
-        : sumUsd(postCosts(rates, d.blocks, d.media, d.quoteUrl, lane && d.poll === null));
+        : sumUsd(
+            postCosts(
+              rates,
+              d.blocks,
+              d.media,
+              d.quoteUrl,
+              clicked && lane && d.poll === null,
+              d.replySettings,
+            ),
+          );
 }

@@ -70,7 +70,8 @@ function fakeService(): FakeService {
         apiError: null,
       })),
     [Engage_METHODS.inbox]: () => Effect.succeed({ sent: [], followUps: [], incoming: [] }),
-    [Engage_METHODS.mentionHandled]: ({ postId }) => Effect.sync(() => void handled.add(postId)),
+    [Engage_METHODS.mentionHandled]: ({ postId, handled: done }) =>
+      Effect.sync(() => void (done ? handled.add(postId) : handled.delete(postId))),
     [Engage_METHODS.draftReply]: ({ tone }) =>
       Effect.succeed([{ text: `${tone ?? "plain"} one` }, { text: `${tone ?? "plain"} two` }]),
   };
@@ -114,4 +115,17 @@ it("a tone chip drafts in that taste, a candidate fills the editor, write my own
   await userEvent.click(detail.getByRole("button", { name: "Write my own" }));
   await expect.element(detail.getByRole("list", { name: "Drafts" })).not.toBeInTheDocument();
   await expect.element(editor).toHaveValue("sarcastic two");
+});
+
+it("a handled mention reopens from All", async () => {
+  await using screen = await render(<Mentions />, { service: fakeService() });
+  const detail = screen.getByRole("complementary");
+  const open = screen.getByRole("tab", { name: /Open/ });
+  await userEvent.click(detail.getByRole("button", { name: "Mark handled" }));
+  await expect.element(open).toHaveTextContent("Open2");
+
+  await userEvent.click(screen.getByRole("tab", { name: /All/ }));
+  await userEvent.click(screen.getByRole("button", { name: /first mention/ }));
+  await userEvent.click(detail.getByRole("button", { name: "Reopen" }));
+  await expect.element(open).toHaveTextContent("Open3");
 });

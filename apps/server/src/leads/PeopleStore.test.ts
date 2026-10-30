@@ -46,6 +46,19 @@ describe("PeopleStore", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
+  it.effect("counts who joined a list, people already in People included", () =>
+    Effect.gen(function* () {
+      const people = yield* PeopleStore.PeopleStore;
+      const list = yield* people.createList("Founders");
+      yield* people.add({ ...candidate("alice"), source: "manual" });
+      expect(yield* people.addToList(list.id, [candidate("Alice"), candidate("bob")])).toBe(2);
+      expect(yield* people.addToList(list.id, [candidate("alice"), candidate("carol")])).toBe(1);
+      // A person a list brought in says which list, by name.
+      const carol = (yield* people.list(list.id)).find((p) => p.handle === "carol");
+      expect(carol?.source).toBe("list:Founders");
+    }).pipe(Effect.provide(layerTest)),
+  );
+
   it.effect("keeps each account's people apart, even for the same handle", () =>
     Effect.gen(function* () {
       const people = yield* PeopleStore.PeopleStore;

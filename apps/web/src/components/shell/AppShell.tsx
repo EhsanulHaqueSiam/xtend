@@ -37,7 +37,7 @@ function useWidth(el: HTMLElement | null) {
  * injections (Reply with AI, Schedule, Full report). Those come from X, so X
  * stays in view beside the screen they open.
  */
-function AppRoutes() {
+function AppRoutes({ main }: { readonly main: HTMLElement }) {
   const navigate = useNavigate();
   const setPanel = useAtomSet(xPanelOpenAtom);
   const skin = useAtomValue(xSkinAtom);
@@ -46,11 +46,11 @@ function AppRoutes() {
     if (bridge === undefined) return;
     const open = (route: string) => {
       setPanel(true);
-      void navigate({ href: route });
+      void navigate({ href: route }).then(() => main.focus());
     };
     if (bridge.initialRoute !== null) open(bridge.initialRoute);
     return bridge.onAppRoute(open);
-  }, [navigate, setPanel]);
+  }, [main, navigate, setPanel]);
   useEffect(() => {
     window.desktopBridge?.setXSkin(skin);
   }, [skin]);
@@ -84,7 +84,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
   return (
     <div className="grid h-full w-full bg-background" style={{ gridTemplateColumns: columns }}>
       <Sidebar />
-      <main ref={setMain} className="col-start-2 row-start-1 flex min-h-0 min-w-0">
+      <main tabIndex={-1} ref={setMain} className="col-start-2 row-start-1 flex min-h-0 min-w-0">
         <CompanionTarget value={wide ? companion : null}>
           <div className="min-h-0 min-w-0 flex-1 overflow-hidden">{children}</div>
         </CompanionTarget>
@@ -97,7 +97,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
       {isElectron ? (
         <>
           <XPane mode={mode} width={panelWidth} inset={companionWidth} />
-          <AppRoutes />
+          {main === null ? null : <AppRoutes main={main} />}
           <GlanceSync />
         </>
       ) : null}

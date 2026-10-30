@@ -69,8 +69,8 @@ export function SearchTab({ initialQuery }: { readonly initialQuery: string }) {
     readonly mode: XSearchMode;
   }) => {
     const input = more ?? { query, mode };
-    // Enter submits even while the button is disabled, and every search is paid.
-    if (input.query.trim() === "" || busy) return;
+    // Every search is paid: without a price, or while one runs, nothing that submits may start one.
+    if (input.query.trim() === "" || busy || (more ? moreQuote : searchQuote) === "…") return;
     setBusy(true);
     setError(null);
     try {
@@ -137,7 +137,11 @@ export function SearchTab({ initialQuery }: { readonly initialQuery: string }) {
           onChange={(e) => setExclude(e.target.value)}
         />
         {query.trim() === "" ? null : <FreeOnX href={searchUrl(query, mode)} label="Search on X" />}
-        <button type="submit" className={xPill} disabled={busy || query.trim() === ""}>
+        <button
+          type="submit"
+          className={xPill}
+          disabled={busy || query.trim() === "" || searchQuote === "…"}
+        >
           {busy ? "Searching" : "Search"}
           <Cost label={searchQuote} />
         </button>
@@ -198,7 +202,7 @@ export function SearchTab({ initialQuery }: { readonly initialQuery: string }) {
                 <button
                   type="button"
                   className={xPill}
-                  disabled={busy}
+                  disabled={busy || moreQuote === "…"}
                   onClick={() => void run({ ...searched, cursor })}
                 >
                   {busy ? "Loading" : "Load more"}

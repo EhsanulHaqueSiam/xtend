@@ -135,7 +135,7 @@ export function Targets() {
             <button
               type="button"
               className={pill}
-              disabled={finding || noHandle}
+              disabled={finding || noHandle || findQuote === "…" || assistQuote === "…"}
               title={noHandle ? "Needs your handle, from your X session or Settings" : undefined}
               onClick={() => void runFind()}
             >
@@ -146,7 +146,7 @@ export function Targets() {
             <button
               type="button"
               className={pill}
-              disabled={result.waiting || noKeywords !== null}
+              disabled={result.waiting || noKeywords !== null || targetsQuote === "…"}
               title={noKeywords !== null ? "Add keywords first" : undefined}
               onClick={() => load()}
             >

@@ -1,6 +1,6 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
-import type { DryRunReport, Rule, RulePreview } from "@xtend/contracts";
+import type { DryRunReport, RulePreview } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 import { TextMorph } from "torph/react";
@@ -8,7 +8,7 @@ import { TextMorph } from "torph/react";
 import { cn } from "../../lib/utils";
 import { dryRun7dAtom, previewAtom, rulesAtom } from "../../state/automate";
 import { usd } from "../../state/costs";
-import { ErrorBar, insetTable, Note, when } from "../analyze/ui";
+import { ErrorBar, errorText, insetTable, Note, when } from "../analyze/ui";
 import { PageHeader } from "../PageHeader";
 import { sectionHref } from "../shell/sections";
 import { Button } from "../ui/button";
@@ -62,7 +62,11 @@ function WouldFire({
 
 /** What every enabled rule would do right now, and what one rule would have done over the last 7 days. */
 export function DryRun() {
-  const rules = AsyncResult.getOrElse(useAtomValue(rulesAtom), () => [] as ReadonlyArray<Rule>);
+  const rulesResult = useAtomValue(rulesAtom);
+  // null until the list loads: a list that failed to load is not "no rules".
+  const loaded = AsyncResult.getOrElse(rulesResult, () => null);
+  const rules = loaded ?? [];
+  const notLoaded = AsyncResult.isFailure(rulesResult) ? "Rules did not load." : "Loading rules.";
   const preview = useAtomSet(previewAtom, { mode: "promise" });
   const previewState = useAtomValue(previewAtom);
   const simulate = useAtomSet(dryRun7dAtom, { mode: "promise" });
@@ -70,10 +74,15 @@ export function DryRun() {
   const navigate = useNavigate();
   const [rows, setRows] = useState<ReadonlyArray<RulePreview> | null>(null);
   const [picked, setPicked] = useState<number | null>(null);
-  const [report, setReport] = useState<DryRunReport | null>(null);
+  // Tagged with its rule: a simulation still running when another rule is picked lands under its own.
+  const [simulated, setSimulated] = useState<{
+    readonly ruleId: number;
+    readonly report: DryRunReport;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Follows the list: rules can arrive, or the picked one be deleted, while the page is open.
   const ruleId = rules.some((r) => r.id === picked) ? picked : (rules[0]?.id ?? null);
+  const report = simulated !== null && simulated.ruleId === ruleId ? simulated.report : null;
   const guard = async (work: () => Promise<void>) => {
     setError(null);
     try {
@@ -87,7 +96,9 @@ export function DryRun() {
   return (
     <div className="flex h-full flex-col">
       <PageHeader title="Dry run" detail="reads stored data only, fires nothing" />
-      <ErrorBar>{error}</ErrorBar>
+      <ErrorBar>
+        {error ?? (AsyncResult.isFailure(rulesResult) ? errorText(rulesResult.cause) : null)}
+      </ErrorBar>
       <PageBody>
         <Section
           title="Right now"
@@ -107,9 +118,11 @@ export function DryRun() {
         >
           {rows === null ? (
             <Note>
-              {enabled === 0
-                ? "No rule is on. Turn one on to see what it would fire."
-                : "What every enabled rule would fire now, each with its price."}
+              {loaded === null
+                ? notLoaded
+                : enabled === 0
+                  ? "No rule is on. Turn one on to see what it would fire."
+                  : "What every enabled rule would fire now, each with its price."}
             </Note>
           ) : rows.length === 0 ? (
             <Note>Nothing would fire right now.</Note>
@@ -138,10 +151,7 @@ export function DryRun() {
                   label="Rule"
                   className="w-48"
                   value={ruleId}
-                  onChange={(id) => {
-                    setPicked(id);
-                    setReport(null);
-                  }}
+                  onChange={setPicked}
                   options={rules.map((r) => ({ value: r.id, label: r.name }))}
                 />
                 <Button
@@ -149,7 +159,8 @@ export function DryRun() {
                   variant="outline"
                   disabled={ruleId === null || simulateState.waiting}
                   onClick={() =>
-                    ruleId !== null && void guard(async () => setReport(await simulate(ruleId)))
+                    ruleId !== null &&
+                    void guard(async () => setSimulated({ ruleId, report: await simulate(ruleId) }))
                   }
                 >
                   <TextMorph duration={250}>
@@ -161,7 +172,9 @@ export function DryRun() {
             )
           }
         >
-          {rules.length === 0 ? (
+          {loaded === null ? (
+            <Note>{notLoaded}</Note>
+          ) : rules.length === 0 ? (
             <Note
               action={
                 <Button

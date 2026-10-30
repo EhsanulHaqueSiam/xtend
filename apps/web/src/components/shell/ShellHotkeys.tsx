@@ -21,6 +21,7 @@ const isEditable = (target: EventTarget | null) =>
 export function ShellHotkeys() {
   const navigate = useNavigate();
   const pathname = useLocation({ select: (l) => l.pathname });
+  const searchStr = useLocation({ select: (l) => l.searchStr });
   const setPalette = useAtomSet(paletteOpenAtom);
   const setFind = useAtomSet(xFindOpenAtom);
   const panelOpen = useAtomValue(xPanelOpenAtom);
@@ -41,19 +42,20 @@ export function ShellHotkeys() {
     };
     const letter = (key: string) => {
       if (key === "x" && isElectron) return void navigate({ to: "/x" });
+      if (key === "c") return void navigate({ href: "/compose?new=1" });
       if (key === "s") {
-        void navigate({ href: "/library" });
-        // The search input mounts with the route; focus it once it exists.
-        setTimeout(
-          () => document.querySelector<HTMLElement>('[data-shortcut="search"]')?.focus(),
-          50,
-        );
+        const focus = () =>
+          document.querySelector<HTMLElement>('[data-shortcut="search"]')?.focus();
+        if (pathname === "/library" && new URLSearchParams(searchStr).get("tab") === "search")
+          focus();
+        else void navigate({ href: "/library?tab=search" }).then(focus);
         return;
       }
       const screen = SCREENS.find((s) => s.key === key)?.to;
       if (screen !== undefined) void navigate({ to: screen });
     };
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
       const key = event.key.toLowerCase();
       const mod = event.metaKey || event.ctrlKey;
       if (mod && !event.altKey && !event.shiftKey) {
@@ -73,7 +75,7 @@ export function ShellHotkeys() {
       window.removeEventListener("keydown", onKeyDown);
       offBridge?.();
     };
-  }, [navigate, panelOpen, pathname, setFind, setPalette, setPanel]);
+  }, [navigate, panelOpen, pathname, searchStr, setFind, setPalette, setPanel]);
 
   return null;
 }

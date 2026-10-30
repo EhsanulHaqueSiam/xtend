@@ -20,7 +20,7 @@ import { Cost } from "../ui/layout";
 import { Switch } from "../ui/switch";
 import { Select } from "../ui/select";
 import { Prop, PropGroup } from "./controls";
-import { triggerPoll } from "./describe";
+import { rulePoll } from "./describe";
 
 const TRIGGERS: Record<Trigger["kind"], { label: string; init: Trigger }> = {
   post_crosses_threshold: {
@@ -198,7 +198,7 @@ export function RuleForm({
     edit({ ...rule, action: a, askFirst: a.kind === "auto_delete" ? true : rule.askFirst });
   const rates = useRates();
   const cost = rates === null ? null : actionCostUsd(rates, action);
-  const poll = rates === null ? null : triggerPoll(rates, trigger);
+  const poll = rates === null ? null : rulePoll(rates, rule);
   const isNew = initial.id === undefined;
   const valid =
     rule.name.trim() !== "" &&

@@ -18,7 +18,7 @@ import { Button } from "../ui/button";
 import { Cost } from "../ui/layout";
 import { Switch } from "../ui/switch";
 import { Prop, PropGroup } from "./controls";
-import { statusLabel, statusTone, triggerPoll } from "./describe";
+import { rulePoll, statusLabel, statusTone } from "./describe";
 import { emptyRule, RuleForm } from "./RuleForm";
 import { budget, RuleModes } from "./RuleRow";
 
@@ -49,18 +49,13 @@ function RuleState({
   const rates = useRates();
   const cost = rates === null ? null : actionCostUsd(rates, rule.action);
   const per = rule.action.kind === "auto_delete" ? "post" : "fire";
-  // Dry runs never poll. Picking an own post to repost or delete reads the own timeline, cached
-  // for an hour, so those rules pay a read even when their trigger polls nothing.
-  const poll =
-    rates === null || rule.dryRun
-      ? null
-      : (triggerPoll(rates, rule.trigger) ??
-        (rule.action.kind === "auto_retweet" || rule.action.kind === "auto_delete"
-          ? { usd: rates.searchPage, every: "hour", perDay: 24 }
-          : null));
+  // Dry runs never poll.
+  const poll = rates === null || rule.dryRun ? null : rulePoll(rates, rule);
   // Dry runs charge nothing. An ask-first rule only queues, but a polled trigger still pays X
   // for the poll first, so it asks to confirm too.
   const paid = !rule.dryRun && (!rule.askFirst || poll !== null);
+  // Without the rate card neither the price nor whether a poll pays is known.
+  const unpriced = !rule.dryRun && rates === null;
   const last = runs[0];
   return (
     <div className="px-5">
@@ -118,7 +113,7 @@ function RuleState({
         <Button
           size="sm"
           variant="outline"
-          disabled={busy}
+          disabled={busy || unpriced}
           aria-expanded={paid ? confirm === "run" : undefined}
           onClick={() => (paid ? setConfirm(confirm === "run" ? null : "run") : onRunNow())}
         >
@@ -172,6 +167,7 @@ function RuleState({
             <Button
               size="sm"
               variant="warning-outline"
+              disabled={unpriced}
               onClick={() => {
                 setConfirm(null);
                 onRunNow();

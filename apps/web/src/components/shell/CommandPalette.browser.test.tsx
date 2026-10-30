@@ -1,10 +1,14 @@
-import type { SignalAgent } from "@xtend/contracts";
+import "../../index.css";
+import { useAtomValue } from "@effect/atom-react";
+import { LeadsError, type SignalAgent } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import { expect, it } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
-import { quoting } from "../../../test/fixtures";
+import { quoting, settings } from "../../../test/fixtures";
 import { render } from "../../../test/render";
+import { runAgentAtom } from "../../state/leads";
+import { Toasts } from "../ui/toast";
 import { CommandPalette } from "./CommandPalette";
 import { ShellHotkeys } from "./ShellHotkeys";
 
@@ -14,8 +18,16 @@ it("opens on ⌘K, filters commands and closes on Escape", async () => {
       <ShellHotkeys />
       <CommandPalette />
     </>,
+    {
+      service: {
+        "costs.quote": quoting(),
+        "settings.get": () => Effect.succeed(settings),
+        "leads.peopleList": () => Effect.succeed([]),
+        "leads.agentsList": () => Effect.succeed([]),
+      },
+    },
   );
-  expect(page.getByRole("dialog").query()).toBeNull();
+  await expect.poll(() => page.getByRole("dialog").query()).toBeNull();
 
   await userEvent.keyboard("{Meta>}k{/Meta}");
   const palette = page.getByRole("dialog", { name: "Command palette" });
@@ -27,7 +39,7 @@ it("opens on ⌘K, filters commands and closes on Escape", async () => {
   expect(palette.getByRole("option", { name: "Compose" }).query()).toBeNull();
 
   await userEvent.keyboard("{Escape}");
-  expect(page.getByRole("dialog").query()).toBeNull();
+  await expect.poll(() => page.getByRole("dialog").query()).toBeNull();
   expect(screen.router?.state.location.pathname).toBe("/");
 });
 
@@ -55,6 +67,8 @@ it("arrows and Enter run the highlighted command; @handle offers its report; age
     {
       service: {
         "costs.quote": quoting(),
+        "settings.get": () => Effect.succeed(settings),
+        "leads.peopleList": () => Effect.succeed([]),
         "leads.agentsList": () => Effect.succeed([agent]),
       },
     },
@@ -69,7 +83,7 @@ it("arrows and Enter run the highlighted command; @handle offers its report; age
   await expect.element(page.getByRole("option", { selected: true })).toHaveTextContent("Plan");
   await userEvent.keyboard("{Enter}");
   await expect.poll(() => screen.router?.state.location.pathname).toBe("/plan");
-  expect(page.getByRole("dialog").query()).toBeNull();
+  await expect.poll(() => page.getByRole("dialog").query()).toBeNull();
 
   await userEvent.keyboard("{Meta>}k{/Meta}");
   const command = page.getByRole("textbox", { name: "Command" });
@@ -84,22 +98,33 @@ it("arrows and Enter run the highlighted command; @handle offers its report; age
   await expect.poll(() => screen.router?.state.location.href).toBe("/scores?handle=levelsio");
 });
 
+function AgentRunStatus() {
+  const state = useAtomValue(runAgentAtom);
+  return <output aria-label="Shared run">{state.waiting ? "running" : "idle"}</output>;
+}
+
 it("an agent run started from the palette finishes after the palette closes", async () => {
   let release = () => {};
   const searched = new Promise<void>((resolve) => (release = resolve));
+  const payloads: Array<{ readonly id: number }> = [];
   let started = false;
   let finished = false;
   await using _screen = await render(
     <>
       <ShellHotkeys />
       <CommandPalette />
+      <AgentRunStatus />
+      <Toasts />
     </>,
     {
       service: {
         "costs.quote": quoting(),
+        "settings.get": () => Effect.succeed(settings),
+        "leads.peopleList": () => Effect.succeed([]),
         "leads.agentsList": () => Effect.succeed([agent]),
         "leads.agentRun": ({ id }) =>
           Effect.promise(() => {
+            payloads.push({ id });
             started = true;
             return searched;
           }).pipe(
@@ -121,12 +146,144 @@ it("an agent run started from the palette finishes after the palette closes", as
   );
   await userEvent.keyboard("{Meta>}k{/Meta}");
   await userEvent.type(page.getByRole("textbox", { name: "Command" }), "run agent");
+  await expect
+    .element(page.getByRole("option", { name: /Run agent founders/ }))
+    .not.toHaveAttribute("aria-disabled", "true");
   // Below the library search for the typed text.
   await userEvent.keyboard("{ArrowDown}{Enter}");
-  expect(page.getByRole("dialog").query()).toBeNull();
+  await expect.poll(() => page.getByRole("dialog").query()).toBeNull();
   await expect.poll(() => started).toBe(true);
+  expect(payloads).toEqual([{ id: agent.id }]);
+  await expect.element(page.getByLabelText("Shared run")).toHaveTextContent("running");
+  await expect.poll(() => _screen.router?.state.location.href).toBe("/leads?tab=agents");
+  await userEvent.keyboard("{Meta>}k{/Meta}");
+  expect(payloads).toEqual([{ id: agent.id }]);
+  const command = page.getByRole("textbox", { name: "Command" });
+  await userEvent.type(command, "run agent");
+  expect(payloads).toEqual([{ id: agent.id }]);
+  await userEvent.keyboard("{ArrowDown}{Enter}");
+  expect(payloads).toEqual([{ id: agent.id }]);
+  await userEvent.keyboard("{Escape}");
   // The palette is gone while the paid search is still out; the run must not die with it.
   await new Promise((resolve) => setTimeout(resolve, 100));
   release();
   await expect.poll(() => finished).toBe(true);
+  await expect.element(page.getByLabelText("Shared run")).toHaveTextContent("idle");
+  await expect
+    .element(page.getByRole("status").filter({ hasText: "Agent finished" }))
+    .toBeVisible();
+});
+
+it.each(["rates", "assist"] as const)(
+  "blocks click and Enter while the %s price is missing",
+  async (missing) => {
+    const runs: Array<number> = [];
+    await using _screen = await render(
+      <>
+        <ShellHotkeys />
+        <CommandPalette />
+      </>,
+      {
+        service: {
+          "leads.agentsList": () => Effect.succeed([agent]),
+          "leads.agentRun": ({ id }) => {
+            runs.push(id);
+            return Effect.never;
+          },
+          "costs.quote": ({ actions }) =>
+            (missing === "rates" ? actions.length === 0 : actions.length > 0)
+              ? Effect.never
+              : quoting()({ actions }),
+        },
+      },
+    );
+    await userEvent.keyboard("{Meta>}k{/Meta}");
+    await userEvent.type(page.getByRole("textbox", { name: "Command" }), "run agent");
+    const option = page.getByRole("option", { name: /Run agent founders/ });
+    await expect.element(option).toHaveAttribute("aria-disabled", "true");
+    (option.element() as HTMLElement).click();
+    await userEvent.keyboard("{ArrowDown}{Enter}");
+    expect(runs).toEqual([]);
+    await expect.element(page.getByRole("dialog")).toBeVisible();
+  },
+);
+
+it("New draft opens a new draft", async () => {
+  await using screen = await render(
+    <>
+      <ShellHotkeys />
+      <CommandPalette />
+    </>,
+    {
+      service: {
+        "costs.quote": quoting(),
+        "settings.get": () => Effect.succeed(settings),
+        "leads.peopleList": () => Effect.succeed([]),
+        "leads.agentsList": () => Effect.succeed([]),
+      },
+    },
+  );
+  await userEvent.keyboard("{Meta>}k{/Meta}");
+  await userEvent.click(page.getByRole("option", { name: "New draft" }));
+  await expect.poll(() => screen.router?.state.location.href).toBe("/compose?new=true");
+});
+
+it("contains Tab focus, closes from anywhere on Escape and restores focus", async () => {
+  await using screen = await render(
+    <>
+      <ShellHotkeys />
+      <button>Opener</button>
+      <CommandPalette />
+      <button>Outside</button>
+    </>,
+    {
+      service: {
+        "costs.quote": quoting(),
+        "settings.get": () => Effect.succeed(settings),
+        "leads.peopleList": () => Effect.succeed([]),
+        "leads.agentsList": () => Effect.succeed([]),
+      },
+    },
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Opener" }));
+  await userEvent.keyboard("{Meta>}k{/Meta}");
+  await expect.element(page.getByRole("textbox", { name: "Command" })).toHaveFocus();
+  await userEvent.keyboard("{Tab}");
+  expect(page.getByRole("dialog").element().contains(document.activeElement)).toBe(true);
+  await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
+  expect(page.getByRole("dialog").element().contains(document.activeElement)).toBe(true);
+  (page.getByRole("dialog").element() as HTMLElement).focus();
+  await userEvent.keyboard("{Escape}");
+  await expect.poll(() => page.getByRole("dialog").query()).toBeNull();
+  await expect.element(screen.getByRole("button", { name: "Opener" })).toHaveFocus();
+});
+
+it("reports a failed palette run after navigating to Agents", async () => {
+  await using screen = await render(
+    <>
+      <ShellHotkeys />
+      <CommandPalette />
+      <Toasts />
+    </>,
+    {
+      service: {
+        "costs.quote": quoting(),
+        "settings.get": () => Effect.succeed(settings),
+        "leads.peopleList": () => Effect.succeed([]),
+        "leads.agentsList": () => Effect.succeed([agent]),
+        "leads.agentRun": () =>
+          Effect.fail(new LeadsError({ operation: "run", detail: "Budget exceeded", cause: null })),
+      },
+    },
+  );
+  await userEvent.keyboard("{Meta>}k{/Meta}");
+  await userEvent.type(page.getByRole("textbox", { name: "Command" }), "run agent");
+  await expect
+    .element(page.getByRole("option", { name: /Run agent founders/ }))
+    .not.toHaveAttribute("aria-disabled", "true");
+  await userEvent.keyboard("{ArrowDown}{Enter}");
+  await expect.poll(() => screen.router?.state.location.href).toBe("/leads?tab=agents");
+  await expect
+    .element(page.getByRole("status"))
+    .toHaveTextContent("Leads failed during run: Budget exceeded");
 });

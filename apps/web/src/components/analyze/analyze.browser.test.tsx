@@ -1,9 +1,10 @@
-import type {
-  AccountPost,
-  AnalyzeData,
-  CompetitorReport,
-  NonPublic,
-  WatchEntry,
+import {
+  AnalyzeError,
+  type AccountPost,
+  type AnalyzeData,
+  type CompetitorReport,
+  type NonPublic,
+  type WatchEntry,
 } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import { expect, it } from "vite-plus/test";
@@ -12,11 +13,13 @@ import { userEvent } from "vite-plus/test/browser";
 import { paid, quoting } from "../../../test/fixtures";
 import { render } from "../../../test/render";
 import { NOT_A_HANDLE } from "../../lib/utils";
+import { AnalyzeScreen } from "../../routes/analyze";
+import { Ask } from "./Ask";
 import { Competitors } from "./Competitors";
 import { Posts } from "./PostsTable";
 
 const DAY_MS = 86_400_000;
-const noPrivate: NonPublic = { lastRun: null, byPost: [] };
+const noPrivate: NonPublic = { lastRun: null, byPost: [], nightly: null };
 
 /** A post `daysAgo` old whose engagement rate is `likes` per 1000 views. */
 const post = (postId: string, likes: number, daysAgo = 1): AccountPost => ({
@@ -138,4 +141,182 @@ it("fetches one competitor at a time, and refuses a typo before it reaches the s
   await userEvent.fill(screen.getByLabelText("Handle to watch"), "levels io");
   await userEvent.click(screen.getByRole("button", { name: /^Watch/ }));
   await expect.element(screen.getByText(NOT_A_HANDLE)).toBeVisible();
+});
+
+it("does not offer to fetch again reports it could not read", async () => {
+  await using screen = await render(<Competitors data={data([post("1", 50)])} />, {
+    service: {
+      "costs.quote": quoting(() => paid(0.00097)),
+      "scores.watchList": () => Effect.succeed([watched("levelsio")]),
+      "analyze.competitors": () =>
+        Effect.fail(new AnalyzeError({ operation: "competitors", detail: "database is locked" })),
+    },
+  });
+  await expect
+    .element(screen.getByRole("alert"))
+    .toHaveTextContent("Analyze competitors failed: database is locked");
+  await expect.element(screen.getByRole("button", { name: /^Fetch/ })).toBeDisabled();
+});
+
+it("opens a fetched competitor's top posts from the keyboard", async () => {
+  await using screen = await render(<Competitors data={data([post("1", 50)])} />, {
+    service: {
+      "costs.quote": quoting(),
+      "scores.watchList": () => Effect.succeed([watched("levelsio")]),
+      "analyze.competitors": () =>
+        Effect.succeed([
+          {
+            handle: "levelsio",
+            fetchedAt: "2026-10-23T00:00:00.000Z",
+            profile: null,
+            avgViews: 2000,
+            topPosts: [{ ...post("9", 10), text: "top post nine" }],
+          },
+        ]),
+    },
+  });
+  const toggle = screen.getByRole("button", { name: "@levelsio" });
+  await expect.element(toggle).toHaveAttribute("aria-expanded", "false");
+  (toggle.element() as HTMLElement).focus();
+  await userEvent.keyboard("{Enter}");
+  await expect.element(screen.getByText("top post nine")).toBeVisible();
+  await expect.element(toggle).toHaveAttribute("aria-expanded", "true");
+  await userEvent.keyboard(" ");
+  await expect.element(screen.getByText("top post nine")).not.toBeInTheDocument();
+});
+
+it("keeps paid Analyze actions off until their price arrives", async () => {
+  await using screen = await render(<AnalyzeScreen />, {
+    router: "/analyze?tab=posts",
+    service: {
+      "costs.quote": () => Effect.never,
+      "analyze.data": () => Effect.succeed(data([post("1", 10)])),
+    },
+  });
+  await expect.element(screen.getByRole("button", { name: /^Refresh posts/ })).toBeDisabled();
+  await expect.element(screen.getByRole("button", { name: /^Fetch now/ })).toBeDisabled();
+});
+
+it("prices Refresh posts before any refresh, then shows the posts it loaded", async () => {
+  const refreshes: Array<number> = [];
+  let current = data([post("1", 10)]);
+  await using screen = await render(<AnalyzeScreen />, {
+    router: "/analyze?tab=posts",
+    service: {
+      "costs.quote": quoting(() => paid(0.0123)),
+      "analyze.data": () => Effect.sync(() => current),
+      "analyze.refresh": () =>
+        Effect.sync(() => {
+          refreshes.push(refreshes.length);
+          current = data([post("1", 10), post("2", 20)]);
+          return current;
+        }),
+    },
+  });
+  const refresh = screen.getByRole("button", { name: /^Refresh posts.*\$0\.0123$/ });
+  await expect.element(refresh).toBeEnabled();
+  expect(refreshes).toEqual([]);
+  await userEvent.click(refresh);
+  await expect.element(screen.getByText("post 2")).toBeVisible();
+  expect(refreshes).toEqual([0]);
+});
+
+it("shows the private metrics Fetch now read", async () => {
+  let current = data([post("1", 10)]);
+  await using screen = await render(<AnalyzeScreen />, {
+    router: "/analyze?tab=posts",
+    service: {
+      "costs.quote": quoting(),
+      "analyze.data": () => Effect.sync(() => current),
+      "analyze.refreshNonPublic": () =>
+        Effect.sync(() => {
+          const row = { postId: "1", day: "2026-10-23", impressions: 4321, profileVisits: 0 };
+          current = {
+            ...current,
+            nonPublic: {
+              lastRun: { at: new Date().toISOString(), posts: 1, error: null },
+              byPost: [{ ...row, linkClicks: 0, follows: 0, likes: 0, replies: 0, reposts: 0 }],
+              nightly: true,
+            },
+          };
+          return current;
+        }),
+    },
+  });
+  await userEvent.click(screen.getByRole("button", { name: /^Fetch now/ }));
+  await expect.element(screen.getByText("4.3K")).toBeVisible();
+});
+
+it("turns the nightly private-metrics fetch off beside its status", async () => {
+  const set: Array<boolean> = [];
+  let current = { ...data([post("1", 10)]), nonPublic: { ...noPrivate, nightly: true } };
+  await using screen = await render(<AnalyzeScreen />, {
+    router: "/analyze?tab=posts",
+    service: {
+      "costs.quote": quoting(),
+      "analyze.data": () => Effect.sync(() => current),
+      "analyze.nightlySet": ({ on }) =>
+        Effect.sync(() => {
+          set.push(on);
+          current = { ...current, nonPublic: { ...current.nonPublic, nightly: on } };
+          return current;
+        }),
+    },
+  });
+  const nightly = screen.getByRole("switch", { name: "Nightly fetch" });
+  await expect.element(nightly).toBeChecked();
+  await userEvent.click(nightly);
+  await expect.element(screen.getByText("Nightly fetch off.")).toBeVisible();
+  await expect.element(nightly).not.toBeChecked();
+  expect(set).toEqual([false]);
+});
+
+it("turns the nightly fetch on only once its price is known, and off at any time", async () => {
+  const unpriced = (nightly: boolean) =>
+    render(<AnalyzeScreen />, {
+      router: "/analyze?tab=posts",
+      service: {
+        "costs.quote": () => Effect.never,
+        "analyze.data": () =>
+          Effect.succeed({ ...data([post("1", 10)]), nonPublic: { ...noPrivate, nightly } }),
+      },
+    });
+  {
+    await using screen = await unpriced(false);
+    await expect.element(screen.getByRole("switch", { name: "Nightly fetch" })).toBeDisabled();
+  }
+  await using screen = await unpriced(true);
+  await expect.element(screen.getByRole("switch", { name: "Nightly fetch" })).toBeEnabled();
+});
+
+const answering = (asked: Array<string>) => ({
+  "costs.quote": quoting(),
+  "analyze.ask": ({ question }: { readonly question: string }) =>
+    Effect.sync(() => {
+      asked.push(question);
+      return { answer: "Threads get twice the replies.", followUps: [] };
+    }),
+});
+
+it("asks only once posts are loaded: an answer over nothing is still a paid call", async () => {
+  const asked: Array<string> = [];
+  await using screen = await render(<Ask data={data([])} />, { service: answering(asked) });
+  await userEvent.fill(screen.getByLabelText("Question"), "Why did it flop?");
+  await expect.element(screen.getByRole("button", { name: /^Ask/ })).toBeDisabled();
+  await userEvent.keyboard("{Enter}");
+  expect(asked).toEqual([]);
+  await expect
+    .element(screen.getByRole("button", { name: /^Refresh posts/ }).first())
+    .toBeEnabled();
+});
+
+it("asks the question as typed, once, and shows the answer", async () => {
+  const asked: Array<string> = [];
+  await using screen = await render(<Ask data={data([post("1", 10)])} />, {
+    service: answering(asked),
+  });
+  await userEvent.fill(screen.getByLabelText("Question"), "Which posts get replies?");
+  await userEvent.click(screen.getByRole("button", { name: /^Ask/ }));
+  await expect.element(screen.getByText("Threads get twice the replies.")).toBeVisible();
+  expect(asked).toEqual(["Which posts get replies?"]);
 });

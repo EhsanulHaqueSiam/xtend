@@ -37,6 +37,14 @@ export const refreshNonPublicAtom = clientRuntime.fn<void>()(
   }),
 );
 
+/** The nightly private-metrics read on or off. Refresh analyzeDataAtom after it resolves. */
+export const nightlySetAtom = clientRuntime.fn<boolean>()(
+  Effect.fnUntraced(function* (on) {
+    const client = yield* XtendClient;
+    return yield* client[Analyze_METHODS.nightlySet]({ on });
+  }),
+);
+
 export const engagersAtom = clientRuntime.atom(
   Effect.gen(function* () {
     const client = yield* XtendClient;

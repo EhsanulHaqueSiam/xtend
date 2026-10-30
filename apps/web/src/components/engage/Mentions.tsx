@@ -24,6 +24,7 @@ import {
   RowTitle,
   useSelection,
 } from "../ui/split";
+import { toastAtom } from "../ui/toast";
 import { OpenOnX } from "../ui/x-link";
 import { ReplyBox, useWork } from "./ReplyBox";
 import { ago, ErrorLine, pill, PostHead } from "./triage";
@@ -79,7 +80,7 @@ export function Mentions() {
           <button
             type="button"
             className={pill}
-            disabled={fetching}
+            disabled={fetching || quote === "…"}
             onClick={() => void runFetch()}
           >
             <TextMorph duration={250}>{fetching ? "Fetching…" : "Fetch new"}</TextMorph>
@@ -243,17 +244,25 @@ function MentionDetail({
   const markHandled = useAtomSet(markHandledAtom, { mode: "promise" });
   const refreshMentions = useAtomRefresh(mentionsAtom);
   const refreshInbox = useAtomRefresh(inboxAtom);
+  const setToast = useAtomSet(toastAtom);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const onHandled = async () => {
+  // Both lists read the same handled flag, and the sidebar counts open mentions.
+  const setHandled = (handled: boolean) =>
+    markHandled({ postId: post.postId, handled }).then(() => {
+      refreshMentions();
+      refreshInbox();
+    });
+
+  const onToggle = async () => {
     setBusy(true);
     setError(null);
     try {
-      await markHandled(post.postId);
-      // Both lists read the same handled flag, and the sidebar counts open mentions.
-      refreshMentions();
-      refreshInbox();
+      const handled = !mention.handled;
+      await setHandled(handled);
+      // Under Open the mention leaves the list at once; the toast brings it back.
+      if (handled) setToast({ text: "Marked handled", undo: () => setHandled(false) });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -268,13 +277,8 @@ function MentionDetail({
         meta={`${ago(post.createdAt)} · ${kind}`}
         actions={
           <>
-            <button
-              type="button"
-              className={pill}
-              disabled={busy || mention.handled}
-              onClick={() => void onHandled()}
-            >
-              <TextMorph duration={250}>{mention.handled ? "Handled" : "Mark handled"}</TextMorph>
+            <button type="button" className={pill} disabled={busy} onClick={() => void onToggle()}>
+              <TextMorph duration={250}>{mention.handled ? "Reopen" : "Mark handled"}</TextMorph>
             </button>
             <OpenOnX href={post.url} />
           </>

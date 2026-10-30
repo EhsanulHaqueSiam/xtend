@@ -1,15 +1,18 @@
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
 
 import { MineSection, ReportSection } from "../components/scores/HandleReport";
 import { Watchlist } from "../components/scores/Watchlist";
 import { useSection } from "../components/shell/sections";
 import { parseHandle } from "../lib/utils";
 
-/** The sidebar picks the section; each section draws its own header. */
-function ScoresScreen() {
+/** The sidebar picks the section; each section draws its own header. `linked` is `?handle=`. */
+export function ScoresScreen({ linked }: { readonly linked: string | undefined }) {
   const section = useSection("/scores");
-  const { handle } = Route.useSearch();
   const navigate = useNavigate();
+  // The sidebar's section links carry only ?tab=, so Report and Bot check keep the last handle.
+  const [handle, setHandle] = useState(linked);
+  if (linked !== undefined && linked !== handle) setHandle(linked);
   return (
     <div className="@container flex h-full min-w-0 flex-col">
       {section === "mine" ? (
@@ -44,5 +47,7 @@ export const Route = createFileRoute("/scores")({
         replace: true,
       });
   },
-  component: ScoresScreen,
+  component: function ScoresRoute() {
+    return <ScoresScreen linked={Route.useSearch().handle} />;
+  },
 });

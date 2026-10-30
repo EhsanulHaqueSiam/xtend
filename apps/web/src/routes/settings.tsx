@@ -241,7 +241,8 @@ function SettingsForm({ current }: { readonly current: SettingsShape }) {
   };
 
   return (
-    <>
+    // Locked while a save is out: its success clears the draft, which would drop edits made meanwhile.
+    <fieldset disabled={saving} className="contents">
       <Page id="account">
         <Section title="X account">
           <SField
@@ -535,7 +536,7 @@ function SettingsForm({ current }: { readonly current: SettingsShape }) {
           </Button>
         </div>
       ) : null}
-    </>
+    </fieldset>
   );
 }
 
@@ -712,8 +713,18 @@ function RemoteService() {
   const bridge = window.desktopBridge;
   const [url, setUrl] = useState(bridge?.remote?.url ?? "");
   const [token, setToken] = useState(bridge?.remote?.token ?? "");
-  const [result, setResult] = useState<Reachability | null>(null);
+  const [checked, setChecked] = useState<{
+    readonly url: string;
+    readonly token: string;
+    readonly result: Reachability;
+  } | null>(null);
   const [checking, setChecking] = useState(false);
+  const config = { url: url.trim(), token: token.trim() };
+  // A check answers for the URL and token it tested; once either is edited it says nothing.
+  const result =
+    checked !== null && checked.url === config.url && checked.token === config.token
+      ? checked.result
+      : null;
   if (bridge === undefined)
     return (
       <p className="text-xs text-muted-foreground">
@@ -725,7 +736,8 @@ function RemoteService() {
     );
   const check = async () => {
     setChecking(true);
-    setResult(await bridge.checkRemote({ url: url.trim(), token: token.trim() }));
+    const tested = config;
+    setChecked({ ...tested, result: await bridge.checkRemote(tested) });
     setChecking(false);
   };
   const ok = result !== null && result.health && result.auth;
@@ -740,10 +752,7 @@ function RemoteService() {
           className={settingsInput}
           placeholder="http://mac-mini:4820"
           value={url}
-          onChange={(e) => {
-            setUrl(e.target.value);
-            setResult(null);
-          }}
+          onChange={(e) => setUrl(e.target.value)}
         />
       </SField>
       <SField wide label="Service token" hint="auth-token from that machine's data directory.">
@@ -751,10 +760,7 @@ function RemoteService() {
           className={settingsInput}
           type="password"
           value={token}
-          onChange={(e) => {
-            setToken(e.target.value);
-            setResult(null);
-          }}
+          onChange={(e) => setToken(e.target.value)}
         />
       </SField>
       {result !== null ? (
@@ -781,11 +787,7 @@ function RemoteService() {
         >
           {checking ? "Checking…" : "Check"}
         </Button>
-        <Button
-          size="sm"
-          disabled={!ok}
-          onClick={() => bridge.setRemote({ url: url.trim(), token: token.trim() })}
-        >
+        <Button size="sm" disabled={!ok} onClick={() => bridge.setRemote(config)}>
           Connect and relaunch
         </Button>
       </div>

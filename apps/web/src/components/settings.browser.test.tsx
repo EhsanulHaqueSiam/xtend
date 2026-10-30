@@ -9,12 +9,18 @@ import * as Effect from "effect/Effect";
 import { expect, it, onTestFinished } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
+import type { Reachability } from "../desktopBridge";
 import { installFakeBridge } from "../../test/fakeBridge";
 import type { FakeService } from "../../test/fakeService";
 import { paid, quoting, settings } from "../../test/fixtures";
 import { render } from "../../test/render";
 import { NOT_A_HANDLE } from "../lib/utils";
-import { SettingsScreen } from "../routes/settings";
+
+// The desktop-only rows read the bridge at module load (env.ts), so the screen is imported with
+// one in place. It goes again at once: each test that needs a bridge at run time installs its own.
+installFakeBridge();
+const { SettingsScreen } = await import("../routes/settings");
+delete window.desktopBridge;
 
 const accounts: AccountList = {
   accounts: [
@@ -29,8 +35,9 @@ const service = (
   updates: Array<SettingsUpdate>,
   refuseUpdate = () => false,
   extra: FakeService = {},
+  start: Settings = settings,
 ): FakeService => {
-  let current: Settings = settings;
+  let current = start;
   return {
     "server.info": () =>
       Effect.succeed({
@@ -52,6 +59,8 @@ const service = (
               handle: patch.handle === undefined ? current.handle : patch.handle,
               monthlyBudgetUsd: patch.monthlyBudgetUsd ?? current.monthlyBudgetUsd,
               timeZone: patch.timeZone ?? current.timeZone,
+              sessionPostingEnabled: patch.sessionPostingEnabled ?? current.sessionPostingEnabled,
+              dailyLibraryJobs: patch.dailyLibraryJobs ?? current.dailyLibraryJobs,
               tregTokenSet: current.tregTokenSet || typeof patch.tregToken === "string",
             };
             return current;
@@ -218,6 +227,78 @@ it("stores a treg token without showing it again, and says why a save failed", a
     .element(screen.getByRole("alert"))
     .toHaveTextContent("Settings failed during update.");
   await expect.element(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+});
+
+it("saves the session-posting switch turned off, and reads it back off", async () => {
+  const updates: Array<SettingsUpdate> = [];
+  await using screen = await render(<SettingsScreen />, {
+    service: service(updates, undefined, {}, { ...settings, sessionPostingEnabled: true }),
+    router: "/settings?tab=x",
+  });
+  const posting = screen.getByRole("switch", { name: "Act through my X session for what I click" });
+  await expect.element(posting).toBeChecked();
+  await userEvent.click(posting);
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  await expect.poll(() => updates).toEqual([{ sessionPostingEnabled: false }]);
+  await expect.element(posting).not.toBeChecked();
+});
+
+it("saves the daily Library jobs switch turned off", async () => {
+  const updates: Array<SettingsUpdate> = [];
+  await using screen = await render(<SettingsScreen />, {
+    service: service(
+      updates,
+      undefined,
+      { "costs.quote": quoting() },
+      { ...settings, dailyLibraryJobs: true },
+    ),
+    router: "/settings?tab=writing",
+  });
+  const jobs = screen.getByRole("switch", { name: "Daily Library jobs" });
+  await expect.element(jobs).toBeChecked();
+  await userEvent.click(jobs);
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  await expect.poll(() => updates).toEqual([{ dailyLibraryJobs: false }]);
+  await expect.element(jobs).not.toBeChecked();
+});
+
+it("locks the fields while a save is out, so nothing typed meanwhile is dropped", async () => {
+  let release = () => {};
+  const landed = new Promise<void>((resolve) => (release = resolve));
+  await using screen = await render(<SettingsScreen />, {
+    service: service([], undefined, {
+      "settings.update": () => Effect.promise(() => landed).pipe(Effect.as(settings)),
+    }),
+  });
+  const handle = screen.getByPlaceholder("handle without @");
+  await userEvent.fill(handle, "newhandle");
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  await expect.element(handle).toBeDisabled();
+  release();
+  await expect.element(handle).toBeEnabled();
+});
+
+it("a Check speaks only for the URL and token it tested", async () => {
+  let answer: (reachability: Reachability) => void = () => {};
+  installFakeBridge({ checkRemote: () => new Promise((resolve) => (answer = resolve)) });
+  onTestFinished(() => {
+    delete window.desktopBridge;
+  });
+  await using screen = await render(<SettingsScreen />, {
+    service: service([]),
+    router: "/settings?tab=service",
+  });
+  const url = screen.getByPlaceholder("http://mac-mini:4820");
+  const connect = screen.getByRole("button", { name: "Connect and relaunch" });
+  await userEvent.fill(url, "http://mac-mini:4820");
+  await userEvent.click(screen.getByRole("button", { name: "Check", exact: true }));
+  // Edited while the check is out: its answer is about the old URL.
+  await userEvent.fill(url, "http://other:4820");
+  answer({ health: true, version: "0.1.0", auth: true, error: null });
+  await expect.element(screen.getByRole("button", { name: "Check", exact: true })).toBeEnabled();
+  await expect.element(connect).toBeDisabled();
+  await userEvent.fill(url, "http://mac-mini:4820");
+  await expect.element(connect).toBeEnabled();
 });
 
 it("switches account only after the service selected it, and says when it refused", async () => {

@@ -1,5 +1,5 @@
 import type { PendingRequest } from "@xtend/contracts";
-import { expect, it, vi } from "vite-plus/test";
+import { expect, it, onTestFinished, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
 import { render } from "../../../test/render";
@@ -41,4 +41,31 @@ it("lists pending requests with their price on Approve, routes Approve and Skip,
     <NeedsYouList requests={[]} busy={false} onApprove={onApprove} onDismiss={onDismiss} />,
   );
   await expect.element(screen.getByText(/Nothing waiting/)).toBeVisible();
+});
+
+it("a and s act on the focused card only, keep the shell's letter keys out, and move focus on", async () => {
+  const onApprove = vi.fn();
+  const onDismiss = vi.fn();
+  const second = { ...request, id: 8, description: "@bo reposted 556; DM Bo" };
+  // What the shell's hotkeys see: they skip a key a card already took.
+  const taken: Array<boolean> = [];
+  const listen = (e: KeyboardEvent) => taken.push(e.defaultPrevented);
+  window.addEventListener("keydown", listen);
+  onTestFinished(() => window.removeEventListener("keydown", listen));
+  const list = (requests: ReadonlyArray<PendingRequest>) => (
+    <NeedsYouList requests={requests} busy={false} onApprove={onApprove} onDismiss={onDismiss} />
+  );
+  await using screen = await render(list([request, second]));
+  const cards = screen.getByRole("listitem");
+  (cards.nth(0).element() as HTMLElement).focus();
+  await userEvent.keyboard("a");
+  expect(onApprove.mock.calls).toEqual([[7]]);
+  expect(taken).toEqual([true]);
+
+  // The approved card leaves; focus lands on the one now in its place.
+  await screen.rerender(list([second]));
+  await expect.element(cards.nth(0)).toHaveFocus();
+  await userEvent.keyboard("s");
+  expect(onDismiss.mock.calls).toEqual([[8]]);
+  expect(taken).toEqual([true, true]);
 });

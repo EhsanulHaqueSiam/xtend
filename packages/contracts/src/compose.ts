@@ -3,6 +3,7 @@ import * as Rpc from "effect/rpc/Rpc";
 import * as RpcGroup from "effect/rpc/RpcGroup";
 
 import { IsoDateTime, NonNegativeInt, ReplyTone, XId } from "./baseSchemas.ts";
+import { LINK_PATTERN } from "./costs.ts";
 
 /** Compose screen contracts: drafts, assist calls and the RPC group. Owned by the compose area. */
 
@@ -62,6 +63,39 @@ export type DraftMediaPatch = typeof DraftMediaPatch.Type;
 export const MEDIA_MAX_BYTES = 15 * 1024 * 1024;
 export const MEDIA_MAX_IMAGES = 4;
 
+/** X's limit on a post's weighted length (`charCount`). */
+export const POST_LIMIT = 280;
+
+// The contract's link rule, so the counter and the price agree with what the service charges.
+const LINK = new RegExp(LINK_PATTERN.source, "gi");
+
+// X's weighting (twitter-text v3): code points in these ranges count 1, every other one 2
+// (CJK, most symbols), an emoji sequence 2 however many code points it joins, a link 23.
+const LIGHT: ReadonlyArray<readonly [number, number]> = [
+  [0, 4351],
+  [8192, 8205],
+  [8208, 8223],
+  [8242, 8247],
+];
+const EMOJI = /\p{Emoji_Presentation}|\uFE0F|\p{Regional_Indicator}|\u20E3/u;
+const graphemes = new Intl.Segmenter();
+
+/** The length X checks against POST_LIMIT; the editor's counter and the publisher's refusal. */
+export const charCount = (text: string) => {
+  let count = 0;
+  for (const { segment } of graphemes.segment(
+    text.normalize("NFC").replace(LINK, "x".repeat(23)),
+  )) {
+    if (EMOJI.test(segment)) count += 2;
+    else
+      for (const ch of segment) {
+        const cp = ch.codePointAt(0) ?? 0;
+        count += LIGHT.some(([from, to]) => cp >= from && cp <= to) ? 1 : 2;
+      }
+  }
+  return count;
+};
+
 export const DraftPoll = Schema.Struct({
   options: Schema.Array(Schema.String).check(Schema.isMinLength(2), Schema.isMaxLength(4)),
   durationMinutes: Schema.Int.check(Schema.isBetween({ minimum: 5, maximum: 10080 })),
@@ -101,9 +135,9 @@ export const Draft = Schema.Struct({
   blocks: Schema.Array(DraftBlock),
   replySettings: ReplySettings,
   poll: Schema.NullOr(DraftPoll),
-  /** X's API has no switch for it; after posting the desktop removes the card through the session. */
+  /** Not applied yet: X's API has no switch for it and nothing removes the card after posting. */
   hideLinkPreviews: Schema.Boolean,
-  /** What happened to the hide request at publish time: requested through the session, or why not. */
+  /** What happened to the hide request at publish time. */
   linkPreviewNote: Schema.NullOr(Schema.String),
   threadDelaySeconds: NonNegativeInt,
   source: Schema.NullOr(Schema.String),

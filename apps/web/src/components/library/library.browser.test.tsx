@@ -3,10 +3,12 @@ import * as Effect from "effect/Effect";
 import { afterEach, expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
-import { paid, rates, xPost } from "../../../test/fixtures";
+import { paid, quoting, rates, xPost } from "../../../test/fixtures";
 import { choose, render } from "../../../test/render";
+import { ArchiveTab } from "./ArchiveTab";
 import { CollectionsTab } from "./CollectionsTab";
 import { PicksTab } from "./PicksTab";
+import { PostGrid } from "./PostCard";
 import { SaveButton } from "./SaveButton";
 import { SearchTab } from "./SearchTab";
 import { SwipeTab } from "./SwipeTab";
@@ -199,9 +201,10 @@ it("Remove in a collection takes the post out of that collection only; Staff pic
   expect(staffPost.getByRole("button", { name: "Remove" }).elements()).toHaveLength(0);
 });
 
-it("searches the swipe file, keeps a note on blur, and drops a removed post", async () => {
+it("searches the swipe file, keeps a note on blur, and deletes a post only after a confirm", async () => {
   let rows = [saved(1, first), saved(2, second)];
   const notes: Array<{ readonly id: number; readonly note: string }> = [];
+  const deleted: Array<number> = [];
   await using screen = await render(<SwipeTab />, {
     service: {
       "library.savedList": ({ query }) =>
@@ -213,6 +216,7 @@ it("searches the swipe file, keeps a note on blur, and drops a removed post", as
         return Effect.void;
       },
       "library.savedDelete": ({ id }) => {
+        deleted.push(id);
         rows = rows.filter((r) => r.id !== id);
         return Effect.void;
       },
@@ -230,10 +234,181 @@ it("searches the swipe file, keeps a note on blur, and drops a removed post", as
   // The open inspector covers the grid on a narrow screen.
   await userEvent.click(firstPost.getByRole("button", { name: "Close" }));
 
+  // In the swipe file the delete reaches every collection, so it says so and asks first.
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
   const secondPost = await inspect(screen, second.text);
-  await userEvent.click(secondPost.getByRole("button", { name: "Remove" }));
+  const remove = secondPost.getByRole("button", { name: "Delete saved post" });
+  await userEvent.click(remove);
+  expect(confirm).toHaveBeenCalledOnce();
+  await expect.element(card(screen, second.text)).toBeVisible();
+  confirm.mockReturnValue(true);
+  await userEvent.click(remove);
   await expect.element(screen.getByText(second.text)).not.toBeInTheDocument();
   await expect.element(screen.getByText(first.text)).toBeVisible();
+  expect(deleted).toEqual([2]);
+});
+
+it("moves focus into an opened post, back to its card on close, and to the next card once deleted", async () => {
+  vi.spyOn(window, "confirm").mockReturnValue(true);
+  let rows = [saved(1, first), saved(2, second), saved(3, third)];
+  // Under 46rem the open post covers the grid, taking the clicked card's focus with it.
+  const container = document.createElement("div");
+  container.style.width = "600px";
+  await using screen = await render(<SwipeTab />, {
+    container,
+    service: {
+      "library.savedList": () => Effect.sync(() => rows),
+      "library.savedDelete": ({ id }) => {
+        rows = rows.filter((r) => r.id !== id);
+        return Effect.void;
+      },
+    },
+  });
+  // The card's own button comes first; its hover actions follow it.
+  const cardButton = (text: string) => card(screen, text).getByRole("button").first();
+
+  const detail = await inspect(screen, second.text);
+  await expect.element(detail.getByRole("button", { name: "Close" })).toHaveFocus();
+  await userEvent.click(detail.getByRole("button", { name: "Close" }));
+  await expect.element(cardButton(second.text)).toHaveFocus();
+
+  await inspect(screen, second.text);
+  await userEvent.click(detail.getByRole("button", { name: "Delete saved post" }));
+  await expect.element(screen.getByText(second.text)).not.toBeInTheDocument();
+  await expect.element(cardButton(third.text)).toHaveFocus();
+});
+
+it("marks a post saved though the swipe file's latest 200 no longer hold it", async () => {
+  await using screen = await render(
+    <PostGrid items={[{ key: "1", post: first }]} selected={null} onSelect={() => {}} />,
+    {
+      service: {
+        "library.savedList": () => Effect.succeed([]),
+        "library.savedIds": () => Effect.succeed([first.postId]),
+      },
+    },
+  );
+  await userEvent.hover(card(screen, first.text));
+  await expect.element(screen.getByRole("button", { name: "Saved" })).toBeDisabled();
+});
+
+it("keeps a paid search shut until its price arrives, Enter included", async () => {
+  const searches: Array<string> = [];
+  await using screen = await render(<SearchTab initialQuery="ai agents" />, {
+    service: {
+      // "ai agents" is priced; any other query, and every next page, is still being quoted.
+      "costs.quote": ({ actions }) =>
+        actions.some(
+          (a) => a.kind === "search" && (a.query !== "ai agents" || a.cursor !== undefined),
+        )
+          ? Effect.never
+          : Effect.succeed({ rates, quotes: actions.map(() => paid(0.00075)) }),
+      "library.search": ({ query }) => {
+        searches.push(query);
+        return Effect.succeed({ items: [first], nextCursor: "c2" });
+      },
+      "library.collectionsList": () => Effect.succeed([]),
+      "library.savedList": () => Effect.succeed([]),
+    },
+  });
+  const box = screen.getByLabelText("Search query");
+  await userEvent.fill(box, "unpriced");
+  await expect.element(screen.getByRole("button", { name: /^Search/ })).toBeDisabled();
+  await userEvent.type(box, "{Enter}");
+
+  await userEvent.fill(box, "ai agents");
+  await userEvent.click(screen.getByRole("button", { name: /^Search.*\$0\.00075$/ }));
+  await expect.element(screen.getByText(first.text)).toBeVisible();
+  expect(searches).toEqual(["ai agents"]);
+  await expect.element(screen.getByRole("button", { name: /^Load more/ })).toBeDisabled();
+});
+
+it("runs a paid search once while it is out, whatever submits it again", async () => {
+  let release = () => {};
+  const answered = new Promise<void>((resolve) => (release = resolve));
+  const searches: Array<string> = [];
+  await using screen = await render(<SearchTab initialQuery="ai agents" />, {
+    service: {
+      "costs.quote": quoting(() => paid(0.00075)),
+      "library.search": ({ query }) => {
+        searches.push(query);
+        return Effect.promise(() => answered).pipe(Effect.as({ items: [first], nextCursor: null }));
+      },
+      "library.collectionsList": () => Effect.succeed([]),
+      "library.savedList": () => Effect.succeed([]),
+    },
+  });
+  await userEvent.click(screen.getByRole("button", { name: /^Search.*\$0\.00075$/ }));
+  await expect.poll(() => searches).toEqual(["ai agents"]);
+  await userEvent.type(screen.getByLabelText("Search query"), "{Enter}");
+  release();
+  await expect.element(screen.getByText(first.text)).toBeVisible();
+  expect(searches).toEqual(["ai agents"]);
+});
+
+it("declining a collection's delete deletes nothing and keeps it open", async () => {
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  const deleted: Array<number> = [];
+  await using screen = await render(<CollectionsTab />, {
+    service: {
+      "library.collectionsList": () =>
+        Effect.succeed([collection(1, "Staff picks", true), collection(2, "Hooks")]),
+      "library.collectionDelete": ({ id }) => {
+        deleted.push(id);
+        return Effect.void;
+      },
+      "library.savedList": ({ collectionId }) =>
+        Effect.succeed(collectionId === 2 ? [saved(5, first)] : []),
+    },
+  });
+  await userEvent.click(screen.getByRole("button", { name: /^Hooks/ }));
+  await expect.element(screen.getByText(first.text)).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: "Delete Hooks" }));
+  expect(confirm).toHaveBeenCalledOnce();
+  await expect
+    .element(screen.getByRole("button", { name: /^Hooks/ }))
+    .toHaveAttribute("data-active", "true");
+  await expect.element(screen.getByText(first.text)).toBeVisible();
+  expect(deleted).toEqual([]);
+});
+
+it("renames a collection inline, and the rail shows the new name", async () => {
+  let collections = [collection(1, "Staff picks", true), collection(2, "Hooks")];
+  const renames: Array<{ readonly id: number; readonly name: string }> = [];
+  await using screen = await render(<CollectionsTab />, {
+    service: {
+      "library.collectionsList": () => Effect.sync(() => collections),
+      "library.collectionRename": (input) => {
+        renames.push(input);
+        collections = [collection(1, "Staff picks", true), collection(input.id, input.name)];
+        return Effect.void;
+      },
+      "library.savedList": () => Effect.succeed([]),
+    },
+  });
+  await userEvent.click(screen.getByRole("button", { name: "Rename Hooks" }));
+  await userEvent.fill(screen.getByLabelText("Collection name"), "  Openers ");
+  await userEvent.keyboard("{Enter}");
+  await expect.element(screen.getByRole("button", { name: /^Openers/ })).toBeVisible();
+  expect(renames).toEqual([{ id: 2, name: "Openers" }]);
+});
+
+it("asks the service for the archive in the chosen order", async () => {
+  const asked: Array<string | undefined> = [];
+  await using screen = await render(<ArchiveTab />, {
+    service: {
+      "library.browse": ({ sort }) => {
+        asked.push(sort);
+        return Effect.succeed([]);
+      },
+      "costs.quote": quoting(),
+      "library.savedList": () => Effect.succeed([]),
+    },
+  });
+  await expect.poll(() => asked).toEqual(["views"]);
+  await userEvent.click(screen.getByRole("button", { name: "Most views" }));
+  await userEvent.click(page.getByRole("menuitem", { name: "Newest" }));
+  await expect.poll(() => asked).toEqual(["views", "newest"]);
 });
 
 it("prices the day's fetches before they run and labels each model call", async () => {
@@ -311,6 +486,57 @@ it("prices trend ideas by the country whose trends are loaded", async () => {
   // Ideas stay on the loaded country, whose trends are cached: only the model is priced.
   await expect.element(screen.getByText("3 ideas · $0.001")).toBeVisible();
   await expect.element(screen.getByRole("button", { name: "Sarcastic" })).toBeEnabled();
+});
+
+it("Load trends on the country already shown reads it again", async () => {
+  let reads = 0;
+  await using screen = await render(<TrendsTab />, {
+    service: {
+      "costs.quote": quoting(),
+      "library.trends": () =>
+        Effect.sync(() => [{ name: `#read${++reads}`, context: null, postCount: 1 }]),
+    },
+  });
+  await userEvent.click(screen.getByRole("button", { name: /^Load trends/ }).first());
+  await expect.element(screen.getByText("#read1")).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: /^Load trends/ }));
+  await expect.element(screen.getByText("#read2")).toBeVisible();
+});
+
+it("ideas stay with the country they were written for", async () => {
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  let calls = 0;
+  await using screen = await render(<TrendsTab />, {
+    service: {
+      "costs.quote": quoting(),
+      "library.trends": () =>
+        Effect.succeed([{ name: "#buildinpublic", context: null, postCount: 1200 }]),
+      // The second generation is still out when the user moves on to another country.
+      "library.trendIdeas": ({ country }) => {
+        const ideas = [
+          { trend: "#buildinpublic", angle: "ship", text: `${country} idea ${++calls}` },
+        ];
+        return calls === 1
+          ? Effect.succeed(ideas)
+          : Effect.promise(() => held).pipe(Effect.as(ideas));
+      },
+    },
+  });
+  await userEvent.click(screen.getByRole("button", { name: /^Load trends/ }).first());
+  const anyTone = screen.getByRole("button", { name: /^Any tone/ });
+  await userEvent.click(anyTone);
+  await expect.element(screen.getByText("UnitedStates idea 1")).toBeVisible();
+  await userEvent.click(anyTone);
+
+  await choose(screen.getByRole("combobox", { name: "Country" }), "United Kingdom");
+  await userEvent.click(screen.getByRole("button", { name: /^Load trends/ }));
+  await expect.element(screen.getByText("UnitedStates idea 1")).not.toBeInTheDocument();
+  await expect.element(anyTone).toBeEnabled();
+  // The late answer for the United States has nowhere to land.
+  release();
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(screen.getByText("UnitedStates idea 2").elements()).toHaveLength(0);
 });
 
 it("dragging a saved card onto another collection files it there", async () => {

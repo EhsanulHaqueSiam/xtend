@@ -280,26 +280,19 @@ describe("Publisher", () => {
       }).pipe(Effect.provide(layerTest)),
   );
 
-  it.live("hiding a link card uses the x.com session only when Session posting is on", () =>
+  it.live("says a link card it was asked to hide was kept, and touches no session for it", () =>
     Effect.gen(function* () {
       reset();
       const drafts = yield* DraftStore.DraftStore;
       const publisher = yield* Publisher.Publisher;
       const settings = yield* SettingsStore.SettingsStore;
+      yield* settings.update({ sessionPostingEnabled: true });
       const link = { blocks: [{ text: "read https://example.com/a" }], hideLinkPreviews: true };
 
-      yield* settings.update({ sessionPostingEnabled: false });
-      const off = yield* publisher.post((yield* drafts.create(link)).id, postNow);
-      expect(off.status).toBe("posted");
-      expect(off.linkPreviewNote).toContain("Session actions are off");
+      const out = yield* publisher.post((yield* drafts.create(link)).id, postNow);
+      expect(out.status).toBe("posted");
+      expect(out.linkPreviewNote).toBe("Link preview kept: Xtend cannot hide it yet");
       expect(desktopCalls).toHaveLength(0);
-
-      yield* settings.update({ sessionPostingEnabled: true });
-      const on = yield* publisher.post((yield* drafts.create(link)).id, postNow);
-      expect(on.linkPreviewNote).toContain("requested");
-      expect(desktopCalls).toEqual([
-        { type: "sessionNavigate", url: `https://x.com/i/web/status/${on.postIds[0]}` },
-      ]);
     }).pipe(Effect.provide(layerTest)),
   );
 
@@ -326,6 +319,10 @@ describe("Publisher", () => {
         "Post 2 is empty",
       );
       expect(yield* refused({ blocks: [{ text: "" }] })).toBe("Nothing to post");
+      // X's weighting: the CJK second post is 141 characters counted 2 each.
+      expect(yield* refused({ blocks: [{ text: "fits" }, { text: "語".repeat(141) }] })).toBe(
+        "Post 2 is over 280 characters",
+      );
 
       const withImage = yield* drafts.create({
         blocks: [{ text: "vote" }],

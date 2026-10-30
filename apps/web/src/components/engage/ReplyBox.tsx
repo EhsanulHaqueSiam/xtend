@@ -1,12 +1,13 @@
-import { useAtomSet } from "@effect/atom-react";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { postCostUsd, type ReplyTone, type XPost } from "@xtend/contracts";
 import * as Exit from "effect/Exit";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 import { TextMorph } from "torph/react";
 
 import { usd, useQuote, useRates } from "../../state/costs";
 import { draftReplyAtom, likeAtom, sendReplyAtom } from "../../state/engage";
-import { useSessionLane } from "../../state/settings";
+import { settingsAtom } from "../../state/settings";
 import { cn } from "../../lib/utils";
 import { errorText } from "../analyze/ui";
 import { Candidates, ToneRow } from "../ui/assist-choice";
@@ -42,23 +43,22 @@ const idle: Work = {
 };
 
 /**
- * Work per post id, owned by the screen rather than the detail column, so a
- * draft keeps running and its text survives while the user moves to the next
- * post and back.
+ * Work per id (a post, a person), owned by the screen rather than the detail
+ * column, so a call keeps landing and its text survives while the user moves to
+ * the next item and back. `idle` is an item's work before anything happened.
  */
-export function useWork() {
-  const [work, setWork] = useState<ReadonlyMap<string, Work>>(new Map());
-  const get = (postId: string, seed?: Partial<Work>): Work =>
-    work.get(postId) ?? { ...idle, ...seed };
+export function useWorkBy<Id, W extends object>(idle: W) {
+  const [work, setWork] = useState<ReadonlyMap<Id, W>>(new Map());
+  const get = (id: Id, seed?: Partial<W>): W => work.get(id) ?? { ...idle, ...seed };
   const patch =
-    (postId: string, seed?: Partial<Work>): Patch =>
-    (change) =>
-      setWork((m) =>
-        new Map(m).set(postId, { ...(m.get(postId) ?? { ...idle, ...seed }), ...change }),
-      );
+    (id: Id, seed?: Partial<W>) =>
+    (change: Partial<W>): void =>
+      setWork((m) => new Map(m).set(id, { ...(m.get(id) ?? { ...idle, ...seed }), ...change }));
   return { get, patch } as const;
 }
 
+/** Reply work per post id. */
+export const useWork = () => useWorkBy<string, Work>(idle);
 /**
  * A reply to one post. Assist is a choice: a tone row with "write my own" first, three
  * candidates to pick from, the editor, then Reply and Like with their prices.
@@ -81,8 +81,13 @@ export function ReplyBox({
   // The service's price: the first like of the day also pays for the account lookup.
   const likeQuote = useQuote({ kind: "like" });
   const assistQuote = useQuote({ kind: "assist" });
-  // The service sends a clicked reply through the session while that lane is on; the button says so.
-  const viaSession = useSessionLane();
+  // The service sends a clicked reply through the session while that lane is on, whichever client
+  // clicked, and the button says so. Null until settings arrive: until then the price is unknown.
+  const viaSession = AsyncResult.getOrElse(
+    AsyncResult.map(useAtomValue(settingsAtom), (s) => s.sessionPostingEnabled),
+    () => null,
+  );
+  const replyPriced = viaSession === true || (viaSession === false && rates !== null);
   const { tone, drafts, text, busy, error, replied, liked } = work;
 
   const onDraft = async (tone: ReplyTone) => {
@@ -148,24 +153,23 @@ export function ReplyBox({
         value={text}
         maxLength={280}
         placeholder={tone === null ? "Write your reply" : "Pick a draft above, or edit it here"}
-        disabled={replied}
+        // Locked while sending: text typed now would not be what went out.
+        disabled={replied || busy === "reply"}
         onChange={(e) => patch({ text: e.target.value })}
       />
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
         <button
           type="button"
           className={pillSolid}
-          disabled={
-            busy !== null || replied || text.trim() === "" || (rates === null && !viaSession)
-          }
+          disabled={busy !== null || replied || text.trim() === "" || !replyPriced}
           onClick={() => void onReply()}
         >
           <TextMorph duration={250}>
             {replied ? "Replied" : busy === "reply" ? "Replying…" : "Reply"}
           </TextMorph>
-          {replied ? null : viaSession ? (
+          {replied ? null : viaSession === true ? (
             <Cost tone="solid" label="free · your session" />
-          ) : rates === null ? (
+          ) : !replyPriced || rates === null ? (
             <Cost tone="solid" label="…" />
           ) : (
             <Cost tone="solid" usd={postCostUsd(rates, text)} />
@@ -175,7 +179,7 @@ export function ReplyBox({
           <button
             type="button"
             className={pill}
-            disabled={busy !== null || replied}
+            disabled={busy !== null || replied || assistQuote === null}
             onClick={() => void onDraft(tone)}
           >
             Draft again

@@ -61,6 +61,16 @@ it("shows a live rule's price and asks before Run now fires it", async () => {
   expect(onRunNow).toHaveBeenCalledOnce();
 });
 
+it("keeps a paid Run now off until the rate card prices it", async () => {
+  await using screen = await render(detail(rule, vi.fn()), {
+    service: { ...service, [Costs_METHODS.quote]: () => Effect.never },
+  });
+  await expect.element(screen.getByRole("button", { name: /^Run now/ })).toBeDisabled();
+  // A dry run charges nothing, so it needs no price.
+  await screen.rerender(detail({ ...rule, dryRun: true }, vi.fn()));
+  await expect.element(screen.getByRole("button", { name: /^Run now/ })).toBeEnabled();
+});
+
 it("runs a dry-run rule at once, since it charges nothing", async () => {
   const onRunNow = vi.fn();
   await using screen = await render(detail({ ...rule, dryRun: true }, onRunNow), { service });

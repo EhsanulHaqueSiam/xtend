@@ -65,7 +65,8 @@ export function DraftChoice({
           tone={tone}
           first="Any tone"
           busy={busy === "write" ? tone : undefined}
-          disabled={busy !== null}
+          // Every chip, "Any tone" too, is a paid call: none runs before its price shows.
+          disabled={busy !== null || assistQuote === "…"}
           onTone={onTone}
         />
         <Candidates drafts={options} picked={picked} onPick={setPicked} />

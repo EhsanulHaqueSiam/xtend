@@ -229,7 +229,17 @@ export function ReportCard({
       </Empty>
     );
   const next = nextTier(s.score);
-  const sampledLine = `@${report.handle} · sampled ${fmtDay(s.at)} · ${s.pages} pages`;
+  const sampledLine = (
+    <>
+      <XLink
+        href={profileUrl(report.handle)}
+        className="transition-colors duration-150 hover:text-foreground"
+      >
+        @{report.handle}
+      </XLink>
+      {` · sampled ${fmtDay(s.at)} · ${s.pages} pages`}
+    </>
+  );
 
   if (botOnly)
     return (

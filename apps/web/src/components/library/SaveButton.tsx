@@ -8,7 +8,7 @@ import { TextMorph } from "torph/react";
 
 import { cn } from "../../lib/utils";
 import { Cost } from "../ui/layout";
-import { collectionsAtom, savePostAtom, swipeFileAtom } from "../../state/library";
+import { collectionsAtom, savedIdsAtom, savePostAtom, swipeFileAtom } from "../../state/library";
 import { Menu, MenuItem } from "../ui/menu";
 import { xPill, xPillSm, xPillSolid } from "../x";
 import { errorMessage } from "./shared";
@@ -17,11 +17,8 @@ const small = "[&_svg]:size-3.5";
 
 /** The ids of saved posts, so a card can say Saved before anyone clicks. */
 export function useSavedIds(): ReadonlySet<string> {
-  const saved = useAtomValue(swipeFileAtom(""));
-  return useMemo(
-    () => new Set(AsyncResult.getOrElse(saved, () => []).map((s) => s.post.postId)),
-    [saved],
-  );
+  const saved = useAtomValue(savedIdsAtom);
+  return useMemo(() => new Set(AsyncResult.getOrElse(saved, () => [])), [saved]);
 }
 
 /** Refreshes what a save changes: the swipe file and the collection counts. */

@@ -58,6 +58,8 @@ export function DraftsBoard({
     if (from === to) return;
     const done = () => onChanged();
     if (to === "queued") {
+      // Queueing a paid post waits for its price.
+      if (costOf(draft) === null) return setToast({ text: "Its price is not known yet" });
       await queue(draft.id);
       done();
       setToast({ text: "Queued for the next slot", undo: () => unschedule(draft.id).then(done) });

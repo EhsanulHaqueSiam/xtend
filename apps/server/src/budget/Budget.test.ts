@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
+import { SettingsError } from "@xtend/contracts";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -12,6 +13,24 @@ import * as Budget from "./Budget.ts";
 const layerTest = Budget.layer.pipe(
   Layer.provideMerge(SettingsStore.layer),
   Layer.provideMerge(Layer.mergeAll(Sqlite.layerMemory, TokenCipher.layerTest)),
+);
+
+// The real store, except the budget check fails as a locked or unreadable database would.
+const layerUnreadable = Budget.layer.pipe(
+  Layer.provide(
+    Layer.effect(
+      SettingsStore.SettingsStore,
+      Effect.gen(function* () {
+        const settings = yield* SettingsStore.SettingsStore;
+        return SettingsStore.SettingsStore.of({
+          ...settings,
+          wouldExceedBudget: () =>
+            Effect.fail(new SettingsError({ operation: "spend", cause: "database is locked" })),
+        });
+      }),
+    ).pipe(Layer.provide(SettingsStore.layer)),
+  ),
+  Layer.provide(Layer.mergeAll(Sqlite.layerMemory, TokenCipher.layerTest)),
 );
 
 const request = { expectedUsd: 0.01, provider: "treg" as const, endpoint: "t", purpose: "test" };
@@ -70,5 +89,18 @@ describe("Budget", () => {
       // Had it stayed reserved, this 0.01 would pass the 0.025 budget.
       expect(yield* budget.spend(request, Effect.succeed({ value: 1, costUsd: 0.01 }))).toBe(1);
     }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect("refuses a paid call when the budget cannot be read, without running it", () =>
+    Effect.gen(function* () {
+      const budget = yield* Budget.Budget;
+      let ran = false;
+      const body = Effect.sync(() => {
+        ran = true;
+        return { value: 1, costUsd: 0.01 };
+      });
+      expect((yield* Effect.flip(budget.spend(request, body)))._tag).toBe("BudgetExceeded");
+      expect(ran).toBe(false);
+    }).pipe(Effect.provide(layerUnreadable)),
   );
 });

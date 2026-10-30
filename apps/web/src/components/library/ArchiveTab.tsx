@@ -18,14 +18,7 @@ import { Select as SelectMenu } from "../ui/select";
 import { Cost, Empty } from "../ui/layout";
 import { DetailSplit } from "../ui/split";
 import { xPill, xPillSm } from "../x";
-import {
-  FormatTabs,
-  SearchXField,
-  SortMenu,
-  sortItems,
-  type FormatFilter,
-  type SortKey,
-} from "./controls";
+import { FormatTabs, SearchXField, SortMenu, type FormatFilter, type SortKey } from "./controls";
 import { PostGrid } from "./PostCard";
 import { DraftChoice } from "./DraftChoice";
 import { InspectorGroup, PostInspector } from "./PostInspector";
@@ -185,7 +178,8 @@ export function ArchiveTab() {
   const [filters, setFilters] = useState<LibraryFilters>({});
   const [sort, setSort] = useState<SortKey>("views");
   const [selected, setSelected] = useState<string | null>(null);
-  const key = encodeFilters(filters);
+  // The service sorts before its 200-row cap; sorting the 200 most viewed here would miss the rest.
+  const key = encodeFilters({ ...filters, sort });
   const result = useAtomValue(browseAtom(key));
   const refresh = useAtomRefresh(browseAtom(key));
   const detect = useAtomSet(detectPatternsAtom, { mode: "promise" });
@@ -245,7 +239,7 @@ export function ArchiveTab() {
             <button
               type="button"
               className={cn(xPill, xPillSm)}
-              disabled={busy}
+              disabled={busy || assistQuote === "…"}
               title="Label the hook pattern of the next 20 unlabelled posts"
               onClick={() => void runDetect()}
             >
@@ -302,7 +296,7 @@ export function ArchiveTab() {
               )
             ) : (
               <PostGrid
-                items={sortItems(value, (r) => r.post, sort).map((r) => ({
+                items={value.map((r) => ({
                   key: r.post.postId,
                   post: r.post,
                   tag: tagOf(r),

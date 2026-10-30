@@ -2,6 +2,7 @@ import type { Draft } from "@xtend/contracts";
 import { expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
+import { quoting } from "../../../test/fixtures";
 import { render } from "../../../test/render";
 import { Calendar } from "./Calendar";
 
@@ -52,9 +53,12 @@ it("puts a draft into an open slot from the slot's menu, and opens a placed one"
       drafts={[placed]}
       heatmap={null}
       fillable={[draft("d1", "draft", "Most dashboards are a list of guilt", null)]}
+      busy={false}
       onFill={onFill}
       onOpen={onOpen}
     />,
+    // Fills queue a paid post, so the menu needs the rate card to offer them.
+    { service: { "costs.quote": quoting() } },
   );
   // Monday's 13:00 is open; Tuesday's is taken by the queued draft.
   await userEvent.click(screen.getByRole("button", { name: "13:00 open slot" }));
@@ -78,9 +82,12 @@ it("drags a queued post to another open slot, and a draft onto an hour of the da
       drafts={[placed]}
       heatmap={{ cells: [], posts: 12, best: [{ weekday: 1, hour: 9 }] }}
       fillable={[draft("d1", "draft", "Most dashboards are a list of guilt", null)]}
+      busy={false}
       onFill={onFill}
       onOpen={vi.fn()}
     />,
+    // Fills queue a paid post, so the menu needs the rate card to offer them.
+    { service: { "costs.quote": quoting() } },
   );
   await screen
     .getByRole("button", { name: /Weekly build log/ })

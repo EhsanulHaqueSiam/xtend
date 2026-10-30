@@ -113,6 +113,11 @@ export class PeopleStore extends Context.Service<
       source: string,
       listId?: number,
     ) => Effect.Effect<ReadonlyArray<number | null>, LeadsError>;
+    /** Files candidates into a list, adding the ones People lacks; returns how many joined the list. */
+    readonly addToList: (
+      listId: number,
+      people: ReadonlyArray<Candidate>,
+    ) => Effect.Effect<number, LeadsError>;
     readonly update: (patch: PersonUpdate) => Effect.Effect<Person, LeadsError>;
     readonly setProfile: (
       id: number,
@@ -225,6 +230,29 @@ const make = Effect.gen(function* () {
       );
     },
     Effect.mapError(fail("addMany")),
+  );
+
+  const members = (listId: number) =>
+    Effect.map(
+      sql<{ n: number }>`SELECT COUNT(*) AS n FROM list_members WHERE list_id = ${listId}`,
+      (rows) => rows[0]!.n,
+    );
+
+  // Counted from the list itself: someone already in People still joins it.
+  const addToList = Effect.fn("PeopleStore.addToList")(
+    function* (listId: number, people: ReadonlyArray<Candidate>) {
+      return yield* sql.withTransaction(
+        Effect.gen(function* () {
+          const before = yield* members(listId);
+          // The source reads as the list's name: People shows it, and an id means nothing there.
+          const [list] = yield* sql<{ name: string }>`SELECT name FROM lists WHERE id = ${listId}`;
+          const source = `list:${list?.name ?? listId}`;
+          yield* Effect.forEach(people, (c) => insertOne(c, source, listId));
+          return (yield* members(listId)) - before;
+        }),
+      );
+    },
+    Effect.mapError(fail("addToList")),
   );
 
   const update = Effect.fn("PeopleStore.update")(
@@ -357,6 +385,7 @@ const make = Effect.gen(function* () {
     activity,
     add,
     addMany,
+    addToList,
     update,
     setProfile,
     logActivity,

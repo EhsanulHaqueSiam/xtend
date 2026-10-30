@@ -24,11 +24,13 @@ function BestHours({
   heatmap,
   empty,
   onAdd,
+  disabled,
 }: {
   readonly heatmap: Heatmap | null;
   /** The action that collects more posts, under the one line saying so. */
   readonly empty: ReactNode;
   readonly onAdd: (slot: SlotInput) => void;
+  readonly disabled: boolean;
 }) {
   return (
     <XCard title="Best hours">
@@ -52,6 +54,7 @@ function BestHours({
                 <Button
                   variant="ghost"
                   size="xs"
+                  disabled={disabled}
                   onClick={() => onAdd({ weekdayMask: 1 << b.weekday, minuteOfDay: b.hour * 60 })}
                 >
                   Add slot
@@ -78,9 +81,19 @@ export function Slots({
   readonly slots: ReadonlyArray<Slot>;
   readonly heatmap: Heatmap | null;
   readonly bestHoursEmpty: ReactNode;
-  readonly onSave: (slots: ReadonlyArray<SlotInput>) => void;
+  readonly onSave: (slots: ReadonlyArray<SlotInput>) => Promise<void>;
 }) {
   const [edit, setEdit] = useState<ReadonlyArray<Row>>(() => slots.map(toInput).map(toRow));
+  // The saved slots come back and the rows start over from them, so nothing is edited meanwhile.
+  const [saving, setSaving] = useState(false);
+  const save = async () => {
+    setSaving(true);
+    try {
+      await onSave(edit.map(strip));
+    } finally {
+      setSaving(false);
+    }
+  };
   const dirty = JSON.stringify(edit.map(strip)) !== JSON.stringify(slots.map(toInput));
   const dayless = edit.some((s) => s.weekdayMask === 0);
   const set = (i: number, patch: Partial<SlotInput>) =>
@@ -89,7 +102,7 @@ export function Slots({
     setEdit([...edit, toRow(slot)].sort((a, b) => a.minuteOfDay - b.minuteOfDay));
 
   return (
-    <>
+    <fieldset disabled={saving} className="min-w-0">
       <table className={table.root}>
         <thead>
           <tr>
@@ -167,8 +180,8 @@ export function Slots({
       </table>
       <div className="flex items-center gap-3 px-6 pt-2 pb-6">
         {dirty ? (
-          <Button size="sm" disabled={dayless} onClick={() => onSave(edit.map(strip))}>
-            Save
+          <Button size="sm" disabled={dayless} onClick={() => void save()}>
+            {saving ? "Saving…" : "Save"}
           </Button>
         ) : (
           <span className="text-xs text-muted-foreground">All changes saved</span>
@@ -182,8 +195,8 @@ export function Slots({
         ) : null}
       </div>
       <Companion>
-        <BestHours heatmap={heatmap} empty={bestHoursEmpty} onAdd={add} />
+        <BestHours heatmap={heatmap} empty={bestHoursEmpty} onAdd={add} disabled={saving} />
       </Companion>
-    </>
+    </fieldset>
   );
 }

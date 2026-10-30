@@ -58,7 +58,8 @@ export class EngageStore extends Context.Service<
     readonly followUps: Effect.Effect<ReadonlyArray<SentReply>, EngageError>;
     readonly repliedPostIds: Effect.Effect<ReadonlySet<string>, EngageError>;
     readonly handledMentionIds: Effect.Effect<ReadonlySet<string>, EngageError>;
-    readonly markHandled: (postId: string) => Effect.Effect<void, EngageError>;
+    /** Marks a mention handled, or reopens it with `handled` false. */
+    readonly setHandled: (postId: string, handled: boolean) => Effect.Effect<void, EngageError>;
     /** Records the incoming rows as announced for the current account; returns how many were not yet. */
     readonly announce: (postIds: ReadonlyArray<string>) => Effect.Effect<number, EngageError>;
     /** Mentions fetched from X so far, newest first. */
@@ -144,9 +145,14 @@ const make = Effect.gen(function* () {
     Effect.mapError(storeError),
   );
 
-  const markHandled = Effect.fn("EngageStore.markHandled")(function* (postId: string) {
+  const setHandled = Effect.fn("EngageStore.setHandled")(function* (
+    postId: string,
+    handled: boolean,
+  ) {
     const at = yield* now;
-    yield* sql`INSERT OR IGNORE INTO handled_mentions (post_id, at) VALUES (${postId}, ${at})`;
+    yield* handled
+      ? sql`INSERT OR IGNORE INTO handled_mentions (post_id, at) VALUES (${postId}, ${at})`
+      : sql`DELETE FROM handled_mentions WHERE post_id = ${postId}`;
   }, Effect.mapError(storeError));
 
   const announce = Effect.fn("EngageStore.announce")(function* (postIds: ReadonlyArray<string>) {
@@ -240,7 +246,7 @@ const make = Effect.gen(function* () {
     followUps,
     repliedPostIds,
     handledMentionIds,
-    markHandled,
+    setHandled,
     announce,
     apiMentions,
     latestApiMentionId,

@@ -1,13 +1,14 @@
 import { useLocation } from "@tanstack/react-router";
-import { ScoresError, type WatchEntry } from "@xtend/contracts";
+import { ScoresError, type ScoreReport, type WatchEntry } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import { expect, it, onTestFinished } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
 import { paid, quoting } from "../../../test/fixtures";
-import { render } from "../../../test/render";
+import { choose, render } from "../../../test/render";
 import { setDisplayZone } from "../../lib/time";
 import { NOT_A_HANDLE } from "../../lib/utils";
+import { ScoresScreen } from "../../routes/scores";
 import { ReportSection } from "./HandleReport";
 import { Watchlist } from "./Watchlist";
 
@@ -101,4 +102,82 @@ it("opens a typed handle's stored report, and a failed score stays with the hand
   await userEvent.click(open);
   await expect.element(screen.getByText(/^No score for @paulg yet/)).toBeVisible();
   expect(screen.getByText(/is private/).elements()).toHaveLength(0);
+});
+
+const unscored = (handle: string): ScoreReport => ({
+  handle,
+  latest: null,
+  history: [],
+  moved: null,
+  profileHistory: [],
+});
+const scored = (handle: string, pages: number): ScoreReport => ({
+  ...unscored(handle),
+  latest: {
+    handle,
+    at: "2026-10-22T03:00:00.000Z",
+    score: 420,
+    tier: "Credible",
+    followers: 100_000,
+    sampled: 500,
+    pages,
+    botShare: 0.02,
+    topFollowers: [],
+    categories: [],
+    bot: { botShare: 0.02, followRatio: 50, suspicious: [] },
+  },
+});
+
+it("scores the follower pages picked, at their price, and shows the new score", async () => {
+  const runs: Array<number | undefined> = [];
+  let stored = unscored("levelsio");
+  await using screen = await render(<ReportSection handle="levelsio" />, {
+    service: {
+      "costs.quote": quoting(() => paid(0.00522)),
+      "scores.report": () => Effect.sync(() => stored),
+      "scores.run": ({ handle, pages }) =>
+        Effect.sync(() => {
+          runs.push(pages);
+          stored = scored(handle, pages ?? 5);
+          return stored;
+        }),
+    },
+  });
+  // Two pages: the profile and two followers pages.
+  await choose(screen.getByRole("combobox", { name: "Follower pages" }), "2 follower pages");
+  await userEvent.click(screen.getByRole("button", { name: /^Score\s*\$0\.00222$/ }));
+  await expect.element(screen.getByTestId("tier")).toHaveTextContent("Credible");
+  expect(runs).toEqual([2]);
+});
+
+it("keeps a paid score off until its price arrives", async () => {
+  await using screen = await render(<ReportSection handle="levelsio" />, {
+    service: {
+      "costs.quote": () => Effect.never,
+      "scores.report": () => Effect.succeed(unscored("levelsio")),
+    },
+  });
+  await expect.element(screen.getByRole("button", { name: /^Score/ })).toBeDisabled();
+});
+
+it("Report and Bot check keep the handle when the sidebar switches between them", async () => {
+  const reports: Array<string> = [];
+  await using screen = await render(<ScoresScreen linked="levelsio" />, {
+    router: "/scores?tab=report&handle=levelsio",
+    service: {
+      "costs.quote": quoting(),
+      "scores.report": ({ handle }) =>
+        Effect.sync(() => {
+          reports.push(handle);
+          return unscored(handle);
+        }),
+    },
+  });
+  await expect.element(screen.getByText(/^No score for @levelsio yet/)).toBeVisible();
+  // The sidebar's section link: only ?tab=.
+  await screen.router?.navigate({ href: "/scores?tab=bot-check" });
+  await screen.rerender(<ScoresScreen linked={undefined} />);
+  await expect.element(screen.getByRole("heading", { name: "Bot check" })).toBeVisible();
+  await expect.element(screen.getByText(/^No score for @levelsio yet/)).toBeVisible();
+  expect(new Set(reports)).toEqual(new Set(["levelsio"]));
 });

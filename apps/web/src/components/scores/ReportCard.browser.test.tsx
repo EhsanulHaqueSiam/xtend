@@ -71,3 +71,14 @@ it("buckets the top followers by category and shows who joined", async () => {
   await expect.element(screen.getByTestId("moved-joined").getByText("@h1")).toBeVisible();
   await expect.element(screen.getByText("ships")).toBeVisible();
 });
+
+it("links the reported account to its profile on X, in the full report and the bot check", async () => {
+  await using screen = await render(<ReportCard report={report} />);
+  await expect
+    .element(screen.getByRole("link", { name: "@levelsio" }))
+    .toHaveAttribute("href", "https://x.com/levelsio");
+  await screen.rerender(<ReportCard report={report} botOnly />);
+  await expect
+    .element(screen.getByRole("link", { name: "@levelsio" }))
+    .toHaveAttribute("href", "https://x.com/levelsio");
+});

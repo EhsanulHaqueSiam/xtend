@@ -73,11 +73,11 @@ function useRuns() {
     <button
       type="button"
       className={button}
-      disabled={busy !== null || disabled}
+      disabled={busy !== null || disabled || picksQuote === "…"}
       onClick={() =>
         void call("picks", async () => {
-          await fetch();
-          refresh();
+          // Each keyword is stored as it lands, so a later failure or budget stop still shows what was paid for.
+          await fetch().finally(refresh);
           return null;
         })
       }
@@ -90,7 +90,7 @@ function useRuns() {
     <button
       type="button"
       className={button}
-      disabled={busy !== null}
+      disabled={busy !== null || trendingQuote === "…" || assistQuote === "…"}
       title="Three posts for today in your voice, from your for-you topics and the picks. Filed as suggested drafts."
       onClick={() =>
         void call("ready", async () => {
@@ -156,7 +156,7 @@ function PickInspector({
           <button
             type="button"
             className={button}
-            disabled={busy !== null}
+            disabled={busy !== null || assistQuote === "…"}
             onClick={() => void call("why", async () => setWhyText(await why()))}
           >
             {busy === "why" ? "Explaining" : "Explain it"}
@@ -207,8 +207,8 @@ function StaffPicks({
               setBusy(true);
               setError(null);
               try {
-                await fetch();
-                refresh();
+                // Each author is stored as it lands; a later failure keeps those on screen.
+                await fetch().finally(refresh);
               } catch (e) {
                 setError(errorMessage(e));
               } finally {

@@ -36,14 +36,17 @@ export function Menu({
 
 export function MenuItem({
   onClick,
+  disabled = false,
   children,
 }: {
   readonly onClick: () => void;
+  readonly disabled?: boolean;
   readonly children: ReactNode;
 }) {
   return (
     <MenuPrimitive.Item
-      className="flex cursor-pointer items-center gap-2 rounded-[calc(var(--radius)-4px)] px-2 py-1.5 text-[13px] text-muted-foreground outline-hidden select-none data-highlighted:bg-white/7 data-highlighted:text-foreground"
+      className="flex cursor-pointer items-center gap-2 rounded-[calc(var(--radius)-4px)] px-2 py-1.5 text-[13px] text-muted-foreground outline-hidden select-none data-disabled:cursor-default data-disabled:opacity-50 data-highlighted:bg-white/7 data-highlighted:text-foreground"
+      disabled={disabled}
       onClick={onClick}
     >
       {children}

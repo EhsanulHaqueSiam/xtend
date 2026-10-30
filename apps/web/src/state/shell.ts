@@ -1,7 +1,6 @@
 import {
   Compose_METHODS,
   Events_METHODS,
-  Leads_METHODS,
   WS_METHODS,
   type XtendEvent,
   type XtendEventType,
@@ -61,10 +60,9 @@ export type ConnectionState = "connecting" | "connected" | "disconnected";
 export const connectionAtom = Atom.make((get): ConnectionState => {
   const events = get(eventsAtom);
   if (AsyncResult.isFailure(events)) return "disconnected";
-  if (eventsOf(get).length === 0) return "connecting";
   const timer = setTimeout(() => get.setSelf("disconnected"), HEARTBEAT_TIMEOUT_MS);
   get.addFinalizer(() => clearTimeout(timer));
-  return "connected";
+  return eventsOf(get).length === 0 ? "connecting" : "connected";
 });
 
 /** Whether the ⌘K palette is open. */
@@ -87,21 +85,4 @@ export const spendLiveAtom = clientRuntime.atom((get) =>
     const client = yield* XtendClient;
     return yield* client[WS_METHODS.spendSummary]({});
   }),
-);
-
-export const agentsAtom = clientRuntime.atom(
-  Effect.gen(function* () {
-    const client = yield* XtendClient;
-    return yield* client[Leads_METHODS.agentsList]({});
-  }),
-);
-
-/** Kept alive: the palette closes as soon as it starts a run, and unmounting would interrupt the paid search. */
-export const runAgentAtom = Atom.keepAlive(
-  clientRuntime.fn<number>()(
-    Effect.fnUntraced(function* (id) {
-      const client = yield* XtendClient;
-      return yield* client[Leads_METHODS.agentRun]({ id });
-    }),
-  ),
 );

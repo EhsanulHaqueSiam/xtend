@@ -1,9 +1,9 @@
-import type { Pick, XPost } from "@xtend/contracts";
+import { type Pick, XApiError, type XPost } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import { expect, it } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
-import { rates } from "../../../test/fixtures";
+import { quoting, rates } from "../../../test/fixtures";
 import { render } from "../../../test/render";
 import { PicksTab } from "./PicksTab";
 
@@ -68,4 +68,40 @@ it("filters the picks by format, and a card's Save files it in the swipe file", 
   await userEvent.click(card.getByRole("button", { name: "Save", exact: true }));
   expect(saves).toEqual([{ postId: "2", collectionId: null }]);
   await expect.element(card.getByRole("button", { name: "Saved" })).toBeDisabled();
+});
+
+it("shows the picks a failed fetch already paid for, with the failure", async () => {
+  let picks: ReadonlyArray<Pick> = [];
+  await using screen = await render(<PicksTab />, {
+    service: {
+      "library.picksGet": () =>
+        Effect.sync(() => ({
+          day: "2026-10-25",
+          keywords: ["ai", "saas"],
+          pending: picks.length === 0 ? ["ai", "saas"] : ["saas"],
+          picks,
+        })),
+      // The first keyword is stored, then the budget stops the second.
+      "library.picksFetch": () =>
+        Effect.sync(() => (picks = [pick(post("1", "A text post", false))])).pipe(
+          Effect.andThen(
+            Effect.fail(
+              new XApiError({
+                endpoint: "anyapi.x.search.posts",
+                reason: "budget",
+                status: null,
+                detail: "monthly budget reached",
+              }),
+            ),
+          ),
+        ),
+      "library.staffPicks": () => Effect.succeed([]),
+      "library.savedList": () => Effect.succeed([]),
+      "library.collectionsList": () => Effect.succeed([]),
+      "costs.quote": quoting(),
+    },
+  });
+  await userEvent.click(screen.getByRole("button", { name: /^Fetch 2 keywords/ }));
+  await expect.element(screen.getByText("A text post")).toBeVisible();
+  await expect.element(screen.getByText(/monthly budget reached/)).toBeVisible();
 });

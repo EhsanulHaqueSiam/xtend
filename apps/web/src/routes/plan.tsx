@@ -4,7 +4,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useRef, useState } from "react";
+import { useState } from "react";
 
 import { failText } from "../components/compose/AssistPanel";
 import { tabOf } from "../components/compose/DraftsHome";
@@ -16,7 +16,7 @@ import { Slots } from "../components/plan/Slots";
 import { Companion } from "../components/shell/Companion";
 import { sectionLabel, useSection } from "../components/shell/sections";
 import { Button } from "../components/ui/button";
-import { Cost, PageBody } from "../components/ui/layout";
+import { Cost, Empty, PageBody } from "../components/ui/layout";
 import { XCard } from "../components/x";
 import { DRAFT_TYPE } from "../lib/drag";
 import { cn } from "../lib/utils";
@@ -39,15 +39,19 @@ import { settingsAtom } from "../state/settings";
 
 /** Suggested drafts from Library and Automate, one click from the next free slot or a drag onto the calendar. */
 function ReadyToPost({
-  drafts,
+  ready,
+  busy,
   onOpen,
   onQueue,
 }: {
-  readonly drafts: ReadonlyArray<Draft>;
+  readonly ready: AsyncResult.AsyncResult<ReadonlyArray<Draft>, unknown>;
+  /** Another draft action is in flight. */
+  readonly busy: boolean;
   readonly onOpen: (d: Draft) => void;
   readonly onQueue: (d: Draft) => void;
 }) {
   const costOf = useDraftCost();
+  const drafts = AsyncResult.getOrElse(ready, (): ReadonlyArray<Draft> => []);
   return (
     <XCard
       title="Ready to post"
@@ -59,7 +63,11 @@ function ReadyToPost({
         ) : undefined
       }
     >
-      {drafts.length === 0 ? (
+      {AsyncResult.isFailure(ready) ? (
+        <p className="text-xs text-error-foreground">{failText(ready.cause)}</p>
+      ) : AsyncResult.isInitial(ready) ? (
+        <p className="text-xs text-muted-foreground">Loading</p>
+      ) : drafts.length === 0 ? (
         <p className="text-xs text-muted-foreground">
           Nothing suggested. Library and Automate leave drafts here.
         </p>
@@ -90,7 +98,12 @@ function ReadyToPost({
                       ? "article"
                       : `${d.blocks.length} ${d.blocks.length === 1 ? "post" : "posts"}`}
                   </span>
-                  <Button variant="outline" size="xs" onClick={() => onQueue(d)}>
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    disabled={busy || cost === null}
+                    onClick={() => onQueue(d)}
+                  >
                     Next slot
                     {cost === null ? <Cost label="…" /> : <Cost usd={cost} />}
                   </Button>
@@ -144,24 +157,25 @@ function PlanScreen() {
   const unschedule = useAtomSet(unscheduleAtom, { mode: "promiseExit" });
   const runNow = useAtomSet(runNowAtom, { mode: "promiseExit" });
 
-  const slotList = AsyncResult.getOrElse(slots, () => []);
-  const weekList = AsyncResult.getOrElse(week, () => []);
   const allDrafts = AsyncResult.getOrElse(drafts, () => []);
-  const readyList = AsyncResult.getOrElse(ready, () => []);
-  const fillable = allDrafts.filter((d) => d.status === "draft" || d.status === "suggested");
+  // The calendar shows slots, the week's posts and the drafts to place; with one of them missing
+  // a taken slot would look open, so it waits for all three.
+  const calendar = AsyncResult.all([slots, week, drafts]);
   const queued = allDrafts
     .filter((d) => d.status === "queued" || d.status === "failed")
     .sort((a, b) => (a.scheduledAt ?? "").localeCompare(b.scheduledAt ?? ""));
-  const empties = emptySlotCount(zone, start, now, slotList, weekList);
+  const empties = AsyncResult.isSuccess(calendar)
+    ? emptySlotCount(zone, start, now, calendar.value[0], calendar.value[1])
+    : null;
   const queueCosts = queued.filter((d) => d.status === "queued").map(costOf);
   const queueUsd = queueCosts.every((c) => c !== null) ? sumUsd(queueCosts) : null;
 
   // One draft action at a time: a second Skip or Next slot click would move the draft again.
-  const acting = useRef(false);
+  const [acting, setActing] = useState(false);
   /** Every draft action refetches the lists it can move a draft between. */
   const act = async (run: () => Promise<Exit.Exit<Draft, unknown>>, done: (d: Draft) => string) => {
-    if (acting.current) return;
-    acting.current = true;
+    if (acting) return;
+    setActing(true);
     try {
       const result = await run();
       if (Exit.isFailure(result)) {
@@ -173,7 +187,7 @@ function PlanScreen() {
       refreshDrafts();
       refreshReady();
     } finally {
-      acting.current = false;
+      setActing(false);
     }
   };
   const toCompose = (search: {
@@ -206,12 +220,16 @@ function PlanScreen() {
 
   const detail =
     section === "calendar"
-      ? `${empties} open ${empties === 1 ? "slot" : "slots"} ahead · ${zone}`
+      ? empties === null
+        ? zone
+        : `${empties} open ${empties === 1 ? "slot" : "slots"} ahead · ${zone}`
       : section === "queue"
         ? queued.length === 0
           ? undefined
           : `${queued.length}${queueUsd === null || queueUsd === 0 ? "" : ` · ${usd(queueUsd)}`}`
-        : `${slotList.length} ${slotList.length === 1 ? "slot" : "slots"} · ${zone}`;
+        : AsyncResult.isSuccess(slots)
+          ? `${slots.value.length} ${slots.value.length === 1 ? "slot" : "slots"} · ${zone}`
+          : zone;
 
   return (
     <div className="flex h-full flex-col">
@@ -262,90 +280,117 @@ function PlanScreen() {
           {notice}
         </p>
       ) : null}
-      {AsyncResult.isFailure(slots) ? (
-        <p className="shrink-0 border-b border-border px-6 py-2 text-xs text-error-foreground">
-          {failText(slots.cause)}
-        </p>
-      ) : null}
       <PageBody>
-        {section === "calendar" ? (
-          <Calendar
-            zone={zone}
-            start={start}
-            now={now}
-            slots={slotList}
-            drafts={weekList}
-            heatmap={AsyncResult.getOrElse(heatmap, () => null)}
-            fillable={fillable}
-            onFill={(id, at) =>
-              // The calendar's clock stops when Plan opens; a slot gone since would post on the next tick.
-              at.getTime() <= Date.now()
-                ? setNotice("Failed: that slot has passed")
-                : act(
-                    () => schedule({ id, at: at.toISOString() }),
-                    (d) => `Scheduled "${draftTitle(d)}" for ${monthDay.format(at)}`,
-                  )
-            }
-            onOpen={open}
-          />
-        ) : null}
-        {section === "queue" ? (
-          <Queue
-            drafts={queued}
-            emptyAction={
-              <Button variant="outline" size="sm" onClick={() => toCompose({ tab: "drafts" })}>
-                Open drafts
-              </Button>
-            }
-            onSkip={(id) =>
-              act(
-                () => skip(id),
-                (d) => `Moved "${draftTitle(d)}" to the next slot`,
-              )
-            }
-            onUnschedule={(id) =>
-              act(
-                () => unschedule(id),
-                (d) => `"${draftTitle(d)}" is a draft again`,
-              )
-            }
-            onRunNow={(id) =>
-              act(
-                () => runNow(id),
-                (d) =>
-                  d.status === "posted"
-                    ? `Posted ${d.postIds.length} posts`
-                    : `Failed: ${d.error ?? "unknown"}`,
-              )
-            }
-            onOpen={open}
-          />
-        ) : null}
-        {section === "slots" && AsyncResult.isSuccess(slots) ? (
-          <Slots
-            // A save comes back in the service's order; the rows start over from it.
-            key={JSON.stringify(slots.value)}
-            slots={slots.value}
-            heatmap={AsyncResult.getOrElse(heatmap, () => null)}
-            bestHoursEmpty={
-              <Button variant="outline" size="xs" onClick={() => void navigate({ to: "/analyze" })}>
-                Analyze
-              </Button>
-            }
-            onSave={async (next) => {
-              const exit = await setSlots(next);
-              setNotice(
-                Exit.isFailure(exit)
-                  ? `Failed: ${failText(exit.cause)}`
-                  : `Saved ${exit.value.slots.length} slots`,
-              );
-              refreshSlots();
-            }}
-          />
-        ) : null}
+        {section === "calendar"
+          ? AsyncResult.match(calendar, {
+              onInitial: () => <Empty>Loading the week</Empty>,
+              onFailure: (f) => <Empty>{failText(f.cause)}</Empty>,
+              onSuccess: ({ value: [slotList, weekList, all] }) => (
+                <Calendar
+                  zone={zone}
+                  start={start}
+                  now={now}
+                  slots={slotList}
+                  drafts={weekList}
+                  heatmap={AsyncResult.getOrElse(heatmap, () => null)}
+                  fillable={all.filter((d) => d.status === "draft" || d.status === "suggested")}
+                  busy={acting}
+                  onFill={(id, at) => {
+                    const draft = all.find((d) => d.id === id);
+                    // The calendar's clock stops when Plan opens; a slot gone since would post on the next tick.
+                    if (at.getTime() <= Date.now()) setNotice("Failed: that slot has passed");
+                    // Placing a paid post waits for its price, a drop included.
+                    else if (draft !== undefined && costOf(draft) === null)
+                      setNotice("Failed: its price is not known yet");
+                    else
+                      void act(
+                        () => schedule({ id, at: at.toISOString() }),
+                        (d) => `Scheduled "${draftTitle(d)}" for ${monthDay.format(at)}`,
+                      );
+                  }}
+                  onOpen={open}
+                />
+              ),
+            })
+          : null}
+        {section === "queue"
+          ? AsyncResult.match(drafts, {
+              onInitial: () => <Empty>Loading the queue</Empty>,
+              onFailure: (f) => <Empty>{failText(f.cause)}</Empty>,
+              onSuccess: () => (
+                <Queue
+                  drafts={queued}
+                  busy={acting}
+                  emptyAction={
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => toCompose({ tab: "drafts" })}
+                    >
+                      Open drafts
+                    </Button>
+                  }
+                  onSkip={(id) =>
+                    act(
+                      () => skip(id),
+                      (d) => `Moved "${draftTitle(d)}" to the next slot`,
+                    )
+                  }
+                  onUnschedule={(id) =>
+                    act(
+                      () => unschedule(id),
+                      (d) => `"${draftTitle(d)}" is a draft again`,
+                    )
+                  }
+                  onRunNow={(id) =>
+                    act(
+                      () => runNow(id),
+                      (d) =>
+                        d.status === "posted"
+                          ? `Posted ${d.postIds.length} posts`
+                          : `Failed: ${d.error ?? "unknown"}`,
+                    )
+                  }
+                  onOpen={open}
+                />
+              ),
+            })
+          : null}
+        {section === "slots"
+          ? AsyncResult.match(slots, {
+              onInitial: () => <Empty>Loading slots</Empty>,
+              onFailure: (f) => <Empty>{failText(f.cause)}</Empty>,
+              onSuccess: ({ value }) => (
+                <Slots
+                  // A save comes back in the service's order; the rows start over from it.
+                  key={JSON.stringify(value)}
+                  slots={value}
+                  heatmap={AsyncResult.getOrElse(heatmap, () => null)}
+                  bestHoursEmpty={
+                    <Button
+                      variant="outline"
+                      size="xs"
+                      onClick={() => void navigate({ to: "/analyze" })}
+                    >
+                      Analyze
+                    </Button>
+                  }
+                  onSave={async (next) => {
+                    const exit = await setSlots(next);
+                    setNotice(
+                      Exit.isFailure(exit)
+                        ? `Failed: ${failText(exit.cause)}`
+                        : `Saved ${exit.value.slots.length} slots`,
+                    );
+                    refreshSlots();
+                  }}
+                />
+              ),
+            })
+          : null}
         {section === "slots" ? null : (
           <Companion>
-            <ReadyToPost drafts={readyList} onOpen={open} onQueue={queueNext} />
+            <ReadyToPost ready={ready} busy={acting} onOpen={open} onQueue={queueNext} />
           </Companion>
         )}
       </PageBody>

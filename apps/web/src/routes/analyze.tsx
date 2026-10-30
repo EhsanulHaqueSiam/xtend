@@ -16,7 +16,7 @@ import { NoHandle } from "../components/ui/no-handle";
 import { analyzeDataAtom } from "../state/analyze";
 
 /** Each section is its own page over the same loaded data; the sidebar switches between them. */
-function AnalyzeScreen() {
+export function AnalyzeScreen() {
   const section = useSection("/analyze");
   const data = useAtomValue(analyzeDataAtom);
   return AsyncResult.match(data, {

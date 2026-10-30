@@ -1,7 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import { createRootRoute, Outlet } from "@tanstack/react-router";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 import { AccountSync } from "../components/shell/AccountSync";
 import { AppShell } from "../components/shell/AppShell";
@@ -26,9 +26,13 @@ const HEALTH_POLL_MS = 5_000;
  * not survive a failed token fetch, so once the service answers again the page
  * reloads to rebuild the client runtime.
  */
-function Reconnecting({ children }: { readonly children: React.ReactNode }) {
+export function Reconnecting({ children }: { readonly children: React.ReactNode }) {
   const connection = useAtomValue(connectionAtom);
   const down = connection === "disconnected";
+  const notice = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (down) notice.current?.focus();
+  }, [down]);
   useEffect(() => {
     if (!down) return;
     const timer = setInterval(() => {
@@ -44,13 +48,18 @@ function Reconnecting({ children }: { readonly children: React.ReactNode }) {
     <div className="relative flex h-full flex-col">
       {down ? (
         <div
+          ref={notice}
+          tabIndex={-1}
           role="status"
           className="shrink-0 border-b border-border bg-background px-3 py-1.5 font-mono text-2xs text-warning-foreground"
         >
           Service unreachable, retrying
         </div>
       ) : null}
-      <div className={down ? "min-h-0 flex-1 opacity-40 pointer-events-none" : "min-h-0 flex-1"}>
+      <div
+        inert={down}
+        className={down ? "min-h-0 flex-1 opacity-40 pointer-events-none" : "min-h-0 flex-1"}
+      >
         {children}
       </div>
     </div>

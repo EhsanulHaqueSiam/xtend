@@ -136,6 +136,7 @@ describe("LibraryStore", () => {
       expect(theirs.note).toBe("");
       expect(theirs.collectionIds).toEqual([]);
       expect((yield* store.savedList({})).map((s) => s.id)).toEqual([theirs.id]);
+      expect(yield* store.savedIds).toEqual(["1"]);
       expect(yield* store.collectionsList).toEqual([]);
       expect(yield* store.browse({})).toEqual([]);
       // Ids from the other account change nothing here.
@@ -154,6 +155,8 @@ describe("LibraryStore", () => {
       yield* sql`INSERT INTO collection_posts (collection_id, saved_id) VALUES (1, ${theirs.id})`;
 
       yield* asAccount(1);
+      // Account 2's Staff picks saved post 2 there, not here.
+      expect(yield* store.savedIds).toEqual(["1"]);
       expect((yield* store.getSavedPost("1"))?.note).toBe("mine");
       expect(yield* store.getSavedPost("2")).toBeNull();
       expect((yield* store.libraryPost("1"))?.post.metrics.views).toBe(100);
@@ -223,5 +226,36 @@ describe("LibraryStore", () => {
         expect(yield* store.undetectedCount).toBe(2);
         expect((yield* store.undetected(1)).map((r) => r.post.postId)).toEqual(["1"]);
       }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect("sorts the whole archive by newest or engagement before the 200-row cap", () =>
+    Effect.gen(function* () {
+      const store = yield* LibraryStore.LibraryStore;
+      yield* store.upsertPosts(
+        Array.from({ length: 200 }, (_, i) =>
+          post(String(100 + i), 10_000 + i, { createdAt: "2026-01-01T00:00:00.000Z" }),
+        ),
+      );
+      // The fewest views, so outside the 200 most viewed, yet the newest and the best ER.
+      yield* store.upsertPosts([post("1", 20, { createdAt: "2026-10-28T00:00:00.000Z" })]);
+
+      const ids = (filters: Parameters<typeof store.browse>[0]) =>
+        Effect.map(store.browse(filters), (rows) => rows.map((r) => r.post.postId));
+      expect(yield* ids({})).not.toContain("1");
+      expect((yield* ids({ sort: "newest" }))[0]).toBe("1");
+      expect((yield* ids({ sort: "er" }))[0]).toBe("1");
+    }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect("lists every saved post id, past the swipe file's 200", () =>
+    Effect.gen(function* () {
+      const store = yield* LibraryStore.LibraryStore;
+      for (let i = 1; i <= 201; i++)
+        yield* store.save({ post: post(String(i), 1), collectionId: null });
+      expect((yield* store.savedList({})).map((s) => s.post.postId)).not.toContain("1");
+      const ids = yield* store.savedIds;
+      expect(ids).toHaveLength(201);
+      expect(ids).toContain("1");
+    }).pipe(Effect.provide(layerTest)),
   );
 });

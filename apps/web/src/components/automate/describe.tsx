@@ -1,4 +1,13 @@
-import type { Action, Conditions, RateCard, Rule, RuleRunStatus, Trigger } from "@xtend/contracts";
+import type {
+  Action,
+  Conditions,
+  RateCard,
+  Rule,
+  RuleInput,
+  RuleRun,
+  RuleRunStatus,
+  Trigger,
+} from "@xtend/contracts";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
@@ -42,7 +51,7 @@ const describeTrigger = (t: Trigger): ReadonlyArray<Segment> => {
  * cadence is AutomationEngine's POLL_MS and the read cache's lifetime (search 30 min, own posts
  * 1 h). Dry runs never poll. Null for triggers that only read stored data.
  */
-export const triggerPoll = (
+const triggerPoll = (
   rates: RateCard,
   t: Trigger,
 ): { readonly usd: number; readonly every: string; readonly perDay: number } | null => {
@@ -61,6 +70,17 @@ export const triggerPoll = (
       return null;
   }
 };
+
+/**
+ * What a rule pays X to read on its own: its trigger's poll, or, when the trigger polls nothing,
+ * the own timeline that picking a post to repost or delete reads, cached for an hour. The editor
+ * and the saved rule's numbers both quote this, so they show the same read.
+ */
+export const rulePoll = (rates: RateCard, rule: Pick<RuleInput, "trigger" | "action">) =>
+  triggerPoll(rates, rule.trigger) ??
+  (rule.action.kind === "auto_retweet" || rule.action.kind === "auto_delete"
+    ? { usd: rates.searchPage, every: "hour", perDay: 24 }
+    : null);
 
 const describeConditions = (c: Conditions): ReadonlyArray<Segment> =>
   [
@@ -138,3 +158,39 @@ export const statusTone: Record<RuleRunStatus, string> = {
   dry_run: "text-warning-foreground",
   pending: "text-warning-foreground",
 };
+
+// Which ids a rule's subjects and results are. The rest have no page on X: schedule slots,
+// webhook calls, agent matches, notify targets and the batches auto_delete removed.
+const SUBJECT_KIND: Partial<Record<Trigger["kind"], "post" | "user">> = {
+  post_crosses_threshold: "post",
+  keyword_post: "post",
+  new_engager: "user",
+  new_follower: "user",
+  post_engaged: "user",
+};
+const RESULT_KIND: Partial<Record<Action["kind"], "post" | "user">> = {
+  auto_plug: "post",
+  auto_like: "post",
+  auto_retweet: "post",
+  unrepost: "post",
+  auto_dm: "user",
+  follow: "user",
+  add_to_list: "user",
+};
+
+const xUrl = (kind: "post" | "user" | undefined, id: string | null) =>
+  kind === undefined || id === null || !/^\d+$/.test(id)
+    ? null
+    : kind === "post"
+      ? `https://x.com/i/status/${id}`
+      : `https://x.com/i/user/${id}`;
+
+/** Where a run's subject and the X id it produced open on X; null where the id has no page. */
+export const runLinks = (rule: Rule | undefined, run: RuleRun) => ({
+  // A post_engaged subject is `like:<user id>` or `repost:<user id>`.
+  subject: xUrl(
+    rule && SUBJECT_KIND[rule.trigger.kind],
+    run.subjectId.replace(/^(like|repost):/, ""),
+  ),
+  result: xUrl(rule && RESULT_KIND[rule.action.kind], run.xId),
+});

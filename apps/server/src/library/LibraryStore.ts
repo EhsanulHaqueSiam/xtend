@@ -116,6 +116,7 @@ export class LibraryStore extends Context.Service<
       readonly collectionId?: number | undefined;
       readonly query?: string | undefined;
     }) => Effect.Effect<ReadonlyArray<SavedPost>, LibraryError>;
+    readonly savedIds: Effect.Effect<ReadonlyArray<string>, LibraryError>;
     readonly savedSetNote: (id: number, note: string) => Effect.Effect<void, LibraryError>;
     readonly savedDelete: (id: number) => Effect.Effect<void, LibraryError>;
     readonly getSavedPost: (postId: string) => Effect.Effect<SavedPost | null, LibraryError>;
@@ -221,6 +222,13 @@ const make = Effect.gen(function* () {
     );
     return rows.map(toSaved);
   }, Effect.mapError(storeError));
+
+  const savedIds = sql<{ post_id: string }>`
+    SELECT post_id FROM saved_posts WHERE account_id = ${sql.literal(CURRENT_ACCOUNT)}
+  `.pipe(
+    Effect.map((rows) => rows.map((r) => r.post_id)),
+    Effect.mapError(storeError),
+  );
 
   const savedSetNote = Effect.fn("LibraryStore.savedSetNote")(function* (id: number, note: string) {
     yield* sql`UPDATE saved_posts SET note = ${note} WHERE id = ${id} AND account_id = ${sql.literal(CURRENT_ACCOUNT)}`;
@@ -363,6 +371,14 @@ const make = Effect.gen(function* () {
 
   const browse = Effect.fn("LibraryStore.browse")(function* (filters: LibraryFilters) {
     const band = filters.authorBand === undefined ? null : BAND_RANGE[filters.authorBand];
+    const metric = (name: string) => sql`json_extract(post_json, ${`$.metrics.${name}`})`;
+    // Engagement over views as the cards show it; no views sorts last, as it does there.
+    const order =
+      filters.sort === "newest"
+        ? sql`json_extract(post_json, '$.createdAt') DESC`
+        : filters.sort === "er"
+          ? sql`(${metric("likes")} + ${metric("reposts")} + ${metric("replies")} + ${metric("quotes")} + ${metric("bookmarks")}) * 1.0 / NULLIF(views, 0) DESC`
+          : sql`views DESC`;
     const rows = yield* sql<LibraryRow>`
       SELECT post_json, format, hook_pattern, last_seen_at FROM library_posts
       WHERE account_id = ${sql.literal(CURRENT_ACCOUNT)}
@@ -372,7 +388,7 @@ const make = Effect.gen(function* () {
         ${band === null ? sql`` : sql`AND author_followers >= ${band[0]} AND author_followers < ${band[1]}`}
         ${filters.lang === undefined ? sql`` : sql`AND lang = ${filters.lang}`}
         ${filters.hookPattern === undefined ? sql`` : sql`AND hook_pattern = ${filters.hookPattern}`}
-      ORDER BY views DESC LIMIT 200
+      ORDER BY ${order} LIMIT 200
     `;
     return rows.map(toLibraryPost);
   }, Effect.mapError(storeError));
@@ -420,6 +436,7 @@ const make = Effect.gen(function* () {
     setPatterns,
     save,
     savedList,
+    savedIds,
     savedSetNote,
     savedDelete,
     getSavedPost,

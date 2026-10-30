@@ -80,10 +80,12 @@ const parseAnalytics = (body: unknown, day: string): ReadonlyArray<Row> =>
 export class PostAnalytics extends Context.Service<
   PostAnalytics,
   {
-    /** Paid: one analytics read per own post of the last 30 days, at the user's click; it opts the account into the nightly run. */
+    /** Paid: one analytics read per own post of the last 30 days, at the user's click; the first one turns the nightly run on. */
     readonly refresh: Effect.Effect<void, AnalyzeError>;
     readonly current: Effect.Effect<NonPublic, AnalyzeError>;
-    /** Runs `refresh` when it is RUN_HOUR in the account's zone, the user fetched by hand once, and today has no run yet. */
+    /** Turns the current account's nightly run on or off. */
+    readonly setNightly: (on: boolean) => Effect.Effect<void, AnalyzeError>;
+    /** Runs `refresh` when it is RUN_HOUR in the account's zone, the nightly run is on, and today has no run yet. */
     readonly nightlyTick: Effect.Effect<void, AnalyzeError>;
   }
 >()("xtend/analyze/PostAnalytics") {}
@@ -138,6 +140,12 @@ const make = Effect.gen(function* () {
             INSERT OR REPLACE INTO post_analytics_runs (at, posts, error, manual)
             VALUES (${DateTime.formatIso(now)}, ${result.rows.length}, ${result.error}, ${manual ? 1 : 0})
           `;
+          // The first Fetch now turns the nightly run on; a switch the user set stays as set.
+          if (manual)
+            yield* sql`
+              INSERT OR IGNORE INTO post_analytics_nightly (account_id, enabled)
+              VALUES (${sql.literal(CURRENT_ACCOUNT)}, 1)
+            `;
           yield* Effect.forEach(
             result.rows,
             (r) => sql`
@@ -173,8 +181,12 @@ const make = Effect.gen(function* () {
         AND day = (SELECT MAX(day) FROM post_analytics WHERE post_id = a.post_id)
       ORDER BY day DESC LIMIT 200
     `;
+    const nightly = yield* sql<{ enabled: number }>`
+      SELECT enabled FROM post_analytics_nightly WHERE account_id = ${sql.literal(CURRENT_ACCOUNT)}
+    `;
     const lastRun = runs[0];
     return {
+      nightly: nightly[0] === undefined ? null : nightly[0].enabled === 1,
       lastRun: lastRun === undefined ? null : lastRun,
       byPost: rows.map((r): Row => ({
         postId: r.post_id,
@@ -195,21 +207,35 @@ const make = Effect.gen(function* () {
     const zone = SettingsStore.zoneOf(timeZone);
     const now = DateTime.setZone(yield* DateTime.now, zone);
     if (DateTime.toParts(now).hour !== RUN_HOUR) return;
-    // Each night is a paid read per recent post: it starts once the user ran the priced Fetch now.
+    // Each night is a paid read per recent post: it runs once the priced Fetch now turned it on,
+    // until the user turns it off.
     const optedIn = yield* sql`
-      SELECT 1 FROM post_analytics_runs WHERE account_id = ${sql.literal(CURRENT_ACCOUNT)} AND manual = 1 LIMIT 1`;
+      SELECT 1 FROM post_analytics_nightly WHERE account_id = ${sql.literal(CURRENT_ACCOUNT)} AND enabled = 1`;
     if (optedIn.length === 0) return;
     const today = DateTime.formatIsoDate(now);
     const last = yield* sql<{
       at: string;
     }>`SELECT at FROM post_analytics_runs WHERE account_id = ${sql.literal(CURRENT_ACCOUNT)} ORDER BY at DESC LIMIT 1`;
-    const lastDay = DateTime.formatIsoDate(
-      DateTime.setZone(DateTime.makeUnsafe(last[0]!.at), zone),
-    );
+    // Switched on before any fetch: no run yet, so tonight's is due.
+    const lastAt = last[0]?.at;
+    const lastDay =
+      lastAt === undefined
+        ? null
+        : DateTime.formatIsoDate(DateTime.setZone(DateTime.makeUnsafe(lastAt), zone));
     if (lastDay !== today) yield* refresh(false);
   }).pipe(Effect.mapError(fail("nonPublic")));
 
-  return PostAnalytics.of({ refresh: refresh(true), current, nightlyTick });
+  const setNightly = Effect.fn("PostAnalytics.setNightly")(
+    function* (on: boolean) {
+      yield* sql`
+        INSERT OR REPLACE INTO post_analytics_nightly (account_id, enabled)
+        VALUES (${sql.literal(CURRENT_ACCOUNT)}, ${on ? 1 : 0})
+      `;
+    },
+    Effect.mapError(fail("nonPublic")),
+  );
+
+  return PostAnalytics.of({ refresh: refresh(true), current, setNightly, nightlyTick });
 });
 
 const layerService = Layer.effect(PostAnalytics, make);

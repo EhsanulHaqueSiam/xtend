@@ -65,10 +65,22 @@ export const addKeywordsAtom = clientRuntime.fn<ReadonlyArray<string>>()(
   }),
 );
 
+/**
+ * The newest observation batch that carried posts, once a burst of them settles: the session may
+ * have seen a mention or a reply. Debounced, so scrolling X refetches the free reads once.
+ */
+const observedAtom = Atom.debounce(
+  Atom.make((get) =>
+    get(eventsOfTypeAtom("observation_recorded")).findLast((e) => e.payload["posts"] !== 0),
+  ),
+  "1 second",
+);
+
 /** Free: session mentions plus what earlier refreshes fetched. Follows new mentions, so the Today card's count does. */
 export const mentionsAtom = clientRuntime.atom((get) =>
   Effect.gen(function* () {
     get(eventsOfTypeAtom("mention_arrived"));
+    get(observedAtom);
     const client = yield* XtendClient;
     return yield* client[Engage_METHODS.mentions]({});
   }),
@@ -82,15 +94,21 @@ export const refreshMentionsAtom = clientRuntime.fn<void>()(
   }),
 );
 
-export const markHandledAtom = clientRuntime.fn<string>()(
-  Effect.fnUntraced(function* (postId) {
+/** `handled: false` reopens it. */
+export const markHandledAtom = clientRuntime.fn<{
+  readonly postId: string;
+  readonly handled: boolean;
+}>()(
+  Effect.fnUntraced(function* (input) {
     const client = yield* XtendClient;
-    return yield* client[Engage_METHODS.mentionHandled]({ postId });
+    return yield* client[Engage_METHODS.mentionHandled](input);
   }),
 );
 
-export const inboxAtom = clientRuntime.atom(
+/** Free: replies to the user the session saw, and what was sent. Follows the session. */
+export const inboxAtom = clientRuntime.atom((get) =>
   Effect.gen(function* () {
+    get(observedAtom);
     const client = yield* XtendClient;
     return yield* client[Engage_METHODS.inbox]({});
   }),

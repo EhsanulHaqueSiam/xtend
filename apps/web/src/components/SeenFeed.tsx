@@ -44,8 +44,13 @@ function PostRow({
     // Dragged like a post on X: the row carries its status URL, so every sidebar drop takes it.
     <tr
       draggable
-      className={cn(table.row, "cursor-pointer")}
+      tabIndex={0}
+      className={cn(table.row, "cursor-pointer outline-hidden focus-visible:bg-white/[0.04]")}
       onClick={() => onOpen(post)}
+      onKeyDown={(e) => {
+        // The row's own Enter; Enter on Save stays Save's.
+        if (e.key === "Enter" && e.target === e.currentTarget) onOpen(post);
+      }}
       onDragStart={(e) => {
         e.dataTransfer.setData("text/uri-list", statusUrl(post));
         e.dataTransfer.effectAllowed = "copy";
