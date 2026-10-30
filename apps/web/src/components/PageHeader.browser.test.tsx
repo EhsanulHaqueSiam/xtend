@@ -1,3 +1,4 @@
+import "../index.css";
 import { expect, it } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
