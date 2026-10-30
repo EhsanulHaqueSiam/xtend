@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
-import { recoveryPage } from "./recoveryPage.ts";
+import { failureReason, recoveryPage } from "./recoveryPage.ts";
 
 let frame: HTMLIFrameElement | undefined;
 afterEach(() => frame?.remove());
@@ -21,7 +21,12 @@ function mount(remote: { url: string; token: string } | null) {
   Reflect.set(win, "desktopBridge", bridge);
   const doc = win.document;
   doc.open();
-  doc.write(recoveryPage(remote?.url ?? "http://127.0.0.1:4820"));
+  doc.write(
+    recoveryPage(remote?.url ?? "http://127.0.0.1:4820", {
+      reason: failureReason("ERR_CONNECTION_REFUSED"),
+      at: Date.now() - 12_000,
+    }),
+  );
   doc.close();
   return { bridge, doc };
 }
@@ -30,6 +35,8 @@ it("recovers a local service without the web app or a running service", async ()
   const { bridge, doc } = mount(null);
   const ui = page.frameLocator(page.elementLocator(frame!));
   await expect.element(ui.getByRole("heading", { name: "Can't reach the service" })).toBeVisible();
+  // What failed and when, as the mock reads: no scheme, Chromium's error in words, elapsed time.
+  await expect.element(ui.getByText("127.0.0.1:4820 · connection refused · 12s ago")).toBeVisible();
   expect((doc.querySelector('[name="url"]') as HTMLInputElement).value).toBe(
     "http://127.0.0.1:4820",
   );
