@@ -98,6 +98,14 @@ export function ReplyBox({
     patch({ busy: null, drafts: list, text: list[0] ?? text });
   };
 
+  // The user's own words, reworked: the candidates show beside them and nothing is replaced.
+  const onImprove = async () => {
+    patch({ busy: "draft", error: null });
+    const exit = await draft({ post, tone: null, own: text });
+    if (Exit.isFailure(exit)) return patch({ busy: null, error: errorText(exit.cause) });
+    patch({ busy: null, drafts: exit.value.map((d) => d.text) });
+  };
+
   const onReply = async () => {
     patch({ busy: "reply", error: null });
     const exit = await send({ post, text });
@@ -175,7 +183,16 @@ export function ReplyBox({
             <Cost tone="solid" usd={postCostUsd(rates, text)} />
           )}
         </button>
-        {tone === null ? null : (
+        {tone === null ? (
+          <button
+            type="button"
+            className={pill}
+            disabled={busy !== null || replied || assistQuote === null || text.trim() === ""}
+            onClick={() => void onImprove()}
+          >
+            {busy === "draft" ? "Improving…" : "Improve with AI"}
+          </button>
+        ) : (
           <button
             type="button"
             className={pill}

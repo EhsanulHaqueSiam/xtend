@@ -42,6 +42,8 @@ export interface AssistRequest<A> {
 
 /** How each tone in the chooser reads to the model, after "Every option". */
 const TONES: Record<ReplyTone, string> = {
+  fit: "is the kind of reply this topic calls for (an added point, a question, a pushback, a joke, warmth), judged from the post itself; the options may differ in kind",
+  mine: "sounds like the user wrote it: their length, rhythm, attitude and words, from their voice notes and any of their own posts in the input",
   agree: "agrees with the author and says why from the user's own experience",
   add: "adds a point, example or number the author left out",
   ask: "asks one specific question the author would want to answer",

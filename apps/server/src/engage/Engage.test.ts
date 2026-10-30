@@ -63,7 +63,20 @@ const eventsStub = Layer.succeed(Events.Events)({
 const tregCalls: Array<Treg.TregCall> = [];
 // Assist echoes the tone it was asked for as the single draft, so a test can read what was asked.
 const assistStub = Layer.succeed(Assist.Assist)({
-  generate: (request) => Effect.succeed({ drafts: [{ text: request.tone ?? "none" }] } as never),
+  // Answers with what it was asked for: the user's own reply to rework, else the tone.
+  generate: (request) =>
+    Effect.succeed({
+      drafts: [
+        {
+          text:
+            typeof request.input === "object" &&
+            request.input !== null &&
+            "userReply" in request.input
+              ? `rework: ${String(request.input.userReply)}`
+              : (request.tone ?? "none"),
+        },
+      ],
+    } as never),
 });
 const tregStub = Layer.succeed(Treg.Treg)({
   call: (input) =>
@@ -335,6 +348,16 @@ describe("Engage.draftReply", () => {
       const dry = yield* engage.draftReply(target("51", "ann"), "sarcastic");
       expect(plain[0]?.text).toBe("none");
       expect(dry[0]?.text).toBe("sarcastic");
+    }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect("reworks the user's own reply when given one, and ignores a blank one", () =>
+    Effect.gen(function* () {
+      const engage = yield* Engage.Engage;
+      const own = yield* engage.draftReply(target("51", "ann"), undefined, " ship it today ");
+      const blank = yield* engage.draftReply(target("51", "ann"), undefined, "  ");
+      expect(own[0]?.text).toBe("rework: ship it today");
+      expect(blank[0]?.text).toBe("none");
     }).pipe(Effect.provide(layerTest)),
   );
 });

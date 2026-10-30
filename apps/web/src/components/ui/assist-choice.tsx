@@ -8,6 +8,8 @@ const pill = cn(xPill, xPillSm);
 
 /** The chooser's tones, in the order the spec shows them. */
 const TONES: ReadonlyArray<{ readonly tone: ReplyTone; readonly label: string }> = [
+  { tone: "fit", label: "Best fit" },
+  { tone: "mine", label: "My style" },
   { tone: "agree", label: "Agree" },
   { tone: "add", label: "Add a point" },
   { tone: "ask", label: "Ask" },

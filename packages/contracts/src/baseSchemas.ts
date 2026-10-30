@@ -16,6 +16,8 @@ export type XHandle = typeof XHandle.Type;
 
 /** The taste an assist draft takes (replies, DMs, posts); the chooser offers these in this order. */
 export const ReplyTone = Schema.Literals([
+  "fit",
+  "mine",
   "agree",
   "add",
   "ask",

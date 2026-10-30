@@ -27,6 +27,8 @@ export const emptyPanel: ReplyPanel = {
 
 /** Same order as Engage's chooser, so the two places read the same. */
 const TONES: ReadonlyArray<{ readonly tone: ReplyTone; readonly label: string }> = [
+  { tone: "fit", label: "Best fit" },
+  { tone: "mine", label: "My style" },
   { tone: "agree", label: "Agree" },
   { tone: "add", label: "Add a point" },
   { tone: "ask", label: "Ask" },
