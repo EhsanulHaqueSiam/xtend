@@ -299,7 +299,9 @@ it("a DM starts as your own words; a tone asks for three drafts to pick and edit
   await userEvent.click(screen.getByRole("button", { name: "Sarcastic" }).first());
   await expect.element(dm).toHaveValue("one");
   expect(asked).toEqual(["sarcastic"]);
-  await userEvent.click(screen.getByRole("button", { name: /^B/ }));
+  await userEvent.click(
+    screen.getByRole("list", { name: "Drafts" }).getByRole("button", { name: /^B/ }),
+  );
   await expect.element(dm).toHaveValue("two");
   // Back to your own words: the drafts go, what is in the box stays yours to edit.
   await userEvent.click(screen.getByRole("button", { name: "Write my own" }).first());

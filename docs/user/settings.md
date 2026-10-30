@@ -68,6 +68,11 @@ what. Off stops sending; Library's Trends reads the pool for free either way.
 Shows whether this is the desktop or a browser, the service's name and version, how this
 window reached it (child of the app, launchd, remote) and the data directory.
 
+**Updates** (desktop): **Stable** gets tagged releases, **Nightly** gets every change as soon as
+it builds. The app checks every hour and downloads in the background; when the sidebar shows
+`update … · restart`, click it, or **Restart to update** here. On macOS the app is not signed
+yet, so it links to the download instead and you install it by hand.
+
 **Remote service** points the desktop at a service on another machine: a URL such as
 `http://mac-mini:4820` and that machine's service token. **Check** tests both; **Connect and
 relaunch** switches to it, and **Use local service** switches back. See

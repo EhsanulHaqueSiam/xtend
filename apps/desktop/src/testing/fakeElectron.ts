@@ -135,6 +135,7 @@ export const ipcMain = new FakeIpcMain();
 const userData = { path: "" };
 export const app = Object.assign(new EventEmitter(), {
   isPackaged: false,
+  getVersion: () => "0.0.1",
   relaunched: 0,
   quits: 0,
   commandLine: { appendSwitch: () => {} },

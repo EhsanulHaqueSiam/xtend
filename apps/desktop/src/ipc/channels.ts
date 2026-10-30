@@ -16,7 +16,17 @@ export const GLANCE_CHANNEL = "xtend:glance";
 /** The enabled Clean X toggle ids (`XSkinToggle[]`); main rebuilds the skin CSS in the webview. */
 export const X_SKIN_CHANNEL = "xtend:x-skin";
 
+/** invoke: the current `UpdateState`, for a page that loaded after the last push. */
+export const UPDATE_GET_CHANNEL = "xtend:update-get";
+/** The update channel to follow (`UpdateChannel`); main saves it and checks again. */
+export const UPDATE_CHANNEL_SET_CHANNEL = "xtend:update-channel";
+export const UPDATE_CHECK_CHANNEL = "xtend:update-check";
+/** Quits and installs a downloaded update. */
+export const UPDATE_RESTART_CHANNEL = "xtend:update-restart";
+
 // Main -> app
+/** Every `UpdateState` change. */
+export const UPDATE_STATE_CHANNEL = "xtend:update-state";
 export const SESSION_DOWNLOAD_CHANNEL = "xtend:session-download";
 /** A key pressed while x.com had focus that the app acts on (`ShortcutKey`). */
 export const SHORTCUT_CHANNEL = "xtend:shortcut";
@@ -116,3 +126,20 @@ export type OverlayReply =
   | { readonly postId: string; readonly drafts: ReadonlyArray<string> }
   | { readonly postId: string; readonly replied: true }
   | { readonly postId: string; readonly error: string };
+
+export type UpdateChannel = "stable" | "nightly";
+
+/**
+ * Where the desktop's own update stands. `available` is a build the app cannot install itself
+ * (unsigned macOS): the app links to `url`. `next` is the version on offer.
+ */
+export type UpdateStatus =
+  | { readonly status: "idle" }
+  | { readonly status: "available"; readonly next: string; readonly url: string }
+  | { readonly status: "downloading"; readonly next: string; readonly percent: number }
+  | { readonly status: "ready"; readonly next: string }
+  | { readonly status: "error"; readonly message: string };
+export type UpdateState = {
+  readonly channel: UpdateChannel;
+  readonly version: string;
+} & UpdateStatus;

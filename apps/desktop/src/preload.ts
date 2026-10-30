@@ -16,6 +16,13 @@ import {
   SHORTCUT_CHANNEL,
   type SessionDownload,
   type ShortcutKey,
+  UPDATE_CHANNEL_SET_CHANNEL,
+  UPDATE_CHECK_CHANNEL,
+  UPDATE_GET_CHANNEL,
+  UPDATE_RESTART_CHANNEL,
+  UPDATE_STATE_CHANNEL,
+  type UpdateChannel,
+  type UpdateState,
   X_SKIN_CHANNEL,
 } from "./ipc/channels.ts";
 import { X_HOME } from "./window/guestPolicy.ts";
@@ -52,4 +59,10 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   onAppRoute: listen<string>(APP_ROUTE_CHANNEL),
   onSessionDownload: listen<SessionDownload>(SESSION_DOWNLOAD_CHANNEL),
   onShortcut: listen<ShortcutKey>(SHORTCUT_CHANNEL),
+  getUpdate: (): Promise<UpdateState> => ipcRenderer.invoke(UPDATE_GET_CHANNEL),
+  onUpdate: listen<UpdateState>(UPDATE_STATE_CHANNEL),
+  checkUpdate: () => ipcRenderer.send(UPDATE_CHECK_CHANNEL),
+  setUpdateChannel: (channel: UpdateChannel) =>
+    ipcRenderer.send(UPDATE_CHANNEL_SET_CHANNEL, channel),
+  restartToUpdate: () => ipcRenderer.send(UPDATE_RESTART_CHANNEL),
 });
