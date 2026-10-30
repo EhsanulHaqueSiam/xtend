@@ -255,6 +255,72 @@ it("files checked cards into a collection from the bar, and keeps them checked w
   ]);
 });
 
+it("shows how many checked posts each collection holds, files them into a new one, and deletes them after a confirm", async () => {
+  const filed: Array<{ readonly collectionId: number; readonly savedIds: ReadonlyArray<number> }> =
+    [];
+  const created: Array<string> = [];
+  const deleted: Array<ReadonlyArray<number>> = [];
+  let rows = [
+    { ...saved(1, first), collectionIds: [2] },
+    saved(2, second),
+    { ...saved(3, third), collectionIds: [2, 3] },
+  ];
+  await using screen = await render(
+    <>
+      <SwipeTab />
+      <Toasts />
+    </>,
+    {
+      service: {
+        "library.savedList": () => Effect.sync(() => listed(rows)),
+        "library.collectionsList": () =>
+          Effect.succeed([collection(2, "Hooks"), collection(3, "Pricing")]),
+        "library.collectionCreate": ({ name }) => {
+          created.push(name);
+          return Effect.succeed(collection(9, name));
+        },
+        "library.collectionAddPosts": (input) => {
+          filed.push(input);
+          return Effect.succeed({ added: input.savedIds.length });
+        },
+        "library.savedDelete": ({ ids }) => {
+          deleted.push(ids);
+          rows = rows.filter((r) => !ids.includes(r.id));
+          return Effect.succeed({ deleted: ids.length });
+        },
+      },
+    },
+  );
+  await userEvent.click(card(screen, first.text).getByRole("checkbox"));
+  await userEvent.click(card(screen, second.text).getByRole("checkbox"));
+  await userEvent.click(card(screen, third.text).getByRole("checkbox"));
+  await userEvent.click(screen.getByRole("button", { name: "Add to collection" }));
+  await expect.element(page.getByRole("menuitem", { name: /Hooks.*2 of 3/ })).toBeVisible();
+  await expect.element(page.getByRole("menuitem", { name: /Pricing.*1 of 3/ })).toBeVisible();
+
+  await userEvent.click(page.getByRole("menuitem", { name: "New collection" }));
+  await userEvent.fill(
+    screen.getByRole("textbox", { name: "New collection name" }),
+    "Launch posts",
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Create and add 3" }));
+  await expect.element(page.getByRole("status")).toHaveTextContent("Added 3 to Launch posts");
+  expect(created).toEqual(["Launch posts"]);
+  expect(filed).toEqual([{ collectionId: 9, savedIds: [1, 2, 3] }]);
+
+  await userEvent.click(card(screen, first.text).getByRole("checkbox"));
+  await userEvent.click(card(screen, second.text).getByRole("checkbox"));
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  await userEvent.click(screen.getByRole("button", { name: "Delete", exact: true }));
+  expect(confirm).toHaveBeenCalledOnce();
+  expect(deleted).toEqual([]);
+  confirm.mockReturnValue(true);
+  await userEvent.click(screen.getByRole("button", { name: "Delete", exact: true }));
+  await expect.element(screen.getByText(first.text)).not.toBeInTheDocument();
+  await expect.element(screen.getByText(third.text)).toBeVisible();
+  expect(deleted).toEqual([[1, 2]]);
+});
+
 it("says the true total and shows the next page of saved posts on Show more", async () => {
   const rows = Array.from({ length: 450 }, (_, i) =>
     saved(i + 1, xPost(String(i + 1), `Saved ${i + 1}`)),
@@ -289,10 +355,10 @@ it("searches the swipe file, keeps a note on blur, and deletes a post only after
         notes.push(input);
         return Effect.void;
       },
-      "library.savedDelete": ({ id }) => {
-        deleted.push(id);
-        rows = rows.filter((r) => r.id !== id);
-        return Effect.void;
+      "library.savedDelete": ({ ids }) => {
+        deleted.push(...ids);
+        rows = rows.filter((r) => !ids.includes(r.id));
+        return Effect.succeed({ deleted: ids.length });
       },
     },
   });
@@ -332,9 +398,9 @@ it("moves focus into an opened post, back to its card on close, and to the next 
     container,
     service: {
       "library.savedList": () => Effect.sync(() => listed(rows)),
-      "library.savedDelete": ({ id }) => {
-        rows = rows.filter((r) => r.id !== id);
-        return Effect.void;
+      "library.savedDelete": ({ ids }) => {
+        rows = rows.filter((r) => !ids.includes(r.id));
+        return Effect.succeed({ deleted: ids.length });
       },
     },
   });
