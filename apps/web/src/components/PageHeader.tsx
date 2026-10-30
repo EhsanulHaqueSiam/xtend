@@ -160,16 +160,19 @@ export function PageHeader({
           </Button>
         )}
         {tabs}
-        {/* One block with the X panel toggle, so a wrap moves them together and the toggle stays last. */}
-        <div className="ml-auto flex min-w-0 items-center justify-end gap-2 overflow-x-clip">
+        {/* One block with the X panel toggle, so a wrap moves them together and the toggle stays last.
+            Too wide even on a row of its own, the actions wrap among themselves and the detail
+            truncates: every control stays in view beside the X panel. */}
+        <div className="ml-auto flex max-w-full min-w-0 flex-wrap items-center justify-end gap-2">
           {detail !== undefined ? (
-            // The tabs give way first, then the actions wrap: a count beside them never shrinks to nothing.
-            <span className="max-w-64 shrink-0 truncate font-mono text-2xs text-muted-foreground tabular-nums">
+            <span className="max-w-64 min-w-0 truncate font-mono text-2xs text-muted-foreground tabular-nums">
               {detail}
             </span>
           ) : null}
           {actions !== undefined ? (
-            <div className="no-drag flex shrink-0 items-center gap-1.5">{actions}</div>
+            <div className="no-drag flex max-w-full min-w-0 flex-wrap items-center justify-end gap-1.5">
+              {actions}
+            </div>
           ) : null}
           {isElectron ? <XPanelToggle /> : null}
         </div>
