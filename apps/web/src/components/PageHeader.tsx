@@ -42,7 +42,9 @@ export function HeaderTabs<T extends string>({
     <div
       role="tablist"
       aria-label={label}
-      className="no-drag flex min-w-0 items-center gap-0.5 rounded-full border border-border bg-card p-0.5"
+      // Beside the X panel the header runs out of room: the tabs give way first and scroll, rather
+      // than truncate the title or run under the actions.
+      className="no-drag flex min-w-0 shrink-[100] items-center gap-0.5 overflow-x-auto rounded-full border border-border bg-card p-0.5 [scrollbar-width:none]"
     >
       {tabs.map((tab) => (
         <button
@@ -55,7 +57,9 @@ export function HeaderTabs<T extends string>({
         >
           {tab.label}
           {tab.count !== undefined && tab.count > 0 ? (
-            <span className="font-mono text-2xs tabular-nums opacity-60">{tab.count}</span>
+            <span className="font-mono text-2xs tabular-nums opacity-60">
+              {tab.count.toLocaleString("en")}
+            </span>
           ) : null}
         </button>
       ))}
@@ -139,7 +143,7 @@ export function PageHeader({
         )}
       >
         {leading !== undefined ? <div className="no-drag -ml-2 shrink-0">{leading}</div> : null}
-        <h1 className="min-w-0 max-w-[40%] shrink truncate text-[15px] font-semibold tracking-tight">
+        <h1 className="min-w-0 max-w-[40%] shrink-0 truncate text-[15px] font-semibold tracking-tight">
           {title}
         </h1>
         {about === null ? null : (
@@ -155,9 +159,9 @@ export function PageHeader({
           </Button>
         )}
         {tabs}
-        <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
+        <div className="flex min-w-0 flex-auto items-center justify-end gap-2 overflow-x-clip">
           {detail !== undefined ? (
-            // The title gives way first: a count beside the actions must not shrink to nothing.
+            // The tabs give way first: a count beside the actions must not shrink to nothing.
             <span className="max-w-64 shrink-0 truncate font-mono text-2xs text-muted-foreground tabular-nums">
               {detail}
             </span>
