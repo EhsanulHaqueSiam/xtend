@@ -64,6 +64,18 @@ export const xFind = (
 /** The routes where x.com fills the main area; everywhere else it is the side panel. */
 export const isXRoute = (pathname: string) => pathname === "/x" || pathname === "/";
 
+/**
+ * A route opened from X itself (Reply with AI, Full report) keeps x.com on the post the user was
+ * reading instead of moving it to the new section's page.
+ * shortcut: a time window, not tied to the one navigation; tie it to the route if a slow load
+ * ever lets the panel move anyway.
+ */
+let holdXPageUntil = 0;
+export const holdXPage = () => {
+  holdXPageUntil = Date.now() + 1000;
+};
+export const xPageHeld = () => Date.now() < holdXPageUntil;
+
 /** The last tool route the user was on, so ⌘\ from X's own pages can return beside it. */
 let lastToolHref = "/compose";
 export const rememberToolRoute = (href: string) => {

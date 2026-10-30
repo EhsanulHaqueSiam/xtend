@@ -1,19 +1,26 @@
-import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useAtom, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState, type ReactNode } from "react";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { isElectron } from "../../env";
+import { settingsAtom } from "../../state/settings";
 import {
+  holdXPage,
   isXRoute,
   rememberToolRoute,
+  xNavigate,
+  xPageHeld,
   xPanelOpenAtom,
   xPanelWidthAtom,
   xSkinAtom,
+  xUrlAtom,
 } from "../../state/x";
 import { Toasts } from "../ui/toast";
 import { CommandPalette } from "./CommandPalette";
 import { CompanionTarget } from "./Companion";
 import { GlanceSync } from "./GlanceSync";
+import { xPageFor } from "./sections";
 import { Sidebar } from "./Sidebar";
 import { XPane, type XPaneMode } from "./XPane";
 
@@ -63,6 +70,7 @@ function AppRoutes({ main }: { readonly main: HTMLElement }) {
     const bridge = window.desktopBridge;
     if (bridge === undefined) return;
     const open = (route: string) => {
+      holdXPage();
       setPanel(true);
       void navigate({ href: route }).then(() => main.focus());
     };
@@ -72,6 +80,46 @@ function AppRoutes({ main }: { readonly main: HTMLElement }) {
   useEffect(() => {
     window.desktopBridge?.setXSkin(skin);
   }, [skin]);
+  return null;
+}
+
+/**
+ * The side panel follows the open section to the x.com page `xPageFor` names. Entering a
+ * section with a page opens the panel there and one without closes it; between two that both
+ * have one, the user's open or closed choice stands. Browsing inside the panel never moves it
+ * back: only a section change does.
+ */
+function XPanelFollow({ onX }: { readonly onX: boolean }) {
+  const pathname = useLocation({ select: (l) => l.pathname });
+  const tab = useLocation({ select: (l) => new URLSearchParams(l.searchStr).get("tab") });
+  const handle = AsyncResult.getOrElse(
+    AsyncResult.map(useAtomValue(settingsAtom), (s) => s.handle),
+    () => null,
+  );
+  const [panelOpen, setPanel] = useAtom(xPanelOpenAtom);
+  const url = useAtomValue(xUrlAtom);
+  // Read inside the effect, not deps: they change as the user browses and toggles.
+  const now = useRef({ url, panelOpen });
+  now.current = { url, panelOpen };
+  const previous = useRef<string | null | undefined>(undefined);
+  const page = xPageFor(pathname, tab, handle);
+  useEffect(() => {
+    if (onX) return;
+    const was = previous.current;
+    previous.current = page;
+    if (xPageHeld()) return;
+    if (page === null) {
+      if (was !== null) setPanel(false);
+      return;
+    }
+    if (was == null) setPanel(true);
+    else if (!now.current.panelOpen) return;
+    let shown = "";
+    try {
+      shown = new URL(now.current.url).pathname;
+    } catch {}
+    if (shown.toLowerCase() !== page.toLowerCase()) xNavigate(`https://x.com${page}`);
+  }, [pathname, tab, page, onX, setPanel]);
   return null;
 }
 
@@ -121,6 +169,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
       {isElectron ? (
         <>
           <XPane mode={mode} width={panelWidth} inset={companionWidth} />
+          <XPanelFollow onX={onX} />
           {main === null ? null : <AppRoutes main={main} />}
           <GlanceSync />
         </>

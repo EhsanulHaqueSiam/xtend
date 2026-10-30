@@ -228,3 +228,46 @@ it("reopens X from the shared tool header and preserves its webview", async () =
   expect(container.querySelector("webview")).toBe(guest);
   expect(screen.router?.state.location.href).toBe("/plan?tab=queue");
 });
+
+it("moves the panel to each section's X page, hides it where X has none, and reloads only on a second click", async () => {
+  window.localStorage.setItem("xtend:x-panel-open", "true");
+  await using screen = await render(shell(), { router: "/compose", service });
+  const pane = screen.getByRole("region", { name: "x.com", includeHidden: true });
+  // A stand-in guest: each load lands, as did-navigate would report it.
+  const loads: Array<string> = [];
+  let reloads = 0;
+  const guest = screen.container.querySelector("webview")!;
+  const land = (url: string) =>
+    guest.dispatchEvent(Object.assign(new Event("did-navigate"), { url, isMainFrame: true }));
+  Object.assign(guest, {
+    loadURL: async (url: string) => {
+      loads.push(url);
+      land(url);
+    },
+    reload: () => reloads++,
+  });
+  guest.dispatchEvent(new Event("dom-ready"));
+
+  await expect.poll(() => loads.at(-1)).toBe("https://x.com/siamships");
+  // A post opened beside Compose goes back to the profile on Plan, which shares that page.
+  land("https://x.com/jack/status/1");
+  await screen.router!.navigate({ href: "/plan" });
+  await expect.poll(() => loads.at(-1)).toBe("https://x.com/siamships");
+  expect(loads.filter((u) => u === "https://x.com/siamships")).toHaveLength(2);
+  await screen.router!.navigate({ href: "/settings" });
+  await expect.element(pane).toHaveAttribute("data-mode", "hidden");
+  await screen.router!.navigate({ href: "/engage?tab=dms" });
+  await expect.element(pane).toHaveAttribute("data-mode", "panel");
+  await expect.poll(() => loads.at(-1)).toBe("https://x.com/messages");
+
+  // Home shown beside a tool: the first click only brings it to the main area.
+  await screen.router!.navigate({ href: "/engage?tab=targets" });
+  await expect.poll(() => loads.at(-1)).toBe("https://x.com/home");
+  const count = loads.length;
+  await userEvent.click(screen.getByRole("button", { name: "Home" }));
+  await expect.element(pane).toHaveAttribute("data-mode", "main");
+  expect(loads.length).toBe(count);
+  expect(reloads).toBe(0);
+  await userEvent.click(screen.getByRole("button", { name: "Home" }));
+  expect(reloads).toBe(1);
+});
