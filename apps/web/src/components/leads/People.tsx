@@ -351,7 +351,8 @@ export function PeoplePager({
       className="sticky bottom-0 flex items-center gap-3 border-t border-border bg-background px-6 py-2 text-xs"
     >
       <span className="mr-auto font-mono tabular-nums">
-        {total === 0 ? 0 : offset + 1}-{Math.min(offset + 50, total)} of {total}
+        {total === 0 ? 0 : offset + 1}-{Math.min(offset + 50, total)} of{" "}
+        {total.toLocaleString("en")}
       </span>
       <button
         type="button"

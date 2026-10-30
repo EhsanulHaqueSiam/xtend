@@ -43,6 +43,31 @@ it("opens on ⌘K, filters commands and closes on Escape", async () => {
   expect(screen.router?.state.location.pathname).toBe("/");
 });
 
+it("takes keys typed as soon as it opens, not the shell's letter shortcuts", async () => {
+  await using screen = await render(
+    <>
+      <ShellHotkeys />
+      <CommandPalette />
+    </>,
+    {
+      service: {
+        "costs.quote": quoting(),
+        "settings.get": () => Effect.succeed(settings),
+        "leads.peopleList": () => Effect.succeed(peoplePage()),
+        "leads.agentsList": () => Effect.succeed([]),
+      },
+    },
+  );
+  await userEvent.keyboard("{Meta>}k{/Meta}");
+  // No wait for the dialog's focus move: the next keys are already the query.
+  await userEvent.keyboard("ship daily");
+  const palette = page.getByRole("dialog", { name: "Command palette" });
+  await expect
+    .element(palette.getByRole("option", { name: 'Search library for "ship daily"' }))
+    .toHaveAttribute("aria-selected", "true");
+  expect(screen.router?.state.location.pathname).toBe("/");
+});
+
 const agent: SignalAgent = {
   id: 4,
   name: "founders",

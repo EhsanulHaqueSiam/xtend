@@ -261,10 +261,6 @@ export function NeedsYouList({
                   )}
                 </>
               )}
-              <p className="font-mono text-2xs text-muted-foreground">
-                {r.costUsd > 0 ? "API · " : null}
-                <Cost usd={r.costUsd} />
-              </p>
             </div>
           )}
           <div
@@ -273,6 +269,13 @@ export function NeedsYouList({
               expanded.has(r.id) && "order-4 w-full justify-end",
             )}
           >
+            {expanded.has(r.id) && (
+              // The lane and price sit on the row they pay for.
+              <p className="mr-auto font-mono text-2xs text-muted-foreground">
+                {r.costUsd > 0 ? "API · " : null}
+                <Cost usd={r.costUsd} />
+              </p>
+            )}
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => act(r, i, false)}>
               Skip
             </Button>

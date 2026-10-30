@@ -184,6 +184,9 @@ function PaletteBody({
         value={query}
         placeholder="Type a command, @handle or search"
         aria-label="Command"
+        // Focused as it mounts: the dialog's own focus move lands a frame later, and keys typed
+        // in that frame would reach the shell's letter shortcuts instead.
+        autoFocus
         className="w-full shrink-0 border-b border-border bg-transparent px-4 py-3 text-sm text-foreground outline-hidden placeholder:text-placeholder"
         onChange={(e) => {
           setQuery(e.target.value);
@@ -277,12 +280,26 @@ export function CommandPalette() {
       });
   };
   const close = () => setOpen(false);
+  // Where focus returns on close. The input's autoFocus lands before the dialog would note it.
+  const opener = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (open) return;
+    const remember = () => {
+      const el = document.activeElement;
+      // The opening input's focus fires before this listener goes; it is not the opener.
+      if (el instanceof HTMLElement && el.closest('[role="dialog"]') === null) opener.current = el;
+    };
+    remember();
+    document.addEventListener("focusin", remember);
+    return () => document.removeEventListener("focusin", remember);
+  }, [open]);
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Portal>
         <Dialog.Backdrop className="fixed inset-0 z-50 bg-black/55" />
         <Dialog.Popup
           aria-label="Command palette"
+          finalFocus={opener}
           className="fixed top-[12vh] left-1/2 z-50 h-[420px] w-[560px] max-w-[calc(100vw-2rem)] -translate-x-1/2 overflow-hidden rounded-[calc(var(--radius)+4px)] border border-white/13 bg-surface-raised"
         >
           <PaletteBody

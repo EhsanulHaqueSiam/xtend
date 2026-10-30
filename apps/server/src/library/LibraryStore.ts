@@ -128,7 +128,8 @@ export class LibraryStore extends Context.Service<
     }) => Effect.Effect<Page<SavedPost>, LibraryError>;
     readonly savedIds: Effect.Effect<ReadonlyArray<string>, LibraryError>;
     readonly savedSetNote: (id: number, note: string) => Effect.Effect<void, LibraryError>;
-    readonly savedDelete: (id: number) => Effect.Effect<void, LibraryError>;
+    /** Deletes this account's saved posts among `ids`; returns how many went. */
+    readonly savedDelete: (ids: ReadonlyArray<number>) => Effect.Effect<number, LibraryError>;
     readonly getSavedPost: (postId: string) => Effect.Effect<SavedPost | null, LibraryError>;
     readonly collectionsList: Effect.Effect<ReadonlyArray<Collection>, LibraryError>;
     readonly collectionCreate: (name: string) => Effect.Effect<Collection, LibraryError>;
@@ -249,8 +250,13 @@ const make = Effect.gen(function* () {
     yield* sql`UPDATE saved_posts SET note = ${note} WHERE id = ${id} AND account_id = ${sql.literal(CURRENT_ACCOUNT)}`;
   }, Effect.mapError(storeError));
 
-  const savedDelete = Effect.fn("LibraryStore.savedDelete")(function* (id: number) {
-    yield* sql`DELETE FROM saved_posts WHERE id = ${id} AND account_id = ${sql.literal(CURRENT_ACCOUNT)}`;
+  const savedDelete = Effect.fn("LibraryStore.savedDelete")(function* (ids: ReadonlyArray<number>) {
+    if (ids.length === 0) return 0;
+    const rows = yield* sql<{ id: number }>`
+      DELETE FROM saved_posts WHERE id IN ${sql.in(ids)} AND account_id = ${sql.literal(CURRENT_ACCOUNT)}
+      RETURNING id
+    `;
+    return rows.length;
   }, Effect.mapError(storeError));
 
   const getSavedPost = Effect.fn("LibraryStore.getSavedPost")(function* (postId: string) {

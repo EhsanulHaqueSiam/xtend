@@ -54,7 +54,7 @@ export function useDropPost() {
           refreshCollections();
           return {
             text: "Saved to Library",
-            undo: () => unsave(saved.id).then(refreshSwipe).then(refreshCollections),
+            undo: () => unsave([saved.id]).then(refreshSwipe).then(refreshCollections),
           };
         }
         case "/leads":

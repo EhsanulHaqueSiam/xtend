@@ -34,7 +34,7 @@ import {
 } from "../ipc/channels.ts";
 import { createOverlayFeed } from "../overlay/OverlayFeed.ts";
 import { xSkinCss } from "../overlay/xSkin.ts";
-import { recoveryPage } from "../service/recoveryPage.ts";
+import { failureReason, recoveryPage } from "../service/recoveryPage.ts";
 import { attachDesktopCommands } from "../service/DesktopCommands.ts";
 import { attachSessionCapture } from "../xSession/SessionCapture.ts";
 import {
@@ -477,14 +477,13 @@ export function createMainWindow(options: MainWindowOptions) {
     return () => ipcMain.off(channel, listener);
   };
   let loading = false;
-  const showRecovery = async () => {
+  const showRecovery = async (reason: string) => {
     if (recovering || appContents.isDestroyed()) return;
     recovering = true;
     bridgeServed = false;
+    const page = recoveryPage(options.serviceUrl, { reason, at: Date.now() });
     await appContents
-      .loadURL(
-        `data:text/html;charset=utf-8,${encodeURIComponent(recoveryPage(options.serviceUrl))}`,
-      )
+      .loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(page)}`)
       .catch((error) => options.log("could not load recovery", String(error)));
   };
   const loadApp = async () => {
@@ -494,20 +493,22 @@ export function createMainWindow(options: MainWindowOptions) {
     const timeout = setTimeout(() => {
       if (!appContents.isDestroyed()) {
         appContents.stop();
-        void showRecovery();
+        void showRecovery("no answer in 10s");
       }
     }, 10_000);
     try {
       await appContents.loadURL(options.appUrl);
-    } catch {
-      await showRecovery();
+    } catch (error) {
+      // Electron's load errors carry Chromium's net error name in `code`.
+      const code = error instanceof Error && "code" in error ? String(error.code) : "";
+      await showRecovery(failureReason(code));
     } finally {
       clearTimeout(timeout);
       loading = false;
     }
   };
-  appContents.on("did-fail-load", (_event, code, _description, _url, isMainFrame) => {
-    if (isMainFrame && code !== -3) void showRecovery();
+  appContents.on("did-fail-load", (_event, code, description, _url, isMainFrame) => {
+    if (isMainFrame && code !== -3) void showRecovery(failureReason(description));
   });
   const offIpc = [
     from(RECOVERY_RETRY_CHANNEL, () => {

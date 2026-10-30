@@ -1,7 +1,7 @@
 import { useAtom, useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import type { Collection, SavedPost, XPost } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { ChevronDown, Pencil, Plus, Trash2 } from "lucide-react";
+import { Check, ChevronDown, Minus, Pencil, Plus, Trash2 } from "lucide-react";
 import { useState, type DragEvent, type ReactNode } from "react";
 
 import { draggedPost, POST_TYPE } from "../../lib/drag";
@@ -89,7 +89,7 @@ function SavedInspector({
                   return;
                 void (
                   collection === undefined
-                    ? remove(saved.id)
+                    ? remove([saved.id])
                     : unlink({ collectionId: collection.id, savedId: saved.id })
                 ).then(onRemoved, fail);
               }}
@@ -116,14 +116,29 @@ function SavedInspector({
   );
 }
 
+/** Whether every, some or none of the checked posts are already in a collection. */
+function FiledBox({ n, of }: { readonly n: number; readonly of: number }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "grid size-3.5 shrink-0 place-items-center rounded-[3px] border border-white/30 [&_svg]:size-3",
+        n > 0 && "border-foreground bg-foreground text-background",
+      )}
+    >
+      {n === 0 ? null : n === of ? <Check /> : <Minus />}
+    </span>
+  );
+}
+
 /** The checked cards' actions, pinned under the grid while any card is checked. */
 function PickBar({
-  savedIds,
+  picked,
   collection,
   onDone,
   onClear,
 }: {
-  readonly savedIds: readonly [number, ...Array<number>];
+  readonly picked: readonly [SavedPost, ...Array<SavedPost>];
   readonly collection: Collection | undefined;
   readonly onDone: () => void;
   readonly onClear: () => void;
@@ -131,53 +146,119 @@ function PickBar({
   const collections = useAtomValue(collectionsAtom);
   const refreshCollections = useAtomRefresh(collectionsAtom);
   const add = useAtomSet(addToCollectionAtom, { mode: "promise" });
+  const create = useAtomSet(createCollectionAtom, { mode: "promise" });
+  const remove = useAtomSet(deleteSavedAtom, { mode: "promise" });
   const setToast = useAtomSet(toastAtom);
   const [error, setError] = useState<string | null>(null);
+  // Naming a new collection takes the menu's place in the bar until it is filed or dropped.
+  const [naming, setNaming] = useState<string | null>(null);
   // Staff picks is read-only, and the open collection already holds them.
   const targets = AsyncResult.getOrElse(collections, (): ReadonlyArray<Collection> => []).filter(
     (c) => !c.builtIn && c.id !== collection?.id,
   );
-  const n = savedIds.length;
+  const n = picked.length;
+  const [head, ...rest] = picked;
+  const savedIds = [head.id, ...rest.map((s) => s.id)] as const;
+  const fail = (e: unknown) => setError(errorMessage(e));
   const file = (target: Collection) => {
     setError(null);
-    add({ collectionId: target.id, savedIds }).then(
-      ({ added }) => {
-        setToast({
-          text:
-            added === n
-              ? `Added ${n} to ${target.name}`
-              : `Added ${added} to ${target.name}, ${n - added} already there`,
-        });
-        refreshCollections();
-        onDone();
-      },
-      (e: unknown) => setError(errorMessage(e)),
-    );
+    return add({ collectionId: target.id, savedIds }).then(({ added }) => {
+      setToast({
+        text:
+          added === n
+            ? `Added ${n} to ${target.name}`
+            : `Added ${added} to ${target.name}, ${n - added} already there`,
+      });
+      setNaming(null);
+      refreshCollections();
+      onDone();
+    }, fail);
+  };
+  const fileIntoNew = (name: string) => {
+    setError(null);
+    void create(name).then(file, fail);
+  };
+  const deleteAll = () => {
+    if (
+      !window.confirm(
+        `Delete ${n} saved ${n === 1 ? "post" : "posts"}? Their notes go with them, and they leave every collection.`,
+      )
+    )
+      return;
+    setError(null);
+    remove(savedIds).then(({ deleted }) => {
+      setToast({ text: `Deleted ${deleted} saved ${deleted === 1 ? "post" : "posts"}` });
+      refreshCollections();
+      onDone();
+    }, fail);
   };
   return (
     <div className="sticky bottom-0 flex items-center gap-2 border-t border-border bg-background px-6 py-2">
       <span className="font-mono text-xs tabular-nums">{n} selected</span>
-      <Menu
-        label="Collections"
-        trigger={
-          <button type="button" className={cn(xPillSolid, xPillSm, "[&_svg]:size-3.5")}>
-            Add to collection <ChevronDown className="opacity-60" />
+      {naming !== null ? (
+        <form
+          className="flex items-center gap-1.5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (naming.trim() !== "") fileIntoNew(naming.trim());
+          }}
+        >
+          <input
+            // It opens from the menu row just picked, so typing the name follows at once.
+            autoFocus
+            aria-label="New collection name"
+            placeholder="New collection"
+            className={cn(compactInputClass, "w-44")}
+            value={naming}
+            onChange={(e) => setNaming(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setNaming(null);
+            }}
+          />
+          <button type="submit" className={cn(xPillSolid, xPillSm)} disabled={naming.trim() === ""}>
+            Create and add {n}
           </button>
-        }
-      >
-        {targets.length === 0 ? (
-          <MenuItem disabled onClick={() => {}}>
-            No other collection yet
+        </form>
+      ) : (
+        <Menu
+          label="Collections"
+          trigger={
+            <button type="button" className={cn(xPillSolid, xPillSm, "[&_svg]:size-3.5")}>
+              Add to collection <ChevronDown className="opacity-60" />
+            </button>
+          }
+        >
+          {targets.map((c) => {
+            const inIt = picked.filter((s) => s.collectionIds.includes(c.id)).length;
+            return (
+              <MenuItem key={c.id} onClick={() => void file(c)}>
+                <FiledBox n={inIt} of={n} />
+                <span className="truncate">{c.name}</span>
+                {inIt > 0 && inIt < n ? (
+                  <span className="ml-auto font-mono text-2xs tabular-nums">
+                    {inIt} of {n}
+                  </span>
+                ) : inIt === n ? (
+                  <span className="sr-only">, all in it</span>
+                ) : null}
+              </MenuItem>
+            );
+          })}
+          <MenuItem onClick={() => setNaming("")}>
+            <Plus className="size-3.5" /> New collection
           </MenuItem>
-        ) : (
-          targets.map((c) => (
-            <MenuItem key={c.id} onClick={() => file(c)}>
-              <span className="truncate">{c.name}</span>
-              <span className="ml-auto font-mono text-2xs tabular-nums">{c.posts}</span>
-            </MenuItem>
-          ))
-        )}
-      </Menu>
+        </Menu>
+      )}
+      {/* In a collection a post's own action is Remove; deleting everywhere stays a swipe file act. */}
+      {collection === undefined ? (
+        <button
+          type="button"
+          className="h-7 cursor-pointer px-2 text-xs text-muted-foreground transition-colors duration-150 hover:text-error-foreground"
+          onClick={deleteAll}
+        >
+          Delete
+        </button>
+      ) : null}
       {error !== null ? (
         <span className="truncate text-xs text-error-foreground">{error}</span>
       ) : null}
@@ -221,7 +302,7 @@ export function SavedPosts({
   }));
   const rows = items.filter((s) => !removed.has(s.id));
   const open = rows.find((s) => String(s.id) === selected);
-  const pickedIds = rows.filter((s) => picked.has(String(s.id))).map((s) => s.id);
+  const pickedRows = rows.filter((s) => picked.has(String(s.id)));
   return (
     <DetailSplit
       closable
@@ -279,9 +360,9 @@ export function SavedPosts({
                     : "Search the swipe file to find the rest."
                 }
               />
-              {pickedIds[0] === undefined ? null : (
+              {pickedRows[0] === undefined ? null : (
                 <PickBar
-                  savedIds={[pickedIds[0], ...pickedIds.slice(1)]}
+                  picked={[pickedRows[0], ...pickedRows.slice(1)]}
                   collection={collection}
                   onDone={() => {
                     setPicked(new Set());

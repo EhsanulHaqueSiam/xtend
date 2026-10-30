@@ -24,7 +24,7 @@ export function PostHead({
 }: {
   readonly post: XPost;
   readonly meta: string;
-  readonly actions: ReactNode;
+  readonly actions?: ReactNode;
 }) {
   const marks = useMarks([{ postId: post.postId, handle: post.author.handle }]);
   return (
@@ -40,7 +40,9 @@ export function PostHead({
       </p>
       <Marks marks={marks[post.postId]} />
       <p className="mt-3 text-sm leading-relaxed break-words whitespace-pre-wrap">{post.text}</p>
-      <div className="mt-4 flex flex-wrap items-center gap-1.5">{actions}</div>
+      {actions === undefined ? null : (
+        <div className="mt-4 flex flex-wrap items-center gap-1.5">{actions}</div>
+      )}
     </Section>
   );
 }

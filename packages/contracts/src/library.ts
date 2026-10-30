@@ -218,9 +218,12 @@ export const LibraryRpcGroup = RpcGroup.make(
     success: Schema.Void,
     error: LibraryError,
   }),
+  /** Deletes saved posts, one or a checked batch; returns how many were this account's. */
   Rpc.make(Library_METHODS.savedDelete, {
-    payload: Schema.Struct({ id: SavedPostId }),
-    success: Schema.Void,
+    payload: Schema.Struct({
+      ids: Schema.NonEmptyArray(SavedPostId).check(Schema.isMaxLength(1000)),
+    }),
+    success: Schema.Struct({ deleted: NonNegativeInt }),
     error: LibraryError,
   }),
   Rpc.make(Library_METHODS.getSavedPost, {

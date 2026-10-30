@@ -111,10 +111,10 @@ export const setNoteAtom = clientRuntime.fn<{ readonly id: number; readonly note
   }),
 );
 
-export const deleteSavedAtom = clientRuntime.fn<number>()(
-  Effect.fnUntraced(function* (id) {
+export const deleteSavedAtom = clientRuntime.fn<readonly [number, ...Array<number>]>()(
+  Effect.fnUntraced(function* (ids) {
     const client = yield* XtendClient;
-    return yield* client[Library_METHODS.savedDelete]({ id });
+    return yield* client[Library_METHODS.savedDelete]({ ids });
   }),
 );
 

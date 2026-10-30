@@ -57,9 +57,11 @@ describe("LibraryStore", () => {
       expect(cols.map((c) => c.name)).toEqual(["Staff picks", "Hooks"]);
       // Deleting a collection keeps the post in the swipe file.
       expect((yield* store.getSavedPost("1"))?.collectionIds).toEqual([hooks.id]);
-      // Deleting the post takes it out of every collection it was in.
-      yield* store.savedDelete(again.id);
+      // Deleting the posts, as a checked batch, takes them out of every collection they were in.
+      const other = yield* store.getSavedPost("2");
+      expect(yield* store.savedDelete([again.id, other!.id])).toBe(2);
       expect((yield* store.collectionsList).find((c) => c.id === hooks.id)?.posts).toBe(0);
+      expect((yield* store.savedList({})).total).toBe(0);
     }).pipe(Effect.provide(layerTest)),
   );
 
@@ -160,7 +162,7 @@ describe("LibraryStore", () => {
       expect(yield* store.browse({})).toEqual({ items: [], total: 0 });
       // Ids from the other account change nothing here.
       yield* store.savedSetNote(mine.id, "hijacked");
-      yield* store.savedDelete(mine.id);
+      expect(yield* store.savedDelete([mine.id])).toBe(0);
       yield* store.collectionRename(ideas.id, "Hijacked");
       yield* store.collectionRemovePost(ideas.id, mine.id);
       yield* store.collectionDelete(ideas.id);

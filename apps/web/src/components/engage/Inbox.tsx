@@ -271,7 +271,12 @@ function FollowUpDetail({
       >
         Dismiss
       </button>
-      <OpenOnX href={reply.targetUrl} label={target === null ? "Reply again on X" : "Open on X"} />
+      <span className="ml-auto">
+        <OpenOnX
+          href={reply.targetUrl}
+          label={target === null ? "Reply again on X" : "Open on X"}
+        />
+      </span>
     </>
   );
 
@@ -283,7 +288,7 @@ function FollowUpDetail({
           <div className="mt-4 flex flex-wrap items-center gap-1.5">{actions}</div>
         </Section>
       ) : (
-        <PostHead post={target} meta={`their post · ${ago(target.createdAt)}`} actions={actions} />
+        <PostHead post={target} meta={`their post · ${ago(target.createdAt)}`} />
       )}
       {error !== null ? <ErrorLine>{error}</ErrorLine> : null}
       <Section title={`You replied ${ago(reply.at)} ago`}>
@@ -305,6 +310,12 @@ function FollowUpDetail({
             }
           }}
         />
+      )}
+      {target === null ? null : (
+        // Closing it comes after the reply, the way the follow-up is worked: read, reply, then settle.
+        <Section>
+          <div className="flex flex-wrap items-center gap-1.5">{actions}</div>
+        </Section>
       )}
     </>
   );
