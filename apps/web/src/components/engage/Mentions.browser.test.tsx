@@ -50,6 +50,7 @@ function fakeService(): FakeService {
         assistProvider: "claude",
         assistBaseUrl: null,
         assistModel: "",
+        assistBinaryPath: "",
         assistKeySet: false,
         monthlyBudgetUsd: 50,
         sessionPostingEnabled: false,

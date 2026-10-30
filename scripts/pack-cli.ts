@@ -1,7 +1,7 @@
 // Packs the xtend CLI as an npm tarball, dist-cli/xtend-cli-<version>.tgz: the bundled service
 // with the web app beside it, in the layout the desktop ships (the service finds the web app at
-// ../../web/dist from its own file). The agent SDK is an optional dependency, so a global npm
-// install fetches it and AI assist works; without it everything else still runs.
+// ../../web/dist from its own file). AI assist runs the user's own claude or codex CLI, so the
+// tarball has no dependencies.
 //   pnpm build && pnpm cli:pack            the tarball
 //   pnpm cli:pack --check                  and install it into a throwaway prefix and start it
 //   npm install -g dist-cli/xtend-cli-*.tgz
@@ -16,8 +16,7 @@ const out = NodePath.join(root, "dist-cli");
 const stage = NodePath.join(out, "package");
 const server = JSON.parse(
   NodeFS.readFileSync(NodePath.join(root, "apps", "server", "package.json"), "utf8"),
-) as { version: string; dependencies: Record<string, string> };
-const SDK = "@anthropic-ai/claude-agent-sdk";
+) as { version: string };
 const BOOT_TIMEOUT_MS = 20_000;
 
 for (const built of ["apps/server/dist/bin.mjs", "apps/web/dist/index.html"]) {
@@ -45,7 +44,6 @@ NodeFS.cpSync(
     recursive: true,
   },
 );
-const sdkVersion = server.dependencies[SDK];
 NodeFS.writeFileSync(
   NodePath.join(stage, "package.json"),
   `${JSON.stringify(
@@ -57,7 +55,6 @@ NodeFS.writeFileSync(
       bin: { xtend: "apps/server/dist/bin.mjs" },
       // node:sqlite with backup().
       engines: { node: ">=24" },
-      ...(sdkVersion === undefined ? {} : { optionalDependencies: { [SDK]: sdkVersion } }),
       private: true,
     },
     null,
@@ -80,9 +77,9 @@ console.log(`pack-cli: ${NodePath.relative(root, tarball)}`);
 
 if (process.argv.includes("--check")) {
   // A real global install into a throwaway prefix, then the installed command: version, and the
-  // service answering on a throwaway port and base dir. Optional deps are skipped to stay offline.
+  // service answering on a throwaway port and base dir.
   const prefix = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "xtend-cli-check-"));
-  run("npm", ["install", "-g", "--prefix", prefix, "--omit=optional", tarball], prefix);
+  run("npm", ["install", "-g", "--prefix", prefix, tarball], prefix);
   const bin = NodePath.join(prefix, "bin", "xtend");
   const version = run(bin, ["--version"], prefix);
   if (!version.includes(server.version)) {

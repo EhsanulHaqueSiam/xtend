@@ -1,4 +1,4 @@
-import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useAtom, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { Link, useLocation, useNavigate, useRouter } from "@tanstack/react-router";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import {
@@ -36,7 +36,14 @@ import {
   queuedDraftsAtom,
   spendLiveAtom,
 } from "../../state/shell";
-import { xNavigate, xPanelOpenAtom, xPanelPinnedAtom, xUnreadAtom, xUrlAtom } from "../../state/x";
+import {
+  xNavigate,
+  xPanelOpenAtom,
+  xPanelPinnedAtom,
+  xReload,
+  xUnreadAtom,
+  xUrlAtom,
+} from "../../state/x";
 import { Menu, MenuItem } from "../ui/menu";
 import { toastAtom } from "../ui/toast";
 import { DROP_VERBS, linkDragAtom, useDropPost } from "./drops";
@@ -250,7 +257,7 @@ function XRows({ compact }: { readonly compact: boolean }) {
   const onX = pathname === "/x";
   const dragging = useAtomValue(linkDragAtom);
   const pinned = useAtomValue(xPanelPinnedAtom);
-  const setPanel = useAtomSet(xPanelOpenAtom);
+  const [panelOpen, setPanel] = useAtom(xPanelOpenAtom);
   const pages: ReadonlyArray<{ label: string; path: string; count?: number }> = [
     { label: "Home", path: "/home" },
     { label: "Notifications", path: "/notifications", count: unread },
@@ -269,7 +276,10 @@ function XRows({ compact }: { readonly compact: boolean }) {
           data-active={onX && (path === page.path || path.startsWith(`${page.path}/`))}
           className={cn(ROW, dragClass(dragging, false))}
           onClick={() => {
-            xNavigate(`https://x.com${page.path}`);
+            // A page already in the webview is only revealed; clicked again where it shows, it
+            // reloads, like X's own Home.
+            if (path !== page.path) xNavigate(`https://x.com${page.path}`);
+            else if (onX || (pinned && panelOpen)) xReload();
             // Pinned beside a tool, X's pages open in the panel and the tool stays.
             if (pinned && !onX) setPanel(true);
             else void navigate({ to: "/x" });

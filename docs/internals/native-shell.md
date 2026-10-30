@@ -37,7 +37,13 @@ moves between them with CSS only, never in the DOM, because moving a webview rel
 `⌘\` toggles the panel; from `/x` it returns to the last tool with the panel open. The panel
 bar shows the path and has back, forward, reload, full size (`/x`), open in browser and close.
 The sidebar's X rows (Home, Notifications, Messages, Bookmarks, Profile) load their page in the
-webview and go to `/x`. Notifications shows X's unread count, read from the "(3) Home / X" page
+webview and go to `/x`; a page the webview already shows is only revealed, since `loadURL` is a
+full reload, and a second click where it shows reloads it.
+
+The panel follows the open section (`XPanelFollow` in `AppShell.tsx`, the map is `xPageFor` in
+`sections.ts`): a section with an X page opens the panel on it, one without closes it, and
+browsing inside the panel never moves it back. A route sent from x.com (Reply with AI, Full
+report) holds X where it is, because the user opened it from the post they are reading. Notifications shows X's unread count, read from the "(3) Home / X" page
 title. `state/x.ts` holds the webview's functions (`xNavigate`, `xBack`, `xFind`) and atoms
 (`xUrlAtom`, `xUnreadAtom`, the panel's open state and width, the skin switch).
 

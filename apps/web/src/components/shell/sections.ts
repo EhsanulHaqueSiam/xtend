@@ -196,3 +196,40 @@ export const sectionLabel = <R extends SectionRoute>(route: R, id: SectionId<R>)
 /** What a tool's open section does, in one line; an unknown or missing id is the first section. */
 export const sectionAbout = (route: SectionRoute, id: string) =>
   (section(route, id) ?? SECTIONS[route][0]).about;
+
+/**
+ * The x.com page the side panel shows beside a tool, or per section; "@" is the user's profile.
+ * A tool or section not listed shows no panel until the user opens one (⌘\, an Open on X link).
+ */
+const X_PAGES: {
+  readonly [R in SectionRoute]?: "@" | Partial<Record<SectionId<R>, string>>;
+} & { readonly "/seen": string } = {
+  "/compose": "@",
+  "/plan": "@",
+  "/engage": {
+    targets: "/home",
+    mentions: "/notifications/mentions",
+    inbox: "/notifications",
+    sent: "/notifications",
+    "follow-ups": "/notifications",
+    dms: "/messages",
+  },
+  "/library": {
+    search: "/explore",
+    trends: "/explore/tabs/trending",
+    collections: "/i/bookmarks",
+    swipe: "/i/bookmarks",
+  },
+  "/seen": "/home",
+};
+
+/** The x.com path for the panel beside this route and `?tab=`, or null for no panel. */
+export const xPageFor = (pathname: string, tab: string | null, handle: string | null) => {
+  if (pathname === "/seen") return X_PAGES["/seen"];
+  if (!isSectionRoute(pathname)) return null;
+  const entry: "@" | Readonly<Record<string, string>> | undefined = X_PAGES[pathname];
+  const sections: ReadonlyArray<{ readonly id: string }> = SECTIONS[pathname];
+  const id = sections.find((s) => s.id === tab)?.id ?? sections[0]!.id;
+  const page = typeof entry === "object" ? entry[id] : entry;
+  return page === "@" ? (handle === null ? "/home" : `/${handle}`) : (page ?? null);
+};

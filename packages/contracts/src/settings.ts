@@ -31,6 +31,8 @@ export const Settings = Schema.Struct({
   /** The endpoint when `assistProvider` is "endpoint" (local Ollama, a provider with the user's key). */
   assistBaseUrl: Schema.NullOr(Schema.String),
   assistModel: Schema.String,
+  /** The command for the Claude or Codex CLI, like T3 Code's binary path; empty finds `claude` or `codex` on the login shell's PATH. */
+  assistBinaryPath: Schema.String,
   assistKeySet: Schema.Boolean,
   /** Push public sightings to the shared pool. Off stops the push and keeps reading trends. */
   poolSharing: Schema.Boolean,
@@ -51,6 +53,7 @@ export const SettingsUpdate = Schema.Struct({
   assistProvider: Schema.optional(AssistProvider),
   assistBaseUrl: Schema.optional(Schema.NullOr(Schema.String)),
   assistModel: Schema.optional(Schema.String),
+  assistBinaryPath: Schema.optional(Schema.String),
   assistKey: Schema.optional(Schema.NullOr(Schema.String)),
   poolSharing: Schema.optional(Schema.Boolean),
 });

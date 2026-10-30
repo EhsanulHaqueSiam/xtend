@@ -56,9 +56,9 @@ scheduler and post the same drafts.
 
 `pnpm build && pnpm cli:pack` writes `dist-cli/xtend-cli-<version>.tgz`: the bundled service with
 the web app beside it, `xtend` as its command. `pnpm cli:pack --check` also installs it into a
-throwaway prefix and checks the installed command serves the app. The agent SDK is an optional
-dependency, so `npm install -g` fetches it and AI assist works; without it the rest runs and
-assist says it is missing. Releases carry the tarball, and `scripts/install.sh [tag]` installs
+throwaway prefix and checks the installed command serves the app. AI assist runs the user's own
+`claude` or `codex` CLI, found on the login shell's PATH, so the package has no dependencies.
+Releases carry the tarball, and `scripts/install.sh [tag]` installs
 it from one through the GitHub CLI, since the repo is private. It needs Node 24 or newer.
 
 ## State

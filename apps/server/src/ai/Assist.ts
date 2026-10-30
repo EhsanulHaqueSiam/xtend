@@ -1,4 +1,3 @@
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import type * as FileSystem from "effect/FileSystem";
@@ -7,15 +6,15 @@ import * as Layer from "effect/Layer";
 import type * as Path from "effect/Path";
 import type * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as Schema from "effect/Schema";
-import * as Stream from "effect/Stream";
 
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
 import type { ReplyTone } from "@xtend/contracts";
 
+import * as Claude from "./Claude.ts";
 import * as Codex from "./Codex.ts";
+import { loginPath } from "./loginPath.ts";
 import * as OwnModel from "./OwnModel.ts";
-import * as ServerConfig from "../config.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 
 export class AssistError extends Schema.TaggedError<AssistError>()("AssistError", {
@@ -68,13 +67,14 @@ export class Assist extends Context.Service<
 >()("xtend/ai/Assist") {}
 
 const make = Effect.gen(function* () {
-  const config = yield* ServerConfig.ServerConfig;
   const settings = yield* SettingsStore.SettingsStore;
   const http = yield* HttpClient.HttpClient;
-  // The Codex CLI runs through the platform services the service already has.
+  // The CLIs run through the platform services the service already has.
   const platform = yield* Effect.context<
     FileSystem.FileSystem | Path.Path | ChildProcessSpawner.ChildProcessSpawner
   >();
+  // Read once, on the first CLI call: the login shell is slow and its PATH rarely moves.
+  const path = yield* Effect.cached(loginPath.pipe(Effect.provide(platform)));
 
   const generate = Effect.fn("Assist.generate")(function* <A>(request: AssistRequest<A>) {
     const current = yield* settings.get.pipe(Effect.orElseSucceed(() => null));
@@ -123,61 +123,12 @@ const make = Effect.gen(function* () {
       return yield* decode(output);
     }
 
-    if (provider === "codex") {
-      const output = yield* Codex.complete({ model, system, prompt, jsonSchema }).pipe(
-        Effect.provide(platform),
-        Effect.mapError(modelError),
-      );
-      return yield* decode(output);
-    }
-
-    // Loaded on the first model call, not at start: the packaged app and the CLI ship without
-    // the SDK's per-platform binaries, and everything but assist must still run there.
-    const sdk = yield* Effect.tryPromise({
-      try: () => import("@anthropic-ai/claude-agent-sdk"),
-      catch: () => modelError("AI assist is not included in this build of Xtend."),
-    });
-    let output: unknown = undefined;
-    let error: string | null = null;
-    yield* Stream.fromAsyncIterable(
-      sdk.query({
-        prompt,
-        options: {
-          cwd: config.baseDir,
-          systemPrompt: system,
-          ...(model === "" ? {} : { model }),
-          tools: [],
-          allowedTools: [],
-          settingSources: [],
-          permissionMode: "default",
-          maxTurns: 1,
-          outputFormat: { type: "json_schema", schema: jsonSchema as Record<string, unknown> },
-        },
-      }),
-      (cause) => cause,
-    ).pipe(
-      Stream.runForEach((message: SDKMessage) =>
-        Effect.sync(() => {
-          if (message.type !== "result") return;
-          if (message.is_error) {
-            error =
-              "errors" in message && message.errors.length > 0
-                ? message.errors.join("; ")
-                : message.subtype;
-          } else {
-            output = (message as { structured_output?: unknown }).structured_output;
-          }
-        }),
-      ),
-      Effect.catch((cause) =>
-        Effect.sync(() => {
-          error ??= String(cause).slice(0, 300);
-        }),
-      ),
-    );
-
-    if (error !== null)
-      return yield* new AssistError({ task: request.task, reason: "model", detail: error });
+    const binary = current?.assistBinaryPath || provider;
+    const output = yield* (
+      provider === "codex"
+        ? Codex.complete({ binary, path: yield* path, model, system, prompt, jsonSchema })
+        : Claude.complete({ binary, path: yield* path, model, system, prompt, jsonSchema })
+    ).pipe(Effect.provide(platform), Effect.mapError(modelError));
     return yield* decode(output);
   });
 
