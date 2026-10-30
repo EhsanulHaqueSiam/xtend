@@ -70,6 +70,7 @@ export class Engage extends Context.Service<
     readonly draftReply: (
       post: XPost,
       tone?: ReplyTone,
+      userReply?: string,
     ) => Effect.Effect<ReadonlyArray<ReplyDraft>, EngageError>;
     /** Posts the reply through X; a failure is recorded on the row, never thrown. */
     readonly reply: (post: XPost, text: string) => Effect.Effect<SentReply, EngageError>;
@@ -133,7 +134,12 @@ const make = Effect.gen(function* () {
     return all.sort((a, b) => b.score - a.score).slice(0, MAX_TARGETS);
   });
 
-  const draftReply = Effect.fn("Engage.draftReply")(function* (post: XPost, tone?: ReplyTone) {
+  const draftReply = Effect.fn("Engage.draftReply")(function* (
+    post: XPost,
+    tone?: ReplyTone,
+    userReply?: string,
+  ) {
+    const mine = userReply?.trim() ?? "";
     const { handle } = yield* current;
     // Taste: the user's own replies that landed, read free from the session capture.
     const own =
@@ -148,9 +154,17 @@ const make = Effect.gen(function* () {
     const { drafts } = yield* assist
       .generate({
         task: "engage.draftReply",
-        instructions: `Write 3 different replies to this post in the user's voice. Each under 280 characters, no praise or flattery, no questions for the sake of it; each adds one concrete point, example, number or counterpoint the author did not say. The user's replies that did best are their taste: match their length, rhythm and attitude, never their wording.`,
+        instructions:
+          mine === ""
+            ? `Write 3 different replies to this post in the user's voice. Each under 280 characters, no praise or flattery, no questions for the sake of it; each adds one concrete point, example, number or counterpoint the author did not say. The user's replies that did best are their taste: match their length, rhythm and attitude, never their wording.`
+            : `The user wrote userReply to this post. Write 3 tighter versions of it, each under 280 characters: keep their point, stance and voice, cut filler, make the first words land. Do not add claims they did not make. Their replies that did best are their taste.`,
         tone,
-        input: { author: post.author.handle, text: post.text, yourBestReplies: own },
+        input: {
+          author: post.author.handle,
+          text: post.text,
+          yourBestReplies: own,
+          ...(mine === "" ? {} : { userReply: mine }),
+        },
         output: Schema.Struct({ drafts: Schema.Array(Schema.Struct({ text: Schema.String })) }),
       })
       .pipe(Effect.mapError(assistError));

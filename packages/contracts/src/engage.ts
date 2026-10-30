@@ -106,7 +106,12 @@ export const EngageRpcGroup = RpcGroup.make(
     error: Schema.Union([EngageError, XApiError]),
   }),
   Rpc.make(Engage_METHODS.draftReply, {
-    payload: Schema.Struct({ post: XPost, tone: Schema.optional(ReplyTone) }),
+    /** `own` is the user's own reply: the drafts then rework it instead of starting fresh. */
+    payload: Schema.Struct({
+      post: XPost,
+      tone: Schema.optional(ReplyTone),
+      own: Schema.optional(Schema.String),
+    }),
     success: Schema.Array(ReplyDraft),
     error: EngageError,
   }),

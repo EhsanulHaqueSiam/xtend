@@ -22,10 +22,18 @@ export const targetsAtom = Atom.keepAlive(
 // Per target post: a new write to a shared fn atom interrupts the call still running, so a
 // like on one row would cut off a paid like or reply in flight on another.
 export const draftReplyAtom = Atom.family((_postId: string) =>
-  clientRuntime.fn<{ readonly post: XPost; readonly tone: ReplyTone | null }>()(
-    Effect.fnUntraced(function* ({ post, tone }) {
+  clientRuntime.fn<{
+    readonly post: XPost;
+    readonly tone: ReplyTone | null;
+    readonly own?: string;
+  }>()(
+    Effect.fnUntraced(function* ({ post, tone, own }) {
       const client = yield* XtendClient;
-      return yield* client[Engage_METHODS.draftReply]({ post, ...(tone === null ? {} : { tone }) });
+      return yield* client[Engage_METHODS.draftReply]({
+        post,
+        ...(tone === null ? {} : { tone }),
+        ...(own === undefined ? {} : { own }),
+      });
     }),
   ),
 );
