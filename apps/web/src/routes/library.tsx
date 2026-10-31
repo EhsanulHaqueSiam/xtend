@@ -1,4 +1,5 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
+import { useState } from "react";
 
 import { ArchiveTab } from "../components/library/ArchiveTab";
 import { CollectionsTab } from "../components/library/CollectionsTab";
@@ -6,7 +7,21 @@ import { PicksTab } from "../components/library/PicksTab";
 import { SearchTab } from "../components/library/SearchTab";
 import { SwipeTab } from "../components/library/SwipeTab";
 import { TrendsTab } from "../components/library/TrendsTab";
+import { HeaderTabs } from "../components/PageHeader";
+import { SeenFeed } from "../components/SeenFeed";
 import { useSection } from "../components/shell/sections";
+
+const SAVED_VIEWS = [
+  { id: "all", label: "All saved" },
+  { id: "collections", label: "Collections" },
+] as const;
+
+/** Saved posts, all of them as cards to search, or by collection. */
+function Saved() {
+  const [view, setView] = useState<(typeof SAVED_VIEWS)[number]["id"]>("all");
+  const tabs = <HeaderTabs label="View" tabs={SAVED_VIEWS} value={view} onChange={setView} />;
+  return view === "all" ? <SwipeTab tabs={tabs} /> : <CollectionsTab tabs={tabs} />;
+}
 
 /** The sidebar picks the section; each section draws its own header with its filters. */
 function LibraryScreen() {
@@ -23,10 +38,10 @@ function LibraryScreen() {
         <ArchiveTab />
       ) : section === "trends" ? (
         <TrendsTab />
-      ) : section === "collections" ? (
-        <CollectionsTab />
+      ) : section === "saved" ? (
+        <Saved />
       ) : (
-        <SwipeTab />
+        <SeenFeed />
       )}
     </div>
   );

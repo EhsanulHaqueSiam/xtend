@@ -40,7 +40,7 @@ test("library: the palette fills the search box for free, the priced Search runs
   await page.getByRole("menuitem", { name: "Swipe file" }).click();
   await inspector.getByRole("button", { name: "Saved to Swipe file" }).waitFor();
 
-  await page.getByRole("link", { name: "Swipe file", exact: true }).click();
+  await page.getByRole("link", { name: "Saved", exact: true }).click();
   await page.getByText("1 saved").waitFor();
   await page.getByRole("article").filter({ hasText: SEARCH_HIT.text }).waitFor();
   const saved = await rpc("library.savedList", {});

@@ -17,7 +17,6 @@ import {
   Workflow,
   ChartNoAxesCombined,
   Gauge,
-  Eye,
   Settings,
   Sun,
 } from "lucide-react";
@@ -76,7 +75,6 @@ const ICONS = {
   Automate: Workflow,
   Analyze: ChartNoAxesCombined,
   Scores: Gauge,
-  Seen: Eye,
   Settings,
   Today: Sun,
 };
@@ -139,7 +137,6 @@ const TOOLS: ReadonlyArray<Tool> = [
   { to: "/automate", label: "Automate" },
   { to: "/analyze", label: "Analyze", group: "Measure" },
   { to: "/scores", label: "Scores" },
-  { to: "/seen", label: "Seen" },
 ];
 
 const isOn = (pathname: string, to: string) => pathname === to || pathname.startsWith(`${to}/`);
