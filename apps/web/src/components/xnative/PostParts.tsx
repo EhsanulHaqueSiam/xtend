@@ -1,5 +1,5 @@
 import type { EngineCard, EngineContext, EnginePoll } from "@xtend/contracts";
-import type { MouseEvent } from "react";
+import { useState, type MouseEvent } from "react";
 import { Heart, Pin, Repeat2, Users } from "lucide-react";
 
 import { cn } from "../../lib/utils";
@@ -102,15 +102,62 @@ const pollLeft = (poll: EnginePoll, now = Date.now()) => {
 };
 
 /**
- * A poll's results as X shows them once you can see counts: a bar per choice, the leader in blue.
- * Voting is a write; it happens on X (Open on X), never from here.
+ * A poll as X draws it. Open and not yet voted: X's choices, and a click votes through `onVote`
+ * (X's own radio; a vote cannot be changed). Otherwise, or with no `onVote` (the author's own
+ * poll), the results: a bar per choice, the leader in blue, the viewer's pick checked.
  */
-export function Poll({ poll }: { readonly poll: EnginePoll }) {
-  const total = poll.choices.reduce((n, c) => n + c.votes, 0);
-  const top = Math.max(...poll.choices.map((c) => c.votes));
+export function Poll({
+  poll,
+  onVote,
+}: {
+  readonly poll: EnginePoll;
+  readonly onVote?: ((choice: string) => Promise<boolean>) | undefined;
+}) {
+  // The user's own vote, counted until X's next capture carries it.
+  const [mine, setMine] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const voted = poll.voted ?? (mine === null ? null : mine + 1);
+  const open = pollLeft(poll) !== "Final results";
+  const choices = poll.choices.map((c, i) =>
+    poll.voted === null && mine === i ? { ...c, votes: c.votes + 1 } : c,
+  );
+  const total = choices.reduce((n, c) => n + c.votes, 0);
+  const footer = (
+    <p className="text-[15px] text-[#71767b]">
+      {fmt(total)} votes · {pollLeft(poll)}
+    </p>
+  );
+  if (open && voted === null && onVote !== undefined) {
+    const vote = async (i: number) => {
+      setBusy(true);
+      if (await onVote(poll.choices[i]!.label)) setMine(i);
+      setBusy(false);
+    };
+    return (
+      <div data-x="poll" className="flex flex-col gap-2" onClick={(e) => e.stopPropagation()}>
+        <div role="radiogroup" aria-label="Poll options" className="flex flex-col gap-2">
+          {poll.choices.map((c, i) => (
+            <button
+              key={c.label}
+              type="button"
+              role="radio"
+              aria-checked={false}
+              disabled={busy}
+              className="h-8 cursor-pointer truncate rounded-full border border-[#1d9bf0] px-3 text-[15px] font-bold text-[#1d9bf0] transition-colors duration-150 hover:bg-[#1d9bf0]/10 disabled:cursor-wait"
+              onClick={() => void vote(i)}
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
+        {footer}
+      </div>
+    );
+  }
+  const top = Math.max(...choices.map((c) => c.votes));
   return (
     <div data-x="poll" className="flex flex-col gap-1.5">
-      {poll.choices.map((c, i) => {
+      {choices.map((c, i) => {
         const share = total === 0 ? 0 : c.votes / total;
         const lead = c.votes === top && total > 0;
         return (
@@ -127,7 +174,7 @@ export function Poll({ poll }: { readonly poll: EnginePoll }) {
             />
             <span className={cn("relative truncate", lead && "font-bold")}>
               {c.label}
-              {poll.voted === i + 1 ? " ✓" : ""}
+              {voted === i + 1 ? " ✓" : ""}
             </span>
             <span className={cn("relative pl-3 tabular-nums", lead && "font-bold")}>
               {Math.round(share * 100)}%
@@ -135,9 +182,7 @@ export function Poll({ poll }: { readonly poll: EnginePoll }) {
           </div>
         );
       })}
-      <p className="text-[15px] text-[#71767b]">
-        {fmt(total)} votes · {pollLeft(poll)}
-      </p>
+      {footer}
     </div>
   );
 }

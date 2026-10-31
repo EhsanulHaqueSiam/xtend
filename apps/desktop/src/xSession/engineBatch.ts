@@ -307,6 +307,7 @@ function readEnginePost(
   );
   const text = shownText(post.text, replyingTo, hidden);
   return {
+    translation: readTranslation(tweet, replyingTo, hidden),
     ...post,
     text,
     avatarUrl:
@@ -332,6 +333,21 @@ function readEnginePost(
       record(record(tweet.content_disclosure).ai_generated_disclosure).has_ai_generated_media ===
       true,
   };
+}
+
+/** X's Grok translation of a post, trimmed the way the original's text is. */
+function readTranslation(
+  tweet: Json,
+  replyingTo: ReadonlyArray<string>,
+  hidden: ReadonlySet<string>,
+): EnginePost["translation"] {
+  const data = record(record(tweet.grok_translated_post_with_availability).data);
+  const translated = asString(data.translation);
+  const from = asString(data.source_language);
+  if (translated === undefined || translated === "" || from === undefined) return null;
+  const source = record(data.entities);
+  const text = shownText(translated, replyingTo, hidden);
+  return { text, entities: readEntities(source, readLinks(source), text), from };
 }
 
 /** Posts as Xtend's own X screens draw them, in the response's order. */

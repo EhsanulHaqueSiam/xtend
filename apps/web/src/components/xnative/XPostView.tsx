@@ -16,7 +16,7 @@ import { useState, type ComponentProps, type MouseEvent, type ReactNode } from "
 
 import { cn } from "../../lib/utils";
 import { engineAtom } from "../../state/engine";
-import { xAct, xOverAtom, xPostMenu, xPostMenuPress, type XPostMenu } from "../../state/x";
+import { xAct, xOverAtom, xPostMenu, xPostMenuPress, xVote, type XPostMenu } from "../../state/x";
 import { fmt } from "../analyze/ui";
 import { useDropPost } from "../shell/drops";
 import { Menu, MenuItem } from "../ui/menu";
@@ -44,6 +44,16 @@ const clampText = (text: string) => {
   const cut = text.slice(0, SHOWN_IN_LIST);
   const space = cut.lastIndexOf(" ");
   return `${space > 200 ? cut.slice(0, space) : cut}…`;
+};
+
+const LANGUAGES = new Intl.DisplayNames(["en"], { type: "language" });
+/** "Japanese" for "ja"; a code Intl does not know stays as X sent it. */
+const languageName = (code: string) => {
+  try {
+    return LANGUAGES.of(code) ?? code;
+  } catch {
+    return code;
+  }
 };
 
 /** X's gray for handles, times and counts; Xtend's own muted grey stays for Xtend's numbers. */
@@ -285,12 +295,21 @@ export function QuoteBox({
   );
 }
 
-/** What X draws under a post's text besides media: its link card, poll and Community Note. */
-function Extras({ post }: { readonly post: EnginePost }) {
+/**
+ * What X draws under a post's text besides media: its link card, poll and Community Note.
+ * `onVote` votes in the poll; absent where the viewer cannot (their own poll).
+ */
+function Extras({
+  post,
+  onVote,
+}: {
+  readonly post: EnginePost;
+  readonly onVote?: ((choice: string) => Promise<boolean>) | undefined;
+}) {
   return (
     <>
       {post.card === null ? null : <LinkCard card={post.card} />}
-      {post.poll === null ? null : <Poll poll={post.poll} />}
+      {post.poll === null ? null : <Poll poll={post.poll} onVote={onVote} />}
       {post.note === null ? null : <Note note={post.note} />}
     </>
   );
@@ -405,7 +424,8 @@ export function XPostView({
   const drop = useDropPost();
   const navigate = useNavigate();
   // The author as X described them (badge colour, organisation shape, affiliate), when seen.
-  const author = useAtomValue(engineAtom).users.get(post.author.userId);
+  const engine = useAtomValue(engineAtom);
+  const author = engine.users.get(post.author.userId);
   const square = author?.avatarShape === "Square";
   /**
    * What the user asked for here, per button; X's own state wins again once it agrees (a fresh
@@ -452,6 +472,38 @@ export function XPostView({
       .writeText(postUrl(post))
       .then(() => setToast({ text: "Copied to clipboard" }));
   const m = post.metrics;
+  // X shows the author their poll's results; everyone else votes first.
+  const own = engine.viewer?.userId === post.author.userId;
+  /** Votes through X's own poll for the user's click. */
+  const vote = async (choice: string) => {
+    const why = blocked();
+    if (why !== null) return (setToast({ text: why }), false);
+    const done = await xVote(xPost, choice);
+    if (!done) setToast({ text: "X did not take that vote. Try again in a moment." });
+    return done;
+  };
+  // X draws its translation in place of the text until the user asks for the original.
+  const [original, setOriginal] = useState(false);
+  const shown =
+    post.translation === null || original
+      ? { text: post.text, entities: post.entities }
+      : post.translation;
+  const translated =
+    post.translation === null ? null : (
+      <p className={cn("text-[13px] leading-4", X_GRAY)}>
+        {original ? null : `Translated from ${languageName(post.translation.from)} · `}
+        <button
+          type="button"
+          className="cursor-pointer text-[#1d9bf0] hover:underline"
+          onClick={(e) => {
+            e.stopPropagation();
+            setOriginal(!original);
+          }}
+        >
+          {original ? "Show translation" : "Show original"}
+        </button>
+      </p>
+    );
   // X's own "..." and share rows for this post, read from X when each opens; undefined while reading.
   const [xRows, setXRows] = useState<ReadonlyArray<string> | null | undefined>(undefined);
   const [shareRows, setShareRows] = useState<ReadonlyArray<string> | null | undefined>(undefined);
@@ -666,13 +718,14 @@ export function XPostView({
         <div className="mt-3 empty:hidden">
           <ReplyingTo handles={post.replyingTo} />
         </div>
+        {translated === null ? null : <div className="mt-3">{translated}</div>}
         <p className="mt-3 text-[17px] leading-6 break-words whitespace-pre-wrap">
-          <RichText text={post.text} entities={post.entities} />
+          <RichText text={shown.text} entities={shown.entities} />
         </p>
         <div className="mt-3 flex flex-col gap-3 empty:hidden">
           {post.media.length === 0 ? null : <Media media={post.media} />}
           {quoted === undefined ? null : <QuoteBox quoted={quoted} onOpen={onOpen} />}
-          <Extras post={post} />
+          <Extras post={post} onVote={own ? undefined : vote} />
           {post.aiGenerated ? <p className={cn("text-[13px]", X_GRAY)}>Made with AI</p> : null}
         </div>
         <p className={cn("mt-4 pb-4 text-[15px]", X_GRAY)}>
@@ -735,10 +788,11 @@ export function XPostView({
           {menu}
         </div>
         <ReplyingTo handles={post.replyingTo} />
-        {post.text === "" ? null : (
+        {translated}
+        {shown.text === "" ? null : (
           <p className="-mt-1.5 text-[15px] leading-5 break-words whitespace-pre-wrap">
-            <RichText text={clampText(post.text) ?? post.text} entities={post.entities} />
-            {clampText(post.text) === null ? null : (
+            <RichText text={clampText(shown.text) ?? shown.text} entities={shown.entities} />
+            {clampText(shown.text) === null ? null : (
               <button
                 type="button"
                 className="block cursor-pointer text-[#1d9bf0] hover:underline"
@@ -754,7 +808,7 @@ export function XPostView({
         )}
         <Media media={post.media} />
         {quoted === undefined ? null : <QuoteBox quoted={quoted} onOpen={onOpen} />}
-        <Extras post={post} />
+        <Extras post={post} onVote={own ? undefined : vote} />
         {post.aiGenerated ? <p className={cn("text-[13px]", X_GRAY)}>Made with AI</p> : null}
         {actions}
         <XtendLine post={post} />

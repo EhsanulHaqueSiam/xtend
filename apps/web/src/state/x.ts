@@ -425,6 +425,27 @@ export const xProfileMenuPress = async (
 ) =>
   validHandle(handle) ? pressMenu(profilePage(handle), profileMenuAt(handle), label, over) : null;
 
+/**
+ * Votes `choice` in a post's poll for the user's click, pressing X's own radio where the post sits
+ * (X asks for no confirm; a vote cannot be changed). True once X drew its results instead.
+ */
+export const xVote = async (post: PostRef, choice: string) =>
+  validPost(post) &&
+  (await onPage(postPage(post), () =>
+    xRun(`(async () => {
+    ${findArticle(post.postId)}
+    const poll = () => article?.querySelector('[data-testid="cardPoll"] [role="radiogroup"]');
+    if (!poll()) return null;
+    const radio = [...poll().querySelectorAll('[role="radio"]')].find((r) => r.textContent.trim() === ${JSON.stringify(choice)});
+    if (!radio) return false;
+    radio.click();
+    for (let i = 0; i < 30 && poll(); i++) await new Promise((r) => setTimeout(r, 100));
+    // X shows its results at once and saves a moment later; leaving before then would cancel it.
+    await new Promise((r) => setTimeout(r, 1000));
+    return !poll();
+  })()`).then((voted) => (typeof voted === "boolean" ? voted : null)),
+  )) === true;
+
 /** Presses Undo on X's own toast, while X still shows it. True when it was there. */
 export const xToastUndo = () =>
   xRun(

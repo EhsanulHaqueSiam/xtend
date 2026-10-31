@@ -945,6 +945,75 @@ const benchmarks = [
     },
   ],
   [
+    "X's own translation shows on a native post, with Show original, as X draws it",
+    async () => {
+      await go(`#/search?q=${encodeURIComponent("lang:es min_faves:200")}&f=top`);
+      // A post X translated, drawn natively, whose X article says the same.
+      const id = await until(async () => {
+        const ids = await store(
+          `[...$.posts.values()].filter((p) => p.translation?.from === "es").map((p) => p.postId)`,
+        );
+        const shown = await app(
+          `[...document.querySelectorAll("main article[data-post]")].filter((a) => a.textContent.includes("Translated from Spanish")).map((a) => a.dataset.post)`,
+        );
+        return shown?.find((s) => ids?.includes(s));
+      }, 20_000);
+      if (!id) return false;
+      const onX = await engine(
+        `!!${xArticle(id)}?.querySelector('button[aria-label="Show original"]')`,
+      );
+      const text = (which) =>
+        app(
+          `[...document.querySelector('main article[data-post="${id}"]').querySelectorAll("p")].map((p) => p.textContent).find((t) => t.length > 0 && !/^(Translated from|Show )/.test(t))`,
+        );
+      const toggle = `[...document.querySelector('main article[data-post="${id}"]').querySelectorAll("button")].find((b) => /^Show (original|translation)$/.test(b.textContent)).click(), true`;
+      const translated = await text();
+      await app(toggle);
+      const original = await text();
+      await app(toggle);
+      const want = await store(
+        `(() => { const p = $.posts.get("${id}"); return [p.translation.text, p.text]; })()`,
+      );
+      // A list clamps a long post with "Show more": the opening is what shows.
+      const opens = (shown, full) =>
+        !!shown && full.startsWith(shown.replace(/…?Show more$/, "").slice(0, 100));
+      const ok =
+        onX && opens(translated, want[0]) && opens(original, want[1]) && translated !== original;
+      if (!ok) console.log(`      ${JSON.stringify({ id, onX, translated, original, want })}`);
+      return ok && `post ${id}`;
+    },
+  ],
+  [
+    "An open poll's choices are X's own radios on the engine (dry)",
+    async () => {
+      const radios = (root) =>
+        `[...(${root})?.querySelectorAll('[role="radio"]') ?? []].map((r) => r.textContent.trim())`;
+      for (const q of ["quick poll", "poll", "vote poll"]) {
+        // oxlint-disable-next-line no-await-in-loop -- one search at a time, as a user types them
+        await go(`#/search?q=${encodeURIComponent(q)}&f=latest`);
+        // oxlint-disable-next-line no-await-in-loop -- waits for X's results to draw
+        const id = await until(
+          () =>
+            app(
+              `document.querySelector('main article[data-post] [data-x="poll"] [role="radio"]')?.closest("article").dataset.post`,
+            ),
+          10_000,
+        );
+        if (!id) continue;
+        // oxlint-disable-next-line no-await-in-loop -- the matching article on X's page
+        const [ours, xs] = [
+          await app(radios(`document.querySelector('main article[data-post="${id}"]')`)),
+          await engine(radios(`${xArticle(id)}?.querySelector('[data-testid="cardPoll"]')`)),
+        ];
+        const same = ours.length >= 2 && JSON.stringify(ours) === JSON.stringify(xs);
+        if (!same) console.log(`      ${JSON.stringify({ id, ours, xs })}`);
+        return same && `${q}: ${ours.join(" / ")}`;
+      }
+      console.log("      no open poll in reach");
+      return false;
+    },
+  ],
+  [
     "Messages stays x.com itself, over the main area",
     async () => {
       await app(

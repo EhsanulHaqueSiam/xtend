@@ -799,4 +799,57 @@ describe("renderEngineBatch entry order, badges and labels", () => {
       },
     });
   });
+
+  it("reads X's own translation, trimmed like the text, with its links placed", () => {
+    const es = tweet(
+      "6",
+      {
+        full_text: "Mira esto https://t.co/a https://t.co/m",
+        entities: {
+          urls: [{ url: "https://t.co/a", expanded_url: "https://a.es", display_url: "a.es" }],
+        },
+        extended_entities: {
+          media: [
+            {
+              url: "https://t.co/m",
+              type: "photo",
+              media_url_https: "https://pbs.twimg.com/m.jpg",
+            },
+          ],
+        },
+      },
+      {
+        grok_translated_post_with_availability: {
+          is_available: true,
+          data: {
+            source_language: "es",
+            destination_language: "en",
+            translation: "Look at this https://t.co/a https://t.co/m",
+            entities: {
+              urls: [{ url: "https://t.co/a", expanded_url: "https://a.es", display_url: "a.es" }],
+            },
+          },
+        },
+      },
+    );
+    const none = tweet(
+      "7",
+      {},
+      { grok_translated_post_with_availability: { is_available: false } },
+    );
+    const [translated, plain] = renderEngineBatch("SearchTimeline", {}, { data: [es, none] }).posts;
+    expect(translated!.translation).toEqual({
+      text: "Look at this https://t.co/a",
+      from: "es",
+      entities: {
+        urls: [
+          { url: "https://t.co/a", expanded: "https://a.es", display: "a.es", indices: [13, 27] },
+        ],
+        mentions: [],
+        hashtags: [],
+        cashtags: [],
+      },
+    });
+    expect(plain!.translation).toBeNull();
+  });
 });
