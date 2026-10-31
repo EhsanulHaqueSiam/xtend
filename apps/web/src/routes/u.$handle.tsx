@@ -8,14 +8,14 @@ import { RichText } from "../components/xnative/RichText";
 import { Timeline } from "../components/xnative/Timeline";
 import { XTabs, XTitle } from "../components/xnative/XColumn";
 import { Avatar, Verified } from "../components/xnative/XPostView";
-import { engineAtom, profileSurface, type Surface, userByHandle } from "../state/engine";
+import { engineAtom, type ProfileTab, profileSurface, userByHandle } from "../state/engine";
 import { xGo } from "../state/x";
 
 const TABS = [
-  { id: "posts", label: "Posts", path: "", surface: "profile" },
-  { id: "replies", label: "Replies", path: "/with_replies", surface: "profile:replies" },
-  { id: "media", label: "Media", path: "/media", surface: "profile:media" },
-] as const satisfies ReadonlyArray<{ id: string; label: string; path: string; surface: Surface }>;
+  { id: "posts", label: "Posts", path: "" },
+  { id: "replies", label: "Replies", path: "/with_replies" },
+  { id: "media", label: "Media", path: "/media" },
+] as const satisfies ReadonlyArray<{ id: ProfileTab; label: string; path: string }>;
 type Tab = (typeof TABS)[number]["id"];
 
 const JOINED = new Intl.DateTimeFormat("en", { month: "long", year: "numeric" });
@@ -41,9 +41,10 @@ function ProfileScreen() {
   const seen = [...engine.posts.values()].find(
     (p) => p.author.handle.toLowerCase() === handle.toLowerCase(),
   );
-  // A tab's posts sit under the person's id; until X names them, under the last profile fetched.
-  const userId = user?.userId ?? seen?.author.userId;
-  const surface = userId === undefined ? current.surface : profileSurface(current.id, userId);
+  // A tab's posts sit under the person's id. Until X names them the list stays empty (keyed by the
+  // handle, which nothing fills) rather than showing whoever the engine fetched last.
+  const userId = user?.userId ?? seen?.author.userId ?? `@${handle.toLowerCase()}`;
+  const surface = profileSurface(current.id, userId);
   const name = user?.name ?? seen?.author.name ?? handle;
   const pill =
     "h-9 cursor-pointer rounded-full px-4 text-[15px] font-bold transition-colors duration-150";

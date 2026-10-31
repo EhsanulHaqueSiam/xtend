@@ -101,6 +101,8 @@ function SearchScreen() {
     return (
       <XColumn header={header}>
         <XRows
+          waitKey={surface}
+          onReopen={open}
           items={at(engine.people, surface).flatMap((id) => engine.users.get(id) ?? [])}
           rowKey={(u) => u.userId}
           empty={q === "" ? "Search X for people by name or @handle." : "Searching X for people."}

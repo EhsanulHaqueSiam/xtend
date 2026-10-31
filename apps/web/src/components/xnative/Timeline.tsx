@@ -5,17 +5,10 @@ import { useEffect, useRef, useState, type ReactNode, type RefObject } from "rea
 import { type StateSnapshot, Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 
 import { type AnySurface, at, engineAtom, showWaiting, updateEngine } from "../../state/engine";
-import { xScrollMore } from "../../state/x";
-import { Empty } from "../ui/layout";
 import { PostRail } from "./PostRail";
 import { useXScrollParent, XColumn } from "./XColumn";
 import { Avatar, postUrl, XPostView } from "./XPostView";
-
-/** How often a list may ask X for its next page; X's own scrolling pace, not faster. */
-const MORE_EVERY_MS = 1500;
-
-/** How long a screen waits for X's first answer before it says so and offers x.com itself. */
-const QUIET_MS = 12_000;
+import { useMore, XEmpty } from "./XRows";
 
 /** Where each list was left (scroll and measured heights), so Back lands on the same post. */
 const places = new Map<AnySurface, StateSnapshot>();
@@ -89,23 +82,7 @@ function PostList({
   readonly onOpen: (p: EnginePost) => void;
 }) {
   const scroller = useXScrollParent();
-  const lastMore = useRef(0);
-  const trailing = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => clearTimeout(trailing.current ?? undefined), []);
-  // Virtuoso fires endReached once per list length, so a call inside the pause is kept for its end
-  // rather than dropped; otherwise the feed would stall at its last post.
-  const more = () => {
-    const wait = lastMore.current + MORE_EVERY_MS - Date.now();
-    if (wait > 0) {
-      trailing.current ??= setTimeout(() => {
-        trailing.current = null;
-        more();
-      }, wait);
-      return;
-    }
-    lastMore.current = Date.now();
-    void xScrollMore();
-  };
+  const more = useMore();
   if (scroller === null) return null;
   return (
     <Virtuoso
@@ -164,24 +141,12 @@ export function Timeline({
   const waiting = at(engine.waiting, surface).flatMap((id) => engine.posts.get(id) ?? []);
   const current = posts[Math.min(selected, posts.length - 1)];
   const quoted = (id: string | null) => (id === null ? undefined : engine.posts.get(id));
-  const navigate = useNavigate();
-  // Which wait went quiet: a new surface or a list that empties again starts a fresh wait.
-  const waitKey = `${surface}:${posts.length === 0}`;
-  const [quietKey, setQuietKey] = useState<string | null>(null);
-  const quiet = quietKey === waitKey;
   const [, setMinute] = useState(0);
   // Ages ("4m") move on while the list sits open; one re-render a minute is enough.
   useEffect(() => {
     const timer = setInterval(() => setMinute((n) => n + 1), 60_000);
     return () => clearInterval(timer);
   }, []);
-  // X has not answered for a while: say so, instead of loading forever.
-  const empty0 = posts.length === 0;
-  useEffect(() => {
-    if (!empty0) return;
-    const timer = setTimeout(() => setQuietKey(waitKey), QUIET_MS);
-    return () => clearTimeout(timer);
-  }, [empty0, waitKey]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -225,30 +190,7 @@ export function Timeline({
     >
       {top}
       {posts.length === 0 ? (
-        <Empty
-          action={
-            quiet ? (
-              <span className="flex gap-2">
-                <button
-                  type="button"
-                  className="h-8 cursor-pointer rounded-full bg-foreground px-3.5 text-[13px] font-bold text-background"
-                  onClick={onReopen}
-                >
-                  Load again
-                </button>
-                <button
-                  type="button"
-                  className="h-8 cursor-pointer rounded-full border border-white/[0.18] px-3.5 text-[13px] font-bold hover:bg-white/[0.06]"
-                  onClick={() => void navigate({ to: "/x" })}
-                >
-                  Show x.com here
-                </button>
-              </span>
-            ) : undefined
-          }
-        >
-          {quiet ? "X has not sent this yet. It may be signed out or slow." : empty}
-        </Empty>
+        <XEmpty key={surface} empty={empty} onReopen={onReopen} />
       ) : (
         <PostList
           surface={surface}

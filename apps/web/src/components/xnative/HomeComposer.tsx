@@ -51,6 +51,9 @@ export function HomeComposer() {
     const exit = Exit.isSuccess(draft) ? await postNow(draft.value.id) : draft;
     setBusy(false);
     if (Exit.isFailure(exit)) return setToast({ text: `Not posted: ${failText(exit.cause)}` });
+    // The publisher answers with the draft: only "posted" means X has it; the text stays otherwise.
+    if (exit.value.status !== "posted")
+      return setToast({ text: `Not posted: ${exit.value.error ?? exit.value.status}` });
     setText("");
     setToast({ text: "Posted on X" });
   };

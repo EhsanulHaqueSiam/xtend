@@ -84,6 +84,8 @@ function ListsScreen() {
   return (
     <XColumn header={<XTitle title="Lists" />}>
       <XRows
+        waitKey="lists"
+        onReopen={open}
         items={rows}
         paged={false}
         rowKey={(r) =>

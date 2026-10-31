@@ -148,6 +148,8 @@ function ExploreScreen() {
       }
     >
       <XRows
+        waitKey={surface ?? "explore"}
+        onReopen={open}
         items={rows}
         rowKey={(r) =>
           r.kind === "group"

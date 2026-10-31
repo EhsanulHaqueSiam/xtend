@@ -142,6 +142,8 @@ function NotificationsScreen() {
       }
     >
       <XRows
+        waitKey={current.surface}
+        onReopen={open}
         items={rows}
         rowKey={(n) => n.id}
         empty="Loading your notifications from X."

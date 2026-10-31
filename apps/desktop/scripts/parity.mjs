@@ -61,6 +61,16 @@ const shot = async (file) => {
   const { data } = await call("Page.captureScreenshot", { format: "png" });
   await writeFile(join(out, file), Buffer.from(data, "base64"));
 };
+/** Runs an expression in the x.com page itself (the engine), through its own DevTools target. */
+const xPage = async (expression) => {
+  const x = (await (await fetch(`http://127.0.0.1:${port}/json`)).json()).find((t) =>
+    t.url.startsWith("https://x.com"),
+  );
+  if (x === undefined) return;
+  const page = await connect(x);
+  await page.call("Runtime.evaluate", { expression });
+  page.close();
+};
 const go = (hash) => run(`location.hash = ${JSON.stringify(hash)}, true`);
 const POSTS = 'document.querySelectorAll("[data-x=post]").length > 0';
 
@@ -118,6 +128,9 @@ for (let i = 0; i < screens.length; i++) {
   }
   await go("#/x");
   await sleep(2500);
+  // Both sides from the top of the same page, so the pair shows the same entries.
+  await xPage("window.scrollTo(0, 0)");
+  await sleep(500);
   await shot(`${screen.name}-x.png`);
   report.push(`${screen.name.padEnd(10)} ${drawn ? "drawn" : "EMPTY after 20s"}`);
 }

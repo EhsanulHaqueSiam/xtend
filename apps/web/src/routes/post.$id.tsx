@@ -2,12 +2,12 @@ import { useAtomValue } from "@effect/atom-react";
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useCallback, useEffect } from "react";
 
-import { Empty } from "../components/ui/layout";
 import { PostRail } from "../components/xnative/PostRail";
 import { ReplyComposer } from "../components/xnative/ReplyComposer";
 import { useOpenPost } from "../components/xnative/Timeline";
 import { XColumn, XTitle } from "../components/xnative/XColumn";
 import { XPostView } from "../components/xnative/XPostView";
+import { XEmpty } from "../components/xnative/XRows";
 import { at, engineAtom, postSurface } from "../state/engine";
 import { xGo } from "../state/x";
 
@@ -33,7 +33,7 @@ function PostScreen() {
       rail={<PostRail post={focal} seen={engine.posts.values()} />}
     >
       {focal === undefined ? (
-        <Empty>Loading the post from X.</Empty>
+        <XEmpty key={id} empty="Loading the post from X." onReopen={open} />
       ) : (
         <>
           {above.map((p) => (
