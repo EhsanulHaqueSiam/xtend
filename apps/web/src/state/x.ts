@@ -188,8 +188,7 @@ const pressScript = (scope: string, testid: string, turns: string, confirm: stri
 export const xActInPlace = (postId: string, action: XAction): Promise<boolean> => {
   // The id goes into a script: digits only.
   if (!/^\d{1,25}$/.test(postId)) return Promise.resolve(false);
-  const { turns } = BUTTONS[action];
-  const confirm = "confirm" in BUTTONS[action] ? BUTTONS[action].confirm : undefined;
+  const { turns, confirm }: { readonly turns: string; readonly confirm?: string } = BUTTONS[action];
   return xRun(`(async () => {
     // A page just loaded draws its posts a moment later, so wait for X's first post, then look
     // for this one briefly. The post's own article is the one whose timestamp links to it (to its
