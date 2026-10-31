@@ -25,7 +25,9 @@ can go out at a time that is not a slot.
 Queued and failed drafts by time, with what the queue costs in the header. A row opens the
 draft in Compose. **Post now** shows its treg price and confirms before it charges. The ⋯ menu
 holds the rest: **Skip this slot** moves a draft to the next slot, **Unschedule** makes it a
-draft again, and **Runs** lists its attempts.
+draft again, and **Runs** lists its attempts. A failed draft says why and offers **Retry at
+next slot** instead of Post now: X may already hold part of it, so check your profile first.
+Its ⋯ menu has **Delete**, which asks before it removes the draft and its media.
 
 ## Slots
 

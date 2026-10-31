@@ -21,7 +21,7 @@ import { XCard } from "../components/x";
 import { DRAFT_TYPE } from "../lib/drag";
 import { cn } from "../lib/utils";
 import { dayStartIn, weekStartIn } from "../lib/time";
-import { draftsAtom } from "../state/compose";
+import { deleteDraftAtom, draftsAtom } from "../state/compose";
 import { usd } from "../state/costs";
 import {
   calendarAtom,
@@ -188,13 +188,14 @@ function PlanScreen() {
   const skip = useAtomSet(skipAtom, { mode: "promiseExit" });
   const unschedule = useAtomSet(unscheduleAtom, { mode: "promiseExit" });
   const runNow = useAtomSet(runNowAtom, { mode: "promiseExit" });
+  const remove = useAtomSet(deleteDraftAtom, { mode: "promiseExit" });
 
   const allDrafts = AsyncResult.getOrElse(drafts, () => []);
   // The calendar shows slots, the week's posts and the drafts to place; with one of them missing
   // a taken slot would look open, so it waits for all three.
   const calendar = AsyncResult.all([slots, week, drafts]);
   const queued = allDrafts
-    .filter((d) => d.status === "queued" || d.status === "failed")
+    .filter((d) => d.status === "queued" || d.status === "posting" || d.status === "failed")
     .sort((a, b) => (a.scheduledAt ?? "").localeCompare(b.scheduledAt ?? ""));
   const empties = AsyncResult.isSuccess(calendar)
     ? emptySlotCount(zone, start, now, calendar.value[0], calendar.value[1])
@@ -241,6 +242,19 @@ function PlanScreen() {
       },
     });
   const open = (d: Draft) => toCompose({ draft: d.id, tab: tabOf(d.status) });
+  /** A draft and its media go for good, so Delete names it and waits for a yes. */
+  const deleteDraft = async (d: Draft) => {
+    if (acting || !window.confirm(`Delete "${draftTitle(d)}"? This cannot be undone.`)) return;
+    setActing(true);
+    try {
+      const result = await remove(d.id);
+      setNotice(Exit.isFailure(result) ? `Failed: ${failText(result.cause)}` : "Removed");
+      refreshWeek();
+      refreshDrafts();
+    } finally {
+      setActing(false);
+    }
+  };
   const queueNext = (d: Draft) =>
     act(
       () => queue(d.id),
@@ -386,6 +400,8 @@ function PlanScreen() {
                           : `Failed: ${d.error ?? "unknown"}`,
                     )
                   }
+                  onRetry={queueNext}
+                  onDelete={(d) => void deleteDraft(d)}
                   onOpen={open}
                 />
               ),

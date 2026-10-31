@@ -527,7 +527,7 @@ export function Sidebar({ compact = false }: { readonly compact?: boolean }) {
   const pending = or(useAtomValue(pendingAtom), null);
   const openInbox = inbox?.items.filter((m) => !m.handled).length ?? null;
   const counts: Readonly<Record<string, number | null>> = {
-    "/compose": queued?.length ?? null,
+    "/plan": queued?.length ?? null,
     "/engage": openInbox,
     "/automate": pending?.length ?? null,
   };

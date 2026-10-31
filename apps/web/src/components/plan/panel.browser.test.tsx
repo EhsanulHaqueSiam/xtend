@@ -25,6 +25,8 @@ it("keeps a queued title whole beside the X panel, with the other actions in a m
       onSkip={onSkip}
       onUnschedule={() => {}}
       onRunNow={() => {}}
+      onRetry={() => {}}
+      onDelete={() => {}}
       onOpen={() => {}}
     />,
     { container, service: { "costs.quote": quoting() } },

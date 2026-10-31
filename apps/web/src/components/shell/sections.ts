@@ -36,14 +36,11 @@ export const ABOUT: Readonly<Record<string, string>> = {
  */
 export const SECTIONS = {
   "/compose": [
-    { id: "drafts", label: "Drafts", about: "Yours, not yet queued." },
-    { id: "queued", label: "Queued", about: "Waiting for their slot." },
     {
-      id: "automatic",
-      label: "Automatic",
-      about: "Written by rules and picks; queue or edit them.",
+      id: "drafts",
+      label: "Drafts",
+      about: "Yours, and what Library and rules wrote for you, not yet queued.",
     },
-    { id: "failed", label: "Failed", about: "Did not post, with the reason." },
     { id: "posted", label: "Posted", about: "On X, with their ids." },
   ],
   "/plan": [
@@ -52,7 +49,11 @@ export const SECTIONS = {
       label: "Calendar",
       about: "Drop a draft on a slot or an hour to schedule it.",
     },
-    { id: "queue", label: "Queue", about: "In order, with what the week costs." },
+    {
+      id: "queue",
+      label: "Queue",
+      about: "Queued and failed posts in order, with what the week costs.",
+    },
     { id: "slots", label: "Slots", about: "The times posts go out, per weekday." },
   ],
   "/library": [
