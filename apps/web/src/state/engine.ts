@@ -17,7 +17,11 @@ import * as Atom from "effect/reactivity/Atom";
  * capture, one GraphQL response at a time; nothing here calls X.
  */
 
-/** The pages every account has. */
+/**
+ * Pages with one list per account. "search", "post" and the "profile" ones also mirror the last
+ * search, post or profile the engine fetched, for screens that reset them before each visit;
+ * screens that move the engine with `xGo` read the keyed surfaces below instead.
+ */
 export type Surface =
   | "forYou"
   | "following"
@@ -36,52 +40,109 @@ export type Surface =
   | "notifications:verified"
   | "lists";
 
-/** Pages named by what X sent: a pinned Home tab, a List, a Community, an Explore tab. */
-type TabSurface = EngineHomeTab["id"] | `explore:${string}`;
-export type AnySurface = Surface | TabSurface;
+/** @public A profile's tabs, as X names its pages (`/<handle>/with_replies` is "replies"). */
+export type ProfileTab =
+  | "posts"
+  | "replies"
+  | "media"
+  | "reposts"
+  | "articles"
+  | "highlights"
+  | "subs";
+/** @public X's search tabs, by the product name X's request carries. */
+export type SearchProduct = "Top" | "Latest" | "People" | "Media";
 
-const OPS: Readonly<Record<string, Surface>> = {
-  HomeLatestTimeline: "following",
-  SearchTimeline: "search",
-  TweetDetail: "post",
-  Bookmarks: "bookmarks",
+/**
+ * Pages keyed by what they show, so a page X serves again from its own cache (no fetch) still has
+ * its posts: a pinned Home tab, a List, a Community, an Explore tab, one search, one post's
+ * thread, one profile tab.
+ */
+type KeyedSurface =
+  | EngineHomeTab["id"]
+  | `explore:${string}`
+  | `search:${SearchProduct}:${string}`
+  | `post:${string}`
+  | `profile:${ProfileTab}:${string}`;
+export type AnySurface = Surface | KeyedSurface;
+
+/** @public The keyed surfaces screens read, named the way the capture keys them. */
+export const searchSurface = (product: SearchProduct, query: string) =>
+  `search:${product}:${query}` as const;
+/** @public */
+export const postSurface = (postId: string) => `post:${postId}` as const;
+/** @public */
+export const profileSurface = (tab: ProfileTab, userId: string) =>
+  `profile:${tab}:${userId}` as const;
+
+const PROFILE_OPS: Readonly<Record<string, ProfileTab>> = {
   // X has used each pair of names for a profile's tabs.
-  UserTweets: "profile",
-  UserOriginalsTimeline: "profile",
-  UserTweetsAndReplies: "profile:replies",
-  UserRepliesTimeline: "profile:replies",
-  UserMedia: "profile:media",
-  UserVideoTimeline: "profile:media",
-  UserRepostsTimeline: "profile:reposts",
-  UserArticlesTweets: "profile:articles",
-  UserHighlightsTweets: "profile:highlights",
-  UserSuperFollowTweets: "profile:subs",
-  ListsManagementPageTimeline: "lists",
+  UserTweets: "posts",
+  UserOriginalsTimeline: "posts",
+  UserTweetsAndReplies: "replies",
+  UserRepliesTimeline: "replies",
+  UserMedia: "media",
+  UserVideoTimeline: "media",
+  UserRepostsTimeline: "reposts",
+  UserArticlesTweets: "articles",
+  UserHighlightsTweets: "highlights",
+  UserSuperFollowTweets: "subs",
 };
+
+const SEARCH_PRODUCTS: ReadonlyArray<string> = [
+  "Top",
+  "Latest",
+  "People",
+  "Media",
+] satisfies ReadonlyArray<SearchProduct>;
+const isProduct = (p: string): p is SearchProduct => SEARCH_PRODUCTS.includes(p);
 
 /** The capture's key for a Home tab, a Community or a List, typed as the surface it names. */
 const tabKey = <P extends "tag" | "community" | "list">(key: string | null, prefix: P) =>
   key?.startsWith(`${prefix}:`) === true ? (key as `${P}:${string}`) : undefined;
 
-/** Which surface a response feeds; undefined for the many X calls no screen lists. */
-export function surfaceOf(batch: Pick<EngineBatch, "op" | "key">): AnySurface | undefined {
+/**
+ * Which surfaces a response feeds, its own first; none for the many X calls no screen lists.
+ */
+export function surfacesOf(batch: Pick<EngineBatch, "op" | "key">): ReadonlyArray<AnySurface> {
   const { op, key } = batch;
-  if (op === "HomeTimeline") return tabKey(key, "tag") ?? "forYou";
-  if (op === "CommunityTweetsTimeline") return tabKey(key, "community");
-  if (op === "ListLatestTweetsTimeline") return tabKey(key, "list");
+  const tab = PROFILE_OPS[op];
+  if (tab !== undefined) {
+    const legacy = tab === "posts" ? "profile" : (`profile:${tab}` as const);
+    return key === null ? [legacy] : [profileSurface(tab, key), legacy];
+  }
+  if (op === "SearchTimeline") {
+    const product = key?.slice(0, key.indexOf(":")) ?? "";
+    return isProduct(product) && key !== null
+      ? [searchSurface(product, key.slice(product.length + 1)), "search"]
+      : ["search"];
+  }
+  if (op === "TweetDetail") return key === null ? ["post"] : [postSurface(key), "post"];
+  if (op === "HomeTimeline") return [tabKey(key, "tag") ?? "forYou"];
+  if (op === "HomeLatestTimeline") return ["following"];
+  if (op === "Bookmarks") return ["bookmarks"];
+  if (op === "ListsManagementPageTimeline") return ["lists"];
+  const keyed =
+    op === "CommunityTweetsTimeline"
+      ? tabKey(key, "community")
+      : op === "ListLatestTweetsTimeline"
+        ? tabKey(key, "list")
+        : (op === "ExplorePage" || op === "GenericTimelineById") && key !== null
+          ? (`explore:${key}` as const)
+          : undefined;
+  if (keyed !== undefined) return [keyed];
   if (op === "NotificationsTimeline")
-    return key === "Mentions"
-      ? "notifications:mentions"
-      : key === "Verified"
-        ? "notifications:verified"
-        : "notifications";
-  if ((op === "ExplorePage" || op === "GenericTimelineById") && key !== null)
-    return `explore:${key}`;
-  return OPS[op];
+    return [
+      key === "Mentions"
+        ? "notifications:mentions"
+        : key === "Verified"
+          ? "notifications:verified"
+          : "notifications",
+    ];
+  return [];
 }
 
 type PerSurface<A> = Readonly<Record<Surface, ReadonlyArray<A>>> &
-  Readonly<Partial<Record<TabSurface, ReadonlyArray<A>>>>;
+  Readonly<Partial<Record<KeyedSurface, ReadonlyArray<A>>>>;
 
 // Empty arrays fit every element type, so one value serves every per-surface field.
 const NONE: PerSurface<never> = {
@@ -111,12 +172,19 @@ export interface EngineState {
   readonly lists: PerSurface<string>;
   /** Newer posts X fetched for a list's top; they wait behind a pill instead of shifting the list. */
   readonly waiting: PerSurface<string>;
+  /**
+   * X's own order for the list's top once the waiting posts show: the newer page as X sent it,
+   * posts already listed included, so the list matches X's page again and X's buttons are at hand.
+   */
+  readonly nextTop: PerSurface<string>;
   /** User ids per surface. */
   readonly people: PerSurface<string>;
   readonly trends: PerSurface<EngineTrend>;
   readonly notifications: PerSurface<EngineNotification>;
   /** X Lists by id: the Lists page's rows and each List's own header. */
   readonly xLists: ReadonlyMap<string, EngineList>;
+  /** List ids per surface, in X's order (the Lists page's sections follow it). */
+  readonly listIds: PerSurface<string>;
   /** Home's pinned tabs after For you and Following, as X named them. */
   readonly homeTabs: ReadonlyArray<EngineHomeTab>;
   readonly exploreTabs: ReadonlyArray<EngineExploreTab>;
@@ -131,10 +199,12 @@ export const emptyEngine: EngineState = {
   users: new Map(),
   lists: NONE,
   waiting: NONE,
+  nextTop: NONE,
   people: NONE,
   trends: NONE,
   notifications: NONE,
   xLists: new Map(),
+  listIds: NONE,
   homeTabs: [],
   exploreTabs: [],
   cursors: {},
@@ -194,8 +264,12 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
     homeTabs: batch.homeTabs ?? state.homeTabs,
     exploreTabs: batch.exploreTabs ?? state.exploreTabs,
   };
-  const surface = surfaceOf(batch);
-  if (surface === undefined) return merged;
+  return surfacesOf(batch).reduce((state, surface) => mergeInto(state, batch, surface), merged);
+}
+
+/** One response into one surface's lists, by which page of it X fetched. */
+function mergeInto(state: EngineState, batch: EngineBatch, surface: AnySurface): EngineState {
+  const posts = state.posts;
 
   const seen = state.cursors[surface];
   const page =
@@ -217,7 +291,8 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
   const list = at(state.lists, surface);
   const quoted = new Set(batch.posts.flatMap((p) => (p.quotedId === null ? [] : [p.quotedId])));
   const known = new Set([...list, ...at(state.waiting, surface)]);
-  const fresh = batch.posts.map((p) => p.postId).filter((id) => !known.has(id) && !quoted.has(id));
+  const order = batch.posts.map((p) => p.postId).filter((id) => !quoted.has(id));
+  const fresh = order.filter((id) => !known.has(id));
   const top = list[0] === undefined ? undefined : posts.get(list[0]);
   const newer =
     surface !== "post" &&
@@ -245,6 +320,15 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
           surface,
           page === "first" ? batch.trends : [...at(state.trends, surface), ...batch.trends],
         );
+  const listIdsNow = batch.lists.map((l) => l.listId);
+  const listIds =
+    listIdsNow.length === 0
+      ? state.listIds
+      : set(
+          state.listIds,
+          surface,
+          page === "first" ? listIdsNow : join(at(state.listIds, surface), listIdsNow, String),
+        );
   const notifications =
     batch.notifications.length === 0
       ? state.notifications
@@ -262,23 +346,38 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
         );
 
   return {
-    ...merged,
+    ...state,
     cursors,
     people,
+    listIds,
     trends,
     notifications,
     lists: newer ? state.lists : set(state.lists, surface, [...list, ...fresh]),
     waiting: newer
       ? set(state.waiting, surface, [...fresh, ...at(state.waiting, surface)])
       : state.waiting,
+    nextTop: newer
+      ? set(state.nextTop, surface, unique([...order, ...at(state.nextTop, surface)]))
+      : state.nextTop,
   };
 }
 
-/** Shows what waited behind the pill, on top. */
+const unique = (ids: ReadonlyArray<string>) => [...new Set(ids)];
+
+/** Shows what waited behind the pill, on top in X's order. */
 export const showWaiting = (state: EngineState, surface: AnySurface): EngineState => ({
   ...state,
-  lists: set(state.lists, surface, [...at(state.waiting, surface), ...at(state.lists, surface)]),
+  lists: set(
+    state.lists,
+    surface,
+    unique([
+      ...at(state.nextTop, surface),
+      ...at(state.waiting, surface),
+      ...at(state.lists, surface),
+    ]),
+  ),
   waiting: set(state.waiting, surface, []),
+  nextTop: set(state.nextTop, surface, []),
 });
 
 /** A surface opened afresh: its order starts again from what X sends next. */
@@ -286,7 +385,9 @@ export const resetSurface = (state: EngineState, surface: AnySurface): EngineSta
   ...state,
   lists: set(state.lists, surface, []),
   waiting: set(state.waiting, surface, []),
+  nextTop: set(state.nextTop, surface, []),
   people: set(state.people, surface, []),
+  listIds: set(state.listIds, surface, []),
   trends: set(state.trends, surface, []),
   notifications: set(state.notifications, surface, []),
   cursors: { ...state.cursors, [surface]: undefined },
@@ -306,9 +407,14 @@ export const engineAtom = Atom.make(emptyEngine).pipe(Atom.keepAlive);
 export const updateEngine = (change: (state: EngineState) => EngineState) =>
   (current = change(current));
 
-// The engine benchmark (apps/desktop/scripts/engine-bench.mjs) reads the store through DevTools.
-if (import.meta.env.DEV && typeof window !== "undefined")
+// The engine benchmark (apps/desktop/scripts/engine-bench.mjs) reads the store through DevTools,
+// and empties a surface first so a check sees what X sends now, not what an earlier run left.
+if (import.meta.env.DEV && typeof window !== "undefined") {
   Reflect.set(window, "__xtendEngine", () => current);
+  Reflect.set(window, "__xtendEngineReset", (surface: AnySurface) =>
+    updateEngine((s) => resetSurface(s, surface)),
+  );
+}
 
 /** The engine's post in the shape the reply and save calls take. */
 export const toXPost = (p: EnginePost): XPost => ({

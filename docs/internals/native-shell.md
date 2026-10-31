@@ -27,19 +27,37 @@ and the tools; X's own rail and right column are hidden by a CSS skin.
 
 Home, Search, Post, Bookmarks and profiles are Xtend's own screens (`components/xnative/`), drawn from what the
 session view receives, the way T3 Code draws Claude's work: X is the engine, Xtend the
-interface. The screen moves the off-screen webview to the matching x.com page (and picks
-Home's tab); the capture turns each GraphQL response into posts with media, video variants,
-quotes and parents (`renderPostsFromGraphql`) and sends them to the app page on
-`xtend:engine`, never to the service. Reaching the end of a list scrolls X's own page so X
-fetches the next one, at most every 1.5s. A like, repost or bookmark presses X's own button on
-the engine page where the post already sits (`xActInPlace`, matched by the article whose
-timestamp links to the post, since a quoting post links to it too), so the engine never leaves
-the list it feeds. Only when the post is not there (X's timeline has no bookmark button) does it
-open the post's page, press it, and put the engine back. A reply goes through the existing
-session command and the screen restores the engine after it; posts X sends again are
-deduplicated. Video plays from X's mp4 in Xtend's player, so fullscreen and picture
-in picture are the browser's own. Pages Xtend does not draw yet (notifications, messages,
-lists) still show x.com itself.
+interface. The screen moves the parked webview to the matching x.com page (and picks Home's
+tab); the capture turns each GraphQL response into an engine batch (`xSession/engineBatch.ts`:
+posts with media, cards, polls, notes and social context, plus people, notifications, trends,
+Lists and Home's pinned tabs) and sends it to the app page on `xtend:engine`, never to the
+service. `state/engine.ts` files each batch under the page it came from.
+
+Traps that shaped this:
+
+- One operation serves many pages: HomeTimeline is For you and every pinned topic tab (its tag
+  rides in a POST body), SearchTimeline every query and tab. The capture keys a batch by the
+  request's variables, and the store keeps one list per key (`search:Latest:<q>`,
+  `profile:media:<userId>`, `post:<id>`, `tag:<id>`).
+- `xGo` moves the engine through X's own router in about a second instead of a full reload, but
+  X then serves a page it already holds from its cache and fetches nothing. A screen that empties
+  its list before each visit would stay empty, so screens read the keyed list, which still holds
+  what X sent the first time. `xNavigate` is the full reload.
+- New posts are told from the next page by cursor, not by date: For you is ranked, so a next
+  page can be all newer than the top. A fetch with the list's top cursor, or X reloading its
+  first page under an open list, waits behind the pill; shown, the top takes X's order so the
+  native list and X's page agree and X's buttons are at hand.
+- A like, repost or bookmark presses X's own button where the post sits (`xAct`). X's article is
+  the one whose timestamp links to the post, or to `/status/<id>/history` once it was edited; a
+  quoting post links to it too. When X's page no longer draws it, the engine opens the post
+  through X's router, presses there and goes Back, which restores X's list and scroll.
+- video.twimg.com answers 403 to a Referer that is not X's and `<video>` takes no
+  `referrerpolicy`, so the app page sends no Referer at all (`index.html`).
+
+Video plays from X's mp4 in Xtend's player, so fullscreen and picture in picture are the
+browser's own. Messages stays x.com itself (its chats are end-to-end encrypted in X's page).
+The read-only benchmark (`apps/desktop/scripts/engine-bench.mjs`) checks every surface against a
+dev desktop on the real account; its only write is a bookmark it removes again.
 
 ## Where x.com sits
 

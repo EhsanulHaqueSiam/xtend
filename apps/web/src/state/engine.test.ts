@@ -7,7 +7,7 @@ import {
   mergeBatch,
   resetSurface,
   showWaiting,
-  surfaceOf,
+  surfacesOf,
   userByHandle,
 } from "./engine";
 
@@ -114,21 +114,38 @@ it("tells For you's ranked pages apart by cursor, not by date", () => {
     batch("HomeTimeline", [post("2", "2026-10-31T00:00:00Z")], { cursor: "b", bottom: "b2" }),
   );
   expect(state.lists.forYou).toEqual(["1", "2"]);
-  // X reloading its first page while the list shows posts: the new ones wait.
-  state = mergeBatch(state, batch("HomeTimeline", [post("3", "2026-09-01T00:00:00Z")]));
+  // X reloading its first page while the list shows posts: the new ones wait, and once shown the
+  // top follows X's page, posts already listed included.
+  state = mergeBatch(
+    state,
+    batch("HomeTimeline", [post("2", "2026-10-31T00:00:00Z"), post("3", "2026-09-01T00:00:00Z")]),
+  );
   expect([state.lists.forYou, state.waiting.forYou]).toEqual([["1", "2"], ["3"]]);
+  expect(showWaiting(state, "forYou").lists.forYou).toEqual(["2", "3", "1"]);
 });
 
 it("files pinned Home tabs, Lists, Communities and Explore tabs under their own surface", () => {
-  expect(surfaceOf({ op: "HomeTimeline", key: "tag:19" })).toBe("tag:19");
-  expect(surfaceOf({ op: "HomeTimeline", key: null })).toBe("forYou");
-  expect(surfaceOf({ op: "CommunityTweetsTimeline", key: "community:14" })).toBe("community:14");
-  expect(surfaceOf({ op: "ListLatestTweetsTimeline", key: "list:12" })).toBe("list:12");
-  expect(surfaceOf({ op: "NotificationsTimeline", key: "Mentions" })).toBe(
+  expect(surfacesOf({ op: "HomeTimeline", key: "tag:19" })[0]).toBe("tag:19");
+  expect(surfacesOf({ op: "HomeTimeline", key: null })[0]).toBe("forYou");
+  expect(surfacesOf({ op: "CommunityTweetsTimeline", key: "community:14" })[0]).toBe(
+    "community:14",
+  );
+  expect(surfacesOf({ op: "ListLatestTweetsTimeline", key: "list:12" })[0]).toBe("list:12");
+  expect(surfacesOf({ op: "NotificationsTimeline", key: "Mentions" })[0]).toBe(
     "notifications:mentions",
   );
-  expect(surfaceOf({ op: "GenericTimelineById", key: "VTR" })).toBe("explore:VTR");
-  expect(surfaceOf({ op: "UserVideoTimeline", key: "5" })).toBe("profile:media");
+  expect(surfacesOf({ op: "GenericTimelineById", key: "VTR" })[0]).toBe("explore:VTR");
+  // A profile tab, a search and a thread each keep their own list and mirror the last one fetched.
+  expect(surfacesOf({ op: "UserVideoTimeline", key: "5" })).toEqual([
+    "profile:media:5",
+    "profile:media",
+  ]);
+  expect(surfacesOf({ op: "SearchTimeline", key: "Latest:from:theo" })).toEqual([
+    "search:Latest:from:theo",
+    "search",
+  ]);
+  expect(surfacesOf({ op: "TweetDetail", key: "42" })).toEqual(["post:42", "post"]);
+  expect(surfacesOf({ op: "UserFollowers", key: null })).toEqual([]);
 
   const state = mergeBatch(
     emptyEngine,
