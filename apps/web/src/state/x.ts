@@ -73,7 +73,9 @@ const xRun = (code: string) =>
     : Promise.resolve(null);
 
 /** The user scrolled near the end of a native list: X scrolls its own page and fetches the next. */
-export const xScrollMore = () => xRun("window.scrollBy(0, window.innerHeight * 3), true");
+// X fetches its next page only near the bottom of what it has drawn, so jump there.
+export const xScrollMore = () =>
+  xRun("window.scrollTo(0, document.documentElement.scrollHeight), true");
 
 /** Picks a tab on X's Home ("For you", "Following") once the page has drawn it. */
 export const xPickHomeTab = (label: string) =>
