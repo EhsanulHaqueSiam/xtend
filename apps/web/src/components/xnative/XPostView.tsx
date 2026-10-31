@@ -121,7 +121,7 @@ function MediaItem({
  * portrait shot stands narrow, as on X), two side by side, three with the first tall, four in a
  * square grid. A group sits at 16:9.
  */
-export function Media({ media }: { readonly media: ReadonlyArray<EngineMedia> }) {
+function Media({ media }: { readonly media: ReadonlyArray<EngineMedia> }) {
   const view = useAtomSet(viewerAtom);
   if (media.length === 0) return null;
   const one = media.length === 1 ? media[0]! : null;

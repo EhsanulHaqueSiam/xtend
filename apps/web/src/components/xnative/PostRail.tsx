@@ -9,7 +9,7 @@ import { engagement, viewsPerHour, vsAuthor } from "./format";
 import { Avatar, postUrl, Verified } from "./XPostView";
 
 /** A rail group in X's own shape: a hairline box with a bold title. */
-export function RailPanel({
+function RailPanel({
   title,
   children,
 }: {
