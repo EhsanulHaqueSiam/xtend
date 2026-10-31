@@ -155,6 +155,15 @@ function PaletteBody({
           run: onX(`/${handle}`),
         });
     }
+    // X's own search runs in the session, free, so on the desktop it comes first.
+    if (query.trim() !== "" && isElectron)
+      dynamic.push({
+        id: "search-x",
+        group: "X",
+        label: `Search X for "${query.trim()}"`,
+        icon: Search,
+        run: onX(`/search?q=${encodeURIComponent(query.trim())}&src=typed_query`),
+      });
     if (query.trim() !== "")
       dynamic.push({
         id: "search",

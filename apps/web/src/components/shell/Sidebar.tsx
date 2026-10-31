@@ -8,6 +8,7 @@ import {
   Bell,
   Mail,
   Bookmark,
+  Compass,
   UserRound,
   PenLine,
   CalendarDays,
@@ -63,6 +64,7 @@ const ROW =
  */
 const ICONS = {
   Home,
+  Explore: Compass,
   Notifications: Bell,
   Messages: Mail,
   Bookmarks: Bookmark,
@@ -286,6 +288,7 @@ function XRows({ compact }: { readonly compact: boolean }) {
   const [panelOpen, setPanel] = useAtom(xPanelOpenAtom);
   const pages: ReadonlyArray<{ label: string; path: string; count?: number }> = [
     { label: "Home", path: "/home" },
+    { label: "Explore", path: "/explore" },
     { label: "Notifications", path: "/notifications", count: unread },
     { label: "Messages", path: "/messages" },
     { label: "Bookmarks", path: "/i/bookmarks" },

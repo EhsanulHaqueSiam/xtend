@@ -456,8 +456,21 @@ export function createMainWindow(options: MainWindowOptions) {
   };
 
   let applyGuestSkin: () => Promise<void> = async () => {};
+  // X's video player asks for fullscreen; Chromium alone only fills the webview, so the window
+  // goes fullscreen with it, and leaves only if the video is what put it there.
+  let fullScreenForVideo = false;
   appContents.on("did-attach-webview", (_event, contents) => {
     guest?.detach();
+    contents.on("enter-html-full-screen", () => {
+      if (window.isFullScreen()) return;
+      fullScreenForVideo = true;
+      window.setFullScreen(true);
+    });
+    contents.on("leave-html-full-screen", () => {
+      if (!fullScreenForVideo) return;
+      fullScreenForVideo = false;
+      window.setFullScreen(false);
+    });
     const attached = attachX(contents);
     applyGuestSkin = attached.applySkin;
     guest = { contents, detach: attached.detach };

@@ -69,3 +69,16 @@ it("lets the legacy client's main span the row so the column can centre in it", 
   expect(getComputedStyle(document.getElementById("column")!).maxWidth).toBe("640px");
   style.remove();
 });
+
+it("hides a promoted post but never a post because it has a video", () => {
+  document.body.innerHTML = `
+    <div data-testid="cellInnerDiv" id="ad"><div data-testid="placementTracking"><article></article></div></div>
+    <div data-testid="cellInnerDiv" id="video"><article><div data-testid="tweetPhoto"><div data-testid="placementTracking"><div data-testid="videoPlayer"><video></video></div></div></div></article></div>`;
+  const style = document.createElement("style");
+  style.textContent = xSkinCss(["ads"]);
+  document.head.append(style);
+  const display = (id: string) => getComputedStyle(document.getElementById(id)!).display;
+  expect(display("ad")).toBe("none");
+  expect(display("video")).not.toBe("none");
+  style.remove();
+});
