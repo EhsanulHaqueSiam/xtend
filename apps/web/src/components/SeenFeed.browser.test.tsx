@@ -40,7 +40,7 @@ it("opens a seen post from the keyboard: its row takes focus and Enter", async (
   expect(open).toHaveBeenCalledWith("https://x.com/levelsio/status/555", "_blank", "noreferrer");
 });
 
-it("stacks rows under 720px so the text and every number fit beside the X panel", async () => {
+it("stacks rows under 960px so the text and every number fit beside the X panel", async () => {
   const box = (width: number) => {
     const el = document.createElement("div");
     el.style.width = `${width}px`;
@@ -50,7 +50,7 @@ it("stacks rows under 720px so the text and every number fit beside the X panel"
     "observations.listRecent": () => Effect.succeed({ posts: [seen], hasOlder: false }),
   };
   {
-    await using narrow = await render(<SeenFeed />, { container: box(440), service });
+    await using narrow = await render(<SeenFeed />, { container: box(770), service });
     const save = narrow.getByRole("button", { name: /Save/ });
     await expect.element(save).toBeVisible();
     // Nothing falls off the right edge, and each number says what it is.

@@ -546,7 +546,8 @@ export function Sidebar({ compact = false }: { readonly compact?: boolean }) {
             <span className="grid size-[22px] place-items-center rounded-md bg-sidebar-foreground text-[13px] leading-none font-bold text-sidebar">
               x
             </span>
-            Xtend
+            {/* Beside macOS's window buttons the name would cut the account handle short. */}
+            <span className="[.electron-mac_&]:hidden">Xtend</span>
           </span>
           <AccountMenu onError={setAccountError} />
         </div>

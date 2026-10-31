@@ -43,7 +43,10 @@ function Engagers() {
               <thead>
                 <tr>
                   <th className={t.th}>Account</th>
-                  <th className={cn(t.th, "text-right")}>Followers</th>
+                  {/* The session rarely sees follower counts; a column of dashes says nothing. */}
+                  {value.some((e) => e.followers !== null) ? (
+                    <th className={cn(t.th, "text-right")}>Followers</th>
+                  ) : null}
                   <th className={cn(t.th, "text-right")}>Seen</th>
                 </tr>
               </thead>
@@ -64,7 +67,9 @@ function Engagers() {
                         </span>
                       </XLink>
                     </td>
-                    <td className={cn(t.td, t.num)}>{fmt(e.followers)}</td>
+                    {value.some((v) => v.followers !== null) ? (
+                      <td className={cn(t.td, t.num)}>{fmt(e.followers)}</td>
+                    ) : null}
                     <td className={cn(t.td, t.num, "text-muted-foreground")}>{e.seen}×</td>
                   </tr>
                 ))}

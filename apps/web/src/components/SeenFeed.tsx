@@ -24,9 +24,9 @@ function engagementRate(post: ObservedPostSummary): string {
   return `${(((likes + reposts + replies + quotes + bookmarks) / views) * 100).toFixed(1)}%`;
 }
 
-// Under 720px of width (the X panel docked) a row stacks: author and Save, text, then the numbers.
+// Under 960px of width (the X panel docked beside a laptop-width window) a row stacks: author and Save, text, then the numbers.
 // `!` because the table cell's `first:pl-6` outranks a plain container variant.
-const stack = "@max-[720px]:h-auto @max-[720px]:border-0 @max-[720px]:p-0!";
+const stack = "@max-[960px]:h-auto @max-[960px]:border-0 @max-[960px]:p-0!";
 
 /** A number cell. A stacked row has no header, so its numbers carry their names. */
 function Num({ value, name }: { readonly value: string; readonly name?: string }) {
@@ -34,7 +34,7 @@ function Num({ value, name }: { readonly value: string; readonly name?: string }
     <td className={cn(table.td, table.num, stack)}>
       {value}
       {name === undefined ? null : (
-        <span className="text-muted-foreground @min-[720px]:hidden"> {name}</span>
+        <span className="text-muted-foreground @min-[960px]:hidden"> {name}</span>
       )}
     </td>
   );
@@ -64,7 +64,7 @@ function PostRow({
       className={cn(
         table.row,
         "cursor-pointer outline-hidden focus-visible:bg-white/[0.04]",
-        "@max-[720px]:flex @max-[720px]:flex-wrap @max-[720px]:items-center @max-[720px]:gap-x-2 @max-[720px]:border-b @max-[720px]:border-border @max-[720px]:px-4 @max-[720px]:py-2",
+        "@max-[960px]:flex @max-[960px]:flex-wrap @max-[960px]:items-center @max-[960px]:gap-x-2 @max-[960px]:border-b @max-[960px]:border-border @max-[960px]:px-4 @max-[960px]:py-2",
       )}
       onClick={() => onOpen(post)}
       onKeyDown={(e) => {
@@ -81,10 +81,10 @@ function PostRow({
           table.td,
           "w-56",
           stack,
-          "@max-[720px]:-order-2 @max-[720px]:w-auto @max-[720px]:min-w-0 @max-[720px]:flex-1",
+          "@max-[960px]:-order-2 @max-[960px]:w-auto @max-[960px]:min-w-0 @max-[960px]:flex-1",
         )}
       >
-        <div className="min-w-0 @max-[720px]:flex @max-[720px]:items-baseline @max-[720px]:gap-1.5">
+        <div className="min-w-0 @max-[960px]:flex @max-[960px]:items-baseline @max-[960px]:gap-1.5">
           <div className="flex min-w-0 items-center gap-1.5">
             <span className="truncate font-medium">{post.author.name}</span>
             {post.author.verified ? (
@@ -107,8 +107,8 @@ function PostRow({
           </div>
         </div>
       </td>
-      <td className={cn(table.td, stack, "@max-[720px]:w-full")}>
-        <p className="line-clamp-2 max-w-2xl text-[13px] leading-snug text-foreground/90 @max-[720px]:my-1 @max-[720px]:line-clamp-4">
+      <td className={cn(table.td, stack, "@max-[960px]:w-full")}>
+        <p className="line-clamp-2 max-w-2xl text-[13px] leading-snug text-foreground/90 @max-[960px]:my-1 @max-[960px]:line-clamp-4">
           {post.text}
         </p>
         <Marks marks={marks} />
@@ -119,7 +119,7 @@ function PostRow({
       <Num value={fmt(post.metrics.replies)} name="replies" />
       <Num value={engagementRate(post)} name="ER" />
       <Num value={`${post.observations}×`} />
-      <td className={cn(table.td, "whitespace-nowrap", stack, "@max-[720px]:-order-1")}>
+      <td className={cn(table.td, "whitespace-nowrap", stack, "@max-[960px]:-order-1")}>
         {marks?.some((m) => m.kind === "saved") ? (
           <span className="px-3 text-xs text-muted-foreground">Saved</span>
         ) : (
@@ -233,8 +233,8 @@ export function SeenFeed() {
                       : "Nothing yet. Browse X in the desktop app and posts land here with their numbers."}
                 </Empty>
               ) : (
-                <table className={cn(table.root, "@max-[720px]:block")}>
-                  <thead className="@max-[720px]:hidden">
+                <table className={cn(table.root, "@max-[960px]:block")}>
+                  <thead className="@max-[960px]:hidden">
                     <tr>
                       <th className={table.th}>Author</th>
                       <th className={table.th}>Post</th>
@@ -249,7 +249,7 @@ export function SeenFeed() {
                       </th>
                     </tr>
                   </thead>
-                  <tbody className="@max-[720px]:block">
+                  <tbody className="@max-[960px]:block">
                     {value.posts.map((post) => (
                       <PostRow
                         key={post.postId}

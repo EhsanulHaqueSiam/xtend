@@ -138,6 +138,8 @@ export function Stat({
           "font-mono text-[22px] leading-7 tabular-nums",
           tone === "up" && "text-success-foreground",
           tone === "down" && "text-error-foreground",
+          // Nothing to show yet: a faint dash, not a bold one that reads as a value.
+          value === "–" && "text-muted-foreground/50",
         )}
       >
         {value}
