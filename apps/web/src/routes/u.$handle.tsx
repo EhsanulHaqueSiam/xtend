@@ -1,16 +1,18 @@
-import { useAtomValue } from "@effect/atom-react";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
-import { CalendarDays, Link2, MapPin } from "lucide-react";
-import { useCallback, useEffect } from "react";
+import { CalendarDays, Link2, MapPin, MoreHorizontal } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 
 import { fmt } from "../components/analyze/ui";
 import { RichText } from "../components/xnative/RichText";
 import { Timeline } from "../components/xnative/Timeline";
 import { XTabs, XTitle } from "../components/xnative/XColumn";
 import { FollowButton } from "../components/xnative/FollowButton";
+import { useXPress } from "../components/xnative/useXPress";
+import { Menu, MenuItem } from "../components/ui/menu";
 import { Affiliate, Avatar, Verified } from "../components/xnative/XPostView";
 import { engineAtom, type ProfileTab, profileSurface, userByHandle } from "../state/engine";
-import { xGo, xNavigate } from "../state/x";
+import { xGo, xNavigate, xOverAtom, xProfileMenu, xProfileMenuPress } from "../state/x";
 
 const TABS = [
   { id: "posts", label: "Posts", path: "" },
@@ -23,6 +25,65 @@ const TABS = [
 ] as const satisfies ReadonlyArray<{ id: ProfileTab | "likes"; label: string; path: string }>;
 type Tab = (typeof TABS)[number]["id"];
 const TAB_IDS: ReadonlySet<string> = new Set(TABS.map((t) => t.id));
+
+const COPY_LINK = "Copy link to profile";
+
+/**
+ * A profile's "...": X's own rows for this person, read from X's menu when it opens and pressed
+ * there for the user's click. X's pages and dialogs (About, Lists, Block, Report) show over the
+ * main area until X closes them.
+ */
+function ProfileMenu({ handle }: { readonly handle: string }) {
+  const { pressRow, setToast } = useXPress();
+  const setOver = useAtomSet(xOverAtom);
+  // Undefined while X's rows are read, null when X showed none.
+  const [rows, setRows] = useState<ReadonlyArray<string> | null | undefined>(undefined);
+  const read = (open: boolean) => {
+    if (!open) return;
+    setRows(undefined);
+    void xProfileMenu(handle).then(setRows);
+  };
+  // Copy link stays Xtend's own: a clipboard write from the engine, off screen, is not reliable.
+  const copy = () =>
+    void navigator.clipboard
+      .writeText(`https://x.com/${handle}`)
+      .then(() => setToast({ text: "Copied to clipboard" }));
+  return (
+    <Menu
+      label="Profile actions"
+      align="end"
+      onOpenChange={read}
+      trigger={
+        <button
+          type="button"
+          aria-label="More"
+          className="grid size-9 cursor-pointer place-items-center rounded-full border border-white/[0.35] transition-colors duration-150 hover:bg-white/[0.06]"
+        >
+          <MoreHorizontal className="size-5" />
+        </button>
+      }
+    >
+      {rows === undefined ? (
+        <MenuItem disabled onClick={() => {}}>
+          Loading from X
+        </MenuItem>
+      ) : (
+        (rows ?? [COPY_LINK]).map((label) => (
+          <MenuItem
+            key={label}
+            onClick={() =>
+              label === COPY_LINK
+                ? copy()
+                : void pressRow(() => xProfileMenuPress(handle, label, setOver))
+            }
+          >
+            {label}
+          </MenuItem>
+        ))
+      )}
+    </Menu>
+  );
+}
 
 const JOINED = new Intl.DateTimeFormat("en", { month: "long", year: "numeric" });
 
@@ -94,6 +155,7 @@ function ProfileScreen() {
                 />
               </span>
               <div className="flex gap-2 pt-3">
+                {own ? null : <ProfileMenu handle={handle} />}
                 <button
                   type="button"
                   className={`${pill} border border-white/[0.35] hover:bg-white/[0.06]`}

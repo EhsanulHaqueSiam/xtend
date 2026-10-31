@@ -662,6 +662,49 @@ const benchmarks = [
     ),
   ],
   [
+    `A profile's "..." holds X's own rows, and About this account opens X's page over the main area`,
+    async () => {
+      await go("#/u/theo");
+      const more = `document.querySelector('[data-x="profile"] button[aria-label="More"]')`;
+      if (!(await until(() => app(`!!${more}`), 10_000))) return false;
+      const started = Date.now();
+      await app(`${more}.click(), true`);
+      const rowsJs = `[...document.querySelectorAll('[role="menu"] [role="menuitem"]')].map((m) => m.textContent)`;
+      const rows = await until(async () => {
+        const r = await app(rowsJs);
+        return r?.length > 0 && r[0] !== "Loading from X" && r;
+      }, 10_000);
+      const ms = Date.now() - started;
+      // X's menu was read and closed again on the engine page; nothing in it was pressed.
+      const closed = await engine(`!document.querySelector('[data-testid="Dropdown"]')`);
+      const fromX = ["About this account", "Mute", "Block @theo", "Report @theo"].every((label) =>
+        rows?.includes(label),
+      );
+      if (!fromX || !closed) {
+        console.log(`      ${JSON.stringify({ rows, closed })}`);
+        return false;
+      }
+      const mode = `document.querySelector('section[aria-label="x.com"]')?.dataset.mode`;
+      await app(
+        `[...document.querySelectorAll('[role="menu"] [role="menuitem"]')].find((m) => m.textContent === "About this account")?.click(), true`,
+      );
+      const over = await until(
+        async () =>
+          (await app(mode)) === "main" &&
+          (await enginePath()) === "/theo/about" &&
+          (await app(`location.hash`)).startsWith("#/u/theo"),
+        15_000,
+      );
+      // Out of X's page with X's own back arrow.
+      await engine(`document.querySelector('[data-testid="app-bar-back"]')?.click(), true`);
+      const back = await until(
+        async () => (await app(mode)) === "hidden" && (await enginePath()) === "/theo",
+        10_000,
+      );
+      return over && back && `${rows.length} rows in ${ms}ms`;
+    },
+  ],
+  [
     "Notifications and Mentions read X's notifications",
     async () => {
       await reset("notifications", "notifications:mentions");

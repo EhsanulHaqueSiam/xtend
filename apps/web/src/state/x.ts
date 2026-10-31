@@ -229,11 +229,43 @@ const MENUS = {
 export type XPostMenu = keyof typeof MENUS;
 
 /**
- * A script step that opens X's `menu` on `article` and sets `items` to its rows once drawn; the
- * step after it closes the menu (`closeMenu`) or presses a row.
+ * Where one of X's menus sits on the engine page: `find` is a script step that sets the variable
+ * `root` names to the element holding it (or null), `trigger` selects X's button inside it.
  */
-const openMenu = (menu: XPostMenu) => `
-    const trigger = article?.querySelector(${JSON.stringify(MENUS[menu])});
+interface MenuAt {
+  readonly find: string;
+  readonly root: string;
+  readonly trigger: string;
+}
+const postMenuAt = (postId: string, menu: XPostMenu): MenuAt => ({
+  find: findArticle(postId),
+  root: "article",
+  trigger: MENUS[menu],
+});
+
+/**
+ * X's "..." in a profile's header, once X has drawn it. Only on that person's own page: X draws
+ * none on the user's own profile. `handle` must be a handle.
+ */
+const profileMenuAt = (handle: string): MenuAt => ({
+  find: `
+    let profile = null;
+    if (location.pathname.split("/")[1]?.toLowerCase() === ${JSON.stringify(handle.toLowerCase())})
+      for (let i = 0; i < 50 && !profile; i++) {
+        profile = document.querySelector('[data-testid="userActions"]') ? document : null;
+        if (!profile) await new Promise((r) => setTimeout(r, 100));
+      }`,
+  root: "profile",
+  trigger: '[data-testid="userActions"]',
+});
+
+/**
+ * A script step that opens X's menu `at` and sets `items` to its rows once drawn; the step after
+ * it closes the menu (`closeMenu`) or presses a row.
+ */
+const openMenu = (at: MenuAt) => `
+    ${at.find}
+    const trigger = ${at.root}?.querySelector(${JSON.stringify(at.trigger)});
     if (!trigger) return null;
     trigger.click();
     let items = [];
@@ -254,11 +286,10 @@ export type XMenuOutcome =
   /** X opened its own dialog or page (Report, Block, Delete, Send via Chat) at `path`'s page. */
   | { readonly kind: "over"; readonly path: string };
 
-/** X's `menu` on a post, read on the engine page where the post sits: its rows' labels, in X's order. */
-const xMenuInPlace = (postId: string, menu: XPostMenu) =>
+/** X's menu `at`, read on the engine page: its rows' labels, in X's order. */
+const xMenuInPlace = (at: MenuAt) =>
   xRun(`(async () => {
-    ${findArticle(postId)}
-    ${openMenu(menu)}
+    ${openMenu(at)}
     const labels = items.map((i) => i.textContent.trim());
     closeMenu();
     return labels;
@@ -268,11 +299,10 @@ const xMenuInPlace = (postId: string, menu: XPostMenu) =>
       : null,
   );
 
-/** Presses X's `menu` row `label` on the engine page where the post sits. Null when it is not there. */
-const xMenuPressInPlace = (postId: string, label: string, menu: XPostMenu) =>
+/** Presses row `label` of X's menu `at` on the engine page. Null when it is not there. */
+const xMenuPressInPlace = (at: MenuAt, label: string) =>
   xRun(`(async () => {
-    ${findArticle(postId)}
-    ${openMenu(menu)}
+    ${openMenu(at)}
     const item = items.find((i) => i.textContent.trim() === ${JSON.stringify(label)});
     if (!item) return (closeMenu(), null);
     const path = location.pathname + location.search;
@@ -288,36 +318,54 @@ const xMenuPressInPlace = (postId: string, label: string, menu: XPostMenu) =>
   })()`).then((outcome) => (outcome === null ? null : (outcome as XMenuOutcome)));
 
 /**
- * Runs `step` where X shows the post: in place on the engine page, or on the post's own page
- * reached through X's router. `leave` runs on the step's result before the engine goes Back from
- * a page this opened, so X restores the list it was on. Null when X showed the post on neither.
+ * Runs `step` where X shows what it acts on: in place on the engine page, or on `page` (its own
+ * x.com page, and how that page's path ends) reached through X's router. `leave` runs on the step's result before
+ * the engine goes Back from a page this opened, so X restores the list it was on. Null when X
+ * showed it on neither.
  */
-const onPost = async <A>(
-  post: { readonly postId: string; readonly handle: string },
+const onPage = async <A>(
+  page: { readonly url: string; readonly path: string },
   step: () => Promise<A | null>,
   leave: (result: A) => Promise<unknown> = () => Promise.resolve(),
 ): Promise<A | null> => {
-  // Both go into scripts run in X's page: digits and a handle only. No engine (a browser): no X.
-  if (!/^\d{1,25}$/.test(post.postId) || !/^[A-Za-z0-9_]{1,15}$/.test(post.handle)) return null;
+  // No engine (a browser): no X.
   if (element === null || !ready) return null;
   const here = await step();
   if (here !== null) return (await leave(here), here);
-  const moved = await xGo(`https://x.com/${post.handle}/status/${post.postId}`);
+  const moved = await xGo(page.url);
   const there = await step();
   if (there !== null) await leave(there);
   // Back only from a page this step opened, and only while the engine is still on it.
   if (moved)
     await xRun(
-      `location.pathname.endsWith(${JSON.stringify(`/status/${post.postId}`)}) && history.back(), true`,
+      `location.pathname.toLowerCase().endsWith(${JSON.stringify(page.path.toLowerCase())}) && history.back(), true`,
     );
   return there;
 };
 
+type PostRef = { readonly postId: string; readonly handle: string };
+// Both go into scripts run in X's page: digits and a handle only.
+const validPost = (post: PostRef) =>
+  /^\d{1,25}$/.test(post.postId) && /^[A-Za-z0-9_]{1,15}$/.test(post.handle);
+const validHandle = (handle: string) => /^[A-Za-z0-9_]{1,15}$/.test(handle);
+const postPage = (post: PostRef) => ({
+  url: `https://x.com/${post.handle}/status/${post.postId}`,
+  // X may show it under the author's new handle.
+  path: `/status/${post.postId}`,
+});
+const profilePage = (handle: string) => ({ url: `https://x.com/${handle}`, path: `/${handle}` });
+
 /** X's own rows of a post's `menu`, read from X's menu for the user's click on Xtend's copy. */
-export const xPostMenu = (
-  post: { readonly postId: string; readonly handle: string },
-  menu: XPostMenu = "more",
-) => onPost(post, () => xMenuInPlace(post.postId, menu));
+export const xPostMenu = async (post: PostRef, menu: XPostMenu = "more") =>
+  validPost(post)
+    ? onPage(postPage(post), () => xMenuInPlace(postMenuAt(post.postId, menu)))
+    : null;
+
+/** X's own rows of a profile's "...", read from X's menu for the user's click on Xtend's. */
+export const xProfileMenu = async (handle: string) =>
+  validHandle(handle)
+    ? onPage(profilePage(handle), () => xMenuInPlace(profileMenuAt(handle)))
+    : null;
 
 /** True while X's own dialog or page from a menu row is up: the engine shows over the main area. */
 export const xOverAtom = Atom.make(false);
@@ -327,21 +375,21 @@ let overRun = 0;
 export const xOverEnded = () => void overRun++;
 
 /**
- * Presses X's own `menu` row `label` for the user's click. When X answers with its own dialog or
- * page, `over` puts the engine over the main area until X is back where it was with no dialog
- * (the user finished or closed it), or the user moved to another screen.
+ * Presses row `label` of X's menu `at` on `page` for the user's click. When X answers with its own
+ * dialog or page, `over` puts the engine over the main area until X is back where it was with no
+ * dialog (the user finished or closed it), or the user moved to another screen.
  */
-export const xPostMenuPress = (
-  post: { readonly postId: string; readonly handle: string },
+const pressMenu = (
+  page: { readonly url: string; readonly path: string },
+  at: MenuAt,
   label: string,
   over: (shown: boolean) => void,
-  menu: XPostMenu = "more",
 ) => {
   // Taken before X answers: a screen change meanwhile means the dialog no longer belongs here.
   const run = ++overRun;
-  return onPost(
-    post,
-    () => xMenuPressInPlace(post.postId, label, menu),
+  return onPage(
+    page,
+    () => xMenuPressInPlace(at, label),
     async (outcome) => {
       if (outcome.kind !== "over" || run !== overRun) return;
       over(true);
@@ -359,6 +407,23 @@ export const xPostMenuPress = (
     },
   );
 };
+
+/** Presses X's own row `label` of a post's `menu` for the user's click (see `pressMenu`). */
+export const xPostMenuPress = async (
+  post: PostRef,
+  label: string,
+  over: (shown: boolean) => void,
+  menu: XPostMenu = "more",
+) =>
+  validPost(post) ? pressMenu(postPage(post), postMenuAt(post.postId, menu), label, over) : null;
+
+/** Presses X's own row `label` of a profile's "..." for the user's click (see `pressMenu`). */
+export const xProfileMenuPress = async (
+  handle: string,
+  label: string,
+  over: (shown: boolean) => void,
+) =>
+  validHandle(handle) ? pressMenu(profilePage(handle), profileMenuAt(handle), label, over) : null;
 
 /** Presses Undo on X's own toast, while X still shows it. True when it was there. */
 export const xToastUndo = () =>
