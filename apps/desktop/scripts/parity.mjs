@@ -72,12 +72,17 @@ if (width !== null) {
 await mkdir(out, { recursive: true });
 
 /** Each screen: its native route, and what must be on screen before the shot. */
-const screens = [{ name: "home", hash: "#/home?feed=forYou" }];
+// Following: X refetches it on load; a tab X has cached sends nothing (engine bug, see the bench).
+const screens = [{ name: "home", hash: "#/home?feed=following" }];
 const report = [];
 for (let i = 0; i < screens.length; i++) {
   const screen = screens[i];
   await go(screen.hash);
-  const drawn = await until(POSTS);
+  const drawn = await until(
+    screen.ready === undefined
+      ? POSTS
+      : `document.querySelector(${JSON.stringify(screen.ready)}) !== null`,
+  );
   await sleep(1500); // images settle
   await run(
     "document.querySelector('[data-x=column]')?.parentElement?.parentElement?.scrollTo(0, 0)",
@@ -96,6 +101,13 @@ for (let i = 0; i < screens.length; i++) {
     screens.push(
       { name: "search", hash: "#/search?q=build%20in%20public&f=top" },
       { name: "bookmarks", hash: "#/bookmarks" },
+      {
+        name: "notifications",
+        hash: "#/notifications",
+        ready: "[data-x=notification],[data-x=post]",
+      },
+      { name: "explore", hash: "#/explore", ready: "[data-x=trend],[data-x=post]" },
+      { name: "lists", hash: "#/lists/", ready: "[data-x=list-row]" },
     );
   }
   await go("#/x");

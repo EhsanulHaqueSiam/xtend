@@ -4,7 +4,7 @@ import type { EnginePost } from "@xtend/contracts";
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { type StateSnapshot, Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 
-import { engineAtom, showWaiting, type Surface, updateEngine } from "../../state/engine";
+import { type AnySurface, at, engineAtom, showWaiting, updateEngine } from "../../state/engine";
 import { xScrollMore } from "../../state/x";
 import { Empty } from "../ui/layout";
 import { PostRail } from "./PostRail";
@@ -18,7 +18,7 @@ const MORE_EVERY_MS = 1500;
 const QUIET_MS = 12_000;
 
 /** Where each list was left (scroll and measured heights), so Back lands on the same post. */
-const places = new Map<Surface, StateSnapshot>();
+const places = new Map<AnySurface, StateSnapshot>();
 
 const isEditable = (target: EventTarget | null) =>
   target instanceof HTMLElement &&
@@ -80,7 +80,7 @@ function PostList({
   onOpen,
   onReopen,
 }: {
-  readonly surface: Surface;
+  readonly surface: AnySurface;
   readonly keepPlace: boolean;
   readonly posts: ReadonlyArray<EnginePost>;
   readonly quoted: (id: string | null) => EnginePost | undefined;
@@ -137,7 +137,7 @@ export function Timeline({
   keepPlace = false,
   onReopen,
 }: {
-  readonly surface: Surface;
+  readonly surface: AnySurface;
   readonly header: ReactNode;
   /** Back returns to the same post; for lists that persist in the store, not ones reloaded on open. */
   readonly keepPlace?: boolean;
@@ -151,8 +151,8 @@ export function Timeline({
   const open = useOpenPost();
   const list = useRef<VirtuosoHandle>(null);
   const [selected, setSelected] = useState(0);
-  const posts = engine.lists[surface].flatMap((id) => engine.posts.get(id) ?? []);
-  const waiting = engine.waiting[surface].flatMap((id) => engine.posts.get(id) ?? []);
+  const posts = at(engine.lists, surface).flatMap((id) => engine.posts.get(id) ?? []);
+  const waiting = at(engine.waiting, surface).flatMap((id) => engine.posts.get(id) ?? []);
   const current = posts[Math.min(selected, posts.length - 1)];
   const quoted = (id: string | null) => (id === null ? undefined : engine.posts.get(id));
   const navigate = useNavigate();

@@ -21,13 +21,15 @@ import { useDropPost } from "../shell/drops";
 import { Menu, MenuItem } from "../ui/menu";
 import { toastAtom } from "../ui/toast";
 import { viewerAtom } from "./MediaViewer";
+import { ContextLine, LinkCard, Note, Poll } from "./PostParts";
+import { RichText } from "./RichText";
 import { avatar96, engagement, viewsPerHour, xAge, xStamp } from "./format";
 
 export const postUrl = (p: EnginePost) => `https://x.com/${p.author.handle}/status/${p.postId}`;
 
 /** X ends a post with a t.co link to its own media or quote, which X itself never shows. */
 const shownText = (p: EnginePost) =>
-  p.media.length > 0 || p.quotedId !== null
+  p.media.length > 0 || p.quotedId !== null || p.card !== null
     ? p.text.replace(/(\s*https:\/\/t\.co\/\w+)+\s*$/, "")
     : p.text;
 
@@ -191,6 +193,27 @@ function QuoteBox({
   );
 }
 
+/** What X draws under a post's text besides media: its link card, poll and Community Note. */
+function Extras({ post }: { readonly post: EnginePost }) {
+  return (
+    <>
+      {post.card === null ? null : <LinkCard card={post.card} />}
+      {post.poll === null ? null : <Poll poll={post.poll} />}
+      {post.note === null ? null : <Note note={post.note} />}
+    </>
+  );
+}
+
+/** "Replying to @a @b", the handles X moved out of the text. */
+function ReplyingTo({ handles }: { readonly handles: ReadonlyArray<string> }) {
+  if (handles.length === 0) return null;
+  return (
+    <p className="text-[15px] leading-5 text-[#71767b]">
+      Replying to <RichText text={handles.map((h) => `@${h}`).join(" ")} links={[]} />
+    </p>
+  );
+}
+
 /** One button in X's action row: X's grey, its own colour on hover and when pressed. */
 function Action({
   label,
@@ -291,13 +314,17 @@ export function XPostView({
   const navigate = useNavigate();
   const settings = AsyncResult.getOrElse(useAtomValue(settingsAtom), () => null);
   const [done, setDone] = useState<ReadonlySet<XAction>>(new Set());
-  const has = (a: XAction) => done.has(a);
+  /** Pressed on X already (as X sent it), or pressed here since. */
+  const was = { like: post.liked, retweet: post.reposted, bookmark: post.bookmarked };
+  const has = (a: XAction) => was[a] || done.has(a);
+  /** A count that includes the user's own press made here, once. */
+  const plus = (a: XAction) => (done.has(a) && !was[a] ? 1 : 0);
   /**
    * X's own button for the user's click: on the engine page where the post sits, so the list
    * keeps feeding; only when it is not there, on the post's own page, and then back.
    */
   const act = async (action: XAction) => {
-    if (done.has(action)) return;
+    if (has(action)) return;
     if (settings !== null && !settings.sessionPostingEnabled)
       return setToast({ text: "Session actions are off in Settings, X session." });
     setDone((d) => new Set(d).add(action));
@@ -385,7 +412,7 @@ export function XPostView({
         label="Repost"
         tone="green"
         pressed={has("retweet")}
-        count={fmt(m.reposts + (has("retweet") ? 1 : 0))}
+        count={fmt(m.reposts + plus("retweet"))}
         onClick={() => void act("retweet")}
       >
         <Repeat2 className="size-[18px]" />
@@ -394,7 +421,7 @@ export function XPostView({
         label="Like"
         tone="pink"
         pressed={has("like")}
-        count={fmt(m.likes + (has("like") ? 1 : 0))}
+        count={fmt(m.likes + plus("like"))}
         onClick={() => void act("like")}
       >
         <Heart className={cn("size-[18px]", has("like") && "fill-current")} />
@@ -426,6 +453,11 @@ export function XPostView({
   if (focal)
     return (
       <article data-post={post.postId} data-x="post" className="border-b border-border px-4 pt-3">
+        {post.context === null ? null : (
+          <div className="mb-1 grid grid-cols-[40px_minmax(0,1fr)] gap-x-3">
+            <ContextLine context={post.context} />
+          </div>
+        )}
         <div className="flex items-center gap-2">
           <button type="button" className="cursor-pointer" onClick={openProfile}>
             <Avatar url={post.avatarUrl} size={40} />
@@ -436,12 +468,16 @@ export function XPostView({
           </div>
           {menu}
         </div>
+        <div className="mt-3 empty:hidden">
+          <ReplyingTo handles={post.replyingTo} />
+        </div>
         <p className="mt-3 text-[17px] leading-6 break-words whitespace-pre-wrap">
-          {shownText(post)}
+          <RichText text={shownText(post)} links={post.links} />
         </p>
         <div className="mt-3 flex flex-col gap-3 empty:hidden">
           {post.media.length === 0 ? null : <Media media={post.media} />}
           {quoted === undefined ? null : <QuoteBox quoted={quoted} onOpen={onOpen} />}
+          <Extras post={post} />
         </div>
         <p className={cn("mt-4 pb-4 text-[15px]", X_GRAY)}>
           {xStamp(post.createdAt)}
@@ -473,6 +509,7 @@ export function XPostView({
       onClick={() => onOpen?.(post)}
       onMouseEnter={onHover}
     >
+      {post.context === null ? null : <ContextLine context={post.context} />}
       <div className="flex flex-col items-center">
         <button
           type="button"
@@ -498,9 +535,10 @@ export function XPostView({
           </span>
           {menu}
         </div>
+        <ReplyingTo handles={post.replyingTo} />
         {shownText(post) === "" ? null : (
           <p className="-mt-1.5 text-[15px] leading-5 break-words whitespace-pre-wrap">
-            {clampText(shownText(post)) ?? shownText(post)}
+            <RichText text={clampText(shownText(post)) ?? shownText(post)} links={post.links} />
             {clampText(shownText(post)) === null ? null : (
               <button
                 type="button"
@@ -517,6 +555,7 @@ export function XPostView({
         )}
         <Media media={post.media} />
         {quoted === undefined ? null : <QuoteBox quoted={quoted} onOpen={onOpen} />}
+        <Extras post={post} />
         {actions}
         <XtendLine post={post} />
       </div>

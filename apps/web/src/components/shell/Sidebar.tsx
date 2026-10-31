@@ -16,6 +16,7 @@ import {
   PenLine,
   CalendarDays,
   Library,
+  List as ListIcon,
   MessageCircle,
   Users,
   Workflow,
@@ -72,6 +73,7 @@ const ICONS = {
   Notifications: Bell,
   Messages: Mail,
   Bookmarks: Bookmark,
+  Lists: ListIcon,
   Profile: UserRound,
   Compose: PenLine,
   Plan: CalendarDays,
@@ -272,11 +274,13 @@ function ToolRow({
   );
 }
 
-/** X pages Xtend draws itself; the rest still show x.com in the main area. */
+/** X pages Xtend draws itself; the rest (Messages) still show x.com in the main area. */
 const NATIVE: Readonly<Record<string, string>> = {
   Home: "/home",
-  Explore: "/search",
+  Explore: "/explore",
+  Notifications: "/notifications",
   Bookmarks: "/bookmarks",
+  Lists: "/lists",
 };
 
 /** X's own pages; each loads in the one x.com webview, shown in the main area. */
@@ -303,6 +307,7 @@ function XRows({ compact }: { readonly compact: boolean }) {
     { label: "Notifications", path: "/notifications", count: unread },
     { label: "Messages", path: "/messages" },
     { label: "Bookmarks", path: "/i/bookmarks" },
+    { label: "Lists", path: "/i/lists" },
     ...(handle === null ? [] : [{ label: "Profile", path: `/${handle}` }]),
   ];
   return (
@@ -317,12 +322,12 @@ function XRows({ compact }: { readonly compact: boolean }) {
             page.label === "Profile"
               ? pathname === `/u/${handle}`
               : NATIVE[page.label] !== undefined
-                ? pathname === NATIVE[page.label]
+                ? pathname === NATIVE[page.label] || pathname.startsWith(`${NATIVE[page.label]}/`)
                 : onX && (path === page.path || path.startsWith(`${page.path}/`))
           }
           className={cn(ROW, dragClass(dragging, false))}
           onClick={() => {
-            // Home and Explore are Xtend's own screens; the engine follows them off screen.
+            // Xtend draws these itself; the engine follows them off screen.
             const native = page.label === "Profile" ? `/u/${handle}` : NATIVE[page.label];
             if (native !== undefined) return void navigate({ href: native });
             // A page already in the webview is only revealed; clicked again where it shows, it

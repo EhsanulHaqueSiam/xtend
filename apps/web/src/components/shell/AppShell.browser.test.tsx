@@ -79,7 +79,8 @@ it("puts x.com over the main area on X's pages and beside the tools, from one we
   await expect.element(pane).toHaveAttribute("data-mode", "hidden");
   expect(window.localStorage.getItem("xtend:x-panel-open")).toBe("false");
 
-  await userEvent.click(screen.getByRole("button", { name: "Notifications" }));
+  // Messages is still x.com itself (X's end-to-end chat), so it shows over the main area.
+  await userEvent.click(screen.getByRole("button", { name: "Messages" }));
   expect(screen.router?.state.location.pathname).toBe("/x");
   await expect.element(pane).toHaveAttribute("data-mode", "main");
 
@@ -260,15 +261,13 @@ it("moves the panel to each section's X page, hides it where X has none, and rel
   await expect.element(pane).toHaveAttribute("data-mode", "panel");
   await expect.poll(() => loads.at(-1)).toBe("https://x.com/messages");
 
-  // Notifications shown beside a tool: the first click only brings it to the main area.
-  await screen.router!.navigate({ href: "/engage?tab=inbox" });
-  await expect.poll(() => loads.at(-1)).toBe("https://x.com/notifications");
+  // Messages shown beside a tool: the first click only brings it to the main area.
   const count = loads.length;
-  await userEvent.click(screen.getByRole("button", { name: "Notifications" }));
+  await userEvent.click(screen.getByRole("button", { name: "Messages" }));
   await expect.element(pane).toHaveAttribute("data-mode", "main");
   expect(loads.length).toBe(count);
   expect(reloads).toBe(0);
-  await userEvent.click(screen.getByRole("button", { name: "Notifications" }));
+  await userEvent.click(screen.getByRole("button", { name: "Messages" }));
   expect(reloads).toBe(1);
 
   // Home is Xtend's own screen now: x.com stays out of sight under it.
