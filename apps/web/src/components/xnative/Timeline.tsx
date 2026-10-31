@@ -1,14 +1,15 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import type { EnginePost } from "@xtend/contracts";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 
 import { engineAtom, showWaiting, type Surface, updateEngine } from "../../state/engine";
 import { xScrollMore } from "../../state/x";
-import { fmt } from "../analyze/ui";
 import { Empty } from "../ui/layout";
-import { XPostView } from "./XPostView";
+import { PostRail } from "./PostRail";
+import { useXScrollParent, XColumn } from "./XColumn";
+import { Avatar, postUrl, XPostView } from "./XPostView";
 
 /** How often a list may ask X for its next page; X's own scrolling pace, not faster. */
 const MORE_EVERY_MS = 1500;
@@ -17,6 +18,14 @@ const isEditable = (target: EventTarget | null) =>
   target instanceof HTMLElement &&
   (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
 
+/** Keys that press a post's own button, found by its label so the key and the click are one path. */
+const KEY_BUTTONS: Readonly<Record<string, string>> = {
+  l: "Like",
+  t: "Repost",
+  b: "Bookmark on X",
+  s: "Save to Library",
+};
+
 /** Opens a post in Xtend's own post screen. */
 export const useOpenPost = () => {
   const navigate = useNavigate();
@@ -24,46 +33,99 @@ export const useOpenPost = () => {
     void navigate({ to: "/post/$id", params: { id: p.postId }, search: { h: p.author.handle } });
 };
 
-/** What Xtend knows about the selected post's author, beside the list. */
-function AuthorPanel({ post }: { readonly post: EnginePost | undefined }) {
-  const navigate = useNavigate();
-  if (post === undefined) return null;
-  const a = post.author;
+/** X's blue "Show N posts", with the faces of who is waiting. */
+function NewPostsPill({
+  waiting,
+  onShow,
+}: {
+  readonly waiting: ReadonlyArray<EnginePost>;
+  readonly onShow: () => void;
+}) {
+  if (waiting.length === 0) return null;
   return (
-    <section className="rounded-xl border border-border bg-card px-4 py-3 text-[13px]">
-      <p className="font-semibold">{a.name}</p>
-      <p className="text-xs text-muted-foreground">@{a.handle}</p>
-      <dl className="mt-3 grid grid-cols-[1fr_auto] gap-y-1.5 text-xs">
-        {a.followers === null ? null : (
-          <>
-            <dt className="text-muted-foreground">Followers</dt>
-            <dd className="font-mono">{fmt(a.followers)}</dd>
-          </>
-        )}
-        <dt className="text-muted-foreground">This post</dt>
-        <dd className="font-mono">{fmt(post.metrics.views)} views</dd>
-      </dl>
-      <button
-        type="button"
-        className="mt-3 cursor-pointer text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-        onClick={() => void navigate({ href: `/scores?tab=report&handle=${a.handle}` })}
-      >
-        Score report
-      </button>
-    </section>
+    <button
+      type="button"
+      className="flex h-9 cursor-pointer items-center gap-2 rounded-full bg-[#1d9bf0] px-3.5 text-[14px] font-bold text-white shadow-[0_4px_16px_rgb(29_155_240/0.3)] transition-transform duration-150 active:scale-[0.97]"
+      onClick={onShow}
+    >
+      <span className="flex">
+        {waiting.slice(0, 3).map((p, i) => (
+          <span key={p.postId} className={i === 0 ? "" : "-ml-1.5"}>
+            <span className="block rounded-full ring-2 ring-[#1d9bf0]">
+              <Avatar url={p.avatarUrl} size={20} />
+            </span>
+          </span>
+        ))}
+      </span>
+      Show {waiting.length} {waiting.length === 1 ? "post" : "posts"}
+    </button>
+  );
+}
+
+/** The virtualized list itself; it scrolls with the column's page, not on its own. */
+function PostList({
+  posts,
+  quoted,
+  selected,
+  setSelected,
+  list,
+  onOpen,
+  onReopen,
+}: {
+  readonly posts: ReadonlyArray<EnginePost>;
+  readonly quoted: (id: string | null) => EnginePost | undefined;
+  readonly selected: number;
+  readonly setSelected: (i: number) => void;
+  readonly list: RefObject<VirtuosoHandle | null>;
+  readonly onOpen: (p: EnginePost) => void;
+  readonly onReopen: () => void;
+}) {
+  const scroller = useXScrollParent();
+  const lastMore = useRef(0);
+  if (scroller === null) return null;
+  return (
+    <Virtuoso
+      ref={list}
+      customScrollParent={scroller}
+      data={posts}
+      computeItemKey={(_, p) => p.postId}
+      increaseViewportBy={800}
+      endReached={() => {
+        if (Date.now() - lastMore.current < MORE_EVERY_MS) return;
+        lastMore.current = Date.now();
+        void xScrollMore();
+      }}
+      itemContent={(index, p) => (
+        <XPostView
+          post={p}
+          quoted={quoted(p.quotedId)}
+          selected={index === selected}
+          onOpen={onOpen}
+          onReopen={onReopen}
+          onHover={() => setSelected(index)}
+        />
+      )}
+    />
   );
 }
 
 /**
- * A native X list: the surface's posts in X's order, virtualized. Reaching the end asks X's own
- * page for more; newer posts wait behind a pill. J/K select, Enter opens, L likes, S saves.
+ * A native X list in X's own column: the surface's posts in X's order, virtualized. Reaching the
+ * end asks X's own page for more; newer posts wait behind a pill. The rail shows the post under
+ * the pointer or the keyboard. J/K move, Enter opens, L like, T repost, B bookmark, S save,
+ * O opens on x.com.
  */
 export function Timeline({
   surface,
+  header,
+  top,
   empty,
   onReopen,
 }: {
   readonly surface: Surface;
+  readonly header: ReactNode;
+  /** Sits above the list inside the column, as Home's composer does. */
+  readonly top?: ReactNode;
   readonly empty: ReactNode;
   readonly onReopen: () => void;
 }) {
@@ -71,30 +133,31 @@ export function Timeline({
   const setEngine = useAtomSet(engineAtom);
   const open = useOpenPost();
   const list = useRef<VirtuosoHandle>(null);
-  const lastMore = useRef(0);
   const [selected, setSelected] = useState(0);
-  const ids = engine.lists[surface];
-  const waiting = engine.waiting[surface].length;
-  const posts = ids.flatMap((id) => engine.posts.get(id) ?? []);
+  const posts = engine.lists[surface].flatMap((id) => engine.posts.get(id) ?? []);
+  const waiting = engine.waiting[surface].flatMap((id) => engine.posts.get(id) ?? []);
   const current = posts[Math.min(selected, posts.length - 1)];
+  const quoted = (id: string | null) => (id === null ? undefined : engine.posts.get(id));
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey || isEditable(event.target)) return;
       const step = event.key === "j" ? 1 : event.key === "k" ? -1 : 0;
+      const label = KEY_BUTTONS[event.key];
       if (step !== 0) {
         const next = Math.max(0, Math.min(posts.length - 1, selected + step));
         setSelected(next);
         list.current?.scrollIntoView({ index: next, behavior: "auto" });
-      } else if (event.key === "Enter" && current !== undefined) open(current);
-      else if (event.key === "l" || event.key === "s") {
-        const label = event.key === "l" ? "Like" : "Save to Library";
+      } else if (current === undefined) return;
+      else if (event.key === "Enter" || event.key === "r") open(current);
+      else if (event.key === "o") window.desktopBridge?.openExternal(postUrl(current));
+      else if (label !== undefined)
         document
           .querySelector<HTMLButtonElement>(
-            `[data-post="${current?.postId}"] button[aria-label="${label}"]`,
+            `[data-post="${current.postId}"] button[aria-label="${label}"]`,
           )
           ?.click();
-      } else return;
+      else return;
       event.preventDefault();
     };
     window.addEventListener("keydown", onKey);
@@ -102,53 +165,34 @@ export function Timeline({
   }, [current, open, posts.length, selected]);
 
   return (
-    <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_300px] max-[1100px]:grid-cols-1">
-      <div className="relative min-h-0 border-r border-border">
-        {waiting > 0 ? (
-          <button
-            type="button"
-            className="absolute top-3 left-1/2 z-10 -translate-x-1/2 cursor-pointer rounded-full bg-foreground px-3 py-1 text-xs font-medium text-background"
-            onClick={() => {
-              setEngine(updateEngine((s) => showWaiting(s, surface)));
-              setSelected(0);
-              list.current?.scrollToIndex({ index: 0 });
-            }}
-          >
-            ↑ {waiting} new {waiting === 1 ? "post" : "posts"}
-          </button>
-        ) : null}
-        {posts.length === 0 ? (
-          <Empty>{empty}</Empty>
-        ) : (
-          <Virtuoso
-            ref={list}
-            data={posts}
-            computeItemKey={(_, p) => p.postId}
-            increaseViewportBy={600}
-            endReached={() => {
-              if (Date.now() - lastMore.current < MORE_EVERY_MS) return;
-              lastMore.current = Date.now();
-              void xScrollMore();
-            }}
-            itemContent={(index, p) => (
-              <XPostView
-                post={p}
-                quoted={p.quotedId === null ? undefined : engine.posts.get(p.quotedId)}
-                selected={index === selected}
-                onOpen={open}
-                onReopen={onReopen}
-              />
-            )}
-          />
-        )}
-      </div>
-      <aside className="flex flex-col gap-3 p-4 max-[1100px]:hidden">
-        <AuthorPanel post={current} />
-        <section className="rounded-xl border border-border bg-card px-4 py-3 text-xs text-muted-foreground">
-          <p className="mb-2 font-semibold text-foreground">Keys</p>
-          <p>J / K select · Enter open · L like · S save</p>
-        </section>
-      </aside>
-    </div>
+    <XColumn
+      header={header}
+      float={
+        <NewPostsPill
+          waiting={waiting}
+          onShow={() => {
+            setEngine(updateEngine((s) => showWaiting(s, surface)));
+            setSelected(0);
+            list.current?.scrollToIndex({ index: 0 });
+          }}
+        />
+      }
+      rail={<PostRail post={current} seen={engine.posts.values()} onReply={open} />}
+    >
+      {top}
+      {posts.length === 0 ? (
+        <Empty>{empty}</Empty>
+      ) : (
+        <PostList
+          posts={posts}
+          quoted={quoted}
+          selected={selected}
+          setSelected={setSelected}
+          list={list}
+          onOpen={open}
+          onReopen={onReopen}
+        />
+      )}
+    </XColumn>
   );
 }

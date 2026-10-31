@@ -1,9 +1,13 @@
+import { useAtomValue } from "@effect/atom-react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useCallback, useEffect } from "react";
 
-import { HeaderTabs, PageHeader } from "../components/PageHeader";
-import { Button } from "../components/ui/button";
+import { HomeComposer } from "../components/xnative/HomeComposer";
 import { Timeline } from "../components/xnative/Timeline";
+import { XTabs } from "../components/xnative/XColumn";
+import { engineAtom } from "../state/engine";
+import { settingsAtom } from "../state/settings";
 import { xNavigate, xPickHomeTab, xShows } from "../state/x";
 
 const FEEDS = [
@@ -16,6 +20,8 @@ type Feed = (typeof FEEDS)[number]["id"];
 function HomeScreen() {
   const { feed } = Route.useSearch();
   const navigate = useNavigate();
+  const engine = useAtomValue(engineAtom);
+  const handle = AsyncResult.getOrElse(useAtomValue(settingsAtom), () => null)?.handle ?? null;
   const label = FEEDS.find((f) => f.id === feed)!.label;
   // Already on Home, X only switches tabs; otherwise the tab is picked once the page has loaded.
   const open = useCallback(() => {
@@ -23,27 +29,28 @@ function HomeScreen() {
     else void xNavigate("https://x.com/home").then(() => xPickHomeTab(label));
   }, [label]);
   useEffect(open, [open]);
+  // The user's own face, from any of their posts the engine has seen.
+  const own =
+    handle === null
+      ? undefined
+      : [...engine.posts.values()].find(
+          (p) => p.author.handle.toLowerCase() === handle.toLowerCase(),
+        );
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <PageHeader
-        title="Home"
-        tabs={
-          <HeaderTabs
-            label="Feed"
-            tabs={FEEDS}
-            value={feed}
-            onChange={(next) => void navigate({ to: "/home", search: { feed: next } })}
-          />
-        }
-        detail="live · your session"
-        actions={
-          <Button size="sm" onClick={() => void navigate({ href: "/compose?new=1" })}>
-            New post
-          </Button>
-        }
-      />
-      <Timeline surface={feed} empty="Loading your timeline from X." onReopen={open} />
-    </div>
+    <Timeline
+      surface={feed}
+      header={
+        <XTabs
+          label="Feed"
+          tabs={FEEDS}
+          value={feed}
+          onChange={(next) => void navigate({ to: "/home", search: { feed: next } })}
+        />
+      }
+      top={<HomeComposer avatarUrl={own?.avatarUrl ?? null} />}
+      empty="Loading your timeline from X."
+      onReopen={open}
+    />
   );
 }
 

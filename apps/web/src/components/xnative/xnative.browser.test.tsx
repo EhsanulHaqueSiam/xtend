@@ -32,7 +32,7 @@ it("draws what the engine received: the post, its video in Xtend's player, and t
   await using screen = await render(
     <div style={{ height: 800, display: "flex" }}>
       <EngineSync />
-      <Timeline surface="following" empty="Loading" onReopen={() => {}} />
+      <Timeline surface="following" header={null} empty="Loading" onReopen={() => {}} />
     </div>,
     { service: {} },
   );

@@ -85,7 +85,8 @@ export function ReplyComposer({
 
   return (
     <section
-      className="mx-5 my-3 rounded-xl border border-border bg-card px-4 py-3"
+      data-x="reply"
+      className="border-b border-border px-4 py-3"
       onKeyDown={(e) => {
         if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
           e.preventDefault();
