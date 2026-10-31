@@ -83,3 +83,12 @@ it("waits for the guest before a page asked for early, so the step after it has 
   await again;
   expect(same.calls).toEqual([]);
 });
+
+it("goes Back only from a post page it opened itself", async () => {
+  // Already on the post: X's button is pressed on the second look, and the engine stays.
+  const there = fakeWebview("https://x.com/theo/status/42", [false, true]);
+  registerXWebview(there.el);
+  markXReady();
+  expect(await xAct({ postId: "42", handle: "theo" }, "like")).toBe(true);
+  expect(there.calls).toHaveLength(2);
+});

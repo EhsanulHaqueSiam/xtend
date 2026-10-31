@@ -309,6 +309,9 @@ describe("renderEngineBatch around posts", () => {
         youFollow: true,
         followsYou: false,
         pinnedPostId: "77",
+        verifiedType: null,
+        avatarShape: "Circle",
+        affiliate: null,
       },
     ]);
     // The observation path reads the same followers count.
@@ -727,5 +730,66 @@ describe("renderEngineBatch media and the viewer", () => {
       avatarUrl: "https://pbs.twimg.com/profile_images/7/a_normal.jpg",
     });
     expect(renderEngineBatch("HomeTimeline", {}, {}).viewer).toBeNull();
+  });
+});
+
+describe("renderEngineBatch entry order, badges and labels", () => {
+  it("lists X's entries in order, a pinned one first and a repost as its original", () => {
+    const pinned = tweet("1");
+    const quoting = tweet(
+      "2",
+      { quoted_status_id_str: "1" },
+      { quoted_status_result: { result: pinned } },
+    );
+    const repost = tweet("4", { retweeted_status_result: { result: tweet("3") } });
+    const entry = (t: unknown) => ({
+      content: { itemContent: { itemType: "TimelineTweet", tweet_results: { result: t } } },
+    });
+    const batch = renderEngineBatch(
+      "UserOriginalsTimeline",
+      {},
+      {
+        data: {
+          instructions: [
+            { type: "TimelinePinEntry", entry: entry(pinned) },
+            { entries: [entry(quoting), entry(repost)] },
+          ],
+        },
+      },
+    );
+    expect(batch.order).toEqual(["1", "2", "3"]);
+  });
+
+  it("reads the badge kind, avatar shape, organisation badge and the Made with AI label", () => {
+    const org = user("8", "heyglif", {
+      verification: { verified_type: "Business" },
+      profile_image_shape: "Square",
+      affiliates_highlighted_label: {
+        label: {
+          description: "X",
+          badge: { url: "https://pbs.twimg.com/b.jpg" },
+          url: { url: "https://twitter.com/X" },
+        },
+      },
+    });
+    const made = tweet(
+      "5",
+      {},
+      {
+        core: { user_results: { result: org } },
+        content_disclosure: { ai_generated_disclosure: { has_ai_generated_media: true } },
+      },
+    );
+    const batch = renderEngineBatch("SearchTimeline", {}, { data: [made] });
+    expect(batch.posts[0]!.aiGenerated).toBe(true);
+    expect(batch.users.find((u) => u.handle === "heyglif")).toMatchObject({
+      verifiedType: "Business",
+      avatarShape: "Square",
+      affiliate: {
+        name: "X",
+        badgeUrl: "https://pbs.twimg.com/b.jpg",
+        url: "https://twitter.com/X",
+      },
+    });
   });
 });

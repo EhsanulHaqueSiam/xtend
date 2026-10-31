@@ -327,12 +327,26 @@ function readEnginePost(
     // Filled in by the batch, which sees the timeline's modules.
     conversation: null,
     ...readEdits(tweet),
+    aiGenerated:
+      record(record(tweet.content_disclosure).ai_generated_disclosure).has_ai_generated_media ===
+      true,
   };
 }
 
 /** Posts as Xtend's own X screens draw them, in the response's order. */
 const renderPostsFromGraphql = (body: unknown): ReadonlyArray<EnginePost> =>
   walkTweets(body, readEnginePost);
+
+function readAffiliate(label: Json): EngineUser["affiliate"] {
+  const name = asString(label.description);
+  if (name === undefined) return null;
+  const url = asString(record(label.url).url);
+  return {
+    name,
+    badgeUrl: asString(record(label.badge).url) ?? null,
+    url: url?.startsWith("https://") === true ? url : null,
+  };
+}
 
 /** A person in either of X's user shapes: the older `legacy` block or the 2026 split fields. */
 function readUser(value: unknown): EngineUser | undefined {
@@ -381,6 +395,10 @@ function readUser(value: unknown): EngineUser | undefined {
     youFollow: flag(perspective.following, legacy.following),
     followsYou: flag(perspective.followed_by, legacy.followed_by),
     pinnedPostId: asString(pinned[0]) ?? null,
+    verifiedType:
+      asString(record(user.verification).verified_type) ?? asString(legacy.verified_type) ?? null,
+    avatarShape: asString(user.profile_image_shape) ?? "Circle",
+    affiliate: readAffiliate(record(record(user.affiliates_highlighted_label).label)),
   };
 }
 
@@ -419,6 +437,16 @@ function readTrend(item: Json, group: string | null): EngineTrend | undefined {
     images: arr(social.contextImageUrls).filter((u) => typeof u === "string"),
     group,
   };
+}
+
+/** The post a timeline entry lists: a repost's original, as the posts walk reads it. */
+function listedId(itemContent: Json): string | undefined {
+  // A post with limited visibility nests in a wrapper of its own.
+  const unwrap = (r: Json) => (isRecord(r.tweet) ? r.tweet : r);
+  const tweet = unwrap(result(itemContent.tweet_results));
+  const original = unwrap(result(record(tweet.legacy).retweeted_status_result));
+  const id = asString(original.rest_id) ?? asString(tweet.rest_id);
+  return id !== undefined && X_ID.test(id) ? id : undefined;
 }
 
 const tweetId = (value: unknown) => {
@@ -542,6 +570,7 @@ function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExp
  */
 export function renderEngineBatch(op: string, variables: Json, body: unknown): EngineBatch {
   const people: Array<string> = [];
+  const order: Array<string> = [];
   const conversations = new Map<string, NonNullable<EnginePost["conversation"]>>();
   const trends: Array<EngineTrend> = [];
   const notifications: Array<EngineNotification> = [];
@@ -558,6 +587,10 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     }
     if (!isRecord(node)) continue;
     const type = node.itemType;
+    if (type === "TimelineTweet") {
+      const id = listedId(node);
+      if (id !== undefined && !order.includes(id)) order.push(id);
+    }
     if (type === "TimelineUser") {
       const user = readUser(record(node.user_results).result);
       if (user !== undefined && !people.includes(user.userId)) people.push(user.userId);
@@ -624,6 +657,7 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     }),
     users: readUsers(body),
     people,
+    order,
     trends,
     notifications,
     lists,
@@ -675,6 +709,7 @@ export const viewerBatch = (viewer: EngineViewer): EngineBatch => ({
   posts: [],
   users: [],
   people: [],
+  order: [],
   trends: [],
   notifications: [],
   lists: [],
