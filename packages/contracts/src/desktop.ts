@@ -108,6 +108,10 @@ export interface EngineMedia {
   readonly videoUrl: string | null;
   readonly width: number;
   readonly height: number;
+  /** A video's length, for the badge X draws on it. */
+  readonly durationMs: number | null;
+  /** The description the author wrote for a photo or GIF. */
+  readonly altText: string | null;
 }
 
 /** The preview X draws for a post's link (a summary card or a unified card) or its X Article. */
@@ -298,4 +302,6 @@ export interface EngineBatch {
   readonly lists: ReadonlyArray<EngineList>;
   readonly homeTabs: ReadonlyArray<EngineHomeTab> | null;
   readonly exploreTabs: ReadonlyArray<EngineExploreTab> | null;
+  /** The signed-in account, from X's own Viewer call on each load. */
+  readonly viewer: EngineUser | null;
 }

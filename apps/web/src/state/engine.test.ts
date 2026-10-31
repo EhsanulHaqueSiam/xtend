@@ -59,6 +59,7 @@ const batch = (
   lists: [],
   homeTabs: null,
   exploreTabs: null,
+  viewer: null,
   ...extra,
 });
 

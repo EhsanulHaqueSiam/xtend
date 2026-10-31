@@ -188,6 +188,8 @@ export interface EngineState {
   /** Home's pinned tabs after For you and Following, as X named them. */
   readonly homeTabs: ReadonlyArray<EngineHomeTab>;
   readonly exploreTabs: ReadonlyArray<EngineExploreTab>;
+  /** The signed-in account (the composer's avatar), once X's page has loaded. */
+  readonly viewer: EngineUser | null;
   /** The page cursors X last answered per surface, to tell a fetch of newer posts from the next page. */
   readonly cursors: Readonly<
     Partial<Record<AnySurface, { readonly top: string | null; readonly bottom: string | null }>>
@@ -207,6 +209,7 @@ export const emptyEngine: EngineState = {
   listIds: NONE,
   homeTabs: [],
   exploreTabs: [],
+  viewer: null,
   cursors: {},
 };
 
@@ -263,6 +266,7 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
     xLists,
     homeTabs: batch.homeTabs ?? state.homeTabs,
     exploreTabs: batch.exploreTabs ?? state.exploreTabs,
+    viewer: batch.viewer ?? state.viewer,
   };
   return surfacesOf(batch).reduce((state, surface) => mergeInto(state, batch, surface), merged);
 }

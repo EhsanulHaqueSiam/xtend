@@ -57,6 +57,8 @@ function readMedia(item: unknown): EngineMedia | undefined {
     videoUrl: best === undefined ? null : (asString(best.url) ?? null),
     width: asNumber(size.width),
     height: asNumber(size.height),
+    durationMs: asCount(record(item.video_info).duration_millis),
+    altText: asString(item.ext_alt_text) ?? null,
   };
 }
 
@@ -625,6 +627,7 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     lists,
     homeTabs: readHomeTabs(record(body)),
     exploreTabs,
+    viewer: op === "Viewer" ? (readUser(result(record(data.viewer).user_results)) ?? null) : null,
   };
 }
 
@@ -661,4 +664,5 @@ export const hasEngineContent = (b: EngineBatch) =>
   b.notifications.length > 0 ||
   b.lists.length > 0 ||
   b.homeTabs !== null ||
-  b.exploreTabs !== null;
+  b.exploreTabs !== null ||
+  b.viewer !== null;

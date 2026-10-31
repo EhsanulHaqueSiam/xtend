@@ -55,6 +55,7 @@ const batch = (op: string, posts: ReadonlyArray<EnginePost>) => ({
   lists: [],
   homeTabs: null,
   exploreTabs: null,
+  viewer: null,
 });
 
 it("draws what the engine received: the post, its video in Xtend's player, and the post it quotes", async () => {
@@ -77,6 +78,8 @@ it("draws what the engine received: the post, its video in Xtend's player, and t
             videoUrl: "https://video.twimg.com/high.mp4",
             width: 1280,
             height: 720,
+            durationMs: 24866,
+            altText: null,
           },
         ],
       }),
@@ -107,6 +110,8 @@ it("reads the post before replying, rereads on a correction, and sends the picke
             videoUrl: null,
             width: 1,
             height: 1,
+            durationMs: null,
+            altText: null,
           },
         ],
       })}

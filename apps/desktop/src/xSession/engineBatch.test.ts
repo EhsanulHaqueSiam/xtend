@@ -653,3 +653,73 @@ describe("renderEngineBatch for live text, edits, threads and people", () => {
     expect(batch.people).toEqual(["9"]);
   });
 });
+
+describe("renderEngineBatch media and the viewer", () => {
+  it("plays a video from its best mp4 with its length, keeps a photo's alt text, and shows a repost as its original", () => {
+    const video = tweet("2", {
+      extended_entities: {
+        media: [
+          {
+            type: "video",
+            media_url_https: "https://pbs.twimg.com/poster.jpg",
+            original_info: { width: 1280, height: 720 },
+            video_info: {
+              duration_millis: 24866,
+              variants: [
+                { content_type: "application/x-mpegURL", url: "https://video.twimg.com/v.m3u8" },
+                {
+                  content_type: "video/mp4",
+                  bitrate: 832000,
+                  url: "https://video.twimg.com/low.mp4",
+                },
+                {
+                  content_type: "video/mp4",
+                  bitrate: 2176000,
+                  url: "https://video.twimg.com/high.mp4",
+                },
+              ],
+            },
+          },
+          {
+            type: "photo",
+            media_url_https: "https://pbs.twimg.com/p.jpg",
+            ext_alt_text: "A cat on a desk",
+          },
+        ],
+      },
+    });
+    const repost = tweet("3", { retweeted_status_result: { result: video } });
+    const [post] = renderEngineBatch("HomeLatestTimeline", {}, { data: [repost] }).posts;
+    expect(post!.postId).toBe("2");
+    expect(post!.media).toEqual([
+      {
+        kind: "video",
+        url: "https://pbs.twimg.com/poster.jpg",
+        videoUrl: "https://video.twimg.com/high.mp4",
+        width: 1280,
+        height: 720,
+        durationMs: 24866,
+        altText: null,
+      },
+      {
+        kind: "photo",
+        url: "https://pbs.twimg.com/p.jpg",
+        videoUrl: null,
+        width: 0,
+        height: 0,
+        durationMs: null,
+        altText: "A cat on a desk",
+      },
+    ]);
+  });
+
+  it("names the signed-in account from X's Viewer call", () => {
+    const batch = renderEngineBatch(
+      "Viewer",
+      {},
+      { data: { viewer: { user_results: { result: user("7", "siamships") } } } },
+    );
+    expect(batch.viewer?.handle).toBe("siamships");
+    expect(renderEngineBatch("HomeTimeline", {}, {}).viewer).toBeNull();
+  });
+});
