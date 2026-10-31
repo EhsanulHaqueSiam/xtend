@@ -29,6 +29,7 @@ export type Surface =
   | "search"
   | "post"
   | "bookmarks"
+  | "likes"
   | "profile"
   | "profile:replies"
   | "profile:media"
@@ -121,6 +122,8 @@ export function surfacesOf(batch: Pick<EngineBatch, "op" | "key">): ReadonlyArra
   if (op === "HomeTimeline") return [tabKey(key, "tag") ?? "forYou"];
   if (op === "HomeLatestTimeline") return ["following"];
   if (op === "Bookmarks") return ["bookmarks"];
+  // The signed-in account's likes, under X's History beside Bookmarks.
+  if (op === "Likes") return ["likes"];
   if (op === "ListsManagementPageTimeline") return ["lists"];
   const keyed =
     op === "CommunityTweetsTimeline"
@@ -152,6 +155,7 @@ const NONE: PerSurface<never> = {
   search: [],
   post: [],
   bookmarks: [],
+  likes: [],
   profile: [],
   "profile:replies": [],
   "profile:media": [],
@@ -313,9 +317,14 @@ function mergeInto(state: EngineState, batch: EngineBatch, surface: AnySurface):
   };
 
   const list = at(state.lists, surface);
+  // X's own entry order; failing that, every post but the ones only quoted inside another.
   const quoted = new Set(batch.posts.flatMap((p) => (p.quotedId === null ? [] : [p.quotedId])));
+  const sent = new Set(batch.posts.map((p) => p.postId));
   const known = new Set([...list, ...at(state.waiting, surface)]);
-  const order = batch.posts.map((p) => p.postId).filter((id) => !quoted.has(id));
+  const order =
+    batch.order.length > 0
+      ? batch.order.filter((id) => sent.has(id))
+      : batch.posts.map((p) => p.postId).filter((id) => !quoted.has(id));
   const fresh = order.filter((id) => !known.has(id));
   const top = list[0] === undefined ? undefined : posts.get(list[0]);
   const newer =

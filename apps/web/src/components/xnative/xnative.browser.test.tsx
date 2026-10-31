@@ -37,6 +37,7 @@ const post = (postId: string, text: string, extra: Partial<EnginePost> = {}): En
   edits: [],
   editsRemaining: null,
   editableUntil: null,
+  aiGenerated: false,
   ...extra,
 });
 
@@ -50,6 +51,7 @@ const batch = (op: string, posts: ReadonlyArray<EnginePost>) => ({
   posts,
   users: [],
   people: [],
+  order: [],
   trends: [],
   notifications: [],
   lists: [],

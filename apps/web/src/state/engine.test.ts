@@ -40,6 +40,7 @@ const post = (postId: string, createdAt: string, quotedId: string | null = null)
   edits: [],
   editsRemaining: null,
   editableUntil: null,
+  aiGenerated: false,
 });
 
 const batch = (
@@ -55,6 +56,7 @@ const batch = (
   posts,
   users: [],
   people: [],
+  order: [],
   trends: [],
   notifications: [],
   lists: [],
@@ -212,6 +214,9 @@ it("keeps notifications in X's order, newer on top, and people by surface", () =
     youFollow: false,
     followsYou: false,
     pinnedPostId: null,
+    verifiedType: null,
+    avatarShape: "Circle",
+    affiliate: null,
   });
   // X listed theo as a person; ann only wrote a post. Both are known, only theo is listed.
   state = mergeBatch(
@@ -272,4 +277,20 @@ it("keeps a post's context per page, and lets a thread's newer replies in at onc
     batch("TweetDetail", [post("3", "2026-10-31T01:00:00Z")], { key: "2", cursor: "t" }),
   );
   expect([at(state.lists, "post:2"), at(state.waiting, "post:2")]).toEqual([["2", "3"], []]);
+});
+
+it("lists a pinned post X also shows quoted, in X's entry order", () => {
+  // The newer post quotes the pinned one; X lists both, the pinned one first.
+  const state = mergeBatch(
+    emptyEngine,
+    batch(
+      "UserOriginalsTimeline",
+      [post("1", "2026-10-30T00:00:00Z"), post("2", "2026-10-31T00:00:00Z", "1")],
+      {
+        key: "5",
+        order: ["1", "2"],
+      },
+    ),
+  );
+  expect(at(state.lists, "profile:posts:5")).toEqual(["1", "2"]);
 });
