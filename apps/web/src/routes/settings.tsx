@@ -107,8 +107,7 @@ const DEFAULTS: Partial<Record<Page, SettingsUpdate>> = {
     dailyLibraryJobs: false,
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   },
-  x: { sessionPostingEnabled: true },
-  pool: { poolSharing: true },
+  x: { sessionPostingEnabled: true, poolSharing: true },
 };
 
 /** Restore defaults for the open page, asking first; the X page also resets Clean X. */
@@ -521,7 +520,7 @@ function SettingsForm({ current }: { readonly current: SettingsShape }) {
           </Section>
         )}
       </Page>
-      <Page id="pool">
+      <Page id="x">
         <Section
           title="Pool"
           description="Trends from everyone's X. Library · Trends reads it free either way."

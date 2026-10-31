@@ -56,7 +56,7 @@ Today, which opens them here, and as OS notifications.
 
 ## Dry run
 
-What every enabled rule would do right now, each firing with its price and the total, without
+**Dry run** in the Rules header shows what every enabled rule would do right now, each firing with its price and the total, without
 doing any of it. One rule can also be replayed over the last 7 days of stored posts, engagers
 and followers to see when it would have fired.
 

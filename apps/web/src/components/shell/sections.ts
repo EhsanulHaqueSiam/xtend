@@ -108,9 +108,13 @@ export const SECTIONS = {
     { id: "agents", label: "Agents", about: "Finders that run on a schedule, paid per run." },
   ],
   "/automate": [
-    { id: "rules", label: "Rules", about: "What runs, when, and for how much." },
+    {
+      id: "rules",
+      label: "Rules",
+      about:
+        "What runs, when, and for how much; Dry run shows what they would do and fires nothing.",
+    },
     { id: "needs-you", label: "Needs you", about: "Actions waiting for your yes." },
-    { id: "dry-run", label: "Dry run", about: "What a rule would do today; fires nothing." },
     { id: "runs", label: "Runs", about: "What ran, with cost and result." },
   ],
   "/analyze": [
@@ -162,8 +166,11 @@ export const SECTIONS = {
       label: "Writing",
       about: "Assist, your voice, keywords, time zone and the morning jobs.",
     },
-    { id: "x", label: "X session", about: "What goes through your own X session, and Clean X." },
-    { id: "pool", label: "Pool", about: "Sharing public sightings with everyone's trends." },
+    {
+      id: "x",
+      label: "X session",
+      about: "What goes through your own X session, Clean X, and what you share with the pool.",
+    },
     { id: "service", label: "Service", about: "Where the service runs and how to reach it." },
   ],
 } as const;

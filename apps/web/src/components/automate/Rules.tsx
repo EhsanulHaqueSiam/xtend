@@ -3,7 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import type { Rule, RuleInput, RuleRun } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { Plus } from "lucide-react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
 import {
@@ -29,7 +29,7 @@ import { RuleRow } from "./RuleRow";
 export const runsOf = (ruleId: number) => `${sectionHref("/automate", "runs")}&rule=${ruleId}`;
 
 /** Rules: the list fills the page; opening a rule (or New rule) adds its detail column. */
-export function Rules() {
+export function Rules({ tabs }: { readonly tabs?: ReactNode }) {
   const rules = useAtomValue(rulesAtom);
   const runs = useAtomValue(runsAtom);
   const refreshRules = useAtomRefresh(rulesAtom);
@@ -85,6 +85,7 @@ export function Rules() {
     <div className="flex h-full flex-col">
       <PageHeader
         title="Rules"
+        tabs={tabs}
         detail={`${enabledCount} of ${list.length} on · ${usd(spent)} this month`}
         actions={
           <>

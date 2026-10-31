@@ -1,11 +1,11 @@
 # Settings
 
-Settings is six pages, each a row under Settings in the sidebar: Account, Money, Writing,
-X session, Pool and Service. **Search settings** in the header finds any setting on any page by
+Settings is five pages, each a row under Settings in the sidebar: Account, Money, Writing,
+X session and Service. **Search settings** in the header finds any setting on any page by
 its name or its hint, with the page it lives on above it.
 
 Changes wait in a bar at the bottom that says **Unsaved changes** until you **Save**. On Money,
-Writing, X session and Pool, **Restore defaults** at the top right puts that page back to how it
+Writing and X session, **Restore defaults** at the top right puts that page back to how it
 shipped (on Writing that clears your voice notes and keywords); it asks for a second click
 (**Confirm restore**).
 
@@ -55,9 +55,9 @@ Desktop only, where your X session lives.
   preference of this window. The switches and their defaults are in
   [x.com inside Xtend](./x-view.md#clean-x).
 
-## Pool
+### Pool
 
-**Share what you see with the pool**, on by default. It sends public posts you scroll past to
+On the X session page. **Share what you see with the pool**, on by default. It sends public posts you scroll past to
 the shared pool behind Library's Trends: their text, the author's handle, name and follower
 count, the numbers you saw, and a random install id. Never ads, reposts, DMs, lists, bookmarks,
 posts from protected accounts or from your notifications, your handle, or which account saw
