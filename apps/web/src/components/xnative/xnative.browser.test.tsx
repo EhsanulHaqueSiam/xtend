@@ -1,9 +1,10 @@
-import type { EnginePost } from "@xtend/contracts";
+import type { DraftPatch, EnginePost } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import { expect, it } from "vite-plus/test";
-import { userEvent } from "vite-plus/test/browser";
+import { page, userEvent } from "vite-plus/test/browser";
 
 import { installFakeBridge } from "../../../test/fakeBridge";
+import { draft, settings } from "../../../test/fixtures";
 import { render } from "../../../test/render";
 import { EngineSync } from "./EngineSync";
 import { ReplyComposer } from "./ReplyComposer";
@@ -248,4 +249,50 @@ it("draws what X draws around a post: its context line, live text, card, poll, n
   // X counts quotes with reposts (4 + 1), and labels AI-made posts.
   await expect.element(row.getByRole("button", { name: "Repost" })).toHaveTextContent("5");
   await expect.element(row.getByText("Made with AI")).toBeVisible();
+});
+
+it("opens X's Repost / Quote popover, and Quote posts the comment over the quoted link through the session", async () => {
+  const bridge = installFakeBridge();
+  const creates: Array<DraftPatch> = [];
+  await using screen = await render(
+    <div style={{ height: 800, display: "flex" }}>
+      <EngineSync />
+      <Timeline surface="bookmarks" header={null} empty="Loading" onReopen={() => {}} />
+    </div>,
+    {
+      service: {
+        "settings.get": () => Effect.succeed({ ...settings, sessionPostingEnabled: true }),
+        "compose.draftCreate": (patch) =>
+          Effect.sync(() => {
+            creates.push(patch);
+            return draft("q1", "draft");
+          }),
+        "compose.postNow": ({ id }) => Effect.succeed(draft(id, "posted", { postIds: ["99"] })),
+      },
+    },
+  );
+  bridge.emitEngine(batch("Bookmarks", [post("40", "Ship the quote box")]));
+  const row = screen.getByRole("article").first();
+  // By keyboard throughout: Enter on the button and on the row is theirs, not the list's
+  // "open the post".
+  const repost = row.getByRole("button", { name: "Repost" });
+  await expect.element(repost).toBeVisible();
+  (repost.element() as HTMLElement).focus();
+  await userEvent.keyboard("{Enter}");
+  await expect.element(page.getByRole("menuitem", { name: "Repost" })).toBeVisible();
+  (page.getByRole("menuitem", { name: "Quote" }).element() as HTMLElement).focus();
+  await userEvent.keyboard("{Enter}");
+
+  // The column's quote box opens over it, in a portal outside the rendered tree.
+  const box = page.getByRole("dialog", { name: "Quote" });
+  await expect.element(box.getByText("Ship the quote box")).toBeVisible();
+  expect(screen.router?.state.location.pathname).toBe("/");
+  await userEvent.fill(box.getByLabelText("Your comment"), "this is the way");
+  await expect.element(box.getByRole("button", { name: "Post" })).toBeEnabled();
+  // Tests load no CSS, so Base UI's backdrop covers the unstyled box: post by X's shortcut.
+  await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
+  await expect
+    .poll(() => creates)
+    .toEqual([{ blocks: [{ text: "this is the way" }], quoteUrl: "https://x.com/theo/status/40" }]);
+  await expect.element(box).not.toBeInTheDocument();
 });

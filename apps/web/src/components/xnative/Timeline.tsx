@@ -167,6 +167,14 @@ export function Timeline({
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey || isEditable(event.target)) return;
+      // Keys in a menu or a dialog, and Enter on a focused button or link, belong to them, not to
+      // the list's post under focus.
+      if (
+        event.target instanceof Element &&
+        (event.target.closest('[role="menu"], [role="dialog"]') ||
+          (event.key === "Enter" && event.target.closest("button, a")))
+      )
+        return;
       const step = event.key === "j" ? 1 : event.key === "k" ? -1 : 0;
       const label = KEY_BUTTONS[event.key];
       if (step !== 0) {

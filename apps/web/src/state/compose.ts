@@ -44,6 +44,14 @@ export const postNowAtom = clientRuntime.fn<string>()(
   }),
 );
 
+/** Post now through the user's session only, for a Post button that showed no price. */
+export const sessionPostNowAtom = clientRuntime.fn<string>()(
+  Effect.fnUntraced(function* (id) {
+    const client = yield* XtendClient;
+    return yield* client[Compose_METHODS.postNow]({ id, sessionOnly: true });
+  }),
+);
+
 export const assistHookAtom = clientRuntime.fn<{
   readonly blocks: ReadonlyArray<string>;
   readonly tone?: ReplyTone | undefined;

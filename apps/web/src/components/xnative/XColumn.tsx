@@ -7,6 +7,7 @@ import { type AnySurface, engineAtom, resetSurface, updateEngine } from "../../s
 import { setScreenRefresh } from "../../state/x";
 import { DayGlance } from "../shell/HomeCompanion";
 import { MediaViewer } from "./MediaViewer";
+import { QuoteComposer } from "./QuoteComposer";
 
 /** The element that scrolls an X screen; lists inside virtualize against it. */
 const ScrollParent = createContext<HTMLElement | null>(null);
@@ -83,6 +84,7 @@ export function XColumn({
           </div>
           <ScrollParent value={scroller}>{children}</ScrollParent>
           <MediaViewer />
+          <QuoteComposer />
         </section>
         <aside className="sticky top-0 flex h-fit w-[340px] shrink-0 flex-col gap-4 py-3 @max-[1000px]:hidden">
           {rail}

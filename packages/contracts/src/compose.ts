@@ -264,7 +264,15 @@ export const ComposeRpcGroup = RpcGroup.make(
     error: ComposeError,
   }),
   /** Posts the thread right away. The returned draft is posted or failed with the X error detail. */
-  Rpc.make(Compose_METHODS.postNow, { payload: DraftId, success: Draft, error: ComposeError }),
+  Rpc.make(Compose_METHODS.postNow, {
+    payload: Schema.Struct({
+      ...DraftId.fields,
+      /** Only through the user's session: refused, never sent through the paid API. */
+      sessionOnly: Schema.optional(Schema.Boolean),
+    }),
+    success: Draft,
+    error: ComposeError,
+  }),
   Rpc.make(Compose_METHODS.assistHook, {
     payload: ToneBlocks,
     success: HookAlternatives,

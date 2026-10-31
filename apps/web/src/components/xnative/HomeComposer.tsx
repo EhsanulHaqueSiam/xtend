@@ -1,18 +1,17 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
+import { charCount, POST_LIMIT } from "@xtend/contracts";
 import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { CalendarClock, Image, ListChecks, ListPlus } from "lucide-react";
 import { useState } from "react";
 
-import { createDraftAtom, postNowAtom } from "../../state/compose";
+import { createDraftAtom, sessionPostNowAtom } from "../../state/compose";
 import { engineAtom } from "../../state/engine";
 import { settingsAtom } from "../../state/settings";
 import { failText } from "../compose/AssistPanel";
 import { toastAtom } from "../ui/toast";
 import { Avatar } from "./XPostView";
-
-const LIMIT = 280;
 
 /** The user's own face: X's signed-in account, else any of their posts the engine has seen. */
 export const useOwnAvatar = () => {
@@ -27,6 +26,28 @@ export const useOwnAvatar = () => {
 };
 
 /**
+ * One post through the user's own session, free, for their click on Post; `quoteUrl` rides under
+ * the text, where X makes it a quote. Resolves true once X has it, otherwise says why and resolves
+ * false. The service refuses it rather than take the paid API lane when the session cannot post.
+ */
+export const useSessionPost = () => {
+  const create = useAtomSet(createDraftAtom, { mode: "promiseExit" });
+  const postNow = useAtomSet(sessionPostNowAtom, { mode: "promiseExit" });
+  const setToast = useAtomSet(toastAtom);
+  return async (text: string, quoteUrl: string | null = null) => {
+    const draft = await create({ blocks: [{ text }], quoteUrl });
+    const exit = Exit.isSuccess(draft) ? await postNow(draft.value.id) : draft;
+    if (Exit.isFailure(exit))
+      return (setToast({ text: `Not posted: ${failText(exit.cause)}` }), false);
+    // The publisher answers with the draft: only "posted" means X has it; the text stays otherwise.
+    if (exit.value.status !== "posted")
+      return (setToast({ text: `Not posted: ${exit.value.error ?? exit.value.status}` }), false);
+    setToast({ text: "Posted on X" });
+    return true;
+  };
+};
+
+/**
  * X's "What's happening?" at the top of Home. Post is one click through the user's own session,
  * free, the way Compose's Post now goes; with session actions off, or for anything longer than
  * one post, the text moves to Compose, where the lane and its price are shown.
@@ -35,28 +56,21 @@ export function HomeComposer() {
   const avatarUrl = useOwnAvatar();
   const navigate = useNavigate();
   const settings = AsyncResult.getOrElse(useAtomValue(settingsAtom), () => null);
-  const create = useAtomSet(createDraftAtom, { mode: "promiseExit" });
-  const postNow = useAtomSet(postNowAtom, { mode: "promiseExit" });
-  const setToast = useAtomSet(toastAtom);
+  const sessionPost = useSessionPost();
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const session = settings?.sessionPostingEnabled === true;
-  const tooLong = text.length > LIMIT;
+  const length = charCount(text);
+  const tooLong = length > POST_LIMIT;
   const handOff = () => void navigate({ href: `/compose?text=${encodeURIComponent(text)}` });
 
   const post = async () => {
     if (text.trim() === "" || busy) return;
     if (!session || tooLong) return handOff();
     setBusy(true);
-    const draft = await create({ blocks: [{ text: text.trim() }] });
-    const exit = Exit.isSuccess(draft) ? await postNow(draft.value.id) : draft;
+    const posted = await sessionPost(text.trim());
     setBusy(false);
-    if (Exit.isFailure(exit)) return setToast({ text: `Not posted: ${failText(exit.cause)}` });
-    // The publisher answers with the draft: only "posted" means X has it; the text stays otherwise.
-    if (exit.value.status !== "posted")
-      return setToast({ text: `Not posted: ${exit.value.error ?? exit.value.status}` });
-    setText("");
-    setToast({ text: "Posted on X" });
+    if (posted) setText("");
   };
 
   return (
@@ -101,7 +115,7 @@ export function HomeComposer() {
             </button>
           ))}
           <span className="ml-auto font-mono text-xs text-muted-foreground tabular-nums">
-            {text === "" ? (session ? "free · your session" : "") : `${text.length}/${LIMIT}`}
+            {text === "" ? (session ? "free · your session" : "") : `${length}/${POST_LIMIT}`}
           </span>
           <button
             type="button"
