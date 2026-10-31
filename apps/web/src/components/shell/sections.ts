@@ -24,7 +24,6 @@ export const ABOUT: Readonly<Record<string, string>> = {
     "How your account is doing, from your posts your session saw, free. Refresh reads your full timeline and follower count, priced on the button.",
   "/scores":
     "Account scores for you and anyone you watch. Stored reports are free; a score run reads their followers through treg, priced on the button.",
-  "/seen": "Every post this app saw in your X session, newest first. Free.",
   "/settings": "Your handle, token, budget, voice, and the app itself.",
 };
 
@@ -58,19 +57,23 @@ export const SECTIONS = {
   ],
   "/library": [
     { id: "picks", label: "Picks", about: "A daily fetch for your keywords, paid." },
-    { id: "search", label: "Search", about: "X search through treg, price before Enter." },
-    { id: "archive", label: "Archive", about: "Every post a search or pick saw, free to browse." },
     {
       id: "trends",
       label: "Trends",
       about: "Topics for you and the shared pool, free; X trends by country through treg.",
     },
+    { id: "search", label: "Search", about: "X search through treg, price before Enter." },
     {
-      id: "collections",
-      label: "Collections",
-      about: "Tags for saved posts; a post can be in many. Free.",
+      id: "saved",
+      label: "Saved",
+      about: "Posts you kept, all of them or by collection; a post can be in many. Free.",
     },
-    { id: "swipe", label: "Swipe file", about: "Saved posts as cards to read. Free." },
+    {
+      id: "seen",
+      label: "Seen",
+      about: "Every post your X session showed you, newest first. Free.",
+    },
+    { id: "archive", label: "Archive", about: "Every post a search or pick saw, free to browse." },
   ],
   "/engage": [
     {
@@ -208,7 +211,7 @@ export const sectionAbout = (route: SectionRoute, id: string) =>
  */
 const X_PAGES: {
   readonly [R in SectionRoute]?: "@" | Partial<Record<SectionId<R>, string>>;
-} & { readonly "/seen": string } = {
+} = {
   "/compose": "@",
   "/plan": "@",
   "/engage": {
@@ -220,15 +223,13 @@ const X_PAGES: {
   "/library": {
     search: "/explore",
     trends: "/explore/tabs/trending",
-    collections: "/i/bookmarks",
-    swipe: "/i/bookmarks",
+    saved: "/i/bookmarks",
+    seen: "/home",
   },
-  "/seen": "/home",
 };
 
 /** The x.com path for the panel beside this route and `?tab=`, or null for no panel. */
 export const xPageFor = (pathname: string, tab: string | null, handle: string | null) => {
-  if (pathname === "/seen") return X_PAGES["/seen"];
   if (!isSectionRoute(pathname)) return null;
   const entry: "@" | Readonly<Record<string, string>> | undefined = X_PAGES[pathname];
   const sections: ReadonlyArray<{ readonly id: string }> = SECTIONS[pathname];

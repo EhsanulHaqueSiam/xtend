@@ -65,8 +65,9 @@ Under it, X's trending topics by country through treg, cached for 30 minutes, wi
 the model ties to the trends that fit your keywords. Nothing loads until you click
 **Load trends**, since the read is paid.
 
-## Collections and Swipe file
+## Saved
 
+Saved shows every saved post (**All saved**) or one collection at a time (**Collections**).
 Save puts a post in the swipe file, with its metrics frozen at save time. A post can also sit
 in any number of named collections; name one in the Collections rail to start it, rename it
 inline, delete it after a confirm. Drag a card onto a collection in the rail to file it there
