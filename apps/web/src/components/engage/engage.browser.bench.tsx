@@ -7,7 +7,7 @@ import { DESKTOP, endlessAnimations, SAMPLES, settled, timeMount } from "../../.
 import type { FakeService } from "../../../test/fakeService";
 import { liveEvents, quoting, settings, xPost } from "../../../test/fixtures";
 import { render } from "../../../test/render";
-import { Mentions } from "./Mentions";
+import { Inbox } from "./Mentions";
 
 const START = Date.parse("2026-10-28T12:00:00.000Z");
 
@@ -45,7 +45,7 @@ const rows = (root: HTMLElement) => root.querySelectorAll("button[data-selected]
 
 beforeAll(() => page.viewport(DESKTOP.width, DESKTOP.height));
 
-it("Engage Mentions with 200 mentions", async ({ bench }) => {
+it("Engage Inbox with 200 mentions", async ({ bench }) => {
   let listed = mentions;
   const service: FakeService = {
     "settings.get": () => Effect.succeed(settings),
@@ -57,14 +57,14 @@ it("Engage Mentions with 200 mentions", async ({ bench }) => {
   };
   const all = (root: HTMLElement) => rows(root).length === mentions.length;
 
-  const mount = await bench("Mentions: mount 200", timeMount(<Mentions />, { service }, all)).run(
+  const mount = await bench("Mentions: mount 200", timeMount(<Inbox />, { service }, all)).run(
     SAMPLES,
   );
   expect(mount.latency.p50).toBeLessThan(120); // 11ms
 
   // Only this screen listens: two subscribers would take turns at the one queue.
   const events = liveEvents();
-  await using screen = await render(<Mentions />, {
+  await using screen = await render(<Inbox />, {
     service: { ...service, "events.subscribe": events.subscribe },
   });
   await settled(screen.container, () => all(screen.container));

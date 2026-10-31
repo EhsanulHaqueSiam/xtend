@@ -4,11 +4,10 @@ import type { FollowUp, SentReply } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState, type ReactElement } from "react";
 
-import { isElectron } from "../../env";
 import { fmtWhen } from "../../lib/time";
 import { closeFollowUpAtom, inboxAtom } from "../../state/engage";
 import { errorText } from "../analyze/ui";
-import { PageHeader } from "../PageHeader";
+import { HeaderTabs, PageHeader } from "../PageHeader";
 import { sectionHref } from "../shell/sections";
 import { Empty, PageBody, Section } from "../ui/layout";
 import {
@@ -23,29 +22,8 @@ import {
 } from "../ui/split";
 import { toastAtom } from "../ui/toast";
 import { OpenOnX } from "../ui/x-link";
-import { MentionTriage } from "./Mentions";
 import { ReplyBox, useWork } from "./ReplyBox";
 import { ago, ErrorLine, pill, PostHead } from "./triage";
-
-/** Replies and quotes to the user's posts that the session saw. */
-export function Incoming() {
-  const result = useAtomValue(inboxAtom);
-  return (
-    <MentionTriage
-      title="Inbox"
-      noHandle="The inbox needs"
-      result={AsyncResult.map(result, (v) => v.incoming)}
-      kind={(m) => (m.post.isReply ? "reply" : "quote")}
-      top={null}
-      actions={undefined}
-      empty={
-        isElectron
-          ? "No replies or quotes yet. They arrive as you browse x.com."
-          : "No replies or quotes yet. The desktop app collects them as you browse x.com."
-      }
-    />
-  );
-}
 
 const SENT_AGE: Column<SentReply> = { label: "Sent", className: "w-12", cell: (r) => ago(r.at) };
 
@@ -67,25 +45,32 @@ const SENT_COLUMNS: ReadonlyArray<Column<SentReply>> = [
 // A follow-up is always a reply X accepted, with nothing credited yet: only its age says anything.
 const FOLLOW_UP_COLUMNS = [SENT_AGE];
 
-/** Replies sent from here, or the ones worth a second touch: older than two days, nothing since. */
-export function SentReplies({ view }: { readonly view: "sent" | "followUps" }) {
+/**
+ * Replies sent from here; the Follow up filter narrows them to the ones worth a second touch:
+ * older than two days, nothing since.
+ */
+export function SentReplies() {
   const result = useAtomValue(inboxAtom);
   const work = useWork();
-  const rows = AsyncResult.getOrElse(
-    AsyncResult.map(result, (v) => (view === "sent" ? v.sent : v.followUps)),
-    () => [],
-  );
+  const [view, setView] = useState<"sent" | "followUps">("sent");
+  const all = AsyncResult.getOrElse(result, () => null);
+  const rows = (view === "sent" ? all?.sent : all?.followUps) ?? [];
   const gained = rows.reduce((n, r) => n + r.attributedFollowers, 0);
+  const tabs = [
+    { id: "sent", label: "All", count: all?.sent.length },
+    { id: "followUps", label: "Follow up", count: all?.followUps.length },
+  ] as const;
   return (
     <>
       <PageHeader
-        title={view === "sent" ? "Sent" : "Follow-ups"}
+        title="Sent"
+        tabs={<HeaderTabs label="Show" tabs={tabs} value={view} onChange={setView} />}
         detail={
-          !AsyncResult.isSuccess(result)
-            ? undefined
-            : view === "sent"
-              ? `${rows.length} sent${gained > 0 ? ` · +${gained} followers` : ""}`
-              : `${rows.length} due`
+          view === "followUps"
+            ? `${rows.length} due`
+            : gained > 0
+              ? `+${gained} followers from replies`
+              : undefined
         }
       />
       {AsyncResult.match(result, {

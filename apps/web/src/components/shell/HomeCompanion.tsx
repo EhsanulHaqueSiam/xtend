@@ -6,7 +6,7 @@ import { createPortal } from "react-dom";
 
 import { nextScheduledLabel } from "../../lib/glance";
 import { partsIn } from "../../lib/time";
-import { mentionsAtom } from "../../state/engage";
+import { inboxItemsAtom } from "../../state/engage";
 import { picksAtom } from "../../state/library";
 import { pendingAtom } from "../../state/automate";
 import { heatmapAtom } from "../../state/plan";
@@ -59,7 +59,7 @@ export function HomeCompanion() {
   const target = use(CompanionTarget);
   const queued = or(useAtomValue(queuedDraftsAtom), []);
   const pending = or(useAtomValue(pendingAtom), []).filter((p) => p.status === "pending");
-  const mentions = or(useAtomValue(mentionsAtom), null);
+  const inbox = or(useAtomValue(inboxItemsAtom), null);
   const picks = or(useAtomValue(picksAtom), null);
   const heatmap = or(useAtomValue(heatmapAtom), null);
   const settings = or(useAtomValue(settingsAtom), null);
@@ -67,7 +67,7 @@ export function HomeCompanion() {
   const zone = settings?.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
   const now = new Date();
   const next = nextScheduledLabel(queued, zone, now);
-  const open = mentions?.mentions.filter((m) => !m.handled).length ?? 0;
+  const open = inbox?.items.filter((m) => !m.handled).length ?? 0;
   const here = partsIn(zone, now);
   const peak = heatmap === null ? 0 : Math.max(...heatmap.cells, 0);
   const nowScore = heatmap?.cells[here.weekday * 24 + here.hour] ?? 0;
@@ -80,7 +80,7 @@ export function HomeCompanion() {
       <Card to="/automate?tab=needs-you" title="Needs you" count={pending.length}>
         {pending[0]?.description ?? "No rule is waiting"}
       </Card>
-      <Card to="/engage?tab=mentions" title="Mentions" count={open}>
+      <Card to="/engage?tab=inbox" title="Inbox" count={open}>
         {open === 0 ? "All handled" : `${open} open`}
       </Card>
       <Card to="/library?tab=picks" title="Picks today" count={picks?.picks.length}>

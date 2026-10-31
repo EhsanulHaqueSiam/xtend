@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 
 import { Dms } from "../components/engage/Dms";
-import { Incoming, SentReplies } from "../components/engage/Inbox";
-import { Mentions } from "../components/engage/Mentions";
+import { SentReplies } from "../components/engage/Inbox";
+import { Inbox } from "../components/engage/Mentions";
 import { Targets } from "../components/engage/Targets";
 import { useSection } from "../components/shell/sections";
 
@@ -13,14 +13,10 @@ function EngageScreen() {
     <div className="flex h-full flex-col">
       {section === "targets" ? (
         <Targets />
-      ) : section === "mentions" ? (
-        <Mentions />
       ) : section === "inbox" ? (
-        <Incoming />
+        <Inbox />
       ) : section === "sent" ? (
-        <SentReplies view="sent" />
-      ) : section === "follow-ups" ? (
-        <SentReplies view="followUps" />
+        <SentReplies />
       ) : (
         <Dms />
       )}

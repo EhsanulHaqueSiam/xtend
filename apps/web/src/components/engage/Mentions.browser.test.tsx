@@ -7,7 +7,7 @@ import type { FakeService } from "../../../test/fakeService";
 import { rates } from "../../../test/fixtures";
 import { render } from "../../../test/render";
 import { Toasts } from "../ui/toast";
-import { Mentions } from "./Mentions";
+import { Inbox } from "./Mentions";
 
 const mention = (n: number, text: string): Mention => ({
   post: {
@@ -80,7 +80,7 @@ function fakeService(): FakeService {
 }
 
 it("marking the open mention handled moves the detail to the next one", async () => {
-  await using screen = await render(<Mentions />, { service: fakeService() });
+  await using screen = await render(<Inbox />, { service: fakeService() });
   const detail = screen.getByRole("complementary");
   await expect.element(detail.getByText("first mention")).toBeVisible();
 
@@ -91,7 +91,7 @@ it("marking the open mention handled moves the detail to the next one", async ()
 });
 
 it("j and k move the selection through the list", async () => {
-  await using screen = await render(<Mentions />, { service: fakeService() });
+  await using screen = await render(<Inbox />, { service: fakeService() });
   const detail = screen.getByRole("complementary");
   await expect.element(detail.getByText("first mention")).toBeVisible();
 
@@ -104,7 +104,7 @@ it("j and k move the selection through the list", async () => {
 });
 
 it("a tone chip drafts in that taste, a candidate fills the editor, write my own clears", async () => {
-  await using screen = await render(<Mentions />, { service: fakeService() });
+  await using screen = await render(<Inbox />, { service: fakeService() });
   const detail = screen.getByRole("complementary");
   await expect.element(detail.getByText("first mention")).toBeVisible();
 
@@ -120,7 +120,7 @@ it("a tone chip drafts in that taste, a candidate fills the editor, write my own
 });
 
 it("a handled mention reopens from All", async () => {
-  await using screen = await render(<Mentions />, { service: fakeService() });
+  await using screen = await render(<Inbox />, { service: fakeService() });
   const detail = screen.getByRole("complementary");
   const open = screen.getByRole("tab", { name: /Open/ });
   await userEvent.click(detail.getByRole("button", { name: "Mark handled" }));
@@ -135,7 +135,7 @@ it("a handled mention reopens from All", async () => {
 it("checked rows are marked handled together, and Undo reopens them all", async () => {
   await using screen = await render(
     <>
-      <Mentions />
+      <Inbox />
       <Toasts />
     </>,
     { service: fakeService() },

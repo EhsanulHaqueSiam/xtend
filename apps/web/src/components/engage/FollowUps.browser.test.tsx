@@ -61,14 +61,17 @@ function fakeService(): FakeService {
   };
 }
 
-const renderFollowUps = () =>
-  render(
+const renderFollowUps = async () => {
+  const screen = await render(
     <>
-      <SentReplies view="followUps" />
+      <SentReplies />
       <Toasts />
     </>,
     { service: fakeService() },
   );
+  await userEvent.click(screen.getByRole("tab", { name: /Follow up/ }));
+  return screen;
+};
 
 it("shows the post followed up on; Done takes it off the due list and Undo puts it back", async () => {
   await using screen = await renderFollowUps();
