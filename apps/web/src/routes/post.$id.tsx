@@ -8,7 +8,7 @@ import { useOpenPost } from "../components/xnative/Timeline";
 import { XColumn, XTitle } from "../components/xnative/XColumn";
 import { XPostView } from "../components/xnative/XPostView";
 import { XEmpty } from "../components/xnative/XRows";
-import { at, engineAtom, postSurface } from "../state/engine";
+import { at, engineAtom, postOn, postSurface } from "../state/engine";
 import { xGo, xNavigate } from "../state/x";
 
 /** One post with the thread above it, joined by X's line, and the replies under it, the composer between. */
@@ -24,7 +24,9 @@ function PostScreen() {
   const reload = () => void xNavigate(`https://x.com/${h}/status/${id}`);
 
   useEffect(open, [open]);
-  const posts = at(engine.lists, postSurface(id)).flatMap((pid) => engine.posts.get(pid) ?? []);
+  const posts = at(engine.lists, postSurface(id)).flatMap(
+    (pid) => postOn(engine, postSurface(id), pid) ?? [],
+  );
   const index = posts.findIndex((p) => p.postId === id);
   const focal = index === -1 ? engine.posts.get(id) : posts[index];
   const above = index === -1 ? [] : posts.slice(0, index);

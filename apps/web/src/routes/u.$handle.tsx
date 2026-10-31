@@ -1,25 +1,28 @@
-import { useAtomSet, useAtomValue } from "@effect/atom-react";
-import * as AsyncResult from "effect/reactivity/AsyncResult";
+import { useAtomValue } from "@effect/atom-react";
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
 import { CalendarDays, Link2, MapPin } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect } from "react";
 
 import { fmt } from "../components/analyze/ui";
 import { RichText } from "../components/xnative/RichText";
 import { Timeline } from "../components/xnative/Timeline";
 import { XTabs, XTitle } from "../components/xnative/XColumn";
+import { FollowButton } from "../components/xnative/FollowButton";
 import { Avatar, Verified } from "../components/xnative/XPostView";
 import { engineAtom, type ProfileTab, profileSurface, userByHandle } from "../state/engine";
-import { settingsAtom } from "../state/settings";
-import { xFollow, xGo, xNavigate } from "../state/x";
-import { toastAtom } from "../components/ui/toast";
+import { xGo, xNavigate } from "../state/x";
 
 const TABS = [
   { id: "posts", label: "Posts", path: "" },
   { id: "replies", label: "Replies", path: "/with_replies" },
+  { id: "highlights", label: "Highlights", path: "/highlights" },
+  { id: "articles", label: "Articles", path: "/articles" },
   { id: "media", label: "Media", path: "/media" },
-] as const satisfies ReadonlyArray<{ id: ProfileTab; label: string; path: string }>;
+  // X shows Likes on the user's own profile only.
+  { id: "likes", label: "Likes", path: "/likes" },
+] as const satisfies ReadonlyArray<{ id: ProfileTab | "likes"; label: string; path: string }>;
 type Tab = (typeof TABS)[number]["id"];
+const TAB_IDS: ReadonlySet<string> = new Set(TABS.map((t) => t.id));
 
 const JOINED = new Intl.DateTimeFormat("en", { month: "long", year: "numeric" });
 
@@ -50,37 +53,11 @@ function ProfileScreen() {
   // A tab's posts sit under the person's id. Until X names them the list stays empty (keyed by the
   // handle, which nothing fills) rather than showing whoever the engine fetched last.
   const userId = user?.userId ?? seen?.author.userId ?? `@${handle.toLowerCase()}`;
-  const surface = profileSurface(current.id, userId);
+  const own = engine.viewer?.handle.toLowerCase() === handle.toLowerCase();
+  const tabs = own ? TABS : TABS.filter((t) => t.id !== "likes");
+  const surface = current.id === "likes" ? "likes" : profileSurface(current.id, userId);
   const name = user?.name ?? seen?.author.name ?? handle;
-  const settings = AsyncResult.getOrElse(useAtomValue(settingsAtom), () => null);
-  const setToast = useAtomSet(toastAtom);
-  // What the user asked for here, for this person only (the screen stays mounted from one
-  // profile to the next); X's own state wins again once it agrees.
-  const [want, setWant] = useState<{ readonly userId: string; readonly follow: boolean } | null>(
-    null,
-  );
-  const [busy, setBusy] = useState<string | null>(null);
-  // Once X's capture agrees, X's own state is the truth again.
-  if (want !== null && want.userId === user?.userId && want.follow === user.youFollow)
-    setWant(null);
-  const following =
-    want !== null && want.userId === user?.userId ? want.follow : (user?.youFollow ?? false);
-  const own = settings?.handle?.toLowerCase() === handle.toLowerCase();
-  /** X's own Follow or Unfollow for the user's click, on the profile X shows. */
-  const follow = async () => {
-    if (user === undefined || busy === user.userId) return;
-    if (settings !== null && !settings.sessionPostingEnabled)
-      return setToast({ text: "Session actions are off in Settings, X session." });
-    const target = !following;
-    setWant({ userId: user.userId, follow: target });
-    setBusy(user.userId);
-    const ok = await xFollow({ userId: user.userId, handle: user.handle }, target);
-    setBusy((b) => (b === user.userId ? null : b));
-    if (ok) return;
-    // Only this person's request is taken back; the user may be on another profile by now.
-    setWant((w) => (w?.userId === user.userId ? null : w));
-    setToast({ text: "X did not take that. Try again in a moment." });
-  };
+
   const pill =
     "h-9 cursor-pointer rounded-full px-4 text-[15px] font-bold transition-colors duration-150";
   return (
@@ -92,7 +69,7 @@ function ProfileScreen() {
             <span className="flex items-center gap-1">
               {name}
               {(user?.verified ?? seen?.author.verified) === true ? (
-                <Verified className="size-5" />
+                <Verified className="size-5" type={user?.verifiedType ?? null} />
               ) : null}
             </span>
           }
@@ -110,7 +87,11 @@ function ProfileScreen() {
           <div className="px-4 pb-3">
             <div className="flex items-start justify-between">
               <span className="-mt-[15%] block rounded-full border-4 border-black bg-black">
-                <Avatar url={user?.avatarUrl ?? seen?.avatarUrl ?? null} size={133} />
+                <Avatar
+                  url={user?.avatarUrl ?? seen?.avatarUrl ?? null}
+                  size={133}
+                  square={user?.avatarShape === "Square"}
+                />
               </span>
               <div className="flex gap-2 pt-3">
                 <button
@@ -120,34 +101,13 @@ function ProfileScreen() {
                 >
                   Score
                 </button>
-                {own ? null : (
-                  <button
-                    type="button"
-                    disabled={user === undefined}
-                    aria-pressed={following}
-                    className={
-                      following
-                        ? `${pill} group border border-white/[0.35] hover:border-[#f4212e]/60 hover:bg-[#f4212e]/10 hover:text-[#f4212e]`
-                        : `${pill} bg-foreground text-background hover:opacity-90 disabled:opacity-50`
-                    }
-                    onClick={() => void follow()}
-                  >
-                    {following ? (
-                      <>
-                        <span className="group-hover:hidden">Following</span>
-                        <span className="hidden group-hover:inline">Unfollow</span>
-                      </>
-                    ) : (
-                      "Follow"
-                    )}
-                  </button>
-                )}
+                <FollowButton user={user} />
               </div>
             </div>
             <p className="mt-3 flex items-center gap-1 text-[20px] leading-6 font-extrabold">
               {name}
               {(user?.verified ?? seen?.author.verified) === true ? (
-                <Verified className="size-5" />
+                <Verified className="size-5" type={user?.verifiedType ?? null} />
               ) : null}
             </p>
             <p className="flex items-center gap-1.5 text-[15px] text-[#71767b]">
@@ -209,7 +169,7 @@ function ProfileScreen() {
           <div className="border-b border-border">
             <XTabs
               label="Profile"
-              tabs={TABS}
+              tabs={tabs}
               value={tab}
               onChange={(next) =>
                 void navigate({ to: "/u/$handle", params: { handle }, search: { tab: next } })
@@ -227,6 +187,8 @@ function ProfileScreen() {
 export const Route = createFileRoute("/u/$handle")({
   // Optional, so a link to a profile needs no tab: Posts is the default.
   validateSearch: (s: Record<string, unknown>): { tab?: Tab } =>
-    s.tab === "replies" || s.tab === "media" ? { tab: s.tab } : {},
+    typeof s.tab === "string" && s.tab !== "posts" && TAB_IDS.has(s.tab)
+      ? { tab: s.tab as Tab }
+      : {},
   component: ProfileScreen,
 });

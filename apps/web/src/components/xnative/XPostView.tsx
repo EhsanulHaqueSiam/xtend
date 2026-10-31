@@ -14,12 +14,14 @@ import {
 import { useState, type ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
+import { engineAtom } from "../../state/engine";
 import { settingsAtom } from "../../state/settings";
 import { xAct } from "../../state/x";
 import { fmt } from "../analyze/ui";
 import { useDropPost } from "../shell/drops";
 import { Menu, MenuItem } from "../ui/menu";
 import { toastAtom } from "../ui/toast";
+import { FollowButton } from "./FollowButton";
 import { HoverCard } from "./HoverCard";
 import { viewerAtom } from "./MediaViewer";
 import { ContextLine, LinkCard, Note, Poll } from "./PostParts";
@@ -45,7 +47,14 @@ const clampText = (text: string) => {
 const X_GRAY = "text-[#71767b]";
 
 /** X's blue badge with a white check. */
-export function Verified({ className }: { readonly className?: string }) {
+/** X's check: blue, gold for a business, grey for a government account. */
+export function Verified({
+  className,
+  type = null,
+}: {
+  readonly className?: string;
+  readonly type?: string | null;
+}) {
   return (
     <svg
       viewBox="0 0 22 22"
@@ -53,7 +62,7 @@ export function Verified({ className }: { readonly className?: string }) {
       className={cn("size-[18px] shrink-0", className)}
     >
       <path
-        fill="#1d9bf0"
+        fill={type === "Business" ? "#e2b719" : type === "Government" ? "#829aab" : "#1d9bf0"}
         d="M20.4 11c0-1.4-.8-2.6-2-3.2.4-1.3.1-2.8-.9-3.7-1-1-2.4-1.3-3.7-.9C13.2 2 12 1.2 10.6 1.2S8 2 7.4 3.2C6.1 2.8 4.6 3.1 3.7 4.1c-1 1-1.3 2.4-.9 3.7C1.6 8.4.8 9.6.8 11s.8 2.6 2 3.2c-.4 1.3-.1 2.8.9 3.7 1 1 2.4 1.3 3.7.9.6 1.2 1.8 2 3.2 2s2.6-.8 3.2-2c1.3.4 2.8.1 3.7-.9 1-1 1.3-2.4.9-3.7 1.2-.6 2-1.8 2-3.2z"
       />
       <path fill="#fff" d="M9.6 14.8 6 11.2l1.4-1.4 2.2 2.2 5-5L16 8.4z" />
@@ -62,10 +71,19 @@ export function Verified({ className }: { readonly className?: string }) {
 }
 
 /** A round avatar from X's image, or a quiet circle until it is known. */
-export function Avatar({ url, size }: { readonly url: string | null; readonly size: number }) {
+export function Avatar({
+  url,
+  size,
+  square = false,
+}: {
+  readonly url: string | null;
+  readonly size: number;
+  /** X draws an organisation's avatar as a rounded square. */
+  readonly square?: boolean;
+}) {
   return url === null ? (
     <span
-      className="block shrink-0 rounded-full bg-white/[0.08]"
+      className={cn("block shrink-0 bg-white/[0.08]", square ? "rounded-[22%]" : "rounded-full")}
       style={{ width: size, height: size }}
     />
   ) : (
@@ -73,20 +91,30 @@ export function Avatar({ url, size }: { readonly url: string | null; readonly si
       src={avatar96(url)}
       alt=""
       loading="lazy"
-      className="shrink-0 rounded-full bg-white/[0.08] object-cover"
+      className={cn(
+        "shrink-0 bg-white/[0.08] object-cover",
+        square ? "rounded-[22%]" : "rounded-full",
+      )}
       style={{ width: size, height: size }}
     />
   );
 }
 
 /** One photo, video or GIF in X's grid; a video plays in Xtend's player (fullscreen, picture in picture, speed). */
+/** "0:47", X's length badge on a video. */
+const duration = (ms: number) =>
+  `${Math.floor(ms / 60_000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}`;
+
 function MediaItem({
   m,
   fill,
+  still,
   onView,
 }: {
   readonly m: EngineMedia;
   readonly fill: boolean;
+  /** A quote's media: a still with a play mark and its length, as X draws it; a click opens the quote. */
+  readonly still: boolean;
   readonly onView: () => void;
 }) {
   const cls = cn("block w-full cursor-zoom-in bg-white/[0.04] object-cover", fill && "h-full");
@@ -102,6 +130,22 @@ function MediaItem({
             ALT
           </span>
         )}
+      </span>
+    );
+  if (still)
+    return (
+      <span className={cn("relative block bg-black", fill && "h-full")}>
+        <img src={m.url} alt={m.altText ?? ""} loading="lazy" className={cls} />
+        {m.kind === "gif" ? null : (
+          <span className="absolute inset-0 m-auto grid size-12 place-items-center rounded-full bg-[#1d9bf0]/90">
+            <svg viewBox="0 0 24 24" className="ml-0.5 size-5 fill-white">
+              <path d="M8 5v14l11-7z" />
+            </svg>
+          </span>
+        )}
+        <span className="absolute bottom-2 left-2 rounded bg-black/75 px-1 font-mono text-[12px] empty:hidden">
+          {m.kind === "gif" ? "GIF" : m.durationMs === null ? "" : duration(m.durationMs)}
+        </span>
       </span>
     );
   return (
@@ -131,7 +175,13 @@ function MediaItem({
  * portrait shot stands narrow, as on X), two side by side, three with the first tall, four in a
  * square grid. A group sits at 16:9.
  */
-function Media({ media }: { readonly media: ReadonlyArray<EngineMedia> }) {
+function Media({
+  media,
+  still = false,
+}: {
+  readonly media: ReadonlyArray<EngineMedia>;
+  readonly still?: boolean;
+}) {
   const view = useAtomSet(viewerAtom);
   if (media.length === 0) return null;
   const one = media.length === 1 ? media[0]! : null;
@@ -157,6 +207,7 @@ function Media({ media }: { readonly media: ReadonlyArray<EngineMedia> }) {
           <MediaItem
             m={m}
             fill
+            still={still}
             onView={() =>
               view({ media, index: media.filter((x) => x.kind === "photo").indexOf(m) })
             }
@@ -198,7 +249,7 @@ function QuoteBox({
       {quoted.media.length === 0 ? null : (
         // X insets a quote's media inside the box and centres a tall shot.
         <div className="px-3 pb-3 [&>div]:mx-auto">
-          <Media media={quoted.media} />
+          <Media media={quoted.media} still />
         </div>
       )}
     </div>
@@ -322,6 +373,9 @@ export function XPostView({
   const drop = useDropPost();
   const navigate = useNavigate();
   const settings = AsyncResult.getOrElse(useAtomValue(settingsAtom), () => null);
+  // The author as X described them (badge colour, organisation shape, affiliate), when seen.
+  const author = useAtomValue(engineAtom).users.get(post.author.userId);
+  const square = author?.avatarShape === "Square";
   /**
    * What the user asked for here, per button; X's own state wins again once it agrees (a fresh
    * capture after the press), so the two never fight.
@@ -380,7 +434,15 @@ export function XPostView({
           {post.author.name}
         </button>
       </HoverCard>
-      {post.author.verified ? <Verified /> : null}
+      {post.author.verified ? <Verified type={author?.verifiedType ?? null} /> : null}
+      {author?.affiliate?.badgeUrl == null ? null : (
+        <img
+          src={author.affiliate.badgeUrl}
+          alt={author.affiliate.name}
+          title={author.affiliate.name}
+          className="size-4 shrink-0 rounded-[3px] border border-white/20"
+        />
+      )}
     </span>
   );
   const menu = (
@@ -434,7 +496,8 @@ export function XPostView({
         label="Repost"
         tone="green"
         pressed={has("retweet")}
-        count={fmt(m.reposts + shift("retweet"))}
+        // X counts quotes with reposts on the button.
+        count={fmt(m.reposts + m.quotes + shift("retweet"))}
         onClick={() => void act("retweet")}
       >
         <Repeat2 className="size-[18px]" />
@@ -458,6 +521,9 @@ export function XPostView({
           label="Bookmark on X"
           tone="blue"
           pressed={has("bookmark")}
+          count={
+            m.bookmarks + shift("bookmark") > 0 ? fmt(m.bookmarks + shift("bookmark")) : undefined
+          }
           onClick={() => void act("bookmark")}
         >
           <Bookmark className={cn("size-[18px]", has("bookmark") && "fill-current")} />
@@ -482,12 +548,14 @@ export function XPostView({
         )}
         <div className="flex items-center gap-2">
           <button type="button" className="cursor-pointer" onClick={openProfile}>
-            <Avatar url={post.avatarUrl} size={40} />
+            <Avatar url={post.avatarUrl} size={40} square={square} />
           </button>
           <div className="min-w-0 text-[15px] leading-5">
             {name}
             <p className={X_GRAY}>@{post.author.handle}</p>
           </div>
+          <span className="ml-auto" />
+          {author?.youFollow === true ? null : <FollowButton user={author} size="sm" />}
           {menu}
         </div>
         <div className="mt-3 empty:hidden">
@@ -500,6 +568,7 @@ export function XPostView({
           {post.media.length === 0 ? null : <Media media={post.media} />}
           {quoted === undefined ? null : <QuoteBox quoted={quoted} onOpen={onOpen} />}
           <Extras post={post} />
+          {post.aiGenerated ? <p className={cn("text-[13px]", X_GRAY)}>Made with AI</p> : null}
         </div>
         <p className={cn("mt-4 pb-4 text-[15px]", X_GRAY)}>
           {post.edits.length > 1 ? "Last edited " : ""}
@@ -543,7 +612,7 @@ export function XPostView({
               openProfile();
             }}
           >
-            <Avatar url={post.avatarUrl} size={40} />
+            <Avatar url={post.avatarUrl} size={40} square={square} />
           </button>
         </HoverCard>
         {threaded ? <span className="mt-1 w-0.5 flex-1 bg-[#333639]" /> : null}
@@ -581,6 +650,7 @@ export function XPostView({
         <Media media={post.media} />
         {quoted === undefined ? null : <QuoteBox quoted={quoted} onOpen={onOpen} />}
         <Extras post={post} />
+        {post.aiGenerated ? <p className={cn("text-[13px]", X_GRAY)}>Made with AI</p> : null}
         {actions}
         <XtendLine post={post} />
       </div>
