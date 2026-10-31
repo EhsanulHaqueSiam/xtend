@@ -27,7 +27,7 @@ const post = (postId: string, createdAt: string, quotedId: string | null = null)
   quotedId,
   replyToId: null,
   replyingTo: [],
-  links: [],
+  entities: { urls: [], mentions: [], hashtags: [], cashtags: [] },
   card: null,
   poll: null,
   note: null,
@@ -35,6 +35,10 @@ const post = (postId: string, createdAt: string, quotedId: string | null = null)
   liked: false,
   reposted: false,
   bookmarked: false,
+  conversation: null,
+  edits: [],
+  editsRemaining: null,
+  editableUntil: null,
 });
 
 const batch = (
@@ -49,6 +53,7 @@ const batch = (
   bottom: null,
   posts,
   users: [],
+  people: [],
   trends: [],
   notifications: [],
   lists: [],
@@ -187,33 +192,37 @@ it("keeps notifications in X's order, newer on top, and people by surface", () =
   );
   expect(state.notifications.notifications.map((n) => n.id)).toEqual(["c", "b", "a"]);
 
-  const theo = { userId: "5", handle: "theo", name: "Theo" } as const satisfies Partial<EngineUser>;
+  const user = (userId: string, handle: string): EngineUser => ({
+    userId,
+    handle,
+    name: handle,
+    avatarUrl: null,
+    bannerUrl: null,
+    bio: "",
+    location: null,
+    website: null,
+    joinedAt: null,
+    followers: 1,
+    following: 1,
+    posts: 1,
+    verified: false,
+    isProtected: false,
+    youFollow: false,
+    followsYou: false,
+    pinnedPostId: null,
+  });
+  // X listed theo as a person; ann only wrote a post. Both are known, only theo is listed.
   state = mergeBatch(
     state,
     batch("SearchTimeline", [], {
-      key: "People",
-      users: [
-        {
-          ...theo,
-          avatarUrl: null,
-          bannerUrl: null,
-          bio: "",
-          location: null,
-          website: null,
-          joinedAt: null,
-          followers: 1,
-          following: 1,
-          posts: 1,
-          verified: false,
-          isProtected: false,
-          youFollow: false,
-          followsYou: false,
-          pinnedPostId: null,
-        },
-      ],
+      key: "People:react",
+      users: [user("5", "theo"), user("1", "ann")],
+      people: ["5"],
     }),
   );
+  expect(at(state.people, "search:People:react")).toEqual(["5"]);
   expect(state.people.search).toEqual(["5"]);
   expect(userByHandle(state, "Theo")?.userId).toBe("5");
+  expect(userByHandle(state, "ann")?.userId).toBe("1");
   expect(resetSurface(state, "search").people.search).toEqual([]);
 });

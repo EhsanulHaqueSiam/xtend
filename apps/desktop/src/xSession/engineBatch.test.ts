@@ -123,7 +123,11 @@ describe("renderEngineBatch posts", () => {
       bookmarked: true,
       context: null,
     });
-    expect(p!.links.map((l) => l.display)).toEqual(["a.dev/x", "bunny.net/blog"]);
+    // Entities sit where the shown text has them; the card's link is drawn as the card.
+    expect(p!.entities.urls.map((l) => [l.display, l.indices])).toEqual([
+      ["a.dev/x", [10, 27]],
+      ["bunny.net/blog", null],
+    ]);
   });
 
   it("reads a unified card, an X Article and a poll", () => {
@@ -567,5 +571,85 @@ describe("renderEngineBatch around posts", () => {
         {},
       ).key,
     ).toBe("community:14");
+  });
+});
+
+describe("renderEngineBatch for live text, edits, threads and people", () => {
+  it("places entities in the shown text, reads edits, groups a conversation, and keeps every user", () => {
+    const text = "🚀 @Theo ships #buildinpublic for $TSLA fans @theo";
+    const live = tweet(
+      "2",
+      {
+        full_text: text,
+        entities: {
+          user_mentions: [
+            { screen_name: "Theo", indices: [2, 7] },
+            { screen_name: "theo", indices: [43, 48] },
+          ],
+          hashtags: [{ text: "buildinpublic", indices: [14, 28] }],
+          symbols: [{ text: "TSLA", indices: [33, 38] }],
+          urls: [],
+        },
+      },
+      {
+        edit_control: {
+          edit_control_initial: {
+            edit_tweet_ids: ["1", "2"],
+            editable_until_msecs: "1793383169000",
+            edits_remaining: "4",
+          },
+        },
+      },
+    );
+    const parent = tweet("1");
+    const listed = user("9", "dhh");
+    const batch = renderEngineBatch(
+      "HomeLatestTimeline",
+      {},
+      {
+        data: {
+          entries: [
+            {
+              entryId: "home-conversation-2",
+              content: {
+                entryType: "TimelineTimelineModule",
+                displayType: "VerticalConversation",
+                items: [
+                  { item: { itemContent: { tweet_results: { result: parent } } } },
+                  { item: { itemContent: { tweet_results: { result: live } } } },
+                ],
+              },
+            },
+            {
+              content: {
+                itemContent: { itemType: "TimelineUser", user_results: { result: listed } },
+              },
+            },
+          ],
+        },
+      },
+    );
+    const [first, second] = batch.posts;
+    const at = (start: number, end: number) => [text.slice(start, end), [start, end]];
+    expect(second!.entities.mentions.map((m) => [m.handle, ...at(...m.indices)])).toEqual([
+      ["theo", "@Theo", [3, 8]],
+      ["theo", "@theo", [45, 50]],
+    ]);
+    expect(second!.entities.hashtags.map((h) => text.slice(...h.indices))).toEqual([
+      "#buildinpublic",
+    ]);
+    expect(second!.entities.cashtags.map((c) => text.slice(...c.indices))).toEqual(["$TSLA"]);
+    expect([second!.edits, second!.editsRemaining, second!.editableUntil]).toEqual([
+      ["1", "2"],
+      4,
+      "2026-10-30T17:59:29.000Z",
+    ]);
+    expect([first!.conversation, second!.conversation]).toEqual([
+      { id: "home-conversation-2", index: 0, size: 2 },
+      { id: "home-conversation-2", index: 1, size: 2 },
+    ]);
+    // Everyone named is known; only the one X listed is a person on this page.
+    expect(batch.users.map((u) => u.handle).sort()).toEqual(["dhh", "theo"]);
+    expect(batch.people).toEqual(["9"]);
   });
 });

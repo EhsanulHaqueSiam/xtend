@@ -25,7 +25,7 @@ const post = (postId: string, text: string, extra: Partial<EnginePost> = {}): En
   quotedId: null,
   replyToId: null,
   replyingTo: [],
-  links: [],
+  entities: { urls: [], mentions: [], hashtags: [], cashtags: [] },
   card: null,
   poll: null,
   note: null,
@@ -33,6 +33,10 @@ const post = (postId: string, text: string, extra: Partial<EnginePost> = {}): En
   liked: false,
   reposted: false,
   bookmarked: false,
+  conversation: null,
+  edits: [],
+  editsRemaining: null,
+  editableUntil: null,
   ...extra,
 });
 
@@ -45,6 +49,7 @@ const batch = (op: string, posts: ReadonlyArray<EnginePost>) => ({
   bottom: null,
   posts,
   users: [],
+  people: [],
   trends: [],
   notifications: [],
   lists: [],

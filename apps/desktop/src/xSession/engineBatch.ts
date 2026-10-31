@@ -1,6 +1,8 @@
 import type {
   EngineBatch,
   EngineCard,
+  EngineEntities,
+  EngineRange,
   EngineExploreTab,
   EngineHomeTab,
   EngineLink,
@@ -90,7 +92,10 @@ function readPoll(card: Json): EnginePoll | null {
 
 const imageOf = (value: Json | undefined) => asString(record(value?.image_value).url) ?? null;
 
-function readCard(tweet: Json, links: ReadonlyArray<EngineLink>): EngineCard | null {
+function readCard(
+  tweet: Json,
+  links: ReadonlyArray<Omit<EngineLink, "indices">>,
+): EngineCard | null {
   const article = result(record(tweet.article).article_results);
   const articleId = asString(article.rest_id);
   if (articleId !== undefined && X_ID.test(articleId)) {
@@ -156,10 +161,14 @@ function readUnifiedCard(raw: unknown): EngineCard | null {
   };
 }
 
-function readLinks(tweet: Json, legacy: Json): ReadonlyArray<EngineLink> {
-  // A long post's links live with its full text in note_tweet.
+/** A post's entities as X lists them: a long post's live with its full text in note_tweet. */
+function entitySource(tweet: Json, legacy: Json): Json {
   const note = result(record(tweet.note_tweet).note_tweet_results);
-  return arr(record(note.entity_set).urls ?? record(legacy.entities).urls).flatMap((u) => {
+  return isRecord(note.entity_set) ? note.entity_set : record(legacy.entities);
+}
+
+function readLinks(source: Json): ReadonlyArray<Omit<EngineLink, "indices">> {
+  return arr(source.urls).flatMap((u) => {
     const url = asString(record(u).url);
     const expanded = asString(record(u).expanded_url);
     const display = asString(record(u).display_url);
@@ -167,6 +176,67 @@ function readLinks(tweet: Json, legacy: Json): ReadonlyArray<EngineLink> {
       ? []
       : [{ url, expanded, display: display ?? expanded }];
   });
+}
+
+/**
+ * Where each entity sits in the shown text, found by its own text in order: X's indices count
+ * code points in the raw text, which the shown text has trimmed and unescaped. One the shown text
+ * no longer holds (a "Replying to" handle, a link drawn as the card) has no place.
+ */
+function readEntities(
+  source: Json,
+  links: ReadonlyArray<Omit<EngineLink, "indices">>,
+  text: string,
+): EngineEntities {
+  const lower = text.toLowerCase();
+  const place = (needles: ReadonlyArray<string>) => {
+    let from = 0;
+    return needles.map((needle): EngineRange | null => {
+      const at = lower.indexOf(needle.toLowerCase(), from);
+      if (at === -1) return null;
+      from = at + needle.length;
+      return [at, at + needle.length];
+    });
+  };
+  const found = (items: ReadonlyArray<unknown>, field: string, mark: string) => {
+    const names = items.flatMap((i) => asString(record(i)[field]) ?? []);
+    const at = place(names.map((n) => mark + n));
+    return names.flatMap((name, i) => {
+      const indices = at[i];
+      return indices === null || indices === undefined ? [] : [{ name, indices }];
+    });
+  };
+  const linkAt = place(links.map((l) => l.url));
+  return {
+    urls: links.map((l, i) => ({ ...l, indices: linkAt[i] ?? null })),
+    mentions: found(arr(source.user_mentions), "screen_name", "@").map(({ name, indices }) => ({
+      handle: name.toLowerCase(),
+      indices,
+    })),
+    hashtags: found(arr(source.hashtags), "text", "#").map(({ name, indices }) => ({
+      tag: name,
+      indices,
+    })),
+    cashtags: found(arr(source.symbols), "text", "$").map(({ name, indices }) => ({
+      tag: name,
+      indices,
+    })),
+  };
+}
+
+/** The post's edit history: every version's id, oldest first, and what X still allows. */
+function readEdits(tweet: Json) {
+  const control = record(tweet.edit_control);
+  const chain = isRecord(control.edit_control_initial) ? control.edit_control_initial : control;
+  const until = asString(chain.editable_until_msecs);
+  return {
+    edits: arr(chain.edit_tweet_ids).flatMap((id) =>
+      typeof id === "string" && X_ID.test(id) ? [id] : [],
+    ),
+    editsRemaining: asCount(chain.edits_remaining),
+    editableUntil:
+      until !== undefined && /^\d+$/.test(until) ? new Date(Number(until)).toISOString() : null,
+  };
 }
 
 /**
@@ -219,7 +289,8 @@ function readEnginePost(
   const user = result(record(tweet.core).user_results);
   const extended = record(legacy.extended_entities);
   const mediaItems = arr(extended.media);
-  const links = readLinks(tweet, legacy);
+  const source = entitySource(tweet, legacy);
+  const links = readLinks(source);
   const card = readCard(tweet, links);
   const replyingTo = readReplyingTo(legacy);
   const hidden = new Set(
@@ -230,9 +301,10 @@ function readEnginePost(
       asString(bindings(record(tweet.card)).get("card_url")?.string_value),
     ].filter((u) => u !== undefined),
   );
+  const text = shownText(post.text, replyingTo, hidden);
   return {
     ...post,
-    text: shownText(post.text, replyingTo, hidden),
+    text,
     avatarUrl:
       asString(record(user.avatar).image_url) ??
       asString(record(user.legacy).profile_image_url_https) ??
@@ -241,7 +313,7 @@ function readEnginePost(
     quotedId: asString(legacy.quoted_status_id_str) ?? null,
     replyToId: asString(legacy.in_reply_to_status_id_str) ?? null,
     replyingTo,
-    links,
+    entities: readEntities(source, links, text),
     card,
     poll: readPoll(record(tweet.card)),
     note: asString(record(record(tweet.birdwatch_pivot).subtitle).text) ?? null,
@@ -249,6 +321,9 @@ function readEnginePost(
     liked: legacy.favorited === true,
     reposted: legacy.retweeted === true,
     bookmarked: legacy.bookmarked === true,
+    // Filled in by the batch, which sees the timeline's modules.
+    conversation: null,
+    ...readEdits(tweet),
   };
 }
 
@@ -463,7 +538,8 @@ function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExp
  * People, Who to follow, a profile's own header), not every post's author.
  */
 export function renderEngineBatch(op: string, variables: Json, body: unknown): EngineBatch {
-  const users = new Map<string, EngineUser>();
+  const people: Array<string> = [];
+  const conversations = new Map<string, NonNullable<EnginePost["conversation"]>>();
   const trends: Array<EngineTrend> = [];
   const notifications: Array<EngineNotification> = [];
   const lists: Array<EngineList> = [];
@@ -481,7 +557,17 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     const type = node.itemType;
     if (type === "TimelineUser") {
       const user = readUser(record(node.user_results).result);
-      if (user !== undefined && !users.has(user.userId)) users.set(user.userId, user);
+      if (user !== undefined && !people.includes(user.userId)) people.push(user.userId);
+    } else if (
+      typeof node.entryId === "string" &&
+      record(node.content).displayType === "VerticalConversation"
+    ) {
+      // A self-thread or a reply under its parent, which X draws joined by a line.
+      const module = node.entryId;
+      const ids = arr(record(node.content).items).flatMap((item) =>
+        tweetId(record(record(item).item).itemContent),
+      );
+      ids.forEach((id, index) => conversations.set(id, { id: module, index, size: ids.length }));
     } else if (type === "TimelineTrend") {
       const trend = readTrend(node, group);
       if (trend !== undefined) trends.push(trend);
@@ -516,10 +602,6 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
       stack.push({ node: values[i], group: header ?? group });
   }
   const data = record(record(body).data);
-  if (op === "UserByScreenName") {
-    const user = readUser(result(data.user));
-    if (user !== undefined) users.set(user.userId, user);
-  }
   // A List's own page names it in its header.
   if (op === "ListByRestId") {
     const list = readList({ list: data.list }, null);
@@ -532,14 +614,43 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     cursor: asString(variables.cursor) ?? null,
     top,
     bottom,
-    posts: renderPostsFromGraphql(body),
-    users: [...users.values()],
+    posts: renderPostsFromGraphql(body).map((p) => {
+      const conversation = conversations.get(p.postId);
+      return conversation === undefined ? p : { ...p, conversation };
+    }),
+    users: readUsers(body),
+    people,
     trends,
     notifications,
     lists,
     homeTabs: readHomeTabs(record(body)),
     exploreTabs,
   };
+}
+
+/** Everyone a response names, in either user shape, first sighting per id. */
+function readUsers(body: unknown): ReadonlyArray<EngineUser> {
+  const found = new Map<string, EngineUser>();
+  const stack: Array<unknown> = [body];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (Array.isArray(node)) {
+      for (let i = node.length - 1; i >= 0; i--) stack.push(node[i]);
+      continue;
+    }
+    if (!isRecord(node)) continue;
+    if (
+      node.__typename === "User" &&
+      typeof node.rest_id === "string" &&
+      !found.has(node.rest_id)
+    ) {
+      const user = readUser(node);
+      if (user !== undefined) found.set(user.userId, user);
+    }
+    const values = Object.values(node);
+    for (let i = values.length - 1; i >= 0; i--) stack.push(values[i]);
+  }
+  return [...found.values()];
 }
 
 /** Whether a batch carries anything a screen draws; X's many housekeeping calls carry nothing. */

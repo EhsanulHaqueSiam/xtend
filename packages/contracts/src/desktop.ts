@@ -130,11 +130,26 @@ export interface EnginePoll {
   readonly voted: number | null;
 }
 
-/** A link in a post's text: X sends t.co and shows `display`, which opens `expanded`. */
+/** Where an entity sits in the post's shown `text`: UTF-16 offsets, end exclusive. */
+export type EngineRange = readonly [start: number, end: number];
+
+/**
+ * A link in a post's text: X sends t.co and shows `display`, which opens `expanded`. `indices` is
+ * null for a link X draws as the media, quote or card instead of in the text.
+ */
 export interface EngineLink {
   readonly url: string;
   readonly expanded: string;
   readonly display: string;
+  readonly indices: EngineRange | null;
+}
+
+/** What makes a post's text live: its links, @mentions, #hashtags and $cashtags, in text order. */
+export interface EngineEntities {
+  readonly urls: ReadonlyArray<EngineLink>;
+  readonly mentions: ReadonlyArray<{ readonly handle: string; readonly indices: EngineRange }>;
+  readonly hashtags: ReadonlyArray<{ readonly tag: string; readonly indices: EngineRange }>;
+  readonly cashtags: ReadonlyArray<{ readonly tag: string; readonly indices: EngineRange }>;
 }
 
 /**
@@ -158,7 +173,7 @@ export interface EnginePost extends ObservedPost {
   readonly replyToId: string | null;
   /** "Replying to @a @b": the handles X moved out of the text. */
   readonly replyingTo: ReadonlyArray<string>;
-  readonly links: ReadonlyArray<EngineLink>;
+  readonly entities: EngineEntities;
   readonly card: EngineCard | null;
   readonly poll: EnginePoll | null;
   /** A Community Note's text ("Readers added context"). */
@@ -168,6 +183,19 @@ export interface EnginePost extends ObservedPost {
   readonly liked: boolean;
   readonly reposted: boolean;
   readonly bookmarked: boolean;
+  /**
+   * The post's place in a conversation X groups on a timeline (a self-thread, a reply under its
+   * parent): the module's id, this post's index and the module's size, for the thread line.
+   */
+  readonly conversation: {
+    readonly id: string;
+    readonly index: number;
+    readonly size: number;
+  } | null;
+  /** Every version of the post, oldest first: more than one means "Last edited". */
+  readonly edits: ReadonlyArray<string>;
+  readonly editsRemaining: number | null;
+  readonly editableUntil: string | null;
 }
 
 /** A person as X lists them (search People, Who to follow, a profile's header). */
@@ -261,7 +289,10 @@ export interface EngineBatch {
   readonly top: string | null;
   readonly bottom: string | null;
   readonly posts: ReadonlyArray<EnginePost>;
+  /** Everyone the response names (authors, quoted authors, list owners, a profile's own header). */
   readonly users: ReadonlyArray<EngineUser>;
+  /** The user ids X listed as people on this page (search People, Who to follow), in order. */
+  readonly people: ReadonlyArray<string>;
   readonly trends: ReadonlyArray<EngineTrend>;
   readonly notifications: ReadonlyArray<EngineNotification>;
   readonly lists: ReadonlyArray<EngineList>;

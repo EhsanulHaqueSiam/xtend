@@ -8,6 +8,8 @@
 //   node scripts/engine-bench.mjs --runs 3        until three passes in a row, at most 3 rounds
 //   node scripts/engine-bench.mjs --only video    checks whose name contains "video"
 //   node scripts/engine-bench.mjs --shots DIR     a screenshot of the app after each check
+//   node scripts/engine-bench.mjs --parity DIR    per screen, Xtend's screen and x.com on the same
+//                                                 page: DIR/<screen>-xtend.png and DIR/<screen>-x.png
 import { mkdirSync, writeFileSync } from "node:fs";
 
 const port = process.env.XTEND_REMOTE_DEBUG ?? "9223";
@@ -18,6 +20,7 @@ const flag = (name) => {
 const RUNS = Number(flag("--runs") ?? 1);
 const ONLY = flag("--only");
 const SHOTS = flag("--shots");
+const PARITY = flag("--parity");
 
 /** One DevTools session per page, kept open across checks. */
 const sessions = new Map();
@@ -186,10 +189,11 @@ async function bookmarkedOnX(id, handle) {
  * Removes the bench's bookmark through X's own button on the post's page if X still has it.
  * True only once a fresh load shows it gone.
  */
-async function unbookmark(id, handle) {
+async function unbookmark(id, handle, known) {
   for (let attempt = 0; attempt < 3; attempt++) {
+    // Each full load costs X's Viewer call, which X rate-limits; a state just read is reused.
     // oxlint-disable-next-line no-await-in-loop -- one page at a time, until X agrees
-    const on = await bookmarkedOnX(id, handle);
+    const on = attempt === 0 && known !== undefined ? known : await bookmarkedOnX(id, handle);
     if (on === false) return true;
     if (on === true) {
       // oxlint-disable-next-line no-await-in-loop -- X's own button, where it sits
@@ -453,8 +457,9 @@ const benchmarks = [
       sampling = false;
       await sampler;
       await sleep(2_000);
-      const pressed = (await bookmarkedOnX(id, handle)) === true;
-      const undone = await unbookmark(id, handle);
+      const state = await bookmarkedOnX(id, handle);
+      const pressed = state === true;
+      const undone = await unbookmark(id, handle, state);
       if (undone) touched.delete(id);
       await go("#/home?feed=following");
       if (!(back && pressed && undone))
@@ -846,6 +851,59 @@ async function startFresh() {
   await until(() => store(`$.homeTabs.length > 0`), 20_000);
 }
 await startFresh();
+
+/** The app window as it is now, to `file`. */
+async function shoot(file) {
+  const { call } = await session("localhost");
+  const shot = await call("Page.captureScreenshot", { format: "png" });
+  writeFileSync(file, Buffer.from(shot.result.data, "base64"));
+}
+const sidebar = (label) =>
+  app(
+    `[...document.querySelectorAll("nav button, aside button")].find((b) => b.textContent.trim() === ${JSON.stringify(label)})?.click(), true`,
+  );
+
+if (PARITY !== undefined) {
+  mkdirSync(PARITY, { recursive: true });
+  // How Xtend opens each screen; x.com is then shown over the main area on the page the engine is on.
+  const screens = [
+    ["home-following", () => home("following")],
+    ["home-foryou", () => home("forYou")],
+    ["search", () => go(`#/search?q=${encodeURIComponent(SEARCH)}&f=top`)],
+    ["post", () => app(`document.querySelector("main article p")?.click(), true`)],
+    ["bookmarks", () => go("#/bookmarks")],
+    ["profile", () => go("#/u/theo")],
+    ["explore", () => sidebar("Explore")],
+    ["notifications", () => sidebar("Notifications")],
+    ["messages", () => sidebar("Messages")],
+  ];
+  for (const [name, open] of screens) {
+    // oxlint-disable-next-line no-await-in-loop -- one screen at a time
+    await open();
+    // oxlint-disable-next-line no-await-in-loop -- X and the screen settle
+    await sleep(6_000);
+    // oxlint-disable-next-line no-await-in-loop -- one screen at a time
+    await shoot(`${PARITY}/${name}-xtend.png`);
+    // oxlint-disable-next-line no-await-in-loop -- one screen at a time
+    const page = await enginePath();
+    // oxlint-disable-next-line no-await-in-loop -- x.com over the main area, same page
+    await go("#/x");
+    // oxlint-disable-next-line no-await-in-loop -- the pane moves with CSS only
+    await sleep(1_500);
+    // oxlint-disable-next-line no-await-in-loop -- one screen at a time
+    await shoot(`${PARITY}/${name}-x.png`);
+    console.log(`${name}: ${page}`);
+    // The search screen needs a result list to open a post from.
+    if (name === "search") {
+      // oxlint-disable-next-line no-await-in-loop -- one screen at a time
+      await go(`#/search?q=${encodeURIComponent(SEARCH)}&f=top`);
+      // oxlint-disable-next-line no-await-in-loop -- the results draw
+      await sleep(3_000);
+    }
+  }
+  await go("#/home?feed=following");
+  process.exit(0);
+}
 
 /** The newest bookmark on X, from a fresh load of the Bookmarks page. */
 async function newestBookmark() {

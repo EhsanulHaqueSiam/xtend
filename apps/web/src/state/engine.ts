@@ -166,7 +166,7 @@ const NONE: PerSurface<never> = {
 
 export interface EngineState {
   readonly posts: ReadonlyMap<string, EnginePost>;
-  /** People X listed (search People, Who to follow, a profile's header), by user id. */
+  /** Everyone the engine has seen (authors, people X listed, profile headers), by user id. */
   readonly users: ReadonlyMap<string, EngineUser>;
   /** Post ids per surface. */
   readonly lists: PerSurface<string>;
@@ -303,7 +303,7 @@ function mergeInto(state: EngineState, batch: EngineBatch, surface: AnySurface):
       (page === "unknown" && fresh.every((id) => posts.get(id)!.createdAt > top.createdAt)));
 
   // People, trends and notifications: a first page replaces, a newer page goes on top.
-  const userIds = batch.users.map((u) => u.userId);
+  const userIds = batch.people;
   const people =
     userIds.length === 0
       ? state.people
