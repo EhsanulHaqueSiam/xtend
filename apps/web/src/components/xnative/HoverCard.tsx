@@ -7,7 +7,7 @@ import type { ReactElement } from "react";
 import { engineAtom, userByHandle } from "../../state/engine";
 import { fmt } from "../analyze/ui";
 import { RichText } from "./RichText";
-import { Avatar, Verified } from "./XPostView";
+import { Affiliate, Avatar, Verified } from "./XPostView";
 
 /** What the card shows: the profile X sent when there is one, else what the post said about them. */
 function Card({
@@ -40,6 +40,7 @@ function Card({
           {(user?.verified ?? author.verified) ? (
             <Verified type={user?.verifiedType ?? null} />
           ) : null}
+          <Affiliate user={user} />
         </button>
         <p className="flex items-center gap-1.5 text-[#71767b]">
           @{author.handle}

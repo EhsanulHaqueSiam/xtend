@@ -8,7 +8,7 @@ import { RichText } from "../components/xnative/RichText";
 import { Timeline } from "../components/xnative/Timeline";
 import { XTabs, XTitle } from "../components/xnative/XColumn";
 import { FollowButton } from "../components/xnative/FollowButton";
-import { Avatar, Verified } from "../components/xnative/XPostView";
+import { Affiliate, Avatar, Verified } from "../components/xnative/XPostView";
 import { engineAtom, type ProfileTab, profileSurface, userByHandle } from "../state/engine";
 import { xGo, xNavigate } from "../state/x";
 
@@ -109,6 +109,7 @@ function ProfileScreen() {
               {(user?.verified ?? seen?.author.verified) === true ? (
                 <Verified className="size-5" type={user?.verifiedType ?? null} />
               ) : null}
+              <Affiliate user={user} />
             </p>
             <p className="flex items-center gap-1.5 text-[15px] text-[#71767b]">
               @{user?.handle ?? handle}

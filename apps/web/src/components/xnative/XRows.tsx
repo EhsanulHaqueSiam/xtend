@@ -6,7 +6,7 @@ import { Virtuoso } from "react-virtuoso";
 import { xScrollMore } from "../../state/x";
 import { Empty } from "../ui/layout";
 import { useXScrollParent } from "./XColumn";
-import { Avatar, Verified } from "./XPostView";
+import { Affiliate, Avatar, Verified } from "./XPostView";
 
 /** How often a list may ask X for its next page; X's own scrolling pace, not faster. */
 const MORE_EVERY_MS = 1500;
@@ -134,11 +134,12 @@ export function UserRow({ user }: { readonly user: EngineUser }) {
       className="grid w-full cursor-pointer grid-cols-[40px_minmax(0,1fr)] gap-x-3 px-4 py-3 text-left transition-colors duration-150 hover:bg-white/[0.03]"
       onClick={() => void navigate({ to: "/u/$handle", params: { handle: user.handle } })}
     >
-      <Avatar url={user.avatarUrl} size={40} />
+      <Avatar url={user.avatarUrl} size={40} square={user.avatarShape === "Square"} />
       <span className="min-w-0 text-[15px] leading-5">
         <span className="flex items-center gap-1">
           <b className="truncate font-bold">{user.name}</b>
-          {user.verified ? <Verified /> : null}
+          {user.verified ? <Verified type={user.verifiedType} /> : null}
+          <Affiliate user={user} />
         </span>
         <span className="flex items-center gap-1.5 text-[#71767b]">
           <span className="truncate">@{user.handle}</span>

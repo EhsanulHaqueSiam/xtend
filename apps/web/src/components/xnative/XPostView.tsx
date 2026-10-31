@@ -1,7 +1,7 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import type { EngineMedia, EnginePost } from "@xtend/contracts";
+import type { EngineMedia, EnginePost, EngineUser } from "@xtend/contracts";
 import {
   BarChart2,
   Bookmark,
@@ -67,6 +67,19 @@ export function Verified({
       />
       <path fill="#fff" d="M9.6 14.8 6 11.2l1.4-1.4 2.2 2.2 5-5L16 8.4z" />
     </svg>
+  );
+}
+
+/** The organisation badge X draws after an affiliate's name. */
+export function Affiliate({ user }: { readonly user: EngineUser | undefined }) {
+  if (user?.affiliate?.badgeUrl == null) return null;
+  return (
+    <img
+      src={user.affiliate.badgeUrl}
+      alt={user.affiliate.name}
+      title={user.affiliate.name}
+      className="size-4 shrink-0 rounded-[3px] border border-white/20"
+    />
   );
 }
 
@@ -197,7 +210,8 @@ function Media({
       style={
         shape === null ? undefined : { aspectRatio: shape, width: `min(100%, ${510 * shape}px)` }
       }
-      onClick={(e) => e.stopPropagation()}
+      // A quote's stills open the quoted post, so only live media keeps the click.
+      onClick={still ? undefined : (e) => e.stopPropagation()}
     >
       {media.map((m, i) => (
         <span
@@ -226,6 +240,7 @@ function QuoteBox({
   readonly quoted: EnginePost;
   readonly onOpen: ((post: EnginePost) => void) | undefined;
 }) {
+  const qAuthor = useAtomValue(engineAtom).users.get(quoted.author.userId);
   return (
     <div
       data-x="quote"
@@ -236,9 +251,12 @@ function QuoteBox({
       }}
     >
       <div className="flex min-w-0 items-center gap-1 px-3 pt-3 text-[15px]">
-        <Avatar url={quoted.avatarUrl} size={20} />
+        <Avatar url={quoted.avatarUrl} size={20} square={qAuthor?.avatarShape === "Square"} />
         <span className="ml-1 truncate font-bold">{quoted.author.name}</span>
-        {quoted.author.verified ? <Verified className="size-4" /> : null}
+        {quoted.author.verified ? (
+          <Verified className="size-4" type={qAuthor?.verifiedType ?? null} />
+        ) : null}
+        <Affiliate user={qAuthor} />
         <span className={cn("truncate", X_GRAY)}>
           @{quoted.author.handle} · {xAge(quoted.createdAt)}
         </span>
@@ -435,14 +453,7 @@ export function XPostView({
         </button>
       </HoverCard>
       {post.author.verified ? <Verified type={author?.verifiedType ?? null} /> : null}
-      {author?.affiliate?.badgeUrl == null ? null : (
-        <img
-          src={author.affiliate.badgeUrl}
-          alt={author.affiliate.name}
-          title={author.affiliate.name}
-          className="size-4 shrink-0 rounded-[3px] border border-white/20"
-        />
-      )}
+      <Affiliate user={author} />
     </span>
   );
   const menu = (
