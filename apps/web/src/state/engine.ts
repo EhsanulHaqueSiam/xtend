@@ -292,7 +292,57 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
               (state.viewer?.handle === batch.viewer.handle ? state.viewer.userId : null),
           },
   };
-  return surfacesOf(batch).reduce((state, surface) => mergeInto(state, batch, surface), merged);
+  const listed = surfacesOf(batch).reduce(
+    (state, surface) => mergeInto(state, batch, surface),
+    merged,
+  );
+  if (!/^Create(Note)?Tweet$/.test(batch.op)) return listed;
+  // The response also carries the post it quotes, which stays where it was.
+  const created = batch.posts.filter((p) => !batch.posts.some((q) => q.quotedId === p.postId));
+  return created.reduce(placeCreated, listed);
+}
+
+/**
+ * The user's own new post, from X's composer response, where X shows it at once: a reply right
+ * under the post it answers, whose reply count goes up by one; any other post on top of Home and
+ * the user's profile. X's next page of those lists already holds it, so it never shows twice.
+ */
+function placeCreated(state: EngineState, post: EnginePost): EngineState {
+  const parentId = post.replyToId;
+  if (parentId === null) {
+    const surfaces: ReadonlyArray<AnySurface> = [
+      "forYou",
+      "following",
+      profileSurface("posts", post.author.userId),
+    ];
+    return {
+      ...state,
+      lists: surfaces.reduce(
+        (lists, s) => set(lists, s, unique([post.postId, ...at(lists, s)])),
+        state.lists,
+      ),
+    };
+  }
+  const surface = postSurface(parentId);
+  const list = at(state.lists, surface).filter((id) => id !== post.postId);
+  const under = list.indexOf(parentId) + 1;
+  const parent = state.posts.get(parentId);
+  const posts =
+    parent === undefined
+      ? state.posts
+      : new Map(state.posts).set(parentId, {
+          ...parent,
+          metrics: { ...parent.metrics, replies: parent.metrics.replies + 1 },
+        });
+  return {
+    ...state,
+    posts,
+    // A thread never opened here has nothing to join; X's page brings the reply when it opens.
+    lists:
+      under === 0
+        ? state.lists
+        : set(state.lists, surface, [...list.slice(0, under), post.postId, ...list.slice(under)]),
+  };
 }
 
 /** One response into one surface's lists, by which page of it X fetched. */

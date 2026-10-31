@@ -5,8 +5,8 @@ import type { EngineBatch, XSkinToggle } from "@xtend/contracts";
  * contracts because only the desktop shell and this UI ever see it.
  */
 
-/** Keys main caught while x.com had focus: ⌘K palette, ⌘\ X panel, ⌘F find. */
-export type ShortcutKey = "palette" | "xPanel" | "find";
+/** Keys main caught for the app: ⌘K palette, ⌘\ X panel, ⌘F find, ⌘R or F5 refresh. */
+export type ShortcutKey = "palette" | "xPanel" | "find" | "refresh";
 
 interface SessionDownload {
   readonly name: string;

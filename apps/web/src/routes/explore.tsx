@@ -118,6 +118,7 @@ function ExploreScreen() {
   }
   return (
     <XColumn
+      refresh={{ surfaces: surface === null ? [] : [surface], load: reload }}
       header={
         <>
           <form

@@ -86,7 +86,7 @@ function ListsScreen() {
   if (rows.length > 0 && !rows.some((r) => r.kind === "group" && r.name === "Your Lists"))
     rows.push({ kind: "group", name: "Your Lists" }, { kind: "none" });
   return (
-    <XColumn header={<XTitle title="Lists" />}>
+    <XColumn header={<XTitle title="Lists" />} refresh={{ surfaces: ["lists"], load: reload }}>
       <XRows
         waitKey="lists"
         onReopen={reload}

@@ -294,3 +294,20 @@ it("lists a pinned post X also shows quoted, in X's entry order", () => {
   );
   expect(at(state.lists, "profile:posts:5")).toEqual(["1", "2"]);
 });
+
+it("puts the user's new reply under the post it answers, and a new post on top of Home", () => {
+  const thread = [post("1", "2026-10-30T00:00:00Z"), post("2", "2026-10-30T01:00:00Z")];
+  let state = mergeBatch(
+    emptyEngine,
+    batch("TweetDetail", thread, { key: "1", order: ["1", "2"] }),
+  );
+  state = mergeBatch(state, batch("HomeLatestTimeline", [post("3", "2026-10-30T02:00:00Z")]));
+  const reply = { ...post("9", "2026-10-31T00:00:00Z"), replyToId: "1" };
+  state = mergeBatch(state, batch("CreateTweet", [reply]));
+  expect(at(state.lists, "post:1")).toEqual(["1", "9", "2"]);
+  expect(state.posts.get("1")?.metrics.replies).toBe(1);
+  const quote = { ...post("10", "2026-10-31T01:00:00Z"), quotedId: "3" };
+  state = mergeBatch(state, batch("CreateNoteTweet", [quote, post("3", "2026-10-30T02:00:00Z")]));
+  expect(at(state.lists, "following")).toEqual(["10", "3"]);
+  expect(at(state.lists, "profile:posts:1")).toEqual(["10"]);
+});

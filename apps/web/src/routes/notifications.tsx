@@ -151,6 +151,7 @@ function NotificationsScreen() {
   const rows = at(engine.notifications, current.surface);
   return (
     <XColumn
+      refresh={{ surfaces: [current.surface], load: reload }}
       header={
         <>
           <XTitle title="Notifications" />

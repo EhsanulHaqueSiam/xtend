@@ -737,6 +737,52 @@ const benchmarks = [
     },
   ],
   [
+    "⌘R reloads Home and a post from X: lists refill in X's order, the post stays",
+    async () => {
+      // `__xtendRefresh` is what main's ⌘R and F5 call: DevTools keys skip before-input-event.
+      const refresh = (surface) =>
+        app(
+          `(window.__xtendRefresh(), window.__xtendEngine().lists[${JSON.stringify(surface)}]?.length ?? 0)`,
+        );
+      const loadedSince = async (origin) => (await engine(`performance.timeOrigin`)) !== origin;
+      await home("following");
+      let origin = await engine(`performance.timeOrigin`);
+      if ((await refresh("following")) !== 0) return false;
+      // X's first dated article (an ad has no timestamp link), against the store's first non-ad.
+      const xFirst = `(() => { for (const a of document.querySelectorAll("article")) { const href = a.querySelector('a[href*="/status/"] time')?.parentElement.getAttribute("href"); if (href) return href.split("/status/")[1].split("/")[0]; } })()`;
+      const homeOk = await until(async () => {
+        if (!(await loadedSince(origin))) return false;
+        const [ids, list] = [await nativeIds(), await store(`$.lists.following`)];
+        const first = await store(`$.lists.following.find((id) => !$.posts.get(id).isPromoted)`);
+        return (
+          list?.length >= 3 && ids[0] === list[0] && first === (await engine(xFirst)) && list.length
+        );
+      }, 30_000);
+      if (!homeOk) return false;
+      const post = await store(
+        `(() => { const p = $.posts.get($.lists.following.find((id) => !$.posts.get(id).isPromoted && $.posts.get(id).metrics.replies > 0)); return p && { id: p.postId, handle: p.author.handle }; })()`,
+      );
+      if (!post) return false;
+      const surface = `post:${post.id}`;
+      await go(`#/post/${post.id}?h=${post.handle}`);
+      if (!(await until(() => store(`at($.lists, ${JSON.stringify(surface)}).length > 0`))))
+        return false;
+      await sleep(2_100); // past refreshScreen's floor
+      origin = await engine(`performance.timeOrigin`);
+      if ((await refresh(surface)) !== 0) return false;
+      // The post and its reply box stay drawn while its replies load again.
+      let kept = true;
+      const postOk = await until(async () => {
+        kept &&= (await nativeIds()).includes(post.id);
+        return (
+          (await loadedSince(origin)) &&
+          (await store(`at($.lists, ${JSON.stringify(surface)}).length`))
+        );
+      }, 30_000);
+      return kept && postOk && `Home ${homeOk} posts, post ${postOk} in its thread`;
+    },
+  ],
+  [
     "Messages stays x.com itself, over the main area",
     async () => {
       await app(

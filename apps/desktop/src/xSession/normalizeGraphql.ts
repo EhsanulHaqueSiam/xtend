@@ -236,15 +236,28 @@ export const isCreateTweetOperation = (url: string): boolean =>
   /\/i\/api\/graphql\/[^/]+\/Create(Note)?Tweet(\?|$)/.test(url);
 
 /**
- * The id of the post a CreateTweet or CreateNoteTweet response created, read from its fixed
- * path: X sends that result without the `__typename` the walk looks for.
+ * The post a CreateTweet or CreateNoteTweet response created, read from its fixed path and typed
+ * the way the walk expects: X sends that result without the `__typename` the walk looks for. A
+ * post with limited replies comes back in the visibility wrapper.
  */
-export function readCreatedPostId(body: unknown): string | undefined {
+export function readCreatedTweet(body: unknown): Json | undefined {
   if (!isRecord(body) || !isRecord(body.data)) return undefined;
   const created = body.data.create_tweet ?? body.data.notetweet_create;
   const results = isRecord(created) ? created.tweet_results : undefined;
   const result = isRecord(results) && isRecord(results.result) ? results.result : undefined;
-  // A post with limited replies comes back in the visibility wrapper.
+  if (result === undefined) return undefined;
+  return isRecord(result.tweet)
+    ? {
+        ...result,
+        __typename: "TweetWithVisibilityResults",
+        tweet: { ...result.tweet, __typename: "Tweet" },
+      }
+    : { ...result, __typename: "Tweet" };
+}
+
+/** The id of the post a CreateTweet or CreateNoteTweet response created. */
+export function readCreatedPostId(body: unknown): string | undefined {
+  const result = readCreatedTweet(body);
   const id =
     asString(result?.rest_id) ??
     asString(isRecord(result?.tweet) ? result.tweet.rest_id : undefined);

@@ -47,6 +47,10 @@ Xtend is a desktop-first X (Twitter) growth suite: one app whose sidebar holds b
 - Screen tests render against a fake service: `render(ui, { service })`. See `docs/operations/development.md#screen-tests`.
 - Backend behaviour ships with a focused test beside it. Visual changes ship with a screenshot.
 
+## X parity references (Mobbin MCP)
+
+Before building or checking any X flow, see how X does it in Mobbin's recording of X's web app. `docs/operations/x-parity-mobbin.md` lists all 151 flows by section with their Mobbin links: grep it for the flow, then make one call, `mcp__mobbin__search_flows` with `platform: "web"`, `query: "X <exact flow name>"`, `limit: 1` (a single menu or dialog: `mcp__mobbin__search_screens`, `limit: 2`). Results carry images at 1 to 2K tokens each, so keep limits low, batch lookups in a text-only subagent, and paste each new link into the index.
+
 ## Documentation
 
 Most code changes do not need a documentation change. Agents can read the code.

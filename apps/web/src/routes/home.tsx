@@ -41,6 +41,8 @@ function HomeScreen() {
       );
   }, [tab.label]);
   useEffect(open, [open]);
+  // ⌘R: X's Home in full, as reloading x.com does, then this tab again.
+  const reload = () => void xNavigate("https://x.com/home").then(() => xPickHomeTab(tab.label));
   return (
     <Timeline
       surface={surface}
@@ -56,6 +58,7 @@ function HomeScreen() {
       keepPlace
       empty="Loading your timeline from X."
       onReopen={open}
+      onRefresh={reload}
     />
   );
 }
