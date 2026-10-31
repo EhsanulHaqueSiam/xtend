@@ -25,17 +25,21 @@ and the tools; X's own rail and right column are hidden by a CSS skin.
 
 ## The engine
 
-Home, Search and Post are Xtend's own screens (`components/xnative/`), drawn from what the
+Home, Search, Post, Bookmarks and profiles are Xtend's own screens (`components/xnative/`), drawn from what the
 session view receives, the way T3 Code draws Claude's work: X is the engine, Xtend the
 interface. The screen moves the off-screen webview to the matching x.com page (and picks
 Home's tab); the capture turns each GraphQL response into posts with media, video variants,
 quotes and parents (`renderPostsFromGraphql`) and sends them to the app page on
 `xtend:engine`, never to the service. Reaching the end of a list scrolls X's own page so X
-fetches the next one, at most every 1.5s. A like or reply goes through the existing session
-command, which opens the post's page; the screen then puts the engine back, and posts X sends
-again are deduplicated. Video plays from X's mp4 in Xtend's player, so fullscreen and picture
+fetches the next one, at most every 1.5s. A like, repost or bookmark presses X's own button on
+the engine page where the post already sits (`xActInPlace`, matched by the article whose
+timestamp links to the post, since a quoting post links to it too), so the engine never leaves
+the list it feeds. Only when the post is not there (X's timeline has no bookmark button) does it
+open the post's page, press it, and put the engine back. A reply goes through the existing
+session command and the screen restores the engine after it; posts X sends again are
+deduplicated. Video plays from X's mp4 in Xtend's player, so fullscreen and picture
 in picture are the browser's own. Pages Xtend does not draw yet (notifications, messages,
-profiles, lists) still show x.com itself.
+lists) still show x.com itself.
 
 ## Where x.com sits
 

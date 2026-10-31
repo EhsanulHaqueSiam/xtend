@@ -21,9 +21,11 @@ import { Route as LeadsRouteImport } from './routes/leads'
 import { Route as HomeRouteImport } from './routes/home'
 import { Route as EngageRouteImport } from './routes/engage'
 import { Route as ComposeRouteImport } from './routes/compose'
+import { Route as BookmarksRouteImport } from './routes/bookmarks'
 import { Route as AutomateRouteImport } from './routes/automate'
 import { Route as AnalyzeRouteImport } from './routes/analyze'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as UHandleRouteImport } from './routes/u.$handle'
 import { Route as PostIdRouteImport } from './routes/post.$id'
 
 const XRoute = XRouteImport.update({
@@ -86,6 +88,11 @@ const ComposeRoute = ComposeRouteImport.update({
   path: '/compose',
   getParentRoute: () => rootRouteImport,
 } as any)
+const BookmarksRoute = BookmarksRouteImport.update({
+  id: '/bookmarks',
+  path: '/bookmarks',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AutomateRoute = AutomateRouteImport.update({
   id: '/automate',
   path: '/automate',
@@ -101,6 +108,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const UHandleRoute = UHandleRouteImport.update({
+  id: '/u/$handle',
+  path: '/u/$handle',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PostIdRoute = PostIdRouteImport.update({
   id: '/post/$id',
   path: '/post/$id',
@@ -111,6 +123,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/analyze': typeof AnalyzeRoute
   '/automate': typeof AutomateRoute
+  '/bookmarks': typeof BookmarksRoute
   '/compose': typeof ComposeRoute
   '/engage': typeof EngageRoute
   '/home': typeof HomeRoute
@@ -124,11 +137,13 @@ export interface FileRoutesByFullPath {
   '/today': typeof TodayRoute
   '/x': typeof XRoute
   '/post/$id': typeof PostIdRoute
+  '/u/$handle': typeof UHandleRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/analyze': typeof AnalyzeRoute
   '/automate': typeof AutomateRoute
+  '/bookmarks': typeof BookmarksRoute
   '/compose': typeof ComposeRoute
   '/engage': typeof EngageRoute
   '/home': typeof HomeRoute
@@ -142,12 +157,14 @@ export interface FileRoutesByTo {
   '/today': typeof TodayRoute
   '/x': typeof XRoute
   '/post/$id': typeof PostIdRoute
+  '/u/$handle': typeof UHandleRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/analyze': typeof AnalyzeRoute
   '/automate': typeof AutomateRoute
+  '/bookmarks': typeof BookmarksRoute
   '/compose': typeof ComposeRoute
   '/engage': typeof EngageRoute
   '/home': typeof HomeRoute
@@ -161,6 +178,7 @@ export interface FileRoutesById {
   '/today': typeof TodayRoute
   '/x': typeof XRoute
   '/post/$id': typeof PostIdRoute
+  '/u/$handle': typeof UHandleRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -168,6 +186,7 @@ export interface FileRouteTypes {
     | '/'
     | '/analyze'
     | '/automate'
+    | '/bookmarks'
     | '/compose'
     | '/engage'
     | '/home'
@@ -181,11 +200,13 @@ export interface FileRouteTypes {
     | '/today'
     | '/x'
     | '/post/$id'
+    | '/u/$handle'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/analyze'
     | '/automate'
+    | '/bookmarks'
     | '/compose'
     | '/engage'
     | '/home'
@@ -199,11 +220,13 @@ export interface FileRouteTypes {
     | '/today'
     | '/x'
     | '/post/$id'
+    | '/u/$handle'
   id:
     | '__root__'
     | '/'
     | '/analyze'
     | '/automate'
+    | '/bookmarks'
     | '/compose'
     | '/engage'
     | '/home'
@@ -217,12 +240,14 @@ export interface FileRouteTypes {
     | '/today'
     | '/x'
     | '/post/$id'
+    | '/u/$handle'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AnalyzeRoute: typeof AnalyzeRoute
   AutomateRoute: typeof AutomateRoute
+  BookmarksRoute: typeof BookmarksRoute
   ComposeRoute: typeof ComposeRoute
   EngageRoute: typeof EngageRoute
   HomeRoute: typeof HomeRoute
@@ -236,6 +261,7 @@ export interface RootRouteChildren {
   TodayRoute: typeof TodayRoute
   XRoute: typeof XRoute
   PostIdRoute: typeof PostIdRoute
+  UHandleRoute: typeof UHandleRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -324,6 +350,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ComposeRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/bookmarks': {
+      id: '/bookmarks'
+      path: '/bookmarks'
+      fullPath: '/bookmarks'
+      preLoaderRoute: typeof BookmarksRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/automate': {
       id: '/automate'
       path: '/automate'
@@ -345,6 +378,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/u/$handle': {
+      id: '/u/$handle'
+      path: '/u/$handle'
+      fullPath: '/u/$handle'
+      preLoaderRoute: typeof UHandleRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/post/$id': {
       id: '/post/$id'
       path: '/post/$id'
@@ -359,6 +399,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AnalyzeRoute: AnalyzeRoute,
   AutomateRoute: AutomateRoute,
+  BookmarksRoute: BookmarksRoute,
   ComposeRoute: ComposeRoute,
   EngageRoute: EngageRoute,
   HomeRoute: HomeRoute,
@@ -372,6 +413,7 @@ const rootRouteChildren: RootRouteChildren = {
   TodayRoute: TodayRoute,
   XRoute: XRoute,
   PostIdRoute: PostIdRoute,
+  UHandleRoute: UHandleRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
