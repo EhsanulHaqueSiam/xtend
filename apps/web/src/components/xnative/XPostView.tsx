@@ -193,10 +193,11 @@ function QuoteBox({
         </span>
       </div>
       <p className="line-clamp-6 px-3 pt-0.5 pb-3 text-[15px] leading-5 break-words whitespace-pre-wrap">
-        {quoted.text}
+        <RichText text={quoted.text} entities={quoted.entities} />
       </p>
       {quoted.media.length === 0 ? null : (
-        <div className="-mx-px -mb-px [&>div]:rounded-none [&>div]:border-x-0 [&>div]:border-b-0">
+        // X insets a quote's media inside the box and centres a tall shot.
+        <div className="px-3 pb-3 [&>div]:mx-auto">
           <Media media={quoted.media} />
         </div>
       )}
