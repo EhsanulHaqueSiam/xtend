@@ -22,28 +22,31 @@ export function FollowButton({
 }) {
   const settings = AsyncResult.getOrElse(useAtomValue(settingsAtom), () => null);
   const setToast = useAtomSet(toastAtom);
-  const [want, setWant] = useState<{ readonly userId: string; readonly follow: boolean } | null>(
-    null,
-  );
-  const [busy, setBusy] = useState<string | null>(null);
+  // What the user asked for and what is in flight, per person: the button stays mounted while
+  // its person changes (one profile to the next), so requests must not touch each other.
+  const [want, setWant] = useState<ReadonlyMap<string, boolean>>(new Map());
+  const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
+  const without = (m: ReadonlyMap<string, boolean>, k: string) =>
+    new Map([...m].filter(([x]) => x !== k));
   // Once X's capture agrees, X's own state is the truth again.
-  if (want !== null && want.userId === user?.userId && want.follow === user.youFollow)
-    setWant(null);
+  if (user !== undefined && want.get(user.userId) === user.youFollow)
+    setWant((w) => without(w, user.userId));
   if (user === undefined || settings?.handle?.toLowerCase() === user.handle.toLowerCase())
     return null;
-  const following = want !== null && want.userId === user.userId ? want.follow : user.youFollow;
+  const following = want.get(user.userId) ?? user.youFollow;
   const follow = async () => {
-    if (busy === user.userId) return;
+    if (busy.has(user.userId)) return;
     if (settings !== null && !settings.sessionPostingEnabled)
       return setToast({ text: "Session actions are off in Settings, X session." });
+    const id = user.userId;
     const target = !following;
-    setWant({ userId: user.userId, follow: target });
-    setBusy(user.userId);
-    const ok = await xFollow({ userId: user.userId, handle: user.handle }, target);
-    setBusy((b) => (b === user.userId ? null : b));
+    setWant((w) => new Map(w).set(id, target));
+    setBusy((b) => new Set(b).add(id));
+    const ok = await xFollow({ userId: id, handle: user.handle }, target);
+    setBusy((b) => new Set([...b].filter((x) => x !== id)));
     if (ok) return;
-    // Only this person's request is taken back; the screen may show someone else by now.
-    setWant((w) => (w?.userId === user.userId ? null : w));
+    // Take back only this request, and only if nothing newer replaced it.
+    setWant((w) => (w.get(id) === target ? without(w, id) : w));
     setToast({ text: "X did not take that. Try again in a moment." });
   };
   return (
