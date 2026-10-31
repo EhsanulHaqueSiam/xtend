@@ -1,4 +1,4 @@
-import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { RegistryContext, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import type { EngineMedia, EnginePost, EngineUser } from "@xtend/contracts";
@@ -11,12 +11,12 @@ import {
   Repeat2,
   Share,
 } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useContext, useState, type ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
 import { engineAtom } from "../../state/engine";
 import { settingsAtom } from "../../state/settings";
-import { xAct } from "../../state/x";
+import { xAct, xOverAtom, xPostMenu, xPostMenuPress, xToastUndo } from "../../state/x";
 import { fmt } from "../analyze/ui";
 import { useDropPost } from "../shell/drops";
 import { Menu, MenuItem } from "../ui/menu";
@@ -398,6 +398,19 @@ export function XPostView({
   const drop = useDropPost();
   const navigate = useNavigate();
   const settings = AsyncResult.getOrElse(useAtomValue(settingsAtom), () => null);
+  const registry = useContext(RegistryContext);
+  /**
+   * Why X's buttons may not write as the user now: only once Settings says session actions are
+   * on. Read at the press, from the app's registry, so an Undo outliving this post sees it too.
+   */
+  const blocked = () => {
+    const now = AsyncResult.getOrElse(registry.get(settingsAtom), () => null);
+    return now === null
+      ? "Your settings are still loading. Try again in a moment."
+      : now.sessionPostingEnabled
+        ? null
+        : "Session actions are off in Settings, X session.";
+  };
   // The author as X described them (badge colour, organisation shape, affiliate), when seen.
   const author = useAtomValue(engineAtom).users.get(post.author.userId);
   const square = author?.avatarShape === "Square";
@@ -423,8 +436,8 @@ export function XPostView({
    */
   const act = async (press: Press) => {
     if (busy.has(press)) return;
-    if (settings !== null && !settings.sessionPostingEnabled)
-      return setToast({ text: "Session actions are off in Settings, X session." });
+    const why = blocked();
+    if (why !== null) return setToast({ text: why });
     const target = !has(press);
     setWant((w) => ({ ...w, [press]: target }));
     setBusy((b) => new Set(b).add(press));
@@ -444,6 +457,35 @@ export function XPostView({
   const copyLink = () =>
     void navigator.clipboard.writeText(postUrl(post)).then(() => setToast({ text: "Link copied" }));
   const m = post.metrics;
+  // X's own "..." rows for this post, read from X when the menu opens; undefined while reading.
+  const [xRows, setXRows] = useState<ReadonlyArray<string> | null | undefined>(undefined);
+  const setOver = useAtomSet(xOverAtom);
+  const xPost = { postId: post.postId, handle: post.author.handle };
+  const readX = (open: boolean) => {
+    if (!open) return;
+    setXRows(undefined);
+    void xPostMenu(xPost).then(setXRows);
+  };
+  /** X's own row for the user's click; X's dialogs (Report, Block) show over the main area. */
+  const pressX = async (label: string) => {
+    const why = blocked();
+    if (why !== null) return setToast({ text: why });
+    const outcome = await xPostMenuPress(xPost, label, setOver);
+    if (outcome === null) return setToast({ text: "X did not take that. Try again in a moment." });
+    if (outcome.kind === "done" && outcome.toast !== null)
+      setToast({
+        text: outcome.toast,
+        ...(outcome.undo
+          ? {
+              undo: async () => {
+                const no = blocked();
+                if (no !== null) throw new Error(no);
+                if (!(await xToastUndo())) throw new Error("X no longer offers Undo here.");
+              },
+            }
+          : {}),
+      });
+  };
 
   const name = (
     <span className="flex min-w-0 items-center gap-1">
@@ -464,41 +506,57 @@ export function XPostView({
     </span>
   );
   const menu = (
-    <Menu
-      label="Post actions"
-      align="end"
-      trigger={
-        <button
-          type="button"
-          aria-label="More"
-          className={cn(
-            "-m-2 ml-auto grid size-[34px] shrink-0 cursor-pointer place-items-center rounded-full transition-colors duration-150 hover:bg-[#1d9bf0]/10 hover:text-[#1d9bf0]",
-            X_GRAY,
-          )}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <MoreHorizontal className="size-[18px]" />
-        </button>
-      }
-    >
-      <MenuItem onClick={copyLink}>Copy link</MenuItem>
-      <MenuItem onClick={save}>Save to Library</MenuItem>
-      <MenuItem
-        onClick={() =>
-          void navigate({ href: `/compose?quote=${encodeURIComponent(postUrl(post))}` })
+    // React carries a click in the menu's portal up to the post, which would open it.
+    <span className="contents" onClick={(e) => e.stopPropagation()}>
+      <Menu
+        label="Post actions"
+        align="end"
+        onOpenChange={readX}
+        trigger={
+          <button
+            type="button"
+            aria-label="More"
+            className={cn(
+              "-m-2 ml-auto grid size-[34px] shrink-0 cursor-pointer place-items-center rounded-full transition-colors duration-150 hover:bg-[#1d9bf0]/10 hover:text-[#1d9bf0]",
+              X_GRAY,
+            )}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <MoreHorizontal className="size-[18px]" />
+          </button>
         }
       >
-        Quote in Compose
-      </MenuItem>
-      <MenuItem
-        onClick={() => void navigate({ href: `/scores?tab=report&handle=${post.author.handle}` })}
-      >
-        Score @{post.author.handle}
-      </MenuItem>
-      <MenuItem onClick={() => window.desktopBridge?.openExternal(postUrl(post))}>
-        Open in browser
-      </MenuItem>
-    </Menu>
+        {xRows === undefined ? (
+          <MenuItem disabled onClick={() => {}}>
+            Loading from X
+          </MenuItem>
+        ) : (
+          xRows?.map((label) => (
+            <MenuItem key={label} onClick={() => void pressX(label)}>
+              {label}
+            </MenuItem>
+          ))
+        )}
+        {xRows === null ? null : <div role="separator" className="my-1 h-px bg-border" />}
+        <MenuItem onClick={copyLink}>Copy link</MenuItem>
+        <MenuItem onClick={save}>Save to Library</MenuItem>
+        <MenuItem
+          onClick={() =>
+            void navigate({ href: `/compose?quote=${encodeURIComponent(postUrl(post))}` })
+          }
+        >
+          Quote in Compose
+        </MenuItem>
+        <MenuItem
+          onClick={() => void navigate({ href: `/scores?tab=report&handle=${post.author.handle}` })}
+        >
+          Score @{post.author.handle}
+        </MenuItem>
+        <MenuItem onClick={() => window.desktopBridge?.openExternal(postUrl(post))}>
+          Open in browser
+        </MenuItem>
+      </Menu>
+    </span>
   );
   const actions = (
     <div

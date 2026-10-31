@@ -9,16 +9,19 @@ export function Menu({
   trigger,
   label,
   align = "start",
+  onOpenChange,
   children,
 }: {
   readonly trigger: ReactElement;
+  /** For a list read when it opens. */
+  readonly onOpenChange?: (open: boolean) => void;
   /** What the list offers, read first by screen readers. */
   readonly label?: string;
   readonly align?: MenuPrimitive.Positioner.Props["align"];
   readonly children: ReactNode;
 }) {
   return (
-    <MenuPrimitive.Root>
+    <MenuPrimitive.Root {...(onOpenChange === undefined ? {} : { onOpenChange })}>
       <MenuPrimitive.Trigger render={trigger} />
       <MenuPrimitive.Portal>
         <MenuPrimitive.Positioner side="bottom" align={align} sideOffset={4} className="z-50">

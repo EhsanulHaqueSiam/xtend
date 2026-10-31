@@ -10,6 +10,8 @@ import {
   isXRoute,
   rememberToolRoute,
   xNavigate,
+  xOverAtom,
+  xOverEnded,
   xPageHeld,
   xPanelOpenAtom,
   xPanelWidthAtom,
@@ -134,6 +136,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
   const href = useLocation({ select: (l) => l.href });
   const pathname = useLocation({ select: (l) => l.pathname });
   const panelOpen = useAtomValue(xPanelOpenAtom);
+  const [over, setOver] = useAtom(xOverAtom);
   const savedPanelWidth = useAtomValue(xPanelWidthAtom);
   const { setFrame, compact, panelWidth, titlebar } = usePanelLayout(savedPanelWidth);
   const [main, setMain] = useState<HTMLElement | null>(null);
@@ -144,7 +147,12 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
   useEffect(() => {
     if (!onX) rememberToolRoute(href);
   }, [href, onX]);
-  const mode: XPaneMode = onX ? "main" : panelOpen ? "panel" : "hidden";
+  // X's own dialog from a "..." row (Report, Block) belongs to the screen it was opened on.
+  useEffect(() => {
+    xOverEnded();
+    setOver(false);
+  }, [pathname, setOver]);
+  const mode: XPaneMode = onX || over ? "main" : panelOpen ? "panel" : "hidden";
   // On Home the companion column takes X's hidden right column, so the pane leaves it room.
   const companionWidth = onX && wide ? COMPANION_WIDTH : 0;
   const columns = `auto minmax(0, 1fr) ${isElectron && mode === "panel" ? `${panelWidth}px` : "0px"}`;

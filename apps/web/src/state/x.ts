@@ -201,19 +201,160 @@ export const xActInPlace = (postId: string, action: XAction): Promise<boolean> =
   if (!/^\d{1,25}$/.test(postId)) return Promise.resolve(false);
   const { turns, confirm }: { readonly turns: string; readonly confirm?: string } = BUTTONS[action];
   return xRun(`(async () => {
-    // A page just loaded draws its posts a moment later, so wait for X's first post, then look
-    // for this one briefly. The post's own article is the one whose timestamp links to it (to its
-    // edit history, once edited); a post quoting it links to it too.
+    ${findArticle(postId)}
+    ${pressScript("article", action, turns, confirm)}
+  })()`).then((done) => done === true);
+};
+
+/**
+ * A script step that sets `article` to X's own article for the post on the engine page, or null.
+ * A page just loaded draws its posts a moment later, so it waits for X's first post, then looks
+ * for this one briefly. The post's own article is the one whose timestamp links to it (to its
+ * edit history, once edited); a post quoting it links to it too. `postId` must be digits.
+ */
+const findArticle = (postId: string) => `
     for (let i = 0; i < 100 && !document.querySelector("article"); i++)
       await new Promise((r) => setTimeout(r, 100));
     let article = null;
     for (let i = 0; i < 10 && !article; i++) {
       article = document.querySelector('article a[href$="/status/${postId}"] time, article a[href$="/status/${postId}/history"] time')?.closest("article") ?? null;
       if (!article) await new Promise((r) => setTimeout(r, 100));
+    }`;
+
+/**
+ * A script step that opens X's "..." on `article` and sets `items` to its rows once drawn; the
+ * step after it closes the menu (`closeMenu`) or presses a row.
+ */
+const openMenu = `
+    const caret = article?.querySelector('[data-testid="caret"]');
+    if (!caret) return null;
+    caret.click();
+    let items = [];
+    for (let i = 0; i < 20 && items.length === 0; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      items = [...document.querySelectorAll('[data-testid="Dropdown"] [role="menuitem"]')];
     }
-    ${pressScript("article", action, turns, confirm)}
-  })()`).then((done) => done === true);
+    // X closes its menu on a click outside it, on the mask drawn beside it; Escape from a script does not.
+    const closeMenu = () => {
+      const menu = document.querySelector('[role="menu"]');
+      [...(menu?.parentElement?.children ?? [])].find((k) => k !== menu && k.getBoundingClientRect().height > 0)?.click();
+    };`;
+
+/** What X did when the user pressed one of its "..." items. */
+export type XMenuOutcome =
+  /** X acted at once; `toast` is what X said, `undo` whether X offered to take it back. */
+  | { readonly kind: "done"; readonly toast: string | null; readonly undo: boolean }
+  /** X opened its own dialog or page (Report, Block, Delete, post activity) at `path`'s page. */
+  | { readonly kind: "over"; readonly path: string };
+
+/** X's "..." on a post, read on the engine page where the post sits: its rows' labels, in X's order. */
+const xMenuInPlace = (postId: string) =>
+  xRun(`(async () => {
+    ${findArticle(postId)}
+    ${openMenu}
+    const labels = items.map((i) => i.textContent.trim());
+    closeMenu();
+    return labels;
+  })()`).then((labels) =>
+    Array.isArray(labels) && labels.every((l) => typeof l === "string")
+      ? (labels as ReadonlyArray<string>)
+      : null,
+  );
+
+/** Presses X's "..." row `label` on the engine page where the post sits. Null when it is not there. */
+const xMenuPressInPlace = (postId: string, label: string) =>
+  xRun(`(async () => {
+    ${findArticle(postId)}
+    ${openMenu}
+    const item = items.find((i) => i.textContent.trim() === ${JSON.stringify(label)});
+    if (!item) return (closeMenu(), null);
+    const path = location.pathname + location.search;
+    item.click();
+    await new Promise((r) => setTimeout(r, 800));
+    // A confirm sheet (Block, Mute this conversation, Delete) or a page (Report, post activity).
+    if (location.pathname + location.search !== path || document.querySelector('[role="dialog"], [role="alertdialog"]'))
+      return { kind: "over", path };
+    const toast = document.querySelector('[data-testid="toast"]');
+    const actions = [...(toast?.querySelectorAll('button, a, [role="button"]') ?? [])];
+    const text = actions.reduce((t, a) => t.replace(a.textContent, ""), toast?.textContent ?? "").trim();
+    return { kind: "done", toast: text || null, undo: actions.some((a) => a.textContent.trim() === "Undo") };
+  })()`).then((outcome) => (outcome === null ? null : (outcome as XMenuOutcome)));
+
+/**
+ * Runs `step` where X shows the post: in place on the engine page, or on the post's own page
+ * reached through X's router. `leave` runs on the step's result before the engine goes Back from
+ * a page this opened, so X restores the list it was on. Null when X showed the post on neither.
+ */
+const onPost = async <A>(
+  post: { readonly postId: string; readonly handle: string },
+  step: () => Promise<A | null>,
+  leave: (result: A) => Promise<unknown> = () => Promise.resolve(),
+): Promise<A | null> => {
+  // Both go into scripts run in X's page: digits and a handle only. No engine (a browser): no X.
+  if (!/^\d{1,25}$/.test(post.postId) || !/^[A-Za-z0-9_]{1,15}$/.test(post.handle)) return null;
+  if (element === null || !ready) return null;
+  const here = await step();
+  if (here !== null) return (await leave(here), here);
+  const moved = await xGo(`https://x.com/${post.handle}/status/${post.postId}`);
+  const there = await step();
+  if (there !== null) await leave(there);
+  // Back only from a page this step opened, and only while the engine is still on it.
+  if (moved)
+    await xRun(
+      `location.pathname.endsWith(${JSON.stringify(`/status/${post.postId}`)}) && history.back(), true`,
+    );
+  return there;
 };
+
+/** X's own "..." rows for a post, read from X's menu for the user's click on Xtend's "...". */
+export const xPostMenu = (post: { readonly postId: string; readonly handle: string }) =>
+  onPost(post, () => xMenuInPlace(post.postId));
+
+/** True while X's own dialog or page from a "..." row is up: the engine shows over the main area. */
+export const xOverAtom = Atom.make(false);
+
+let overRun = 0;
+/** The user moved to another screen: whatever X's dialog was, the engine is no longer over it. */
+export const xOverEnded = () => void overRun++;
+
+/**
+ * Presses X's own "..." row `label` for the user's click. When X answers with its own dialog or
+ * page, `over` puts the engine over the main area until X is back where it was with no dialog
+ * (the user finished or closed it), or the user moved to another screen.
+ */
+export const xPostMenuPress = (
+  post: { readonly postId: string; readonly handle: string },
+  label: string,
+  over: (shown: boolean) => void,
+) => {
+  // Taken before X answers: a screen change meanwhile means the dialog no longer belongs here.
+  const run = ++overRun;
+  return onPost(
+    post,
+    () => xMenuPressInPlace(post.postId, label),
+    async (outcome) => {
+      if (outcome.kind !== "over" || run !== overRun) return;
+      over(true);
+      for (;;) {
+        // oxlint-disable-next-line no-await-in-loop -- polls X's page until its dialog closes
+        await new Promise((r) => setTimeout(r, 500));
+        if (run !== overRun) return;
+        // oxlint-disable-next-line no-await-in-loop -- polls X's page until its dialog closes
+        const open = await xRun(
+          `location.pathname + location.search !== ${JSON.stringify(outcome.path)} || !!document.querySelector('[role="dialog"], [role="alertdialog"]')`,
+        );
+        if (open !== true) break;
+      }
+      over(false);
+    },
+  );
+};
+
+/** Presses Undo on X's own toast, while X still shows it. True when it was there. */
+export const xToastUndo = () =>
+  xRun(
+    `(() => { const undo = [...document.querySelectorAll('[data-testid="toast"] button, [data-testid="toast"] [role="button"]')].find((b) => b.textContent.trim() === "Undo"); undo?.click(); return !!undo; })()`,
+  ).then((done) => done === true);
 
 /**
  * Follows or unfollows for the user's click through X's own button: in place when the engine page
