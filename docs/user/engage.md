@@ -27,27 +27,19 @@ keywords. The profile of who you reply to and about what is rebuilt nightly at 0
 demand from the header. **Suggested keywords** are handles and terms the model drew from your
 posts, one click into Settings.
 
-## Mentions
+## Inbox
 
-Mentions of you: what the session saw for free, plus what a paid fetch brings in.
-**Notifications on X** opens X's mentions page in the panel, free, and the session files what
+Everything said to you in one list: mentions, and replies and quotes to your posts, from what
+the session saw for free, plus mentions a paid fetch brings in. A reply that also names you
+shows once, as a reply. **Notifications on X** opens X's mentions page in the panel, free, and the session files what
 it shows here. **Fetch new** is the paid read, priced on the button. Open or every mention in a
 list; the selected one has **Mark handled** and a reply. A handled mention reopens from All, and
 Mark handled offers Undo right after. To clear a backlog, check rows and mark them handled
-together; Undo reopens all of them. Inbox works the same way. New mentions raise an OS
-notification.
-
-## Inbox
-
-Replies and quotes to your posts that the session saw.
+together; Undo reopens all of them. New mentions raise an OS notification.
 
 ## Sent
 
-Replies sent from Xtend.
-
-## Follow-ups
-
-Replies you sent that are worth a second touch: older than two days with nothing since. Reply
+Replies sent from Xtend. **Follow up** narrows them to the ones worth a second touch: older than two days with nothing since. Reply
 again here and it leaves the list. Xtend cannot see a follow-up you make on X itself, so mark
 that one **Done**; **Dismiss** drops one not worth a second touch. Replies sent before this
 version show only a link to the post.

@@ -37,7 +37,7 @@ Closing the panel parks it; your place on X and your scroll position survive.
 ## The companion column
 
 While X fills the main area and the window is wide enough, five cards sit where X's right
-column was: Up next, Needs you, Mentions, Picks today and Best time (Good time now when your
+column was: Up next, Needs you, Inbox, Picks today and Best time (Good time now when your
 audience usually peaks about now). They come from what Xtend already holds and cost nothing.
 Each opens its tool, with X in the panel beside it unless you closed the panel; Best time
 starts a new draft. In a narrower window the sidebar's Today block carries the same facts.

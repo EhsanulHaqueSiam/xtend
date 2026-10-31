@@ -6,8 +6,7 @@ import { userEvent } from "vite-plus/test/browser";
 import { liveEvents, paid, quoting, settings, xPost } from "../../../test/fixtures";
 import type { FakeService } from "../../../test/fakeService";
 import { render } from "../../../test/render";
-import { Incoming } from "./Inbox";
-import { Mentions } from "./Mentions";
+import { Inbox } from "./Mentions";
 import { Targets } from "./Targets";
 
 const target = (postId: string, text: string): ReplyTarget => ({
@@ -162,7 +161,7 @@ const mention = (postId: string, handled: boolean): Mention => ({
 
 it("says when X refuses the paid mentions read, and marks a mention handled", async () => {
   const handledIds: Array<string> = [];
-  await using screen = await render(<Mentions />, {
+  await using screen = await render(<Inbox />, {
     service: {
       ...screenReads,
       "costs.quote": quoting(() => paid(0.015)),
@@ -318,7 +317,7 @@ it("paid fetches wait for their price", async () => {
     await expect.element(screen.getByRole("button", { name: /^Refresh/ })).toBeDisabled();
     await expect.element(screen.getByRole("button", { name: /^Find keywords/ })).toBeDisabled();
   }
-  await using screen = await render(<Mentions />, {
+  await using screen = await render(<Inbox />, {
     service: {
       ...screenReads,
       "costs.quote": () => Effect.never,
@@ -331,7 +330,7 @@ it("paid fetches wait for their price", async () => {
 it("the inbox follows what the session sees, one refetch for a burst of batches", async () => {
   const events = liveEvents();
   let reads = 0;
-  await using screen = await render(<Incoming />, {
+  await using screen = await render(<Inbox />, {
     service: {
       ...screenReads,
       "costs.quote": quoting(),
@@ -344,11 +343,27 @@ it("the inbox follows what the session sees, one refetch for a burst of batches"
         }),
     },
   });
-  await expect.element(screen.getByText(/^No replies or quotes yet/)).toBeVisible();
+  await expect.element(screen.getByText(/^Nothing yet/)).toBeVisible();
   for (let i = 0; i < 3; i++) events.emit("observation_recorded", { posts: 4, source: "home" });
   await expect
     .element(screen.getByRole("complementary").getByText(`@${settings.handle} love this`))
     .toBeVisible();
   await new Promise((resolve) => setTimeout(resolve, 1500));
   expect(reads).toBe(2);
+});
+
+it("lists a reply that also names you once, as a reply", async () => {
+  const reply = { ...mention("8", false), post: { ...mention("8", false).post, isReply: true } };
+  await using screen = await render(<Inbox />, {
+    service: {
+      ...screenReads,
+      "costs.quote": quoting(),
+      "engage.mentions": () =>
+        Effect.succeed({ mentions: [mention("8", false), mention("9", false)], apiError: null }),
+      "engage.inbox": () => Effect.succeed({ sent: [], followUps: [], incoming: [reply] }),
+    },
+  });
+  await expect.element(screen.getByRole("tab", { name: /Open/ })).toHaveTextContent("Open2");
+  await expect.element(screen.getByText(/· reply/).first()).toBeVisible();
+  await expect.element(screen.getByText(/· mention/).first()).toBeVisible();
 });

@@ -37,6 +37,7 @@ it("gathers what waits on you and opens each item in the tool that owns it", asy
           ],
           apiError: null,
         }),
+      "engage.inbox": () => Effect.succeed({ sent: [], followUps: [], incoming: [] }),
       "plan.slotsGet": () => Effect.succeed({ slots: [] }),
       "library.picksGet": () =>
         Effect.succeed({ day: "2026-10-31", keywords: [], pending: [], picks: [] }),

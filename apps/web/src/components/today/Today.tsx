@@ -10,7 +10,7 @@ import { analyzeDataAtom } from "../../state/analyze";
 import { pendingAtom } from "../../state/automate";
 import { usd } from "../../state/costs";
 import { draftsAtom } from "../../state/compose";
-import { mentionsAtom } from "../../state/engage";
+import { inboxItemsAtom } from "../../state/engage";
 import { picksAtom } from "../../state/library";
 import { slotsAtom } from "../../state/plan";
 import { settingsAtom } from "../../state/settings";
@@ -77,7 +77,7 @@ export function Today() {
   const navigate = useNavigate();
   const drafts = or(useAtomValue(draftsAtom), []);
   const pending = or(useAtomValue(pendingAtom), []).filter((p) => p.status === "pending");
-  const mentions = or(useAtomValue(mentionsAtom), null);
+  const inbox = or(useAtomValue(inboxItemsAtom), null);
   const picks = or(useAtomValue(picksAtom), null);
   const slots = or(useAtomValue(slotsAtom), []);
   const settings = or(useAtomValue(settingsAtom), null);
@@ -88,7 +88,7 @@ export function Today() {
   const queued = drafts
     .filter((d) => d.status === "queued")
     .toSorted((a, b) => (a.scheduledAt ?? "~").localeCompare(b.scheduledAt ?? "~"));
-  const open = mentions?.mentions.filter((m) => !m.handled) ?? [];
+  const open = inbox?.items.filter((m) => !m.handled) ?? [];
   const week = analyze?.windows.find((w) => w.days === 7);
   const followers = analyze?.snapshots.at(-1)?.followers ?? null;
   const nextSlot = nextSlotLabel(slots, zone, new Date());
@@ -151,14 +151,14 @@ export function Today() {
             </Section>
             <Section
               className="mx-0"
-              title="Mentions"
+              title="Inbox"
               description={open.length === 0 ? undefined : `${open.length} open`}
             >
               {open.length === 0 ? <Quiet>All handled.</Quiet> : null}
               {open.slice(0, 5).map((m) => (
                 <Row
                   key={m.post.postId}
-                  href={sectionHref("/engage", "mentions")}
+                  href={sectionHref("/engage", "inbox")}
                   title={
                     <>
                       <span className="font-medium">{m.post.author.name}</span>{" "}

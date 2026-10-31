@@ -78,13 +78,16 @@ export const SECTIONS = {
       about: "Fresh posts for your keywords to reply under; Refresh is one paid search each.",
     },
     {
-      id: "mentions",
-      label: "Mentions",
-      about: "Posts that name you: what your session saw, free; Fetch new asks X, paid.",
+      id: "inbox",
+      label: "Inbox",
+      about:
+        "Mentions, replies and quotes your session saw, free; Fetch new asks X for mentions, paid.",
     },
-    { id: "inbox", label: "Inbox", about: "Replies to your posts your session saw. Free." },
-    { id: "sent", label: "Sent", about: "Replies you made. Free." },
-    { id: "follow-ups", label: "Follow-ups", about: "Conversations to come back to. Free." },
+    {
+      id: "sent",
+      label: "Sent",
+      about: "Replies you made, and the ones worth a follow-up. Free.",
+    },
     { id: "dms", label: "DMs", about: "Your direct messages, read through the X API, paid." },
   ],
   "/leads": [
@@ -209,10 +212,8 @@ const X_PAGES: {
   "/plan": "@",
   "/engage": {
     targets: "/home",
-    mentions: "/notifications/mentions",
     inbox: "/notifications",
     sent: "/notifications",
-    "follow-ups": "/notifications",
     dms: "/messages",
   },
   "/library": {
