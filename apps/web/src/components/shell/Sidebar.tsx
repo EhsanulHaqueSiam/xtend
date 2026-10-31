@@ -273,7 +273,11 @@ function ToolRow({
 }
 
 /** X pages Xtend draws itself; the rest still show x.com in the main area. */
-const NATIVE: Readonly<Record<string, "/home" | "/search">> = { Home: "/home", Explore: "/search" };
+const NATIVE: Readonly<Record<string, string>> = {
+  Home: "/home",
+  Explore: "/search",
+  Bookmarks: "/bookmarks",
+};
 
 /** X's own pages; each loads in the one x.com webview, shown in the main area. */
 function XRows({ compact }: { readonly compact: boolean }) {
@@ -310,14 +314,16 @@ function XRows({ compact }: { readonly compact: boolean }) {
           title={compact ? page.label : undefined}
           type="button"
           data-active={
-            NATIVE[page.label] !== undefined
-              ? pathname === NATIVE[page.label]
-              : onX && (path === page.path || path.startsWith(`${page.path}/`))
+            page.label === "Profile"
+              ? pathname === `/u/${handle}`
+              : NATIVE[page.label] !== undefined
+                ? pathname === NATIVE[page.label]
+                : onX && (path === page.path || path.startsWith(`${page.path}/`))
           }
           className={cn(ROW, dragClass(dragging, false))}
           onClick={() => {
             // Home and Explore are Xtend's own screens; the engine follows them off screen.
-            const native = NATIVE[page.label];
+            const native = page.label === "Profile" ? `/u/${handle}` : NATIVE[page.label];
             if (native !== undefined) return void navigate({ href: native });
             // A page already in the webview is only revealed; clicked again where it shows, it
             // reloads, like X's own Home.

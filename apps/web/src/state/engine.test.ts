@@ -50,7 +50,7 @@ it("keeps X's order, leaves quoted posts out of the list, and holds newer posts 
   expect(state.lists.following).toEqual(["3", "2", "1", "0"]);
 
   // An operation no screen draws only feeds the store.
-  state = mergeBatch(state, { op: "UserTweets", posts: [post("7", "2026-10-29T00:00:00Z")] });
+  state = mergeBatch(state, { op: "UserFollowers", posts: [post("7", "2026-10-29T00:00:00Z")] });
   expect(state.posts.has("7")).toBe(true);
   expect(state.lists.forYou).toEqual([]);
 });

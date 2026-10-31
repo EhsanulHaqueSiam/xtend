@@ -7,13 +7,17 @@ import * as Atom from "effect/reactivity/Atom";
  * response at a time; nothing here calls X.
  */
 
-export type Surface = "forYou" | "following" | "search" | "post";
+export type Surface = "forYou" | "following" | "search" | "post" | "bookmarks" | "profile";
 
 const SURFACES: Readonly<Record<string, Surface>> = {
   HomeTimeline: "forYou",
   HomeLatestTimeline: "following",
   SearchTimeline: "search",
   TweetDetail: "post",
+  Bookmarks: "bookmarks",
+  // X has used both names for a profile's posts.
+  UserTweets: "profile",
+  UserOriginalsTimeline: "profile",
 };
 
 const NO_LISTS: Readonly<Record<Surface, ReadonlyArray<string>>> = {
@@ -21,6 +25,8 @@ const NO_LISTS: Readonly<Record<Surface, ReadonlyArray<string>>> = {
   following: [],
   search: [],
   post: [],
+  bookmarks: [],
+  profile: [],
 };
 
 export interface EngineState {

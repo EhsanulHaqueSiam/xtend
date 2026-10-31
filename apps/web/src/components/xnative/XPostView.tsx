@@ -1,11 +1,13 @@
-import { useAtomSet } from "@effect/atom-react";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useNavigate } from "@tanstack/react-router";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
 import type { EngineMedia, EnginePost } from "@xtend/contracts";
-import * as Exit from "effect/Exit";
-import { BadgeCheck, Bookmark, Heart, MessageCircle, Repeat2 } from "lucide-react";
+import { BadgeCheck, Bookmark, Heart, MessageCircle, Quote, Repeat2 } from "lucide-react";
 import { useState } from "react";
 
 import { cn } from "../../lib/utils";
-import { likeAtom } from "../../state/engage";
+import { settingsAtom } from "../../state/settings";
+import { type XAction, xActInPlace, xNavigate } from "../../state/x";
 import { fmt } from "../analyze/ui";
 import { ago } from "../engage/triage";
 import { useDropPost } from "../shell/drops";
@@ -86,20 +88,30 @@ export function XPostView({
   readonly onOpen?: ((post: EnginePost) => void) | undefined;
   readonly onReopen?: (() => void) | undefined;
 }) {
-  const like = useAtomSet(likeAtom(post.postId), { mode: "promiseExit" });
   const setToast = useAtomSet(toastAtom);
   const drop = useDropPost();
-  const [liked, setLiked] = useState(false);
-  const likeNow = async () => {
-    if (liked) return;
-    setLiked(true);
-    const exit = await like();
-    // X's own button did it, on the post's page; the screen's list stays as it was.
-    onReopen?.();
-    if (Exit.isFailure(exit)) {
-      setLiked(false);
-      setToast({ text: "X did not take the like. Try again in a moment." });
+  const navigate = useNavigate();
+  const settings = AsyncResult.getOrElse(useAtomValue(settingsAtom), () => null);
+  const [done, setDone] = useState<ReadonlySet<XAction>>(new Set());
+  const has = (a: XAction) => done.has(a);
+  /**
+   * X's own button for the user's click: on the engine page where the post sits, so the list
+   * keeps feeding; only when it is not there, on the post's own page, and then back.
+   */
+  const act = async (action: XAction) => {
+    if (done.has(action)) return;
+    if (settings !== null && !settings.sessionPostingEnabled)
+      return setToast({ text: "Session actions are off in Settings, X session." });
+    setDone((d) => new Set(d).add(action));
+    let ok = await xActInPlace(post.postId, action);
+    if (!ok) {
+      await xNavigate(postUrl(post));
+      ok = await xActInPlace(post.postId, action);
+      onReopen?.();
     }
+    if (ok) return;
+    setDone((d) => new Set([...d].filter((a) => a !== action)));
+    setToast({ text: "X did not take that. Try again in a moment." });
   };
   return (
     <article
@@ -119,7 +131,16 @@ export function XPostView({
       )}
       <div className="min-w-0">
         <div className="flex min-w-0 items-baseline gap-1.5 text-[13px]">
-          <span className="truncate font-semibold">{post.author.name}</span>
+          <button
+            type="button"
+            className="cursor-pointer truncate font-semibold hover:underline"
+            onClick={(e) => {
+              e.stopPropagation();
+              void navigate({ to: "/u/$handle", params: { handle: post.author.handle } });
+            }}
+          >
+            {post.author.name}
+          </button>
           {post.author.verified ? (
             <BadgeCheck className="size-3.5 shrink-0 self-center text-muted-foreground" />
           ) : null}
@@ -164,28 +185,59 @@ export function XPostView({
             <MessageCircle className="size-3.5" />
             {fmt(post.metrics.replies)}
           </button>
-          <span className="flex items-center gap-1.5">
-            <Repeat2 className="size-3.5" />
-            {fmt(post.metrics.reposts)}
-          </span>
           <button
             type="button"
-            aria-label={liked ? "Liked" : "Like"}
-            aria-pressed={liked}
+            aria-label="Repost"
+            aria-pressed={has("retweet")}
             className={cn(
               "flex cursor-pointer items-center gap-1.5 hover:text-foreground",
-              liked && "text-error-foreground",
+              has("retweet") && "text-success-foreground",
             )}
-            onClick={() => void likeNow()}
+            onClick={() => void act("retweet")}
           >
-            <Heart className={cn("size-3.5", liked && "fill-current")} />
-            {fmt(post.metrics.likes + (liked ? 1 : 0))}
+            <Repeat2 className="size-3.5" />
+            {fmt(post.metrics.reposts + (has("retweet") ? 1 : 0))}
+          </button>
+          <button
+            type="button"
+            aria-label="Like"
+            aria-pressed={has("like")}
+            className={cn(
+              "flex cursor-pointer items-center gap-1.5 hover:text-foreground",
+              has("like") && "text-error-foreground",
+            )}
+            onClick={() => void act("like")}
+          >
+            <Heart className={cn("size-3.5", has("like") && "fill-current")} />
+            {fmt(post.metrics.likes + (has("like") ? 1 : 0))}
+          </button>
+          <button
+            type="button"
+            aria-label="Quote"
+            className="flex cursor-pointer items-center gap-1.5 hover:text-foreground"
+            onClick={() =>
+              void navigate({ href: `/compose?quote=${encodeURIComponent(postUrl(post))}` })
+            }
+          >
+            <Quote className="size-3.5" />
           </button>
           <span>{fmt(post.metrics.views)} views</span>
           <button
             type="button"
+            aria-label="Bookmark on X"
+            aria-pressed={has("bookmark")}
+            className={cn(
+              "ml-auto cursor-pointer hover:text-foreground",
+              has("bookmark") && "text-foreground",
+            )}
+            onClick={() => void act("bookmark")}
+          >
+            <Bookmark className={cn("size-3.5", has("bookmark") && "fill-current")} />
+          </button>
+          <button
+            type="button"
             aria-label="Save to Library"
-            className="ml-auto flex cursor-pointer items-center gap-1.5 hover:text-foreground"
+            className="flex cursor-pointer items-center gap-1.5 hover:text-foreground"
             onClick={() =>
               drop("/library", {
                 postId: post.postId,
@@ -194,7 +246,6 @@ export function XPostView({
               })
             }
           >
-            <Bookmark className="size-3.5" />
             Save
           </button>
         </div>

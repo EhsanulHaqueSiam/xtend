@@ -89,6 +89,38 @@ export const xPickHomeTab = (label: string) =>
     }, 150);
   })`);
 
+/** X's own buttons on a post, by test id, for the user's click on Xtend's copy of it. */
+export type XAction = "like" | "retweet" | "bookmark";
+
+/**
+ * Presses X's own button for the user's click, on the engine page where the post already sits,
+ * so the engine never leaves the list it feeds. False when the post is not on that page.
+ */
+export const xActInPlace = (postId: string, action: XAction): Promise<boolean> => {
+  // The id goes into a script: digits only.
+  if (!/^\d{1,25}$/.test(postId)) return Promise.resolve(false);
+  return xRun(`(async () => {
+    // A page just loaded draws its posts a moment later. The post's own article is the one whose
+    // timestamp links to it; a post quoting it links to it too. X's timeline has no bookmark
+    // button, so a post that is there without the button fails at once.
+    let article = null;
+    for (let i = 0; i < 30 && !article; i++) {
+      article = document.querySelector('article a[href$="/status/${postId}"] time')?.closest("article") ?? null;
+      if (!article) await new Promise((r) => setTimeout(r, 100));
+    }
+    const button = article?.querySelector('[data-testid="${action}"]');
+    if (!button) return false;
+    button.click();
+    if ("${action}" !== "retweet") return true;
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      const confirm = document.querySelector('[data-testid="retweetConfirm"]');
+      if (confirm) { confirm.click(); return true; }
+    }
+    return false;
+  })()`).then((done) => done === true);
+};
+
 export const xBack = () => (ready ? element?.goBack() : undefined);
 export const xForward = () => (ready ? element?.goForward() : undefined);
 export const xReload = () => (ready ? element?.reload() : undefined);
