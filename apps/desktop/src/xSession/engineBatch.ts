@@ -449,7 +449,11 @@ function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExp
   if (op === "GenericTimelineById") return s("timelineId") ?? null;
   // Explore's first page is its "for_you" tab, fetched by another name.
   if (op === "ExplorePage") return exploreTabs?.find((t) => t.id === "for_you")?.timelineId ?? null;
-  if (op === "SearchTimeline") return s("product") ?? null;
+  if (op === "SearchTimeline")
+    return s("product") === undefined || s("rawQuery") === undefined
+      ? null
+      : `${s("product")}:${s("rawQuery")}`;
+  if (op === "TweetDetail") return s("focalTweetId") ?? null;
   if (op === "UserByScreenName") return s("screen_name")?.toLowerCase() ?? null;
   return s("userId") ?? null;
 }

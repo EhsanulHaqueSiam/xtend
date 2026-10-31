@@ -55,6 +55,36 @@ export const xNavigate = (url: string): Promise<void> => {
   return Promise.resolve();
 };
 
+/**
+ * Moves the engine to an x.com page through X's own router, as a link clicked in X would: about a
+ * second instead of a full reload, and a page X still holds shows without a fetch, so a screen
+ * reads that page's keyed surface rather than resetting one. Before the first load, or when the
+ * webview is not on a signed-in x.com page, it loads the URL instead.
+ */
+export const xGo = (url: string): Promise<void> => {
+  if (!isXUrl(url)) return Promise.resolve();
+  if (element === null || !ready) return xNavigate(url);
+  const el = element;
+  let here: URL;
+  try {
+    here = new URL(el.getURL());
+  } catch {
+    return xNavigate(url);
+  }
+  if (!X_HOSTS.has(here.hostname) || here.pathname.startsWith("/i/flow/")) return xNavigate(url);
+  const target = new URL(url);
+  const path = target.pathname + target.search;
+  if (here.pathname + here.search === path) return Promise.resolve();
+  return el
+    .executeJavaScript(
+      `history.pushState(null, "", ${JSON.stringify(path)}); dispatchEvent(new PopStateEvent("popstate", { state: null })); true`,
+    )
+    .then(
+      () => {},
+      () => xNavigate(url),
+    );
+};
+
 /** Whether the webview already shows this x.com path, so a screen can skip reloading it. */
 export const xShows = (path: string) => {
   try {
@@ -72,10 +102,31 @@ const xRun = (code: string) =>
     ? element.executeJavaScript(code).catch(() => null)
     : Promise.resolve(null);
 
-/** The user scrolled near the end of a native list: X scrolls its own page and fetches the next. */
-// X fetches its next page only near the bottom of what it has drawn, so jump there.
+/**
+ * The user scrolled near the end of a native list: X scrolls its own page and fetches the next.
+ * X fetches when its end marker comes into view, and some jumps to the bottom fetch nothing (the
+ * marker was in view already, or X was mid-fetch), so keep following the bottom until the last
+ * post X draws there changes, stepping back a screen between tries so the marker comes into view
+ * anew. A native list asks once per length, so one ask has to land. Page height is no signal:
+ * images loading grow it too.
+ */
 export const xScrollMore = () =>
-  xRun("window.scrollTo(0, document.documentElement.scrollHeight), true");
+  xRun(`(async () => {
+    const last = () => [...document.querySelectorAll('article a[href*="/status/"] time')].at(-1)?.closest("a")?.getAttribute("href");
+    window.scrollTo(0, document.documentElement.scrollHeight);
+    await new Promise((r) => setTimeout(r, 300));
+    const before = last();
+    for (let attempt = 0; attempt < 4; attempt++) {
+      for (let i = 0; i < 15; i++) {
+        await new Promise((r) => setTimeout(r, 250));
+        window.scrollTo(0, document.documentElement.scrollHeight);
+        if (last() !== before) return true;
+      }
+      window.scrollBy(0, -window.innerHeight);
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    return false;
+  })()`);
 
 /** Picks a tab on X's Home ("For you", "Following") once the page has drawn it. */
 export const xPickHomeTab = (label: string) =>
@@ -93,6 +144,12 @@ export const xPickHomeTab = (label: string) =>
 
 /** X's own buttons on a post, by test id, for the user's click on Xtend's copy of it. */
 export type XAction = "like" | "retweet" | "bookmark";
+/** The test id X's button takes once pressed. */
+const UNDO: Readonly<Record<XAction, string>> = {
+  like: "unlike",
+  retweet: "unretweet",
+  bookmark: "removeBookmark",
+};
 
 /**
  * Presses X's own button for the user's click, on the engine page where the post already sits,
@@ -102,25 +159,56 @@ export const xActInPlace = (postId: string, action: XAction): Promise<boolean> =
   // The id goes into a script: digits only.
   if (!/^\d{1,25}$/.test(postId)) return Promise.resolve(false);
   return xRun(`(async () => {
-    // A page just loaded draws its posts a moment later. The post's own article is the one whose
-    // timestamp links to it; a post quoting it links to it too. X's timeline has no bookmark
-    // button, so a post that is there without the button fails at once.
+    // A page just loaded draws its posts a moment later, so wait for X's first post, then look
+    // for this one briefly. The post's own article is the one whose timestamp links to it (to its
+    // edit history, once edited); a post quoting it links to it too.
+    for (let i = 0; i < 100 && !document.querySelector("article"); i++)
+      await new Promise((r) => setTimeout(r, 100));
     let article = null;
-    for (let i = 0; i < 30 && !article; i++) {
-      article = document.querySelector('article a[href$="/status/${postId}"] time')?.closest("article") ?? null;
+    for (let i = 0; i < 10 && !article; i++) {
+      article = document.querySelector('article a[href$="/status/${postId}"] time, article a[href$="/status/${postId}/history"] time')?.closest("article") ?? null;
       if (!article) await new Promise((r) => setTimeout(r, 100));
     }
     const button = article?.querySelector('[data-testid="${action}"]');
     if (!button) return false;
     button.click();
-    if ("${action}" !== "retweet") return true;
-    for (let i = 0; i < 20; i++) {
-      await new Promise((r) => setTimeout(r, 100));
-      const confirm = document.querySelector('[data-testid="retweetConfirm"]');
-      if (confirm) { confirm.click(); return true; }
+    if ("${action}" === "retweet") {
+      let confirm = null;
+      for (let i = 0; i < 20 && !confirm; i++) {
+        await new Promise((r) => setTimeout(r, 100));
+        confirm = document.querySelector('[data-testid="retweetConfirm"]');
+      }
+      if (!confirm) return false;
+      confirm.click();
     }
-    return false;
+    // X turns its button over at once and saves a moment later; leaving the page before then
+    // would cancel the save, so wait for the turn and give the request time to go out.
+    for (let i = 0; i < 30 && !article.querySelector('[data-testid="${UNDO[action]}"]'); i++)
+      await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 1000));
+    return true;
   })()`).then((done) => done === true);
+};
+
+/**
+ * X's own button for the user's click on Xtend's copy of a post: in place where the engine page
+ * holds it, otherwise on the post's own page, reached through X's router and left with Back, so X
+ * restores the list it was on, scroll included. True when X took the click.
+ */
+export const xAct = async (
+  post: { readonly postId: string; readonly handle: string },
+  action: XAction,
+): Promise<boolean> => {
+  // Both go into scripts run in X's page: digits and a handle only.
+  if (!/^\d{1,25}$/.test(post.postId) || !/^[A-Za-z0-9_]{1,15}$/.test(post.handle)) return false;
+  if (await xActInPlace(post.postId, action)) return true;
+  await xGo(`https://x.com/${post.handle}/status/${post.postId}`);
+  const done = await xActInPlace(post.postId, action);
+  // Only while the engine is still on the post: the user may have moved it on meanwhile.
+  await xRun(
+    `location.pathname.endsWith(${JSON.stringify(`/status/${post.postId}`)}) && history.back(), true`,
+  );
+  return done;
 };
 
 export const xBack = () => (ready ? element?.goBack() : undefined);

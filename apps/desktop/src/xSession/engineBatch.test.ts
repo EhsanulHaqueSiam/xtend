@@ -542,6 +542,10 @@ describe("renderEngineBatch around posts", () => {
       ).key,
     ).toBe("tag:19");
     expect(renderEngineBatch("HomeTimeline", {}, {}).key).toBeNull();
+    expect(
+      renderEngineBatch("SearchTimeline", { rawQuery: "from:theo", product: "Latest" }, {}).key,
+    ).toBe("Latest:from:theo");
+    expect(renderEngineBatch("TweetDetail", { focalTweetId: "42" }, {}).key).toBe("42");
     const header = renderEngineBatch(
       "ListByRestId",
       { listId: "12" },
