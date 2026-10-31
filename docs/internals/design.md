@@ -5,19 +5,22 @@ This page keeps the decisions a maintainer would otherwise undo.
 
 ## One look
 
-True black canvas, white text. Every group on a page is one raised surface
-(`components/ui/layout.tsx`, `Section`): `--card` background, hairline border, 16px radius,
-and a numbered label driven by a CSS counter on `PageBody`, so sections count from 01 per
-page and per detail column (`split.tsx` resets it). Inside a surface, hairlines divide;
-surfaces never nest. Companion cards (`XCard`) are the same surface.
+True black canvas, white text. Every group on a page is one panel (`components/ui/layout.tsx`,
+`Section`): `--card` (#0a0a0a), hairline border, 12px radius. Panels never nest; inside one,
+hairlines divide. Rows inside a panel start at its padding: tables and lists inset their ends
+by `--row-inset`, which is the page margin on the canvas and 0 inside a `Section`. Hairlines
+are alpha white (`--border`), so one line reads the same on the canvas and on a panel. Empty
+states sketch three faint static rows above one line on where the data comes from.
 
-Every control is a pill through one token, `--control-radius: 999px`. Buttons, inputs,
-sidebar rows and palette rows all follow it; a textarea keeps a soft corner. Header filters
-are a segmented pill (`PageHeader`, `HeaderTabs`) with a white thumb. The primary button is
+Controls take an 8px corner through one token, `--control-radius`. Header filters are plain
+words with a faint thumb on the open one (`PageHeader`, `HeaderTabs`). The primary button is
 white on black and carries its price inside, in mono.
 
+The sidebar groups tools under Create, Grow and Measure, each row with its icon. Counts are
+small chips; a count that waits on the user (Automate approvals) is solid white.
+
 Charts are an SVG area with a vertical gradient under a 2px line, no grid, three labels
-(`analyze/ui.tsx`, `LineChart`). Stats sit in one surface with dividers (`statRow`), value in
+(`analyze/ui.tsx`, `LineChart`). Stats sit in one panel with dividers (`statRow`), value in
 mono at 22px, label under it.
 
 ## Freshness
@@ -43,7 +46,7 @@ only what the session observed and never call X.
 
 ## References
 
-Base: uiarc.dev for pills and rows, bencho.dev for stats and charts, 23rd.dev for tables,
+Panels, sidebar groups and two-line cells follow ObsidianUI and PaceUI. Base: uiarc.dev for rows, bencho.dev for stats and charts, 23rd.dev for tables,
 boardui.com for boards, audiocn.dev for the day ruler, termcn.dev for logs, spaceui.one (Base
 UI, which Xtend already uses) for sortable lists, kanban, calendar and the heat grid. FeralUI
 and Torph supply the few physical moments. Control Panel for Twitter inspired Clean X, under

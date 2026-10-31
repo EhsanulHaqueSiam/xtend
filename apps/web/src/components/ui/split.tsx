@@ -138,7 +138,7 @@ export function DetailSplit({
           key={detailKey ?? undefined}
           aria-label={label}
           className={cn(
-            "w-[min(380px,45%)] min-w-[300px] shrink-0 overflow-y-auto border-l border-border [counter-reset:section]",
+            "w-[min(380px,45%)] min-w-[300px] shrink-0 overflow-y-auto border-l border-border",
             cover && "@max-[46rem]/split:w-full @max-[46rem]/split:border-l-0",
           )}
         >
@@ -160,7 +160,7 @@ export interface Column<T> {
   readonly cell: (item: T) => ReactNode;
 }
 
-const grid = "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 px-6";
+const grid = "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 px-(--row-inset)";
 
 /** Column labels over a list, sticky while it scrolls. */
 export function ListHead<T>({
