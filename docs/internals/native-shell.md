@@ -50,7 +50,11 @@ moves between them with CSS only, never in the DOM, because moving a webview rel
 | ----------------- | ------------------------------------------------------------------------- |
 | `/x` (and `/`)    | over the main area; the route renders nothing                             |
 | a tool, panel on  | the right column, `xPanelWidthAtom` wide (360-760, dragged from its edge) |
-| a tool, panel off | parked off-screen at the panel's width, session and scroll intact         |
+| a tool, panel off | parked under the app at the panel's width, session and scroll intact      |
+
+Parked means under the app, transparent and click-through, never off screen or `invisible`:
+Chromium draws no frames for a frame outside the viewport, and X's infinite scroll and video
+wait on frames, so a hidden engine would never load the next page.
 
 `⌘\` toggles the panel; from `/x` it returns to the last tool with the panel open. The panel
 bar shows the path and has back, forward, reload, full size (`/x`), open in browser and close.
