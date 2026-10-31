@@ -1,4 +1,4 @@
-import type { EngineMedia, EnginePost, ObservationSource, ObservedPost } from "@xtend/contracts";
+import type { ObservationSource, ObservedPost } from "@xtend/contracts";
 
 /**
  * Turns one X GraphQL response body into observed posts. X nests tweets
@@ -7,20 +7,21 @@ import type { EngineMedia, EnginePost, ObservationSource, ObservedPost } from "@
  * path. Unknown shapes yield nothing rather than wrong numbers.
  */
 
-type Json = Record<string, unknown>;
+export type Json = Record<string, unknown>;
 
-const isRecord = (value: unknown): value is Json => typeof value === "object" && value !== null;
+export const isRecord = (value: unknown): value is Json =>
+  typeof value === "object" && value !== null;
 
-const asString = (value: unknown): string | undefined =>
+export const asString = (value: unknown): string | undefined =>
   typeof value === "string" ? value : undefined;
 /** A count X sent as a number or a digit string (views always come as one); null for anything else. */
-const asCount = (value: unknown): number | null => {
+export const asCount = (value: unknown): number | null => {
   const n = typeof value === "string" && /^\d+$/.test(value) ? Number(value) : value;
   return typeof n === "number" && Number.isSafeInteger(n) && n >= 0 ? n : null;
 };
 
-const X_ID = /^\d{1,25}$/;
-const X_HANDLE = /^[A-Za-z0-9_]{1,15}$/;
+export const X_ID = /^\d{1,25}$/;
+export const X_HANDLE = /^[A-Za-z0-9_]{1,15}$/;
 
 /** "Wed Oct 22 04:00:00 +0000 2026" → ISO. Returns undefined for anything else. */
 export function xDateToIso(value: unknown): string | undefined {
@@ -61,13 +62,16 @@ function readAuthor(tweet: Json): ObservedPost["author"] | undefined {
     userId,
     handle: handle.toLowerCase(),
     name: name ?? handle,
-    followers: asCount(legacy.followers_count),
+    // 2026 dropped user.legacy for relationship_counts.
+    followers:
+      asCount(legacy.followers_count) ??
+      asCount(isRecord(user.relationship_counts) ? user.relationship_counts.followers : undefined),
     verified: user.is_blue_verified === true || legacy.verified === true,
     ...(isProtected === undefined ? {} : { isProtected }),
   };
 }
 
-function readPost(tweet: Json, promoted: boolean): ObservedPost | undefined {
+export function readPost(tweet: Json, promoted: boolean): ObservedPost | undefined {
   const postId = asString(tweet.rest_id);
   const legacy = isRecord(tweet.legacy) ? tweet.legacy : undefined;
   if (postId === undefined || !X_ID.test(postId) || legacy === undefined) return undefined;
@@ -132,19 +136,46 @@ function readPost(tweet: Json, promoted: boolean): ObservedPost | undefined {
   };
 }
 
+/**
+ * The line X draws above a post, read from a timeline item's `socialContext` ("Pinned", "Theo
+ * liked") or a repost's wrapper. Engine screens draw it; observations ignore it.
+ */
+export interface WalkContext {
+  readonly type: string;
+  readonly text: string;
+  readonly handle: string | null;
+}
+
+const readSocialContext = (value: unknown): WalkContext | null => {
+  if (!isRecord(value)) return null;
+  const text =
+    asString(value.text) ?? (isRecord(value.topic) ? asString(value.topic.name) : undefined);
+  if (text === undefined || text === "") return null;
+  const landing = isRecord(value.landingUrl) ? asString(value.landingUrl.url) : undefined;
+  const handle = /screen_name=([A-Za-z0-9_]{1,15})/.exec(landing ?? "")?.[1];
+  return {
+    type: asString(value.contextType) ?? asString(value.type) ?? "Context",
+    text,
+    handle: handle?.toLowerCase() ?? null,
+  };
+};
+
 /** Every tweet-shaped object in a response, read by `read`, first sighting per id, in document order. */
-function walkTweets<T extends { readonly postId: string }>(
+export function walkTweets<T extends { readonly postId: string }>(
   body: unknown,
-  read: (tweet: Json, promoted: boolean) => T | undefined,
+  read: (tweet: Json, promoted: boolean, context: WalkContext | null) => T | undefined,
 ): ReadonlyArray<T> {
   const found = new Map<string, T>();
-  // An ad is marked on the timeline item (promotedMetadata), above the tweet; the flag travels down.
-  const stack: Array<{ node: unknown; promoted: boolean }> = [{ node: body, promoted: false }];
+  // An ad is marked on the timeline item (promotedMetadata), above the tweet, and so is X's
+  // social context; both travel down to the first tweet below them.
+  const stack: Array<{ node: unknown; promoted: boolean; context: WalkContext | null }> = [
+    { node: body, promoted: false, context: null },
+  ];
   while (stack.length > 0) {
-    const { node, promoted } = stack.pop()!;
+    const { node, promoted, context } = stack.pop()!;
     // Children are pushed in reverse so pops follow document order: timeline order is the feed order.
     if (Array.isArray(node)) {
-      for (let i = node.length - 1; i >= 0; i--) stack.push({ node: node[i], promoted });
+      for (let i = node.length - 1; i >= 0; i--) stack.push({ node: node[i], promoted, context });
       continue;
     }
     if (!isRecord(node)) continue;
@@ -157,70 +188,36 @@ function walkTweets<T extends { readonly postId: string }>(
           ? node.tweet
           : undefined;
     if (tweet !== undefined) {
-      const post = read(tweet, inAd);
+      const post = read(tweet, inAd, context);
       // The first sighting in a response is the outer post; a quoted copy of
       // the same id deeper down carries the same numbers.
       if (post !== undefined && !found.has(post.postId)) found.set(post.postId, post);
     }
     // Quoted and retweeted posts nest inside the tweet; a post quoted by an ad is not itself the ad.
     const childPromoted = inAd && tweet === undefined;
+    const childContext =
+      tweet === undefined
+        ? (readSocialContext(node.socialContext) ?? context)
+        : repostContext(tweet);
     const values = Object.values(node);
     for (let i = values.length - 1; i >= 0; i--)
-      stack.push({ node: values[i], promoted: childPromoted });
+      stack.push({ node: values[i], promoted: childPromoted, context: childContext });
   }
   return [...found.values()];
 }
 
-export const normalizeGraphqlResponse = (body: unknown): ReadonlyArray<ObservedPost> =>
-  walkTweets(body, readPost);
-
-const asNumber = (value: unknown) => (typeof value === "number" ? value : 0);
-
-function readMedia(item: unknown): EngineMedia | undefined {
-  if (!isRecord(item)) return undefined;
-  const url = asString(item.media_url_https);
-  if (url === undefined) return undefined;
-  const kind = item.type === "video" ? "video" : item.type === "animated_gif" ? "gif" : "photo";
-  const info = isRecord(item.video_info) ? item.video_info : {};
-  const variants = Array.isArray(info.variants) ? info.variants.filter(isRecord) : [];
-  // The highest-bitrate mp4; X also lists an HLS playlist, which a plain <video> cannot play.
-  const best = variants
-    .filter((v) => v.content_type === "video/mp4")
-    .sort((a, b) => asNumber(b.bitrate) - asNumber(a.bitrate))[0];
-  const size = isRecord(item.original_info) ? item.original_info : {};
-  return {
-    kind,
-    url,
-    videoUrl: best === undefined ? null : (asString(best.url) ?? null),
-    width: asNumber(size.width),
-    height: asNumber(size.height),
-  };
-}
-
-function readEnginePost(tweet: Json, promoted: boolean): EnginePost | undefined {
+/** A repost wrapper names its reposter over the original nested in it; any other tweet passes nothing down. */
+function repostContext(tweet: Json): WalkContext | null {
   const legacy = isRecord(tweet.legacy) ? tweet.legacy : {};
-  // A repost wrapper is skipped: the original nests inside it and is read in its place.
-  if (isRecord(legacy.retweeted_status_result)) return undefined;
-  const post = readPost(tweet, promoted);
-  if (post === undefined) return undefined;
-  const core = isRecord(tweet.core) ? tweet.core : {};
-  const results = isRecord(core.user_results) ? core.user_results : {};
-  const user = isRecord(results.result) ? results.result : {};
-  const avatar = isRecord(user.avatar) ? user.avatar : {};
-  const userLegacy = isRecord(user.legacy) ? user.legacy : {};
-  const extended = isRecord(legacy.extended_entities) ? legacy.extended_entities : {};
-  return {
-    ...post,
-    avatarUrl: asString(avatar.image_url) ?? asString(userLegacy.profile_image_url_https) ?? null,
-    media: (Array.isArray(extended.media) ? extended.media : []).flatMap((m) => readMedia(m) ?? []),
-    quotedId: asString(legacy.quoted_status_id_str) ?? null,
-    replyToId: asString(legacy.in_reply_to_status_id_str) ?? null,
-  };
+  if (!isRecord(legacy.retweeted_status_result)) return null;
+  const author = readAuthor(tweet);
+  return author === undefined
+    ? null
+    : { type: "Retweet", text: `${author.name} reposted`, handle: author.handle };
 }
 
-/** Posts as Xtend's own X screens draw them, in the response's order. */
-export const renderPostsFromGraphql = (body: unknown): ReadonlyArray<EnginePost> =>
-  walkTweets(body, readEnginePost);
+export const normalizeGraphqlResponse = (body: unknown): ReadonlyArray<ObservedPost> =>
+  walkTweets(body, (tweet, promoted) => readPost(tweet, promoted));
 
 /** The logged-in handle, from the `Viewer` operation x.com runs on every load. */
 export function readViewerHandle(body: unknown): string | undefined {

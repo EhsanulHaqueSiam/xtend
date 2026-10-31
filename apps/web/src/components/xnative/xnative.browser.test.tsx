@@ -24,7 +24,32 @@ const post = (postId: string, text: string, extra: Partial<EnginePost> = {}): En
   media: [],
   quotedId: null,
   replyToId: null,
+  replyingTo: [],
+  links: [],
+  card: null,
+  poll: null,
+  note: null,
+  context: null,
+  liked: false,
+  reposted: false,
+  bookmarked: false,
   ...extra,
+});
+
+/** One response as the desktop's capture sends it, with nothing but posts. */
+const batch = (op: string, posts: ReadonlyArray<EnginePost>) => ({
+  op,
+  key: null,
+  cursor: null,
+  top: null,
+  bottom: null,
+  posts,
+  users: [],
+  trends: [],
+  notifications: [],
+  lists: [],
+  homeTabs: null,
+  exploreTabs: null,
 });
 
 it("draws what the engine received: the post, its video in Xtend's player, and the post it quotes", async () => {
@@ -36,9 +61,8 @@ it("draws what the engine received: the post, its video in Xtend's player, and t
     </div>,
     { service: {} },
   );
-  bridge.emitEngine({
-    op: "HomeLatestTimeline",
-    posts: [
+  bridge.emitEngine(
+    batch("HomeLatestTimeline", [
       post("2", "Day 31/ side chats https://t.co/abc", {
         quotedId: "1",
         media: [
@@ -52,8 +76,8 @@ it("draws what the engine received: the post, its video in Xtend's player, and t
         ],
       }),
       post("1", "Day 30/ panels"),
-    ],
-  });
+    ]),
+  );
   const first = screen.getByRole("article").first();
   // X's trailing media link is X's own plumbing; it never shows.
   await expect.element(first.getByText("Day 31/ side chats", { exact: true })).toBeVisible();
