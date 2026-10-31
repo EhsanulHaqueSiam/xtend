@@ -11,7 +11,7 @@ import { XRows } from "../components/xnative/XRows";
 import { Avatar } from "../components/xnative/XPostView";
 import { engineAtom } from "../state/engine";
 import { settingsAtom } from "../state/settings";
-import { xGo } from "../state/x";
+import { xGo, xNavigate } from "../state/x";
 
 type Row =
   | { readonly kind: "group"; readonly name: string }
@@ -70,6 +70,10 @@ function ListsScreen() {
     () => void (handle === null ? undefined : xGo(`https://x.com/${handle}/lists`)),
     [handle],
   );
+  // "Load again": a full load of the same page, since X's router does nothing on the page it shows.
+  const reload = () =>
+    void (handle === null ? undefined : xNavigate(`https://x.com/${handle}/lists`));
+
   useEffect(open, [open]);
   const rows: Array<Row> = [];
   let group: string | null = null;
@@ -85,7 +89,7 @@ function ListsScreen() {
     <XColumn header={<XTitle title="Lists" />}>
       <XRows
         waitKey="lists"
-        onReopen={open}
+        onReopen={reload}
         items={rows}
         paged={false}
         rowKey={(r) =>

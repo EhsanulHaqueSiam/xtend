@@ -10,7 +10,7 @@ import { xtendRoute } from "../components/xnative/RichText";
 import { UserRow, XRows } from "../components/xnative/XRows";
 import { XPostView } from "../components/xnative/XPostView";
 import { type AnySurface, at, engineAtom } from "../state/engine";
-import { xGo, xPickHomeTab, xShows } from "../state/x";
+import { xGo, xNavigate, xPickHomeTab, xShows } from "../state/x";
 
 type Row =
   | { readonly kind: "group"; readonly name: string }
@@ -92,6 +92,12 @@ function ExploreScreen() {
     if (xShows("/explore") && receivedRef.current) void pick();
     else void xGo("https://x.com/explore").then(pick);
   }, [label]);
+  // "Load again": a full load of the same page, since X's router does nothing on the page it shows.
+  const reload = () =>
+    void xNavigate("https://x.com/explore").then(() =>
+      label === null ? undefined : xPickHomeTab(label),
+    );
+
   useEffect(open, [open]);
 
   const rows: Array<Row> = [];
@@ -145,7 +151,7 @@ function ExploreScreen() {
     >
       <XRows
         waitKey={surface ?? "explore"}
-        onReopen={open}
+        onReopen={reload}
         items={rows}
         rowKey={(r) =>
           r.kind === "group"

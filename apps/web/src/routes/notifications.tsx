@@ -12,7 +12,7 @@ import { RichText } from "../components/xnative/RichText";
 import { XRows } from "../components/xnative/XRows";
 import { Avatar, XPostView } from "../components/xnative/XPostView";
 import { at, engineAtom, type Surface } from "../state/engine";
-import { xGo } from "../state/x";
+import { xGo, xNavigate } from "../state/x";
 
 // X shows Verified only to Premium accounts; All and Mentions are everyone's.
 const TABS = [
@@ -125,6 +125,9 @@ function NotificationsScreen() {
   const openPost = useOpenPost();
   const current = TABS.find((t) => t.id === tab)!;
   const open = useCallback(() => void xGo(`https://x.com${current.path}`), [current.path]);
+  // "Load again": a full load of the same page, since X's router does nothing on the page it shows.
+  const reload = () => void xNavigate(`https://x.com${current.path}`);
+
   useEffect(open, [open]);
   const rows = at(engine.notifications, current.surface);
   return (
@@ -143,7 +146,7 @@ function NotificationsScreen() {
     >
       <XRows
         waitKey={current.surface}
-        onReopen={open}
+        onReopen={reload}
         items={rows}
         rowKey={(n) => n.id}
         empty="Loading your notifications from X."

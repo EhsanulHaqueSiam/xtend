@@ -9,7 +9,7 @@ import { XColumn, XTitle } from "../components/xnative/XColumn";
 import { XPostView } from "../components/xnative/XPostView";
 import { XEmpty } from "../components/xnative/XRows";
 import { at, engineAtom, postSurface } from "../state/engine";
-import { xGo } from "../state/x";
+import { xGo, xNavigate } from "../state/x";
 
 /** One post with the thread above it, joined by X's line, and the replies under it, the composer between. */
 function PostScreen() {
@@ -20,6 +20,9 @@ function PostScreen() {
   const openPost = useOpenPost();
   // X's router, so a thread X still holds shows at once; its posts sit under the post's own key.
   const open = useCallback(() => void xGo(`https://x.com/${h}/status/${id}`), [h, id]);
+  // "Load again": a full load of the same page, since X's router does nothing on the page it shows.
+  const reload = () => void xNavigate(`https://x.com/${h}/status/${id}`);
+
   useEffect(open, [open]);
   const posts = at(engine.lists, postSurface(id)).flatMap((pid) => engine.posts.get(pid) ?? []);
   const index = posts.findIndex((p) => p.postId === id);
@@ -33,7 +36,7 @@ function PostScreen() {
       rail={<PostRail post={focal} seen={engine.posts.values()} />}
     >
       {focal === undefined ? (
-        <XEmpty key={id} empty="Loading the post from X." onReopen={open} />
+        <XEmpty key={id} empty="Loading the post from X." onReopen={reload} />
       ) : (
         <>
           {above.map((p) => (

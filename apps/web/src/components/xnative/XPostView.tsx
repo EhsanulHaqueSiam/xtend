@@ -15,7 +15,7 @@ import { useState, type ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
 import { settingsAtom } from "../../state/settings";
-import { type XAction, xAct } from "../../state/x";
+import { xAct } from "../../state/x";
 import { fmt } from "../analyze/ui";
 import { useDropPost } from "../shell/drops";
 import { Menu, MenuItem } from "../ui/menu";
@@ -322,15 +322,22 @@ export function XPostView({
   const drop = useDropPost();
   const navigate = useNavigate();
   const settings = AsyncResult.getOrElse(useAtomValue(settingsAtom), () => null);
-  /** Buttons pressed here since X sent the post (a second press takes the first back). */
-  const [flipped, setFlipped] = useState<ReadonlySet<Press>>(new Set());
+  /**
+   * What the user asked for here, per button; X's own state wins again once it agrees (a fresh
+   * capture after the press), so the two never fight.
+   */
+  const [want, setWant] = useState<Partial<Record<Press, boolean>>>({});
   const [busy, setBusy] = useState<ReadonlySet<Press>>(new Set());
   const was = { like: post.liked, retweet: post.reposted, bookmark: post.bookmarked };
-  const has = (p: Press) => was[p] !== flipped.has(p);
-  /** X's count, moved by the user's own press made here. */
+  // Once X's capture agrees with a press, X's state is the truth again (it may change on x.com).
+  const agreed = (Object.keys(want) as Array<Press>).filter((p) => want[p] === was[p]);
+  if (agreed.length > 0)
+    setWant((w) =>
+      Object.fromEntries(Object.entries(w).filter(([p]) => !agreed.includes(p as Press))),
+    );
+  const has = (p: Press) => want[p] ?? was[p];
+  /** X's count, moved by the user's own press until X's capture catches up. */
   const shift = (p: Press) => (has(p) === was[p] ? 0 : has(p) ? 1 : -1);
-  const flip = (p: Press) =>
-    setFlipped((f) => (f.has(p) ? new Set([...f].filter((x) => x !== p)) : new Set(f).add(p)));
   /**
    * X's own button for the user's click (or the one that takes it back): in place on the engine
    * page where the post sits, or on the post's own page through X's router and back.
@@ -339,13 +346,16 @@ export function XPostView({
     if (busy.has(press)) return;
     if (settings !== null && !settings.sessionPostingEnabled)
       return setToast({ text: "Session actions are off in Settings, X session." });
-    const action: XAction = has(press) ? UNDO[press] : press;
-    flip(press);
+    const target = !has(press);
+    setWant((w) => ({ ...w, [press]: target }));
     setBusy((b) => new Set(b).add(press));
-    const ok = await xAct({ postId: post.postId, handle: post.author.handle }, action);
+    const ok = await xAct(
+      { postId: post.postId, handle: post.author.handle },
+      target ? press : UNDO[press],
+    );
     setBusy((b) => new Set([...b].filter((x) => x !== press)));
     if (ok) return;
-    flip(press);
+    setWant((w) => ({ ...w, [press]: undefined }));
     setToast({ text: "X did not take that. Try again in a moment." });
   };
   const openProfile = () =>

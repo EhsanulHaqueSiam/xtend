@@ -11,7 +11,7 @@ import { XTabs, XTitle } from "../components/xnative/XColumn";
 import { Avatar, Verified } from "../components/xnative/XPostView";
 import { engineAtom, type ProfileTab, profileSurface, userByHandle } from "../state/engine";
 import { settingsAtom } from "../state/settings";
-import { xFollow, xGo } from "../state/x";
+import { xFollow, xGo, xNavigate } from "../state/x";
 import { toastAtom } from "../components/ui/toast";
 
 const TABS = [
@@ -38,6 +38,9 @@ function ProfileScreen() {
     () => void xGo(`https://x.com/${handle}${current.path}`),
     [handle, current.path],
   );
+  // "Load again": a full load of the same page, since X's router does nothing on the page it shows.
+  const reload = () => void xNavigate(`https://x.com/${handle}${current.path}`);
+
   useEffect(open, [open]);
   const user = userByHandle(engine, handle);
   // Before X sends the profile, any post of theirs gives a name and a face.
@@ -51,22 +54,31 @@ function ProfileScreen() {
   const name = user?.name ?? seen?.author.name ?? handle;
   const settings = AsyncResult.getOrElse(useAtomValue(settingsAtom), () => null);
   const setToast = useAtomSet(toastAtom);
-  // Pressed here since X sent the profile; a second press takes it back.
-  const [flipped, setFlipped] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const following = (user?.youFollow ?? false) !== flipped;
+  // What the user asked for here, for this person only (the screen stays mounted from one
+  // profile to the next); X's own state wins again once it agrees.
+  const [want, setWant] = useState<{ readonly userId: string; readonly follow: boolean } | null>(
+    null,
+  );
+  const [busy, setBusy] = useState<string | null>(null);
+  // Once X's capture agrees, X's own state is the truth again.
+  if (want !== null && want.userId === user?.userId && want.follow === user.youFollow)
+    setWant(null);
+  const following =
+    want !== null && want.userId === user?.userId ? want.follow : (user?.youFollow ?? false);
   const own = settings?.handle?.toLowerCase() === handle.toLowerCase();
   /** X's own Follow or Unfollow for the user's click, on the profile X shows. */
   const follow = async () => {
-    if (user === undefined || busy) return;
+    if (user === undefined || busy === user.userId) return;
     if (settings !== null && !settings.sessionPostingEnabled)
       return setToast({ text: "Session actions are off in Settings, X session." });
-    setFlipped((f) => !f);
-    setBusy(true);
-    const ok = await xFollow({ userId: user.userId, handle: user.handle }, !following);
-    setBusy(false);
+    const target = !following;
+    setWant({ userId: user.userId, follow: target });
+    setBusy(user.userId);
+    const ok = await xFollow({ userId: user.userId, handle: user.handle }, target);
+    setBusy((b) => (b === user.userId ? null : b));
     if (ok) return;
-    setFlipped((f) => !f);
+    // Only this person's request is taken back; the user may be on another profile by now.
+    setWant((w) => (w?.userId === user.userId ? null : w));
     setToast({ text: "X did not take that. Try again in a moment." });
   };
   const pill =
@@ -207,7 +219,7 @@ function ProfileScreen() {
         </div>
       }
       empty={`Loading @${handle} from X.`}
-      onReopen={open}
+      onReopen={reload}
     />
   );
 }

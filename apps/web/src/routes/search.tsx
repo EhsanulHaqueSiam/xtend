@@ -7,7 +7,7 @@ import { Timeline } from "../components/xnative/Timeline";
 import { XColumn, XTabs } from "../components/xnative/XColumn";
 import { UserRow, XRows } from "../components/xnative/XRows";
 import { at, engineAtom, type SearchProduct, searchSurface } from "../state/engine";
-import { xGo } from "../state/x";
+import { xGo, xNavigate } from "../state/x";
 
 const KINDS = [
   { id: "top", label: "Top" },
@@ -48,6 +48,12 @@ function SearchScreen() {
     if (q === "") return;
     void xGo(`https://x.com/search?q=${encodeURIComponent(q)}&src=typed_query${X_TAB[f]}`);
   }, [q, f]);
+  // "Load again": a full load of the same page, since X's router does nothing on the page it shows.
+  const reload = () =>
+    void (q === ""
+      ? undefined
+      : xNavigate(`https://x.com/search?q=${encodeURIComponent(q)}&src=typed_query${X_TAB[f]}`));
+
   useEffect(open, [open]);
   // Each query and tab has its own key, so a search X still holds shows at once.
   const surface = searchSurface(PRODUCT[f], q);
@@ -102,7 +108,7 @@ function SearchScreen() {
       <XColumn header={header}>
         <XRows
           waitKey={surface}
-          onReopen={open}
+          onReopen={reload}
           items={at(engine.people, surface).flatMap((id) => engine.users.get(id) ?? [])}
           rowKey={(u) => u.userId}
           empty={q === "" ? "Search X for people by name or @handle." : "Searching X for people."}
@@ -117,7 +123,7 @@ function SearchScreen() {
       empty={
         q === "" ? "Search X: words, @handles, or operators like min_faves:500." : "Searching X."
       }
-      onReopen={open}
+      onReopen={reload}
     />
   );
 }

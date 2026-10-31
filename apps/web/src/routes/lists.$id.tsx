@@ -6,7 +6,7 @@ import { fmt } from "../components/analyze/ui";
 import { Timeline } from "../components/xnative/Timeline";
 import { XTitle } from "../components/xnative/XColumn";
 import { engineAtom } from "../state/engine";
-import { xGo } from "../state/x";
+import { xGo, xNavigate } from "../state/x";
 
 /** One X List's posts, drawn by Xtend from the engine on x.com/i/lists/<id>. */
 function ListScreen() {
@@ -15,6 +15,9 @@ function ListScreen() {
   const engine = useAtomValue(engineAtom);
   const list = engine.xLists.get(id);
   const open = useCallback(() => void xGo(`https://x.com/i/lists/${id}`), [id]);
+  // "Load again": a full load of the same page, since X's router does nothing on the page it shows.
+  const reload = () => void xNavigate(`https://x.com/i/lists/${id}`);
+
   useEffect(open, [open]);
   return (
     <Timeline
@@ -31,7 +34,7 @@ function ListScreen() {
         />
       }
       empty="Loading the List from X."
-      onReopen={open}
+      onReopen={reload}
     />
   );
 }
