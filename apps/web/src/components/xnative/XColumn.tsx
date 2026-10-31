@@ -2,6 +2,7 @@ import { createContext, useContext, useState, type ReactNode } from "react";
 
 import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
+import { MediaViewer } from "./MediaViewer";
 
 /** The element that scrolls an X screen; lists inside virtualize against it. */
 const ScrollParent = createContext<HTMLElement | null>(null);
@@ -46,6 +47,7 @@ export function XColumn({
             )}
           </div>
           <ScrollParent value={scroller}>{children}</ScrollParent>
+          <MediaViewer />
         </section>
         {rail === undefined ? null : (
           <aside className="sticky top-0 flex h-fit w-[340px] shrink-0 flex-col gap-4 py-3 max-[1100px]:hidden">

@@ -22,7 +22,12 @@ function SearchScreen() {
   const router = useRouter();
   const setEngine = useAtomSet(engineAtom);
   const [draft, setDraft] = useState(q);
-  useEffect(() => setDraft(q), [q]);
+  // A query opened from elsewhere (a hashtag, the palette) replaces what was typed.
+  const [shownQ, setShownQ] = useState(q);
+  if (q !== shownQ) {
+    setShownQ(q);
+    setDraft(q);
+  }
   const open = useCallback(() => {
     if (q === "") return;
     const tab = f === "latest" ? "&f=live" : f === "media" ? "&f=media" : "";

@@ -23,7 +23,10 @@ function HomeScreen() {
   // Already on Home with this feed received, X only switches tabs. Otherwise X loads Home again:
   // what X fetched before this screen was listening never reached it.
   const received = useRef(false);
-  received.current = engine.lists[feed].length > 0;
+  const has = engine.lists[feed].length > 0;
+  useEffect(() => {
+    received.current = has;
+  }, [has]);
   const open = useCallback(() => {
     if (xShows("/home") && received.current) void xPickHomeTab(label);
     else void xNavigate("https://x.com/home").then(() => xPickHomeTab(label));
@@ -41,6 +44,7 @@ function HomeScreen() {
         />
       }
       top={<HomeComposer />}
+      keepPlace
       empty="Loading your timeline from X."
       onReopen={open}
     />

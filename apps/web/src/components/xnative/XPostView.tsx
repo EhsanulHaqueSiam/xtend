@@ -20,6 +20,7 @@ import { fmt } from "../analyze/ui";
 import { useDropPost } from "../shell/drops";
 import { Menu, MenuItem } from "../ui/menu";
 import { toastAtom } from "../ui/toast";
+import { viewerAtom } from "./MediaViewer";
 import { avatar96, engagement, viewsPerHour, xAge, xStamp } from "./format";
 
 export const postUrl = (p: EnginePost) => `https://x.com/${p.author.handle}/status/${p.postId}`;
@@ -29,6 +30,15 @@ const shownText = (p: EnginePost) =>
   p.media.length > 0 || p.quotedId !== null
     ? p.text.replace(/(\s*https:\/\/t\.co\/\w+)+\s*$/, "")
     : p.text;
+
+/** X shows a long post's first 280 characters in a list, then "Show more". */
+const SHOWN_IN_LIST = 280;
+const clampText = (text: string) => {
+  if (text.length <= SHOWN_IN_LIST) return null;
+  const cut = text.slice(0, SHOWN_IN_LIST);
+  const space = cut.lastIndexOf(" ");
+  return `${space > 200 ? cut.slice(0, space) : cut}…`;
+};
 
 /** X's gray for handles, times and counts; Xtend's own muted grey stays for Xtend's numbers. */
 const X_GRAY = "text-[#71767b]";
@@ -69,10 +79,18 @@ export function Avatar({ url, size }: { readonly url: string | null; readonly si
 }
 
 /** One photo, video or GIF in X's grid; a video plays in Xtend's player (fullscreen, picture in picture, speed). */
-function MediaItem({ m, fill }: { readonly m: EngineMedia; readonly fill: boolean }) {
-  const cls = cn("block w-full bg-white/[0.04] object-cover", fill && "h-full");
+function MediaItem({
+  m,
+  fill,
+  onView,
+}: {
+  readonly m: EngineMedia;
+  readonly fill: boolean;
+  readonly onView: () => void;
+}) {
+  const cls = cn("block w-full cursor-zoom-in bg-white/[0.04] object-cover", fill && "h-full");
   if (m.kind === "photo" || m.videoUrl === null)
-    return <img src={m.url} alt="" loading="lazy" className={cls} />;
+    return <img src={m.url} alt="" loading="lazy" className={cls} onClick={onView} />;
   return (
     <span className={cn("relative block bg-black", fill && "h-full")}>
       <video
@@ -101,6 +119,7 @@ function MediaItem({ m, fill }: { readonly m: EngineMedia; readonly fill: boolea
  * square grid. A group sits at 16:9.
  */
 export function Media({ media }: { readonly media: ReadonlyArray<EngineMedia> }) {
+  const view = useAtomSet(viewerAtom);
   if (media.length === 0) return null;
   const one = media.length === 1 ? media[0]! : null;
   const shape = one !== null && one.width > 0 && one.height > 0 ? one.width / one.height : null;
@@ -122,7 +141,13 @@ export function Media({ media }: { readonly media: ReadonlyArray<EngineMedia> })
           key={m.url}
           className={cn("block h-full min-h-0", media.length === 3 && i === 0 && "row-span-2")}
         >
-          <MediaItem m={m} fill />
+          <MediaItem
+            m={m}
+            fill
+            onView={() =>
+              view({ media, index: media.filter((x) => x.kind === "photo").indexOf(m) })
+            }
+          />
         </span>
       ))}
     </div>
@@ -475,7 +500,19 @@ export function XPostView({
         </div>
         {shownText(post) === "" ? null : (
           <p className="-mt-1.5 text-[15px] leading-5 break-words whitespace-pre-wrap">
-            {shownText(post)}
+            {clampText(shownText(post)) ?? shownText(post)}
+            {clampText(shownText(post)) === null ? null : (
+              <button
+                type="button"
+                className="block cursor-pointer text-[#1d9bf0] hover:underline"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpen?.(post);
+                }}
+              >
+                Show more
+              </button>
+            )}
           </p>
         )}
         <Media media={post.media} />

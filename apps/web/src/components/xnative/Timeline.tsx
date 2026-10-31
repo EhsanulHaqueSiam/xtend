@@ -2,7 +2,7 @@ import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import type { EnginePost } from "@xtend/contracts";
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
+import { type StateSnapshot, Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 
 import { engineAtom, showWaiting, type Surface, updateEngine } from "../../state/engine";
 import { xScrollMore } from "../../state/x";
@@ -13,6 +13,12 @@ import { Avatar, postUrl, XPostView } from "./XPostView";
 
 /** How often a list may ask X for its next page; X's own scrolling pace, not faster. */
 const MORE_EVERY_MS = 1500;
+
+/** How long a screen waits for X's first answer before it says so and offers x.com itself. */
+const QUIET_MS = 12_000;
+
+/** Where each list was left (scroll and measured heights), so Back lands on the same post. */
+const places = new Map<Surface, StateSnapshot>();
 
 const isEditable = (target: EventTarget | null) =>
   target instanceof HTMLElement &&
@@ -64,6 +70,8 @@ function NewPostsPill({
 
 /** The virtualized list itself; it scrolls with the column's page, not on its own. */
 function PostList({
+  surface,
+  keepPlace,
   posts,
   quoted,
   selected,
@@ -72,6 +80,8 @@ function PostList({
   onOpen,
   onReopen,
 }: {
+  readonly surface: Surface;
+  readonly keepPlace: boolean;
   readonly posts: ReadonlyArray<EnginePost>;
   readonly quoted: (id: string | null) => EnginePost | undefined;
   readonly selected: number;
@@ -88,6 +98,10 @@ function PostList({
       ref={list}
       customScrollParent={scroller}
       data={posts}
+      {...(keepPlace && places.has(surface) ? { restoreStateFrom: places.get(surface)! } : {})}
+      isScrolling={(moving) => {
+        if (!moving && keepPlace) list.current?.getState((state) => places.set(surface, state));
+      }}
       computeItemKey={(_, p) => p.postId}
       increaseViewportBy={800}
       endReached={() => {
@@ -120,10 +134,13 @@ export function Timeline({
   header,
   top,
   empty,
+  keepPlace = false,
   onReopen,
 }: {
   readonly surface: Surface;
   readonly header: ReactNode;
+  /** Back returns to the same post; for lists that persist in the store, not ones reloaded on open. */
+  readonly keepPlace?: boolean;
   /** Sits above the list inside the column, as Home's composer does. */
   readonly top?: ReactNode;
   readonly empty: ReactNode;
@@ -138,6 +155,24 @@ export function Timeline({
   const waiting = engine.waiting[surface].flatMap((id) => engine.posts.get(id) ?? []);
   const current = posts[Math.min(selected, posts.length - 1)];
   const quoted = (id: string | null) => (id === null ? undefined : engine.posts.get(id));
+  const navigate = useNavigate();
+  // Which wait went quiet: a new surface or a list that empties again starts a fresh wait.
+  const waitKey = `${surface}:${posts.length === 0}`;
+  const [quietKey, setQuietKey] = useState<string | null>(null);
+  const quiet = quietKey === waitKey;
+  const [, setMinute] = useState(0);
+  // Ages ("4m") move on while the list sits open; one re-render a minute is enough.
+  useEffect(() => {
+    const timer = setInterval(() => setMinute((n) => n + 1), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+  // X has not answered for a while: say so, instead of loading forever.
+  const empty0 = posts.length === 0;
+  useEffect(() => {
+    if (!empty0) return;
+    const timer = setTimeout(() => setQuietKey(waitKey), QUIET_MS);
+    return () => clearTimeout(timer);
+  }, [empty0, waitKey]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -181,9 +216,34 @@ export function Timeline({
     >
       {top}
       {posts.length === 0 ? (
-        <Empty>{empty}</Empty>
+        <Empty
+          action={
+            quiet ? (
+              <span className="flex gap-2">
+                <button
+                  type="button"
+                  className="h-8 cursor-pointer rounded-full bg-foreground px-3.5 text-[13px] font-bold text-background"
+                  onClick={onReopen}
+                >
+                  Load again
+                </button>
+                <button
+                  type="button"
+                  className="h-8 cursor-pointer rounded-full border border-white/[0.18] px-3.5 text-[13px] font-bold hover:bg-white/[0.06]"
+                  onClick={() => void navigate({ to: "/x" })}
+                >
+                  Show x.com here
+                </button>
+              </span>
+            ) : undefined
+          }
+        >
+          {quiet ? "X has not sent this yet. It may be signed out or slow." : empty}
+        </Empty>
       ) : (
         <PostList
+          surface={surface}
+          keepPlace={keepPlace}
           posts={posts}
           quoted={quoted}
           selected={selected}
