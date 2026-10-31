@@ -1000,11 +1000,17 @@ const benchmarks = [
           10_000,
         );
         if (!id) continue;
-        // oxlint-disable-next-line no-await-in-loop -- the matching article on X's page
-        const [ours, xs] = [
-          await app(radios(`document.querySelector('main article[data-post="${id}"]')`)),
-          await engine(radios(`${xArticle(id)}?.querySelector('[data-testid="cardPoll"]')`)),
-        ];
+        // oxlint-disable-next-line no-await-in-loop -- the native copy first
+        const ours = await app(radios(`document.querySelector('main article[data-post="${id}"]')`));
+        // X's page may still be drawing the list the native one already shows from the store.
+        // oxlint-disable-next-line no-await-in-loop -- then the matching article on X's page
+        const xs =
+          (await until(async () => {
+            const r = await engine(
+              radios(`${xArticle(id)}?.querySelector('[data-testid="cardPoll"]')`),
+            );
+            return r?.length > 0 && r;
+          }, 10_000)) ?? [];
         const same = ours.length >= 2 && JSON.stringify(ours) === JSON.stringify(xs);
         if (!same) console.log(`      ${JSON.stringify({ id, ours, xs })}`);
         return same && `${q}: ${ours.join(" / ")}`;

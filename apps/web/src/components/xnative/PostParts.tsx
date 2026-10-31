@@ -1,4 +1,6 @@
 import type { EngineCard, EngineContext, EnginePoll } from "@xtend/contracts";
+import { useAtom } from "@effect/atom-react";
+import * as Atom from "effect/reactivity/Atom";
 import { useState, type MouseEvent } from "react";
 import { Heart, Pin, Repeat2, Users } from "lucide-react";
 
@@ -106,15 +108,23 @@ const pollLeft = (poll: EnginePoll, now = Date.now()) => {
  * (X's own radio; a vote cannot be changed). Otherwise, or with no `onVote` (the author's own
  * poll), the results: a bar per choice, the leader in blue, the viewer's pick checked.
  */
+/**
+ * Votes X took for the user, by post: a poll scrolled out of a list and back still shows the vote
+ * until X's next capture carries it.
+ */
+const votesAtom = Atom.keepAlive(Atom.make<ReadonlyMap<string, number>>(new Map()));
+
 export function Poll({
+  postId,
   poll,
   onVote,
 }: {
+  readonly postId: string;
   readonly poll: EnginePoll;
   readonly onVote?: ((choice: string) => Promise<boolean>) | undefined;
 }) {
-  // The user's own vote, counted until X's next capture carries it.
-  const [mine, setMine] = useState<number | null>(null);
+  const [votes, setVotes] = useAtom(votesAtom);
+  const mine = votes.get(postId) ?? null;
   const [busy, setBusy] = useState(false);
   const voted = poll.voted ?? (mine === null ? null : mine + 1);
   const open = pollLeft(poll) !== "Final results";
@@ -130,7 +140,7 @@ export function Poll({
   if (open && voted === null && onVote !== undefined) {
     const vote = async (i: number) => {
       setBusy(true);
-      if (await onVote(poll.choices[i]!.label)) setMine(i);
+      if (await onVote(poll.choices[i]!.label)) setVotes((v) => new Map(v).set(postId, i));
       setBusy(false);
     };
     return (

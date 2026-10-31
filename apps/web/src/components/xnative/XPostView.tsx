@@ -309,7 +309,7 @@ function Extras({
   return (
     <>
       {post.card === null ? null : <LinkCard card={post.card} />}
-      {post.poll === null ? null : <Poll poll={post.poll} onVote={onVote} />}
+      {post.poll === null ? null : <Poll postId={post.postId} poll={post.poll} onVote={onVote} />}
       {post.note === null ? null : <Note note={post.note} />}
     </>
   );

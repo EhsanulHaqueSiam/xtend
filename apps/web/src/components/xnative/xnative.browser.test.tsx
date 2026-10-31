@@ -8,6 +8,7 @@ import { draft, settings } from "../../../test/fixtures";
 import { render } from "../../../test/render";
 import { markXReady, registerXWebview, type XWebview } from "../../state/x";
 import { EngineSync } from "./EngineSync";
+import { Poll } from "./PostParts";
 import { ReplyComposer } from "./ReplyComposer";
 import { Timeline } from "./Timeline";
 
@@ -348,4 +349,29 @@ it("votes in an open poll through X's own radio, then shows the results with the
   } finally {
     registerXWebview(null);
   }
+});
+
+it("keeps a vote X took when the poll is drawn again, as a list does after scrolling", async () => {
+  const poll = {
+    choices: [
+      { label: "Tabs", votes: 1 },
+      { label: "Spaces", votes: 0 },
+    ],
+    endsAt: new Date(Date.now() + 49 * 3_600_000).toISOString(),
+    final: false,
+    voted: null,
+  };
+  const vote = () => Promise.resolve(true);
+  await using screen = await render(<Poll key="a" postId="51" poll={poll} onVote={vote} />, {
+    service: {},
+  });
+  await screen.getByRole("radio", { name: "Spaces" }).click();
+  await expect.element(screen.getByText("Spaces ✓")).toBeVisible();
+  // Every poll scrolled out of the virtualized list, long enough for unused state to go...
+  await screen.rerender(<p>Elsewhere in the list</p>);
+  await new Promise((r) => setTimeout(r, 200));
+  // ...then the row scrolled back in, a new Poll.
+  await screen.rerender(<Poll key="b" postId="51" poll={poll} onVote={vote} />);
+  await expect.element(screen.getByText("Spaces ✓")).toBeVisible();
+  expect(screen.getByRole("radio").elements()).toHaveLength(0);
 });
