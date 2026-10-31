@@ -24,7 +24,40 @@ const post = (postId: string, text: string, extra: Partial<EnginePost> = {}): En
   media: [],
   quotedId: null,
   replyToId: null,
+  replyingTo: [],
+  entities: { urls: [], mentions: [], hashtags: [], cashtags: [] },
+  card: null,
+  poll: null,
+  note: null,
+  context: null,
+  liked: false,
+  reposted: false,
+  bookmarked: false,
+  conversation: null,
+  edits: [],
+  editsRemaining: null,
+  editableUntil: null,
+  aiGenerated: false,
   ...extra,
+});
+
+/** One response as the desktop's capture sends it, with nothing but posts. */
+const batch = (op: string, posts: ReadonlyArray<EnginePost>) => ({
+  op,
+  key: null,
+  cursor: null,
+  top: null,
+  bottom: null,
+  posts,
+  users: [],
+  people: [],
+  order: [],
+  trends: [],
+  notifications: [],
+  lists: [],
+  homeTabs: null,
+  exploreTabs: null,
+  viewer: null,
 });
 
 it("draws what the engine received: the post, its video in Xtend's player, and the post it quotes", async () => {
@@ -36,9 +69,8 @@ it("draws what the engine received: the post, its video in Xtend's player, and t
     </div>,
     { service: {} },
   );
-  bridge.emitEngine({
-    op: "HomeLatestTimeline",
-    posts: [
+  bridge.emitEngine(
+    batch("HomeLatestTimeline", [
       post("2", "Day 31/ side chats https://t.co/abc", {
         quotedId: "1",
         media: [
@@ -48,12 +80,14 @@ it("draws what the engine received: the post, its video in Xtend's player, and t
             videoUrl: "https://video.twimg.com/high.mp4",
             width: 1280,
             height: 720,
+            durationMs: 24866,
+            altText: null,
           },
         ],
       }),
       post("1", "Day 30/ panels"),
-    ],
-  });
+    ]),
+  );
   const first = screen.getByRole("article").first();
   // X's trailing media link is X's own plumbing; it never shows.
   await expect.element(first.getByText("Day 31/ side chats", { exact: true })).toBeVisible();
@@ -78,6 +112,8 @@ it("reads the post before replying, rereads on a correction, and sends the picke
             videoUrl: null,
             width: 1,
             height: 1,
+            durationMs: null,
+            altText: null,
           },
         ],
       })}

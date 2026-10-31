@@ -29,7 +29,7 @@ import {
   composerToolbars,
   findArticles,
   isDmPath,
-  viewerHandleFromNav,
+  viewerFromNav,
 } from "./xDom.ts";
 import { emptyPanel, panelHtml, type ReplyPanel } from "./replyPanel.ts";
 
@@ -328,13 +328,14 @@ const renderGlance = () => {
   for (const chip of state.chips) chip.body.innerHTML = chipsHtml();
 };
 
-// Who is signed in, for observations and the service's handle; sent once per change.
-let viewer: string | null = null;
+// Who is signed in, for observations, the service's handle and the composer; sent once per change.
+let viewer = "";
 const reportViewer = () => {
-  const handle = viewerHandleFromNav(document);
-  if (handle === null || handle === viewer) return;
-  viewer = handle;
-  ipcRenderer.send(OVERLAY_VIEWER_CHANNEL, handle);
+  const found = viewerFromNav(document);
+  const key = JSON.stringify(found);
+  if (found === null || key === viewer) return;
+  viewer = key;
+  ipcRenderer.send(OVERLAY_VIEWER_CHANNEL, found);
 };
 
 let scanQueued = false;

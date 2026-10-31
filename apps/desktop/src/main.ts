@@ -81,8 +81,13 @@ const currentAccountId = async (token: string): Promise<number> => {
 // Headless verification: scripts/cdp.mjs drives every page through this port.
 // Dev builds only: any local process could attach to the x.com target and read its cookies.
 const remoteDebugPort = process.env.XTEND_REMOTE_DEBUG;
-if (remoteDebugPort !== undefined && !app.isPackaged)
+if (remoteDebugPort !== undefined && !app.isPackaged) {
   app.commandLine.appendSwitch("remote-debugging-port", remoteDebugPort);
+  // A headless host's window is covered or its screen locked; macOS then calls it occluded and
+  // Chromium stops drawing it, so nothing that waits on a frame (X's infinite scroll) would run.
+  app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
+  app.commandLine.appendSwitch("disable-renderer-backgrounding");
+}
 
 const decodeRemote = Schema.decodeUnknownResult(Schema.NullOr(RemoteConfig));
 

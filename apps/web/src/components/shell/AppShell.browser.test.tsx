@@ -237,9 +237,13 @@ it("moves the panel to each section's X page, hides it where X has none, and rel
   const loads: Array<string> = [];
   let reloads = 0;
   const guest = screen.container.querySelector("webview")!;
-  const land = (url: string) =>
+  let here = "https://x.com/home";
+  const land = (url: string) => {
+    here = url;
     guest.dispatchEvent(Object.assign(new Event("did-navigate"), { url, isMainFrame: true }));
+  };
   Object.assign(guest, {
+    getURL: () => here,
     loadURL: async (url: string) => {
       loads.push(url);
       land(url);

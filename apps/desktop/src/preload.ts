@@ -26,6 +26,7 @@ import {
   type UpdateState,
   X_SKIN_CHANNEL,
 } from "./ipc/channels.ts";
+import { holdUntilHeard } from "./ipc/hold.ts";
 import { X_HOME } from "./window/guestPolicy.ts";
 
 /** Subscribes `cb` to a main -> renderer channel; returns the unsubscribe. */
@@ -36,6 +37,10 @@ const listen =
     ipcRenderer.on(channel, handler);
     return () => ipcRenderer.off(channel, handler);
   };
+
+// X's first pages arrive while the app page mounts; held, they reach the store once it listens.
+const engine = holdUntilHeard<EngineBatch>(100);
+ipcRenderer.on(ENGINE_CHANNEL, (_event, batch: EngineBatch) => engine.push(batch));
 
 // Synchronous so the page sees the token at module load, like a meta tag would.
 const info = (ipcRenderer.sendSync(BRIDGE_INFO_CHANNEL) ?? {}) as Partial<BridgeInfo>;
@@ -62,7 +67,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   onShortcut: listen<ShortcutKey>(SHORTCUT_CHANNEL),
   getUpdate: (): Promise<UpdateState> => ipcRenderer.invoke(UPDATE_GET_CHANNEL),
   onUpdate: listen<UpdateState>(UPDATE_STATE_CHANNEL),
-  onEngine: listen<EngineBatch>(ENGINE_CHANNEL),
+  onEngine: engine.listen,
   checkUpdate: () => ipcRenderer.send(UPDATE_CHECK_CHANNEL),
   setUpdateChannel: (channel: UpdateChannel) =>
     ipcRenderer.send(UPDATE_CHANNEL_SET_CHANNEL, channel),

@@ -9,11 +9,11 @@ import {
   isGraphqlUrl,
   isViewerOperation,
   normalizeGraphqlResponse,
-  renderPostsFromGraphql,
   readCreatedPostId,
   readViewerHandle,
   sourceFromOperation,
 } from "./normalizeGraphql.ts";
+import { hasEngineContent, renderEngineBatch, requestVariables } from "./engineBatch.ts";
 
 const REATTACH_MS = 2_000;
 const DRAIN_MS = 30_000;
@@ -51,6 +51,8 @@ export function attachSessionCapture(
   options: SessionCaptureOptions,
 ): () => void {
   const pending = new Map<string, string>();
+  // A POST's body (X sends HomeTimeline as one) holds the variables that say which Home tab it is for.
+  const postData = new Map<string, string>();
   const debug = contents.debugger;
   // Learned from x.com's own Viewer call; null until the session has loaded once.
   let viewerHandle: string | null = null;
@@ -59,6 +61,14 @@ export function attachSessionCapture(
 
   const onMessage = (_event: Electron.Event, method: string, params: unknown) => {
     if (!isRecord(params) || typeof params.requestId !== "string") return;
+    if (method === "Network.requestWillBeSent") {
+      const request = isRecord(params.request) ? params.request : undefined;
+      if (typeof request?.postData === "string" && isGraphqlUrl(String(request.url))) {
+        postData.set(params.requestId, request.postData);
+        if (postData.size > MAX_PENDING) postData.delete(postData.keys().next().value!);
+      }
+      return;
+    }
     if (method === "Network.responseReceived") {
       const response = isRecord(params.response) ? params.response : undefined;
       const url = typeof response?.url === "string" ? response.url : "";
@@ -71,17 +81,20 @@ export function attachSessionCapture(
     }
     if (method === "Network.loadingFailed") {
       pending.delete(params.requestId);
+      postData.delete(params.requestId);
       return;
     }
     if (method === "Network.loadingFinished") {
       const url = pending.get(params.requestId);
       if (url === undefined) return;
       pending.delete(params.requestId);
-      void captureBody(params.requestId, url);
+      const sent = postData.get(params.requestId);
+      postData.delete(params.requestId);
+      void captureBody(params.requestId, url, sent);
     }
   };
 
-  const captureBody = async (requestId: string, url: string) => {
+  const captureBody = async (requestId: string, url: string, sent: string | undefined) => {
     let body: unknown;
     try {
       const result = (await debug.sendCommand("Network.getResponseBody", { requestId })) as {
@@ -96,17 +109,17 @@ export function attachSessionCapture(
       options.log("response body unavailable", { url, error: String(error) });
       return;
     }
+    if (options.onRender !== undefined) {
+      // /i/api/graphql/<queryId>/<Operation>?variables=...
+      const op = new URL(url).pathname.split("/").at(-1) ?? "";
+      const batch = renderEngineBatch(op, requestVariables(url, sent), body);
+      if (hasEngineContent(batch)) options.onRender(batch);
+    }
     if (isViewerOperation(url)) {
       viewerHandle = readViewerHandle(body) ?? viewerHandle;
       return;
     }
     const posts = normalizeGraphqlResponse(body);
-    if (options.onRender !== undefined) {
-      const rendered = renderPostsFromGraphql(body);
-      // /i/api/graphql/<queryId>/<Operation>?variables=...
-      const op = new URL(url).pathname.split("/").at(-1) ?? "";
-      if (rendered.length > 0) options.onRender({ op, posts: rendered });
-    }
     if (isCreateTweetOperation(url)) {
       const created = readCreatedPostId(body) ?? posts[0]?.postId;
       if (created !== undefined) options.onCreatedPost?.(created);
@@ -214,6 +227,7 @@ export function attachSessionCapture(
   // DevTools opening on the view, or a renderer crash, detaches us; come back once it settles.
   const onDetach = (_event: Electron.Event, reason: string) => {
     pending.clear();
+    postData.clear();
     if (stopped) return;
     options.log("debugger detached, reattaching", { reason });
     reattachTimer = setTimeout(attach, REATTACH_MS);
