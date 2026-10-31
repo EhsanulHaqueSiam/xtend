@@ -1,6 +1,5 @@
-import { RegistryContext, useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
-import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Atom from "effect/reactivity/Atom";
 import type { EngineMedia, EnginePost, EngineUser } from "@xtend/contracts";
 import {
@@ -13,23 +12,15 @@ import {
   Repeat2,
   Share,
 } from "lucide-react";
-import { useContext, useState, type ComponentProps, type MouseEvent, type ReactNode } from "react";
+import { useState, type ComponentProps, type MouseEvent, type ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
 import { engineAtom } from "../../state/engine";
-import { settingsAtom } from "../../state/settings";
-import {
-  xAct,
-  xOverAtom,
-  xPostMenu,
-  xPostMenuPress,
-  xToastUndo,
-  type XPostMenu,
-} from "../../state/x";
+import { xAct, xOverAtom, xPostMenu, xPostMenuPress, type XPostMenu } from "../../state/x";
 import { fmt } from "../analyze/ui";
 import { useDropPost } from "../shell/drops";
 import { Menu, MenuItem } from "../ui/menu";
-import { toastAtom } from "../ui/toast";
+import { useXPress } from "./useXPress";
 import { FollowButton } from "./FollowButton";
 import { HoverCard } from "./HoverCard";
 import { viewerAtom } from "./MediaViewer";
@@ -410,22 +401,9 @@ export function XPostView({
   readonly onOpen?: ((post: EnginePost) => void) | undefined;
   readonly onHover?: (() => void) | undefined;
 }) {
-  const setToast = useAtomSet(toastAtom);
+  const { blocked, pressRow, setToast } = useXPress();
   const drop = useDropPost();
   const navigate = useNavigate();
-  const registry = useContext(RegistryContext);
-  /**
-   * Why X's buttons may not write as the user now: only once Settings says session actions are
-   * on. Read at the press, from the app's registry, so an Undo outliving this post sees it too.
-   */
-  const blocked = () => {
-    const now = AsyncResult.getOrElse(registry.get(settingsAtom), () => null);
-    return now === null
-      ? "Your settings are still loading. Try again in a moment."
-      : now.sessionPostingEnabled
-        ? null
-        : "Session actions are off in Settings, X session.";
-  };
   // The author as X described them (badge colour, organisation shape, affiliate), when seen.
   const author = useAtomValue(engineAtom).users.get(post.author.userId);
   const square = author?.avatarShape === "Square";
@@ -495,25 +473,8 @@ export function XPostView({
     ? shareRows
     : [...(shareRows ?? []), "Copy link"];
   /** X's own row for the user's click; X's dialogs (Report, Block, Send via Chat) show over the main area. */
-  const pressX = async (label: string, menu: XPostMenu = "more") => {
-    const why = blocked();
-    if (why !== null) return setToast({ text: why });
-    const outcome = await xPostMenuPress(xPost, label, setOver, menu);
-    if (outcome === null) return setToast({ text: "X did not take that. Try again in a moment." });
-    if (outcome.kind === "done" && outcome.toast !== null)
-      setToast({
-        text: outcome.toast,
-        ...(outcome.undo
-          ? {
-              undo: async () => {
-                const no = blocked();
-                if (no !== null) throw new Error(no);
-                if (!(await xToastUndo())) throw new Error("X no longer offers Undo here.");
-              },
-            }
-          : {}),
-      });
-  };
+  const pressX = (label: string, menu: XPostMenu = "more") =>
+    pressRow(() => xPostMenuPress(xPost, label, setOver, menu));
 
   const name = (
     <span className="flex min-w-0 items-center gap-1">

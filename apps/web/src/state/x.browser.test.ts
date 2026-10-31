@@ -8,6 +8,8 @@ import {
   xPostMenu,
   xOverEnded,
   xPostMenuPress,
+  xProfileMenu,
+  xProfileMenuPress,
   type XWebview,
 } from "./x";
 
@@ -42,11 +44,11 @@ it("presses X's button on the post's own article, edited or not, never on a post
   expect(pressed).toEqual(["edited"]);
 });
 
-/** Runs the engine's scripts in this document, as X's page would. */
-const inThisPage = () => {
+/** Runs the engine's scripts in this document, as X's page at `url` would. */
+const inThisPage = (url = () => "https://x.com/theo") => {
   const el = {
     loadURL: async () => {},
-    getURL: () => "https://x.com/theo",
+    getURL: url,
     // oxlint-disable-next-line no-implied-eval -- the script under test is the one sent to X's page
     executeJavaScript: (code: string) => Promise.resolve(new Function(`return ${code}`)()),
   } satisfies Pick<XWebview, "loadURL" | "executeJavaScript" | "getURL">;
@@ -215,4 +217,41 @@ it("reads X's share rows from its share button, and Send via Chat keeps X's dial
   );
   expect(outcome?.kind).toBe("over");
   expect(shown).toEqual([true, false]);
+});
+
+it(`opens a profile's "..." only on that person's page, and keeps X's About page over until X is back`, async () => {
+  const opened: Array<string> = [];
+  withMenu(
+    {
+      Mute: () => {},
+      "About this account": () => history.replaceState(null, "", "/theo/about"),
+    },
+    '[data-testid="userActions"]',
+    `<button data-testid="userActions"></button>`,
+  );
+  document
+    .querySelector('[data-testid="userActions"]')!
+    .addEventListener("click", () => opened.push(location.pathname));
+  // X's page is wherever this document's path says.
+  inThisPage(() => `https://x.com${location.pathname}`);
+  const start = location.href;
+  try {
+    // The engine shows someone else's profile: X's router takes it to theo's first.
+    history.replaceState(null, "", "/ann");
+    expect(await xProfileMenu("theo")).toEqual(["Mute", "About this account"]);
+    expect(opened).toEqual(["/theo"]);
+    // And Back again, to the page it was on.
+    await expect.poll(() => location.pathname).toBe("/ann");
+    history.replaceState(null, "", "/theo");
+    const shown: Array<boolean> = [];
+    const outcome = await xProfileMenuPress("theo", "About this account", (on) => {
+      shown.push(on);
+      // The user leaves X's page with its back arrow.
+      if (on) setTimeout(() => history.replaceState(null, "", "/theo"), 200);
+    });
+    expect(outcome).toEqual({ kind: "over", path: "/theo" });
+    expect(shown).toEqual([true, false]);
+  } finally {
+    history.replaceState(null, "", start);
+  }
 });
