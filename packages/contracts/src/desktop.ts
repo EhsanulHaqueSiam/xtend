@@ -200,6 +200,8 @@ export interface EnginePost extends ObservedPost {
   readonly edits: ReadonlyArray<string>;
   readonly editsRemaining: number | null;
   readonly editableUntil: string | null;
+  /** X's "Made with AI" label: the media was declared or detected as AI-generated. */
+  readonly aiGenerated: boolean;
 }
 
 /** A person as X lists them (search People, Who to follow, a profile's header). */
@@ -221,6 +223,16 @@ export interface EngineUser {
   readonly youFollow: boolean;
   readonly followsYou: boolean;
   readonly pinnedPostId: string | null;
+  /** X's kind of check: "Business" (gold), "Government" (grey); null for the blue one or none. */
+  readonly verifiedType: string | null;
+  /** "Circle", or "Square" for an organisation, as X shapes the avatar. */
+  readonly avatarShape: string;
+  /** The organisation badge X draws after the name (an affiliate's company). */
+  readonly affiliate: {
+    readonly name: string;
+    readonly badgeUrl: string | null;
+    readonly url: string | null;
+  } | null;
 }
 
 /** A trend on Explore; `url` is the x.com page it opens (a search, or X's trend page). */
@@ -305,6 +317,11 @@ export interface EngineBatch {
   readonly users: ReadonlyArray<EngineUser>;
   /** The user ids X listed as people on this page (search People, Who to follow), in order. */
   readonly people: ReadonlyArray<string>;
+  /**
+   * The posts X listed as entries, in order (a pinned post first, a repost as its original): a
+   * post that only appears quoted inside another is not one, but the same post listed on its own is.
+   */
+  readonly order: ReadonlyArray<string>;
   readonly trends: ReadonlyArray<EngineTrend>;
   readonly notifications: ReadonlyArray<EngineNotification>;
   readonly lists: ReadonlyArray<EngineList>;

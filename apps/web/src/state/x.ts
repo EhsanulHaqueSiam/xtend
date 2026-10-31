@@ -71,30 +71,29 @@ export const xNavigate = (url: string): Promise<void> => {
  * Moves the engine to an x.com page through X's own router, as a link clicked in X would: about a
  * second instead of a full reload, and a page X still holds shows without a fetch, so a screen
  * reads that page's keyed surface rather than resetting one. Before the first load, or when the
- * webview is not on a signed-in x.com page, it loads the URL instead.
+ * webview is not on a signed-in x.com page, it loads the URL instead. True when it moved the
+ * engine; false when the engine already showed the page.
  */
-export const xGo = (url: string): Promise<void> => {
-  if (!isXUrl(url)) return Promise.resolve();
-  if (element === null || !ready) return xNavigate(url);
+export const xGo = (url: string): Promise<boolean> => {
+  if (!isXUrl(url)) return Promise.resolve(false);
+  const load = () => xNavigate(url).then(() => true);
+  if (element === null || !ready) return load();
   const el = element;
   let here: URL;
   try {
     here = new URL(el.getURL());
   } catch {
-    return xNavigate(url);
+    return load();
   }
-  if (!X_HOSTS.has(here.hostname) || here.pathname.startsWith("/i/flow/")) return xNavigate(url);
+  if (!X_HOSTS.has(here.hostname) || here.pathname.startsWith("/i/flow/")) return load();
   const target = new URL(url);
   const path = target.pathname + target.search;
-  if (here.pathname + here.search === path) return Promise.resolve();
+  if (here.pathname + here.search === path) return Promise.resolve(false);
   return el
     .executeJavaScript(
       `history.pushState(null, "", ${JSON.stringify(path)}); dispatchEvent(new PopStateEvent("popstate", { state: null })); true`,
     )
-    .then(
-      () => {},
-      () => xNavigate(url),
-    );
+    .then(() => true, load);
 };
 
 /** Whether the webview already shows this x.com path, so a screen can skip reloading it. */
@@ -228,8 +227,12 @@ export const xFollow = async (
   // Both go into scripts run in X's page: digits and a handle only.
   if (!/^\d{1,25}$/.test(user.userId) || !/^[A-Za-z0-9_]{1,15}$/.test(user.handle)) return false;
   const [press, turns] = follow ? ["follow", "unfollow"] : ["unfollow", "follow"];
-  const script = `(async () => {
-    for (let i = 0; i < 100 && !document.querySelector('[data-testid$="-follow"], [data-testid$="-unfollow"]'); i++)
+  // This person's own button, waited for up to `tries` tenths of a second: briefly where the
+  // engine already is, longer on a profile X is still drawing (another person's button, a
+  // recommendation, may be drawn first).
+  const script = (tries: number) => `(async () => {
+    const mine = '[data-testid="${user.userId}-follow"], [data-testid="${user.userId}-unfollow"]';
+    for (let i = 0; i < ${tries} && !document.querySelector(mine); i++)
       await new Promise((r) => setTimeout(r, 100));
     ${pressScript(
       `document.querySelector('[data-testid="${user.userId}-${press}"]')?.parentElement ?? null`,
@@ -238,12 +241,13 @@ export const xFollow = async (
       follow ? undefined : "confirmationSheetConfirm",
     )}
   })()`;
-  if ((await xRun(script)) === true) return true;
-  await xGo(`https://x.com/${user.handle}`);
-  const done = (await xRun(script)) === true;
-  await xRun(
-    `location.pathname.toLowerCase() === ${JSON.stringify(`/${user.handle.toLowerCase()}`)} && history.back(), true`,
-  );
+  if ((await xRun(script(10))) === true) return true;
+  const moved = await xGo(`https://x.com/${user.handle}`);
+  const done = (await xRun(script(100))) === true;
+  if (moved)
+    await xRun(
+      `location.pathname.toLowerCase() === ${JSON.stringify(`/${user.handle.toLowerCase()}`)} && history.back(), true`,
+    );
   return done;
 };
 
@@ -259,12 +263,14 @@ export const xAct = async (
   // Both go into scripts run in X's page: digits and a handle only.
   if (!/^\d{1,25}$/.test(post.postId) || !/^[A-Za-z0-9_]{1,15}$/.test(post.handle)) return false;
   if (await xActInPlace(post.postId, action)) return true;
-  await xGo(`https://x.com/${post.handle}/status/${post.postId}`);
+  const moved = await xGo(`https://x.com/${post.handle}/status/${post.postId}`);
   const done = await xActInPlace(post.postId, action);
-  // Only while the engine is still on the post: the user may have moved it on meanwhile.
-  await xRun(
-    `location.pathname.endsWith(${JSON.stringify(`/status/${post.postId}`)}) && history.back(), true`,
-  );
+  // Back only from a page this step opened, and only while the engine is still on it: the user
+  // may have been there already, or moved it on meanwhile.
+  if (moved)
+    await xRun(
+      `location.pathname.endsWith(${JSON.stringify(`/status/${post.postId}`)}) && history.back(), true`,
+    );
   return done;
 };
 

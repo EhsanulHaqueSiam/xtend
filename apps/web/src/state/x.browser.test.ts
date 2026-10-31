@@ -86,3 +86,22 @@ it("undoes a repost and an unfollow through X's confirm", async () => {
     "confirmationSheetConfirm",
   ]);
 });
+
+it("follows the person asked for, waiting past another person's button drawn first", async () => {
+  // X's page shows a recommendation's button now; the profile's own button comes a moment later.
+  document.body.innerHTML = `<div><button data-testid="999-follow"></button></div>`;
+  const log: Array<string> = [];
+  setTimeout(() => {
+    const own = document.createElement("div");
+    own.innerHTML = `<button data-testid="786-follow"></button>`;
+    const button = own.querySelector("button")!;
+    button.addEventListener("click", () => {
+      log.push(button.dataset.testid!);
+      button.dataset.testid = "786-unfollow";
+    });
+    document.body.append(own);
+  }, 500);
+  inThisPage();
+  expect(await xFollow({ userId: "786", handle: "theo" }, true)).toBe(true);
+  expect(log).toEqual(["786-follow"]);
+});
