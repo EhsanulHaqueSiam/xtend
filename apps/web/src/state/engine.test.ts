@@ -5,6 +5,7 @@ import {
   at,
   emptyEngine,
   mergeBatch,
+  postOn,
   resetSurface,
   showWaiting,
   surfacesOf,
@@ -250,4 +251,25 @@ it("keeps the signed-in account's id when X's nav names it again without one", (
     name: "Siam H",
     avatarUrl: "https://pbs.twimg.com/a_normal.jpg",
   });
+});
+
+it("keeps a post's context per page, and lets a thread's newer replies in at once", () => {
+  const reposted = {
+    ...post("2", "2026-10-31T00:00:00Z"),
+    context: { type: "Retweet", text: "Theo reposted", handle: "theo" },
+  };
+  let state = mergeBatch(emptyEngine, batch("HomeLatestTimeline", [reposted]));
+  // The post's own thread page sends the same post with no context.
+  state = mergeBatch(
+    state,
+    batch("TweetDetail", [post("2", "2026-10-31T00:00:00Z")], { key: "2", top: "t" }),
+  );
+  expect(postOn(state, "following", "2")?.context?.text).toBe("Theo reposted");
+  expect(postOn(state, "post:2", "2")?.context).toBeNull();
+  // Refreshing the thread brings a newer reply: it shows, no pill.
+  state = mergeBatch(
+    state,
+    batch("TweetDetail", [post("3", "2026-10-31T01:00:00Z")], { key: "2", cursor: "t" }),
+  );
+  expect([at(state.lists, "post:2"), at(state.waiting, "post:2")]).toEqual([["2", "3"], []]);
 });

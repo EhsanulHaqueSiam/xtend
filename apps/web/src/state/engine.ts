@@ -165,8 +165,17 @@ const NONE: PerSurface<never> = {
   lists: [],
 };
 
+/** What a post is on one page only: the line above it there, and its place in a thread there. */
+type PostEntry = Pick<EnginePost, "context" | "conversation">;
+
 export interface EngineState {
+  /** Every post by id, as last sent; read a list's posts with `postOn`. */
   readonly posts: ReadonlyMap<string, EnginePost>;
+  /**
+   * Per surface, each listed post's own context and thread place: a repost on Home keeps
+   * "Theo reposted" after its thread page sent the same post without it.
+   */
+  readonly entries: Readonly<Partial<Record<AnySurface, ReadonlyMap<string, PostEntry>>>>;
   /** Everyone the engine has seen (authors, people X listed, profile headers), by user id. */
   readonly users: ReadonlyMap<string, EngineUser>;
   /** Post ids per surface. */
@@ -199,6 +208,7 @@ export interface EngineState {
 
 export const emptyEngine: EngineState = {
   posts: new Map(),
+  entries: {},
   users: new Map(),
   lists: NONE,
   waiting: NONE,
@@ -309,7 +319,9 @@ function mergeInto(state: EngineState, batch: EngineBatch, surface: AnySurface):
   const fresh = order.filter((id) => !known.has(id));
   const top = list[0] === undefined ? undefined : posts.get(list[0]);
   const newer =
+    // A thread's newer replies join it at once, as X shows them.
     surface !== "post" &&
+    !surface.startsWith("post:") &&
     top !== undefined &&
     fresh.length > 0 &&
     (page === "top" ||
@@ -359,8 +371,16 @@ function mergeInto(state: EngineState, batch: EngineBatch, surface: AnySurface):
               ),
         );
 
+  const entries = new Map(state.entries[surface] ?? []);
+  const byId = new Map(batch.posts.map((p) => [p.postId, p]));
+  for (const id of order) {
+    const p = byId.get(id)!;
+    entries.set(id, { context: p.context, conversation: p.conversation });
+  }
+
   return {
     ...state,
+    entries: { ...state.entries, [surface]: entries },
     cursors,
     people,
     listIds,
@@ -405,7 +425,19 @@ export const resetSurface = (state: EngineState, surface: AnySurface): EngineSta
   trends: set(state.trends, surface, []),
   notifications: set(state.notifications, surface, []),
   cursors: { ...state.cursors, [surface]: undefined },
+  entries: { ...state.entries, [surface]: undefined },
 });
+
+/** A listed post as `surface` shows it: the shared post with that page's context and thread place. */
+export const postOn = (
+  state: EngineState,
+  surface: AnySurface,
+  postId: string,
+): EnginePost | undefined => {
+  const post = state.posts.get(postId);
+  const entry = state.entries[surface]?.get(postId);
+  return post === undefined || entry === undefined ? post : { ...post, ...entry };
+};
 
 /** The person behind a handle, once X has listed them or opened their profile. */
 export const userByHandle = (state: EngineState, handle: string): EngineUser | undefined => {

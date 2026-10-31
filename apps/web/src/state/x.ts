@@ -228,8 +228,12 @@ export const xFollow = async (
   // Both go into scripts run in X's page: digits and a handle only.
   if (!/^\d{1,25}$/.test(user.userId) || !/^[A-Za-z0-9_]{1,15}$/.test(user.handle)) return false;
   const [press, turns] = follow ? ["follow", "unfollow"] : ["unfollow", "follow"];
-  const script = `(async () => {
-    for (let i = 0; i < 100 && !document.querySelector('[data-testid$="-follow"], [data-testid$="-unfollow"]'); i++)
+  // This person's own button, waited for up to `tries` tenths of a second: briefly where the
+  // engine already is, longer on a profile X is still drawing (another person's button, a
+  // recommendation, may be drawn first).
+  const script = (tries: number) => `(async () => {
+    const mine = '[data-testid="${user.userId}-follow"], [data-testid="${user.userId}-unfollow"]';
+    for (let i = 0; i < ${tries} && !document.querySelector(mine); i++)
       await new Promise((r) => setTimeout(r, 100));
     ${pressScript(
       `document.querySelector('[data-testid="${user.userId}-${press}"]')?.parentElement ?? null`,
@@ -238,9 +242,9 @@ export const xFollow = async (
       follow ? undefined : "confirmationSheetConfirm",
     )}
   })()`;
-  if ((await xRun(script)) === true) return true;
+  if ((await xRun(script(10))) === true) return true;
   await xGo(`https://x.com/${user.handle}`);
-  const done = (await xRun(script)) === true;
+  const done = (await xRun(script(100))) === true;
   await xRun(
     `location.pathname.toLowerCase() === ${JSON.stringify(`/${user.handle.toLowerCase()}`)} && history.back(), true`,
   );
