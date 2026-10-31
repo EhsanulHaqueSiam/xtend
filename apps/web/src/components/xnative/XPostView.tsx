@@ -18,7 +18,14 @@ import { useContext, useState, type ComponentProps, type MouseEvent, type ReactN
 import { cn } from "../../lib/utils";
 import { engineAtom } from "../../state/engine";
 import { settingsAtom } from "../../state/settings";
-import { xAct, xOverAtom, xPostMenu, xPostMenuPress, xToastUndo } from "../../state/x";
+import {
+  xAct,
+  xOverAtom,
+  xPostMenu,
+  xPostMenuPress,
+  xToastUndo,
+  type XPostMenu,
+} from "../../state/x";
 import { fmt } from "../analyze/ui";
 import { useDropPost } from "../shell/drops";
 import { Menu, MenuItem } from "../ui/menu";
@@ -463,10 +470,13 @@ export function XPostView({
   const save = () =>
     drop("/library", { postId: post.postId, handle: post.author.handle, url: postUrl(post) });
   const copyLink = () =>
-    void navigator.clipboard.writeText(postUrl(post)).then(() => setToast({ text: "Link copied" }));
+    void navigator.clipboard
+      .writeText(postUrl(post))
+      .then(() => setToast({ text: "Copied to clipboard" }));
   const m = post.metrics;
-  // X's own "..." rows for this post, read from X when the menu opens; undefined while reading.
+  // X's own "..." and share rows for this post, read from X when each opens; undefined while reading.
   const [xRows, setXRows] = useState<ReadonlyArray<string> | null | undefined>(undefined);
+  const [shareRows, setShareRows] = useState<ReadonlyArray<string> | null | undefined>(undefined);
   const setOver = useAtomSet(xOverAtom);
   const setQuote = useAtomSet(quoteAtom);
   const xPost = { postId: post.postId, handle: post.author.handle };
@@ -475,11 +485,20 @@ export function XPostView({
     setXRows(undefined);
     void xPostMenu(xPost).then(setXRows);
   };
-  /** X's own row for the user's click; X's dialogs (Report, Block) show over the main area. */
-  const pressX = async (label: string) => {
+  const readShare = (open: boolean) => {
+    if (!open) return;
+    setShareRows(undefined);
+    void xPostMenu(xPost, "share").then(setShareRows);
+  };
+  // Copy link stays Xtend's own: a clipboard write from the engine, off screen, is not reliable.
+  const shareItems = shareRows?.includes("Copy link")
+    ? shareRows
+    : [...(shareRows ?? []), "Copy link"];
+  /** X's own row for the user's click; X's dialogs (Report, Block, Send via Chat) show over the main area. */
+  const pressX = async (label: string, menu: XPostMenu = "more") => {
     const why = blocked();
     if (why !== null) return setToast({ text: why });
-    const outcome = await xPostMenuPress(xPost, label, setOver);
+    const outcome = await xPostMenuPress(xPost, label, setOver, menu);
     if (outcome === null) return setToast({ text: "X did not take that. Try again in a moment." });
     if (outcome.kind === "done" && outcome.toast !== null)
       setToast({
@@ -633,9 +652,32 @@ export function XPostView({
         <Action label="Save to Library" tone="blue" onClick={save}>
           <span className="text-[13px] font-medium">Save</span>
         </Action>
-        <Action label="Copy link" tone="blue" onClick={copyLink}>
-          <Share className="size-[18px]" />
-        </Action>
+        <span className="contents" onClick={(e) => e.stopPropagation()}>
+          <Menu
+            label="Share"
+            align="end"
+            onOpenChange={readShare}
+            trigger={
+              <Action label="Share post" tone="blue" onClick={() => {}}>
+                <Share className="size-[18px]" />
+              </Action>
+            }
+          >
+            {shareRows === undefined ? (
+              <MenuItem disabled onClick={() => {}}>
+                Loading from X
+              </MenuItem>
+            ) : null}
+            {shareItems.map((label) => (
+              <MenuItem
+                key={label}
+                onClick={() => (label === "Copy link" ? copyLink() : void pressX(label, "share"))}
+              >
+                {label}
+              </MenuItem>
+            ))}
+          </Menu>
+        </span>
       </span>
     </div>
   );

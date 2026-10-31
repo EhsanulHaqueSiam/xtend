@@ -221,14 +221,21 @@ const findArticle = (postId: string) => `
       if (!article) await new Promise((r) => setTimeout(r, 100));
     }`;
 
+/** X's buttons on a post that open a menu: its "..." and its share button (X gives it no test id). */
+const MENUS = {
+  more: '[data-testid="caret"]',
+  share: '[role="group"] button[aria-label="Share post"]',
+} as const;
+export type XPostMenu = keyof typeof MENUS;
+
 /**
- * A script step that opens X's "..." on `article` and sets `items` to its rows once drawn; the
+ * A script step that opens X's `menu` on `article` and sets `items` to its rows once drawn; the
  * step after it closes the menu (`closeMenu`) or presses a row.
  */
-const openMenu = `
-    const caret = article?.querySelector('[data-testid="caret"]');
-    if (!caret) return null;
-    caret.click();
+const openMenu = (menu: XPostMenu) => `
+    const trigger = article?.querySelector(${JSON.stringify(MENUS[menu])});
+    if (!trigger) return null;
+    trigger.click();
     let items = [];
     for (let i = 0; i < 20 && items.length === 0; i++) {
       await new Promise((r) => setTimeout(r, 100));
@@ -240,18 +247,18 @@ const openMenu = `
       [...(menu?.parentElement?.children ?? [])].find((k) => k !== menu && k.getBoundingClientRect().height > 0)?.click();
     };`;
 
-/** What X did when the user pressed one of its "..." items. */
+/** What X did when the user pressed one of its menu items. */
 export type XMenuOutcome =
   /** X acted at once; `toast` is what X said, `undo` whether X offered to take it back. */
   | { readonly kind: "done"; readonly toast: string | null; readonly undo: boolean }
-  /** X opened its own dialog or page (Report, Block, Delete, post activity) at `path`'s page. */
+  /** X opened its own dialog or page (Report, Block, Delete, Send via Chat) at `path`'s page. */
   | { readonly kind: "over"; readonly path: string };
 
-/** X's "..." on a post, read on the engine page where the post sits: its rows' labels, in X's order. */
-const xMenuInPlace = (postId: string) =>
+/** X's `menu` on a post, read on the engine page where the post sits: its rows' labels, in X's order. */
+const xMenuInPlace = (postId: string, menu: XPostMenu) =>
   xRun(`(async () => {
     ${findArticle(postId)}
-    ${openMenu}
+    ${openMenu(menu)}
     const labels = items.map((i) => i.textContent.trim());
     closeMenu();
     return labels;
@@ -261,11 +268,11 @@ const xMenuInPlace = (postId: string) =>
       : null,
   );
 
-/** Presses X's "..." row `label` on the engine page where the post sits. Null when it is not there. */
-const xMenuPressInPlace = (postId: string, label: string) =>
+/** Presses X's `menu` row `label` on the engine page where the post sits. Null when it is not there. */
+const xMenuPressInPlace = (postId: string, label: string, menu: XPostMenu) =>
   xRun(`(async () => {
     ${findArticle(postId)}
-    ${openMenu}
+    ${openMenu(menu)}
     const item = items.find((i) => i.textContent.trim() === ${JSON.stringify(label)});
     if (!item) return (closeMenu(), null);
     const path = location.pathname + location.search;
@@ -306,11 +313,13 @@ const onPost = async <A>(
   return there;
 };
 
-/** X's own "..." rows for a post, read from X's menu for the user's click on Xtend's "...". */
-export const xPostMenu = (post: { readonly postId: string; readonly handle: string }) =>
-  onPost(post, () => xMenuInPlace(post.postId));
+/** X's own rows of a post's `menu`, read from X's menu for the user's click on Xtend's copy. */
+export const xPostMenu = (
+  post: { readonly postId: string; readonly handle: string },
+  menu: XPostMenu = "more",
+) => onPost(post, () => xMenuInPlace(post.postId, menu));
 
-/** True while X's own dialog or page from a "..." row is up: the engine shows over the main area. */
+/** True while X's own dialog or page from a menu row is up: the engine shows over the main area. */
 export const xOverAtom = Atom.make(false);
 
 let overRun = 0;
@@ -318,7 +327,7 @@ let overRun = 0;
 export const xOverEnded = () => void overRun++;
 
 /**
- * Presses X's own "..." row `label` for the user's click. When X answers with its own dialog or
+ * Presses X's own `menu` row `label` for the user's click. When X answers with its own dialog or
  * page, `over` puts the engine over the main area until X is back where it was with no dialog
  * (the user finished or closed it), or the user moved to another screen.
  */
@@ -326,12 +335,13 @@ export const xPostMenuPress = (
   post: { readonly postId: string; readonly handle: string },
   label: string,
   over: (shown: boolean) => void,
+  menu: XPostMenu = "more",
 ) => {
   // Taken before X answers: a screen change meanwhile means the dialog no longer belongs here.
   const run = ++overRun;
   return onPost(
     post,
-    () => xMenuPressInPlace(post.postId, label),
+    () => xMenuPressInPlace(post.postId, label, menu),
     async (outcome) => {
       if (outcome.kind !== "over" || run !== overRun) return;
       over(true);

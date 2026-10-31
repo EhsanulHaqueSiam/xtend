@@ -115,10 +115,17 @@ it("follows the person asked for, waiting past another person's button drawn fir
   expect(log).toEqual(["786-follow"]);
 });
 
-/** X's "..." on post 42: its caret draws the rows with a mask beside them, as X does. */
-const withMenu = (rows: Record<string, () => void>) => {
-  document.body.innerHTML = `<article><a href="/theo/status/42"><time></time></a><button data-testid="caret"></button></article>`;
-  document.querySelector('[data-testid="caret"]')!.addEventListener("click", () => {
+/**
+ * A menu on post 42 (its "...", or the button `trigger` selects): pressing it draws the rows
+ * with a mask beside them, as X does.
+ */
+const withMenu = (
+  rows: Record<string, () => void>,
+  trigger = '[data-testid="caret"]',
+  button = `<button data-testid="caret"></button>`,
+) => {
+  document.body.innerHTML = `<article><a href="/theo/status/42"><time></time></a>${button}</article>`;
+  document.querySelector(trigger)!.addEventListener("click", () => {
     const layer = document.createElement("div");
     layer.innerHTML = `<div style="height:10px"></div><div role="menu"><div data-testid="Dropdown">${Object.keys(
       rows,
@@ -183,4 +190,29 @@ it("leaves X's dialog to the screen it was opened on when the user moves on befo
   xOverEnded();
   expect((await pressing)?.kind).toBe("over");
   expect(shown).toEqual([]);
+});
+
+it("reads X's share rows from its share button, and Send via Chat keeps X's dialog over", async () => {
+  withMenu(
+    {
+      "Send via Chat": () =>
+        document.body.insertAdjacentHTML("beforeend", `<div role="dialog"></div>`),
+      "Copy link": () => {},
+    },
+    'button[aria-label="Share post"]',
+    `<div role="group"><button aria-label="Share post"></button></div>`,
+  );
+  expect(await xPostMenu(post42, "share")).toEqual(["Send via Chat", "Copy link"]);
+  const shown: Array<boolean> = [];
+  const outcome = await xPostMenuPress(
+    post42,
+    "Send via Chat",
+    (on) => {
+      shown.push(on);
+      if (on) setTimeout(() => document.querySelector('[role="dialog"]')?.remove(), 200);
+    },
+    "share",
+  );
+  expect(outcome?.kind).toBe("over");
+  expect(shown).toEqual([true, false]);
 });

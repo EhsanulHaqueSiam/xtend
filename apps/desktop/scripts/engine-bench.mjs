@@ -828,6 +828,44 @@ const benchmarks = [
     },
   ],
   [
+    "Share holds X's own share rows, and Send via Chat opens X's own sheet over the main area (never sent)",
+    async () => {
+      await home("following");
+      const id = await heldByEngine('[role="group"] button[aria-label="Share post"]');
+      if (!id) return false;
+      await app(
+        `document.querySelector('[data-post="${id}"] button[aria-label="Share post"]')?.click(), true`,
+      );
+      const rowsJs = `[...document.querySelectorAll('[role="menu"] [role="menuitem"]')].map((m) => m.textContent)`;
+      const rows = await until(async () => {
+        const r = await app(rowsJs);
+        return r?.length > 0 && !r.includes("Loading from X") && r;
+      }, 10_000);
+      // X's menu was read and closed again on the engine page; nothing in it was pressed.
+      const closed = await engine(`!document.querySelector('[data-testid="Dropdown"]')`);
+      if (!rows?.includes("Send via Chat") || !rows.includes("Copy link") || !closed) {
+        console.log(`      ${JSON.stringify({ id, rows, closed })}`);
+        return false;
+      }
+      const mode = `document.querySelector('section[aria-label="x.com"]')?.dataset.mode`;
+      await app(
+        `[...document.querySelectorAll('[role="menu"] [role="menuitem"]')].find((m) => m.textContent === "Send via Chat")?.click(), true`,
+      );
+      const over = await until(
+        async () =>
+          (await app(mode)) === "main" && (await enginePath()).startsWith("/messages/compose"),
+        15_000,
+      );
+      // Out of X's sheet the way its own back arrow does, before any recipient is picked.
+      await engine(`history.back(), true`);
+      const back = await until(
+        async () => (await app(mode)) === "hidden" && (await enginePath()) === "/home",
+        10_000,
+      );
+      return over && back && rows.join(", ");
+    },
+  ],
+  [
     "Repost opens X's Repost / Quote popover, and Quote opens the quote box over that post (never sent)",
     async () => {
       await home("following");
