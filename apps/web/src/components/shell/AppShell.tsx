@@ -19,6 +19,7 @@ import {
 import { Toasts } from "../ui/toast";
 import { CommandPalette } from "./CommandPalette";
 import { CompanionTarget } from "./Companion";
+import { EngineSync } from "../xnative/EngineSync";
 import { GlanceSync } from "./GlanceSync";
 import { xPageFor } from "./sections";
 import { Sidebar } from "./Sidebar";
@@ -172,6 +173,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
           <XPanelFollow onX={onX} />
           {main === null ? null : <AppRoutes main={main} />}
           <GlanceSync />
+          <EngineSync />
         </>
       ) : null}
       <CommandPalette />

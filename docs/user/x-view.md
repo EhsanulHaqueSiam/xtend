@@ -4,10 +4,25 @@ The window is Xtend. x.com runs inside it as your own logged-in browser session:
 costs nothing and looks to X like an ordinary tab. Xtend's sidebar is the navigation for both
 X's pages and the tools.
 
+## Home, Search and posts, drawn by Xtend
+
+Home, Explore and any post you open are Xtend's own screens. Your X session still does the
+work out of sight: it loads the page you asked for and scrolls when you reach the end, so what
+you see is exactly what X would show you, free. **For you** and **Following** are X's own feeds.
+J and K move between posts, Enter opens one, L likes, S saves to Library. Videos play in
+Xtend's player, with fullscreen and picture in picture. Search takes X's operators
+(`from:`, `min_faves:`, `filter:media`).
+
+Replying starts by reading the post: its text, its images and the thread above it. Xtend says
+what it thinks the post is ("Playful hot take") and why; if that is wrong, say what it is
+instead. **Angles** are replies written for that post, **With help** reworks your own words
+and keeps your voice, **Your own** has no AI at all. A reply goes through your session, free;
+the reading runs on your own Claude or Codex login.
+
 ## The sidebar
 
-The X rows at the top open X's pages in the main area: Home, Notifications, Messages,
-Bookmarks, Profile. Notifications shows X's unread count. The tools follow: Compose, Plan,
+The X rows at the top open X's pages: Home and Explore in Xtend, Notifications, Messages,
+Bookmarks and Profile as x.com itself in the main area. Notifications shows X's unread count. The tools follow: Compose, Plan,
 Library, Engage, Leads, Automate, Analyze, Scores, Seen, then Settings. Each tool's sections
 show as rows under it once it is open. Compose counts queued drafts and Engage counts open
 mentions.

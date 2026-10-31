@@ -13,15 +13,18 @@ import { Route as XRouteImport } from './routes/x'
 import { Route as TodayRouteImport } from './routes/today'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SeenRouteImport } from './routes/seen'
+import { Route as SearchRouteImport } from './routes/search'
 import { Route as ScoresRouteImport } from './routes/scores'
 import { Route as PlanRouteImport } from './routes/plan'
 import { Route as LibraryRouteImport } from './routes/library'
 import { Route as LeadsRouteImport } from './routes/leads'
+import { Route as HomeRouteImport } from './routes/home'
 import { Route as EngageRouteImport } from './routes/engage'
 import { Route as ComposeRouteImport } from './routes/compose'
 import { Route as AutomateRouteImport } from './routes/automate'
 import { Route as AnalyzeRouteImport } from './routes/analyze'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as PostIdRouteImport } from './routes/post.$id'
 
 const XRoute = XRouteImport.update({
   id: '/x',
@@ -43,6 +46,11 @@ const SeenRoute = SeenRouteImport.update({
   path: '/seen',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SearchRoute = SearchRouteImport.update({
+  id: '/search',
+  path: '/search',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ScoresRoute = ScoresRouteImport.update({
   id: '/scores',
   path: '/scores',
@@ -61,6 +69,11 @@ const LibraryRoute = LibraryRouteImport.update({
 const LeadsRoute = LeadsRouteImport.update({
   id: '/leads',
   path: '/leads',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HomeRoute = HomeRouteImport.update({
+  id: '/home',
+  path: '/home',
   getParentRoute: () => rootRouteImport,
 } as any)
 const EngageRoute = EngageRouteImport.update({
@@ -88,6 +101,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PostIdRoute = PostIdRouteImport.update({
+  id: '/post/$id',
+  path: '/post/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -95,14 +113,17 @@ export interface FileRoutesByFullPath {
   '/automate': typeof AutomateRoute
   '/compose': typeof ComposeRoute
   '/engage': typeof EngageRoute
+  '/home': typeof HomeRoute
   '/leads': typeof LeadsRoute
   '/library': typeof LibraryRoute
   '/plan': typeof PlanRoute
   '/scores': typeof ScoresRoute
+  '/search': typeof SearchRoute
   '/seen': typeof SeenRoute
   '/settings': typeof SettingsRoute
   '/today': typeof TodayRoute
   '/x': typeof XRoute
+  '/post/$id': typeof PostIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -110,14 +131,17 @@ export interface FileRoutesByTo {
   '/automate': typeof AutomateRoute
   '/compose': typeof ComposeRoute
   '/engage': typeof EngageRoute
+  '/home': typeof HomeRoute
   '/leads': typeof LeadsRoute
   '/library': typeof LibraryRoute
   '/plan': typeof PlanRoute
   '/scores': typeof ScoresRoute
+  '/search': typeof SearchRoute
   '/seen': typeof SeenRoute
   '/settings': typeof SettingsRoute
   '/today': typeof TodayRoute
   '/x': typeof XRoute
+  '/post/$id': typeof PostIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -126,14 +150,17 @@ export interface FileRoutesById {
   '/automate': typeof AutomateRoute
   '/compose': typeof ComposeRoute
   '/engage': typeof EngageRoute
+  '/home': typeof HomeRoute
   '/leads': typeof LeadsRoute
   '/library': typeof LibraryRoute
   '/plan': typeof PlanRoute
   '/scores': typeof ScoresRoute
+  '/search': typeof SearchRoute
   '/seen': typeof SeenRoute
   '/settings': typeof SettingsRoute
   '/today': typeof TodayRoute
   '/x': typeof XRoute
+  '/post/$id': typeof PostIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -143,14 +170,17 @@ export interface FileRouteTypes {
     | '/automate'
     | '/compose'
     | '/engage'
+    | '/home'
     | '/leads'
     | '/library'
     | '/plan'
     | '/scores'
+    | '/search'
     | '/seen'
     | '/settings'
     | '/today'
     | '/x'
+    | '/post/$id'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -158,14 +188,17 @@ export interface FileRouteTypes {
     | '/automate'
     | '/compose'
     | '/engage'
+    | '/home'
     | '/leads'
     | '/library'
     | '/plan'
     | '/scores'
+    | '/search'
     | '/seen'
     | '/settings'
     | '/today'
     | '/x'
+    | '/post/$id'
   id:
     | '__root__'
     | '/'
@@ -173,14 +206,17 @@ export interface FileRouteTypes {
     | '/automate'
     | '/compose'
     | '/engage'
+    | '/home'
     | '/leads'
     | '/library'
     | '/plan'
     | '/scores'
+    | '/search'
     | '/seen'
     | '/settings'
     | '/today'
     | '/x'
+    | '/post/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -189,14 +225,17 @@ export interface RootRouteChildren {
   AutomateRoute: typeof AutomateRoute
   ComposeRoute: typeof ComposeRoute
   EngageRoute: typeof EngageRoute
+  HomeRoute: typeof HomeRoute
   LeadsRoute: typeof LeadsRoute
   LibraryRoute: typeof LibraryRoute
   PlanRoute: typeof PlanRoute
   ScoresRoute: typeof ScoresRoute
+  SearchRoute: typeof SearchRoute
   SeenRoute: typeof SeenRoute
   SettingsRoute: typeof SettingsRoute
   TodayRoute: typeof TodayRoute
   XRoute: typeof XRoute
+  PostIdRoute: typeof PostIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -229,6 +268,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SeenRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/search': {
+      id: '/search'
+      path: '/search'
+      fullPath: '/search'
+      preLoaderRoute: typeof SearchRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/scores': {
       id: '/scores'
       path: '/scores'
@@ -255,6 +301,13 @@ declare module '@tanstack/react-router' {
       path: '/leads'
       fullPath: '/leads'
       preLoaderRoute: typeof LeadsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/home': {
+      id: '/home'
+      path: '/home'
+      fullPath: '/home'
+      preLoaderRoute: typeof HomeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/engage': {
@@ -292,6 +345,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/post/$id': {
+      id: '/post/$id'
+      path: '/post/$id'
+      fullPath: '/post/$id'
+      preLoaderRoute: typeof PostIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -301,14 +361,17 @@ const rootRouteChildren: RootRouteChildren = {
   AutomateRoute: AutomateRoute,
   ComposeRoute: ComposeRoute,
   EngageRoute: EngageRoute,
+  HomeRoute: HomeRoute,
   LeadsRoute: LeadsRoute,
   LibraryRoute: LibraryRoute,
   PlanRoute: PlanRoute,
   ScoresRoute: ScoresRoute,
+  SearchRoute: SearchRoute,
   SeenRoute: SeenRoute,
   SettingsRoute: SettingsRoute,
   TodayRoute: TodayRoute,
   XRoute: XRoute,
+  PostIdRoute: PostIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

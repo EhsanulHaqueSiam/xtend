@@ -39,6 +39,24 @@ export const draftReplyAtom = Atom.family((_postId: string) =>
   ),
 );
 
+/** Free on the user's login: what the post is, and replies written for it. Per post, like the drafts. */
+export const readPostAtom = Atom.family((_postId: string) =>
+  clientRuntime.fn<{
+    readonly post: XPost;
+    readonly images: ReadonlyArray<string>;
+    readonly thread: ReadonlyArray<string>;
+    readonly correction?: string | undefined;
+  }>()(
+    Effect.fnUntraced(function* ({ correction, ...input }) {
+      const client = yield* XtendClient;
+      return yield* client[Engage_METHODS.readPost]({
+        ...input,
+        ...(correction === undefined ? {} : { correction }),
+      });
+    }),
+  ),
+);
+
 export const sendReplyAtom = Atom.family((_postId: string) =>
   clientRuntime.fn<{ readonly post: XPost; readonly text: string }>()(
     Effect.fnUntraced(function* (input) {

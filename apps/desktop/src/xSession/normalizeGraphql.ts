@@ -1,4 +1,4 @@
-import type { ObservationSource, ObservedPost } from "@xtend/contracts";
+import type { EngineMedia, EnginePost, ObservationSource, ObservedPost } from "@xtend/contracts";
 
 /**
  * Turns one X GraphQL response body into observed posts. X nests tweets
@@ -94,7 +94,11 @@ function readPost(tweet: Json, promoted: boolean): ObservedPost | undefined {
   const noteResults =
     noteTweet && isRecord(noteTweet.note_tweet_results) ? noteTweet.note_tweet_results : undefined;
   const note = noteResults && isRecord(noteResults.result) ? noteResults.result : undefined;
-  const text = asString(note?.text) ?? asString(legacy.full_text) ?? "";
+  // X escapes &, < and > in post text as HTML would; &amp; goes last so "&amp;gt;" stays "&gt;".
+  const text = (asString(note?.text) ?? asString(legacy.full_text) ?? "")
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&amp;", "&");
 
   const entities = isRecord(legacy.entities) ? legacy.entities : {};
   const extended = isRecord(legacy.extended_entities) ? legacy.extended_entities : {};
@@ -128,8 +132,12 @@ function readPost(tweet: Json, promoted: boolean): ObservedPost | undefined {
   };
 }
 
-export function normalizeGraphqlResponse(body: unknown): ReadonlyArray<ObservedPost> {
-  const found = new Map<string, ObservedPost>();
+/** Every tweet-shaped object in a response, read by `read`, first sighting per id, in document order. */
+function walkTweets<T extends { readonly postId: string }>(
+  body: unknown,
+  read: (tweet: Json, promoted: boolean) => T | undefined,
+): ReadonlyArray<T> {
+  const found = new Map<string, T>();
   // An ad is marked on the timeline item (promotedMetadata), above the tweet; the flag travels down.
   const stack: Array<{ node: unknown; promoted: boolean }> = [{ node: body, promoted: false }];
   while (stack.length > 0) {
@@ -149,7 +157,7 @@ export function normalizeGraphqlResponse(body: unknown): ReadonlyArray<ObservedP
           ? node.tweet
           : undefined;
     if (tweet !== undefined) {
-      const post = readPost(tweet, inAd);
+      const post = read(tweet, inAd);
       // The first sighting in a response is the outer post; a quoted copy of
       // the same id deeper down carries the same numbers.
       if (post !== undefined && !found.has(post.postId)) found.set(post.postId, post);
@@ -162,6 +170,57 @@ export function normalizeGraphqlResponse(body: unknown): ReadonlyArray<ObservedP
   }
   return [...found.values()];
 }
+
+export const normalizeGraphqlResponse = (body: unknown): ReadonlyArray<ObservedPost> =>
+  walkTweets(body, readPost);
+
+const asNumber = (value: unknown) => (typeof value === "number" ? value : 0);
+
+function readMedia(item: unknown): EngineMedia | undefined {
+  if (!isRecord(item)) return undefined;
+  const url = asString(item.media_url_https);
+  if (url === undefined) return undefined;
+  const kind = item.type === "video" ? "video" : item.type === "animated_gif" ? "gif" : "photo";
+  const info = isRecord(item.video_info) ? item.video_info : {};
+  const variants = Array.isArray(info.variants) ? info.variants.filter(isRecord) : [];
+  // The highest-bitrate mp4; X also lists an HLS playlist, which a plain <video> cannot play.
+  const best = variants
+    .filter((v) => v.content_type === "video/mp4")
+    .sort((a, b) => asNumber(b.bitrate) - asNumber(a.bitrate))[0];
+  const size = isRecord(item.original_info) ? item.original_info : {};
+  return {
+    kind,
+    url,
+    videoUrl: best === undefined ? null : (asString(best.url) ?? null),
+    width: asNumber(size.width),
+    height: asNumber(size.height),
+  };
+}
+
+function readEnginePost(tweet: Json, promoted: boolean): EnginePost | undefined {
+  const legacy = isRecord(tweet.legacy) ? tweet.legacy : {};
+  // A repost wrapper is skipped: the original nests inside it and is read in its place.
+  if (isRecord(legacy.retweeted_status_result)) return undefined;
+  const post = readPost(tweet, promoted);
+  if (post === undefined) return undefined;
+  const core = isRecord(tweet.core) ? tweet.core : {};
+  const results = isRecord(core.user_results) ? core.user_results : {};
+  const user = isRecord(results.result) ? results.result : {};
+  const avatar = isRecord(user.avatar) ? user.avatar : {};
+  const userLegacy = isRecord(user.legacy) ? user.legacy : {};
+  const extended = isRecord(legacy.extended_entities) ? legacy.extended_entities : {};
+  return {
+    ...post,
+    avatarUrl: asString(avatar.image_url) ?? asString(userLegacy.profile_image_url_https) ?? null,
+    media: (Array.isArray(extended.media) ? extended.media : []).flatMap((m) => readMedia(m) ?? []),
+    quotedId: asString(legacy.quoted_status_id_str) ?? null,
+    replyToId: asString(legacy.in_reply_to_status_id_str) ?? null,
+  };
+}
+
+/** Posts as Xtend's own X screens draw them, in the response's order. */
+export const renderPostsFromGraphql = (body: unknown): ReadonlyArray<EnginePost> =>
+  walkTweets(body, readEnginePost);
 
 /** The logged-in handle, from the `Viewer` operation x.com runs on every load. */
 export function readViewerHandle(body: unknown): string | undefined {

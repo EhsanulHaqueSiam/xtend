@@ -1,4 +1,4 @@
-import type { XSkinToggle } from "@xtend/contracts";
+import type { EngineBatch, XSkinToggle } from "@xtend/contracts";
 
 /**
  * What the Electron preload exposes to the web app. Kept here rather than in
@@ -80,6 +80,8 @@ export interface DesktopBridge {
   readonly onShortcut: (cb: (key: ShortcutKey) => void) => () => void;
   readonly getUpdate: () => Promise<UpdateState>;
   readonly onUpdate: (cb: (state: UpdateState) => void) => () => void;
+  /** Each response the X engine received, as posts Xtend's own X screens draw. */
+  readonly onEngine: (cb: (batch: EngineBatch) => void) => () => void;
   readonly checkUpdate: () => void;
   /** Follows another channel from now on, and checks it at once. */
   readonly setUpdateChannel: (channel: UpdateChannel) => void;

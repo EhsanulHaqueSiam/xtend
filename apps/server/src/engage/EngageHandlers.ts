@@ -31,6 +31,7 @@ export const layerHandlers = EngageRpcGroup.toLayer(
     return EngageRpcGroup.of({
       [Engage_METHODS.targets]: () => engage.targets,
       [Engage_METHODS.draftReply]: ({ post, tone, own }) => engage.draftReply(post, tone, own),
+      [Engage_METHODS.readPost]: (input) => engage.readPost(input),
       [Engage_METHODS.reply]: ({ post, text }) => engage.reply(post, text),
       [Engage_METHODS.like]: ({ postId }) => engage.like(postId),
       [Engage_METHODS.findKeywords]: () => engage.findKeywords,

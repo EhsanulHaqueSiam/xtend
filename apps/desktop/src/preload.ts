@@ -1,4 +1,4 @@
-import type { XSkinToggle } from "@xtend/contracts";
+import type { EngineBatch, XSkinToggle } from "@xtend/contracts";
 import { contextBridge, ipcRenderer } from "electron";
 
 import {
@@ -6,6 +6,7 @@ import {
   APP_ROUTE_CHANNEL,
   BRIDGE_INFO_CHANNEL,
   type BridgeInfo,
+  ENGINE_CHANNEL,
   GLANCE_CHANNEL,
   type Glance,
   OPEN_EXTERNAL_CHANNEL,
@@ -61,6 +62,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   onShortcut: listen<ShortcutKey>(SHORTCUT_CHANNEL),
   getUpdate: (): Promise<UpdateState> => ipcRenderer.invoke(UPDATE_GET_CHANNEL),
   onUpdate: listen<UpdateState>(UPDATE_STATE_CHANNEL),
+  onEngine: listen<EngineBatch>(ENGINE_CHANNEL),
   checkUpdate: () => ipcRenderer.send(UPDATE_CHECK_CHANNEL),
   setUpdateChannel: (channel: UpdateChannel) =>
     ipcRenderer.send(UPDATE_CHANNEL_SET_CHANNEL, channel),
