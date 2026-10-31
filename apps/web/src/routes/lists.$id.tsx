@@ -1,25 +1,21 @@
-import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useAtomValue } from "@effect/atom-react";
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useCallback, useEffect } from "react";
 
 import { fmt } from "../components/analyze/ui";
 import { Timeline } from "../components/xnative/Timeline";
 import { XTitle } from "../components/xnative/XColumn";
-import { engineAtom, resetSurface, updateEngine } from "../state/engine";
-import { xNavigate } from "../state/x";
+import { engineAtom } from "../state/engine";
+import { xGo } from "../state/x";
 
 /** One X List's posts, drawn by Xtend from the engine on x.com/i/lists/<id>. */
 function ListScreen() {
   const { id } = Route.useParams();
   const router = useRouter();
   const engine = useAtomValue(engineAtom);
-  const setEngine = useAtomSet(engineAtom);
   const list = engine.xLists.get(id);
-  const open = useCallback(() => void xNavigate(`https://x.com/i/lists/${id}`), [id]);
-  useEffect(() => {
-    setEngine(updateEngine((s) => resetSurface(s, `list:${id}`)));
-    open();
-  }, [open, setEngine, id]);
+  const open = useCallback(() => void xGo(`https://x.com/i/lists/${id}`), [id]);
+  useEffect(open, [open]);
   return (
     <Timeline
       surface={`list:${id}`}

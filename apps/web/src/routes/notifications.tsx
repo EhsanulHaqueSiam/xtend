@@ -1,4 +1,4 @@
-import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useAtomValue } from "@effect/atom-react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import type { EngineNotification } from "@xtend/contracts";
 import { Bell, Heart, Repeat2, Sparkles, UserRound, Users } from "lucide-react";
@@ -11,8 +11,8 @@ import { xAge } from "../components/xnative/format";
 import { RichText } from "../components/xnative/RichText";
 import { XRows } from "../components/xnative/XRows";
 import { Avatar, XPostView } from "../components/xnative/XPostView";
-import { at, engineAtom, resetSurface, type Surface, updateEngine } from "../state/engine";
-import { xNavigate } from "../state/x";
+import { at, engineAtom, type Surface } from "../state/engine";
+import { xGo } from "../state/x";
 
 // X shows Verified only to Premium accounts; All and Mentions are everyone's.
 const TABS = [
@@ -45,15 +45,19 @@ function boldNames(text: string, names: ReadonlyArray<string>): ReactNode {
   const pattern = new RegExp(
     `(${named.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`,
   );
-  return text.split(pattern).map((part, i) =>
-    named.includes(part) ? (
-      <b key={i} className="font-bold">
+  // Each part is keyed by where it starts in the line, which never changes for this line.
+  let offset = 0;
+  return text.split(pattern).map((part) => {
+    const at = offset;
+    offset += part.length;
+    return named.includes(part) ? (
+      <b key={at} className="font-bold">
         {part}
       </b>
     ) : (
       part
-    ),
-  );
+    );
+  });
 }
 
 /** "Theo and 23 others liked your post", with the faces and the post it is about. */
@@ -118,14 +122,10 @@ function NotificationsScreen() {
   const { tab } = Route.useSearch();
   const navigate = useNavigate();
   const engine = useAtomValue(engineAtom);
-  const setEngine = useAtomSet(engineAtom);
   const openPost = useOpenPost();
   const current = TABS.find((t) => t.id === tab)!;
-  const open = useCallback(() => void xNavigate(`https://x.com${current.path}`), [current.path]);
-  useEffect(() => {
-    setEngine(updateEngine((s) => resetSurface(s, current.surface)));
-    open();
-  }, [open, setEngine, current.surface]);
+  const open = useCallback(() => void xGo(`https://x.com${current.path}`), [current.path]);
+  useEffect(open, [open]);
   const rows = at(engine.notifications, current.surface);
   return (
     <XColumn
@@ -157,7 +157,6 @@ function NotificationsScreen() {
               post={post}
               quoted={post.quotedId === null ? undefined : engine.posts.get(post.quotedId)}
               onOpen={openPost}
-              onReopen={open}
             />
           );
         }}

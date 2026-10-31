@@ -15,7 +15,7 @@ import { useState, type ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
 import { settingsAtom } from "../../state/settings";
-import { type XAction, xActInPlace, xNavigate } from "../../state/x";
+import { type XAction, xAct } from "../../state/x";
 import { fmt } from "../analyze/ui";
 import { useDropPost } from "../shell/drops";
 import { Menu, MenuItem } from "../ui/menu";
@@ -288,7 +288,6 @@ function XtendLine({ post }: { readonly post: EnginePost }) {
 /**
  * One post as Xtend draws it from the engine, in X's shape. `quoted` is the post it quotes, when
  * the engine has it. `focal` is the post a post screen is about: larger text, its full timestamp.
- * `onReopen` puts the engine back on this screen's page after an action took it elsewhere.
  */
 export function XPostView({
   post,
@@ -297,7 +296,6 @@ export function XPostView({
   focal = false,
   threaded = false,
   onOpen,
-  onReopen,
   onHover,
 }: {
   readonly post: EnginePost;
@@ -307,7 +305,6 @@ export function XPostView({
   /** A line runs down from the avatar to the next post: this one is answered under it. */
   readonly threaded?: boolean;
   readonly onOpen?: ((post: EnginePost) => void) | undefined;
-  readonly onReopen?: (() => void) | undefined;
   readonly onHover?: (() => void) | undefined;
 }) {
   const setToast = useAtomSet(toastAtom);
@@ -321,21 +318,15 @@ export function XPostView({
   /** A count that includes the user's own press made here, once. */
   const plus = (a: XAction) => (done.has(a) && !was[a] ? 1 : 0);
   /**
-   * X's own button for the user's click: on the engine page where the post sits, so the list
-   * keeps feeding; only when it is not there, on the post's own page, and then back.
+   * X's own button for the user's click: in place on the engine page where the post sits, or on
+   * the post's own page through X's router and back, so X's list is where it was.
    */
   const act = async (action: XAction) => {
     if (has(action)) return;
     if (settings !== null && !settings.sessionPostingEnabled)
       return setToast({ text: "Session actions are off in Settings, X session." });
     setDone((d) => new Set(d).add(action));
-    let ok = await xActInPlace(post.postId, action);
-    if (!ok) {
-      await xNavigate(postUrl(post));
-      ok = await xActInPlace(post.postId, action);
-      onReopen?.();
-    }
-    if (ok) return;
+    if (await xAct({ postId: post.postId, handle: post.author.handle }, action)) return;
     setDone((d) => new Set([...d].filter((a) => a !== action)));
     setToast({ text: "X did not take that. Try again in a moment." });
   };

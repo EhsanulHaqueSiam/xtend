@@ -10,7 +10,7 @@ import { xtendRoute } from "../components/xnative/RichText";
 import { UserRow, XRows } from "../components/xnative/XRows";
 import { XPostView } from "../components/xnative/XPostView";
 import { type AnySurface, at, engineAtom } from "../state/engine";
-import { xNavigate, xPickHomeTab, xShows } from "../state/x";
+import { xGo, xPickHomeTab, xShows } from "../state/x";
 
 type Row =
   | { readonly kind: "group"; readonly name: string }
@@ -90,7 +90,7 @@ function ExploreScreen() {
   const open = useCallback(() => {
     const pick = () => (label === null ? undefined : xPickHomeTab(label));
     if (xShows("/explore") && receivedRef.current) void pick();
-    else void xNavigate("https://x.com/explore").then(pick);
+    else void xGo("https://x.com/explore").then(pick);
   }, [label]);
   useEffect(open, [open]);
 
@@ -167,7 +167,7 @@ function ExploreScreen() {
           ) : r.kind === "user" ? (
             <UserRow user={r.user} />
           ) : (
-            <XPostView post={r.post} onOpen={openPost} onReopen={open} />
+            <XPostView post={r.post} onOpen={openPost} />
           )
         }
       />

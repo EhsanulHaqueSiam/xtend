@@ -78,7 +78,6 @@ function PostList({
   setSelected,
   list,
   onOpen,
-  onReopen,
 }: {
   readonly surface: AnySurface;
   readonly keepPlace: boolean;
@@ -88,10 +87,25 @@ function PostList({
   readonly setSelected: (i: number) => void;
   readonly list: RefObject<VirtuosoHandle | null>;
   readonly onOpen: (p: EnginePost) => void;
-  readonly onReopen: () => void;
 }) {
   const scroller = useXScrollParent();
   const lastMore = useRef(0);
+  const trailing = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => clearTimeout(trailing.current ?? undefined), []);
+  // Virtuoso fires endReached once per list length, so a call inside the pause is kept for its end
+  // rather than dropped; otherwise the feed would stall at its last post.
+  const more = () => {
+    const wait = lastMore.current + MORE_EVERY_MS - Date.now();
+    if (wait > 0) {
+      trailing.current ??= setTimeout(() => {
+        trailing.current = null;
+        more();
+      }, wait);
+      return;
+    }
+    lastMore.current = Date.now();
+    void xScrollMore();
+  };
   if (scroller === null) return null;
   return (
     <Virtuoso
@@ -104,18 +118,13 @@ function PostList({
       }}
       computeItemKey={(_, p) => p.postId}
       increaseViewportBy={800}
-      endReached={() => {
-        if (Date.now() - lastMore.current < MORE_EVERY_MS) return;
-        lastMore.current = Date.now();
-        void xScrollMore();
-      }}
+      endReached={more}
       itemContent={(index, p) => (
         <XPostView
           post={p}
           quoted={quoted(p.quotedId)}
           selected={index === selected}
           onOpen={onOpen}
-          onReopen={onReopen}
           onHover={() => setSelected(index)}
         />
       )}
@@ -250,7 +259,6 @@ export function Timeline({
           setSelected={setSelected}
           list={list}
           onOpen={open}
-          onReopen={onReopen}
         />
       )}
     </XColumn>

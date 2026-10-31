@@ -6,7 +6,7 @@ import { HomeComposer } from "../components/xnative/HomeComposer";
 import { Timeline } from "../components/xnative/Timeline";
 import { XTabs } from "../components/xnative/XColumn";
 import { type AnySurface, at, engineAtom } from "../state/engine";
-import { xNavigate, xPickHomeTab, xShows } from "../state/x";
+import { xGo, xNavigate, xPickHomeTab, xShows } from "../state/x";
 
 const FEEDS = [
   { id: "forYou", label: "For you" },
@@ -25,8 +25,9 @@ function HomeScreen() {
   const tabs = [...FEEDS, ...engine.homeTabs];
   const tab = tabs.find((t) => t.id === feed) ?? FEEDS[1];
   const surface = tab.id as AnySurface;
-  // Already on Home with this feed received, X only switches tabs. Otherwise X loads Home again:
-  // what X fetched before this screen was listening never reached it.
+  // Already on Home with this feed received, X only switches tabs. On Home without it, X loads Home
+  // again: what X fetched before this screen was listening never reached it (a full reload, so
+  // only then). From elsewhere, X's router brings Home back.
   const received = useRef(false);
   const has = at(engine.lists, surface).length > 0;
   useEffect(() => {
@@ -34,7 +35,10 @@ function HomeScreen() {
   }, [has]);
   const open = useCallback(() => {
     if (xShows("/home") && received.current) void xPickHomeTab(tab.label);
-    else void xNavigate("https://x.com/home").then(() => xPickHomeTab(tab.label));
+    else
+      void (xShows("/home") ? xNavigate : xGo)("https://x.com/home").then(() =>
+        xPickHomeTab(tab.label),
+      );
   }, [tab.label]);
   useEffect(open, [open]);
   return (

@@ -11,7 +11,7 @@ import { XRows } from "../components/xnative/XRows";
 import { Avatar } from "../components/xnative/XPostView";
 import { engineAtom } from "../state/engine";
 import { settingsAtom } from "../state/settings";
-import { xNavigate } from "../state/x";
+import { xGo } from "../state/x";
 
 type Row =
   | { readonly kind: "group"; readonly name: string }
@@ -67,7 +67,7 @@ function ListsScreen() {
   const handle = AsyncResult.getOrElse(useAtomValue(settingsAtom), () => null)?.handle ?? null;
   // X's Lists page is the account's own: x.com/<handle>/lists.
   const open = useCallback(
-    () => void (handle === null ? undefined : xNavigate(`https://x.com/${handle}/lists`)),
+    () => void (handle === null ? undefined : xGo(`https://x.com/${handle}/lists`)),
     [handle],
   );
   useEffect(open, [open]);

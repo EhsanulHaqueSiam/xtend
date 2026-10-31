@@ -31,6 +31,8 @@ export function XColumn({
   return (
     <div
       ref={setScroller}
+      // The engine benchmark scrolls lists through this hook, as it did Virtuoso's own scroller.
+      data-virtuoso-scroller
       className="@container h-full min-h-0 overflow-y-auto [overflow-anchor:none]"
     >
       <div className="flex min-h-full justify-center gap-7 px-4">

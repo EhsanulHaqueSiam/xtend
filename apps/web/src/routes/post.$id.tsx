@@ -1,4 +1,4 @@
-import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useAtomValue } from "@effect/atom-react";
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useCallback, useEffect } from "react";
 
@@ -8,8 +8,8 @@ import { ReplyComposer } from "../components/xnative/ReplyComposer";
 import { useOpenPost } from "../components/xnative/Timeline";
 import { XColumn, XTitle } from "../components/xnative/XColumn";
 import { XPostView } from "../components/xnative/XPostView";
-import { engineAtom, resetSurface, updateEngine } from "../state/engine";
-import { xNavigate } from "../state/x";
+import { at, engineAtom, postSurface } from "../state/engine";
+import { xGo } from "../state/x";
 
 /** One post with the thread above it, joined by X's line, and the replies under it, the composer between. */
 function PostScreen() {
@@ -17,18 +17,15 @@ function PostScreen() {
   const { h } = Route.useSearch();
   const router = useRouter();
   const engine = useAtomValue(engineAtom);
-  const setEngine = useAtomSet(engineAtom);
   const openPost = useOpenPost();
-  const open = useCallback(() => xNavigate(`https://x.com/${h}/status/${id}`), [h, id]);
-  useEffect(() => {
-    setEngine(updateEngine((s) => resetSurface(s, "post")));
-    open();
-  }, [open, setEngine]);
-  const posts = engine.lists.post.flatMap((pid) => engine.posts.get(pid) ?? []);
-  const at = posts.findIndex((p) => p.postId === id);
-  const focal = at === -1 ? engine.posts.get(id) : posts[at];
-  const above = at === -1 ? [] : posts.slice(0, at);
-  const below = at === -1 ? [] : posts.slice(at + 1);
+  // X's router, so a thread X still holds shows at once; its posts sit under the post's own key.
+  const open = useCallback(() => void xGo(`https://x.com/${h}/status/${id}`), [h, id]);
+  useEffect(open, [open]);
+  const posts = at(engine.lists, postSurface(id)).flatMap((pid) => engine.posts.get(pid) ?? []);
+  const index = posts.findIndex((p) => p.postId === id);
+  const focal = index === -1 ? engine.posts.get(id) : posts[index];
+  const above = index === -1 ? [] : posts.slice(0, index);
+  const below = index === -1 ? [] : posts.slice(index + 1);
   const quoted = (pid: string | null) => (pid === null ? undefined : engine.posts.get(pid));
   return (
     <XColumn
@@ -48,16 +45,10 @@ function PostScreen() {
               onOpen={openPost}
             />
           ))}
-          <XPostView post={focal} quoted={quoted(focal.quotedId)} focal onReopen={open} />
+          <XPostView post={focal} quoted={quoted(focal.quotedId)} focal />
           <ReplyComposer post={focal} thread={above.map((p) => p.text)} onSent={open} />
           {below.map((p) => (
-            <XPostView
-              key={p.postId}
-              post={p}
-              quoted={quoted(p.quotedId)}
-              onOpen={openPost}
-              onReopen={open}
-            />
+            <XPostView key={p.postId} post={p} quoted={quoted(p.quotedId)} onOpen={openPost} />
           ))}
         </>
       )}

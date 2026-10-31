@@ -1,4 +1,4 @@
-import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useAtomValue } from "@effect/atom-react";
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
 import { Search } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -6,8 +6,8 @@ import { useCallback, useEffect, useState } from "react";
 import { Timeline } from "../components/xnative/Timeline";
 import { XColumn, XTabs } from "../components/xnative/XColumn";
 import { UserRow, XRows } from "../components/xnative/XRows";
-import { at, engineAtom, resetSurface, updateEngine } from "../state/engine";
-import { xNavigate } from "../state/x";
+import { at, engineAtom, type SearchProduct, searchSurface } from "../state/engine";
+import { xGo } from "../state/x";
 
 const KINDS = [
   { id: "top", label: "Top" },
@@ -22,6 +22,13 @@ const X_TAB: Readonly<Record<Kind, string>> = {
   people: "&f=user",
   media: "&f=media",
 };
+/** The product X's results are keyed by, per tab. */
+const PRODUCT: Readonly<Record<Kind, SearchProduct>> = {
+  top: "Top",
+  latest: "Latest",
+  people: "People",
+  media: "Media",
+};
 type Kind = (typeof KINDS)[number]["id"];
 
 /** X's search ran by the engine in the session, free; operators (from:, min_faves:) work as on X. */
@@ -29,7 +36,6 @@ function SearchScreen() {
   const { q, f } = Route.useSearch();
   const navigate = useNavigate();
   const router = useRouter();
-  const setEngine = useAtomSet(engineAtom);
   const engine = useAtomValue(engineAtom);
   const [draft, setDraft] = useState(q);
   // A query opened from elsewhere (a hashtag, the palette) replaces what was typed.
@@ -40,12 +46,11 @@ function SearchScreen() {
   }
   const open = useCallback(() => {
     if (q === "") return;
-    xNavigate(`https://x.com/search?q=${encodeURIComponent(q)}&src=typed_query${X_TAB[f]}`);
+    void xGo(`https://x.com/search?q=${encodeURIComponent(q)}&src=typed_query${X_TAB[f]}`);
   }, [q, f]);
-  useEffect(() => {
-    setEngine(updateEngine((s) => resetSurface(s, "search")));
-    open();
-  }, [open, setEngine]);
+  useEffect(open, [open]);
+  // Each query and tab has its own key, so a search X still holds shows at once.
+  const surface = searchSurface(PRODUCT[f], q);
   const header = (
     <>
       <div className="flex items-center gap-4 px-4 pt-1.5 pb-1">
@@ -96,7 +101,7 @@ function SearchScreen() {
     return (
       <XColumn header={header}>
         <XRows
-          items={at(engine.people, "search").flatMap((id) => engine.users.get(id) ?? [])}
+          items={at(engine.people, surface).flatMap((id) => engine.users.get(id) ?? [])}
           rowKey={(u) => u.userId}
           empty={q === "" ? "Search X for people by name or @handle." : "Searching X for people."}
           row={(u) => <UserRow user={u} />}
@@ -105,7 +110,7 @@ function SearchScreen() {
     );
   return (
     <Timeline
-      surface="search"
+      surface={surface}
       header={header}
       empty={
         q === "" ? "Search X: words, @handles, or operators like min_faves:500." : "Searching X."

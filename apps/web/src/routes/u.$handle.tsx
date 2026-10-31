@@ -1,4 +1,4 @@
-import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useAtomValue } from "@effect/atom-react";
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
 import { CalendarDays, Link2, MapPin } from "lucide-react";
 import { useCallback, useEffect } from "react";
@@ -8,14 +8,8 @@ import { RichText } from "../components/xnative/RichText";
 import { Timeline } from "../components/xnative/Timeline";
 import { XTabs, XTitle } from "../components/xnative/XColumn";
 import { Avatar, Verified } from "../components/xnative/XPostView";
-import {
-  engineAtom,
-  resetSurface,
-  type Surface,
-  updateEngine,
-  userByHandle,
-} from "../state/engine";
-import { xNavigate } from "../state/x";
+import { engineAtom, profileSurface, type Surface, userByHandle } from "../state/engine";
+import { xGo } from "../state/x";
 
 const TABS = [
   { id: "posts", label: "Posts", path: "", surface: "profile" },
@@ -36,27 +30,26 @@ function ProfileScreen() {
   const navigate = useNavigate();
   const router = useRouter();
   const engine = useAtomValue(engineAtom);
-  const setEngine = useAtomSet(engineAtom);
   const current = TABS.find((t) => t.id === tab)!;
   const open = useCallback(
-    () => void xNavigate(`https://x.com/${handle}${current.path}`),
+    () => void xGo(`https://x.com/${handle}${current.path}`),
     [handle, current.path],
   );
-  useEffect(() => {
-    setEngine(updateEngine((s) => resetSurface(s, current.surface)));
-    open();
-  }, [open, setEngine, current.surface]);
+  useEffect(open, [open]);
   const user = userByHandle(engine, handle);
   // Before X sends the profile, any post of theirs gives a name and a face.
   const seen = [...engine.posts.values()].find(
     (p) => p.author.handle.toLowerCase() === handle.toLowerCase(),
   );
+  // A tab's posts sit under the person's id; until X names them, under the last profile fetched.
+  const userId = user?.userId ?? seen?.author.userId;
+  const surface = userId === undefined ? current.surface : profileSurface(current.id, userId);
   const name = user?.name ?? seen?.author.name ?? handle;
   const pill =
     "h-9 cursor-pointer rounded-full px-4 text-[15px] font-bold transition-colors duration-150";
   return (
     <Timeline
-      surface={current.surface}
+      surface={surface}
       header={
         <XTitle
           title={

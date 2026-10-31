@@ -1,23 +1,19 @@
-import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useAtomValue } from "@effect/atom-react";
 import { createFileRoute } from "@tanstack/react-router";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useCallback, useEffect } from "react";
 
 import { Timeline } from "../components/xnative/Timeline";
 import { XTitle } from "../components/xnative/XColumn";
-import { engineAtom, resetSurface, updateEngine } from "../state/engine";
 import { settingsAtom } from "../state/settings";
-import { xNavigate } from "../state/x";
+import { xGo } from "../state/x";
 
 /** X's bookmarks, drawn by Xtend from the engine on x.com/i/bookmarks. */
 function BookmarksScreen() {
-  const setEngine = useAtomSet(engineAtom);
   const handle = AsyncResult.getOrElse(useAtomValue(settingsAtom), () => null)?.handle ?? null;
-  const open = useCallback(() => void xNavigate("https://x.com/i/bookmarks"), []);
-  useEffect(() => {
-    setEngine(updateEngine((s) => resetSurface(s, "bookmarks")));
-    open();
-  }, [open, setEngine]);
+  // Through X's router: a page X still holds shows from its cache, and the store keeps its posts.
+  const open = useCallback(() => void xGo("https://x.com/i/bookmarks"), []);
+  useEffect(open, [open]);
   return (
     <Timeline
       surface="bookmarks"
