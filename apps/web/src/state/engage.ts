@@ -1,5 +1,6 @@
 import { Engage_METHODS, WS_METHODS, type ReplyTone, type XPost } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Atom from "effect/reactivity/Atom";
 
 import { clientRuntime, XtendClient } from "../rpc/client";
@@ -33,6 +34,24 @@ export const draftReplyAtom = Atom.family((_postId: string) =>
         post,
         ...(tone === null ? {} : { tone }),
         ...(own === undefined ? {} : { own }),
+      });
+    }),
+  ),
+);
+
+/** Free on the user's login: what the post is, and replies written for it. Per post, like the drafts. */
+export const readPostAtom = Atom.family((_postId: string) =>
+  clientRuntime.fn<{
+    readonly post: XPost;
+    readonly images: ReadonlyArray<string>;
+    readonly thread: ReadonlyArray<string>;
+    readonly correction?: string | undefined;
+  }>()(
+    Effect.fnUntraced(function* ({ correction, ...input }) {
+      const client = yield* XtendClient;
+      return yield* client[Engage_METHODS.readPost]({
+        ...input,
+        ...(correction === undefined ? {} : { correction }),
       });
     }),
   ),
@@ -119,6 +138,25 @@ export const inboxAtom = clientRuntime.atom((get) =>
     get(observedAtom);
     const client = yield* XtendClient;
     return yield* client[Engage_METHODS.inbox]({});
+  }),
+);
+
+/**
+ * Everything said to the user, once each, newest first: mentions plus replies and quotes to
+ * their posts. A reply usually names the user too, so it is in both reads; it shows once, as a
+ * reply. `replies` holds those ids; `apiError` is the last paid mention fetch's refusal.
+ */
+export const inboxItemsAtom = Atom.make((get) =>
+  AsyncResult.map(AsyncResult.all([get(mentionsAtom), get(inboxAtom)]), ([seen, inbox]) => {
+    const replies = new Set(inbox.incoming.map((m) => m.post.postId));
+    return {
+      items: [
+        ...inbox.incoming,
+        ...seen.mentions.filter((m) => !replies.has(m.post.postId)),
+      ].toSorted((a, b) => b.post.createdAt.localeCompare(a.post.createdAt)),
+      replies,
+      apiError: seen.apiError,
+    };
   }),
 );
 

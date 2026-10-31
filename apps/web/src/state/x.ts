@@ -15,6 +15,7 @@ export interface XWebview extends HTMLElement {
   goForward(): void;
   reload(): void;
   getURL(): string;
+  executeJavaScript(code: string): Promise<unknown>;
   findInPage(text: string, options?: { forward?: boolean; findNext?: boolean }): number;
   stopFindInPage(action: "clearSelection" | "keepSelection" | "activateSelection"): void;
 }
@@ -43,12 +44,51 @@ export const markXReady = () => {
   pending = null;
 };
 
-/** Loads an x.com URL; other hosts are ignored. Before the guest is ready the last call wins. */
-export const xNavigate = (url: string) => {
-  if (!isXUrl(url)) return;
-  if (element !== null && ready) void element.loadURL(url).catch(() => {});
-  else pending = url;
+/**
+ * Loads an x.com URL; other hosts are ignored. Before the guest is ready the last call wins.
+ * Resolves once the page has loaded, so an engine step can follow it.
+ */
+export const xNavigate = (url: string): Promise<void> => {
+  if (!isXUrl(url)) return Promise.resolve();
+  if (element !== null && ready) return element.loadURL(url).catch(() => {});
+  pending = url;
+  return Promise.resolve();
 };
+
+/** Whether the webview already shows this x.com path, so a screen can skip reloading it. */
+export const xShows = (path: string) => {
+  try {
+    return ready && element !== null && new URL(element.getURL()).pathname === path;
+  } catch {
+    return false;
+  }
+};
+/**
+ * Engine steps for Xtend's own X screens, run in X's page on the user's intent: X's own app does
+ * the fetching, and the capture hands its responses to the screens. Nothing here sends anything.
+ */
+const xRun = (code: string) =>
+  ready && element !== null
+    ? element.executeJavaScript(code).catch(() => null)
+    : Promise.resolve(null);
+
+/** The user scrolled near the end of a native list: X scrolls its own page and fetches the next. */
+export const xScrollMore = () => xRun("window.scrollBy(0, window.innerHeight * 3), true");
+
+/** Picks a tab on X's Home ("For you", "Following") once the page has drawn it. */
+export const xPickHomeTab = (label: string) =>
+  xRun(`new Promise((done) => {
+    let tries = 0;
+    const timer = setInterval(() => {
+      const tab = [...document.querySelectorAll('[role="tab"]')].find((t) => t.textContent.trim() === ${JSON.stringify(label)});
+      if (tab !== undefined || ++tries > 40) {
+        clearInterval(timer);
+        if (tab !== undefined && tab.getAttribute("aria-selected") !== "true") tab.click();
+        done(tab !== undefined);
+      }
+    }, 150);
+  })`);
+
 export const xBack = () => (ready ? element?.goBack() : undefined);
 export const xForward = () => (ready ? element?.goForward() : undefined);
 export const xReload = () => (ready ? element?.reload() : undefined);

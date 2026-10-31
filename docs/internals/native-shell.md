@@ -23,6 +23,20 @@ and the tools; X's own rail and right column are hidden by a CSS skin.
   the default browser), the context menu, downloads, the key rules, the capture and the desktop
   commands. A new guest (an account switch rebuilds the window) detaches the old one first.
 
+## The engine
+
+Home, Search and Post are Xtend's own screens (`components/xnative/`), drawn from what the
+session view receives, the way T3 Code draws Claude's work: X is the engine, Xtend the
+interface. The screen moves the off-screen webview to the matching x.com page (and picks
+Home's tab); the capture turns each GraphQL response into posts with media, video variants,
+quotes and parents (`renderPostsFromGraphql`) and sends them to the app page on
+`xtend:engine`, never to the service. Reaching the end of a list scrolls X's own page so X
+fetches the next one, at most every 1.5s. A like or reply goes through the existing session
+command, which opens the post's page; the screen then puts the engine back, and posts X sends
+again are deduplicated. Video plays from X's mp4 in Xtend's player, so fullscreen and picture
+in picture are the browser's own. Pages Xtend does not draw yet (notifications, messages,
+profiles, lists) still show x.com itself.
+
 ## Where x.com sits
 
 `components/shell/AppShell.tsx` is a three-column grid: sidebar, main area, X panel. The pane

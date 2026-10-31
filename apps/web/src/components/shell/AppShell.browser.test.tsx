@@ -260,14 +260,19 @@ it("moves the panel to each section's X page, hides it where X has none, and rel
   await expect.element(pane).toHaveAttribute("data-mode", "panel");
   await expect.poll(() => loads.at(-1)).toBe("https://x.com/messages");
 
-  // Home shown beside a tool: the first click only brings it to the main area.
-  await screen.router!.navigate({ href: "/engage?tab=targets" });
-  await expect.poll(() => loads.at(-1)).toBe("https://x.com/home");
+  // Notifications shown beside a tool: the first click only brings it to the main area.
+  await screen.router!.navigate({ href: "/engage?tab=inbox" });
+  await expect.poll(() => loads.at(-1)).toBe("https://x.com/notifications");
   const count = loads.length;
-  await userEvent.click(screen.getByRole("button", { name: "Home" }));
+  await userEvent.click(screen.getByRole("button", { name: "Notifications" }));
   await expect.element(pane).toHaveAttribute("data-mode", "main");
   expect(loads.length).toBe(count);
   expect(reloads).toBe(0);
-  await userEvent.click(screen.getByRole("button", { name: "Home" }));
+  await userEvent.click(screen.getByRole("button", { name: "Notifications" }));
   expect(reloads).toBe(1);
+
+  // Home is Xtend's own screen now: x.com stays out of sight under it.
+  await userEvent.click(screen.getByRole("button", { name: "Home" }));
+  await expect.poll(() => screen.router!.state.location.pathname).toBe("/home");
+  await expect.element(pane).toHaveAttribute("data-mode", "hidden");
 });

@@ -87,6 +87,13 @@ export class BrowserWindow extends EventEmitter {
   getContentBounds() {
     return { x: 0, y: 0, width: 1440, height: 920 };
   }
+  fullScreen = false;
+  isFullScreen() {
+    return this.fullScreen;
+  }
+  setFullScreen(on: boolean) {
+    this.fullScreen = on;
+  }
   isDestroyed() {
     return this.closed;
   }

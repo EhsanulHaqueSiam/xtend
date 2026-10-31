@@ -27,6 +27,19 @@ export type ReplyTarget = typeof ReplyTarget.Type;
 export const ReplyDraft = Schema.Struct({ text: Schema.String });
 export type ReplyDraft = typeof ReplyDraft.Type;
 
+/**
+ * What a post is, read before replying: `read` names it ("Playful hot take"), `signals` say what
+ * gave it away (the image included), and each angle is a reply written for this post, labelled
+ * by what it does.
+ */
+export const PostRead = Schema.Struct({
+  read: Schema.String,
+  signals: Schema.Array(Schema.String),
+  angles: Schema.Array(Schema.Struct({ label: Schema.String, text: Schema.String })),
+  why: Schema.String,
+});
+export type PostRead = typeof PostRead.Type;
+
 /** One reply attempt, kept whether X accepted it or not. */
 export const SentReply = Schema.Struct({
   id: Schema.Int,
@@ -87,6 +100,7 @@ export class EngageError extends Schema.TaggedError<EngageError>()("EngageError"
 export const Engage_METHODS = {
   targets: "engage.targets",
   draftReply: "engage.draftReply",
+  readPost: "engage.readPost",
   reply: "engage.reply",
   like: "engage.like",
   findKeywords: "engage.findKeywords",
@@ -113,6 +127,17 @@ export const EngageRpcGroup = RpcGroup.make(
       own: Schema.optional(Schema.String),
     }),
     success: Schema.Array(ReplyDraft),
+    error: EngageError,
+  }),
+  /** `images` are the post's image URLs; `thread` the texts above it; `correction` the user's own read. */
+  Rpc.make(Engage_METHODS.readPost, {
+    payload: Schema.Struct({
+      post: XPost,
+      images: Schema.Array(Schema.String),
+      thread: Schema.Array(Schema.String),
+      correction: Schema.optional(Schema.String),
+    }),
+    success: PostRead,
     error: EngageError,
   }),
   Rpc.make(Engage_METHODS.reply, {

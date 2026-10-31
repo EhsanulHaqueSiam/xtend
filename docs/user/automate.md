@@ -51,12 +51,12 @@ asked. Expand a request to review its target on X, the full post, and the resolv
 with its price. If the action changed since it asked, approval skips it; run the rule again
 to review the new action. **Approve** performs the action at the price shown on the button;
 **Skip** closes it for good. Focus a card and press `a` to approve or `s` to skip. The header shows how many wait and
-their total; with two or more, **Approve all** pays that total. The same requests appear under
-Compose's Automatic section (with **Dismiss** for Skip) and as OS notifications.
+their total; with two or more, **Approve all** pays that total. The same requests show on
+Today, which opens them here, and as OS notifications.
 
 ## Dry run
 
-What every enabled rule would do right now, each firing with its price and the total, without
+**Dry run** in the Rules header shows what every enabled rule would do right now, each firing with its price and the total, without
 doing any of it. One rule can also be replayed over the last 7 days of stored posts, engagers
 and followers to see when it would have fired.
 

@@ -1,16 +1,14 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
-import type { Draft, PendingRequest } from "@xtend/contracts";
-import { Link } from "@tanstack/react-router";
+import type { Draft } from "@xtend/contracts";
 import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { Plus } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
-import { approvePendingAtom, dismissPendingAtom, pendingAtom } from "../../state/automate";
 import { deleteDraftAtom, draftsAtom } from "../../state/compose";
 import { usd } from "../../state/costs";
-import { queueAtom, unscheduleAtom } from "../../state/plan";
+import { queueAtom } from "../../state/plan";
 import { stored } from "../../state/x";
 import { HeaderTabs, PageHeader } from "../PageHeader";
 import { sectionLabel, SECTIONS, type SectionId } from "../shell/sections";
@@ -35,11 +33,9 @@ const VIEWS = [
 ] as const;
 export const COMPOSE_TABS: ReadonlyArray<ComposeTab> = SECTIONS["/compose"].map((s) => s.id);
 
+// Queued and failed drafts live in Plan's queue; Compose holds what is still being written.
 const STATUSES: Record<ComposeTab, ReadonlyArray<Draft["status"]>> = {
-  drafts: ["draft"],
-  queued: ["queued", "posting"],
-  automatic: ["suggested"],
-  failed: ["failed"],
+  drafts: ["draft", "suggested"],
   posted: ["posted"],
 };
 
@@ -50,9 +46,6 @@ export const tabOf = (status: Draft["status"]): ComposeTab =>
 /** What the time column means in each section. */
 const WHEN: Record<ComposeTab, string> = {
   drafts: "Edited",
-  queued: "Posts at",
-  automatic: "Added",
-  failed: "Failed",
   posted: "Posted",
 };
 
@@ -98,7 +91,7 @@ const subline = (d: Draft): { readonly text: string; readonly tone?: string } | 
   return rest === "" ? null : { text: rest.replace(/\s+/g, " ") };
 };
 
-type RowAction = "queue" | "unschedule" | "delete";
+type RowAction = "queue" | "delete";
 
 /** One draft: its first line and what follows, then posts, price and time in mono columns. */
 function DraftRow({
@@ -162,7 +155,7 @@ function DraftRow({
       {/* Actions act on the row, not open it. */}
       <td className={cn(table.td, "w-px")} onClick={(e) => e.stopPropagation()}>
         <div className="flex justify-end gap-0.5">
-          {d.status === "draft" || d.status === "suggested" || d.status === "failed" ? (
+          {d.status === "draft" || d.status === "suggested" ? (
             // Queueing a paid post waits for its price.
             <Button
               variant="ghost"
@@ -170,17 +163,7 @@ function DraftRow({
               disabled={busy || costUsd === null}
               onClick={() => onAct("queue", d.id)}
             >
-              {d.status === "failed" ? "Retry at next slot" : "Queue"}
-            </Button>
-          ) : null}
-          {d.status === "queued" ? (
-            <Button
-              variant="ghost"
-              size="xs"
-              disabled={busy}
-              onClick={() => onAct("unschedule", d.id)}
-            >
-              Unschedule
+              Queue
             </Button>
           ) : null}
           {d.status === "posted" && d.postIds[0] !== undefined ? (
@@ -188,7 +171,7 @@ function DraftRow({
               View on X
             </Button>
           ) : null}
-          {editable && d.status !== "queued" ? (
+          {editable ? (
             <Button
               variant="ghost-destructive"
               size="xs"
@@ -205,45 +188,6 @@ function DraftRow({
               {d.status === "suggested" ? "Dismiss" : "Delete"}
             </Button>
           ) : null}
-        </div>
-      </td>
-    </tr>
-  );
-}
-
-/** An ask-first automation run waiting for a click; approving pays the price on its button. */
-function PendingRow({
-  request,
-  busy,
-  onDecide,
-}: {
-  readonly request: PendingRequest;
-  readonly busy: boolean;
-  readonly onDecide: (approve: boolean, id: number) => void;
-}) {
-  return (
-    <tr className={table.row}>
-      <td className={cn(table.td, "w-full max-w-0 py-2")}>
-        <p className="truncate">{request.ruleName}</p>
-        <p className="truncate text-xs text-muted-foreground">{request.description}</p>
-      </td>
-      <td className={cn(table.td, table.num, "whitespace-nowrap text-muted-foreground")}>
-        {fmtWhen(request.createdAt)}
-      </td>
-      <td className={cn(table.td, "w-px")}>
-        <div className="flex justify-end gap-1">
-          <Button size="xs" disabled={busy} onClick={() => onDecide(true, request.id)}>
-            Approve
-            <Cost tone="solid" usd={request.costUsd} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="xs"
-            disabled={busy}
-            onClick={() => onDecide(false, request.id)}
-          >
-            Dismiss
-          </Button>
         </div>
       </td>
     </tr>
@@ -270,23 +214,11 @@ function EmptySection({ tab, onNew }: { readonly tab: ComposeTab; readonly onNew
   );
   switch (tab) {
     case "drafts":
-      return <Empty action={newDraft}>No drafts. Press C anywhere to start one.</Empty>;
-    case "queued":
-      return <Empty action={newDraft}>Nothing queued. Queued drafts post at your next slot.</Empty>;
-    case "automatic":
       return (
-        <Empty
-          action={
-            <Button variant="outline" size="sm" render={<Link to="/automate" />}>
-              Automate
-            </Button>
-          }
-        >
-          Nothing waiting. Library and Automate leave drafts and ask-first actions here.
+        <Empty action={newDraft}>
+          No drafts. Press C anywhere to start one; Library and rules leave theirs here too.
         </Empty>
       );
-    case "failed":
-      return <Empty>No failed posts.</Empty>;
     case "posted":
       return <Empty>Nothing posted from Xtend yet.</Empty>;
   }
@@ -308,16 +240,8 @@ export function DraftsHome({
 }) {
   const drafts = useAtomValue(draftsAtom);
   const refreshDrafts = useAtomRefresh(draftsAtom);
-  const pendingResult = useAtomValue(pendingAtom);
-  const pending = AsyncResult.getOrElse(pendingResult, () => []).filter(
-    (r) => r.status === "pending",
-  );
-  const refreshPending = useAtomRefresh(pendingAtom);
   const queue = useAtomSet(queueAtom, { mode: "promiseExit" });
-  const unschedule = useAtomSet(unscheduleAtom, { mode: "promiseExit" });
   const remove = useAtomSet(deleteDraftAtom, { mode: "promiseExit" });
-  const approve = useAtomSet(approvePendingAtom, { mode: "promiseExit" });
-  const dismiss = useAtomSet(dismissPendingAtom, { mode: "promiseExit" });
   const costOf = useDraftCost();
   const view = useAtomValue(draftsViewAtom);
   const setView = useAtomSet(draftsViewAtom);
@@ -337,10 +261,6 @@ export function DraftsHome({
 
   const all = AsyncResult.getOrElse(drafts, () => [] as ReadonlyArray<Draft>);
   const shown = all.filter((d) => STATUSES[tab].includes(d.status));
-  const asks = tab === "automatic" ? pending : [];
-  // Until the ask-first list answers, an empty Automatic section would be a guess.
-  const asksLoading = tab === "automatic" && AsyncResult.isInitial(pendingResult);
-  const asksFailed = tab === "automatic" && AsyncResult.isFailure(pendingResult);
   const costs = shown.map(costOf);
   const total = costs.every((c) => c !== null) ? sumUsd(costs) : null;
 
@@ -348,41 +268,12 @@ export function DraftsHome({
     setNotice(Exit.isFailure(exit) ? `Failed: ${failText(exit.cause)}` : done);
   const act = (what: RowAction, id: string) =>
     guarded(async () => {
-      const exit =
-        what === "queue"
-          ? await queue(id)
-          : what === "unschedule"
-            ? await unschedule(id)
-            : await remove(id);
-      report(
-        exit,
-        what === "queue"
-          ? "Queued for the next slot"
-          : what === "unschedule"
-            ? "Back in drafts"
-            : "Removed",
-      );
+      const exit = what === "queue" ? await queue(id) : await remove(id);
+      report(exit, what === "queue" ? "Queued for the next slot" : "Removed");
       refreshDrafts();
     });
-  const decide = (yes: boolean, id: number) =>
-    guarded(async () => {
-      if (yes) {
-        const exit = await approve(id);
-        // The service settles an approved request whatever its run did; only the run says it acted.
-        const run = Exit.isSuccess(exit) ? exit.value : null;
-        report(
-          exit,
-          run === null || run.status === "ok"
-            ? "Approved"
-            : `Not done, ${run.status}: ${run.detail}`,
-        );
-      } else report(await dismiss(id), "Dismissed");
-      refreshPending();
-      refreshDrafts();
-    });
-
   // The section's size and what posting all of it would cost.
-  const count = shown.length + asks.length;
+  const count = shown.length;
   const detail =
     count === 0
       ? undefined
@@ -418,29 +309,9 @@ export function DraftsHome({
           {notice}
         </p>
       ) : null}
-      {tab === "automatic" && AsyncResult.isFailure(pendingResult) ? (
-        <p className="shrink-0 border-b border-border px-6 py-2 text-xs text-error-foreground">
-          {failText(pendingResult.cause)}
-        </p>
-      ) : null}
       <PageBody className="@container">
         {board ? (
           <DraftsBoard drafts={all} costOf={costOf} onOpen={onOpen} onChanged={refreshDrafts} />
-        ) : null}
-        {!board && asks.length > 0 ? (
-          <Table
-            head={
-              <>
-                <th className={table.th}>Ask first</th>
-                <th className={cn(table.th, "text-right")}>Asked</th>
-                <th className={table.th} />
-              </>
-            }
-          >
-            {asks.map((r) => (
-              <PendingRow key={r.id} request={r} busy={busy} onDecide={decide} />
-            ))}
-          </Table>
         ) : null}
         {board
           ? null
@@ -449,16 +320,12 @@ export function DraftsHome({
               onFailure: (f) => <Empty>{failText(f.cause)}</Empty>,
               onSuccess: () =>
                 shown.length === 0 ? (
-                  asks.length > 0 || asksFailed ? null : asksLoading ? (
-                    <Empty>Loading drafts</Empty>
-                  ) : (
-                    <EmptySection tab={tab} onNew={onNew} />
-                  )
+                  <EmptySection tab={tab} onNew={onNew} />
                 ) : (
                   <Table
                     head={
                       <>
-                        <th className={table.th}>{tab === "automatic" ? "Suggested" : "Draft"}</th>
+                        <th className={table.th}>Draft</th>
                         <th className={cn(table.th, "text-right")}>Posts</th>
                         {tab === "posted" ? null : (
                           <th className={cn(table.th, "text-right")}>Cost</th>

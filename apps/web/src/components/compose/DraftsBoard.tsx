@@ -13,10 +13,15 @@ import { draftTitle, fmtWhen } from "./DraftsList";
 
 /** The board's columns are the draft statuses the user moves between; the service owns the rest. */
 const COLUMNS = [
-  { id: "suggested", label: "Automatic", takes: true },
-  { id: "draft", label: "Drafts", takes: true },
-  { id: "queued", label: "Queued", takes: true },
-  { id: "posted", label: "Posted", takes: false },
+  {
+    id: "suggested",
+    label: "Automatic",
+    takes: true,
+    empty: "Library and rules leave drafts here.",
+  },
+  { id: "draft", label: "Drafts", takes: true, empty: "Press C anywhere to start one." },
+  { id: "queued", label: "Queued", takes: true, empty: "Drag a draft here to post it next slot." },
+  { id: "posted", label: "Posted", takes: false, empty: "Nothing posted from Xtend yet." },
 ] as const;
 type ColumnId = (typeof COLUMNS)[number]["id"];
 
@@ -95,7 +100,7 @@ export function DraftsBoard({
             key={column.id}
             data-over={over === column.id || undefined}
             className={cn(
-              "flex min-h-40 flex-col gap-2 rounded-2xl border border-border bg-card p-3 transition-colors duration-150",
+              "flex min-h-40 flex-col gap-2 rounded-xl border border-border bg-card p-3 transition-colors duration-150",
               column.takes && dragging !== null && "border-white/15",
               over === column.id && "border-white/40",
             )}
@@ -129,6 +134,9 @@ export function DraftsBoard({
               {column.label}
               <span className="font-mono text-2xs font-normal tabular-nums">{cards.length}</span>
             </h3>
+            {cards.length === 0 ? (
+              <p className="px-1 text-xs text-muted-foreground/70">{column.empty}</p>
+            ) : null}
             {cards.map((d) => {
               const cost = costOf(d);
               const editable = d.status !== "posted" && d.status !== "posting";
@@ -138,7 +146,7 @@ export function DraftsBoard({
                   type="button"
                   draggable={editable}
                   className={cn(
-                    "flex cursor-pointer flex-col gap-1 rounded-xl border border-border bg-background px-3 py-2 text-left outline-hidden transition-[border-color,opacity] duration-150 hover:border-white/15 focus-visible:ring-2 focus-visible:ring-ring",
+                    "flex cursor-pointer flex-col gap-1 rounded-lg border border-border bg-background px-3 py-2 text-left outline-hidden transition-[border-color,opacity] duration-150 hover:border-white/15 focus-visible:ring-2 focus-visible:ring-ring",
                     editable && "cursor-grab active:cursor-grabbing",
                     dragging === d.id && "opacity-40",
                   )}

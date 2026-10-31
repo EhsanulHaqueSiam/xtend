@@ -1,4 +1,5 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
+import { useState } from "react";
 
 import { ArchiveTab } from "../components/library/ArchiveTab";
 import { CollectionsTab } from "../components/library/CollectionsTab";
@@ -6,7 +7,44 @@ import { PicksTab } from "../components/library/PicksTab";
 import { SearchTab } from "../components/library/SearchTab";
 import { SwipeTab } from "../components/library/SwipeTab";
 import { TrendsTab } from "../components/library/TrendsTab";
+import { HeaderTabs } from "../components/PageHeader";
+import { Authors } from "../components/library/Authors";
+import { PageHeader } from "../components/PageHeader";
+import { SeenFeed } from "../components/SeenFeed";
+import { PageBody } from "../components/ui/layout";
 import { useSection } from "../components/shell/sections";
+
+const SAVED_VIEWS = [
+  { id: "all", label: "All saved" },
+  { id: "collections", label: "Collections" },
+] as const;
+
+const SEEN_VIEWS = [
+  { id: "posts", label: "Posts" },
+  { id: "authors", label: "Authors" },
+] as const;
+
+/** What the session showed: every post, or the accounts that fill the feed. */
+function Seen() {
+  const [view, setView] = useState<(typeof SEEN_VIEWS)[number]["id"]>("posts");
+  const tabs = <HeaderTabs label="View" tabs={SEEN_VIEWS} value={view} onChange={setView} />;
+  if (view === "posts") return <SeenFeed tabs={tabs} />;
+  return (
+    <div className="flex h-full flex-col">
+      <PageHeader title="Seen" tabs={tabs} />
+      <PageBody>
+        <Authors />
+      </PageBody>
+    </div>
+  );
+}
+
+/** Saved posts, all of them as cards to search, or by collection. */
+function Saved() {
+  const [view, setView] = useState<(typeof SAVED_VIEWS)[number]["id"]>("all");
+  const tabs = <HeaderTabs label="View" tabs={SAVED_VIEWS} value={view} onChange={setView} />;
+  return view === "all" ? <SwipeTab tabs={tabs} /> : <CollectionsTab tabs={tabs} />;
+}
 
 /** The sidebar picks the section; each section draws its own header with its filters. */
 function LibraryScreen() {
@@ -23,10 +61,10 @@ function LibraryScreen() {
         <ArchiveTab />
       ) : section === "trends" ? (
         <TrendsTab />
-      ) : section === "collections" ? (
-        <CollectionsTab />
+      ) : section === "saved" ? (
+        <Saved />
       ) : (
-        <SwipeTab />
+        <Seen />
       )}
     </div>
   );

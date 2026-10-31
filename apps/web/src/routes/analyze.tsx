@@ -3,8 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 
 import { AnalyzePage } from "../components/analyze/AnalyzePage";
-import { Ask } from "../components/analyze/Ask";
-import { Audience } from "../components/analyze/Audience";
+import { FollowersSection } from "../components/analyze/Followers";
 import { BestTime } from "../components/analyze/BestTime";
 import { Competitors } from "../components/analyze/Competitors";
 import { Overview } from "../components/analyze/Overview";
@@ -45,13 +44,11 @@ export function AnalyzeScreen() {
         case "posts":
           return <Posts data={value} />;
         case "audience":
-          return <Audience data={value} />;
+          return <FollowersSection />;
         case "best-time":
           return <BestTime data={value} />;
         case "competitors":
           return <Competitors data={value} />;
-        case "ask":
-          return <Ask data={value} />;
       }
     },
   });

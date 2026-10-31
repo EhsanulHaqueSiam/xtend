@@ -1,3 +1,5 @@
+import type { EngineBatch } from "@xtend/contracts";
+
 import type { DesktopBridge, ShortcutKey } from "../src/desktopBridge";
 
 /**
@@ -8,6 +10,7 @@ export function installFakeBridge(overrides: Partial<DesktopBridge> = {}) {
   const calls: Array<string> = [];
   const routes = new Set<(route: string) => void>();
   const shortcuts = new Set<(key: ShortcutKey) => void>();
+  const engine = new Set<(batch: EngineBatch) => void>();
   const subscribe =
     <T>(set: Set<(value: T) => void>) =>
     (cb: (value: T) => void) => {
@@ -34,6 +37,7 @@ export function installFakeBridge(overrides: Partial<DesktopBridge> = {}) {
     onShortcut: subscribe(shortcuts),
     getUpdate: () => Promise.resolve({ channel: "stable", version: "0.0.1", status: "idle" }),
     onUpdate: () => () => {},
+    onEngine: subscribe(engine),
     checkUpdate: () => calls.push("update check"),
     setUpdateChannel: (channel) => calls.push(`update channel ${channel}`),
     restartToUpdate: () => calls.push("update restart"),
@@ -43,6 +47,7 @@ export function installFakeBridge(overrides: Partial<DesktopBridge> = {}) {
   return {
     calls,
     emitRoute: (route: string) => routes.forEach((cb) => cb(route)),
+    emitEngine: (batch: EngineBatch) => engine.forEach((cb) => cb(batch)),
     emitShortcut: (key: ShortcutKey) => shortcuts.forEach((cb) => cb(key)),
   };
 }

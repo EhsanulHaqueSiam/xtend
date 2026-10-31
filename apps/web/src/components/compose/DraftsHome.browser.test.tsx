@@ -1,12 +1,5 @@
-import {
-  AutomateError,
-  ComposeError,
-  type Draft,
-  type PendingRequest,
-  type XtendEvent,
-} from "@xtend/contracts";
+import type { Draft } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
-import * as Stream from "effect/Stream";
 import { expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
@@ -46,17 +39,6 @@ const draft = (
   ...extra,
 });
 
-const pending: PendingRequest = {
-  id: 7,
-  ruleId: 1,
-  ruleName: "Reply to fast risers",
-  subjectId: "1",
-  description: "Reply to @levelsio's post climbing at 4k views an hour",
-  costUsd: 0.015,
-  createdAt: "2026-10-23T00:00:00.000Z",
-  status: "pending",
-};
-
 const prices = {
   "costs.quote": () => Effect.succeed({ rates, quotes: [] }),
   "compose.quote": () => Effect.succeed({ articleUsd: 0.02, coverUsd: 0.04, coverModel: "m" }),
@@ -79,7 +61,6 @@ it("shows drafts as a board, and dragging a draft onto Queued queues it", async 
     service: {
       ...prices,
       "compose.draftsList": () => Effect.succeed({ drafts }),
-      "automate.pendingList": () => Effect.succeed([]),
       "plan.queue": ({ id }) => {
         queued.push(id);
         return Effect.succeed(drafts[0]!);
@@ -101,7 +82,6 @@ it("lists the open section's drafts with their price, and opens or starts one", 
     service: {
       ...prices,
       "compose.draftsList": () => Effect.succeed({ drafts }),
-      "automate.pendingList": () => Effect.succeed([pending]),
     },
   });
   await expect.element(screen.getByRole("heading", { name: "Drafts" })).toBeVisible();
@@ -119,29 +99,15 @@ it("lists the open section's drafts with their price, and opens or starts one", 
   expect(onNew).toHaveBeenCalled();
 });
 
-it("shows what automation wrote and prices an ask-first action, then queues a suggestion", async () => {
+it("lists what Library and rules wrote among your drafts, and queues one", async () => {
+  localStorage.setItem("xtend:compose-view", "list");
   const queued: Array<string> = [];
-  const decided: Array<number> = [];
   await using screen = await render(
-    <DraftsHome tab="automatic" onOpen={() => {}} onNew={() => {}} />,
+    <DraftsHome tab="drafts" onOpen={() => {}} onNew={() => {}} />,
     {
       service: {
         ...prices,
         "compose.draftsList": () => Effect.succeed({ drafts }),
-        "automate.pendingList": () => Effect.succeed([pending]),
-        "automate.pendingApprove": ({ id }) => {
-          decided.push(id);
-          return Effect.succeed({
-            id: 1,
-            ruleId: 1,
-            at: "2026-10-23T00:00:00.000Z",
-            subjectId: "1",
-            status: "ok" as const,
-            detail: "replied",
-            costUsd: 0.015,
-            xId: null,
-          });
-        },
         "plan.queue": ({ id }) => {
           queued.push(id);
           return Effect.succeed(
@@ -151,142 +117,13 @@ it("shows what automation wrote and prices an ask-first action, then queues a su
       },
     },
   );
-  await expect.element(screen.getByText("Reply to fast risers")).toBeVisible();
   await expect
     .element(screen.getByText("Ready to post · your best format (voice 0.8)"))
     .toBeVisible();
-  // The paid approval carries its price on the button itself.
-  const approve = screen.getByRole("button", { name: /^Approve/ });
-  await expect.element(approve).toBeVisible();
-  expect(approve.element().textContent).toContain("$0.015");
-  await userEvent.click(approve);
-  await expect.poll(() => decided).toEqual([7]);
-  await userEvent.click(screen.getByRole("button", { name: "Queue" }));
+  // Queued drafts belong to Plan's queue, not here.
+  expect(screen.getByText("Queued one").elements()).toHaveLength(0);
+  const row = screen.getByRole("row").filter({ hasText: "Answer fast" });
+  await userEvent.click(row.getByRole("button", { name: "Queue" }));
   await expect.poll(() => queued).toEqual(["s1"]);
   await expect.element(screen.getByText("Queued for the next slot")).toBeVisible();
-});
-
-it("shows why a draft failed, retries it only when asked, and says when an action is refused", async () => {
-  const uncertain = draft("f1", "failed", "Launch thread", {
-    error: "Post 2 may already be on X (timeout); check your profile before retrying",
-    postIds: ["11"],
-  });
-  const queued: Array<string> = [];
-  const deleted: Array<string> = [];
-  await using screen = await render(
-    <DraftsHome tab="failed" onOpen={() => {}} onNew={() => {}} />,
-    {
-      service: {
-        ...prices,
-        "compose.draftsList": () => Effect.succeed({ drafts: [uncertain] }),
-        "automate.pendingList": () => Effect.succeed([]),
-        "plan.queue": ({ id }) => {
-          queued.push(id);
-          return Effect.succeed(draft(id, "queued", "Launch thread"));
-        },
-        "compose.draftDelete": ({ id }) => {
-          deleted.push(id);
-          return Effect.fail(new ComposeError({ operation: "remove", detail: "Draft is posting" }));
-        },
-      },
-    },
-  );
-  await expect.element(screen.getByText(uncertain.error!)).toBeVisible();
-  // Nothing requeues it on its own; the user checks X first.
-  expect(queued).toEqual([]);
-  await userEvent.click(screen.getByRole("button", { name: "Retry at next slot" }));
-  await expect.poll(() => queued).toEqual(["f1"]);
-
-  // Delete names the draft and does nothing until the user agrees.
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
-  await userEvent.click(screen.getByRole("button", { name: "Delete" }));
-  expect(confirm).toHaveBeenCalledWith('Delete "Launch thread"? This cannot be undone.');
-  expect(deleted).toEqual([]);
-  confirm.mockReturnValue(true);
-  await userEvent.click(screen.getByRole("button", { name: "Delete" }));
-  confirm.mockRestore();
-  await expect.poll(() => deleted).toEqual(["f1"]);
-  await expect
-    .element(screen.getByRole("status"))
-    .toHaveTextContent("Failed: Compose remove failed: Draft is posting");
-});
-
-it("offers nothing on a draft mid-publish and moves it on when its status changes", async () => {
-  let rows = [draft("p1", "posting", "Going out now")];
-  let changed = () => {};
-  const status = new Promise<void>((resolve) => (changed = resolve));
-  const event: XtendEvent = {
-    type: "draft_status_changed",
-    at: "2026-10-23T09:31:00.000Z",
-    payload: { draftId: "p1", status: "posted" },
-  };
-  await using screen = await render(
-    <DraftsHome tab="queued" onOpen={() => {}} onNew={() => {}} />,
-    {
-      service: {
-        ...prices,
-        "compose.draftsList": () => Effect.sync(() => ({ drafts: rows })),
-        "automate.pendingList": () => Effect.succeed([]),
-        "events.subscribe": () =>
-          Stream.fromEffect(Effect.promise(() => status).pipe(Effect.as(event))).pipe(
-            Stream.concat(Stream.never),
-          ),
-      },
-    },
-  );
-  await expect.element(screen.getByText("posting", { exact: true })).toBeVisible();
-  for (const action of ["Edit", "Delete", "Unschedule", "Queue"])
-    expect(screen.getByRole("button", { name: action, exact: true }).elements()).toHaveLength(0);
-
-  rows = [draft("p1", "posted", "Going out now", { postIds: ["41"] })];
-  changed();
-  await expect.element(screen.getByText("Going out now")).not.toBeInTheDocument();
-  await expect.element(screen.getByText(/^Nothing queued\./)).toBeVisible();
-});
-
-it("says the ask-first list failed instead of calling Automatic empty", async () => {
-  await using screen = await render(
-    <DraftsHome tab="automatic" onOpen={() => {}} onNew={() => {}} />,
-    {
-      service: {
-        ...prices,
-        "compose.draftsList": () => Effect.succeed({ drafts: [] }),
-        "automate.pendingList": () =>
-          Effect.fail(
-            new AutomateError({ operation: "pendingList", detail: "locked", cause: null }),
-          ),
-      },
-    },
-  );
-  await expect
-    .element(screen.getByText("Automate failed during pendingList: locked"))
-    .toBeVisible();
-  expect(screen.getByText(/^Nothing waiting\./).elements()).toHaveLength(0);
-});
-
-it("an approval the service did not act on says why instead of Approved", async () => {
-  await using screen = await render(
-    <DraftsHome tab="automatic" onOpen={() => {}} onNew={() => {}} />,
-    {
-      service: {
-        ...prices,
-        "compose.draftsList": () => Effect.succeed({ drafts }),
-        "automate.pendingList": () => Effect.succeed([pending]),
-        "automate.pendingApprove": () =>
-          Effect.succeed({
-            id: 2,
-            ruleId: 1,
-            at: "2026-10-23T00:00:00.000Z",
-            subjectId: "1",
-            status: "skipped" as const,
-            detail: "over the daily budget",
-            costUsd: 0,
-            xId: null,
-          }),
-      },
-    },
-  );
-  await userEvent.click(screen.getByRole("button", { name: /^Approve/ }));
-  await expect.element(screen.getByText("Not done, skipped: over the daily budget")).toBeVisible();
-  expect(screen.getByText("Approved", { exact: true }).elements()).toHaveLength(0);
 });

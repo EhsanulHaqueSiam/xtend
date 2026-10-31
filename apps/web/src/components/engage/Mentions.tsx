@@ -7,7 +7,13 @@ import { TextMorph } from "torph/react";
 
 import { isElectron } from "../../env";
 import { useQuoteLabel } from "../../state/costs";
-import { inboxAtom, markHandledAtom, mentionsAtom, refreshMentionsAtom } from "../../state/engage";
+import {
+  inboxAtom,
+  inboxItemsAtom,
+  markHandledAtom,
+  mentionsAtom,
+  refreshMentionsAtom,
+} from "../../state/engage";
 import { settingsAtom } from "../../state/settings";
 import { errorText, fmt } from "../analyze/ui";
 import { HeaderTabs, PageHeader } from "../PageHeader";
@@ -42,9 +48,12 @@ const COLUMNS: ReadonlyArray<Column<Mention>> = [
 
 type Filter = "open" | "all";
 
-/** Mentions of the user: what the session saw (free) plus what a paid fetch brought in. */
-export function Mentions() {
-  const result = useAtomValue(mentionsAtom);
+/**
+ * Everything said to the user in one list: mentions, replies and quotes the session saw (free),
+ * plus mentions a paid fetch brought in.
+ */
+export function Inbox() {
+  const result = useAtomValue(inboxItemsAtom);
   const refresh = useAtomRefresh(mentionsAtom);
   const fetch = useAtomSet(refreshMentionsAtom, { mode: "promiseExit" });
   const fetching = useAtomValue(refreshMentionsAtom).waiting;
@@ -62,10 +71,16 @@ export function Mentions() {
 
   return (
     <MentionTriage
-      title="Mentions"
-      noHandle="Mentions need"
-      result={AsyncResult.map(result, (v) => v.mentions)}
-      kind={(m) => m.source}
+      title="Inbox"
+      noHandle="The inbox needs"
+      result={AsyncResult.map(result, (v) => v.items)}
+      kind={(m) =>
+        !AsyncResult.isSuccess(result) || !result.value.replies.has(m.post.postId)
+          ? "mention"
+          : m.post.isReply
+            ? "reply"
+            : "quote"
+      }
       top={
         <>
           {error !== null ? <ErrorLine>{error}</ErrorLine> : null}
@@ -90,8 +105,8 @@ export function Mentions() {
       }
       empty={
         isElectron
-          ? "No mentions yet. They appear as you browse x.com, or fetch new ones from X."
-          : "No mentions yet. The desktop app collects them as you browse x.com."
+          ? "Nothing yet. Mentions, replies and quotes appear as you browse x.com, or fetch new mentions from X."
+          : "Nothing yet. The desktop app collects mentions, replies and quotes as you browse x.com."
       }
     />
   );
@@ -101,7 +116,7 @@ export function Mentions() {
  * Open or every mention in a list, the selected one beside it with Mark handled and a reply.
  * Checked rows swap the header actions for one Mark handled over all of them.
  */
-export function MentionTriage({
+function MentionTriage({
   title,
   noHandle,
   result,
@@ -111,7 +126,7 @@ export function MentionTriage({
   empty,
 }: {
   readonly title: string;
-  /** How the no-handle line starts, e.g. "Mentions need". */
+  /** How the no-handle line starts, e.g. "The inbox needs". */
   readonly noHandle: string;
   readonly result: AsyncResult.AsyncResult<ReadonlyArray<Mention>, unknown>;
   readonly kind: (m: Mention) => string;

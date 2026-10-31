@@ -42,6 +42,8 @@ const claudeArgs = (input: {
   readonly system: string;
   readonly jsonSchema: unknown;
   readonly managedMcp: boolean;
+  /** Image files in the call's own directory the model may read; nothing else. */
+  readonly reads: ReadonlyArray<string>;
 }) => [
   "-p",
   "--output-format",
@@ -51,8 +53,13 @@ const claudeArgs = (input: {
   "--system-prompt",
   input.system,
   ...(input.model === "" ? [] : ["--model", input.model]),
+  // The post is a stranger's text: Read exists only when the call carries images, and is
+  // allowed for exactly those files; dontAsk below denies every other path.
   "--tools",
-  "",
+  input.reads.length > 0 ? "Read" : "",
+  ...(input.reads.length > 0
+    ? ["--allowedTools", input.reads.map((n) => `Read(./${n})`).join(",")]
+    : []),
   "--settings",
   encodeJson({ disableAllHooks: true }),
   "--disable-slash-commands",
@@ -74,17 +81,26 @@ export const complete = Effect.fn("Claude.complete")(function* (input: {
   readonly system: string;
   readonly prompt: string;
   readonly jsonSchema: unknown;
+  readonly images?: ReadonlyArray<Uint8Array>;
 }) {
   const fs = yield* FileSystem.FileSystem;
   const managedMcp = yield* fs.exists(MANAGED_MCP).pipe(Effect.orElseSucceed(() => false));
   return yield* Effect.gen(function* () {
     // An empty directory, so no project's CLAUDE.md or settings shape the answer.
     const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "xtend-claude-" });
-    const claude = yield* ChildProcess.make(input.binary, claudeArgs({ ...input, managedMcp }), {
+    const images = input.images ?? [];
+    const names = images.map((_, i) => `image-${i + 1}.jpg`);
+    yield* Effect.forEach(images, (bytes, i) => fs.writeFile(`${cwd}/${names[i]}`, bytes));
+    const prompt =
+      names.length === 0
+        ? input.prompt
+        : `${input.prompt}\n\nThe post's images are in the working directory: ${names.join(", ")}. Read each before answering.`;
+    const args = claudeArgs({ ...input, managedMcp, reads: names });
+    const claude = yield* ChildProcess.make(input.binary, args, {
       cwd,
       // Electron's flag would turn a Claude that is itself Electron-hosted into plain Node.
       env: { ...process.env, PATH: input.path, ELECTRON_RUN_AS_NODE: undefined },
-      stdin: Stream.make(new TextEncoder().encode(input.prompt)),
+      stdin: Stream.make(new TextEncoder().encode(prompt)),
     });
     const [code, stdout, stderr] = yield* Effect.all(
       [

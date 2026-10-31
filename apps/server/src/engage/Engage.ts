@@ -4,7 +4,8 @@ import {
   type FollowUp,
   type Mention,
   type NicheProfile,
-  type ReplyDraft,
+  PostRead,
+  ReplyDraft,
   type ReplyTarget,
   type ReplyTone,
   VOICE_MIN_SEEN,
@@ -72,6 +73,12 @@ export class Engage extends Context.Service<
       tone?: ReplyTone,
       userReply?: string,
     ) => Effect.Effect<ReadonlyArray<ReplyDraft>, EngageError>;
+    readonly readPost: (input: {
+      readonly post: XPost;
+      readonly images: ReadonlyArray<string>;
+      readonly thread: ReadonlyArray<string>;
+      readonly correction?: string | undefined;
+    }) => Effect.Effect<PostRead, EngageError>;
     /** Posts the reply through X; a failure is recorded on the row, never thrown. */
     readonly reply: (post: XPost, text: string) => Effect.Effect<SentReply, EngageError>;
     readonly like: (postId: string) => Effect.Effect<void, XApiError | EngageError>;
@@ -169,6 +176,48 @@ const make = Effect.gen(function* () {
       })
       .pipe(Effect.mapError(assistError));
     return drafts.filter((d) => d.text.length <= 280).slice(0, 3);
+  });
+
+  const readPost = Effect.fn("Engage.readPost")(function* (input: {
+    readonly post: XPost;
+    readonly images: ReadonlyArray<string>;
+    readonly thread: ReadonlyArray<string>;
+    readonly correction?: string | undefined;
+  }) {
+    const { handle } = yield* current;
+    const own =
+      handle === null
+        ? []
+        : bestOwn(
+            (yield* observations
+              .listRecent({ limit: 200, authorHandle: handle })
+              .pipe(Effect.orElseSucceed(() => ({ posts: [] })))).posts,
+            "replies",
+          );
+    return yield* assist
+      .generate({
+        task: "engage.readPost",
+        instructions: `Read this X post the way a sharp friend would before replying, image and thread included.
+read: what the post is, in 2 to 4 words ("Sincere question", "Sarcastic jab", "Proud announcement", "Playful hot take", "Venting", "Asking for advice"). If correction is set, the user says the post is that: trust it.
+signals: 1 to 3 short notes on what gave it away; if there is an image, one says what it shows.
+angles: 3 or 4 replies written for this post, each different in what it does. label names what the reply does (e.g. "Answer with your number", "Push back on the premise", "Play along with the joke"), never a mood word. text is the reply, under 280 characters, in the user's voice: no flattery, no hashtags, never answer sarcasm or a joke as if it were sincere. The user's replies that did best are their taste: match their length and attitude, never their wording.
+why: one sentence on why these angles fit this author and post.`,
+        input: {
+          author: input.post.author.handle,
+          authorName: input.post.author.name,
+          text: input.post.text,
+          thread: input.thread,
+          metrics: input.post.metrics,
+          yourBestReplies: own,
+          ...(input.correction === undefined ? {} : { correction: input.correction }),
+        },
+        images: input.images,
+        output: PostRead,
+      })
+      .pipe(
+        Effect.map((r) => ({ ...r, angles: r.angles.filter((a) => a.text.length <= 280) })),
+        Effect.mapError(assistError),
+      );
   });
 
   // Free first: a clicked reply goes through the user's own session while that lane is on.
@@ -329,6 +378,7 @@ const make = Effect.gen(function* () {
   return Engage.of({
     targets,
     draftReply,
+    readPost,
     reply,
     like,
     findKeywords,

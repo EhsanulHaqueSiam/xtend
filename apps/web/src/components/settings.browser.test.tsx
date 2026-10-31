@@ -186,13 +186,13 @@ it("restores a page's defaults only after a second click", async () => {
   const updates: Array<SettingsUpdate> = [];
   await using screen = await render(<SettingsScreen />, {
     service: service(updates),
-    router: "/settings?tab=pool",
+    router: "/settings?tab=x",
   });
   const restore = screen.getByRole("button", { name: "Restore defaults" });
   await userEvent.click(restore);
   expect(updates).toEqual([]);
   await userEvent.click(screen.getByRole("button", { name: "Confirm restore" }));
-  await expect.poll(() => updates).toEqual([{ poolSharing: true }]);
+  await expect.poll(() => updates).toEqual([{ sessionPostingEnabled: true, poolSharing: true }]);
 });
 
 it("saves a handle as X spells it and refuses one X would not accept", async () => {

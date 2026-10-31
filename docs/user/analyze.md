@@ -16,6 +16,10 @@ headline numbers with their change. Move over a history chart to read a date and
 or focus it and use the arrow keys. Home and End jump to the first and last sample. The
 vertical range fits the data, including score histories in Scores.
 
+**Ask**, at the bottom, takes one question and gives one answer over the loaded posts summary.
+Suggested questions fill the box; asking is a separate, priced click. It is not a chat: the
+last answer stays until the next question.
+
 ## Posts
 
 Your posts as a sortable table with averages by type (text, image, video, link, thread), and
@@ -25,12 +29,14 @@ its price; your first one also turns on a nightly read at 03:00 at the same pric
 beside it turns off. The section
 shows the last run.
 
+**Themes**, under the table, groups your best 50 posts by what they are about and says why each group works.
+It is one model call, cached per set of posts: asking again for the same posts is free.
+
 ## Audience
 
-Who you see most, from the session's observations, and your followers over time.
-
-**Themes** groups your best 50 posts by what they are about and says why each group works.
-It is one model call, cached per set of posts: asking again for the same posts is free.
+Followers gained since the last check. One check reads one followers page of your handle,
+priced up front; a check under 10 minutes old serves free. A follower is in Leads › People
+once you add them. Who fills your feed is in Library › Seen, under **Authors**.
 
 ## Best time
 
@@ -42,9 +48,3 @@ It reads the posts above, seen or refreshed; Plan's Slots turn its best hours in
 Watched handles side by side with you: followers, posting rate, average views. A row opens
 their top posts. Watching is free; the list is shared with Scores' Watchlist. Each row has
 **Profile on X**, free, beside **Fetch**, the paid read that fills the row, with its price.
-
-## Ask
-
-One question, one answer, over the loaded posts summary. Suggested questions fill the box;
-asking is a separate, priced click. It is not a chat: the last answer stays until the next
-question.

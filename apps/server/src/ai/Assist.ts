@@ -38,7 +38,14 @@ export interface AssistRequest<A> {
   readonly output: Schema.Codec<A>;
   /** The taste the user picked in a chooser; every option the model writes takes it. */
   readonly tone?: ReplyTone | undefined;
+  /** Images on the post, as X's image host serves them; the model looks at them before answering. */
+  readonly images?: ReadonlyArray<string> | undefined;
 }
+
+/** Only X's own image host, and few: an image URL comes from a stranger's post. */
+const IMAGE_HOST = "https://pbs.twimg.com/";
+const MAX_IMAGES = 3;
+const MAX_IMAGE_BYTES = 5_000_000;
 
 /** How each tone in the chooser reads to the model, after "Every option". */
 const TONES: Record<ReplyTone, string> = {
@@ -125,11 +132,22 @@ const make = Effect.gen(function* () {
       return yield* decode(output);
     }
 
+    // An image that will not download is left out; the text alone still gets an answer.
+    const images = yield* Effect.forEach(
+      (request.images ?? []).filter((url) => url.startsWith(IMAGE_HOST)).slice(0, MAX_IMAGES),
+      (url) =>
+        http.get(url).pipe(
+          Effect.flatMap((response) => response.arrayBuffer),
+          Effect.map((buffer) =>
+            buffer.byteLength > MAX_IMAGE_BYTES ? [] : [new Uint8Array(buffer)],
+          ),
+          Effect.orElseSucceed(() => []),
+        ),
+    ).pipe(Effect.map((all) => all.flat()));
     const binary = current?.assistBinaryPath || provider;
+    const call = { binary, path: yield* path, model, system, prompt, jsonSchema, images };
     const output = yield* (
-      provider === "codex"
-        ? Codex.complete({ binary, path: yield* path, model, system, prompt, jsonSchema })
-        : Claude.complete({ binary, path: yield* path, model, system, prompt, jsonSchema })
+      provider === "codex" ? Codex.complete(call) : Claude.complete(call)
     ).pipe(Effect.provide(platform), Effect.mapError(modelError));
     return yield* decode(output);
   });

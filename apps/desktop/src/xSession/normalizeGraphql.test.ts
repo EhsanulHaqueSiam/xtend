@@ -4,6 +4,7 @@ import {
   isViewerOperation,
   normalizeGraphqlResponse,
   readViewerHandle,
+  renderPostsFromGraphql,
   sourceFromOperation,
   xDateToIso,
 } from "./normalizeGraphql.ts";
@@ -252,4 +253,65 @@ describe("normalizeGraphqlResponse", () => {
     expect(xDateToIso("Wed Oct 22 04:00:00 +0000 2026")).toBe("2026-10-22T04:00:00.000Z");
     expect(xDateToIso("garbage")).toBeUndefined();
   });
+});
+
+describe("renderPostsFromGraphql", () => {
+  it("carries a video's best mp4 and shows a repost as its original", () => {
+    const base = tweet("1");
+    const video = tweet("2", {
+      legacy: {
+        ...base.legacy,
+        quoted_status_id_str: "9",
+        extended_entities: {
+          media: [
+            {
+              type: "video",
+              media_url_https: "https://pbs.twimg.com/poster.jpg",
+              original_info: { width: 1280, height: 720 },
+              video_info: {
+                variants: [
+                  { content_type: "application/x-mpegURL", url: "https://video.twimg.com/v.m3u8" },
+                  {
+                    content_type: "video/mp4",
+                    bitrate: 832000,
+                    url: "https://video.twimg.com/low.mp4",
+                  },
+                  {
+                    content_type: "video/mp4",
+                    bitrate: 2176000,
+                    url: "https://video.twimg.com/high.mp4",
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      },
+    });
+    const repost = tweet("3", {
+      legacy: { ...base.legacy, retweeted_status_result: { result: video } },
+    });
+    const posts = renderPostsFromGraphql({ data: { entries: [repost] } });
+    expect(posts.map((p) => p.postId)).toEqual(["2"]);
+    expect(posts[0]!.media).toEqual([
+      {
+        kind: "video",
+        url: "https://pbs.twimg.com/poster.jpg",
+        videoUrl: "https://video.twimg.com/high.mp4",
+        width: 1280,
+        height: 720,
+      },
+    ]);
+    expect(posts[0]!.quotedId).toBe("9");
+  });
+});
+
+it("reads X's escaped text as written", () => {
+  const base = tweet("1");
+  const [post] = normalizeGraphqlResponse({
+    data: tweet("1", {
+      legacy: { ...base.legacy, full_text: "&gt;$1M ARR &amp; 2 &lt;3 &amp;gt;" },
+    }),
+  });
+  expect(post?.text).toBe(">$1M ARR & 2 <3 &gt;");
 });

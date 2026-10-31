@@ -73,7 +73,7 @@ it("lays a DST week out in the account zone: past slots gone, drafts by status, 
   expect(onOpen).toHaveBeenCalledWith(drafts[1]);
 });
 
-it("prices each queued draft as Compose does and asks before posting one now", async () => {
+it("prices each queued draft as Compose does, asks before posting one now, and retries a failed one only when asked", async () => {
   const thread = draft("q1", "queued", {
     blocks: [{ text: "Three tips" }, { text: "photo" }],
     quoteUrl: "https://x.com/levelsio/status/9",
@@ -83,6 +83,8 @@ it("prices each queued draft as Compose does and asks before posting one now", a
   const article = draft("a1", "queued", { kind: "article", title: "How I ship", body: "Daily." });
   const failed = draft("f1", "failed", { blocks: [{ text: "broke" }], error: "X refused it" });
   const onRunNow = vi.fn();
+  const onRetry = vi.fn();
+  const onDelete = vi.fn();
   await using screen = await render(
     <Queue
       drafts={[thread, article, failed]}
@@ -91,6 +93,8 @@ it("prices each queued draft as Compose does and asks before posting one now", a
       onSkip={() => {}}
       onUnschedule={() => {}}
       onRunNow={onRunNow}
+      onRetry={onRetry}
+      onDelete={onDelete}
       onOpen={() => {}}
     />,
     {
@@ -106,8 +110,18 @@ it("prices each queued draft as Compose does and asks before posting one now", a
   await expect.element(row("Three tips").getByText("$0.2", { exact: true })).toBeVisible();
   await expect.element(row("How I ship").getByText("$0.04", { exact: true })).toBeVisible();
   await expect.element(row("broke").getByText("X refused it")).toBeVisible();
-  // Run now only takes a queued draft.
-  await expect.element(row("broke").getByRole("button", { name: /Post now/ })).toBeDisabled();
+  // A failed draft never posts now: X may hold part of it, so it waits for the next slot.
+  expect(
+    row("broke")
+      .getByRole("button", { name: /Post now/ })
+      .elements(),
+  ).toHaveLength(0);
+  expect(onRetry).not.toHaveBeenCalled();
+  await userEvent.click(row("broke").getByRole("button", { name: "Retry at next slot" }));
+  expect(onRetry).toHaveBeenCalledWith(failed);
+  await userEvent.click(row("broke").getByRole("button", { name: "More actions" }));
+  await userEvent.click(page.getByRole("menuitem", { name: "Delete" }));
+  expect(onDelete).toHaveBeenCalledWith(failed);
 
   await userEvent.click(row("Three tips").getByRole("button", { name: /Post now/ }));
   await expect.element(page.getByText("Post 2 posts now for $0.2.")).toBeVisible();

@@ -7,7 +7,7 @@ import { TextMorph } from "torph/react";
 import { useQuoteLabel, usd } from "../../state/costs";
 import { addPersonAtom, newFollowersAtom, peopleAtom } from "../../state/leads";
 import { settingsAtom } from "../../state/settings";
-import { errorText, fmt } from "../analyze/ui";
+import { errorText, fmt } from "./ui";
 import { ErrorLine, pill, pillSolid } from "../engage/triage";
 import { PageHeader } from "../PageHeader";
 import { Cost, Empty, PageBody, Section } from "../ui/layout";
@@ -23,7 +23,7 @@ import {
   useSelection,
 } from "../ui/split";
 import { OpenOnX, profileUrl } from "../ui/x-link";
-import { TierText, useAction } from "./ui";
+import { TierText, useAction } from "../leads/ui";
 
 /** A follower as the list shows it: in People once it was there or added here. */
 type Row = NewFollower & { readonly listed: boolean };
@@ -94,7 +94,7 @@ export function FollowersSection() {
   return (
     <>
       <PageHeader
-        title="New followers"
+        title="Audience"
         detail={
           result === null ? undefined : `${result.followers.length} new · ${usd(result.costUsd)}`
         }

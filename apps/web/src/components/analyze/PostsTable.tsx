@@ -20,6 +20,7 @@ import { Button } from "../ui/button";
 import { Cost, Empty, Section, Stat, table } from "../ui/layout";
 import { Switch } from "../ui/switch";
 import { useOpenOnX, XLink } from "../ui/x-link";
+import { Themes } from "./Themes";
 import { AnalyzePage, NotLoaded } from "./AnalyzePage";
 import { engagementRate, errorText, fmt, insetTable, pct, when } from "./ui";
 
@@ -342,6 +343,7 @@ export function Posts({ data }: { readonly data: AnalyzeData }) {
           </table>
         </Section>
       )}
+      <Themes data={data} />
     </AnalyzePage>
   );
 }

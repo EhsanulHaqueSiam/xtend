@@ -51,9 +51,3 @@ drops bots, and it shows beside Run. A match raises an OS notification. **Sugges
 are queries the model proposes from your posts.
 
 Agents also run from the terminal: `xtend agents run <name>`.
-
-## New followers
-
-Followers gained since the last check. One check reads one followers page of your handle,
-priced up front; a check under 10 minutes old serves free. A follower is in People once you
-add them.

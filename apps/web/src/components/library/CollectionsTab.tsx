@@ -507,7 +507,7 @@ function CollectionRow({
   );
 }
 
-export function CollectionsTab() {
+export function CollectionsTab({ tabs }: { readonly tabs?: ReactNode }) {
   const collections = useAtomValue(collectionsAtom);
   const refresh = useAtomRefresh(collectionsAtom);
   const create = useAtomSet(createCollectionAtom, { mode: "promise" });
@@ -528,7 +528,8 @@ export function CollectionsTab() {
   return (
     <>
       <PageHeader
-        title="Collections"
+        title="Saved"
+        tabs={tabs}
         detail={open === null ? undefined : `${open.name} · ${open.posts} posts`}
         actions={
           <form

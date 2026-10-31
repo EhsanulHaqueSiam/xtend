@@ -37,7 +37,11 @@ function Runs({ id }: { readonly id: string }) {
   });
 }
 
-/** Queued and failed drafts by time. Post now shows its treg price and confirms before it charges; the rest wait behind ⋯. */
+/**
+ * Queued and failed drafts by time. Post now shows its treg price and confirms before it
+ * charges; a failed one offers Retry at next slot instead, never on its own, since X may
+ * already hold part of it. The rest wait behind ⋯.
+ */
 export function Queue({
   drafts,
   busy,
@@ -45,6 +49,8 @@ export function Queue({
   onSkip,
   onUnschedule,
   onRunNow,
+  onRetry,
+  onDelete,
   onOpen,
 }: {
   readonly drafts: ReadonlyArray<Draft>;
@@ -55,6 +61,8 @@ export function Queue({
   readonly onSkip: (id: string) => void;
   readonly onUnschedule: (id: string) => void;
   readonly onRunNow: (id: string) => void;
+  readonly onRetry: (d: Draft) => void;
+  readonly onDelete: (d: Draft) => void;
   readonly onOpen: (d: Draft) => void;
 }) {
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -114,43 +122,49 @@ export function Queue({
                   <p className="truncate text-xs text-error-foreground">{d.error}</p>
                 ) : null}
               </div>
-              <Popover
-                open={confirm === d.id}
-                onOpenChange={(open) => setConfirm(open ? d.id : null)}
-                trigger={
-                  <Button
-                    variant="outline"
-                    size="xs"
-                    disabled={busy || cost === null || d.status !== "queued"}
-                  >
-                    Post now
-                    {cost === null ? <Cost label="…" /> : <Cost usd={cost} />}
-                  </Button>
-                }
-              >
-                <p>
-                  {d.kind === "article"
-                    ? "Publish this article"
-                    : `Post ${d.blocks.length} ${d.blocks.length === 1 ? "post" : "posts"}`}{" "}
-                  now for {cost === null ? "…" : <Cost usd={cost} />}.
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">Charges your treg balance.</p>
-                <div className="mt-3 flex justify-end gap-1.5">
-                  <Button variant="ghost" size="xs" onClick={() => setConfirm(null)}>
-                    Cancel
-                  </Button>
-                  <Button
-                    size="xs"
-                    disabled={cost === null}
-                    onClick={() => {
-                      setConfirm(null);
-                      onRunNow(d.id);
-                    }}
-                  >
-                    Confirm and post
-                  </Button>
-                </div>
-              </Popover>
+              {d.status === "failed" ? (
+                <Button variant="outline" size="xs" disabled={busy} onClick={() => onRetry(d)}>
+                  Retry at next slot
+                </Button>
+              ) : (
+                <Popover
+                  open={confirm === d.id}
+                  onOpenChange={(open) => setConfirm(open ? d.id : null)}
+                  trigger={
+                    <Button
+                      variant="outline"
+                      size="xs"
+                      disabled={busy || cost === null || d.status !== "queued"}
+                    >
+                      Post now
+                      {cost === null ? <Cost label="…" /> : <Cost usd={cost} />}
+                    </Button>
+                  }
+                >
+                  <p>
+                    {d.kind === "article"
+                      ? "Publish this article"
+                      : `Post ${d.blocks.length} ${d.blocks.length === 1 ? "post" : "posts"}`}{" "}
+                    now for {cost === null ? "…" : <Cost usd={cost} />}.
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">Charges your treg balance.</p>
+                  <div className="mt-3 flex justify-end gap-1.5">
+                    <Button variant="ghost" size="xs" onClick={() => setConfirm(null)}>
+                      Cancel
+                    </Button>
+                    <Button
+                      size="xs"
+                      disabled={cost === null}
+                      onClick={() => {
+                        setConfirm(null);
+                        onRunNow(d.id);
+                      }}
+                    >
+                      Confirm and post
+                    </Button>
+                  </div>
+                </Popover>
+              )}
               <Menu
                 align="end"
                 label="Draft actions"
@@ -160,12 +174,20 @@ export function Queue({
                   </Button>
                 }
               >
-                <MenuItem disabled={busy} onClick={() => onSkip(d.id)}>
-                  Skip this slot
-                </MenuItem>
-                <MenuItem disabled={busy} onClick={() => onUnschedule(d.id)}>
-                  Unschedule
-                </MenuItem>
+                {d.status === "failed" ? (
+                  <MenuItem disabled={busy} onClick={() => onDelete(d)}>
+                    Delete
+                  </MenuItem>
+                ) : (
+                  <>
+                    <MenuItem disabled={busy} onClick={() => onSkip(d.id)}>
+                      Skip this slot
+                    </MenuItem>
+                    <MenuItem disabled={busy} onClick={() => onUnschedule(d.id)}>
+                      Unschedule
+                    </MenuItem>
+                  </>
+                )}
                 <MenuItem onClick={() => setExpanded(expanded === d.id ? null : d.id)}>
                   {expanded === d.id ? "Hide runs" : "Runs"}
                 </MenuItem>

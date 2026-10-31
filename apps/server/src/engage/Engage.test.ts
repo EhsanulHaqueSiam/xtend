@@ -65,18 +65,28 @@ const tregCalls: Array<Treg.TregCall> = [];
 const assistStub = Layer.succeed(Assist.Assist)({
   // Answers with what it was asked for: the user's own reply to rework, else the tone.
   generate: (request) =>
-    Effect.succeed({
-      drafts: [
-        {
-          text:
-            typeof request.input === "object" &&
-            request.input !== null &&
-            "userReply" in request.input
-              ? `rework: ${String(request.input.userReply)}`
-              : (request.tone ?? "none"),
-        },
-      ],
-    } as never),
+    request.task === "engage.readPost"
+      ? Effect.succeed({
+          read: String((request.input as { correction?: string }).correction ?? "Playful hot take"),
+          signals: [`${request.images?.length ?? 0} images`],
+          angles: [
+            { label: "Answer with your number", text: "We cut ours to one screenshot." },
+            { label: "Too long", text: "x".repeat(281) },
+          ],
+          why: "he rewards numbers",
+        } as never)
+      : Effect.succeed({
+          drafts: [
+            {
+              text:
+                typeof request.input === "object" &&
+                request.input !== null &&
+                "userReply" in request.input
+                  ? `rework: ${String(request.input.userReply)}`
+                  : (request.tone ?? "none"),
+            },
+          ],
+        } as never),
 });
 const tregStub = Layer.succeed(Treg.Treg)({
   call: (input) =>
@@ -359,5 +369,30 @@ describe("Engage.draftReply", () => {
       expect(own[0]?.text).toBe("rework: ship it today");
       expect(blank[0]?.text).toBe("none");
     }).pipe(Effect.provide(layerTest)),
+  );
+});
+
+describe("Engage.readPost", () => {
+  it.effect(
+    "reads the post with its images, trusts the user's correction, and drops angles X would refuse",
+    () =>
+      Effect.gen(function* () {
+        const engage = yield* Engage.Engage;
+        const first = yield* engage.readPost({
+          post: target("51", "ann"),
+          images: ["https://pbs.twimg.com/media/a.jpg"],
+          thread: [],
+        });
+        expect(first.read).toBe("Playful hot take");
+        expect(first.signals).toEqual(["1 images"]);
+        expect(first.angles.map((a) => a.label)).toEqual(["Answer with your number"]);
+        const corrected = yield* engage.readPost({
+          post: target("51", "ann"),
+          images: [],
+          thread: [],
+          correction: "Sarcastic",
+        });
+        expect(corrected.read).toBe("Sarcastic");
+      }).pipe(Effect.provide(layerTest)),
   );
 });

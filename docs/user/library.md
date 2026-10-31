@@ -22,7 +22,7 @@ three to pick from; the one you send lands in Compose as a suggested draft.
 The picks are gathered by a morning run that spends treg with nobody clicking, so it is off
 until **Daily Library jobs** is turned on in Settings. The section says when today's picks
 are in. The jobs also write **three posts for today** in your voice from your For you topics
-and the picks, filed under Compose's Automatic section.
+and the picks, filed under Compose's Drafts, marked with where they came from.
 
 ## Search
 
@@ -52,7 +52,7 @@ post offers **Write mine in this format**, a model call that drafts your version
 your saved posts and the accounts you reply to, each with the reason it is there. They come
 from phrases several accounts in your X session posted today and words rising in the shared
 pool; one row is kept for a topic outside your usual lane. Free, and nothing about you leaves
-the app. **Write 3 for today** drafts posts from them into Compose's Automatic section.
+the app. **Write 3 for today** drafts posts from them into Compose's Drafts.
 
 Then the pool: what everyone's X is doing, free, read from the shared pool of public
 posts that installs with sharing on send in. Two tables: posts gaining the most views in the
@@ -65,8 +65,9 @@ Under it, X's trending topics by country through treg, cached for 30 minutes, wi
 the model ties to the trends that fit your keywords. Nothing loads until you click
 **Load trends**, since the read is paid.
 
-## Collections and Swipe file
+## Saved
 
+Saved shows every saved post (**All saved**) or one collection at a time (**Collections**).
 Save puts a post in the swipe file, with its metrics frozen at save time. A post can also sit
 in any number of named collections; name one in the Collections rail to start it, rename it
 inline, delete it after a confirm. Drag a card onto a collection in the rail to file it there

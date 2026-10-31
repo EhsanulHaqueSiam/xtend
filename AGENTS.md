@@ -6,14 +6,14 @@ Xtend is a desktop-first X (Twitter) growth suite: one app whose sidebar holds b
 
 - **service** means the headless `xtend` process in `apps/server`: SQLite, scheduler, automations, treg and X calls, agent runs.
 - **client** means the web UI (`apps/web`) or the Electron shell (`apps/desktop`) that wraps it.
-- **session view** means the x.com `<webview>` inside the desktop window, on the account's cookie partition. It is the only place the user's X session exists; the service never holds X cookies. It sits over the main area on X's pages and in the side panel beside the tools. See `docs/internals/native-shell.md`.
+- **session view** means the x.com `<webview>` inside the desktop window, on the account's cookie partition. It is the only place the user's X session exists; the service never holds X cookies. Under Xtend's own X screens (Home, Search, Post) it is the **engine**, off screen; on X pages Xtend does not draw yet it sits over the main area, and in the side panel beside the tools. See `docs/internals/native-shell.md`.
 - **skin** means the CSS the desktop inserts into the session view to hide X's own navigation and right column. CSS only, never script.
 - **observation** means a post, author or metric row the desktop read from the session view's own traffic and sent to the service. Observations are passive: nothing is replayed to X.
 - **account** means one connected X handle. All data is scoped to an account.
 
 ## What we never compromise on
 
-1. **The session view acts only for the user's own clicks.** The desktop may read what X already sent to the user's browser. It writes through the session only for an action the user just clicked (a reply, a post), one at a time at human pace, and only while the session-actions setting is on (the default). Rules, agents and anything unattended never use it: they go through the X API.
+1. **The session view acts only for the user's own clicks.** It is the X engine under Xtend's own X screens: it loads and scrolls the X pages the user opens in Xtend, at the user's pace, and the desktop reads what X sends it. It writes only for an action the user just clicked (a like, a reply, a post), one at a time through X's own button, and only while the session-actions setting is on (the default). Rules, agents and anything unattended never use it: they go through the X API. Nothing ever calls X's API with the session's cookies.
 2. **Free first, and every paid action shows its cost before it runs** and is capped by a budget. A capability takes the cheapest correct lane (session, then API, then a model) and the button says which. X API calls go through treg; the user pays from their treg balance. No second wallet.
 3. **One service, every surface.** A capability is a service method. The WebSocket handler, HTTP route, MCP tool, CLI command and scheduled task all call that method. Logic in a handler is a bug.
 4. **Performance.** No continuously repainting animations, no oversized WebSocket payloads, no unvirtualized long lists.

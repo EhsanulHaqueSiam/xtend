@@ -169,3 +169,19 @@ it("shows recovery after ten seconds when the app load hangs", async () => {
     vi.restoreAllMocks();
   }
 });
+
+it("takes the screen when X's video goes fullscreen, and gives it back only if the video took it", () => {
+  const { main, x } = open();
+  close = () => main.window.close();
+  const win = main.window;
+  x.emit("enter-html-full-screen");
+  expect(win.isFullScreen()).toBe(true);
+  x.emit("leave-html-full-screen");
+  expect(win.isFullScreen()).toBe(false);
+
+  // Already fullscreen by the user's choice: leaving the video keeps it.
+  win.setFullScreen(true);
+  x.emit("enter-html-full-screen");
+  x.emit("leave-html-full-screen");
+  expect(win.isFullScreen()).toBe(true);
+});

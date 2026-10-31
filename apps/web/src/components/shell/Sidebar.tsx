@@ -3,11 +3,15 @@ import { Link, useLocation, useNavigate, useRouter } from "@tanstack/react-route
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import {
   ChevronDown,
+  CircleCheck,
+  Download,
+  RefreshCw,
   Search,
   Home,
   Bell,
   Mail,
   Bookmark,
+  Compass,
   UserRound,
   PenLine,
   CalendarDays,
@@ -17,8 +21,8 @@ import {
   Workflow,
   ChartNoAxesCombined,
   Gauge,
-  Eye,
   Settings,
+  Sun,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 
@@ -28,7 +32,7 @@ import { nextScheduledLabel } from "../../lib/glance";
 import { cn } from "../../lib/utils";
 import { accountsAtom, selectAccountAtom, switchAccount } from "../../state/accounts";
 import { pendingAtom } from "../../state/automate";
-import { mentionsAtom } from "../../state/engage";
+import { inboxItemsAtom } from "../../state/engage";
 import { settingsAtom } from "../../state/settings";
 import { useDesktopUpdate } from "../../state/update";
 import {
@@ -41,6 +45,7 @@ import {
   xNavigate,
   xPanelOpenAtom,
   xPanelPinnedAtom,
+  stored,
   xReload,
   xUnreadAtom,
   xUrlAtom,
@@ -63,6 +68,7 @@ const ROW =
  */
 const ICONS = {
   Home,
+  Explore: Compass,
   Notifications: Bell,
   Messages: Mail,
   Bookmarks: Bookmark,
@@ -75,8 +81,8 @@ const ICONS = {
   Automate: Workflow,
   Analyze: ChartNoAxesCombined,
   Scores: Gauge,
-  Seen: Eye,
   Settings,
+  Today: Sun,
 };
 
 function RowBody({
@@ -128,6 +134,7 @@ interface Tool {
 }
 
 const TOOLS: ReadonlyArray<Tool> = [
+  { to: "/today", label: "Today" },
   { to: "/compose", label: "Compose", group: "Create" },
   { to: "/plan", label: "Plan" },
   { to: "/library", label: "Library" },
@@ -136,7 +143,6 @@ const TOOLS: ReadonlyArray<Tool> = [
   { to: "/automate", label: "Automate" },
   { to: "/analyze", label: "Analyze", group: "Measure" },
   { to: "/scores", label: "Scores" },
-  { to: "/seen", label: "Seen" },
 ];
 
 const isOn = (pathname: string, to: string) => pathname === to || pathname.startsWith(`${to}/`);
@@ -266,6 +272,9 @@ function ToolRow({
   );
 }
 
+/** X pages Xtend draws itself; the rest still show x.com in the main area. */
+const NATIVE: Readonly<Record<string, "/home" | "/search">> = { Home: "/home", Explore: "/search" };
+
 /** X's own pages; each loads in the one x.com webview, shown in the main area. */
 function XRows({ compact }: { readonly compact: boolean }) {
   const navigate = useNavigate();
@@ -286,6 +295,7 @@ function XRows({ compact }: { readonly compact: boolean }) {
   const [panelOpen, setPanel] = useAtom(xPanelOpenAtom);
   const pages: ReadonlyArray<{ label: string; path: string; count?: number }> = [
     { label: "Home", path: "/home" },
+    { label: "Explore", path: "/explore" },
     { label: "Notifications", path: "/notifications", count: unread },
     { label: "Messages", path: "/messages" },
     { label: "Bookmarks", path: "/i/bookmarks" },
@@ -299,9 +309,16 @@ function XRows({ compact }: { readonly compact: boolean }) {
           aria-label={compact ? page.label : undefined}
           title={compact ? page.label : undefined}
           type="button"
-          data-active={onX && (path === page.path || path.startsWith(`${page.path}/`))}
+          data-active={
+            NATIVE[page.label] !== undefined
+              ? pathname === NATIVE[page.label]
+              : onX && (path === page.path || path.startsWith(`${page.path}/`))
+          }
           className={cn(ROW, dragClass(dragging, false))}
           onClick={() => {
+            // Home and Explore are Xtend's own screens; the engine follows them off screen.
+            const native = NATIVE[page.label];
+            if (native !== undefined) return void navigate({ href: native });
             // A page already in the webview is only revealed; clicked again where it shows, it
             // reloads, like X's own Home.
             if (path !== page.path) xNavigate(`https://x.com${page.path}`);
@@ -397,41 +414,79 @@ function useMinuteClock() {
   return now;
 }
 
+/** The version this window last ran, so the first launch after an update can say so. */
+const seenVersionAtom = stored<string>("xtend:seen-version", (raw) => raw, "");
+
 /**
- * The desktop's update, above the day's lines once there is one: a ready build restarts into
- * it, an unsigned macOS build links to its download. Nothing shows while up to date.
+ * The desktop's update as one icon beside the account, as in T3 Code: ↻ checks now, a download
+ * with a dot means a build is on its way or ready (a click restarts into it, or opens the
+ * download on an unsigned macOS build), and "Updated" says once that this launch is new.
  */
-function UpdateLine() {
+function UpdateButton() {
   const update = useDesktopUpdate();
+  const [seen, setSeen] = useAtom(seenVersionAtom);
   if (update === null) return null;
-  const action =
-    update.status === "ready"
-      ? { label: `${update.next} · restart`, run: () => window.desktopBridge?.restartToUpdate() }
-      : update.status === "available"
-        ? {
-            label: `${update.next} · download`,
-            run: () => window.desktopBridge?.openExternal(update.url),
-          }
-        : null;
-  if (action !== null)
+  const fresh = seen !== "" && seen !== update.version;
+  const icon = "size-3.5";
+  const button = (label: string, run: () => void, body: ReactNode) => (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      className="no-drag relative grid size-6 cursor-pointer place-items-center rounded-md text-sidebar-muted-foreground outline-hidden hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring"
+      onClick={run}
+    >
+      {body}
+    </button>
+  );
+  const dot = (
+    <span className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-sidebar-foreground" />
+  );
+  if (update.status === "ready")
+    return button(
+      `Restart to update to ${update.next}`,
+      () => window.desktopBridge?.restartToUpdate(),
+      <>
+        <Download className={icon} />
+        {dot}
+      </>,
+    );
+  if (update.status === "available")
+    return button(
+      `Download ${update.next}`,
+      () => window.desktopBridge?.openExternal(update.url),
+      <>
+        <Download className={icon} />
+        {dot}
+      </>,
+    );
+  if (update.status === "downloading")
+    return button(
+      `Downloading ${update.next}, ${update.percent}%`,
+      () => {},
+      <Download className={icon} />,
+    );
+  if (fresh)
     return (
       <button
         type="button"
-        className="flex cursor-pointer items-center justify-between gap-2 text-sidebar-foreground"
-        onClick={action.run}
+        title={`Updated to ${update.version}`}
+        className="no-drag flex h-6 cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-2xs text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+        onClick={() => setSeen(update.version)}
       >
-        <span>update</span>
-        <span className="truncate">{action.label}</span>
+        Updated
+        <CircleCheck className={icon} />
       </button>
     );
-  if (update.status !== "downloading") return null;
-  return (
-    <div className="flex items-center justify-between gap-2">
-      <span>update</span>
-      <span className="truncate text-sidebar-foreground/80">
-        {update.next} · {update.percent}%
-      </span>
-    </div>
+  return button(
+    update.status === "error"
+      ? `Update check failed: ${update.message}. Check again`
+      : "Check for updates",
+    () => {
+      setSeen(update.version);
+      window.desktopBridge?.checkUpdate();
+    },
+    <RefreshCw className={icon} />,
   );
 }
 
@@ -459,7 +514,6 @@ function Today() {
   );
   return (
     <div className="no-drag mt-auto grid gap-1 border-t border-sidebar-border px-2 pt-3 font-mono text-2xs text-sidebar-muted-foreground">
-      <UpdateLine />
       <Link to="/settings" className="grid gap-1 hover:text-sidebar-foreground">
         {line("next", next ?? "nothing queued")}
         {line("queued", queued?.length ?? "–")}
@@ -520,12 +574,12 @@ export function Sidebar({ compact = false }: { readonly compact?: boolean }) {
   }, [setDragging]);
   const [accountError, setAccountError] = useState<string | null>(null);
   const queued = or(useAtomValue(queuedDraftsAtom), null);
-  const mentions = or(useAtomValue(mentionsAtom), null);
+  const inbox = or(useAtomValue(inboxItemsAtom), null);
   const pending = or(useAtomValue(pendingAtom), null);
-  const openMentions = mentions?.mentions.filter((m) => !m.handled).length ?? null;
+  const openInbox = inbox?.items.filter((m) => !m.handled).length ?? null;
   const counts: Readonly<Record<string, number | null>> = {
-    "/compose": queued?.length ?? null,
-    "/engage": openMentions,
+    "/plan": queued?.length ?? null,
+    "/engage": openInbox,
     "/automate": pending?.length ?? null,
   };
   const mod = window.desktopBridge?.platform === "darwin" ? "⌘" : "Ctrl";
@@ -549,7 +603,10 @@ export function Sidebar({ compact = false }: { readonly compact?: boolean }) {
             {/* Beside macOS's window buttons the name would cut the account handle short. */}
             <span className="[.electron-mac_&]:hidden">Xtend</span>
           </span>
-          <AccountMenu onError={setAccountError} />
+          <span className="flex items-center gap-1">
+            <UpdateButton />
+            <AccountMenu onError={setAccountError} />
+          </span>
         </div>
       )}
       {accountError !== null ? (

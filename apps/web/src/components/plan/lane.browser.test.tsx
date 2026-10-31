@@ -35,6 +35,8 @@ it("prices Post now free through the session, but a slot fill at the API's price
         onSkip={() => {}}
         onUnschedule={() => {}}
         onRunNow={() => {}}
+        onRetry={() => {}}
+        onDelete={() => {}}
         onOpen={() => {}}
       />,
       { service },

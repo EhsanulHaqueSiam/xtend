@@ -46,9 +46,11 @@ a[href^="/i/premium"], a[href="/i/verified-choose"] { display: none !important; 
 div[data-testid="cellInnerDiv"]:has(a[href^="/i/premium"]) { display: none !important; }
 `;
 
-// Promoted posts carry a placement tracker. The capture still records them as promoted.
+// Promoted posts carry a placement tracker around the post. Every video player carries one too,
+// inside its media, so a tracker inside tweetPhoto is not an ad; matching any tracker hid every
+// post with a video. The capture still records promoted posts as promoted.
 const ADS = `
-div[data-testid="cellInnerDiv"]:has([data-testid="placementTracking"]) { display: none !important; }
+div[data-testid="cellInnerDiv"]:has([data-testid="placementTracking"]:not([data-testid="tweetPhoto"] *)) { display: none !important; }
 `;
 
 // Under a thread, the heading cell ("Discover more", "More posts") and every cell after it.

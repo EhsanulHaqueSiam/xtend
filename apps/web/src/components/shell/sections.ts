@@ -7,6 +7,7 @@ import { useLocation } from "@tanstack/react-router";
  */
 export const ABOUT: Readonly<Record<string, string>> = {
   "/x": "X as you know it, in your own session, with what Xtend noticed beside it. Free.",
+  "/today": "What waits on you, what goes out next and how the week went. Free.",
   "/compose":
     "Write posts, threads and articles. What you click posts through your own X session, free; the queue goes through the X API at the price shown. Assist runs on your login.",
   "/plan":
@@ -23,7 +24,6 @@ export const ABOUT: Readonly<Record<string, string>> = {
     "How your account is doing, from your posts your session saw, free. Refresh reads your full timeline and follower count, priced on the button.",
   "/scores":
     "Account scores for you and anyone you watch. Stored reports are free; a score run reads their followers through treg, priced on the button.",
-  "/seen": "Every post this app saw in your X session, newest first. Free.",
   "/settings": "Your handle, token, budget, voice, and the app itself.",
 };
 
@@ -35,14 +35,11 @@ export const ABOUT: Readonly<Record<string, string>> = {
  */
 export const SECTIONS = {
   "/compose": [
-    { id: "drafts", label: "Drafts", about: "Yours, not yet queued." },
-    { id: "queued", label: "Queued", about: "Waiting for their slot." },
     {
-      id: "automatic",
-      label: "Automatic",
-      about: "Written by rules and picks; queue or edit them.",
+      id: "drafts",
+      label: "Drafts",
+      about: "Yours, and what Library and rules wrote for you, not yet queued.",
     },
-    { id: "failed", label: "Failed", about: "Did not post, with the reason." },
     { id: "posted", label: "Posted", about: "On X, with their ids." },
   ],
   "/plan": [
@@ -51,24 +48,32 @@ export const SECTIONS = {
       label: "Calendar",
       about: "Drop a draft on a slot or an hour to schedule it.",
     },
-    { id: "queue", label: "Queue", about: "In order, with what the week costs." },
+    {
+      id: "queue",
+      label: "Queue",
+      about: "Queued and failed posts in order, with what the week costs.",
+    },
     { id: "slots", label: "Slots", about: "The times posts go out, per weekday." },
   ],
   "/library": [
     { id: "picks", label: "Picks", about: "A daily fetch for your keywords, paid." },
-    { id: "search", label: "Search", about: "X search through treg, price before Enter." },
-    { id: "archive", label: "Archive", about: "Every post a search or pick saw, free to browse." },
     {
       id: "trends",
       label: "Trends",
       about: "Topics for you and the shared pool, free; X trends by country through treg.",
     },
+    { id: "search", label: "Search", about: "X search through treg, price before Enter." },
     {
-      id: "collections",
-      label: "Collections",
-      about: "Tags for saved posts; a post can be in many. Free.",
+      id: "saved",
+      label: "Saved",
+      about: "Posts you kept, all of them or by collection; a post can be in many. Free.",
     },
-    { id: "swipe", label: "Swipe file", about: "Saved posts as cards to read. Free." },
+    {
+      id: "seen",
+      label: "Seen",
+      about: "Every post your X session showed you, newest first. Free.",
+    },
+    { id: "archive", label: "Archive", about: "Every post a search or pick saw, free to browse." },
   ],
   "/engage": [
     {
@@ -77,13 +82,16 @@ export const SECTIONS = {
       about: "Fresh posts for your keywords to reply under; Refresh is one paid search each.",
     },
     {
-      id: "mentions",
-      label: "Mentions",
-      about: "Posts that name you: what your session saw, free; Fetch new asks X, paid.",
+      id: "inbox",
+      label: "Inbox",
+      about:
+        "Mentions, replies and quotes your session saw, free; Fetch new asks X for mentions, paid.",
     },
-    { id: "inbox", label: "Inbox", about: "Replies to your posts your session saw. Free." },
-    { id: "sent", label: "Sent", about: "Replies you made. Free." },
-    { id: "follow-ups", label: "Follow-ups", about: "Conversations to come back to. Free." },
+    {
+      id: "sent",
+      label: "Sent",
+      about: "Replies you made, and the ones worth a follow-up. Free.",
+    },
     { id: "dms", label: "DMs", about: "Your direct messages, read through the X API, paid." },
   ],
   "/leads": [
@@ -98,16 +106,15 @@ export const SECTIONS = {
       about: "Groups of people. Free; building one from a search is priced first.",
     },
     { id: "agents", label: "Agents", about: "Finders that run on a schedule, paid per run." },
-    {
-      id: "followers",
-      label: "New followers",
-      about: "Who followed you since the last check; each check reads a paid follower page.",
-    },
   ],
   "/automate": [
-    { id: "rules", label: "Rules", about: "What runs, when, and for how much." },
+    {
+      id: "rules",
+      label: "Rules",
+      about:
+        "What runs, when, and for how much; Dry run shows what they would do and fires nothing.",
+    },
     { id: "needs-you", label: "Needs you", about: "Actions waiting for your yes." },
-    { id: "dry-run", label: "Dry run", about: "What a rule would do today; fires nothing." },
     { id: "runs", label: "Runs", about: "What ran, with cost and result." },
   ],
   "/analyze": [
@@ -122,7 +129,12 @@ export const SECTIONS = {
       label: "Posts",
       about: "Each post's numbers, live from your session; Refresh fills in the rest.",
     },
-    { id: "audience", label: "Audience", about: "Accounts your session saw most, by reach. Free." },
+    {
+      id: "audience",
+      label: "Audience",
+      about:
+        "Who followed you since the last check, to add as leads; each check reads a paid follower page.",
+    },
     {
       id: "best-time",
       label: "Best time",
@@ -133,17 +145,14 @@ export const SECTIONS = {
       label: "Competitors",
       about: "Accounts to compare against; each fetch is priced on its row.",
     },
-    { id: "ask", label: "Ask", about: "A question over your own data, answered on your login." },
   ],
   "/scores": [
-    { id: "mine", label: "Mine", about: "Your score and what moves it; Score runs are paid." },
-    { id: "watchlist", label: "Watchlist", about: "Accounts you watch; each rescore is paid." },
-    { id: "report", label: "Report", about: "One account in full; the last report is free." },
     {
-      id: "bot-check",
-      label: "Bot check",
-      about: "Whether an account's followers look real, from a paid sample.",
+      id: "report",
+      label: "Report",
+      about: "Yours or any account's score, top followers and bot check; the last report is free.",
     },
+    { id: "watchlist", label: "Watchlist", about: "Accounts you watch; each rescore is paid." },
   ],
   "/settings": [
     { id: "account", label: "Account", about: "Your handle and every connected account." },
@@ -157,8 +166,11 @@ export const SECTIONS = {
       label: "Writing",
       about: "Assist, your voice, keywords, time zone and the morning jobs.",
     },
-    { id: "x", label: "X session", about: "What goes through your own X session, and Clean X." },
-    { id: "pool", label: "Pool", about: "Sharing public sightings with everyone's trends." },
+    {
+      id: "x",
+      label: "X session",
+      about: "What goes through your own X session, Clean X, and what you share with the pool.",
+    },
     { id: "service", label: "Service", about: "Where the service runs and how to reach it." },
   ],
 } as const;
@@ -203,29 +215,25 @@ export const sectionAbout = (route: SectionRoute, id: string) =>
  */
 const X_PAGES: {
   readonly [R in SectionRoute]?: "@" | Partial<Record<SectionId<R>, string>>;
-} & { readonly "/seen": string } = {
+} = {
   "/compose": "@",
   "/plan": "@",
   "/engage": {
     targets: "/home",
-    mentions: "/notifications/mentions",
     inbox: "/notifications",
     sent: "/notifications",
-    "follow-ups": "/notifications",
     dms: "/messages",
   },
   "/library": {
     search: "/explore",
     trends: "/explore/tabs/trending",
-    collections: "/i/bookmarks",
-    swipe: "/i/bookmarks",
+    saved: "/i/bookmarks",
+    seen: "/home",
   },
-  "/seen": "/home",
 };
 
 /** The x.com path for the panel beside this route and `?tab=`, or null for no panel. */
 export const xPageFor = (pathname: string, tab: string | null, handle: string | null) => {
-  if (pathname === "/seen") return X_PAGES["/seen"];
   if (!isSectionRoute(pathname)) return null;
   const entry: "@" | Readonly<Record<string, string>> | undefined = X_PAGES[pathname];
   const sections: ReadonlyArray<{ readonly id: string }> = SECTIONS[pathname];
