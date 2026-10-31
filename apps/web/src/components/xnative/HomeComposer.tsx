@@ -2,9 +2,11 @@ import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
+import { CalendarClock, Image, ListChecks, ListPlus } from "lucide-react";
 import { useState } from "react";
 
 import { createDraftAtom, postNowAtom } from "../../state/compose";
+import { engineAtom } from "../../state/engine";
 import { settingsAtom } from "../../state/settings";
 import { failText } from "../compose/AssistPanel";
 import { toastAtom } from "../ui/toast";
@@ -12,12 +14,24 @@ import { Avatar } from "./XPostView";
 
 const LIMIT = 280;
 
+/** The user's own face, from any of their posts the engine has seen; null until one shows up. */
+export const useOwnAvatar = () => {
+  const engine = useAtomValue(engineAtom);
+  const handle = AsyncResult.getOrElse(useAtomValue(settingsAtom), () => null)?.handle ?? null;
+  if (handle === null) return null;
+  const lower = handle.toLowerCase();
+  for (const p of engine.posts.values())
+    if (p.author.handle.toLowerCase() === lower) return p.avatarUrl;
+  return null;
+};
+
 /**
  * X's "What's happening?" at the top of Home. Post is one click through the user's own session,
  * free, the way Compose's Post now goes; with session actions off, or for anything longer than
  * one post, the text moves to Compose, where the lane and its price are shown.
  */
-export function HomeComposer({ avatarUrl }: { readonly avatarUrl: string | null }) {
+export function HomeComposer() {
+  const avatarUrl = useOwnAvatar();
   const navigate = useNavigate();
   const settings = AsyncResult.getOrElse(useAtomValue(settingsAtom), () => null);
   const create = useAtomSet(createDraftAtom, { mode: "promiseExit" });
@@ -62,14 +76,26 @@ export function HomeComposer({ avatarUrl }: { readonly avatarUrl: string | null 
             }
           }}
         />
-        <div className="flex items-center gap-3 border-t border-border py-2.5">
-          <button
-            type="button"
-            className="cursor-pointer text-[13px] text-[#1d9bf0] hover:underline"
-            onClick={handOff}
-          >
-            Media, poll or thread in Compose
-          </button>
+        <div className="flex items-center gap-3.5 border-t border-border py-2.5">
+          {(
+            [
+              [Image, "Add media in Compose"],
+              [ListChecks, "Add a poll in Compose"],
+              [CalendarClock, "Schedule in Compose"],
+              [ListPlus, "Make a thread in Compose"],
+            ] as const
+          ).map(([Icon, label]) => (
+            <button
+              key={label}
+              type="button"
+              aria-label={label}
+              title={label}
+              className="-m-1.5 grid size-[34px] cursor-pointer place-items-center rounded-full text-[#1d9bf0] transition-colors duration-150 hover:bg-[#1d9bf0]/10"
+              onClick={handOff}
+            >
+              <Icon className="size-[18px]" />
+            </button>
+          ))}
           <span className="ml-auto font-mono text-xs text-muted-foreground tabular-nums">
             {text === "" ? (session ? "free · your session" : "") : `${text.length}/${LIMIT}`}
           </span>

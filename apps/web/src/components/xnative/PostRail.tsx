@@ -77,7 +77,7 @@ export function PostRail({
             <Row k="Views" v={post.metrics.views.toLocaleString("en")} />
           )}
           {er === null ? null : <Row k="Engagement rate" v={`${(er * 100).toFixed(1)}%`} />}
-          {vph === null ? null : <Row k="Views per hour" v={fmt(vph)} />}
+          {vph === null ? null : <Row k="Views per hour" v={fmt(Math.round(vph))} />}
           {ratio === null ? null : (
             <Row
               k={`vs @${a.handle}'s usual`}

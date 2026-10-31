@@ -1,13 +1,11 @@
 import { useAtomValue } from "@effect/atom-react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 import { HomeComposer } from "../components/xnative/HomeComposer";
 import { Timeline } from "../components/xnative/Timeline";
 import { XTabs } from "../components/xnative/XColumn";
 import { engineAtom } from "../state/engine";
-import { settingsAtom } from "../state/settings";
 import { xNavigate, xPickHomeTab, xShows } from "../state/x";
 
 const FEEDS = [
@@ -21,21 +19,16 @@ function HomeScreen() {
   const { feed } = Route.useSearch();
   const navigate = useNavigate();
   const engine = useAtomValue(engineAtom);
-  const handle = AsyncResult.getOrElse(useAtomValue(settingsAtom), () => null)?.handle ?? null;
   const label = FEEDS.find((f) => f.id === feed)!.label;
-  // Already on Home, X only switches tabs; otherwise the tab is picked once the page has loaded.
+  // Already on Home with this feed received, X only switches tabs. Otherwise X loads Home again:
+  // what X fetched before this screen was listening never reached it.
+  const received = useRef(false);
+  received.current = engine.lists[feed].length > 0;
   const open = useCallback(() => {
-    if (xShows("/home")) void xPickHomeTab(label);
+    if (xShows("/home") && received.current) void xPickHomeTab(label);
     else void xNavigate("https://x.com/home").then(() => xPickHomeTab(label));
   }, [label]);
   useEffect(open, [open]);
-  // The user's own face, from any of their posts the engine has seen.
-  const own =
-    handle === null
-      ? undefined
-      : [...engine.posts.values()].find(
-          (p) => p.author.handle.toLowerCase() === handle.toLowerCase(),
-        );
   return (
     <Timeline
       surface={feed}
@@ -47,7 +40,7 @@ function HomeScreen() {
           onChange={(next) => void navigate({ to: "/home", search: { feed: next } })}
         />
       }
-      top={<HomeComposer avatarUrl={own?.avatarUrl ?? null} />}
+      top={<HomeComposer />}
       empty="Loading your timeline from X."
       onReopen={open}
     />

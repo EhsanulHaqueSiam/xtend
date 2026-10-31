@@ -96,12 +96,14 @@ function MediaItem({ m, fill }: { readonly m: EngineMedia; readonly fill: boolea
 }
 
 /**
- * X's media grid: one item at its own shape (clamped, as X does), two side by side, three with
- * the first tall, four in a square grid. The group sits at 16:9 when there is more than one.
+ * X's media grid: one item at its own shape, as tall as 510px and no wider than the column (so a
+ * portrait shot stands narrow, as on X), two side by side, three with the first tall, four in a
+ * square grid. A group sits at 16:9.
  */
 export function Media({ media }: { readonly media: ReadonlyArray<EngineMedia> }) {
   if (media.length === 0) return null;
   const one = media.length === 1 ? media[0]! : null;
+  const shape = one !== null && one.width > 0 && one.height > 0 ? one.width / one.height : null;
   return (
     <div
       data-x="media"
@@ -111,9 +113,7 @@ export function Media({ media }: { readonly media: ReadonlyArray<EngineMedia> })
         media.length > 2 && "grid-rows-2",
       )}
       style={
-        one === null || one.width === 0 || one.height === 0
-          ? undefined
-          : { aspectRatio: Math.min(Math.max(one.width / one.height, 0.75), 2), maxHeight: 510 }
+        shape === null ? undefined : { aspectRatio: shape, width: `min(100%, ${510 * shape}px)` }
       }
       onClick={(e) => e.stopPropagation()}
     >
@@ -229,7 +229,7 @@ function XtendLine({ post }: { readonly post: EnginePost }) {
       )}
       {vph === null ? null : (
         <span>
-          <b className="font-medium text-foreground/85">{fmt(vph)}</b>/h
+          <b className="font-medium text-foreground/85">{fmt(Math.round(vph))}</b>/h
         </span>
       )}
     </p>
@@ -353,19 +353,14 @@ export function XPostView({
         focal ? "border-y border-border px-1 py-1.5" : "max-w-[425px]",
       )}
     >
-      <Action
-        label="Reply"
-        tone="blue"
-        count={focal ? undefined : fmt(m.replies)}
-        onClick={() => onOpen?.(post)}
-      >
+      <Action label="Reply" tone="blue" count={fmt(m.replies)} onClick={() => onOpen?.(post)}>
         <MessageCircle className="size-[18px]" />
       </Action>
       <Action
         label="Repost"
         tone="green"
         pressed={has("retweet")}
-        count={focal ? undefined : fmt(m.reposts + (has("retweet") ? 1 : 0))}
+        count={fmt(m.reposts + (has("retweet") ? 1 : 0))}
         onClick={() => void act("retweet")}
       >
         <Repeat2 className="size-[18px]" />
@@ -374,7 +369,7 @@ export function XPostView({
         label="Like"
         tone="pink"
         pressed={has("like")}
-        count={focal ? undefined : fmt(m.likes + (has("like") ? 1 : 0))}
+        count={fmt(m.likes + (has("like") ? 1 : 0))}
         onClick={() => void act("like")}
       >
         <Heart className={cn("size-[18px]", has("like") && "fill-current")} />
@@ -432,24 +427,6 @@ export function XPostView({
             </>
           )}
         </p>
-        <div className="flex gap-5 border-t border-border py-4 text-[14px] empty:hidden">
-          {(
-            [
-              [m.reposts, "Reposts"],
-              [m.quotes, "Quotes"],
-              [m.likes, "Likes"],
-              [m.bookmarks, "Bookmarks"],
-            ] as const
-          ).flatMap(([n, label]) =>
-            n > 0
-              ? [
-                  <span key={label} className={X_GRAY}>
-                    <b className="font-bold text-foreground">{fmt(n)}</b> {label}
-                  </span>,
-                ]
-              : [],
-          )}
-        </div>
         {actions}
         <div className="py-2.5">
           <XtendLine post={post} />
