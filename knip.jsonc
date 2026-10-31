@@ -19,6 +19,7 @@
         "src/overlay/overlayPreload.ts",
         "scripts/dev-electron.mjs",
         "scripts/cdp.mjs",
+        "scripts/engine-bench.mjs",
       ],
     },
   },
