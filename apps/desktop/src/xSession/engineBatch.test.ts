@@ -528,6 +528,7 @@ describe("renderEngineBatch around posts", () => {
         },
       },
     );
+    expect(renderEngineBatch("ExplorePage", { cursor: "" }, {}).cursor).toBeNull();
     expect([explore.key, explore.exploreTabs]).toEqual([
       "VF9",
       [

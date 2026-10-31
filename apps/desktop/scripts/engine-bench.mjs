@@ -224,6 +224,26 @@ let theoId = "";
 
 const benchmarks = [
   [
+    "A cold start on Following gets X's posts while X last showed For you",
+    async () => {
+      // X remembers its last tab: leave it on For you, then start the app on Following.
+      await engine(
+        `[...document.querySelectorAll('[role="tab"]')].find((t) => t.textContent.trim() === "For you")?.click(), true`,
+      ).catch(() => {});
+      await sleep(1_500);
+      await app(`(location.hash = "#/home?feed=following", location.reload(), true)`).catch(
+        () => {},
+      );
+      await sleep(2_000);
+      sessions.clear();
+      await sameAppPage();
+      return until(async () => {
+        const [ids, list] = [await nativeIds(), await store(`$.lists.following`)];
+        return ids.length >= 1 && list?.length >= 3 && list[0] === ids[0] && list.length;
+      }, 30_000);
+    },
+  ],
+  [
     "Home Following renders X's posts in X's order",
     async () => {
       // As at the app's start: the engine loads X's Home in full, so X sends its Home tabs too.

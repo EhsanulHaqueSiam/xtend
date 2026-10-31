@@ -613,7 +613,8 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
   return {
     op,
     key: keyOf(op, variables, exploreTabs),
-    cursor: asString(variables.cursor) ?? null,
+    // Explore asks with an empty cursor for its first page.
+    cursor: asString(variables.cursor) || null,
     top,
     bottom,
     posts: renderPostsFromGraphql(body).map((p) => {
