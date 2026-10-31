@@ -20,6 +20,7 @@ import { fmt } from "../analyze/ui";
 import { useDropPost } from "../shell/drops";
 import { Menu, MenuItem } from "../ui/menu";
 import { toastAtom } from "../ui/toast";
+import { HoverCard } from "./HoverCard";
 import { viewerAtom } from "./MediaViewer";
 import { ContextLine, LinkCard, Note, Poll } from "./PostParts";
 import { RichText } from "./RichText";
@@ -348,16 +349,18 @@ export function XPostView({
 
   const name = (
     <span className="flex min-w-0 items-center gap-1">
-      <button
-        type="button"
-        className="cursor-pointer truncate font-bold hover:underline"
-        onClick={(e) => {
-          e.stopPropagation();
-          openProfile();
-        }}
-      >
-        {post.author.name}
-      </button>
+      <HoverCard author={post.author} avatarUrl={post.avatarUrl}>
+        <button
+          type="button"
+          className="cursor-pointer truncate font-bold hover:underline"
+          onClick={(e) => {
+            e.stopPropagation();
+            openProfile();
+          }}
+        >
+          {post.author.name}
+        </button>
+      </HoverCard>
       {post.author.verified ? <Verified /> : null}
     </span>
   );
@@ -511,16 +514,18 @@ export function XPostView({
     >
       {post.context === null ? null : <ContextLine context={post.context} />}
       <div className="flex flex-col items-center">
-        <button
-          type="button"
-          className="cursor-pointer"
-          onClick={(e) => {
-            e.stopPropagation();
-            openProfile();
-          }}
-        >
-          <Avatar url={post.avatarUrl} size={40} />
-        </button>
+        <HoverCard author={post.author} avatarUrl={post.avatarUrl}>
+          <button
+            type="button"
+            className="cursor-pointer"
+            onClick={(e) => {
+              e.stopPropagation();
+              openProfile();
+            }}
+          >
+            <Avatar url={post.avatarUrl} size={40} />
+          </button>
+        </HoverCard>
         {threaded ? <span className="mt-1 w-0.5 flex-1 bg-[#333639]" /> : null}
       </div>
       <div className="flex min-w-0 flex-col gap-2 pb-1">

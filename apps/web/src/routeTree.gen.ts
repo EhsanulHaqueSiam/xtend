@@ -138,9 +138,9 @@ const PostIdRoute = PostIdRouteImport.update({
   getParentRoute: () => rootRouteImport,
 } as any)
 const ListsIdRoute = ListsIdRouteImport.update({
-  id: '/$id',
-  path: '/$id',
-  getParentRoute: () => ListsRoute,
+  id: '/lists/$id',
+  path: '/lists/$id',
+  getParentRoute: () => rootRouteImport,
 } as any)
 
 export interface FileRoutesByFullPath {
@@ -310,6 +310,7 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRoute
   TodayRoute: typeof TodayRoute
   XRoute: typeof XRoute
+  ListsIdRoute: typeof ListsIdRoute
   PostIdRoute: typeof PostIdRoute
   UHandleRoute: typeof UHandleRoute
   ListsIndexRoute: typeof ListsIndexRoute
@@ -466,10 +467,10 @@ declare module '@tanstack/react-router' {
     }
     '/lists/$id': {
       id: '/lists/$id'
-      path: '/$id'
+      path: '/lists/$id'
       fullPath: '/lists/$id'
       preLoaderRoute: typeof ListsIdRouteImport
-      parentRoute: typeof ListsRoute
+      parentRoute: typeof rootRouteImport
     }
   }
 }
@@ -493,6 +494,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRoute,
   TodayRoute: TodayRoute,
   XRoute: XRoute,
+  ListsIdRoute: ListsIdRoute,
   PostIdRoute: PostIdRoute,
   UHandleRoute: UHandleRoute,
   ListsIndexRoute: ListsIndexRoute,
