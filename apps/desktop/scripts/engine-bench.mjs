@@ -236,7 +236,9 @@ const benchmarks = [
       );
       await sleep(2_000);
       sessions.clear();
-      await sameAppPage();
+      // This reload is the check itself: the engine must not be reloaded after it.
+      await until(() => app(`typeof window.__xtendEngine === "function"`), 20_000);
+      await sameAppPage({ reloadEngine: false });
       return until(async () => {
         const [ids, list] = [await nativeIds(), await store(`$.lists.following`)];
         return ids.length >= 1 && list?.length >= 3 && list[0] === ids[0] && list.length;
@@ -764,13 +766,13 @@ if (SHOTS !== undefined) mkdirSync(SHOTS, { recursive: true });
  * starts empty and X has no reason to fetch again. In the packaged app the two load together, so
  * when the app page reloaded, the engine reloads too, as at the app's start.
  */
-async function sameAppPage() {
+async function sameAppPage({ reloadEngine = true } = {}) {
   if (await app(`window.__xtendBench === true`)) return;
   // Counts what reaches the app page, to tell a capture that stopped from a store that did.
   await app(
     `(window.__xtendBench = true, window.__xtendBatches = 0, window.desktopBridge.onEngine(() => window.__xtendBatches++), true)`,
   );
-  if (primed) {
+  if (primed && reloadEngine) {
     console.log("  (the app page reloaded; reloading the engine with it)");
     await engine(`location.reload(), true`).catch(() => {});
     await until(async () => (await engine(`document.readyState`)) === "complete", 15_000);
