@@ -828,6 +828,42 @@ const benchmarks = [
     },
   ],
   [
+    "Repost opens X's Repost / Quote popover, and Quote opens the quote box over that post (never sent)",
+    async () => {
+      await home("following");
+      const id = await heldByEngine('[data-testid="retweet"]');
+      if (!id) return false;
+      await app(
+        `document.querySelector('[data-post="${id}"] button[aria-label="Repost"]')?.click(), true`,
+      );
+      const rowsJs = `[...document.querySelectorAll('[role="menu"] [role="menuitem"]')].map((m) => m.textContent)`;
+      const rows = await until(async () => {
+        const r = await app(rowsJs);
+        return r?.length > 0 && r;
+      }, 5_000);
+      if (rows?.join() !== "Repost,Quote") {
+        console.log(`      ${JSON.stringify({ id, rows })}`);
+        return false;
+      }
+      await app(
+        `[...document.querySelectorAll('[role="menu"] [role="menuitem"]')].find((m) => m.textContent === "Quote")?.click(), true`,
+      );
+      const box = await until(
+        () =>
+          app(
+            `!!document.querySelector('[role="dialog"][aria-label="Quote"] [data-quote="${id}"]') && document.activeElement?.getAttribute("aria-label") === "Your comment"`,
+          ),
+        5_000,
+      );
+      // Closed the way the user would, before anything is typed or posted.
+      await app(
+        `document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`,
+      );
+      const closed = await until(() => app(`!document.querySelector('[role="dialog"]')`), 5_000);
+      return box && closed;
+    },
+  ],
+  [
     "Messages stays x.com itself, over the main area",
     async () => {
       await app(

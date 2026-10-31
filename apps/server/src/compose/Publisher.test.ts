@@ -416,6 +416,27 @@ describe("Publisher", () => {
       }).pipe(Effect.provide(layerTest)),
   );
 
+  it.live(
+    "a session-only post is refused while the session lane is off, never sent through the API",
+    () =>
+      Effect.gen(function* () {
+        reset();
+        const publisher = yield* Publisher.Publisher;
+        const drafts = yield* DraftStore.DraftStore;
+        const settings = yield* SettingsStore.SettingsStore;
+        yield* settings.update({ sessionPostingEnabled: false });
+        const draft = yield* drafts.create({ blocks: [{ text: "hello" }] });
+        const after = yield* publisher.post(draft.id, {
+          ...postNow,
+          clicked: true,
+          sessionOnly: true,
+        });
+        expect(after.status).toBe("failed");
+        expect(calls).toEqual([]);
+        expect(desktopCalls).toEqual([]);
+      }).pipe(Effect.provide(layerTest)),
+  );
+
   it.live("blocks with media go through the x.com session, only when the setting is on", () =>
     Effect.gen(function* () {
       reset();

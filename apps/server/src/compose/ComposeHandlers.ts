@@ -41,8 +41,13 @@ export const layerHandlers = ComposeRpcGroup.toLayer(
       [Compose_METHODS.draftCreate]: (patch) => drafts.create(patch),
       [Compose_METHODS.draftUpdate]: ({ id, patch }) => media.update(id, patch),
       [Compose_METHODS.draftDelete]: ({ id }) => media.removeDraft(id),
-      [Compose_METHODS.postNow]: ({ id }) =>
-        publisher.post(id, { purpose: "compose.postNow", retry: false, clicked: true }),
+      [Compose_METHODS.postNow]: ({ id, sessionOnly }) =>
+        publisher.post(id, {
+          purpose: "compose.postNow",
+          retry: false,
+          clicked: true,
+          sessionOnly: sessionOnly === true,
+        }),
       [Compose_METHODS.assistHook]: ({ blocks, tone }) => assist.improveHook(blocks, tone),
       [Compose_METHODS.assistRewrite]: ({ text, tone }) => assist.rewrite(text, tone),
       [Compose_METHODS.assistThreadIdeas]: ({ topic, tone }) => assist.threadIdeas(topic, tone),

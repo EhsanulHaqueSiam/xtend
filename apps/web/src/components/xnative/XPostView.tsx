@@ -1,6 +1,7 @@
 import { RegistryContext, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
+import * as Atom from "effect/reactivity/Atom";
 import type { EngineMedia, EnginePost, EngineUser } from "@xtend/contracts";
 import {
   BarChart2,
@@ -8,10 +9,11 @@ import {
   Heart,
   MessageCircle,
   MoreHorizontal,
+  PencilLine,
   Repeat2,
   Share,
 } from "lucide-react";
-import { useContext, useState, type ReactNode } from "react";
+import { useContext, useState, type ComponentProps, type MouseEvent, type ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
 import { engineAtom } from "../../state/engine";
@@ -29,6 +31,9 @@ import { RichText } from "./RichText";
 import { avatar96, engagement, viewsPerHour, xAge, xStamp } from "./format";
 
 export const postUrl = (p: EnginePost) => `https://x.com/${p.author.handle}/status/${p.postId}`;
+
+/** The post the user is quoting, in the quote box over the column; null when it is closed. */
+export const quoteAtom = Atom.make<EnginePost | null>(null);
 
 /** The three buttons a post's own state comes with, and the button that takes each back. */
 type Press = "like" | "retweet" | "bookmark";
@@ -240,7 +245,7 @@ function Media({
 }
 
 /** The post a post quotes, inside a hairline box. */
-function QuoteBox({
+export function QuoteBox({
   quoted,
   onOpen,
 }: {
@@ -251,6 +256,7 @@ function QuoteBox({
   return (
     <div
       data-x="quote"
+      data-quote={quoted.postId}
       className="cursor-pointer overflow-hidden rounded-2xl border border-white/[0.12] transition-colors duration-150 hover:bg-white/[0.03]"
       onClick={(e) => {
         e.stopPropagation();
@@ -310,14 +316,16 @@ function Action({
   count,
   onClick,
   children,
+  ...trigger
 }: {
   readonly label: string;
   readonly pressed?: boolean | undefined;
   readonly tone: "blue" | "green" | "pink";
   readonly count?: string | undefined;
-  readonly onClick: () => void;
+  readonly onClick: (e: MouseEvent<HTMLButtonElement>) => void;
   readonly children: ReactNode;
-}) {
+  // What a menu opening from the button hands it (its ref, its press and open state).
+} & Omit<ComponentProps<"button">, "onClick" | "children">) {
   const hover = {
     blue: "hover:text-[#1d9bf0] [&:hover>span:first-child]:bg-[#1d9bf0]/10",
     green: "hover:text-[#00ba7c] [&:hover>span:first-child]:bg-[#00ba7c]/10",
@@ -326,6 +334,7 @@ function Action({
   const on = { blue: "text-[#1d9bf0]", green: "text-[#00ba7c]", pink: "text-[#f91880]" }[tone];
   return (
     <button
+      {...trigger}
       type="button"
       aria-label={label}
       aria-pressed={pressed}
@@ -337,7 +346,7 @@ function Action({
       )}
       onClick={(e) => {
         e.stopPropagation();
-        onClick();
+        onClick(e);
       }}
     >
       <span className="-m-2 grid size-[34px] place-items-center rounded-full transition-colors duration-150">
@@ -397,7 +406,6 @@ export function XPostView({
   const setToast = useAtomSet(toastAtom);
   const drop = useDropPost();
   const navigate = useNavigate();
-  const settings = AsyncResult.getOrElse(useAtomValue(settingsAtom), () => null);
   const registry = useContext(RegistryContext);
   /**
    * Why X's buttons may not write as the user now: only once Settings says session actions are
@@ -460,6 +468,7 @@ export function XPostView({
   // X's own "..." rows for this post, read from X when the menu opens; undefined while reading.
   const [xRows, setXRows] = useState<ReadonlyArray<string> | null | undefined>(undefined);
   const setOver = useAtomSet(xOverAtom);
+  const setQuote = useAtomSet(quoteAtom);
   const xPost = { postId: post.postId, handle: post.author.handle };
   const readX = (open: boolean) => {
     if (!open) return;
@@ -568,16 +577,33 @@ export function XPostView({
       <Action label="Reply" tone="blue" count={fmt(m.replies)} onClick={() => onOpen?.(post)}>
         <MessageCircle className="size-[18px]" />
       </Action>
-      <Action
-        label="Repost"
-        tone="green"
-        pressed={has("retweet")}
-        // X counts quotes with reposts on the button.
-        count={fmt(m.reposts + m.quotes + shift("retweet"))}
-        onClick={() => void act("retweet")}
-      >
-        <Repeat2 className="size-[18px]" />
-      </Action>
+      {/* X's Repost / Quote popover; a click in its portal would otherwise open the post. */}
+      <span className="contents" onClick={(e) => e.stopPropagation()}>
+        <Menu
+          label="Repost or quote"
+          trigger={
+            <Action
+              label="Repost"
+              tone="green"
+              pressed={has("retweet")}
+              // X counts quotes with reposts on the button.
+              count={fmt(m.reposts + m.quotes + shift("retweet"))}
+              onClick={() => {}}
+            >
+              <Repeat2 className="size-[18px]" />
+            </Action>
+          }
+        >
+          <MenuItem onClick={() => void act("retweet")}>
+            <Repeat2 className="size-4" />
+            {has("retweet") ? "Undo repost" : "Repost"}
+          </MenuItem>
+          <MenuItem onClick={() => setQuote(post)}>
+            <PencilLine className="size-4" />
+            Quote
+          </MenuItem>
+        </Menu>
+      </span>
       <Action
         label="Like"
         tone="pink"

@@ -101,6 +101,8 @@ export class Publisher extends Context.Service<
         readonly due?: string;
         /** The user just clicked Post: free first, so text goes through their session while that lane is on. */
         readonly clicked?: boolean;
+        /** The click showed no price: a post the session cannot take fails instead of going paid. */
+        readonly sessionOnly?: boolean;
       },
     ) => Effect.Effect<Draft, ComposeError>;
   }
@@ -117,6 +119,7 @@ const make = Effect.gen(function* () {
     draft: Draft,
     purpose: string,
     clicked: boolean,
+    sessionOnly: boolean,
   ) {
     const ids = [...draft.postIds];
     // X's composer takes no poll and no reply-settings choice; those posts keep the API lane.
@@ -146,15 +149,20 @@ const make = Effect.gen(function* () {
                 ...(previous === undefined ? {} : { replyToPostId: previous }),
               })
               .pipe(Effect.catch(unsure))
-          : yield* x
-              .createPost({
-                text,
-                purpose,
-                ...(previous === undefined ? {} : { replyToPostId: previous }),
-                ...(replySettings === "everyone" ? {} : { replySettings }),
-                ...(i === 0 && draft.poll !== null ? { poll: draft.poll } : {}),
+          : sessionOnly
+            ? yield* new ComposeError({
+                operation: "post",
+                detail: "Session actions are off in Settings, X session",
               })
-              .pipe(Effect.catch(unsure));
+            : yield* x
+                .createPost({
+                  text,
+                  purpose,
+                  ...(previous === undefined ? {} : { replyToPostId: previous }),
+                  ...(replySettings === "everyone" ? {} : { replySettings }),
+                  ...(i === 0 && draft.poll !== null ? { poll: draft.poll } : {}),
+                })
+                .pipe(Effect.catch(unsure));
       // Accepted, so probably on X; an id that is not X's would poison the next block's reply target.
       if (!isXId(postId))
         return yield* new Unconfirmed({ post: i + 1, detail: "X answered without a post id" });
@@ -193,7 +201,12 @@ const make = Effect.gen(function* () {
 
   const publish = Effect.fn("Publisher.publish")(function* (
     id: string,
-    options: { readonly purpose: string; readonly retry: boolean; readonly clicked?: boolean },
+    options: {
+      readonly purpose: string;
+      readonly retry: boolean;
+      readonly clicked?: boolean;
+      readonly sessionOnly?: boolean;
+    },
   ) {
     // Read after the claim so the editor's last autosave is what goes out.
     const draft = yield* drafts.get(id);
@@ -205,7 +218,12 @@ const make = Effect.gen(function* () {
         : yield* (
             draft.kind === "article"
               ? postArticle(draft, options.purpose)
-              : postBlocks(draft, options.purpose, options.clicked === true)
+              : postBlocks(
+                  draft,
+                  options.purpose,
+                  options.clicked === true,
+                  options.sessionOnly === true,
+                )
           ).pipe(
             Effect.map((ids) => ({ error: null, ids, retryable: false })),
             Effect.catch((e) =>
@@ -247,6 +265,7 @@ const make = Effect.gen(function* () {
       readonly retry: boolean;
       readonly due?: string;
       readonly clicked?: boolean;
+      readonly sessionOnly?: boolean;
     },
   ) {
     if (!(yield* drafts.claim(id, options.due)))
