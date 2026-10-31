@@ -13,6 +13,7 @@ const AVATAR = 'div[data-testid^="Tweet-User-Avatar"]';
 const STATUS_ID = /\/status\/(\d+)/;
 const PROFILE_LINK = 'a[data-testid="AppTabBar_Profile_Link"]';
 const HANDLE_PATH = /^\/([A-Za-z0-9_]{1,15})$/;
+const ACCOUNT_PICTURE = '[data-testid="SideNav_AccountSwitcher_Button"] img';
 const TOOLBAR = 'div[data-testid="toolBar"]';
 // The editable node itself: X wraps it in a "_label" and a "RichTextInputContainer" with the same prefix, and the label carries the placeholder.
 const COMPOSER_TEXT = 'div[data-testid^="tweetTextarea_"][contenteditable="true"]';
@@ -63,12 +64,26 @@ export function composerText(toolbar: Element): HTMLElement | null {
 }
 
 /**
- * The signed-in handle, from the Profile link in X's nav (still in the DOM while the skin
- * hides it). X's own Viewer call carries it too, but not every session makes that call.
+ * The signed-in account, from X's nav (still in the DOM while the skin hides it): the handle from
+ * the Profile link, the name and avatar from the account switcher's picture. X's own Viewer call
+ * carries them too, but X makes it only now and then.
  */
-export function viewerHandleFromNav(root: ParentNode): string | null {
+export function viewerFromNav(
+  root: ParentNode,
+): { handle: string; name: string | null; avatarUrl: string | null } | null {
   const href = root.querySelector<HTMLAnchorElement>(PROFILE_LINK)?.getAttribute("href") ?? "";
-  return HANDLE_PATH.exec(href)?.[1]?.toLowerCase() ?? null;
+  const handle = HANDLE_PATH.exec(href)?.[1]?.toLowerCase();
+  if (handle === undefined) return null;
+  const picture = root.querySelector<HTMLImageElement>(ACCOUNT_PICTURE);
+  const src = picture?.getAttribute("src") ?? "";
+  return {
+    handle,
+    name: picture?.getAttribute("alt") || null,
+    // The switcher shows the smallest size; every other avatar in the engine is _normal.
+    avatarUrl: src.startsWith("https://pbs.twimg.com/")
+      ? src.replace(/_mini(\.\w+)$/, "_normal$1")
+      : null,
+  };
 }
 
 /** Direct messages never get a strip: the classic inbox and X's Chat, which replaced it in 2025. */

@@ -123,7 +123,11 @@ describe("renderEngineBatch posts", () => {
       bookmarked: true,
       context: null,
     });
-    expect(p!.links.map((l) => l.display)).toEqual(["a.dev/x", "bunny.net/blog"]);
+    // Entities sit where the shown text has them; the card's link is drawn as the card.
+    expect(p!.entities.urls.map((l) => [l.display, l.indices])).toEqual([
+      ["a.dev/x", [10, 27]],
+      ["bunny.net/blog", null],
+    ]);
   });
 
   it("reads a unified card, an X Article and a poll", () => {
@@ -524,6 +528,7 @@ describe("renderEngineBatch around posts", () => {
         },
       },
     );
+    expect(renderEngineBatch("ExplorePage", { cursor: "" }, {}).cursor).toBeNull();
     expect([explore.key, explore.exploreTabs]).toEqual([
       "VF9",
       [
@@ -567,5 +572,160 @@ describe("renderEngineBatch around posts", () => {
         {},
       ).key,
     ).toBe("community:14");
+  });
+});
+
+describe("renderEngineBatch for live text, edits, threads and people", () => {
+  it("places entities in the shown text, reads edits, groups a conversation, and keeps every user", () => {
+    const text = "🚀 @Theo ships #buildinpublic for $TSLA fans @theo";
+    const live = tweet(
+      "2",
+      {
+        full_text: text,
+        entities: {
+          user_mentions: [
+            { screen_name: "Theo", indices: [2, 7] },
+            { screen_name: "theo", indices: [43, 48] },
+          ],
+          hashtags: [{ text: "buildinpublic", indices: [14, 28] }],
+          symbols: [{ text: "TSLA", indices: [33, 38] }],
+          urls: [],
+        },
+      },
+      {
+        edit_control: {
+          edit_control_initial: {
+            edit_tweet_ids: ["1", "2"],
+            editable_until_msecs: "1793383169000",
+            edits_remaining: "4",
+          },
+        },
+      },
+    );
+    const parent = tweet("1");
+    const listed = user("9", "dhh");
+    const batch = renderEngineBatch(
+      "HomeLatestTimeline",
+      {},
+      {
+        data: {
+          entries: [
+            {
+              entryId: "home-conversation-2",
+              content: {
+                entryType: "TimelineTimelineModule",
+                displayType: "VerticalConversation",
+                items: [
+                  { item: { itemContent: { tweet_results: { result: parent } } } },
+                  { item: { itemContent: { tweet_results: { result: live } } } },
+                ],
+              },
+            },
+            {
+              content: {
+                itemContent: { itemType: "TimelineUser", user_results: { result: listed } },
+              },
+            },
+          ],
+        },
+      },
+    );
+    const [first, second] = batch.posts;
+    const at = (start: number, end: number) => [text.slice(start, end), [start, end]];
+    expect(second!.entities.mentions.map((m) => [m.handle, ...at(...m.indices)])).toEqual([
+      ["theo", "@Theo", [3, 8]],
+      ["theo", "@theo", [45, 50]],
+    ]);
+    expect(second!.entities.hashtags.map((h) => text.slice(...h.indices))).toEqual([
+      "#buildinpublic",
+    ]);
+    expect(second!.entities.cashtags.map((c) => text.slice(...c.indices))).toEqual(["$TSLA"]);
+    expect([second!.edits, second!.editsRemaining, second!.editableUntil]).toEqual([
+      ["1", "2"],
+      4,
+      "2026-10-30T17:59:29.000Z",
+    ]);
+    expect([first!.conversation, second!.conversation]).toEqual([
+      { id: "home-conversation-2", index: 0, size: 2 },
+      { id: "home-conversation-2", index: 1, size: 2 },
+    ]);
+    // Everyone named is known; only the one X listed is a person on this page.
+    expect(batch.users.map((u) => u.handle).sort()).toEqual(["dhh", "theo"]);
+    expect(batch.people).toEqual(["9"]);
+  });
+});
+
+describe("renderEngineBatch media and the viewer", () => {
+  it("plays a video from its best mp4 with its length, keeps a photo's alt text, and shows a repost as its original", () => {
+    const video = tweet("2", {
+      extended_entities: {
+        media: [
+          {
+            type: "video",
+            media_url_https: "https://pbs.twimg.com/poster.jpg",
+            original_info: { width: 1280, height: 720 },
+            video_info: {
+              duration_millis: 24866,
+              variants: [
+                { content_type: "application/x-mpegURL", url: "https://video.twimg.com/v.m3u8" },
+                {
+                  content_type: "video/mp4",
+                  bitrate: 832000,
+                  url: "https://video.twimg.com/low.mp4",
+                },
+                {
+                  content_type: "video/mp4",
+                  bitrate: 2176000,
+                  url: "https://video.twimg.com/high.mp4",
+                },
+              ],
+            },
+          },
+          {
+            type: "photo",
+            media_url_https: "https://pbs.twimg.com/p.jpg",
+            ext_alt_text: "A cat on a desk",
+          },
+        ],
+      },
+    });
+    const repost = tweet("3", { retweeted_status_result: { result: video } });
+    const [post] = renderEngineBatch("HomeLatestTimeline", {}, { data: [repost] }).posts;
+    expect(post!.postId).toBe("2");
+    expect(post!.media).toEqual([
+      {
+        kind: "video",
+        url: "https://pbs.twimg.com/poster.jpg",
+        videoUrl: "https://video.twimg.com/high.mp4",
+        width: 1280,
+        height: 720,
+        durationMs: 24866,
+        altText: null,
+      },
+      {
+        kind: "photo",
+        url: "https://pbs.twimg.com/p.jpg",
+        videoUrl: null,
+        width: 0,
+        height: 0,
+        durationMs: null,
+        altText: "A cat on a desk",
+      },
+    ]);
+  });
+
+  it("names the signed-in account from X's Viewer call", () => {
+    const batch = renderEngineBatch(
+      "Viewer",
+      {},
+      { data: { viewer: { user_results: { result: user("7", "siamships") } } } },
+    );
+    expect(batch.viewer).toEqual({
+      userId: "7",
+      handle: "siamships",
+      name: "SIAMSHIPS",
+      avatarUrl: "https://pbs.twimg.com/profile_images/7/a_normal.jpg",
+    });
+    expect(renderEngineBatch("HomeTimeline", {}, {}).viewer).toBeNull();
   });
 });

@@ -9,7 +9,7 @@ import {
   composerToolbars,
   findArticles,
   isDmPath,
-  viewerHandleFromNav,
+  viewerFromNav,
 } from "./xDom.ts";
 
 // Trimmed by hand from x.com/jack/status/20 on 2026-10-23 (X_DOM_VERSION 2026-10):
@@ -79,11 +79,16 @@ it("yields null rather than a guess when the landmarks are gone", () => {
   expect(articleActionRow(article)).toBeNull();
 });
 
-it("reads the signed-in handle from X's Profile link", () => {
-  document.body.innerHTML = `<header role="banner"><nav role="navigation"><a href="/Siam_Ships" aria-label="Profile" role="link" data-testid="AppTabBar_Profile_Link"></a></nav></header>`;
-  expect(viewerHandleFromNav(document)).toBe("siam_ships");
+it("reads the signed-in account from X's nav", () => {
+  document.body.innerHTML = `<header role="banner"><nav role="navigation"><a href="/Siam_Ships" aria-label="Profile" role="link" data-testid="AppTabBar_Profile_Link"></a></nav>
+    <button data-testid="SideNav_AccountSwitcher_Button"><img alt="Ehsanul Haque Siam" src="https://pbs.twimg.com/profile_images/1/a_mini.jpg"></button></header>`;
+  expect(viewerFromNav(document)).toEqual({
+    handle: "siam_ships",
+    name: "Ehsanul Haque Siam",
+    avatarUrl: "https://pbs.twimg.com/profile_images/1/a_normal.jpg",
+  });
   document.body.innerHTML = `<a href="/i/premium" data-testid="AppTabBar_Profile_Link"></a>`;
-  expect(viewerHandleFromNav(document)).toBeNull();
+  expect(viewerFromNav(document)).toBeNull();
 });
 
 it("treats direct messages as off limits", () => {

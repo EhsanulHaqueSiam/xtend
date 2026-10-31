@@ -1,6 +1,6 @@
 import { expect, it } from "vite-plus/test";
 
-import { markXReady, registerXWebview, xAct, xGo, type XWebview } from "./x";
+import { markXReady, registerXWebview, xAct, xGo, xNavigate, type XWebview } from "./x";
 
 /** A webview that records what it was asked to do, showing `url`; scripts answer `answers` in turn. */
 const fakeWebview = (url: string, answers: Array<unknown> = []) => {
@@ -60,4 +60,26 @@ it("sends nothing to X's page for an id or handle that is not X's", async () => 
   expect(await xAct({ postId: '1"); alert(1); ("', handle: "theo" }, "like")).toBe(false);
   expect(await xAct({ postId: "42", handle: "a/b" }, "like")).toBe(false);
   expect(page.calls).toEqual([]);
+});
+
+it("waits for the guest before a page asked for early, so the step after it has a page", async () => {
+  const cold = fakeWebview("https://x.com/home");
+  registerXWebview(cold.el);
+  let loaded = false;
+  const home = xNavigate("https://x.com/home").then(() => (loaded = true));
+  const search = xNavigate("https://x.com/search?q=a");
+  await Promise.resolve();
+  expect(loaded).toBe(false);
+  markXReady();
+  await Promise.all([home, search]);
+  // The last ask wins; both callers waited for it.
+  expect(cold.calls).toEqual(["load https://x.com/search?q=a"]);
+
+  // The guest's first page is the one asked for: nothing loads twice.
+  const same = fakeWebview("https://x.com/home");
+  registerXWebview(same.el);
+  const again = xNavigate("https://x.com/home");
+  markXReady();
+  await again;
+  expect(same.calls).toEqual([]);
 });

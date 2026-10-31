@@ -109,17 +109,17 @@ export function attachSessionCapture(
       options.log("response body unavailable", { url, error: String(error) });
       return;
     }
-    if (isViewerOperation(url)) {
-      viewerHandle = readViewerHandle(body) ?? viewerHandle;
-      return;
-    }
-    const posts = normalizeGraphqlResponse(body);
     if (options.onRender !== undefined) {
       // /i/api/graphql/<queryId>/<Operation>?variables=...
       const op = new URL(url).pathname.split("/").at(-1) ?? "";
       const batch = renderEngineBatch(op, requestVariables(url, sent), body);
       if (hasEngineContent(batch)) options.onRender(batch);
     }
+    if (isViewerOperation(url)) {
+      viewerHandle = readViewerHandle(body) ?? viewerHandle;
+      return;
+    }
+    const posts = normalizeGraphqlResponse(body);
     if (isCreateTweetOperation(url)) {
       const created = readCreatedPostId(body) ?? posts[0]?.postId;
       if (created !== undefined) options.onCreatedPost?.(created);

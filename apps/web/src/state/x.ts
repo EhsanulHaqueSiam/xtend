@@ -31,7 +31,8 @@ const isXUrl = (url: string) => {
 
 let element: XWebview | null = null;
 let ready = false;
-let pending: string | null = null;
+/** The page asked for before the guest could load it, and who waits for it to load. */
+let pending: { url: string; waiters: Array<() => void> } | null = null;
 
 /** Called by XPane: the element exists, and later, its guest can take commands. */
 export const registerXWebview = (el: XWebview | null) => {
@@ -40,19 +41,30 @@ export const registerXWebview = (el: XWebview | null) => {
 };
 export const markXReady = () => {
   ready = true;
-  if (pending !== null) void element?.loadURL(pending).catch(() => {});
+  const asked = pending;
   pending = null;
+  if (asked === null || element === null) return;
+  const done = () => asked.waiters.forEach((resolve) => resolve());
+  // The guest's first page is often the one asked for; loading it again costs X a second boot.
+  if (element.getURL() === asked.url) done();
+  else
+    void element
+      .loadURL(asked.url)
+      .catch(() => {})
+      .then(done);
 };
 
 /**
- * Loads an x.com URL; other hosts are ignored. Before the guest is ready the last call wins.
- * Resolves once the page has loaded, so an engine step can follow it.
+ * Loads an x.com URL; other hosts are ignored. Resolves once the page has loaded, so an engine
+ * step (picking Home's tab) can follow it. Before the guest is ready the last call wins and every
+ * caller waits for that load: resolving early would run the step against no page at all.
  */
 export const xNavigate = (url: string): Promise<void> => {
   if (!isXUrl(url)) return Promise.resolve();
   if (element !== null && ready) return element.loadURL(url).catch(() => {});
-  pending = url;
-  return Promise.resolve();
+  return new Promise((resolve) => {
+    pending = { url, waiters: [...(pending?.waiters ?? []), resolve] };
+  });
 };
 
 /**
@@ -142,14 +154,44 @@ export const xPickHomeTab = (label: string) =>
     }, 150);
   })`);
 
-/** X's own buttons on a post, by test id, for the user's click on Xtend's copy of it. */
-export type XAction = "like" | "retweet" | "bookmark";
-/** The test id X's button takes once pressed. */
-const UNDO: Readonly<Record<XAction, string>> = {
-  like: "unlike",
-  retweet: "unretweet",
-  bookmark: "removeBookmark",
-};
+/**
+ * X's own buttons on a post, by test id, for the user's click on Xtend's copy of it: what each
+ * turns into once pressed, and the confirm X asks for first.
+ */
+const BUTTONS = {
+  like: { turns: "unlike" },
+  unlike: { turns: "like" },
+  retweet: { turns: "unretweet", confirm: "retweetConfirm" },
+  unretweet: { turns: "retweet", confirm: "unretweetConfirm" },
+  bookmark: { turns: "removeBookmark" },
+  removeBookmark: { turns: "bookmark" },
+} as const satisfies Record<string, { readonly turns: string; readonly confirm?: string }>;
+export type XAction = keyof typeof BUTTONS;
+
+/**
+ * A script for X's page: presses the button `testid` inside `scope` (an expression evaluating to
+ * an element or null), presses X's confirm when it asks, then waits for the button to turn into
+ * `turns`. X turns it at once and saves a moment later; leaving the page before then would cancel
+ * the save, so it also gives the request time to go out. Resolves to whether it pressed.
+ */
+const pressScript = (scope: string, testid: string, turns: string, confirm: string | undefined) => `
+    const scope = ${scope};
+    const button = scope?.querySelector('[data-testid="${testid}"]');
+    if (!button) return false;
+    button.click();
+    if (${JSON.stringify(confirm ?? null)} !== null) {
+      let confirm = null;
+      for (let i = 0; i < 20 && !confirm; i++) {
+        await new Promise((r) => setTimeout(r, 100));
+        confirm = document.querySelector('[data-testid="${confirm}"]');
+      }
+      if (!confirm) return false;
+      confirm.click();
+    }
+    for (let i = 0; i < 30 && !scope.querySelector('[data-testid="${turns}"]'); i++)
+      await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 1000));
+    return true;`;
 
 /**
  * Presses X's own button for the user's click, on the engine page where the post already sits,
@@ -158,6 +200,7 @@ const UNDO: Readonly<Record<XAction, string>> = {
 export const xActInPlace = (postId: string, action: XAction): Promise<boolean> => {
   // The id goes into a script: digits only.
   if (!/^\d{1,25}$/.test(postId)) return Promise.resolve(false);
+  const { turns, confirm }: { readonly turns: string; readonly confirm?: string } = BUTTONS[action];
   return xRun(`(async () => {
     // A page just loaded draws its posts a moment later, so wait for X's first post, then look
     // for this one briefly. The post's own article is the one whose timestamp links to it (to its
@@ -169,25 +212,39 @@ export const xActInPlace = (postId: string, action: XAction): Promise<boolean> =
       article = document.querySelector('article a[href$="/status/${postId}"] time, article a[href$="/status/${postId}/history"] time')?.closest("article") ?? null;
       if (!article) await new Promise((r) => setTimeout(r, 100));
     }
-    const button = article?.querySelector('[data-testid="${action}"]');
-    if (!button) return false;
-    button.click();
-    if ("${action}" === "retweet") {
-      let confirm = null;
-      for (let i = 0; i < 20 && !confirm; i++) {
-        await new Promise((r) => setTimeout(r, 100));
-        confirm = document.querySelector('[data-testid="retweetConfirm"]');
-      }
-      if (!confirm) return false;
-      confirm.click();
-    }
-    // X turns its button over at once and saves a moment later; leaving the page before then
-    // would cancel the save, so wait for the turn and give the request time to go out.
-    for (let i = 0; i < 30 && !article.querySelector('[data-testid="${UNDO[action]}"]'); i++)
-      await new Promise((r) => setTimeout(r, 100));
-    await new Promise((r) => setTimeout(r, 1000));
-    return true;
+    ${pressScript("article", action, turns, confirm)}
   })()`).then((done) => done === true);
+};
+
+/**
+ * Follows or unfollows for the user's click through X's own button: in place when the engine page
+ * shows one for this person (a profile, a people list), otherwise on their profile, reached
+ * through X's router and left with Back. X asks to confirm an unfollow. True when X took it.
+ */
+export const xFollow = async (
+  user: { readonly userId: string; readonly handle: string },
+  follow: boolean,
+): Promise<boolean> => {
+  // Both go into scripts run in X's page: digits and a handle only.
+  if (!/^\d{1,25}$/.test(user.userId) || !/^[A-Za-z0-9_]{1,15}$/.test(user.handle)) return false;
+  const [press, turns] = follow ? ["follow", "unfollow"] : ["unfollow", "follow"];
+  const script = `(async () => {
+    for (let i = 0; i < 100 && !document.querySelector('[data-testid$="-follow"], [data-testid$="-unfollow"]'); i++)
+      await new Promise((r) => setTimeout(r, 100));
+    ${pressScript(
+      `document.querySelector('[data-testid="${user.userId}-${press}"]')?.parentElement ?? null`,
+      `${user.userId}-${press}`,
+      `${user.userId}-${turns}`,
+      follow ? undefined : "confirmationSheetConfirm",
+    )}
+  })()`;
+  if ((await xRun(script)) === true) return true;
+  await xGo(`https://x.com/${user.handle}`);
+  const done = (await xRun(script)) === true;
+  await xRun(
+    `location.pathname.toLowerCase() === ${JSON.stringify(`/${user.handle.toLowerCase()}`)} && history.back(), true`,
+  );
+  return done;
 };
 
 /**

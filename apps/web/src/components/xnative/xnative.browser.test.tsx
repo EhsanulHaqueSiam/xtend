@@ -25,7 +25,7 @@ const post = (postId: string, text: string, extra: Partial<EnginePost> = {}): En
   quotedId: null,
   replyToId: null,
   replyingTo: [],
-  links: [],
+  entities: { urls: [], mentions: [], hashtags: [], cashtags: [] },
   card: null,
   poll: null,
   note: null,
@@ -33,6 +33,10 @@ const post = (postId: string, text: string, extra: Partial<EnginePost> = {}): En
   liked: false,
   reposted: false,
   bookmarked: false,
+  conversation: null,
+  edits: [],
+  editsRemaining: null,
+  editableUntil: null,
   ...extra,
 });
 
@@ -45,11 +49,13 @@ const batch = (op: string, posts: ReadonlyArray<EnginePost>) => ({
   bottom: null,
   posts,
   users: [],
+  people: [],
   trends: [],
   notifications: [],
   lists: [],
   homeTabs: null,
   exploreTabs: null,
+  viewer: null,
 });
 
 it("draws what the engine received: the post, its video in Xtend's player, and the post it quotes", async () => {
@@ -72,6 +78,8 @@ it("draws what the engine received: the post, its video in Xtend's player, and t
             videoUrl: "https://video.twimg.com/high.mp4",
             width: 1280,
             height: 720,
+            durationMs: 24866,
+            altText: null,
           },
         ],
       }),
@@ -102,6 +110,8 @@ it("reads the post before replying, rereads on a correction, and sends the picke
             videoUrl: null,
             width: 1,
             height: 1,
+            durationMs: null,
+            altText: null,
           },
         ],
       })}

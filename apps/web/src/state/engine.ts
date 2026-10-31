@@ -7,6 +7,7 @@ import type {
   EnginePost,
   EngineTrend,
   EngineUser,
+  EngineViewer,
   XPost,
 } from "@xtend/contracts";
 import * as Atom from "effect/reactivity/Atom";
@@ -166,7 +167,7 @@ const NONE: PerSurface<never> = {
 
 export interface EngineState {
   readonly posts: ReadonlyMap<string, EnginePost>;
-  /** People X listed (search People, Who to follow, a profile's header), by user id. */
+  /** Everyone the engine has seen (authors, people X listed, profile headers), by user id. */
   readonly users: ReadonlyMap<string, EngineUser>;
   /** Post ids per surface. */
   readonly lists: PerSurface<string>;
@@ -188,6 +189,8 @@ export interface EngineState {
   /** Home's pinned tabs after For you and Following, as X named them. */
   readonly homeTabs: ReadonlyArray<EngineHomeTab>;
   readonly exploreTabs: ReadonlyArray<EngineExploreTab>;
+  /** The signed-in account (the composer's avatar), once X's page has loaded. */
+  readonly viewer: EngineViewer | null;
   /** The page cursors X last answered per surface, to tell a fetch of newer posts from the next page. */
   readonly cursors: Readonly<
     Partial<Record<AnySurface, { readonly top: string | null; readonly bottom: string | null }>>
@@ -207,6 +210,7 @@ export const emptyEngine: EngineState = {
   listIds: NONE,
   homeTabs: [],
   exploreTabs: [],
+  viewer: null,
   cursors: {},
 };
 
@@ -263,6 +267,16 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
     xLists,
     homeTabs: batch.homeTabs ?? state.homeTabs,
     exploreTabs: batch.exploreTabs ?? state.exploreTabs,
+    // X's nav names no user id; keep the one X's Viewer call gave for the same account.
+    viewer:
+      batch.viewer === null
+        ? state.viewer
+        : {
+            ...batch.viewer,
+            userId:
+              batch.viewer.userId ??
+              (state.viewer?.handle === batch.viewer.handle ? state.viewer.userId : null),
+          },
   };
   return surfacesOf(batch).reduce((state, surface) => mergeInto(state, batch, surface), merged);
 }
@@ -303,7 +317,7 @@ function mergeInto(state: EngineState, batch: EngineBatch, surface: AnySurface):
       (page === "unknown" && fresh.every((id) => posts.get(id)!.createdAt > top.createdAt)));
 
   // People, trends and notifications: a first page replaces, a newer page goes on top.
-  const userIds = batch.users.map((u) => u.userId);
+  const userIds = batch.people;
   const people =
     userIds.length === 0
       ? state.people
