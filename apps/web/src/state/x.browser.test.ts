@@ -1,6 +1,15 @@
 import { expect, it } from "vite-plus/test";
 
-import { markXReady, registerXWebview, xActInPlace, xFollow, type XWebview } from "./x";
+import {
+  markXReady,
+  registerXWebview,
+  xActInPlace,
+  xFollow,
+  xPostMenu,
+  xOverEnded,
+  xPostMenuPress,
+  type XWebview,
+} from "./x";
 
 // X's page as the engine holds it: a post quoting 42, then 42 itself, edited, so its timestamp
 // links to its edit history.
@@ -104,4 +113,74 @@ it("follows the person asked for, waiting past another person's button drawn fir
   inThisPage();
   expect(await xFollow({ userId: "786", handle: "theo" }, true)).toBe(true);
   expect(log).toEqual(["786-follow"]);
+});
+
+/** X's "..." on post 42: its caret draws the rows with a mask beside them, as X does. */
+const withMenu = (rows: Record<string, () => void>) => {
+  document.body.innerHTML = `<article><a href="/theo/status/42"><time></time></a><button data-testid="caret"></button></article>`;
+  document.querySelector('[data-testid="caret"]')!.addEventListener("click", () => {
+    const layer = document.createElement("div");
+    layer.innerHTML = `<div style="height:10px"></div><div role="menu"><div data-testid="Dropdown">${Object.keys(
+      rows,
+    )
+      .map((row) => `<div role="menuitem">${row}</div>`)
+      .join("")}</div></div>`;
+    layer.firstElementChild!.addEventListener("click", () => layer.remove());
+    for (const item of layer.querySelectorAll('[role="menuitem"]'))
+      item.addEventListener("click", () => {
+        layer.remove();
+        rows[item.textContent!]!();
+      });
+    document.body.append(layer);
+  });
+  inThisPage();
+};
+const post42 = { postId: "42", handle: "theo" };
+
+it(`reads X's own "..." rows and closes X's menu, pressing nothing`, async () => {
+  const pressed: Array<string> = [];
+  withMenu({
+    "Mute @theo": () => pressed.push("mute"),
+    "Report post": () => pressed.push("report"),
+  });
+  expect(await xPostMenu(post42)).toEqual(["Mute @theo", "Report post"]);
+  expect(document.querySelector('[role="menu"]')).toBeNull();
+  expect(pressed).toEqual([]);
+});
+
+it("presses only the row asked for: X's toast comes back, X's dialog keeps the engine over until it closes", async () => {
+  withMenu({
+    "Mute @theo": () =>
+      document.body.insertAdjacentHTML(
+        "beforeend",
+        `<div data-testid="toast" role="alert">You muted @theo<button>Undo</button></div>`,
+      ),
+    "Block @theo": () =>
+      document.body.insertAdjacentHTML("beforeend", `<div role="alertdialog"></div>`),
+  });
+  expect(await xPostMenuPress(post42, "Mute @theo", () => {})).toEqual({
+    kind: "done",
+    toast: "You muted @theo",
+    undo: true,
+  });
+  const shown: Array<boolean> = [];
+  const outcome = await xPostMenuPress(post42, "Block @theo", (on) => {
+    shown.push(on);
+    // The user answers X's sheet.
+    if (on) setTimeout(() => document.querySelector('[role="alertdialog"]')?.remove(), 200);
+  });
+  expect(outcome?.kind).toBe("over");
+  expect(shown).toEqual([true, false]);
+});
+
+it("leaves X's dialog to the screen it was opened on when the user moves on before X answers", async () => {
+  withMenu({
+    "Block @theo": () =>
+      document.body.insertAdjacentHTML("beforeend", `<div role="alertdialog"></div>`),
+  });
+  const shown: Array<boolean> = [];
+  const pressing = xPostMenuPress(post42, "Block @theo", (on) => shown.push(on));
+  xOverEnded();
+  expect((await pressing)?.kind).toBe("over");
+  expect(shown).toEqual([]);
 });

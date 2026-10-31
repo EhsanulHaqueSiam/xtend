@@ -282,7 +282,8 @@ export function XPane({
       data-mode={mode}
       className={cn(
         "row-start-1 flex min-w-0 flex-col bg-black",
-        mode === "main" && "z-10 col-start-2",
+        // Over a native screen too while X's own dialog is up, sticky header included.
+        mode === "main" && "z-30 col-start-2",
         mode === "panel" && "relative col-start-3 border-l border-border",
         // Parked under the app, not off screen or invisible: Chromium stops drawing a frame
         // outside the viewport, and X fetches its next page only from a drawn frame.

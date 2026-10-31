@@ -783,6 +783,51 @@ const benchmarks = [
     },
   ],
   [
+    `A post's "..." holds X's own rows, and Report opens X's own dialog over the main area (never sent)`,
+    async () => {
+      await home("following");
+      const id = await heldByEngine('[data-testid="caret"]');
+      if (!id) return false;
+      const started = Date.now();
+      await app(
+        `document.querySelector('[data-post="${id}"] button[aria-label="More"]')?.click(), true`,
+      );
+      const rowsJs = `[...document.querySelectorAll('[role="menu"] [role="menuitem"]')].map((m) => m.textContent)`;
+      const rows = await until(async () => {
+        const r = await app(rowsJs);
+        return r?.length > 0 && r[0] !== "Loading from X" && r;
+      }, 10_000);
+      const ms = Date.now() - started;
+      // X's menu was read and closed again on the engine page; nothing in it was pressed.
+      const closed = await engine(`!document.querySelector('[data-testid="Dropdown"]')`);
+      const fromX = ["Report post", "Mute", "Block @"].every((label) =>
+        rows?.some((r) => r.startsWith(label)),
+      );
+      if (!fromX || !closed) {
+        console.log(`      ${JSON.stringify({ id, rows, closed })}`);
+        return false;
+      }
+      const mode = `document.querySelector('section[aria-label="x.com"]')?.dataset.mode`;
+      await app(
+        `[...document.querySelectorAll('[role="menu"] [role="menuitem"]')].find((m) => m.textContent === "Report post")?.click(), true`,
+      );
+      const over = await until(
+        async () =>
+          (await app(mode)) === "main" &&
+          (await enginePath()).startsWith("/i/safety/report") &&
+          (await app(`location.hash`)).startsWith("#/home"),
+        15_000,
+      );
+      // Out of X's report flow the way its own close does, before any choice is made.
+      await engine(`history.back(), true`);
+      const back = await until(
+        async () => (await app(mode)) === "hidden" && (await enginePath()) === "/home",
+        10_000,
+      );
+      return over && back && `${rows.length} rows in ${ms}ms`;
+    },
+  ],
+  [
     "Messages stays x.com itself, over the main area",
     async () => {
       await app(
