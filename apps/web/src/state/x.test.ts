@@ -52,3 +52,12 @@ it("presses X's button in place, or on the post's page and then back to the list
     "location.pathname.",
   ]);
 });
+
+it("sends nothing to X's page for an id or handle that is not X's", async () => {
+  const page = fakeWebview("https://x.com/home");
+  registerXWebview(page.el);
+  markXReady();
+  expect(await xAct({ postId: '1"); alert(1); ("', handle: "theo" }, "like")).toBe(false);
+  expect(await xAct({ postId: "42", handle: "a/b" }, "like")).toBe(false);
+  expect(page.calls).toEqual([]);
+});

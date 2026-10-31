@@ -199,12 +199,15 @@ export const xAct = async (
   post: { readonly postId: string; readonly handle: string },
   action: XAction,
 ): Promise<boolean> => {
+  // Both go into scripts run in X's page: digits and a handle only.
+  if (!/^\d{1,25}$/.test(post.postId) || !/^[A-Za-z0-9_]{1,15}$/.test(post.handle)) return false;
   if (await xActInPlace(post.postId, action)) return true;
-  if (!/^[A-Za-z0-9_]{1,15}$/.test(post.handle)) return false;
   await xGo(`https://x.com/${post.handle}/status/${post.postId}`);
   const done = await xActInPlace(post.postId, action);
   // Only while the engine is still on the post: the user may have moved it on meanwhile.
-  await xRun(`location.pathname.endsWith("/status/${post.postId}") && history.back(), true`);
+  await xRun(
+    `location.pathname.endsWith(${JSON.stringify(`/status/${post.postId}`)}) && history.back(), true`,
+  );
   return done;
 };
 
