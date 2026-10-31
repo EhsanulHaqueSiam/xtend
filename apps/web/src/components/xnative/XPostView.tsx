@@ -105,7 +105,7 @@ function MediaItem({
         muted={m.kind === "gif"}
         playsInline
         preload="metadata"
-        className={cn("block w-full bg-black object-contain", fill && "h-full")}
+        className={cn("block w-full bg-black object-cover", fill && "h-full")}
       />
       {m.kind === "gif" ? (
         <span className="absolute bottom-2 left-2 rounded bg-black/70 px-1 text-[11px] font-bold">
