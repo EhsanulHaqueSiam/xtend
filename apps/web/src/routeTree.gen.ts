@@ -16,17 +16,21 @@ import { Route as SeenRouteImport } from './routes/seen'
 import { Route as SearchRouteImport } from './routes/search'
 import { Route as ScoresRouteImport } from './routes/scores'
 import { Route as PlanRouteImport } from './routes/plan'
+import { Route as NotificationsRouteImport } from './routes/notifications'
 import { Route as LibraryRouteImport } from './routes/library'
 import { Route as LeadsRouteImport } from './routes/leads'
 import { Route as HomeRouteImport } from './routes/home'
+import { Route as ExploreRouteImport } from './routes/explore'
 import { Route as EngageRouteImport } from './routes/engage'
 import { Route as ComposeRouteImport } from './routes/compose'
 import { Route as BookmarksRouteImport } from './routes/bookmarks'
 import { Route as AutomateRouteImport } from './routes/automate'
 import { Route as AnalyzeRouteImport } from './routes/analyze'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ListsIndexRouteImport } from './routes/lists.index'
 import { Route as UHandleRouteImport } from './routes/u.$handle'
 import { Route as PostIdRouteImport } from './routes/post.$id'
+import { Route as ListsIdRouteImport } from './routes/lists.$id'
 
 const XRoute = XRouteImport.update({
   id: '/x',
@@ -63,6 +67,11 @@ const PlanRoute = PlanRouteImport.update({
   path: '/plan',
   getParentRoute: () => rootRouteImport,
 } as any)
+const NotificationsRoute = NotificationsRouteImport.update({
+  id: '/notifications',
+  path: '/notifications',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LibraryRoute = LibraryRouteImport.update({
   id: '/library',
   path: '/library',
@@ -76,6 +85,11 @@ const LeadsRoute = LeadsRouteImport.update({
 const HomeRoute = HomeRouteImport.update({
   id: '/home',
   path: '/home',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ExploreRoute = ExploreRouteImport.update({
+  id: '/explore',
+  path: '/explore',
   getParentRoute: () => rootRouteImport,
 } as any)
 const EngageRoute = EngageRouteImport.update({
@@ -108,6 +122,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ListsIndexRoute = ListsIndexRouteImport.update({
+  id: '/lists/',
+  path: '/lists/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const UHandleRoute = UHandleRouteImport.update({
   id: '/u/$handle',
   path: '/u/$handle',
@@ -118,6 +137,11 @@ const PostIdRoute = PostIdRouteImport.update({
   path: '/post/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ListsIdRoute = ListsIdRouteImport.update({
+  id: '/lists/$id',
+  path: '/lists/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -126,9 +150,11 @@ export interface FileRoutesByFullPath {
   '/bookmarks': typeof BookmarksRoute
   '/compose': typeof ComposeRoute
   '/engage': typeof EngageRoute
+  '/explore': typeof ExploreRoute
   '/home': typeof HomeRoute
   '/leads': typeof LeadsRoute
   '/library': typeof LibraryRoute
+  '/notifications': typeof NotificationsRoute
   '/plan': typeof PlanRoute
   '/scores': typeof ScoresRoute
   '/search': typeof SearchRoute
@@ -136,8 +162,10 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRoute
   '/today': typeof TodayRoute
   '/x': typeof XRoute
+  '/lists/$id': typeof ListsIdRoute
   '/post/$id': typeof PostIdRoute
   '/u/$handle': typeof UHandleRoute
+  '/lists/': typeof ListsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -146,9 +174,11 @@ export interface FileRoutesByTo {
   '/bookmarks': typeof BookmarksRoute
   '/compose': typeof ComposeRoute
   '/engage': typeof EngageRoute
+  '/explore': typeof ExploreRoute
   '/home': typeof HomeRoute
   '/leads': typeof LeadsRoute
   '/library': typeof LibraryRoute
+  '/notifications': typeof NotificationsRoute
   '/plan': typeof PlanRoute
   '/scores': typeof ScoresRoute
   '/search': typeof SearchRoute
@@ -156,8 +186,10 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsRoute
   '/today': typeof TodayRoute
   '/x': typeof XRoute
+  '/lists/$id': typeof ListsIdRoute
   '/post/$id': typeof PostIdRoute
   '/u/$handle': typeof UHandleRoute
+  '/lists': typeof ListsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -167,9 +199,11 @@ export interface FileRoutesById {
   '/bookmarks': typeof BookmarksRoute
   '/compose': typeof ComposeRoute
   '/engage': typeof EngageRoute
+  '/explore': typeof ExploreRoute
   '/home': typeof HomeRoute
   '/leads': typeof LeadsRoute
   '/library': typeof LibraryRoute
+  '/notifications': typeof NotificationsRoute
   '/plan': typeof PlanRoute
   '/scores': typeof ScoresRoute
   '/search': typeof SearchRoute
@@ -177,8 +211,10 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRoute
   '/today': typeof TodayRoute
   '/x': typeof XRoute
+  '/lists/$id': typeof ListsIdRoute
   '/post/$id': typeof PostIdRoute
   '/u/$handle': typeof UHandleRoute
+  '/lists/': typeof ListsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -189,9 +225,11 @@ export interface FileRouteTypes {
     | '/bookmarks'
     | '/compose'
     | '/engage'
+    | '/explore'
     | '/home'
     | '/leads'
     | '/library'
+    | '/notifications'
     | '/plan'
     | '/scores'
     | '/search'
@@ -199,8 +237,10 @@ export interface FileRouteTypes {
     | '/settings'
     | '/today'
     | '/x'
+    | '/lists/$id'
     | '/post/$id'
     | '/u/$handle'
+    | '/lists/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -209,9 +249,11 @@ export interface FileRouteTypes {
     | '/bookmarks'
     | '/compose'
     | '/engage'
+    | '/explore'
     | '/home'
     | '/leads'
     | '/library'
+    | '/notifications'
     | '/plan'
     | '/scores'
     | '/search'
@@ -219,8 +261,10 @@ export interface FileRouteTypes {
     | '/settings'
     | '/today'
     | '/x'
+    | '/lists/$id'
     | '/post/$id'
     | '/u/$handle'
+    | '/lists'
   id:
     | '__root__'
     | '/'
@@ -229,9 +273,11 @@ export interface FileRouteTypes {
     | '/bookmarks'
     | '/compose'
     | '/engage'
+    | '/explore'
     | '/home'
     | '/leads'
     | '/library'
+    | '/notifications'
     | '/plan'
     | '/scores'
     | '/search'
@@ -239,8 +285,10 @@ export interface FileRouteTypes {
     | '/settings'
     | '/today'
     | '/x'
+    | '/lists/$id'
     | '/post/$id'
     | '/u/$handle'
+    | '/lists/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -250,9 +298,11 @@ export interface RootRouteChildren {
   BookmarksRoute: typeof BookmarksRoute
   ComposeRoute: typeof ComposeRoute
   EngageRoute: typeof EngageRoute
+  ExploreRoute: typeof ExploreRoute
   HomeRoute: typeof HomeRoute
   LeadsRoute: typeof LeadsRoute
   LibraryRoute: typeof LibraryRoute
+  NotificationsRoute: typeof NotificationsRoute
   PlanRoute: typeof PlanRoute
   ScoresRoute: typeof ScoresRoute
   SearchRoute: typeof SearchRoute
@@ -260,8 +310,10 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRoute
   TodayRoute: typeof TodayRoute
   XRoute: typeof XRoute
+  ListsIdRoute: typeof ListsIdRoute
   PostIdRoute: typeof PostIdRoute
   UHandleRoute: typeof UHandleRoute
+  ListsIndexRoute: typeof ListsIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -315,6 +367,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PlanRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/notifications': {
+      id: '/notifications'
+      path: '/notifications'
+      fullPath: '/notifications'
+      preLoaderRoute: typeof NotificationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/library': {
       id: '/library'
       path: '/library'
@@ -334,6 +393,13 @@ declare module '@tanstack/react-router' {
       path: '/home'
       fullPath: '/home'
       preLoaderRoute: typeof HomeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/explore': {
+      id: '/explore'
+      path: '/explore'
+      fullPath: '/explore'
+      preLoaderRoute: typeof ExploreRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/engage': {
@@ -378,6 +444,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/lists/': {
+      id: '/lists/'
+      path: '/lists'
+      fullPath: '/lists/'
+      preLoaderRoute: typeof ListsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/u/$handle': {
       id: '/u/$handle'
       path: '/u/$handle'
@@ -392,6 +465,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PostIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/lists/$id': {
+      id: '/lists/$id'
+      path: '/lists/$id'
+      fullPath: '/lists/$id'
+      preLoaderRoute: typeof ListsIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -402,9 +482,11 @@ const rootRouteChildren: RootRouteChildren = {
   BookmarksRoute: BookmarksRoute,
   ComposeRoute: ComposeRoute,
   EngageRoute: EngageRoute,
+  ExploreRoute: ExploreRoute,
   HomeRoute: HomeRoute,
   LeadsRoute: LeadsRoute,
   LibraryRoute: LibraryRoute,
+  NotificationsRoute: NotificationsRoute,
   PlanRoute: PlanRoute,
   ScoresRoute: ScoresRoute,
   SearchRoute: SearchRoute,
@@ -412,8 +494,10 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRoute,
   TodayRoute: TodayRoute,
   XRoute: XRoute,
+  ListsIdRoute: ListsIdRoute,
   PostIdRoute: PostIdRoute,
   UHandleRoute: UHandleRoute,
+  ListsIndexRoute: ListsIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

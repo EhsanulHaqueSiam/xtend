@@ -7,8 +7,9 @@ import { cn } from "../../lib/utils";
 import { draftReplyAtom, readPostAtom, sendReplyAtom } from "../../state/engage";
 import { toXPost } from "../../state/engine";
 import { failText } from "../compose/AssistPanel";
-import { Button } from "../ui/button";
 import { toastAtom } from "../ui/toast";
+import { useOwnAvatar } from "./HomeComposer";
+import { Avatar } from "./XPostView";
 
 const MODES = ["Your own", "With help", "Angles"] as const;
 type Mode = (typeof MODES)[number];
@@ -42,6 +43,7 @@ export function ReplyComposer({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const box = useRef<HTMLTextAreaElement>(null);
+  const avatarUrl = useOwnAvatar();
   // A video's or GIF's url is its poster frame: still the best look the model gets at it.
   const images = post.media.map((m) => m.url);
 
@@ -83,9 +85,11 @@ export function ReplyComposer({
     onSent();
   };
 
+  const canReply = !busy && text.trim() !== "" && text.length <= 280;
   return (
     <section
-      className="mx-5 my-3 rounded-xl border border-border bg-card px-4 py-3"
+      data-x="reply"
+      className="border-b border-border px-4 py-3"
       onKeyDown={(e) => {
         if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
           e.preventDefault();
@@ -101,134 +105,139 @@ export function ReplyComposer({
         }
       }}
     >
-      <div className="flex flex-wrap items-center gap-2 text-[12.5px]">
-        <span className="text-muted-foreground">Read</span>
-        {read === null ? (
-          <span className="text-muted-foreground">
-            {reading ? "Reading the post." : "Not read yet."}
-          </span>
-        ) : (
-          <>
-            <b className="font-semibold">{read.read}</b>
-            {read.signals.map((s) => (
-              <span key={s} className="rounded-md bg-white/[0.07] px-2 py-0.5 text-xs">
-                {s}
-              </span>
-            ))}
-          </>
-        )}
-        <span className="ml-auto flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
-          Not right?
-          {CORRECTIONS.map((c) => (
-            <button
-              key={c}
-              type="button"
-              disabled={reading}
-              className="cursor-pointer underline-offset-4 hover:text-foreground hover:underline disabled:opacity-50"
-              onClick={() => void runRead(c)}
-            >
-              {c}
-            </button>
-          ))}
-        </span>
-      </div>
-
-      <div
-        role="tablist"
-        aria-label="How to write"
-        className="mt-3 inline-flex gap-0.5 rounded-lg bg-white/[0.04] p-0.5"
-      >
-        {MODES.map((m) => (
-          <button
-            key={m}
-            type="button"
-            role="tab"
-            aria-selected={m === mode}
-            className="h-6 cursor-pointer rounded-md px-2.5 text-xs text-muted-foreground aria-selected:bg-white/10 aria-selected:text-foreground"
-            onClick={() => setMode(m)}
-          >
-            {m}
-          </button>
-        ))}
-      </div>
-
-      {mode === "Angles" && read !== null ? (
-        <ol className="mt-2 flex flex-col gap-1.5">
-          {read.angles.map((a, i) => (
-            <li key={a.label}>
-              <button
-                type="button"
-                className={cn(
-                  "grid w-full cursor-pointer grid-cols-[18px_1fr] gap-2 rounded-lg border px-3 py-2 text-left transition-colors duration-150",
-                  text === a.text
-                    ? "border-white/35 bg-white/[0.04]"
-                    : "border-border hover:border-white/15",
-                )}
-                onClick={() => pick(a.text)}
-              >
-                <span className="pt-px font-mono text-2xs text-muted-foreground">{i + 1}</span>
-                <span>
-                  <span className="block text-xs text-muted-foreground">{a.label}</span>
-                  <span className="block text-[13px]">{a.text}</span>
-                </span>
-              </button>
-            </li>
-          ))}
-          <li className="pt-1 text-xs text-muted-foreground">{read.why}</li>
-        </ol>
-      ) : null}
-
-      <textarea
-        ref={box}
-        aria-label="Your reply"
-        placeholder={
-          mode === "Your own" ? "Write your reply. No AI touches it." : "Write your reply"
-        }
-        className="mt-3 min-h-20 w-full resize-y rounded-lg border border-input bg-transparent px-3 py-2 text-[14px] leading-relaxed outline-hidden focus:border-white/30"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-      />
-
-      {mode === "With help" && suggestions.length > 0 ? (
-        <ul className="mt-2 flex flex-col gap-1.5">
-          {suggestions.map((s) => (
-            <li
-              key={s}
-              className="flex items-start gap-2 rounded-lg border border-border px-3 py-2 text-[13px]"
-            >
-              <span className="flex-1 text-foreground/85">{s}</span>
-              <Button size="xs" variant="outline" onClick={() => setText(s)}>
-                Use
-              </Button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-
-      {error !== null ? <p className="mt-2 text-xs text-error-foreground">{error}</p> : null}
-
-      <div className="mt-3 flex items-center gap-2">
-        <span className="mr-auto font-mono text-2xs text-muted-foreground tabular-nums">
-          {text.length}/280{mode === "Angles" ? " · 1–4 pick" : ""} · ⌘↵ reply
-        </span>
-        {mode === "With help" ? (
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={busy || text.trim() === ""}
-            onClick={() => void suggest()}
-          >
-            Suggest
-          </Button>
-        ) : null}
-        <Button
-          size="sm"
-          disabled={busy || text.trim() === "" || text.length > 280}
+      <div className="grid grid-cols-[40px_minmax(0,1fr)_auto] items-start gap-x-3">
+        <Avatar url={avatarUrl} size={40} />
+        <textarea
+          ref={box}
+          aria-label="Your reply"
+          placeholder={
+            mode === "Your own" ? "Post your reply. No AI touches it." : "Post your reply"
+          }
+          rows={text === "" ? 1 : 4}
+          className="w-full resize-none bg-transparent py-2 text-[20px] leading-6 outline-hidden placeholder:text-[#71767b]"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+        />
+        <button
+          type="button"
+          disabled={!canReply}
+          className="mt-0.5 h-9 cursor-pointer rounded-full bg-foreground px-4 text-[15px] font-bold text-background transition-opacity duration-150 disabled:cursor-default disabled:opacity-50"
           onClick={() => void reply()}
         >
           Reply
-          <span className="font-mono text-2xs opacity-70">free · your session</span>
-        </Button>
+        </button>
+      </div>
+
+      <div className="mt-2 ml-[52px] flex flex-col gap-2">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px]">
+          <div
+            role="tablist"
+            aria-label="How to write"
+            className="inline-flex gap-0.5 rounded-full bg-white/[0.05] p-0.5"
+          >
+            {MODES.map((m) => (
+              <button
+                key={m}
+                type="button"
+                role="tab"
+                aria-selected={m === mode}
+                className="h-6 cursor-pointer rounded-full px-2.5 text-xs text-[#71767b] aria-selected:bg-white/10 aria-selected:text-foreground"
+                onClick={() => setMode(m)}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+          <span className="ml-auto font-mono text-2xs text-muted-foreground tabular-nums">
+            {text.length}/280 · free · your session · ⌘↵
+          </span>
+        </div>
+
+        {mode === "Angles" ? (
+          <>
+            <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[13px] text-[#71767b]">
+              {read === null ? (
+                reading ? (
+                  "Reading the post."
+                ) : (
+                  "Not read yet."
+                )
+              ) : (
+                <>
+                  <b className="font-semibold text-foreground">{read.read}</b>
+                  {read.signals.map((sig) => (
+                    <span key={sig} className="rounded-full bg-white/[0.07] px-2 text-xs">
+                      {sig}
+                    </span>
+                  ))}
+                  <span className="ml-auto flex flex-wrap items-center gap-1.5 text-xs">
+                    Not right?
+                    {CORRECTIONS.map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        disabled={reading}
+                        className="cursor-pointer underline-offset-4 hover:text-foreground hover:underline disabled:opacity-50"
+                        onClick={() => void runRead(c)}
+                      >
+                        {c}
+                      </button>
+                    ))}
+                  </span>
+                </>
+              )}
+            </p>
+            {read === null ? null : (
+              <ol className="flex flex-col">
+                {read.angles.map((a, i) => (
+                  <li key={a.label}>
+                    <button
+                      type="button"
+                      className={cn(
+                        "grid w-full cursor-pointer grid-cols-[18px_1fr] gap-2 rounded-xl px-2 py-1.5 text-left transition-colors duration-150 hover:bg-white/[0.04]",
+                        text === a.text && "bg-white/[0.06]",
+                      )}
+                      onClick={() => pick(a.text)}
+                    >
+                      <span className="pt-0.5 font-mono text-2xs text-muted-foreground">
+                        {i + 1}
+                      </span>
+                      <span className="text-[14px] leading-5">
+                        <span className="text-[#71767b]">{a.label} · </span>
+                        {a.text}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </>
+        ) : null}
+
+        {mode === "With help" ? (
+          <div className="flex flex-col gap-1.5">
+            <button
+              type="button"
+              disabled={busy || text.trim() === ""}
+              className="w-fit cursor-pointer text-[13px] text-[#1d9bf0] hover:underline disabled:cursor-default disabled:opacity-50"
+              onClick={() => void suggest()}
+            >
+              Suggest better versions of what I wrote
+            </button>
+            {suggestions.map((sug) => (
+              <button
+                key={sug}
+                type="button"
+                className="cursor-pointer rounded-xl px-2 py-1.5 text-left text-[14px] leading-5 hover:bg-white/[0.04]"
+                onClick={() => setText(sug)}
+              >
+                {sug}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        {error !== null ? <p className="text-xs text-error-foreground">{error}</p> : null}
       </div>
     </section>
   );

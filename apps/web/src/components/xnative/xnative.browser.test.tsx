@@ -65,13 +65,14 @@ it("draws what the engine received: the post, its video in Xtend's player, and t
   await using screen = await render(
     <div style={{ height: 800, display: "flex" }}>
       <EngineSync />
-      <Timeline surface="following" empty="Loading" onReopen={() => {}} />
+      <Timeline surface="following" header={null} empty="Loading" onReopen={() => {}} />
     </div>,
     { service: {} },
   );
   bridge.emitEngine(
     batch("HomeLatestTimeline", [
-      post("2", "Day 31/ side chats https://t.co/abc", {
+      // The capture hands over the text X shows: its trailing media link already gone.
+      post("2", "Day 31/ side chats", {
         quotedId: "1",
         media: [
           {
@@ -89,7 +90,6 @@ it("draws what the engine received: the post, its video in Xtend's player, and t
     ]),
   );
   const first = screen.getByRole("article").first();
-  // X's trailing media link is X's own plumbing; it never shows.
   await expect.element(first.getByText("Day 31/ side chats", { exact: true })).toBeVisible();
   await expect.element(first.getByText("Day 30/ panels")).toBeVisible();
   const video = first.element().querySelector("video")!;
@@ -164,4 +164,84 @@ it("reads the post before replying, rereads on a correction, and sends the picke
     .toHaveValue("day 31 and the users are winning");
   await userEvent.click(screen.getByRole("button", { name: /^Reply/ }));
   await expect.poll(() => sent).toEqual(["day 31 and the users are winning"]);
+});
+
+it("draws what X draws around a post: its context line, live text, card, poll, note and the viewer's own like", async () => {
+  const TEXT = "same here https://t.co/abc @rauchg #buildinpublic costs $5,000";
+  const span = (part: string) => [TEXT.indexOf(part), TEXT.indexOf(part) + part.length] as const;
+  const bridge = installFakeBridge();
+  await using screen = await render(
+    <div style={{ height: 1200, display: "flex" }}>
+      <EngineSync />
+      <Timeline surface="search" header={null} empty="Loading" onReopen={() => {}} />
+    </div>,
+    { service: {} },
+  );
+  bridge.emitEngine(
+    // Its own surface: the store outlives a test, and Following already holds the first test's posts.
+    batch("SearchTimeline", [
+      post("7", TEXT, {
+        context: { type: "Retweet", text: "Guillermo reposted", handle: "rauchg" },
+        replyingTo: ["levelsio"],
+        // Where X's entities sit in the shown text; the card's link is drawn as the card (no
+        // indices), and the price has none, as on X.
+        entities: {
+          urls: [
+            {
+              url: "https://t.co/abc",
+              expanded: "https://x.com/rauchg/status/9",
+              display: "x.com/rauchg/st…",
+              indices: span("https://t.co/abc"),
+            },
+            {
+              url: "https://t.co/card",
+              expanded: "https://levels.io/vps",
+              display: "levels.io/vps",
+              indices: null,
+            },
+          ],
+          mentions: [{ handle: "rauchg", indices: span("@rauchg") }],
+          hashtags: [{ tag: "buildinpublic", indices: span("#buildinpublic") }],
+          cashtags: [],
+        },
+        card: {
+          kind: "link",
+          url: "https://levels.io/vps",
+          title: "One VPS",
+          domain: "levels.io",
+          description: null,
+          imageUrl: null,
+        },
+        poll: {
+          choices: [
+            { label: "Yes", votes: 58 },
+            { label: "No", votes: 42 },
+          ],
+          endsAt: null,
+          final: true,
+          voted: null,
+        },
+        note: "The bench measures one task set.",
+        liked: true,
+      }),
+    ]),
+  );
+  const row = screen.getByRole("article").first();
+  await expect.element(row.getByText("Guillermo reposted")).toBeVisible();
+  await expect.element(row.getByText(/^Replying to @levelsio$/)).toBeVisible();
+  // X shows a link's short form in place of its t.co.
+  await expect.element(row.getByRole("link", { name: "x.com/rauchg/st…" })).toBeVisible();
+  expect(row.element().textContent).not.toContain("t.co");
+  await expect.element(row.getByRole("link", { name: "@rauchg" })).toBeVisible();
+  await expect.element(row.getByRole("link", { name: "#buildinpublic" })).toBeVisible();
+  // A price is not a cashtag.
+  expect(row.getByRole("link", { name: "$5" }).elements()).toHaveLength(0);
+  await expect.element(row.getByText("One VPS")).toBeVisible();
+  await expect.element(row.getByText("58%")).toBeVisible();
+  await expect.element(row.getByText("Readers added context")).toBeVisible();
+  // Liked on X already: the button shows it, and the count is X's, not one more.
+  await expect
+    .element(row.getByRole("button", { name: "Like" }))
+    .toHaveAttribute("aria-pressed", "true");
+  await expect.element(row.getByRole("button", { name: "Like" })).toHaveTextContent("120");
 });
