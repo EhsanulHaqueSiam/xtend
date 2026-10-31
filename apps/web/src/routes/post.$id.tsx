@@ -48,7 +48,7 @@ function PostScreen() {
               onOpen={openPost}
             />
           ))}
-          <XPostView post={focal} quoted={quoted(focal.quotedId)} focal />
+          <XPostView key={focal.postId} post={focal} quoted={quoted(focal.quotedId)} focal />
           <ReplyComposer post={focal} thread={above.map((p) => p.text)} onSent={open} />
           {below.map((p) => (
             <XPostView key={p.postId} post={p} quoted={quoted(p.quotedId)} onOpen={openPost} />
