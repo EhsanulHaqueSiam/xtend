@@ -2,6 +2,7 @@ import { createContext, useContext, useState, type ReactNode } from "react";
 
 import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
+import { DayGlance } from "../shell/HomeCompanion";
 import { MediaViewer } from "./MediaViewer";
 
 /** The element that scrolls an X screen; lists inside virtualize against it. */
@@ -9,7 +10,8 @@ const ScrollParent = createContext<HTMLElement | null>(null);
 export const useXScrollParent = () => useContext(ScrollParent);
 
 /**
- * X's own reading shape: one 600px column between hairlines, and Xtend's rail beside it. The
+ * X's own reading shape: one 600px column between hairlines, and Xtend's rail beside it (the
+ * screen's own panels, then the day at a glance). The
  * whole area scrolls, as X's page does, so the wheel works over the rail too; the column header
  * and the rail stay put. Under 1100px the rail folds away.
  */
@@ -49,11 +51,13 @@ export function XColumn({
           <ScrollParent value={scroller}>{children}</ScrollParent>
           <MediaViewer />
         </section>
-        {rail === undefined ? null : (
-          <aside className="sticky top-0 flex h-fit w-[340px] shrink-0 flex-col gap-4 py-3 max-[1100px]:hidden">
-            {rail}
-          </aside>
-        )}
+        <aside className="sticky top-0 flex h-fit w-[340px] shrink-0 flex-col gap-4 py-3 max-[1100px]:hidden">
+          {rail}
+          {/* Xtend's day beside every X screen, where X keeps its own right column. */}
+          <section className="rounded-2xl border border-white/[0.12] px-4 pt-1 pb-0 [&>a:first-child]:border-t-0">
+            <DayGlance />
+          </section>
+        </aside>
       </div>
     </div>
   );

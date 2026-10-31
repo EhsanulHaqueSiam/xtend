@@ -50,20 +50,16 @@ function Card({
 }
 
 /**
- * Home's companion column: the day at a glance in the space X's hidden right
- * column leaves, all from free reads the shell already makes. It renders only
- * when the main area is wide enough for the column; below that the sidebar's
- * Today block carries the same facts.
+ * The day at a glance: what is queued, what waits on the user, the inbox, today's picks and the
+ * best time to post, all from free reads the shell already makes. Each card opens its tool.
  */
-export function HomeCompanion() {
-  const target = use(CompanionTarget);
+export function DayGlance() {
   const queued = or(useAtomValue(queuedDraftsAtom), []);
   const pending = or(useAtomValue(pendingAtom), []).filter((p) => p.status === "pending");
   const inbox = or(useAtomValue(inboxItemsAtom), null);
   const picks = or(useAtomValue(picksAtom), null);
   const heatmap = or(useAtomValue(heatmapAtom), null);
   const settings = or(useAtomValue(settingsAtom), null);
-  if (target === null) return null;
   const zone = settings?.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
   const now = new Date();
   const next = nextScheduledLabel(queued, zone, now);
@@ -72,7 +68,7 @@ export function HomeCompanion() {
   const peak = heatmap === null ? 0 : Math.max(...heatmap.cells, 0);
   const nowScore = heatmap?.cells[here.weekday * 24 + here.hour] ?? 0;
   const best = heatmap?.best[0];
-  return createPortal(
+  return (
     <>
       <Card to="/plan?tab=queue" title="Up next" count={queued.length}>
         {next === null ? "Nothing queued" : `${next} · ${queued.length} queued`}
@@ -98,7 +94,16 @@ export function HomeCompanion() {
             ? "Your audience peaks about now"
             : `${DAYS[best.weekday]} ${String(best.hour).padStart(2, "0")}:00`}
       </Card>
-    </>,
-    target,
+    </>
   );
+}
+
+/**
+ * Home's companion column: the day at a glance in the space x.com's hidden right column leaves.
+ * It renders only when the main area is wide enough for the column; below that the sidebar's
+ * Today block carries the same facts.
+ */
+export function HomeCompanion() {
+  const target = use(CompanionTarget);
+  return target === null ? null : createPortal(<DayGlance />, target);
 }
