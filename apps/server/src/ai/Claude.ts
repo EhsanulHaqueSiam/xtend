@@ -42,7 +42,8 @@ const claudeArgs = (input: {
   readonly system: string;
   readonly jsonSchema: unknown;
   readonly managedMcp: boolean;
-  readonly reads: boolean;
+  /** Image files in the call's own directory the model may read; nothing else. */
+  readonly reads: ReadonlyArray<string>;
 }) => [
   "-p",
   "--output-format",
@@ -52,10 +53,13 @@ const claudeArgs = (input: {
   "--system-prompt",
   input.system,
   ...(input.model === "" ? [] : ["--model", input.model]),
-  // Read only when the call carries images, and only its own empty directory holds files.
+  // The post is a stranger's text: Read exists only when the call carries images, and is
+  // allowed for exactly those files; dontAsk below denies every other path.
   "--tools",
-  input.reads ? "Read" : "",
-  ...(input.reads ? ["--allowedTools", "Read"] : []),
+  input.reads.length > 0 ? "Read" : "",
+  ...(input.reads.length > 0
+    ? ["--allowedTools", input.reads.map((n) => `Read(./${n})`).join(",")]
+    : []),
   "--settings",
   encodeJson({ disableAllHooks: true }),
   "--disable-slash-commands",
@@ -91,7 +95,7 @@ export const complete = Effect.fn("Claude.complete")(function* (input: {
       names.length === 0
         ? input.prompt
         : `${input.prompt}\n\nThe post's images are in the working directory: ${names.join(", ")}. Read each before answering.`;
-    const args = claudeArgs({ ...input, managedMcp, reads: names.length > 0 });
+    const args = claudeArgs({ ...input, managedMcp, reads: names });
     const claude = yield* ChildProcess.make(input.binary, args, {
       cwd,
       // Electron's flag would turn a Claude that is itself Electron-hosted into plain Node.
