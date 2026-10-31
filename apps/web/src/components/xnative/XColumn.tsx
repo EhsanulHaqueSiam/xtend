@@ -13,7 +13,7 @@ export const useXScrollParent = () => useContext(ScrollParent);
  * X's own reading shape: one 600px column between hairlines, and Xtend's rail beside it (the
  * screen's own panels, then the day at a glance). The
  * whole area scrolls, as X's page does, so the wheel works over the rail too; the column header
- * and the rail stay put. Under 1100px the rail folds away.
+ * and the rail stay put. When the main area is narrower than both, the rail folds away.
  */
 export function XColumn({
   header,
@@ -29,7 +29,10 @@ export function XColumn({
 }) {
   const [scroller, setScroller] = useState<HTMLElement | null>(null);
   return (
-    <div ref={setScroller} className="h-full min-h-0 overflow-y-auto [overflow-anchor:none]">
+    <div
+      ref={setScroller}
+      className="@container h-full min-h-0 overflow-y-auto [overflow-anchor:none]"
+    >
       <div className="flex min-h-full justify-center gap-7 px-4">
         <section
           data-x="column"
@@ -51,7 +54,7 @@ export function XColumn({
           <ScrollParent value={scroller}>{children}</ScrollParent>
           <MediaViewer />
         </section>
-        <aside className="sticky top-0 flex h-fit w-[340px] shrink-0 flex-col gap-4 py-3 max-[1100px]:hidden">
+        <aside className="sticky top-0 flex h-fit w-[340px] shrink-0 flex-col gap-4 py-3 @max-[1000px]:hidden">
           {rail}
           {/* Xtend's day beside every X screen, where X keeps its own right column. */}
           <section className="rounded-2xl border border-white/[0.12] px-4 pt-1 pb-0 [&>a:first-child]:border-t-0">

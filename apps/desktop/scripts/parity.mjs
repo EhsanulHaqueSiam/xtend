@@ -64,9 +64,15 @@ const shot = async (file) => {
 const go = (hash) => run(`location.hash = ${JSON.stringify(hash)}, true`);
 const POSTS = 'document.querySelectorAll("[data-x=post]").length > 0';
 
+// Electron has no Browser.setWindowBounds; the page's own viewport narrows instead, and the
+// webview, sized by the page's CSS, follows it.
 if (width !== null) {
-  const { windowId } = await call("Browser.getWindowForTarget");
-  await call("Browser.setWindowBounds", { windowId, bounds: { width, height: 920 } });
+  await call("Emulation.setDeviceMetricsOverride", {
+    width,
+    height: 920,
+    deviceScaleFactor: 0,
+    mobile: false,
+  });
   await sleep(800);
 }
 await mkdir(out, { recursive: true });
@@ -115,5 +121,6 @@ for (let i = 0; i < screens.length; i++) {
   await shot(`${screen.name}-x.png`);
   report.push(`${screen.name.padEnd(10)} ${drawn ? "drawn" : "EMPTY after 20s"}`);
 }
+if (width !== null) await call("Emulation.clearDeviceMetricsOverride");
 close();
 console.log(`${out}\n${report.join("\n")}`);
