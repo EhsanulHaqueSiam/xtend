@@ -7,6 +7,7 @@ import { useLocation } from "@tanstack/react-router";
  */
 export const ABOUT: Readonly<Record<string, string>> = {
   "/x": "X as you know it, in your own session, with what Xtend noticed beside it. Free.",
+  "/today": "What waits on you, what goes out next and how the week went. Free.",
   "/compose":
     "Write posts, threads and articles. What you click posts through your own X session, free; the queue goes through the X API at the price shown. Assist runs on your login.",
   "/plan":

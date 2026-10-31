@@ -19,6 +19,7 @@ import {
   Gauge,
   Eye,
   Settings,
+  Sun,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 
@@ -77,6 +78,7 @@ const ICONS = {
   Scores: Gauge,
   Seen: Eye,
   Settings,
+  Today: Sun,
 };
 
 function RowBody({
@@ -128,6 +130,7 @@ interface Tool {
 }
 
 const TOOLS: ReadonlyArray<Tool> = [
+  { to: "/today", label: "Today" },
   { to: "/compose", label: "Compose", group: "Create" },
   { to: "/plan", label: "Plan" },
   { to: "/library", label: "Library" },

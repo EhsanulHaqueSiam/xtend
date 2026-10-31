@@ -35,7 +35,7 @@ export function Section({
   className,
 }: {
   readonly title?: string;
-  readonly description?: string;
+  readonly description?: string | undefined;
   readonly aside?: ReactNode;
   readonly children: ReactNode;
   readonly className?: string;

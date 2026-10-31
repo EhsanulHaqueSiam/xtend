@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as XRouteImport } from './routes/x'
+import { Route as TodayRouteImport } from './routes/today'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SeenRouteImport } from './routes/seen'
 import { Route as ScoresRouteImport } from './routes/scores'
@@ -25,6 +26,11 @@ import { Route as IndexRouteImport } from './routes/index'
 const XRoute = XRouteImport.update({
   id: '/x',
   path: '/x',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TodayRoute = TodayRouteImport.update({
+  id: '/today',
+  path: '/today',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsRoute = SettingsRouteImport.update({
@@ -95,6 +101,7 @@ export interface FileRoutesByFullPath {
   '/scores': typeof ScoresRoute
   '/seen': typeof SeenRoute
   '/settings': typeof SettingsRoute
+  '/today': typeof TodayRoute
   '/x': typeof XRoute
 }
 export interface FileRoutesByTo {
@@ -109,6 +116,7 @@ export interface FileRoutesByTo {
   '/scores': typeof ScoresRoute
   '/seen': typeof SeenRoute
   '/settings': typeof SettingsRoute
+  '/today': typeof TodayRoute
   '/x': typeof XRoute
 }
 export interface FileRoutesById {
@@ -124,6 +132,7 @@ export interface FileRoutesById {
   '/scores': typeof ScoresRoute
   '/seen': typeof SeenRoute
   '/settings': typeof SettingsRoute
+  '/today': typeof TodayRoute
   '/x': typeof XRoute
 }
 export interface FileRouteTypes {
@@ -140,6 +149,7 @@ export interface FileRouteTypes {
     | '/scores'
     | '/seen'
     | '/settings'
+    | '/today'
     | '/x'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -154,6 +164,7 @@ export interface FileRouteTypes {
     | '/scores'
     | '/seen'
     | '/settings'
+    | '/today'
     | '/x'
   id:
     | '__root__'
@@ -168,6 +179,7 @@ export interface FileRouteTypes {
     | '/scores'
     | '/seen'
     | '/settings'
+    | '/today'
     | '/x'
   fileRoutesById: FileRoutesById
 }
@@ -183,6 +195,7 @@ export interface RootRouteChildren {
   ScoresRoute: typeof ScoresRoute
   SeenRoute: typeof SeenRoute
   SettingsRoute: typeof SettingsRoute
+  TodayRoute: typeof TodayRoute
   XRoute: typeof XRoute
 }
 
@@ -193,6 +206,13 @@ declare module '@tanstack/react-router' {
       path: '/x'
       fullPath: '/x'
       preLoaderRoute: typeof XRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/today': {
+      id: '/today'
+      path: '/today'
+      fullPath: '/today'
+      preLoaderRoute: typeof TodayRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings': {
@@ -287,6 +307,7 @@ const rootRouteChildren: RootRouteChildren = {
   ScoresRoute: ScoresRoute,
   SeenRoute: SeenRoute,
   SettingsRoute: SettingsRoute,
+  TodayRoute: TodayRoute,
   XRoute: XRoute,
 }
 export const routeTree = rootRouteImport

@@ -76,8 +76,8 @@ function useAbout() {
   const pathname = useLocation({ select: (l) => l.pathname });
   const searchStr = useLocation({ select: (l) => l.searchStr });
   const [closed, setClosed] = useAtom(closedAtom);
-  // The browser's root is Seen.
-  const route = pathname === "/" ? "/seen" : `/${pathname.split("/")[1] ?? ""}`;
+  // The browser's root is Today.
+  const route = pathname === "/" ? "/today" : `/${pathname.split("/")[1] ?? ""}`;
   const tool = ABOUT[route];
   if (tool === undefined) return null;
   const tab = new URLSearchParams(searchStr).get("tab") ?? "";
