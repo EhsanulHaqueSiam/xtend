@@ -39,6 +39,7 @@ export const codexArgs = (input: {
   readonly model: string;
   readonly schemaPath: string;
   readonly outPath: string;
+  readonly imagePaths?: ReadonlyArray<string>;
 }) => [
   "exec",
   "--skip-git-repo-check",
@@ -53,6 +54,7 @@ export const codexArgs = (input: {
   "mcp_servers={}",
   ...TOOL_FEATURES.flatMap((feature) => ["--disable", feature]),
   ...(input.model === "" ? [] : ["--model", input.model]),
+  ...(input.imagePaths ?? []).flatMap((p) => ["--image", p]),
   "-",
 ];
 
@@ -108,6 +110,7 @@ export const complete = Effect.fn("Codex.complete")(function* (input: {
   readonly system: string;
   readonly prompt: string;
   readonly jsonSchema: unknown;
+  readonly images?: ReadonlyArray<Uint8Array>;
 }) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -116,6 +119,8 @@ export const complete = Effect.fn("Codex.complete")(function* (input: {
     const schemaPath = path.join(dir, "schema.json");
     const outPath = path.join(dir, "answer.json");
     yield* fs.writeFileString(schemaPath, encodeJson(strictSchema(input.jsonSchema)));
+    const imagePaths = (input.images ?? []).map((_, i) => path.join(dir, `image-${i + 1}.jpg`));
+    yield* Effect.forEach(input.images ?? [], (bytes, i) => fs.writeFile(imagePaths[i]!, bytes));
     // A home of its own with only the login and the stripped config, so nothing from the user's
     // Codex setup (MCP servers, hooks) is reachable from a run that reads strangers' text.
     const userHome = process.env.CODEX_HOME ?? path.join(process.env.HOME ?? ".", ".codex");
@@ -128,7 +133,7 @@ export const complete = Effect.fn("Codex.complete")(function* (input: {
     yield* fs.writeFileString(path.join(home, "config.toml"), isolatedConfig(config));
     const codex = yield* ChildProcess.make(
       input.binary,
-      codexArgs({ ...input, schemaPath, outPath }),
+      codexArgs({ ...input, schemaPath, outPath, imagePaths }),
       {
         cwd: dir,
         // Only what the CLI needs to find itself and its login; the service's own secrets stay out.

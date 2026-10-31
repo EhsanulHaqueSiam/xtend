@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import type { ObservationBatch, ObservedPost } from "@xtend/contracts";
+import type { EngineBatch, ObservationBatch, ObservedPost } from "@xtend/contracts";
 import type * as Electron from "electron";
 
 import {
@@ -9,6 +9,7 @@ import {
   isGraphqlUrl,
   isViewerOperation,
   normalizeGraphqlResponse,
+  renderPostsFromGraphql,
   readCreatedPostId,
   readViewerHandle,
   sourceFromOperation,
@@ -37,6 +38,8 @@ export interface SessionCaptureOptions {
   readonly log: (message: string, detail?: unknown) => void;
   /** Every batch the normalizer recognized, before it is sent; the overlay feeds on it. */
   readonly onPosts?: (posts: ReadonlyArray<ObservedPost>, viewerHandle: string | null) => void;
+  /** Every response's posts as Xtend's own X screens draw them, tagged with X's operation. */
+  readonly onRender?: (batch: EngineBatch) => void;
   /** The id x.com returned for a post the session just created (CreateTweet). */
   readonly onCreatedPost?: (postId: string) => void;
   /** The signed-in handle from X's nav, for sessions that never make the Viewer call. */
@@ -98,6 +101,12 @@ export function attachSessionCapture(
       return;
     }
     const posts = normalizeGraphqlResponse(body);
+    if (options.onRender !== undefined) {
+      const rendered = renderPostsFromGraphql(body);
+      // /i/api/graphql/<queryId>/<Operation>?variables=...
+      const op = new URL(url).pathname.split("/").at(-1) ?? "";
+      if (rendered.length > 0) options.onRender({ op, posts: rendered });
+    }
     if (isCreateTweetOperation(url)) {
       const created = readCreatedPostId(body) ?? posts[0]?.postId;
       if (created !== undefined) options.onCreatedPost?.(created);

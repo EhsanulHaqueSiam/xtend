@@ -3,6 +3,7 @@ import * as Rpc from "effect/rpc/Rpc";
 import * as RpcGroup from "effect/rpc/RpcGroup";
 
 import { XId } from "./baseSchemas.ts";
+import type { ObservedPost } from "./observation.ts";
 
 /**
  * Desktop contracts. The service cannot touch the x.com session itself, so it
@@ -99,3 +100,29 @@ export const DesktopRpcGroup = RpcGroup.make(
     success: Schema.Void,
   }),
 );
+
+/** A photo, video or GIF on a post, as X serves it; `videoUrl` is its best mp4. */
+export interface EngineMedia {
+  readonly kind: "photo" | "video" | "gif";
+  readonly url: string;
+  readonly videoUrl: string | null;
+  readonly width: number;
+  readonly height: number;
+}
+
+/**
+ * A post as Xtend's own X screens draw it: the observed post plus what drawing needs. It goes
+ * from the desktop to the app page only, never to the service or the pool.
+ */
+export interface EnginePost extends ObservedPost {
+  readonly avatarUrl: string | null;
+  readonly media: ReadonlyArray<EngineMedia>;
+  readonly quotedId: string | null;
+  readonly replyToId: string | null;
+}
+
+/** One GraphQL response the engine received, by operation (HomeTimeline, TweetDetail, ...). */
+export interface EngineBatch {
+  readonly op: string;
+  readonly posts: ReadonlyArray<EnginePost>;
+}

@@ -19,6 +19,7 @@ import {
   BRIDGE_INFO_CHANNEL,
   RECOVERY_RETRY_CHANNEL,
   type BridgeInfo,
+  ENGINE_CHANNEL,
   GLANCE_CHANNEL,
   type Glance,
   OPEN_EXTERNAL_CHANNEL,
@@ -395,6 +396,7 @@ export function createMainWindow(options: MainWindowOptions) {
         overlay.observe(batch, viewer);
         commands.marks(batch.map((p) => ({ postId: p.postId, handle: p.author.handle })));
       },
+      onRender: (batch) => toApp(ENGINE_CHANNEL, batch),
       onCreatedPost: (postId) => {
         for (const listener of createdListeners) listener(postId);
         createdListeners.clear();
