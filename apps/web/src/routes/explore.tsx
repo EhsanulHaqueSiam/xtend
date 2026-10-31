@@ -97,11 +97,7 @@ function ExploreScreen() {
   const rows: Array<Row> = [];
   if (surface !== null) {
     let group: string | null = null;
-    // X may send the same tab twice as it settles; a trend shows once.
-    const shown = new Set<string>();
     for (const trend of at(engine.trends, surface)) {
-      if (shown.has(trend.name)) continue;
-      shown.add(trend.name);
       if (trend.group !== null && trend.group !== group)
         rows.push({ kind: "group", name: trend.group });
       group = trend.group;

@@ -99,6 +99,11 @@ function PostList({
       itemContent={(index, p) => (
         <XPostView
           post={p}
+          // X joins a conversation it groups on a timeline (a self-thread, a reply under its
+          // post) with a line from each avatar down to the next.
+          threaded={
+            p.conversation !== null && posts[index + 1]?.conversation?.id === p.conversation.id
+          }
           quoted={quoted(p.quotedId)}
           selected={index === selected}
           onOpen={onOpen}

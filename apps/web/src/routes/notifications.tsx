@@ -98,7 +98,7 @@ function EventRow({ n }: { readonly n: EngineNotification }) {
         </span>
         {post === undefined ? null : (
           <span className="line-clamp-3 text-[15px] leading-5 text-[#71767b]">
-            <RichText text={post.text} links={post.links} />
+            <RichText text={post.text} entities={post.entities} />
           </span>
         )}
       </span>

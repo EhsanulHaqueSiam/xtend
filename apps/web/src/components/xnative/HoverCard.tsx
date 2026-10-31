@@ -44,7 +44,7 @@ function Card({
       </div>
       {user === undefined || user.bio === "" ? null : (
         <p className="line-clamp-4 whitespace-pre-wrap">
-          <RichText text={user.bio} links={[]} />
+          <RichText text={user.bio} />
         </p>
       )}
       <p className="flex gap-4 text-[#71767b]">

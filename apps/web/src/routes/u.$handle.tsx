@@ -1,7 +1,8 @@
-import { useAtomValue } from "@effect/atom-react";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
 import { CalendarDays, Link2, MapPin } from "lucide-react";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { fmt } from "../components/analyze/ui";
 import { RichText } from "../components/xnative/RichText";
@@ -9,7 +10,9 @@ import { Timeline } from "../components/xnative/Timeline";
 import { XTabs, XTitle } from "../components/xnative/XColumn";
 import { Avatar, Verified } from "../components/xnative/XPostView";
 import { engineAtom, type ProfileTab, profileSurface, userByHandle } from "../state/engine";
-import { xGo } from "../state/x";
+import { settingsAtom } from "../state/settings";
+import { xFollow, xGo } from "../state/x";
+import { toastAtom } from "../components/ui/toast";
 
 const TABS = [
   { id: "posts", label: "Posts", path: "" },
@@ -46,6 +49,26 @@ function ProfileScreen() {
   const userId = user?.userId ?? seen?.author.userId ?? `@${handle.toLowerCase()}`;
   const surface = profileSurface(current.id, userId);
   const name = user?.name ?? seen?.author.name ?? handle;
+  const settings = AsyncResult.getOrElse(useAtomValue(settingsAtom), () => null);
+  const setToast = useAtomSet(toastAtom);
+  // Pressed here since X sent the profile; a second press takes it back.
+  const [flipped, setFlipped] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const following = (user?.youFollow ?? false) !== flipped;
+  const own = settings?.handle?.toLowerCase() === handle.toLowerCase();
+  /** X's own Follow or Unfollow for the user's click, on the profile X shows. */
+  const follow = async () => {
+    if (user === undefined || busy) return;
+    if (settings !== null && !settings.sessionPostingEnabled)
+      return setToast({ text: "Session actions are off in Settings, X session." });
+    setFlipped((f) => !f);
+    setBusy(true);
+    const ok = await xFollow({ userId: user.userId, handle: user.handle }, !following);
+    setBusy(false);
+    if (ok) return;
+    setFlipped((f) => !f);
+    setToast({ text: "X did not take that. Try again in a moment." });
+  };
   const pill =
     "h-9 cursor-pointer rounded-full px-4 text-[15px] font-bold transition-colors duration-150";
   return (
@@ -85,18 +108,28 @@ function ProfileScreen() {
                 >
                   Score
                 </button>
-                {/* Following someone is a write: it happens on X's own page, in the pane. */}
-                <button
-                  type="button"
-                  className={
-                    user?.youFollow === true
-                      ? `${pill} border border-white/[0.35] hover:bg-white/[0.06]`
-                      : `${pill} bg-foreground text-background hover:opacity-90`
-                  }
-                  onClick={() => void navigate({ to: "/x" })}
-                >
-                  {user?.youFollow === true ? "Following" : "Follow on X"}
-                </button>
+                {own ? null : (
+                  <button
+                    type="button"
+                    disabled={user === undefined}
+                    aria-pressed={following}
+                    className={
+                      following
+                        ? `${pill} group border border-white/[0.35] hover:border-[#f4212e]/60 hover:bg-[#f4212e]/10 hover:text-[#f4212e]`
+                        : `${pill} bg-foreground text-background hover:opacity-90 disabled:opacity-50`
+                    }
+                    onClick={() => void follow()}
+                  >
+                    {following ? (
+                      <>
+                        <span className="group-hover:hidden">Following</span>
+                        <span className="hidden group-hover:inline">Unfollow</span>
+                      </>
+                    ) : (
+                      "Follow"
+                    )}
+                  </button>
+                )}
               </div>
             </div>
             <p className="mt-3 flex items-center gap-1 text-[20px] leading-6 font-extrabold">
@@ -113,7 +146,7 @@ function ProfileScreen() {
             </p>
             {user === undefined || user.bio === "" ? null : (
               <p className="mt-3 text-[15px] leading-5 whitespace-pre-wrap">
-                <RichText text={user.bio} links={[]} />
+                <RichText text={user.bio} />
               </p>
             )}
             {user === undefined ? null : (

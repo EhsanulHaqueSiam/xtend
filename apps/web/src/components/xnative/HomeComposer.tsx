@@ -14,10 +14,11 @@ import { Avatar } from "./XPostView";
 
 const LIMIT = 280;
 
-/** The user's own face, from any of their posts the engine has seen; null until one shows up. */
+/** The user's own face: X's signed-in account, else any of their posts the engine has seen. */
 export const useOwnAvatar = () => {
   const engine = useAtomValue(engineAtom);
   const handle = AsyncResult.getOrElse(useAtomValue(settingsAtom), () => null)?.handle ?? null;
+  if (engine.viewer?.avatarUrl != null) return engine.viewer.avatarUrl;
   if (handle === null) return null;
   const lower = handle.toLowerCase();
   for (const p of engine.posts.values())

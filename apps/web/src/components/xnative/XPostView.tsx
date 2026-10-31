@@ -28,11 +28,9 @@ import { avatar96, engagement, viewsPerHour, xAge, xStamp } from "./format";
 
 export const postUrl = (p: EnginePost) => `https://x.com/${p.author.handle}/status/${p.postId}`;
 
-/** X ends a post with a t.co link to its own media or quote, which X itself never shows. */
-const shownText = (p: EnginePost) =>
-  p.media.length > 0 || p.quotedId !== null || p.card !== null
-    ? p.text.replace(/(\s*https:\/\/t\.co\/\w+)+\s*$/, "")
-    : p.text;
+/** The three buttons a post's own state comes with, and the button that takes each back. */
+type Press = "like" | "retweet" | "bookmark";
+const UNDO = { like: "unlike", retweet: "unretweet", bookmark: "removeBookmark" } as const;
 
 /** X shows a long post's first 280 characters in a list, then "Show more". */
 const SHOWN_IN_LIST = 280;
@@ -93,7 +91,19 @@ function MediaItem({
 }) {
   const cls = cn("block w-full cursor-zoom-in bg-white/[0.04] object-cover", fill && "h-full");
   if (m.kind === "photo" || m.videoUrl === null)
-    return <img src={m.url} alt="" loading="lazy" className={cls} onClick={onView} />;
+    return (
+      <span className={cn("relative block", fill && "h-full")}>
+        <img src={m.url} alt={m.altText ?? ""} loading="lazy" className={cls} onClick={onView} />
+        {m.altText === null ? null : (
+          <span
+            title={m.altText}
+            className="absolute bottom-2 left-2 rounded bg-black/75 px-1 text-[12px] font-bold"
+          >
+            ALT
+          </span>
+        )}
+      </span>
+    );
   return (
     <span className={cn("relative block bg-black", fill && "h-full")}>
       <video
@@ -183,7 +193,7 @@ function QuoteBox({
         </span>
       </div>
       <p className="line-clamp-6 px-3 pt-0.5 pb-3 text-[15px] leading-5 break-words whitespace-pre-wrap">
-        {shownText(quoted)}
+        {quoted.text}
       </p>
       {quoted.media.length === 0 ? null : (
         <div className="-mx-px -mb-px [&>div]:rounded-none [&>div]:border-x-0 [&>div]:border-b-0">
@@ -210,7 +220,7 @@ function ReplyingTo({ handles }: { readonly handles: ReadonlyArray<string> }) {
   if (handles.length === 0) return null;
   return (
     <p className="text-[15px] leading-5 text-[#71767b]">
-      Replying to <RichText text={handles.map((h) => `@${h}`).join(" ")} links={[]} />
+      Replying to <RichText text={handles.map((h) => `@${h}`).join(" ")} />
     </p>
   );
 }
@@ -311,23 +321,30 @@ export function XPostView({
   const drop = useDropPost();
   const navigate = useNavigate();
   const settings = AsyncResult.getOrElse(useAtomValue(settingsAtom), () => null);
-  const [done, setDone] = useState<ReadonlySet<XAction>>(new Set());
-  /** Pressed on X already (as X sent it), or pressed here since. */
+  /** Buttons pressed here since X sent the post (a second press takes the first back). */
+  const [flipped, setFlipped] = useState<ReadonlySet<Press>>(new Set());
+  const [busy, setBusy] = useState<ReadonlySet<Press>>(new Set());
   const was = { like: post.liked, retweet: post.reposted, bookmark: post.bookmarked };
-  const has = (a: XAction) => was[a] || done.has(a);
-  /** A count that includes the user's own press made here, once. */
-  const plus = (a: XAction) => (done.has(a) && !was[a] ? 1 : 0);
+  const has = (p: Press) => was[p] !== flipped.has(p);
+  /** X's count, moved by the user's own press made here. */
+  const shift = (p: Press) => (has(p) === was[p] ? 0 : has(p) ? 1 : -1);
+  const flip = (p: Press) =>
+    setFlipped((f) => (f.has(p) ? new Set([...f].filter((x) => x !== p)) : new Set(f).add(p)));
   /**
-   * X's own button for the user's click: in place on the engine page where the post sits, or on
-   * the post's own page through X's router and back, so X's list is where it was.
+   * X's own button for the user's click (or the one that takes it back): in place on the engine
+   * page where the post sits, or on the post's own page through X's router and back.
    */
-  const act = async (action: XAction) => {
-    if (has(action)) return;
+  const act = async (press: Press) => {
+    if (busy.has(press)) return;
     if (settings !== null && !settings.sessionPostingEnabled)
       return setToast({ text: "Session actions are off in Settings, X session." });
-    setDone((d) => new Set(d).add(action));
-    if (await xAct({ postId: post.postId, handle: post.author.handle }, action)) return;
-    setDone((d) => new Set([...d].filter((a) => a !== action)));
+    const action: XAction = has(press) ? UNDO[press] : press;
+    flip(press);
+    setBusy((b) => new Set(b).add(press));
+    const ok = await xAct({ postId: post.postId, handle: post.author.handle }, action);
+    setBusy((b) => new Set([...b].filter((x) => x !== press)));
+    if (ok) return;
+    flip(press);
     setToast({ text: "X did not take that. Try again in a moment." });
   };
   const openProfile = () =>
@@ -406,7 +423,7 @@ export function XPostView({
         label="Repost"
         tone="green"
         pressed={has("retweet")}
-        count={fmt(m.reposts + plus("retweet"))}
+        count={fmt(m.reposts + shift("retweet"))}
         onClick={() => void act("retweet")}
       >
         <Repeat2 className="size-[18px]" />
@@ -415,7 +432,7 @@ export function XPostView({
         label="Like"
         tone="pink"
         pressed={has("like")}
-        count={fmt(m.likes + plus("like"))}
+        count={fmt(m.likes + shift("like"))}
         onClick={() => void act("like")}
       >
         <Heart className={cn("size-[18px]", has("like") && "fill-current")} />
@@ -466,7 +483,7 @@ export function XPostView({
           <ReplyingTo handles={post.replyingTo} />
         </div>
         <p className="mt-3 text-[17px] leading-6 break-words whitespace-pre-wrap">
-          <RichText text={shownText(post)} links={post.links} />
+          <RichText text={post.text} entities={post.entities} />
         </p>
         <div className="mt-3 flex flex-col gap-3 empty:hidden">
           {post.media.length === 0 ? null : <Media media={post.media} />}
@@ -474,6 +491,7 @@ export function XPostView({
           <Extras post={post} />
         </div>
         <p className={cn("mt-4 pb-4 text-[15px]", X_GRAY)}>
+          {post.edits.length > 1 ? "Last edited " : ""}
           {xStamp(post.createdAt)}
           {m.views === null ? null : (
             <>
@@ -532,10 +550,10 @@ export function XPostView({
           {menu}
         </div>
         <ReplyingTo handles={post.replyingTo} />
-        {shownText(post) === "" ? null : (
+        {post.text === "" ? null : (
           <p className="-mt-1.5 text-[15px] leading-5 break-words whitespace-pre-wrap">
-            <RichText text={clampText(shownText(post)) ?? shownText(post)} links={post.links} />
-            {clampText(shownText(post)) === null ? null : (
+            <RichText text={clampText(post.text) ?? post.text} entities={post.entities} />
+            {clampText(post.text) === null ? null : (
               <button
                 type="button"
                 className="block cursor-pointer text-[#1d9bf0] hover:underline"
