@@ -2,7 +2,7 @@ import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import type { DryRunReport, RulePreview } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { TextMorph } from "torph/react";
 
 import { cn } from "../../lib/utils";
@@ -61,7 +61,7 @@ function WouldFire({
 }
 
 /** What every enabled rule would do right now, and what one rule would have done over the last 7 days. */
-export function DryRun() {
+export function DryRun({ tabs }: { readonly tabs?: ReactNode }) {
   const rulesResult = useAtomValue(rulesAtom);
   // null until the list loads: a list that failed to load is not "no rules".
   const loaded = AsyncResult.getOrElse(rulesResult, () => null);
@@ -95,7 +95,7 @@ export function DryRun() {
 
   return (
     <div className="flex h-full flex-col">
-      <PageHeader title="Dry run" detail="reads stored data only, fires nothing" />
+      <PageHeader title="Rules" tabs={tabs} detail="reads stored data only, fires nothing" />
       <ErrorBar>
         {error ?? (AsyncResult.isFailure(rulesResult) ? errorText(rulesResult.cause) : null)}
       </ErrorBar>
