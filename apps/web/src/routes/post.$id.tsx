@@ -9,7 +9,7 @@ import { XColumn, XTitle } from "../components/xnative/XColumn";
 import { XPostView } from "../components/xnative/XPostView";
 import { XEmpty } from "../components/xnative/XRows";
 import { at, engineAtom, postOn, postSurface } from "../state/engine";
-import { xGo, xNavigate } from "../state/x";
+import { refreshScreen, xGo, xNavigate } from "../state/x";
 
 /** One post with the thread above it, joined by X's line, and the replies under it, the composer between. */
 function PostScreen() {
@@ -24,6 +24,10 @@ function PostScreen() {
   const reload = () => void xNavigate(`https://x.com/${h}/status/${id}`);
 
   useEffect(open, [open]);
+  // A reply through the session left the engine on X's composer, so X's router brings the thread
+  // back fresh, the reply already in place. One through the API left it here: load the thread again.
+  const afterReply = () =>
+    void xGo(`https://x.com/${h}/status/${id}`).then((moved) => moved || refreshScreen());
   const posts = at(engine.lists, postSurface(id)).flatMap(
     (pid) => postOn(engine, postSurface(id), pid) ?? [],
   );
@@ -34,6 +38,7 @@ function PostScreen() {
   const quoted = (pid: string | null) => (pid === null ? undefined : engine.posts.get(pid));
   return (
     <XColumn
+      refresh={{ surfaces: [postSurface(id)], load: reload }}
       header={<XTitle title="Post" onBack={() => router.history.back()} />}
       rail={<PostRail post={focal} seen={engine.posts.values()} />}
     >
@@ -51,7 +56,7 @@ function PostScreen() {
             />
           ))}
           <XPostView key={focal.postId} post={focal} quoted={quoted(focal.quotedId)} focal />
-          <ReplyComposer post={focal} thread={above.map((p) => p.text)} onSent={open} />
+          <ReplyComposer post={focal} thread={above.map((p) => p.text)} onSent={afterReply} />
           {below.map((p) => (
             <XPostView key={p.postId} post={p} quoted={quoted(p.quotedId)} onOpen={openPost} />
           ))}

@@ -214,6 +214,14 @@ export function createMainWindow(options: MainWindowOptions) {
   const toApp = (channel: string, value: unknown) => {
     if (!appContents.isDestroyed()) appContents.send(channel, value);
   };
+  // ⌘R and F5 refresh the open screen from X, as on x.com; macOS's stock menu would reload the
+  // whole app page instead, emptying every X screen. ⇧⌘R still reloads the app.
+  appContents.on("before-input-event", (event, input) => {
+    const key = guestKey(input, process.platform);
+    if (key?.kind !== "app" || key.key !== "refresh") return;
+    event.preventDefault();
+    toApp(SHORTCUT_CHANNEL, "refresh");
+  });
 
   let startUrl = X_HOME;
   try {

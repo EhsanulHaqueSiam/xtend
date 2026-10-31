@@ -364,3 +364,31 @@ export const xSkinAtom = stored<ReadonlyArray<XSkinToggle>>(
   (raw) => raw.split(",").filter(isXSkinToggle),
   X_SKIN_DEFAULTS,
 );
+
+let screenRefresh: (() => void) | null = null;
+let lastRefresh = 0;
+const REFRESH_FLOOR_MS = 2_000;
+
+/** The open X screen's refresh, set by its column while it shows; returns the unset. */
+export const setScreenRefresh = (refresh: () => void) => {
+  screenRefresh = refresh;
+  return () => {
+    if (screenRefresh === refresh) screenRefresh = null;
+  };
+};
+
+/**
+ * ⌘R or F5: the open X screen loads its page from X again, as reloading x.com does. Any other
+ * screen reloads the app page, the browser's own refresh.
+ */
+export const refreshScreen = () => {
+  if (screenRefresh === null) return window.location.reload();
+  // A full load costs X's Viewer call, which X rate-limits: a hammered key loads once.
+  if (Date.now() - lastRefresh < REFRESH_FLOOR_MS) return;
+  lastRefresh = Date.now();
+  screenRefresh();
+};
+
+// DevTools keys skip main's before-input-event, so the engine benchmark presses ⌘R through this.
+if (import.meta.env.DEV && typeof window !== "undefined")
+  Reflect.set(window, "__xtendRefresh", refreshScreen);

@@ -63,6 +63,13 @@ const item = (content: unknown, socialContext?: unknown) => ({
 const binding = (key: string, value: Record<string, unknown>) => ({ key, value });
 
 describe("renderEngineBatch posts", () => {
+  it("reads the post X's composer created, which X sends without its type name", () => {
+    const { __typename: _, ...created } = tweet("5", { in_reply_to_status_id_str: "9" });
+    const body = { data: { create_tweet: { tweet_results: { result: created } } } };
+    const [post] = renderEngineBatch("CreateTweet", {}, body).posts;
+    expect([post?.postId, post?.replyToId, post?.author.handle]).toEqual(["5", "9", "theo"]);
+  });
+
   it("draws a reply, its links and card as X does, with the viewer's own state", () => {
     const post = tweet(
       "1",

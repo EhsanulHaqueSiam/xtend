@@ -134,6 +134,7 @@ export function Timeline({
   empty,
   keepPlace = false,
   onReopen,
+  onRefresh = onReopen,
 }: {
   readonly surface: AnySurface;
   readonly header: ReactNode;
@@ -143,6 +144,8 @@ export function Timeline({
   readonly top?: ReactNode;
   readonly empty: ReactNode;
   readonly onReopen: () => void;
+  /** A full load of the list's x.com page, for ⌘R and F5; `onReopen` when that already is one. */
+  readonly onRefresh?: () => void;
 }) {
   const engine = useAtomValue(engineAtom);
   const setEngine = useAtomSet(engineAtom);
@@ -189,6 +192,15 @@ export function Timeline({
   return (
     <XColumn
       header={header}
+      refresh={{
+        surfaces: [surface],
+        load: () => {
+          // A refreshed list starts at X's top, not where the old one was left.
+          places.delete(surface);
+          setSelected(0);
+          onRefresh();
+        },
+      }}
       float={
         <NewPostsPill
           waiting={waiting}

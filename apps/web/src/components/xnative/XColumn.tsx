@@ -1,7 +1,10 @@
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { useAtomSet } from "@effect/atom-react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
+import { type AnySurface, engineAtom, resetSurface, updateEngine } from "../../state/engine";
+import { setScreenRefresh } from "../../state/x";
 import { DayGlance } from "../shell/HomeCompanion";
 import { MediaViewer } from "./MediaViewer";
 
@@ -19,8 +22,17 @@ export function XColumn({
   header,
   float,
   rail,
+  refresh,
   children,
 }: {
+  /**
+   * What ⌘R or F5 does here, as reloading x.com would: the screen's lists empty and its page
+   * loads from X again in full, so X sends it fresh in X's own order.
+   */
+  readonly refresh?: {
+    readonly surfaces: ReadonlyArray<AnySurface>;
+    readonly load: () => void;
+  };
   readonly header: ReactNode;
   /** Floats just under the header while the column scrolls, as X's "Show N posts" does. */
   readonly float?: ReactNode;
@@ -28,6 +40,22 @@ export function XColumn({
   readonly children: ReactNode;
 }) {
   const [scroller, setScroller] = useState<HTMLElement | null>(null);
+  const setEngine = useAtomSet(engineAtom);
+  const latest = useRef(refresh);
+  useEffect(() => {
+    latest.current = refresh;
+  });
+  const refreshes = refresh !== undefined;
+  useEffect(() => {
+    if (!refreshes) return;
+    return setScreenRefresh(() => {
+      const r = latest.current;
+      if (r === undefined) return;
+      setEngine(updateEngine((s) => r.surfaces.reduce(resetSurface, s)));
+      scroller?.scrollTo({ top: 0 });
+      r.load();
+    });
+  }, [refreshes, scroller, setEngine]);
   return (
     <div
       ref={setScroller}

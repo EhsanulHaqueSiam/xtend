@@ -21,6 +21,7 @@ import {
   asString,
   isRecord,
   type Json,
+  readCreatedTweet,
   readPost,
   type WalkContext,
   walkTweets,
@@ -651,7 +652,10 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     cursor: asString(variables.cursor) || null,
     top,
     bottom,
-    posts: renderPostsFromGraphql(body).map((p) => {
+    // X's own composer answers with the post it created, outside any timeline.
+    posts: renderPostsFromGraphql(
+      /^Create(Note)?Tweet$/.test(op) ? (readCreatedTweet(body) ?? body) : body,
+    ).map((p) => {
       const conversation = conversations.get(p.postId);
       return conversation === undefined ? p : { ...p, conversation };
     }),

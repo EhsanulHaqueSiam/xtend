@@ -42,3 +42,4 @@ update. Follow the documentation rules in `AGENTS.md` before adding one.
 - [Development and local builds](./operations/development.md)
 - [API, CLI and MCP](./operations/api.md)
 - [Pool database](./operations/pool.md)
+- [X parity: finding X's own flows on Mobbin](./operations/x-parity-mobbin.md)

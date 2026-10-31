@@ -5,7 +5,13 @@ import { useEffect } from "react";
 import type { ShortcutKey } from "../../desktopBridge";
 import { isElectron } from "../../env";
 import { paletteOpenAtom } from "../../state/shell";
-import { isXRoute, lastToolRoute, xFindOpenAtom, xPanelOpenAtom } from "../../state/x";
+import {
+  isXRoute,
+  lastToolRoute,
+  refreshScreen,
+  xFindOpenAtom,
+  xPanelOpenAtom,
+} from "../../state/x";
 import { SCREENS } from "./commands";
 
 const isEditable = (target: EventTarget | null) =>
@@ -14,9 +20,9 @@ const isEditable = (target: EventTarget | null) =>
 
 /**
  * The app's keys. ⌘K toggles the palette, ⌘\ docks or hides x.com beside a
- * tool, ⌘F finds in x.com, and single letters outside text fields open
- * screens. While x.com has focus its own keys stay X's; main forwards the
- * three chords so they work there too.
+ * tool, ⌘F finds in x.com, ⌘R or F5 (from main) refresh the open screen,
+ * and single letters outside text fields open screens. While x.com has focus
+ * its own keys stay X's; main forwards the chords so they work there too.
  */
 export function ShellHotkeys() {
   const navigate = useNavigate();
@@ -31,6 +37,7 @@ export function ShellHotkeys() {
     const onX = isXRoute(pathname);
     const chord = (key: ShortcutKey) => {
       if (key === "palette") return setPalette((open) => !open);
+      if (key === "refresh") return refreshScreen();
       if (!isElectron) return;
       if (key === "find") return onX || panelOpen ? setFind(true) : undefined;
       // From X's own pages, ⌘\ goes back to the last tool with x.com beside it.

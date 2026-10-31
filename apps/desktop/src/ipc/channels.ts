@@ -73,8 +73,8 @@ export interface BridgeInfo {
   readonly initialRoute: string | null;
 }
 
-/** Keys main catches in x.com for the app: ⌘K palette, ⌘\ X panel, ⌘F find. */
-export type ShortcutKey = "palette" | "xPanel" | "find";
+/** Keys main catches for the app: ⌘K palette, ⌘\ X panel, ⌘F find, ⌘R or F5 refresh. */
+export type ShortcutKey = "palette" | "xPanel" | "find" | "refresh";
 
 /** What the overlay strip needs per post; the capture already normalized all of it. */
 export interface OverlayPost {

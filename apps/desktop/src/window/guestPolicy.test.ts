@@ -78,6 +78,14 @@ describe("guestKey", () => {
     });
   });
 
+  it("takes ⌘R and F5 as the app's refresh, and leaves ⇧⌘R to reload the app", () => {
+    const refresh = { kind: "app", key: "refresh" };
+    expect(guestKey(key({ code: "KeyR", meta: true }), "darwin")).toEqual(refresh);
+    expect(guestKey(key({ code: "KeyR", control: true }), "linux")).toEqual(refresh);
+    expect(guestKey(key({ code: "F5", key: "F5" }), "linux")).toEqual(refresh);
+    expect(guestKey(key({ code: "KeyR", meta: true, shift: true }), "darwin")).toBeNull();
+  });
+
   it("leaves X's own single-letter shortcuts alone", () => {
     for (const code of ["KeyJ", "KeyK", "KeyL", "KeyC", "KeyP"])
       expect(guestKey(key({ code }), "linux")).toBeNull();

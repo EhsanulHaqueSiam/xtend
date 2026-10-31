@@ -97,8 +97,11 @@ export function guestKey(input: KeyInput, platform: NodeJS.Platform): GuestKey |
   if (input.type !== "keyDown" || input.isAutoRepeat) return null;
   const mod = platform === "darwin" ? input.meta : input.control;
   if (input.alt && !mod && !input.shift && input.code === "KeyO") return { kind: "overlayToggle" };
+  if (input.key === "F5" && !mod && !input.alt && !input.shift)
+    return { kind: "app", key: "refresh" };
   if (!mod || input.alt) return null;
   if (!input.shift) {
+    if (input.code === "KeyR") return { kind: "app", key: "refresh" };
     if (input.code === "KeyK") return { kind: "app", key: "palette" };
     if (input.code === "Backslash") return { kind: "app", key: "xPanel" };
     if (input.code === "KeyF") return { kind: "app", key: "find" };
