@@ -51,6 +51,11 @@ Traps that shaped this:
   the one whose timestamp links to the post, or to `/status/<id>/history` once it was edited; a
   quoting post links to it too. When X's page no longer draws it, the engine opens the post
   through X's router, presses there and goes Back, which restores X's list and scroll.
+- X rate-limits an account per endpoint per 15 minutes, and every full load of x.com makes its
+  calls again (Viewer among them, which answered HTTP 429 after a few hundred loads and left
+  x.com on its splash, on every device of that account). Moving the engine with `xGo` instead
+  of `xNavigate` is also what keeps a user clear of that; the benchmark spaces its runs
+  (`--pause`) for the same reason.
 - video.twimg.com answers 403 to a Referer that is not X's and `<video>` takes no
   `referrerpolicy`, so the app page sends no Referer at all (`index.html`).
 

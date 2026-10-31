@@ -6,6 +6,8 @@
 // found, never pressed. The one write is a bookmark, which is private, and it is undone.
 //   node scripts/engine-bench.mjs                 every check once
 //   node scripts/engine-bench.mjs --runs 3        until three passes in a row, at most 3 rounds
+//   node scripts/engine-bench.mjs --pause 300     seconds between runs: X rate-limits an account
+//                                                 per 15 minutes, and a run is a few hundred calls
 //   node scripts/engine-bench.mjs --only video    checks whose name contains "video"
 //   node scripts/engine-bench.mjs --shots DIR     a screenshot of the app after each check
 //   node scripts/engine-bench.mjs --parity DIR    per screen, Xtend's screen and x.com on the same
@@ -18,6 +20,7 @@ const flag = (name) => {
   return at === -1 ? undefined : process.argv[at + 1];
 };
 const RUNS = Number(flag("--runs") ?? 1);
+const PAUSE_MS = Number(flag("--pause") ?? 0) * 1000;
 const ONLY = flag("--only");
 const SHOTS = flag("--shots");
 const PARITY = flag("--parity");
@@ -946,7 +949,9 @@ if (!writes && chosen.some(([name]) => WRITES.test(name)))
 
 let streak = 0;
 for (let n = 1; n <= RUNS; n++) {
-  if (RUNS > 1) console.log(`-- run ${n}`);
+  // oxlint-disable-next-line no-await-in-loop -- runs are spaced out on purpose
+  if (n > 1 && PAUSE_MS > 0) await sleep(PAUSE_MS);
+  if (RUNS > 1) console.log(`-- run ${n} at ${new Date().toTimeString().slice(0, 8)}`);
   // oxlint-disable-next-line no-await-in-loop -- runs are sequential by design
   streak = (await round(n)).length === 0 ? streak + 1 : 0;
 }
