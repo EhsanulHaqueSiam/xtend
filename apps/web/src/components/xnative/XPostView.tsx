@@ -134,7 +134,14 @@ function MediaItem({
   if (m.kind === "photo" || m.videoUrl === null)
     return (
       <span className={cn("relative block", fill && "h-full")}>
-        <img src={m.url} alt={m.altText ?? ""} loading="lazy" className={cls} onClick={onView} />
+        <img
+          src={m.url}
+          alt={m.altText ?? ""}
+          loading="lazy"
+          className={cls}
+          // Inside a quote, a photo opens the quoted post, not the viewer.
+          onClick={still ? undefined : onView}
+        />
         {m.altText === null ? null : (
           <span
             title={m.altText}
