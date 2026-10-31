@@ -13,6 +13,7 @@ import type {
   EnginePost,
   EngineTrend,
   EngineUser,
+  EngineViewer,
 } from "@xtend/contracts";
 
 import {
@@ -628,7 +629,7 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     lists,
     homeTabs: readHomeTabs(record(body)),
     exploreTabs,
-    viewer: op === "Viewer" ? (readUser(result(record(data.viewer).user_results)) ?? null) : null,
+    viewer: op === "Viewer" ? readViewer(result(record(data.viewer).user_results)) : null,
   };
 }
 
@@ -656,6 +657,31 @@ function readUsers(body: unknown): ReadonlyArray<EngineUser> {
   }
   return [...found.values()];
 }
+
+function readViewer(value: unknown): EngineViewer | null {
+  const user = readUser(value);
+  return user === undefined
+    ? null
+    : { userId: user.userId, handle: user.handle, name: user.name, avatarUrl: user.avatarUrl };
+}
+
+/** A batch that only names the signed-in account, as X's nav shows it. */
+export const viewerBatch = (viewer: EngineViewer): EngineBatch => ({
+  op: "ViewerFromNav",
+  key: null,
+  cursor: null,
+  top: null,
+  bottom: null,
+  posts: [],
+  users: [],
+  people: [],
+  trends: [],
+  notifications: [],
+  lists: [],
+  homeTabs: null,
+  exploreTabs: null,
+  viewer,
+});
 
 /** Whether a batch carries anything a screen draws; X's many housekeeping calls carry nothing. */
 export const hasEngineContent = (b: EngineBatch) =>

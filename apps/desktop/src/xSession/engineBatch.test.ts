@@ -720,7 +720,12 @@ describe("renderEngineBatch media and the viewer", () => {
       {},
       { data: { viewer: { user_results: { result: user("7", "siamships") } } } },
     );
-    expect(batch.viewer?.handle).toBe("siamships");
+    expect(batch.viewer).toEqual({
+      userId: "7",
+      handle: "siamships",
+      name: "SIAMSHIPS",
+      avatarUrl: "https://pbs.twimg.com/profile_images/7/a_normal.jpg",
+    });
     expect(renderEngineBatch("HomeTimeline", {}, {}).viewer).toBeNull();
   });
 });

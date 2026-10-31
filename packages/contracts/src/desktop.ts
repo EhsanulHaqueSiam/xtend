@@ -280,6 +280,14 @@ export interface EngineExploreTab {
   readonly timelineId: string;
 }
 
+/** The signed-in account. X's nav names no user id; X's Viewer call, when X makes it, does. */
+export interface EngineViewer {
+  readonly userId: string | null;
+  readonly handle: string;
+  readonly name: string | null;
+  readonly avatarUrl: string | null;
+}
+
 /**
  * One GraphQL response the engine received, by operation (HomeTimeline, TweetDetail, ...). `key`
  * names what the request asked for when one operation serves many pages (a Home tab's tag, a
@@ -302,6 +310,6 @@ export interface EngineBatch {
   readonly lists: ReadonlyArray<EngineList>;
   readonly homeTabs: ReadonlyArray<EngineHomeTab> | null;
   readonly exploreTabs: ReadonlyArray<EngineExploreTab> | null;
-  /** The signed-in account, from X's own Viewer call on each load. */
-  readonly viewer: EngineUser | null;
+  /** The signed-in account, from X's own Viewer call or X's nav. */
+  readonly viewer: EngineViewer | null;
 }

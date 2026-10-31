@@ -227,3 +227,27 @@ it("keeps notifications in X's order, newer on top, and people by surface", () =
   expect(userByHandle(state, "ann")?.userId).toBe("1");
   expect(resetSurface(state, "search").people.search).toEqual([]);
 });
+
+it("keeps the signed-in account's id when X's nav names it again without one", () => {
+  let state = mergeBatch(
+    emptyEngine,
+    batch("Viewer", [], { viewer: { userId: "7", handle: "siam", name: "Siam", avatarUrl: null } }),
+  );
+  state = mergeBatch(
+    state,
+    batch("ViewerFromNav", [], {
+      viewer: {
+        userId: null,
+        handle: "siam",
+        name: "Siam H",
+        avatarUrl: "https://pbs.twimg.com/a_normal.jpg",
+      },
+    }),
+  );
+  expect(state.viewer).toEqual({
+    userId: "7",
+    handle: "siam",
+    name: "Siam H",
+    avatarUrl: "https://pbs.twimg.com/a_normal.jpg",
+  });
+});

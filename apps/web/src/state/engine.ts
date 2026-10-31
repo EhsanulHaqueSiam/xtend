@@ -7,6 +7,7 @@ import type {
   EnginePost,
   EngineTrend,
   EngineUser,
+  EngineViewer,
   XPost,
 } from "@xtend/contracts";
 import * as Atom from "effect/reactivity/Atom";
@@ -189,7 +190,7 @@ export interface EngineState {
   readonly homeTabs: ReadonlyArray<EngineHomeTab>;
   readonly exploreTabs: ReadonlyArray<EngineExploreTab>;
   /** The signed-in account (the composer's avatar), once X's page has loaded. */
-  readonly viewer: EngineUser | null;
+  readonly viewer: EngineViewer | null;
   /** The page cursors X last answered per surface, to tell a fetch of newer posts from the next page. */
   readonly cursors: Readonly<
     Partial<Record<AnySurface, { readonly top: string | null; readonly bottom: string | null }>>
@@ -266,7 +267,16 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
     xLists,
     homeTabs: batch.homeTabs ?? state.homeTabs,
     exploreTabs: batch.exploreTabs ?? state.exploreTabs,
-    viewer: batch.viewer ?? state.viewer,
+    // X's nav names no user id; keep the one X's Viewer call gave for the same account.
+    viewer:
+      batch.viewer === null
+        ? state.viewer
+        : {
+            ...batch.viewer,
+            userId:
+              batch.viewer.userId ??
+              (state.viewer?.handle === batch.viewer.handle ? state.viewer.userId : null),
+          },
   };
   return surfacesOf(batch).reduce((state, surface) => mergeInto(state, batch, surface), merged);
 }

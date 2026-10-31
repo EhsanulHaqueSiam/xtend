@@ -37,6 +37,7 @@ import { createOverlayFeed } from "../overlay/OverlayFeed.ts";
 import { xSkinCss } from "../overlay/xSkin.ts";
 import { failureReason, recoveryPage } from "../service/recoveryPage.ts";
 import { attachDesktopCommands } from "../service/DesktopCommands.ts";
+import { viewerBatch } from "../xSession/engineBatch.ts";
 import { attachSessionCapture } from "../xSession/SessionCapture.ts";
 import {
   browserUserAgent,
@@ -436,13 +437,26 @@ export function createMainWindow(options: MainWindowOptions) {
       commands.save(xPost);
     };
     ipcMain.on(OVERLAY_ACTION_CHANNEL, onAction);
-    const onViewer = (event: Electron.IpcMainEvent, handle: unknown) => {
-      if (
-        event.sender === contents &&
-        typeof handle === "string" &&
-        /^[a-z0-9_]{1,15}$/.test(handle)
-      )
-        navViewer = handle;
+    // X's page sends it: checked field by field, as anything from that process must be.
+    const onViewer = (event: Electron.IpcMainEvent, found: unknown) => {
+      if (event.sender !== contents || typeof found !== "object" || found === null) return;
+      const handle: unknown = Reflect.get(found, "handle");
+      const name: unknown = Reflect.get(found, "name");
+      const avatarUrl: unknown = Reflect.get(found, "avatarUrl");
+      if (typeof handle !== "string" || !/^[a-z0-9_]{1,15}$/.test(handle)) return;
+      navViewer = handle;
+      toApp(
+        ENGINE_CHANNEL,
+        viewerBatch({
+          userId: null,
+          handle,
+          name: typeof name === "string" ? name.slice(0, 50) : null,
+          avatarUrl:
+            typeof avatarUrl === "string" && avatarUrl.startsWith("https://pbs.twimg.com/")
+              ? avatarUrl
+              : null,
+        }),
+      );
     };
     ipcMain.on(OVERLAY_VIEWER_CHANNEL, onViewer);
 
