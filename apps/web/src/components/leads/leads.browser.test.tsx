@@ -17,7 +17,7 @@ import type { FakeService } from "../../../test/fakeService";
 import { peoplePage, paid, quoting, settings, xPost } from "../../../test/fixtures";
 import { render } from "../../../test/render";
 import { AgentsSection } from "./Agents";
-import { FollowersSection } from "./Followers";
+import { FollowersSection } from "../analyze/Followers";
 import { ListsSection } from "./Lists";
 import { PeopleSection } from "./People";
 

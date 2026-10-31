@@ -2,7 +2,7 @@ import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import type { Mark, ObservationCursor, ObservedPostSummary } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { BadgeCheck, RefreshCw, Search, X } from "lucide-react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import { isElectron } from "../env";
 import { cn } from "../lib/utils";
@@ -142,7 +142,7 @@ function PostRow({
 const PAGE = 100;
 
 /** Everything the X session has shown, newest sighting first: free, read from X's own traffic. */
-export function SeenFeed() {
+export function SeenFeed({ tabs }: { readonly tabs?: ReactNode }) {
   const [query, setQuery] = useState("");
   const [author, setAuthor] = useState<string | null>(null);
   // Where each page behind this one started; empty on the newest page.
@@ -172,6 +172,7 @@ export function SeenFeed() {
     <div className="flex h-full flex-col">
       <PageHeader
         title="Seen"
+        tabs={tabs}
         detail={
           posts === null
             ? undefined

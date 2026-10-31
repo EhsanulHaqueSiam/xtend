@@ -16,7 +16,7 @@ import { paid, quoting } from "../../../test/fixtures";
 import { render } from "../../../test/render";
 import { NOT_A_HANDLE } from "../../lib/utils";
 import { AnalyzeScreen } from "../../routes/analyze";
-import { Ask } from "./Ask";
+import { AskPanel } from "./Ask";
 import { Competitors } from "./Competitors";
 import { Posts } from "./PostsTable";
 import { LineChart } from "./ui";
@@ -303,7 +303,7 @@ const answering = (asked: Array<string>) => ({
 
 it("asks only once posts are loaded: an answer over nothing is still a paid call", async () => {
   const asked: Array<string> = [];
-  await using screen = await render(<Ask data={data([])} />, { service: answering(asked) });
+  await using screen = await render(<AskPanel data={data([])} />, { service: answering(asked) });
   await userEvent.fill(screen.getByLabelText("Question"), "Why did it flop?");
   await expect.element(screen.getByRole("button", { name: /^Ask/ })).toBeDisabled();
   await userEvent.keyboard("{Enter}");
@@ -315,7 +315,7 @@ it("asks only once posts are loaded: an answer over nothing is still a paid call
 
 it("asks the question as typed, once, and shows the answer", async () => {
   const asked: Array<string> = [];
-  await using screen = await render(<Ask data={data([post("1", 10)])} />, {
+  await using screen = await render(<AskPanel data={data([post("1", 10)])} />, {
     service: answering(asked),
   });
   await userEvent.fill(screen.getByLabelText("Question"), "Which posts get replies?");

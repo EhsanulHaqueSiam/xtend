@@ -10,7 +10,7 @@ import { useQuoteLabel } from "../../state/costs";
 import { Button } from "../ui/button";
 import { inputClass } from "../ui/field";
 import { Cost, Section } from "../ui/layout";
-import { AnalyzePage, RefreshPosts } from "./AnalyzePage";
+import { RefreshPosts } from "./AnalyzePage";
 import { errorText, Note } from "./ui";
 
 /** Picking one fills the box; asking stays a separate, priced click. */
@@ -20,8 +20,11 @@ const EXAMPLES = [
   "Which hours get my posts the most views?",
 ] as const;
 
-/** One question, one answer: a model call over the loaded posts summary, not a chat. The last answer lives in the atom. */
-export function Ask({ data }: { readonly data: AnalyzeData }) {
+/**
+ * One question, one answer: a model call over the loaded posts summary, not a chat. The last
+ * answer lives in the atom. Overview's last panels, under the numbers it asks about.
+ */
+export function AskPanel({ data }: { readonly data: AnalyzeData }) {
   const result = useAtomValue(askAtom);
   const ask = useAtomSet(askAtom);
   const quote = useQuoteLabel({ kind: "assist" });
@@ -35,8 +38,8 @@ export function Ask({ data }: { readonly data: AnalyzeData }) {
     ask(q.trim());
   };
   return (
-    <AnalyzePage data={data}>
-      <Section>
+    <>
+      <Section title="Ask" description="about your own posts, answered on your login">
         <form
           className="flex items-center gap-2"
           onSubmit={(e) => {
@@ -113,6 +116,6 @@ export function Ask({ data }: { readonly data: AnalyzeData }) {
           </Section>
         ),
       })}
-    </AnalyzePage>
+    </>
   );
 }

@@ -1,7 +1,7 @@
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 
-import { MineSection, ReportSection } from "../components/scores/HandleReport";
+import { ReportSection } from "../components/scores/HandleReport";
 import { Watchlist } from "../components/scores/Watchlist";
 import { useSection } from "../components/shell/sections";
 import { parseHandle } from "../lib/utils";
@@ -10,23 +10,19 @@ import { parseHandle } from "../lib/utils";
 export function ScoresScreen({ linked }: { readonly linked: string | undefined }) {
   const section = useSection("/scores");
   const navigate = useNavigate();
-  // The sidebar's section links carry only ?tab=, so Report and Bot check keep the last handle.
+  // The sidebar's section links carry only ?tab=, so Report keeps the last handle opened.
   const [handle, setHandle] = useState(linked);
   if (linked !== undefined && linked !== handle) setHandle(linked);
   return (
     <div className="@container flex h-full min-w-0 flex-col">
-      {section === "mine" ? (
-        <MineSection />
-      ) : section === "watchlist" ? (
+      {section === "watchlist" ? (
         <Watchlist
           onOpen={(h) =>
             void navigate({ href: `/scores?tab=report&handle=${encodeURIComponent(h)}` })
           }
         />
-      ) : section === "report" ? (
-        <ReportSection key={handle ?? ""} handle={handle} />
       ) : (
-        <ReportSection key={handle ?? ""} handle={handle} botOnly />
+        <ReportSection key={handle ?? ""} handle={handle} />
       )}
     </div>
   );

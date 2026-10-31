@@ -11,7 +11,6 @@ import { PageHeader } from "../PageHeader";
 import { compactInputClass } from "../ui/field";
 import { Select } from "../ui/select";
 import { Cost, Empty, PageBody } from "../ui/layout";
-import { NoHandle } from "../ui/no-handle";
 import { xPill, xPillSm } from "../x";
 import { ErrorLine, causeMessage, errorMessage } from "../library/shared";
 import { ReportCard } from "./ReportCard";
@@ -81,73 +80,37 @@ function ScoreControls({
 }
 
 /** The stored report for one handle (free) with the paid score run beside the score. */
-function HandleReport({
-  handle,
-  botOnly = false,
-}: {
-  readonly handle: string;
-  readonly botOnly?: boolean;
-}) {
+function HandleReport({ handle }: { readonly handle: string }) {
   const report = useAtomValue(reportAtom(handle));
   const refresh = useAtomRefresh(reportAtom(handle));
   return AsyncResult.match(report, {
     onInitial: () => <Empty>Loading @{handle}</Empty>,
     onFailure: (f) => <ErrorLine className="py-4">{causeMessage(f.cause)}</ErrorLine>,
     onSuccess: ({ value }) => (
-      <ReportCard
-        report={value}
-        botOnly={botOnly}
-        actions={<ScoreControls handle={handle} onScored={refresh} />}
-      />
+      <ReportCard report={value} actions={<ScoreControls handle={handle} onScored={refresh} />} />
     ),
   });
 }
 
-/** The user's own score; the handle comes from the signed-in X session. */
-export function MineSection() {
-  const settings = useAtomValue(settingsAtom);
-  const handle = AsyncResult.getOrElse(
-    AsyncResult.map(settings, (s) => s.handle),
+/**
+ * One account's report in full, bot check included: yours until another handle is opened.
+ * The handle lives in the URL (`?handle=`), so the palette, the overlay and the watchlist
+ * can open one.
+ */
+export function ReportSection({ handle }: { readonly handle: string | undefined }) {
+  const navigate = useNavigate();
+  const own = AsyncResult.getOrElse(
+    AsyncResult.map(useAtomValue(settingsAtom), (s) => s.handle),
     () => null,
   );
-  return (
-    <>
-      <PageHeader title="Mine" detail={handle === null ? undefined : `@${handle}`} />
-      <PageBody>
-        {AsyncResult.match(settings, {
-          onInitial: () => <Empty>Connecting to the service</Empty>,
-          onFailure: (f) => <ErrorLine className="py-4">{causeMessage(f.cause)}</ErrorLine>,
-          onSuccess: ({ value }) =>
-            value.handle === null ? (
-              <NoHandle subject="Your own score needs" />
-            ) : (
-              <HandleReport handle={value.handle} />
-            ),
-        })}
-      </PageBody>
-    </>
-  );
-}
-
-/**
- * Any handle's report, or just its bot check. The handle lives in the URL
- * (`?handle=`), so the palette, the overlay and the watchlist can open one.
- */
-export function ReportSection({
-  handle,
-  botOnly = false,
-}: {
-  readonly handle: string | undefined;
-  readonly botOnly?: boolean;
-}) {
-  const navigate = useNavigate();
+  const shown = handle ?? own ?? undefined;
   const [draft, setDraft] = useState(handle ?? "");
   const [invalid, setInvalid] = useState(false);
-  const tab = botOnly ? "bot-check" : "report";
   return (
     <>
       <PageHeader
-        title={botOnly ? "Bot check" : "Report"}
+        title="Report"
+        detail={shown !== undefined && shown === own ? "yours" : undefined}
         actions={
           <form
             className="flex items-center gap-1.5"
@@ -157,7 +120,7 @@ export function ReportSection({
               const h = parseHandle(draft)?.toLowerCase() ?? null;
               setInvalid(h === null);
               if (h !== null)
-                void navigate({ href: `/scores?tab=${tab}&handle=${encodeURIComponent(h)}` });
+                void navigate({ href: `/scores?tab=report&handle=${encodeURIComponent(h)}` });
             }}
           >
             <input
@@ -176,14 +139,13 @@ export function ReportSection({
       />
       {invalid ? <ErrorLine>{NOT_A_HANDLE}</ErrorLine> : null}
       <PageBody>
-        {handle === undefined ? (
+        {shown === undefined ? (
           <Empty>
-            {botOnly
-              ? "Open a handle to see how many of its sampled followers look fake. Opening is free; a new sample is priced on its button."
-              : "Open a handle to read its stored score and who its top followers are. Opening is free; a new score is priced on its button."}
+            Open a handle to read its stored score, who its top followers are and how many look
+            fake. Opening is free; a new score is priced on its button.
           </Empty>
         ) : (
-          <HandleReport key={handle} handle={handle} botOnly={botOnly} />
+          <HandleReport key={shown} handle={shown} />
         )}
       </PageBody>
     </>

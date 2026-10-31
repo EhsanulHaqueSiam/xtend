@@ -214,18 +214,16 @@ function Moved({ moved }: { readonly moved: NonNullable<ScoreReport["moved"]> })
 export function ReportCard({
   report,
   actions,
-  botOnly = false,
 }: {
   readonly report: ScoreReport;
   readonly actions?: ReactNode;
-  readonly botOnly?: boolean;
 }) {
   const s = report.latest;
   if (s === null)
     return (
       <Empty action={actions}>
-        No score for @{report.handle} yet. Scoring reads its profile and a sample of followers
-        {botOnly ? ", then shows how many look fake." : "."}
+        No score for @{report.handle} yet. Scoring reads its profile and a sample of followers, then
+        shows how many look fake.
       </Empty>
     );
   const next = nextTier(s.score);
@@ -240,19 +238,6 @@ export function ReportCard({
       {` · sampled ${fmtDay(s.at)} · ${s.pages} pages`}
     </>
   );
-
-  if (botOnly)
-    return (
-      <>
-        <section className="flex flex-wrap items-center gap-4 border-b border-border px-6 py-4">
-          <span className="font-mono text-2xs text-muted-foreground tabular-nums">
-            {sampledLine}
-          </span>
-          <div className="ml-auto">{actions}</div>
-        </section>
-        <BotCheck s={s} />
-      </>
-    );
 
   return (
     <>

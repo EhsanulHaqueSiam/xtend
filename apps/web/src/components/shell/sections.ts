@@ -106,11 +106,6 @@ export const SECTIONS = {
       about: "Groups of people. Free; building one from a search is priced first.",
     },
     { id: "agents", label: "Agents", about: "Finders that run on a schedule, paid per run." },
-    {
-      id: "followers",
-      label: "New followers",
-      about: "Who followed you since the last check; each check reads a paid follower page.",
-    },
   ],
   "/automate": [
     { id: "rules", label: "Rules", about: "What runs, when, and for how much." },
@@ -130,7 +125,12 @@ export const SECTIONS = {
       label: "Posts",
       about: "Each post's numbers, live from your session; Refresh fills in the rest.",
     },
-    { id: "audience", label: "Audience", about: "Accounts your session saw most, by reach. Free." },
+    {
+      id: "audience",
+      label: "Audience",
+      about:
+        "Who followed you since the last check, to add as leads; each check reads a paid follower page.",
+    },
     {
       id: "best-time",
       label: "Best time",
@@ -141,17 +141,14 @@ export const SECTIONS = {
       label: "Competitors",
       about: "Accounts to compare against; each fetch is priced on its row.",
     },
-    { id: "ask", label: "Ask", about: "A question over your own data, answered on your login." },
   ],
   "/scores": [
-    { id: "mine", label: "Mine", about: "Your score and what moves it; Score runs are paid." },
-    { id: "watchlist", label: "Watchlist", about: "Accounts you watch; each rescore is paid." },
-    { id: "report", label: "Report", about: "One account in full; the last report is free." },
     {
-      id: "bot-check",
-      label: "Bot check",
-      about: "Whether an account's followers look real, from a paid sample.",
+      id: "report",
+      label: "Report",
+      about: "Yours or any account's score, top followers and bot check; the last report is free.",
     },
+    { id: "watchlist", label: "Watchlist", about: "Accounts you watch; each rescore is paid." },
   ],
   "/settings": [
     { id: "account", label: "Account", about: "Your handle and every connected account." },

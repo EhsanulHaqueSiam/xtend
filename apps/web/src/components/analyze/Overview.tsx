@@ -6,6 +6,7 @@ import { cn } from "../../lib/utils";
 import { seenByAtom } from "../../state/observations";
 import { Section, Stat, statRow } from "../ui/layout";
 import { AnalyzePage, NotLoaded } from "./AnalyzePage";
+import { AskPanel } from "./Ask";
 import { fmt, insetTable, LineChart, pct, signed } from "./ui";
 
 const CHART_HEIGHT = 140;
@@ -83,7 +84,7 @@ export function Overview({ data }: { readonly data: AnalyzeData }) {
         </table>
       </Section>
 
-      <div className="grid gap-5 px-6 pb-5 @4xl:grid-cols-2">
+      <div className="grid gap-3 px-6 @4xl:grid-cols-2">
         <Section title="Views" description="by day published, 30 days" className="m-0">
           <LineChart
             height={CHART_HEIGHT}
@@ -99,6 +100,7 @@ export function Overview({ data }: { readonly data: AnalyzeData }) {
           />
         </Section>
       </div>
+      <AskPanel data={data} />
     </AnalyzePage>
   );
 }

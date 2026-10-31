@@ -1,7 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 
 import { AgentsSection } from "../components/leads/Agents";
-import { FollowersSection } from "../components/leads/Followers";
 import { ListsSection } from "../components/leads/Lists";
 import { PeopleSection } from "../components/leads/People";
 import { useSection } from "../components/shell/sections";
@@ -15,10 +14,8 @@ function LeadsScreen() {
         <PeopleSection />
       ) : section === "lists" ? (
         <ListsSection />
-      ) : section === "agents" ? (
-        <AgentsSection />
       ) : (
-        <FollowersSection />
+        <AgentsSection />
       )}
     </div>
   );

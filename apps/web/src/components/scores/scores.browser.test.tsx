@@ -6,7 +6,7 @@ import * as Effect from "effect/Effect";
 import { expect, it, onTestFinished } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
-import { paid, quoting } from "../../../test/fixtures";
+import { paid, quoting, settings } from "../../../test/fixtures";
 import { choose, render } from "../../../test/render";
 import { setDisplayZone } from "../../lib/time";
 import { NOT_A_HANDLE } from "../../lib/utils";
@@ -76,6 +76,8 @@ it("opens a typed handle's stored report, and a failed score stays with the hand
   const reports: Array<string> = [];
   await using screen = await render(<ReportAtUrl />, {
     service: {
+      // No handle of your own, so nothing opens until one is typed.
+      "settings.get": () => Effect.succeed({ ...settings, handle: null }),
       "costs.quote": quoting(() => paid(0.00522)),
       "scores.report": ({ handle }) =>
         Effect.sync(() => {
@@ -162,10 +164,10 @@ it("keeps a paid score off until its price arrives", async () => {
   await expect.element(screen.getByRole("button", { name: /^Score/ })).toBeDisabled();
 });
 
-it("Report and Bot check keep the handle when the sidebar switches between them", async () => {
+it("Report opens on your own handle, then keeps an opened one across the sidebar's link", async () => {
   const reports: Array<string> = [];
-  await using screen = await render(<ScoresScreen linked="levelsio" />, {
-    router: "/scores?tab=report&handle=levelsio",
+  await using screen = await render(<ScoresScreen linked={undefined} />, {
+    router: "/scores?tab=report",
     service: {
       "costs.quote": quoting(),
       "scores.report": ({ handle }) =>
@@ -175,13 +177,17 @@ it("Report and Bot check keep the handle when the sidebar switches between them"
         }),
     },
   });
+  await expect
+    .element(screen.getByText(new RegExp(`^No score for @${settings.handle} yet`)))
+    .toBeVisible();
+  await screen.router?.navigate({ href: "/scores?tab=report&handle=levelsio" });
+  await screen.rerender(<ScoresScreen linked="levelsio" />);
   await expect.element(screen.getByText(/^No score for @levelsio yet/)).toBeVisible();
   // The sidebar's section link: only ?tab=.
-  await screen.router?.navigate({ href: "/scores?tab=bot-check" });
+  await screen.router?.navigate({ href: "/scores?tab=report" });
   await screen.rerender(<ScoresScreen linked={undefined} />);
-  await expect.element(screen.getByRole("heading", { name: "Bot check" })).toBeVisible();
   await expect.element(screen.getByText(/^No score for @levelsio yet/)).toBeVisible();
-  expect(new Set(reports)).toEqual(new Set(["levelsio"]));
+  expect(new Set(reports)).toEqual(new Set([settings.handle, "levelsio"]));
 });
 
 it("fits a narrow score history to its data and exposes each exact score to keyboard inspection", async () => {
