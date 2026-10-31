@@ -220,15 +220,10 @@ export function Posts({ data }: { readonly data: AnalyzeData }) {
         <div className="grid grid-cols-3 gap-x-6 gap-y-4 @2xl:grid-cols-5">
           {KINDS.map((k) => {
             const of = posts.filter((p) => p.kind === k.id);
-            const avg =
-              of.length === 0 ? 0 : of.reduce((s, p) => s + (p.views ?? 0), 0) / of.length;
-            return (
-              <Stat
-                key={k.id}
-                label={`${k.label} · ${of.length} posts`}
-                value={of.length === 0 ? "–" : fmt(avg)}
-              />
-            );
+            // A type you never posted has no average to show.
+            if (of.length === 0) return null;
+            const avg = of.reduce((s, p) => s + (p.views ?? 0), 0) / of.length;
+            return <Stat key={k.id} label={`${k.label} · ${of.length} posts`} value={fmt(avg)} />;
           })}
         </div>
       </Section>

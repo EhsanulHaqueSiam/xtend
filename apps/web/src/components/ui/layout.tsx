@@ -6,12 +6,12 @@ import { usd as formatUsd } from "../../state/costs";
 
 /**
  * The shapes every screen is built from, so the tools read as one app:
- * a scrolling body, groups that are a numbered label over a hairline (never a
- * card), tables with mono numbers, one-line empty states, the price next to a
- * paid action, and the freshness of what a page shows.
+ * a scrolling body, groups that are one panel each, tables with mono numbers,
+ * empty states that sketch what will fill them, the price next to a paid
+ * action, and the freshness of what a page shows.
  */
 
-/** The scrolling area under a PageHeader. Sections count up from 01 inside it. */
+/** The scrolling area under a PageHeader. */
 export function PageBody({
   children,
   className,
@@ -19,16 +19,13 @@ export function PageBody({
   readonly children: ReactNode;
   readonly className?: string;
 }) {
-  return (
-    <div className={cn("min-h-0 flex-1 overflow-y-auto [counter-reset:section]", className)}>
-      {children}
-    </div>
-  );
+  return <div className={cn("min-h-0 flex-1 overflow-y-auto pb-2", className)}>{children}</div>;
 }
 
 /**
- * A group on a page: a hairline and, when titled, its number, name, one-line
- * description and actions on the first line. No fill, no border box.
+ * A group on a page: one panel with, when titled, its name, one-line
+ * description and actions on the first line. Panels never nest; inside one,
+ * hairlines divide and rows start at the panel's padding (`--row-inset`).
  */
 export function Section({
   title,
@@ -45,18 +42,15 @@ export function Section({
 }) {
   return (
     <section
-      // The count steps on the section, not its heading: Chrome carries a counter between
-      // siblings, so a step inside one section's heading never reaches the next.
       className={cn(
-        "mx-6 my-5 border-t border-border pt-3",
-        title !== undefined && "[counter-increment:section]",
+        "mx-6 my-3 rounded-xl border border-border bg-card px-4 pt-3 pb-4 [--row-inset:0px]",
         className,
       )}
     >
       {title !== undefined || aside !== undefined ? (
         <div className="mb-3 flex items-center justify-between gap-3">
           {title !== undefined ? (
-            <h2 className="flex min-w-0 items-baseline gap-2.5 text-[12.5px] font-semibold text-foreground before:font-mono before:text-2xs before:font-normal before:text-muted-foreground/60 before:content-[counter(section,decimal-leading-zero)]">
+            <h2 className="flex min-w-0 items-baseline gap-2.5 text-[13px] font-semibold text-foreground">
               <span className="truncate">{title}</span>
               {description !== undefined ? (
                 <span className="truncate text-xs font-normal text-muted-foreground">
@@ -75,7 +69,10 @@ export function Section({
   );
 }
 
-/** One quiet line where content would be, plus the action that fills it. */
+/**
+ * Where content will be: three faint rows sketching it, one line on where it
+ * comes from and what it costs, and the action that fills it. Static: no shimmer.
+ */
 export function Empty({
   children,
   action,
@@ -84,12 +81,19 @@ export function Empty({
   readonly action?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center gap-3 px-6 py-16 text-center">
-      <p className="max-w-md text-sm text-muted-foreground">{children}</p>
+    <div className="flex flex-col items-center gap-3 px-6 py-10 text-center">
+      <div aria-hidden="true" className="mb-1 flex w-full max-w-sm flex-col gap-2">
+        {SKETCH.map((width) => (
+          <span key={width} className={cn("h-2 rounded-sm bg-white/[0.05]", width)} />
+        ))}
+      </div>
+      <p className="max-w-md text-[13px] text-muted-foreground">{children}</p>
       {action}
     </div>
   );
 }
+
+const SKETCH = ["w-full", "w-4/5", "w-3/5 opacity-60"] as const;
 
 /**
  * A price, shown next to every paid action before it runs: a rate-card amount
@@ -134,6 +138,8 @@ export function Stat({
           "font-mono text-[22px] leading-7 tabular-nums",
           tone === "up" && "text-success-foreground",
           tone === "down" && "text-error-foreground",
+          // Nothing to show yet: a faint dash, not a bold one that reads as a value.
+          value === "–" && "text-muted-foreground/50",
         )}
       >
         {value}
@@ -176,8 +182,8 @@ export function Freshness({
 /** Table classes: hairline rows, muted headers, mono right-aligned numbers. */
 export const table = {
   root: "w-full border-collapse text-[13px]",
-  th: "h-9 border-b border-border px-3 text-left text-xs font-medium whitespace-nowrap text-muted-foreground first:pl-6 last:pr-6",
-  td: "h-10 border-b border-border px-3 align-middle first:pl-6 last:pr-6",
+  th: "h-9 border-b border-border px-3 text-left text-xs font-medium whitespace-nowrap text-muted-foreground first:pl-(--row-inset) last:pr-(--row-inset)",
+  td: "h-10 border-b border-border px-3 align-middle first:pl-(--row-inset) last:pr-(--row-inset)",
   num: "text-right font-mono text-xs tabular-nums",
   row: "transition-colors duration-150 hover:bg-white/[0.03] data-[selected=true]:bg-white/[0.06]",
 } as const;

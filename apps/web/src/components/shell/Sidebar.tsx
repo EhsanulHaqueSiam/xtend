@@ -54,11 +54,12 @@ const or = <A, B>(result: AsyncResult.AsyncResult<A, unknown>, fallback: B): A |
   AsyncResult.getOrElse(result, () => fallback);
 
 const ROW =
-  "no-drag flex h-[27px] w-full cursor-pointer items-center rounded-[var(--control-radius)] px-2 text-left text-sm text-sidebar-muted-foreground outline-hidden transition-colors duration-150 hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring data-[active=true]:bg-sidebar-row-active data-[active=true]:font-medium data-[active=true]:text-sidebar-foreground";
+  "no-drag flex h-[28px] w-full cursor-pointer items-center gap-2.5 rounded-[var(--control-radius)] px-2 text-left text-sm text-sidebar-muted-foreground outline-hidden transition-colors duration-150 hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring data-[active=true]:bg-sidebar-row-active data-[active=true]:font-medium data-[active=true]:text-sidebar-foreground data-[open=true]:text-sidebar-foreground";
 
 /**
- * Label, the active dot and an optional count: the one row shape in the sidebar.
- * While a post is being dragged, a row that accepts it shows its verb instead.
+ * Icon, label and an optional count: the one row shape in the sidebar. A `hot`
+ * count waits on the user and shows solid. While a post is being dragged, a row
+ * that accepts it shows its verb instead.
  */
 const ICONS = {
   Home,
@@ -81,11 +82,13 @@ const ICONS = {
 function RowBody({
   label,
   count,
+  hot = false,
   verb,
   compact = false,
 }: {
   readonly label: string;
   readonly count?: number | null | undefined;
+  readonly hot?: boolean;
   readonly verb?: string | undefined;
   readonly compact?: boolean;
 }) {
@@ -94,12 +97,22 @@ function RowBody({
     return <Icon aria-hidden="true" className="mx-auto size-4 shrink-0" />;
   return (
     <>
+      {Icon !== undefined ? (
+        <Icon
+          aria-hidden="true"
+          className="size-4 shrink-0 text-(--sidebar-icon-color) in-data-[active=true]:text-sidebar-foreground in-data-[open=true]:text-sidebar-foreground"
+        />
+      ) : null}
       <span className="truncate">{label}</span>
-      <span className="ml-2 hidden size-[5px] shrink-0 rounded-full bg-sidebar-foreground in-data-[active=true]:block" />
       {verb !== undefined ? (
         <span className="ml-auto text-2xs text-sidebar-muted-foreground">{verb}</span>
       ) : count !== undefined && count !== null && count > 0 ? (
-        <span className="ml-auto font-mono text-2xs text-sidebar-muted-foreground tabular-nums">
+        <span
+          className={cn(
+            "ml-auto rounded-[5px] px-1.5 font-mono text-2xs leading-[18px] tabular-nums",
+            hot ? "bg-sidebar-foreground text-sidebar" : "bg-white/8 text-sidebar-foreground/80",
+          )}
+        >
           {count}
         </span>
       ) : null}
@@ -110,16 +123,18 @@ function RowBody({
 interface Tool {
   readonly to: string;
   readonly label: string;
+  /** Starts a group: the label shows above this tool. */
+  readonly group?: string;
 }
 
 const TOOLS: ReadonlyArray<Tool> = [
-  { to: "/compose", label: "Compose" },
+  { to: "/compose", label: "Compose", group: "Create" },
   { to: "/plan", label: "Plan" },
   { to: "/library", label: "Library" },
-  { to: "/engage", label: "Engage" },
+  { to: "/engage", label: "Engage", group: "Grow" },
   { to: "/leads", label: "Leads" },
   { to: "/automate", label: "Automate" },
-  { to: "/analyze", label: "Analyze" },
+  { to: "/analyze", label: "Analyze", group: "Measure" },
   { to: "/scores", label: "Scores" },
   { to: "/seen", label: "Seen" },
 ];
@@ -131,17 +146,19 @@ const dragClass = (dragging: boolean, target: boolean) =>
   dragging ? (target ? "ring-1 ring-sidebar-row-active ring-inset" : "opacity-30") : undefined;
 
 const SUB_ROW =
-  "no-drag flex h-[25px] w-full cursor-pointer items-center rounded-[var(--control-radius)] pr-2 pl-5 text-left text-[13.5px] text-sidebar-muted-foreground outline-hidden transition-colors duration-150 hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring data-[active=true]:bg-sidebar-row-active data-[active=true]:text-sidebar-foreground";
+  "no-drag flex h-[25px] w-full cursor-pointer items-center rounded-[var(--control-radius)] pr-2 pl-[34px] text-left text-[13px] text-sidebar-muted-foreground outline-hidden transition-colors duration-150 hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring data-[active=true]:bg-sidebar-row-active data-[active=true]:text-sidebar-foreground";
 
 /** A tool, and under it while it is open, its sections: the page has no tab row of its own. */
 function ToolRow({
   tool,
   count,
+  hot = false,
   compact = false,
 }: {
   readonly compact?: boolean;
   readonly tool: Tool;
   readonly count?: number | null | undefined;
+  readonly hot?: boolean;
 }) {
   const router = useRouter();
   const navigate = useNavigate();
@@ -159,11 +176,17 @@ function ToolRow({
   const verb = DROP_VERBS[tool.to];
   return (
     <>
+      {tool.group !== undefined && !compact ? (
+        <div className="px-2 pt-4 pb-1 text-3xs font-medium tracking-[0.08em] text-sidebar-muted-foreground/70 uppercase">
+          {tool.group}
+        </div>
+      ) : null}
       <Link
         to={tool.to}
         title={compact ? tool.label : ABOUT[tool.to]}
         aria-label={compact ? tool.label : undefined}
         data-active={on && (compact || sections.length === 0)}
+        data-open={on}
         className={cn(ROW, dragClass(dragging, verb !== undefined))}
         onDragOver={
           verb === undefined
@@ -188,6 +211,7 @@ function ToolRow({
         <RowBody
           label={tool.label}
           count={count}
+          hot={hot}
           verb={dragging ? verb : undefined}
           compact={compact}
         />
@@ -233,6 +257,7 @@ function ToolRow({
             <RowBody
               label={section.label}
               count={tool.to === "/automate" && section.id === "needs-you" ? count : undefined}
+              hot={hot}
             />
           </a>
         );
@@ -521,7 +546,8 @@ export function Sidebar({ compact = false }: { readonly compact?: boolean }) {
             <span className="grid size-[22px] place-items-center rounded-md bg-sidebar-foreground text-[13px] leading-none font-bold text-sidebar">
               x
             </span>
-            Xtend
+            {/* Beside macOS's window buttons the name would cut the account handle short. */}
+            <span className="[.electron-mac_&]:hidden">Xtend</span>
           </span>
           <AccountMenu onError={setAccountError} />
         </div>
@@ -556,7 +582,13 @@ export function Sidebar({ compact = false }: { readonly compact?: boolean }) {
           </>
         ) : null}
         {TOOLS.map((tool) => (
-          <ToolRow key={tool.to} tool={tool} count={counts[tool.to]} compact={compact} />
+          <ToolRow
+            key={tool.to}
+            tool={tool}
+            count={counts[tool.to]}
+            hot={tool.to === "/automate"}
+            compact={compact}
+          />
         ))}
         <ToolRow tool={{ to: "/settings", label: "Settings" }} compact={compact} />
         {compact ? null : <Today />}

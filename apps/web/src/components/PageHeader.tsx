@@ -23,8 +23,8 @@ export interface HeaderTab<T extends string> {
 }
 
 /**
- * Filters inside one section, as a segmented pill: the open one on a white
- * thumb, the rest muted. A section's own sections belong in the sidebar.
+ * Filters inside one section, as plain words: the open one on a faint thumb,
+ * the rest muted. A section's own sections belong in the sidebar.
  */
 export function HeaderTabs<T extends string>({
   tabs,
@@ -44,7 +44,7 @@ export function HeaderTabs<T extends string>({
       aria-label={label}
       // Sized from zero up to their content: they take the room the actions leave and scroll in
       // less, and the header's wrapping never counts them, so they never push the actions down.
-      className="no-drag flex max-w-fit min-w-0 flex-1 basis-0 items-center gap-0.5 overflow-x-auto rounded-full border border-border bg-card p-0.5 [scrollbar-width:none]"
+      className="no-drag flex max-w-fit min-w-0 flex-1 basis-0 items-center gap-0.5 overflow-x-auto [scrollbar-width:none]"
     >
       {tabs.map((tab) => (
         <button
@@ -52,7 +52,7 @@ export function HeaderTabs<T extends string>({
           type="button"
           role="tab"
           aria-selected={tab.id === value}
-          className="flex h-6 shrink-0 cursor-pointer items-baseline gap-1.5 rounded-full px-2.5 text-[12.5px] leading-6 text-muted-foreground outline-hidden transition-colors duration-150 hover:text-foreground focus-visible:text-foreground aria-selected:bg-foreground aria-selected:font-medium aria-selected:text-background"
+          className="flex h-7 shrink-0 cursor-pointer items-baseline gap-1.5 rounded-[calc(var(--control-radius)-1px)] px-2.5 text-[12.5px] leading-7 text-muted-foreground outline-hidden transition-colors duration-150 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset aria-selected:bg-white/10 aria-selected:font-medium aria-selected:text-foreground"
           onClick={() => onChange(tab.id)}
         >
           {tab.label}
