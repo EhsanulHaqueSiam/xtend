@@ -7,7 +7,7 @@ import type { ReactElement } from "react";
 import { engineAtom, userByHandle } from "../../state/engine";
 import { fmt } from "../analyze/ui";
 import { RichText } from "./RichText";
-import { Avatar, Verified } from "./XPostView";
+import { Affiliate, Avatar, Verified } from "./XPostView";
 
 /** What the card shows: the profile X sent when there is one, else what the post said about them. */
 function Card({
@@ -24,7 +24,11 @@ function Card({
   return (
     <div className="flex w-[300px] flex-col gap-3 p-4 text-[15px] leading-5">
       <button type="button" className="w-fit cursor-pointer" onClick={openProfile}>
-        <Avatar url={user?.avatarUrl ?? avatarUrl} size={64} />
+        <Avatar
+          url={user?.avatarUrl ?? avatarUrl}
+          size={64}
+          square={user?.avatarShape === "Square"}
+        />
       </button>
       <div>
         <button
@@ -33,7 +37,10 @@ function Card({
           onClick={openProfile}
         >
           {user?.name ?? author.name}
-          {(user?.verified ?? author.verified) ? <Verified /> : null}
+          {(user?.verified ?? author.verified) ? (
+            <Verified type={user?.verifiedType ?? null} />
+          ) : null}
+          <Affiliate user={user} />
         </button>
         <p className="flex items-center gap-1.5 text-[#71767b]">
           @{author.handle}

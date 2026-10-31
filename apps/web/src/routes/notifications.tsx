@@ -10,8 +10,8 @@ import { XColumn, XTabs, XTitle } from "../components/xnative/XColumn";
 import { xAge } from "../components/xnative/format";
 import { RichText } from "../components/xnative/RichText";
 import { XRows } from "../components/xnative/XRows";
-import { Avatar, XPostView } from "../components/xnative/XPostView";
-import { at, engineAtom, type Surface } from "../state/engine";
+import { Avatar, Verified, XPostView } from "../components/xnative/XPostView";
+import { at, engineAtom, postOn, type Surface } from "../state/engine";
 import { xGo, xNavigate } from "../state/x";
 
 // X shows Verified only to Premium accounts; All and Mentions are everyone's.
@@ -39,8 +39,15 @@ function EventIcon({ icon }: { readonly icon: string }) {
 }
 
 /** The event's line with the people it names in bold, as X sets it. */
-function boldNames(text: string, names: ReadonlyArray<string>): ReactNode {
-  const named = names.filter((n) => n !== "" && text.includes(n));
+function boldNames(
+  text: string,
+  people: ReadonlyArray<{
+    readonly name: string;
+    readonly verified: boolean;
+    readonly verifiedType: string | null;
+  }>,
+): ReactNode {
+  const named = people.map((p) => p.name).filter((n) => n !== "" && text.includes(n));
   if (named.length === 0) return text;
   const pattern = new RegExp(
     `(${named.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`,
@@ -50,9 +57,13 @@ function boldNames(text: string, names: ReadonlyArray<string>): ReactNode {
   return text.split(pattern).map((part) => {
     const at = offset;
     offset += part.length;
-    return named.includes(part) ? (
+    const who = named.includes(part) ? people.find((p) => p.name === part) : undefined;
+    return who !== undefined ? (
       <b key={at} className="font-bold">
         {part}
+        {who.verified ? (
+          <Verified className="ml-0.5 inline size-[18px] align-[-3px]" type={who.verifiedType} />
+        ) : null}
       </b>
     ) : (
       part
@@ -92,7 +103,15 @@ function EventRow({ n }: { readonly n: EngineNotification }) {
         <span className="text-[15px] leading-5">
           {boldNames(
             n.text,
-            n.users.map((u) => u.name),
+            // X marks verified people in the line; the full user carries the mark's colour.
+            n.users.map((u) => {
+              const full = engine.users.get(u.userId);
+              return {
+                name: u.name,
+                verified: full?.verified ?? false,
+                verifiedType: full?.verifiedType ?? null,
+              };
+            }),
           )}
           {n.at === null ? null : <span className="text-[#71767b]"> · {xAge(n.at)}</span>}
         </span>
@@ -153,7 +172,7 @@ function NotificationsScreen() {
         row={(n) => {
           const post =
             n.kind === "post" && n.postIds[0] !== undefined
-              ? engine.posts.get(n.postIds[0])
+              ? postOn(engine, current.surface, n.postIds[0])
               : undefined;
           return post === undefined ? (
             <EventRow n={n} />

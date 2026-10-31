@@ -9,7 +9,7 @@ import { XColumn, XTabs } from "../components/xnative/XColumn";
 import { xtendRoute } from "../components/xnative/RichText";
 import { UserRow, XRows } from "../components/xnative/XRows";
 import { XPostView } from "../components/xnative/XPostView";
-import { type AnySurface, at, engineAtom } from "../state/engine";
+import { type AnySurface, at, engineAtom, postOn } from "../state/engine";
 import { xGo, xNavigate, xPickHomeTab, xShows } from "../state/x";
 
 type Row =
@@ -112,10 +112,9 @@ function ExploreScreen() {
     const people = at(engine.people, surface).flatMap((id) => engine.users.get(id) ?? []);
     if (people.length > 0) rows.push({ kind: "group", name: "Who to follow" });
     for (const user of people) rows.push({ kind: "user", user });
-    for (const id of at(engine.lists, surface)) {
-      const post = engine.posts.get(id);
-      if (post !== undefined) rows.push({ kind: "post", post });
-    }
+    const posts = at(engine.lists, surface).flatMap((id) => postOn(engine, surface, id) ?? []);
+    if (posts.length > 0 && rows.length > 0) rows.push({ kind: "group", name: "Posts for you" });
+    for (const post of posts) rows.push({ kind: "post", post });
   }
   return (
     <XColumn

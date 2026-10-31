@@ -4,7 +4,14 @@ import type { EnginePost } from "@xtend/contracts";
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { type StateSnapshot, Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 
-import { type AnySurface, at, engineAtom, showWaiting, updateEngine } from "../../state/engine";
+import {
+  type AnySurface,
+  at,
+  engineAtom,
+  postOn,
+  showWaiting,
+  updateEngine,
+} from "../../state/engine";
 import { PostRail } from "./PostRail";
 import { useXScrollParent, XColumn } from "./XColumn";
 import { Avatar, postUrl, XPostView } from "./XPostView";
@@ -142,8 +149,9 @@ export function Timeline({
   const open = useOpenPost();
   const list = useRef<VirtuosoHandle>(null);
   const [selected, setSelected] = useState(0);
-  const posts = at(engine.lists, surface).flatMap((id) => engine.posts.get(id) ?? []);
-  const waiting = at(engine.waiting, surface).flatMap((id) => engine.posts.get(id) ?? []);
+  // Each post as this list shows it: its own "reposted" line and thread place.
+  const posts = at(engine.lists, surface).flatMap((id) => postOn(engine, surface, id) ?? []);
+  const waiting = at(engine.waiting, surface).flatMap((id) => postOn(engine, surface, id) ?? []);
   const current = posts[Math.min(selected, posts.length - 1)];
   const quoted = (id: string | null) => (id === null ? undefined : engine.posts.get(id));
   const [, setMinute] = useState(0);

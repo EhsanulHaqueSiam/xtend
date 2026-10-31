@@ -223,6 +223,7 @@ it("draws what X draws around a post: its context line, live text, card, poll, n
         },
         note: "The bench measures one task set.",
         liked: true,
+        aiGenerated: true,
       }),
     ]),
   );
@@ -244,4 +245,7 @@ it("draws what X draws around a post: its context line, live text, card, poll, n
     .element(row.getByRole("button", { name: "Like" }))
     .toHaveAttribute("aria-pressed", "true");
   await expect.element(row.getByRole("button", { name: "Like" })).toHaveTextContent("120");
+  // X counts quotes with reposts (4 + 1), and labels AI-made posts.
+  await expect.element(row.getByRole("button", { name: "Repost" })).toHaveTextContent("5");
+  await expect.element(row.getByText("Made with AI")).toBeVisible();
 });
