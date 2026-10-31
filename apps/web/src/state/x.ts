@@ -31,7 +31,8 @@ const isXUrl = (url: string) => {
 
 let element: XWebview | null = null;
 let ready = false;
-let pending: string | null = null;
+/** The page asked for before the guest could load it, and who waits for it to load. */
+let pending: { url: string; waiters: Array<() => void> } | null = null;
 
 /** Called by XPane: the element exists, and later, its guest can take commands. */
 export const registerXWebview = (el: XWebview | null) => {
@@ -40,19 +41,30 @@ export const registerXWebview = (el: XWebview | null) => {
 };
 export const markXReady = () => {
   ready = true;
-  if (pending !== null) void element?.loadURL(pending).catch(() => {});
+  const asked = pending;
   pending = null;
+  if (asked === null || element === null) return;
+  const done = () => asked.waiters.forEach((resolve) => resolve());
+  // The guest's first page is often the one asked for; loading it again costs X a second boot.
+  if (element.getURL() === asked.url) done();
+  else
+    void element
+      .loadURL(asked.url)
+      .catch(() => {})
+      .then(done);
 };
 
 /**
- * Loads an x.com URL; other hosts are ignored. Before the guest is ready the last call wins.
- * Resolves once the page has loaded, so an engine step can follow it.
+ * Loads an x.com URL; other hosts are ignored. Resolves once the page has loaded, so an engine
+ * step (picking Home's tab) can follow it. Before the guest is ready the last call wins and every
+ * caller waits for that load: resolving early would run the step against no page at all.
  */
 export const xNavigate = (url: string): Promise<void> => {
   if (!isXUrl(url)) return Promise.resolve();
   if (element !== null && ready) return element.loadURL(url).catch(() => {});
-  pending = url;
-  return Promise.resolve();
+  return new Promise((resolve) => {
+    pending = { url, waiters: [...(pending?.waiters ?? []), resolve] };
+  });
 };
 
 /**

@@ -101,7 +101,7 @@ async function home(feed) {
   // What X put on top of its page waits behind the pill; shown, the native top is X's page.
   await until(async () => {
     await app(
-      `[...document.querySelectorAll("main button")].find((b) => /new post/.test(b.textContent))?.click(), true`,
+      `[...document.querySelectorAll("main button")].find((b) => /new post|Show \\d+ posts?/.test(b.textContent))?.click(), true`,
     );
     const ids = (await nativeIds()).slice(0, 5);
     return ids.length > 0 && engine(`${JSON.stringify(ids)}.some((id) => !!${xArticleOf("id")})`);
@@ -377,7 +377,7 @@ const benchmarks = [
           ? await until(
               () =>
                 app(
-                  `[...document.querySelectorAll("main button")].some((b) => /new post/.test(b.textContent))`,
+                  `[...document.querySelectorAll("main button")].some((b) => /new post|Show \\d+ posts?/.test(b.textContent))`,
                 ),
               5_000,
             )
