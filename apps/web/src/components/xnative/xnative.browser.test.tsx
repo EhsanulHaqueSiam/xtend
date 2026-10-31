@@ -153,3 +153,71 @@ it("reads the post before replying, rereads on a correction, and sends the picke
   await userEvent.click(screen.getByRole("button", { name: /^Reply/ }));
   await expect.poll(() => sent).toEqual(["day 31 and the users are winning"]);
 });
+
+it("draws what X draws around a post: its context line, live text, card, poll, note and the viewer's own like", async () => {
+  const bridge = installFakeBridge();
+  await using screen = await render(
+    <div style={{ height: 1200, display: "flex" }}>
+      <EngineSync />
+      <Timeline surface="search" header={null} empty="Loading" onReopen={() => {}} />
+    </div>,
+    { service: {} },
+  );
+  bridge.emitEngine(
+    // Its own surface: the store outlives a test, and Following already holds the first test's posts.
+    batch("SearchTimeline", [
+      post(
+        "7",
+        "same here https://t.co/abc @rauchg #buildinpublic costs $5,000 https://t.co/card",
+        {
+          context: { type: "Retweet", text: "Guillermo reposted", handle: "rauchg" },
+          replyingTo: ["levelsio"],
+          links: [
+            {
+              url: "https://t.co/abc",
+              expanded: "https://x.com/rauchg/status/9",
+              display: "x.com/rauchg/st…",
+            },
+          ],
+          card: {
+            kind: "link",
+            url: "https://levels.io/vps",
+            title: "One VPS",
+            domain: "levels.io",
+            description: null,
+            imageUrl: null,
+          },
+          poll: {
+            choices: [
+              { label: "Yes", votes: 58 },
+              { label: "No", votes: 42 },
+            ],
+            endsAt: null,
+            final: true,
+            voted: null,
+          },
+          note: "The bench measures one task set.",
+          liked: true,
+        },
+      ),
+    ]),
+  );
+  const row = screen.getByRole("article").first();
+  await expect.element(row.getByText("Guillermo reposted")).toBeVisible();
+  await expect.element(row.getByText(/^Replying to @levelsio$/)).toBeVisible();
+  // X shows a link's short form; the card's own t.co link never shows.
+  await expect.element(row.getByRole("link", { name: "x.com/rauchg/st…" })).toBeVisible();
+  expect(row.element().textContent).not.toContain("t.co/card");
+  await expect.element(row.getByRole("link", { name: "@rauchg" })).toBeVisible();
+  await expect.element(row.getByRole("link", { name: "#buildinpublic" })).toBeVisible();
+  // A price is not a cashtag.
+  expect(row.getByRole("link", { name: "$5" }).elements()).toHaveLength(0);
+  await expect.element(row.getByText("One VPS")).toBeVisible();
+  await expect.element(row.getByText("58%")).toBeVisible();
+  await expect.element(row.getByText("Readers added context")).toBeVisible();
+  // Liked on X already: the button shows it, and the count is X's, not one more.
+  await expect
+    .element(row.getByRole("button", { name: "Like" }))
+    .toHaveAttribute("aria-pressed", "true");
+  await expect.element(row.getByRole("button", { name: "Like" })).toHaveTextContent("120");
+});
