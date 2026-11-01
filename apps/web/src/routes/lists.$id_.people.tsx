@@ -30,6 +30,7 @@ function ListPeopleScreen() {
   const reload = () => void xNavigate(url);
   const surface = listPeopleSurface(kind.surface, id);
 
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- moves the engine (the session view) to this screen's X page while it is open.
   useEffect(open, [open]);
   return (
     <XColumn
