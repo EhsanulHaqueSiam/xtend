@@ -67,6 +67,7 @@ it.each([
       users: [],
       people: [],
       sections: [],
+      modules: [],
       communities: [],
       order: [],
       notifications: [],

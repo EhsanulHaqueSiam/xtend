@@ -342,16 +342,15 @@ const openMenu = (at: MenuAt, mine = "true", press = false) => `
     const trigger = ${at.root}?.querySelector(${JSON.stringify(at.trigger)});
     if (!trigger || !(${mine})) return null;
     const previous = new Set(document.querySelectorAll('[role="menu"]'));
+    const openingPath = location.pathname + location.search;
     trigger.click();
-    const findOpened = (synchronous = false) => {
+    const findOpened = () => {
       const controlled = trigger.getAttribute("aria-controls")?.split(" ").map((id) => document.getElementById(id)?.closest('[role="menu"]')).find(Boolean);
       if (controlled) return controlled;
-      // An earlier timed-out opening may still mount: only a linked or synchronous menu proves ownership.
-      if (window.__xtendMenuUncertain && !synchronous) return null;
       const added = [...document.querySelectorAll('[role="menu"]')].filter((m) => !previous.has(m));
       return added.length === 1 ? added[0] : null;
     };
-    let opened = findOpened(true);
+    let opened = findOpened();
     // Even a cancelled read can close its own dropdown; a newer menu has a different reference.
     const closeMenu = () => {
       if (!opened?.isConnected) return;
@@ -367,7 +366,20 @@ const openMenu = (at: MenuAt, mine = "true", press = false) => `
       // Retain this menu's labels if X removed it; returning null would ask a read to navigate.
       items = [...(opened?.querySelectorAll('[role="menuitem"]') ?? [])];
     }
-    if (!opened) window.__xtendMenuUncertain = true;
+    if (!opened) {
+      // A late dropdown still belongs to this opening. Drain it before another caret can open.
+      const drain = () => {
+        opened ??= findOpened();
+        if (!opened && location.pathname + location.search === openingPath) return;
+        observer.disconnect();
+        closeMenu();
+        if (window.__xtendMenuDrain === drain) delete window.__xtendMenuDrain;
+      };
+      const observer = new MutationObserver(drain);
+      window.__xtendMenuDrain = drain;
+      observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-controls", "role"] });
+      drain();
+    }
     if (interrupted) return (closeMenu(), null);`;
 
 /** What X did when the user pressed one of its menu items. */
@@ -400,6 +412,11 @@ const xMenuRun = (step: string, start = "") =>
     ${start}
     if (previousStep) await previousStep;
     try {
+      for (let i = 0; i < 20 && window.__xtendMenuDrain; i++) {
+        window.__xtendMenuDrain();
+        if (window.__xtendMenuDrain) await new Promise((r) => setTimeout(r, 100));
+      }
+      if (window.__xtendMenuDrain) return null;
       ${step}
     } finally {
       release();
@@ -443,7 +460,8 @@ const menuDone = (at: MenuAt, current = "true", run?: number) => `
         ? `
     const before = window.__xtendTrendFeedback;
     const fresh = before?.run === ${run} && (before.toast !== toast || before.text !== toast?.textContent);
-    const dismissed = fresh && undo && /^Thanks(?:[.! ,]|$)/i.test(text);
+    if (!fresh) return { kind: "done", toast: null, undo: false, gone: false, dismissed: false, current: ${current} };
+    const dismissed = undo && /^Thanks(?:[.! ,]|$)/i.test(text);
     `
         : ""
     }

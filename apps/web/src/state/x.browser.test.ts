@@ -792,7 +792,7 @@ it("closes a cancelled trend read's own dropdown while leaving the newer dropdow
 it.each([300, 2300])(
   "never presses another trend's row when its dropdown takes %s ms and a read intervenes",
   async (delay) => {
-    using _ownership = stubGlobal("__xtendMenuUncertain", false);
+    using _ownership = stubGlobal("__xtendMenuDrain", undefined);
     using _clock = fakeTimers();
     const path = location.pathname + location.search;
     history.replaceState(null, "", "/explore");
@@ -829,7 +829,7 @@ it.each([300, 2300])(
       await vi.runAllTimersAsync();
       expect(pressed).toEqual([]);
       expect(await pressing).toBeNull();
-      expect(await reading).toEqual(delay < 2000 ? ["Not interested in this"] : null);
+      expect(await reading).toEqual(["Not interested in this"]);
     } finally {
       history.replaceState(null, "", path);
       registerXWebview(null);
@@ -871,3 +871,117 @@ it.each(["error", "unmounted", "stale acknowledgement"])(
     }
   },
 );
+
+it.each(["trend", "post", "profile"] as const)(
+  "recovers asynchronous %s menu reads and presses after a timed-out dropdown closes",
+  async (kind) => {
+    using _ownership = stubGlobal("__xtendMenuDrain", undefined);
+    using _clock = fakeTimers();
+    const path = location.pathname + location.search;
+    history.replaceState(null, "", kind === "profile" ? "/theo" : "/explore");
+    document.body.innerHTML = `<article data-testid="trend"><span style="font-weight:700">A</span><a href="/theo/status/42"><time></time></a><button data-testid="${kind === "profile" ? "userActions" : "caret"}"></button></article>`;
+    let opens = 0;
+    const pressed: Array<string> = [];
+    document.querySelector("button")!.addEventListener("click", () => {
+      const delay = ++opens === 1 ? 2300 : 30;
+      setTimeout(() => {
+        const layer = document.createElement("div");
+        layer.innerHTML =
+          '<div style="height:10px"></div><div role="menu"><div role="menuitem">Requested row</div></div>';
+        layer.firstElementChild!.addEventListener("click", () => layer.remove());
+        layer.querySelector('[role="menuitem"]')!.addEventListener("click", () => {
+          pressed.push("Requested row");
+          layer.remove();
+        });
+        document.body.append(layer);
+      }, delay);
+    });
+    inThisPage(() => `https://x.com${location.pathname}`);
+    const read = () =>
+      kind === "trend"
+        ? xTrendMenu("A")
+        : kind === "post"
+          ? xPostMenu(post42)
+          : xProfileMenu("theo");
+    try {
+      const timedOut = read();
+      await vi.advanceTimersByTimeAsync(2100);
+      expect(await timedOut).toEqual(kind === "trend" ? null : []);
+      await vi.advanceTimersByTimeAsync(300);
+      // The user may have closed the late menu before trying another native menu.
+      document.querySelector('[role="menu"]')?.parentElement?.remove();
+      const retry = read();
+      await vi.runAllTimersAsync();
+      expect(await retry).toEqual(["Requested row"]);
+      expect(pressed).toEqual([]);
+      const pressing =
+        kind === "trend"
+          ? xTrendMenuPress("A", "Requested row", () => {})
+          : kind === "post"
+            ? xPostMenuPress(post42, "Requested row", () => {})
+            : xProfileMenuPress("theo", "Requested row", () => {});
+      await vi.runAllTimersAsync();
+      expect((await pressing)?.kind).toBe("done");
+      expect(pressed).toEqual(["Requested row"]);
+    } finally {
+      history.replaceState(null, "", path);
+      registerXWebview(null);
+    }
+  },
+);
+
+it("keeps a previous trend's toast and Undo from attaching to a press with no new feedback", async () => {
+  using _clock = fakeTimers();
+  const path = location.pathname + location.search;
+  history.replaceState(null, "", "/explore");
+  const pressed: Array<string> = [];
+  withMenu({
+    "Not interested in this": () => {
+      pressed.push("A");
+      document.body.insertAdjacentHTML(
+        "beforeend",
+        '<div data-testid="toast">Thanks<button>Undo</button></div>',
+      );
+    },
+  });
+  const a = document.querySelector("article")!;
+  a.dataset.testid = "trend";
+  a.insertAdjacentHTML("afterbegin", '<span style="font-weight:700">A</span>');
+  const b = a.cloneNode(true) as HTMLElement;
+  b.querySelector("span")!.textContent = "B";
+  b.querySelector("button")!.addEventListener("click", () => {
+    const layer = document.createElement("div");
+    layer.innerHTML =
+      '<div style="height:10px"></div><div role="menu"><div role="menuitem">Not interested in this</div></div>';
+    layer.firstElementChild!.addEventListener("click", () => layer.remove());
+    layer.querySelector('[role="menuitem"]')!.addEventListener("click", () => {
+      pressed.push("B");
+      layer.remove();
+    });
+    document.body.append(layer);
+  });
+  document.body.append(b);
+  try {
+    const first = xTrendMenuPress("A", "Not interested in this", () => {});
+    await vi.runAllTimersAsync();
+    expect(await first).toMatchObject({
+      kind: "done",
+      toast: "Thanks",
+      undo: true,
+      dismissed: true,
+    });
+    const second = xTrendMenuPress("B", "Not interested in this", () => {});
+    await vi.runAllTimersAsync();
+    expect(pressed).toEqual(["A", "B"]);
+    expect(document.querySelector('[data-testid="toast"]')?.textContent).toBe("ThanksUndo");
+    expect(await second).toMatchObject({
+      kind: "done",
+      toast: null,
+      undo: false,
+      dismissed: false,
+    });
+  } finally {
+    history.replaceState(null, "", path);
+    registerXWebview(null);
+  }
+});
