@@ -741,6 +741,24 @@ export function encodeBody(
           communityResults: { result: { about_timeline: { timeline: timeline() } } },
         },
       };
+    case "CommunityTweetSearchModuleQuery":
+      return {
+        data: {
+          communityResults: {
+            result: {
+              community_filtered_timeline: {
+                timeline: {
+                  id: "CommunitySearchTopProduct-Timeline",
+                  instructions: [
+                    { type: "TimelineClearCache" },
+                    ...instructions(timelineEntries(batch, users)).instructions,
+                  ],
+                },
+              },
+            },
+          },
+        },
+      };
     case "GenericTimelineById":
       return { data: { timeline: { timeline: timeline() } } };
     case "ListsManagementPageTimeline":
@@ -768,10 +786,17 @@ export function encodeBody(
             pinned_timelines: (batch.homeTabs ?? []).map((t) =>
               t.id.startsWith("tag:")
                 ? { __typename: "TagPinnedTimeline", tag: t.id.slice(4), tab_label: t.label }
-                : {
-                    __typename: "ListPinnedTimeline",
-                    list: { id_str: t.id.slice(5), name: t.label },
-                  },
+                : t.id.startsWith("community:")
+                  ? {
+                      __typename: "CommunityPinnedTimeline",
+                      community_results: {
+                        result: { id_str: t.id.slice("community:".length), name: t.label },
+                      },
+                    }
+                  : {
+                      __typename: "ListPinnedTimeline",
+                      list: { id_str: t.id.slice(5), name: t.label },
+                    },
             ),
           },
         },

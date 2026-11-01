@@ -60,8 +60,16 @@ const SCRIPT = String.raw`
   let booted = false;
   let loadingMore = false;
   const here = () => location.pathname + location.search;
-  const homeTab = () => localStorage.getItem("mockx:home-tab") || "forYou";
-  const cacheKey = (path) => (path === "/home" ? path + "|" + homeTab() : path);
+  // Pages that switch tabs in place, on one URL: Home's timelines, a Community search's orders.
+  const inPage = (path) => {
+    const p = path.split("?")[0];
+    return p === "/home" ? "home" : /^\/i\/communities\/\d+\/search$/.test(p) ? "communitySearch" : null;
+  };
+  const pageTab = (path) => {
+    const kind = inPage(path);
+    return kind === null ? "" : localStorage.getItem("mockx:tab:" + kind) || (kind === "home" ? "forYou" : "Likes");
+  };
+  const cacheKey = (path) => (inPage(path) === null ? path : path + "|" + pageTab(path));
   const json = (r) => r.json();
   const post = (path, body) =>
     fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).then(json);
@@ -79,7 +87,7 @@ const SCRIPT = String.raw`
     fetch(r.url, r.body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: r.body }).then(json);
 
   async function load(path, cursor) {
-    const q = new URLSearchParams({ path, tab: homeTab() });
+    const q = new URLSearchParams({ path, tab: pageTab(path) });
     if (cursor) q.set("cursor", cursor);
     if (!booted) q.set("boot", "1");
     booted = true;
@@ -335,7 +343,7 @@ const SCRIPT = String.raw`
     // Menus and dialogs handle their own clicks; the path is taken at dispatch, so a close button
     // that removed its layer still counts as inside it.
     if (!target || event.composedPath().includes(layers)) return;
-    const el = target.closest("[data-testid], [data-menu], [data-home-tab], [data-vote], [data-bell], [data-subscribe], [data-community-join], [data-href], a[href], [data-toggle-translation]");
+    const el = target.closest("[data-testid], [data-menu], [data-home-tab], [data-vote], [data-bell], [data-subscribe], [data-community-join], [data-community-pin], [data-href], a[href], [data-toggle-translation]");
     if (!el) return;
     const testid = el.dataset.testid ?? "";
     const id = el.dataset.post;
@@ -343,7 +351,7 @@ const SCRIPT = String.raw`
     if (el.dataset.homeTab !== undefined) {
       event.preventDefault();
       log("tab:" + el.dataset.homeTab);
-      localStorage.setItem("mockx:home-tab", el.dataset.homeTab);
+      localStorage.setItem("mockx:tab:" + inPage(here()), el.dataset.homeTab);
       void show();
       return;
     }
@@ -392,6 +400,16 @@ const SCRIPT = String.raw`
         void post("/i/api/graphql/" + window.__mockHash.JoinCommunity + "/JoinCommunity", { variables: { communityId: id } });
       } else if (label === "Ask to join" || label === "Joined")
         void fetch("/__mock/dialog?spec=" + encodeURIComponent((label === "Joined" ? "leave:" : "join:") + id)).then(json).then(dialog);
+      return;
+    }
+    if (el.dataset.communityPin !== undefined) {
+      const id = el.dataset.communityPin;
+      const pin = el.getAttribute("aria-label") === "Pin Community";
+      log("communityPin:" + (pin ? "Pin" : "Unpin"), id);
+      el.setAttribute("aria-label", pin ? "Unpin Community from Home screen" : "Pin Community");
+      const op = pin ? "PinTimeline" : "UnpinTimeline";
+      void post("/i/api/graphql/" + window.__mockHash[op] + "/" + op, { variables: { communityId: id } });
+      toast({ text: pin ? "Pinned to your Home timeline" : "Unpinned from your Home timeline" });
       return;
     }
     if (el.dataset.bell !== undefined) {

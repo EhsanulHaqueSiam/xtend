@@ -792,7 +792,7 @@ const benchmarks = [
       await reset(`community:${id}`);
       await go(`#/communities/${id}`);
       const top = (await xTab("Top")) && (await same());
-      // As Xtend presses it (communityJoinButton in apps/web/src/state/x.ts): in the header that
+      // As Xtend presses it (communityButton in apps/web/src/state/x.ts): in the header that
       // links into this Community alone.
       const xs = await until(() =>
         engine(

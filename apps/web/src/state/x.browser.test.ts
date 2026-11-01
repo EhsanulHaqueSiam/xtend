@@ -3,11 +3,12 @@ import { expect, it, vi } from "vite-plus/test";
 import { fakeTimers, stubGlobal } from "../../test/render";
 
 import {
-  communityJoinButton,
+  communityButton,
   markXReady,
   xAct,
   registerXWebview,
   xCommunityJoin,
+  xCommunityPin,
   xActInPlace,
   xFollow,
   xPostMenu,
@@ -365,18 +366,23 @@ it("sorts replies through X's own row under the post, and only reports a sort X 
   }
 });
 
-/** A Community's header as X draws it: banner, name, a link to its members, and X's button. */
-const header = (id: string, label: string) =>
-  `<div><img alt=""><h2>C${id}</h2><a href="/i/communities/${id}/members"><b>9</b> Members</a><button aria-label="${label} C${id}">${label}</button></div>`;
+/**
+ * A Community's header as X draws it: banner, name, a link to its members, X's Pin (an icon
+ * labelled with what pressing it does) and X's membership button.
+ */
+const header = (id: string, label: string, pin = "Pin Community") =>
+  `<div><img alt=""><h2>C${id}</h2><a href="/i/communities/${id}/members"><b>9</b> Members</a><button aria-label="${pin}"></button><button aria-label="${label} C${id}">${label}</button></div>`;
 const page = (html: string) => {
   const root = document.createElement("div");
   root.innerHTML = `<main><nav><a href="/home">Home</a></nav>${html}</main>`;
   return root;
 };
 const label = (root: ParentNode, path: string, id: string) =>
-  communityJoinButton(root, path, id)?.textContent ?? null;
+  communityButton(root, path, id, "join")?.textContent ?? null;
+const pinLabel = (root: ParentNode, path: string, id: string) =>
+  communityButton(root, path, id, "pin")?.getAttribute("aria-label") ?? null;
 
-it("finds X's membership button only in the header X draws for the Community its page is on", () => {
+it("finds X's membership and Pin buttons only in the header X draws for the Community its page is on", () => {
   const eleven = page(header("11", "Join"));
   expect(label(eleven, "/i/communities/11", "11")).toBe("Join");
   expect(label(eleven, "/i/communities/11/about", "11")).toBe("Join");
@@ -396,16 +402,27 @@ it("finds X's membership button only in the header X draws for the Community its
     ),
   ).toBeNull();
   // Two headers side by side (X drawing the next Community over the last): each is its own.
-  const both = page(header("11", "Joined") + header("12", "Ask to join"));
+  // X's pinned label is "Unpin" or a longer "Unpin Community ..."; each is the header's Pin.
+  const both = page(
+    header("11", "Joined") +
+      header("12", "Ask to join", "Unpin") +
+      header("13", "Join", "Unpin Community from Home screen"),
+  );
   expect([label(both, "/i/communities/11", "11"), label(both, "/i/communities/12", "12")]).toEqual([
     "Joined",
     "Ask to join",
   ]);
+  expect([
+    pinLabel(both, "/i/communities/11", "11"),
+    pinLabel(both, "/i/communities/12", "12"),
+    pinLabel(both, "/i/communities/13", "13"),
+    pinLabel(eleven, "/i/communities/12", "12"),
+  ]).toEqual(["Pin Community", "Unpin", "Unpin Community from Home screen", null]);
 });
 
 it("presses X's membership button only for the action the user clicked, and says what X's says after", async () => {
   document.body.innerHTML = header("11", "Join");
-  const button = document.querySelector("button")!;
+  const button = document.querySelector<HTMLElement>('button[aria-label$=" C11"]')!;
   const pressed: Array<string> = [];
   button.addEventListener("click", () => {
     pressed.push(button.textContent!);
@@ -416,11 +433,16 @@ it("presses X's membership button only for the action the user clicked, and says
   try {
     history.replaceState(null, "", "/i/communities/11");
     // Xtend still says Joined (the user left on x.com since): its Leave presses nothing.
-    expect(await xCommunityJoin("11", "leave", () => {})).toEqual({ refused: true, label: "Join" });
+    expect(await xCommunityJoin("11", "leave", () => {})).toEqual({
+      refused: true,
+      label: "Join",
+      toast: null,
+    });
     expect(pressed).toEqual([]);
     expect(await xCommunityJoin("11", "join", () => {})).toEqual({
       refused: false,
       label: "Joined",
+      toast: null,
     });
     expect(pressed).toEqual(["Join"]);
   } finally {
@@ -433,7 +455,7 @@ it("reads X's new membership label on the Community's own page, before the engin
   // The Community is not where the engine is (a pinned pane on Messages): X's page is reached
   // through X's router, pressed there, then left.
   document.body.innerHTML = `<main>${header("21", "Join")}</main>`;
-  const button = document.querySelector("button")!;
+  const button = document.querySelector<HTMLElement>('button[aria-label$=" C21"]')!;
   button.addEventListener("click", () => (button.textContent = "Joined"));
   inThisPage(() => "https://x.com/messages");
   // Back draws the page the user had, as X does: Messages, with no Community header.
@@ -446,6 +468,7 @@ it("reads X's new membership label on the Community's own page, before the engin
     expect(await xCommunityJoin("21", "join", () => {})).toEqual({
       refused: false,
       label: "Joined",
+      toast: null,
     });
   } finally {
     history.back = back;
@@ -1133,5 +1156,57 @@ it("does not close a user reopening a previously clicked caret after its late me
   } finally {
     history.replaceState(null, "", path);
     registerXWebview(null);
+  }
+});
+
+it("pins and unpins only as the user clicked, on this Community's own Pin, and passes on X's toast", async () => {
+  // Another Community's header, still drawn beside this one's, shows the state clicked for.
+  const pinned = "Unpin Community from Home screen";
+  document.body.innerHTML = header("12", "Join", pinned) + header("11", "Join", pinned);
+  const pressed: Array<string> = [];
+  // X shows one toast at a time.
+  const toast = (text: string) => {
+    document.querySelector('[data-testid="toast"]')?.remove();
+    const el = document.createElement("div");
+    el.dataset.testid = "toast";
+    el.textContent = text;
+    document.body.append(el);
+  };
+  // X unpins at once; a pin it refuses, at the user's limit of pinned Timelines, with its toast.
+  for (const button of document.querySelectorAll<HTMLElement>('[aria-label^="Unpin"]'))
+    button.addEventListener("click", () => {
+      const was = button.getAttribute("aria-label")!;
+      pressed.push(was);
+      if (was === pinned) {
+        button.setAttribute("aria-label", "Pin Community");
+        toast("Unpinned");
+      } else toast("You’ll need to remove one pinned Timeline before adding another");
+    });
+  inThisPage(() => `https://x.com${location.pathname}`);
+  const start = location.href;
+  try {
+    history.replaceState(null, "", "/i/communities/11");
+    // Xtend still says Pin (the user pinned it on x.com since): nothing is pressed, X's word stands.
+    expect(await xCommunityPin("11", true, () => {})).toEqual({
+      refused: true,
+      label: pinned,
+      toast: null,
+    });
+    expect(pressed).toEqual([]);
+    expect(await xCommunityPin("11", false, () => {})).toEqual({
+      refused: false,
+      label: "Pin Community",
+      toast: "Unpinned",
+    });
+    // Pressed, and X kept it unpinned: what X's button says is what holds.
+    expect(await xCommunityPin("11", true, () => {})).toEqual({
+      refused: false,
+      label: "Pin Community",
+      toast: "You’ll need to remove one pinned Timeline before adding another",
+    });
+    expect(pressed).toEqual([pinned, "Pin Community"]);
+    expect(pinLabel(document, "/i/communities/12", "12")).toBe(pinned);
+  } finally {
+    history.replaceState(null, "", start);
   }
 });

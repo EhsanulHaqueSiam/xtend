@@ -616,6 +616,11 @@ export function requestVariables(url: string, postData: string | undefined): Jso
 function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExploreTab> | null) {
   const s = (k: string) => asString(variables[k]);
   if (op === "HomeTimeline") return s("tag") === undefined ? null : `tag:${s("tag")}`;
+  // A search inside a Community, one list per order and query; Top is X's default, by likes.
+  if (op === "CommunityTweetSearchModuleQuery")
+    return s("communityId") === undefined || s("query") === undefined
+      ? null
+      : `communitySearch:${s("communityId")}:${s("timelineRankingMode") ?? "Likes"}:${s("query")}`;
   // Every Community call names it; a Community's Latest is its posts by Recency, its own list.
   if (op.startsWith("Communit") && s("communityId") !== undefined) {
     const mode = s("rankingMode");

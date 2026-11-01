@@ -36,6 +36,8 @@ const WRITES = new Set([
   "JoinCommunity",
   "RequestToJoinCommunity",
   "LeaveCommunity",
+  "PinTimeline",
+  "UnpinTimeline",
 ]);
 /** X sends Home's timelines as POSTs, its other reads as GETs. */
 const POSTED = new Set(["HomeTimeline", "HomeLatestTimeline"]);

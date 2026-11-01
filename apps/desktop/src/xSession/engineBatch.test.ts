@@ -615,6 +615,60 @@ describe("renderEngineBatch around posts", () => {
     expect(renderEngineBatch("CommunityAboutTimeline", { communityId: "14" }, {}).key).toBe(
       "community:14",
     );
+    // A search inside a Community is its own list per order and query: Top is X's by likes.
+    const search = (variables: Record<string, unknown>, body: unknown = {}) =>
+      renderEngineBatch(
+        "CommunityTweetSearchModuleQuery",
+        { communityId: "14", ...variables },
+        body,
+      );
+    expect([
+      search({ query: "ship it", timelineRankingMode: "Likes" }).key,
+      search({ query: "ship it" }).key,
+      search({ query: "ship it", timelineRankingMode: "Recency" }).key,
+      search({}).key,
+    ]).toEqual([
+      "communitySearch:14:Likes:ship it",
+      "communitySearch:14:Likes:ship it",
+      "communitySearch:14:Recency:ship it",
+      null,
+    ]);
+    // X's answer, in the shape a live read showed.
+    const entry = (id: string) => ({
+      entryId: `tweet-${id}`,
+      content: {
+        entryType: "TimelineTimelineItem",
+        itemContent: { itemType: "TimelineTweet", tweet_results: { result: tweet(id) } },
+      },
+    });
+    const cursor = (cursorType: string) => ({
+      entryId: `cursor-${cursorType.toLowerCase()}-1`,
+      content: { entryType: "TimelineTimelineCursor", value: `c-${cursorType}`, cursorType },
+    });
+    const found = search(
+      { query: "ship it", timelineRankingMode: "Likes" },
+      {
+        data: {
+          communityResults: {
+            result: {
+              community_filtered_timeline: {
+                timeline: {
+                  id: "CommunitySearchTopProduct-Timeline",
+                  instructions: [
+                    { type: "TimelineClearCache" },
+                    {
+                      type: "TimelineAddEntries",
+                      entries: [entry("61"), entry("60"), cursor("Top"), cursor("Bottom")],
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+    );
+    expect([found.order, found.top, found.bottom]).toEqual([["61", "60"], "c-Top", "c-Bottom"]);
   });
 
   it("reads Communities in X's shapes: a carousel's tiles, a card, and none from a post's reference", () => {
