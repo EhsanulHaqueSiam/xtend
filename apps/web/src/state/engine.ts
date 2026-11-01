@@ -539,6 +539,9 @@ export const userByHandle = (state: EngineState, handle: string): EngineUser | u
 let current = emptyEngine;
 export const engineAtom = Atom.make(emptyEngine).pipe(Atom.keepAlive);
 
+/** The account X's page is signed in as, once it has said; a screen re-renders only when it changes. */
+export const viewerHandleAtom = Atom.make((get) => get(engineAtom).viewer?.handle ?? null);
+
 /** Engine fixtures dev replayed into the store, in a browser with no desktop (DevEngineReplay). */
 export const engineReplayAtom = Atom.make<ReadonlyArray<string>>([]).pipe(Atom.keepAlive);
 

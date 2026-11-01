@@ -6,6 +6,7 @@ import * as AsyncResult from "effect/reactivity/AsyncResult";
 
 import { isElectron } from "../env";
 import { clientRuntime, XtendClient } from "../rpc/client";
+import { viewerHandleAtom } from "./engine";
 import { eventsOfTypeAtom } from "./shell";
 
 /** How many times the service adopted the session's handle; settings refetch when it moves. */
@@ -21,6 +22,22 @@ export const settingsAtom = clientRuntime.atom((get) =>
     const client = yield* XtendClient;
     return yield* client[WS_METHODS.settingsGet]({});
   }),
+);
+
+/**
+ * The user's own handle for their own X pages (Profile, the panel beside Compose): the account X
+ * is signed in as, which Settings' handle may not match. The desktop waits for X to say; a
+ * browser, with no engine, takes Settings' handle.
+ */
+export const ownHandleAtom = Atom.make(
+  (get) =>
+    get(viewerHandleAtom) ??
+    (isElectron
+      ? null
+      : AsyncResult.getOrElse(
+          AsyncResult.map(get(settingsAtom), (s) => s.handle),
+          () => null,
+        )),
 );
 
 export const updateSettingsAtom = clientRuntime.fn<SettingsUpdate>()(

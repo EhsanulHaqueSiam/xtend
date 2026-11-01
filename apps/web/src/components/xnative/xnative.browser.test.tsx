@@ -2,11 +2,13 @@ import type { DraftPatch, EnginePost } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import { expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
+import { Suspense } from "react";
 
 import { installFakeBridge } from "../../../test/fakeBridge";
 import { draft, settings } from "../../../test/fixtures";
 import { fakeTimers, render } from "../../../test/render";
-import { markXReady, registerXWebview, type XWebview } from "../../state/x";
+import { Route as ListsRoute } from "../../routes/lists.index";
+import { markXReady, refreshScreen, registerXWebview, type XWebview } from "../../state/x";
 import { EngineSync } from "./EngineSync";
 import { Poll } from "./PostParts";
 import { ReplyComposer } from "./ReplyComposer";
@@ -397,4 +399,41 @@ it("sorts replies through X's own menu: Relevant, Recent, Likes, the open one ch
   expect(picked).toEqual(["Recency"]);
   await screen.rerender(<ReplySort value="Recency" onChange={() => {}} />);
   await expect.element(screen.getByRole("button", { name: "Recent" })).toBeVisible();
+});
+
+it("opens X's Lists page of the account X is signed in to, not the one Settings names, once X names it", async () => {
+  const bridge = installFakeBridge();
+  const scripts: Array<string> = [];
+  registerXWebview({
+    executeJavaScript: (code: string) => (scripts.push(code), Promise.resolve(true)),
+    getURL: () => "https://x.com/home",
+    loadURL: (url: string) => (scripts.push(url), Promise.resolve()),
+  } as unknown as XWebview);
+  markXReady();
+  try {
+    const Lists = ListsRoute.options.component!;
+    await using screen = await render(
+      <>
+        <EngineSync />
+        <Suspense>
+          <Lists />
+        </Suspense>
+      </>,
+      {
+        service: { "settings.get": () => Effect.succeed({ ...settings, handle: "someone_else" }) },
+      },
+    );
+    // X's first load named no account: ⌘R loads Home, which names it, then the Lists open.
+    await expect.element(screen.getByText("Loading your Lists from X.")).toBeVisible();
+    refreshScreen();
+    expect(scripts).toEqual(["https://x.com/home"]);
+    bridge.emitEngine({
+      ...batch("Viewer", []),
+      viewer: { userId: "7", handle: "me", name: "Me", avatarUrl: null },
+    });
+    await expect.poll(() => scripts.some((s) => s.includes('"/me/lists"'))).toBe(true);
+    expect(scripts.some((s) => s.includes("someone_else"))).toBe(false);
+  } finally {
+    registerXWebview(null);
+  }
 });
