@@ -371,6 +371,24 @@ test("Advanced search writes X's operators, and X's SearchTimeline runs them", a
     .poll(nativeIds)
     .toEqual(e.mock.state.batchFor("SearchTimeline", { product: "Top", rawQuery: q })!.order);
   await expect.poll(() => e.app.getByLabel("Search X").inputValue()).toBe(q);
+
+  // The box shows what the form searched even when that is the search already open: cut the box
+  // back, put the same filters back in the form, and the box must say so again.
+  await e.app.getByLabel("Search X").fill("design system");
+  await e.app.locator("main").getByRole("button", { name: "Advanced search" }).click();
+  await form.getByLabel("None of these words").fill("crypto");
+  await form.getByLabel("Minimum Likes").fill("10");
+  await form.getByRole("switch", { name: "Replies" }).click();
+  for (const [list, option] of [
+    ["From month", "March"],
+    ["From day", "7"],
+    ["From year", "2026"],
+  ] as const) {
+    await form.getByRole("combobox", { name: list }).click();
+    await e.app.getByRole("option", { name: option, exact: true }).click();
+  }
+  await form.getByRole("button", { name: "Search" }).click();
+  await expect.poll(() => e.app.getByLabel("Search X").inputValue()).toBe(q);
 });
 
 test("Lists, a List's posts and its members read X's pages", async () => {
