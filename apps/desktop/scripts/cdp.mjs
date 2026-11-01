@@ -2,13 +2,17 @@
 // where nobody can click. Keys sent this way skip Electron's before-input-event, so chords main
 // forwards from x.com (⌘K, ⌘\, ⌘F) must go to the app window. No command prints usage.
 import * as NodeFSP from "node:fs/promises";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 
 // Targets are picked by a URL substring: "x.com" is the webview, the dev URL the app window.
 const USAGE = `XTEND_REMOTE_DEBUG=9223 node scripts/dev-electron.mjs   start the app with the port open
 node scripts/cdp.mjs shot /tmp/xtend                     every page to /tmp/xtend-<n>.png
 node scripts/cdp.mjs eval x.com 'location.href'          prints the JSON value
 node scripts/cdp.mjs click x.com 470 86                  a real mouse click in CSS pixels
-node scripts/cdp.mjs type x.com 'hello'                  inserts text at the focus`;
+node scripts/cdp.mjs type x.com 'hello'                  inserts text at the focus
+node scripts/cdp.mjs record localhost                     start keeping the app page's engine batches
+node scripts/cdp.mjs dump localhost [file.ndjson]         write them (default ~/Pictures/xtend-ui/rec/)`;
 const port = process.env.XTEND_REMOTE_DEBUG ?? "9223";
 const TIMEOUT_MS = 5_000;
 const [command, ...args] = process.argv.slice(2);
@@ -96,6 +100,39 @@ const commands = {
     await mouse("mousePressed");
     await mouse("mouseReleased");
     close();
+  },
+  // Engine batches as the app page receives them, for scripts/engine-fixture.ts scrub. A second
+  // listener on the bridge, so the desktop itself is untouched; it lasts until the page reloads.
+  async record(match) {
+    const { call, close } = await page(match);
+    const { result } = await call("Runtime.evaluate", {
+      expression: `(() => {
+        if (!window.__xtendRec) {
+          window.__xtendRec = [];
+          window.desktopBridge.onEngine((batch) => window.__xtendRec.push(batch));
+        }
+        return window.__xtendRec.length;
+      })()`,
+      returnByValue: true,
+    });
+    close();
+    console.log(`recording engine batches (${result.value} so far); browse, then dump`);
+  },
+  async dump(match, file) {
+    const { call, close } = await page(match);
+    const { result } = await call("Runtime.evaluate", {
+      expression: "JSON.stringify(window.__xtendRec ?? [])",
+      returnByValue: true,
+    });
+    close();
+    const batches = JSON.parse(result.value);
+    // A recording is the real account's data: outside the repo unless asked otherwise.
+    const out =
+      file ??
+      NodePath.join(NodeOS.homedir(), "Pictures/xtend-ui/rec", `engine-${Date.now()}.ndjson`);
+    await NodeFSP.mkdir(NodePath.dirname(out), { recursive: true });
+    await NodeFSP.writeFile(out, batches.map((b) => JSON.stringify(b)).join("\n") + "\n");
+    console.log(`${batches.length} batches -> ${out}`);
   },
   async type(match, text) {
     const { call, close } = await page(match);

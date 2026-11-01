@@ -7,7 +7,7 @@
   },
   "type": "module",
   "scripts": {
-    "dev": "node --watch --watch-path=src --watch-path=../../packages src/bin.ts --base-dir ../../.xtend --port ${XTEND_PORT:-4820} --dev-url http://localhost:${XTEND_WEB_PORT:-5820}",
+    "dev": "node --watch --watch-path=src --watch-path=../../packages src/bin.ts --base-dir ${XTEND_HOME:-../../.xtend} --port ${XTEND_PORT:-4820} --dev-url http://localhost:${XTEND_WEB_PORT:-5820}",
     "build": "vp pack",
     "start": "node dist/bin.mjs",
     "typecheck": "tsc-rs --noEmit",

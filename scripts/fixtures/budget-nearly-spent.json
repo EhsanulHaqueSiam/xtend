@@ -1,0 +1,9 @@
+{
+  "description": "This month's spend at $49.10 of a $50 budget: every paid button should warn before it runs.",
+  "seed": "demo",
+  "sql": [
+    "UPDATE settings SET monthly_budget_usd = 50",
+    "INSERT INTO spend_log (at, provider, endpoint, purpose, cost_usd) VALUES (strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hour'), 'treg', '/x/search', 'library.search', 49.10)"
+  ],
+  "open": "/today"
+}

@@ -64,6 +64,10 @@ The most common defect is a change that works on the path you tested and is miss
 - Service state lives in `~/.xtend` by default; `--base-dir` overrides it. Dev runs use `<repo>/.xtend`, which is gitignored.
 - Need a second checkout? `git worktree add` it next to this one, not in `/tmp`, and remove it when done.
 
+## Test data
+
+An empty database is a bad test, and live state is never one. `pnpm dev` seeds a fresh home with demo data and sends treg, the pool and AI assist to a local fake; `--seed real` copies your own install with everything that acts or spends turned off. To see one UI state, `pnpm dev --fixture <name>`; to see X screens without the desktop, add `?engine=all`. Screenshots for a PR come from `pnpm capture`. [Development](docs/operations/development.md#dev-data-and-ui-states) has the commands.
+
 ## Verifying
 
 - `pnpm check:changed` before you push: format, lint, knip, typecheck of the packages your change reaches, and the tests beside changed files. CI runs the full suites. While iterating, `vp test run <files>` (`-t "<name>"` for one case).

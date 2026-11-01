@@ -57,6 +57,7 @@ import { toastAtom } from "../ui/toast";
 import { DROP_VERBS, linkDragAtom, useDropPost } from "./drops";
 import { ABOUT, isSectionRoute, SECTIONS } from "./sections";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { engineReplayAtom } from "../../state/engine";
 
 const or = <A, B>(result: AsyncResult.AsyncResult<A, unknown>, fallback: B): A | B =>
   AsyncResult.getOrElse(result, () => fallback);
@@ -579,6 +580,8 @@ function Today() {
  * a browser has no x.com session), then the tools, then the day's numbers.
  */
 export function Sidebar({ compact = false }: { readonly compact?: boolean }) {
+  // Dev in a browser: replayed X engine fixtures make X's pages worth showing.
+  const replayed = useAtomValue(engineReplayAtom);
   const setPalette = useAtomSet(paletteOpenAtom);
   const setDragging = useAtomSet(linkDragAtom);
   // The window sees every drag, including one coming out of the x.com webview; the data is only
@@ -669,7 +672,7 @@ export function Sidebar({ compact = false }: { readonly compact?: boolean }) {
         <TooltipPopup>{`Search (${mod} K)`}</TooltipPopup>
       </Tooltip>
       <nav className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        {isElectron ? (
+        {isElectron || replayed.length > 0 ? (
           <>
             <XRows compact={compact} />
             <div className="mx-2 my-2.5 h-px shrink-0 bg-sidebar-border" />

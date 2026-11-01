@@ -21,7 +21,8 @@ const layerSetup = Layer.effectDiscard(
   }),
 );
 
-const layerFromPath = Effect.fn("Sqlite.layerFromPath")(function* (dbPath: string) {
+/** A database file, created with its directory, migrated. */
+export const layerFromPath = Effect.fn("Sqlite.layerFromPath")(function* (dbPath: string) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   yield* fs.makeDirectory(path.dirname(dbPath), { recursive: true });

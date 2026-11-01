@@ -1,0 +1,9 @@
+{
+  "description": "Every queued draft failed with X's real error text, one of them very long: the Compose drafts board and the Plan queue.",
+  "seed": "demo",
+  "sql": [
+    "UPDATE drafts SET status = 'failed', attempts = 3, error = 'X said 403: You are not allowed to create a post with duplicate content.' WHERE status = 'queued'",
+    "UPDATE drafts SET error = 'X said 429: Too Many Requests. The account reached its posting limit for this window; X lifts it on its own, usually within the hour, and the draft can be retried then without changes.' WHERE id = (SELECT id FROM drafts WHERE status = 'failed' ORDER BY id LIMIT 1)"
+  ],
+  "open": "/compose"
+}

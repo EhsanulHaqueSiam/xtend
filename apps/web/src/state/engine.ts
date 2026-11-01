@@ -528,6 +528,9 @@ export const userByHandle = (state: EngineState, handle: string): EngineUser | u
 let current = emptyEngine;
 export const engineAtom = Atom.make(emptyEngine).pipe(Atom.keepAlive);
 
+/** Engine fixtures dev replayed into the store, in a browser with no desktop (DevEngineReplay). */
+export const engineReplayAtom = Atom.make<ReadonlyArray<string>>([]).pipe(Atom.keepAlive);
+
 /** Applies a change to the one store and returns it, for `useAtomSet(engineAtom)`. */
 export const updateEngine = (change: (state: EngineState) => EngineState) =>
   (current = change(current));
