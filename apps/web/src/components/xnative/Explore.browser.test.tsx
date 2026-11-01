@@ -15,12 +15,21 @@ import { Route } from "../../routes/explore";
 vi.mock("../shell/HomeCompanion", () => ({ DayGlance: () => null }));
 
 it.each([
-  { enabled: false, current: true },
-  { enabled: true, current: true },
-  { enabled: true, current: false },
+  { enabled: false, current: true, feedback: "success" },
+  { enabled: true, current: true, feedback: "success" },
+  { enabled: true, current: false, feedback: "success" },
+  { enabled: true, current: true, feedback: "error" },
+  { enabled: true, current: true, feedback: "unmounted" },
 ])(
   "reads X's trend menu and respects session actions (%s), including hiding and Undo",
-  async ({ enabled, current }) => {
+  async ({ enabled, current, feedback }) => {
+    const dismissed = feedback === "success";
+    const toast =
+      feedback === "unmounted"
+        ? null
+        : feedback === "error"
+          ? "Something went wrong. Try again."
+          : "Thanks";
     const search = vi.spyOn(Route, "useSearch").mockReturnValue({ tab: "news" });
     const bridge = installFakeBridge();
     const labels = ["Not interested in this", "This trend is spam"] as const;
@@ -34,7 +43,14 @@ it.each([
           code.includes("const labels")
             ? labels
             : code.includes("item.click()")
-              ? { kind: "done", toast: "Thanks", undo: true, gone: true, current }
+              ? {
+                  kind: "done",
+                  toast,
+                  undo: dismissed,
+                  gone: feedback !== "error",
+                  dismissed,
+                  current,
+                }
               : true,
         );
       },
@@ -102,8 +118,11 @@ it.each([
         await expect.element(screen.getByText("A news story", { exact: true })).toBeVisible();
         return;
       }
-      if (!current) {
-        await expect.element(screen.getByRole("status")).toHaveTextContent("ThanksUndo");
+      if (!current || !dismissed) {
+        if (toast !== null)
+          await expect
+            .element(screen.getByRole("status"))
+            .toHaveTextContent(dismissed ? "ThanksUndo" : toast);
         await expect.element(screen.getByText("A news story", { exact: true })).toBeVisible();
         return;
       }

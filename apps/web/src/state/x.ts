@@ -264,7 +264,7 @@ interface MenuAt {
   readonly find: (current: string) => string;
   readonly root: string;
   readonly trigger: string;
-  readonly present?: string;
+  readonly trend?: boolean;
 }
 const postMenuAt = (postId: string, menu: XPostMenu): MenuAt => ({
   find: () => findArticle(postId),
@@ -330,39 +330,45 @@ const trendMenuAt = (name: string): MenuAt => ({
     }`,
   root: "trend",
   trigger: '[data-testid="caret"]',
-  present: "!!own()",
+  trend: true,
 });
 
 /**
  * A script step that opens X's menu `at` and sets `items` to its rows once drawn; the step after
  * it closes the menu (`closeMenu`) or presses a row.
  */
-const openMenu = (at: MenuAt, mine = "true") => `
+const openMenu = (at: MenuAt, mine = "true", press = false) => `
     ${at.find(mine)}
     const trigger = ${at.root}?.querySelector(${JSON.stringify(at.trigger)});
     if (!trigger || !(${mine})) return null;
     const previous = new Set(document.querySelectorAll('[role="menu"]'));
     trigger.click();
-    const findOpened = () => {
+    const findOpened = (synchronous = false) => {
       const controlled = trigger.getAttribute("aria-controls")?.split(" ").map((id) => document.getElementById(id)?.closest('[role="menu"]')).find(Boolean);
       if (controlled) return controlled;
+      // An earlier timed-out opening may still mount: only a linked or synchronous menu proves ownership.
+      if (window.__xtendMenuUncertain && !synchronous) return null;
       const added = [...document.querySelectorAll('[role="menu"]')].filter((m) => !previous.has(m));
       return added.length === 1 ? added[0] : null;
     };
-    let opened = findOpened();
+    let opened = findOpened(true);
     // Even a cancelled read can close its own dropdown; a newer menu has a different reference.
     const closeMenu = () => {
       if (!opened?.isConnected) return;
       [...(opened.parentElement?.children ?? [])].find((k) => k !== opened && k.getBoundingClientRect().height > 0)?.click();
     };
-    let items = [];
+    let items = [], interrupted = false;
     for (let i = 0; i < 20 && items.length === 0; i++) {
       await new Promise((r) => setTimeout(r, 100));
-      if (!(${mine})) return (closeMenu(), null);
+      interrupted ||= !(${mine}) || ${press && at.trend ? "(!opened && request !== window.__xtendMenuRequest)" : "false"};
       opened ??= findOpened();
+      // Keep the opening slot until X draws this dropdown, even when its press was superseded.
+      if (interrupted && opened) return (closeMenu(), null);
       // Retain this menu's labels if X removed it; returning null would ask a read to navigate.
       items = [...(opened?.querySelectorAll('[role="menuitem"]') ?? [])];
-    }`;
+    }
+    if (!opened) window.__xtendMenuUncertain = true;
+    if (interrupted) return (closeMenu(), null);`;
 
 /** What X did when the user pressed one of its menu items. */
 export type XMenuOutcome =
@@ -375,11 +381,31 @@ export type XMenuOutcome =
       readonly toast: string | null;
       readonly undo: boolean;
       readonly gone: boolean;
+      /** Only a fresh dismissal acknowledgement from X confirms a trend was dismissed. */
+      readonly dismissed?: boolean;
       /** A superseded press still reports X's feedback, but must not change the open screen. */
       readonly current: boolean;
     }
   /** X opened its own dialog or page (Report, Block, Delete, Send via Chat) at `path`'s page. */
   | { readonly kind: "over"; readonly path: string };
+
+/** Only one caret can be awaiting X's dropdown, so an asynchronous mount has one owner. */
+const xMenuRun = (step: string, start = "") =>
+  xRun(`(async () => {
+    const request = window.__xtendMenuRequest = (window.__xtendMenuRequest ?? 0) + 1;
+    const previousStep = window.__xtendMenuQueue;
+    let release;
+    const waiting = new Promise((resolve) => { release = resolve; });
+    window.__xtendMenuQueue = waiting;
+    ${start}
+    if (previousStep) await previousStep;
+    try {
+      ${step}
+    } finally {
+      release();
+      if (window.__xtendMenuQueue === waiting) delete window.__xtendMenuQueue;
+    }
+  })()`);
 
 /** X's menu `at`, read on the engine page: its rows' labels, in X's order. */
 const xMenuInPlace = (
@@ -389,13 +415,17 @@ const xMenuInPlace = (
   // Only in-place trend reads cancel: null from a post/profile read asks onPage to navigate.
   const current = options?.run === undefined ? "true" : stillMine(options.run);
   const mine = options?.cancelRead ? `(window.__xtendMenuRead === read && ${current})` : current;
-  return xRun(`(async () => {
-    ${options?.cancelRead ? "const read = window.__xtendMenuRead = (window.__xtendMenuRead ?? 0) + 1;" : ""}
+  return xMenuRun(
+    `
     ${openMenu(at, mine)}
     const labels = items.map((i) => i.textContent.trim());
     closeMenu();
     return ${mine} ? labels : null;
-  })()`).then((labels) =>
+  `,
+    options?.cancelRead
+      ? "const read = window.__xtendMenuRead = (window.__xtendMenuRead ?? 0) + 1;"
+      : "",
+  ).then((labels) =>
     Array.isArray(labels) && labels.every((l) => typeof l === "string")
       ? (labels as ReadonlyArray<string>)
       : null,
@@ -403,26 +433,37 @@ const xMenuInPlace = (
 };
 
 /** X's feedback after a menu press or its dialog finishes. */
-const menuDone = (at: MenuAt, current = "true") => `
+const menuDone = (at: MenuAt, current = "true", run?: number) => `
     const toast = document.querySelector('[data-testid="toast"]');
     const actions = [...(toast?.querySelectorAll('button, a, [role="button"]') ?? [])];
     const text = actions.reduce((t, a) => t.replace(a.textContent, ""), toast?.textContent ?? "").trim();
-    return { kind: "done", toast: text || null, undo: actions.some((a) => a.textContent.trim() === "Undo"), gone: !(${at.present ?? `${at.root}?.isConnected`}), current: ${current} };`;
+    const undo = actions.some((a) => a.textContent.trim() === "Undo");
+    ${
+      at.trend
+        ? `
+    const before = window.__xtendTrendFeedback;
+    const fresh = before?.run === ${run} && (before.toast !== toast || before.text !== toast?.textContent);
+    const dismissed = fresh && undo && /^Thanks(?:[.! ,]|$)/i.test(text);
+    `
+        : ""
+    }
+    return { kind: "done", toast: text || null, undo, gone: ${at.trend ? "false, dismissed" : `!${at.root}?.isConnected`}, current: ${current} };`;
 
 /** Presses row `label` of X's menu `at` on the engine page. Null when it is not there. */
 const xMenuPressInPlace = (at: MenuAt, label: string, run: number) =>
-  xRun(`(async () => {
-    ${openMenu(at, stillMine(run))}
+  xMenuRun(`
+    ${openMenu(at, stillMine(run), true)}
     const item = items.find((i) => i.textContent.trim() === ${JSON.stringify(label)});
     if (!item?.isConnected || !${stillMine(run)}) return (closeMenu(), null);
     const path = location.pathname + location.search;
+    ${at.trend ? `const beforeToast = document.querySelector('[data-testid="toast"]'); window.__xtendTrendFeedback = { run: ${run}, toast: beforeToast, text: beforeToast?.textContent };` : ""}
     item.click();
     await new Promise((r) => setTimeout(r, 800));
     // A confirm sheet (Block, Mute this conversation, Delete) or a page (Report, post activity).
     if (${stillMine(run)} && (location.pathname + location.search !== path || document.querySelector('[role="dialog"], [role="alertdialog"]')))
       return { kind: "over", path };
-    ${menuDone(at, stillMine(run))}
-  })()`).then((outcome) => (outcome === null ? null : (outcome as XMenuOutcome)));
+    ${menuDone(at, stillMine(run), run)}
+  `).then((outcome) => (outcome === null ? null : (outcome as XMenuOutcome)));
 
 /**
  * Runs `step` where X shows what it acts on: in place on the engine page, or on `page` (its own
@@ -701,7 +742,7 @@ export const xTrendMenuPress = async (
   if (outcome?.kind !== "over" || run !== overRun) return outcome;
   return xRun(`(async () => {
     ${at.find(stillMine(run))}
-    ${menuDone(at, stillMine(run))}
+    ${menuDone(at, stillMine(run), run)}
   })()`).then((done) => (done === null ? null : (done as XMenuOutcome)));
 };
 
@@ -839,7 +880,7 @@ export const xSortReplies = (
   labels: ReadonlyArray<string>,
 ) =>
   validPost(post)
-    ? xRun(`(async () => {
+    ? xMenuRun(`
     ${openMenu(sortMenuAt(post.postId, labels))}
     const item = items.find((i) => i.textContent.trim() === ${JSON.stringify(pick.label)});
     if (!item) return (closeMenu(), false);
@@ -848,7 +889,7 @@ export const xSortReplies = (
     const took = () => new URLSearchParams(location.search).get("sort_replies") === ${JSON.stringify(pick.param)};
     for (let i = 0; i < 20 && !took(); i++) await new Promise((r) => setTimeout(r, 100));
     return took();
-  })()`).then((done) => done === true)
+  `).then((done) => done === true)
     : Promise.resolve(false);
 
 /**
