@@ -20,7 +20,7 @@ import { checkRemote, readRemote, RemoteConfig, writeRemote } from "./service/re
 import { superviseService } from "./service/ServiceSupervisor.ts";
 import { deepLinkToRoute, type ServiceMode } from "./service/supervision.ts";
 import { createTray } from "./tray.ts";
-import { defaultChannel, startUpdates } from "./updates.ts";
+import { defaultChannel, devUpdateFeed, startUpdates } from "./updates.ts";
 import { createMainWindow } from "./window/MainWindow.ts";
 import * as Schema from "effect/Schema";
 
@@ -243,18 +243,24 @@ void app.whenReady().then(async () => {
     if (BrowserWindow.getAllWindows().length === 0) openWindow();
   });
 
-  // A dev build has no feed: it reports idle and never checks.
+  // A dev build has no feed, unless XTEND_UPDATE_FEED names a local one: it reports idle.
   const version = app.getVersion();
-  const updates = app.isPackaged
-    ? startUpdates({
-        updater: autoUpdater,
-        version,
-        platform: process.platform,
-        channelFile: NodePath.join(app.getPath("userData"), "updates.json"),
-        broadcast: (state: UpdateState) => main?.appContents.send(UPDATE_STATE_CHANNEL, state),
-        log,
-      })
-    : null;
+  const devFeed = app.isPackaged ? null : devUpdateFeed(process.env.XTEND_UPDATE_FEED);
+  if (devFeed !== null) {
+    autoUpdater.forceDevUpdateConfig = true;
+    autoUpdater.setFeedURL({ provider: "generic", url: devFeed });
+  }
+  const updates =
+    app.isPackaged || devFeed !== null
+      ? startUpdates({
+          updater: autoUpdater,
+          version,
+          platform: process.platform,
+          channelFile: NodePath.join(app.getPath("userData"), "updates.json"),
+          broadcast: (state: UpdateState) => main?.appContents.send(UPDATE_STATE_CHANNEL, state),
+          log,
+        })
+      : null;
   ipcMain.handle(
     UPDATE_GET_CHANNEL,
     (): UpdateState =>

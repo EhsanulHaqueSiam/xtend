@@ -105,9 +105,12 @@ sharing off, no treg token.
 ## Checks
 
 - `pnpm check:changed` is the local version of CI for your branch: format and lint of the
-  changed files, typecheck of the packages CI's change detection picks for them
-  (`.github/scripts/ci-changes.cjs`), knip, and the tests beside the changed files. Pass a ref to compare against something other than
-  `origin/main`. Uncommitted and untracked files count.
+  changed files (every file when a lint rule or the config changed), typecheck of the packages CI's
+  change detection picks for them (`.github/scripts/ci-changes.cjs`), knip, the tests beside the
+  changed files, the payload budgets when the service is affected, and a lockfile and patch check
+  when a manifest, the lockfile or `patches/` changed. Steps run in parallel within the machine's
+  budget (`--concurrency`, `--timeout`); a rerun on identical input prints the last passing summary.
+  Pass a ref to compare against something other than the closest remote `main`.
 - `pnpm typecheck` runs tsc-rs across the workspace. Do not use `npx tsc`.
 - `vp test run <files>` runs focused tests. `pnpm test` also runs the tests under `scripts/`
   with the root config; alone, that is `vp test run --dir scripts`. Anything that renders React or touches the DOM is
@@ -144,24 +147,26 @@ Both need `pnpm build` first.
 
 ## CI and releases
 
-`.github/workflows/ci.yml` runs three jobs on `ubuntu-24.04`, each set up by
-`.github/actions/setup`:
+`.github/workflows/ci.yml` runs on `ubuntu-24.04`, each job set up by `.github/actions/setup`:
 
-| job   | runs                                                                                 |
-| ----- | ------------------------------------------------------------------------------------ |
-| check | `fmt:check`, `lint`, `knip`                                                          |
-| build | `typecheck`, `build`, `verify:bundles`, then the desktop smoke test under `xvfb-run` |
-| test  | every package's tests, with the Chromium headless shell cached by Playwright version |
+| job   | runs                                                                                                       |
+| ----- | ---------------------------------------------------------------------------------------------------------- |
+| lint  | rejects committed PR evidence (`.github/pr-assets`), then `fmt:check`, `lint`, `knip`                      |
+| build | `typecheck`, `build`, the route tree is current, `verify:bundles`, the desktop smoke test under `xvfb-run` |
+| test  | every package's tests and the e2e journeys, Chromium from `.github/actions/chromium`                       |
+| Check | passes only when every job above passed or was skipped because its gate said so                            |
 
-A `changes` job first reads the changed paths (a pull request against its base, a push to `main`
-against the commit before it) and `.github/scripts/ci-changes.cjs` decides what runs. `check`
-always runs. Docs, root `*.md`, `.agents/`, `.vite-hooks/` and `knip.jsonc` alone run nothing
-else. Root `scripts/` alone run `test` but not `build`. Any change in `apps/` or `packages/`
-runs both: the smoke test boots the server and renders the web app. Contracts, a manifest, the
-lockfile, a root config, `.github/` or any path the script does not know runs everything, as
-does a base it cannot read, such as after a force push. A skipped job reports success, so the
-three job names can be required checks. `pnpm check:changed` typechecks the packages the same
-mapping returns. The script is tested by `node --test .github/scripts`, part of `pnpm test`.
+A `changes` job first reads the changed paths of a pull request against its base, and
+`.github/scripts/ci-changes.cjs` decides what runs; a push to `main` runs everything as the
+backstop. `lint` always runs. Docs, root `*.md`, `.agents/` and `.vite-hooks/` alone run nothing
+else; root `scripts/` alone run `test` but not `build`; the lint plugin reaches only itself. Any
+other change in `apps/` or `packages/` runs both: the smoke test boots the server and renders the
+web app. Contracts, a manifest, the lockfile, a root config, `.github/` or any path the script
+does not know runs everything, as does a base it cannot read. `pnpm check:changed` typechecks the
+packages the same mapping returns. The script is tested by `node --test .github/scripts`.
+
+`.github/workflows/payload-budget.yml` compares `apps/server/src/payloadBudget.json` with main's
+and fails when a WebSocket payload grew, unless the PR has the `payload-increase` label.
 
 Runners stay pinned. `ubuntu-latest` moved to 26.04 before Playwright supported it, and every
 run failed at the browser install.
@@ -170,7 +175,8 @@ run failed at the browser install.
 that touches the app is a **nightly**: version `X.Y.Z-nightly.YYYYMMDD.RUN`, where `X.Y.Z` is one
 patch past the newest `vX.Y.Z` tag, published as a GitHub prerelease. Merges in a row cancel the
 older run, so only the newest builds. A `vX.Y.Z` tag is **stable**, published as the latest
-release; to promote a nightly, tag its commit. A version job picks the version once; a macOS job
+release; to promote a nightly, tag its commit. CI runs first on the commit being shipped (`ci.yml` as a reusable workflow), and a stable tag must
+point at a commit already on `main`. A version job picks the version once; a macOS job
 builds the dmgs and zips with `pnpm dist:desktop:dmg`, a Linux job the AppImage with
 `pnpm dist:desktop:appimage` and the CLI tarball with `pnpm cli:pack --check`, both stamping the
 version and running `pnpm release:smoke`. Only when both pass does a third job publish the

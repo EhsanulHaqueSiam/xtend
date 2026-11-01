@@ -29,7 +29,9 @@
     "fmt": "vp fmt",
     "fmt:check": "vp fmt --check",
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/*/dist apps/*/dist-electron packages/*/dist .vite-plus apps/*/.vite-plus packages/*/.vite-plus",
-    "capture": "node apps/e2e/scripts/capture.ts"
+    "capture": "node apps/e2e/scripts/capture.ts",
+    "report:renders": "node scripts/render-metrics.ts run",
+    "start:mock-update-server": "node scripts/mock-update-server.ts"
   },
   "devDependencies": {
     "@effect/language-service": "catalog:",

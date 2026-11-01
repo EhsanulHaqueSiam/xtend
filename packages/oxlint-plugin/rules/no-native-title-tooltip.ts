@@ -14,12 +14,25 @@ export default defineRule({
       description:
         "Disallow the native title attribute as a tooltip on intrinsic elements; use the styled Tooltip component.",
     },
+    // `components`: components that pass `title` straight to their element (a router's Link).
+    schema: [
+      {
+        type: "object",
+        properties: { components: { type: "array", items: { type: "string" } } },
+        additionalProperties: false,
+      },
+    ],
   },
   create(context) {
+    const options = context.options[0] as
+      | { readonly components?: ReadonlyArray<string> }
+      | undefined;
+    const forwarding = new Set(options?.components ?? []);
     return {
       JSXOpeningElement(node) {
         if (node.name.type !== "JSXIdentifier") return;
-        if (!INTRINSIC_ELEMENT_PATTERN.test(node.name.name)) return;
+        if (!INTRINSIC_ELEMENT_PATTERN.test(node.name.name) && !forwarding.has(node.name.name))
+          return;
         if (TITLE_IS_AN_ACCESSIBLE_NAME.has(node.name.name)) return;
 
         for (const attribute of node.attributes) {

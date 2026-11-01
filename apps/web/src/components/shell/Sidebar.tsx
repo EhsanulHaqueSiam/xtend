@@ -192,41 +192,47 @@ function ToolRow({
           {tool.group}
         </div>
       ) : null}
-      <Link
-        to={tool.to}
-        title={compact ? tool.label : ABOUT[tool.to]}
-        aria-label={compact ? tool.label : undefined}
-        data-active={on && (compact || sections.length === 0)}
-        data-open={on}
-        className={cn(ROW, dragClass(dragging, verb !== undefined))}
-        onDragOver={
-          verb === undefined
-            ? undefined
-            : (event) => {
-                event.preventDefault();
-                event.dataTransfer.dropEffect = "copy";
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Link
+              to={tool.to}
+              aria-label={compact ? tool.label : undefined}
+              data-active={on && (compact || sections.length === 0)}
+              data-open={on}
+              className={cn(ROW, dragClass(dragging, verb !== undefined))}
+              onDragOver={
+                verb === undefined
+                  ? undefined
+                  : (event) => {
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "copy";
+                    }
               }
-        }
-        onDrop={
-          verb === undefined
-            ? undefined
-            : (event) => {
-                event.preventDefault();
-                setDragging(false);
-                const post = postFromTransfer(event.dataTransfer);
-                if (post === null) setToast({ text: "Not an X post" });
-                else drop(tool.to, post);
+              onDrop={
+                verb === undefined
+                  ? undefined
+                  : (event) => {
+                      event.preventDefault();
+                      setDragging(false);
+                      const post = postFromTransfer(event.dataTransfer);
+                      if (post === null) setToast({ text: "Not an X post" });
+                      else drop(tool.to, post);
+                    }
               }
-        }
-      >
-        <RowBody
-          label={tool.label}
-          count={count}
-          hot={hot}
-          verb={dragging ? verb : undefined}
-          compact={compact}
-        />
-      </Link>
+            />
+          }
+        >
+          <RowBody
+            label={tool.label}
+            count={count}
+            hot={hot}
+            verb={dragging ? verb : undefined}
+            compact={compact}
+          />
+        </TooltipTrigger>
+        <TooltipPopup>{compact ? tool.label : ABOUT[tool.to]}</TooltipPopup>
+      </Tooltip>
       {compact && sections.length > 0 ? (
         // The tooltip wraps the menu: Menu clones its trigger, so the trigger is the tooltip's.
         <Tooltip>

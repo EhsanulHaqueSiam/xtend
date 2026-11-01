@@ -59,3 +59,23 @@ describe("xtend/no-native-title-tooltip", () => {
 
   rule.invalid("reports title on an anchor", `const el = <a href="#" title="Learn more">More</a>;`);
 });
+
+const forwarding = createOxlintRuleHarness("xtend/no-native-title-tooltip", {
+  filename: "fixture.tsx",
+  ruleOptions: [{ components: ["Link"] }],
+});
+
+describe("xtend/no-native-title-tooltip with forwarding components", () => {
+  forwarding.invalid(
+    "reports title on a component that renders it as the native attribute",
+    `const el = <Link to="/plan" title="When your posts go out">Plan</Link>;`,
+    (output) => {
+      assert.match(output, /native title attribute/);
+    },
+  );
+
+  forwarding.valid(
+    "still allows title on other components",
+    `const el = <SettingsRow title="Word wrap" />;`,
+  );
+});

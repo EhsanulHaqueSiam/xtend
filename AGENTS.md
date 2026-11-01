@@ -40,6 +40,8 @@ Xtend is a desktop-first X (Twitter) growth suite: one app whose sidebar holds b
 
 ## Ways to hurt yourself
 
+[CONTRIBUTING.md](CONTRIBUTING.md) is the order a change goes through: set up, establish the problem, change, prove, commit, release. These are the rules along the way.
+
 1. **Killing by pattern.** Never `pkill -f`, `pgrep | kill`, or `kill` a PID found by matching a name, path or worktree string: your own agent process has the worktree path in its argv, and this machine runs other checkouts' dev desktops and services. Kill only a PID you captured at spawn, or the owner of your port after checking its cwd is your checkout.
 2. **Touching the live install.** `~/.xtend` and the installed app's Electron profile (its `x-session` partition holds the user's X cookies) are in use while you work. Reading and copying from them is fine. Never start a service against them, open them read-write, or clean them up. Two services on one database both run the scheduler and post the same drafts.
 3. **Writing to X.** A dev desktop is the user's real account. Never press like, reply, repost, follow, vote, post or a menu row from a script; only the user's click does that. The engine bench presses nothing but one bookmark it removes again.
@@ -86,7 +88,7 @@ An empty database is a bad test, and live state is never one. `pnpm dev` seeds a
 
 - Title: a conventional commit in plain words, `fix(web): new threads no longer spike CPU`. One problem per PR.
 - Body (`.github/pull_request_template.md`): the problem in a sentence or two, then the fix, then what you ran and saw. UI changes carry before/after captures; motion or timing a short recording. Upload evidence to GitHub; never commit PR-only assets (CI rejects `.github/pr-assets/`).
-- `Check` is the one required CI job. Babysitting a PR: verify each bot finding against the source, fix real ones, dismiss false positives with a written reason, stay quiet when nothing is new.
+- CI's `Check` job passes only when every job it sums up passed. Babysitting a PR: verify each bot finding against the source, fix real ones, dismiss false positives with a written reason, stay quiet when nothing is new.
 
 ## X parity references (Mobbin MCP)
 

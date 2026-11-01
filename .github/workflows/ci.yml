@@ -144,7 +144,7 @@ jobs:
       - run: pnpm test
       - run: pnpm test:e2e
 
-  # The one required check. A skipped job reports success to branch protection, so this passes
+  # The one check that sums up the run. A skipped job reports success, so this passes
   # only when every job passed or was skipped because `changes` said its gate was not needed, and
   # a cancelled run still fails. Add every new job to `needs`.
   check:

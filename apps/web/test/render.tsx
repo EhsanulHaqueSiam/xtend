@@ -132,7 +132,6 @@ export async function render(
   return screen;
 }
 
-/** Picks `option` in a `ui/select.tsx` Select: opens its list, then clicks the option by name. */
 /** Fake timers for one test: `using _timers = fakeTimers()`. Fakes every clock by default. */
 export function fakeTimers(config?: Parameters<typeof vi.useFakeTimers>[0]): Disposable {
   vi.useFakeTimers(config);
@@ -156,6 +155,7 @@ export function stubGlobal(name: string, value: unknown): Disposable {
   };
 }
 
+/** Picks `option` in a `ui/select.tsx` Select: opens its list, then clicks the option by name. */
 export async function choose(trigger: Locator, option: string) {
   await userEvent.click(trigger);
   await userEvent.click(page.getByRole("option", { name: option, exact: true }));

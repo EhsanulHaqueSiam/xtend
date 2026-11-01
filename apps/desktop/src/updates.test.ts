@@ -5,7 +5,7 @@ import * as NodePath from "node:path";
 import { expect, it, vi } from "vite-plus/test";
 
 import type { UpdateState } from "./ipc/channels.ts";
-import { startUpdates, type Updater } from "./updates.ts";
+import { devUpdateFeed, startUpdates, type Updater } from "./updates.ts";
 
 /**
  * electron-updater's surface, driven by hand: `emit` plays its events, and with `hold` the next
@@ -132,4 +132,13 @@ it("never readies a nightly that was downloading when the user switched to stabl
   await vi.waitFor(() => expect(run.checks()).toBe(4));
   expect(run.updater.channel).toBe("latest");
   run.updates.stop();
+});
+
+it("takes a dev update feed only from a loopback http URL", () => {
+  expect(devUpdateFeed("http://127.0.0.1:3000")).toBe("http://127.0.0.1:3000/");
+  expect(devUpdateFeed("http://localhost:3000/feed")).toBe("http://localhost:3000/feed");
+  expect(devUpdateFeed("https://example.com/feed")).toBeNull();
+  expect(devUpdateFeed("http://192.168.1.2:3000")).toBeNull();
+  expect(devUpdateFeed("not a url")).toBeNull();
+  expect(devUpdateFeed(undefined)).toBeNull();
 });

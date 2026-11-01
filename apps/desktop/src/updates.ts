@@ -41,6 +41,18 @@ export interface Updater {
   on(event: "error", cb: (error: Error) => void): void;
 }
 
+/**
+ * Dev only: `XTEND_UPDATE_FEED=http://127.0.0.1:<port>` (scripts/mock-update-server.ts) points an
+ * unpackaged build at a local feed, so the update states show without publishing. Loopback only.
+ */
+export const devUpdateFeed = (value: string | undefined): string | null => {
+  if (value === undefined || !URL.canParse(value)) return null;
+  const url = new URL(value);
+  return url.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)
+    ? url.href
+    : null;
+};
+
 const HOUR_MS = 60 * 60 * 1000;
 
 /**

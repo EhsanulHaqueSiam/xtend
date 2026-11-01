@@ -1,0 +1,4 @@
+interface:
+  display_name: "Xtend App Testing"
+  short_description: "Seeded dev, fixtures and X replay in T3's Browser panel"
+  default_prompt: "Use $test-xtend-app to verify the affected Xtend flow on seeded dev data, a fixture or the engine bench."
