@@ -2,6 +2,7 @@ import { expect, it } from "vite-plus/test";
 
 import {
   markXReady,
+  xAct,
   registerXWebview,
   xActInPlace,
   xFollow,
@@ -25,7 +26,7 @@ const X_PAGE = `
   <article id="edited"><a href="/theo/status/42/history"><time></time></a>
     <button data-testid="bookmark"></button></article>`;
 
-it("presses X's button on the post's own article, edited or not, never on a post quoting it", async () => {
+it("presses X's button on the post's own article, edited or not, never on a post quoting it, and once only", async () => {
   document.body.innerHTML = X_PAGE;
   const pressed: Array<string> = [];
   // X turns a pressed button over to its undo.
@@ -45,6 +46,13 @@ it("presses X's button on the post's own article, edited or not, never on a post
 
   expect(await xActInPlace("42", "bookmark")).toBe(true);
   expect(pressed).toEqual(["edited"]);
+
+  // X refuses: the press says so, and nothing presses again on the post's page, which could undo it.
+  document.body.innerHTML = `<article><a href="/theo/status/43"><time></time></a><button data-testid="bookmark"></button></article>`;
+  let presses = 0;
+  document.querySelector("button")!.addEventListener("click", () => presses++);
+  expect(await xAct({ postId: "43", handle: "theo" }, "bookmark")).toBe(false);
+  expect(presses).toBe(1);
 });
 
 /** Runs the engine's scripts in this document, as X's page at `url` would. */

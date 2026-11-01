@@ -171,15 +171,14 @@ const BUTTONS = {
 export type XAction = keyof typeof BUTTONS;
 
 /**
- * A script for X's page: presses the button `testid` inside `scope` (an expression evaluating to
- * an element or null), presses X's confirm when it asks, then waits for the button to turn into
- * `turns`. X turns it at once and saves a moment later; leaving the page before then would cancel
- * the save, so it also gives the request time to go out. Resolves to whether X took it.
+ * A script for X's page: presses `testid` in `scope` (an element or null), X's `confirm` if asked,
+ * waits for it to turn into `turns`, and gives X's save time to go out. Whether X took it; null when
+ * there was no button, the only case where a caller may press elsewhere without undoing a press.
  */
 const pressScript = (scope: string, testid: string, turns: string, confirm: string | undefined) => `
     const scope = ${scope};
     const button = scope?.querySelector('[data-testid="${testid}"]');
-    if (!button) return false;
+    if (!button) return null;
     button.click();
     if (${JSON.stringify(confirm ?? null)} !== null) {
       let confirm = null;
@@ -201,16 +200,17 @@ const pressScript = (scope: string, testid: string, turns: string, confirm: stri
 
 /**
  * Presses X's own button for the user's click, on the engine page where the post already sits,
- * so the engine never leaves the list it feeds. False when the post is not on that page.
+ * so the engine never leaves the list it feeds. Whether X took it; null when the post is not on
+ * that page and nothing was pressed.
  */
-export const xActInPlace = (postId: string, action: XAction): Promise<boolean> => {
+export const xActInPlace = (postId: string, action: XAction): Promise<boolean | null> => {
   // The id goes into a script: digits only.
-  if (!/^\d{1,25}$/.test(postId)) return Promise.resolve(false);
+  if (!/^\d{1,25}$/.test(postId)) return Promise.resolve(null);
   const { turns, confirm }: { readonly turns: string; readonly confirm?: string } = BUTTONS[action];
   return xRun(`(async () => {
     ${findArticle(postId)}
     ${pressScript("article", action, turns, confirm)}
-  })()`).then((done) => done === true);
+  })()`).then((done) => (typeof done === "boolean" ? done : null));
 };
 
 /**
@@ -682,7 +682,9 @@ export const xFollow = async (
       follow ? undefined : "confirmationSheetConfirm",
     )}
   })()`;
-  if ((await xRun(script(10))) === true) return true;
+  // Only when nothing was pressed here: pressing again where X refused could undo it.
+  const here = await xRun(script(10));
+  if (typeof here === "boolean") return here;
   const moved = await xGo(`https://x.com/${user.handle}`);
   const done = (await xRun(script(100))) === true;
   if (moved)
@@ -703,9 +705,11 @@ export const xAct = async (
 ): Promise<boolean> => {
   // Both go into scripts run in X's page: digits and a handle only.
   if (!/^\d{1,25}$/.test(post.postId) || !/^[A-Za-z0-9_]{1,15}$/.test(post.handle)) return false;
-  if (await xActInPlace(post.postId, action)) return true;
+  // Only when nothing was pressed here: pressing again where X refused could undo it.
+  const here = await xActInPlace(post.postId, action);
+  if (here !== null) return here;
   const moved = await xGo(`https://x.com/${post.handle}/status/${post.postId}`);
-  const done = await xActInPlace(post.postId, action);
+  const done = (await xActInPlace(post.postId, action)) === true;
   // Back only from a page this step opened, and only while the engine is still on it: the user
   // may have been there already, or moved it on meanwhile.
   if (moved)
