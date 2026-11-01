@@ -14,9 +14,13 @@ import { Route } from "../../routes/explore";
 
 vi.mock("../shell/HomeCompanion", () => ({ DayGlance: () => null }));
 
-it.each([false, true])(
+it.each([
+  { enabled: false, current: true },
+  { enabled: true, current: true },
+  { enabled: true, current: false },
+])(
   "reads X's trend menu and respects session actions (%s), including hiding and Undo",
-  async (enabled) => {
+  async ({ enabled, current }) => {
     const search = vi.spyOn(Route, "useSearch").mockReturnValue({ tab: "news" });
     const bridge = installFakeBridge();
     const labels = ["Not interested in this", "This trend is spam"] as const;
@@ -30,7 +34,7 @@ it.each([false, true])(
           code.includes("const labels")
             ? labels
             : code.includes("item.click()")
-              ? { kind: "done", toast: "Thanks", undo: true, gone: true }
+              ? { kind: "done", toast: "Thanks", undo: true, gone: true, current }
               : true,
         );
       },
@@ -95,6 +99,11 @@ it.each([false, true])(
           .element(screen.getByRole("status"))
           .toHaveTextContent("Session actions are off in Settings, X session.");
         expect(scripts.some((s) => s.includes("item.click()"))).toBe(false);
+        await expect.element(screen.getByText("A news story", { exact: true })).toBeVisible();
+        return;
+      }
+      if (!current) {
+        await expect.element(screen.getByRole("status")).toHaveTextContent("ThanksUndo");
         await expect.element(screen.getByText("A news story", { exact: true })).toBeVisible();
         return;
       }

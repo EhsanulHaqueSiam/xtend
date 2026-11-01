@@ -68,7 +68,8 @@ function TrendRow({
     void pressRow(
       async () => {
         const outcome = await xTrendMenuPress(trend.name, label, setOver);
-        if (outcome?.kind === "done" && (outcome.toast !== null || outcome.gone)) hide(true);
+        if (outcome?.kind === "done" && outcome.current && (outcome.toast !== null || outcome.gone))
+          hide(true);
         return outcome;
       },
       () => hide(false),

@@ -194,6 +194,7 @@ it("presses only the row asked for: X's toast comes back, X's dialog keeps the e
     toast: "You muted @theo",
     undo: true,
     gone: false,
+    current: true,
   });
   const shown: Array<boolean> = [];
   const outcome = await xPostMenuPress(post42, "Block @theo", (on) => {
@@ -487,7 +488,13 @@ it("finds a trend by its exact name, reads only its menu, and presses only the r
     expect(shown).toEqual([true, false]);
     const pressing = xTrendMenuPress('A "quoted" trend', "Not interested in this", () => {});
     await vi.runAllTimersAsync();
-    expect(await pressing).toEqual({ kind: "done", toast: "Thanks", undo: true, gone: true });
+    expect(await pressing).toEqual({
+      kind: "done",
+      toast: "Thanks",
+      undo: true,
+      gone: true,
+      current: true,
+    });
     expect(pressed).toEqual(["not interested"]);
 
     const cancelled = xTrendMenuPress('A "quoted" trend', "This trend is spam", () => {});
@@ -500,3 +507,73 @@ it("finds a trend by its exact name, reads only its menu, and presses only the r
     registerXWebview(null);
   }
 });
+
+it("keeps X's toast and Undo when a post menu press is cancelled after X's row was clicked", async () => {
+  using _clock = fakeTimers();
+  withMenu({
+    "Mute @theo": () => {
+      document.body.insertAdjacentHTML(
+        "beforeend",
+        '<div data-testid="toast">Muted<button>Undo</button></div>',
+      );
+      xOverEnded();
+    },
+  });
+  const pressing = xPostMenuPress(post42, "Mute @theo", () => {});
+  await vi.runAllTimersAsync();
+  expect(await pressing).toMatchObject({
+    kind: "done",
+    toast: "Muted",
+    undo: true,
+    current: false,
+  });
+});
+
+it.each([false, true])(
+  "keeps a clicked trend's outcome when another menu is read or its tab is left (%s)",
+  async (leave) => {
+    using _clock = fakeTimers();
+    const path = location.pathname + location.search;
+    history.replaceState(null, "", "/explore/tabs/news");
+    let reading: Promise<ReadonlyArray<string> | null> | undefined;
+    withMenu({
+      "Not interested in this": () => {
+        document.body.insertAdjacentHTML(
+          "beforeend",
+          '<div data-testid="toast">Thanks<button>Undo</button></div>',
+        );
+        if (leave) xOverEnded();
+        else reading = xTrendMenu("Trend B");
+      },
+    });
+    const article = document.querySelector("article")!;
+    article.dataset.testid = "trend";
+    article.insertAdjacentHTML(
+      "afterbegin",
+      '<div style="font-weight:700"><span>Trend A</span></div>',
+    );
+    const b = article.cloneNode(true) as HTMLElement;
+    b.querySelector("span")!.textContent = "Trend B";
+    b.querySelector("button")!.addEventListener("click", () => {
+      document.body.insertAdjacentHTML(
+        "beforeend",
+        '<div role="menu"><div data-testid="Dropdown"><div role="menuitem">B feedback</div></div></div>',
+      );
+    });
+    article.after(b);
+    try {
+      const pressing = xTrendMenuPress("Trend A", "Not interested in this", () => {});
+      await vi.runAllTimersAsync();
+      expect(await pressing).toMatchObject({
+        kind: "done",
+        toast: "Thanks",
+        undo: true,
+        current: !leave,
+      });
+      if (!leave) expect(await reading).toEqual(["B feedback"]);
+    } finally {
+      history.replaceState(null, "", path);
+      registerXWebview(null);
+    }
+  },
+);

@@ -328,6 +328,7 @@ export type XMenuOutcome =
       readonly toast: string | null;
       readonly undo: boolean;
       readonly gone: boolean;
+      readonly current: boolean;
     }
   /** X opened its own dialog or page (Report, Block, Delete, Send via Chat) at `path`'s page. */
   | { readonly kind: "over"; readonly path: string };
@@ -349,11 +350,11 @@ const xMenuInPlace = (at: MenuAt, run?: number) => {
 };
 
 /** X's feedback after a menu press or its dialog finishes. */
-const menuDone = (at: MenuAt) => `
+const menuDone = (at: MenuAt, current = "true") => `
     const toast = document.querySelector('[data-testid="toast"]');
     const actions = [...(toast?.querySelectorAll('button, a, [role="button"]') ?? [])];
     const text = actions.reduce((t, a) => t.replace(a.textContent, ""), toast?.textContent ?? "").trim();
-    return { kind: "done", toast: text || null, undo: actions.some((a) => a.textContent.trim() === "Undo"), gone: !(${at.present ?? `${at.root}?.isConnected`}) };`;
+    return { kind: "done", toast: text || null, undo: actions.some((a) => a.textContent.trim() === "Undo"), gone: !(${at.present ?? `${at.root}?.isConnected`}), current: ${current} };`;
 
 /** Presses row `label` of X's menu `at` on the engine page. Null when it is not there. */
 const xMenuPressInPlace = (at: MenuAt, label: string, run: number) =>
@@ -364,11 +365,10 @@ const xMenuPressInPlace = (at: MenuAt, label: string, run: number) =>
     const path = location.pathname + location.search;
     item.click();
     await new Promise((r) => setTimeout(r, 800));
-    if (!${stillMine(run)}) return null;
     // A confirm sheet (Block, Mute this conversation, Delete) or a page (Report, post activity).
-    if (location.pathname + location.search !== path || document.querySelector('[role="dialog"], [role="alertdialog"]'))
+    if (${stillMine(run)} && (location.pathname + location.search !== path || document.querySelector('[role="dialog"], [role="alertdialog"]')))
       return { kind: "over", path };
-    ${menuDone(at)}
+    ${menuDone(at, stillMine(run))}
   })()`).then((outcome) => (outcome === null ? null : (outcome as XMenuOutcome)));
 
 /**
@@ -629,8 +629,7 @@ export const xCommunityJoin = async (
 
 /** X's own rows of a trend's "...", read from X's menu on the Explore tab the engine shows. */
 export const xTrendMenu = async (name: string) => {
-  const run = await nextRun();
-  const rows = await onPage(null, () => xMenuInPlace(trendMenuAt(name), run));
+  const rows = await onPage(null, () => xMenuInPlace(trendMenuAt(name)));
   return rows?.length ? rows : null;
 };
 
@@ -647,8 +646,7 @@ export const xTrendMenuPress = async (
   if (outcome?.kind !== "over" || run !== overRun) return outcome;
   return xRun(`(async () => {
     ${at.find}
-    if (!${stillMine(run)}) return null;
-    ${menuDone(at)}
+    ${menuDone(at, stillMine(run))}
   })()`).then((done) => (done === null ? null : (done as XMenuOutcome)));
 };
 
