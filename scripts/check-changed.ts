@@ -122,6 +122,9 @@ export function planSteps(input: {
       { weight: workers },
     );
   }
+  // Root scripts belong to no package, and they import from several, so any of those changes too.
+  if (affected.length > 0 || changed.some((f) => f.startsWith("scripts/")))
+    pnpm("typecheck scripts", ["run", "typecheck:scripts"]);
   // .github/scripts tests run under node --test, as in `pnpm test`.
   const githubTests = [...tests].filter((file) => file.startsWith(".github/"));
   if (githubTests.length > 0)

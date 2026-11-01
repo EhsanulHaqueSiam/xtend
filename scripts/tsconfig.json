@@ -1,0 +1,24 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "lib": ["ESNext", "esnext.disposable"],
+    "plugins": [
+      {
+        "name": "@effect/language-service",
+        "diagnosticSeverity": {
+          "nodeBuiltinImport": "off",
+          "globalDate": "off",
+          "globalRandom": "off",
+          "globalTimers": "off",
+          "globalConsole": "off",
+          "globalFetch": "off"
+        }
+      }
+    ],
+    "paths": {
+      "@xtend/contracts": ["../packages/contracts/src/index.ts"]
+    }
+  },
+  "include": ["*.ts"]
+}

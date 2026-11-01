@@ -160,7 +160,8 @@ sharing off, no treg token.
   when a manifest, the lockfile or `patches/` changed. Steps run in parallel within the machine's
   budget (`--concurrency`, `--timeout`); a rerun on identical input prints the last passing summary.
   Pass a ref to compare against something other than the closest remote `main`.
-- `pnpm typecheck` runs tsc-rs across the workspace. Do not use `npx tsc`.
+- `pnpm typecheck` runs tsc-rs across the workspace, then the root `scripts/` (`pnpm typecheck:scripts`,
+  `scripts/tsconfig.json`; they belong to no package). Do not use `npx tsc`.
 - `vp test run <files>` runs focused tests. `pnpm test` also runs the tests under `scripts/`
   with the root config; alone, that is `vp test run --dir scripts`. Anything that renders React or touches the DOM is
   `*.browser.test.{ts,tsx}` and runs in headless Chromium; the first run downloads it with
@@ -218,7 +219,7 @@ Both need `pnpm build` first.
 | ----- | ---------------------------------------------------------------------------------------------------------- |
 | lint  | rejects committed PR evidence (`.github/pr-assets`), then `fmt:check`, `lint`, `knip`                      |
 | build | `typecheck`, `build`, the route tree is current, `verify:bundles`, the desktop smoke test under `xvfb-run` |
-| test  | every package's tests and the e2e journeys, Chromium from `.github/actions/chromium`                       |
+| test  | `typecheck:scripts`, every package's tests and the e2e journeys, Chromium from `.github/actions/chromium`  |
 | Check | passes only when every job above passed or was skipped because its gate said so                            |
 
 A `changes` job first reads the changed paths of a pull request against its base, and

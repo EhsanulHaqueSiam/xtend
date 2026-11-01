@@ -143,6 +143,8 @@ jobs:
 
       # Web and desktop both run *.browser.test.* files in headless Chromium.
       - uses: ./.github/actions/chromium
+      # Root scripts alone skip the build job, whose `pnpm typecheck` covers them otherwise.
+      - run: pnpm typecheck:scripts
       - run: pnpm test
       - run: pnpm test:e2e
 
