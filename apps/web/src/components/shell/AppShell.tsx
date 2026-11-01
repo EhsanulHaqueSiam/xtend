@@ -1,10 +1,9 @@
 import { useAtom, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { type ReactNode, useEffect, useEffectEvent, useRef, useState } from "react";
 
 import { isElectron } from "../../env";
-import { settingsAtom } from "../../state/settings";
+import { ownHandleAtom } from "../../state/settings";
 import {
   holdXPage,
   isXRoute,
@@ -98,10 +97,7 @@ function AppRoutes({ main }: { readonly main: HTMLElement }) {
 function XPanelFollow({ onX }: { readonly onX: boolean }) {
   const pathname = useLocation({ select: (l) => l.pathname });
   const tab = useLocation({ select: (l) => new URLSearchParams(l.searchStr).get("tab") });
-  const handle = AsyncResult.getOrElse(
-    AsyncResult.map(useAtomValue(settingsAtom), (s) => s.handle),
-    () => null,
-  );
+  const handle = useAtomValue(ownHandleAtom);
   const [panelOpen, setPanel] = useAtom(xPanelOpenAtom);
   const url = useAtomValue(xUrlAtom);
   const previous = useRef<string | null | undefined>(undefined);

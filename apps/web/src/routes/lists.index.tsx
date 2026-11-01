@@ -70,8 +70,9 @@ function ListsScreen() {
     [handle],
   );
   // "Load again": a full load of the same page, since X's router does nothing on the page it shows.
+  // With no account named yet (X's first load failed), Home names it, and the screen then opens.
   const reload = () =>
-    void (handle === null ? undefined : xNavigate(`https://x.com/${handle}/lists`));
+    void xNavigate(handle === null ? "https://x.com/home" : `https://x.com/${handle}/lists`);
 
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- moves the engine (the session view) to this screen's X page while it is open.
   useEffect(open, [open]);

@@ -8,7 +8,7 @@ import { installFakeBridge } from "../../../test/fakeBridge";
 import { draft, settings } from "../../../test/fixtures";
 import { fakeTimers, render } from "../../../test/render";
 import { Route as ListsRoute } from "../../routes/lists.index";
-import { markXReady, registerXWebview, type XWebview } from "../../state/x";
+import { markXReady, refreshScreen, registerXWebview, type XWebview } from "../../state/x";
 import { EngineSync } from "./EngineSync";
 import { Poll } from "./PostParts";
 import { ReplyComposer } from "./ReplyComposer";
@@ -401,7 +401,7 @@ it("sorts replies through X's own menu: Relevant, Recent, Likes, the open one ch
   await expect.element(screen.getByRole("button", { name: "Recent" })).toBeVisible();
 });
 
-it("opens X's Lists page of the account X is signed in to, not the one Settings names", async () => {
+it("opens X's Lists page of the account X is signed in to, not the one Settings names, once X names it", async () => {
   const bridge = installFakeBridge();
   const scripts: Array<string> = [];
   registerXWebview({
@@ -412,7 +412,7 @@ it("opens X's Lists page of the account X is signed in to, not the one Settings 
   markXReady();
   try {
     const Lists = ListsRoute.options.component!;
-    await using _screen = await render(
+    await using screen = await render(
       <>
         <EngineSync />
         <Suspense>
@@ -423,6 +423,10 @@ it("opens X's Lists page of the account X is signed in to, not the one Settings 
         service: { "settings.get": () => Effect.succeed({ ...settings, handle: "someone_else" }) },
       },
     );
+    // X's first load named no account: ⌘R loads Home, which names it, then the Lists open.
+    await expect.element(screen.getByText("Loading your Lists from X.")).toBeVisible();
+    refreshScreen();
+    expect(scripts).toEqual(["https://x.com/home"]);
     bridge.emitEngine({
       ...batch("Viewer", []),
       viewer: { userId: "7", handle: "me", name: "Me", avatarUrl: null },

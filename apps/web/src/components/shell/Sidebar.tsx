@@ -35,7 +35,7 @@ import { cn } from "../../lib/utils";
 import { accountsAtom, selectAccountAtom, switchAccount } from "../../state/accounts";
 import { pendingAtom } from "../../state/automate";
 import { inboxItemsAtom } from "../../state/engage";
-import { settingsAtom } from "../../state/settings";
+import { ownHandleAtom, settingsAtom } from "../../state/settings";
 import { useDesktopUpdate } from "../../state/update";
 import {
   connectionAtom,
@@ -301,10 +301,7 @@ function XRows({ compact }: { readonly compact: boolean }) {
   const pathname = useLocation({ select: (l) => l.pathname });
   const url = useAtomValue(xUrlAtom);
   const unread = useAtomValue(xUnreadAtom);
-  const handle = or(
-    AsyncResult.map(useAtomValue(settingsAtom), (s) => s.handle),
-    null,
-  );
+  const handle = useAtomValue(ownHandleAtom);
   let path = "";
   try {
     path = new URL(url).pathname;
