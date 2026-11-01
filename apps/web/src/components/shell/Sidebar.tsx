@@ -53,6 +53,7 @@ import {
   xUnreadAtom,
   xUrlAtom,
 } from "../../state/x";
+import { XtendMark } from "../ui/logo";
 import { Menu, MenuItem } from "../ui/menu";
 import { toastAtom } from "../ui/toast";
 import { DROP_VERBS, linkDragAtom, useDropPost } from "./drops";
@@ -638,9 +639,7 @@ export function Sidebar({ compact = false }: { readonly compact?: boolean }) {
       ) : (
         <div className="drag-region flex h-[52px] shrink-0 items-center justify-between gap-2 pr-1 pl-[calc(var(--desktop-window-controls-inset)+8px)]">
           <span className="flex items-center gap-2 text-sm font-semibold tracking-tight">
-            <span className="grid size-[22px] place-items-center rounded-md bg-sidebar-foreground text-[13px] leading-none font-bold text-sidebar">
-              x
-            </span>
+            <XtendMark className="size-[22px]" />
             {/* Beside macOS's window buttons the name would cut the account handle short. */}
             <span className="[.electron-mac_&]:hidden">Xtend</span>
           </span>
