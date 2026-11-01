@@ -172,21 +172,20 @@ export const xPickHomeTab = (label: string) =>
 /**
  * Picks X's tab `label` (Top, Latest) on Community `communityId`'s search for `query`, once
  * `loaded` (the engine's move to that page) settles and X has drawn it: only while the engine
- * shows that very search and this pick is the user's latest, so a pick still waiting on a slow page
- * never presses the tab of a page the user opened since.
+ * shows that very search, the screen that asked has not let it go (`signal`), and this pick is the
+ * user's latest press, so a pick still waiting on a slow page never presses another page's tab.
  */
 export const xPickCommunitySearchTab = async (
   communityId: string,
   query: string,
   label: string,
-  loaded: Promise<unknown> = Promise.resolve(),
+  loaded: Promise<unknown>,
+  signal: AbortSignal,
 ) => {
   // It goes into a script run in X's page: digits only.
   if (!/^\d{1,25}$/.test(communityId)) return false;
-  // Asked before the page loads: anything the user does meanwhile (another tab, a reload) ends it.
-  const asked = overRun;
   await loaded;
-  if (overRun !== asked) return false;
+  if (signal.aborted) return false;
   const run = await nextRun();
   return (
     (await xRun(`(async () => {

@@ -1235,6 +1235,7 @@ it("keeps what X's Pin says after the press, even once a later press has started
 
 it("picks X's search tab only on the Community search it was asked for, and gives up once the user moved on", async () => {
   using _clock = fakeTimers();
+  const open = () => new AbortController().signal;
   const clicked: Array<string> = [];
   const draw = () => {
     document.body.innerHTML = `<nav><div role="tab" aria-selected="true">Top</div><div role="tab" aria-selected="false">Latest</div></nav>`;
@@ -1247,36 +1248,50 @@ it("picks X's search tab only on the Community search it was asked for, and give
     // Another Community's search, with its own Latest: not this one's.
     history.replaceState(null, "", "/i/communities/12/search?q=ship");
     draw();
-    const other = xPickCommunitySearchTab("11", "ship", "Latest");
+    const other = xPickCommunitySearchTab("11", "ship", "Latest", Promise.resolve(), open());
     await vi.runAllTimersAsync();
     expect([await other, clicked]).toEqual([false, []]);
     // This search is still loading when the user moves on: X's tabs drawn after are not pressed.
     history.replaceState(null, "", "/i/communities/11/search?q=ship");
     document.body.innerHTML = "";
-    const left = xPickCommunitySearchTab("11", "ship", "Latest");
+    const left = xPickCommunitySearchTab("11", "ship", "Latest", Promise.resolve(), open());
     await vi.advanceTimersByTimeAsync(300);
     xOverEnded();
     draw();
     await vi.runAllTimersAsync();
     expect([await left, clicked]).toEqual([false, []]);
     // Asked as X starts loading the page: nothing is pressed before that load settles, and the
-    // user moving on meanwhile (another order, a reload) ends it.
+    // screen letting the page go meanwhile (another order, a reload, leaving) ends it.
     let loaded = () => {};
+    const screen = new AbortController();
     const loading = xPickCommunitySearchTab(
       "11",
       "ship",
       "Latest",
       new Promise<void>((r) => (loaded = r)),
+      screen.signal,
     );
     await vi.runAllTimersAsync();
     expect(clicked).toEqual([]);
-    xOverEnded();
+    screen.abort();
     loaded();
     await vi.runAllTimersAsync();
     expect([await loading, clicked]).toEqual([false, []]);
-    const own = xPickCommunitySearchTab("11", "ship", "Latest");
+    // Another screen's step ending meanwhile (the app shell on start-up) does not end it.
+    document.body.innerHTML = "";
+    let started = () => {};
+    const starting = xPickCommunitySearchTab(
+      "11",
+      "ship",
+      "Latest",
+      new Promise<void>((r) => (started = r)),
+      open(),
+    );
+    xOverEnded();
+    started();
+    draw();
     await vi.runAllTimersAsync();
-    expect([await own, clicked]).toEqual([true, ["Latest"]]);
+    expect([await starting, clicked]).toEqual([true, ["Latest"]]);
   } finally {
     history.replaceState(null, "", start);
   }
