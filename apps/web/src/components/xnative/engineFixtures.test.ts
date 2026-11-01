@@ -165,6 +165,9 @@ it("keeps what the screens need: relations, text shape and entity offsets, and @
   expect(focal!.media[0]).toMatchObject({ kind: "photo", videoUrl: null });
   expect(out!.viewer?.handle).toBe("you");
   expect(focal!.metrics).toEqual(recorded[0]!.posts[0]!.metrics);
+  // A stand-in person's name and handle go together, as a real one's do.
+  for (const { author } of [focal!, reply!])
+    expect(author.handle.startsWith(author.name.split(" ")[0]!.toLowerCase())).toBe(true);
 });
 
 it("draws every native screen from the made-up fixtures, through the store's own merge", () => {

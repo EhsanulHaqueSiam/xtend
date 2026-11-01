@@ -102,15 +102,24 @@ export function scrub(batches: ReadonlyArray<EngineBatch>): ReadonlyArray<Engine
     return fake;
   };
   const text = (real: string) => real.replace(/[\p{L}\p{N}]+/gu, word);
+  // Each person's stand-in number, so their made-up name and handle belong together.
+  const numbers = new Map<string, number>();
+  const numberOf = (real: string) => {
+    const key = real.toLowerCase();
+    let n = numbers.get(key);
+    if (n === undefined) numbers.set(key, (n = numbers.size));
+    return n;
+  };
   const handle = (real: string) => {
     const key = real.toLowerCase();
     let fake = handles.get(key);
-    if (fake === undefined) handles.set(key, (fake = handleFor(handles.size)));
+    if (fake === undefined) handles.set(key, (fake = handleFor(numberOf(real))));
     return fake;
   };
-  const name = (real: string) => {
+  /** A person's made-up name, numbered by their handle so the two go together. */
+  const name = (real: string, ofHandle: string) => {
     let fake = names.get(real);
-    if (fake === undefined) names.set(real, (fake = nameFor(names.size)));
+    if (fake === undefined) names.set(real, (fake = nameFor(numberOf(ofHandle))));
     return fake;
   };
   const viewer = batches.find((b) => b.viewer !== null)?.viewer;
@@ -136,12 +145,14 @@ export function scrub(batches: ReadonlyArray<EngineBatch>): ReadonlyArray<Engine
       indices: c.indices,
     })),
   });
-  const person = (u: Pick<EngineUser, "userId" | "handle" | "name" | "avatarUrl">) => ({
-    userId: id(u.userId),
-    handle: handle(u.handle),
-    name: name(u.name),
-    avatarUrl: u.avatarUrl === null ? null : placeholder(id(u.userId)),
-  });
+  const person = (u: Pick<EngineUser, "userId" | "handle" | "name" | "avatarUrl">) => {
+    return {
+      userId: id(u.userId),
+      handle: handle(u.handle),
+      name: name(u.name, u.handle),
+      avatarUrl: u.avatarUrl === null ? null : placeholder(id(u.userId)),
+    };
+  };
   // A video's mp4 names the post; replays show its still.
   const media = (m: EngineMedia, seed: string): EngineMedia => ({
     kind: m.kind === "gif" ? "gif" : "photo",
@@ -172,7 +183,7 @@ export function scrub(batches: ReadonlyArray<EngineBatch>): ReadonlyArray<Engine
       author: {
         userId: id(p.author.userId),
         handle: handle(p.author.handle),
-        name: name(p.author.name),
+        name: name(p.author.name, p.author.handle),
         followers: p.author.followers,
         verified: p.author.verified,
         ...(p.author.isProtected === undefined ? {} : { isProtected: p.author.isProtected }),
@@ -286,7 +297,7 @@ export function scrub(batches: ReadonlyArray<EngineBatch>): ReadonlyArray<Engine
   const viewerOf = (v: EngineViewer): EngineViewer => ({
     userId: v.userId === null ? null : id(v.userId),
     handle: handle(v.handle),
-    name: v.name === null ? null : name(v.name),
+    name: v.name === null ? null : name(v.name, v.handle),
     avatarUrl: v.avatarUrl === null ? null : placeholder(v.userId === null ? "you" : id(v.userId)),
   });
   // What a request asked for, in the same disguise as the pages it names.
