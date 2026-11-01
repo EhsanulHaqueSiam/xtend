@@ -46,9 +46,9 @@ class Unconfirmed extends Schema.TaggedError<Unconfirmed>()("Unconfirmed", {
 
 /**
  * Failures after the request went out with no answer saying how it went: a treg timeout or cut
- * connection, an unreadable 200, a desktop that went quiet or failed after typing into the composer.
+ * connection, an unreadable 200, a desktop that went quiet or failed after pressing Post.
  * A refusal, a missing token, the budget, no desktop at all or a desktop that refused before
- * touching x.com mean nothing was posted.
+ * pressing Post mean nothing was posted.
  */
 const mayHavePosted = (e: ComposeError | XApiError | DesktopUnavailableError) =>
   e._tag === "XApiError"

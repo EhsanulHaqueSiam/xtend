@@ -96,6 +96,8 @@ export const isDmPath = (pathname: string): boolean => /^\/(messages|i\/chat)(\/
  */
 export const X_COMPOSER = {
   replyButton: 'button[aria-label="Everyone can reply"]',
+  /** The same button whatever it names: every label X gives it ends so. */
+  anyReplyButton: 'button[aria-label$=" can reply"]',
   replyButtonFor: (label: string) => `button[aria-label="${label}"]`,
   replyPopover: '[data-testid="HoverCard"]:has([role="radiogroup"])',
   replyRow: '[data-testid="HoverCard"] [role="radiogroup"] label',
@@ -105,6 +107,9 @@ export const X_COMPOSER = {
   pollDays: 'select[data-testid="selectPollDays"]',
   pollHours: 'select[data-testid="selectPollHours"]',
   pollMinutes: 'select[data-testid="selectPollMinutes"]',
+  removePoll: '[data-testid="removePollButton"]',
+  /** Unconfirmed: the × on an attached image or video. */
+  removeMedia: '[aria-label="Remove media"]',
 } as const;
 
 /**

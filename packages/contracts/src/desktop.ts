@@ -71,7 +71,7 @@ export const DesktopCommandCompletion = Schema.Struct({
   result: Schema.NullOr(DesktopCommandResult),
   /** Why the desktop could not run the command; set only when `result` is null. */
   error: Schema.NullOr(Schema.String),
-  /** The desktop refused before touching the session view, so nothing went to X and sending it again is safe. */
+  /** The desktop refused before X's own Post or action button, so nothing went to X and sending it again is safe. */
   notAttempted: Schema.optional(Schema.Boolean),
 });
 export type DesktopCommandCompletion = typeof DesktopCommandCompletion.Type;

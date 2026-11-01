@@ -13,6 +13,7 @@ const COMPOSER = `
 <div id="react-root">
   <div data-testid="tweetTextarea_0" contenteditable="true" role="textbox" style="width:200px;height:24px"></div>
   <div data-x="poll"></div>
+  <div data-x="media"></div>
   <button role="button" aria-label="Everyone can reply"><span>Everyone can reply</span></button>
   <div data-testid="toolBar">
     <input data-testid="fileInput" type="file" />
@@ -34,20 +35,30 @@ const X_REPLY_LABELS: Record<string, string> = {
 const select = (testid: string, max: number, selected: number) =>
   `<select data-testid="${testid}">${Array.from({ length: max + 1 }, (_, n) => `<option value="${n}"${n === selected ? " selected" : ""}>${n}</option>`).join("")}</select>`;
 
+interface FakeOptions {
+  /** The reply popover ignores presses outside it. */
+  readonly sticky?: boolean;
+  /** A label X might change to, for every row but Everyone. */
+  readonly relabel?: string;
+  /** The poll editor X draws: no + for a third choice, or no Remove poll. */
+  readonly noAddChoice?: boolean;
+  readonly noRemovePoll?: boolean;
+  /** Post stays disabled, as while an upload never finishes. */
+  readonly postDisabled?: boolean;
+}
+
 /**
  * X's composer as the driver meets it. The reply button opens a HoverCard in #layers holding a
  * radiogroup of labels; a pick relabels the button and leaves the popover open until a press
- * outside it. `sticky` keeps it open anyway; `relabel` is a label X might change to.
+ * outside it. Attachments carry X's remove button.
  */
-function fakeX(
-  markup: string,
-  log: Array<string>,
-  { sticky = false, relabel }: { sticky?: boolean; relabel?: string } = {},
-) {
+function fakeX(markup: string, log: Array<string>, options: FakeOptions = {}) {
   document.body.innerHTML = markup;
   const reply = document.querySelector<HTMLElement>('button[aria-label$="can reply"]');
   const layers = document.getElementById("layers");
   const pollBox = document.querySelector<HTMLElement>('[data-x="poll"]');
+  if (options.postDisabled === true)
+    document.querySelector('[data-testid="tweetButton"]')?.setAttribute("aria-disabled", "true");
   let choices = 0;
   const addChoice = () => {
     choices++;
@@ -62,7 +73,7 @@ function fakeX(
     const target = event.target as HTMLElement;
     const popover = layers?.querySelector('[data-testid="HoverCard"]') ?? null;
     const row = target.closest<HTMLElement>('[role="radiogroup"] label');
-    if (popover !== null && !popover.contains(target) && !sticky) popover.remove();
+    if (popover !== null && !popover.contains(target) && options.sticky !== true) popover.remove();
     if (target.closest("button") === reply && reply !== null && popover === null) {
       const current = reply.getAttribute("aria-label");
       layers?.insertAdjacentHTML(
@@ -75,14 +86,20 @@ function fakeX(
           .join("")}</div></div>`,
       );
     } else if (row !== null && reply !== null) {
-      const label = relabel ?? X_REPLY_LABELS[row.textContent?.trim() ?? ""] ?? "";
-      reply.setAttribute("aria-label", label);
-      reply.textContent = label;
+      const text = row.textContent?.trim() ?? "";
+      const label = text === "Everyone" ? undefined : options.relabel;
+      reply.setAttribute("aria-label", label ?? X_REPLY_LABELS[text] ?? "");
+      reply.textContent = label ?? X_REPLY_LABELS[text] ?? "";
     } else if (target.dataset.testid === "createPollButton" && pollBox !== null) {
-      pollBox.innerHTML = `<div data-x="choices"></div><button data-testid="addPollChoice" aria-label="Add a choice">+</button>${select("selectPollDays", 7, 1)}${select("selectPollHours", 23, 0)}${select("selectPollMinutes", 59, 0)}<button data-testid="removePollButton">Remove poll</button>`;
+      pollBox.innerHTML = `<div data-x="choices"></div>${options.noAddChoice === true ? "" : '<button data-testid="addPollChoice" aria-label="Add a choice">+</button>'}${select("selectPollDays", 7, 1)}${select("selectPollHours", 23, 0)}${select("selectPollMinutes", 59, 0)}${options.noRemovePoll === true ? "" : '<button data-testid="removePollButton">Remove poll</button>'}`;
       addChoice();
       addChoice();
     } else if (target.dataset.testid === "addPollChoice") addChoice();
+    else if (target.dataset.testid === "removePollButton" && pollBox !== null) {
+      pollBox.innerHTML = "";
+      choices = 0;
+    } else if (target.closest('[aria-label="Remove media"]') !== null)
+      target.closest("[data-x=attachment]")?.remove();
     else if (target.dataset.testid === "tweetButton") {
       if (layers?.querySelector('[data-testid="HoverCard"]') !== null) log.push("popover open");
       log.push(`press Post, ${reply?.getAttribute("aria-label")}`);
@@ -90,9 +107,22 @@ function fakeX(
   });
 }
 
+/** What X's composer holds now: what a refusal must have taken back out. */
+const composer = () => ({
+  text: document.querySelector('[data-testid="tweetTextarea_0"]')?.textContent,
+  reply: document.querySelector('button[aria-label$="can reply"]')?.getAttribute("aria-label"),
+  popover: document.querySelector('[data-testid="HoverCard"]') !== null,
+  poll: document.querySelector("input[name^=Choice]") !== null,
+  media: document.querySelectorAll("[data-x=attachment]").length,
+});
+
+const EMPTY = { text: "", reply: "Everyone can reply", popover: false, poll: false, media: 0 };
+
 /** Chromium's DevTools protocol over this page's DOM: the subset the driver sends. */
 function domCdp(log: Array<string>) {
   const nodes: Array<Element> = [];
+  // What a select-all command selected, for the Backspace after it.
+  let selected: Element | null = null;
   const idOf = (el: Element) => (nodes.includes(el) ? nodes.indexOf(el) : nodes.push(el) - 1);
   const at = (params: Record<string, unknown>) => nodes[Number(params.nodeId ?? params.objectId)]!;
   return async (method: string, params: Record<string, unknown> = {}): Promise<unknown> => {
@@ -141,6 +171,24 @@ function domCdp(log: Array<string>) {
         el.click();
         return {};
       }
+      case "DOM.setFileInputFiles":
+        for (const _ of params.files as Array<string>)
+          document
+            .querySelector("[data-x=media]")
+            ?.insertAdjacentHTML(
+              "beforeend",
+              '<div data-x="attachment"><button aria-label="Remove media">x</button></div>',
+            );
+        return {};
+      case "Input.dispatchKeyEvent": {
+        const el = document.activeElement as HTMLElement;
+        if ((params.commands as Array<string> | undefined)?.includes("selectAll")) selected = el;
+        if (params.type === "rawKeyDown" && params.key === "Backspace" && selected === el) {
+          if (el instanceof HTMLInputElement) el.value = "";
+          else el.textContent = "";
+        }
+        return {};
+      }
       case "Input.insertText": {
         const el = document.activeElement as HTMLElement;
         if (el instanceof HTMLInputElement) el.value += String(params.text);
@@ -160,7 +208,7 @@ const post = (extra: Partial<Extract<DesktopCommand, { type: "sessionPost" }>>) 
 const run = async (
   markup: string,
   command: Extract<DesktopCommand, { type: "sessionPost" }>,
-  options?: Parameters<typeof fakeX>[2],
+  options?: FakeOptions,
 ) => {
   using _timers = fakeTimers({ now: T0 });
   const log: Array<string> = [];
@@ -213,7 +261,7 @@ it('waits for X\'s odd one out, "Only Verified accounts can reply", before Post'
   expect(log).toEqual(["type which?", "press Post, Only Verified accounts can reply"]);
 });
 
-it("refuses the post before Post when a control is missing, X names another setting, or its popover stays open", async () => {
+it("refuses the post untouched when X draws no poll or reply control, and never presses Post", async () => {
   const noPoll = await run(
     COMPOSER.replace(/<button data-testid="createPollButton"[^]*?<\/button>/, ""),
     post({ poll: { options: ["a", "b"], durationMinutes: 60 } }),
@@ -224,13 +272,49 @@ it("refuses the post before Post when a control is missing, X names another sett
   });
   expect(noPoll.log).toEqual([]);
 
+  // Who can reply is set first, so a missing reply control fails before the poll is filled.
   const noReply = await run(
     COMPOSER.replace(/<button role="button" aria-label="Everyone can reply">[^]*?<\/button>/, ""),
-    post({ replySettings: "verified" }),
+    post({ replySettings: "verified", poll: { options: ["a", "b"], durationMinutes: 60 } }),
   );
   expect(noReply.result).toMatchObject({ notAttempted: true });
   expect(noReply.log).toEqual([]);
+  expect(composer().poll).toBe(false);
+});
 
+it("takes back the reply setting and the poll it filled when a later poll control is missing", async () => {
+  const { log, result } = await run(
+    COMPOSER,
+    post({
+      replySettings: "mentionedUsers",
+      poll: { options: ["a", "b", "c"], durationMinutes: 60 },
+    }),
+    { noAddChoice: true },
+  );
+  expect(result).toMatchObject({
+    message: "x.com's composer has no Add a choice; nothing was posted",
+    notAttempted: true,
+  });
+  expect(log).toEqual(["type a", "type b"]);
+  expect(composer()).toEqual({ ...EMPTY, text: "" });
+});
+
+it("takes back the text, media and reply setting when Post never enables", async () => {
+  const { log, result } = await run(
+    COMPOSER,
+    post({ replySettings: "following", mediaPaths: ["/tmp/a.png", "/tmp/b.png"] }),
+    { postDisabled: true },
+  );
+  // Post was never pressed, so the service may say so instead of "may already be on X".
+  expect(result).toMatchObject({
+    message: 'composer element not ready: button[data-testid="tweetButton"]; nothing was posted',
+    notAttempted: true,
+  });
+  expect(log.some((l) => l.startsWith("press Post"))).toBe(false);
+  expect(composer()).toEqual(EMPTY);
+});
+
+it("refuses before Post when X names another setting or its popover stays open, and says what it could not take back", async () => {
   const renamed = await run(COMPOSER, post({ replySettings: "mentionedUsers" }), {
     relabel: "Mentioned accounts can reply",
   });
@@ -239,11 +323,23 @@ it("refuses the post before Post when a control is missing, X names another sett
     notAttempted: true,
   });
   expect(renamed.log).toEqual([]);
+  expect(composer()).toEqual(EMPTY);
 
   const stuck = await run(COMPOSER, post({ replySettings: "following" }), { sticky: true });
   expect(stuck.result).toMatchObject({
-    message: "x.com's reply settings stayed open; nothing was posted",
+    message:
+      "x.com's reply settings stayed open; nothing was posted; X's composer may still hold an open reply popover, the reply setting",
     notAttempted: true,
   });
   expect(stuck.log.some((l) => l.startsWith("press Post"))).toBe(false);
+
+  const keeps = await run(
+    COMPOSER,
+    post({ poll: { options: ["a", "b", "c"], durationMinutes: 60 } }),
+    { noAddChoice: true, noRemovePoll: true },
+  );
+  expect(keeps.result).toMatchObject({
+    message:
+      "x.com's composer has no Add a choice; nothing was posted; X's composer may still hold the poll",
+  });
 });
