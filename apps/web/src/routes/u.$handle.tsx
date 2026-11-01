@@ -1,6 +1,6 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
-import { CalendarDays, Link2, MapPin, MoreHorizontal } from "lucide-react";
+import { BellPlus, BellRing, CalendarDays, Link2, MapPin, MoreHorizontal } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { fmt } from "../components/analyze/ui";
@@ -12,7 +12,16 @@ import { useXPress } from "../components/xnative/useXPress";
 import { Menu, MenuItem } from "../components/ui/menu";
 import { Affiliate, Avatar, Verified } from "../components/xnative/XPostView";
 import { engineAtom, type ProfileTab, profileSurface, userByHandle } from "../state/engine";
-import { xGo, xNavigate, xOverAtom, xProfileMenu, xProfileMenuPress } from "../state/x";
+import {
+  xBell,
+  xBellPress,
+  xGo,
+  xNavigate,
+  xOverAtom,
+  xProfileMenu,
+  xProfileMenuPress,
+  xUrlAtom,
+} from "../state/x";
 
 const TABS = [
   { id: "posts", label: "Posts", path: "" },
@@ -85,6 +94,70 @@ function ProfileMenu({ handle }: { readonly handle: string }) {
   );
 }
 
+/**
+ * X's post-notification bell for someone the user follows: X's own state, read from X's bell once
+ * the engine shows this profile, and X's own bell pressed for the user's click. Draws nothing when
+ * X draws none. `following` changes reread it: X adds or drops the bell with a follow.
+ */
+function ProfileBell({
+  handle,
+  following,
+}: {
+  readonly handle: string;
+  readonly following: boolean;
+}) {
+  const { blocked, setToast } = useXPress();
+  const xUrl = useAtomValue(xUrlAtom);
+  const here = URL.canParse(xUrl)
+    ? new URL(xUrl).pathname.split("/")[1]?.toLowerCase() === handle.toLowerCase()
+    : false;
+  // What X's bell said, for this profile and follow state; another key means not read yet.
+  const key = `${handle.toLowerCase()}:${following}`;
+  const [read, setRead] = useState<{ readonly key: string; readonly on: boolean | null }>();
+  const [busy, setBusy] = useState(false);
+  // X can take a while to draw the header; a read that found it not there yet tries again.
+  const [retry, setRetry] = useState({ key: "", n: 0 });
+  const tries = retry.key === key ? retry.n : 0;
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- reads X's bell off the engine page once it shows this profile; only X's DOM knows it
+  useEffect(() => {
+    if (!here) return;
+    let live = true;
+    let again: ReturnType<typeof setTimeout> | undefined;
+    void xBell(handle).then((on) => {
+      if (!live) return;
+      if (on !== "away") return setRead({ key, on });
+      if (tries < 10) again = setTimeout(() => setRetry({ key, n: tries + 1 }), 2000);
+    });
+    return () => {
+      live = false;
+      clearTimeout(again);
+    };
+  }, [handle, key, here, tries]);
+  const on = read?.key === key ? read.on : null;
+  if (on === null) return null;
+  const press = async () => {
+    const why = blocked();
+    if (why !== null) return setToast({ text: why });
+    setBusy(true);
+    const done = await xBellPress(handle, !on);
+    setBusy(false);
+    if (done) setRead({ key, on: !on });
+    else setToast({ text: "X did not take that. Try again in a moment." });
+  };
+  return (
+    <button
+      type="button"
+      aria-label={on ? "Turn off post notifications" : "Turn on post notifications"}
+      aria-pressed={on}
+      disabled={busy}
+      className="grid size-9 cursor-pointer place-items-center rounded-full border border-white/[0.35] transition-colors duration-150 hover:bg-white/[0.06]"
+      onClick={() => void press()}
+    >
+      {on ? <BellRing className="size-5" /> : <BellPlus className="size-5" />}
+    </button>
+  );
+}
+
 const JOINED = new Intl.DateTimeFormat("en", { month: "long", year: "numeric" });
 
 /**
@@ -116,6 +189,18 @@ function ProfileScreen() {
   // handle, which nothing fills) rather than showing whoever the engine fetched last.
   const userId = user?.userId ?? seen?.author.userId ?? `@${handle.toLowerCase()}`;
   const own = engine.viewer?.handle.toLowerCase() === handle.toLowerCase();
+  // A follow X took before its capture says so: the bell follows it at once.
+  const [followed, setFollowed] = useState<{
+    readonly userId: string;
+    readonly following: boolean;
+  }>();
+  // Once X's capture agrees, X's own state is the truth again, so a later change elsewhere shows.
+  if (
+    followed !== undefined &&
+    user?.userId === followed.userId &&
+    user.youFollow === followed.following
+  )
+    setFollowed(undefined);
   const tabs = own ? TABS : TABS.filter((t) => t.id !== "likes");
   const surface = current.id === "likes" ? "likes" : profileSurface(current.id, userId);
   const name = user?.name ?? seen?.author.name ?? handle;
@@ -157,6 +242,14 @@ function ProfileScreen() {
               </span>
               <div className="flex gap-2 pt-3">
                 {own ? null : <ProfileMenu handle={handle} />}
+                {own || user === undefined ? null : (
+                  <ProfileBell
+                    handle={handle}
+                    following={
+                      followed?.userId === user.userId ? followed.following : user.youFollow
+                    }
+                  />
+                )}
                 <button
                   type="button"
                   className={`${pill} border border-white/[0.35] hover:bg-white/[0.06]`}
@@ -164,7 +257,10 @@ function ProfileScreen() {
                 >
                   Score
                 </button>
-                <FollowButton user={user} />
+                <FollowButton
+                  user={user}
+                  onFollowed={(userId, following) => setFollowed({ userId, following })}
+                />
               </div>
             </div>
             <p className="mt-3 flex items-center gap-1 text-[20px] leading-6 font-extrabold">

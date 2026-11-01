@@ -16,9 +16,12 @@ import { toastAtom } from "../ui/toast";
 export function FollowButton({
   user,
   size = "md",
+  onFollowed,
 }: {
   readonly user: EngineUser | undefined;
   readonly size?: "sm" | "md";
+  /** X took a follow or unfollow; its capture may come later. */
+  readonly onFollowed?: (userId: string, following: boolean) => void;
 }) {
   const settings = AsyncResult.getOrElse(useAtomValue(settingsAtom), () => null);
   const setToast = useAtomSet(toastAtom);
@@ -44,7 +47,7 @@ export function FollowButton({
     setBusy((b) => new Set(b).add(id));
     const ok = await xFollow({ userId: id, handle: user.handle }, target);
     setBusy((b) => new Set([...b].filter((x) => x !== id)));
-    if (ok) return;
+    if (ok) return onFollowed?.(id, target);
     // Take back only this request, and only if nothing newer replaced it.
     setWant((w) => (w.get(id) === target ? without(w, id) : w));
     setToast({ text: "X did not take that. Try again in a moment." });

@@ -66,6 +66,8 @@ type KeyedSurface =
   | `post:${string}`
   | `reposters:${string}`
   | `likers:${string}`
+  | `listMembers:${string}`
+  | `listFollowers:${string}`
   | `profile:${ProfileTab}:${string}`;
 export type AnySurface = Surface | KeyedSurface;
 
@@ -81,6 +83,9 @@ export const postSurface = (postId: string, sort: ReplySort = "Relevance") =>
 /** @public Who reposted and who liked a post, as X's Post activity lists them. */
 export const postPeopleSurface = (kind: "reposters" | "likers", postId: string) =>
   `${kind}:${postId}` as const;
+/** @public A List's members and followers, as X's List members and followers pages list them. */
+export const listPeopleSurface = (kind: "listMembers" | "listFollowers", listId: string) =>
+  `${kind}:${listId}` as const;
 /**
  * The search X's Post activity runs for a post's quotes, as its Quotes tab sends it; the results
  * sit under that search's own surface.
@@ -143,6 +148,12 @@ export function surfacesOf(batch: Pick<EngineBatch, "op" | "key">): ReadonlyArra
   // The signed-in account's likes, under X's History beside Bookmarks.
   if (op === "Likes") return ["likes"];
   if (op === "ListsManagementPageTimeline") return ["lists"];
+  // The capture keys every List call `list:<id>`.
+  const listId = tabKey(key, "list")?.slice("list:".length);
+  if (listId !== undefined && op === "ListMembers")
+    return [listPeopleSurface("listMembers", listId)];
+  if (listId !== undefined && op === "ListSubscribers")
+    return [listPeopleSurface("listFollowers", listId)];
   const keyed =
     op === "CommunityTweetsTimeline"
       ? tabKey(key, "community")
