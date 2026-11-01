@@ -54,6 +54,9 @@ describe("triage", () => {
         `${JSON.stringify(span)}\n`,
       );
 
+      // A folder an earlier build made world-readable is tightened too.
+      yield* fs.makeDirectory(`${baseDir}/triage`, { mode: 0o755 });
+      yield* fs.chmod(`${baseDir}/triage`, 0o755);
       const prepared = yield* Effect.flatMap(Triage.Triage, (t) => t.prepare("cli")).pipe(
         Effect.provide(
           Triage.layer.pipe(
@@ -69,6 +72,17 @@ describe("triage", () => {
       for (const secret of [JWT, "cookieauth999", "my private draft"])
         expect(context).not.toContain(secret);
       expect(yield* fs.readFileString(prepared.playbookFile)).toBe(PLAYBOOK);
+      const modes = yield* Effect.forEach(
+        [
+          `${baseDir}/triage`,
+          `${baseDir}/triage/source`,
+          prepared.dir,
+          prepared.contextFile,
+          prepared.playbookFile,
+        ],
+        (p) => Effect.map(fs.stat(p), (info) => info.mode & 0o777),
+      );
+      expect(modes).toEqual([0o700, 0o700, 0o700, 0o600, 0o600]);
       expect(prepared.dir).toBe(`${baseDir}/triage/2026-11-01T12-00-00.000Z`);
       expect(prepared.start.claude).toBe(
         `cd '${prepared.dir}' && claude '${Triage.LAUNCH_PROMPT}'`,
