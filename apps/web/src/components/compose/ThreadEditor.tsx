@@ -34,12 +34,15 @@ const move = <A,>(list: ReadonlyArray<A>, from: number, to: number) => {
   return next;
 };
 
-/** X's reply menu, in X's order and words. */
+/**
+ * X's reply rows, in X's order and words. X's "Accounts you follow and who they follow" is left
+ * out: neither ReplySettings nor X's API has a value for it.
+ */
 export const REPLY_OPTIONS: ReadonlyArray<readonly [ReplySettings, string]> = [
   ["everyone", "Everyone"],
   ["following", "Accounts you follow"],
-  ["verified", "Verified accounts"],
   ["mentionedUsers", "Only accounts you mention"],
+  ["verified", "Verified accounts"],
 ];
 
 const fileName = (path: string) => path.split("/").pop() ?? path;

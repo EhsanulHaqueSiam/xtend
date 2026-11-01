@@ -50,7 +50,7 @@ const setup = () => {
   return { log, creates, service };
 };
 
-it("posts a poll that only accounts you follow can answer, with a mention picked by keyboard", async () => {
+it("posts a poll only verified accounts can answer, with a mention picked by keyboard", async () => {
   const { log, creates, service } = setup();
   await using screen = await render(
     <>
@@ -99,10 +99,16 @@ it("posts a poll that only accounts you follow can answer, with a mention picked
   await userEvent.click(screen.getByRole("button", { name: "Add a choice" }));
   await userEvent.click(screen.getByRole("button", { name: "Remove choice 3" }));
 
+  // As on X: a radio group in a popover, which stays open after the pick.
   await userEvent.click(screen.getByRole("button", { name: "Everyone can reply" }));
-  await userEvent.click(page.getByRole("menuitem", { name: "Accounts you follow" }));
+  const rows = page.getByRole("radiogroup", { name: "Who can reply?" });
+  await expect.element(rows.getByRole("radio", { name: "Everyone" })).toBeChecked();
+  await userEvent.click(rows.getByRole("radio", { name: "Verified accounts" }));
+  await expect.element(rows.getByRole("radio", { name: "Verified accounts" })).toBeChecked();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(rows).not.toBeInTheDocument();
   await expect
-    .element(screen.getByRole("button", { name: "Accounts you follow can reply" }))
+    .element(screen.getByRole("button", { name: "Only Verified accounts can reply" }))
     .toBeVisible();
 
   await userEvent.click(screen.getByRole("button", { name: "Post", exact: true }));
@@ -111,7 +117,7 @@ it("posts a poll that only accounts you follow can answer, with a mention picked
     {
       blocks: [{ text: "Which @thalia ?" }],
       quoteUrl: null,
-      replySettings: "following",
+      replySettings: "verified",
       poll: { options: ["tea", "coffee"], durationMinutes: 1440 },
     },
   ]);

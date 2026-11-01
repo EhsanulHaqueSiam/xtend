@@ -90,31 +90,33 @@ export function viewerFromNav(
 export const isDmPath = (pathname: string): boolean => /^\/(messages|i\/chat)(\/|$)/.test(pathname);
 
 /**
- * X's composer controls the desktop presses for a post the user clicked (DesktopCommands). Read
- * live from x.com/compose/post on 2026-11-02: the reply button's "Everyone can reply" and
- * `createPollButton`. The rest is unconfirmed until checked live: the reply menu's rows, the
- * reply button's label after a pick, the poll's choice inputs, its add button and its selects.
+ * X's composer controls the desktop presses for a post the user clicked (DesktopCommands), as
+ * read live on x.com/compose/post on 2026-11-02. Who can reply is no menu: the button opens a
+ * HoverCard in #layers whose radiogroup holds one <label> per row, matched by its text.
  */
 export const X_COMPOSER = {
-  replyButton: '[aria-label="Everyone can reply"]',
-  /** Unconfirmed: the button X shows once the row took. */
-  replyButtonFor: (row: string) => `[aria-label="${row} can reply"]`,
-  /** Unconfirmed: X's dropdown rows carry no test id, so the driver matches their text. */
-  menuRow: '[role="menuitem"]',
+  replyButton: 'button[aria-label="Everyone can reply"]',
+  replyButtonFor: (label: string) => `button[aria-label="${label}"]`,
+  replyPopover: '[data-testid="HoverCard"]:has([role="radiogroup"])',
+  replyRow: '[data-testid="HoverCard"] [role="radiogroup"] label',
   addPoll: '[data-testid="createPollButton"]',
-  /** Unconfirmed: X names the inputs behind its "Choice 1", "Choice 2" labels. */
   choice: (n: number) => `input[name="Choice${n}"]`,
-  /** Unconfirmed: the + beside the last choice. */
-  addChoice: '[aria-label="Add a choice"]',
-  /** Unconfirmed: "Poll length" as Days, Hours and Minutes selects. */
+  addChoice: '[data-testid="addPollChoice"]',
   pollDays: 'select[data-testid="selectPollDays"]',
   pollHours: 'select[data-testid="selectPollHours"]',
   pollMinutes: 'select[data-testid="selectPollMinutes"]',
 } as const;
 
-/** X's reply menu rows, by the setting each one picks; "Everyone" is X's default and never pressed. */
+/**
+ * X's reply row for each setting and the label its button takes once picked. X's "Accounts you
+ * follow and who they follow" has no ReplySettings value (nor one in X's API), so it is never
+ * picked; "Everyone" is X's default and never pressed.
+ */
 export const X_REPLY_ROWS = {
-  following: "Accounts you follow",
-  verified: "Verified accounts",
-  mentionedUsers: "Only accounts you mention",
+  following: { row: "Accounts you follow", label: "Accounts you follow can reply" },
+  mentionedUsers: {
+    row: "Only accounts you mention",
+    label: "Only accounts you mention can reply",
+  },
+  verified: { row: "Verified accounts", label: "Only Verified accounts can reply" },
 } as const;

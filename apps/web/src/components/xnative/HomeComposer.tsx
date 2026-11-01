@@ -15,7 +15,6 @@ import {
   AtSign,
   BadgeCheck,
   CalendarClock,
-  Check,
   Earth,
   Image,
   ListChecks,
@@ -35,7 +34,7 @@ import { settingsAtom, useSessionLane } from "../../state/settings";
 import { failText } from "../compose/AssistPanel";
 import { NEW_POLL, PollEditor } from "../compose/PollEditor";
 import { REPLY_OPTIONS } from "../compose/ThreadEditor";
-import { Menu, MenuItem } from "../ui/menu";
+import { Popover } from "../ui/popover";
 import { toastAtom } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { mentionAt, mentionMatches } from "./mentions";
@@ -130,7 +129,11 @@ const REPLY_ICONS = {
   verified: BadgeCheck,
   mentionedUsers: AtSign,
 };
-const replyLabel = (value: ReplySettings) => REPLY_OPTIONS.find(([v]) => v === value)?.[1] ?? "";
+// X's button names the setting; verified is the odd one out ("Only Verified accounts can reply").
+const replyButtonLabel = (value: ReplySettings) =>
+  value === "verified"
+    ? "Only Verified accounts can reply"
+    : `${REPLY_OPTIONS.find(([v]) => v === value)?.[1] ?? ""} can reply`;
 // macOS and Windows have an emoji picker Electron can open; Linux and the browser have none.
 const emojiPanel =
   isElectron &&
@@ -192,6 +195,7 @@ export function HomeComposer() {
   const [poll, setPoll] = useState<DraftPoll | null>(null);
   const [reply, setReply] = useState<ReplySettings>("everyone");
   const [opened, setOpened] = useState(false);
+  const [replyOpen, setReplyOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [caret, setCaret] = useState(0);
   const [pick, setPick] = useState(0);
@@ -393,35 +397,51 @@ export function HomeComposer() {
         )}
         {opened ? (
           <div className="border-b border-border pb-3">
-            <Menu
-              label="Who can reply?"
+            <Popover
+              open={replyOpen}
+              onOpenChange={setReplyOpen}
+              align="start"
+              className="w-80 p-0 py-3"
               trigger={
                 <button
                   type="button"
+                  aria-label={replyButtonLabel(reply)}
                   className="-ml-3 flex cursor-pointer items-center gap-1 rounded-full px-3 py-0.5 text-[14px] font-bold text-[#1d9bf0] hover:bg-[#1d9bf0]/10"
                 >
                   <ReplyIcon className="size-4" />
-                  {replyLabel(reply)} can reply
+                  {replyButtonLabel(reply)}
                 </button>
               }
             >
-              <div className="px-2 pt-1.5 pb-2">
-                <p className="text-[15px] font-bold text-foreground">Who can reply?</p>
-                <p className="text-[13px] text-muted-foreground">
-                  Choose who can reply to this post. Anyone mentioned can always reply.
-                </p>
+              <p className="px-4 text-[15px] font-bold">Who can reply?</p>
+              <p className="px-4 pb-2 text-[13px] text-muted-foreground">
+                Choose who can reply to this post. Anyone mentioned can always reply.
+              </p>
+              {/* X's own shape: a radio per row; a pick leaves the popover open. */}
+              <div role="radiogroup" aria-label="Who can reply?">
+                {REPLY_OPTIONS.map(([value, label]) => {
+                  const Icon = REPLY_ICONS[value];
+                  return (
+                    <label
+                      key={value}
+                      className="flex cursor-pointer items-center gap-3 px-4 py-2.5 text-[15px] hover:bg-white/7"
+                    >
+                      <span className="grid size-10 place-items-center rounded-full bg-[#1d9bf0] text-white">
+                        <Icon className="size-5" />
+                      </span>
+                      <span className="flex-1 font-bold">{label}</span>
+                      <input
+                        type="radio"
+                        name="home-reply"
+                        checked={value === reply}
+                        onChange={() => setReply(value)}
+                        className="size-5 accent-[#1d9bf0]"
+                      />
+                    </label>
+                  );
+                })}
               </div>
-              {REPLY_OPTIONS.map(([value, label]) => {
-                const Icon = REPLY_ICONS[value];
-                return (
-                  <MenuItem key={value} onClick={() => setReply(value)}>
-                    <Icon className="size-4 text-[#1d9bf0]" />
-                    <span className="flex-1 text-foreground">{label}</span>
-                    {value === reply ? <Check className="size-4 text-[#1d9bf0]" /> : null}
-                  </MenuItem>
-                );
-              })}
-            </Menu>
+            </Popover>
           </div>
         ) : null}
         <div className="flex items-center gap-3.5 py-2.5">

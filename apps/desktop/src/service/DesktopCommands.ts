@@ -335,7 +335,7 @@ async function click(cdp: Cdp, nodeId: number): Promise<void> {
 const enabled = (attrs: Record<string, string>) =>
   attrs["aria-disabled"] !== "true" && !("disabled" in attrs);
 
-/** Like `waitForNode`, for X's menu rows, which carry no test id: the last match whose text has `text`. */
+/** Like `waitForNode`, for rows X marks only by their text: the last match whose text is `text`. */
 async function waitForText(
   cdp: Cdp,
   selector: string,
@@ -349,10 +349,29 @@ async function waitForText(
   };
   for (const nodeId of nodeIds.toReversed()) {
     const { outerHTML } = (await cdp("DOM.getOuterHTML", { nodeId })) as { outerHTML: string };
-    if (outerHTML.replace(/<[^>]*>/g, "").includes(text)) return nodeId;
+    // Exact: "Accounts you follow" is also the start of another row.
+    if (
+      outerHTML
+        .replace(/<[^>]*>/g, "")
+        .replace(/\s+/g, " ")
+        .trim() === text
+    )
+      return nodeId;
   }
   await sleep(POLL_MS);
   return waitForText(cdp, selector, text, deadline);
+}
+
+/** Resolves once nothing matches `selector`; fails at `deadline` (now: a single check). */
+async function waitForGone(cdp: Cdp, selector: string, deadline: number): Promise<void> {
+  const { root } = (await cdp("DOM.getDocument", { depth: 0 })) as { root: { nodeId: number } };
+  const { nodeIds } = (await cdp("DOM.querySelectorAll", { nodeId: root.nodeId, selector })) as {
+    nodeIds: Array<number>;
+  };
+  if (nodeIds.length === 0) return;
+  if (Date.now() >= deadline) throw new Error(`composer element still there: ${selector}`);
+  await sleep(POLL_MS);
+  return waitForGone(cdp, selector, deadline);
 }
 
 // React keeps a select's value itself: the native setter plus a change event is what a pick does.
@@ -376,17 +395,19 @@ async function pick(cdp: Cdp, nodeId: number, value: string): Promise<boolean> {
   return result.value === true;
 }
 
+const missing = (what: string) =>
+  new NotAttempted(`x.com's composer has no ${what}; nothing was posted`);
+
 /**
  * Sets the poll and who can reply in X's own composer, before any text goes in, so a control X
  * no longer draws refuses the post untouched instead of posting it without the user's choice.
+ * Returns the reply button's label X must show at Post, or null for X's default.
  */
 async function setComposerOptions(
   cdp: Cdp,
   command: Extract<DesktopCommand, { type: "sessionPost" }>,
   deadline: number,
-): Promise<void> {
-  const missing = (what: string) =>
-    new NotAttempted(`x.com's composer has no ${what}; nothing was posted`);
+): Promise<string | null> {
   const step = () => Math.min(Date.now() + CONTROL_TIMEOUT_MS, deadline);
   const control = (selector: string, what: string) =>
     waitForNode(cdp, selector, step()).catch(() => {
@@ -410,16 +431,16 @@ async function setComposerOptions(
       if (!(await pick(cdp, await control(selector, `poll ${unit}`), String(value))))
         throw missing(`${value} poll ${unit}`);
   }
-  if (replySettings !== undefined && replySettings !== "everyone") {
-    const row = X_REPLY_ROWS[replySettings];
-    await click(cdp, await control(X_COMPOSER.replyButton, "Everyone can reply"));
-    const rowNode = await waitForText(cdp, X_COMPOSER.menuRow, row, step()).catch(() => {
-      throw missing(`"${row}" row`);
-    });
-    await click(cdp, rowNode);
-    // X's button names the setting once it took; without that the post would go out to everyone.
-    await control(X_COMPOSER.replyButtonFor(row), `"${row} can reply"`);
-  }
+  if (replySettings === undefined || replySettings === "everyone") return null;
+  const { row, label } = X_REPLY_ROWS[replySettings];
+  await click(cdp, await control(X_COMPOSER.replyButton, "Everyone can reply"));
+  const rowNode = await waitForText(cdp, X_COMPOSER.replyRow, row, step()).catch(() => {
+    throw missing(`"${row}" row`);
+  });
+  await click(cdp, rowNode);
+  // X names the setting on its button once it took; any other name and the post must not go.
+  await control(X_COMPOSER.replyButtonFor(label), `"${label}"`);
+  return label;
 }
 
 /**
@@ -451,9 +472,13 @@ export async function postThroughComposer(
     .catch((error: unknown) => {
       throw untouched(error);
     });
-  await setComposerOptions(cdp, command, deadline);
-  // Found again: adding a poll redraws the composer around its text box.
+  const replyLabel = await setComposerOptions(cdp, command, deadline);
+  // Found again: adding a poll redraws the composer around its text box. The press into it is
+  // also the press outside X's reply popover, which stays open after a pick until then.
   await click(cdp, await waitForNode(cdp, textbox, step(COMPOSER_TIMEOUT_MS)));
+  await waitForGone(cdp, X_COMPOSER.replyPopover, step(CONTROL_TIMEOUT_MS)).catch(() => {
+    throw new NotAttempted("x.com's reply settings stayed open; nothing was posted");
+  });
   await cdp("Input.insertText", { text: command.text });
   if (command.mediaPaths.length > 0) {
     const input = await waitForNode(
@@ -466,6 +491,16 @@ export async function postThroughComposer(
   // The post button stays disabled while uploads run.
   const created = nextCreatedPost();
   const button = await waitForNode(cdp, 'button[data-testid="tweetButton"]', deadline, enabled);
+  // Checked again at the press: still closed, and X still names the user's setting.
+  await waitForGone(cdp, X_COMPOSER.replyPopover, Date.now()).catch(() => {
+    throw new NotAttempted("x.com's reply settings opened again; nothing was posted");
+  });
+  if (replyLabel !== null)
+    await waitForNode(cdp, X_COMPOSER.replyButtonFor(replyLabel), step(CONTROL_TIMEOUT_MS)).catch(
+      () => {
+        throw missing(`"${replyLabel}"`);
+      },
+    );
   await click(cdp, button);
   return until(created, step(CREATED_TIMEOUT_MS), "x.com did not confirm the post");
 }
