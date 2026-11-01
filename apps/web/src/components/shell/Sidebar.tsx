@@ -330,7 +330,7 @@ function XRows({ compact }: { readonly compact: boolean }) {
                 type="button"
                 data-active={
                   page.label === "Profile"
-                    ? pathname === `/u/${handle}`
+                    ? pathname.toLowerCase() === `/u/${handle}`.toLowerCase()
                     : NATIVE[page.label] !== undefined
                       ? pathname === NATIVE[page.label] ||
                         pathname.startsWith(`${NATIVE[page.label]}/`)

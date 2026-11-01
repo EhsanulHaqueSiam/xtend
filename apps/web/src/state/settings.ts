@@ -26,16 +26,18 @@ export const settingsAtom = clientRuntime.atom((get) =>
 
 /**
  * The user's own handle for their own X pages (Profile, the panel beside Compose): the account X
- * is signed in as, which Settings' handle may not match; Settings' handle where X has not said
- * (a browser has no engine).
+ * is signed in as, which Settings' handle may not match. The desktop waits for X to say; a
+ * browser, with no engine, takes Settings' handle.
  */
 export const ownHandleAtom = Atom.make(
   (get) =>
     get(viewerHandleAtom) ??
-    AsyncResult.getOrElse(
-      AsyncResult.map(get(settingsAtom), (s) => s.handle),
-      () => null,
-    ),
+    (isElectron
+      ? null
+      : AsyncResult.getOrElse(
+          AsyncResult.map(get(settingsAtom), (s) => s.handle),
+          () => null,
+        )),
 );
 
 export const updateSettingsAtom = clientRuntime.fn<SettingsUpdate>()(

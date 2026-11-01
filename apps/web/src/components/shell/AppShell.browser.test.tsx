@@ -261,6 +261,25 @@ it("moves the panel to each section's X page, hides it where X has none, and rel
     reload: () => reloads++,
   });
   guest.dispatchEvent(new Event("dom-ready"));
+  // The desktop opens the user's own pages once X names the signed-in account.
+  expect(loads).toEqual([]);
+  bridge.emitEngine({
+    op: "Viewer",
+    key: null,
+    cursor: null,
+    top: null,
+    bottom: null,
+    posts: [],
+    users: [],
+    people: [],
+    order: [],
+    trends: [],
+    notifications: [],
+    lists: [],
+    homeTabs: null,
+    exploreTabs: null,
+    viewer: { userId: "7", handle: "siamships", name: "Siam", avatarUrl: null },
+  });
 
   await expect.poll(() => loads.at(-1)).toBe("https://x.com/siamships");
   // A post opened beside Compose goes back to the profile on Plan, which shares that page.
