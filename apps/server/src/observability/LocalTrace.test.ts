@@ -322,10 +322,10 @@ describe("local trace file", () => {
       error: (...args: ReadonlyArray<unknown>) => void printed.push(args),
     };
     const outerOperation = Effect.fn("outerOperation")(function* () {
-      return yield* Effect.fail(new Error("broken"));
+      return yield* new Leaky({ detail: "broken" });
     });
     const leaky = Effect.fn("leakyOperation token=framesecret")(function* () {
-      return yield* Effect.fail(new Error("broken too"));
+      return yield* new Leaky({ detail: "broken too" });
     });
     return Effect.gen(function* () {
       for (const operation of [outerOperation(), leaky()])
