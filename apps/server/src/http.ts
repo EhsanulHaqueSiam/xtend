@@ -27,7 +27,12 @@ export const layerHealthRoute = HttpRouter.add(
   "/api/health",
   Effect.gen(function* () {
     const config = yield* ServerConfig.ServerConfig;
-    return yield* HttpServerResponse.json({ name: "xtend", version: config.version });
+    // Who supervises it is public on purpose: `xtend triage` reports it with the service up.
+    return yield* HttpServerResponse.json({
+      name: "xtend",
+      version: config.version,
+      supervisor: config.supervisor,
+    });
   }),
 );
 

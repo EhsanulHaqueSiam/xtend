@@ -28,11 +28,13 @@ import packageJson from "../package.json" with { type: "json" };
 import * as Api from "./cli/api.ts";
 import * as Doctor from "./cli/doctor.ts";
 import * as Trace from "./cli/trace.ts";
+import * as TriageCli from "./cli/triage.ts";
 import { runMcpStdio } from "./cli/mcp.ts";
 import { loginPath } from "./ai/loginPath.ts";
 import * as ServerConfig from "./config.ts";
 import { runServer } from "./server.ts";
 import * as Launchd from "./service/launchd.ts";
+import * as Triage from "./triage/Triage.ts";
 import { RATE_CARD } from "./x/XClient.ts";
 
 const portFlag = Flag.Int("port").pipe(
@@ -272,6 +274,29 @@ const doctor = Command.make("doctor").pipe(
   ),
 );
 
+const triage = Command.make("triage", {
+  agent: Flag.Literals("agent", TriageCli.TRIAGE_AGENTS).pipe(
+    Flag.withDescription("Start this agent CLI in the triage folder."),
+    Flag.optional,
+  ),
+}).pipe(
+  Command.withDescription(
+    "Write a scrubbed triage folder (machine facts and a playbook) for a coding agent to investigate a problem. Spends nothing.",
+  ),
+  Command.withHandler(({ agent }) =>
+    Effect.gen(function* () {
+      const config = yield* resolveConfig(yield* root);
+      yield* TriageCli.runTriage(agent).pipe(
+        Effect.provide(
+          Triage.layer.pipe(
+            Layer.provide(Layer.merge(ServerConfig.layer(config), NodeHttpClient.layerNodeHttp)),
+          ),
+        ),
+      );
+    }),
+  ),
+);
+
 /**
  * A desktop's child stops with the desktop. An Electron that crashed sends no SIGTERM, but the OS
  * closes its end of the child's stdin pipe. launchd and a shell give stdin no such meaning, so
@@ -303,7 +328,18 @@ export const cli = root.pipe(
       ),
     ),
   ),
-  Command.withSubcommands([post, queue, report, spend, agents, mcp, service, trace, doctor]),
+  Command.withSubcommands([
+    post,
+    queue,
+    report,
+    spend,
+    agents,
+    mcp,
+    service,
+    trace,
+    doctor,
+    triage,
+  ]),
 );
 
 export function runCli() {

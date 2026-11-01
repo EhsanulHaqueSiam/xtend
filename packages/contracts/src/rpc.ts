@@ -23,6 +23,7 @@ import { EventsRpcGroup } from "./events.ts";
 import { AccountsRpcGroup } from "./accounts.ts";
 import { MarksRpcGroup } from "./marks.ts";
 import { PoolRpcGroup } from "./pool.ts";
+import { TriageRpcGroup } from "./triage.ts";
 
 import { CostAction, CostQuoteResult, Costs_METHODS } from "./costs.ts";
 import { Settings, SettingsError, SettingsUpdate, SpendSummary } from "./settings.ts";
@@ -109,4 +110,5 @@ export const WsRpcGroup = CoreRpcGroup.merge(
   AccountsRpcGroup,
   MarksRpcGroup,
   PoolRpcGroup,
+  TriageRpcGroup,
 );

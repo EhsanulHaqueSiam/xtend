@@ -9,6 +9,11 @@ endpoint.
 - **Traces**: every completed span is one NDJSON line in `<baseDir>/logs/service.trace.ndjson`
   (`~/.xtend/logs/...` for the installed app, `<repo>/.xtend/logs/...` for `pnpm dev`).
 - **Metrics** live in the process and are exported only over OTLP.
+- **Desktop log**: the desktop's main process writes `<baseDir>/logs/desktop.log` (rotated at
+  5 MB to `.1` to `.3`, `0600`), scrubbed with the same `redactText` as the trace file: the service
+  child's starts and exits, renderer and x.com view crashes, helper processes that died, and
+  pages that failed to load (URL without its query). It also prints each line to the launcher's
+  terminal.
 
 ## Reading it
 
@@ -25,6 +30,15 @@ xtend --base-dir .xtend trace --since 30m --limit 40   # a dev run
 on its port, the trace file's age, the treg token (where it is set, never the value), `claude` and
 `codex` on the login shell's PATH, and the launchd agent. It never writes, starts a service, calls
 X or spends; it exits 1 when a check fails.
+
+`xtend triage [--agent claude|codex]` writes `<baseDir>/triage/<time>/` with `context.md`
+(versions, OS, who supervises the service and whether it answers, paths, doctor's checks, the
+last hour's trace summary without failure causes, the service's RSS and CPU from `ps`) and
+`PLAYBOOK.md` (`.github/triage/PLAYBOOK.md`, embedded in `triage/playbook.ts`; a test keeps them
+identical), then starts that agent CLI in the folder or prints the line that does. Settings,
+Diagnostics calls the same `Triage` service over `triage.context` and `triage.prepare`. The
+context goes through `redactText` before it is written or returned. Like doctor, it never starts a
+service, calls X or spends.
 
 For anything the summary does not answer, use `jq`:
 
@@ -47,7 +61,7 @@ text cut to 200 characters), and every treg call (`Treg.call` with `x.purpose`, 
 
 ## Secrets
 
-Neither the trace file, `service.log` (stdout) nor an OTLP backend may receive the treg token, the service token, X cookies
+Neither the trace file, `service.log` (stdout), `desktop.log`, a triage context nor an OTLP backend may receive the treg token, the service token, X cookies
 (`auth_token`, `ct0`, `twid`, `kdt`), assist keys or webhook secrets. The service's tracer scrubs
 every span before anything sees it, with the trace file on or off:
 
@@ -65,12 +79,12 @@ every span before anything sees it, with the trace file on or off:
   name, message, call sites (on their own budget) and its `cause` chain, all scrubbed.
 
 Stdout gets the same treatment, since the desktop pipes it to `<baseDir>/service.log`: the
-console logger is swapped for one with the same line format whose message, cause and annotations
-are sanitised.
+console logger is swapped for one with the same line format whose message, cause, annotations
+and log span labels are sanitised.
 
 The trace file is made `0600` before each append, including one that already existed; if that
-fails, nothing is written. A new credential name or shape goes in `LocalTrace.ts` with a case in
-its test.
+fails, nothing is written. A new credential name or shape goes in `packages/contracts/src/redact.ts` (shared with
+the desktop log and triage) with a case in its test.
 
 ## Environment
 

@@ -77,3 +77,9 @@ yet, so it links to the download instead and you install it by hand.
 `http://mac-mini:4820` and that machine's service token. **Check** tests both; **Connect and
 relaunch** switches to it, and **Use local service** switches back. See
 [Remote service](./remote-service.md).
+
+## Diagnostics
+
+Where the service keeps its trace file, `service.log`, the desktop's `desktop.log` and triage
+folders, and two buttons for when something breaks: **Copy triage context** and **Start triage**.
+See [Report a problem](./report-a-problem.md).

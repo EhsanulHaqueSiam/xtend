@@ -20,6 +20,7 @@ xtend mcp                  serve MCP over stdio
 xtend service install      keep the service running with the app closed (macOS launchd)
 xtend service uninstall
 xtend service status
+xtend triage               a scrubbed folder for a coding agent to investigate a problem
 ```
 
 ## HTTP API

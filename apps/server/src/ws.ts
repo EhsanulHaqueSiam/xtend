@@ -17,6 +17,7 @@ import * as EventsHandlers from "./events/EventsHandlers.ts";
 import * as AccountsHandlers from "./accounts/AccountsHandlers.ts";
 import * as MarksHandlers from "./marks/MarksHandlers.ts";
 import * as PoolHandlers from "./pool/PoolHandlers.ts";
+import * as TriageHandlers from "./triage/TriageHandlers.ts";
 
 import * as ServiceAuth from "./auth/ServiceAuth.ts";
 import * as ServerConfig from "./config.ts";
@@ -70,6 +71,7 @@ export const layerHandlers = Layer.mergeAll(
   AccountsHandlers.layerHandlers,
   MarksHandlers.layerHandlers,
   PoolHandlers.layerHandlers,
+  TriageHandlers.layerHandlers,
 );
 
 export const layerRoute = HttpRouter.add(
