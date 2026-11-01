@@ -53,6 +53,8 @@ const ENGINE_FIXTURES = "apps/web/test/fixtures/engine/";
 // scrub and synth (apps/web/src/components/xnative/engineFixtures.ts) count ids up from
 // 600000000000..900000000000; X's real post ids are 19-digit snowflakes, user ids anything.
 const FAKE_ID = /^[6-9]00000\d{6}$/;
+// A Who to follow among the posts keeps X's entry prefix, which is how the capture knows one.
+const FAKE_MODULE = /^who-to-follow-[6-9]00000\d{6}$/;
 // handleFor's and nameFor's lists; the test runs this on the committed fixtures, so drift fails.
 const FIRST = "mira|sam|noor|theo|ines|ravi|lena|kofi|yuki|omar|ada|jonas";
 const LAST = "okafor|lind|haddad|brandt|silva|mehta|varga|mensah|sato|farouk|quinn|berg";
@@ -93,8 +95,9 @@ function realField(
   if ((idField || OPAQUE_IDS.has(key) || CURSORS.has(key)) && typeof value === "number")
     return `a numeric id ${value} in "${key}"`;
   if (typeof value !== "string") return undefined;
-  if (idField && !FAKE_ID.test(value)) return `a real-looking id "${value}" in "${key}"`;
-  if (OPAQUE_IDS.has(key) && !FAKE_OPAQUE.test(value))
+  if (idField && !FAKE_ID.test(value) && !(key === "order" && FAKE_MODULE.test(value)))
+    return `a real-looking id "${value}" in "${key}"`;
+  if (OPAQUE_IDS.has(key) && !FAKE_OPAQUE.test(value) && !FAKE_MODULE.test(value))
     return `a real-looking id "${value}" in "${key}"`;
   if (CURSORS.has(key)) {
     if (key === "key" && owner.op === "UserByScreenName")

@@ -71,6 +71,7 @@ const batch = (
   people: [],
   sections: [],
   order: [],
+  modules: [],
   trends: [],
   notifications: [],
   lists: [],
@@ -146,6 +147,84 @@ it("tells For you's ranked pages apart by cursor, not by date", () => {
   );
   expect([state.lists.forYou, state.waiting.forYou]).toEqual([["1", "2"], ["3"]]);
   expect(showWaiting(state, "forYou").lists.forYou).toEqual(["2", "3", "1"]);
+});
+
+it("keeps X's Who to follow among the posts across pages and the pill", () => {
+  const wtf = (id: string) => ({ id, title: "Who to follow", userIds: ["5"] });
+  const hour = (h: number) => `2026-10-01T0${h}:00:00Z`;
+  let state = mergeBatch(
+    emptyEngine,
+    batch("HomeTimeline", [post("1", hour(3)), post("2", hour(2))], {
+      order: ["1", "wtf-a", "2"],
+      modules: [wtf("wtf-a")],
+      top: "t",
+      bottom: "b",
+    }),
+  );
+  state = mergeBatch(
+    state,
+    batch("HomeTimeline", [post("3", hour(1))], {
+      cursor: "b",
+      bottom: "b2",
+      order: ["wtf-b", "3"],
+      modules: [wtf("wtf-b")],
+    }),
+  );
+  expect(state.lists.forYou).toEqual(["1", "wtf-a", "2", "wtf-b", "3"]);
+  expect(state.modules.get("wtf-b")?.userIds).toEqual(["5"]);
+  // X's first page again: a new post and its module wait behind the pill, and show in X's order.
+  state = mergeBatch(
+    state,
+    batch("HomeTimeline", [post("4", hour(4)), post("1", hour(3))], {
+      order: ["4", "wtf-c", "1"],
+      modules: [wtf("wtf-c")],
+    }),
+  );
+  expect([state.lists.forYou, state.waiting.forYou]).toEqual([
+    ["1", "wtf-a", "2", "wtf-b", "3"],
+    ["4", "wtf-c"],
+  ]);
+  // The same top again with one more module, while the pill waits: it waits too, in X's order.
+  state = mergeBatch(
+    state,
+    batch("HomeTimeline", [post("4", hour(4)), post("1", hour(3))], {
+      order: ["4", "wtf-c", "wtf-f", "1"],
+      modules: [wtf("wtf-c"), wtf("wtf-f")],
+    }),
+  );
+  // Again without the waiting post: its module still waits, above the post X put it before.
+  state = mergeBatch(
+    state,
+    batch("HomeTimeline", [post("2", hour(2))], {
+      order: ["wtf-g", "2"],
+      modules: [wtf("wtf-g")],
+    }),
+  );
+  expect(state.lists.forYou).toEqual(["1", "wtf-a", "2", "wtf-b", "3"]);
+  state = showWaiting(state, "forYou");
+  expect(state.lists.forYou).toEqual([
+    "4",
+    "wtf-c",
+    "wtf-f",
+    "1",
+    "wtf-a",
+    "wtf-g",
+    "2",
+    "wtf-b",
+    "3",
+  ]);
+  // Again with no new post: its module shows where X put it, not at the end and not dropped.
+  state = mergeBatch(
+    state,
+    batch("HomeTimeline", [post("4", hour(4)), post("1", hour(3))], {
+      order: ["wtf-d", "4", "1", "wtf-e"],
+      modules: [wtf("wtf-d"), wtf("wtf-e")],
+    }),
+  );
+  expect([state.lists.forYou, state.waiting.forYou]).toEqual([
+    ["wtf-d", "4", "wtf-c", "wtf-f", "1", "wtf-e", "wtf-a", "wtf-g", "2", "wtf-b", "3"],
+    [],
+  ]);
 });
 
 it("files pinned Home tabs, Lists, Communities and Explore tabs under their own surface", () => {
@@ -439,8 +518,17 @@ it("puts the user's new reply under the post it answers, and a new post on top o
   expect(at(state.lists, postSurface("1", "Recency"))).toEqual(["1", "9", "2"]);
   expect(at(state.lists, postSurface("1", "Likes"))).toEqual([]);
   expect(state.posts.get("1")?.metrics.replies).toBe(1);
+  // A newer post waits behind the pill when the user posts: theirs stays on top after it.
+  state = mergeBatch(
+    state,
+    batch("HomeLatestTimeline", [
+      post("4", "2026-10-30T03:00:00Z"),
+      post("3", "2026-10-30T02:00:00Z"),
+    ]),
+  );
   const quote = { ...post("10", "2026-10-31T01:00:00Z"), quotedId: "3" };
   state = mergeBatch(state, batch("CreateNoteTweet", [quote, post("3", "2026-10-30T02:00:00Z")]));
   expect(at(state.lists, "following")).toEqual(["10", "3"]);
   expect(at(state.lists, "profile:posts:1")).toEqual(["10"]);
+  expect(at(showWaiting(state, "following").lists, "following")).toEqual(["10", "4", "3"]);
 });

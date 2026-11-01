@@ -112,6 +112,9 @@ const recorded: ReadonlyArray<EngineBatch> = [
       },
     ],
     order: ["1888000000000000001", "1888000000000000002"],
+    modules: [
+      { id: "who-to-follow-1888000000000000009", title: "Who to follow", userIds: [real.userId] },
+    ],
     trends: [],
     notifications: [
       {
@@ -149,6 +152,7 @@ it("leaves nothing of the account it was recorded on: no id, handle, name, word,
   for (const secret of [
     "1450011223344",
     "1888000000000000001",
+    "1888000000000000009",
     "RealPerson",
     "realperson",
     "Realname",
@@ -178,6 +182,7 @@ it("keeps what the screens need: relations, text shape and entity offsets, and @
   expect(out!.key).toBe(focal!.postId);
   expect(reply!.replyToId).toBe(focal!.postId);
   expect(out!.order).toEqual([focal!.postId, reply!.postId]);
+  expect(out!.modules[0]!.userIds).toEqual(out!.people);
   expect(focal!.text).toHaveLength(text.length);
   const [from, to] = focal!.entities.mentions[0]!.indices;
   expect(focal!.text.slice(from, to)).toMatch(/^@\w+$/);

@@ -274,6 +274,7 @@ it("moves the panel to each section's X page, hides it where X has none, and rel
     people: [],
     sections: [],
     order: [],
+    modules: [],
     trends: [],
     notifications: [],
     lists: [],

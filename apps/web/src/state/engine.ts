@@ -4,6 +4,7 @@ import type {
   EngineExploreTab,
   EngineHomeTab,
   EngineList,
+  EngineModule,
   EngineNotification,
   EnginePeopleSection,
   EnginePost,
@@ -267,7 +268,9 @@ export interface EngineState {
    * X's page shows its own state from its cache and fetches nothing to say so.
    */
   readonly membership: ReadonlyMap<string, CommunityRole>;
-  /** Post ids per surface. */
+  /** X's people modules (Who to follow) by id; a list names one where X put it among the posts. */
+  readonly modules: ReadonlyMap<string, EngineModule>;
+  /** Post and module ids per surface, in X's order. */
   readonly lists: PerSurface<string>;
   /** Newer posts X fetched for a list's top; they wait behind a pill instead of shifting the list. */
   readonly waiting: PerSurface<string>;
@@ -307,6 +310,7 @@ export const emptyEngine: EngineState = {
   users: new Map(),
   asked: new Map(),
   membership: new Map(),
+  modules: new Map(),
   lists: NONE,
   waiting: NONE,
   nextTop: NONE,
@@ -416,6 +420,10 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
   const merged: EngineState = {
     ...state,
     posts,
+    modules:
+      batch.modules.length === 0
+        ? state.modules
+        : new Map([...state.modules, ...batch.modules.map((m) => [m.id, m] as const)]),
     users,
     asked,
     membership,
@@ -462,6 +470,12 @@ function placeCreated(state: EngineState, post: EnginePost): EngineState {
       lists: surfaces.reduce(
         (lists, s) => set(lists, s, unique([post.postId, ...at(lists, s)])),
         state.lists,
+      ),
+      // Still on top once the pill shows what waited behind it.
+      nextTop: surfaces.reduce(
+        (next, s) =>
+          at(next, s).length === 0 ? next : set(next, s, unique([post.postId, ...at(next, s)])),
+        state.nextTop,
       ),
     };
   }
@@ -513,23 +527,29 @@ function mergeInto(state: EngineState, batch: EngineBatch, surface: AnySurface):
   const list = at(state.lists, surface);
   // X's own entry order; failing that, every post but the ones only quoted inside another.
   const quoted = new Set(batch.posts.flatMap((p) => (p.quotedId === null ? [] : [p.quotedId])));
-  const sent = new Set(batch.posts.map((p) => p.postId));
+  const sent = new Set([...batch.posts.map((p) => p.postId), ...batch.modules.map((m) => m.id)]);
   const known = new Set([...list, ...at(state.waiting, surface)]);
   const order =
     batch.order.length > 0
       ? batch.order.filter((id) => sent.has(id))
       : batch.posts.map((p) => p.postId).filter((id) => !quoted.has(id));
   const fresh = order.filter((id) => !known.has(id));
-  const top = list[0] === undefined ? undefined : posts.get(list[0]);
+  const freshPosts = fresh.filter((id) => posts.has(id));
+  const top = list.map((id) => posts.get(id)).find((p) => p !== undefined);
+  const again = top !== undefined && (page === "top" || page === "first");
+  // Modules only, while posts wait behind the pill: they wait too, placed among what will show.
+  const staged =
+    again && fresh.length > 0 && freshPosts.length === 0 && at(state.waiting, surface).length > 0;
   const newer =
     // A thread's newer replies join it at once, as X shows them.
     surface !== "post" &&
     !surface.startsWith("post:") &&
     top !== undefined &&
-    fresh.length > 0 &&
-    (page === "top" ||
-      page === "first" ||
-      (page === "unknown" && fresh.every((id) => posts.get(id)!.createdAt > top.createdAt)));
+    ((freshPosts.length > 0 &&
+      (again ||
+        (page === "unknown" &&
+          freshPosts.every((id) => posts.get(id)!.createdAt > top.createdAt)))) ||
+      staged);
 
   // People, trends and notifications: a first page replaces, a newer page goes on top.
   const userIds = batch.people;
@@ -597,8 +617,8 @@ function mergeInto(state: EngineState, batch: EngineBatch, surface: AnySurface):
   const entries = new Map(state.entries[surface] ?? []);
   const byId = new Map(batch.posts.map((p) => [p.postId, p]));
   for (const id of order) {
-    const p = byId.get(id)!;
-    entries.set(id, { context: p.context, conversation: p.conversation });
+    const p = byId.get(id);
+    if (p !== undefined) entries.set(id, { context: p.context, conversation: p.conversation });
   }
 
   return {
@@ -611,17 +631,50 @@ function mergeInto(state: EngineState, batch: EngineBatch, surface: AnySurface):
     communityIds,
     trends,
     notifications,
-    lists: newer ? state.lists : set(state.lists, surface, [...list, ...fresh]),
+    lists: newer
+      ? state.lists
+      : set(
+          state.lists,
+          surface,
+          again ? besideNeighbors(list, order, fresh) : [...list, ...fresh],
+        ),
     waiting: newer
       ? set(state.waiting, surface, [...fresh, ...at(state.waiting, surface)])
       : state.waiting,
-    nextTop: newer
-      ? set(state.nextTop, surface, unique([...order, ...at(state.nextTop, surface)]))
-      : state.nextTop,
+    nextTop: !newer
+      ? state.nextTop
+      : set(
+          state.nextTop,
+          surface,
+          staged
+            ? besideNeighbors(unique([...at(state.nextTop, surface), ...list]), order, fresh)
+            : unique([...order, ...at(state.nextTop, surface)]),
+        ),
   };
 }
 
 const unique = (ids: ReadonlyArray<string>) => [...new Set(ids)];
+
+/**
+ * X's top again with no new posts: a module it sent with them goes where X put it, before the
+ * next listed id in X's order (or after the one before it), not at the list's end.
+ */
+function besideNeighbors(
+  list: ReadonlyArray<string>,
+  order: ReadonlyArray<string>,
+  fresh: ReadonlyArray<string>,
+): ReadonlyArray<string> {
+  const out = [...list];
+  for (const id of fresh) {
+    const i = order.indexOf(id);
+    const next = order.slice(i + 1).find((x) => out.includes(x));
+    const prev = order.slice(0, i).findLast((x) => out.includes(x));
+    if (next !== undefined) out.splice(out.indexOf(next), 0, id);
+    else if (prev !== undefined) out.splice(out.indexOf(prev) + 1, 0, id);
+    else out.push(id);
+  }
+  return out;
+}
 
 /** Shows what waited behind the pill, on top in X's order. */
 export const showWaiting = (state: EngineState, surface: AnySurface): EngineState => ({

@@ -2,6 +2,7 @@ import type {
   EngineBatch,
   EngineCommunity,
   EngineList,
+  EngineModule,
   EngineNotification,
   EnginePost,
   EngineTrend,
@@ -201,9 +202,19 @@ export const postsOf = (b: EngineBatch | null, state: MockState) =>
   b === null
     ? ""
     : b.order
-        .flatMap((id) => b.posts.find((p) => p.postId === id) ?? [])
-        .map((p) => article(p, state))
+        .flatMap((id) => {
+          const p = b.posts.find((post) => post.postId === id);
+          if (p !== undefined) return [article(p, state)];
+          const m = b.modules.find((module) => module.id === id);
+          return m === undefined ? [] : [whoToFollow(m, b)];
+        })
         .join("");
+/** X's Who to follow among a timeline's posts: header, people with Follow, Show more. */
+const whoToFollow = (m: EngineModule, b: EngineBatch) =>
+  `<aside aria-label="${esc(m.title)}"><h2>${esc(m.title)}</h2>${m.userIds
+    .flatMap((id) => b.users.find((u) => u.userId === id) ?? [])
+    .map((u) => userCell(u))
+    .join("")}<a href="/i/connect_people">Show more</a></aside>`;
 const peopleOf = (
   b: EngineBatch | null,
   button: "follow" | "subscribe" = "follow",

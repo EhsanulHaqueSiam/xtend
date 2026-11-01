@@ -8,6 +8,7 @@ import { draft, settings } from "../../../test/fixtures";
 import { fakeTimers, render } from "../../../test/render";
 import { markXReady, refreshScreen, registerXWebview, type XWebview } from "../../state/x";
 import { EngineSync } from "./EngineSync";
+import { synth } from "./engineFixtures";
 import { Poll } from "./PostParts";
 import { ReplyComposer } from "./ReplyComposer";
 import { ReplySort } from "./ReplySort";
@@ -63,6 +64,7 @@ const batch = (op: string, posts: ReadonlyArray<EnginePost>) => ({
   people: [],
   sections: [],
   order: [],
+  modules: [],
   trends: [],
   notifications: [],
   lists: [],
@@ -109,6 +111,37 @@ it("draws what the engine received: the post, its video in Xtend's player, and t
   expect(video.controls).toBe(true);
   // The quoted post is inside the first, not a row of its own.
   expect(screen.getByRole("article").elements()).toHaveLength(1);
+});
+
+it("draws X's Who to follow between the posts X put it between: three people with Follow, and Show more", async () => {
+  const bridge = installFakeBridge();
+  await using screen = await render(
+    <div style={{ height: 800, display: "flex" }}>
+      <EngineSync />
+      <Timeline surface="forYou" header={null} empty="Loading" onReopen={() => {}} />
+    </div>,
+    { service: {} },
+  );
+  // The module and people of the dev fixture `?engine=home`, between two short posts so the
+  // virtualized list draws all three whatever the layout.
+  const forYou = synth().home!.batches.find((b) => b.op === "HomeTimeline")!;
+  const wtf = forYou.modules[0]!;
+  bridge.emitEngine({
+    ...batch("HomeTimeline", [post("1", "First"), post("2", "Second")]),
+    users: forYou.users,
+    order: ["1", wtf.id, "2"],
+    modules: [wtf],
+  });
+  const module = screen.getByRole("region", { name: "Who to follow" });
+  await expect.element(module).toBeVisible();
+  expect(module.getByRole("button", { name: "Follow", exact: true }).elements()).toHaveLength(3);
+  await expect
+    .element(module.getByRole("link", { name: "Show more" }))
+    .toHaveAttribute("href", "/follow?tab=who");
+  // Second in the list, after post 1, however many rows the virtualized list has drawn.
+  const index = (el: Element) => el.closest("[data-index]")?.getAttribute("data-index");
+  expect(index(module.element())).toBe("1");
+  expect(index(screen.getByRole("article").first().element())).toBe("0");
 });
 
 it("reads the post before replying, rereads on a correction, and sends the picked angle", async () => {

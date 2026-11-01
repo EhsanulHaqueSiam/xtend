@@ -210,6 +210,7 @@ export function createMockState() {
     people: [],
     sections: [],
     order: posts.filter((p) => !posts.some((q) => q.quotedId === p.postId)).map((p) => p.postId),
+    modules: [],
     trends: [],
     notifications: [],
     lists: [],
@@ -679,7 +680,18 @@ export function createMockState() {
       return fresh;
     },
     /** The posts a feed's first page lists, in X's order. */
-    feed: (feed: Feed) => feedFirst(feed).order,
+    feed: (feed: Feed) => {
+      const b = feedFirst(feed);
+      return b.order.filter((id) => b.posts.some((p) => p.postId === id));
+    },
+    /** A feed's first page's Who to follow, and the post X put it after. */
+    whoToFollow: (feed: Feed) => {
+      const b = feedFirst(feed);
+      const module = b.modules[0];
+      return module === undefined
+        ? undefined
+        : { module, after: b.order[b.order.indexOf(module.id) - 1] };
+    },
     /** Post ids of a feed page after the first. */
     feedPageIds: (feed: Feed, n: number) => feedPage(feed, n).order,
     fixture,
