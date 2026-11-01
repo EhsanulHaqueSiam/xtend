@@ -6,13 +6,17 @@ import * as NodeSqlite from "node:sqlite";
 import { expect, it } from "vite-plus/test";
 
 import {
+  claimLock,
   copyPartition,
+  createLock,
   inside,
   installedProfile,
   loginExpiry,
   profileHolder,
   refuseDestination,
   signedIn,
+  useSaved,
+  withLock,
 } from "./dev-x-session.ts";
 
 const temp = () =>
@@ -71,6 +75,41 @@ it("lets one copy at a time replace a partition, taking over a lock its owner le
   copyPartition(from, to);
   expect(loginExpiry(to)).toBeDefined();
   expect(NodeFS.existsSync(`${to}.lock`)).toBe(false);
+});
+
+it("lets exactly one of two copies take over a stale lock, and releases only its own", () => {
+  const lock = NodePath.join(temp(), "x-session.lock");
+  const stale = JSON.stringify({ pid: 999_999, at: 0 });
+  NodeFS.writeFileSync(lock, stale);
+  // Both judged the same record stale. A moves it aside and locks; B then finds A's lock.
+  expect(claimLock(lock, stale)).toBe(true);
+  expect(createLock(lock, "A")).toBe(true);
+  expect(claimLock(lock, stale)).toBe(false);
+  expect(createLock(lock, "B")).toBe(false);
+  expect(NodeFS.readFileSync(lock, "utf8")).toBe("A");
+  expect(NodeFS.readdirSync(NodePath.dirname(lock))).toEqual(["x-session.lock"]);
+
+  // A release that finds someone else's lock leaves it.
+  const to = NodePath.join(temp(), "x-session");
+  withLock(to, () => NodeFS.writeFileSync(`${to}.lock`, "another copy's"));
+  expect(NodeFS.readFileSync(`${to}.lock`, "utf8")).toBe("another copy's");
+});
+
+it("respects a lock still being written, and takes over one abandoned that way", () => {
+  const to = NodePath.join(temp(), "x-session");
+  NodeFS.writeFileSync(`${to}.lock`, "");
+  expect(() => withLock(to, () => "ran")).toThrow("another copy");
+  NodeFS.utimesSync(`${to}.lock`, new Date(0), new Date(0));
+  expect(withLock(to, () => "ran")).toBe("ran");
+  expect(NodeFS.existsSync(`${to}.lock`)).toBe(false);
+});
+
+it("will not install a saved session whose login expired", () => {
+  const dir = temp();
+  const saved = partition(NodePath.join(dir, "saved"), [{ name: "auth_token", expires: 1n }]);
+  const userData = NodePath.join(dir, "electron");
+  expect(() => useSaved(userData, saved)).toThrow(/expired on 1601-01-01.*save/);
+  expect(NodeFS.existsSync(NodePath.join(userData, "Partitions", "x-session"))).toBe(false);
 });
 
 it("counts only a login that has not expired", () => {

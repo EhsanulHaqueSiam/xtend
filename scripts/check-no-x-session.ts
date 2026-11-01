@@ -61,20 +61,37 @@ const FAKE_NAME = new RegExp(`^(You|(${FIRST}) (${LAST}))$`, "i");
 const FAKE_URL =
   /^(data:|https:\/\/example\.com(\/|$)|https:\/\/t\.co\/s\d+$|https:\/\/x\.com\/search\?)/;
 
+// Fields holding X ids as arrays; any other *Id or *Ids field holds one or more too.
+const ID_ARRAYS = new Set(["people", "order", "edits"]);
+// Ids scrub replaces with counters (s12, n-3, conv-2, community:s4) or X's own route names.
+const OPAQUE_IDS = new Set(["id", "timelineId"]);
+const FAKE_OPAQUE = /^(([a-z_]+:)?s\d+|n-\d+|conv-\d+|post-[6-9]00000\d{6}|[a-z_-]+)$/;
+// Batch keys and cursors: an id, a search, a handle, or a counter.
+const CURSORS = new Set(["key", "top", "bottom", "cursor"]);
+
 /** Why a value under `key` names something real, or undefined. */
 function realField(
   key: string,
   value: unknown,
   owner: Record<string, unknown>,
 ): string | undefined {
-  if (/(^id|Id|Ids)$/.test(key) || key === "key") {
+  // X's numeric ids, alone or in arrays (realIn walks arrays with the field's name).
+  if ((/(Id|Ids)$/.test(key) && !OPAQUE_IDS.has(key)) || ID_ARRAYS.has(key)) {
     if (typeof value === "number") return `a numeric id ${value} in "${key}"`;
-    if (typeof value === "string") {
-      if (key === "key" && owner.op === "UserByScreenName" && !FAKE_HANDLE.test(value))
-        return `a real-looking handle @${value}`;
-      const id = value.match(/\d{5,}/g)?.find((digits) => !FAKE_ID.test(digits));
-      if (id !== undefined) return `a real-looking id ${id} in "${key}"`;
-    }
+    if (typeof value === "string" && !FAKE_ID.test(value))
+      return `a real-looking id "${value}" in "${key}"`;
+  }
+  if (OPAQUE_IDS.has(key) && typeof value === "string" && !FAKE_OPAQUE.test(value))
+    return `a real-looking id "${value}" in "${key}"`;
+  if (CURSORS.has(key) && typeof value === "string") {
+    if (key === "key" && owner.op === "UserByScreenName")
+      return FAKE_HANDLE.test(value) ? undefined : `a real-looking handle @${value}`;
+    // Counters (s12) aside, every number in a key or cursor is an id.
+    const id = value
+      .replace(/\bs\d+\b/g, "")
+      .match(/\d+/g)
+      ?.find((digits) => !FAKE_ID.test(digits));
+    if (id !== undefined) return `a real-looking id ${id} in "${key}"`;
   }
   if (typeof value !== "string") return undefined;
   if ((key === "handle" || key === "replyingTo") && !FAKE_HANDLE.test(value))

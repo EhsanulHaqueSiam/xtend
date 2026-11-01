@@ -74,6 +74,30 @@ it("rejects a browser database or LevelDB table under any name", () => {
   );
 });
 
+/** `text`'s NDJSON with the first non-null `field` set to `value`; undefined when none has it. */
+const plant = (text: string, field: string, value: unknown) => {
+  let done = false;
+  const walk = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(walk);
+    if (v === null || typeof v !== "object") return v;
+    return Object.fromEntries(
+      Object.entries(v).map(([k, x]) => {
+        if (!done && k === field && x !== null) {
+          done = true;
+          return [k, value];
+        }
+        return [k, walk(x)];
+      }),
+    );
+  };
+  const out = text
+    .split("\n")
+    .filter((line) => line.trim() !== "")
+    .map((line) => JSON.stringify(walk(JSON.parse(line))))
+    .join("\n");
+  return done ? out : undefined;
+};
+
 it("passes the committed engine fixtures and fails one that was not scrubbed", () => {
   const dir = NodePath.join(import.meta.dirname, "../apps/web/test/fixtures/engine");
   for (const name of NodeFS.readdirSync(dir)) {
@@ -88,14 +112,14 @@ it("passes the committed engine fixtures and fails one that was not scrubbed", (
   const fake = `{"postId":"900000000001","author":{"userId":"900000000002","handle":"mira_brandt","name":"Mira Brandt","avatarUrl":"data:image/svg+xml,x"},"replyingTo":["theo_varga51"],"text":"https://t.co/s12"}`;
   expect(problem(recorded, text(line(fake)))).toBeUndefined();
   for (const [real, why] of [
-    [fake.replace("900000000001", "1985123456789012345"), /id 1985123456789012345/],
-    [fake.replace("900000000002", "44196397"), /id 44196397/],
+    [fake.replace("900000000001", "1985123456789012345"), /id "1985123456789012345"/],
+    [fake.replace("900000000002", "44196397"), /id "44196397"/],
     [fake.replace('"handle":"mira_brandt"', '"handle":"elonmusk"'), /@elonmusk/],
     [fake.replace('["theo_varga51"]', '["jack"]'), /@jack/],
     [fake.replace("data:image/svg+xml,x", "https://pbs.twimg.com/profile_images/1/a.jpg"), /twimg/],
     [fake.replace("https://t.co/s12", "https://t.co/AbC12xYz9"), /t\.co/],
     // Spacing and key order change nothing, and an id as a number is refused.
-    [fake.replace('"postId":"900000000001"', '"postId" : "1985123456789012345"'), /id 1985/],
+    [fake.replace('"postId":"900000000001"', '"postId" : "1985123456789012345"'), /id "1985/],
     [fake.replace('"postId":"900000000001"', '"postId":1985123456789012345'), /numeric id/],
     [fake.replace('"name":"Mira Brandt"', '"name":"Elon Musk"'), /name "Elon Musk"/],
     [fake.replace('"text":"https://t.co/s12"', '"url":"https://x.com/elonmusk"'), /real link/],
@@ -106,6 +130,29 @@ it("passes the committed engine fixtures and fails one that was not scrubbed", (
       problem(recorded, text(real.startsWith('{"open') || real === "not json" ? real : line(real))),
       real,
     ).toMatch(why);
+  // Each field that holds an id, in the committed fixtures, with a real-looking id put in.
+  const committed = NodeFS.readdirSync(dir)
+    .map((name) => NodeFS.readFileSync(NodePath.join(dir, name), "utf8"))
+    .join("\n");
+  for (const [field, real] of [
+    ["postId", "1234"],
+    ["userId", "44196397"],
+    ["quotedId", "1985123456789012345"],
+    ["replyToId", "1985123456789012345"],
+    ["listId", "1234567"],
+    ["pinnedPostId", 1985123456789],
+    ["people", ["44196397"]],
+    ["order", ["1985123456789012345"]],
+    ["edits", ["1234"]],
+    ["postIds", ["1985123456789012345"]],
+    ["id", "1985123456789012345"],
+    ["timelineId", "1985123456789012345"],
+    ["key", "list:1234"],
+    ["top", "top-ListByRestId-list:1985123456789012345"],
+  ] as const) {
+    expect(plant(committed, field, real), field).toBeDefined();
+    expect(problem(recorded, text(plant(committed, field, real)!)), field).toMatch(/id/);
+  }
   // The id rule is for engine fixtures only; elsewhere long numbers are ordinary.
   expect(
     problem(

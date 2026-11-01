@@ -6,6 +6,7 @@
 //   pnpm dev:x-session status
 //   pnpm dev:x-session save [--from <checkout or user data dir> | --installed]   default: this checkout
 //   pnpm dev:x-session use [--home <dir>]                                       default: the recorded home
+import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
@@ -130,43 +131,93 @@ const links = (dir: string): Array<string> =>
     .filter((entry) => entry.isSymbolicLink())
     .map((entry) => NodePath.join(entry.parentPath, entry.name));
 
+const readLock = (lock: string) => {
+  try {
+    return NodeFS.readFileSync(lock, "utf8");
+  } catch {
+    return undefined;
+  }
+};
+
+/** Creates `lock` holding `record` in one step (a hard link to a complete file); false when one exists. */
+export function createLock(lock: string, record: string): boolean {
+  const draft = `${lock}.${NodeCrypto.randomUUID()}`;
+  NodeFS.writeFileSync(draft, record, { flag: "wx" });
+  try {
+    NodeFS.linkSync(draft, lock);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    return false;
+  } finally {
+    NodeFS.rmSync(draft, { force: true });
+  }
+}
+
 /**
- * Holds `<to>.lock` (created exclusively) while `run` replaces `to`, so two copies never mix.
- * A lock whose PID is gone or reused is taken over; one `ps` cannot place is respected.
+ * Removes `lock` only while it still holds `expected`: moved aside first (one mover wins), then
+ * deleted, or put back when it turned out to be someone else's. True when it was removed.
  */
-function withLock<T>(to: string, run: () => T): T {
+export function claimLock(lock: string, expected: string): boolean {
+  const aside = `${lock}.${NodeCrypto.randomUUID()}`;
+  try {
+    NodeFS.renameSync(lock, aside);
+  } catch {
+    return false;
+  }
+  if (readLock(aside) === expected) {
+    NodeFS.rmSync(aside, { force: true });
+    return true;
+  }
+  try {
+    NodeFS.linkSync(aside, lock);
+  } catch {
+    // A third copy locked it meanwhile; theirs stands.
+  }
+  NodeFS.rmSync(aside, { force: true });
+  return false;
+}
+
+/** A lock with no complete record is being written for this long before it counts as abandoned. */
+const LOCK_GRACE_MS = 10_000;
+
+/**
+ * Holds `<to>.lock` while `run` replaces `to`, so two copies never mix. A lock whose PID is gone
+ * or reused is taken over by exactly one copy; one `ps` cannot place, or a fresh one with no
+ * complete record, is respected. Release removes the lock only while it is still this copy's.
+ */
+export function withLock<T>(to: string, run: () => T): T {
   const lock = `${to}.lock`;
-  const take = () => {
-    try {
-      NodeFS.writeFileSync(lock, JSON.stringify({ pid: process.pid, at: Date.now() }), {
-        flag: "wx",
-      });
-      return true;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      return false;
-    }
-  };
-  if (!take()) {
+  const record = JSON.stringify({
+    pid: process.pid,
+    at: Date.now(),
+    nonce: NodeCrypto.randomUUID(),
+  });
+  if (!createLock(lock, record)) {
+    const seen = readLock(lock);
     let held: { pid?: unknown; at?: unknown } = {};
     try {
-      held = JSON.parse(NodeFS.readFileSync(lock, "utf8")) as typeof held;
+      held = JSON.parse(seen ?? "") as typeof held;
     } catch {
-      // Half written by a copy that died at once: as stale as an empty lock.
+      // Not a record this script writes: judged by its age below.
     }
-    const state =
-      typeof held.pid === "number" && typeof held.at === "number"
-        ? verdict(processInfo(held.pid), held.at, COMMANDS.copy)
-        : "dead";
-    if ((state !== "dead" && state !== "stale") || held.pid === process.pid)
-      throw new Error(`another copy (PID ${String(held.pid)}) is writing ${to}; try again.`);
-    NodeFS.rmSync(lock, { force: true });
-    if (!take()) throw new Error(`another copy took ${lock} first; try again.`);
+    const complete = typeof held.pid === "number" && typeof held.at === "number";
+    const age = Date.now() - (NodeFS.statSync(lock, { throwIfNoEntry: false })?.mtimeMs ?? 0);
+    const stale = complete
+      ? held.pid !== process.pid &&
+        ["dead", "stale"].includes(
+          verdict(processInfo(held.pid as number), held.at as number, COMMANDS.copy),
+        )
+      : age > LOCK_GRACE_MS;
+    if (seen === undefined || !stale)
+      throw new Error(`another copy (PID ${String(held.pid ?? "?")}) is writing ${to}; try again.`);
+    if (!claimLock(lock, seen) || !createLock(lock, record))
+      throw new Error(`another copy took over ${lock} first; try again.`);
   }
   try {
     return run();
   } finally {
-    NodeFS.rmSync(lock, { force: true });
+    claimLock(lock, record);
   }
 }
 
@@ -216,11 +267,18 @@ export function copyPartition(
 
 /**
  * Copies the saved session into a dev desktop's profile, for `use`, `pnpm dev:desktop` and
- * worktree setup alike. Throws before touching anything when `refuseProfile` does.
+ * worktree setup alike. Throws before touching anything when `refuseProfile` does, and leaves the
+ * profile as it was when the saved login has expired.
  */
-export function useSaved(userData: string) {
+export function useSaved(userData: string, saved = SAVED) {
   refuseProfile(userData);
-  copyPartition(SAVED, partitionOf(userData));
+  copyPartition(saved, partitionOf(userData), (staging) => {
+    if (signedIn(staging)) return;
+    const expired = loginExpiry(staging)?.toISOString().slice(0, 10);
+    throw new Error(
+      `the saved X session ${expired === undefined ? "holds no login" : `expired on ${expired}`}; sign in in a dev desktop, then \`pnpm dev:x-session save\` again.`,
+    );
+  });
   return partitionOf(userData);
 }
 
