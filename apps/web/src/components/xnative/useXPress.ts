@@ -29,6 +29,8 @@ export function useXPress() {
   const pressRow = async (row: () => Promise<XMenuOutcome | null>, undone?: () => void) => {
     const why = blocked();
     if (why !== null) return setToast({ text: why });
+    // An earlier press's toast goes: X's toast is now this press's, so its Undo would undo this one.
+    setToast(null);
     const outcome = await row();
     if (outcome === null) return setToast({ text: "X did not take that. Try again in a moment." });
     if (outcome.kind === "done" && outcome.toast !== null)
