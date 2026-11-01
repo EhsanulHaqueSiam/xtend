@@ -177,6 +177,8 @@ export class LeadsError extends Schema.TaggedError<LeadsError>()("LeadsError", {
   }
 }
 
+export const isLeadsError = Schema.is(LeadsError);
+
 const LeadsOrX = Schema.Union([LeadsError, XApiError]);
 
 export const Leads_METHODS = {

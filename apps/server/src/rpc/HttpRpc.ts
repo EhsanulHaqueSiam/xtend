@@ -41,7 +41,7 @@ export const handlerFor = <R extends Rpc.AnyWithProps>(group: RpcGroup.RpcGroup<
       const body = yield* Effect.result(request.json);
       if (body._tag === "Failure")
         return yield* json({ error: "invalid_payload", message: "body is not JSON" }, 400);
-      const decoded = Schema.decodeUnknownResult(erased(rpc.payloadSchema))(body.success ?? {});
+      const decoded = Schema.decodeResult(erased(rpc.payloadSchema))(body.success ?? {});
       if (decoded._tag === "Failure")
         return yield* json({ error: "invalid_payload", message: decoded.failure.message }, 400);
       // Same lookup RpcGroup.accessHandler does, typed so the handler layer satisfies it.
@@ -62,15 +62,16 @@ export const handlerFor = <R extends Rpc.AnyWithProps>(group: RpcGroup.RpcGroup<
       if (!Effect.isEffect(run)) return yield* json({ error: "stream_only_over_ws", method }, 400);
       const exit = yield* Effect.exit(Effect.provide(run, entry.context));
       // A void success encodes to undefined, which is no JSON body at all; callers parse one.
+      // An encode failure is a defect, answered as one by the catchCause below.
       if (Exit.isSuccess(exit))
         return yield* json(
-          Schema.encodeUnknownSync(erased(rpc.successSchema))(exit.value) ?? null,
+          (yield* Schema.encodeUnknownEffect(erased(rpc.successSchema))(exit.value)) ?? null,
           200,
         );
       const failure = Cause.findErrorOption(exit.cause);
       if (Option.isSome(failure))
         return yield* json(
-          { error: Schema.encodeUnknownSync(erased(rpc.errorSchema))(failure.value) },
+          { error: yield* Schema.encodeUnknownEffect(erased(rpc.errorSchema))(failure.value) },
           422,
         );
       return yield* json({ error: "defect", message: String(Cause.squash(exit.cause)) }, 500);

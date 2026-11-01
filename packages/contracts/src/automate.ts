@@ -194,6 +194,8 @@ export class AutomateError extends Schema.TaggedError<AutomateError>()("Automate
   }
 }
 
+export const isAutomateError = Schema.is(AutomateError);
+
 export const Automate_METHODS = {
   rulesList: "automate.rulesList",
   ruleUpsert: "automate.ruleUpsert",

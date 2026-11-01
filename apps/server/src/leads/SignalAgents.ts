@@ -5,6 +5,7 @@ import {
   LeadsError,
   type SignalAgent,
   type SignalAgentInput,
+  isLeadsError,
 } from "@xtend/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -108,7 +109,7 @@ const make = Effect.gen(function* () {
   const events = yield* Events.Events;
   const now = Effect.map(DateTime.now, DateTime.formatIso);
   const fail = (operation: string) => (cause: unknown) =>
-    cause instanceof LeadsError
+    isLeadsError(cause)
       ? cause
       : new LeadsError({ operation, detail: String(cause).slice(0, 200), cause });
 

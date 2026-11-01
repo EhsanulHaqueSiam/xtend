@@ -5,8 +5,10 @@ import {
   MEDIA_MAX_BYTES,
   MEDIA_MAX_IMAGES,
   type MediaKind,
+  isComposeError,
 } from "@xtend/contracts";
 import * as Context from "effect/Context";
+import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -57,10 +59,11 @@ export const roomFor = (draft: Draft, blockIndex: number, kind: MediaKind): stri
 const make = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
+  const uuids = yield* Crypto.Crypto;
   const { baseDir } = yield* ServerConfig.ServerConfig;
   const drafts = yield* DraftStore.DraftStore;
   const fail = (operation: string) => (cause: unknown) =>
-    cause instanceof ComposeError
+    isComposeError(cause)
       ? cause
       : new ComposeError({ operation, detail: String(cause).slice(0, 300) });
 
@@ -75,7 +78,7 @@ const make = Effect.gen(function* () {
       const blocked = roomFor(draft, input.blockIndex, input.kind);
       if (blocked !== null)
         return yield* new ComposeError({ operation: "mediaAdd", detail: blocked });
-      const id = crypto.randomUUID();
+      const id = yield* uuids.randomUUIDv4();
       const ext = input.ext.toLowerCase().replace(/[^a-z0-9]/g, "") || "bin";
       const dir = path.join(baseDir, "media", draft.id);
       yield* fs.makeDirectory(dir, { recursive: true });

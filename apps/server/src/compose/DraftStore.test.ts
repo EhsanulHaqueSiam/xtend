@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { describe, expect, it } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -13,7 +14,9 @@ import * as SlotStore from "./SlotStore.ts";
 
 const layerTest = Layer.mergeAll(DraftStore.layer, SlotStore.layer).pipe(
   Layer.provideMerge(SettingsStore.layer),
-  Layer.provideMerge(Layer.mergeAll(Sqlite.layerMemory, TokenCipher.layerTest, Events.layer)),
+  Layer.provideMerge(
+    Layer.mergeAll(Sqlite.layerMemory, NodeCrypto.layer, TokenCipher.layerTest, Events.layer),
+  ),
 );
 
 describe("DraftStore", () => {

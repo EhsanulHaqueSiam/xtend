@@ -1,4 +1,10 @@
-import { type ScoreReport, ScoresError, type XFollower, type XTrend } from "@xtend/contracts";
+import {
+  type ScoreReport,
+  ScoresError,
+  type XFollower,
+  type XTrend,
+  isScoresError,
+} from "@xtend/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -23,7 +29,7 @@ export class Scores extends Context.Service<
 
 // A ScoresError raised inside keeps its own operation; wrapping it would read "run failed: run failed".
 const fail = (operation: string) => (cause: { readonly message: string }) =>
-  cause instanceof ScoresError ? cause : new ScoresError({ operation, detail: cause.message });
+  isScoresError(cause) ? cause : new ScoresError({ operation, detail: cause.message });
 
 const make = Effect.gen(function* () {
   const x = yield* XClient.XClient;

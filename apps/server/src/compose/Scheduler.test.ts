@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { describe, expect, it } from "@effect/vitest";
 import { XApiError } from "@xtend/contracts";
 import * as DateTime from "effect/DateTime";
@@ -51,6 +52,7 @@ const layerTest = Scheduler.layerService.pipe(
   Layer.provideMerge(
     Layer.mergeAll(
       Sqlite.layerMemory,
+      NodeCrypto.layer,
       xStub,
       TokenCipher.layerTest,
       Events.layer,

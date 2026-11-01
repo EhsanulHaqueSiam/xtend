@@ -143,7 +143,7 @@ const layerTest = AutomationEngine.layer.pipe(
           Effect.gen(function* () {
             calls.userPosts++;
             yield* latency;
-            if (fake.failTimeline) return yield* Effect.fail(down);
+            if (fake.failTimeline) return yield* down;
             return {
               items: [...timeline, ...fake.timelineExtra],
               nextCursor: null,

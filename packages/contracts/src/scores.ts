@@ -111,6 +111,8 @@ export class ScoresError extends Schema.TaggedError<ScoresError>()("ScoresError"
   }
 }
 
+export const isScoresError = Schema.is(ScoresError);
+
 export const Scores_METHODS = {
   report: "scores.report",
   run: "scores.run",

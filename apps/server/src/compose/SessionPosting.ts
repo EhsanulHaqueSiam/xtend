@@ -1,5 +1,6 @@
-import { ComposeError, type DesktopUnavailableError } from "@xtend/contracts";
+import { ComposeError, type DesktopUnavailableError, isComposeError } from "@xtend/contracts";
 import * as Context from "effect/Context";
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
@@ -48,7 +49,7 @@ const make = Effect.gen(function* () {
   const desktop = yield* DesktopChannel.DesktopChannel;
   const settings = yield* SettingsStore.SettingsStore;
   const fail = (operation: string) => (cause: { readonly message: string }) =>
-    cause instanceof ComposeError ? cause : new ComposeError({ operation, detail: cause.message });
+    isComposeError(cause) ? cause : new ComposeError({ operation, detail: cause.message });
 
   const requireEnabled = Effect.gen(function* () {
     const { sessionPostingEnabled } = yield* settings.get;
@@ -58,8 +59,7 @@ const make = Effect.gen(function* () {
 
   // Instants of paced writes in the last hour; a thread's blocks are one click and skip this.
   const paced: Array<number> = [];
-  const humanPace = Effect.sync(() => {
-    const now = Date.now();
+  const humanPace = Effect.map(Clock.currentTimeMillis, (now) => {
     while (paced.length > 0 && paced[0]! < now - 3_600_000) paced.shift();
     const last = paced.at(-1);
     if (last !== undefined && now - last < PACE_GAP_MS)

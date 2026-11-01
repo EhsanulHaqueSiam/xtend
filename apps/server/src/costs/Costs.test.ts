@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { describe, expect, it } from "@effect/vitest";
 import { VOICE_MIN_SEEN, type XPost } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
@@ -31,6 +32,7 @@ const layerTest = Costs.layer.pipe(
   Layer.provideMerge(
     Layer.mergeAll(
       Sqlite.layerMemory,
+      NodeCrypto.layer,
       TokenCipher.layerTest,
       Events.layer,
       xClientStub({
@@ -67,6 +69,7 @@ const layerPicks = Layer.mergeAll(Costs.layer, Library.layer).pipe(
   Layer.provideMerge(
     Layer.mergeAll(
       Sqlite.layerMemory,
+      NodeCrypto.layer,
       TokenCipher.layerTest,
       xClientStub({
         searchPosts: () =>

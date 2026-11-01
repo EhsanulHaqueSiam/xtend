@@ -200,15 +200,14 @@ const make = Effect.gen(function* () {
 
   const current = settings.get.pipe(Effect.mapError(fail("settings")));
   const handle = Effect.map(current, (s) => s.handle);
-  const requireHandle = Effect.flatMap(handle, (h) =>
-    h === null
-      ? Effect.fail(
-          new AnalyzeError({
-            operation: "handle",
-            detail: "no X handle yet; it comes from your X session, or set it in Settings",
-          }),
-        )
-      : Effect.succeed(h),
+  const requireHandle = Effect.filterOrFail(
+    handle,
+    (h): h is string => h !== null,
+    () =>
+      new AnalyzeError({
+        operation: "handle",
+        detail: "no X handle yet; it comes from your X session, or set it in Settings",
+      }),
   );
 
   const userPosts = Effect.fn("Analytics.userPosts")(function* (

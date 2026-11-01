@@ -23,7 +23,7 @@ export class Api extends Context.Service<
     readonly url: string;
     readonly call: (method: string, payload: unknown) => Effect.Effect<unknown, ApiError>;
   }
->()("xtend/cli/Api") {}
+>()("xtend/cli/api") {}
 
 /** The service writes its token on first start; sharing the base dir is how a caller is trusted. */
 export const readToken = Effect.fn("Api.readToken")(function* (baseDir: string) {

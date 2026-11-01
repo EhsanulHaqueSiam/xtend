@@ -208,7 +208,7 @@ export const layer = Layer.effect(Pool, make);
 /** A pool that takes nothing and has nothing, for tests and the offline CLI. */
 export const layerNoop = Layer.succeed(Pool)(
   Pool.of({
-    push: () => Effect.void,
+    push: Effect.fnUntraced(function* () {}),
     trends: Effect.fail(new PoolError({ reason: "http", detail: "no pool" })),
   }),
 );

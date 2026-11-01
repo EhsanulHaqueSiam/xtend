@@ -8,6 +8,7 @@ import {
   type NonPublic,
   type WatchEntry,
 } from "@xtend/contracts";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import { expect, it } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
@@ -246,7 +247,7 @@ it("shows the private metrics Fetch now read", async () => {
           current = {
             ...current,
             nonPublic: {
-              lastRun: { at: new Date(NOW).toISOString(), posts: 1, error: null },
+              lastRun: { at: DateTime.formatIso(DateTime.makeUnsafe(NOW)), posts: 1, error: null },
               byPost: [{ ...row, linkClicks: 0, follows: 0, likes: 0, replies: 0, reposts: 0 }],
               nightly: true,
             },

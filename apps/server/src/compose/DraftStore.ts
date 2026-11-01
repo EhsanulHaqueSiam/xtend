@@ -8,8 +8,10 @@ import {
   type DraftStatus,
   type QueueRun,
   ReplySettings,
+  isComposeError,
 } from "@xtend/contracts";
 import * as Context from "effect/Context";
+import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -214,10 +216,11 @@ export class DraftStore extends Context.Service<
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+  const uuids = yield* Crypto.Crypto;
   const events = yield* Events.Events;
   const now = Effect.map(DateTime.now, DateTime.formatIso);
   const fail = (operation: string) => (cause: unknown) =>
-    cause instanceof ComposeError
+    isComposeError(cause)
       ? cause
       : new ComposeError({ operation, detail: String(cause).slice(0, 300) });
   const locked = (operation: string, status: DraftStatus) =>
@@ -277,7 +280,7 @@ const make = Effect.gen(function* () {
 
   const create = Effect.fn("DraftStore.create")(
     function* (patch: DraftPatch) {
-      const id = crypto.randomUUID();
+      const id = yield* uuids.randomUUIDv4();
       const at = yield* now;
       yield* sql`INSERT INTO drafts (id, created_at, updated_at) VALUES (${id}, ${at}, ${at})`;
       return yield* update(id, patch);
