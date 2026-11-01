@@ -1,4 +1,10 @@
-import { ComposeError, type DesktopUnavailableError, isComposeError } from "@xtend/contracts";
+import {
+  ComposeError,
+  type DesktopUnavailableError,
+  type DraftPoll,
+  isComposeError,
+  type ReplySettings,
+} from "@xtend/contracts";
 import * as Context from "effect/Context";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
@@ -15,10 +21,9 @@ const PACE_GAP_MS = 8_000;
 const PACE_PER_HOUR = 30;
 
 /**
- * Posting through the desktop's x.com session view: the free lane for what the user clicks,
- * and the only path for media until treg exposes media upload. Refuses when the user turned
- * session actions off. `paced` writes are held to a human pace so a run of clicks never
- * looks like a script to X.
+ * Posting through the desktop's x.com session view: the free lane for what the user clicks, poll
+ * and reply setting included, and the only path for media until treg uploads it. Refuses while
+ * session actions are off. `paced` writes keep a human pace so clicks never look like a script.
  */
 export class SessionPosting extends Context.Service<
   SessionPosting,
@@ -31,6 +36,9 @@ export class SessionPosting extends Context.Service<
       readonly text: string;
       readonly mediaPaths: ReadonlyArray<string>;
       readonly replyToPostId?: string;
+      /** Picked in X's own composer before Post; X's default (everyone) when absent. */
+      readonly replySettings?: ReplySettings;
+      readonly poll?: DraftPoll;
       readonly paced?: boolean;
     }) => Effect.Effect<{ readonly postId: string }, ComposeError | DesktopUnavailableError>;
     /** Presses X's own like on the post in the session view, at human pace. */
@@ -74,6 +82,8 @@ const make = Effect.gen(function* () {
     readonly text: string;
     readonly mediaPaths: ReadonlyArray<string>;
     readonly replyToPostId?: string;
+    readonly replySettings?: ReplySettings;
+    readonly poll?: DraftPoll;
     readonly paced?: boolean;
   }) {
     yield* requireEnabled.pipe(Effect.mapError(fail("sessionPost")));
@@ -87,6 +97,10 @@ const make = Effect.gen(function* () {
       text: input.text,
       mediaPaths: input.mediaPaths,
       ...(input.replyToPostId === undefined ? {} : { replyToPostId: input.replyToPostId }),
+      ...(input.replySettings === undefined || input.replySettings === "everyone"
+        ? {}
+        : { replySettings: input.replySettings }),
+      ...(input.poll === undefined ? {} : { poll: input.poll }),
     });
     return { postId: result.postId };
   });

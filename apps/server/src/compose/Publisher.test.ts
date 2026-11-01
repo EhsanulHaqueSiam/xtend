@@ -374,19 +374,6 @@ describe("Publisher", () => {
       });
       const out = yield* publisher.post(withImage.id, postNow);
       expect(out.error).toContain("poll cannot share");
-
-      const limited = yield* drafts.create({
-        blocks: [{ text: "pic" }],
-        replySettings: "following",
-      });
-      yield* drafts.mediaInsert(limited.id, {
-        id: "img2",
-        blockIndex: 0,
-        path: "/m/b.png",
-        kind: "image",
-        alt: "",
-      });
-      expect((yield* publisher.post(limited.id, postNow)).error).toContain("limit who replies");
       expect(calls).toHaveLength(0);
       expect(desktopCalls).toHaveLength(0);
     }).pipe(Effect.provide(layerTest)),
@@ -443,13 +430,31 @@ describe("Publisher", () => {
         yield* publisher.post(scheduled.id, { purpose: "plan.scheduler", retry: false });
         expect(calls.map((c) => c.text)).toEqual(["later"]);
 
-        // A poll cannot go through X's composer; it keeps the API even when clicked.
+        // X's own composer sets a poll and who can reply as part of the click, so both stay free.
         const poll = yield* drafts.create({
           blocks: [{ text: "which?" }],
           poll: { options: ["a", "b"], durationMinutes: 60 },
+          replySettings: "following",
         });
-        yield* publisher.post(poll.id, { ...postNow, clicked: true });
-        expect(calls.map((c) => c.text)).toEqual(["later", "which?"]);
+        desktopCalls.length = 0;
+        yield* publisher.post(poll.id, { ...postNow, clicked: true, sessionOnly: true });
+        expect(desktopCalls).toEqual([
+          {
+            type: "sessionPost",
+            text: "which?",
+            mediaPaths: [],
+            replySettings: "following",
+            poll: { options: ["a", "b"], durationMinutes: 60 },
+          },
+        ]);
+        // Unattended, the same draft takes the API with both settings.
+        const later = yield* drafts.create({
+          blocks: [{ text: "vote later" }],
+          poll: { options: ["a", "b"], durationMinutes: 60 },
+        });
+        yield* publisher.post(later.id, { purpose: "plan.scheduler", retry: false });
+        expect(calls.map((c) => c.text)).toEqual(["later", "vote later"]);
+        expect(desktopCalls).toHaveLength(1);
       }).pipe(Effect.provide(layerTest)),
   );
 
@@ -513,8 +518,8 @@ describe("Publisher", () => {
       expect(calls).toEqual([{ text: "plain", replyToPostId: "10" }]);
       expect(on.postIds).toEqual(["10", "1"]);
 
-      // A post may be only its image.
-      const photo = yield* drafts.create({ blocks: [{ text: "" }] });
+      // A post may be only its image, and X's composer limits who replies to it.
+      const photo = yield* drafts.create({ blocks: [{ text: "" }], replySettings: "verified" });
       yield* drafts.mediaInsert(photo.id, {
         id: "p",
         blockIndex: 0,
@@ -523,6 +528,12 @@ describe("Publisher", () => {
         alt: "",
       });
       expect((yield* publisher.post(photo.id, postNow)).status).toBe("posted");
+      expect(desktopCalls.at(-1)).toEqual({
+        type: "sessionPost",
+        text: "",
+        mediaPaths: ["/m/p.png"],
+        replySettings: "verified",
+      });
     }).pipe(Effect.provide(layerTest)),
   );
 });

@@ -5,7 +5,6 @@ import {
   type DraftMedia,
   postCostUsd,
   type RateCard,
-  type ReplySettings,
 } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 
@@ -28,14 +27,11 @@ export const postCosts = (
   blocks: ReadonlyArray<DraftBlock>,
   media: ReadonlyArray<Pick<DraftMedia, "blockIndex">>,
   quoteUrl: string | null,
-  /** A clicked post's text goes through the user's session (free), as Publisher sends it. */
-  sessionText = false,
-  /** The draft's reply control; X's composer has none, so a restricted block keeps the API. */
-  replySettings: ReplySettings = "everyone",
+  /** A clicked post goes through the user's session (free), poll and reply setting too, as Publisher sends it. */
+  sessionClick = false,
 ) =>
   blocks.map((b, i) =>
-    media.some((m) => m.blockIndex === i) ||
-    (sessionText && (b.replySettings ?? replySettings) === "everyone")
+    sessionClick || media.some((m) => m.blockIndex === i)
       ? 0
       : postCostUsd(rates, i === 0 && quoteUrl !== null ? `${b.text} ${quoteUrl}` : b.text),
   );
@@ -58,14 +54,5 @@ export function useDraftCost(clicked = false) {
         : quote.articleUsd * 2
       : rates === null
         ? null
-        : sumUsd(
-            postCosts(
-              rates,
-              d.blocks,
-              d.media,
-              d.quoteUrl,
-              clicked && lane && d.poll === null,
-              d.replySettings,
-            ),
-          );
+        : sumUsd(postCosts(rates, d.blocks, d.media, d.quoteUrl, clicked && lane));
 }
