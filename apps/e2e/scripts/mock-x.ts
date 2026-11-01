@@ -18,6 +18,7 @@ if (process.argv.includes("--desktop")) {
   desktop = NodeChildProcess.spawn("pnpm", ["dev:desktop"], {
     cwd: NodePath.resolve(import.meta.dirname, "../../.."),
     stdio: "inherit",
+    // With XTEND_MOCK_X, main takes a fresh profile of its own and never hands over to a running Xtend.
     env: { ...process.env, XTEND_MOCK_X: mock.url },
   });
   desktop.on("exit", (code) => void mock.close().then(() => process.exit(code ?? 0)));

@@ -157,7 +157,10 @@ test("A post's ... lists mock X's own rows, read and closed on the engine, and R
   }>;
   await e.app.locator(`main [data-post="${id}"] button[aria-label="More"]`).click();
   await expect.poll(appMenuRows).toEqual(expect.arrayContaining(want.map((r) => r.label)));
-  expect(presses()).toEqual(expect.arrayContaining([`press menu:post:${id}`, "press menu:closed"]));
+  // The mock page logs a press over HTTP, a moment after it happened.
+  await expect
+    .poll(presses)
+    .toEqual(expect.arrayContaining([`press menu:post:${id}`, "press menu:closed"]));
   expect(await engineHas('[data-testid="Dropdown"]')).toBe(false);
 
   await e.app.getByRole("menuitem", { name: "Report post", exact: true }).click();

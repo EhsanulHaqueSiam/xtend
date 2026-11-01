@@ -155,6 +155,9 @@ export const app = Object.assign(new NodeEvents.EventEmitter(), {
   getVersion: () => "0.0.1",
   relaunched: 0,
   quits: 0,
+  exits: [] as Array<number>,
+  /** Whether this launch gets the single-instance lock; false plays a running Xtend holding it. */
+  instanceLock: true,
   commandLine: { appendSwitch: () => {} },
   getPath: (name: string) => (name === "userData" ? userData.path : `/tmp/fake-${name}`),
   setPath: (name: string, value: string) => {
@@ -162,13 +165,18 @@ export const app = Object.assign(new NodeEvents.EventEmitter(), {
   },
   getPreferredSystemLanguages: () => ["en-US"],
   setAsDefaultProtocolClient: () => {},
-  requestSingleInstanceLock: () => true,
+  requestSingleInstanceLock() {
+    return this.instanceLock;
+  },
   whenReady: () => Promise.resolve(),
   relaunch() {
     this.relaunched++;
   },
   quit() {
     this.quits++;
+  },
+  exit(code = 0) {
+    this.exits.push(code);
   },
 });
 
@@ -183,6 +191,8 @@ export const reset = () => {
   app.removeAllListeners();
   app.relaunched = 0;
   app.quits = 0;
+  app.exits = [];
+  app.instanceLock = true;
   BrowserWindow.all.length = 0;
   sessions.clear();
 };

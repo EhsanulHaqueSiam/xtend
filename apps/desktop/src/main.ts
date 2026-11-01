@@ -38,9 +38,19 @@ const baseDir = NodePath.resolve(
     NodePath.join(NodeOS.homedir(), ".xtend"),
 );
 
-// Smoke runs and tests keep their window config, sessions and cookies apart from the user's.
-const userDataOverride = process.env.XTEND_USER_DATA;
+// Dev and tests only: the session view's x.com answered by mock X on this machine.
+const mockX = mockXOrigin(process.env.XTEND_MOCK_X, app.isPackaged);
+if (mockX !== null) log("x.com is mock X", mockX);
+
+// Smoke runs and tests keep their window config, sessions and cookies apart from the user's. Mock
+// X always gets a fresh profile of its own, so it never shares a lock with a running Xtend.
+const userDataOverride =
+  mockX === null
+    ? process.env.XTEND_USER_DATA
+    : NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "xtend-mock-x-"));
 if (userDataOverride !== undefined && !app.isPackaged) app.setPath("userData", userDataOverride);
+if (mockX !== null)
+  app.on("will-quit", () => NodeFS.rmSync(userDataOverride!, { recursive: true, force: true }));
 
 // The desktop's own config (which service to use) lives in userData, never in the service DB.
 const configFile = NodePath.join(app.getPath("userData"), "config.json");
@@ -49,9 +59,6 @@ const configFile = NodePath.join(app.getPath("userData"), "config.json");
 const remote = process.env.XTEND_SERVICE_URL === undefined ? readRemote(configFile) : null;
 const serviceUrl = process.env.XTEND_SERVICE_URL ?? remote?.url ?? "http://127.0.0.1:4820";
 const appUrl = process.env.XTEND_DEV_URL ?? serviceUrl;
-// Dev and tests only: the session view's x.com answered by mock X on this machine.
-const mockX = mockXOrigin(process.env.XTEND_MOCK_X, app.isPackaged);
-if (mockX !== null) log("x.com is mock X", mockX);
 
 // The service writes auth-token on first start; sharing its base dir is how the desktop is trusted.
 const readServiceToken = (): string => {
@@ -170,7 +177,11 @@ const handleDeepLink = (url: string) => {
   openRoute(route);
 };
 const primary = app.requestSingleInstanceLock();
-if (!primary) app.quit();
+// A mock X desktop never hands over to another instance: its window would act on that one's X.
+if (!primary && mockX !== null) {
+  log("mock X will not hand over to a running Xtend; quit it or start mock X on its own profile");
+  app.exit(1);
+} else if (!primary) app.quit();
 app.on("second-instance", (_event, argv) => {
   const link = argv.find((a) => a.startsWith("xtend://"));
   if (link !== undefined) handleDeepLink(link);

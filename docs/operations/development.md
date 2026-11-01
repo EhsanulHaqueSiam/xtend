@@ -221,7 +221,8 @@ Post activity, the Follow page) with X's markup and test ids, X's client-side ro
 cache, and X's GraphQL answers built from the made-up people and posts of `synth()`. Presses
 change its state and land in a press log; nothing is sent anywhere, and its images are `data:`
 URLs. `XTEND_MOCK_X=<origin>` on an unpackaged desktop serves `https://x.com` from it on the
-in-memory `x-mock` partition, so main's gating and capture run unchanged and no request leaves
+in-memory `x-mock` partition, on a fresh temporary profile each launch (it never hands over to a
+running Xtend), so main's gating and capture run unchanged and no request leaves
 the machine; a packaged build ignores it.
 
 - `pnpm mock-x --desktop` (with `pnpm dev` running) opens the dev desktop on mock X: UI work on X

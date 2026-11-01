@@ -1,3 +1,4 @@
+import * as NodeFSP from "node:fs/promises";
 import * as NodeModule from "node:module";
 import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
@@ -11,7 +12,7 @@ const DESKTOP = NodeURL.fileURLToPath(new URL("../../../desktop/", import.meta.u
 
 /**
  * The built desktop on mock X: the real service (fake treg) on a temp base dir, mock X, and
- * Electron with `XTEND_MOCK_X`, its own user data and no X account. `app` is the window's app
+ * Electron with `XTEND_MOCK_X` (main gives it a fresh profile) and no X account. `app` is the window's app
  * page; `engine(code)` runs a script in the x.com webview, as Xtend's engine scripts do.
  */
 export const startEngine = () =>
@@ -33,7 +34,6 @@ export const startEngine = () =>
       env: {
         ...env,
         XTEND_HOME: service.baseDir,
-        XTEND_USER_DATA: NodePath.join(dir, "user-data"),
         XTEND_SERVICE_URL: service.url,
         XTEND_SERVICE_TOKEN: service.token,
         XTEND_MOCK_X: mock.url,
@@ -42,6 +42,9 @@ export const startEngine = () =>
       timeout: 30_000,
     });
     // Playwright stops Electron by the process it started, never by name.
+    // Main's own fresh profile for mock X; Playwright stops Electron before main can remove it.
+    const profile = await electron.evaluate(({ app }) => app.getPath("userData"));
+    undo.push(() => NodeFSP.rm(profile, { recursive: true, force: true }));
     undo.push(() => electron.close());
     const app: Page = await electron.firstWindow();
     app.setDefaultTimeout(10_000);
