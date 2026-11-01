@@ -126,25 +126,31 @@ export const xScrollMore = () =>
   xRun(`(async () => {
     const path = location.pathname + location.search;
     const run = window.__xtendScroll = (window.__xtendScroll ?? 0) + 1;
-    const current = () => window.__xtendScroll === run && !window.__xtendMenus && location.pathname + location.search === path;
-    if (!current()) return false;
+    const current = () => window.__xtendScroll === run && location.pathname + location.search === path;
+    // Virtuoso asks once per length: keep its request alive while a trend lookup owns the scroll.
+    const resume = async () => {
+      for (let i = 0; i < 80 && current() && window.__xtendTrendLookups; i++)
+        await new Promise((r) => setTimeout(r, 100));
+      return current() && !window.__xtendTrendLookups;
+    };
+    if (!current() || (window.__xtendTrendLookups && !(await resume()))) return false;
     // A people list (reposters, search People) has no posts: without its rows this never sees X's
     // next page land and keeps scrolling, so X fetches page after page.
     const last = () => [...document.querySelectorAll('article a[href*="/status/"] time, [data-testid="UserCell"] a[href^="/"]')].at(-1)?.closest("a")?.getAttribute("href");
     window.scrollTo(0, document.documentElement.scrollHeight);
     await new Promise((r) => setTimeout(r, 300));
-    if (!current()) return false;
+    if (!current() || (window.__xtendTrendLookups && !(await resume()))) return false;
     const before = last();
     for (let attempt = 0; attempt < 4; attempt++) {
       for (let i = 0; i < 15; i++) {
         await new Promise((r) => setTimeout(r, 250));
-        if (!current()) return false;
+        if (!current() || (window.__xtendTrendLookups && !(await resume()))) return false;
         window.scrollTo(0, document.documentElement.scrollHeight);
         if (last() !== before) return true;
       }
       window.scrollBy(0, -window.innerHeight);
       await new Promise((r) => setTimeout(r, 300));
-      if (!current()) return false;
+      if (!current() || (window.__xtendTrendLookups && !(await resume()))) return false;
     }
     return false;
   })()`);
@@ -288,23 +294,38 @@ const profileMenuAt = (handle: string): MenuAt => ({
  */
 const trendMenuAt = (name: string): MenuAt => ({
   find: (current) => `
-    // X's name line is bold; its context can contain another trend's name too.
-    const named = (c) => [...c.querySelectorAll("span")].some((s) => Number(getComputedStyle(s).fontWeight) >= 600 && s.textContent.trim() === ${JSON.stringify(name)});
-    const own = () => [...document.querySelectorAll('[data-testid="trend"]')].find(named) ?? null;
+    // X's name line is bold; emoji may be images, and context can name a different trend.
+    const trendText = (s) => {
+      const copy = s.cloneNode(true);
+      for (const img of copy.querySelectorAll("img[alt]")) img.replaceWith(img.alt);
+      return copy.textContent.trim();
+    };
+    const named = (c) => [...c.querySelectorAll("span")].some((s) => Number(getComputedStyle(s).fontWeight) >= 600 && trendText(s) === ${JSON.stringify(name)});
+    const cells = () => [...document.querySelectorAll('[data-testid="trend"]')];
+    const own = () => cells().find(named) ?? null;
     const trendPath = location.pathname + location.search;
     let trend = trendPath.startsWith("/explore") ? own() : null;
     if (!trend && trendPath.startsWith("/explore") && (${current})) {
-      window.scrollTo({ top: 0, behavior: "instant" });
-      let stalled = 0;
-      for (let i = 0; i < 40 && !trend && (${current}) && location.pathname + location.search === trendPath; i++) {
-        await new Promise((r) => setTimeout(r, 150));
-        if (!(${current}) || location.pathname + location.search !== trendPath) break;
-        trend = own();
-        if (trend) break;
-        const before = window.scrollY;
-        window.scrollBy({ top: Math.max(200, window.innerHeight * 0.75), behavior: "instant" });
-        stalled = before === window.scrollY ? stalled + 1 : 0;
-        if (stalled >= 14) break;
+      window.__xtendTrendLookups = (window.__xtendTrendLookups ?? 0) + 1;
+      try {
+        window.scrollTo({ top: 0, behavior: "instant" });
+        let end = null, stalled = 0;
+        for (let i = 0; i < 40 && !trend; i++) {
+          await new Promise((r) => setTimeout(r, 150));
+          if (!(${current}) || location.pathname + location.search !== trendPath) break;
+          const drawn = cells();
+          trend = drawn.find(named) ?? null;
+          if (trend) break;
+          for (const c of drawn) end = Math.max(end ?? 0, window.scrollY + c.getBoundingClientRect().bottom);
+          // Wait at the mounted edge for virtualization; never scroll on into For you's posts.
+          const before = window.scrollY;
+          if (end !== null && before < end - 1)
+            window.scrollBy({ top: Math.ceil(Math.min(Math.max(200, window.innerHeight * 0.75), end - before)), behavior: "instant" });
+          stalled = before === window.scrollY ? stalled + 1 : 0;
+          if (stalled >= 14) break;
+        }
+      } finally {
+        window.__xtendTrendLookups--;
       }
     }`,
   root: "trend",
@@ -320,17 +341,25 @@ const openMenu = (at: MenuAt, mine = "true") => `
     ${at.find(mine)}
     const trigger = ${at.root}?.querySelector(${JSON.stringify(at.trigger)});
     if (!trigger || !(${mine})) return null;
+    const previous = new Set(document.querySelectorAll('[role="menu"]'));
     trigger.click();
+    const findOpened = () => {
+      const controlled = trigger.getAttribute("aria-controls")?.split(" ").map((id) => document.getElementById(id)?.closest('[role="menu"]')).find(Boolean);
+      if (controlled) return controlled;
+      const added = [...document.querySelectorAll('[role="menu"]')].filter((m) => !previous.has(m));
+      return added.length === 1 ? added[0] : null;
+    };
+    let opened = findOpened();
     let items = [];
     for (let i = 0; i < 20 && items.length === 0; i++) {
       await new Promise((r) => setTimeout(r, 100));
       // The user moved on: any menu now showing is theirs, not this step's.
-      if (!(${mine})) return null;
-      items = [...document.querySelectorAll('[data-testid="Dropdown"] [role="menuitem"]')];
+      if (!(${mine}) || (opened && !opened.isConnected)) return null;
+      opened ??= findOpened();
+      items = [...(opened?.querySelectorAll('[role="menuitem"]') ?? [])];
     }
-    // X closes its menu on a click outside it, on the mask drawn beside it; Escape from a script
-    // does not. Only the menu this step opened, and only while the step is still the user's.
-    const opened = items[0]?.closest('[role="menu"]') ?? null;
+    // X closes its menu on the mask beside it. Keep this menu's reference so another step's
+    // dropdown can never supply rows or be closed by this one.
     const closeMenu = () => {
       if (!opened?.isConnected || !(${mine})) return;
       [...(opened.parentElement?.children ?? [])].find((k) => k !== opened && k.getBoundingClientRect().height > 0)?.click();
@@ -353,28 +382,17 @@ export type XMenuOutcome =
   /** X opened its own dialog or page (Report, Block, Delete, Send via Chat) at `path`'s page. */
   | { readonly kind: "over"; readonly path: string };
 
-/** Menu lookups own X's scroll while finding a virtualized row; paging must not pull it away. */
-const xMenuRun = (step: string) =>
-  xRun(`(async () => {
-    window.__xtendScroll = (window.__xtendScroll ?? 0) + 1;
-    window.__xtendMenus = (window.__xtendMenus ?? 0) + 1;
-    try {
-      ${step}
-    } finally {
-      window.__xtendMenus--;
-    }
-  })()`);
-
 /** X's menu `at`, read on the engine page: its rows' labels, in X's order. */
 const xMenuInPlace = (at: MenuAt, run?: number) => {
-  // Read for a press: once the user moved on, X's page is theirs, so nothing opens or counts.
-  const mine = run === undefined ? "true" : stillMine(run);
-  return xMenuRun(`
+  // A slow read must not borrow or close a newer menu, and reading never supersedes a press.
+  const mine = `(window.__xtendMenuRead === read && ${run === undefined ? "true" : stillMine(run)})`;
+  return xRun(`(async () => {
+    const read = window.__xtendMenuRead = (window.__xtendMenuRead ?? 0) + 1;
     ${openMenu(at, mine)}
     const labels = items.map((i) => i.textContent.trim());
     closeMenu();
     return ${mine} ? labels : null;
-  `).then((labels) =>
+  })()`).then((labels) =>
     Array.isArray(labels) && labels.every((l) => typeof l === "string")
       ? (labels as ReadonlyArray<string>)
       : null,
@@ -390,7 +408,7 @@ const menuDone = (at: MenuAt, current = "true") => `
 
 /** Presses row `label` of X's menu `at` on the engine page. Null when it is not there. */
 const xMenuPressInPlace = (at: MenuAt, label: string, run: number) =>
-  xMenuRun(`
+  xRun(`(async () => {
     ${openMenu(at, stillMine(run))}
     const item = items.find((i) => i.textContent.trim() === ${JSON.stringify(label)});
     if (!item || !${stillMine(run)}) return (closeMenu(), null);
@@ -401,7 +419,7 @@ const xMenuPressInPlace = (at: MenuAt, label: string, run: number) =>
     if (${stillMine(run)} && (location.pathname + location.search !== path || document.querySelector('[role="dialog"], [role="alertdialog"]')))
       return { kind: "over", path };
     ${menuDone(at, stillMine(run))}
-  `).then((outcome) => (outcome === null ? null : (outcome as XMenuOutcome)));
+  })()`).then((outcome) => (outcome === null ? null : (outcome as XMenuOutcome)));
 
 /**
  * Runs `step` where X shows what it acts on: in place on the engine page, or on `page` (its own
@@ -464,7 +482,9 @@ let overRun = 0;
 /** Starts a new press: the latest one, in Xtend and in X's page alike. */
 const nextRun = async () => {
   const run = ++overRun;
-  await xRun(`window.__xtendPress = ${run}, true`);
+  await xRun(
+    `window.__xtendMenuRead = (window.__xtendMenuRead ?? 0) + 1, window.__xtendPress = ${run}, true`,
+  );
   return run;
 };
 
@@ -676,10 +696,10 @@ export const xTrendMenuPress = async (
   const run = overRun;
   const outcome = await pressing;
   if (outcome?.kind !== "over" || run !== overRun) return outcome;
-  return xMenuRun(`
+  return xRun(`(async () => {
     ${at.find(stillMine(run))}
     ${menuDone(at, stillMine(run))}
-  `).then((done) => (done === null ? null : (done as XMenuOutcome)));
+  })()`).then((done) => (done === null ? null : (done as XMenuOutcome)));
 };
 
 /** Presses X's own row `label` of a post's `menu` for the user's click (see `pressMenu`). */
