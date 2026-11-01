@@ -72,7 +72,8 @@ const CURSORS = new Set(["key", "top", "bottom", "cursor"]);
 // X's search operators that take an account, a post or a list, and links that name one.
 const QUERY_IDS: ReadonlyArray<[RegExp, string]> = [
   [/\b(from|to|conversation_id|quoted_tweet_id|list|url):\d+/i, "an operator naming an id"],
-  [/(^|\s)@\d+\b/, "an account by id"],
+  // A mention starts after anything but a word character: space, "(", a quote, a comma.
+  [/(?<!\w)@\d+\b/, "an account by id"],
   [/(x|twitter)\.com\/[^\s]*\/status(es)?\/\d+/i, "a post's link"],
   [/(x|twitter)\.com\/i\/(user|web\/status)\/\d+|user_id=\d+/i, "an account's link by id"],
   [/\d{8,}/, "an id-length number"],

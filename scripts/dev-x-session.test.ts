@@ -8,6 +8,7 @@ import { expect, it } from "vite-plus/test";
 import {
   copyPartition,
   forget,
+  sweepScratch,
   install,
   inside,
   installedProfile,
@@ -144,8 +145,33 @@ it("keeps the backup when it cannot be put back, and says where it is", () => {
   }
   const backup = NodeFS.readdirSync(NodePath.dirname(to)).find((n) => n.includes(".old-"));
   expect(backup).toBeDefined();
-  expect(message).toContain(`kept at ${NodePath.join(NodePath.dirname(to), backup!)}`);
+  expect(message).toContain(
+    `the previous session at ${NodePath.join(NodePath.dirname(to), backup!)}`,
+  );
   expect(holder(NodePath.join(NodePath.dirname(to), backup!))).toBe("original");
+});
+
+it("keeps both copies when a desktop recreates the partition just as its holder check fails", () => {
+  const to = NodePath.join(temp(), "x-session");
+  NodeFS.renameSync(staged(to, "original"), to);
+  const copy = staged(to, "new");
+  let message = "";
+  try {
+    install(copy, to, {
+      ready: () => {
+        partition(to, [{ name: "guest_id", expires: FAR }]);
+        throw new Error("a desktop started");
+      },
+    });
+  } catch (error) {
+    message = (error as Error).message;
+  }
+  const backup = NodeFS.readdirSync(NodePath.dirname(to)).find((n) => n.includes(".old-"));
+  expect(holder(NodePath.join(NodePath.dirname(to), backup!))).toBe("original");
+  expect(holder(copy)).toBe("new");
+  expect(message).toContain(copy);
+  expect(message).toContain(backup!);
+  expect(signedIn(to)).toBe(false);
 });
 
 it("leaves a signed-out partition a desktop made meanwhile, and keeps both copies", () => {
@@ -196,8 +222,46 @@ it("clears a dead copy's leftovers once they are old, restores a lone backup, an
   expect(signedIn(to)).toBe(true);
   expect(NodeFS.existsSync(`${to}.copying-dead01.owner`)).toBe(false);
 
-  expect(forget(to).length).toBeGreaterThan(0);
+  expect(forget(to, []).length).toBeGreaterThan(0);
   expect(NodeFS.readdirSync(dir)).toEqual([]);
+});
+
+it("forgets nothing through a symlink or inside a protected profile", () => {
+  const root = temp();
+  const installed = NodePath.join(root, "Xtend");
+  const live = signedIn_(NodePath.join(installed, "Partitions", "x-session"));
+  // ~/.xtend-dev pointed at the installed profile's partitions.
+  const dev = NodePath.join(root, "xtend-dev");
+  NodeFS.symlinkSync(NodePath.join(installed, "Partitions"), dev);
+  expect(() => forget(NodePath.join(dev, "x-session"), [installed])).toThrow("symlink");
+  expect(() => forget(live, [installed])).toThrow("inside");
+  expect(signedIn(live, 0)).toBe(true);
+});
+
+it("leaves no cookie copy behind when reading a partition fails, and clears a dead reader's", () => {
+  const ours = () =>
+    NodeFS.readdirSync(NodeOS.tmpdir()).filter((n) =>
+      n.startsWith(`xtend-cookies-${process.pid}-`),
+    );
+  const before = ours().length;
+  const broken = signedIn_(NodePath.join(temp(), "p"));
+  // The WAL vanishing mid-copy, as a directory where a file was.
+  NodeFS.mkdirSync(NodePath.join(broken, "Cookies-wal"));
+  expect(() => loginExpiry(broken)).toThrow();
+  expect(ours()).toHaveLength(before);
+
+  const dir = temp();
+  const dead = NodePath.join(dir, "xtend-cookies-41-abcdef");
+  const live = NodePath.join(dir, "xtend-cookies-42-abcdef");
+  NodeFS.mkdirSync(dead);
+  NodeFS.mkdirSync(live);
+  const made = NodeFS.statSync(live).mtimeMs;
+  const reader = (pid: number) =>
+    pid === 42
+      ? { start: made - 1_000, command: "node scripts/dev-x-session.ts status" }
+      : ("gone" as const);
+  expect(sweepScratch(dir, made, reader)).toEqual([dead]);
+  expect(NodeFS.existsSync(live)).toBe(true);
 });
 
 it("will not install a saved session whose login expired", () => {

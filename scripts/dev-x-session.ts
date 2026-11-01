@@ -170,24 +170,27 @@ export function install(
       rename(staging, to);
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
-      if (code === "ENOTEMPTY" || code === "EEXIST") {
-        if (complete(to)) return;
-        keep = true;
-        throw new Error(
-          `${to} appeared while installing and holds no usable session: a desktop probably started meanwhile. Nothing was removed: this copy is at ${staging}${movedAside ? `, the previous session at ${old}` : ""}.`,
-          { cause: error },
-        );
+      const appeared = code === "ENOTEMPTY" || code === "EEXIST";
+      // Another copy's validated install stands, and makes this copy's files redundant.
+      if (complete(to)) {
+        if (appeared) return;
+        throw error;
       }
-      if (movedAside && !NodeFS.existsSync(to)) {
+      let restored = false;
+      if (movedAside && !NodeFS.existsSync(to))
         try {
           rename(old, to);
+          restored = true;
         } catch {
-          keep = true;
-          throw new Error(
-            `installing ${to} failed and the previous session could not be put back; it is kept at ${old}.`,
-            { cause: error },
-          );
+          // Kept below.
         }
+      // Whatever now sits at `to` (nothing, or a desktop's fresh profile) is no session: keep ours.
+      if (appeared || (movedAside && !restored)) {
+        keep = true;
+        throw new Error(
+          `installing ${to} failed${NodeFS.existsSync(to) ? " and it holds no usable session (a desktop probably started meanwhile)" : ""}. Nothing was removed: this copy is at ${staging}${movedAside ? `, the previous session at ${old}` : ""}.`,
+          { cause: error },
+        );
       }
       throw error;
     }
@@ -254,19 +257,25 @@ export function sweep(
   return removed;
 }
 
-/** Removes `to` and everything a copy into it ever left beside it. */
-export function forget(to: string) {
+/**
+ * Removes `to` and everything a copy into it ever left beside it, after the same checks as a
+ * write: no symlink on the way, nothing inside a protected profile, or nothing is removed.
+ */
+export function forget(to: string, protectedDirs?: ReadonlyArray<string>) {
   const dir = NodePath.dirname(to);
   const base = NodePath.basename(to);
+  refuseDestination(to, [dir], protectedDirs);
   let names: Array<string> = [];
   try {
     names = NodeFS.readdirSync(dir).filter((n) => n === base || n.startsWith(`${base}.`));
   } catch {
     return [];
   }
-  for (const name of names)
-    NodeFS.rmSync(NodePath.join(dir, name), { recursive: true, force: true });
-  return names.map((n) => NodePath.join(dir, n));
+  const paths = names.map((n) => NodePath.join(dir, n));
+  for (const path of paths) refuseDestination(path, [], protectedDirs);
+  for (const path of paths) NodeFS.rmSync(path, { recursive: true, force: true });
+  sweepScratch();
+  return paths;
 }
 
 /**
@@ -285,6 +294,7 @@ export function copyPartition(
     throw new Error(`${from} has no Cookies file; is it an x.com partition?`);
   NodeFS.mkdirSync(NodePath.dirname(to), { recursive: true, mode: 0o700 });
   sweep(to);
+  sweepScratch();
   const staging = NodeFS.mkdtempSync(`${to}.copying-`);
   NodeFS.writeFileSync(ownerFile(staging), JSON.stringify({ pid: process.pid, at: Date.now() }));
   try {
@@ -340,23 +350,58 @@ export function useSaved(userData: string, saved = SAVED) {
  */
 export function loginExpiry(partition: string): Date | undefined {
   if (!NodeFS.existsSync(NodePath.join(partition, "Cookies"))) return undefined;
-  const scratch = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "xtend-cookies-"));
-  for (const name of NodeFS.readdirSync(partition).filter((n) => n.startsWith("Cookies")))
-    NodeFS.copyFileSync(NodePath.join(partition, name), NodePath.join(scratch, name));
-  const db = new NodeSqlite.DatabaseSync(NodePath.join(scratch, "Cookies"));
+  // Named for its owner, so sweep and forget clear one a crash left (it holds the cookies).
+  const scratch = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), `${SCRATCH}${process.pid}-`));
   try {
-    const query = db.prepare(
-      "SELECT max(expires_utc) AS expires FROM cookies WHERE name = 'auth_token' AND host_key LIKE '%x.com'",
-    );
-    // Chromium counts microseconds from 1601-01-01, past what a JS number holds exactly.
-    query.setReadBigInts(true);
-    const row = query.get() as { expires: bigint | null } | undefined;
-    if (row?.expires == null) return undefined;
-    return new Date(Number(row.expires / 1000n) - 11_644_473_600_000);
+    for (const name of NodeFS.readdirSync(partition).filter((n) => n.startsWith("Cookies")))
+      NodeFS.copyFileSync(NodePath.join(partition, name), NodePath.join(scratch, name));
+    const db = new NodeSqlite.DatabaseSync(NodePath.join(scratch, "Cookies"));
+    try {
+      const query = db.prepare(
+        "SELECT max(expires_utc) AS expires FROM cookies WHERE name = 'auth_token' AND host_key LIKE '%x.com'",
+      );
+      // Chromium counts microseconds from 1601-01-01, past what a JS number holds exactly.
+      query.setReadBigInts(true);
+      const row = query.get() as { expires: bigint | null } | undefined;
+      if (row?.expires == null) return undefined;
+      return new Date(Number(row.expires / 1000n) - 11_644_473_600_000);
+    } finally {
+      db.close();
+    }
   } finally {
-    db.close();
     NodeFS.rmSync(scratch, { recursive: true, force: true });
   }
+}
+
+const SCRATCH = "xtend-cookies-";
+
+/**
+ * Removes cookie scratch dirs in `dir` whose owner is gone, or is another program by now and
+ * the dir is older than LEFTOVER_MS. A live owner's dir is in use and its own `finally` clears it.
+ */
+export function sweepScratch(
+  dir = NodeOS.tmpdir(),
+  now = Date.now(),
+  info: (pid: number) => ReturnType<typeof processInfo> = processInfo,
+) {
+  let names: Array<string>;
+  try {
+    names = NodeFS.readdirSync(dir).filter((n) => n.startsWith(SCRATCH));
+  } catch {
+    return [];
+  }
+  const removed: Array<string> = [];
+  for (const name of names) {
+    const pid = Number(/^xtend-cookies-(\d+)-/.exec(name)?.[1]);
+    const path = NodePath.join(dir, name);
+    const made = NodeFS.lstatSync(path, { throwIfNoEntry: false })?.mtimeMs ?? now;
+    const state = Number.isInteger(pid) ? verdict(info(pid), made, COMMANDS.copy) : "dead";
+    if (state === "dead" || (state === "stale" && now - made > LEFTOVER_MS)) {
+      NodeFS.rmSync(path, { recursive: true, force: true });
+      removed.push(path);
+    }
+  }
+  return removed;
 }
 
 /** A login that still works: an auth_token that expires after `now`. */

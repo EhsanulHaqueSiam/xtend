@@ -189,6 +189,10 @@ it("reads a search query as text, except where it names an account or a post", (
     "from:44196397",
     "to:12 launch",
     "@44196397 thanks",
+    "(@4419639)",
+    '"@4419639"',
+    "launch,@4419639",
+    "(from:me OR @12)",
     "conversation_id:1985123456789012345",
     "quoted_tweet_id:1985123456789",
     "list:1234567",
@@ -205,6 +209,7 @@ it("reads a search query as text, except where it names an account or a post", (
     "top 10 tools",
     "from:mira_brandt",
     "since:2026-01-01",
+    "mail me at team@2026",
     "100k followers 1234567",
   ])
     expect(search(query), query).toBeUndefined();
