@@ -174,7 +174,7 @@ export type XAction = keyof typeof BUTTONS;
  * A script for X's page: presses the button `testid` inside `scope` (an expression evaluating to
  * an element or null), presses X's confirm when it asks, then waits for the button to turn into
  * `turns`. X turns it at once and saves a moment later; leaving the page before then would cancel
- * the save, so it also gives the request time to go out. Resolves to whether it pressed.
+ * the save, so it also gives the request time to go out. Resolves to whether X took it.
  */
 const pressScript = (scope: string, testid: string, turns: string, confirm: string | undefined) => `
     const scope = ${scope};
@@ -190,10 +190,14 @@ const pressScript = (scope: string, testid: string, turns: string, confirm: stri
       if (!confirm) return false;
       confirm.click();
     }
-    for (let i = 0; i < 30 && !scope.querySelector('[data-testid="${turns}"]'); i++)
-      await new Promise((r) => setTimeout(r, 100));
+    // X turns the button at once when it takes the press; one it refuses stays as it was. X may
+    // draw the turned button anew, outside the scope the press began in.
+    const turned = () =>
+      !!scope.querySelector('[data-testid="${turns}"]') ||
+      (!scope.isConnected && !!document.querySelector('[data-testid="${turns}"]'));
+    for (let i = 0; i < 30 && !turned(); i++) await new Promise((r) => setTimeout(r, 100));
     await new Promise((r) => setTimeout(r, 1000));
-    return true;`;
+    return turned();`;
 
 /**
  * Presses X's own button for the user's click, on the engine page where the post already sits,
@@ -266,10 +270,10 @@ const profileMenuAt = (handle: string): MenuAt => ({
  * A script step that opens X's menu `at` and sets `items` to its rows once drawn; the step after
  * it closes the menu (`closeMenu`) or presses a row.
  */
-const openMenu = (at: MenuAt) => `
+const openMenu = (at: MenuAt, mine = "true") => `
     ${at.find}
     const trigger = ${at.root}?.querySelector(${JSON.stringify(at.trigger)});
-    if (!trigger) return null;
+    if (!trigger || !(${mine})) return null;
     trigger.click();
     let items = [];
     for (let i = 0; i < 20 && items.length === 0; i++) {
@@ -290,17 +294,20 @@ export type XMenuOutcome =
   | { readonly kind: "over"; readonly path: string };
 
 /** X's menu `at`, read on the engine page: its rows' labels, in X's order. */
-const xMenuInPlace = (at: MenuAt) =>
-  xRun(`(async () => {
-    ${openMenu(at)}
+const xMenuInPlace = (at: MenuAt, run?: number) => {
+  // Read for a press: once the user moved on, X's page is theirs, so nothing opens or counts.
+  const mine = run === undefined ? "true" : stillMine(run);
+  return xRun(`(async () => {
+    ${openMenu(at, mine)}
     const labels = items.map((i) => i.textContent.trim());
     closeMenu();
-    return labels;
+    return ${mine} ? labels : null;
   })()`).then((labels) =>
     Array.isArray(labels) && labels.every((l) => typeof l === "string")
       ? (labels as ReadonlyArray<string>)
       : null,
   );
+};
 
 /** Presses row `label` of X's menu `at` on the engine page. Null when it is not there. */
 const xMenuPressInPlace = (at: MenuAt, label: string) =>
@@ -505,10 +512,11 @@ export const xPostFollowPress = async (
   if (outcome === null || !live()) return { outcome, following: null };
   const rows = await onPage(
     postPage(post),
-    () => xMenuInPlace(postMenuAt(post.postId, "more")),
+    () => xMenuInPlace(postMenuAt(post.postId, "more"), run),
     () => Promise.resolve(),
     live,
   );
+  if (!live()) return { outcome, following: null };
   const handle = label.slice(label.indexOf("@"));
   const following = rows?.includes(`Unfollow ${handle}`)
     ? true

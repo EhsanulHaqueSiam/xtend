@@ -100,7 +100,7 @@ it("undoes a repost and an unfollow through X's confirm", async () => {
   ]);
 });
 
-it("follows the person asked for, waiting past another person's button drawn first", async () => {
+it("follows the person asked for, waiting past another person's button drawn first, and says when X refuses", async () => {
   // X's page shows a recommendation's button now; the profile's own button comes a moment later.
   document.body.innerHTML = `<div><button data-testid="999-follow"></button></div>`;
   const log: Array<string> = [];
@@ -117,6 +117,10 @@ it("follows the person asked for, waiting past another person's button drawn fir
   inThisPage();
   expect(await xFollow({ userId: "786", handle: "theo" }, true)).toBe(true);
   expect(log).toEqual(["786-follow"]);
+
+  // X refuses: its button stays Follow, and the press says so instead of claiming the follow.
+  document.body.innerHTML = `<div><button data-testid="786-follow"></button></div>`;
+  expect(await xFollow({ userId: "786", handle: "theo" }, true)).toBe(false);
 });
 
 /**
@@ -216,6 +220,16 @@ it("leaves X's dialog, a Subscribe still waiting, and an Unfollow's reread to th
   xOverEnded();
   expect((await unfollowing)?.following).toBeNull();
   expect(opened).toBe(1);
+
+  // The user moves on while X's menu is being read again: what it says no longer counts.
+  let opens = 0;
+  withMenu({ "Follow @theo": () => {} });
+  document.querySelector('[data-testid="caret"]')!.addEventListener("click", () => {
+    if (++opens === 2) xOverEnded();
+  });
+  const following = xPostFollowPress(post42, "Follow @theo", (on) => shown.push(on));
+  expect((await following)?.following).toBeNull();
+  expect(opens).toBe(2);
 });
 
 it("reads X's share rows from its share button, and Send via Chat keeps X's dialog over", async () => {
