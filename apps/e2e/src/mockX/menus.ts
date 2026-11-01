@@ -202,7 +202,7 @@ export function menuRows(state: MockState, spec: string): ReadonlyArray<Row> {
             write: rest("friendships/create", { user_id: p.author.userId }),
             follow: { userId: p.author.userId, on: true },
           },
-      ...(author?.verified === true ? [subscribeRow(h)] : []),
+      ...(state.isCreator(p.author.userId) ? [subscribeRow(h)] : []),
       listsRow(`Add/remove @${h} from Lists`, state),
       muteRow(p.author.userId, h, `Mute @${h}`),
       muteConversation,

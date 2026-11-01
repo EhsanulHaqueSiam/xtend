@@ -173,6 +173,32 @@ test("A post's ... lists mock X's own rows, read and closed on the engine, and R
   expect(await enginePath()).toBe("/home");
 });
 
+test("Follow from a post's ... presses X's own row, and X's menu read again confirms it", async () => {
+  await go("/home?feed=following");
+  const id = e.mock.state.feed("following").find((pid) => {
+    const author = e.mock.state.post(pid)!.author;
+    return e.mock.state.user(author.userId)?.youFollow === false;
+  })!;
+  const author = e.mock.state.post(id)!.author;
+  await e.app.locator(`main [data-post="${id}"] button[aria-label="More"]`).click();
+  const row = e.app.getByRole("menuitem", { name: `Follow @${author.handle}`, exact: true });
+  await row.click();
+  await expect
+    .poll(presses)
+    .toEqual(
+      expect.arrayContaining([
+        `press row:Follow @${author.handle} post:${id}`,
+        `write friendships/create ${author.userId}`,
+      ]),
+    );
+  // Read twice: once to press the row, once more to see what X's menu says now.
+  await expect
+    .poll(() => presses().filter((p) => p === `press menu:post:${id}`).length)
+    .toBeGreaterThanOrEqual(2);
+  expect(e.mock.state.user(author.userId)?.youFollow).toBe(true);
+  await expect.poll(enginePath).toBe("/home");
+});
+
 test("A post opens with its replies, and Recent re-sorts them as X's page orders them", async () => {
   const focal = e.mock.state.fixtures().post!.batches[0]!;
   const id = focal.key!;
@@ -262,6 +288,22 @@ test("The Follow page lists X's two tabs with X's buttons, and Follow presses <i
   await expect.poll(nativeHandles).toEqual(creators.map(handleOf));
   await expect.poll(enginePath).toBe("/i/connect_people?is_creator_only=true");
   expect(await engineHas(`[data-testid="${creators[0]}-subscribe"]`)).toBe(true);
+
+  // A creator X's page does not draw near its scroll: Subscribe goes to their profile, where X
+  // labels it "Subscribe to @handle", and X's dialog shows over the main area until it closes.
+  const far = e.mock.state.user(creators[3]!)!;
+  expect(await engineHas(`[data-testid="${far.userId}-subscribe"]`)).toBe(false);
+  await e.app
+    .locator('main [data-x="user"]', { hasText: `@${far.handle}` })
+    .getByRole("button", { name: "Subscribe", exact: true })
+    .click();
+  await expect.poll(enginePath).toBe(`/${far.handle}`);
+  await expect.poll(() => engineHas('#layers [role="dialog"]')).toBe(true);
+  await expect.poll(pane).toBe("main");
+  await expect.poll(presses).toEqual(expect.arrayContaining([`press subscribe ${far.userId}`]));
+  await e.engine(`document.querySelector('#layers [data-testid="app-bar-close"]').click()`);
+  await expect.poll(pane).toBe("hidden");
+  await expect.poll(enginePath).toBe("/i/connect_people?is_creator_only=true");
 });
 
 test("Search reads X's Top and People tabs for the query", async () => {

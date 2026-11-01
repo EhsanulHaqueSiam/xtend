@@ -581,6 +581,9 @@ export function createMockState() {
     byHandle,
     /** Whether post notifications are on for someone the user follows (X's bell). */
     bellOn: (userId: string) => bell.has(userId),
+    /** Whether X offers a subscription to this person: the creators its Follow page lists. */
+    isCreator: (userId: string) =>
+      fixture("ConnectTabTimeline", "connect:creators")!.people.includes(userId),
     /** Everything pressed and written, in order. */
     presses,
     /** New posts at the top of a Home feed's first page, as X has them on its next load. */

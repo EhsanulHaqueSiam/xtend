@@ -183,13 +183,23 @@ export const postsOf = (b: EngineBatch | null, state: MockState) =>
         .flatMap((id) => b.posts.find((p) => p.postId === id) ?? [])
         .map((p) => article(p, state))
         .join("");
-const peopleOf = (b: EngineBatch | null, button: "follow" | "subscribe" = "follow") =>
+const peopleOf = (
+  b: EngineBatch | null,
+  button: "follow" | "subscribe" = "follow",
+  rows = Infinity,
+) =>
   b === null
     ? ""
     : b.people
         .flatMap((id) => b.users.find((u) => u.userId === id) ?? [])
+        .slice(0, rows)
         .map((u) => userCell(u, button))
         .join("");
+/**
+ * X's Follow page keeps only the rows near its scroll; the mock draws the first three, so a press
+ * for a person further down goes to their profile, as Xtend's engine does on x.com.
+ */
+const ROWS_NEAR_SCROLL = 3;
 
 interface Route {
   readonly title: string;
@@ -373,7 +383,7 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
             href: "/i/connect_people?is_creator_only=true",
             on: creators,
           },
-        ])}${creators ? "" : "<h3>Suggested for you</h3>"}<section data-list>${peopleOf(b ?? null, creators ? "subscribe" : "follow")}</section>`,
+        ])}${creators ? "" : "<h3>Suggested for you</h3>"}<section data-list>${peopleOf(b ?? null, creators ? "subscribe" : "follow", ROWS_NEAR_SCROLL)}</section>`,
     };
   }
   if (lower === "i" && second === "lists" && third !== undefined) {
@@ -568,7 +578,7 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
              <a href="/messages/compose?recipient_id=${live.userId}" data-testid="sendDMFromProfile" aria-label="Message">✉</a>
              ${live.youFollow ? `<button aria-label="${bell ? "Turn off post notifications" : "Turn on post notifications"}" data-bell="${live.userId}">🔔</button>` : ""}
              <span>${followButton(live)}</span>
-             ${live.verified ? `<button aria-label="Subscribe to @${esc(live.handle)}" data-subscribe="${live.userId}">Subscribe</button>` : ""}`;
+             ${state.isCreator(live.userId) ? `<button aria-label="Subscribe to @${esc(live.handle)}" data-subscribe="${live.userId}">Subscribe</button>` : ""}`;
         return `${header(live.name)}<div data-testid="UserProfileHeader_Items">
           <img alt="" src="${esc(live.bannerUrl ?? "")}" class="banner-img">
           <div class="profile-row">${avatar(live.avatarUrl, live.handle)}<div class="profile-actions">${buttons}</div></div>

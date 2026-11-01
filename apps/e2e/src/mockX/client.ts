@@ -286,7 +286,9 @@ const SCRIPT = String.raw`
 
   document.addEventListener("click", (event) => {
     const target = event.target instanceof Element ? event.target : null;
-    if (!target || target.closest("#layers")) return;
+    // Menus and dialogs handle their own clicks; the path is taken at dispatch, so a close button
+    // that removed its layer still counts as inside it.
+    if (!target || event.composedPath().includes(layers)) return;
     const el = target.closest("[data-testid], [data-menu], [data-home-tab], [data-vote], [data-bell], [data-subscribe], [data-href], a[href], [data-toggle-translation]");
     if (!el) return;
     const testid = el.dataset.testid ?? "";
