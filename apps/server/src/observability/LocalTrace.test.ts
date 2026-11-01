@@ -311,116 +311,48 @@ describe("local trace file", () => {
     }).pipe(Effect.provide(Logger.layer([LocalTrace.tracerLogger])));
   });
 
-  it.effect("keeps the operation frames of a failure and scrubs a secret-shaped one", () => {
-    const { seen, delegate } = capturing();
-    const records: Array<LocalTrace.TraceRecord> = [];
-    const tracer = LocalTrace.makeTracer({ delegate, push: (record) => records.push(record) });
-    const printed: Array<ReadonlyArray<unknown>> = [];
-    const capture: Console.Console = {
-      ...globalThis.console,
-      log: (...args: ReadonlyArray<unknown>) => void printed.push(args),
-      error: (...args: ReadonlyArray<unknown>) => void printed.push(args),
-    };
-    const outerOperation = Effect.fn("outerOperation")(function* () {
-      return yield* new Leaky({ detail: "broken" });
-    });
-    const leaky = Effect.fn("leakyOperation token=framesecret")(function* () {
-      return yield* new Leaky({ detail: "broken too" });
-    });
-    return Effect.gen(function* () {
-      for (const operation of [outerOperation(), leaky()])
-        yield* operation.pipe(
-          Effect.tapCause((cause) => Effect.logError("failed", cause)),
-          Effect.withSpan("caller"),
-          Effect.withTracer(tracer),
-          Effect.exit,
-        );
-      const callers = records.filter((r) => r.name === "caller");
-      const console = printed.map((args) => NodeUtil.format(...args)).join("\n");
-      const exported = JSON.stringify(seen);
-      for (const text of [JSON.stringify(callers), console, exported]) {
-        expect(text).toContain("outerOperation");
-        expect(text).toContain("leakyOperation");
-        expect(text).not.toContain("framesecret");
-      }
-    }).pipe(
-      Effect.provide(Logger.layer([LocalTrace.tracerLogger, LocalTrace.consoleLogger])),
-      Effect.provideService(Console.Console, capture),
-    );
-  });
-
-  it("names credentials by their last word, not by substring", () => {
-    const secret = [
-      "token",
-      "auth_token",
-      "tregToken",
-      "x-treg-token",
-      "http.request.header.authorization",
-      "set-cookie",
-      "cookies",
-      "secret",
-      "webhookSecret",
-      "password",
-      "bearer",
-      "api_key",
-      "apiKey",
-      "assistKey",
-      "private_key",
-      "ct0",
-      "twid",
-      "kdt",
-      "credential",
-      "credentials",
-      "sessionId",
-      "session_id",
-      "sessionToken",
-      "sessionKey",
-      "password_hash",
-      "passwordHash",
-      "refresh_token",
-      "accessToken",
-      "id_token",
-      "client_secret",
-      "csrf",
-      "csrfToken",
-      "x-csrf-token",
-      "authToken",
-    ];
-    const harmless = [
-      "tokenCount",
-      "token_budget",
-      "tokens",
-      "tregTokenSet",
-      "x.purpose",
-      "keywords",
-      "monthlyBudgetUsd",
-      "key",
-      "id",
-      "userId",
-      "hash",
-      "session",
-      "sessionCount",
-      "passwordUpdatedAt",
-    ];
-    expect(secret.filter((key) => !LocalTrace.isSecretKey(key))).toEqual([]);
-    expect(harmless.filter(LocalTrace.isSecretKey)).toEqual([]);
-  });
-
-  it("scrubs a megabyte in one pass, whatever its shape", () => {
-    const mb = 1024 * 1024;
-    // Each would take minutes with a pattern that backtracks quadratically.
-    for (const text of [
-      "a".repeat(mb),
-      "a.".repeat(mb / 2),
-      '"k":'.repeat(mb / 4),
-      `ct0=${"v".repeat(mb)}`,
-      `"secret": "${"x\\".repeat(mb / 2)}`,
-    ])
-      expect(LocalTrace.redactText(text).length).toBeLessThanOrEqual(text.length);
-    expect(
-      LocalTrace.redactText('cookie: auth_token=a1; ct0=b2, "kdt": "c3", authorization: Bearer d4'),
-    ).toBe('cookie: <redacted>; ct0=<redacted>, "kdt": "<redacted>", authorization: <redacted>');
-  });
+  it.effect(
+    "keeps the operation frames of a failure and scrubs a secret-shaped one or log span",
+    () => {
+      const { seen, delegate } = capturing();
+      const records: Array<LocalTrace.TraceRecord> = [];
+      const tracer = LocalTrace.makeTracer({ delegate, push: (record) => records.push(record) });
+      const printed: Array<ReadonlyArray<unknown>> = [];
+      const capture: Console.Console = {
+        ...globalThis.console,
+        log: (...args: ReadonlyArray<unknown>) => void printed.push(args),
+        error: (...args: ReadonlyArray<unknown>) => void printed.push(args),
+      };
+      const outerOperation = Effect.fn("outerOperation")(function* () {
+        return yield* new Leaky({ detail: "broken" });
+      });
+      const leaky = Effect.fn("leakyOperation token=framesecret")(function* () {
+        return yield* new Leaky({ detail: "broken too" });
+      });
+      return Effect.gen(function* () {
+        for (const operation of [outerOperation(), leaky()])
+          yield* operation.pipe(
+            Effect.tapCause((cause) => Effect.logError("failed", cause)),
+            Effect.withSpan("caller"),
+            Effect.withLogSpan(`refresh token=spansecret`),
+            Effect.withTracer(tracer),
+            Effect.exit,
+          );
+        const callers = records.filter((r) => r.name === "caller");
+        const console = printed.map((args) => NodeUtil.format(...args)).join("\n");
+        const exported = JSON.stringify(seen);
+        for (const text of [JSON.stringify(callers), console, exported]) {
+          expect(text).toContain("outerOperation");
+          expect(text).toContain("leakyOperation");
+          expect(text).not.toContain("framesecret");
+        }
+        expect(console).not.toContain("spansecret");
+      }).pipe(
+        Effect.provide(Logger.layer([LocalTrace.tracerLogger, LocalTrace.consoleLogger])),
+        Effect.provideService(Console.Console, capture),
+      );
+    },
+  );
 
   it.effect("makes an existing trace file owner-only before appending to it", () =>
     Effect.gen(function* () {

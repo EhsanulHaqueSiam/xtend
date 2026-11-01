@@ -19,16 +19,12 @@ import {
 import { checkRemote, readRemote, RemoteConfig, writeRemote } from "./service/remote.ts";
 import { superviseService } from "./service/ServiceSupervisor.ts";
 import { deepLinkToRoute, type ServiceMode } from "./service/supervision.ts";
+import { logLoadsAndCrashes, makeDesktopLog } from "./desktopLog.ts";
 import { createTray } from "./tray.ts";
 import { defaultChannel, devUpdateFeed, startUpdates } from "./updates.ts";
 import { createMainWindow } from "./window/MainWindow.ts";
 import { mockXOrigin } from "./window/mockX.ts";
 import * as Schema from "effect/Schema";
-
-const log = (message: string, detail?: unknown) => {
-  // Main-process diagnostics go to the launcher's terminal.
-  console.log(`[xtend-desktop] ${message}`, detail ?? "");
-};
 
 /** The service's data directory: `--base-dir`, then XTEND_HOME, then ~/.xtend, same order as the service. */
 const baseDirArg = process.argv.indexOf("--base-dir");
@@ -37,6 +33,10 @@ const baseDir = NodePath.resolve(
     process.env.XTEND_HOME ??
     NodePath.join(NodeOS.homedir(), ".xtend"),
 );
+
+// Main-process diagnostics go to the launcher's terminal and, scrubbed, beside the service's logs.
+const log = makeDesktopLog(NodePath.join(baseDir, "logs", "desktop.log"));
+logLoadsAndCrashes(app, log);
 
 // Dev and tests only: the session view's x.com answered by mock X on this machine.
 const mockX = mockXOrigin(process.env.XTEND_MOCK_X, app.isPackaged);

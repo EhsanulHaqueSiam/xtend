@@ -27,6 +27,7 @@ import * as EventsHandlers from "./events/EventsHandlers.ts";
 import * as AccountsHandlers from "./accounts/AccountsHandlers.ts";
 import * as MarksHandlers from "./marks/MarksHandlers.ts";
 import * as PoolHandlers from "./pool/PoolHandlers.ts";
+import * as TriageHandlers from "./triage/TriageHandlers.ts";
 
 import * as ServerConfig from "./config.ts";
 import * as ServerHttp from "./http.ts";
@@ -85,6 +86,7 @@ const layerAreas = Layer.mergeAll(
   AccountsHandlers.layer,
   MarksHandlers.layer,
   PoolHandlers.layer,
+  TriageHandlers.layer,
 );
 
 const layerServices = Layer.mergeAll(layerAreas, Costs.layer).pipe(

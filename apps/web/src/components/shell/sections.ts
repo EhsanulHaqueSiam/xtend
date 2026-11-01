@@ -172,6 +172,12 @@ export const SECTIONS = {
       about: "What goes through your own X session, Clean X, and what you share with the pool.",
     },
     { id: "service", label: "Service", about: "Where the service runs and how to reach it." },
+    {
+      id: "diagnostics",
+      label: "Diagnostics",
+      about:
+        "Where the logs are, and a scrubbed triage folder for a coding agent when something breaks.",
+    },
   ],
 } as const;
 

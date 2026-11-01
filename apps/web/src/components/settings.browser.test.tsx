@@ -1,12 +1,13 @@
 import {
   AccountsError,
   SettingsError,
+  TriageError,
   type AccountList,
   type Settings,
   type SettingsUpdate,
 } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
-import { expect, it, onTestFinished } from "vite-plus/test";
+import { expect, it, onTestFinished, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
 import type { Reachability } from "../desktopBridge";
@@ -336,4 +337,47 @@ it("switches account only after the service selected it, and says when it refuse
   await userEvent.click(screen.getByRole("button", { name: "Switch" }));
   await expect.poll(() => calls).toEqual(["select 2"]);
   expect(selected).toEqual([2]);
+});
+
+it("copies the triage context and starts triage from the service, and says when the folder could not be written", async () => {
+  let refuse = false;
+  const dir = "/tmp/xtend-test/triage/2026-11-01T12-00-00.000Z";
+  await using screen = await render(<SettingsScreen />, {
+    service: service([], undefined, {
+      "triage.paths": () =>
+        Effect.succeed({
+          baseDir: "/tmp/xtend-test",
+          traceFile: "/tmp/xtend-test/logs/service.trace.ndjson",
+          serviceLog: "/tmp/xtend-test/service.log",
+          desktopLog: "/tmp/xtend-test/logs/desktop.log",
+          triageDir: "/tmp/xtend-test/triage",
+        }),
+      "triage.context": () => Effect.succeed({ text: "# Xtend triage context" }),
+      "triage.prepare": () =>
+        refuse
+          ? Effect.fail(new TriageError({ path: dir, cause: null }))
+          : Effect.succeed({
+              dir,
+              contextFile: `${dir}/context.md`,
+              playbookFile: `${dir}/PLAYBOOK.md`,
+              start: { claude: `cd '${dir}' && claude 'go'`, codex: `cd '${dir}' && codex 'go'` },
+            }),
+    }),
+    router: "/settings?tab=diagnostics",
+  });
+  await expect.element(screen.getByText("/tmp/xtend-test/logs/desktop.log")).toBeVisible();
+  using writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+
+  await userEvent.click(screen.getByRole("button", { name: "Copy triage context" }));
+  await expect.element(screen.getByRole("button", { name: "Copied" })).toBeVisible();
+  expect(writeText).toHaveBeenCalledWith("# Xtend triage context");
+
+  await userEvent.click(screen.getByRole("button", { name: "Start triage" }));
+  await expect.element(screen.getByText(`cd '${dir}' && claude 'go'`)).toBeVisible();
+
+  refuse = true;
+  await userEvent.click(screen.getByRole("button", { name: "Start triage" }));
+  await expect
+    .element(screen.getByRole("alert"))
+    .toHaveTextContent(`Could not write the triage folder ${dir}.`);
 });

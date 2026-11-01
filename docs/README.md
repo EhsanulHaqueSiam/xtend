@@ -20,6 +20,7 @@
 - [Keys and the command palette](./user/keys-and-palette.md)
 - [Remote service](./user/remote-service.md)
 - [CLI, HTTP API and MCP](./user/api-and-mcp.md)
+- [Report a problem](./user/report-a-problem.md)
 - [FAQ](./user/faq.md)
 
 ## Working on Xtend

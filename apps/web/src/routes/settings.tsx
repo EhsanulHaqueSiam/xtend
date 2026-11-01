@@ -4,6 +4,8 @@ import {
   type ServerInfo,
   type Settings as SettingsShape,
   type SettingsUpdate,
+  type TriagePaths,
+  type TriagePrepared,
   X_SKIN_DEFAULTS,
   X_SKIN_TOGGLES,
 } from "@xtend/contracts";
@@ -32,6 +34,7 @@ import { serverInfoAtom } from "../state/observations";
 import { usd as price, useQuoteLabel } from "../state/costs";
 import { settingsAtom, updateSettingsAtom } from "../state/settings";
 import { spendLiveAtom } from "../state/shell";
+import { prepareTriageAtom, triageContextAtom, triagePathsAtom } from "../state/triage";
 import { useDesktopUpdate } from "../state/update";
 import { xSkinAtom } from "../state/x";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../components/ui/tooltip";
@@ -982,6 +985,115 @@ function Accounts() {
   });
 }
 
+/** Copies `text` and says so on the button. */
+function CopyButton({
+  label,
+  text,
+}: {
+  readonly label: string;
+  readonly text: () => Promise<string>;
+}) {
+  const [state, setState] = useState<"idle" | "busy" | "copied" | "failed">("idle");
+  return (
+    <Button
+      size="xs"
+      variant="outline"
+      disabled={state === "busy"}
+      onClick={() => {
+        setState("busy");
+        void text()
+          .then((value) => navigator.clipboard.writeText(value))
+          .then(
+            () => setState("copied"),
+            () => setState("failed"),
+          );
+      }}
+    >
+      {state === "copied" ? "Copied" : state === "failed" ? "Could not copy" : label}
+    </Button>
+  );
+}
+
+/** Where the logs are, and `xtend triage` from a button: the same service method as the CLI. */
+function Diagnostics() {
+  const info = useAtomValue(serverInfoAtom);
+  const paths = useAtomValue(triagePathsAtom);
+  const copyContext = useAtomSet(triageContextAtom, { mode: "promise" });
+  const prepare = useAtomSet(prepareTriageAtom, { mode: "promise" });
+  const [prepared, setPrepared] = useState<TriagePrepared | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const path = (pick: (p: TriagePaths) => string) =>
+    AsyncResult.getOrElse(AsyncResult.map(paths, pick), () => "–");
+  const start = async () => {
+    setError(null);
+    try {
+      setPrepared(await prepare());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+  return (
+    <>
+      <Section title="Logs" description="on the service's machine; tokens and cookies are scrubbed">
+        <dl>
+          <Row label="Service">
+            {AsyncResult.getOrElse(
+              AsyncResult.map(info, (v) => `${v.name} ${v.version}`),
+              () => "–",
+            )}
+          </Row>
+          <Row label="Trace file">{path((p) => p.traceFile)}</Row>
+          <Row label="Service log">{path((p) => p.serviceLog)}</Row>
+          <Row label="Desktop log">{path((p) => p.desktopLog)}</Row>
+          <Row label="Triage folders">{path((p) => p.triageDir)}</Row>
+        </dl>
+      </Section>
+      <Section
+        title="Triage"
+        description="facts and a playbook for a coding agent; nothing leaves this machine"
+        aside={
+          <>
+            <CopyButton label="Copy triage context" text={() => copyContext()} />
+            <Button size="xs" onClick={() => void start()}>
+              Start triage
+            </Button>
+          </>
+        }
+      >
+        {prepared === null ? (
+          <p className="text-xs text-muted-foreground">
+            Start triage writes a folder with this machine's facts and a playbook, then gives you
+            the line that starts <span className="font-mono">claude</span> or{" "}
+            <span className="font-mono">codex</span> in it, the same as{" "}
+            <span className="font-mono">xtend triage</span> in a terminal. Free.
+          </p>
+        ) : (
+          <dl>
+            <Row label="Folder">{prepared.dir}</Row>
+            {(["claude", "codex"] as const).map((agent) => (
+              <div
+                key={agent}
+                className="flex items-center justify-between gap-6 border-b border-border py-2.5 text-sm last:border-b-0"
+              >
+                <dt className="shrink-0 text-muted-foreground">Start {agent}</dt>
+                <dd className="flex min-w-0 items-center gap-2">
+                  <span className="truncate font-mono text-xs">{prepared.start[agent]}</span>
+                  <CopyButton label="Copy" text={async () => prepared.start[agent]} />
+                </dd>
+              </div>
+            ))}
+          </dl>
+        )}
+        {error !== null ? (
+          <p role="alert" className="pt-2 text-xs text-error-foreground">
+            {error}
+          </p>
+        ) : null}
+      </Section>
+    </>
+  );
+}
+
 export function SettingsScreen() {
   const info = useAtomValue(serverInfoAtom);
   const settings = useAtomValue(settingsAtom);
@@ -1065,6 +1177,9 @@ export function SettingsScreen() {
               <Section title="Remote service">
                 <RemoteService />
               </Section>
+            </Page>
+            <Page id="diagnostics">
+              <Diagnostics />
             </Page>
             <Page id="account">
               <Section title="Accounts">
