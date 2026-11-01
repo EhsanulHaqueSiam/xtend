@@ -15,7 +15,6 @@ import {
   loginExpiry,
   profileHolder,
   refuseDestination,
-  restore,
   signedIn,
   sweep,
   useSaved,
@@ -65,8 +64,9 @@ it("copies a partition without Chromium's caches, replacing the target only once
 
 /** A validated copy staged beside `to` as copyPartition stages one, marked with `who`. */
 const FAR = (BigInt(Date.UTC(2099, 0, 1)) + 11_644_473_600_000n) * 1000n;
-const staged = (to: string, who: string) => {
-  const staging = NodeFS.mkdtempSync(`${to}.copying-`);
+const staged = (to: string, who: string, kind: "copying" | "old" = "copying") => {
+  NodeFS.mkdirSync(NodePath.dirname(to), { recursive: true });
+  const staging = NodeFS.mkdtempSync(`${to}.${kind}-`);
   partition(staging, [{ name: "auth_token", expires: FAR }]);
   NodeFS.writeFileSync(NodePath.join(staging, "who"), who);
   return staging;
@@ -224,7 +224,7 @@ it("clears a dead copy's leftovers once they are old, restores a lone backup, an
   expect(signedIn(to)).toBe(true);
   expect(NodeFS.existsSync(`${to}.copying-dead01.owner`)).toBe(false);
 
-  expect(forget(to, []).length).toBeGreaterThan(0);
+  expect(forget([{ to, chain: [dir], partition: true }], []).length).toBeGreaterThan(0);
   expect(NodeFS.readdirSync(dir)).toEqual([]);
 });
 
@@ -255,12 +255,57 @@ it("never sweeps away the only usable session while a desktop's signed-out one h
   expect(holder(backup)).toBe("original");
   expect(holder(copy)).toBe("new");
 
-  // Restoring one makes the destination usable, and the next sweep clears what is now redundant.
-  expect(restore(backup, [])).toBe(to);
-  expect(holder(to)).toBe("original");
-  expect(sweep(to, later, () => "gone")).toEqual({ removed: [copy], usable: [] });
+  // `use` again once the desktop quit installs a fresh copy; then both are redundant and go.
+  install(staged(to, "fresh"), to);
+  const cleared = sweep(to, later, () => "gone");
+  expect(cleared.removed.toSorted()).toEqual([copy, backup].toSorted());
   expect(NodeFS.readdirSync(dir)).toEqual(["x-session"]);
-  expect(() => restore(NodePath.join(dir, "x-session"), [])).toThrow("not a");
+  expect(holder(to)).toBe("fresh");
+});
+
+it("puts a lone usable backup back only while its checks pass, and never touches the source", () => {
+  const to = NodePath.join(temp(), "x-session");
+  const backup = staged(to, "original", "old");
+  const later = NodeFS.statSync(backup).mtimeMs + 60 * 60_000;
+  // A desktop appeared: the final check refuses, and the backup stays where it is.
+  const refused = sweep(to, later, () => "gone", {
+    ready: () => {
+      throw new Error("a desktop (PID 4242) holds it");
+    },
+  });
+  expect(refused).toEqual({ removed: [], usable: [backup] });
+  expect(NodeFS.existsSync(to)).toBe(false);
+  // The current copy's own source is left alone whatever it is.
+  expect(sweep(to, later, () => "gone", { source: backup })).toEqual({ removed: [], usable: [] });
+  expect(NodeFS.existsSync(backup)).toBe(true);
+  // The checks pass: it goes back.
+  expect(sweep(to, later, () => "gone", { ready: () => {} })).toEqual({ removed: [], usable: [] });
+  expect(holder(to)).toBe("original");
+});
+
+it("forgets the saved copy and the leftovers beside a dev profile, which keeps its partition", () => {
+  const root = temp();
+  const saved = NodePath.join(root, "xtend-dev", "x-session");
+  NodeFS.renameSync(staged(saved, "saved"), saved);
+  const userData = NodePath.join(root, "electron");
+  const mine = NodePath.join(userData, "Partitions", "x-session");
+  NodeFS.renameSync(staged(mine, "mine"), mine);
+  const kept = staged(mine, "kept", "old");
+  const targets = [
+    { to: saved, chain: [NodePath.dirname(saved)], partition: true },
+    { to: mine, chain: [userData, NodePath.dirname(mine)], partition: false },
+  ];
+
+  // A protected profile among the targets: nothing at all is removed.
+  expect(() => forget(targets, [userData])).toThrow("inside");
+  expect(NodeFS.existsSync(saved)).toBe(true);
+  expect(NodeFS.existsSync(kept)).toBe(true);
+
+  const gone = forget(targets, []);
+  expect(gone).toEqual(expect.arrayContaining([saved, kept]));
+  expect(NodeFS.existsSync(saved)).toBe(false);
+  expect(NodeFS.existsSync(kept)).toBe(false);
+  expect(holder(mine)).toBe("mine");
 });
 
 it("forgets nothing through a symlink or inside a protected profile", () => {
@@ -270,8 +315,13 @@ it("forgets nothing through a symlink or inside a protected profile", () => {
   // ~/.xtend-dev pointed at the installed profile's partitions.
   const dev = NodePath.join(root, "xtend-dev");
   NodeFS.symlinkSync(NodePath.join(installed, "Partitions"), dev);
-  expect(() => forget(NodePath.join(dev, "x-session"), [installed])).toThrow("symlink");
-  expect(() => forget(live, [installed])).toThrow("inside");
+  const saved = NodePath.join(dev, "x-session");
+  expect(() => forget([{ to: saved, chain: [dev], partition: true }], [installed])).toThrow(
+    "symlink",
+  );
+  expect(() =>
+    forget([{ to: live, chain: [NodePath.dirname(live)], partition: true }], [installed]),
+  ).toThrow("inside");
   expect(signedIn(live, 0)).toBe(true);
 });
 

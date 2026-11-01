@@ -3,7 +3,7 @@
 // into a checkout's dev desktop profile, both minus Chromium's caches (1.3 GB down to a few MB).
 // The copy is the user's real X login: never commit it, attach it, or share it.
 
-//   pnpm dev:x-session status | forget (delete the saved copy) | restore <kept backup>
+//   pnpm dev:x-session status | forget (the saved copy and every leftover)
 //   pnpm dev:x-session save [--from <checkout or user data dir> | --installed]   default: this checkout
 //   pnpm dev:x-session use [--home <dir>]                                       default: the recorded home
 import * as NodeFS from "node:fs";
@@ -202,18 +202,23 @@ export function install(
   }
 }
 
+const KEPT_HINT =
+  "Run `pnpm dev:x-session use` again once no desktop holds the profile (the saved session is still in ~/.xtend-dev), or `pnpm dev:x-session forget` to delete it all.";
+
 /** How long a staging dir or backup with no live owner may sit before a later run removes it. */
 const LEFTOVER_MS = 5 * 60_000;
 
 /**
  * Clears what dead copies into `to` left beside it (staging dirs and backups, real cookies), once
  * older than LEFTOVER_MS with the owner gone. Only a redundant one (`to` is a usable session) or
- * an unusable one is removed; a usable one goes back to a missing `to`, or is kept and reported.
+ * an unusable one is removed. A usable one goes back to a missing `to` once `guard.ready` (the
+ * caller's checks for `to`) passes, else it is kept and reported. `guard.source` is never touched.
  */
 export function sweep(
   to: string,
   now = Date.now(),
   info: (pid: number) => ReturnType<typeof processInfo> = processInfo,
+  guard: { readonly ready?: (() => void) | undefined; readonly source?: string } = {},
 ) {
   const dir = NodePath.dirname(to);
   const base = `${NodePath.basename(to)}.`;
@@ -241,9 +246,18 @@ export function sweep(
     const path = NodePath.join(dir, name);
     const age = now - (NodeFS.lstatSync(path, { throwIfNoEntry: false })?.mtimeMs ?? now);
     if (age < LEFTOVER_MS || ownerAlive(suffixOf(name))) continue;
+    const source = guard.source;
+    if (source !== undefined && (inside(path, source) || inside(source, path))) continue;
     if (!complete(to) && complete(path)) {
-      if (NodeFS.existsSync(to)) usable.push(path);
-      else NodeFS.renameSync(path, to);
+      if (!NodeFS.existsSync(to))
+        try {
+          guard.ready?.();
+          NodeFS.renameSync(path, to);
+          continue;
+        } catch {
+          // Refused: kept below, like any usable copy.
+        }
+      usable.push(path);
       continue;
     }
     NodeFS.rmSync(path, { recursive: true, force: true });
@@ -274,51 +288,35 @@ const leftoverOf = (path: string) =>
   /^(.*)\.(old|copying)-[A-Za-z0-9]{6}$/.exec(NodePath.resolve(path))?.[1];
 
 /**
- * Puts a usable leftover (a backup or staging copy `sweep` kept) back as its partition, through
- * a fresh validated copy and the same checks as `use`, then removes it.
+ * Removes each target's leftovers (staging dirs, backups, owner records) and, where `partition`
+ * is set, the partition itself, plus dead cookie scratch dirs. Every path first passes the checks
+ * a write makes (real paths, protected profiles, no symlinks); one refusal removes nothing.
  */
-export function restore(leftover: string, protectedDirs?: ReadonlyArray<string>) {
-  const to = leftoverOf(leftover);
-  if (to === undefined)
-    throw new Error(`${leftover} is not a <partition>.old-* or .copying-* leftover.`);
-  if (!complete(leftover)) throw new Error(`${leftover} holds no usable session.`);
-  const parent = NodePath.dirname(to);
-  // A desktop profile's partition gets the profile checks, the saved one the folder's.
-  const userData =
-    NodePath.basename(parent) === "Partitions" ? NodePath.dirname(parent) : undefined;
-  if (userData === undefined) refuseDestination(to, [parent], protectedDirs);
-  else {
-    refuseDestination(to, [userData, parent], protectedDirs);
-    const holder = profileHolder(userData);
-    if (holder !== undefined)
-      throw new Error(`a desktop (PID ${holder}) holds ${userData}; quit it first.`);
-  }
-  copyPartition(leftover, to, (staging) => {
-    if (!complete(staging)) throw new Error(`${leftover} holds no usable session.`);
+export function forget(
+  targets: ReadonlyArray<{
+    readonly to: string;
+    readonly chain: ReadonlyArray<string>;
+    readonly partition: boolean;
+  }>,
+  protectedDirs?: ReadonlyArray<string>,
+) {
+  const paths = targets.flatMap(({ to, chain, partition }) => {
+    refuseDestination(to, chain, protectedDirs);
+    const dir = NodePath.dirname(to);
+    const base = NodePath.basename(to);
+    let names: Array<string> = [];
+    try {
+      names = NodeFS.readdirSync(dir).filter(
+        (n) => (partition && n === base) || n.startsWith(`${base}.`),
+      );
+    } catch {
+      return [];
+    }
+    return names.map((n) => NodePath.join(dir, n));
   });
-  NodeFS.rmSync(leftover, { recursive: true, force: true });
-  return to;
-}
-
-/**
- * Removes `to` and everything a copy into it ever left beside it, after the same checks as a
- * write: no symlink on the way, nothing inside a protected profile, or nothing is removed.
- */
-export function forget(to: string, protectedDirs?: ReadonlyArray<string>) {
-  const dir = NodePath.dirname(to);
-  const base = NodePath.basename(to);
-  refuseDestination(to, [dir], protectedDirs);
-  let names: Array<string> = [];
-  try {
-    names = NodeFS.readdirSync(dir).filter((n) => n === base || n.startsWith(`${base}.`));
-  } catch {
-    return [];
-  }
-  const paths = names.map((n) => NodePath.join(dir, n));
   for (const path of paths) refuseDestination(path, [], protectedDirs);
   for (const path of paths) NodeFS.rmSync(path, { recursive: true, force: true });
-  sweepScratch();
-  return paths;
+  return [...paths, ...sweepScratch()];
 }
 
 /**
@@ -336,9 +334,9 @@ export function copyPartition(
   if (!NodeFS.existsSync(NodePath.join(source, "Cookies")))
     throw new Error(`${from} has no Cookies file; is it an x.com partition?`);
   NodeFS.mkdirSync(NodePath.dirname(to), { recursive: true, mode: 0o700 });
-  for (const kept of sweep(to).usable)
+  for (const kept of sweep(to, Date.now(), processInfo, { ready, source }).usable)
     console.error(
-      `[x-session] ${to} holds no usable session, but ${kept} does: \`pnpm dev:x-session restore ${kept}\` puts it back.`,
+      `[x-session] ${to} holds no usable session; a usable copy is kept at ${kept}. ${KEPT_HINT}`,
     );
   sweepScratch();
   const staging = NodeFS.mkdtempSync(`${to}.copying-`);
@@ -380,12 +378,8 @@ export function useSaved(userData: string, saved = SAVED) {
         `the saved X session ${expired === undefined ? "holds no login" : `expired on ${expired}`}; sign in in a dev desktop, then \`pnpm dev:x-session save\` again.`,
       );
     },
-    // A desktop may have started while the copy ran.
-    () => {
-      const holder = profileHolder(userData);
-      if (holder !== undefined)
-        throw new Error(`a desktop (PID ${holder}) started on ${userData}; quit it first.`);
-    },
+    // A desktop may have started while the copy ran: the same checks again, right before moving.
+    () => refuseProfile(userData),
   );
   return partitionOf(userData);
 }
@@ -468,9 +462,8 @@ const sourceProfile = (from: string) =>
 if (import.meta.main) {
   const root = NodePath.resolve(import.meta.dirname, "..");
   const [command, ...rest] = process.argv.slice(2);
-  const { values, positionals } = NodeUtil.parseArgs({
+  const { values } = NodeUtil.parseArgs({
     args: rest,
-    allowPositionals: true,
     options: {
       from: { type: "string" },
       installed: { type: "boolean", default: false },
@@ -492,7 +485,7 @@ if (import.meta.main) {
     console.log(`here    ${partitionOf(here)}: ${describe(partitionOf(here))}`);
     for (const to of [SAVED, partitionOf(here)])
       for (const kept of usableBeside(to))
-        console.log(`kept    ${kept}: ${describe(kept)} (\`pnpm dev:x-session restore ${kept}\`)`);
+        console.log(`kept    ${kept}: ${describe(kept)}. ${KEPT_HINT}`);
     for (const checkout of worktrees(root).filter((c) => c !== root)) {
       const partition = partitionOf(devUserData(NodePath.join(checkout, ".xtend")));
       if (NodeFS.existsSync(partition)) console.log(`other   ${partition}: ${describe(partition)}`);
@@ -514,10 +507,15 @@ if (import.meta.main) {
     try {
       refuseDestination(SAVED, [NodePath.dirname(SAVED)]);
       // Validates the copy, never the source: an installed app's profile is only read.
-      copyPartition(partitionOf(from), SAVED, (staging) => {
-        if (!signedIn(staging))
-          throw new Error(`${from} is signed out of X; the saved session is unchanged.`);
-      });
+      copyPartition(
+        partitionOf(from),
+        SAVED,
+        (staging) => {
+          if (!signedIn(staging))
+            throw new Error(`${from} is signed out of X; the saved session is unchanged.`);
+        },
+        () => refuseDestination(SAVED, [NodePath.dirname(SAVED)]),
+      );
     } catch (error) {
       fail((error as Error).message);
     }
@@ -532,24 +530,28 @@ if (import.meta.main) {
     } catch (error) {
       fail((error as Error).message);
     }
-  } else if (command === "restore") {
-    const leftover = positionals[0] ?? fail("usage: pnpm dev:x-session restore <leftover path>");
+  } else if (command === "forget") {
     try {
-      const to = restore(leftover);
-      console.log(`[x-session] ${leftover} -> ${to} (${describe(to)})`);
+      const gone = forget([
+        { to: SAVED, chain: [NodePath.dirname(SAVED)], partition: true },
+        // This checkout's profile keeps its partition; only copies' leftovers beside it go.
+        {
+          to: partitionOf(here),
+          chain: [here, NodePath.join(here, "Partitions")],
+          partition: false,
+        },
+      ]);
+      console.log(
+        gone.length === 0
+          ? "[x-session] nothing to forget."
+          : `[x-session] removed:\n  ${gone.join("\n  ")}\nDev desktops already signed in keep their copy; sign out on x.com to end the session everywhere.`,
+      );
     } catch (error) {
       fail((error as Error).message);
     }
-  } else if (command === "forget") {
-    const gone = forget(SAVED);
-    console.log(
-      gone.length === 0
-        ? `[x-session] nothing saved in ${NodePath.dirname(SAVED)}.`
-        : `[x-session] removed ${gone.join(", ")}. Dev desktops already signed in keep their copy; sign out on x.com to end the session everywhere.`,
-    );
   } else {
     console.error(
-      "usage: pnpm dev:x-session status | save [--from <checkout or user data dir> | --installed] | use [--home <dir>] | restore <leftover> | forget",
+      "usage: pnpm dev:x-session status | save [--from <checkout or user data dir> | --installed] | use [--home <dir>] | forget",
     );
     process.exit(2);
   }
