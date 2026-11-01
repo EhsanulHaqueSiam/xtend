@@ -34,11 +34,12 @@ const move = <A,>(list: ReadonlyArray<A>, from: number, to: number) => {
   return next;
 };
 
+/** X's reply menu, in X's order and words. */
 export const REPLY_OPTIONS: ReadonlyArray<readonly [ReplySettings, string]> = [
   ["everyone", "Everyone"],
   ["following", "Accounts you follow"],
-  ["mentionedUsers", "Only mentioned"],
-  ["verified", "Verified"],
+  ["verified", "Verified accounts"],
+  ["mentionedUsers", "Only accounts you mention"],
 ];
 
 const fileName = (path: string) => path.split("/").pop() ?? path;

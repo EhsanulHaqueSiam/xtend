@@ -9,6 +9,7 @@ import { fakeTimers, render } from "../../../test/render";
 import { markXReady, refreshScreen, registerXWebview, type XWebview } from "../../state/x";
 import { CommunityHeader } from "./CommunityHeader";
 import { EngineSync } from "./EngineSync";
+import { HomeComposer } from "./HomeComposer";
 import { synth } from "./engineFixtures";
 import { Poll } from "./PostParts";
 import { ReplyComposer } from "./ReplyComposer";
@@ -577,4 +578,33 @@ it("runs one of a Community header's presses at a time: Join waits while X takes
   } finally {
     registerXWebview(null);
   }
+});
+
+it("in the browser alone, says free posting needs the desktop and carries a poll to Compose as a draft", async () => {
+  const creates: Array<DraftPatch> = [];
+  await using screen = await render(<HomeComposer />, {
+    service: {
+      "settings.get": () => Effect.succeed({ ...settings, sessionPostingEnabled: true }),
+      "compose.draftCreate": (patch) =>
+        Effect.sync(() => {
+          creates.push(patch);
+          return draft("h1", "draft");
+        }),
+    },
+  });
+  await expect.element(screen.getByText("posting free needs the desktop app")).toBeVisible();
+  await expect.element(screen.getByRole("button", { name: "Emoji" })).not.toBeInTheDocument();
+  await userEvent.fill(screen.getByLabelText("Post text"), "Ship it?");
+  await userEvent.click(screen.getByRole("button", { name: "Poll" }));
+  await userEvent.fill(screen.getByPlaceholder("Choice 1"), "yes");
+  await userEvent.fill(screen.getByPlaceholder("Choice 2"), "no");
+  await userEvent.click(screen.getByRole("button", { name: "Continue in Compose" }));
+  await expect.poll(() => screen.router?.state.location.href).toBe("/compose?draft=h1");
+  expect(creates).toEqual([
+    {
+      blocks: [{ text: "Ship it?" }],
+      quoteUrl: null,
+      poll: { options: ["yes", "no"], durationMinutes: 1440 },
+    },
+  ]);
 });

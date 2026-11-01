@@ -41,7 +41,7 @@ export function QuoteComposer() {
     const url = postUrl(quoted);
     if (!session || tooLong) return handOff(url);
     setBusy(true);
-    const posted = await sessionPost(text.trim(), url);
+    const posted = await sessionPost({ text: text.trim(), quoteUrl: url });
     setBusy(false);
     if (posted) close();
   };

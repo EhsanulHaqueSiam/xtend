@@ -23,6 +23,7 @@ import {
   GLANCE_CHANNEL,
   type Glance,
   OPEN_EXTERNAL_CHANNEL,
+  EMOJI_PANEL_CHANNEL,
   OVERLAY_ACTION_CHANNEL,
   OVERLAY_GLANCE_CHANNEL,
   OVERLAY_TOGGLE_CHANNEL,
@@ -555,6 +556,9 @@ export function createMainWindow(options: MainWindowOptions) {
       if (recovering) void loadApp();
     }),
     from<string>(OPEN_EXTERNAL_CHANNEL, openExternal),
+    from(EMOJI_PANEL_CHANNEL, () => {
+      if (app.isEmojiPanelSupported()) app.showEmojiPanel();
+    }),
     from<Glance>(GLANCE_CHANNEL, (value) => {
       glance = value;
       guest?.contents.send(OVERLAY_GLANCE_CHANNEL, glance);

@@ -41,3 +41,12 @@ export const readableError = (e: unknown): string => {
     return "Lost the connection to the service. It reconnects by itself; try again in a moment.";
   return e instanceof Error ? e.message : typeof e === "string" ? e : "Something failed.";
 };
+
+/** A picked file as mediaAdd takes it: base64 without the data URL's prefix. */
+export const toBase64 = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("error", () => reject(reader.error));
+    reader.addEventListener("load", () => resolve((reader.result as string).split(",")[1] ?? ""));
+    reader.readAsDataURL(file);
+  });

@@ -4,6 +4,8 @@ import type { Mark, ReplyTone } from "@xtend/contracts";
 
 // App -> main
 export const OPEN_EXTERNAL_CHANNEL = "xtend:open-external";
+/** Opens the OS emoji picker over the focused field (macOS and Windows). */
+export const EMOJI_PANEL_CHANNEL = "xtend:emoji-panel";
 export const ACCOUNT_SELECT_CHANNEL = "xtend:account-select";
 export const RECOVERY_RETRY_CHANNEL = "xtend:recovery-retry";
 export const REMOTE_SET_CHANNEL = "xtend:remote-set";
