@@ -23,12 +23,17 @@ import {
   UserCheck,
   X,
 } from "lucide-react";
-import { type ReactNode, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 
 import { isElectron } from "../../env";
 import { cn, toBase64 } from "../../lib/utils";
-import { createDraftAtom, mediaAddAtom, sessionPostNowAtom } from "../../state/compose";
+import {
+  createDraftAtom,
+  deleteDraftAtom,
+  mediaAddAtom,
+  sessionPostNowAtom,
+} from "../../state/compose";
 import { engineAtom, youFollow } from "../../state/engine";
 import { settingsAtom, useSessionLane } from "../../state/settings";
 import { failText } from "../compose/AssistPanel";
@@ -67,10 +72,14 @@ interface BoxPost {
   readonly files?: ReadonlyArray<Attached>;
 }
 
-/** The box as a draft, its files stored through mediaAdd: what Post sends and Compose opens. */
+/**
+ * The box as a draft, its files stored through mediaAdd: what Post sends and Compose opens. A
+ * file that fails deletes the draft and the files before it, so a retry starts clean.
+ */
 const useBoxDraft = () => {
   const create = useAtomSet(createDraftAtom, { mode: "promiseExit" });
   const mediaAdd = useAtomSet(mediaAddAtom, { mode: "promiseExit" });
+  const remove = useAtomSet(deleteDraftAtom, { mode: "promiseExit" });
   return async ({
     text,
     quoteUrl = null,
@@ -86,14 +95,16 @@ const useBoxDraft = () => {
     });
     // One at a time on purpose: positions follow the order the files were picked in.
     for (const { file, kind } of files) {
-      if (Exit.isFailure(draft)) break;
+      if (Exit.isFailure(draft)) return draft;
+      const id = draft.value.id;
       draft = await mediaAdd({
-        draftId: draft.value.id,
+        draftId: id,
         blockIndex: 0,
         kind,
         name: file.name,
         base64: await toBase64(file),
       });
+      if (Exit.isFailure(draft)) await remove(id);
     }
     return draft;
   };
@@ -197,12 +208,22 @@ export function HomeComposer() {
   const [opened, setOpened] = useState(false);
   const [replyOpen, setReplyOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [caret, setCaret] = useState(0);
+  // The textarea's selection: a mention pick replaces the token around it.
+  const [caret, setCaret] = useState({ start: 0, end: 0 });
   const [pick, setPick] = useState(0);
   // The mention the user closed with Escape, by where its @ sits; typing another reopens.
   const [closedAt, setClosedAt] = useState<number | null>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
+  // Object URLs of the files in the box, freed when it goes away with them.
+  const urls = useRef(new Set<string>());
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- frees the previews' object URLs on unmount.
+  useEffect(() => {
+    const live = urls.current;
+    return () => {
+      for (const url of live) URL.revokeObjectURL(url);
+    };
+  }, []);
 
   const length = charCount(text);
   const tooLong = length > POST_LIMIT;
@@ -211,7 +232,7 @@ export function HomeComposer() {
   const pollBlank = poll !== null && poll.options.some((o) => o.trim() === "");
   const plain = files.length === 0 && poll === null && reply === "everyone";
 
-  const mention = opened ? mentionAt(text, caret) : null;
+  const mention = opened && !busy ? mentionAt(text, caret.start, caret.end) : null;
   const self = settings?.handle ?? engine.viewer?.handle ?? null;
   const people =
     mention === null || mention.start === closedAt
@@ -219,8 +240,13 @@ export function HomeComposer() {
       : mentionMatches(engine.users.values(), mention.query, (u) => youFollow(engine, u), self);
   const active = Math.min(pick, people.length - 1);
 
+  const free = (url: string) => {
+    URL.revokeObjectURL(url);
+    urls.current.delete(url);
+  };
+
   const clear = () => {
-    for (const f of files) URL.revokeObjectURL(f.url);
+    for (const f of files) free(f.url);
     setText("");
     setFiles([]);
     setPoll(null);
@@ -243,13 +269,15 @@ export function HomeComposer() {
         setToast({ text: "Up to 4 images or 1 video" });
         break;
       }
-      next.push({ file, kind, url: URL.createObjectURL(file) });
+      const url = URL.createObjectURL(file);
+      urls.current.add(url);
+      next.push({ file, kind, url });
     }
     setFiles(next);
   };
 
   const removeFile = (url: string) => {
-    URL.revokeObjectURL(url);
+    free(url);
     setFiles((fs) => fs.filter((f) => f.url !== url));
   };
 
@@ -258,8 +286,8 @@ export function HomeComposer() {
     const inserted = `@${handle} `;
     const at = mention.start + inserted.length;
     flushSync(() => {
-      setText(text.slice(0, mention.start) + inserted + text.slice(caret));
-      setCaret(at);
+      setText(text.slice(0, mention.start) + inserted + text.slice(mention.end));
+      setCaret({ start: at, end: at });
     });
     box.current?.setSelectionRange(at, at);
   };
@@ -268,6 +296,7 @@ export function HomeComposer() {
   const handOff = async () => {
     if (plain) return void navigate({ href: `/compose?text=${encodeURIComponent(text)}` });
     // Media, a poll or a reply limit ride along as a draft, which Compose opens.
+    setReplyOpen(false);
     setBusy(true);
     const draft = await boxDraft(post);
     setBusy(false);
@@ -279,6 +308,7 @@ export function HomeComposer() {
   const send = async () => {
     if (blank || busy || pollBlank) return;
     if (!session || tooLong) return handOff();
+    setReplyOpen(false);
     setBusy(true);
     const posted = await sessionPost(post);
     setBusy(false);
@@ -298,7 +328,8 @@ export function HomeComposer() {
       className="grid grid-cols-[40px_minmax(0,1fr)] gap-x-3 border-b border-border px-4 pt-3"
     >
       <Avatar url={avatarUrl} size={40} />
-      <div className="relative min-w-0">
+      {/* Frozen while Post or a handoff sends, so nothing added meanwhile is lost to clear(). */}
+      <fieldset disabled={busy} className="relative m-0 min-w-0 border-0 p-0">
         <textarea
           ref={box}
           aria-label="Post text"
@@ -311,10 +342,12 @@ export function HomeComposer() {
           onFocus={() => setOpened(true)}
           onChange={(e) => {
             setText(e.target.value);
-            setCaret(e.target.selectionStart);
+            setCaret({ start: e.target.selectionStart, end: e.target.selectionEnd });
             setPick(0);
           }}
-          onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
+          onSelect={(e) =>
+            setCaret({ start: e.currentTarget.selectionStart, end: e.currentTarget.selectionEnd })
+          }
           onKeyDown={(e) => {
             if (people.length > 0) {
               const step = { ArrowDown: 1, ArrowUp: -1 }[e.key];
@@ -500,7 +533,7 @@ export function HomeComposer() {
             {session && !tooLong ? "Post" : "Continue in Compose"}
           </button>
         </div>
-      </div>
+      </fieldset>
     </div>
   );
 }

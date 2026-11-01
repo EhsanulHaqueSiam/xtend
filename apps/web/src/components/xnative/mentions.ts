@@ -1,9 +1,14 @@
 import type { EngineUser } from "@xtend/contracts";
 
-/** The @handle being typed at the caret: where its @ sits and what follows it; null outside one. */
-export const mentionAt = (text: string, caret: number) => {
+/**
+ * The @handle being typed at the caret: where its @ sits, what is typed before the caret, and
+ * where the token ends: past a selection and the rest of the word, all of which a pick replaces.
+ */
+export const mentionAt = (text: string, caret: number, selectionEnd = caret) => {
   const typed = /(?:^|[^\w@])@(\w{0,15})$/.exec(text.slice(0, caret))?.[1];
-  return typed === undefined ? null : { start: caret - typed.length - 1, query: typed };
+  if (typed === undefined) return null;
+  const rest = /^\w*/.exec(text.slice(selectionEnd))?.[0] ?? "";
+  return { start: caret - typed.length - 1, end: selectionEnd + rest.length, query: typed };
 };
 
 /**

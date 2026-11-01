@@ -7,10 +7,12 @@ const user = (handle: string, name: string, followers: number, youFollow = false
   ({ userId: handle, handle, name, followers, youFollow }) as EngineUser;
 
 it("finds the @handle being typed at the caret, and nothing inside an email or after a space", () => {
-  expect(mentionAt("hi @th", 6)).toEqual({ start: 3, query: "th" });
-  expect(mentionAt("@", 1)).toEqual({ start: 0, query: "" });
-  // The caret decides: the user went back into the first mention.
-  expect(mentionAt("(@theo and @guil", 4)).toEqual({ start: 1, query: "th" });
+  expect(mentionAt("hi @th", 6)).toEqual({ start: 3, end: 6, query: "th" });
+  expect(mentionAt("@", 1)).toEqual({ start: 0, end: 1, query: "" });
+  // The caret decides: the user went back into the first mention, whose rest a pick replaces.
+  expect(mentionAt("(@theo and @guil", 4)).toEqual({ start: 1, end: 6, query: "th" });
+  // A selection is replaced too, with the rest of the word after it.
+  expect(mentionAt("hi @thXYeo there", 6, 8)).toEqual({ start: 3, end: 10, query: "th" });
   expect(mentionAt("mail me@theo", 12)).toBeNull();
   expect(mentionAt("@theo done", 10)).toBeNull();
 });
