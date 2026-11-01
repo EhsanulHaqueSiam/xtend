@@ -202,6 +202,15 @@ export interface EnginePost extends ObservedPost {
   readonly editableUntil: string | null;
   /** X's "Made with AI" label: the media was declared or detected as AI-generated. */
   readonly aiGenerated: boolean;
+  /**
+   * X's own translation into the viewer's language, which X draws in place of the text with
+   * "Translated from <language>" and "Show original". `from` is the source language's code.
+   */
+  readonly translation: {
+    readonly text: string;
+    readonly entities: EngineEntities;
+    readonly from: string;
+  } | null;
 }
 
 /** A person as X lists them (search People, Who to follow, a profile's header). */

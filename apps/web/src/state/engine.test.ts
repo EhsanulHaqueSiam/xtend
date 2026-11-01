@@ -41,6 +41,7 @@ const post = (postId: string, createdAt: string, quotedId: string | null = null)
   editsRemaining: null,
   editableUntil: null,
   aiGenerated: false,
+  translation: null,
 });
 
 const batch = (

@@ -10,6 +10,7 @@ import {
   xPostMenuPress,
   xProfileMenu,
   xProfileMenuPress,
+  xVote,
   type XWebview,
 } from "./x";
 
@@ -254,4 +255,22 @@ it(`opens a profile's "..." only on that person's page, and keeps X's About page
   } finally {
     history.replaceState(null, "", start);
   }
+});
+
+it("votes by pressing X's radio for that choice on the post's own poll, and waits for X's results", async () => {
+  document.body.innerHTML = `<article><a href="/theo/status/42"><time></time></a>
+    <div data-testid="cardPoll"><div role="radiogroup">
+      <div role="radio"><span>Tabs</span></div><div role="radio"><span>Spaces</span></div>
+    </div></div></article>`;
+  const pressed: Array<string> = [];
+  for (const r of document.querySelectorAll('[role="radio"]'))
+    r.addEventListener("click", () => {
+      pressed.push(r.textContent!);
+      // X swaps its choices for the results.
+      setTimeout(() => document.querySelector('[role="radiogroup"]')?.remove(), 100);
+    });
+  inThisPage();
+  expect(await xVote(post42, "Maybe")).toBe(false);
+  expect(await xVote(post42, "Spaces")).toBe(true);
+  expect(pressed).toEqual(["Spaces"]);
 });

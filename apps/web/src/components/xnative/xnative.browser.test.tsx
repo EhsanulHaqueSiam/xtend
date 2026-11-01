@@ -6,7 +6,9 @@ import { page, userEvent } from "vite-plus/test/browser";
 import { installFakeBridge } from "../../../test/fakeBridge";
 import { draft, settings } from "../../../test/fixtures";
 import { render } from "../../../test/render";
+import { markXReady, registerXWebview, type XWebview } from "../../state/x";
 import { EngineSync } from "./EngineSync";
+import { Poll } from "./PostParts";
 import { ReplyComposer } from "./ReplyComposer";
 import { Timeline } from "./Timeline";
 
@@ -39,6 +41,7 @@ const post = (postId: string, text: string, extra: Partial<EnginePost> = {}): En
   editsRemaining: null,
   editableUntil: null,
   aiGenerated: false,
+  translation: null,
   ...extra,
 });
 
@@ -295,4 +298,80 @@ it("opens X's Repost / Quote popover, and Quote posts the comment over the quote
     .poll(() => creates)
     .toEqual([{ blocks: [{ text: "this is the way" }], quoteUrl: "https://x.com/theo/status/40" }]);
   await expect.element(box).not.toBeInTheDocument();
+});
+
+it("votes in an open poll through X's own radio, then shows the results with the vote counted", async () => {
+  const bridge = installFakeBridge();
+  const scripts: Array<string> = [];
+  // The engine: X takes the vote and draws its results.
+  registerXWebview({
+    executeJavaScript: (code: string) => (scripts.push(code), Promise.resolve(true)),
+  } as unknown as XWebview);
+  markXReady();
+  try {
+    await using screen = await render(
+      <div style={{ height: 800, display: "flex" }}>
+        <EngineSync />
+        <Timeline surface="likes" header={null} empty="Loading" onReopen={() => {}} />
+      </div>,
+      {
+        service: {
+          "settings.get": () => Effect.succeed({ ...settings, sessionPostingEnabled: true }),
+        },
+      },
+    );
+    bridge.emitEngine(
+      batch("Likes", [
+        post("50", "Tabs or spaces?", {
+          poll: {
+            choices: [
+              { label: "Tabs", votes: 58 },
+              { label: "Spaces", votes: 41 },
+            ],
+            endsAt: new Date(Date.now() + 49 * 3_600_000).toISOString(),
+            final: false,
+            voted: null,
+          },
+        }),
+      ]),
+    );
+    const row = screen.getByRole("article").first();
+    // Open and not voted: X's choices, no counts yet.
+    await expect.element(row.getByText("100 votes", { exact: false })).not.toBeInTheDocument();
+    await expect.element(row.getByText("99 votes · 2 days left")).toBeVisible();
+    await row.getByRole("radio", { name: "Spaces" }).click();
+    await expect.element(row.getByText("Spaces ✓")).toBeVisible();
+    await expect.element(row.getByText("100 votes · 2 days left")).toBeVisible();
+    await expect.element(row.getByText("42%")).toBeVisible();
+    expect(scripts.some((s) => s.includes('"Spaces"') && s.includes("cardPoll"))).toBe(true);
+    // The vote stayed on the list, not the post's own page.
+    expect(screen.router?.state.location.pathname).toBe("/");
+  } finally {
+    registerXWebview(null);
+  }
+});
+
+it("keeps a vote X took when the poll is drawn again, as a list does after scrolling", async () => {
+  const poll = {
+    choices: [
+      { label: "Tabs", votes: 1 },
+      { label: "Spaces", votes: 0 },
+    ],
+    endsAt: new Date(Date.now() + 49 * 3_600_000).toISOString(),
+    final: false,
+    voted: null,
+  };
+  const vote = () => Promise.resolve(true);
+  await using screen = await render(<Poll key="a" postId="51" poll={poll} onVote={vote} />, {
+    service: {},
+  });
+  await screen.getByRole("radio", { name: "Spaces" }).click();
+  await expect.element(screen.getByText("Spaces ✓")).toBeVisible();
+  // Every poll scrolled out of the virtualized list, long enough for unused state to go...
+  await screen.rerender(<p>Elsewhere in the list</p>);
+  await new Promise((r) => setTimeout(r, 200));
+  // ...then the row scrolled back in, a new Poll.
+  await screen.rerender(<Poll key="b" postId="51" poll={poll} onVote={vote} />);
+  await expect.element(screen.getByText("Spaces ✓")).toBeVisible();
+  expect(screen.getByRole("radio").elements()).toHaveLength(0);
 });
