@@ -707,6 +707,45 @@ const benchmarks = [
     },
   ],
   [
+    "Follow page: Who to follow and Creators list what X lists, with X's own buttons (dry)",
+    async () => {
+      // Each tab: X's first three people are drawn together, in X's order, on the native screen,
+      // each with X's button for them (Follow or Subscribe), and that button is on X's page for
+      // the first of them. X's page keeps only the rows near its scroll. Nothing is pressed.
+      const tab = async (search, path, button) => {
+        await go(`#/follow${search}`);
+        return until(async () => {
+          if ((await enginePath()) !== path) return false;
+          const xs = await engine(
+            `[...document.querySelectorAll('[data-testid="UserCell"]')].slice(0, 3).map((u) => u.querySelector('a[href^="/"]')?.getAttribute("href").slice(1).toLowerCase())`,
+          );
+          // Each drawn row: its handle (the avatar's label) and its last button, X's own.
+          const rows = await app(
+            `[...document.querySelectorAll('main [data-x="user"]')].map((r) => { const b = [...r.querySelectorAll("button")]; return [b[0]?.getAttribute("aria-label")?.slice(1), b.at(-1)?.textContent.toLowerCase()]; })`,
+          );
+          const at = rows?.findIndex(([h]) => h === xs?.[0]) ?? -1;
+          if (xs?.length !== 3 || at === -1) return false;
+          const drawn = rows.slice(at, at + 3);
+          if (JSON.stringify(drawn.map(([h]) => h)) !== JSON.stringify(xs)) return false;
+          // Native rows draw Follow (or Following) or Subscribe, as X's do.
+          if (!drawn.every(([, label]) => label?.startsWith(button[0]))) return false;
+          const id = await store(
+            `[...$.users.values()].find((u) => u.handle === ${JSON.stringify(xs[0])})?.userId`,
+          );
+          const xButton = await engine(
+            `!!document.querySelector('${button.map((b) => `[data-testid="${id}-${b}"]`).join(", ")}')`,
+          );
+          return xButton && xs.join(",");
+        });
+      };
+      const who = await tab("", "/i/connect_people", ["follow", "unfollow"]);
+      const creators =
+        who &&
+        (await tab("?tab=creators", "/i/connect_people?is_creator_only=true", ["subscribe"]));
+      return creators && `who ${who}; creators ${creators}`;
+    },
+  ],
+  [
     "Profile bell: shows X's own state for someone you follow (dry)",
     async () => {
       // Following holds people the account follows (and what they reposted), so X draws their bell.

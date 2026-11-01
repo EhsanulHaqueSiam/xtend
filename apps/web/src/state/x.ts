@@ -106,10 +106,15 @@ export const xShows = (path: string) => {
  * Engine steps for Xtend's own X screens, run in X's page on the user's intent: X's own app does
  * the fetching, and the capture hands its responses to the screens. Nothing here sends anything.
  */
-const xRun = (code: string) =>
-  ready && element !== null
-    ? element.executeJavaScript(code).catch(() => null)
-    : Promise.resolve(null);
+const xRun = (code: string): Promise<unknown> => {
+  if (!ready || element === null) return Promise.resolve(null);
+  // Electron throws, not rejects, when the guest is not attached (yet, or any more).
+  try {
+    return element.executeJavaScript(code).catch(() => null);
+  } catch {
+    return Promise.resolve(null);
+  }
+};
 
 /**
  * Near a native list's end, X scrolls its own page to fetch the next. A jump to the bottom can
@@ -166,15 +171,20 @@ const BUTTONS = {
 export type XAction = keyof typeof BUTTONS;
 
 /**
- * A script for X's page: presses the button `testid` inside `scope` (an expression evaluating to
- * an element or null), presses X's confirm when it asks, then waits for the button to turn into
- * `turns`. X turns it at once and saves a moment later; leaving the page before then would cancel
- * the save, so it also gives the request time to go out. Resolves to whether it pressed.
+ * A script for X's page: presses `testid` in `scope` (an element or null), X's `confirm` if asked,
+ * waits for it to turn into `turns`, and gives X's save time to go out. Whether X took it; null when
+ * there was no button, the only case where a caller may press elsewhere without undoing a press.
  */
-const pressScript = (scope: string, testid: string, turns: string, confirm: string | undefined) => `
+const pressScript = (
+  scope: string,
+  testid: string,
+  turns: string,
+  confirm: string | undefined,
+  live: string,
+) => `
     const scope = ${scope};
     const button = scope?.querySelector('[data-testid="${testid}"]');
-    if (!button) return false;
+    if (!button) return null;
     button.click();
     if (${JSON.stringify(confirm ?? null)} !== null) {
       let confirm = null;
@@ -185,23 +195,29 @@ const pressScript = (scope: string, testid: string, turns: string, confirm: stri
       if (!confirm) return false;
       confirm.click();
     }
-    for (let i = 0; i < 30 && !scope.querySelector('[data-testid="${turns}"]'); i++)
-      await new Promise((r) => setTimeout(r, 100));
+    // X turns the button at once when it takes the press; one it refuses stays as it was. X may
+    // draw it anew, so each look finds the live target again (\`live\`), never a removed one.
+    const turned = () => {
+      const now = ${live};
+      return !!now?.isConnected && !!now.querySelector('[data-testid="${turns}"]');
+    };
+    for (let i = 0; i < 30 && !turned(); i++) await new Promise((r) => setTimeout(r, 100));
     await new Promise((r) => setTimeout(r, 1000));
-    return true;`;
+    return turned();`;
 
 /**
  * Presses X's own button for the user's click, on the engine page where the post already sits,
- * so the engine never leaves the list it feeds. False when the post is not on that page.
+ * so the engine never leaves the list it feeds. Whether X took it; null when the post is not on
+ * that page and nothing was pressed.
  */
-export const xActInPlace = (postId: string, action: XAction): Promise<boolean> => {
+export const xActInPlace = (postId: string, action: XAction): Promise<boolean | null> => {
   // The id goes into a script: digits only.
-  if (!/^\d{1,25}$/.test(postId)) return Promise.resolve(false);
+  if (!/^\d{1,25}$/.test(postId)) return Promise.resolve(null);
   const { turns, confirm }: { readonly turns: string; readonly confirm?: string } = BUTTONS[action];
   return xRun(`(async () => {
     ${findArticle(postId)}
-    ${pressScript("article", action, turns, confirm)}
-  })()`).then((done) => done === true);
+    ${pressScript("article", action, turns, confirm, "own()")}
+  })()`).then((done) => (typeof done === "boolean" ? done : null));
 };
 
 /**
@@ -213,9 +229,10 @@ export const xActInPlace = (postId: string, action: XAction): Promise<boolean> =
 const findArticle = (postId: string) => `
     for (let i = 0; i < 100 && !document.querySelector("article"); i++)
       await new Promise((r) => setTimeout(r, 100));
+    const own = () => document.querySelector('article a[href$="/status/${postId}"] time, article a[href$="/status/${postId}/history"] time')?.closest("article") ?? null;
     let article = null;
     for (let i = 0; i < 10 && !article; i++) {
-      article = document.querySelector('article a[href$="/status/${postId}"] time, article a[href$="/status/${postId}/history"] time')?.closest("article") ?? null;
+      article = own();
       if (!article) await new Promise((r) => setTimeout(r, 100));
     }`;
 
@@ -261,20 +278,24 @@ const profileMenuAt = (handle: string): MenuAt => ({
  * A script step that opens X's menu `at` and sets `items` to its rows once drawn; the step after
  * it closes the menu (`closeMenu`) or presses a row.
  */
-const openMenu = (at: MenuAt) => `
+const openMenu = (at: MenuAt, mine = "true") => `
     ${at.find}
     const trigger = ${at.root}?.querySelector(${JSON.stringify(at.trigger)});
-    if (!trigger) return null;
+    if (!trigger || !(${mine})) return null;
     trigger.click();
     let items = [];
     for (let i = 0; i < 20 && items.length === 0; i++) {
       await new Promise((r) => setTimeout(r, 100));
+      // The user moved on: any menu now showing is theirs, not this step's.
+      if (!(${mine})) return null;
       items = [...document.querySelectorAll('[data-testid="Dropdown"] [role="menuitem"]')];
     }
-    // X closes its menu on a click outside it, on the mask drawn beside it; Escape from a script does not.
+    // X closes its menu on a click outside it, on the mask drawn beside it; Escape from a script
+    // does not. Only the menu this step opened, and only while the step is still the user's.
+    const opened = items[0]?.closest('[role="menu"]') ?? null;
     const closeMenu = () => {
-      const menu = document.querySelector('[role="menu"]');
-      [...(menu?.parentElement?.children ?? [])].find((k) => k !== menu && k.getBoundingClientRect().height > 0)?.click();
+      if (!opened?.isConnected || !(${mine})) return;
+      [...(opened.parentElement?.children ?? [])].find((k) => k !== opened && k.getBoundingClientRect().height > 0)?.click();
     };`;
 
 /** What X did when the user pressed one of its menu items. */
@@ -285,24 +306,27 @@ export type XMenuOutcome =
   | { readonly kind: "over"; readonly path: string };
 
 /** X's menu `at`, read on the engine page: its rows' labels, in X's order. */
-const xMenuInPlace = (at: MenuAt) =>
-  xRun(`(async () => {
-    ${openMenu(at)}
+const xMenuInPlace = (at: MenuAt, run?: number) => {
+  // Read for a press: once the user moved on, X's page is theirs, so nothing opens or counts.
+  const mine = run === undefined ? "true" : stillMine(run);
+  return xRun(`(async () => {
+    ${openMenu(at, mine)}
     const labels = items.map((i) => i.textContent.trim());
     closeMenu();
-    return labels;
+    return ${mine} ? labels : null;
   })()`).then((labels) =>
     Array.isArray(labels) && labels.every((l) => typeof l === "string")
       ? (labels as ReadonlyArray<string>)
       : null,
   );
+};
 
 /** Presses row `label` of X's menu `at` on the engine page. Null when it is not there. */
-const xMenuPressInPlace = (at: MenuAt, label: string) =>
+const xMenuPressInPlace = (at: MenuAt, label: string, run: number) =>
   xRun(`(async () => {
-    ${openMenu(at)}
+    ${openMenu(at, stillMine(run))}
     const item = items.find((i) => i.textContent.trim() === ${JSON.stringify(label)});
-    if (!item) return (closeMenu(), null);
+    if (!item || !${stillMine(run)}) return (closeMenu(), null);
     const path = location.pathname + location.search;
     item.click();
     await new Promise((r) => setTimeout(r, 800));
@@ -325,16 +349,20 @@ const onPage = async <A>(
   page: { readonly url: string; readonly path: string },
   step: () => Promise<A | null>,
   leave: (result: A) => Promise<unknown> = () => Promise.resolve(),
+  live: () => boolean = () => true,
 ): Promise<A | null> => {
   // No engine (a browser): no X.
   if (element === null || !ready) return null;
   const here = await step();
   if (here !== null) return (await leave(here), here);
+  // The user moved on meanwhile: the engine is theirs, not this press's.
+  if (!live()) return null;
   const moved = await xGo(page.url);
-  const there = await step();
+  const there = live() ? await step() : null;
   if (there !== null) await leave(there);
-  // Back only from a page this step opened, and only while the engine is still on it.
-  if (moved)
+  // Back only from a page this step opened, while the engine is still on it, and while this
+  // press is still the user's latest: a screen they opened since owns the engine now.
+  if (moved && live())
     await xRun(
       `location.pathname.toLowerCase().endsWith(${JSON.stringify(page.path.toLowerCase())}) && history.back(), true`,
     );
@@ -369,38 +397,101 @@ export const xProfileMenu = async (handle: string) =>
 export const xOverAtom = Atom.make(false);
 
 let overRun = 0;
-/** The user moved to another screen: whatever X's dialog was, the engine is no longer over it. */
-export const xOverEnded = () => void overRun++;
+/** Starts a new press: the latest one, in Xtend and in X's page alike. */
+const nextRun = async () => {
+  const run = ++overRun;
+  await xRun(`window.__xtendPress = ${run}, true`);
+  return run;
+};
+
+/**
+ * The user moved to another screen or tab: whatever X's dialog was, the engine is no longer over
+ * it, and a press still waiting in X's page (`stillMine`) gives up.
+ */
+export const xOverEnded = () => void nextRun();
+
+/** A script step in X's page: true while press `run` is still the user's latest. */
+const stillMine = (run: number) => `((window.__xtendPress ?? 0) === ${run})`;
 
 /**
  * Presses row `label` of X's menu `at` on `page` for the user's click. When X answers with its own
  * dialog or page, `over` puts the engine over the main area until X is back where it was with no
  * dialog (the user finished or closed it), or the user moved to another screen.
  */
-const pressMenu = (
+const pressMenu = async (
   page: { readonly url: string; readonly path: string },
   at: MenuAt,
   label: string,
   over: (shown: boolean) => void,
 ) => {
   // Taken before X answers: a screen change meanwhile means the dialog no longer belongs here.
-  const run = ++overRun;
+  const run = await nextRun();
   return onPage(
     page,
-    () => xMenuPressInPlace(at, label),
-    async (outcome) => {
-      if (outcome.kind !== "over" || run !== overRun) return;
-      over(true);
-      for (;;) {
-        await new Promise((r) => setTimeout(r, 500));
-        if (run !== overRun) return;
-        const open = await xRun(
-          `location.pathname + location.search !== ${JSON.stringify(outcome.path)} || !!document.querySelector('[role="dialog"], [role="alertdialog"]')`,
-        );
-        if (open !== true) break;
-      }
-      over(false);
-    },
+    () => xMenuPressInPlace(at, label, run),
+    (outcome) => (outcome.kind === "over" ? holdOver(run, outcome.path, over) : Promise.resolve()),
+    () => run === overRun,
+  );
+};
+
+/**
+ * Shows the engine over the main area while X's own dialog or page, opened by a press at `path`,
+ * is up: until X is back on `path` with no dialog, or press `run` is no longer the latest.
+ */
+const holdOver = async (run: number, path: string, over: (shown: boolean) => void) => {
+  if (run !== overRun) return;
+  over(true);
+  for (;;) {
+    await new Promise((r) => setTimeout(r, 500));
+    if (run !== overRun) return;
+    const open = await xRun(
+      `location.pathname + location.search !== ${JSON.stringify(path)} || !!document.querySelector('[role="dialog"], [role="alertdialog"]')`,
+    );
+    if (open !== true) break;
+  }
+  over(false);
+};
+
+/**
+ * Presses X's own Subscribe for a creator for the user's click: in place where the engine page
+ * draws it (X's Follow page lists creators with it, but only the rows near its scroll), otherwise
+ * on their profile. X answers with its own subscribe dialog, shown over the main area (see
+ * `holdOver`); paying happens there, in X. False when X showed no dialog.
+ */
+export const xSubscribe = async (
+  user: { readonly userId: string; readonly handle: string },
+  over: (shown: boolean) => void,
+) => {
+  // Both go into scripts run in X's page: digits and a handle only.
+  if (!/^\d{1,25}$/.test(user.userId) || !validHandle(user.handle)) return false;
+  const run = await nextRun();
+  // A list row has the test id; a profile's header labels it "Subscribe to @handle" (any case).
+  // Briefly where the engine is, longer on a profile X is still drawing.
+  let tries = 10;
+  const press = () =>
+    xRun(`(async () => {
+    const label = ${JSON.stringify(`subscribe to @${user.handle.toLowerCase()}`)};
+    const find = () => document.querySelector('[data-testid="${user.userId}-subscribe"]') ??
+      [...document.querySelectorAll("button[aria-label]")].find((b) => b.getAttribute("aria-label").toLowerCase() === label);
+    for (let i = 0; i < ${tries} && !find(); i++) await new Promise((r) => setTimeout(r, 100));
+    const button = find();
+    // The user moved on while X drew the page: the click is no longer theirs.
+    if (!button || !${stillMine(run)}) return null;
+    const path = location.pathname + location.search;
+    button.click();
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      if (location.pathname + location.search !== path || document.querySelector('[role="dialog"]')) return path;
+    }
+    return null;
+  })()`).then((path) => {
+      tries = 50;
+      return typeof path === "string" ? path : null;
+    });
+  const live = () => run === overRun;
+  return (
+    (await onPage(profilePage(user.handle), press, (path) => holdOver(run, path, over), live)) !==
+    null
   );
 };
 
@@ -412,6 +503,40 @@ export const xPostMenuPress = async (
   menu: XPostMenu = "more",
 ) =>
   validPost(post) ? pressMenu(postPage(post), postMenuAt(post.postId, menu), label, over) : null;
+
+/**
+ * Presses X's own "Follow @handle" or "Unfollow @handle" row of a post's "..." for the user's
+ * click, then reads X's menu again: whatever X did (acted, asked in its dialog, refused), its row
+ * now says whether the user follows. `following` is null when X's menu did not say, or the user
+ * moved on before it could be read.
+ */
+export const xPostFollowPress = async (
+  post: PostRef,
+  label: string,
+  over: (shown: boolean) => void,
+) => {
+  if (!validPost(post)) return null;
+  const pressing = pressMenu(postPage(post), postMenuAt(post.postId, "more"), label, over);
+  // pressMenu takes its run before its first await: this is that press.
+  const run = overRun;
+  const live = () => run === overRun;
+  const outcome = await pressing;
+  if (outcome === null || !live()) return { outcome, following: null };
+  const rows = await onPage(
+    postPage(post),
+    () => xMenuInPlace(postMenuAt(post.postId, "more"), run),
+    () => Promise.resolve(),
+    live,
+  );
+  if (!live()) return { outcome, following: null };
+  const handle = label.slice(label.indexOf("@"));
+  const following = rows?.includes(`Unfollow ${handle}`)
+    ? true
+    : rows?.includes(`Follow ${handle}`)
+      ? false
+      : null;
+  return { outcome, following };
+};
 
 /** Presses X's own row `label` of a profile's "..." for the user's click (see `pressMenu`). */
 export const xProfileMenuPress = async (
@@ -567,9 +692,13 @@ export const xFollow = async (
       `${user.userId}-${press}`,
       `${user.userId}-${turns}`,
       follow ? undefined : "confirmationSheetConfirm",
+      // The test id names the person, so X's page as a whole is where it turns.
+      "document.documentElement",
     )}
   })()`;
-  if ((await xRun(script(10))) === true) return true;
+  // Only when nothing was pressed here: pressing again where X refused could undo it.
+  const here = await xRun(script(10));
+  if (typeof here === "boolean") return here;
   const moved = await xGo(`https://x.com/${user.handle}`);
   const done = (await xRun(script(100))) === true;
   if (moved)
@@ -590,9 +719,11 @@ export const xAct = async (
 ): Promise<boolean> => {
   // Both go into scripts run in X's page: digits and a handle only.
   if (!/^\d{1,25}$/.test(post.postId) || !/^[A-Za-z0-9_]{1,15}$/.test(post.handle)) return false;
-  if (await xActInPlace(post.postId, action)) return true;
+  // Only when nothing was pressed here: pressing again where X refused could undo it.
+  const here = await xActInPlace(post.postId, action);
+  if (here !== null) return here;
   const moved = await xGo(`https://x.com/${post.handle}/status/${post.postId}`);
-  const done = await xActInPlace(post.postId, action);
+  const done = (await xActInPlace(post.postId, action)) === true;
   // Back only from a page this step opened, and only while the engine is still on it: the user
   // may have been there already, or moved it on meanwhile.
   if (moved)

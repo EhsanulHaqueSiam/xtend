@@ -2,18 +2,18 @@ import type { DraftPatch, EnginePost } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import { expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
-import { Suspense } from "react";
 
 import { installFakeBridge } from "../../../test/fakeBridge";
 import { draft, settings } from "../../../test/fixtures";
 import { fakeTimers, render } from "../../../test/render";
-import { Route as ListsRoute } from "../../routes/lists.index";
 import { markXReady, refreshScreen, registerXWebview, type XWebview } from "../../state/x";
 import { EngineSync } from "./EngineSync";
 import { Poll } from "./PostParts";
 import { ReplyComposer } from "./ReplyComposer";
 import { ReplySort } from "./ReplySort";
 import { Timeline } from "./Timeline";
+import { Suspense } from "react";
+import { Route as ListsRoute } from "../../routes/lists.index";
 
 // Polls count their days left from now; these tests run at this moment.
 const NOW = Date.parse("2026-10-31T12:00:00.000Z");
@@ -399,6 +399,68 @@ it("sorts replies through X's own menu: Relevant, Recent, Likes, the open one ch
   expect(picked).toEqual(["Recency"]);
   await screen.rerender(<ReplySort value="Recency" onChange={() => {}} />);
   await expect.element(screen.getByRole("button", { name: "Recent" })).toBeVisible();
+});
+
+it("keeps a follow X took from its own post menu, as X's menu says afterwards", async () => {
+  const bridge = installFakeBridge();
+  // The engine: X's menu rows, and what pressing a row turns them into (X's own state).
+  let rows = ["Follow @theo"];
+  let afterPress = ["Unfollow @theo"];
+  let pressed: unknown = { kind: "done", toast: null, undo: false };
+  registerXWebview({
+    getURL: () => "https://x.com/home",
+    loadURL: () => Promise.resolve(),
+    executeJavaScript: (code: string) => {
+      if (code.includes("const labels")) return Promise.resolve(rows);
+      if (!code.includes("item.click()")) return Promise.resolve(false);
+      rows = afterPress;
+      return Promise.resolve(pressed);
+    },
+  } as unknown as XWebview);
+  markXReady();
+  const asked = () =>
+    (Reflect.get(window, "__xtendEngine") as () => { asked: ReadonlyMap<string, boolean> })().asked;
+  const press = async (label: string) => {
+    await row().getByRole("button", { name: "More" }).click();
+    await screenRef!.getByRole("menuitem", { name: label }).click();
+  };
+  let screenRef: Awaited<ReturnType<typeof render>> | undefined;
+  const row = () => screenRef!.getByRole("article").first();
+  try {
+    await using screen = await render(
+      <div style={{ height: 800, display: "flex" }}>
+        <EngineSync />
+        <Timeline surface="likes" header={null} empty="Loading" onReopen={() => {}} />
+      </div>,
+      {
+        service: {
+          "settings.get": () => Effect.succeed({ ...settings, sessionPostingEnabled: true }),
+        },
+      },
+    );
+    screenRef = screen;
+    bridge.emitEngine(batch("Likes", [post("60", "Shipping today")]));
+    await press("Follow @theo");
+    await expect.poll(() => asked().get("1")).toBe(true);
+
+    // Unfollow asks in X's dialog; the user cancels, and X's menu still says Unfollow.
+    afterPress = ["Unfollow @theo"];
+    pressed = { kind: "over", path: "/home" };
+    await press("Unfollow @theo");
+    await expect.poll(() => asked().get("1"), { timeout: 5000 }).toBe(true);
+
+    // X refuses an Unfollow without a dialog: its menu still says Unfollow, so nothing changes;
+    // then it takes one, and its menu says Follow.
+    pressed = { kind: "done", toast: "Something went wrong", undo: false };
+    await press("Unfollow @theo");
+    rows = ["Unfollow @theo"];
+    afterPress = ["Follow @theo"];
+    pressed = { kind: "done", toast: null, undo: false };
+    await press("Unfollow @theo");
+    await expect.poll(() => asked().get("1")).toBe(false);
+  } finally {
+    registerXWebview(null);
+  }
 });
 
 it("opens X's Lists page of the account X is signed in to, not the one Settings names, once X names it", async () => {

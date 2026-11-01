@@ -39,6 +39,7 @@ const X_PAGES: ReadonlyArray<{ readonly label: string; readonly path: string }> 
   { label: "Messages", path: "/messages" },
   { label: "Bookmarks", path: "/i/bookmarks" },
   { label: "Explore", path: "/explore" },
+  { label: "Follow", path: "/i/connect_people" },
 ];
 
 /**

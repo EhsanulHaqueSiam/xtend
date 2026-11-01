@@ -2,15 +2,18 @@ import { expect, it } from "vite-plus/test";
 
 import {
   markXReady,
+  xAct,
   registerXWebview,
   xActInPlace,
   xFollow,
   xPostMenu,
   xOverEnded,
+  xPostFollowPress,
   xPostMenuPress,
   xProfileMenu,
   xProfileMenuPress,
   xSortReplies,
+  xSubscribe,
   xVote,
   type XWebview,
 } from "./x";
@@ -23,7 +26,7 @@ const X_PAGE = `
   <article id="edited"><a href="/theo/status/42/history"><time></time></a>
     <button data-testid="bookmark"></button></article>`;
 
-it("presses X's button on the post's own article, edited or not, never on a post quoting it", async () => {
+it("presses X's button on the post's own article, edited or not, never on a post quoting it, and once only", async () => {
   document.body.innerHTML = X_PAGE;
   const pressed: Array<string> = [];
   // X turns a pressed button over to its undo.
@@ -43,6 +46,15 @@ it("presses X's button on the post's own article, edited or not, never on a post
 
   expect(await xActInPlace("42", "bookmark")).toBe(true);
   expect(pressed).toEqual(["edited"]);
+
+  // X refuses: the press says so, and nothing presses again on the post's page, which could undo it.
+  // Another post's button, already turned, is not this post's answer.
+  document.body.innerHTML = `<article><a href="/theo/status/43"><time></time></a><button data-testid="bookmark"></button></article>
+    <article><a href="/ann/status/44"><time></time></a><button data-testid="removeBookmark"></button></article>`;
+  let presses = 0;
+  document.querySelector("button")!.addEventListener("click", () => presses++);
+  expect(await xAct({ postId: "43", handle: "theo" }, "bookmark")).toBe(false);
+  expect(presses).toBe(1);
 });
 
 /** Runs the engine's scripts in this document, as X's page at `url` would. */
@@ -98,7 +110,7 @@ it("undoes a repost and an unfollow through X's confirm", async () => {
   ]);
 });
 
-it("follows the person asked for, waiting past another person's button drawn first", async () => {
+it("follows the person asked for, waiting past another person's button drawn first, and says when X refuses", async () => {
   // X's page shows a recommendation's button now; the profile's own button comes a moment later.
   document.body.innerHTML = `<div><button data-testid="999-follow"></button></div>`;
   const log: Array<string> = [];
@@ -115,6 +127,10 @@ it("follows the person asked for, waiting past another person's button drawn fir
   inThisPage();
   expect(await xFollow({ userId: "786", handle: "theo" }, true)).toBe(true);
   expect(log).toEqual(["786-follow"]);
+
+  // X refuses: its button stays Follow, and the press says so instead of claiming the follow.
+  document.body.innerHTML = `<div><button data-testid="786-follow"></button></div>`;
+  expect(await xFollow({ userId: "786", handle: "theo" }, true)).toBe(false);
 });
 
 /**
@@ -182,16 +198,48 @@ it("presses only the row asked for: X's toast comes back, X's dialog keeps the e
   expect(shown).toEqual([true, false]);
 });
 
-it("leaves X's dialog to the screen it was opened on when the user moves on before X answers", async () => {
-  withMenu({
-    "Block @theo": () =>
-      document.body.insertAdjacentHTML("beforeend", `<div role="alertdialog"></div>`),
-  });
+it("leaves X's dialog, a Subscribe still waiting, and an Unfollow's reread to the screen they began on when the user moves on", async () => {
+  const blocked: Array<string> = [];
+  withMenu({ "Block @theo": () => blocked.push("Block @theo") });
   const shown: Array<boolean> = [];
+  // Moved on before the press reached X's page: X's row is never pressed, nothing shows over.
   const pressing = xPostMenuPress(post42, "Block @theo", (on) => shown.push(on));
   xOverEnded();
-  expect((await pressing)?.kind).toBe("over");
+  expect(await pressing).toBeNull();
+  expect(blocked).toEqual([]);
   expect(shown).toEqual([]);
+
+  // A Subscribe whose button X draws only after the user moved on never clicks it.
+  document.body.innerHTML = "";
+  const clicked: Array<string> = [];
+  const subscribing = xSubscribe({ userId: "786", handle: "theo" }, (on) => shown.push(on));
+  xOverEnded();
+  document.body.innerHTML = `<button data-testid="786-subscribe"></button>`;
+  document.querySelector("button")!.addEventListener("click", () => clicked.push("subscribe"));
+  expect(await subscribing).toBe(false);
+  expect(clicked).toEqual([]);
+
+  // An Unfollow the user left before it reached X's page: X's menu is never opened for it.
+  let opened = 0;
+  withMenu({
+    "Unfollow @theo": () =>
+      document.body.insertAdjacentHTML("beforeend", `<div role="alertdialog"></div>`),
+  });
+  document.querySelector('[data-testid="caret"]')!.addEventListener("click", () => opened++);
+  const unfollowing = xPostFollowPress(post42, "Unfollow @theo", (on) => shown.push(on));
+  xOverEnded();
+  expect((await unfollowing)?.following).toBeNull();
+  expect(opened).toBe(0);
+
+  // The user moves on while X's menu is being read again: what it says no longer counts.
+  let opens = 0;
+  withMenu({ "Follow @theo": () => {} });
+  document.querySelector('[data-testid="caret"]')!.addEventListener("click", () => {
+    if (++opens === 2) xOverEnded();
+  });
+  const following = xPostFollowPress(post42, "Follow @theo", (on) => shown.push(on));
+  expect((await following)?.following).toBeNull();
+  expect(opens).toBe(2);
 });
 
 it("reads X's share rows from its share button, and Send via Chat keeps X's dialog over", async () => {

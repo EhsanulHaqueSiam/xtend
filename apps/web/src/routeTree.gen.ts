@@ -20,6 +20,7 @@ import { Route as NotificationsRouteImport } from './routes/notifications'
 import { Route as LibraryRouteImport } from './routes/library'
 import { Route as LeadsRouteImport } from './routes/leads'
 import { Route as HomeRouteImport } from './routes/home'
+import { Route as FollowRouteImport } from './routes/follow'
 import { Route as ExploreRouteImport } from './routes/explore'
 import { Route as EngageRouteImport } from './routes/engage'
 import { Route as ComposeRouteImport } from './routes/compose'
@@ -87,6 +88,11 @@ const LeadsRoute = LeadsRouteImport.update({
 const HomeRoute = HomeRouteImport.update({
   id: '/home',
   path: '/home',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FollowRoute = FollowRouteImport.update({
+  id: '/follow',
+  path: '/follow',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ExploreRoute = ExploreRouteImport.update({
@@ -163,6 +169,7 @@ export interface FileRoutesByFullPath {
   '/compose': typeof ComposeRoute
   '/engage': typeof EngageRoute
   '/explore': typeof ExploreRoute
+  '/follow': typeof FollowRoute
   '/home': typeof HomeRoute
   '/leads': typeof LeadsRoute
   '/library': typeof LibraryRoute
@@ -189,6 +196,7 @@ export interface FileRoutesByTo {
   '/compose': typeof ComposeRoute
   '/engage': typeof EngageRoute
   '/explore': typeof ExploreRoute
+  '/follow': typeof FollowRoute
   '/home': typeof HomeRoute
   '/leads': typeof LeadsRoute
   '/library': typeof LibraryRoute
@@ -216,6 +224,7 @@ export interface FileRoutesById {
   '/compose': typeof ComposeRoute
   '/engage': typeof EngageRoute
   '/explore': typeof ExploreRoute
+  '/follow': typeof FollowRoute
   '/home': typeof HomeRoute
   '/leads': typeof LeadsRoute
   '/library': typeof LibraryRoute
@@ -244,6 +253,7 @@ export interface FileRouteTypes {
     | '/compose'
     | '/engage'
     | '/explore'
+    | '/follow'
     | '/home'
     | '/leads'
     | '/library'
@@ -270,6 +280,7 @@ export interface FileRouteTypes {
     | '/compose'
     | '/engage'
     | '/explore'
+    | '/follow'
     | '/home'
     | '/leads'
     | '/library'
@@ -296,6 +307,7 @@ export interface FileRouteTypes {
     | '/compose'
     | '/engage'
     | '/explore'
+    | '/follow'
     | '/home'
     | '/leads'
     | '/library'
@@ -323,6 +335,7 @@ export interface RootRouteChildren {
   ComposeRoute: typeof ComposeRoute
   EngageRoute: typeof EngageRoute
   ExploreRoute: typeof ExploreRoute
+  FollowRoute: typeof FollowRoute
   HomeRoute: typeof HomeRoute
   LeadsRoute: typeof LeadsRoute
   LibraryRoute: typeof LibraryRoute
@@ -419,6 +432,13 @@ declare module '@tanstack/react-router' {
       path: '/home'
       fullPath: '/home'
       preLoaderRoute: typeof HomeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/follow': {
+      id: '/follow'
+      path: '/follow'
+      fullPath: '/follow'
+      preLoaderRoute: typeof FollowRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/explore': {
@@ -523,6 +543,7 @@ const rootRouteChildren: RootRouteChildren = {
   ComposeRoute: ComposeRoute,
   EngageRoute: EngageRoute,
   ExploreRoute: ExploreRoute,
+  FollowRoute: FollowRoute,
   HomeRoute: HomeRoute,
   LeadsRoute: LeadsRoute,
   LibraryRoute: LibraryRoute,

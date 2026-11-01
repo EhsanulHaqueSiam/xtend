@@ -6,8 +6,8 @@ X's pages and the tools.
 
 ## Home, Search and posts, drawn by Xtend
 
-Home, Explore, Bookmarks, Profile, any post you open and anyone's profile (click their name)
-are Xtend's own screens. Your X session still does the
+Home, Explore, Notifications, Bookmarks, Lists, Follow, Profile, any post you open and anyone's
+profile (click their name) are Xtend's own screens. Your X session still does the
 work out of sight: it loads the page you asked for and scrolls when you reach the end, so what
 you see is exactly what X would show you, free. **For you** and **Following** are X's own feeds.
 J and K move between posts, Enter opens one, L likes, S saves to Library. Like, repost and
@@ -23,8 +23,9 @@ the reading runs on your own Claude or Codex login.
 
 ## The sidebar
 
-The X rows at the top open X's pages: Home, Explore, Bookmarks and Profile in Xtend,
-Notifications and Messages as x.com itself in the main area. Notifications shows X's unread count. The tools follow: Compose, Plan,
+The X rows at the top open X's pages: Home, Explore, Notifications, Bookmarks, Lists, Follow
+and Profile in Xtend, Messages as x.com itself in the main area. Follow is X's Who to follow and
+Creators for you; a creator's Subscribe opens X's own subscribe dialog, where X shows the price. Notifications shows X's unread count. The tools follow: Compose, Plan,
 Library, Engage, Leads, Automate, Analyze, Scores, Seen, then Settings. Each tool's sections
 show as rows under it once it is open. Compose counts queued drafts and Engage counts open
 mentions.

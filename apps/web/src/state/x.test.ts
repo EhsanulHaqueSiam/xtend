@@ -42,7 +42,7 @@ it("presses X's button in place, or on the post's page and then back to the list
   expect(held.calls).toHaveLength(1);
 
   // Not on the page: X's router to the post, the press there, then Back.
-  const gone = fakeWebview("https://x.com/home", [false, true, true, true]);
+  const gone = fakeWebview("https://x.com/home", [null, true, true, true]);
   registerXWebview(gone.el);
   markXReady();
   expect(await xAct({ postId: "42", handle: "theo" }, "like")).toBe(true);
@@ -86,7 +86,7 @@ it("waits for the guest before a page asked for early, so the step after it has 
 
 it("goes Back only from a post page it opened itself", async () => {
   // Already on the post: X's button is pressed on the second look, and the engine stays.
-  const there = fakeWebview("https://x.com/theo/status/42", [false, true]);
+  const there = fakeWebview("https://x.com/theo/status/42", [null, true]);
   registerXWebview(there.el);
   markXReady();
   expect(await xAct({ postId: "42", handle: "theo" }, "like")).toBe(true);

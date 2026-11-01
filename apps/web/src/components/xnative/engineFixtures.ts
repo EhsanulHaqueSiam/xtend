@@ -873,5 +873,20 @@ export function synth(): Readonly<Record<string, Fixture>> {
     ],
   };
 
-  return { home, post, profile, notifications, search, bookmarks, explore, lists };
+  const connect = (tab: "who" | "creators", people: ReadonlyArray<EngineUser>) =>
+    batch("ConnectTabTimeline", `connect:${tab}`, [], {
+      users: people,
+      people: people.map((u) => u.userId),
+    });
+  // X suggests people the account does not follow yet.
+  const suggested = PEOPLE.map((u) => ({ ...u, youFollow: false }));
+  const follow: Fixture = {
+    meta: meta("follow", "Follow: Who to follow with Follow, Creators for you with Subscribe", [
+      "/follow",
+      "/follow?tab=creators",
+    ]),
+    batches: [connect("who", suggested), connect("creators", suggested.slice(2, 6))],
+  };
+
+  return { home, post, profile, notifications, search, bookmarks, explore, lists, follow };
 }

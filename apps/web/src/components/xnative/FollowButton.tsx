@@ -4,14 +4,15 @@ import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 
 import { cn } from "../../lib/utils";
-import { settingsAtom } from "../../state/settings";
-import { xFollow } from "../../state/x";
+import { askFollow, engineAtom, updateEngine, youFollow } from "../../state/engine";
+import { ownHandleAtom, settingsAtom } from "../../state/settings";
+import { xFollow, xOverAtom, xSubscribe } from "../../state/x";
 import { toastAtom } from "../ui/toast";
 
 /**
  * X's Follow / Following (Unfollow on hover) for one person, pressing X's own button for the
- * user's click. It holds what the user asked for until X's capture agrees, for that person only,
- * and draws nothing for the user's own account or someone X has not described yet.
+ * user's click. What X took holds until X's capture agrees (`youFollow`), for that person only.
+ * Draws nothing for the user's own account or someone X has not described yet.
  */
 export function FollowButton({
   user,
@@ -24,32 +25,28 @@ export function FollowButton({
   readonly onFollowed?: (userId: string, following: boolean) => void;
 }) {
   const settings = AsyncResult.getOrElse(useAtomValue(settingsAtom), () => null);
+  // The account X is signed in as: no Follow on the user's own rows.
+  const ownHandle = useAtomValue(ownHandleAtom);
   const setToast = useAtomSet(toastAtom);
-  // What the user asked for and what is in flight, per person: the button stays mounted while
-  // its person changes (one profile to the next), so requests must not touch each other.
-  const [want, setWant] = useState<ReadonlyMap<string, boolean>>(new Map());
-  const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
-  const without = (m: ReadonlyMap<string, boolean>, k: string) =>
-    new Map([...m].filter(([x]) => x !== k));
-  // Once X's capture agrees, X's own state is the truth again.
-  if (user !== undefined && want.get(user.userId) === user.youFollow)
-    setWant((w) => without(w, user.userId));
-  if (user === undefined || settings?.handle?.toLowerCase() === user.handle.toLowerCase())
-    return null;
-  const following = want.get(user.userId) ?? user.youFollow;
+  const engine = useAtomValue(engineAtom);
+  const setEngine = useAtomSet(engineAtom);
+  // What is in flight, per person: the button stays mounted while its person changes (one
+  // profile to the next), so requests must not touch each other. Once X takes one, the store
+  // keeps it until X's capture agrees, across rows that scroll away and back.
+  const [pending, setPending] = useState<ReadonlyMap<string, boolean>>(new Map());
+  if (user === undefined || ownHandle?.toLowerCase() === user.handle.toLowerCase()) return null;
+  const following = pending.get(user.userId) ?? youFollow(engine, user);
   const follow = async () => {
-    if (busy.has(user.userId)) return;
+    const id = user.userId;
+    if (pending.has(id)) return;
     if (settings !== null && !settings.sessionPostingEnabled)
       return setToast({ text: "Session actions are off in Settings, X session." });
-    const id = user.userId;
     const target = !following;
-    setWant((w) => new Map(w).set(id, target));
-    setBusy((b) => new Set(b).add(id));
+    setPending((p) => new Map(p).set(id, target));
     const ok = await xFollow({ userId: id, handle: user.handle }, target);
-    setBusy((b) => new Set([...b].filter((x) => x !== id)));
+    if (ok) setEngine(updateEngine((s) => askFollow(s, id, target)));
+    setPending((p) => new Map([...p].filter(([x]) => x !== id)));
     if (ok) return onFollowed?.(id, target);
-    // Take back only this request, and only if nothing newer replaced it.
-    setWant((w) => (w.get(id) === target ? without(w, id) : w));
     setToast({ text: "X did not take that. Try again in a moment." });
   };
   return (
@@ -76,6 +73,34 @@ export function FollowButton({
       ) : (
         "Follow"
       )}
+    </button>
+  );
+}
+
+/**
+ * X's Subscribe for a creator, as X's Follow page lists them: presses X's own button for the
+ * user's click, and X's subscribe dialog (its price, its checkout) shows over the main area.
+ */
+export function SubscribeButton({ user }: { readonly user: EngineUser }) {
+  const settings = AsyncResult.getOrElse(useAtomValue(settingsAtom), () => null);
+  const setToast = useAtomSet(toastAtom);
+  const setOver = useAtomSet(xOverAtom);
+  const subscribe = async () => {
+    if (settings !== null && !settings.sessionPostingEnabled)
+      return setToast({ text: "Session actions are off in Settings, X session." });
+    if (!(await xSubscribe(user, setOver)))
+      setToast({ text: "X did not open its subscribe dialog. Try again in a moment." });
+  };
+  return (
+    <button
+      type="button"
+      className="h-8 shrink-0 cursor-pointer rounded-full bg-foreground px-3.5 text-[14px] font-bold text-background transition-opacity duration-150 hover:opacity-90"
+      onClick={(e) => {
+        e.stopPropagation();
+        void subscribe();
+      }}
+    >
+      Subscribe
     </button>
   );
 }

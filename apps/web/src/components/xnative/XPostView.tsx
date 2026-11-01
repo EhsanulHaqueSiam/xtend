@@ -15,8 +15,16 @@ import {
 import { useState, type ComponentProps, type MouseEvent, type ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
-import { engineAtom } from "../../state/engine";
-import { xAct, xOverAtom, xPostMenu, xPostMenuPress, xVote, type XPostMenu } from "../../state/x";
+import { askFollow, engineAtom, updateEngine, youFollow } from "../../state/engine";
+import {
+  xAct,
+  xOverAtom,
+  xPostFollowPress,
+  xPostMenu,
+  xPostMenuPress,
+  xVote,
+  type XPostMenu,
+} from "../../state/x";
 import { fmt } from "../analyze/ui";
 import { useDropPost } from "../shell/drops";
 import { Menu, MenuItem } from "../ui/menu";
@@ -522,6 +530,7 @@ export function XPostView({
   const [xRows, setXRows] = useState<ReadonlyArray<string> | null | undefined>(undefined);
   const [shareRows, setShareRows] = useState<ReadonlyArray<string> | null | undefined>(undefined);
   const setOver = useAtomSet(xOverAtom);
+  const setEngine = useAtomSet(engineAtom);
   const setQuote = useAtomSet(quoteAtom);
   const xPost = { postId: post.postId, handle: post.author.handle };
   const readX = (open: boolean) => {
@@ -549,7 +558,18 @@ export function XPostView({
           params: { id: post.postId },
           search: { h: post.author.handle, tab: "quotes" },
         })
-      : pressRow(() => xPostMenuPress(xPost, label, setOver, menu));
+      : pressRow(async () => {
+          // X's own "Follow @handle" / "Unfollow @handle" row for this author: what X's menu says
+          // afterwards holds like a Follow button's press.
+          const follow = /^(?:Follow|Unfollow) @(\w{1,15})$/.exec(label);
+          if (follow === null || follow[1]!.toLowerCase() !== post.author.handle.toLowerCase())
+            return xPostMenuPress(xPost, label, setOver, menu);
+          const pressed = await xPostFollowPress(xPost, label, setOver);
+          const following = pressed?.following ?? null;
+          if (following !== null)
+            setEngine(updateEngine((s) => askFollow(s, post.author.userId, following)));
+          return pressed?.outcome ?? null;
+        });
 
   const name = (
     <span className="flex min-w-0 items-center gap-1">
@@ -735,7 +755,9 @@ export function XPostView({
             <p className={X_GRAY}>@{post.author.handle}</p>
           </div>
           <span className="ml-auto" />
-          {author?.youFollow === true ? null : <FollowButton user={author} size="sm" />}
+          {author !== undefined && youFollow(engine, author) ? null : (
+            <FollowButton user={author} size="sm" />
+          )}
           {menu}
         </div>
         <div className="mt-3 empty:hidden">
