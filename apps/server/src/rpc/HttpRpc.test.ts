@@ -7,11 +7,14 @@ import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+import * as Tracer from "effect/Tracer";
 import { HttpRouter, HttpServer } from "effect/http";
 import * as Rpc from "effect/rpc/Rpc";
 import * as RpcGroup from "effect/rpc/RpcGroup";
 
 import * as ServiceAuth from "../auth/ServiceAuth.ts";
+import * as LocalTrace from "../observability/LocalTrace.ts";
+import * as Observability from "../observability/Observability.ts";
 import * as HttpRpc from "./HttpRpc.ts";
 
 const TOKEN = "t".repeat(64);
@@ -109,4 +112,39 @@ describe("HTTP rpc bridge", () => {
       });
     }).pipe(Effect.provide(layerServer)),
   );
+
+  it.effect("records each call as an http.rpc span with its outcome", () => {
+    const records: Array<LocalTrace.TraceRecord> = [];
+    const tracer = LocalTrace.makeTracer({ push: (record) => records.push(record) });
+    return Effect.gen(function* () {
+      const p = yield* port;
+      yield* post(p, "math.double", { n: 2 }, TOKEN);
+      yield* post(p, "math.double", { n: -1 }, TOKEN);
+      yield* post(p, "math.double?token=opaque-query", { n: 1 }, TOKEN);
+      // The request span is named by the route template, never the raw path or its query.
+      expect(records.map((r) => r.name)).toContain("http POST /api/rpc/:method");
+      expect(JSON.stringify(records)).not.toContain("opaque-query");
+      expect(
+        records
+          .filter((r) => r.name === "http.rpc.math.double")
+          .map((r) => [
+            r.attributes["rpc.transport"],
+            r.exit._tag,
+            "errorTag" in r.exit && r.exit.errorTag,
+          ]),
+      ).toEqual([
+        ["http", "Success", false],
+        ["http", "Failure", "Boom"],
+        ["http", "Success", false],
+      ]);
+    }).pipe(
+      Effect.provide(
+        layerServer.pipe(
+          Layer.provide(
+            Layer.merge(Layer.succeed(Tracer.Tracer)(tracer), Observability.layerHttpSpanNames),
+          ),
+        ),
+      ),
+    );
+  });
 });

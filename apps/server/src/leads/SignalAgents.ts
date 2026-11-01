@@ -21,6 +21,7 @@ import * as Events from "../events/Events.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 import * as XClient from "../x/XClient.ts";
 import * as PeopleStore from "./PeopleStore.ts";
+import * as Metrics from "../observability/Metrics.ts";
 
 const TICK = "60 seconds";
 const SEARCH_LIMIT = 50;
@@ -325,6 +326,7 @@ export const layerScheduler = Layer.effectDiscard(
   Effect.gen(function* () {
     const agents = yield* SignalAgents;
     yield* agents.tick.pipe(
+      Metrics.withJobMetrics("leads.signalAgents"),
       Effect.catchCause((cause) => Effect.logWarning("signal agents tick failed", cause)),
       Effect.repeat(Schedule.spaced(TICK)),
       Effect.forkScoped,

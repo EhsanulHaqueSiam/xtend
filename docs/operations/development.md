@@ -67,6 +67,7 @@ The service keeps everything under one base directory: `~/.xtend` by default, `-
 to override, `XTEND_HOME` as the environment equivalent. Dev always passes an explicit
 `--base-dir` (`<repo>/.xtend`, or `pnpm dev --home <dir>`) so a development server never touches
 the real data.
+Traces, stalls and heap snapshots land in `<base-dir>/logs`; see [Observability](observability.md).
 
 ## Dev data and UI states
 

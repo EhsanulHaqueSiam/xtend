@@ -12,6 +12,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 import { HttpClient, HttpClientRequest } from "effect/http";
 
 import * as Budget from "../budget/Budget.ts";
+import * as Metrics from "../observability/Metrics.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 
 // Overridable only so the end-to-end suite (apps/e2e) can point the service at its fake treg.
@@ -187,80 +188,105 @@ const make = Effect.gen(function* () {
     };
   });
 
-  const call = Effect.fn("Treg.call")(function* (input: TregCall) {
-    const auth = yield* token;
-    const key = cacheKey(input, auth);
-    if (input.cacheFor !== undefined) {
-      const cached = yield* readCache(key, input.cacheFor);
-      if (cached !== null) return { status: 200, body: cached, costUsd: 0, cached: true };
-    }
-
-    if (auth === null) {
-      return yield* new XApiError({
-        endpoint: input.endpoint,
-        reason: "no_token",
-        status: null,
-        detail: "no treg token: paste one in Settings or run `treg login`",
+  const call = Effect.fn("Treg.call")(
+    function* (input: TregCall) {
+      yield* Effect.annotateCurrentSpan({
+        "x.purpose": input.purpose,
+        "x.endpoint": input.endpoint,
+        "x.expected_cost_usd": input.expectedCostUsd ?? 0,
       });
-    }
+      const auth = yield* token;
+      const key = cacheKey(input, auth);
+      if (input.cacheFor !== undefined) {
+        const cached = yield* readCache(key, input.cacheFor);
+        if (cached !== null) {
+          yield* Effect.annotateCurrentSpan({ "x.cached": true, "x.cost_usd": 0 });
+          return { status: 200, body: cached, costUsd: 0, cached: true };
+        }
+      }
 
-    const expected = input.expectedCostUsd ?? 0;
-    const answer = yield* budget
-      .spend(
-        {
-          expectedUsd: expected,
-          provider: "treg",
+      if (auth === null) {
+        return yield* new XApiError({
           endpoint: input.endpoint,
-          purpose: input.purpose,
-        },
-        exchange(input, auth).pipe(
-          Effect.timeoutOrElse({
-            duration: CALL_TIMEOUT,
-            orElse: () => Effect.succeed({ value: null, costUsd: expected }),
-          }),
-        ),
-      )
-      .pipe(
-        Effect.catchTags({
-          BudgetExceeded: (e) =>
-            Effect.fail(
-              new XApiError({
-                endpoint: input.endpoint,
-                reason: "budget",
-                status: null,
-                detail: e.message,
-              }),
-            ),
-        }),
-      );
+          reason: "no_token",
+          status: null,
+          detail: "no treg token: paste one in Settings or run `treg login`",
+        });
+      }
 
-    if (answer === null)
-      return yield* new XApiError({
-        endpoint: input.endpoint,
-        reason: "http",
-        status: null,
-        detail: `treg did not answer in ${Duration.format(CALL_TIMEOUT)}; a write may still have gone through`,
-      });
-    const { status, text, body, costUsd } = answer;
-    if (status >= 400) {
-      return yield* new XApiError({
-        endpoint: input.endpoint,
-        reason: "provider",
-        status,
-        detail: text.slice(0, 500),
-      });
-    }
-    // Served and billed but unreadable: cached, it would read as an empty page until it expired.
-    if (body === undefined)
-      return yield* new XApiError({
-        endpoint: input.endpoint,
-        reason: "decode",
-        status,
-        detail: `unreadable answer: ${text.slice(0, 200)}`,
-      });
-    if (input.cacheFor !== undefined) yield* writeCache(key, body);
-    return { status, body, costUsd, cached: false };
-  });
+      const expected = input.expectedCostUsd ?? 0;
+      const answer = yield* budget
+        .spend(
+          {
+            expectedUsd: expected,
+            provider: "treg",
+            endpoint: input.endpoint,
+            purpose: input.purpose,
+          },
+          exchange(input, auth).pipe(
+            Effect.timeoutOrElse({
+              duration: CALL_TIMEOUT,
+              orElse: () => Effect.succeed({ value: null, costUsd: expected }),
+            }),
+          ),
+        )
+        .pipe(
+          Effect.catchTags({
+            BudgetExceeded: (e) =>
+              Effect.fail(
+                new XApiError({
+                  endpoint: input.endpoint,
+                  reason: "budget",
+                  status: null,
+                  detail: e.message,
+                }),
+              ),
+          }),
+        );
+
+      const charged = answer === null ? expected : answer.costUsd;
+      yield* Effect.annotateCurrentSpan({ "x.cached": false, "x.cost_usd": charged });
+      if (charged > 0)
+        yield* Metrics.increment(
+          Metrics.xSpendUsd,
+          { area: Metrics.purposeArea(input.purpose) },
+          charged,
+        );
+      if (answer === null)
+        return yield* new XApiError({
+          endpoint: input.endpoint,
+          reason: "http",
+          status: null,
+          detail: `treg did not answer in ${Duration.format(CALL_TIMEOUT)}; a write may still have gone through`,
+        });
+      const { status, text, body, costUsd } = answer;
+      if (status >= 400) {
+        return yield* new XApiError({
+          endpoint: input.endpoint,
+          reason: "provider",
+          status,
+          detail: text.slice(0, 500),
+        });
+      }
+      // Served and billed but unreadable: cached, it would read as an empty page until it expired.
+      if (body === undefined)
+        return yield* new XApiError({
+          endpoint: input.endpoint,
+          reason: "decode",
+          status,
+          detail: `unreadable answer: ${text.slice(0, 200)}`,
+        });
+      if (input.cacheFor !== undefined) yield* writeCache(key, body);
+      return { status, body, costUsd, cached: false };
+    },
+    (effect, input) =>
+      Effect.onExit(effect, (exit) =>
+        Metrics.increment(Metrics.xCallsTotal, {
+          area: Metrics.purposeArea(input.purpose),
+          outcome: Metrics.outcomeOf(exit),
+        }),
+      ),
+  );
 
   return Treg.of({ call, isCached });
 });
