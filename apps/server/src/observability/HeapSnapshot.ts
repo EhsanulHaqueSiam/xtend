@@ -16,10 +16,16 @@ const write = Effect.fn("service.heapSnapshot", { root: true })(
     const stamp = DateTime.formatIso(yield* DateTime.now).replaceAll(":", "-");
     const file = path.join(logsDir, `service-${process.pid}-${stamp}.heapsnapshot`);
     yield* Effect.annotateCurrentSpan({ path: file });
-    yield* fs.makeDirectory(logsDir, { recursive: true });
-    yield* Effect.try(() => NodeV8.writeHeapSnapshot(file)).pipe(
-      Effect.tapError(() => fs.remove(file, { force: true }).pipe(Effect.ignore)),
-    );
+    yield* fs.makeDirectory(logsDir, { recursive: true, mode: 0o700 });
+    // The snapshot holds every token in memory. The write is synchronous, so the umask cannot leak.
+    yield* Effect.try(() => {
+      const previous = process.umask(0o077);
+      try {
+        NodeV8.writeHeapSnapshot(file);
+      } finally {
+        process.umask(previous);
+      }
+    }).pipe(Effect.tapError(() => fs.remove(file, { force: true }).pipe(Effect.ignore)));
     yield* Effect.logInfo("wrote heap snapshot", { path: file });
   },
   Effect.catch((cause) => Effect.logWarning("heap snapshot failed", { cause })),
