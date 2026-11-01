@@ -1,4 +1,5 @@
 import * as Cause from "effect/Cause";
+import * as Console from "effect/Console";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -192,6 +193,29 @@ export const tracerLogger = Logger.make(({ cause, fiber, logLevel, message, date
       ...(cause.reasons.length > 0 ? { "effect.cause": Cause.pretty(cause) } : {}),
     },
   );
+});
+
+const pad = (n: number, width = 2) => String(n).padStart(width, "0");
+
+/**
+ * Effect's default console logger, same line format, with the message, the cause and the
+ * annotations sanitised. The desktop pipes stdout to `<baseDir>/service.log`, next to the trace
+ * file, so it gets the same treatment. `Observability` puts it in place of the built-in one.
+ */
+export const consoleLogger = Logger.make(({ cause, fiber, logLevel, message, date }) => {
+  const parts = (Array.isArray(message) ? message : [message]).map((part) => sanitize(part));
+  if (cause.reasons.length > 0) parts.push(scrub(Cause.pretty(cause)));
+  const annotations = fiber.getRef(References.CurrentLogAnnotations);
+  if (Object.keys(annotations).length > 0) parts.push(sanitizeAttributes(annotations));
+  const now = date.getTime();
+  const spans = fiber
+    .getRef(References.CurrentLogSpans)
+    .map(([label, start]) => ` ${label.replace(/[\s="]/g, "_")}=${now - start}ms`)
+    .join("");
+  const time = `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)}`;
+  const console = fiber.getRef(Console.Console);
+  const log = fiber.getRef(References.LogToStderr) ? console.error : console.log;
+  log(`[${time}] ${logLevel.toUpperCase()} (#${fiber.id})${spans}:`, ...parts);
 });
 
 /** The exit a tracer may see: failures rebuilt from scrubbed messages and stacks, never the errors. */

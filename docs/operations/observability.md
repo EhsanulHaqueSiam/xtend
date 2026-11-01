@@ -47,7 +47,7 @@ text cut to 200 characters), and every treg call (`Treg.call` with `x.purpose`, 
 
 ## Secrets
 
-Neither the trace file nor an OTLP backend may receive the treg token, the service token, X cookies
+Neither the trace file, `service.log` (stdout) nor an OTLP backend may receive the treg token, the service token, X cookies
 (`auth_token`, `ct0`, `twid`, `kdt`), assist keys or webhook secrets. The service's tracer scrubs
 every span before anything sees it, with the trace file on or off:
 
@@ -61,7 +61,9 @@ every span before anything sees it, with the trace file on or off:
 - a failed span's exit is rebuilt from scrubbed names, messages and stacks, so an error quoting a
   token never reaches OTLP's exception events.
 
-Stdout keeps the raw log line, as before; the trace file and OTLP never do.
+Stdout gets the same treatment, since the desktop pipes it to `<baseDir>/service.log`: the
+console logger is swapped for one with the same line format whose message, cause and annotations
+are sanitised.
 
 The trace file is made `0600` before each append, including one that already existed; if that
 fails, nothing is written. A new credential name or shape goes in `LocalTrace.ts` with a case in

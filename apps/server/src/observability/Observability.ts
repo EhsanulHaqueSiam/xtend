@@ -21,12 +21,20 @@ const layerRedactedParams = Layer.succeed(UrlParams.CurrentRedactedNames)([
   "token",
 ]);
 
-// Same loggers, with Effect's tracer logger swapped for one that sanitises log arguments.
-const layerLoggers = Layer.unwrap(
+// Same loggers, with Effect's tracer and console loggers swapped for ones that sanitise.
+const SANITISED: ReadonlyArray<
+  readonly [Logger.Logger<unknown, void>, Logger.Logger<unknown, void>]
+> = [
+  [Logger.tracerLogger, LocalTrace.tracerLogger],
+  [Logger.defaultLogger, LocalTrace.consoleLogger],
+];
+export const layerLoggers = Layer.unwrap(
   Effect.map(Effect.service(Logger.CurrentLoggers), (current) =>
     Layer.succeed(Logger.CurrentLoggers)(
-      new Set([...current].filter((logger) => logger !== Logger.tracerLogger)).add(
-        LocalTrace.tracerLogger,
+      new Set(
+        [...current].map(
+          (logger) => SANITISED.find(([builtIn]) => builtIn === logger)?.[1] ?? logger,
+        ),
       ),
     ),
   ),
