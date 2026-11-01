@@ -16,6 +16,8 @@ interface Step {
   readonly write?: Write;
   /** Turns every follow button for the person, as X does once a follow went through. */
   readonly follow?: { readonly userId: string; readonly on: boolean };
+  /** Relabels a Community's membership button, as X does once a join, ask or leave went through. */
+  readonly community?: { readonly id: string; readonly label: string };
   /** X's own page for the row, through its router; `replace` keeps the history entry. */
   readonly go?: string;
   readonly replace?: string;
@@ -71,6 +73,46 @@ export const unfollowSheet = (userId: string, handle: string): Dialog => ({
       step: {
         write: rest("friendships/destroy", { user_id: userId }),
         follow: { userId, on: false },
+      },
+    },
+    close,
+  ],
+});
+
+/**
+ * X's "Ask to join": the Community's numbered rules and "Agree and ask to join", which sends the
+ * request for its moderators.
+ */
+export const askToJoinDialog = (c: {
+  readonly communityId: string;
+  readonly name: string;
+  readonly rules: ReadonlyArray<{ readonly name: string }> | null;
+}): Dialog => ({
+  title: `${c.name} Rules`,
+  body: (c.rules ?? []).map((r, i) => `${i + 1}. ${r.name}`).join(" "),
+  buttons: [
+    {
+      label: "Agree and ask to join",
+      step: {
+        write: graphql("RequestToJoinCommunity", { communityId: c.communityId }),
+        community: { id: c.communityId, label: "Requested" },
+      },
+    },
+  ],
+});
+
+/** The confirm X asks before leaving a Community. */
+export const leaveCommunitySheet = (c: { readonly communityId: string }): Dialog => ({
+  title: "Leave this Community?",
+  body: "You will no longer be able to post or reply in it.",
+  sheet: true,
+  buttons: [
+    {
+      label: "Leave",
+      testid: "confirmationSheetConfirm",
+      step: {
+        write: graphql("LeaveCommunity", { communityId: c.communityId }),
+        community: { id: c.communityId, label: "Join" },
       },
     },
     close,

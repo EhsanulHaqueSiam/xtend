@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 
-import { renderEngineBatch, requestVariables } from "./engineBatch.ts";
+import { hasEngineContent, renderEngineBatch, requestVariables } from "./engineBatch.ts";
 import { normalizeGraphqlResponse } from "./normalizeGraphql.ts";
 
 // X's 2026 user: no `legacy` block, counts and bio in their own fields.
@@ -500,7 +500,7 @@ describe("renderEngineBatch around posts", () => {
                 __typename: "TagPinnedTimeline",
                 tag: "1925949722688126976",
                 tab_label: "Tech",
-                name: "Technology",
+                name: "Makers and tools",
               },
               {
                 __typename: "CommunityPinnedTimeline",
@@ -605,6 +605,215 @@ describe("renderEngineBatch around posts", () => {
         {},
       ).key,
     ).toBe("community:14");
+    // A Community's Latest is its posts by Recency; Top is X's default order.
+    const community = (rankingMode: string) =>
+      renderEngineBatch("CommunityTweetsTimeline", { communityId: "14", rankingMode }, {}).key;
+    expect([community("Relevance"), community("Recency")]).toEqual([
+      "community:14",
+      "community:14:Recency",
+    ]);
+    expect(renderEngineBatch("CommunityAboutTimeline", { communityId: "14" }, {}).key).toBe(
+      "community:14",
+    );
+  });
+
+  it("reads Communities in X's shapes: a carousel's tiles, a card, and none from a post's reference", () => {
+    const banner = (url: string) => ({ media_info: { original_img_url: url } });
+    const tile = (id: string, name: string) => ({
+      id: "Q29tbXVuaXR5",
+      result: {
+        __typename: "Community",
+        id_str: id,
+        name,
+        default_banner_media: banner(`https://pbs.twimg.com/community_banner_img/${id}.jpg`),
+      },
+    });
+    const carousel = renderEngineBatch(
+      "CarouselQuery",
+      {},
+      {
+        data: {
+          viewer_v2: {
+            user_results: {
+              result: {
+                __typename: "User",
+                community_memberships_slice: { items_results: [tile("21", "B"), tile("20", "A")] },
+              },
+            },
+          },
+        },
+      },
+    );
+    expect(carousel.communities.map((c) => [c.communityId, c.name, c.members])).toEqual([
+      ["21", "B", null],
+      ["20", "A", null],
+    ]);
+
+    const card = renderEngineBatch(
+      "CommunitiesFetchOneQuery",
+      { communityId: "20" },
+      {
+        data: {
+          communityResults: {
+            result: {
+              __typename: "Community",
+              id_str: "20",
+              name: "A",
+              description: "Makers",
+              member_count: 1200,
+              join_policy: "RestrictedJoinRequestsRequireModeratorApproval",
+              role: "NonMember",
+              primary_community_topic: { topic_id: "1", topic_name: "Makers and tools" },
+              rules: [
+                { rest_id: "9", name: "Be kind", description: "No insults" },
+                { name: "Stay on topic" },
+              ],
+              default_banner_media: banner("https://pbs.twimg.com/default.png"),
+              custom_banner_media: banner("https://pbs.twimg.com/custom.jpg"),
+              creator_results: { result: user("7", "maker") },
+            },
+          },
+        },
+      },
+    );
+    expect([card.key, card.communities]).toEqual([
+      "community:20",
+      [
+        {
+          communityId: "20",
+          name: "A",
+          description: "Makers",
+          bannerUrl: "https://pbs.twimg.com/custom.jpg",
+          members: 1200,
+          topic: "Makers and tools",
+          rules: [
+            { name: "Be kind", description: "No insults" },
+            { name: "Stay on topic", description: "" },
+          ],
+          joinPolicy: "RestrictedJoinRequestsRequireModeratorApproval",
+          role: "NonMember",
+        },
+      ],
+    ]);
+
+    // A post X labels with its Community carries only the Community's id.
+    const feed = renderEngineBatch(
+      "CommunitiesExploreTimeline",
+      {},
+      {
+        data: {
+          instructions: [
+            item(
+              tweet(
+                "50",
+                {},
+                { community_results: { result: { __typename: "Community", id_str: "20" } } },
+              ),
+              { type: "TimelineGeneralContext", contextType: "Community", text: "A" },
+            ),
+          ],
+        },
+      },
+    );
+    expect([feed.order, feed.communities, feed.posts[0]?.context?.text]).toEqual([["50"], [], "A"]);
+  });
+
+  it("reads a Community's About as X's two boxes, Moderators then Members, each with its Show more", () => {
+    // X's About: one module per box, under its header, with a footer to the full list.
+    const box = (entryId: string, title: string, page: string, ids: ReadonlyArray<string>) => ({
+      entryId,
+      sortIndex: "1",
+      content: {
+        __typename: "TimelineTimelineModule",
+        entryType: "TimelineTimelineModule",
+        displayType: "Vertical",
+        header: { displayType: "Classic", sticky: true, text: title },
+        footer: {
+          displayType: "Classic",
+          text: "Show more",
+          landingUrl: {
+            url: `https://twitter.com/i/communities/20/${page}`,
+            urlType: "ExternalUrl",
+          },
+        },
+        items: ids.map((id) => ({
+          entryId: `${entryId.slice(0, -1)}-${id}`,
+          item: {
+            itemContent: {
+              __typename: "TimelineUser",
+              itemType: "TimelineUser",
+              userDisplayType: "UserConcise",
+              user_results: { result: user(id, `u${id}`) },
+            },
+          },
+        })),
+      },
+    });
+    const about = renderEngineBatch(
+      "CommunityAboutTimeline",
+      { communityId: "20" },
+      {
+        data: {
+          communityResults: {
+            result: {
+              __typename: "Community",
+              about_timeline: {
+                timeline: {
+                  instructions: [
+                    { type: "TimelineClearCache" },
+                    {
+                      type: "TimelineAddEntries",
+                      entries: [
+                        box("communityModerators", "Moderators", "moderators", ["5", "6"]),
+                        box("communityMembers", "Members", "members", ["3", "5", "4"]),
+                      ],
+                    },
+                    { type: "TimelineTerminateTimeline", direction: "Top" },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+    );
+    expect([about.key, about.people, about.sections]).toEqual([
+      "community:20",
+      ["5", "6", "3", "4"],
+      [
+        {
+          title: "Moderators",
+          userIds: ["5", "6"],
+          link: "https://x.com/i/communities/20/moderators",
+        },
+        {
+          title: "Members",
+          userIds: ["3", "5", "4"],
+          link: "https://x.com/i/communities/20/members",
+        },
+      ],
+    ]);
+  });
+
+  it("passes on the user's Communities when X lists none, and nothing when X answered without the list", () => {
+    const carousel = (slice: unknown) =>
+      renderEngineBatch(
+        "CarouselQuery",
+        {},
+        {
+          data: {
+            viewer_v2: { user_results: { result: { __typename: "User", ...(slice as object) } } },
+          },
+        },
+      );
+    const none = carousel({ community_memberships_slice: { items_results: [] } });
+    expect([none.key, none.communities, hasEngineContent(none)]).toEqual([
+      "communities:mine",
+      [],
+      true,
+    ]);
+    const unknown = carousel({});
+    expect([unknown.key, hasEngineContent(unknown)]).toEqual([null, false]);
   });
 });
 

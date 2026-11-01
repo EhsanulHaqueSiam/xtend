@@ -32,14 +32,22 @@ const HANDLE = /@(\w{1,15})\b/;
 const matches = (command: Command, query: string) =>
   command.label.toLowerCase().includes(query.toLowerCase());
 
-/** X's own pages the palette can open; on the desktop they load in the x.com webview. */
-const X_PAGES: ReadonlyArray<{ readonly label: string; readonly path: string }> = [
+/**
+ * X's own pages the palette can open; on the desktop they load in the x.com webview, or open
+ * Xtend's own screen for the page (`native`).
+ */
+const X_PAGES: ReadonlyArray<{
+  readonly label: string;
+  readonly path: string;
+  readonly native?: string;
+}> = [
   { label: "Home", path: "/home" },
   { label: "Notifications", path: "/notifications" },
   { label: "Messages", path: "/messages" },
   { label: "Bookmarks", path: "/i/bookmarks" },
   { label: "Explore", path: "/explore" },
   { label: "Follow", path: "/i/connect_people" },
+  { label: "Communities", path: "/i/communities", native: "/communities" },
 ];
 
 /**
@@ -90,7 +98,7 @@ function PaletteBody({
             group: "X" as const,
             label: p.label,
             icon: Twitter,
-            run: onX(p.path),
+            run: p.native === undefined ? onX(p.path) : to(p.native),
           }))
         : []),
       ...(isElectron

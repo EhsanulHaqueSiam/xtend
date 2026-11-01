@@ -4,6 +4,7 @@
 import type {
   EngineBatch,
   EngineCard,
+  EngineCommunity,
   EngineEntities,
   EngineList,
   EngineMedia,
@@ -31,6 +32,9 @@ export interface Fixture {
 export const formatFixture = (fixture: Fixture) =>
   [fixture.meta, ...fixture.batches].map((line) => JSON.stringify(line)).join("\n") + "\n";
 
+type Recorded = Omit<EngineBatch, "communities" | "sections"> &
+  Partial<Pick<EngineBatch, "communities" | "sections">>;
+
 export const parseFixture = (raw: string): Fixture => {
   const [meta, ...batches] = raw
     .split("\n")
@@ -38,7 +42,15 @@ export const parseFixture = (raw: string): Fixture => {
     .map((line): unknown => JSON.parse(line));
   if (typeof meta !== "object" || meta === null || !("fixture" in meta))
     throw new Error("an engine fixture starts with its meta line");
-  return { meta: meta as FixtureMeta, batches: batches as ReadonlyArray<EngineBatch> };
+  return {
+    meta: meta as FixtureMeta,
+    // A recording made before the engine read Communities and people sections names none.
+    batches: (batches as ReadonlyArray<Recorded>).map((b) => ({
+      ...b,
+      communities: b.communities ?? [],
+      sections: b.sections ?? [],
+    })),
+  };
 };
 
 const shiftIso = (iso: string | null, ms: number) =>
@@ -284,6 +296,18 @@ export function scrub(batches: ReadonlyArray<EngineBatch>): ReadonlyArray<Engine
     owner: l.owner === null ? null : person(l.owner),
     group: l.group,
   });
+  const community = (c: EngineCommunity): EngineCommunity => ({
+    communityId: id(c.communityId),
+    name: text(c.name),
+    description: c.description === null ? null : text(c.description),
+    bannerUrl:
+      c.bannerUrl === null ? null : placeholder(`community-${id(c.communityId)}`, 1500, 500),
+    members: c.members,
+    topic: c.topic === null ? null : text(c.topic),
+    rules: c.rules?.map((r) => ({ name: text(r.name), description: text(r.description) })) ?? null,
+    joinPolicy: c.joinPolicy,
+    role: c.role,
+  });
   const trend = (t: EngineTrend, n: number): EngineTrend => {
     const shownName = text(t.name);
     return {
@@ -303,7 +327,7 @@ export function scrub(batches: ReadonlyArray<EngineBatch>): ReadonlyArray<Engine
   // What a request asked for, in the same disguise as the pages it names.
   const key = (op: string, k: string | null) => {
     if (k === null) return null;
-    if (op === "NotificationsTimeline") return k;
+    if (op === "NotificationsTimeline" || op === "CarouselQuery") return k;
     if (op === "UserByScreenName") return handle(k).toLowerCase();
     if (op === "SearchTimeline") {
       const at = k.indexOf(":");
@@ -313,9 +337,10 @@ export function scrub(batches: ReadonlyArray<EngineBatch>): ReadonlyArray<Engine
       const [focal, mode] = k.split(":");
       return mode === undefined ? id(focal!) : `${id(focal!)}:${mode}`;
     }
-    const prefixed = /^(tag|list|community):(.*)$/.exec(k);
+    // A List's and a Community's own screens find them by the id in the key, Latest's order kept.
+    const prefixed = /^(tag|list|community):([^:]*)(:\w+)?$/.exec(k);
     if (prefixed)
-      return `${prefixed[1]}:${prefixed[1] === "list" ? id(prefixed[2]!) : str(prefixed[2]!)}`;
+      return `${prefixed[1]}:${prefixed[1] === "tag" ? str(prefixed[2]!) : id(prefixed[2]!)}${prefixed[3] ?? ""}`;
     return /^\d+$/.test(k) ? id(k) : str(k);
   };
 
@@ -328,10 +353,16 @@ export function scrub(batches: ReadonlyArray<EngineBatch>): ReadonlyArray<Engine
     posts: b.posts.map(post),
     users: b.users.map(user),
     people: b.people.map(id),
+    sections: b.sections.map((s) => ({
+      title: text(s.title),
+      userIds: s.userIds.map(id),
+      link: s.link?.replace(/\d{5,}/g, id) ?? null,
+    })),
     order: b.order.map(id),
     trends: b.trends.map(trend),
     notifications: b.notifications.map(notification),
     lists: b.lists.map(list),
+    communities: b.communities.map(community),
     homeTabs:
       b.homeTabs === null
         ? null
@@ -475,7 +506,16 @@ const photo = (seed: string): EngineMedia => ({
   altText: "A placeholder photo",
 });
 /** Calls that answer one thing, not a timeline: X sends them without page cursors. */
-const UNPAGED = new Set(["Viewer", "UserByScreenName", "ListByRestId"]);
+const UNPAGED = new Set([
+  "Viewer",
+  "UserByScreenName",
+  "ListByRestId",
+  "CarouselQuery",
+  "CommunityQuery",
+  "CommunitiesFetchOneQuery",
+  // X's About ends its timeline after the moderators, with no cursors.
+  "CommunityAboutTimeline",
+]);
 /** A batch with the parts every response shares empty. */
 const batch = (
   op: string,
@@ -491,10 +531,12 @@ const batch = (
   posts,
   users: [],
   people: [],
+  sections: [],
   order: posts.map((p) => p.postId),
   trends: [],
   notifications: [],
   lists: [],
+  communities: [],
   homeTabs: null,
   exploreTabs: null,
   viewer: null,
@@ -904,5 +946,119 @@ export function synth(): Readonly<Record<string, Fixture>> {
     batches: [connect("who", suggested), connect("creators", suggested.slice(2, 6))],
   };
 
-  return { home, post, profile, notifications, search, bookmarks, explore, lists, follow };
+  // Two Communities the user is in (the carousel), an open one and one that asks first (Explore).
+  const rules = [
+    { name: "Be kind", description: "Argue with ideas, not people." },
+    { name: "Stay on topic", description: "Posts about building and selling software." },
+    { name: "No spam", description: "Promote your work once a week at most." },
+  ];
+  const community = (
+    n: number,
+    name: string,
+    extra: Partial<EngineCommunity>,
+  ): EngineCommunity => ({
+    communityId: String(600_000_000_100 + n),
+    name,
+    description: "Founders sharing what worked, what did not, and the numbers.",
+    bannerUrl: placeholder(`community-${n}`, 1500, 500),
+    members: [12_400, 3_310, 845, 52_000][n % 4]!,
+    topic: "Makers and tools",
+    rules,
+    joinPolicy: "Open",
+    role: "Member",
+    ...extra,
+  });
+  const joined = [community(1, "Indie hackers", {}), community(2, "Design engineers", {})];
+  const open = community(3, "Bootstrapped SaaS", { role: "NonMember" });
+  const asks = community(4, "Founder therapy", {
+    role: "NonMember",
+    joinPolicy: "RestrictedJoinRequestsRequireModeratorApproval",
+  });
+  const labelled = (c: EngineCommunity, posts: ReadonlyArray<EnginePost>) =>
+    posts.map((p) => ({ ...p, context: { type: "Community", text: c.name, handle: null } }));
+  // A tile names only the Community and its banner; its card and its own page say the rest.
+  const tile = (c: EngineCommunity): EngineCommunity => ({
+    ...c,
+    description: null,
+    members: null,
+    topic: null,
+    rules: null,
+    joinPolicy: null,
+    role: null,
+  });
+  const inOpen = [
+    say(4, "Crossed $10k MRR this morning. No ads, no funding, eighteen months.", 25),
+    say(6, "Annual plans paid for our first hire. Offer them earlier than you think.", 70, {
+      media: [photo("community-chart")],
+      hasMedia: true,
+    }),
+    say(1, "What is everyone using for invoicing these days?", 140),
+  ];
+  const communities: Fixture = {
+    meta: meta(
+      "communities",
+      "Communities: the hub's Home and Explore, a Community's tabs, Join and Ask to join",
+      ["/communities", "/communities?tab=explore", `/communities/${open.communityId}`],
+    ),
+    batches: [
+      batch("CarouselQuery", "communities:mine", [], { communities: joined.map(tile) }),
+      batch(
+        "CommunitiesRankedTimeline",
+        null,
+        [...labelled(joined[0]!, forYou.slice(0, 2)), ...labelled(joined[1]!, forYou.slice(2, 3))],
+        { users: PEOPLE },
+      ),
+      batch(
+        "CommunitiesExploreTimeline",
+        null,
+        [...labelled(open, inOpen.slice(0, 2)), ...labelled(asks, following.slice(0, 1))],
+        { users: PEOPLE },
+      ),
+      ...[...joined, open, asks].map((c) =>
+        batch("CommunitiesFetchOneQuery", `community:${c.communityId}`, [], { communities: [c] }),
+      ),
+      batch("CommunityQuery", `community:${open.communityId}`, [], { communities: [open] }),
+      batch("CommunityTweetsTimeline", `community:${open.communityId}`, inOpen, {
+        users: PEOPLE,
+      }),
+      batch(
+        "CommunityTweetsTimeline",
+        `community:${open.communityId}:Recency`,
+        inOpen.toSorted((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)),
+        { users: PEOPLE },
+      ),
+      batch(
+        "CommunityMediaTimeline",
+        `community:${open.communityId}`,
+        inOpen.filter((p) => p.hasMedia),
+        { users: PEOPLE },
+      ),
+      // X's About: a few of its moderators, then of its members, each box with "Show more".
+      batch("CommunityAboutTimeline", `community:${open.communityId}`, [], {
+        users: PEOPLE,
+        people: [4, 6, 0, 1, 2].map((n) => PEOPLE[n]!.userId),
+        sections: [
+          { title: "Moderators", people: [4, 6], page: "moderators" },
+          { title: "Members", people: [0, 1, 2], page: "members" },
+        ].map((s) => ({
+          title: s.title,
+          userIds: s.people.map((n) => PEOPLE[n]!.userId),
+          link: `https://x.com/i/communities/${open.communityId}/${s.page}`,
+        })),
+      }),
+    ],
+  };
+
+  return {
+    home,
+    post,
+    profile,
+    notifications,
+    search,
+    bookmarks,
+    explore,
+    lists,
+    follow,
+    communities,
+  };
 }

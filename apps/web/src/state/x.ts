@@ -142,7 +142,7 @@ export const xScrollMore = () =>
     return false;
   })()`);
 
-/** Picks a tab on X's Home ("For you", "Following") once the page has drawn it. */
+/** Picks a tab on X's page (Home's "Following", a Community's "Latest") once X has drawn it. */
 export const xPickHomeTab = (label: string) =>
   xRun(`new Promise((done) => {
     let tries = 0;
@@ -493,6 +493,106 @@ export const xSubscribe = async (
     (await onPage(profilePage(user.handle), press, (path) => holdOver(run, path, over), live)) !==
     null
   );
+};
+
+/**
+ * X's membership button for Community `communityId` in X's page at `path`: only on its own page,
+ * in the header that links into it alone. X's path names the next Community while the last one's
+ * header is still drawn. Runs in X's page as its own source, so it uses nothing outside itself.
+ */
+export function communityJoinButton(
+  root: ParentNode,
+  path: string,
+  communityId: string,
+): HTMLElement | null {
+  const segment = path.split("/");
+  if (segment[1] !== "i" || segment[2] !== "communities" || segment[3] !== communityId) return null;
+  const isJoin = (b: Element) =>
+    /^(Join|Ask to join|Joined|Requested|Pending)$/.test(b.textContent?.trim() ?? "") ||
+    /^(Join|Ask to join) /.test(b.getAttribute("aria-label") ?? "");
+  const buttons = [...root.querySelectorAll<HTMLElement>('button, [role="button"]')].filter(isJoin);
+  const mine = buttons.filter((button) => {
+    for (let box = button.parentElement; box !== null; box = box.parentElement) {
+      const links = [...box.querySelectorAll('a[href*="/i/communities/"]')].map(
+        (a) => (a.getAttribute("href") ?? "").split("/i/communities/")[1]?.split(/[/?#]/)[0],
+      );
+      if (links.length === 0) continue;
+      // The header: it names this Community only, and holds no other Community's button.
+      return (
+        links.every((id) => id === communityId) &&
+        buttons.every((b) => b === button || !box.contains(b))
+      );
+    }
+    return false;
+  });
+  return mine.length === 1 ? mine[0]! : null;
+}
+
+/** What a press on X's membership button does, by the words X draws on it. */
+export type MembershipAction = "join" | "ask" | "leave";
+const ACTION_WORDS: Readonly<Record<MembershipAction, string>> = {
+  join: "Join",
+  ask: "Ask to join",
+  leave: "Joined",
+};
+
+/**
+ * Presses X's membership button for the user's click, only when X offers the `action` clicked: one
+ * X has turned since is refused with X's words. X's rules or confirm dialog shows over the main
+ * area (see `holdOver`). What X's button says afterwards; null when X drew none or the user left.
+ */
+export const xCommunityJoin = async (
+  communityId: string,
+  action: MembershipAction,
+  over: (shown: boolean) => void,
+): Promise<{ readonly refused: boolean; readonly label: string } | null> => {
+  // It goes into scripts run in X's page: digits only.
+  if (!/^\d{1,25}$/.test(communityId)) return null;
+  const run = await nextRun();
+  const path = `/i/communities/${communityId}`;
+  const join = `(() => (${communityJoinButton.toString()})(document, location.pathname, ${JSON.stringify(communityId)}))`;
+  const live = () => run === overRun;
+  let tries = 10;
+  const press = () =>
+    xRun(`(async () => {
+    const join = ${join};
+    for (let i = 0; i < ${tries} && !join(); i++) await new Promise((r) => setTimeout(r, 100));
+    const button = join();
+    if (!button || !${stillMine(run)}) return null;
+    const was = button.textContent.trim();
+    if (was !== ${JSON.stringify(ACTION_WORDS[action])}) return { refused: was };
+    const at = location.pathname + location.search;
+    button.click();
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      if (location.pathname + location.search !== at || document.querySelector('[role="dialog"], [role="alertdialog"]')) return { over: at };
+      if (join()?.textContent.trim() !== was) break;
+    }
+    // X turns its button at once and saves a moment later; leaving before then would cancel it.
+    await new Promise((r) => setTimeout(r, 1000));
+    return { over: null };
+  })()`).then((done) => {
+      tries = 50;
+      return typeof done === "object" && done !== null
+        ? (done as { readonly over?: string | null; readonly refused?: string })
+        : null;
+    });
+  // X's button is only on the Community's page: its new label is read there, before onPage
+  // takes the engine back to where the user had it.
+  let label: string | null = null;
+  const pressed = await onPage(
+    { url: `https://x.com${path}`, path },
+    press,
+    async (done) => {
+      if (typeof done.over === "string") await holdOver(run, done.over, over);
+      const now = await xRun(`${join}()?.textContent.trim() ?? null`);
+      label = typeof now === "string" ? now : null;
+    },
+    live,
+  );
+  if (pressed === null || !live()) return null;
+  if (pressed.refused !== undefined) return { refused: true, label: pressed.refused };
+  return label === null ? null : { refused: false, label };
 };
 
 /** Presses X's own row `label` of a post's `menu` for the user's click (see `pressMenu`). */

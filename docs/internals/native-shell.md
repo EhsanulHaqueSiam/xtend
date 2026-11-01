@@ -30,7 +30,7 @@ session view receives, the way T3 Code draws Claude's work: X is the engine, Xte
 interface. The screen moves the parked webview to the matching x.com page (and picks Home's
 tab); the capture turns each GraphQL response into an engine batch (`xSession/engineBatch.ts`:
 posts with media, cards, polls, notes and social context, plus people, notifications, trends,
-Lists and Home's pinned tabs) and sends it to the app page on `xtend:engine`, never to the
+Lists, Communities and Home's pinned tabs) and sends it to the app page on `xtend:engine`, never to the
 service. `state/engine.ts` files each batch under the page it came from.
 
 Traps that shaped this:

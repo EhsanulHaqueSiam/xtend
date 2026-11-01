@@ -1,6 +1,7 @@
 import type {
   EngineBatch,
   EngineCard,
+  EngineCommunity,
   EngineEntities,
   EngineRange,
   EngineExploreTab,
@@ -9,6 +10,7 @@ import type {
   EngineList,
   EngineMedia,
   EngineNotification,
+  EnginePeopleSection,
   EnginePoll,
   EnginePost,
   EngineTrend,
@@ -514,6 +516,54 @@ function readList(item: Json, group: string | null): EngineList | undefined {
   };
 }
 
+/**
+ * A Community in any of X's shapes for it: a carousel tile (name and banner), a card or its own
+ * page (counts, rules, the viewer's role). A post's bare community reference names none of it.
+ */
+function readCommunity(value: Json): EngineCommunity | undefined {
+  const communityId = asString(value.id_str) ?? asString(value.rest_id);
+  const name = asString(value.name);
+  if (communityId === undefined || !X_ID.test(communityId) || name === undefined) return undefined;
+  const banner = (m: unknown) => asString(record(record(m).media_info).original_img_url);
+  const rules = Array.isArray(value.rules)
+    ? value.rules.flatMap((r) => {
+        const rule = asString(record(r).name);
+        return rule === undefined
+          ? []
+          : [{ name: rule, description: asString(record(r).description) ?? "" }];
+      })
+    : null;
+  return {
+    communityId,
+    name,
+    description: asString(value.description) ?? null,
+    bannerUrl: banner(value.custom_banner_media) ?? banner(value.default_banner_media) ?? null,
+    members: asCount(value.member_count),
+    topic: asString(record(value.primary_community_topic).topic_name) ?? null,
+    rules,
+    joinPolicy: asString(value.join_policy) ?? null,
+    role: asString(value.role) ?? null,
+  };
+}
+
+/**
+ * A module of people under X's own header (a Community's Moderators, its Members), with where its
+ * footer's "Show more" goes. X links there on twitter.com; the engine lives on x.com.
+ */
+function readSection(entry: Json): EnginePeopleSection | undefined {
+  const content = record(entry.content);
+  const title = asString(record(content.header).text);
+  if (typeof entry.entryId !== "string" || title === undefined) return undefined;
+  const items = arr(content.items).map((i) => record(record(record(i).item).itemContent));
+  if (items.length === 0 || items.some((i) => i.itemType !== "TimelineUser")) return undefined;
+  const link = asString(record(record(content.footer).landingUrl).url);
+  return {
+    title,
+    userIds: items.flatMap((i) => readUser(record(i.user_results).result)?.userId ?? []),
+    link: link?.replace(/^https:\/\/(www\.)?twitter\.com\//, "https://x.com/") ?? null,
+  };
+}
+
 function readHomeTabs(body: Json): ReadonlyArray<EngineHomeTab> | null {
   const pinned = record(record(body.data).pinned_timelines).pinned_timelines;
   if (!Array.isArray(pinned)) return null;
@@ -565,8 +615,13 @@ export function requestVariables(url: string, postData: string | undefined): Jso
 function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExploreTab> | null) {
   const s = (k: string) => asString(variables[k]);
   if (op === "HomeTimeline") return s("tag") === undefined ? null : `tag:${s("tag")}`;
-  if (op === "CommunityTweetsTimeline")
-    return s("communityId") === undefined ? null : `community:${s("communityId")}`;
+  // Every Community call names it; a Community's Latest is its posts by Recency, its own list.
+  if (op.startsWith("Communit") && s("communityId") !== undefined) {
+    const mode = s("rankingMode");
+    return op === "CommunityTweetsTimeline" && mode !== undefined && mode !== "Relevance"
+      ? `community:${s("communityId")}:${mode}`
+      : `community:${s("communityId")}`;
+  }
   if (op.startsWith("List") && s("listId") !== undefined) return `list:${s("listId")}`;
   if (op === "NotificationsTimeline") return s("timeline_type") ?? null;
   if (op === "GenericTimelineById") return s("timelineId") ?? null;
@@ -615,11 +670,13 @@ function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExp
  */
 export function renderEngineBatch(op: string, variables: Json, body: unknown): EngineBatch {
   const people: Array<string> = [];
+  const sections: Array<EnginePeopleSection> = [];
   const order: Array<string> = [];
   const conversations = new Map<string, NonNullable<EnginePost["conversation"]>>();
   const trends: Array<EngineTrend> = [];
   const notifications: Array<EngineNotification> = [];
   const lists: Array<EngineList> = [];
+  const communities = new Map<string, EngineCommunity>();
   let top: string | null = null;
   let bottom: string | null = null;
   // Depth first in document order, each node with the header of the module it sits in.
@@ -636,6 +693,8 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
       const id = listedId(node);
       if (id !== undefined && !order.includes(id)) order.push(id);
     }
+    const section = readSection(node);
+    if (section !== undefined) sections.push(section);
     if (type === "TimelineUser") {
       const user = readUser(record(node.user_results).result);
       if (user !== undefined && !people.includes(user.userId)) people.push(user.userId);
@@ -670,6 +729,10 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     } else if (type === "TimelineTwitterList") {
       const list = readList(node, group);
       if (list !== undefined) lists.push(list);
+    } else if (node.__typename === "Community") {
+      const community = readCommunity(node);
+      if (community !== undefined && !communities.has(community.communityId))
+        communities.set(community.communityId, community);
     } else if (node.cursorType === "Top" || node.cursorType === "Bottom") {
       const value = asString(node.value) ?? null;
       if (node.cursorType === "Top") top ??= value;
@@ -691,7 +754,16 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
   const exploreTabs = readExploreTabs(record(body));
   return {
     op,
-    key: keyOf(op, variables, exploreTabs),
+    // The user's Communities, once X answered with the list (empty, when they left the last one).
+    key:
+      op === "CarouselQuery"
+        ? Array.isArray(
+            record(result(record(data.viewer_v2).user_results).community_memberships_slice)
+              .items_results,
+          )
+          ? "communities:mine"
+          : null
+        : keyOf(op, variables, exploreTabs),
     // Explore asks with an empty cursor for its first page.
     cursor: asString(variables.cursor) || null,
     top,
@@ -705,10 +777,12 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     }),
     users: readUsers(body),
     people,
+    sections,
     order,
     trends,
     notifications,
     lists,
+    communities: [...communities.values()],
     homeTabs: readHomeTabs(record(body)),
     exploreTabs,
     viewer: op === "Viewer" ? readViewer(result(record(data.viewer).user_results)) : null,
@@ -757,10 +831,12 @@ export const viewerBatch = (viewer: EngineViewer): EngineBatch => ({
   posts: [],
   users: [],
   people: [],
+  sections: [],
   order: [],
   trends: [],
   notifications: [],
   lists: [],
+  communities: [],
   homeTabs: null,
   exploreTabs: null,
   viewer,
@@ -773,6 +849,8 @@ export const hasEngineContent = (b: EngineBatch) =>
   b.trends.length > 0 ||
   b.notifications.length > 0 ||
   b.lists.length > 0 ||
+  b.communities.length > 0 ||
+  b.key === "communities:mine" ||
   b.homeTabs !== null ||
   b.exploreTabs !== null ||
   b.viewer !== null;

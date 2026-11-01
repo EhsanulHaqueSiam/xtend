@@ -8,7 +8,7 @@ const TOKEN =
   /(https:\/\/t\.co\/\w+)|(^|[^\w@])(@\w{1,15})|(^|[^\w&])(#[\p{L}\p{N}_]*\p{L}[\p{L}\p{N}_]*|\$[A-Za-z]{1,6}(?![\w]))/gu;
 
 /**
- * Where an x.com link opens inside Xtend: a post, a profile or a search get Xtend's own screen;
+ * Where an x.com link opens inside Xtend: a post, a profile, a search or a Community get Xtend's own screen;
  * anything else on x.com, or off it, is null and opens in the browser.
  */
 export function xtendRoute(href: string): string | null {
@@ -19,10 +19,22 @@ export function xtendRoute(href: string): string | null {
     return null;
   }
   if (!/^(www\.|mobile\.)?(x|twitter)\.com$/.test(url.hostname)) return null;
-  const [first, second, third] = url.pathname.split("/").filter(Boolean);
+  const [first, second, third, fourth] = url.pathname.split("/").filter(Boolean);
   if (first === "search") return `/search?q=${encodeURIComponent(url.searchParams.get("q") ?? "")}`;
   if (first === "i" && second === "connect_people")
     return url.searchParams.get("is_creator_only") === "true" ? "/follow?tab=creators" : "/follow";
+  // A Community on its tab, and X's Communities page, which X keeps under the account's own handle.
+  // Its other pages (the full Members list) are X's own.
+  if (first === "i" && second === "communities") {
+    if (third === undefined) return "/communities";
+    if (!/^\d+$/.test(third)) return null;
+    if (fourth === undefined) return `/communities/${third}`;
+    return ["latest", "media", "about"].includes(fourth)
+      ? `/communities/${third}?tab=${fourth}`
+      : null;
+  }
+  if (second === "communities" && first !== undefined && /^\w{1,15}$/.test(first))
+    return third === "explore" ? "/communities?tab=explore" : "/communities";
   if (first === undefined || first === "i" || first === "home") return null;
   if (second === "status" && third !== undefined && /^\d+$/.test(third))
     return `/post/${third}?h=${first}`;

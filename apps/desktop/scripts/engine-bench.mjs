@@ -753,6 +753,65 @@ const benchmarks = [
     },
   ],
   [
+    "Communities: the hub's tabs and a Community's posts are X's, and X's Join is found (dry)",
+    async () => {
+      // X's first three posts sit together, in X's order, in the native list (an ad has no
+      // timestamp link). Nothing is pressed: X's membership button is only found.
+      const xFirst = `[...document.querySelectorAll("article")].map((a) => a.querySelector('a[href*="/status/"] time')?.parentElement.getAttribute("href")?.split("/status/")[1]?.split("/")[0]).filter(Boolean).slice(0, 3)`;
+      const same = () =>
+        until(async () => {
+          const [xs, ours] = [await engine(xFirst), await nativeIds()];
+          const at = ours?.indexOf(xs?.[0]) ?? -1;
+          return (
+            xs?.length === 3 &&
+            at !== -1 &&
+            JSON.stringify(ours.slice(at, at + 3)) === JSON.stringify(xs) &&
+            xs.join(",")
+          );
+        });
+      const xTab = (label) =>
+        until(() =>
+          engine(
+            `document.querySelector('[role="tab"][aria-selected="true"]')?.textContent.trim() === ${JSON.stringify(label)}`,
+          ),
+        );
+      await reset("communities:home", "communities:explore", "communities:mine");
+      await go("#/communities");
+      const home = (await xTab("Home")) && (await same());
+      const tiles = await until(() =>
+        app(`document.querySelectorAll('main [data-x="community-tile"]').length || false`),
+      );
+      if (!home || !tiles) return false;
+      await go("#/communities?tab=explore");
+      const explore = (await xTab("Explore")) && (await same());
+      // One the account has not joined, so X draws Join or Ask to join; any, failing that.
+      const id = await store(
+        `(() => { const cs = [...$.communities.values()]; return (cs.find((c) => c.role === "NonMember") ?? cs.find((c) => c.role !== null))?.communityId; })()`,
+      );
+      if (!explore || !id) return false;
+      await reset(`community:${id}`);
+      await go(`#/communities/${id}`);
+      const top = (await xTab("Top")) && (await same());
+      // As Xtend presses it (communityJoinButton in apps/web/src/state/x.ts): in the header that
+      // links into this Community alone.
+      const xs = await until(() =>
+        engine(
+          `(() => { const id = ${JSON.stringify(id)}; const join = [...document.querySelectorAll('button, [role="button"]')].filter((b) => /^(Join|Ask to join|Joined|Requested|Pending)$/.test(b.textContent.trim()) || /^(Join|Ask to join) /.test(b.getAttribute("aria-label") ?? "")); const mine = join.filter((b) => { for (let box = b.parentElement; box; box = box.parentElement) { const links = [...box.querySelectorAll('a[href*="/i/communities/"]')].map((a) => a.getAttribute("href").split("/i/communities/")[1]?.split(/[/?#]/)[0]); if (links.length > 0) return links.every((l) => l === id) && join.every((o) => o === b || !box.contains(o)); } return false; }); return mine.length === 1 ? mine[0].textContent.trim() : undefined; })()`,
+        ),
+      );
+      // Xtend's button says what X's does, from what X sent of the viewer's role.
+      const ours = await until(() =>
+        app(`document.querySelector('main [data-x="community"] button[aria-label]')?.textContent`),
+      );
+      return (
+        top &&
+        xs !== undefined &&
+        ours === xs &&
+        `home ${home} (${tiles} Communities); explore ${explore}; ${id}: ${top}, X's "${xs}"`
+      );
+    },
+  ],
+  [
     "Profile bell: shows X's own state for someone you follow (dry)",
     async () => {
       // Following holds people the account follows (and what they reposted), so X draws their bell.

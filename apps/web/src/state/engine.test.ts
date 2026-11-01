@@ -1,9 +1,18 @@
-import type { EngineBatch, EngineNotification, EnginePost, EngineUser } from "@xtend/contracts";
+import type {
+  EngineBatch,
+  EngineCommunity,
+  EngineNotification,
+  EnginePost,
+  EngineUser,
+} from "@xtend/contracts";
 import { expect, it } from "vite-plus/test";
 
 import {
   askFollow,
+  askMembership,
   at,
+  communityRole,
+  communitySurface,
   emptyEngine,
   mergeBatch,
   postOn,
@@ -60,10 +69,12 @@ const batch = (
   posts,
   users: [],
   people: [],
+  sections: [],
   order: [],
   trends: [],
   notifications: [],
   lists: [],
+  communities: [],
   homeTabs: null,
   exploreTabs: null,
   viewer: null,
@@ -182,6 +193,88 @@ it("files pinned Home tabs, Lists, Communities and Explore tabs under their own 
   expect(at(state.lists, "tag:19")).toEqual(["1"]);
   expect(at(state.lists, "community:14")).toEqual([]);
   expect(state.homeTabs).toEqual([{ id: "tag:19", label: "Tech" }]);
+
+  // X's Communities hub, and a Community's tabs: Top is Home's pinned tab's list.
+  expect(surfacesOf({ op: "CommunitiesRankedTimeline", key: null })).toEqual(["communities:home"]);
+  expect(surfacesOf({ op: "CarouselQuery", key: null })).toEqual(["communities:mine"]);
+  expect(surfacesOf({ op: "CommunityTweetsTimeline", key: "community:14:Recency" })).toEqual([
+    communitySurface("14", "Latest"),
+  ]);
+  expect(surfacesOf({ op: "CommunityMediaTimeline", key: "community:14" })).toEqual([
+    communitySurface("14", "Media"),
+  ]);
+  expect(surfacesOf({ op: "CommunityAboutTimeline", key: "community:14" })).toEqual([
+    communitySurface("14", "About"),
+  ]);
+  expect(surfacesOf({ op: "CommunityQuery", key: "community:14" })).toEqual([]);
+});
+
+it("lists the user's Communities in X's order, and keeps what each response said of one", () => {
+  const community = (id: string, extra: Partial<EngineCommunity> = {}): EngineCommunity => ({
+    communityId: id,
+    name: `C${id}`,
+    description: null,
+    bannerUrl: null,
+    members: null,
+    topic: null,
+    rules: null,
+    joinPolicy: null,
+    role: null,
+    ...extra,
+  });
+  // X's card for it first, then the carousel's tile, which names only its name and banner.
+  const card = batch("CommunitiesFetchOneQuery", [], {
+    key: "community:20",
+    communities: [community("20", { members: 9, role: "Member", rules: [] })],
+  });
+  const carousel = batch("CarouselQuery", [], {
+    communities: [community("21"), community("20", { name: "Renamed", bannerUrl: "b.jpg" })],
+  });
+  const state = [card, carousel].reduce(mergeBatch, emptyEngine);
+  expect(at(state.communityIds, "communities:mine")).toEqual(["21", "20"]);
+  expect(state.communities.get("20")).toEqual(
+    community("20", { name: "Renamed", bannerUrl: "b.jpg", members: 9, role: "Member", rules: [] }),
+  );
+  // A first page again (the carousel loaded anew) is X's list now, even once the user left them all.
+  const again = mergeBatch(state, batch("CarouselQuery", [], { communities: [community("20")] }));
+  expect(at(again.communityIds, "communities:mine")).toEqual(["20"]);
+  const none = mergeBatch(again, batch("CarouselQuery", [], { key: "communities:mine" }));
+  expect(at(none.communityIds, "communities:mine")).toEqual([]);
+});
+
+it("keeps what X took for a join, ask or leave until X's capture of the Community agrees", () => {
+  const card = (role: string): EngineBatch =>
+    batch("CommunitiesFetchOneQuery", [], {
+      key: "community:20",
+      communities: [
+        {
+          communityId: "20",
+          name: "C",
+          description: null,
+          bannerUrl: null,
+          members: null,
+          topic: null,
+          rules: null,
+          joinPolicy: "Open",
+          role,
+        },
+      ],
+    });
+  const joined = mergeBatch(emptyEngine, card("Member"));
+  const c = () => joined.communities.get("20")!;
+  // The user left; X's cached page sends nothing, and an older capture still says Member.
+  const left = askMembership(joined, "20", "NonMember");
+  const stale = mergeBatch(left, card("Member"));
+  expect(communityRole(stale, c())).toBe("NonMember");
+  const agreed = mergeBatch(stale, card("NonMember"));
+  expect([agreed.membership.size, communityRole(agreed, agreed.communities.get("20")!)]).toEqual([
+    0,
+    "NonMember",
+  ]);
+  // A request stands while X still says NonMember, and ends once X makes them a member.
+  const asked = mergeBatch(askMembership(agreed, "20", "Requested"), card("NonMember"));
+  expect(communityRole(asked, c())).toBe("Requested");
+  expect(mergeBatch(asked, card("Member")).membership.size).toBe(0);
 });
 
 it("keeps notifications in X's order, newer on top, people by surface, and follows until X agrees", () => {

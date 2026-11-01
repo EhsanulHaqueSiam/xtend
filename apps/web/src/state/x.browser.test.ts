@@ -1,9 +1,11 @@
 import { expect, it } from "vite-plus/test";
 
 import {
+  communityJoinButton,
   markXReady,
   xAct,
   registerXWebview,
+  xCommunityJoin,
   xActInPlace,
   xFollow,
   xPostMenu,
@@ -338,6 +340,94 @@ it("sorts replies through X's own row under the post, and only reports a sort X 
     expect(location.search).toBe("?sort_replies=recency");
     expect(await xSortReplies(post42, { label: "Likes", param: "likes" }, labels)).toBe(false);
   } finally {
+    history.replaceState(null, "", start);
+  }
+});
+
+/** A Community's header as X draws it: banner, name, a link to its members, and X's button. */
+const header = (id: string, label: string) =>
+  `<div><img alt=""><h2>C${id}</h2><a href="/i/communities/${id}/members"><b>9</b> Members</a><button aria-label="${label} C${id}">${label}</button></div>`;
+const page = (html: string) => {
+  const root = document.createElement("div");
+  root.innerHTML = `<main><nav><a href="/home">Home</a></nav>${html}</main>`;
+  return root;
+};
+const label = (root: ParentNode, path: string, id: string) =>
+  communityJoinButton(root, path, id)?.textContent ?? null;
+
+it("finds X's membership button only in the header X draws for the Community its page is on", () => {
+  const eleven = page(header("11", "Join"));
+  expect(label(eleven, "/i/communities/11", "11")).toBe("Join");
+  expect(label(eleven, "/i/communities/11/about", "11")).toBe("Join");
+  // X moved to Community 12 before drawing it: 11's header is still up, and is not 12's.
+  expect(label(eleven, "/i/communities/12", "12")).toBeNull();
+  // The path names Community 110, not 11, however it starts.
+  expect(label(eleven, "/i/communities/110", "11")).toBeNull();
+  // A button in no Community's header, or one box holding two buttons, is no one's.
+  expect(label(page("<button>Join</button>"), "/i/communities/11", "11")).toBeNull();
+  expect(
+    label(
+      page(
+        `<div><a href="/i/communities/11/members">9</a><button>Join</button><button>Joined</button></div>`,
+      ),
+      "/i/communities/11",
+      "11",
+    ),
+  ).toBeNull();
+  // Two headers side by side (X drawing the next Community over the last): each is its own.
+  const both = page(header("11", "Joined") + header("12", "Ask to join"));
+  expect([label(both, "/i/communities/11", "11"), label(both, "/i/communities/12", "12")]).toEqual([
+    "Joined",
+    "Ask to join",
+  ]);
+});
+
+it("presses X's membership button only for the action the user clicked, and says what X's says after", async () => {
+  document.body.innerHTML = header("11", "Join");
+  const button = document.querySelector("button")!;
+  const pressed: Array<string> = [];
+  button.addEventListener("click", () => {
+    pressed.push(button.textContent!);
+    button.textContent = "Joined";
+  });
+  inThisPage(() => `https://x.com${location.pathname}`);
+  const start = location.href;
+  try {
+    history.replaceState(null, "", "/i/communities/11");
+    // Xtend still says Joined (the user left on x.com since): its Leave presses nothing.
+    expect(await xCommunityJoin("11", "leave", () => {})).toEqual({ refused: true, label: "Join" });
+    expect(pressed).toEqual([]);
+    expect(await xCommunityJoin("11", "join", () => {})).toEqual({
+      refused: false,
+      label: "Joined",
+    });
+    expect(pressed).toEqual(["Join"]);
+  } finally {
+    history.replaceState(null, "", start);
+  }
+});
+
+it("reads X's new membership label on the Community's own page, before the engine goes back", async () => {
+  const start = location.pathname + location.search;
+  // The Community is not where the engine is (a pinned pane on Messages): X's page is reached
+  // through X's router, pressed there, then left.
+  document.body.innerHTML = `<main>${header("21", "Join")}</main>`;
+  const button = document.querySelector("button")!;
+  button.addEventListener("click", () => (button.textContent = "Joined"));
+  inThisPage(() => "https://x.com/messages");
+  // Back draws the page the user had, as X does: Messages, with no Community header.
+  const back = history.back.bind(history);
+  history.back = () => {
+    history.replaceState(null, "", "/messages");
+    document.body.innerHTML = "<main></main>";
+  };
+  try {
+    expect(await xCommunityJoin("21", "join", () => {})).toEqual({
+      refused: false,
+      label: "Joined",
+    });
+  } finally {
+    history.back = back;
     history.replaceState(null, "", start);
   }
 });

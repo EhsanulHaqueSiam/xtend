@@ -1,9 +1,11 @@
 import type {
   EngineBatch,
+  EngineCommunity,
   EngineExploreTab,
   EngineHomeTab,
   EngineList,
   EngineNotification,
+  EnginePeopleSection,
   EnginePost,
   EngineTrend,
   EngineUser,
@@ -40,7 +42,13 @@ export type Surface =
   | "notifications"
   | "notifications:mentions"
   | "notifications:verified"
-  | "lists";
+  | "lists"
+  | CommunitiesTab;
+/**
+ * X's Communities hub: Home (posts from the user's Communities), Explore, and "mine", the user's
+ * Communities as X's carousel lists them.
+ */
+export type CommunitiesTab = "communities:home" | "communities:explore" | "communities:mine";
 
 /** @public A profile's tabs, as X names its pages (`/<handle>/with_replies` is "replies"). */
 export type ProfileTab =
@@ -69,6 +77,8 @@ type KeyedSurface =
   | `listMembers:${string}`
   | `listFollowers:${string}`
   | ConnectTab
+  | `communityMedia:${string}`
+  | `communityAbout:${string}`
   | `profile:${ProfileTab}:${string}`;
 /** X's Follow page's tabs (Who to follow, Creators for you), as the capture keys them. */
 export type ConnectTab = "connect:who" | "connect:creators";
@@ -95,6 +105,20 @@ export const listPeopleSurface = (kind: "listMembers" | "listFollowers", listId:
  */
 export const quotesQuery = (postId: string) =>
   `quoted_tweet_id:${postId} OR url:"status/${postId}/video" OR url:"status/${postId}/photo"`;
+/** A Community's tabs, as X names them. */
+export type CommunityTab = "Top" | "Latest" | "Media" | "About";
+/**
+ * Where a Community's tab lands: Top shares `community:<id>` with Home's pinned tab, Latest is its
+ * posts by Recency, About lists its moderators.
+ */
+export const communitySurface = (id: string, tab: CommunityTab) =>
+  tab === "Top"
+    ? (`community:${id}` as const)
+    : tab === "Latest"
+      ? (`community:${id}:Recency` as const)
+      : tab === "Media"
+        ? (`communityMedia:${id}` as const)
+        : (`communityAbout:${id}` as const);
 /** @public */
 export const profileSurface = (tab: ProfileTab, userId: string) =>
   `profile:${tab}:${userId}` as const;
@@ -111,6 +135,12 @@ const PROFILE_OPS: Readonly<Record<string, ProfileTab>> = {
   UserArticlesTweets: "articles",
   UserHighlightsTweets: "highlights",
   UserSuperFollowTweets: "subs",
+};
+
+const COMMUNITIES_OPS: Readonly<Record<string, CommunitiesTab>> = {
+  CommunitiesRankedTimeline: "communities:home",
+  CommunitiesExploreTimeline: "communities:explore",
+  CarouselQuery: "communities:mine",
 };
 
 const SEARCH_PRODUCTS: ReadonlyArray<string> = [
@@ -151,6 +181,14 @@ export function surfacesOf(batch: Pick<EngineBatch, "op" | "key">): ReadonlyArra
   // The signed-in account's likes, under X's History beside Bookmarks.
   if (op === "Likes") return ["likes"];
   if (op === "ListsManagementPageTimeline") return ["lists"];
+  const hub = COMMUNITIES_OPS[op];
+  if (hub !== undefined) return [hub];
+  // The capture keys every Community call `community:<id>`, its Latest `community:<id>:Recency`.
+  const communityId = tabKey(key, "community")?.slice("community:".length);
+  if (communityId !== undefined && op === "CommunityMediaTimeline")
+    return [communitySurface(communityId, "Media")];
+  if (communityId !== undefined && op === "CommunityAboutTimeline")
+    return [communitySurface(communityId, "About")];
   if (op === "ConnectTabTimeline" && (key === "connect:who" || key === "connect:creators"))
     return [key];
   // The capture keys every List call `list:<id>`.
@@ -201,6 +239,9 @@ const NONE: PerSurface<never> = {
   "notifications:mentions": [],
   "notifications:verified": [],
   lists: [],
+  "communities:home": [],
+  "communities:explore": [],
+  "communities:mine": [],
 };
 
 /** What a post is on one page only: the line above it there, and its place in a thread there. */
@@ -221,6 +262,11 @@ export interface EngineState {
    * agrees: a page X answered before the click would otherwise turn the button back.
    */
   readonly asked: ReadonlyMap<string, boolean>;
+  /**
+   * The role X took for the user's join, ask or leave, per Community, until a capture of it agrees:
+   * X's page shows its own state from its cache and fetches nothing to say so.
+   */
+  readonly membership: ReadonlyMap<string, CommunityRole>;
   /** Post ids per surface. */
   readonly lists: PerSurface<string>;
   /** Newer posts X fetched for a list's top; they wait behind a pill instead of shifting the list. */
@@ -232,12 +278,18 @@ export interface EngineState {
   readonly nextTop: PerSurface<string>;
   /** User ids per surface. */
   readonly people: PerSurface<string>;
+  /** X's titled boxes of people per surface (a Community's Moderators and Members). */
+  readonly sections: PerSurface<EnginePeopleSection>;
   readonly trends: PerSurface<EngineTrend>;
   readonly notifications: PerSurface<EngineNotification>;
   /** X Lists by id: the Lists page's rows and each List's own header. */
   readonly xLists: ReadonlyMap<string, EngineList>;
   /** List ids per surface, in X's order (the Lists page's sections follow it). */
   readonly listIds: PerSurface<string>;
+  /** Communities by id, each the sum of what X's responses said of it (see `EngineCommunity`). */
+  readonly communities: ReadonlyMap<string, EngineCommunity>;
+  /** Community ids per surface, in X's order (the user's Communities). */
+  readonly communityIds: PerSurface<string>;
   /** Home's pinned tabs after For you and Following, as X named them. */
   readonly homeTabs: ReadonlyArray<EngineHomeTab>;
   readonly exploreTabs: ReadonlyArray<EngineExploreTab>;
@@ -254,14 +306,18 @@ export const emptyEngine: EngineState = {
   entries: {},
   users: new Map(),
   asked: new Map(),
+  membership: new Map(),
   lists: NONE,
   waiting: NONE,
   nextTop: NONE,
   people: NONE,
+  sections: NONE,
   trends: NONE,
   notifications: NONE,
   xLists: new Map(),
   listIds: NONE,
+  communities: new Map(),
+  communityIds: NONE,
   homeTabs: [],
   exploreTabs: [],
   viewer: null,
@@ -321,12 +377,50 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
     for (const list of batch.lists) next.set(list.listId, list);
     xLists = next;
   }
+  let communities = state.communities;
+  if (batch.communities.length > 0) {
+    const next = new Map(communities);
+    for (const c of batch.communities) {
+      const known = next.get(c.communityId);
+      // A field this response left out (null) keeps what an earlier one said.
+      next.set(
+        c.communityId,
+        known === undefined
+          ? c
+          : {
+              ...c,
+              description: c.description ?? known.description,
+              bannerUrl: c.bannerUrl ?? known.bannerUrl,
+              members: c.members ?? known.members,
+              topic: c.topic ?? known.topic,
+              rules: c.rules ?? known.rules,
+              joinPolicy: c.joinPolicy ?? known.joinPolicy,
+              role: c.role ?? known.role,
+            },
+      );
+    }
+    communities = next;
+  }
+  // X agrees once it sends the role taken; a request stands until X makes them a member.
+  const agreed = batch.communities.filter((c) => {
+    const taken = state.membership.get(c.communityId);
+    return (
+      taken !== undefined &&
+      (c.role === taken || (taken === "Requested" && c.role !== null && c.role !== "NonMember"))
+    );
+  });
+  const membership =
+    agreed.length === 0
+      ? state.membership
+      : new Map([...state.membership].filter(([id]) => !agreed.some((c) => c.communityId === id)));
   const merged: EngineState = {
     ...state,
     posts,
     users,
     asked,
+    membership,
     xLists,
+    communities,
     homeTabs: batch.homeTabs ?? state.homeTabs,
     exploreTabs: batch.exploreTabs ?? state.exploreTabs,
     // X's nav names no user id; keep the one X's Viewer call gave for the same account.
@@ -464,6 +558,26 @@ function mergeInto(state: EngineState, batch: EngineBatch, surface: AnySurface):
           surface,
           page === "first" ? listIdsNow : join(at(state.listIds, surface), listIdsNow, String),
         );
+  const communityIdsNow = batch.communities.map((c) => c.communityId);
+  // The user's Communities replace the list on X's first page, even with none left.
+  const communityIds =
+    communityIdsNow.length === 0 && !(surface === "communities:mine" && page === "first")
+      ? state.communityIds
+      : set(
+          state.communityIds,
+          surface,
+          page === "first"
+            ? communityIdsNow
+            : join(at(state.communityIds, surface), communityIdsNow, String),
+        );
+  const sections =
+    batch.sections.length === 0
+      ? state.sections
+      : set(
+          state.sections,
+          surface,
+          page === "first" ? batch.sections : [...at(state.sections, surface), ...batch.sections],
+        );
   const notifications =
     batch.notifications.length === 0
       ? state.notifications
@@ -492,7 +606,9 @@ function mergeInto(state: EngineState, batch: EngineBatch, surface: AnySurface):
     entries: { ...state.entries, [surface]: entries },
     cursors,
     people,
+    sections,
     listIds,
+    communityIds,
     trends,
     notifications,
     lists: newer ? state.lists : set(state.lists, surface, [...list, ...fresh]),
@@ -530,7 +646,9 @@ export const resetSurface = (state: EngineState, surface: AnySurface): EngineSta
   waiting: set(state.waiting, surface, []),
   nextTop: set(state.nextTop, surface, []),
   people: set(state.people, surface, []),
+  sections: set(state.sections, surface, []),
   listIds: set(state.listIds, surface, []),
+  communityIds: set(state.communityIds, surface, []),
   trends: set(state.trends, surface, []),
   notifications: set(state.notifications, surface, []),
   cursors: { ...state.cursors, [surface]: undefined },
@@ -547,6 +665,20 @@ export const postOn = (
   const entry = state.entries[surface]?.get(postId);
   return post === undefined || entry === undefined ? post : { ...post, ...entry };
 };
+
+/** The viewer's role in a Community: "Requested" while X waits on its moderators. */
+export type CommunityRole = "NonMember" | "Member" | "Moderator" | "Admin" | "Requested";
+
+/** The viewer's role in a Community: what X took for their click, until X's capture agrees. */
+export const communityRole = (state: EngineState, c: EngineCommunity) =>
+  state.membership.get(c.communityId) ?? c.role;
+
+/** Keeps the role X took for the user's join, ask or leave (see `membership`). */
+export const askMembership = (
+  state: EngineState,
+  communityId: string,
+  role: CommunityRole,
+): EngineState => ({ ...state, membership: new Map(state.membership).set(communityId, role) });
 
 /** Whether the user follows someone: what they asked X for, until X's capture agrees. */
 export const youFollow = (state: EngineState, user: EngineUser) =>

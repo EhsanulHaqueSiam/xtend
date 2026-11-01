@@ -297,6 +297,7 @@ const NATIVE: Readonly<Record<string, string>> = {
   Bookmarks: "/bookmarks",
   Lists: "/lists",
   Follow: "/follow",
+  Communities: "/communities",
 };
 
 /** X's own pages; each loads in the one x.com webview, shown in the main area. */
@@ -321,6 +322,7 @@ function XRows({ compact }: { readonly compact: boolean }) {
     { label: "Messages", path: "/messages" },
     { label: "Bookmarks", path: "/i/bookmarks" },
     { label: "Lists", path: "/i/lists" },
+    { label: "Communities", path: "/i/communities" },
     { label: "Follow", path: "/i/connect_people" },
     ...(handle === null ? [] : [{ label: "Profile", path: `/${handle}` }]),
   ];
