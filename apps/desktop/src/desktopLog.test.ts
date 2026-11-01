@@ -81,7 +81,7 @@ it("keeps no draft text, handle, query or path a link or URL carried, only their
     expect(text).toContain(shape);
 });
 
-it("makes an existing world-readable log and its backups owner-only before writing", () => {
+it("makes an existing world-readable log and its backups owner-only before every write", () => {
   const file = tempLog();
   NodeFS.mkdirSync(NodePath.dirname(file), { recursive: true });
   NodeFS.writeFileSync(file, "x".repeat(250));
@@ -92,6 +92,11 @@ it("makes an existing world-readable log and its backups owner-only before writi
 
   log("service child started", { pid: 42 });
   expect([file, `${file}.1`, `${file}.2`].map(modeOf)).toEqual([0o600, 0o600, 0o600]);
+
+  // An ordinary write, far from rotating, still tightens a backup an earlier build left readable.
+  NodeFS.chmodSync(`${file}.2`, 0o644);
+  makeDesktopLog(file, { maxBytes: 5_000_000, maxFiles: 3 })("service child exited", { code: 0 });
+  expect(modeOf(`${file}.2`)).toBe(0o600);
 });
 
 it("logs a failed load as its page's shape, and skips a load the page replaced", () => {

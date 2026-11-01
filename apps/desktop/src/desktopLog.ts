@@ -108,9 +108,12 @@ const rotate = (file: string, maxFiles: number) => {
   for (let i = maxFiles - 1; i >= 1; i--)
     if (NodeFS.existsSync(`${file}.${i}`)) NodeFS.renameSync(`${file}.${i}`, `${file}.${i + 1}`);
   NodeFS.renameSync(file, `${file}.1`);
-  // Backups an earlier build left world-readable.
-  for (let i = 1; i <= maxFiles; i++)
-    if (NodeFS.existsSync(`${file}.${i}`)) NodeFS.chmodSync(`${file}.${i}`, 0o600);
+};
+
+/** The log and every backup made owner-only: an earlier build may have left them 0644. */
+const secure = (file: string, maxFiles: number) => {
+  for (const f of [file, ...Array.from({ length: maxFiles }, (_, i) => `${file}.${i + 1}`)])
+    if (NodeFS.existsSync(f)) NodeFS.chmodSync(f, 0o600);
 };
 
 /**
@@ -127,10 +130,9 @@ export const makeDesktopLog =
     console.log(`[xtend-desktop] ${line.trimEnd()}`);
     try {
       NodeFS.mkdirSync(NodePath.dirname(file), { recursive: true });
-      const exists = NodeFS.existsSync(file);
-      // A file left 0644 is made owner-only first; if that fails, the line is not written.
-      if (exists) NodeFS.chmodSync(file, 0o600);
-      const size = exists ? NodeFS.statSync(file).size : 0;
+      // Every file is made owner-only first; if that fails, the line is not written.
+      secure(file, maxFiles);
+      const size = NodeFS.existsSync(file) ? NodeFS.statSync(file).size : 0;
       if (size > 0 && size + line.length > maxBytes) rotate(file, maxFiles);
       NodeFS.appendFileSync(file, line, { mode: 0o600 });
     } catch (error) {
