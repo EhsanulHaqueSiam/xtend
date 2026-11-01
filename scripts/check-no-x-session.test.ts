@@ -3,6 +3,11 @@ import * as NodePath from "node:path";
 
 import { expect, it } from "vite-plus/test";
 
+import {
+  formatFixture,
+  parseFixture,
+  scrub,
+} from "../apps/web/src/components/xnative/engineFixtures.ts";
 import { problem } from "./check-no-x-session.ts";
 
 const text = (body: string | Buffer) => () => Buffer.from(body);
@@ -149,6 +154,13 @@ it("passes the committed engine fixtures and fails one that was not scrubbed", (
     ["timelineId", "1985123456789012345"],
     ["key", "list:1234"],
     ["top", "top-ListByRestId-list:1985123456789012345"],
+    // A number is never a scrubbed form, whatever field holds it.
+    ["id", 44196397],
+    ["timelineId", 44196397],
+    ["key", 44196397],
+    ["top", 44196397],
+    ["bottom", 44196397],
+    ["cursor", 44196397],
   ] as const) {
     expect(plant(committed, field, real), field).toBeDefined();
     expect(problem(recorded, text(plant(committed, field, real)!)), field).toMatch(/id/);
@@ -160,4 +172,24 @@ it("passes the committed engine fixtures and fails one that was not scrubbed", (
       text(line(fake.replace("900000000001", "1985123456789012345"))),
     ),
   ).toBeUndefined();
+});
+
+it("passes whatever scrub makes of a recording, numbers in search queries included", () => {
+  const dir = NodePath.join(import.meta.dirname, "../apps/web/test/fixtures/engine");
+  const { meta, batches } = parseFixture(
+    NodeFS.readFileSync(NodePath.join(dir, "search.ndjson"), "utf8"),
+  );
+  const recording = batches.map((b) =>
+    b.op === "SearchTimeline"
+      ? { ...b, key: "Top:2026 roadmap 42", top: "top-SearchTimeline-Top:2026 roadmap 42" }
+      : b,
+  );
+  const scrubbed = scrub(recording);
+  // Digits stay digits through scrub's word swap, so the case is exercised.
+  expect(scrubbed.find((b) => b.op === "SearchTimeline")?.key).toMatch(/^Top:\d+ \S+ \d+$/);
+  const file = formatFixture({ meta, batches: scrubbed });
+  expect(problem("apps/web/test/fixtures/engine/scrubbed.ndjson", text(file))).toBeUndefined();
+  // And twice over.
+  const twice = formatFixture({ meta, batches: scrub(scrubbed) });
+  expect(problem("apps/web/test/fixtures/engine/scrubbed.ndjson", text(twice))).toBeUndefined();
 });

@@ -75,19 +75,23 @@ function realField(
   value: unknown,
   owner: Record<string, unknown>,
 ): string | undefined {
-  // X's numeric ids, alone or in arrays (realIn walks arrays with the field's name).
-  if ((/(Id|Ids)$/.test(key) && !OPAQUE_IDS.has(key)) || ID_ARRAYS.has(key)) {
-    if (typeof value === "number") return `a numeric id ${value} in "${key}"`;
-    if (typeof value === "string" && !FAKE_ID.test(value))
-      return `a real-looking id "${value}" in "${key}"`;
-  }
-  if (OPAQUE_IDS.has(key) && typeof value === "string" && !FAKE_OPAQUE.test(value))
+  const idField = (/(Id|Ids)$/.test(key) && !OPAQUE_IDS.has(key)) || ID_ARRAYS.has(key);
+  // Scrub and synth write every id-like value as a string; a number is X's own.
+  if ((idField || OPAQUE_IDS.has(key) || CURSORS.has(key)) && typeof value === "number")
+    return `a numeric id ${value} in "${key}"`;
+  if (typeof value !== "string") return undefined;
+  if (idField && !FAKE_ID.test(value)) return `a real-looking id "${value}" in "${key}"`;
+  if (OPAQUE_IDS.has(key) && !FAKE_OPAQUE.test(value))
     return `a real-looking id "${value}" in "${key}"`;
-  if (CURSORS.has(key) && typeof value === "string") {
+  if (CURSORS.has(key)) {
     if (key === "key" && owner.op === "UserByScreenName")
       return FAKE_HANDLE.test(value) ? undefined : `a real-looking handle @${value}`;
-    // Counters (s12) aside, every number in a key or cursor is an id.
-    const id = value
+    // A search's query is text, scrubbed as text: its digits are words, not ids.
+    const search = /^((top|bottom)-SearchTimeline-)?[A-Za-z]+:/;
+    const ids =
+      owner.op === "SearchTimeline" && search.test(value) ? value.replace(/:.*$/s, "") : value;
+    // Counters (s12) aside, every other number in a key or cursor is an id.
+    const id = ids
       .replace(/\bs\d+\b/g, "")
       .match(/\d+/g)
       ?.find((digits) => !FAKE_ID.test(digits));

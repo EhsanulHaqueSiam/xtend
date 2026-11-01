@@ -6,9 +6,8 @@ import * as NodeSqlite from "node:sqlite";
 import { expect, it } from "vite-plus/test";
 
 import {
-  claimLock,
   copyPartition,
-  createLock,
+  install,
   inside,
   installedProfile,
   loginExpiry,
@@ -16,7 +15,6 @@ import {
   refuseDestination,
   signedIn,
   useSaved,
-  withLock,
 } from "./dev-x-session.ts";
 
 const temp = () =>
@@ -57,51 +55,56 @@ it("copies a partition without Chromium's caches, replacing the target only once
     }),
   ).toThrow("signed out");
   expect(loginExpiry(to)).toBeDefined();
-  // No staging, backup or lock is left beside it.
+  // No staging or backup is left beside it.
   expect(NodeFS.readdirSync(NodePath.dirname(to))).toEqual(["x-session"]);
 });
 
-it("lets one copy at a time replace a partition, taking over a lock its owner left behind", () => {
-  const dir = temp();
-  const from = signedIn_(NodePath.join(dir, "from"));
-  const to = NodePath.join(dir, "to", "x-session");
-  NodeFS.mkdirSync(NodePath.dirname(to));
-  // A live copy (this process stands in for it) holds the lock: nothing is written.
-  NodeFS.writeFileSync(`${to}.lock`, JSON.stringify({ pid: process.pid, at: 0 }));
-  expect(() => copyPartition(from, to)).toThrow("another copy");
-  expect(NodeFS.existsSync(to)).toBe(false);
-  // Its PID is gone: the lock is stale and the copy goes ahead.
-  NodeFS.writeFileSync(`${to}.lock`, JSON.stringify({ pid: 999_999, at: 0 }));
-  copyPartition(from, to);
-  expect(loginExpiry(to)).toBeDefined();
-  expect(NodeFS.existsSync(`${to}.lock`)).toBe(false);
+/** A validated copy staged beside `to` as copyPartition stages one, marked with `who`. */
+const staged = (to: string, who: string) => {
+  const staging = NodeFS.mkdtempSync(`${to}.copying-`);
+  signedIn_(staging);
+  NodeFS.writeFileSync(NodePath.join(staging, "who"), who);
+  return staging;
+};
+const holder = (to: string) => NodeFS.readFileSync(NodePath.join(to, "who"), "utf8");
+
+it("installs two interleaved copies without a lock: one complete session, nothing left over", () => {
+  for (const at of ["before moving aside", "before taking its place"] as const) {
+    const to = NodePath.join(temp(), "x-session");
+    NodeFS.renameSync(staged(to, "original"), to);
+    const a = staged(to, "A");
+    const b = staged(to, "B");
+    let calls = 0;
+    // B installs completely at one of A's two steps.
+    install(a, to, (from, dest) => {
+      calls++;
+      if (
+        (at === "before moving aside" && calls === 1) ||
+        (at === "before taking its place" && calls === 2)
+      )
+        install(b, to);
+      NodeFS.renameSync(from, dest);
+    });
+    // Before A moved aside, A replaces B; after, B's session stands and A's is dropped.
+    expect(holder(to), at).toBe(at === "before moving aside" ? "A" : "B");
+    expect(loginExpiry(to), at).toBeDefined();
+    expect(NodeFS.readdirSync(NodePath.dirname(to)), at).toEqual(["x-session"]);
+  }
 });
 
-it("lets exactly one of two copies take over a stale lock, and releases only its own", () => {
-  const lock = NodePath.join(temp(), "x-session.lock");
-  const stale = JSON.stringify({ pid: 999_999, at: 0 });
-  NodeFS.writeFileSync(lock, stale);
-  // Both judged the same record stale. A moves it aside and locks; B then finds A's lock.
-  expect(claimLock(lock, stale)).toBe(true);
-  expect(createLock(lock, "A")).toBe(true);
-  expect(claimLock(lock, stale)).toBe(false);
-  expect(createLock(lock, "B")).toBe(false);
-  expect(NodeFS.readFileSync(lock, "utf8")).toBe("A");
-  expect(NodeFS.readdirSync(NodePath.dirname(lock))).toEqual(["x-session.lock"]);
-
-  // A release that finds someone else's lock leaves it.
+it("puts the original back when installing fails for any other reason", () => {
   const to = NodePath.join(temp(), "x-session");
-  withLock(to, () => NodeFS.writeFileSync(`${to}.lock`, "another copy's"));
-  expect(NodeFS.readFileSync(`${to}.lock`, "utf8")).toBe("another copy's");
-});
-
-it("respects a lock still being written, and takes over one abandoned that way", () => {
-  const to = NodePath.join(temp(), "x-session");
-  NodeFS.writeFileSync(`${to}.lock`, "");
-  expect(() => withLock(to, () => "ran")).toThrow("another copy");
-  NodeFS.utimesSync(`${to}.lock`, new Date(0), new Date(0));
-  expect(withLock(to, () => "ran")).toBe("ran");
-  expect(NodeFS.existsSync(`${to}.lock`)).toBe(false);
+  NodeFS.renameSync(staged(to, "original"), to);
+  const copy = staged(to, "new");
+  const crossDevice = Object.assign(new Error("EXDEV"), { code: "EXDEV" });
+  expect(() =>
+    install(copy, to, (from, dest) => {
+      if (from === copy) throw crossDevice;
+      NodeFS.renameSync(from, dest);
+    }),
+  ).toThrow("EXDEV");
+  expect(holder(to)).toBe("original");
+  expect(NodeFS.readdirSync(NodePath.dirname(to))).toEqual(["x-session"]);
 });
 
 it("will not install a saved session whose login expired", () => {
