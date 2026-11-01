@@ -13,7 +13,14 @@ import * as NodeSqlite from "node:sqlite";
 import * as NodeUtil from "node:util";
 
 import { refuseLiveHome } from "../apps/server/scripts/devData.ts";
-import { alive, readDevRecord, worktrees } from "./dev-ps.ts";
+import {
+  COMMANDS,
+  processInfo,
+  readDevRecord,
+  verdict,
+  worktrees,
+  type ProcessInfo,
+} from "./dev-ps.ts";
 
 /** The shared copy: outside every checkout, and never ~/.xtend. */
 export const SAVED = NodePath.join(NodeOS.homedir(), ".xtend-dev", "x-session");
@@ -41,35 +48,117 @@ export const partitionOf = (userData: string) => NodePath.join(userData, PARTITI
 
 /**
  * The PID holding a Chromium profile, from the SingletonLock symlink ("<host>-<pid>") Electron
- * keeps in user data while it runs; undefined when nothing does.
+ * makes in user data at start. A PID that is gone, or reused by a process that is not Electron
+ * or started after the lock, holds nothing: the lock was left by a crash.
  */
-export const profileHolder = (userData: string) => {
+export const profileHolder = (
+  userData: string,
+  info: (pid: number) => ProcessInfo | undefined = processInfo,
+) => {
+  const lock = NodePath.join(userData, "SingletonLock");
   let target: string;
   try {
-    target = NodeFS.readlinkSync(NodePath.join(userData, "SingletonLock"));
+    target = NodeFS.readlinkSync(lock);
   } catch {
     return undefined;
   }
   const pid = Number(target.slice(target.lastIndexOf("-") + 1));
-  return Number.isInteger(pid) && alive(pid) ? pid : undefined;
+  if (!Number.isInteger(pid)) return undefined;
+  return verdict(info(pid), NodeFS.lstatSync(lock).mtimeMs, COMMANDS.desktop) === "alive"
+    ? pid
+    : undefined;
 };
 
+/** `path` with its nearest existing ancestor resolved, so a symlink anywhere above shows. */
+const real = (path: string): string => {
+  const resolved = NodePath.resolve(path);
+  if (NodeFS.lstatSync(resolved, { throwIfNoEntry: false }) !== undefined)
+    return NodeFS.realpathSync(resolved);
+  const parent = NodePath.dirname(resolved);
+  return parent === resolved ? resolved : NodePath.join(real(parent), NodePath.basename(resolved));
+};
+
+const within = (path: string, dir: string) =>
+  path === dir || path.startsWith(`${dir}${NodePath.sep}`);
+
+/** Profiles no copy may land in, by any path: the live install and the installed app's. */
+const PROTECTED = () => [NodePath.join(NodeOS.homedir(), ".xtend"), installedProfile()];
+
 /**
- * Copies a partition without its caches. The copy lands beside `to` and replaces it only once
- * complete, so a failed copy never costs the session already there.
+ * Throws unless `target` may be replaced: no step of `chain` (the directories this script makes
+ * or replaces, down to `target`) is a symlink, and `target` resolves outside every protected dir.
  */
-export function copyPartition(from: string, to: string) {
-  if (!NodeFS.existsSync(NodePath.join(from, "Cookies")))
+export function refuseDestination(
+  target: string,
+  chain: ReadonlyArray<string>,
+  protectedDirs: ReadonlyArray<string> = PROTECTED(),
+) {
+  for (const step of [...chain, target])
+    if (NodeFS.lstatSync(step, { throwIfNoEntry: false })?.isSymbolicLink())
+      throw new Error(`${step} is a symlink; refusing to write through it.`);
+  const resolved = real(target);
+  const hit = protectedDirs.find((dir) => within(resolved, real(dir)));
+  if (hit !== undefined) throw new Error(`${target} is inside ${hit}; refusing to write there.`);
+}
+
+/** Every symlink under `dir`: a copy must hold files of its own, not links back to a live profile. */
+const links = (dir: string): Array<string> =>
+  NodeFS.readdirSync(dir, { withFileTypes: true, recursive: true })
+    .filter((entry) => entry.isSymbolicLink())
+    .map((entry) => NodePath.join(entry.parentPath, entry.name));
+
+/**
+ * Copies a partition without its caches into a staging dir beside `to`, refuses any symlink in
+ * the copy, runs `accept` on it, and only then swaps it in. A failure at any step leaves `to` as
+ * it was.
+ */
+export function copyPartition(
+  from: string,
+  to: string,
+  accept: (staging: string) => void = () => {},
+) {
+  const source = NodeFS.realpathSync(from);
+  if (!NodeFS.existsSync(NodePath.join(source, "Cookies")))
     throw new Error(`${from} has no Cookies file; is it an x.com partition?`);
   const staging = `${to}.copying`;
+  const old = `${to}.old`;
   NodeFS.rmSync(staging, { recursive: true, force: true });
   NodeFS.mkdirSync(NodePath.dirname(to), { recursive: true, mode: 0o700 });
-  NodeFS.cpSync(from, staging, {
-    recursive: true,
-    filter: (source) => !CACHES.has(NodePath.basename(source)),
-  });
-  NodeFS.rmSync(to, { recursive: true, force: true });
+  try {
+    NodeFS.cpSync(source, staging, {
+      recursive: true,
+      verbatimSymlinks: true,
+      filter: (entry) => !CACHES.has(NodePath.basename(entry)),
+    });
+    const found = links(staging);
+    if (found.length > 0)
+      throw new Error(
+        `${from} holds symlinks (${found.map((l) => NodePath.relative(staging, l)).join(", ")}); copy a profile of real files.`,
+      );
+    accept(staging);
+  } catch (error) {
+    NodeFS.rmSync(staging, { recursive: true, force: true });
+    throw error;
+  }
+  NodeFS.rmSync(old, { recursive: true, force: true });
+  if (NodeFS.existsSync(to)) NodeFS.renameSync(to, old);
   NodeFS.renameSync(staging, to);
+  NodeFS.rmSync(old, { recursive: true, force: true });
+}
+
+/**
+ * Copies the saved session into a dev desktop's profile, for `use`, `pnpm dev:desktop` and
+ * worktree setup alike. Throws before touching anything when the profile is protected, reached
+ * through a symlink, or held by a running desktop.
+ */
+export function useSaved(userData: string) {
+  const partitions = NodePath.join(userData, "Partitions");
+  refuseDestination(partitionOf(userData), [userData, partitions]);
+  const holder = profileHolder(userData);
+  if (holder !== undefined)
+    throw new Error(`a desktop (PID ${holder}) holds ${userData}; quit it first.`);
+  copyPartition(SAVED, partitionOf(userData));
+  return partitionOf(userData);
 }
 
 /**
@@ -124,7 +213,7 @@ if (import.meta.main) {
     values.home ?? readDevRecord(root)?.home ?? NodePath.join(root, ".xtend"),
   );
   const here = process.env.XTEND_USER_DATA ?? devUserData(home);
-  const fail = (why: string) => {
+  const fail = (why: string): never => {
     console.error(`[x-session] ${why}`);
     process.exit(1);
   };
@@ -146,24 +235,31 @@ if (import.meta.main) {
       fail(
         `no x.com partition in ${from}. Sign in a dev desktop first, or pass --from <checkout> or --installed.`,
       );
-    // Inspect the copy, never the source: an installed app's profile is read and nothing else.
-    copyPartition(partitionOf(from), SAVED);
-    NodeFS.chmodSync(NodePath.dirname(SAVED), 0o700);
-    if (loginExpiry(SAVED) === undefined) {
-      NodeFS.rmSync(SAVED, { recursive: true, force: true });
-      fail(`${from} is signed out of X; nothing saved.`);
+    // A running desktop rewrites its cookies and storage while they are copied.
+    const holder = profileHolder(from);
+    if (holder !== undefined)
+      fail(`${from} is in use by PID ${holder}; quit that desktop (or the app) first.`);
+    try {
+      refuseDestination(SAVED, [NodePath.dirname(SAVED)]);
+      // Validates the copy, never the source: an installed app's profile is only read.
+      copyPartition(partitionOf(from), SAVED, (staging) => {
+        if (loginExpiry(staging) === undefined)
+          throw new Error(`${from} is signed out of X; the saved session is unchanged.`);
+      });
+    } catch (error) {
+      fail((error as Error).message);
     }
+    NodeFS.chmodSync(NodePath.dirname(SAVED), 0o700);
     console.log(`[x-session] saved ${partitionOf(from)} -> ${SAVED} (${describe(SAVED)})`);
     console.log("[x-session] it is your real X login: never commit, attach or share it.");
   } else if (command === "use") {
     if (!NodeFS.existsSync(SAVED)) fail("nothing saved yet: pnpm dev:x-session save first.");
-    const installed = NodePath.resolve(installedProfile());
-    if (NodePath.resolve(here) === installed) fail(`${here} is the installed app's profile.`);
-    const holder = profileHolder(here);
-    if (holder !== undefined)
-      fail(`this checkout's dev desktop (PID ${holder}) holds ${here}; quit it first.`);
-    copyPartition(SAVED, partitionOf(here));
-    console.log(`[x-session] ${SAVED} -> ${partitionOf(here)} (${describe(partitionOf(here))})`);
+    try {
+      const partition = useSaved(here);
+      console.log(`[x-session] ${SAVED} -> ${partition} (${describe(partition)})`);
+    } catch (error) {
+      fail((error as Error).message);
+    }
   } else {
     console.error(
       "usage: pnpm dev:x-session status | save [--from <checkout or user data dir> | --installed] | use [--home <dir>]",

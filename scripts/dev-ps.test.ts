@@ -15,7 +15,7 @@ const checkout = (records: { dev?: object; desktop?: object }) => {
   return dir;
 };
 
-it("lists each checkout's dev run and desktop with ports, DevTools port, uptime and liveness", () => {
+it("lists each checkout's dev run and desktop with ports, DevTools port, uptime and liveness, and a reused PID as stale", () => {
   const now = Date.parse("2026-11-01T12:00:00Z");
   const a = checkout({
     dev: {
@@ -34,7 +34,29 @@ it("lists each checkout's dev run and desktop with ports, DevTools port, uptime 
   });
   const empty = checkout({});
 
-  expect(rows([a, b, empty], (pid) => pid !== 13, now)).toEqual([
+  // A crashed run whose PID now belongs to another program.
+  const c = checkout({
+    dev: {
+      service: 4950,
+      web: 5950,
+      home: "/c/.xtend",
+      pid: 14,
+      startedAt: "2026-11-01T10:00:00Z",
+    },
+  });
+  const ps = new Map([
+    [11, { start: Date.parse("2026-11-01T11:58:29Z"), command: "node scripts/dev-runner.ts dev" }],
+    [
+      12,
+      {
+        start: Date.parse("2026-11-01T09:30:00Z"),
+        command: "/x/Electron.app/Contents/MacOS/Electron .",
+      },
+    ],
+    [14, { start: Date.parse("2026-11-01T11:30:00Z"), command: "/usr/bin/vim" }],
+  ]);
+
+  expect(rows([a, b, empty, c], (pid) => ps.get(pid), now)).toEqual([
     {
       checkout: a,
       kind: "dev",
@@ -63,5 +85,14 @@ it("lists each checkout's dev run and desktop with ports, DevTools port, uptime 
       state: "unknown",
     },
     { checkout: b, kind: "desktop", pid: 13, ports: "-", devtools: "-", up: "1h0m", state: "dead" },
+    {
+      checkout: c,
+      kind: "dev",
+      pid: 14,
+      ports: "service 4950 web 5950",
+      devtools: "-",
+      up: "2h0m",
+      state: "stale",
+    },
   ]);
 });

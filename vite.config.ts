@@ -47,7 +47,12 @@ export default defineConfig({
     exclude: TEST_EXCLUDE,
   },
   staged: {
-    "*": ["vp fmt --no-error-on-unmatched-pattern", "vp lint --no-error-on-unmatched-pattern"],
+    // The repo is public: no X session or unscrubbed account data gets past a commit.
+    "*": [
+      "node scripts/check-no-x-session.ts",
+      "vp fmt --no-error-on-unmatched-pattern",
+      "vp lint --no-error-on-unmatched-pattern",
+    ],
   },
   fmt: {
     ignorePatterns: [

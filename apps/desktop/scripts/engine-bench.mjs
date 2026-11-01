@@ -1311,14 +1311,15 @@ async function round(n) {
 
 // X's buttons refuse every press while session actions are off, and a seeded dev home starts
 // with them off (apps/server/scripts/devData.ts): the press checks would fail with no reason.
-const sessionActions = await app(
-  `fetch("/api/rpc/settings.get", { method: "POST", headers: { authorization: "Bearer " + window.desktopBridge.serviceToken, "content-type": "application/json" }, body: "{}" }).then((r) => r.json()).then((s) => s.sessionPostingEnabled)`,
+const settings = await app(
+  `fetch("/api/rpc/settings.get", { method: "POST", headers: { authorization: "Bearer " + window.desktopBridge.serviceToken, "content-type": "application/json" }, body: "{}" }).then((r) => r.json())`,
 ).catch((error) => error.message);
+const sessionActions = settings?.sessionPostingEnabled;
 if (sessionActions !== true) {
   console.error(
     sessionActions === false
       ? 'Session actions are off for this dev home, so the press checks cannot pass. Turn on Settings, X session, "Act through my X session for what I click" in the dev desktop, then run again.'
-      : `Could not read the app's settings (got ${JSON.stringify(sessionActions)}); is the dev service up?`,
+      : `Could not read the app's settings (got ${JSON.stringify(settings)}); is the dev service up?`,
   );
   process.exit(1);
 }
@@ -1336,6 +1337,20 @@ async function startFresh() {
   await until(() => store(`$.homeTabs.length > 0`), 20_000);
 }
 await startFresh();
+
+// Screens that open the user's own pages (Lists) follow the settings handle, and a seeded dev
+// home names someone else's: those checks would load another account's pages every run. An
+// empty handle is taken from the session, so only a different one stops the bench.
+const signedInAs = await until(() => store(`$.viewer?.handle`), 20_000);
+const bare = (h) => h.replace(/^@/, "").toLowerCase();
+if (signedInAs === undefined)
+  console.log("  (the engine reported no signed-in account; the handle was not compared)");
+else if (settings.handle !== null && bare(settings.handle) !== bare(signedInAs)) {
+  console.error(
+    `Settings, Account, Handle is @${bare(settings.handle)} but the engine is signed in as @${bare(signedInAs)}. Set the handle to @${bare(signedInAs)} for this dev home, then run again.`,
+  );
+  process.exit(1);
+}
 
 /** The app window as it is now, to `file`. */
 async function shoot(file) {

@@ -48,7 +48,17 @@ account 1's partition, which is what a dev home starts with. The installed app's
 
 The saved session is your real X login. Anyone with the folder acts as you on X: never commit
 it, attach it to a PR, copy it to another machine or share it. `rm -rf ~/.xtend-dev/x-session`
-forgets it; signing out on x.com ends it everywhere.
+forgets it; signing out on x.com ends it everywhere. `save` refuses a source whose desktop (or
+the installed app) is running, since the copy would be torn; quit it first.
+
+The repo is public. Nothing from the real account goes into it, a PR body or a comment: the X
+session, recordings that are not scrubbed (`pnpm engine-fixture scrub`), bench results or logs
+with real handles, screenshots of the real account. PR evidence comes from fixtures
+(`pnpm capture`). `node scripts/check-no-x-session.ts` runs in the pre-commit hook on staged
+files and in CI's lint job on the whole tree. It rejects profile directories (`Partitions`,
+`x-session`, `Local Storage`, ...), session and database files (`Cookies`, `*.sqlite*`,
+`*.ldb`, `auth-token`), X cookie values, and engine fixtures with real ids, handles, `twimg.com`
+images or t.co links.
 
 ### Dev processes
 
@@ -182,7 +192,9 @@ Both need `pnpm build` first.
   `--bodies` writes the responses to a directory outside any git checkout: they are your data.
 - The engine bench (`engine-bench.mjs`) refuses to start while session actions are off: its
   press checks go through the app's X buttons. A seeded dev home starts with them off; turn on
-  Settings, X session, "Act through my X session for what I click" in the dev desktop. Each run's
+  Settings, X session, "Act through my X session for what I click" in the dev desktop. It also
+  stops when Settings, Account, Handle names someone other than the account the engine is signed
+  in as (the seed sets one): screens like Lists open that handle's pages. Each run's
   results go to `~/Pictures/xtend-ui/bench/<branch>/<time>.json` (every check's pass, time and
   detail, the commit and flags) for comparing runs and citing in a PR.
 - macOS has no `timeout` command. Bound a command with its own limit (`cdp.mjs net <seconds>`,

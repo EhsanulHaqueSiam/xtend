@@ -23,7 +23,7 @@ it("decodes X's GraphQL operation and variables from GET and POST requests", () 
   expect(graphqlCall("https://abs.twimg.com/responsive-web/client-web/main.js")).toBe(undefined);
 });
 
-it("refuses a bodies directory inside any git checkout, existing or not", () => {
+it("refuses a bodies directory inside any git checkout, existing or not, symlinked or not", () => {
   const dir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "xtend-cdp-"));
   NodeFS.mkdirSync(NodePath.join(dir, "repo", ".git"), { recursive: true });
   // A linked worktree's .git is a file.
@@ -32,4 +32,7 @@ it("refuses a bodies directory inside any git checkout, existing or not", () => 
   expect(insideRepo(NodePath.join(dir, "repo", "bodies", "new"))).toBe(true);
   expect(insideRepo(NodePath.join(dir, "worktree", "out"))).toBe(true);
   expect(insideRepo(NodePath.join(dir, "outside", "bodies"))).toBe(false);
+  // A path outside by its spelling but inside by its real path.
+  NodeFS.symlinkSync(NodePath.join(dir, "repo"), NodePath.join(dir, "capture"));
+  expect(insideRepo(NodePath.join(dir, "capture", "docs", "new"))).toBe(true);
 });

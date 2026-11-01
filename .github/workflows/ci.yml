@@ -88,6 +88,8 @@ jobs:
             exit 1
           fi
       - uses: ./.github/actions/setup
+      - name: Reject X sessions and unscrubbed account data
+        run: node scripts/check-no-x-session.ts
       - run: pnpm fmt:check
       - run: pnpm lint
       - run: pnpm knip

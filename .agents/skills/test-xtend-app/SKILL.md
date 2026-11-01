@@ -70,8 +70,11 @@ worktree's dev desktop has its own `.xtend/electron` profile. `pnpm dev:x-sessio
 which checkouts are signed in; `pnpm dev:x-session save --from <signed-in checkout>` (or
 `--installed`, read only) keeps one session in `~/.xtend-dev`, and `pnpm dev:desktop` and new
 worktrees start from it. It is the user's real X login: never commit, attach or share it.
-The bench needs session actions on (Settings, X session); a seeded dev home starts with them off,
-and the bench stops at once with that line instead of failing its press checks. Then, with the
+The bench needs session actions on (Settings, X session) and Settings, Account, Handle empty or
+the signed-in account. A seeded dev home has session actions off and a handle of its own, so the
+bench stops at once with a line naming the setting instead of failing its press and List checks.
+The repo is public: the session, unscrubbed recordings, bench results and screenshots of the real
+account stay out of commits, PR bodies and comments (AGENTS.md "Publishing the account"). Then, with the
 dev desktop on `XTEND_REMOTE_DEBUG=<port>`:
 
 ```sh

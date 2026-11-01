@@ -16,14 +16,7 @@ import * as NodeUtil from "node:util";
 
 import { startFakeTreg } from "../apps/e2e/src/fakeTreg.ts";
 import { refuseLiveHome } from "../apps/server/scripts/devData.ts";
-import {
-  copyPartition,
-  devUserData,
-  loginExpiry,
-  partitionOf,
-  profileHolder,
-  SAVED,
-} from "./dev-x-session.ts";
+import { devUserData, loginExpiry, partitionOf, SAVED, useSaved } from "./dev-x-session.ts";
 
 const SERVICE_PORT = 4820;
 const WEB_PORT = 5820;
@@ -248,10 +241,16 @@ if (import.meta.main) {
     const partition = partitionOf(env.XTEND_USER_DATA);
     // Signed out and nothing holds the profile yet: start from the saved session (dev-x-session.ts).
     if (loginExpiry(partition) === undefined) {
-      if (NodeFS.existsSync(SAVED) && profileHolder(env.XTEND_USER_DATA) === undefined) {
-        copyPartition(SAVED, partition);
-        console.log(`[dev-runner] signed in from the saved X session (${SAVED})`);
-      } else
+      if (NodeFS.existsSync(SAVED))
+        try {
+          useSaved(env.XTEND_USER_DATA);
+          console.log(`[dev-runner] signed in from the saved X session (${SAVED})`);
+        } catch (error) {
+          console.log(
+            `[dev-runner] not signed in from the saved X session: ${(error as Error).message}`,
+          );
+        }
+      else
         console.log(
           "[dev-runner] this dev desktop is signed out of X: sign in in its window, then `pnpm dev:x-session save` so every checkout starts signed in.",
         );

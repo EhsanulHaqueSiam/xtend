@@ -48,15 +48,39 @@ export const readDesktopRecord = (checkout: string) => {
   return typeof r?.pid === "number" ? (r as DesktopRecord) : undefined;
 };
 
-/** True while `pid` exists; EPERM means it exists under another user. */
-export const alive = (pid: number) => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
-  }
+export interface ProcessInfo {
+  /** Epoch ms, to the second. */
+  readonly start: number;
+  readonly command: string;
+}
+
+/** A running process's start time and command line from `ps`; undefined when the PID is gone. */
+export const processInfo = (pid: number): ProcessInfo | undefined => {
+  const ps = NodeChildProcess.spawnSync("ps", ["-o", "lstart=,command=", "-p", String(pid)], {
+    encoding: "utf8",
+  });
+  const line = ps.status === 0 ? ps.stdout.trim() : "";
+  if (line === "") return undefined;
+  // lstart is 24 characters of local time on macOS and Linux: "Sun Nov  1 14:10:01 2026".
+  return { start: new Date(line.slice(0, 24)).getTime(), command: line.slice(24).trim() };
 };
+
+/** How each kind of record's process shows in `ps`. */
+export const COMMANDS = { dev: /dev-runner\.ts/, desktop: /electron|xtend/i } as const;
+
+/**
+ * Whether a recorded PID is still the process that wrote the record: running `command`, and
+ * started shortly before `recordedAt`. After a crash the PID can belong to a stranger: stale.
+ */
+export function verdict(
+  info: ProcessInfo | undefined,
+  recordedAt: number,
+  command: RegExp,
+): "alive" | "dead" | "stale" {
+  if (info === undefined) return "dead";
+  const started = info.start <= recordedAt + 2_000 && info.start >= recordedAt - 120_000;
+  return started && command.test(info.command) ? "alive" : "stale";
+}
 
 /** Every checkout of the repo `cwd` belongs to, the main one first. */
 export const worktrees = (cwd: string): Array<string> =>
@@ -75,7 +99,7 @@ export interface Row {
   readonly ports: string;
   readonly devtools: string;
   readonly up: string;
-  readonly state: "alive" | "dead" | "unknown";
+  readonly state: "alive" | "dead" | "stale" | "unknown";
 }
 
 const uptime = (startedAt: string | undefined, now: number) => {
@@ -89,11 +113,17 @@ const uptime = (startedAt: string | undefined, now: number) => {
 /** One row per recorded process. A record without a PID predates this script and stays unknown. */
 export function rows(
   checkouts: ReadonlyArray<string>,
-  isAlive: (pid: number) => boolean,
+  info: (pid: number) => ProcessInfo | undefined,
   now: number,
 ): Array<Row> {
-  const state = (pid: number | undefined): Row["state"] =>
-    pid === undefined ? "unknown" : isAlive(pid) ? "alive" : "dead";
+  const state = (
+    pid: number | undefined,
+    startedAt: string | undefined,
+    command: RegExp,
+  ): Row["state"] =>
+    pid === undefined || startedAt === undefined
+      ? "unknown"
+      : verdict(info(pid), Date.parse(startedAt), command);
   return checkouts.flatMap((checkout) => {
     const dev = readDevRecord(checkout);
     const desktop = readDesktopRecord(checkout);
@@ -108,7 +138,7 @@ export function rows(
               ports: `service ${dev.service} web ${dev.web}`,
               devtools: "-",
               up: uptime(dev.startedAt, now),
-              state: state(dev.pid),
+              state: state(dev.pid, dev.startedAt, COMMANDS.dev),
             },
           ]),
       ...(desktop === undefined
@@ -121,7 +151,7 @@ export function rows(
               ports: "-",
               devtools: desktop.remoteDebug ?? "-",
               up: uptime(desktop.startedAt, now),
-              state: state(desktop.pid),
+              state: state(desktop.pid, desktop.startedAt, COMMANDS.desktop),
             },
           ]),
     ];
@@ -130,7 +160,7 @@ export function rows(
 
 if (import.meta.main) {
   const root = NodePath.resolve(import.meta.dirname, "..");
-  const found = rows(worktrees(root), alive, Date.now());
+  const found = rows(worktrees(root), processInfo, Date.now());
   if (found.length === 0) console.log("No dev processes recorded in any checkout of this repo.");
   const table = [
     ["", "checkout", "kind", "pid", "ports", "devtools", "up", "state"],
@@ -149,5 +179,9 @@ if (import.meta.main) {
   if (found.length > 0)
     for (const row of table) console.log(row.map((cell, i) => cell.padEnd(widths[i]!)).join("  "));
   if (found.some((r) => r.state === "dead"))
-    console.log("dead: the process crashed or was killed; its record is stale and harmless.");
+    console.log("dead: the process crashed or was killed; its record is left over and harmless.");
+  if (found.some((r) => r.state === "stale"))
+    console.log(
+      "stale: the PID now belongs to another process (other command or start time); not a dev process.",
+    );
 }

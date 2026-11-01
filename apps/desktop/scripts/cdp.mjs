@@ -71,9 +71,14 @@ export function graphqlCall(url, postData) {
   }
 }
 
-/** True when `dir` is inside a git checkout: response bodies are the user's real data. */
+/**
+ * True when `dir` is inside a git checkout by its real path: response bodies are the user's real
+ * data. Its nearest existing ancestor is resolved first, so a symlink into a checkout counts.
+ */
 export function insideRepo(dir) {
-  for (let at = NodePath.resolve(dir); ; at = NodePath.dirname(at)) {
+  let at = NodePath.resolve(dir);
+  while (NodeFS.lstatSync(at, { throwIfNoEntry: false }) === undefined) at = NodePath.dirname(at);
+  for (at = NodeFS.realpathSync(at); ; at = NodePath.dirname(at)) {
     if (NodeFS.existsSync(NodePath.join(at, ".git"))) return true;
     if (NodePath.dirname(at) === at) return false;
   }
@@ -173,11 +178,18 @@ const commands = {
     });
     const seconds = Number(positionals[0] ?? 10);
     const bodies = values.bodies === undefined ? undefined : NodePath.resolve(values.bodies);
-    if (bodies !== undefined && insideRepo(bodies))
-      throw new Error(
-        `${bodies} is inside a git checkout; bodies are your real X data, keep them out`,
-      );
-    if (bodies !== undefined) await NodeFSP.mkdir(bodies, { recursive: true });
+    const refuse = () => {
+      if (insideRepo(bodies))
+        throw new Error(
+          `${bodies} is inside a git checkout; bodies are your real X data, keep them out`,
+        );
+    };
+    if (bodies !== undefined) {
+      // Again once made: the path may resolve differently once it exists.
+      refuse();
+      await NodeFSP.mkdir(bodies, { recursive: true });
+      refuse();
+    }
     const { call, on, close } = await page(match);
     const ops = new Map();
     const writes = [];
@@ -197,7 +209,10 @@ const commands = {
       writes.push(
         call("Network.getResponseBody", { requestId })
           .then(({ body, base64Encoded }) =>
-            NodeFSP.writeFile(file, base64Encoded ? Buffer.from(body, "base64") : body),
+            // "wx": a file already there, a planted symlink included, is never written through.
+            NodeFSP.writeFile(file, base64Encoded ? Buffer.from(body, "base64") : body, {
+              flag: "wx",
+            }),
           )
           .catch((error) => console.error(`no body for ${op}: ${error.message}`)),
       );

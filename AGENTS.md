@@ -45,6 +45,7 @@ Xtend is a desktop-first X (Twitter) growth suite: one app whose sidebar holds b
 1. **Killing by pattern.** Never `pkill -f`, `pgrep | kill`, or `kill` a PID found by matching a name, path or worktree string: your own agent process has the worktree path in its argv, and this machine runs other checkouts' dev desktops and services. Kill only a PID you captured at spawn, or the owner of your port after checking its cwd is your checkout.
 2. **Touching the live install.** `~/.xtend` and the installed app's Electron profile (its `x-session` partition holds the user's X cookies) are in use while you work. Reading and copying from them is fine. Never start a service against them, open them read-write, or clean them up. Two services on one database both run the scheduler and post the same drafts.
 3. **Writing to X.** A dev desktop is the user's real account. Never press like, reply, repost, follow, vote, post or a menu row from a script; only the user's click does that. The engine bench presses nothing but one bookmark it removes again.
+4. **Publishing the account.** The repo is public. The X session (cookies, `~/.xtend-dev`, any profile directory), recordings that are not scrubbed, bench results and logs with real handles, and screenshots of the real account never go into the repo, a PR body or a comment: anyone could act as the user. PR evidence comes from fixtures (`pnpm capture`). `scripts/check-no-x-session.ts` fails the commit and CI on the shapes it knows; it is a backstop, not permission.
 
 ## Hit every surface
 
