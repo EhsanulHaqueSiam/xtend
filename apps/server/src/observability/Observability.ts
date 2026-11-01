@@ -47,15 +47,16 @@ export const layer = Layer.unwrap(
                 exportInterval: `${settings.otlpExportIntervalMs} millis`,
                 resource,
               });
-        if (!settings.traceEnabled)
-          return delegate === undefined ? Layer.empty : Layer.succeed(Tracer.Tracer)(delegate);
-        const sink = yield* LocalTrace.makeTraceSink({
-          filePath: settings.traceFile,
-          maxBytes: settings.traceMaxBytes,
-          maxFiles: settings.traceMaxFiles,
-          batchWindowMs: settings.traceBatchWindowMs,
-        });
-        return Layer.succeed(Tracer.Tracer)(LocalTrace.makeLocalFileTracer(sink, delegate));
+        const sink = settings.traceEnabled
+          ? yield* LocalTrace.makeTraceSink({
+              filePath: settings.traceFile,
+              maxBytes: settings.traceMaxBytes,
+              maxFiles: settings.traceMaxFiles,
+              batchWindowMs: settings.traceBatchWindowMs,
+            })
+          : undefined;
+        // Scrubbing wraps the OTLP exporter too, so it holds with the trace file off.
+        return Layer.succeed(Tracer.Tracer)(LocalTrace.makeTracer({ push: sink?.push, delegate }));
       }),
     ).pipe(Layer.provide(OtlpExporter.layerFlusher));
 

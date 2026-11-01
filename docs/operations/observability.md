@@ -47,11 +47,20 @@ text cut to 200 characters), and every treg call (`Treg.call` with `x.purpose`, 
 
 ## Secrets
 
-The trace file must never hold the treg token, the service token or X cookies. Attributes named
-like a credential (`token`, `cookie`, `authorization`, ...) are replaced with `<redacted>`, and every
-line is scrubbed for JWT-shaped strings (treg tokens), `trg_` tokens, 64-hex service tokens,
-`Bearer` values and `token=`, `auth_token=`, `ct0=` pairs. The file is created `0600`. A new
-credential shape needs a pattern in `LocalTrace.ts` and a case in its test.
+Neither the trace file nor an OTLP backend may receive the treg token, the service token, X cookies
+(`auth_token`, `ct0`, `twid`, `kdt`), assist keys or webhook secrets. The service's tracer scrubs
+every span before anything sees it, with the trace file on or off:
+
+- attributes and event attributes, nested values included, whose key names a credential become
+  `<redacted>`; every string is scrubbed for JWT-shaped values (treg tokens), `trg_` tokens, 64-hex
+  service tokens, `Bearer` values, `name=value` cookie and token pairs, and `"key": "value"` pairs
+  under a credential name (how a structured log argument is written into an event's name);
+- a failed span's exit is rebuilt from scrubbed messages and stacks, so an error quoting a token
+  never reaches OTLP's exception events.
+
+The trace file is made `0600` before each append, including one that already existed; if that
+fails, nothing is written. A new credential name or shape goes in `LocalTrace.ts` with a case in
+its test.
 
 ## Environment
 

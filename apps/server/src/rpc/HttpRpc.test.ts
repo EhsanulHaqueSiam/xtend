@@ -114,7 +114,7 @@ describe("HTTP rpc bridge", () => {
 
   it.effect("records each call as an http.rpc span with its outcome", () => {
     const records: Array<LocalTrace.TraceRecord> = [];
-    const tracer = LocalTrace.makeLocalFileTracer({ push: (record) => records.push(record) });
+    const tracer = LocalTrace.makeTracer({ push: (record) => records.push(record) });
     return Effect.gen(function* () {
       const p = yield* port;
       yield* post(p, "math.double", { n: 2 }, TOKEN);

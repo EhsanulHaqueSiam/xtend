@@ -29,7 +29,7 @@ describe("event loop monitor", () => {
 
   it.effect("records a stall as a warning span, skipping the startup window", () => {
     const records: Array<LocalTrace.TraceRecord> = [];
-    const tracer = LocalTrace.makeLocalFileTracer({ push: (record) => records.push(record) });
+    const tracer = LocalTrace.makeTracer({ push: (record) => records.push(record) });
     const sampler = Effect.succeed(Effect.succeed(stalled));
     return Effect.gen(function* () {
       yield* TestClock.adjust("30 seconds");

@@ -36,23 +36,80 @@ export interface TraceRecord {
 }
 
 const REDACTED = "<redacted>";
-const SECRET_KEY = /token|secret|password|cookie|authorization|api[-_]?key/i;
+// Credential names: X's session cookies, the treg and service tokens, assist keys, webhook secrets.
+const SECRET_NAMES =
+  "token|secret|password|passwd|cookie|authorization|bearer|api[-_]?key|assist[-_.]?key|private[-_]?key|ct0|twid|kdt|credential";
+const SECRET_KEY = new RegExp(SECRET_NAMES, "i");
 // The treg token is JWT-shaped, the service token 64 hex chars; X's session cookies ride as name=value.
 const SECRET_TEXT: ReadonlyArray<readonly [RegExp, string]> = [
+  // A quoted key naming a credential, as JSON or inspect writes a structured log argument.
+  [
+    new RegExp(
+      `(["']?[\\w.-]*(?:${SECRET_NAMES})[\\w.-]*["']?\\s*:\\s*)(["'])(?:\\\\.|(?!\\2).)*\\2`,
+      "gi",
+    ),
+    `$1$2${REDACTED}$2`,
+  ],
   [/eyJ[\w-]{8,}(?:\.[\w-]+)*/g, REDACTED],
   [/\btrg_[\w-]+/g, REDACTED],
   [/\b[a-f0-9]{64}\b/g, REDACTED],
   [/(Bearer\s+)[\w.~+/=-]+/gi, `$1${REDACTED}`],
   [/((?:x-treg-token|authorization|cookie)["']?\s*[:=]\s*["']?)[^"'\\\n]+/gi, `$1${REDACTED}`],
-  [/(\b(?:token|access_token|auth_token|ct0|twid|kdt|api_key)=)[^&#;\s"'\\]+/gi, `$1${REDACTED}`],
+  [
+    /(\b(?:token|access_token|auth_token|ct0|twid|kdt|api_key|secret)=)[^&#;\s"'\\]+/gi,
+    `$1${REDACTED}`,
+  ],
 ];
 
 const redactText = (text: string) =>
   SECRET_TEXT.reduce((acc, [pattern, replacement]) => acc.replace(pattern, replacement), text);
 
+const MAX_DEPTH = 6;
+
+const safeError = (error: Error) => {
+  const copy = new Error(redactText(error.message));
+  copy.name = error.name;
+  if (error.stack !== undefined) copy.stack = redactText(error.stack);
+  return copy;
+};
+
+/**
+ * A copy with credential-named keys replaced and every string scrubbed. Values that are not plain
+ * data become their scrubbed string, so nothing reaches a tracer unexamined. Booleans are kept:
+ * `tregTokenSet: true` says nothing secret.
+ */
+const sanitize = (value: unknown, depth = 0): unknown => {
+  if (typeof value === "string") return redactText(value);
+  if (value === null || typeof value !== "object") return value;
+  if (depth >= MAX_DEPTH) return "[Truncated]";
+  if (value instanceof Error) return safeError(value);
+  if (Array.isArray(value)) return value.map((entry) => sanitize(entry, depth + 1));
+  if (value instanceof Map) return sanitizeAttributes(Object.fromEntries(value), depth + 1);
+  if (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)
+    return sanitizeAttributes(value as Record<string, unknown>, depth + 1);
+  return redactText(String(value));
+};
+
+const sanitizeAttributes = (attributes: Readonly<Record<string, unknown>>, depth = 0) => {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(attributes))
+    out[key] =
+      SECRET_KEY.test(key) && value != null && typeof value !== "boolean"
+        ? REDACTED
+        : sanitize(value, depth);
+  return out;
+};
+
+/** The exit a tracer may see: failures rebuilt from scrubbed messages and stacks, never the errors. */
+const sanitizeExit = (exit: Exit.Exit<unknown, unknown>): Exit.Exit<unknown, unknown> => {
+  if (Exit.isSuccess(exit)) return Exit.void;
+  if (Cause.hasInterruptsOnly(exit.cause)) return exit;
+  const errors = Cause.prettyErrors(exit.cause, { includeCauseInStack: true }).map(safeError);
+  return Exit.failCause(Cause.fromReasons(errors.map(Cause.makeDieReason)));
+};
+
 const MAX_STRING = 500;
 const MAX_SQL = 200;
-const MAX_DEPTH = 6;
 
 const truncate = (text: string, max: number) =>
   text.length <= max ? text : `${text.slice(0, max)}…[truncated]`;
@@ -78,11 +135,9 @@ const attributesToJson = (attributes: Readonly<Record<string, unknown>>, depth =
   for (const [key, value] of Object.entries(attributes)) {
     if (value === undefined) continue;
     out[key] =
-      typeof value === "string" && SECRET_KEY.test(key)
-        ? REDACTED
-        : key === "db.query.text" && typeof value === "string"
-          ? truncate(value, MAX_SQL)
-          : toJson(value, depth);
+      key === "db.query.text" && typeof value === "string"
+        ? truncate(value, MAX_SQL)
+        : toJson(value, depth);
   }
   return out;
 };
@@ -102,13 +157,17 @@ const causeErrorTag = (cause: Cause.Cause<unknown>): string => {
   return error instanceof Error ? error.name : typeof error;
 };
 
-const exitOf = (exit: Exit.Exit<unknown, unknown>): TraceRecord["exit"] =>
-  Exit.isSuccess(exit)
+// The tag comes from the original cause (tags are code), the text from the scrubbed one.
+const exitOf = (
+  exit: Exit.Exit<unknown, unknown>,
+  safe: Exit.Exit<unknown, unknown>,
+): TraceRecord["exit"] =>
+  Exit.isSuccess(exit) || Exit.isSuccess(safe)
     ? { _tag: "Success" }
     : {
         _tag: Cause.hasInterruptsOnly(exit.cause) ? "Interrupted" : "Failure",
         errorTag: causeErrorTag(exit.cause),
-        cause: truncate(Cause.pretty(exit.cause), 4 * MAX_STRING),
+        cause: truncate(Cause.pretty(safe.cause), 4 * MAX_STRING),
       };
 
 export interface TraceSinkOptions {
@@ -121,6 +180,12 @@ export interface TraceSinkOptions {
 }
 
 const FLUSH_AT_RECORDS = 256;
+
+const joinText = (lines: ReadonlyArray<{ readonly text: string }>, start: number, end: number) =>
+  lines
+    .slice(start, end)
+    .map((line) => line.text)
+    .join("");
 
 /**
  * Buffers serialized records and appends them in batches, rotating by size. Writes never fail
@@ -136,7 +201,7 @@ export const makeTraceSink = Effect.fn("makeTraceSink")(function* (options: Trac
     Effect.map((stat) => Number(stat.size)),
     Effect.orElseSucceed(() => 0),
   );
-  let buffer: Array<string> = [];
+  let buffer: Array<{ readonly text: string; readonly bytes: number }> = [];
   let bufferBytes = 0;
   let failing = false;
   const maxBufferBytes = Math.max(maxBytes, 4 * 1024 * 1024);
@@ -151,26 +216,39 @@ export const makeTraceSink = Effect.fn("makeTraceSink")(function* (options: Trac
     size = 0;
   });
 
-  const append = Effect.fn("TraceSink.append")(function* (chunk: string) {
-    const bytes = Buffer.byteLength(chunk);
+  // `mode` only applies when the file is created; one made earlier (XTEND_TRACE_FILE) may be 0644.
+  // A file that cannot be made owner-only gets nothing written to it.
+  const secure = fs.chmod(filePath, 0o600).pipe(
+    Effect.catchTags({
+      PlatformError: (error) =>
+        error.reason._tag === "NotFound" ? Effect.void : Effect.fail(error),
+    }),
+  );
+
+  const append = Effect.fn("TraceSink.append")(function* (chunk: string, bytes: number) {
     if (size > 0 && size + bytes > maxBytes) yield* rotate;
+    yield* secure;
     yield* fs.writeFileString(filePath, chunk, { flag: "a", mode: 0o600 });
     size += bytes;
   });
 
+  // Each line's size was measured once on push; chunks are joined once, so draining is linear.
   const flushBuffered = Effect.gen(function* () {
     const lines = buffer;
     buffer = [];
     bufferBytes = 0;
-    let chunk = "";
-    for (const line of lines) {
-      if (chunk !== "" && Buffer.byteLength(chunk) + Buffer.byteLength(line) > maxBytes) {
-        yield* append(chunk);
-        chunk = "";
+    let start = 0;
+    let chunkBytes = 0;
+    for (let index = 0; index < lines.length; index++) {
+      const bytes = lines[index]!.bytes;
+      if (chunkBytes > 0 && chunkBytes + bytes > maxBytes) {
+        yield* append(joinText(lines, start, index), chunkBytes);
+        start = index;
+        chunkBytes = 0;
       }
-      chunk += line;
+      chunkBytes += bytes;
     }
-    if (chunk !== "") yield* append(chunk);
+    if (chunkBytes > 0) yield* append(joinText(lines, start, lines.length), chunkBytes);
   });
 
   const lock = yield* Semaphore.make(1);
@@ -209,20 +287,21 @@ export const makeTraceSink = Effect.fn("makeTraceSink")(function* (options: Trac
     filePath,
     flush,
     push: (record: TraceRecord) => {
-      const line = `${redactText(JSON.stringify(record))}\n`;
-      const bytes = Buffer.byteLength(line);
+      const text = `${redactText(JSON.stringify(record))}\n`;
+      const bytes = Buffer.byteLength(text);
       if (bytes > maxBytes || bufferBytes + bytes > maxBufferBytes) return;
-      buffer.push(line);
+      buffer.push({ text, bytes });
       bufferBytes += bytes;
       if (buffer.length >= FLUSH_AT_RECORDS) Queue.offerUnsafe(requests, undefined);
     },
   };
 });
 
-export type TraceSink = Effect.Success<ReturnType<typeof makeTraceSink>>;
-
-/** Wraps the span another tracer made (native or OTLP) and writes it to the sink when it ends. */
-class LocalFileSpan implements Tracer.Span {
+/**
+ * Wraps the span another tracer made (native or OTLP). Everything the delegate sees, attributes,
+ * events, links and the exit, is scrubbed first; with `push`, the ended span also goes to the file.
+ */
+class SafeSpan implements Tracer.Span {
   readonly _tag = "Span";
   readonly name: string;
   readonly spanId: string;
@@ -236,12 +315,12 @@ class LocalFileSpan implements Tracer.Span {
   readonly attributes = new Map<string, unknown>();
   readonly events: Array<readonly [string, bigint, Record<string, unknown>]> = [];
   private readonly delegate: Tracer.Span;
-  private readonly push: (record: TraceRecord) => void;
+  private readonly push: ((record: TraceRecord) => void) | undefined;
 
   constructor(
     options: Parameters<Tracer.Tracer["span"]>[0],
     delegate: Tracer.Span,
-    push: (record: TraceRecord) => void,
+    push: ((record: TraceRecord) => void) | undefined,
   ) {
     this.delegate = delegate;
     this.push = push;
@@ -250,19 +329,19 @@ class LocalFileSpan implements Tracer.Span {
     this.traceId = delegate.traceId;
     this.parent = options.parent;
     this.annotations = options.annotations;
-    this.links = [...options.links];
+    this.links = options.links;
     this.sampled = delegate.sampled;
     this.kind = delegate.kind;
     this.status = { _tag: "Started", startTime: options.startTime };
   }
 
   end(endTime: bigint, exit: Exit.Exit<unknown, unknown>): void {
-    // The success value can be a whole result set; a trace only needs to know it succeeded.
-    const traceExit = Exit.isSuccess(exit) ? Exit.void : exit;
+    // A success value can be a whole result set, a failure can quote a token; neither is kept.
+    const safeExit = sanitizeExit(exit);
     const startTime = this.status.startTime;
-    this.status = { _tag: "Ended", startTime, endTime, exit: traceExit };
-    this.delegate.end(endTime, traceExit);
-    if (!this.sampled) return;
+    this.status = { _tag: "Ended", startTime, endTime, exit: safeExit };
+    this.delegate.end(endTime, safeExit);
+    if (!this.sampled || this.push === undefined) return;
     const parentSpanId = Option.getOrUndefined(this.parent)?.spanId;
     this.push({
       type: "effect-span",
@@ -280,38 +359,49 @@ class LocalFileSpan implements Tracer.Span {
         timeUnixNano: String(time),
         attributes: attributesToJson(attributes),
       })),
-      exit: exitOf(traceExit),
+      exit: exitOf(exit, safeExit),
     });
   }
 
   attribute(key: string, value: unknown): void {
-    // Redacted before the delegate sees it, so an OTLP backend gets the same safe value.
-    const safe =
-      typeof value !== "string" ? value : SECRET_KEY.test(key) ? REDACTED : redactText(value);
+    const safe = sanitizeAttributes({ [key]: value })[key];
     this.attributes.set(key, safe);
     this.delegate.attribute(key, safe);
   }
 
   event(name: string, startTime: bigint, attributes: Record<string, unknown> = {}): void {
-    const cause = attributes["effect.cause"];
-    const safe =
-      typeof cause === "string" ? { ...attributes, "effect.cause": redactText(cause) } : attributes;
-    this.events.push([redactText(name), startTime, safe]);
-    this.delegate.event(redactText(name), startTime, safe);
+    const safeName = redactText(name);
+    const safe = sanitizeAttributes(attributes);
+    this.events.push([safeName, startTime, safe]);
+    this.delegate.event(safeName, startTime, safe);
   }
 
   addLinks(links: ReadonlyArray<Tracer.SpanLink>): void {
-    this.links.push(...links);
-    this.delegate.addLinks(links);
+    const safe = links.map(sanitizeLink);
+    this.links.push(...safe);
+    this.delegate.addLinks(safe);
   }
 }
 
-/** A tracer that records every sampled span to `sink`, passing each one on to `delegate`. */
-export const makeLocalFileTracer = (
-  sink: Pick<TraceSink, "push">,
-  delegate: Tracer.Tracer = Tracer.make({ span: (options) => new Tracer.NativeSpan(options) }),
-): Tracer.Tracer =>
-  Tracer.make({
-    span: (options) => new LocalFileSpan(options, delegate.span(options), sink.push),
+const sanitizeLink = (link: Tracer.SpanLink): Tracer.SpanLink => ({
+  ...link,
+  attributes: sanitizeAttributes(link.attributes),
+});
+
+/**
+ * The service's tracer: scrubs every span before `delegate` (native by default, OTLP when set)
+ * sees it, and with `push` records each sampled span for the trace file.
+ */
+export const makeTracer = (options: {
+  readonly push?: ((record: TraceRecord) => void) | undefined;
+  readonly delegate?: Tracer.Tracer | undefined;
+}): Tracer.Tracer => {
+  const delegate = options.delegate ?? Tracer.make({ span: (span) => new Tracer.NativeSpan(span) });
+  return Tracer.make({
+    span: (span) => {
+      const safe = { ...span, links: span.links.map(sanitizeLink) };
+      return new SafeSpan(safe, delegate.span(safe), options.push);
+    },
     ...(delegate.context === undefined ? {} : { context: delegate.context }),
   });
+};
