@@ -458,10 +458,14 @@ it("finds a trend by its exact name, reads only its menu, and presses only the r
   });
   const article = document.querySelector("article")!;
   article.dataset.testid = "trend";
-  article.insertAdjacentHTML("afterbegin", '<span>A "quoted" trend</span>');
+  article.insertAdjacentHTML(
+    "afterbegin",
+    '<div style="font-weight:700"><span>A "quoted" trend</span></div>',
+  );
   const other = document.createElement("div");
   other.dataset.testid = "trend";
-  other.innerHTML = '<span>A "quoted" trend elsewhere</span><button data-testid="caret"></button>';
+  other.innerHTML =
+    '<div><span>A "quoted" trend</span><span> · Trending</span></div><div style="font-weight:700"><span>Another name</span></div><button data-testid="caret"></button>';
   other.querySelector("button")!.addEventListener("click", () => pressed.push("wrong trend"));
   article.before(other);
   try {

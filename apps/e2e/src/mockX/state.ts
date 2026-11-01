@@ -341,8 +341,10 @@ export function createMockState() {
   const explore = fixture("ExplorePage", "explore-for-you")!;
   const exploreTabs = explore.exploreTabs!;
   const trendRows = (prefix: string, group: string | null): ReadonlyArray<EngineTrend> =>
-    MORE_TEXT.slice(0, 6).map((text, i) => {
-      const name = text.split(" ").slice(0, 3).join(" ");
+    Array.from({ length: prefix === "Trending" ? 30 : 6 }, (_, i) => {
+      const text = MORE_TEXT[i % MORE_TEXT.length]!;
+      const words = text.split(" ").slice(0, 3).join(" ");
+      const name = prefix === "Trending" ? `#${i + 1}: ${words}` : words;
       return {
         name,
         context: `${prefix} · ${(i + 1) * 1_200} posts`,

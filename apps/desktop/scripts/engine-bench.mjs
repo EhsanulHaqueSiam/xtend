@@ -998,7 +998,7 @@ const benchmarks = [
       if (!(await until(() => app(`!!${more}`), 10_000))) return false;
       const name = await store(`at($.trends, "explore:" + $.exploreTabs[0].timelineId)[0]?.name`);
       if (!name) return false;
-      const own = `[...document.querySelectorAll('[data-testid="trend"]')].find((c) => [...c.querySelectorAll("span, div")].some((s) => s.textContent.trim() === ${JSON.stringify(name)}))`;
+      const own = `[...document.querySelectorAll('[data-testid="trend"]')].find((c) => [...c.querySelectorAll("span")].some((s) => Number(getComputedStyle(s).fontWeight) >= 600 && s.textContent.trim() === ${JSON.stringify(name)}))`;
       if (
         !(await until(
           () =>

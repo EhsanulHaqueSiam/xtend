@@ -162,7 +162,7 @@ const followButton = (u: EngineUser) =>
     : `<button data-testid="${u.userId}-follow" aria-label="Follow @${esc(u.handle)}" data-handle="${esc(u.handle)}">Follow</button>`;
 
 const trendRow = (t: EngineTrend, i: number) =>
-  `<div data-testid="trend" data-trend="${esc(t.name)}" role="link" tabindex="0" data-href="${esc(new URL(t.url).pathname + new URL(t.url).search)}"><div class="muted">${i + 1} · ${esc(t.context ?? "Trending")}</div><div>${esc(t.name)}</div><button data-testid="caret" aria-label="More" aria-haspopup="menu" data-menu="trend:${esc(t.name)}">…</button></div>`;
+  `<div data-testid="trend" data-trend="${esc(t.name)}" role="link" tabindex="0" data-href="${esc(new URL(t.url).pathname + new URL(t.url).search)}"><div class="muted">${i + 1} · ${esc(t.context ?? "Trending")}</div><div style="font-weight:700"><span>${esc(t.name)}</span></div><button data-testid="caret" aria-label="More" aria-haspopup="menu" data-menu="trend:${esc(t.name)}">…</button></div>`;
 
 const notificationRow = (n: EngineNotification, state: MockState) =>
   n.kind === "post"
@@ -367,7 +367,7 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
         )}${tab.id === "trending" ? `<div class="banner">Global Trending</div>` : ""}<section data-list>${(
           b?.trends ?? []
         )
-          .map(trendRow)
+          .map((t, i) => `<div data-trend-slot style="height:120px">${trendRow(t, i)}</div>`)
           .join(
             "",
           )}${b != null && b.people.length > 0 ? `<h3>Who to follow</h3>${peopleOf(b)}` : ""}</section>`,

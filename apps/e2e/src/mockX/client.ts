@@ -109,6 +109,19 @@ const SCRIPT = String.raw`
     shown = entry;
     document.title = entry.title;
     scrollTo(0, entry.scroll);
+    drawTrends();
+  }
+
+  // X unmounts cells far from its scroll. Keep their slots so the page's height stays stable.
+  function drawTrends() {
+    if (!shown) return;
+    shown.trends ??= [...shown.el.querySelectorAll('[data-trend-slot]')].map((slot) => ({ slot, cell: slot.firstElementChild }));
+    for (const { slot, cell } of shown.trends) {
+      const rect = slot.getBoundingClientRect();
+      if (slot.dataset.dismissed !== "true" && rect.bottom >= -innerHeight / 2 && rect.top <= innerHeight * 1.5) {
+        if (!cell.isConnected) slot.append(cell);
+      } else cell.remove();
+    }
   }
 
   /** X's next page once the user (or the engine) scrolls to the end of the list. */
@@ -125,7 +138,7 @@ const SCRIPT = String.raw`
       loadingMore = false;
     }
   }
-  addEventListener("scroll", () => void more(), { passive: true });
+  addEventListener("scroll", () => { drawTrends(); void more(); }, { passive: true });
   addEventListener("popstate", () => void show());
 
   const go = (path, replace) => {
@@ -224,12 +237,16 @@ const SCRIPT = String.raw`
       if (hidden) {
         const el = [...document.querySelectorAll('[data-testid="trend"]')].find((t) => t.dataset.trend === name);
         if (el) {
-          removedTrends.set(name, { el, parent: el.parentElement, next: el.nextSibling });
+          removedTrends.set(name, { el, parent: el.parentElement, next: el.nextSibling, height: el.parentElement.style.height });
+          el.parentElement.dataset.dismissed = "true";
+          el.parentElement.style.height = "0px";
           el.remove();
         }
       } else {
         const saved = removedTrends.get(name);
         if (saved) {
+          delete saved.parent.dataset.dismissed;
+          saved.parent.style.height = saved.height;
           saved.parent.insertBefore(saved.el, saved.next?.parentNode === saved.parent ? saved.next : null);
           removedTrends.delete(name);
         }
