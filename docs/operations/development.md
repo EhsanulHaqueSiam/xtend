@@ -53,7 +53,9 @@ The saved session is your real X login. Anyone with the folder acts as you on X:
 it, attach it to a PR, copy it to another machine or share it. `pnpm dev:x-session forget`
 deletes it with every staging copy and backup a copy left beside it (a plain `rm -rf` of the
 folder misses those); signing out on x.com ends the session everywhere. Leftovers of a copy that
-died are also removed by the next `save` or `use` once their process is gone. `save` refuses a source whose desktop (or
+died are removed by the next `save` or `use` once their process is gone, unless one is the only
+usable session left (a desktop started mid-copy and holds a signed-out profile in its place):
+that one is kept, and `status` and the next copy print `pnpm dev:x-session restore <path>`. `save` refuses a source whose desktop (or
 the installed app) is running, since the copy would be torn; quit it first.
 
 The repo is public. Nothing from the real account goes into it, a PR body or a comment: the X

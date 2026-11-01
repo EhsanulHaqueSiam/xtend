@@ -15,6 +15,7 @@ import {
   loginExpiry,
   profileHolder,
   refuseDestination,
+  restore,
   signedIn,
   sweep,
   useSaved,
@@ -197,15 +198,16 @@ it("clears a dead copy's leftovers once they are old, restores a lone backup, an
   const to = NodePath.join(temp(), "x-session");
   const dir = NodePath.dirname(to);
   const at = Date.UTC(2026, 10, 1, 12);
-  const leftover = (name: string, owner?: object) => {
+  const leftover = (name: string, owner?: object, cookie = "auth_token") => {
     const path = NodePath.join(dir, name);
-    partition(path, [{ name: "auth_token", expires: FAR }]);
+    partition(path, [{ name: cookie, expires: FAR }]);
     NodeFS.utimesSync(path, new Date(at), new Date(at));
     if (owner !== undefined)
       NodeFS.writeFileSync(`${to}.copying-${name.slice(-6)}.owner`, JSON.stringify(owner));
     return path;
   };
-  const dead = leftover("x-session.copying-dead01", { pid: 41, at });
+  // A copy that died before it held a login.
+  const dead = leftover("x-session.copying-dead01", { pid: 41, at }, "guest_id");
   const live = leftover("x-session.copying-live01", { pid: 42, at });
   const lone = leftover("x-session.old-lone01");
   const electron = (pid: number) =>
@@ -214,8 +216,8 @@ it("clears a dead copy's leftovers once they are old, restores a lone backup, an
       : ("gone" as const);
 
   // Too young: nothing moves.
-  expect(sweep(to, at + 60_000, electron)).toEqual([]);
-  expect(sweep(to, at + 10 * 60_000, electron)).toEqual([dead]);
+  expect(sweep(to, at + 60_000, electron)).toEqual({ removed: [], usable: [] });
+  expect(sweep(to, at + 10 * 60_000, electron)).toEqual({ removed: [dead], usable: [] });
   expect(NodeFS.existsSync(live)).toBe(true);
   // The only copy of the session went aside and its owner died: it goes back, not away.
   expect(NodeFS.existsSync(lone)).toBe(false);
@@ -224,6 +226,41 @@ it("clears a dead copy's leftovers once they are old, restores a lone backup, an
 
   expect(forget(to, []).length).toBeGreaterThan(0);
   expect(NodeFS.readdirSync(dir)).toEqual([]);
+});
+
+it("never sweeps away the only usable session while a desktop's signed-out one holds its place", () => {
+  const to = NodePath.join(temp(), "x-session");
+  NodeFS.renameSync(staged(to, "original"), to);
+  const copy = staged(to, "new");
+  // A desktop recreates the partition, signed out, as the install's holder check fails.
+  expect(() =>
+    install(copy, to, {
+      ready: () => {
+        partition(to, [{ name: "guest_id", expires: FAR }]);
+        throw new Error("a desktop started");
+      },
+    }),
+  ).toThrow("Nothing was removed");
+  const dir = NodePath.dirname(to);
+  const backup = NodePath.join(
+    dir,
+    NodeFS.readdirSync(dir).find((n) => n.includes(".old-"))!,
+  );
+
+  // Their owner is gone and they are long past the age a sweep waits for; a retry sweeps.
+  const later = NodeFS.statSync(backup).mtimeMs + 60 * 60_000;
+  const kept = sweep(to, later, () => "gone");
+  expect(kept.removed).toEqual([]);
+  expect(kept.usable.toSorted()).toEqual([copy, backup].toSorted());
+  expect(holder(backup)).toBe("original");
+  expect(holder(copy)).toBe("new");
+
+  // Restoring one makes the destination usable, and the next sweep clears what is now redundant.
+  expect(restore(backup, [])).toBe(to);
+  expect(holder(to)).toBe("original");
+  expect(sweep(to, later, () => "gone")).toEqual({ removed: [copy], usable: [] });
+  expect(NodeFS.readdirSync(dir)).toEqual(["x-session"]);
+  expect(() => restore(NodePath.join(dir, "x-session"), [])).toThrow("not a");
 });
 
 it("forgets nothing through a symlink or inside a protected profile", () => {
