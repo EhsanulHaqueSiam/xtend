@@ -620,10 +620,13 @@ function mergeInto(state: EngineState, batch: EngineBatch, surface: AnySurface):
     communityIds,
     trends,
     notifications,
-    // X's top again with no new posts: a module it sent with them belongs up there, not at the end.
     lists: newer
       ? state.lists
-      : set(state.lists, surface, [...list, ...(again ? freshPosts : fresh)]),
+      : set(
+          state.lists,
+          surface,
+          again ? besideNeighbors(list, order, fresh) : [...list, ...fresh],
+        ),
     waiting: newer
       ? set(state.waiting, surface, [...fresh, ...at(state.waiting, surface)])
       : state.waiting,
@@ -634,6 +637,27 @@ function mergeInto(state: EngineState, batch: EngineBatch, surface: AnySurface):
 }
 
 const unique = (ids: ReadonlyArray<string>) => [...new Set(ids)];
+
+/**
+ * X's top again with no new posts: a module it sent with them goes where X put it, before the
+ * next listed id in X's order (or after the one before it), not at the list's end.
+ */
+function besideNeighbors(
+  list: ReadonlyArray<string>,
+  order: ReadonlyArray<string>,
+  fresh: ReadonlyArray<string>,
+): ReadonlyArray<string> {
+  const out = [...list];
+  for (const id of fresh) {
+    const i = order.indexOf(id);
+    const next = order.slice(i + 1).find((x) => out.includes(x));
+    const prev = order.slice(0, i).findLast((x) => out.includes(x));
+    if (next !== undefined) out.splice(out.indexOf(next), 0, id);
+    else if (prev !== undefined) out.splice(out.indexOf(prev) + 1, 0, id);
+    else out.push(id);
+  }
+  return out;
+}
 
 /** Shows what waited behind the pill, on top in X's order. */
 export const showWaiting = (state: EngineState, surface: AnySurface): EngineState => ({

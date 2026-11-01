@@ -186,13 +186,16 @@ it("keeps X's Who to follow among the posts across pages and the pill", () => {
   ]);
   state = showWaiting(state, "forYou");
   expect(state.lists.forYou).toEqual(["4", "wtf-c", "1", "wtf-a", "2", "wtf-b", "3"]);
-  // Again with no new post: its module belongs at X's top, so it does not land at the end.
+  // Again with no new post: its module shows where X put it, not at the end and not dropped.
   state = mergeBatch(
     state,
-    batch("HomeTimeline", [post("4", hour(4))], { order: ["wtf-d", "4"], modules: [wtf("wtf-d")] }),
+    batch("HomeTimeline", [post("4", hour(4)), post("1", hour(3))], {
+      order: ["wtf-d", "4", "1", "wtf-e"],
+      modules: [wtf("wtf-d"), wtf("wtf-e")],
+    }),
   );
   expect([state.lists.forYou, state.waiting.forYou]).toEqual([
-    ["4", "wtf-c", "1", "wtf-a", "2", "wtf-b", "3"],
+    ["wtf-d", "4", "wtf-c", "1", "wtf-e", "wtf-a", "2", "wtf-b", "3"],
     [],
   ]);
 });
