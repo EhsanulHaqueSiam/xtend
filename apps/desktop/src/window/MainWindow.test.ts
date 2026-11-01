@@ -1,3 +1,4 @@
+import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
@@ -6,11 +7,12 @@ import { afterEach, expect, it, vi } from "vite-plus/test";
 import {
   APP_ROUTE_CHANNEL,
   BRIDGE_INFO_CHANNEL,
+  OPEN_EXTERNAL_CHANNEL,
   OVERLAY_ACTION_CHANNEL,
   OVERLAY_VIEWER_CHANNEL,
 } from "../ipc/channels.ts";
-import { FakeContents, ipcMain } from "../testing/fakeElectron.ts";
-import { createMainWindow } from "./MainWindow.ts";
+import { FakeContents, ipcMain, session, shell } from "../testing/fakeElectron.ts";
+import { createMainWindow, type MainWindowOptions } from "./MainWindow.ts";
 
 vi.mock("electron", () => import("../testing/fakeElectron.ts"));
 // Capture and commands talk to CDP and the service; neither is what these tests are about.
@@ -19,7 +21,7 @@ vi.mock("../service/DesktopCommands.ts", () => ({
   attachDesktopCommands: () => ({ save: () => {}, detach: () => {} }),
 }));
 
-const open = () => {
+const open = (extra: Partial<MainWindowOptions> = {}) => {
   const main = createMainWindow({
     appUrl: "http://127.0.0.1:4820",
     serviceUrl: "http://127.0.0.1:4820",
@@ -29,6 +31,7 @@ const open = () => {
     queueDir: NodePath.join(NodeOS.tmpdir(), "xtend-test-queue"),
     sessionUrlFile: NodePath.join(NodeOS.tmpdir(), "xtend-test-no-session-url"),
     log: () => {},
+    ...extra,
   });
   const app = main.appContents as unknown as FakeContents;
   // The page's <webview> attaching, as Electron reports it to the embedder.
@@ -184,4 +187,34 @@ it("takes the screen when X's video goes fullscreen, and gives it back only if t
   x.emit("enter-html-full-screen");
   x.emit("leave-html-full-screen");
   expect(win.isFullScreen()).toBe(true);
+});
+
+it("on mock X, opens nothing in the system browser and imports no X cookies", async () => {
+  const cookieFile = NodePath.join(NodeOS.tmpdir(), `xtend-test-cookies-${process.pid}.json`);
+  NodeFS.writeFileSync(
+    cookieFile,
+    JSON.stringify([{ name: "auth_token", value: "real", domain: ".x.com" }]),
+  );
+  const openExternal = vi.spyOn(shell, "openExternal");
+  const logged: Array<string> = [];
+  const { main, app, x } = open({
+    mockX: "http://127.0.0.1:4830",
+    importCookiesPath: cookieFile,
+    log: (message) => void logged.push(message),
+  });
+  close = () => {
+    main.window.close();
+    openExternal.mockRestore();
+    NodeFS.rmSync(cookieFile, { force: true });
+  };
+  // A card's link from mock X's page, a link in the app, and the app's own "open in browser".
+  x.windowOpenHandler?.({ url: "https://example.com/card" });
+  app.windowOpenHandler?.({ url: "https://example.com/" });
+  ipcMain.sendFrom(app, OPEN_EXTERNAL_CHANNEL, "https://example.com/");
+  // The app loads once the cookie step is past.
+  await vi.waitFor(() => expect(app.loaded).toContain("http://127.0.0.1:4820"));
+  expect(openExternal).not.toHaveBeenCalled();
+  expect(logged.filter((m) => m === "mock X refused an external open")).toHaveLength(3);
+  expect(NodeFS.existsSync(cookieFile)).toBe(true);
+  expect(session.fromPartition("x-mock").cookies).toHaveLength(0);
 });

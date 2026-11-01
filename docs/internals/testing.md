@@ -18,8 +18,9 @@ here from Verifying; lint enforces the waiting rules.
   first (the fewest that fail on `main` for that reason), then the fix. Purely visual bugs get
   before/after captures and no test. A service-only fix with no visible surface ships the test plus
   a short runtime transcript.
-- Engine work (what the session view loads, reads or presses on x.com) can only be proven live: the
-  engine bench against a signed-in dev desktop (see
+- Engine work (what the session view loads, reads or presses on x.com) is proven end to end on mock
+  X (`pnpm test:engine`, see [development.md](../operations/development.md#mock-x)), and against
+  x.com itself only live: the engine bench on a signed-in dev desktop (see
   [native-shell.md](native-shell.md#the-engine) and the `test-xtend-app` skill). Its parsing and
   store logic still get unit tests from recorded X responses.
 - In review, ask for a missing test only when it would catch a real regression. Flag a new test that

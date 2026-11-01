@@ -130,6 +130,9 @@ jobs:
         run: command -v xvfb-run || (sudo apt-get update && sudo apt-get install -y xvfb)
       - name: Desktop smoke test
         run: xvfb-run -a pnpm --filter @xtend/desktop smoke-test
+      # Xtend's X screens on the desktop with mock X as the engine: no X account, nothing leaves the runner.
+      - name: Engine e2e on mock X
+        run: xvfb-run -a pnpm test:engine
 
   test:
     name: Test

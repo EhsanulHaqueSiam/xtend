@@ -59,11 +59,12 @@ interface OpenedWindow {
 }
 
 /** Starts main.ts afresh; `windows()` are the windows it opened, oldest first. */
-const boot = async () => {
+const boot = async ({ locked = false } = {}) => {
   vi.resetModules();
   // Mocked modules outlive resetModules: take the instance main.ts gets, and clear it.
   const electron = (await import("electron")) as unknown as FakeElectron;
   electron.reset();
+  electron.app.instanceLock = !locked;
   const { createMainWindow } = await import("./window/MainWindow.ts");
   vi.mocked(createMainWindow).mockClear();
   await import("./main.ts");
@@ -150,4 +151,24 @@ it("sends each service only its own token: the saved remote's to the remote, the
     serviceToken: "ours",
     bridgeInfo: { remote: null },
   });
+});
+
+it("starts mock X on a fresh profile every launch, and never hands over to a running Xtend", async () => {
+  vi.stubEnv("XTEND_MOCK_X", "http://127.0.0.1:4830");
+  const first = await boot();
+  await vi.waitFor(() => expect(first.windows()).toHaveLength(1));
+  const profile = first.app.getPath("userData");
+  expect(profile).not.toBe(NodePath.join(home, "user-data"));
+  expect(NodeFS.existsSync(profile)).toBe(true);
+  first.app.emit("will-quit");
+  expect(NodeFS.existsSync(profile)).toBe(false);
+
+  // Another Xtend holds the lock: a mock launch exits rather than quitting into it, which would
+  // focus that window, whose x.com is not the mock.
+  const second = await boot({ locked: true });
+  const other = second.app.getPath("userData");
+  expect(other).not.toBe(profile);
+  expect([second.app.exits, second.app.quits]).toEqual([[1], 0]);
+  expect(second.windows()).toHaveLength(0);
+  NodeFS.rmSync(other, { recursive: true, force: true });
 });

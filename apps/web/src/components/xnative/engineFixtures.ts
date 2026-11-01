@@ -474,6 +474,8 @@ const photo = (seed: string): EngineMedia => ({
   durationMs: null,
   altText: "A placeholder photo",
 });
+/** Calls that answer one thing, not a timeline: X sends them without page cursors. */
+const UNPAGED = new Set(["Viewer", "UserByScreenName", "ListByRestId"]);
 /** A batch with the parts every response shares empty. */
 const batch = (
   op: string,
@@ -484,8 +486,8 @@ const batch = (
   op,
   key,
   cursor: null,
-  top: `top-${op}-${key ?? ""}`,
-  bottom: `bottom-${op}-${key ?? ""}`,
+  top: UNPAGED.has(op) ? null : `top-${op}-${key ?? ""}`,
+  bottom: UNPAGED.has(op) ? null : `bottom-${op}-${key ?? ""}`,
   posts,
   users: [],
   people: [],
@@ -561,6 +563,18 @@ export function synth(): Readonly<Record<string, Fixture>> {
     }),
     say(5, "This is the clearest explanation of rate limits I have read.", 95, {
       hasLink: true,
+      // X draws the link as the card, so its t.co has no place in the shown text.
+      entities: {
+        ...NO_ENTITIES,
+        urls: [
+          {
+            url: "https://t.co/s1",
+            expanded: "https://example.com/rate-limits",
+            display: "example.com/rate-limits",
+            indices: null,
+          },
+        ],
+      },
       card: {
         kind: "link",
         url: "https://example.com/rate-limits",
@@ -630,12 +644,12 @@ export function synth(): Readonly<Record<string, Fixture>> {
       hasMedia: true,
     },
   );
+  // X moves the handle a reply starts with out of its text, into "Replying to".
   const reply = (n: number, text: string, minutes: number) =>
-    say(n, `@${focal.author.handle} ${text}`, minutes, {
+    say(n, text, minutes, {
       isReply: true,
       replyToId: focal.postId,
       replyingTo: [focal.author.handle],
-      entities: mention(`@${focal.author.handle} ${text}`, focal.author.handle),
     });
   const replies = [
     reply(0, "This is incredibly generous. Starring it now.", 40),
@@ -701,16 +715,17 @@ export function synth(): Readonly<Record<string, Fixture>> {
       ["/notifications", "/notifications?tab=mentions"],
     ),
     batches: [
-      batch("NotificationsTimeline", "All", [mine, mentionPost], {
+      // The mention is the page's one post entry; the liked and reposted post rides in its events.
+      batch("NotificationsTimeline", "All", [mentionPost, mine], {
         users: PEOPLE,
-        order: [],
+        order: [mentionPost.postId],
         notifications: [
           {
             id: `post-${mentionPost.postId}`,
             kind: "post",
             icon: "",
             text: "",
-            at: ago(12),
+            at: null,
             users: [],
             postIds: [mentionPost.postId],
           },
@@ -741,7 +756,7 @@ export function synth(): Readonly<Record<string, Fixture>> {
             kind: "post",
             icon: "",
             text: "",
-            at: ago(12),
+            at: null,
             users: [],
             postIds: [mentionPost.postId],
           },
@@ -866,7 +881,8 @@ export function synth(): Readonly<Record<string, Fixture>> {
     ]),
     batches: [
       batch("ListsManagementPageTimeline", null, [], { lists: [discover, owned] }),
-      batch("ListByRestId", `list:${owned.listId}`, [], { lists: [owned] }),
+      // A List's own page names no section it sits in.
+      batch("ListByRestId", `list:${owned.listId}`, [], { lists: [{ ...owned, group: null }] }),
       batch("ListLatestTweetsTimeline", `list:${owned.listId}`, forYou.slice(0, 3), {
         users: PEOPLE,
       }),

@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test:e2e": "vp test run",
+    "test": "vp test run --project unit",
+    "test:e2e": "vp test run --project e2e",
+    "test:engine": "vp test run --project engine",
     "typecheck": "tsc-rs --noEmit"
   },
   "devDependencies": {

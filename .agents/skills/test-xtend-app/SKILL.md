@@ -63,9 +63,24 @@ curl -s -X POST http://127.0.0.1:4820/api/observations -H 'content-type: applica
 A second batch for the same post with a later `observedAt` appends a metrics row; the UI shows
 the latest numbers and the sighting count.
 
+## Engine changes: mock X first
+
+Three tiers, cheapest first ([Mock X](../../../docs/operations/development.md#mock-x)):
+
+- **Fixtures replay** (`?engine=all` in a browser): how a native screen draws engine data.
+- **Mock X**: the whole loop with no account. `pnpm test:engine` drives Xtend's screens on the
+  built desktop with mock X as the engine; add a check in `apps/e2e/src/engine` for the flow you
+  changed, and teach mock X (`apps/e2e/src/mockX`) the page or button first if it lacks one.
+  `pnpm mock-x --desktop` (with `pnpm dev` running) opens the dev desktop on it to look around.
+- **Live bench**: whether x.com itself still behaves as the mock assumes. Only for what reads or
+  presses X's real page in a new way.
+
+Screenshots and recordings for a PR come from mock X or the fixtures, never the real account: the
+repo is public.
+
 ## Engine changes: the live bench
 
-Anything the session view loads, reads or presses on x.com is proven only on the real account. A
+What x.com itself sends and draws is proven only on the real account. A
 worktree's dev desktop has its own `.xtend/electron` profile. `pnpm dev:x-session status` shows
 which checkouts are signed in; `pnpm dev:x-session save --from <signed-in checkout>` (or
 `--installed`, read only) keeps one session in `~/.xtend-dev`, and `pnpm dev:desktop` and new

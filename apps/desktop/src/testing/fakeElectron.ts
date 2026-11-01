@@ -8,7 +8,11 @@ import * as NodeEvents from "node:events";
  */
 
 function fakeSession() {
+  const cookies: Array<unknown> = [];
   return Object.assign(new NodeEvents.EventEmitter(), {
+    cookies: Object.assign(cookies, { set: async (cookie: unknown) => void cookies.push(cookie) }),
+    protocol: { handle: () => {} },
+    webRequest: { onBeforeRequest: () => {} },
     availableSpellCheckerLanguages: [],
     setPermissionRequestHandler: () => {},
     setPermissionCheckHandler: () => {},
@@ -60,7 +64,10 @@ export class FakeContents extends NodeEvents.EventEmitter {
     return "Mozilla/5.0 Chrome/140.0.0.0 Electron/38.0.0 Safari/537.36";
   }
   setUserAgent() {}
-  setWindowOpenHandler() {}
+  windowOpenHandler: ((details: { url: string }) => unknown) | null = null;
+  setWindowOpenHandler(handler: (details: { url: string }) => unknown) {
+    this.windowOpenHandler = handler;
+  }
   async insertCSS(css: string) {
     this.insertedCss.push(css);
     return `css-${this.insertedCss.length}`;
@@ -108,6 +115,9 @@ export class BrowserWindow extends NodeEvents.EventEmitter {
 /** One fake session per partition, like Electron's. */
 const sessions = new Map<string, ReturnType<typeof fakeSession>>();
 export const session = {
+  get defaultSession() {
+    return session.fromPartition("");
+  },
   fromPartition: (partition: string) => {
     let found = sessions.get(partition);
     if (found === undefined) sessions.set(partition, (found = fakeSession()));
@@ -145,6 +155,9 @@ export const app = Object.assign(new NodeEvents.EventEmitter(), {
   getVersion: () => "0.0.1",
   relaunched: 0,
   quits: 0,
+  exits: [] as Array<number>,
+  /** Whether this launch gets the single-instance lock; false plays a running Xtend holding it. */
+  instanceLock: true,
   commandLine: { appendSwitch: () => {} },
   getPath: (name: string) => (name === "userData" ? userData.path : `/tmp/fake-${name}`),
   setPath: (name: string, value: string) => {
@@ -152,13 +165,18 @@ export const app = Object.assign(new NodeEvents.EventEmitter(), {
   },
   getPreferredSystemLanguages: () => ["en-US"],
   setAsDefaultProtocolClient: () => {},
-  requestSingleInstanceLock: () => true,
+  requestSingleInstanceLock() {
+    return this.instanceLock;
+  },
   whenReady: () => Promise.resolve(),
   relaunch() {
     this.relaunched++;
   },
   quit() {
     this.quits++;
+  },
+  exit(code = 0) {
+    this.exits.push(code);
   },
 });
 
@@ -173,6 +191,8 @@ export const reset = () => {
   app.removeAllListeners();
   app.relaunched = 0;
   app.quits = 0;
+  app.exits = [];
+  app.instanceLock = true;
   BrowserWindow.all.length = 0;
   sessions.clear();
 };
