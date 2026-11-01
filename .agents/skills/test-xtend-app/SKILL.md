@@ -32,9 +32,16 @@ pnpm dev:desktop
 ```
 
 On a host without a display (the Mac mini over ssh), start it with `XTEND_REMOTE_DEBUG=9223`
-(another free port when a second dev desktop holds 9223) and drive it with
+(another free port when a second dev desktop holds 9223; `pnpm dev:ps` lists every checkout's
+dev runs and desktops with their PIDs and DevTools ports) and drive it with
 `node apps/desktop/scripts/cdp.mjs shot|eval|click|type|record|dump`. A dev desktop
 started with `XTEND_SHOT_DIR` also writes a capture on `kill -USR2 <pid>`.
+
+To learn what an X page requests, `cdp.mjs net x.com 15 --eval 'location.href = "<x url>"'`
+prints each GraphQL call as `op  variables`; `--bodies <dir outside any repo>` keeps the
+responses. Every `--eval` navigation is a real page load on the account: keep them few.
+
+macOS has no `timeout`: use a command's own limit or `perl -e 'alarm shift; exec @ARGV' 30 <cmd>`.
 
 ## Inspect and bend state
 
@@ -59,16 +66,22 @@ the latest numbers and the sighting count.
 ## Engine changes: the live bench
 
 Anything the session view loads, reads or presses on x.com is proven only on the real account. A
-worktree's dev desktop starts signed out (its own `.xtend/electron` profile): copy
-`Partitions/x-session` from an installed app's profile, minus its caches, to sign it in. Then, with
-the dev desktop on `XTEND_REMOTE_DEBUG=<port>`:
+worktree's dev desktop has its own `.xtend/electron` profile. `pnpm dev:x-session status` shows
+which checkouts are signed in; `pnpm dev:x-session save --from <signed-in checkout>` (or
+`--installed`, read only) keeps one session in `~/.xtend-dev`, and `pnpm dev:desktop` and new
+worktrees start from it. It is the user's real X login: never commit, attach or share it.
+The bench needs session actions on (Settings, X session); a seeded dev home starts with them off,
+and the bench stops at once with that line instead of failing its press checks. Then, with the
+dev desktop on `XTEND_REMOTE_DEBUG=<port>`:
 
 ```sh
 XTEND_REMOTE_DEBUG=<port> node apps/desktop/scripts/engine-bench.mjs --only <area>   # while iterating
 XTEND_REMOTE_DEBUG=<port> node apps/desktop/scripts/engine-bench.mjs --runs 3 --pause 300
 ```
 
-- Three clean runs in a row, five minutes apart, are the proof an engine PR names. X rate-limits an
+- Three clean runs in a row, five minutes apart, are the proof an engine PR names. Each run's
+  table and timings land in `~/Pictures/xtend-ui/bench/<branch>/<time>.json` (the last line
+  prints the path); cite that file's summary, and diff it against main's to spot a slower check. X rate-limits an
   account per 15 minutes and a run is a few hundred calls; heavy reloading has earned the account
   HTTP 429s on every device.
 - The bench presses no X write button except one bookmark it removes again. Never press like,

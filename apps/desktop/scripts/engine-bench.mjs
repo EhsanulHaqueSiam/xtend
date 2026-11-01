@@ -1,7 +1,10 @@
 // Benchmarks the X engine under Xtend's own X screens on a running dev desktop
 // (XTEND_REMOTE_DEBUG, see docs/internals/native-shell.md). Writes stay dry: X's buttons are only
 // found, never pressed, except one private bookmark that is undone. `--help` lists the flags.
+import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 
 const USAGE = `node scripts/engine-bench.mjs [flags]
   (none)           every check once
@@ -1205,9 +1208,38 @@ async function sameAppPage({ reloadEngine = true } = {}) {
 }
 let primed = false;
 
+const git = (...args) =>
+  NodeChildProcess.spawnSync("git", args, {
+    cwd: import.meta.dirname,
+    encoding: "utf8",
+  }).stdout.trim();
+const branch = git("branch", "--show-current");
+const report = {
+  branch: branch || "detached",
+  commit: git("rev-parse", "HEAD"),
+  startedAt: new Date().toISOString(),
+  flags: { runs: RUNS, pause: PAUSE_MS / 1000, only: ONLY ?? null },
+  runs: [],
+  streak: 0,
+  bookmarks: null,
+};
+// For comparing runs and citing one in a PR; outside the repo, as it names the account's posts.
+const reportFile = NodePath.join(
+  NodeOS.homedir(),
+  "Pictures/xtend-ui/bench",
+  branch.replaceAll("/", "-") || "detached",
+  `${report.startedAt.replaceAll(":", "-")}.json`,
+);
+const saveReport = () => {
+  NodeFS.mkdirSync(NodePath.dirname(reportFile), { recursive: true });
+  NodeFS.writeFileSync(reportFile, JSON.stringify(report, null, 2) + "\n");
+};
+
 /** One pass over the chosen checks; the names that failed. */
 async function round(n) {
   const failed = [];
+  const checks = [];
+  report.runs.push({ n, startedAt: new Date().toISOString(), checks });
   for (const [index, [name, run]] of chosen.entries()) {
     await sameAppPage();
     primed = true;
@@ -1252,6 +1284,7 @@ async function round(n) {
       );
     }
     const detail = typeof value === "string" || typeof value === "number" ? `  (${value})` : "";
+    checks.push({ name, ok, ms: Date.now() - started, detail: detail === "" ? null : value });
     console.log(
       `${ok ? "PASS" : "FAIL"}  ${String(Date.now() - started).padStart(6)}ms  ${name}${detail}`,
     );
@@ -1272,7 +1305,22 @@ async function round(n) {
   touched.clear();
   if (cleaned) await go("#/home?feed=following");
   console.log(`${chosen.length - failed.length}/${chosen.length} passed`);
+  saveReport();
   return failed;
+}
+
+// X's buttons refuse every press while session actions are off, and a seeded dev home starts
+// with them off (apps/server/scripts/devData.ts): the press checks would fail with no reason.
+const sessionActions = await app(
+  `fetch("/api/rpc/settings.get", { method: "POST", headers: { authorization: "Bearer " + window.desktopBridge.serviceToken, "content-type": "application/json" }, body: "{}" }).then((r) => r.json()).then((s) => s.sessionPostingEnabled)`,
+).catch((error) => error.message);
+if (sessionActions !== true) {
+  console.error(
+    sessionActions === false
+      ? 'Session actions are off for this dev home, so the press checks cannot pass. Turn on Settings, X session, "Act through my X session for what I click" in the dev desktop, then run again.'
+      : `Could not read the app's settings (got ${JSON.stringify(sessionActions)}); is the dev service up?`,
+  );
+  process.exit(1);
 }
 
 /**
@@ -1366,7 +1414,11 @@ if (writes) {
       : `WARNING: newest bookmark was ${bookmarkBefore}, now ${after}`,
   );
   if (after !== bookmarkBefore) streak = 0;
+  report.bookmarks = { before: bookmarkBefore, after };
   await go("#/home?feed=following");
 }
+report.streak = streak;
+saveReport();
+console.log(`results -> ${reportFile}`);
 for (const { socket } of sessions.values()) socket.close();
 process.exit(streak === RUNS ? 0 : 1);

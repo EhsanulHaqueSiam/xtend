@@ -63,6 +63,7 @@ The most common defect is a change that works on the path you tested and is miss
 
 - In a T3 worktree, `scripts/setup-worktree.ts` installs in the background (`t3.json`). While `.t3/setup-running` names a live PID, wait for it and do not install yourself. It ends with `.t3/setup-done` or `.t3/setup-failed` (with the error tail). With no marker at all, setup never ran here, so run `pnpm i`.
 - `pnpm i` installs. `pnpm dev` runs the service and the web app on this checkout's own port pair (read the real ports from its output). `pnpm dev:desktop` builds the Electron main and launches it against the dev web server.
+- `pnpm dev:ps` lists every checkout's dev runs and dev desktops (PID, ports, DevTools port, alive). `pnpm dev:x-session save|use|status` signs dev desktops in from one saved session in `~/.xtend-dev`: the user's real X login, never committed or shared. macOS has no `timeout`; use a command's own limit or `perl -e 'alarm shift; exec @ARGV' <s> <cmd>`.
 - Service state lives in `~/.xtend` by default; `--base-dir` overrides it. Dev runs use `<repo>/.xtend`, which is gitignored.
 - Need a second checkout? `git worktree add` it next to this one, not in `/tmp`, and remove it when done.
 

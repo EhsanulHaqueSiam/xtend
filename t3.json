@@ -23,6 +23,16 @@
       "icon": "debug"
     },
     {
+      "name": "Dev processes (every checkout)",
+      "command": "pnpm dev:ps",
+      "icon": "debug"
+    },
+    {
+      "name": "Sign in this dev desktop (saved X session)",
+      "command": "pnpm dev:x-session use",
+      "icon": "configure"
+    },
+    {
       "name": "Check changed",
       "command": "pnpm check:changed",
       "icon": "lint"

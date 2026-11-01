@@ -23,9 +23,40 @@ keep 4820 and 5820.
 
 `pnpm dev:desktop` bundles the Electron main process in watch mode and launches it against the
 pair `pnpm dev` recorded in `.xtend/dev-ports.json`, reading the service token from this
-checkout's `.xtend`. It expects `pnpm dev` to be running. On any pair but the default, Electron
-keeps its user data (x.com session included) in `.xtend/electron`, so two dev desktops can run at
-once.
+checkout's `.xtend`. It expects `pnpm dev` to be running. Electron keeps its user data (x.com
+session included) in `<home>/electron`, never the installed app's profile, so dev desktops of
+several checkouts run beside the installed app.
+
+### Signed-in dev desktop
+
+A new profile is signed out of X. Sign in once, then save that session for every checkout, as
+T3 Code's reusable dev credential does for its pairing cookie:
+
+```sh
+pnpm dev:x-session save                    # this checkout's dev desktop
+pnpm dev:x-session save --from <checkout>  # another checkout's (or a user data dir)
+pnpm dev:x-session save --installed        # the installed app's profile, read only
+pnpm dev:x-session use                     # copy it into this checkout's profile
+pnpm dev:x-session status                  # saved, here, and every other checkout
+```
+
+The copy lives in `~/.xtend-dev/x-session` (owner-only, never `~/.xtend`) without Chromium's
+caches, a few MB. `pnpm dev:desktop` and the Setup Worktree action copy it into a signed-out
+profile on their own; `use` refuses while this checkout's dev desktop holds the profile. It is
+account 1's partition, which is what a dev home starts with. The installed app's profile is
+`~/Library/Application Support/Xtend` on macOS and `~/.config/Xtend` on Linux.
+
+The saved session is your real X login. Anyone with the folder acts as you on X: never commit
+it, attach it to a PR, copy it to another machine or share it. `rm -rf ~/.xtend-dev/x-session`
+forgets it; signing out on x.com ends it everywhere.
+
+### Dev processes
+
+`pnpm dev:ps` lists every checkout's dev run and dev desktop (`git worktree list`) with its PID,
+ports, DevTools port, uptime and whether the PID is alive, from the records `pnpm dev` and the
+desktop launcher keep in `.xtend/dev-ports.json` and `.xtend/dev-desktop.json` while they run.
+It only prints. Stop a process from the terminal that started it, or by a PID listed for your
+own checkout; never by name (AGENTS.md "Ways to hurt yourself").
 
 `pnpm dist:desktop:dmg` builds the web app, the service bundle and the Electron main, verifies
 the preloads, then runs electron-builder for macOS: a dmg and a zip for arm64 and x64 in
@@ -50,7 +81,8 @@ waiting for `/api/health`, so a dependency the bundle expects but the app lacks 
 T3 Code runs `scripts/setup-worktree.ts` when it creates a worktree (`t3.json`): a frozen
 install, with `.t3/setup-running`, `.t3/setup-done` or `.t3/setup-failed` as markers for agents.
 `.xtend` is never copied into a worktree: two services on one database would both run the
-scheduler and post the same drafts.
+scheduler and post the same drafts. A session saved with `pnpm dev:x-session save` is copied into the new
+worktree's dev desktop profile, so it starts signed in to X.
 
 ## CLI package
 
@@ -144,6 +176,17 @@ Both need `pnpm build` first.
 - `node apps/desktop/scripts/cdp.mjs shot|eval|click|type` drives a dev desktop started with
   `XTEND_REMOTE_DEBUG=9223` on a host without a display. See
   [native-shell.md](../internals/native-shell.md#dev-capture) for its limits.
+- `cdp.mjs net x.com [seconds] [--eval <expr>] [--bodies <dir>]` prints every X GraphQL call the
+  webview makes as `op  variables`, for learning what an X page requests. `--eval` runs first,
+  usually a navigation; each one is a real page load on the account, so keep them few.
+  `--bodies` writes the responses to a directory outside any git checkout: they are your data.
+- The engine bench (`engine-bench.mjs`) refuses to start while session actions are off: its
+  press checks go through the app's X buttons. A seeded dev home starts with them off; turn on
+  Settings, X session, "Act through my X session for what I click" in the dev desktop. Each run's
+  results go to `~/Pictures/xtend-ui/bench/<branch>/<time>.json` (every check's pass, time and
+  detail, the commit and flags) for comparing runs and citing in a PR.
+- macOS has no `timeout` command. Bound a command with its own limit (`cdp.mjs net <seconds>`,
+  `check:changed --timeout`, `curl --max-time`) or `perl -e 'alarm shift; exec @ARGV' 30 <cmd>`.
 
 ## CI and releases
 

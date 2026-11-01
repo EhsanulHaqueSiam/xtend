@@ -4,7 +4,7 @@
 // treg, the pool and AI assist go to a local fake; a fresh home is seeded first (seed-dev.ts).
 
 //   pnpm dev | dev:server | dev:web   service and web, or one of them
-//   pnpm dev:desktop                  the Electron main, launched against the recorded pair
+//   pnpm dev:desktop                  the Electron main on <home>/electron, against the recorded pair
 //   flags: --home <dir>  --seed demo|real|none (first start)  --live (real treg and pool: money)
 //          --fixture <name> [--fresh]  a named UI state from scripts/fixtures, in its own home
 import * as NodeChildProcess from "node:child_process";
@@ -16,6 +16,14 @@ import * as NodeUtil from "node:util";
 
 import { startFakeTreg } from "../apps/e2e/src/fakeTreg.ts";
 import { refuseLiveHome } from "../apps/server/scripts/devData.ts";
+import {
+  copyPartition,
+  devUserData,
+  loginExpiry,
+  partitionOf,
+  profileHolder,
+  SAVED,
+} from "./dev-x-session.ts";
 
 const SERVICE_PORT = 4820;
 const WEB_PORT = 5820;
@@ -234,12 +242,24 @@ if (import.meta.main) {
   };
   if (desktop) {
     Object.assign(env, { XTEND_SERVICE_URL: serviceUrl, XTEND_DEV_URL: webUrl });
-    // Electron allows one instance per user data dir, so only the default pair keeps the
-    // default one (and its x.com login); any other pair gets this checkout's own.
-    if (ports.service !== SERVICE_PORT) env.XTEND_USER_DATA ??= NodePath.join(home, "electron");
+    // Always a profile of this checkout's own: the default one is the installed app's, and its
+    // x-session partition is the user's live X login.
+    env.XTEND_USER_DATA ??= devUserData(home);
+    const partition = partitionOf(env.XTEND_USER_DATA);
+    // Signed out and nothing holds the profile yet: start from the saved session (dev-x-session.ts).
+    if (loginExpiry(partition) === undefined) {
+      if (NodeFS.existsSync(SAVED) && profileHolder(env.XTEND_USER_DATA) === undefined) {
+        copyPartition(SAVED, partition);
+        console.log(`[dev-runner] signed in from the saved X session (${SAVED})`);
+      } else
+        console.log(
+          "[dev-runner] this dev desktop is signed out of X: sign in in its window, then `pnpm dev:x-session save` so every checkout starts signed in.",
+        );
+    }
   } else if (name === "dev") {
     NodeFS.mkdirSync(stateDir, { recursive: true });
-    NodeFS.writeFileSync(recordFile, JSON.stringify({ ...ports, home }));
+    const record = { ...ports, home, pid: process.pid, startedAt: new Date().toISOString() };
+    NodeFS.writeFileSync(recordFile, JSON.stringify(record));
   }
 
   let closeFake = () => Promise.resolve<unknown>(undefined);

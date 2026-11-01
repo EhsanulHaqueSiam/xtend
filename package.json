@@ -8,6 +8,8 @@
     "dev:server": "node scripts/dev-runner.ts dev:server",
     "dev:web": "node scripts/dev-runner.ts dev:web",
     "dev:desktop": "node scripts/dev-runner.ts dev:desktop",
+    "dev:ps": "node scripts/dev-ps.ts",
+    "dev:x-session": "node scripts/dev-x-session.ts",
     "build": "vp run --filter './apps/*' build",
     "build:desktop": "pnpm dist:desktop:dmg",
     "dist:desktop:dmg": "pnpm build && pnpm --filter @xtend/desktop verify:bundles && pnpm --filter @xtend/desktop dist",
