@@ -286,13 +286,15 @@ const openMenu = (at: MenuAt, mine = "true") => `
     let items = [];
     for (let i = 0; i < 20 && items.length === 0; i++) {
       await new Promise((r) => setTimeout(r, 100));
+      // The user moved on: any menu now showing is theirs, not this step's.
+      if (!(${mine})) return null;
       items = [...document.querySelectorAll('[data-testid="Dropdown"] [role="menuitem"]')];
     }
     // X closes its menu on a click outside it, on the mask drawn beside it; Escape from a script
-    // does not. Only the menu this step opened: by then the user may have opened another.
+    // does not. Only the menu this step opened, and only while the step is still the user's.
     const opened = items[0]?.closest('[role="menu"]') ?? null;
     const closeMenu = () => {
-      if (!opened?.isConnected) return;
+      if (!opened?.isConnected || !(${mine})) return;
       [...(opened.parentElement?.children ?? [])].find((k) => k !== opened && k.getBoundingClientRect().height > 0)?.click();
     };`;
 
@@ -320,11 +322,11 @@ const xMenuInPlace = (at: MenuAt, run?: number) => {
 };
 
 /** Presses row `label` of X's menu `at` on the engine page. Null when it is not there. */
-const xMenuPressInPlace = (at: MenuAt, label: string) =>
+const xMenuPressInPlace = (at: MenuAt, label: string, run: number) =>
   xRun(`(async () => {
-    ${openMenu(at)}
+    ${openMenu(at, stillMine(run))}
     const item = items.find((i) => i.textContent.trim() === ${JSON.stringify(label)});
-    if (!item) return (closeMenu(), null);
+    if (!item || !${stillMine(run)}) return (closeMenu(), null);
     const path = location.pathname + location.search;
     item.click();
     await new Promise((r) => setTimeout(r, 800));
@@ -426,7 +428,7 @@ const pressMenu = async (
   const run = await nextRun();
   return onPage(
     page,
-    () => xMenuPressInPlace(at, label),
+    () => xMenuPressInPlace(at, label, run),
     (outcome) => (outcome.kind === "over" ? holdOver(run, outcome.path, over) : Promise.resolve()),
     () => run === overRun,
   );

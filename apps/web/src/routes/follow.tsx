@@ -1,4 +1,4 @@
-import { useAtomValue } from "@effect/atom-react";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
 import type { EngineUser } from "@xtend/contracts";
 import { useCallback, useEffect } from "react";
@@ -6,7 +6,7 @@ import { useCallback, useEffect } from "react";
 import { XColumn, XTabs, XTitle } from "../components/xnative/XColumn";
 import { UserRow, XRows } from "../components/xnative/XRows";
 import { at, type ConnectTab, engineAtom } from "../state/engine";
-import { xGo, xNavigate } from "../state/x";
+import { xGo, xNavigate, xOverAtom, xOverEnded } from "../state/x";
 
 const TABS = [
   {
@@ -33,6 +33,7 @@ function FollowScreen() {
   const navigate = useNavigate();
   const router = useRouter();
   const engine = useAtomValue(engineAtom);
+  const setOver = useAtomSet(xOverAtom);
   const current = TABS.find((t) => t.id === tab) ?? TABS[0];
   const surface: ConnectTab = `connect:${current.id}`;
   // Through X's router: a tab X still holds shows from its cache, and the store keeps its people.
@@ -55,7 +56,12 @@ function FollowScreen() {
             label="Follow"
             tabs={TABS}
             value={current.id}
-            onChange={(next) => void navigate({ to: "/follow", search: { tab: next } })}
+            onChange={(next) => {
+              // The tabs share a path, so a Subscribe still running belongs to the tab it began on.
+              xOverEnded();
+              setOver(false);
+              void navigate({ to: "/follow", search: { tab: next } });
+            }}
           />
         </>
       }

@@ -199,14 +199,14 @@ it("presses only the row asked for: X's toast comes back, X's dialog keeps the e
 });
 
 it("leaves X's dialog, a Subscribe still waiting, and an Unfollow's reread to the screen they began on when the user moves on", async () => {
-  withMenu({
-    "Block @theo": () =>
-      document.body.insertAdjacentHTML("beforeend", `<div role="alertdialog"></div>`),
-  });
+  const blocked: Array<string> = [];
+  withMenu({ "Block @theo": () => blocked.push("Block @theo") });
   const shown: Array<boolean> = [];
+  // Moved on before the press reached X's page: X's row is never pressed, nothing shows over.
   const pressing = xPostMenuPress(post42, "Block @theo", (on) => shown.push(on));
   xOverEnded();
-  expect((await pressing)?.kind).toBe("over");
+  expect(await pressing).toBeNull();
+  expect(blocked).toEqual([]);
   expect(shown).toEqual([]);
 
   // A Subscribe whose button X draws only after the user moved on never clicks it.
@@ -219,7 +219,7 @@ it("leaves X's dialog, a Subscribe still waiting, and an Unfollow's reread to th
   expect(await subscribing).toBe(false);
   expect(clicked).toEqual([]);
 
-  // An Unfollow whose dialog the user leaves: X's menu is not opened again behind their back.
+  // An Unfollow the user left before it reached X's page: X's menu is never opened for it.
   let opened = 0;
   withMenu({
     "Unfollow @theo": () =>
@@ -229,7 +229,7 @@ it("leaves X's dialog, a Subscribe still waiting, and an Unfollow's reread to th
   const unfollowing = xPostFollowPress(post42, "Unfollow @theo", (on) => shown.push(on));
   xOverEnded();
   expect((await unfollowing)?.following).toBeNull();
-  expect(opened).toBe(1);
+  expect(opened).toBe(0);
 
   // The user moves on while X's menu is being read again: what it says no longer counts.
   let opens = 0;
