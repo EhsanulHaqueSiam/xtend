@@ -1,14 +1,14 @@
 // Launches Electron against the dev web server after each pack. The previous
 // instance is stopped by its own PID so a rebuild never kills another app.
-import { spawn } from "node:child_process";
-import { createRequire } from "node:module";
-import * as path from "node:path";
+import * as NodeChildProcess from "node:child_process";
+import * as NodeModule from "node:module";
+import * as NodePath from "node:path";
 
-const require = createRequire(import.meta.url);
+const require = NodeModule.createRequire(import.meta.url);
 const electronBinary = require("electron");
-const appDir = path.resolve(import.meta.dirname, "..");
+const appDir = NodePath.resolve(import.meta.dirname, "..");
 
-const child = spawn(electronBinary, [appDir], {
+const child = NodeChildProcess.spawn(electronBinary, [appDir], {
   stdio: "inherit",
   env: {
     ...process.env,

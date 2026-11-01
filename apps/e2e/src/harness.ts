@@ -1,18 +1,18 @@
-import { spawn } from "node:child_process";
-import { once } from "node:events";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { createServer } from "node:http";
-import { type AddressInfo, createServer as createNetServer } from "node:net";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import * as NodeChildProcess from "node:child_process";
+import * as NodeEvents from "node:events";
+import * as NodeFSP from "node:fs/promises";
+import * as NodeHttp from "node:http";
+import * as NodeNet from "node:net";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
+import * as NodeURL from "node:url";
 
 import type { ObservationBatch, WsRpcGroup } from "@xtend/contracts";
 import type * as Rpc from "effect/rpc/Rpc";
 import type * as RpcGroup from "effect/rpc/RpcGroup";
 import { type Locator, chromium } from "playwright";
 
-const ROOT = fileURLToPath(new URL("../../../", import.meta.url));
+const ROOT = NodeURL.fileURLToPath(new URL("../../../", import.meta.url));
 
 /** The palette chord, as the user presses it on this platform. */
 export const MOD = process.platform === "darwin" ? "Meta" : "Control";
@@ -72,7 +72,7 @@ async function startFakeTreg() {
       };
     return { status: 404, cost: 0, body: { error: `not faked: ${call.method} ${call.endpoint}` } };
   };
-  const server = createServer(async (request, response) => {
+  const server = NodeHttp.createServer(async (request, response) => {
     const { pathname } = new URL(request.url ?? "/", "http://treg");
     // XTEND_POOL_URL points here too, so no journey reads or writes the shared pool.
     const pool = POOL_ANSWERS[pathname];
@@ -95,8 +95,8 @@ async function startFakeTreg() {
     response.end(JSON.stringify(body));
   });
   server.listen(0, "127.0.0.1");
-  await once(server, "listening");
-  const { port } = server.address() as AddressInfo;
+  await NodeEvents.EventEmitter.once(server, "listening");
+  const { port } = server.address() as NodeNet.AddressInfo;
   return {
     url: `http://127.0.0.1:${port}`,
     calls,
@@ -116,9 +116,9 @@ const POOL_ANSWERS: Record<string, unknown> = {
 // shortcut: the port is free when probed, not reserved, so another process could take it before the
 // service binds; that fails startup loudly. Upgrade if it ever flakes: have the service report its port.
 const freePort = async () => {
-  const probe = createNetServer().listen(0, "127.0.0.1");
-  await once(probe, "listening");
-  const { port } = probe.address() as AddressInfo;
+  const probe = NodeNet.createServer().listen(0, "127.0.0.1");
+  await NodeEvents.EventEmitter.once(probe, "listening");
+  const { port } = probe.address() as NodeNet.AddressInfo;
   await new Promise((resolve) => probe.close(resolve));
   return port;
 };
@@ -132,13 +132,14 @@ type RpcOf<M extends Method> = Rpc.ExtractTag<Rpcs, M>;
  * Chromium page on the web app it serves. One per test file; `close` removes all of it.
  */
 export async function startApp() {
-  const dir = await mkdtemp(join(tmpdir(), "xtend-e2e-"));
+  const dir = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "xtend-e2e-"));
   // Everything startup acquires, undone in reverse on close and also when startup fails partway,
   // so a failed launch leaves no service, fake treg or temp dir behind; one failing step does not
   // skip the rest.
-  const undo: Array<() => Promise<unknown>> = [() => rm(dir, { recursive: true, force: true })];
+  const undo: Array<() => Promise<unknown>> = [
+    () => NodeFSP.rm(dir, { recursive: true, force: true }),
+  ];
   const close = async () => {
-    // eslint-disable-next-line no-await-in-loop -- in reverse order: the browser goes before the service it talks to.
     for (const step of undo.toReversed()) await step().catch(() => undefined);
   };
   try {
@@ -151,15 +152,15 @@ export async function startApp() {
 
 /** Starts each piece in order, registering how to undo it before the next step can fail. */
 async function launch(dir: string, undo: Array<() => Promise<unknown>>) {
-  const baseDir = join(dir, "state");
+  const baseDir = NodePath.join(dir, "state");
   const treg = await startFakeTreg();
   undo.push(treg.close);
   const port = await freePort();
   const url = `http://127.0.0.1:${port}`;
   let logs = "";
-  const service = spawn(
+  const service = NodeChildProcess.spawn(
     process.execPath,
-    [join(ROOT, "apps/server/src/bin.ts"), "--base-dir", baseDir, "--port", String(port)],
+    [NodePath.join(ROOT, "apps/server/src/bin.ts"), "--base-dir", baseDir, "--port", String(port)],
     {
       env: {
         ...process.env,
@@ -177,7 +178,7 @@ async function launch(dir: string, undo: Array<() => Promise<unknown>>) {
   );
   service.stdout.on("data", (chunk) => (logs += chunk));
   service.stderr.on("data", (chunk) => (logs += chunk));
-  const exited = once(service, "exit");
+  const exited = NodeEvents.EventEmitter.once(service, "exit");
   undo.push(async () => {
     service.kill();
     await exited;
@@ -190,15 +191,12 @@ async function launch(dir: string, undo: Array<() => Promise<unknown>>) {
       (r) => r.ok,
       () => false,
     );
-  // Polling is sequential by nature.
-  /* eslint-disable no-await-in-loop */
   while (!(await healthy())) {
     if (service.exitCode !== null || Date.now() > deadline)
       throw new Error(`service did not come up:\n${logs}`);
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  /* eslint-enable no-await-in-loop */
-  const token = (await readFile(join(baseDir, "auth-token"), "utf8")).trim();
+  const token = (await NodeFSP.readFile(NodePath.join(baseDir, "auth-token"), "utf8")).trim();
   const post = async (path: string, body: unknown) => {
     const response = await fetch(`${url}${path}`, {
       method: "POST",

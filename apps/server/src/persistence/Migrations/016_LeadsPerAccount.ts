@@ -10,11 +10,9 @@ const stampAccount = (table: string) => `
   END
 `;
 
-// A person and a seen follower are unique per account, not per install: with a handle unique
-// across accounts, a second account could not file @alice once the first had her. SQLite cannot
-// change a UNIQUE in place, so both tables are rebuilt. Migrations run in one transaction with
-// foreign keys on, where dropping people cascades to its children, so those are set aside and
-// put back. The rebuilt tables lose 014's stamping trigger with the old table; it is recreated.
+// A person and a seen follower are unique per account, not per install. SQLite cannot change a
+// UNIQUE in place, so both tables are rebuilt; dropping people cascades to its children with foreign
+// keys on, so those are set aside and put back, and 014's stamping trigger is recreated.
 // Owned by the leads area.
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;

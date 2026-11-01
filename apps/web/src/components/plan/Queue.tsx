@@ -12,6 +12,7 @@ import { Button } from "../ui/button";
 import { Cost, Empty } from "../ui/layout";
 import { Menu, MenuItem } from "../ui/menu";
 import { StatusDot } from "./ui";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 function Runs({ id }: { readonly id: string }) {
   const runs = useAtomValue(runsAtom(id));
@@ -111,9 +112,12 @@ export function Queue({
                   ) : null}
                   {/* A failed row says why on its second line, so every row stays two lines. */}
                   {d.status === "failed" && d.error !== null ? (
-                    <span className="truncate text-error-foreground" title={d.error}>
-                      {d.error}
-                    </span>
+                    <Tooltip>
+                      <TooltipTrigger render={<span className="truncate text-error-foreground" />}>
+                        {d.error}
+                      </TooltipTrigger>
+                      <TooltipPopup>{d.error}</TooltipPopup>
+                    </Tooltip>
                   ) : (
                     <span className="truncate">{meta.join(" · ")}</span>
                   )}

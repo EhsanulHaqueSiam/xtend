@@ -375,11 +375,12 @@ export const make = Effect.gen(function* () {
   const me = Effect.fn("XClient.me")(function* (purpose: string) {
     const response = yield* own("2/users/me", { ...meCall, purpose }).pipe(
       // A refusal means no X connection; a rate limit or an outage must not read as one.
-      Effect.catchTag("XApiError", (e) =>
-        e.reason === "provider" && e.status !== null && e.status < 500 && e.status !== 429
-          ? Effect.succeed(null)
-          : Effect.fail(e),
-      ),
+      Effect.catchTags({
+        XApiError: (e) =>
+          e.reason === "provider" && e.status !== null && e.status < 500 && e.status !== 429
+            ? Effect.succeed(null)
+            : Effect.fail(e),
+      }),
     );
     if (response === null) return null;
     const data = obj(obj(response.body).data);
@@ -545,12 +546,11 @@ export const make = Effect.gen(function* () {
     trending: (country) => treg.isCached(trendingCall(country)),
     me: meCached,
     // The mentions key needs the user id, so a cold `me` means a cold mentions page too.
-    mentions: (sinceId) =>
-      Effect.gen(function* () {
-        if (!(yield* meCached)) return false;
-        const m = yield* me("costs.quote").pipe(Effect.orElseSucceed(() => null));
-        return m === null ? false : yield* treg.isCached(mentionsCall(m.userId, sinceId));
-      }),
+    mentions: Effect.fn("XClient.mentionsCached")(function* (sinceId: string | undefined) {
+      if (!(yield* meCached)) return false;
+      const m = yield* me("costs.quote").pipe(Effect.orElseSucceed(() => null));
+      return m === null ? false : yield* treg.isCached(mentionsCall(m.userId, sinceId));
+    }),
   };
 
   return XClient.of({

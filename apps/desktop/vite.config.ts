@@ -3,6 +3,8 @@ import { defineProject, type TestProjectInlineConfiguration } from "vite-plus/te
 import "vite-plus/test/config";
 import { defineConfig, type UserConfig } from "vite-plus";
 
+import { TEST_DEFAULTS } from "../../vite.config.ts";
+
 const isMainProcessExternal = (id: string) => id === "electron" || id.startsWith("electron/");
 /** The main bundle carries every dependency (electron-updater included), so the packaged app ships no node_modules. */
 const isMainProcessInlined = (id: string) => !isMainProcessExternal(id) && !id.startsWith("node:");
@@ -52,7 +54,7 @@ const browserTestProject = {
 
 export default defineConfig({
   test: {
-    retry: 0,
+    ...TEST_DEFAULTS,
     projects: [defineProject(unitTestProject), defineProject(browserTestProject)],
   },
   pack: [

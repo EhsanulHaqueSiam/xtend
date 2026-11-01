@@ -13,11 +13,9 @@ import * as ServerConfig from "../config.ts";
 const TOKEN_FILE = "auth-token";
 
 /**
- * Bearer auth for every mutating surface. The token lives in the base dir,
- * so whoever can read that directory (the desktop, a CLI, the user) can
- * talk to the service and a stray web page cannot. Origin is checked too:
- * a page served from anywhere but the dev server or the service itself is
- * refused even with a leaked token.
+ * Bearer auth for every mutating surface. The token lives in the base dir, so only whoever can
+ * read that directory talks to the service. Origin is checked too: a page from anywhere but the
+ * dev server or the service itself is refused even with a leaked token.
  */
 export class ServiceAuth extends Context.Service<
   ServiceAuth,
@@ -57,19 +55,14 @@ export const make = (options: {
 };
 
 /** Refuses the request with 401 unless it carries the token from an allowed origin. */
-export const guarded = <E, R>(
+export const guarded = Effect.fn("ServiceAuth.guarded")(function* <E, R>(
   handler: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
-): Effect.Effect<
-  HttpServerResponse.HttpServerResponse,
-  E,
-  R | ServiceAuth | HttpServerRequest.HttpServerRequest
-> =>
-  Effect.gen(function* () {
-    const auth = yield* ServiceAuth;
-    const request = yield* HttpServerRequest.HttpServerRequest;
-    if (!auth.allows(request)) return HttpServerResponse.text("unauthorized", { status: 401 });
-    return yield* handler;
-  });
+) {
+  const auth = yield* ServiceAuth;
+  const request = yield* HttpServerRequest.HttpServerRequest;
+  if (!auth.allows(request)) return HttpServerResponse.text("unauthorized", { status: 401 });
+  return yield* handler;
+});
 
 export const layer = Layer.effect(
   ServiceAuth,

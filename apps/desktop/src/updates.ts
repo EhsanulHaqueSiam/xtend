@@ -1,4 +1,4 @@
-import * as fs from "node:fs";
+import * as NodeFS from "node:fs";
 
 import type { UpdateChannel, UpdateState, UpdateStatus } from "./ipc/channels.ts";
 
@@ -15,7 +15,7 @@ const releaseUrl = (version: string) =>
 /** The saved channel, or the build's own; a missing or garbled file is the build's. */
 const readChannel = (file: string, version: string): UpdateChannel => {
   try {
-    const saved: unknown = JSON.parse(fs.readFileSync(file, "utf8"));
+    const saved: unknown = JSON.parse(NodeFS.readFileSync(file, "utf8"));
     if (typeof saved === "object" && saved !== null && "channel" in saved) {
       if (saved.channel === "stable" || saved.channel === "nightly") return saved.channel;
     }
@@ -125,7 +125,7 @@ export function startUpdates(options: {
       if (next === channel) return;
       channel = next;
       try {
-        fs.writeFileSync(options.channelFile, JSON.stringify({ channel }));
+        NodeFS.writeFileSync(options.channelFile, JSON.stringify({ channel }));
       } catch (error) {
         options.log("update channel not saved", String(error));
       }

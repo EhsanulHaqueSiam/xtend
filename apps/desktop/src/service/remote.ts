@@ -1,4 +1,4 @@
-import * as fs from "node:fs";
+import * as NodeFS from "node:fs";
 
 import * as Schema from "effect/Schema";
 
@@ -25,7 +25,7 @@ const encodeConfigFile = Schema.encodeSync(ConfigFile);
 export const readRemote = (file: string): RemoteConfig | null => {
   let text: string;
   try {
-    text = fs.readFileSync(file, "utf8");
+    text = NodeFS.readFileSync(file, "utf8");
   } catch {
     return null;
   }
@@ -34,7 +34,7 @@ export const readRemote = (file: string): RemoteConfig | null => {
 };
 
 export const writeRemote = (file: string, remote: RemoteConfig | null): void => {
-  fs.writeFileSync(file, encodeConfigFile({ remote }), { mode: 0o600 });
+  NodeFS.writeFileSync(file, encodeConfigFile({ remote }), { mode: 0o600 });
 };
 
 export interface Reachability {

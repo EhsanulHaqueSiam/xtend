@@ -11,12 +11,9 @@ const stampAccount = (table: string) => `
 `;
 
 /**
- * X's private post metrics, their nightly runs and the niche profile were one set per install, so
- * a second account's Analyze showed the first one's last run and averaged its posts into the
- * strip, and Engage showed the first one's niche. A metrics row follows its post's account; a run
- * and the niche row, which say nothing of whose they were, go to account 1 and the current
- * account. niche_profile was pinned to one row (CHECK id = 1), so it is rebuilt keyed by account.
- * Owned by the analyze and engage area.
+ * Private post metrics, their nightly runs and the niche profile become per account. A metrics row
+ * follows its post's account; runs and the niche row go to account 1 and the current account.
+ * niche_profile was pinned to one row (CHECK id = 1), so it is rebuilt keyed by account.
  */
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;

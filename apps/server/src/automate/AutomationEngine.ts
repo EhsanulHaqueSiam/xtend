@@ -241,31 +241,30 @@ const make = Effect.gen(function* () {
   // Session observations first (free, fresh), the scraper timeline (cached 1h) fills what the session never showed.
   // Rules share the read; whichever rule finds it cold pays for it: its caps refuse the read
   // (leaving the session's posts) and it counts against them. A dry run reads it only cached.
-  const ownPosts = (rule: Rule) =>
-    Effect.gen(function* () {
-      const handle = yield* ownHandle;
-      const seen = yield* observations.listRecent({ authorHandle: handle, limit: OWN_POSTS_LIMIT });
-      const read =
-        (yield* x.cached.userPosts(handle)) ||
-        (!rule.dryRun && !(yield* pollRefused(rule, XClient.RATE_CARD.searchPage)));
-      const page = read ? yield* x.userPosts(handle, { purpose: "automate.ownPosts" }) : null;
-      if (page !== null && !rule.dryRun)
-        yield* rules.addSpend(rule.id, page.fromCache ? 0 : XClient.RATE_CARD.searchPage);
-      const timeline = page?.items ?? [];
-      const byId = new Map<string, OwnPost>();
-      // A repost carries someone else's post and reach: plugging, boosting or deleting it is not the user's to do.
-      for (const p of [...timeline, ...seen.posts].filter((p) => !p.isRepost))
-        byId.set(p.postId, {
-          postId: p.postId,
-          text: p.text,
-          createdAt: p.createdAt,
-          views: p.metrics.views ?? 0,
-          likes: p.metrics.likes,
-          hasLink: p.hasLink,
-          isReply: p.isReply,
-        });
-      return [...byId.values()];
-    });
+  const ownPosts = Effect.fn("AutomationEngine.ownPosts")(function* (rule: Rule) {
+    const handle = yield* ownHandle;
+    const seen = yield* observations.listRecent({ authorHandle: handle, limit: OWN_POSTS_LIMIT });
+    const read =
+      (yield* x.cached.userPosts(handle)) ||
+      (!rule.dryRun && !(yield* pollRefused(rule, XClient.RATE_CARD.searchPage)));
+    const page = read ? yield* x.userPosts(handle, { purpose: "automate.ownPosts" }) : null;
+    if (page !== null && !rule.dryRun)
+      yield* rules.addSpend(rule.id, page.fromCache ? 0 : XClient.RATE_CARD.searchPage);
+    const timeline = page?.items ?? [];
+    const byId = new Map<string, OwnPost>();
+    // A repost carries someone else's post and reach: plugging, boosting or deleting it is not the user's to do.
+    for (const p of [...timeline, ...seen.posts].filter((p) => !p.isRepost))
+      byId.set(p.postId, {
+        postId: p.postId,
+        text: p.text,
+        createdAt: p.createdAt,
+        views: p.metrics.views ?? 0,
+        likes: p.metrics.likes,
+        hasLink: p.hasLink,
+        isReply: p.isReply,
+      });
+    return [...byId.values()];
+  });
 
   const postSubject = (p: OwnPost, description: string): Subject => ({
     id: p.postId,
@@ -353,53 +352,50 @@ const make = Effect.gen(function* () {
   // A keyword rule's search is its poll, read on each tick and paid each time the 30-minute cache
   // runs out: a live rule's caps refuse it (not a cached one, which is free) and it counts against
   // them. A dry run only gets here with the search cached, and counts nothing.
-  const keywordSearch = (rule: Rule, query: string) =>
-    Effect.gen(function* () {
-      const refused =
-        !rule.dryRun &&
-        !(yield* x.cached.search(query, "latest")) &&
-        (yield* pollRefused(rule, XClient.RATE_CARD.searchPage));
-      if (refused) return [];
-      const page = yield* x.searchPosts(query, { mode: "latest", purpose: "automate.keyword" });
-      if (!rule.dryRun)
-        yield* rules.addSpend(rule.id, page.fromCache ? 0 : XClient.RATE_CARD.searchPage);
-      return page.items;
-    });
+  const keywordSearch = Effect.fn("AutomationEngine.keywordSearch")(function* (
+    rule: Rule,
+    query: string,
+  ) {
+    const refused =
+      !rule.dryRun &&
+      !(yield* x.cached.search(query, "latest")) &&
+      (yield* pollRefused(rule, XClient.RATE_CARD.searchPage));
+    if (refused) return [];
+    const page = yield* x.searchPosts(query, { mode: "latest", purpose: "automate.keyword" });
+    if (!rule.dryRun)
+      yield* rules.addSpend(rule.id, page.fromCache ? 0 : XClient.RATE_CARD.searchPage);
+    return page.items;
+  });
 
   // Trigger reads that cost money run on their own clock, not on every minute tick, and count
   // against the rule's caps. A dry run charges nothing, so it reads only what earlier polls stored.
-  const poll = (rule: Rule) =>
-    Effect.gen(function* () {
-      if (rule.dryRun) return;
-      const t = rule.trigger;
-      const ms = yield* nowMs;
-      const at = yield* nowIso;
-      if (t.kind === "post_engaged") {
-        const key = `${t.via}:${t.postId}`;
-        if (ms - (lastPoll.get(key) ?? 0) < POLL_MS[t.via]) return;
-        if (yield* pollRefused(rule, XExtra.engagersCostUsd(t.via))) return;
-        lastPoll.set(key, ms);
-        const { matches, costUsd } = yield* extra.engagers(
-          t.postId,
-          t.via,
-          `automate.${rule.name}`,
-        );
-        yield* rules.addSpend(rule.id, costUsd);
-        for (const m of matches)
-          yield* sql`
+  const poll = Effect.fn("AutomationEngine.poll")(function* (rule: Rule) {
+    if (rule.dryRun) return;
+    const t = rule.trigger;
+    const ms = yield* nowMs;
+    const at = yield* nowIso;
+    if (t.kind === "post_engaged") {
+      const key = `${t.via}:${t.postId}`;
+      if (ms - (lastPoll.get(key) ?? 0) < POLL_MS[t.via]) return;
+      if (yield* pollRefused(rule, XExtra.engagersCostUsd(t.via))) return;
+      lastPoll.set(key, ms);
+      const { matches, costUsd } = yield* extra.engagers(t.postId, t.via, `automate.${rule.name}`);
+      yield* rules.addSpend(rule.id, costUsd);
+      for (const m of matches)
+        yield* sql`
             INSERT OR IGNORE INTO engagers (post_id, user_id, via, handle, name, followers, seen_at)
             VALUES (${t.postId}, ${m.userId ?? m.handle}, ${t.via}, ${m.handle}, ${m.name}, ${m.followers}, ${at})`;
-      } else if (t.kind === "new_follower") {
-        const handle = yield* ownHandle;
-        const key = `followers:${handle}`;
-        if (ms - (lastPoll.get(key) ?? 0) < POLL_MS.followers) return;
-        if (yield* pollRefused(rule, XClient.RATE_CARD.followersPage)) return;
-        lastPoll.set(key, ms);
-        const page = yield* x.followers(handle, { purpose: `automate.${rule.name}`, fresh: true });
-        yield* rules.addSpend(rule.id, page.fromCache ? 0 : XClient.RATE_CARD.followersPage);
-        yield* people.markFollowersSeen(page.items);
-      }
-    });
+    } else if (t.kind === "new_follower") {
+      const handle = yield* ownHandle;
+      const key = `followers:${handle}`;
+      if (ms - (lastPoll.get(key) ?? 0) < POLL_MS.followers) return;
+      if (yield* pollRefused(rule, XClient.RATE_CARD.followersPage)) return;
+      lastPoll.set(key, ms);
+      const page = yield* x.followers(handle, { purpose: `automate.${rule.name}`, fresh: true });
+      yield* rules.addSpend(rule.id, page.fromCache ? 0 : XClient.RATE_CARD.followersPage);
+      yield* people.markFollowersSeen(page.items);
+    }
+  });
 
   const subjects = (rule: Rule): Effect.Effect<ReadonlyArray<Subject>, EvalError> => {
     const trigger = rule.trigger;
@@ -792,26 +788,25 @@ const make = Effect.gen(function* () {
   });
 
   // Subjects the rule has not fired on, that pass its conditions and are past its wait.
-  const pending = (rule: Rule) =>
-    Effect.gen(function* () {
-      const fired = yield* rules.firedSubjects(rule.id);
-      const queued = yield* rules.openPendingSubjects(rule.id);
-      // An account-level action already waiting for you is not asked for again.
-      if (perTick(rule.action) && queued.size > 0) return [];
-      const ms = yield* nowMs;
-      const listHandles =
-        rule.conditions.notInListId === undefined
-          ? new Set<string>()
-          : yield* people.listHandles(rule.conditions.notInListId);
-      const found = yield* subjects(rule);
-      return found.filter(
-        (s) =>
-          !fired.has(s.id) &&
-          !queued.has(s.id) &&
-          conditionFailure(rule.conditions, s, ms, listHandles) === null &&
-          (s.at === undefined || ms - Date.parse(s.at) >= rule.waitMinutes * MINUTE_MS),
-      );
-    });
+  const pending = Effect.fn("AutomationEngine.pending")(function* (rule: Rule) {
+    const fired = yield* rules.firedSubjects(rule.id);
+    const queued = yield* rules.openPendingSubjects(rule.id);
+    // An account-level action already waiting for you is not asked for again.
+    if (perTick(rule.action) && queued.size > 0) return [];
+    const ms = yield* nowMs;
+    const listHandles =
+      rule.conditions.notInListId === undefined
+        ? new Set<string>()
+        : yield* people.listHandles(rule.conditions.notInListId);
+    const found = yield* subjects(rule);
+    return found.filter(
+      (s) =>
+        !fired.has(s.id) &&
+        !queued.has(s.id) &&
+        conditionFailure(rule.conditions, s, ms, listHandles) === null &&
+        (s.at === undefined || ms - Date.parse(s.at) >= rule.waitMinutes * MINUTE_MS),
+    );
+  });
 
   const preview = Effect.gen(function* () {
     const all = yield* rules.list;
@@ -835,96 +830,99 @@ const make = Effect.gen(function* () {
   }).pipe(Effect.mapError(fail("preview")));
 
   /** Runs one subject through budget, dry run and ask-first. `approvedUsd` is what the user approved in Needs you. */
-  const fire = (rule: Rule, s: Subject, approvedUsd?: number) =>
-    Effect.gen(function* () {
-      const p = yield* plan(rule, s);
-      const base = { ruleId: rule.id, subjectId: s.id, costUsd: p.costUsd };
-      if (p.perform === null)
-        return yield* rules.recordRun({ ...base, status: "skipped", detail: p.detail, costUsd: 0 });
-      // The approval covered the price shown; a plan that grew since (more posts to delete) asks again.
-      if (approvedUsd !== undefined && p.costUsd > approvedUsd)
-        return yield* rules.recordRun({
-          ...base,
-          status: "skipped",
-          detail: `now costs $${p.costUsd.toFixed(3)}, $${approvedUsd.toFixed(3)} was approved; asking again`,
-          costUsd: 0,
-        });
-      // Re-read: planning auto_retweet or auto_delete may have just paid for the own timeline.
-      const over = overBudget(yield* rules.get(rule.id), p.costUsd);
-      if (over !== null)
-        return yield* rules.recordRun({ ...base, status: "skipped", detail: over, costUsd: 0 });
-      if (rule.dryRun)
-        return yield* rules.recordRun({ ...base, status: "dry_run", detail: `would ${p.detail}` });
-      if (rule.askFirst && approvedUsd === undefined) {
-        const preview = yield* pendingPreview(rule, s, p);
-        const request = yield* rules.createPending({
+  const fire = Effect.fn("AutomationEngine.fire")(function* (
+    rule: Rule,
+    s: Subject,
+    approvedUsd?: number,
+  ) {
+    const p = yield* plan(rule, s);
+    const base = { ruleId: rule.id, subjectId: s.id, costUsd: p.costUsd };
+    if (p.perform === null)
+      return yield* rules.recordRun({ ...base, status: "skipped", detail: p.detail, costUsd: 0 });
+    // The approval covered the price shown; a plan that grew since (more posts to delete) asks again.
+    if (approvedUsd !== undefined && p.costUsd > approvedUsd)
+      return yield* rules.recordRun({
+        ...base,
+        status: "skipped",
+        detail: `now costs $${p.costUsd.toFixed(3)}, $${approvedUsd.toFixed(3)} was approved; asking again`,
+        costUsd: 0,
+      });
+    // Re-read: planning auto_retweet or auto_delete may have just paid for the own timeline.
+    const over = overBudget(yield* rules.get(rule.id), p.costUsd);
+    if (over !== null)
+      return yield* rules.recordRun({ ...base, status: "skipped", detail: over, costUsd: 0 });
+    if (rule.dryRun)
+      return yield* rules.recordRun({ ...base, status: "dry_run", detail: `would ${p.detail}` });
+    if (rule.askFirst && approvedUsd === undefined) {
+      const preview = yield* pendingPreview(rule, s, p);
+      const request = yield* rules.createPending({
+        ruleId: rule.id,
+        subject: {
+          ...s,
+          ...(p.pin === undefined ? {} : { pinnedPostId: p.pin }),
+          approval: {
+            action: rule.action,
+            preview,
+            ...(p.deletionTargets === undefined ? {} : { deletionTargets: p.deletionTargets }),
+          },
+        },
+        description: `${s.description}; ${p.detail}`,
+        costUsd: p.costUsd,
+      });
+      yield* events.publish({
+        type: "rule_fired",
+        payload: {
+          pending: true,
+          pendingId: request.id,
           ruleId: rule.id,
-          subject: {
-            ...s,
-            ...(p.pin === undefined ? {} : { pinnedPostId: p.pin }),
-            approval: {
-              action: rule.action,
-              preview,
-              ...(p.deletionTargets === undefined ? {} : { deletionTargets: p.deletionTargets }),
-            },
-          },
-          description: `${s.description}; ${p.detail}`,
+          ruleName: rule.name,
+          description: request.description,
           costUsd: p.costUsd,
-        });
-        yield* events.publish({
-          type: "rule_fired",
-          payload: {
-            pending: true,
-            pendingId: request.id,
-            ruleId: rule.id,
-            ruleName: rule.name,
-            description: request.description,
-            costUsd: p.costUsd,
-          },
-        });
-        return yield* rules.recordRun({
-          ...base,
-          status: "pending",
-          detail: `needs you: ${p.detail}`,
-          costUsd: 0,
-        });
-      }
-      // Closed before acting, so a restart mid-call cannot act twice; reopened only when the
-      // action surely did nothing. A timeout or a refusal is never retried on its own.
-      yield* rules.markFired(rule.id, [s.id]);
-      const outcome = yield* Effect.result(p.perform);
-      if (outcome._tag === "Failure") {
-        const { error, costUsd } = outcome.failure;
-        const retry = retriable(error);
-        if (retry) yield* rules.unmarkFired(rule.id, s.id);
-        const why = retry
-          ? ""
-          : mayHaveActed(error)
-            ? "; it may have gone through, so it is not retried"
-            : "; X refused it, so it is not retried";
-        // The monthly budget (Budget service, inside XClient) refusing is a skip, not a failure.
-        return yield* rules.recordRun({
-          ...base,
-          status: "reason" in error && error.reason === "budget" ? "skipped" : "failed",
-          detail: `${p.detail}: ${error.message}${why}`,
-          costUsd,
-        });
-      }
-      const { costUsd, xId } = outcome.success;
-      const run = yield* rules.recordRun({ ...base, status: "ok", detail: p.detail, costUsd, xId });
-      if (rule.undoAfterHours !== null && p.undo !== undefined && xId !== null && xId !== "")
-        yield* rules.scheduleUndo(
-          rule.id,
-          DateTime.formatIso(DateTime.makeUnsafe((yield* nowMs) + rule.undoAfterHours * HOUR_MS)),
-          { kind: p.undo, xId },
-        );
-      if (rule.action.kind !== "notify")
-        yield* events.publish({
-          type: "rule_fired",
-          payload: { ruleId: rule.id, ruleName: rule.name, detail: p.detail, xId, costUsd },
-        });
-      return run;
-    });
+        },
+      });
+      return yield* rules.recordRun({
+        ...base,
+        status: "pending",
+        detail: `needs you: ${p.detail}`,
+        costUsd: 0,
+      });
+    }
+    // Closed before acting, so a restart mid-call cannot act twice; reopened only when the
+    // action surely did nothing. A timeout or a refusal is never retried on its own.
+    yield* rules.markFired(rule.id, [s.id]);
+    const outcome = yield* Effect.result(p.perform);
+    if (outcome._tag === "Failure") {
+      const { error, costUsd } = outcome.failure;
+      const retry = retriable(error);
+      if (retry) yield* rules.unmarkFired(rule.id, s.id);
+      const why = retry
+        ? ""
+        : mayHaveActed(error)
+          ? "; it may have gone through, so it is not retried"
+          : "; X refused it, so it is not retried";
+      // The monthly budget (Budget service, inside XClient) refusing is a skip, not a failure.
+      return yield* rules.recordRun({
+        ...base,
+        status: "reason" in error && error.reason === "budget" ? "skipped" : "failed",
+        detail: `${p.detail}: ${error.message}${why}`,
+        costUsd,
+      });
+    }
+    const { costUsd, xId } = outcome.success;
+    const run = yield* rules.recordRun({ ...base, status: "ok", detail: p.detail, costUsd, xId });
+    if (rule.undoAfterHours !== null && p.undo !== undefined && xId !== null && xId !== "")
+      yield* rules.scheduleUndo(
+        rule.id,
+        DateTime.formatIso(DateTime.makeUnsafe((yield* nowMs) + rule.undoAfterHours * HOUR_MS)),
+        { kind: p.undo, xId },
+      );
+    if (rule.action.kind !== "notify")
+      yield* events.publish({
+        type: "rule_fired",
+        payload: { ruleId: rule.id, ruleName: rule.name, detail: p.detail, xId, costUsd },
+      });
+    return run;
+  });
 
   // `scheduled` is the tick: a rule switched off after the tick listed it is skipped, not run.
   const run = Effect.fn("AutomationEngine.runRule")(

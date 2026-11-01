@@ -159,11 +159,13 @@ export function Timeline({
   const quoted = (id: string | null) => (id === null ? undefined : engine.posts.get(id));
   const [, setMinute] = useState(0);
   // Ages ("4m") move on while the list sits open; one re-render a minute is enough.
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- minute interval so post ages re-render.
   useEffect(() => {
     const timer = setInterval(() => setMinute((n) => n + 1), 60_000);
     return () => clearInterval(timer);
   }, []);
 
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- window keyboard listener for j/k/l/b and friends on the list.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey || isEditable(event.target)) return;

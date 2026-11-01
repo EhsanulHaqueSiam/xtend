@@ -1,6 +1,6 @@
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 
 import { expect, it } from "vite-plus/test";
 
@@ -61,23 +61,23 @@ it("tells a wrong token from a wrong host", async () => {
 });
 
 it("keeps the saved remote across launches, and ignores one whose URL would stop the app starting", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "xtend-remote-"));
-  const file = path.join(dir, "config.json");
+  const dir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "xtend-remote-"));
+  const file = NodePath.join(dir, "config.json");
   try {
     expect(readRemote(file)).toBeNull();
     writeRemote(file, { url: "http://mini.tail.ts.net:4820", token: "abc" });
     expect(readRemote(file)).toEqual({ url: "http://mini.tail.ts.net:4820", token: "abc" });
     // The token in it is the service's key; only this user may read it.
-    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    expect(NodeFS.statSync(file).mode & 0o777).toBe(0o600);
     writeRemote(file, null);
     expect(readRemote(file)).toBeNull();
     for (const url of ["mini:4820", "ftp://mini:4820", "http://[mini"]) {
-      fs.writeFileSync(file, JSON.stringify({ remote: { url, token: "abc" } }));
+      NodeFS.writeFileSync(file, JSON.stringify({ remote: { url, token: "abc" } }));
       expect(readRemote(file)).toBeNull();
     }
-    fs.writeFileSync(file, "{ not json");
+    NodeFS.writeFileSync(file, "{ not json");
     expect(readRemote(file)).toBeNull();
   } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
+    NodeFS.rmSync(dir, { recursive: true, force: true });
   }
 });

@@ -1,5 +1,5 @@
-import * as os from "node:os";
-import * as path from "node:path";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 
 import { afterEach, expect, it, vi } from "vite-plus/test";
 
@@ -26,8 +26,8 @@ const open = () => {
     serviceToken: "secret",
     accountId: 1,
     bridgeInfo: { serviceToken: "secret", serviceMode: "child", remote: null, accountId: 1 },
-    queueDir: path.join(os.tmpdir(), "xtend-test-queue"),
-    sessionUrlFile: path.join(os.tmpdir(), "xtend-test-no-session-url"),
+    queueDir: NodePath.join(NodeOS.tmpdir(), "xtend-test-queue"),
+    sessionUrlFile: NodePath.join(NodeOS.tmpdir(), "xtend-test-no-session-url"),
     log: () => {},
   });
   const app = main.appContents as unknown as FakeContents;

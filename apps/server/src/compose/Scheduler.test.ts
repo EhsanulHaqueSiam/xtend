@@ -1,10 +1,12 @@
 import { describe, expect, it } from "@effect/vitest";
 import { XApiError } from "@xtend/contracts";
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
+import * as TestClock from "effect/testing/TestClock";
 
 import * as Events from "../events/Events.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
@@ -21,11 +23,14 @@ import { articlesStub, desktopStub } from "./testStubs.ts";
 
 // Records createPost calls; fails when the text contains "boom" and dies on "crash".
 const calls: Array<XClient.CreatePostInput> = [];
+// Completed by the next post that goes out, for a test that acts while a thread is mid-way.
+let posted: Deferred.Deferred<void> | null = null;
 const xStub = xClientStub({
   createPost: (input) =>
     Effect.gen(function* () {
       if (input.text.includes("crash")) return yield* Effect.die("client bug");
       calls.push(input);
+      if (posted !== null) yield* Deferred.succeed(posted, undefined);
       if (input.text.includes("boom"))
         return yield* new XApiError({
           endpoint: "x",
@@ -55,11 +60,13 @@ const layerTest = Scheduler.layerService.pipe(
 );
 
 const past = "2026-01-01T00:00:00.000Z";
+// TestClock starts at 1970, where nothing from 2026 is due yet.
+const NOW = Date.parse("2026-06-01T12:00:00.000Z");
 
 describe("Scheduler", () => {
-  // it.live: the backoff compares against the real clock, not the TestClock at epoch 0.
-  it.live("posts due threads as replies and retries failures with backoff", () =>
+  it.effect("posts due threads as replies and retries failures with backoff", () =>
     Effect.gen(function* () {
+      yield* TestClock.setTime(NOW);
       calls.length = 0;
       const drafts = yield* DraftStore.DraftStore;
       const scheduler = yield* Scheduler.Scheduler;
@@ -102,6 +109,7 @@ describe("Scheduler", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
+  // it.live: the slow thread really pauses between its posts while the user acts.
   it.live("a draft unscheduled or moved while the tick posts another stays put", () =>
     Effect.gen(function* () {
       calls.length = 0;
@@ -118,8 +126,11 @@ describe("Scheduler", () => {
       const moved = yield* drafts.create({ blocks: [{ text: "next week" }] });
       yield* drafts.reschedule(moved.id, "2026-01-01T00:02:00.000Z");
 
+      const first = yield* Deferred.make<void>();
+      posted = first;
       const tick = yield* Effect.forkChild(scheduler.tick);
-      while (calls.length === 0) yield* Effect.sleep("5 millis");
+      yield* Deferred.await(first);
+      posted = null;
       yield* drafts.reschedule(unscheduled.id, null);
       yield* drafts.reschedule(moved.id, "2999-01-01T00:00:00.000Z");
       yield* Fiber.join(tick);
@@ -130,8 +141,9 @@ describe("Scheduler", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
-  it.live("posts only the current account's queue", () =>
+  it.effect("posts only the current account's queue", () =>
     Effect.gen(function* () {
+      yield* TestClock.setTime(NOW);
       calls.length = 0;
       const drafts = yield* DraftStore.DraftStore;
       const scheduler = yield* Scheduler.Scheduler;
@@ -151,8 +163,9 @@ describe("Scheduler", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
-  it.live("a draft that crashes the publisher does not hold back the drafts due after it", () =>
+  it.effect("a draft that crashes the publisher does not hold back the drafts due after it", () =>
     Effect.gen(function* () {
+      yield* TestClock.setTime(NOW);
       calls.length = 0;
       const drafts = yield* DraftStore.DraftStore;
       const scheduler = yield* Scheduler.Scheduler;
@@ -168,25 +181,28 @@ describe("Scheduler", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
-  it.live("a restart mid-thread leaves it failed with what went out, for the user to resume", () =>
-    Effect.gen(function* () {
-      calls.length = 0;
-      const drafts = yield* DraftStore.DraftStore;
-      const scheduler = yield* Scheduler.Scheduler;
-      const d = yield* drafts.create({ blocks: [{ text: "one" }, { text: "two" }] });
-      yield* drafts.reschedule(d.id, past);
-      expect(yield* drafts.claim(d.id)).toBe(true);
-      yield* drafts.setOutcome(d.id, { postIds: ["1"] });
+  it.effect(
+    "a restart mid-thread leaves it failed with what went out, for the user to resume",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(NOW);
+        calls.length = 0;
+        const drafts = yield* DraftStore.DraftStore;
+        const scheduler = yield* Scheduler.Scheduler;
+        const d = yield* drafts.create({ blocks: [{ text: "one" }, { text: "two" }] });
+        yield* drafts.reschedule(d.id, past);
+        expect(yield* drafts.claim(d.id)).toBe(true);
+        yield* drafts.setOutcome(d.id, { postIds: ["1"] });
 
-      // What the service does on start, before its first tick.
-      yield* drafts.failInterrupted;
-      yield* scheduler.tick;
-      const after = yield* drafts.get(d.id);
-      expect(after.status).toBe("failed");
-      expect(after.postIds).toEqual(["1"]);
-      expect(after.error).toContain("may already be on X");
-      expect(calls).toEqual([]);
-    }).pipe(Effect.provide(layerTest)),
+        // What the service does on start, before its first tick.
+        yield* drafts.failInterrupted;
+        yield* scheduler.tick;
+        const after = yield* drafts.get(d.id);
+        expect(after.status).toBe("failed");
+        expect(after.postIds).toEqual(["1"]);
+        expect(after.error).toContain("may already be on X");
+        expect(calls).toEqual([]);
+      }).pipe(Effect.provide(layerTest)),
   );
 
   it.effect("Run now refuses a draft that was never queued and leaves it unposted", () =>
@@ -214,8 +230,9 @@ describe("Scheduler", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
-  it.live("queue, schedule, skip and unschedule leave a posted draft alone", () =>
+  it.effect("queue, schedule, skip and unschedule leave a posted draft alone", () =>
     Effect.gen(function* () {
+      yield* TestClock.setTime(NOW);
       calls.length = 0;
       const drafts = yield* DraftStore.DraftStore;
       const publisher = yield* Publisher.Publisher;
@@ -237,8 +254,9 @@ describe("Scheduler", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
-  it.live("queue fills slots in order, skip moves past the current one", () =>
+  it.effect("queue fills slots in order, skip moves past the current one", () =>
     Effect.gen(function* () {
+      yield* TestClock.setTime(NOW);
       const drafts = yield* DraftStore.DraftStore;
       const slots = yield* SlotStore.SlotStore;
       const scheduler = yield* Scheduler.Scheduler;

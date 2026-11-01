@@ -1,18 +1,21 @@
-// Benchmarks for the X engine under Xtend's own X screens, against a running dev desktop started
-// with XTEND_REMOTE_DEBUG (see docs/internals/native-shell.md). Each check drives the app page or
-// moves the engine the way a screen does, waits for what X's session sends, and asserts on the
-// engine store (window.__xtendEngine, dev builds only) and on the native screen where one exists.
-// Writes stay dry: X's buttons for posting, replying, reposting, liking and following are only
-// found, never pressed. The one write is a bookmark, which is private, and it is undone.
-//   node scripts/engine-bench.mjs                 every check once
-//   node scripts/engine-bench.mjs --runs 3        until three passes in a row, at most 3 rounds
-//   node scripts/engine-bench.mjs --pause 300     seconds between runs: X rate-limits an account
-//                                                 per 15 minutes, and a run is a few hundred calls
-//   node scripts/engine-bench.mjs --only video    checks whose name contains "video"
-//   node scripts/engine-bench.mjs --shots DIR     a screenshot of the app after each check
-//   node scripts/engine-bench.mjs --parity DIR    per screen, Xtend's screen and x.com on the same
-//                                                 page: DIR/<screen>-xtend.png and DIR/<screen>-x.png
-import { mkdirSync, writeFileSync } from "node:fs";
+// Benchmarks the X engine under Xtend's own X screens on a running dev desktop
+// (XTEND_REMOTE_DEBUG, see docs/internals/native-shell.md). Writes stay dry: X's buttons are only
+// found, never pressed, except one private bookmark that is undone. `--help` lists the flags.
+import * as NodeFS from "node:fs";
+
+const USAGE = `node scripts/engine-bench.mjs [flags]
+  (none)           every check once
+  --runs 3         until three passes in a row, at most 3 rounds
+  --pause 300      seconds between runs: X rate-limits an account per 15 minutes,
+                   and a run is a few hundred calls
+  --only video     checks whose name contains "video"
+  --shots DIR      a screenshot of the app after each check
+  --parity DIR     per screen, Xtend's screen and x.com on the same page:
+                   DIR/<screen>-xtend.png and DIR/<screen>-x.png`;
+if (process.argv.includes("--help")) {
+  console.log(USAGE);
+  process.exit(0);
+}
 
 const port = process.env.XTEND_REMOTE_DEBUG ?? "9223";
 const flag = (name) => {
@@ -142,11 +145,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function until(check, ms = 20_000) {
   const end = Date.now() + ms;
   for (;;) {
-    // oxlint-disable-next-line no-await-in-loop -- polling is sequential by nature
     const value = await check().catch(() => undefined);
     if (value) return value;
     if (Date.now() > end) return undefined;
-    // oxlint-disable-next-line no-await-in-loop -- polling is sequential by nature
     await sleep(400);
   }
 }
@@ -195,15 +196,12 @@ async function bookmarkedOnX(id, handle) {
 async function unbookmark(id, handle, known) {
   for (let attempt = 0; attempt < 3; attempt++) {
     // Each full load costs X's Viewer call, which X rate-limits; a state just read is reused.
-    // oxlint-disable-next-line no-await-in-loop -- one page at a time, until X agrees
     const on = attempt === 0 && known !== undefined ? known : await bookmarkedOnX(id, handle);
     if (on === false) return true;
     if (on === true) {
-      // oxlint-disable-next-line no-await-in-loop -- X's own button, where it sits
       await engine(
         `${focalArticle(id)}?.querySelector('[data-testid="removeBookmark"]')?.click(), true`,
       );
-      // oxlint-disable-next-line no-await-in-loop -- X's mutation settles before the next look
       await sleep(2_000);
     }
   }
@@ -462,10 +460,8 @@ const benchmarks = [
       const sampler = (async () => {
         // oxlint-disable-next-line no-unmodified-loop-condition -- the check clears it when done
         while (sampling) {
-          // oxlint-disable-next-line no-await-in-loop -- a sampler
           const path = await enginePath().catch(() => "(loading)");
           if (paths.at(-1) !== path) paths.push(path);
-          // oxlint-disable-next-line no-await-in-loop -- a sampler
           await sleep(200);
         }
       })();
@@ -549,7 +545,6 @@ const benchmarks = [
         ["media", "Media", "lists"],
       ]) {
         const surface = JSON.stringify(`search:${product}:${q}`);
-        // oxlint-disable-next-line no-await-in-loop -- one engine, one page at a time
         const n = await visit(`/search?q=${q}&src=typed_query&f=${f}`, () =>
           store(`at($.${per}, ${surface}).length >= 3 && at($.${per}, ${surface}).length`),
         );
@@ -722,7 +717,6 @@ const benchmarks = [
         ["with_replies", "replies"],
         ["media", "media"],
       ]) {
-        // oxlint-disable-next-line no-await-in-loop -- one engine, one page at a time
         const n = await visit(`/theo/${path}`, () =>
           store(
             `at($.lists, "profile:${tab}:${theoId}").length >= 2 && at($.lists, "profile:${tab}:${theoId}").length`,
@@ -1044,7 +1038,7 @@ const benchmarks = [
       const onX = await engine(
         `!!${xArticle(id)}?.querySelector('button[aria-label="Show original"]')`,
       );
-      const text = (which) =>
+      const text = () =>
         app(
           `[...document.querySelector('main article[data-post="${id}"]').querySelectorAll("p")].map((p) => p.textContent).find((t) => t.length > 0 && !/^(Translated from|Show )/.test(t))`,
         );
@@ -1071,9 +1065,7 @@ const benchmarks = [
       const radios = (root) =>
         `[...(${root})?.querySelectorAll('[role="radio"]') ?? []].map((r) => r.textContent.trim())`;
       for (const q of ["quick poll", "poll", "vote poll"]) {
-        // oxlint-disable-next-line no-await-in-loop -- one search at a time, as a user types them
         await go(`#/search?q=${encodeURIComponent(q)}&f=latest`);
-        // oxlint-disable-next-line no-await-in-loop -- waits for X's results to draw
         const id = await until(
           () =>
             app(
@@ -1082,10 +1074,8 @@ const benchmarks = [
           10_000,
         );
         if (!id) continue;
-        // oxlint-disable-next-line no-await-in-loop -- the native copy first
         const ours = await app(radios(`document.querySelector('main article[data-post="${id}"]')`));
         // X's page may still be drawing the list the native one already shows from the store.
-        // oxlint-disable-next-line no-await-in-loop -- then the matching article on X's page
         const xs =
           (await until(async () => {
             const r = await engine(
@@ -1127,7 +1117,7 @@ const benchmarks = [
 const chosen = benchmarks.filter(
   ([name]) => ONLY === undefined || name.toLowerCase().includes(ONLY.toLowerCase()),
 );
-if (SHOTS !== undefined) mkdirSync(SHOTS, { recursive: true });
+if (SHOTS !== undefined) NodeFS.mkdirSync(SHOTS, { recursive: true });
 
 /**
  * In dev, Vite may reload the app page on its own while the engine keeps its page: the store
@@ -1152,7 +1142,6 @@ let primed = false;
 async function round(n) {
   const failed = [];
   for (const [index, [name, run]] of chosen.entries()) {
-    // oxlint-disable-next-line no-await-in-loop -- before each check
     await sameAppPage();
     primed = true;
     const started = Date.now();
@@ -1162,26 +1151,21 @@ async function round(n) {
     const tracer = (async () => {
       // oxlint-disable-next-line no-unmodified-loop-condition -- the round clears it when done
       while (tracing) {
-        // oxlint-disable-next-line no-await-in-loop -- a sampler
         const path = await enginePath().catch(() => "(loading)");
         if (trail.at(-1) !== path) trail.push(path);
-        // oxlint-disable-next-line no-await-in-loop -- a sampler
         await sleep(250);
       }
     })();
     const value =
       WRITES.test(name) && !writes
         ? false
-        : // oxlint-disable-next-line no-await-in-loop -- one engine, one check at a time
-          await run().catch((error) => (console.error(`  ${name}: ${error.message}`), false));
+        : await run().catch((error) => (console.error(`  ${name}: ${error.message}`), false));
     tracing = false;
-    // oxlint-disable-next-line no-await-in-loop -- the sampler stops with the check
     await tracer;
     const ok = Boolean(value);
     if (!ok) {
       failed.push(name);
       // Where things stood, to tell a slow X from a broken step.
-      // oxlint-disable-next-line no-await-in-loop -- only on a failure
       const where = await Promise.all([
         app(`location.hash + " batches " + window.__xtendBatches`),
         enginePath(),
@@ -1190,7 +1174,6 @@ async function round(n) {
           `Object.entries($.lists).filter(([k, l]) => l.length > 0 && !k.startsWith("post:")).map(([k, l]) => k + "=" + l.length + ":" + l[0]).join(" ").slice(0, 400)`,
         ),
       ]).catch((error) => [error.message]);
-      // oxlint-disable-next-line no-await-in-loop -- only on a failure
       const timers = await Promise.race([
         engine(
           `new Promise((r) => { const t = performance.now(); setTimeout(() => r(document.visibilityState + ", a 100ms timer took " + Math.round(performance.now() - t) + "ms, page up " + Math.round(performance.now() / 1000) + "s"), 100); })`,
@@ -1206,11 +1189,9 @@ async function round(n) {
       `${ok ? "PASS" : "FAIL"}  ${String(Date.now() - started).padStart(6)}ms  ${name}${detail}`,
     );
     if (SHOTS !== undefined) {
-      // oxlint-disable-next-line no-await-in-loop -- the app page as the check left it
       const { call } = await session("localhost");
-      // oxlint-disable-next-line no-await-in-loop -- the app page as the check left it
       const shot = await call("Page.captureScreenshot", { format: "png" });
-      writeFileSync(
+      NodeFS.writeFileSync(
         `${SHOTS}/run${n}-${String(index + 1).padStart(2, "0")}.png`,
         Buffer.from(shot.result.data, "base64"),
       );
@@ -1218,7 +1199,6 @@ async function round(n) {
   }
   const cleaned = touched.size > 0;
   for (const [id, handle] of touched) {
-    // oxlint-disable-next-line no-await-in-loop -- one engine, one page at a time
     if (!(await unbookmark(id, handle)))
       console.log(`  WARNING: could not remove the bench's bookmark on ${handle}/${id}`);
   }
@@ -1246,7 +1226,7 @@ await startFresh();
 async function shoot(file) {
   const { call } = await session("localhost");
   const shot = await call("Page.captureScreenshot", { format: "png" });
-  writeFileSync(file, Buffer.from(shot.result.data, "base64"));
+  NodeFS.writeFileSync(file, Buffer.from(shot.result.data, "base64"));
 }
 const sidebar = (label) =>
   app(
@@ -1254,7 +1234,7 @@ const sidebar = (label) =>
   );
 
 if (PARITY !== undefined) {
-  mkdirSync(PARITY, { recursive: true });
+  NodeFS.mkdirSync(PARITY, { recursive: true });
   // How Xtend opens each screen; x.com is then shown over the main area on the page the engine is on.
   const screens = [
     ["home-following", () => home("following")],
@@ -1268,26 +1248,17 @@ if (PARITY !== undefined) {
     ["messages", () => sidebar("Messages")],
   ];
   for (const [name, open] of screens) {
-    // oxlint-disable-next-line no-await-in-loop -- one screen at a time
     await open();
-    // oxlint-disable-next-line no-await-in-loop -- X and the screen settle
     await sleep(6_000);
-    // oxlint-disable-next-line no-await-in-loop -- one screen at a time
     await shoot(`${PARITY}/${name}-xtend.png`);
-    // oxlint-disable-next-line no-await-in-loop -- one screen at a time
     const page = await enginePath();
-    // oxlint-disable-next-line no-await-in-loop -- x.com over the main area, same page
     await go("#/x");
-    // oxlint-disable-next-line no-await-in-loop -- the pane moves with CSS only
     await sleep(1_500);
-    // oxlint-disable-next-line no-await-in-loop -- one screen at a time
     await shoot(`${PARITY}/${name}-x.png`);
     console.log(`${name}: ${page}`);
     // The search screen needs a result list to open a post from.
     if (name === "search") {
-      // oxlint-disable-next-line no-await-in-loop -- one screen at a time
       await go(`#/search?q=${encodeURIComponent(SEARCH)}&f=top`);
-      // oxlint-disable-next-line no-await-in-loop -- the results draw
       await sleep(3_000);
     }
   }
@@ -1314,10 +1285,8 @@ if (!writes && chosen.some(([name]) => WRITES.test(name)))
 
 let streak = 0;
 for (let n = 1; n <= RUNS; n++) {
-  // oxlint-disable-next-line no-await-in-loop -- runs are spaced out on purpose
   if (n > 1 && PAUSE_MS > 0) await sleep(PAUSE_MS);
   if (RUNS > 1) console.log(`-- run ${n} at ${new Date().toTimeString().slice(0, 8)}`);
-  // oxlint-disable-next-line no-await-in-loop -- runs are sequential by design
   streak = (await round(n)).length === 0 ? streak + 1 : 0;
 }
 if (writes) {

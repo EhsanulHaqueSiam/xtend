@@ -1,5 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off -- stands in for the raw stdin pipe the desktop holds.
-import { PassThrough } from "node:stream";
+import * as NodeStream from "node:stream";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
@@ -73,7 +73,7 @@ describe("xtend cli", () => {
         const stopped: Array<ServiceSupervisor> = [];
         const closeStdin = (supervisor: ServiceSupervisor) =>
           Effect.gen(function* () {
-            const stdin = new PassThrough();
+            const stdin = new NodeStream.PassThrough();
             // Stands in for runServer: serves until interrupted, then closes what it opened.
             const server = Effect.never.pipe(
               Effect.onInterrupt(() => Effect.sync(() => stopped.push(supervisor))),

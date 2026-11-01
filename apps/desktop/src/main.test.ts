@@ -1,6 +1,6 @@
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 
@@ -35,19 +35,19 @@ vi.mock("./window/MainWindow.ts", async () => {
 let home: string;
 
 beforeEach(() => {
-  home = fs.mkdtempSync(path.join(os.tmpdir(), "xtend-main-"));
-  vi.stubEnv("XTEND_USER_DATA", path.join(home, "user-data"));
-  vi.stubEnv("XTEND_HOME", path.join(home, "service"));
+  home = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "xtend-main-"));
+  vi.stubEnv("XTEND_USER_DATA", NodePath.join(home, "user-data"));
+  vi.stubEnv("XTEND_HOME", NodePath.join(home, "service"));
   vi.stubEnv("XTEND_SERVICE_TOKEN", "tok");
   vi.stubEnv("XTEND_SERVICE_URL", undefined);
   vi.stubGlobal("fetch", async () => Response.json({ currentId: 1 }));
-  fs.mkdirSync(path.join(home, "user-data"));
+  NodeFS.mkdirSync(NodePath.join(home, "user-data"));
 });
 
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
-  fs.rmSync(home, { recursive: true, force: true });
+  NodeFS.rmSync(home, { recursive: true, force: true });
 });
 
 type FakeElectron = typeof import("./testing/fakeElectron.ts");
@@ -77,18 +77,18 @@ it("lets only the app view repoint the service, and only at a URL it can start w
   await vi.waitFor(() => expect(windows()).toHaveLength(1));
   const [first] = windows();
   const x = first!.window.webContents;
-  const configFile = path.join(home, "user-data", "config.json");
+  const configFile = NodePath.join(home, "user-data", "config.json");
   const remote = { url: "http://mini.tail.ts.net:4820", token: "theirs" };
 
   ipcMain.sendFrom(x, REMOTE_SET_CHANNEL, remote);
   ipcMain.sendFrom(new FakeContents(), REMOTE_SET_CHANNEL, remote);
   await expect(ipcMain.invokeFrom(x, REMOTE_CHECK_CHANNEL, remote)).rejects.toThrow();
   ipcMain.sendFrom(first!.appContents, REMOTE_SET_CHANNEL, { url: "mini:4820", token: "theirs" });
-  expect(fs.existsSync(configFile)).toBe(false);
+  expect(NodeFS.existsSync(configFile)).toBe(false);
   expect(app.relaunched).toBe(0);
 
   ipcMain.sendFrom(first!.appContents, REMOTE_SET_CHANNEL, remote);
-  expect(JSON.parse(fs.readFileSync(configFile, "utf8"))).toEqual({ remote });
+  expect(JSON.parse(NodeFS.readFileSync(configFile, "utf8"))).toEqual({ remote });
   expect([app.relaunched, app.quits]).toEqual([1, 1]);
 });
 
@@ -126,9 +126,9 @@ it("opens a deep link that arrived before the service answered once the window i
 it("sends each service only its own token: the saved remote's to the remote, the base dir's to an explicit URL", async () => {
   vi.stubEnv("XTEND_SERVICE_TOKEN", undefined);
   const remote = { url: "http://mini.tail.ts.net:4820", token: "theirs" };
-  fs.writeFileSync(path.join(home, "user-data", "config.json"), JSON.stringify({ remote }));
-  fs.mkdirSync(path.join(home, "service"));
-  fs.writeFileSync(path.join(home, "service", "auth-token"), "ours\n");
+  NodeFS.writeFileSync(NodePath.join(home, "user-data", "config.json"), JSON.stringify({ remote }));
+  NodeFS.mkdirSync(NodePath.join(home, "service"));
+  NodeFS.writeFileSync(NodePath.join(home, "service", "auth-token"), "ours\n");
   const { createMainWindow } = await import("./window/MainWindow.ts");
   const opened = async () => {
     await vi.waitFor(() => expect(createMainWindow).toHaveBeenCalledTimes(1));

@@ -13,7 +13,7 @@ import { expect, it } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
 import { paid, quoting } from "../../../test/fixtures";
-import { render } from "../../../test/render";
+import { fakeTimers, render } from "../../../test/render";
 import { NOT_A_HANDLE } from "../../lib/utils";
 import { AnalyzeScreen } from "../../routes/analyze";
 import { AskPanel } from "./Ask";
@@ -22,6 +22,8 @@ import { Posts } from "./PostsTable";
 import { LineChart } from "./ui";
 
 const DAY_MS = 86_400_000;
+// Every test runs from this moment, so "a day ago" and "fetched now" mean the same to the screens.
+const NOW = Date.parse("2026-10-31T12:00:00.000Z");
 const noPrivate: NonPublic = { lastRun: null, byPost: [], nightly: null };
 
 /** A post `daysAgo` old whose engagement rate is `likes` per 1000 views. */
@@ -29,7 +31,7 @@ const post = (postId: string, likes: number, daysAgo = 1): AccountPost => ({
   postId,
   url: `https://x.com/siamships/status/${postId}`,
   text: `post ${postId}`,
-  createdAt: new Date(Date.now() - daysAgo * DAY_MS).toISOString(),
+  createdAt: new Date(NOW - daysAgo * DAY_MS).toISOString(),
   kind: "text",
   views: 1000,
   likes,
@@ -43,7 +45,7 @@ const post = (postId: string, likes: number, daysAgo = 1): AccountPost => ({
 const data = (posts: ReadonlyArray<AccountPost>): AnalyzeData => ({
   handle: "siamships",
   avatarUrl: null,
-  fetchedAt: new Date().toISOString(),
+  fetchedAt: new Date(NOW).toISOString(),
   posts,
   snapshots: [],
   heatmap: [],
@@ -55,6 +57,7 @@ const data = (posts: ReadonlyArray<AccountPost>): AnalyzeData => ({
 });
 
 it("marks the best five green and the worst five red from ten posts on, never one post both", async () => {
+  using _clock = fakeTimers({ now: NOW, shouldAdvanceTime: true });
   // Seven posts: 7% down to 1% engagement; the oldest is outside the 30-day metrics window.
   const seven = [7, 6, 5, 4, 3, 2, 1].map((likes) =>
     post(String(100 + likes), likes * 10, likes === 1 ? 40 : 1),
@@ -103,6 +106,7 @@ const watched = (handle: string): WatchEntry => ({
 });
 
 it("fetches one competitor at a time, and refuses a typo before it reaches the service", async () => {
+  using _clock = fakeTimers({ now: NOW, shouldAdvanceTime: true });
   const fetched: Array<string> = [];
   let release = () => {};
   const firstFetch = new Promise<void>((resolve) => (release = resolve));
@@ -147,6 +151,7 @@ it("fetches one competitor at a time, and refuses a typo before it reaches the s
 });
 
 it("does not offer to fetch again reports it could not read", async () => {
+  using _clock = fakeTimers({ now: NOW, shouldAdvanceTime: true });
   await using screen = await render(<Competitors data={data([post("1", 50)])} />, {
     service: {
       "costs.quote": quoting(() => paid(0.00097)),
@@ -162,6 +167,7 @@ it("does not offer to fetch again reports it could not read", async () => {
 });
 
 it("opens a fetched competitor's top posts from the keyboard", async () => {
+  using _clock = fakeTimers({ now: NOW, shouldAdvanceTime: true });
   await using screen = await render(<Competitors data={data([post("1", 50)])} />, {
     service: {
       "costs.quote": quoting(),
@@ -189,6 +195,7 @@ it("opens a fetched competitor's top posts from the keyboard", async () => {
 });
 
 it("keeps paid Analyze actions off until their price arrives", async () => {
+  using _clock = fakeTimers({ now: NOW, shouldAdvanceTime: true });
   await using screen = await render(<AnalyzeScreen />, {
     router: "/analyze?tab=posts",
     service: {
@@ -201,6 +208,7 @@ it("keeps paid Analyze actions off until their price arrives", async () => {
 });
 
 it("prices Refresh posts before any refresh, then shows the posts it loaded", async () => {
+  using _clock = fakeTimers({ now: NOW, shouldAdvanceTime: true });
   const refreshes: Array<number> = [];
   let current = data([post("1", 10)]);
   await using screen = await render(<AnalyzeScreen />, {
@@ -225,6 +233,7 @@ it("prices Refresh posts before any refresh, then shows the posts it loaded", as
 });
 
 it("shows the private metrics Fetch now read", async () => {
+  using _clock = fakeTimers({ now: NOW, shouldAdvanceTime: true });
   let current = data([post("1", 10)]);
   await using screen = await render(<AnalyzeScreen />, {
     router: "/analyze?tab=posts",
@@ -237,7 +246,7 @@ it("shows the private metrics Fetch now read", async () => {
           current = {
             ...current,
             nonPublic: {
-              lastRun: { at: new Date().toISOString(), posts: 1, error: null },
+              lastRun: { at: new Date(NOW).toISOString(), posts: 1, error: null },
               byPost: [{ ...row, linkClicks: 0, follows: 0, likes: 0, replies: 0, reposts: 0 }],
               nightly: true,
             },
@@ -251,6 +260,7 @@ it("shows the private metrics Fetch now read", async () => {
 });
 
 it("turns the nightly private-metrics fetch off beside its status", async () => {
+  using _clock = fakeTimers({ now: NOW, shouldAdvanceTime: true });
   const set: Array<boolean> = [];
   let current = { ...data([post("1", 10)]), nonPublic: { ...noPrivate, nightly: true } };
   await using screen = await render(<AnalyzeScreen />, {
@@ -275,6 +285,7 @@ it("turns the nightly private-metrics fetch off beside its status", async () => 
 });
 
 it("turns the nightly fetch on only once its price is known, and off at any time", async () => {
+  using _clock = fakeTimers({ now: NOW, shouldAdvanceTime: true });
   const unpriced = (nightly: boolean) =>
     render(<AnalyzeScreen />, {
       router: "/analyze?tab=posts",
@@ -302,6 +313,7 @@ const answering = (asked: Array<string>) => ({
 });
 
 it("asks only once posts are loaded: an answer over nothing is still a paid call", async () => {
+  using _clock = fakeTimers({ now: NOW, shouldAdvanceTime: true });
   const asked: Array<string> = [];
   await using screen = await render(<AskPanel data={data([])} />, { service: answering(asked) });
   await userEvent.fill(screen.getByLabelText("Question"), "Why did it flop?");
@@ -314,6 +326,7 @@ it("asks only once posts are loaded: an answer over nothing is still a paid call
 });
 
 it("asks the question as typed, once, and shows the answer", async () => {
+  using _clock = fakeTimers({ now: NOW, shouldAdvanceTime: true });
   const asked: Array<string> = [];
   await using screen = await render(<AskPanel data={data([post("1", 10)])} />, {
     service: answering(asked),
@@ -325,6 +338,7 @@ it("asks the question as typed, once, and shows the answer", async () => {
 });
 
 it("inspects Overview history with arrows, Home and End without triggering a paid refresh", async () => {
+  using _clock = fakeTimers({ now: NOW, shouldAdvanceTime: true });
   const loaded = {
     ...data([post("1", 10)]),
     viewsByPostDay: [
@@ -364,6 +378,7 @@ it("inspects Overview history with arrows, Home and End without triggering a pai
 });
 
 it("the pointer selects the nearest history point, and leaving restores its dates and fitted range", async () => {
+  using _clock = fakeTimers({ now: NOW, shouldAdvanceTime: true });
   await using screen = await render(
     <LineChart
       points={[
@@ -387,6 +402,7 @@ it("the pointer selects the nearest history point, and leaving restores its date
 });
 
 it("empty and single histories stay readable when the data changes", async () => {
+  using _clock = fakeTimers({ now: NOW, shouldAdvanceTime: true });
   await using screen = await render(<LineChart points={[]} />);
   await expect.element(screen.getByText("Not enough data for a chart yet.")).toBeVisible();
   await screen.rerender(<LineChart points={[{ label: "Oct 20", value: 0 }]} />);

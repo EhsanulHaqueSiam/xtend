@@ -1,17 +1,20 @@
 import type { DraftPatch, EnginePost } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
-import { expect, it } from "vite-plus/test";
+import { expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
 import { installFakeBridge } from "../../../test/fakeBridge";
 import { draft, settings } from "../../../test/fixtures";
-import { render } from "../../../test/render";
+import { fakeTimers, render } from "../../../test/render";
 import { markXReady, registerXWebview, type XWebview } from "../../state/x";
 import { EngineSync } from "./EngineSync";
 import { Poll } from "./PostParts";
 import { ReplyComposer } from "./ReplyComposer";
 import { ReplySort } from "./ReplySort";
 import { Timeline } from "./Timeline";
+
+// Polls count their days left from now; these tests run at this moment.
+const NOW = Date.parse("2026-10-31T12:00:00.000Z");
 
 const post = (postId: string, text: string, extra: Partial<EnginePost> = {}): EnginePost => ({
   postId,
@@ -302,6 +305,7 @@ it("opens X's Repost / Quote popover, and Quote posts the comment over the quote
 });
 
 it("votes in an open poll through X's own radio, then shows the results with the vote counted", async () => {
+  using _clock = fakeTimers({ now: NOW, shouldAdvanceTime: true });
   const bridge = installFakeBridge();
   const scripts: Array<string> = [];
   // The engine: X takes the vote and draws its results.
@@ -329,7 +333,7 @@ it("votes in an open poll through X's own radio, then shows the results with the
               { label: "Tabs", votes: 58 },
               { label: "Spaces", votes: 41 },
             ],
-            endsAt: new Date(Date.now() + 49 * 3_600_000).toISOString(),
+            endsAt: new Date(NOW + 49 * 3_600_000).toISOString(),
             final: false,
             voted: null,
           },
@@ -353,12 +357,13 @@ it("votes in an open poll through X's own radio, then shows the results with the
 });
 
 it("keeps a vote X took when the poll is drawn again, as a list does after scrolling", async () => {
+  using _clock = fakeTimers({ now: NOW, shouldAdvanceTime: true });
   const poll = {
     choices: [
       { label: "Tabs", votes: 1 },
       { label: "Spaces", votes: 0 },
     ],
-    endsAt: new Date(Date.now() + 49 * 3_600_000).toISOString(),
+    endsAt: new Date(NOW + 49 * 3_600_000).toISOString(),
     final: false,
     voted: null,
   };
@@ -370,7 +375,7 @@ it("keeps a vote X took when the poll is drawn again, as a list does after scrol
   await expect.element(screen.getByText("Spaces ✓")).toBeVisible();
   // Every poll scrolled out of the virtualized list, long enough for unused state to go...
   await screen.rerender(<p>Elsewhere in the list</p>);
-  await new Promise((r) => setTimeout(r, 200));
+  await vi.advanceTimersByTimeAsync(200);
   // ...then the row scrolled back in, a new Poll.
   await screen.rerender(<Poll key="b" postId="51" poll={poll} onVote={vote} />);
   await expect.element(screen.getByText("Spaces ✓")).toBeVisible();

@@ -99,24 +99,26 @@ const make = Effect.gen(function* () {
   const settings = yield* SettingsStore.SettingsStore;
   const store = yield* AnalyticsStore.AnalyticsStore;
 
-  const fetchRows = (ids: ReadonlyArray<string>, now: DateTime.DateTime) =>
-    Effect.gen(function* () {
-      const end = DateTime.formatIso(now);
-      const start = DateTime.formatIso(DateTime.subtract(now, { days: WINDOW_DAYS }));
-      const rows: Array<Row> = [];
-      for (let i = 0; i < ids.length; i += IDS_PER_CALL) {
-        const batch = ids.slice(i, i + IDS_PER_CALL);
-        const response = yield* treg.call({
-          endpoint: "x/2/tweets/analytics",
-          method: "GET",
-          query: { ids: batch.join(","), start_time: start, end_time: end, granularity: "total" },
-          purpose: "analyze.nonPublic",
-          expectedCostUsd: RATE_CARD.readPage * batch.length,
-        });
-        rows.push(...parseAnalytics(response.body, end.slice(0, 10)));
-      }
-      return rows;
-    });
+  const fetchRows = Effect.fn("PostAnalytics.fetchRows")(function* (
+    ids: ReadonlyArray<string>,
+    now: DateTime.DateTime,
+  ) {
+    const end = DateTime.formatIso(now);
+    const start = DateTime.formatIso(DateTime.subtract(now, { days: WINDOW_DAYS }));
+    const rows: Array<Row> = [];
+    for (let i = 0; i < ids.length; i += IDS_PER_CALL) {
+      const batch = ids.slice(i, i + IDS_PER_CALL);
+      const response = yield* treg.call({
+        endpoint: "x/2/tweets/analytics",
+        method: "GET",
+        query: { ids: batch.join(","), start_time: start, end_time: end, granularity: "total" },
+        purpose: "analyze.nonPublic",
+        expectedCostUsd: RATE_CARD.readPage * batch.length,
+      });
+      rows.push(...parseAnalytics(response.body, end.slice(0, 10)));
+    }
+    return rows;
+  });
 
   const refresh = Effect.fn("PostAnalytics.refresh")(
     function* (manual: boolean) {
@@ -130,9 +132,9 @@ const make = Effect.gen(function* () {
         .map((p) => p.postId);
       const result = yield* fetchRows(ids, now).pipe(
         Effect.map((rows) => ({ rows, error: null })),
-        Effect.catchTag("XApiError", (e) =>
-          Effect.succeed({ rows: [] as ReadonlyArray<Row>, error: e.message }),
-        ),
+        Effect.catchTags({
+          XApiError: (e) => Effect.succeed({ rows: [] as ReadonlyArray<Row>, error: e.message }),
+        }),
       );
       yield* sql.withTransaction(
         Effect.gen(function* () {

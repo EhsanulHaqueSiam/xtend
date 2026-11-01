@@ -8,6 +8,7 @@ import { Section, Stat, statRow } from "../ui/layout";
 import { AnalyzePage, NotLoaded } from "./AnalyzePage";
 import { AskPanel } from "./Ask";
 import { fmt, insetTable, LineChart, pct, signed } from "./ui";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 const CHART_HEIGHT = 140;
 
@@ -37,15 +38,18 @@ export function Overview({ data }: { readonly data: AnalyzeData }) {
             value={fmt(latest?.followers ?? seenFollowers)}
           />
           {/* Until a snapshot is 30 days old there is nothing to compare against. */}
-          <div title={delta === null ? "Needs a snapshot at least 30 days old" : undefined}>
-            <Stat
-              label={delta === null ? "30 day change" : `Since ${delta.sinceDay}`}
-              value={delta === null ? "–" : signed(delta.delta)}
-              tone={
-                delta === null || delta.delta === 0 ? undefined : delta.delta > 0 ? "up" : "down"
-              }
-            />
-          </div>
+          <Tooltip disabled={delta !== null}>
+            <TooltipTrigger render={<div />}>
+              <Stat
+                label={delta === null ? "30 day change" : `Since ${delta.sinceDay}`}
+                value={delta === null ? "–" : signed(delta.delta)}
+                tone={
+                  delta === null || delta.delta === 0 ? undefined : delta.delta > 0 ? "up" : "down"
+                }
+              />
+            </TooltipTrigger>
+            <TooltipPopup>Needs a snapshot at least 30 days old</TooltipPopup>
+          </Tooltip>
           <Stat label="Following" value={fmt(latest?.following ?? null)} />
           <Stat label="Posts" value={fmt(latest?.posts ?? null)} />
         </div>
@@ -62,9 +66,12 @@ export function Overview({ data }: { readonly data: AnalyzeData }) {
               <th className={cn(t.th, "text-right")}>Likes</th>
               <th className={cn(t.th, "text-right")}>Replies</th>
               <th className={cn(t.th, "text-right")}>Reposts</th>
-              <th className={cn(t.th, "text-right")} title="Engagements over views">
-                ER
-              </th>
+              <Tooltip>
+                <TooltipTrigger render={<th className={cn(t.th, "text-right")} />}>
+                  ER
+                </TooltipTrigger>
+                <TooltipPopup>Engagements over views</TooltipPopup>
+              </Tooltip>
             </tr>
           </thead>
           <tbody>

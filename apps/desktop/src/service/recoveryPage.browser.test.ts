@@ -3,6 +3,8 @@ import { page, userEvent } from "vite-plus/test/browser";
 
 import { failureReason, recoveryPage } from "./recoveryPage.ts";
 
+const FAILED_AT = Date.parse("2026-10-31T12:00:00.000Z");
+
 let frame: HTMLIFrameElement | undefined;
 afterEach(() => frame?.remove());
 
@@ -19,12 +21,14 @@ function mount(remote: { url: string; token: string } | null) {
   };
   const win = frame.contentWindow!;
   Reflect.set(win, "desktopBridge", bridge);
+  // The page's own script reads the frame's clock: twelve seconds after the failure.
+  vi.spyOn((win as Window & typeof globalThis).Date, "now").mockReturnValue(FAILED_AT + 12_000);
   const doc = win.document;
   doc.open();
   doc.write(
     recoveryPage(remote?.url ?? "http://127.0.0.1:4820", {
       reason: failureReason("ERR_CONNECTION_REFUSED"),
-      at: Date.now() - 12_000,
+      at: FAILED_AT,
     }),
   );
   doc.close();

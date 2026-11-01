@@ -1,7 +1,7 @@
 import "../../index.css";
 import { AccountsError, type Settings, type SpendSummary } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
-import { beforeEach, expect, it } from "vite-plus/test";
+import { expect, it } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
 import { peoplePage, quoting } from "../../../test/fixtures";
@@ -52,9 +52,8 @@ const service = {
   "accounts.list": () => Effect.succeed({ accounts: [], currentId: 1 }),
 } as const;
 
-beforeEach(async () => {
-  await page.viewport(1440, 920);
-});
+/** Every test starts at the same desktop-sized viewport; one may resize it after. */
+const setup = () => page.viewport(1440, 920);
 
 const shell = () => (
   <>
@@ -68,6 +67,7 @@ const shell = () => (
 );
 
 it("puts x.com over the main area on X's pages and beside the tools, from one webview", async () => {
+  await setup();
   await using screen = await render(shell(), { router: "/compose", service });
   const pane = screen.getByRole("region", { name: "x.com", includeHidden: true });
   await expect.element(pane).toHaveAttribute("data-mode", "panel");
@@ -93,6 +93,7 @@ it("puts x.com over the main area on X's pages and beside the tools, from one we
 });
 
 it("opens routes sent from x.com beside it, and sends the Clean X defaults at start", async () => {
+  await setup();
   window.localStorage.setItem("xtend:x-panel-open", "false");
   await using screen = await render(shell(), { router: "/x", service });
   const guest = screen.container.querySelector("webview");
@@ -108,6 +109,7 @@ it("opens routes sent from x.com beside it, and sends the Clean X defaults at st
 });
 
 it("opens the palette on ⌘K sent from inside x.com", async () => {
+  await setup();
   await using screen = await render(shell(), { router: "/x", service });
   bridge.emitShortcut("palette");
   const palette = screen.getByRole("dialog", { name: "Command palette" });
@@ -116,6 +118,7 @@ it("opens the palette on ⌘K sent from inside x.com", async () => {
 });
 
 it("says why the service refused an account switch instead of doing nothing", async () => {
+  await setup();
   await using screen = await render(shell(), {
     router: "/compose",
     service: {
@@ -142,6 +145,7 @@ it("says why the service refused an account switch instead of doing nothing", as
 });
 
 it("offers show and hide X panel commands in the palette", async () => {
+  await setup();
   await using screen = await render(shell(), { router: "/compose", service });
   const pane = screen.getByRole("region", { name: "x.com", includeHidden: true });
   await userEvent.keyboard("{Meta>}k{/Meta}");
@@ -153,6 +157,7 @@ it("offers show and hide X panel commands in the palette", async () => {
 });
 
 it("counts pending requests on Automate and Needs you", async () => {
+  await setup();
   await using screen = await render(shell(), {
     router: "/automate",
     service: {
@@ -180,8 +185,10 @@ it("counts pending requests on Automate and Needs you", async () => {
     .toBeVisible();
 });
 
-for (const savedWidth of [440, 760]) {
-  it(`clamps a restored ${savedWidth}px panel on resize without changing the preference`, async () => {
+it.each([440, 760])(
+  "clamps a restored %ipx panel on resize without changing the preference",
+  async (savedWidth) => {
+    await setup();
     window.localStorage.setItem("xtend:x-panel-open", "true");
     window.localStorage.setItem("xtend:x-panel-width", String(savedWidth));
     const container = document.createElement("div");
@@ -205,10 +212,11 @@ for (const savedWidth of [440, 760]) {
     expect(window.localStorage.getItem("xtend:x-panel-width")).toBe(String(savedWidth));
     container.style.width = "900px";
     await expect.poll(() => width(pane.element())).toBe(360);
-  });
-}
+  },
+);
 
 it("reopens X from the shared tool header and preserves its webview", async () => {
+  await setup();
   window.localStorage.setItem("xtend:x-panel-open", "true");
   const container = document.createElement("div");
   container.style.cssText = "width:1440px;height:920px";
@@ -231,6 +239,7 @@ it("reopens X from the shared tool header and preserves its webview", async () =
 });
 
 it("moves the panel to each section's X page, hides it where X has none, and reloads only on a second click", async () => {
+  await setup();
   window.localStorage.setItem("xtend:x-panel-open", "true");
   await using screen = await render(shell(), { router: "/compose", service });
   const pane = screen.getByRole("region", { name: "x.com", includeHidden: true });

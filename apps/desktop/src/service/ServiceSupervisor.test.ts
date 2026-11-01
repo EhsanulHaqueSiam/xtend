@@ -1,7 +1,7 @@
-import { EventEmitter } from "node:events";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import * as NodeEvents from "node:events";
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 
@@ -9,7 +9,7 @@ import { superviseService } from "./ServiceSupervisor.ts";
 
 /** Every service child the supervisor spawned, with what it was started with and the signals it got. */
 const children = vi.hoisted(() => [] as Array<FakeChild>);
-class FakeChild extends EventEmitter {
+class FakeChild extends NodeEvents.EventEmitter {
   readonly killed: Array<string> = [];
   readonly args: ReadonlyArray<string>;
   readonly env: NodeJS.ProcessEnv;
@@ -44,7 +44,7 @@ let baseDir: string;
 let healthy: boolean;
 
 beforeEach(() => {
-  baseDir = fs.mkdtempSync(path.join(os.tmpdir(), "xtend-supervisor-"));
+  baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "xtend-supervisor-"));
   children.length = 0;
   healthy = false;
   vi.stubGlobal("fetch", async () => {
@@ -56,7 +56,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
-  fs.rmSync(baseDir, { recursive: true, force: true });
+  NodeFS.rmSync(baseDir, { recursive: true, force: true });
 });
 
 it("runs the service as a child, restarts it with backoff, and starts none once quit began", async () => {

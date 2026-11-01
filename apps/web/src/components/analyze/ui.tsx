@@ -103,7 +103,7 @@ export function LineChart({
   return (
     <div className="flex flex-col gap-1.5">
       <div
-        className="relative outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        className="relative outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         style={{ height }}
         role="slider"
         tabIndex={0}

@@ -144,7 +144,7 @@ function ListSwitcher({
       trigger={
         <button
           type="button"
-          className="no-drag flex min-w-0 cursor-pointer items-baseline gap-1.5 rounded-[var(--control-radius)] text-[13.5px] text-foreground outline-hidden transition-colors duration-150 hover:text-foreground/80 focus-visible:ring-2 focus-visible:ring-ring"
+          className="no-drag flex min-w-0 cursor-pointer items-baseline gap-1.5 rounded-[var(--control-radius)] text-[13.5px] text-foreground outline-hidden transition-colors duration-150 hover:text-foreground/80 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         >
           <span className="truncate">{current.name}</span>
           <span className="font-mono text-2xs text-muted-foreground tabular-nums">

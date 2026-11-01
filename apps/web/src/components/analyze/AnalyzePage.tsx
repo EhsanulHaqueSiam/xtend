@@ -4,6 +4,7 @@ import * as AsyncResult from "effect/reactivity/AsyncResult";
 import type { ReactNode } from "react";
 import { TextMorph } from "torph/react";
 
+import { useMinuteClock } from "../../lib/time";
 import { analyzeDataAtom, refreshAnalyzeAtom } from "../../state/analyze";
 import { useQuoteLabel } from "../../state/costs";
 import { PageHeader } from "../PageHeader";
@@ -72,11 +73,12 @@ export function AnalyzePage({
   const section = useSection("/analyze");
   const refreshState = useAtomValue(refreshAnalyzeAtom);
   const hasHandle = data !== null && data.handle !== null;
+  const now = useMinuteClock();
   // A day without a fetch is the one state that asks for a paid refresh.
   const stale =
     data?.fetchedAt !== null &&
     data?.fetchedAt !== undefined &&
-    Date.now() - new Date(data.fetchedAt).getTime() > STALE_MS;
+    now.getTime() - new Date(data.fetchedAt).getTime() > STALE_MS;
   return (
     <div className="flex h-full flex-col">
       <PageHeader

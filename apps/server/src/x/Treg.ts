@@ -107,8 +107,8 @@ const make = Effect.gen(function* () {
   const cacheKey = (input: TregCall, auth: string | null) =>
     `${auth === null ? "-" : Hash.string(auth)} ${input.method ?? "GET"} ${input.endpoint} ${encodeJson(input.query ?? {})} ${encodeJson(input.body ?? null)}`;
 
-  const readCache = (key: string, maxAge: Duration.Duration) =>
-    Effect.gen(function* () {
+  const readCache = Effect.fn("Treg.readCache")(
+    function* (key: string, maxAge: Duration.Duration) {
       const rows = yield* sql<{ body_json: string; fetched_at: string }>`
         SELECT body_json, fetched_at FROM x_cache WHERE cache_key = ${key}
       `;
@@ -117,16 +117,20 @@ const make = Effect.gen(function* () {
       const age = DateTime.distance(DateTime.makeUnsafe(hit.fetched_at), yield* DateTime.now);
       if (Duration.isGreaterThan(age, maxAge)) return null;
       return yield* decodeJson(hit.body_json);
-    }).pipe(Effect.orElseSucceed(() => null));
+    },
+    Effect.orElseSucceed(() => null),
+  );
 
-  const writeCache = (key: string, body: unknown) =>
-    Effect.gen(function* () {
+  const writeCache = Effect.fn("Treg.writeCache")(
+    function* (key: string, body: unknown) {
       const at = DateTime.formatIso(yield* DateTime.now);
       yield* sql`
         INSERT INTO x_cache (cache_key, body_json, fetched_at) VALUES (${key}, ${encodeJson(body)}, ${at})
         ON CONFLICT(cache_key) DO UPDATE SET body_json = excluded.body_json, fetched_at = excluded.fetched_at
       `;
-    }).pipe(Effect.ignore);
+    },
+    (effect) => Effect.ignore(effect),
+  );
 
   const isCached = (input: TregCall) => {
     const maxAge = input.cacheFor;
@@ -217,16 +221,17 @@ const make = Effect.gen(function* () {
         ),
       )
       .pipe(
-        Effect.catchTag("BudgetExceeded", (e) =>
-          Effect.fail(
-            new XApiError({
-              endpoint: input.endpoint,
-              reason: "budget",
-              status: null,
-              detail: e.message,
-            }),
-          ),
-        ),
+        Effect.catchTags({
+          BudgetExceeded: (e) =>
+            Effect.fail(
+              new XApiError({
+                endpoint: input.endpoint,
+                reason: "budget",
+                status: null,
+                detail: e.message,
+              }),
+            ),
+        }),
       );
 
     if (answer === null)

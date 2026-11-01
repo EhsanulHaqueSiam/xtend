@@ -14,6 +14,7 @@ import { Cost, Empty, table } from "../ui/layout";
 import { FreeOnX, profileUrl, XLink } from "../ui/x-link";
 import { AnalyzePage } from "./AnalyzePage";
 import { ErrorBar, errorText, fmt, when } from "./ui";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 function FetchButton({
   handle,
@@ -157,16 +158,16 @@ export function Competitors({ data }: { readonly data: AnalyzeData }) {
                   <th className={cn(table.th, "text-right")}>Followers</th>
                   <th className={cn(table.th, "hidden text-right @3xl:table-cell")}>Posts</th>
                   <th className={cn(table.th, "text-right")}>Avg views</th>
-                  <th
-                    className={cn(table.th, "text-right")}
-                    title={
-                      myImpressions === null
+                  <Tooltip>
+                    <TooltipTrigger render={<th className={cn(table.th, "text-right")} />}>
+                      You vs them
+                    </TooltipTrigger>
+                    <TooltipPopup>
+                      {myImpressions === null
                         ? `Your average ${fmt(myAvg)} views over theirs`
-                        : `Your average ${fmt(myImpressions)} impressions over their views`
-                    }
-                  >
-                    You vs them
-                  </th>
+                        : `Your average ${fmt(myImpressions)} impressions over their views`}
+                    </TooltipPopup>
+                  </Tooltip>
                   <th className={cn(table.th, "hidden @4xl:table-cell")}>Fetched</th>
                   <th className={table.th}>
                     <span className="sr-only">Actions</span>
@@ -291,8 +292,11 @@ function SeenFollowers({ handle }: { readonly handle: string }) {
   return followers === null ? (
     "–"
   ) : (
-    <span title="From a post your session saw; Fetch reads the profile">
-      {fmt(followers)} <span className="text-muted-foreground">seen</span>
-    </span>
+    <Tooltip>
+      <TooltipTrigger render={<span />}>
+        {fmt(followers)} <span className="text-muted-foreground">seen</span>
+      </TooltipTrigger>
+      <TooltipPopup>From a post your session saw; Fetch reads the profile</TooltipPopup>
+    </Tooltip>
   );
 }

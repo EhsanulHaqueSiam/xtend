@@ -22,6 +22,7 @@ import { Cost, Empty, PageBody, Section, table } from "../ui/layout";
 import { XLink } from "../ui/x-link";
 import { xPill, xPillSm } from "../x";
 import { AppLink, ErrorLine, causeMessage, errorMessage } from "./shared";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 const button = cn(xPill, xPillSm);
 
@@ -255,16 +256,23 @@ function ForYouSection() {
             Refresh
             <Cost usd={0} />
           </button>
-          <button
-            type="button"
-            className={button}
-            disabled={busy || assistQuote === "…"}
-            title="Three posts for today in your voice, from these topics and the day's picks. Filed in Compose, Automatic."
-            onClick={() => void write()}
-          >
-            {busy ? "Writing" : "Write 3 for today"}
-            <Cost label={assistQuote} />
-          </button>
+          <Tooltip>
+            <TooltipTrigger render={<span className="inline-flex" />}>
+              <button
+                type="button"
+                className={button}
+                disabled={busy || assistQuote === "…"}
+                onClick={() => void write()}
+              >
+                {busy ? "Writing" : "Write 3 for today"}
+                <Cost label={assistQuote} />
+              </button>
+            </TooltipTrigger>
+            <TooltipPopup>
+              Three posts for today in your voice, from these topics and the day's picks. Filed in
+              Compose, Automatic.
+            </TooltipPopup>
+          </Tooltip>
         </div>
       }
     >

@@ -68,11 +68,9 @@ export const xNavigate = (url: string): Promise<void> => {
 };
 
 /**
- * Moves the engine to an x.com page through X's own router, as a link clicked in X would: about a
- * second instead of a full reload, and a page X still holds shows without a fetch, so a screen
- * reads that page's keyed surface rather than resetting one. Before the first load, or when the
- * webview is not on a signed-in x.com page, it loads the URL instead. True when it moved the
- * engine; false when the engine already showed the page.
+ * Moves the engine to an x.com page through X's own router, like a link clicked in X: no full
+ * reload, and a page X still holds shows without a fetch, so screens read its keyed surface. Loads
+ * the URL instead before the first load or off a signed-in x.com page. True when it moved.
  */
 export const xGo = (url: string): Promise<boolean> => {
   if (!isXUrl(url)) return Promise.resolve(false);
@@ -114,12 +112,10 @@ const xRun = (code: string) =>
     : Promise.resolve(null);
 
 /**
- * The user scrolled near the end of a native list: X scrolls its own page and fetches the next.
- * X fetches when its end marker comes into view, and some jumps to the bottom fetch nothing (the
- * marker was in view already, or X was mid-fetch), so keep following the bottom until the last
- * post or person X draws there changes, stepping back a screen between tries so the marker comes
- * into view anew. A native list asks once per length, so one ask has to land. Page height is no
- * signal: images loading grow it too.
+ * Near a native list's end, X scrolls its own page to fetch the next. A jump to the bottom can
+ * fetch nothing (end marker already in view, or X mid-fetch), and the list asks once per length,
+ * so it follows the bottom, a screen back between tries, until X's last post or person changes.
+ * Page height is no signal: images grow it too.
  */
 export const xScrollMore = () =>
   xRun(`(async () => {
@@ -396,10 +392,8 @@ const pressMenu = (
       if (outcome.kind !== "over" || run !== overRun) return;
       over(true);
       for (;;) {
-        // oxlint-disable-next-line no-await-in-loop -- polls X's page until its dialog closes
         await new Promise((r) => setTimeout(r, 500));
         if (run !== overRun) return;
-        // oxlint-disable-next-line no-await-in-loop -- polls X's page until its dialog closes
         const open = await xRun(
           `location.pathname + location.search !== ${JSON.stringify(outcome.path)} || !!document.querySelector('[role="dialog"], [role="alertdialog"]')`,
         );

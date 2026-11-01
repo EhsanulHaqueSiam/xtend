@@ -139,8 +139,6 @@ test("accessibility: no serious or critical WCAG 2.1 AA violations on any screen
   await page.context().addInitScript({ content: axe.source });
 
   const found: Array<string> = [];
-  // One page, so one screen at a time.
-  /* eslint-disable no-await-in-loop */
   for (const screen of SCREENS) {
     await page.goto(screen);
     await page.getByRole("heading", { level: 1 }).waitFor();
@@ -153,7 +151,6 @@ test("accessibility: no serious or critical WCAG 2.1 AA violations on any screen
           `${screen} ${v.id} (${v.impact}, ${v.nodes.length}): ${v.nodes.map((n) => n.target.join(" ")).join(" | ")}`,
         );
   }
-  /* eslint-enable no-await-in-loop */
   expect(found).toEqual([]);
   // Browsing never pays: every paid call waits for a priced click.
   expect(treg.calls).toHaveLength(paidBySeeding);

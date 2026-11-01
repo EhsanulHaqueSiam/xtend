@@ -9,7 +9,8 @@ import { connectionAtom, eventsAtom } from "../../state/shell";
 afterEach(() => vi.useRealTimers());
 
 it("expires before the first event, recovers on a beat and expires again after silence", () => {
-  vi.useFakeTimers();
+  const start = Date.parse("2026-10-31T12:00:00.000Z");
+  vi.useFakeTimers({ now: start });
   const registry = Registry.make({
     initialValues: [Atom.initialValue(eventsAtom, AsyncResult.success([]))],
   });
@@ -18,7 +19,8 @@ it("expires before the first event, recovers on a beat and expires again after s
     expect(registry.get(connectionAtom)).toBe("connecting");
     vi.advanceTimersByTime(45_000);
     expect(registry.get(connectionAtom)).toBe("disconnected");
-    const beat: XtendEvent = { type: "service_state", at: new Date().toISOString(), payload: {} };
+    const at = new Date(start + 45_000).toISOString();
+    const beat: XtendEvent = { type: "service_state", at, payload: {} };
     registry.ensureNode(eventsAtom).setInitialValue(AsyncResult.success([beat]));
     expect(registry.get(connectionAtom)).toBe("connected");
     vi.advanceTimersByTime(45_000);

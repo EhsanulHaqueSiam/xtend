@@ -13,11 +13,16 @@ import * as TokenCipher from "../settings/TokenCipher.ts";
 import { xClientStub } from "../testing/xClientStub.ts";
 import * as ComposeAssist from "./ComposeAssist.ts";
 
+const decodeSamples = Schema.decodeUnknownSync(
+  Schema.Struct({ samples: Schema.Array(Schema.String) }),
+);
+
 // The model answers a score above 1, as models do; it sees what the service sends it.
 const seen: Array<unknown> = [];
 const assistStub = Layer.succeed(Assist.Assist)({
   generate: (request) => {
     seen.push(request.input);
+    // oxlint-disable-next-line xtend/no-inline-schema-compile -- the stub answers in whatever schema the request asks for
     return Schema.decodeUnknownEffect(request.output)({ score: 1.4, note: "shorter" }).pipe(
       Effect.orDie,
     );
@@ -84,9 +89,7 @@ describe("ComposeAssist", () => {
         yield* settings.update({ handle: "siam" });
         const match = yield* assist.voiceMatch(["draft"]);
         expect(match).toEqual({ score: 1, note: "shorter", samples: 20 });
-        const { samples } = Schema.decodeUnknownSync(
-          Schema.Struct({ samples: Schema.Array(Schema.String) }),
-        )(seen.at(-1));
+        const { samples } = decodeSamples(seen.at(-1));
         expect(samples.every((t) => t.startsWith("mine"))).toBe(true);
         expect(reads).toEqual(["siam"]);
 

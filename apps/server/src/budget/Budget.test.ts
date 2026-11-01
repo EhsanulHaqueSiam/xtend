@@ -4,6 +4,7 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Ref from "effect/Ref";
 
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
@@ -36,14 +37,20 @@ const layerUnreadable = Budget.layer.pipe(
 const request = { expectedUsd: 0.01, provider: "treg" as const, endpoint: "t", purpose: "test" };
 
 describe("Budget", () => {
-  // it.live: the bodies sleep on the real clock so every reservation is decided before any settles.
-  it.live("lets exactly as many concurrent callers through as the budget covers", () =>
+  it.effect("lets exactly as many concurrent callers through as the budget covers", () =>
     Effect.gen(function* () {
       const budget = yield* Budget.Budget;
       const settings = yield* SettingsStore.SettingsStore;
       yield* settings.update({ monthlyBudgetUsd: 0.03 });
-      // Every body sleeps, so all ten reservations are decided before any settles.
-      const body = Effect.sleep("20 millis").pipe(Effect.as({ value: "ok", costUsd: 0.01 }));
+      // The bodies hold until the budget's three are in, so no reservation settles before the
+      // other seven are decided.
+      const allIn = yield* Deferred.make<void>();
+      const started = yield* Ref.make(0);
+      const body = Ref.updateAndGet(started, (n) => n + 1).pipe(
+        Effect.tap((n) => (n === 3 ? Deferred.succeed(allIn, undefined) : Effect.void)),
+        Effect.andThen(Deferred.await(allIn)),
+        Effect.as({ value: "ok", costUsd: 0.01 }),
+      );
       const results = yield* Effect.all(
         Array.from({ length: 10 }, () => Effect.result(budget.spend(request, body))),
         { concurrency: "unbounded" },

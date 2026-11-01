@@ -74,6 +74,7 @@ function ListsScreen() {
   const reload = () =>
     void (handle === null ? undefined : xNavigate(`https://x.com/${handle}/lists`));
 
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- moves the engine (the session view) to this screen's X page while it is open.
   useEffect(open, [open]);
   const rows: Array<Row> = [];
   let group: string | null = null;

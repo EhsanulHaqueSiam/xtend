@@ -1,0 +1,28 @@
+name: Chromium
+description: The headless Chromium that web and desktop *.browser.test.* files and the e2e journeys run in, from cache.
+runs:
+  using: composite
+  steps:
+    - name: Resolve Playwright version
+      id: playwright
+      shell: bash
+      run: echo "version=$(node -p "require('./apps/web/node_modules/playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+    - name: Cache Chromium
+      id: chromium
+      uses: actions/cache@v6
+      with:
+        path: ~/.cache/ms-playwright
+        key: playwright-chromium-shell-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
+    - name: Install Chromium
+      if: steps.chromium.outputs.cache-hit != 'true'
+      shell: bash
+      run: node apps/web/node_modules/playwright/cli.js install --only-shell chromium
+    # The runner image usually has every library already; apt only runs when one is missing.
+    - name: Install missing Chromium libraries
+      shell: bash
+      run: |
+        browser=$(find "$HOME/.cache/ms-playwright" -name chrome-headless-shell -type f -print -quit)
+        test -n "$browser"
+        if ldd "$browser" | grep '=> not found'; then
+          sudo node apps/web/node_modules/playwright/cli.js install-deps chromium
+        fi

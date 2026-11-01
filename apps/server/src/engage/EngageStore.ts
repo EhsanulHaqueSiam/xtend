@@ -14,6 +14,10 @@ const decodePost = Schema.decodeUnknownSync(PostJson);
 const encodePost = Schema.encodeSync(PostJson);
 const HandlesJson = Schema.fromJsonString(NicheProfile.fields.handles);
 const TopicsJson = Schema.fromJsonString(NicheProfile.fields.topics);
+const decodeHandlesJson = Schema.decodeUnknownSync(HandlesJson);
+const decodeTopicsJson = Schema.decodeUnknownSync(TopicsJson);
+const encodeHandlesJson = Schema.encodeSync(HandlesJson);
+const encodeTopicsJson = Schema.encodeSync(TopicsJson);
 const encodeIds = Schema.encodeSync(Schema.fromJsonString(Schema.Array(Schema.String)));
 
 interface SentRow {
@@ -247,8 +251,8 @@ const make = Effect.gen(function* () {
       return r === undefined
         ? { handles: [], topics: [], updatedAt: null }
         : {
-            handles: Schema.decodeUnknownSync(HandlesJson)(r.handles_json),
-            topics: Schema.decodeUnknownSync(TopicsJson)(r.topics_json),
+            handles: decodeHandlesJson(r.handles_json),
+            topics: decodeTopicsJson(r.topics_json),
             updatedAt: r.updated_at,
           };
     }),
@@ -261,7 +265,7 @@ const make = Effect.gen(function* () {
     const at = yield* now;
     yield* sql`
       INSERT OR REPLACE INTO niche_profile (account_id, handles_json, topics_json, updated_at)
-      VALUES (${sql.literal(CURRENT_ACCOUNT)}, ${Schema.encodeSync(HandlesJson)(profile.handles)}, ${Schema.encodeSync(TopicsJson)(profile.topics)}, ${at})
+      VALUES (${sql.literal(CURRENT_ACCOUNT)}, ${encodeHandlesJson(profile.handles)}, ${encodeTopicsJson(profile.topics)}, ${at})
     `;
     return { ...profile, updatedAt: at };
   }, Effect.mapError(storeError));

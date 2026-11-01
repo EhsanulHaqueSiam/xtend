@@ -8,6 +8,8 @@ import { ServiceSupervisor } from "@xtend/contracts";
 
 import packageJson from "../package.json" with { type: "json" };
 
+const decodeSupervisor = Schema.decodeUnknownOption(ServiceSupervisor);
+
 const DEFAULT_PORT = 4820;
 
 export class ServerConfig extends Context.Service<
@@ -51,7 +53,7 @@ export const resolve = Effect.fn("ServerConfig.resolve")(function* (options: Res
     dbPath: path.join(baseDir, "xtend.sqlite"),
     staticDir: options.devUrl === undefined ? staticDir : undefined,
     devUrl: options.devUrl,
-    supervisor: Schema.decodeUnknownOption(ServiceSupervisor)(process.env.XTEND_SUPERVISOR).pipe(
+    supervisor: decodeSupervisor(process.env.XTEND_SUPERVISOR).pipe(
       Option.getOrElse(() => "none" as const),
     ),
   });

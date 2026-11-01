@@ -1,5 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off -- an in-process stdio pair is the point of this test.
-import { PassThrough } from "node:stream";
+import * as NodeStream from "node:stream";
 
 import { expect, it } from "vite-plus/test";
 
@@ -7,8 +7,8 @@ import { handleMcpMessage, MCP_TOOLS, runMcpStdio } from "./mcp.ts";
 
 it("lists tools and dispatches a call over a stdio pair", async () => {
   const calls: Array<[string, unknown]> = [];
-  const input = new PassThrough();
-  const output = new PassThrough();
+  const input = new NodeStream.PassThrough();
+  const output = new NodeStream.PassThrough();
   const chunks: Array<string> = [];
   output.on("data", (chunk: Buffer) => chunks.push(chunk.toString()));
   const done = runMcpStdio(input, output, async (method, payload) => {
@@ -51,8 +51,8 @@ it("answers an unknown method with a JSON-RPC error and a bad tool with isError"
 });
 
 it("answers a line it cannot parse and a request without a method, so no client waits forever", async () => {
-  const input = new PassThrough();
-  const output = new PassThrough();
+  const input = new NodeStream.PassThrough();
+  const output = new NodeStream.PassThrough();
   const chunks: Array<string> = [];
   output.on("data", (chunk: Buffer) => chunks.push(chunk.toString()));
   const done = runMcpStdio(input, output, () => Promise.resolve({}));

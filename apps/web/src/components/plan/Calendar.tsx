@@ -8,6 +8,7 @@ import { draftTitle, useDraftCost } from "../compose/DraftsList";
 import { Cost } from "../ui/layout";
 import { Menu, MenuItem } from "../ui/menu";
 import { DAYS, slotsOn, StatusDot } from "./ui";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 interface Event {
   readonly minute: number;
@@ -157,6 +158,7 @@ function DayRuler({
             return (
               // A bar, not a control: aria-label needs a role to be read on a span.
               <span
+                // oxlint-disable-next-line react/no-array-index-key -- h is the hour of the day, a fixed 24-bar row that never reorders.
                 key={h}
                 role="img"
                 aria-label={label}
@@ -167,6 +169,7 @@ function DayRuler({
             );
           return (
             <Menu
+              // oxlint-disable-next-line react/no-array-index-key -- h is the hour of the day, a fixed 24-bar row that never reorders.
               key={h}
               label={`Fill ${hhmm(h * 60)}`}
               trigger={
@@ -259,17 +262,25 @@ export function Calendar({
                   past && "opacity-60",
                 )}
               >
-                <button
-                  type="button"
-                  aria-pressed={onRuler}
-                  title="Show this day on the ruler"
-                  className="flex h-full w-full cursor-pointer items-center gap-1.5 px-3 text-left hover:text-foreground aria-pressed:text-foreground"
-                  onClick={() => setRulerKey(key)}
-                >
-                  {DAYS[parts.weekday]} {parts.day}
-                  {isToday ? <span className="size-1 rounded-full bg-foreground" /> : null}
-                  {onRuler ? <span className="ml-auto h-px w-3 bg-foreground" aria-hidden /> : null}
-                </button>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <button
+                        type="button"
+                        aria-pressed={onRuler}
+                        className="flex h-full w-full cursor-pointer items-center gap-1.5 px-3 text-left hover:text-foreground aria-pressed:text-foreground"
+                        onClick={() => setRulerKey(key)}
+                      />
+                    }
+                  >
+                    {DAYS[parts.weekday]} {parts.day}
+                    {isToday ? <span className="size-1 rounded-full bg-foreground" /> : null}
+                    {onRuler ? (
+                      <span className="ml-auto h-px w-3 bg-foreground" aria-hidden />
+                    ) : null}
+                  </TooltipTrigger>
+                  <TooltipPopup>Show this day on the ruler</TooltipPopup>
+                </Tooltip>
               </h2>
               <div className="flex flex-col gap-1 p-1.5">
                 {dayEvents(zone, day, slots, drafts).map((e) => {
@@ -278,30 +289,35 @@ export function Calendar({
                   if (d !== null) {
                     const movable = d.status === "queued";
                     return (
-                      <button
-                        key={d.id}
-                        type="button"
-                        title={draftTitle(d)}
-                        draggable={movable}
-                        className={cn(
-                          "flex w-full cursor-pointer flex-col gap-0.5 rounded-md px-1.5 py-1 text-left transition-colors duration-150 hover:bg-white/[0.05]",
-                          movable && "cursor-grab active:cursor-grabbing",
-                        )}
-                        onClick={() => onOpen(d)}
-                        onDragStart={(event) => {
-                          event.dataTransfer.setData(DRAFT_TYPE, d.id);
-                          event.dataTransfer.effectAllowed = "move";
-                        }}
-                      >
-                        <span className="flex items-center gap-1.5 font-mono text-2xs text-muted-foreground tabular-nums">
-                          <StatusDot status={d.status} />
-                          {hhmm(e.minute)}
-                          {d.status === "queued" ? null : <span>{d.status}</span>}
-                        </span>
-                        <span className="line-clamp-2 text-xs leading-snug break-words">
-                          {draftTitle(d)}
-                        </span>
-                      </button>
+                      <Tooltip key={d.id}>
+                        <TooltipTrigger
+                          render={
+                            <button
+                              type="button"
+                              draggable={movable}
+                              className={cn(
+                                "flex w-full cursor-pointer flex-col gap-0.5 rounded-md px-1.5 py-1 text-left transition-colors duration-150 hover:bg-white/[0.05]",
+                                movable && "cursor-grab active:cursor-grabbing",
+                              )}
+                              onClick={() => onOpen(d)}
+                              onDragStart={(event) => {
+                                event.dataTransfer.setData(DRAFT_TYPE, d.id);
+                                event.dataTransfer.effectAllowed = "move";
+                              }}
+                            />
+                          }
+                        >
+                          <span className="flex items-center gap-1.5 font-mono text-2xs text-muted-foreground tabular-nums">
+                            <StatusDot status={d.status} />
+                            {hhmm(e.minute)}
+                            {d.status === "queued" ? null : <span>{d.status}</span>}
+                          </span>
+                          <span className="line-clamp-2 text-xs leading-snug break-words">
+                            {draftTitle(d)}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipPopup>{draftTitle(d)}</TooltipPopup>
+                      </Tooltip>
                     );
                   }
                   // A slot already gone, today's included, would be posted by the scheduler's next tick.

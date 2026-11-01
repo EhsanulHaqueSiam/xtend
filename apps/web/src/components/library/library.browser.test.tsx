@@ -1,6 +1,6 @@
 import { type Collection, LibraryError, type SavedPost } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
-import { afterEach, expect, it, vi } from "vite-plus/test";
+import { expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
 import { paid, quoting, rates, xPost } from "../../../test/fixtures";
@@ -14,10 +14,6 @@ import { SearchTab } from "./SearchTab";
 import { SwipeTab } from "./SwipeTab";
 import { TrendsTab } from "./TrendsTab";
 import { Toasts } from "../ui/toast";
-
-afterEach(() => {
-  vi.restoreAllMocks();
-});
 
 const first = xPost("1", "AI agents need boring infra");
 const second = xPost("2", "Ship the ugly version");
@@ -139,7 +135,7 @@ it("saves a post into a user collection and says when the save failed", async ()
 });
 
 it("creates a collection, lists its posts, and clears the view when the open one is deleted", async () => {
-  vi.spyOn(window, "confirm").mockReturnValue(true);
+  using _confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   let collections = [collection(1, "Staff picks", true)];
   await using screen = await render(<CollectionsTab />, {
     service: {
@@ -310,7 +306,7 @@ it("shows how many checked posts each collection holds, files them into a new on
 
   await userEvent.click(card(screen, first.text).getByRole("checkbox"));
   await userEvent.click(card(screen, second.text).getByRole("checkbox"));
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  using confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
   await userEvent.click(screen.getByRole("button", { name: "Delete", exact: true }));
   expect(confirm).toHaveBeenCalledOnce();
   expect(deleted).toEqual([]);
@@ -375,7 +371,7 @@ it("searches the swipe file, keeps a note on blur, and deletes a post only after
   await userEvent.click(firstPost.getByRole("button", { name: "Close" }));
 
   // In the swipe file the delete reaches every collection, so it says so and asks first.
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  using confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
   const secondPost = await inspect(screen, second.text);
   const remove = secondPost.getByRole("button", { name: "Delete saved post" });
   await userEvent.click(remove);
@@ -389,7 +385,7 @@ it("searches the swipe file, keeps a note on blur, and deletes a post only after
 });
 
 it("moves focus into an opened post, back to its card on close, and to the next card once deleted", async () => {
-  vi.spyOn(window, "confirm").mockReturnValue(true);
+  using _confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   let rows = [saved(1, first), saved(2, second), saved(3, third)];
   // Under 46rem the open post covers the grid, taking the clicked card's focus with it.
   const container = document.createElement("div");
@@ -487,7 +483,7 @@ it("runs a paid search once while it is out, whatever submits it again", async (
 });
 
 it("declining a collection's delete deletes nothing and keeps it open", async () => {
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  using confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
   const deleted: Array<number> = [];
   await using screen = await render(<CollectionsTab />, {
     service: {
@@ -708,6 +704,7 @@ it("ideas stay with the country they were written for", async () => {
   await expect.element(anyTone).toBeEnabled();
   // The late answer for the United States has nowhere to land.
   release();
+  // oxlint-disable-next-line xtend/no-frame-waits-in-browser-tests -- proving a late answer never lands needs time to pass; nothing on screen marks the drop.
   await new Promise((resolve) => setTimeout(resolve, 100));
   expect(screen.getByText("UnitedStates idea 2").elements()).toHaveLength(0);
 });

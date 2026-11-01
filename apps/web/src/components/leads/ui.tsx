@@ -3,6 +3,7 @@ import { useState } from "react";
 
 import { cn, readableError } from "../../lib/utils";
 import { usd } from "../../state/costs";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 export const STAGES: ReadonlyArray<Stage> = ["new", "contacted", "replied", "customer", "ignored"];
 
@@ -25,9 +26,10 @@ const TIER_SCALE =
 /** A tier word that explains the scale on hover. */
 export function TierText({ tier }: { readonly tier: Tier | null }) {
   return tier === null ? null : (
-    <span title={TIER_SCALE} className="cursor-help">
-      {tier}
-    </span>
+    <Tooltip>
+      <TooltipTrigger render={<span className="cursor-help" />}>{tier}</TooltipTrigger>
+      <TooltipPopup>{TIER_SCALE}</TooltipPopup>
+    </Tooltip>
   );
 }
 

@@ -22,6 +22,7 @@ import { XLink } from "../ui/x-link";
 import { Cost, Empty, PageBody } from "../ui/layout";
 import { statusLabel, statusTone } from "./describe";
 import { runsOf } from "./Rules";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 /** Approvals that did not act (a budget skipped it, X refused it), one line under the header. */
 function NotDone({
@@ -39,9 +40,14 @@ function NotDone({
       role="status"
       className="flex shrink-0 items-center gap-3 border-b border-border px-6 py-1.5 text-xs"
     >
-      <p className={cn("min-w-0 flex-1 truncate", statusTone[first.status])} title={why}>
-        {runs.length === 1 ? why : `${runs.length} not done, the first ${why}`}
-      </p>
+      <Tooltip>
+        <TooltipTrigger
+          render={<p className={cn("min-w-0 flex-1 truncate", statusTone[first.status])} />}
+        >
+          {runs.length === 1 ? why : `${runs.length} not done, the first ${why}`}
+        </TooltipTrigger>
+        <TooltipPopup>{why}</TooltipPopup>
+      </Tooltip>
       <Button size="xs" variant="ghost" onClick={onOpenRuns}>
         Open runs
       </Button>
@@ -147,6 +153,7 @@ export function NeedsYouList({
   const [expanded, setExpanded] = useState<ReadonlySet<number>>(new Set());
   // The card last acted on: once the refetch drops it, focus moves to the card now in its place.
   const acted = useRef<{ readonly id: number; readonly index: number } | null>(null);
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- hands DOM focus to the card that took the acted-on card's place once the refetch drops it.
   useEffect(() => {
     const card = acted.current;
     if (card === null || requests.some((r) => r.id === card.id)) return;
@@ -181,7 +188,7 @@ export function NeedsYouList({
         <li
           key={r.id}
           tabIndex={0}
-          className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border py-3 outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border py-3 outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
           onKeyDown={(e) => {
             if (e.target !== e.currentTarget || e.metaKey || e.ctrlKey || e.altKey) return;
             if (e.key !== "a" && e.key !== "s") return;

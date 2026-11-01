@@ -6,9 +6,10 @@ name: Release
 # (electron-builder's GitHub publisher ignores the prerelease channel); a nightly app finds its
 # release by the -nightly tag and electron-updater falls back to that release's latest-*.yml. Each builds the macOS app (dmg, zip), the Linux AppImage and the CLI
 # tarball, checks them with the release smoke tests, and only then publishes. A manual run builds
-# the same files as workflow artifacts and publishes nothing. macOS builds are unsigned until the
-# signing secrets exist (see apps/desktop/electron-builder.yml), so macOS installs link to the
-# download instead of updating in place.
+# the same files as workflow artifacts and publishes nothing. Nothing builds until CI's checks pass
+# on the same commit, and a stable tag must point at a commit on main. macOS builds are unsigned
+# until the signing secrets exist (see apps/desktop/electron-builder.yml), so macOS installs link
+# to the download instead of updating in place.
 on:
   push:
     tags:
@@ -33,6 +34,10 @@ concurrency:
   cancel-in-progress: ${{ github.ref == 'refs/heads/main' }}
 
 jobs:
+  checks:
+    name: Checks
+    uses: ./.github/workflows/ci.yml
+
   version:
     name: Version
     runs-on: ubuntu-24.04
@@ -46,6 +51,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            # "behind" or "identical": the tagged commit is already on main.
+            status=$(gh api "repos/$GITHUB_REPOSITORY/compare/main...$GITHUB_SHA" -q .status)
+            if [[ "$status" != behind && "$status" != identical ]]; then
+              echo "$GITHUB_REF_NAME points at a commit that is not on main ($status)." >&2
+              exit 1
+            fi
             echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
             echo "nightly=false" >> "$GITHUB_OUTPUT"
             exit 0
@@ -58,7 +69,7 @@ jobs:
 
   mac:
     name: macOS
-    needs: version
+    needs: [version, checks]
     runs-on: macos-15
     timeout-minutes: 30
     steps:
@@ -95,7 +106,7 @@ jobs:
 
   linux:
     name: Linux AppImage and CLI
-    needs: version
+    needs: [version, checks]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:

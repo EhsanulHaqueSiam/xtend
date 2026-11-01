@@ -215,12 +215,15 @@ const make = Effect.gen(function* () {
     Effect.mapError(fail("activity")),
   );
 
-  const insertActivity = (personId: number, kind: Activity["kind"], detail: string) =>
-    Effect.gen(function* () {
-      const at = yield* now;
-      yield* sql`INSERT INTO activity (person_id, kind, at, detail) VALUES (${personId}, ${kind}, ${at}, ${detail})`;
-      yield* sql`UPDATE people SET last_activity = ${at} WHERE id = ${personId}`;
-    });
+  const insertActivity = Effect.fn("PeopleStore.insertActivity")(function* (
+    personId: number,
+    kind: Activity["kind"],
+    detail: string,
+  ) {
+    const at = yield* now;
+    yield* sql`INSERT INTO activity (person_id, kind, at, detail) VALUES (${personId}, ${kind}, ${at}, ${detail})`;
+    yield* sql`UPDATE people SET last_activity = ${at} WHERE id = ${personId}`;
+  });
 
   const idOfHandle = (handle: string) =>
     sql<{ id: number }>`
@@ -228,21 +231,24 @@ const make = Effect.gen(function* () {
 
   // Returns the new id, or null when the handle already exists in this account.
   // account_id is explicit: the conflict check runs before 014's trigger would stamp it.
-  const insertOne = (c: Candidate, source: string, listId?: number) =>
-    Effect.gen(function* () {
-      const at = yield* now;
-      const score = c.score ?? lightScore(c);
-      const inserted = yield* sql<{ id: number }>`
+  const insertOne = Effect.fn("PeopleStore.insertOne")(function* (
+    c: Candidate,
+    source: string,
+    listId?: number,
+  ) {
+    const at = yield* now;
+    const score = c.score ?? lightScore(c);
+    const inserted = yield* sql<{ id: number }>`
         INSERT INTO people (handle, name, user_id, followers, bio, score, tier, source, first_seen, last_activity, account_id)
         VALUES (${c.handle.toLowerCase()}, ${c.name}, ${c.userId}, ${c.followers}, ${c.bio}, ${score}, ${tierOf(score)}, ${source}, ${at}, ${at}, ${sql.literal(CURRENT_ACCOUNT)})
         ON CONFLICT(account_id, handle) DO NOTHING RETURNING id`;
-      const id = inserted[0]?.id ?? (yield* idOfHandle(c.handle))[0]!.id;
-      if (listId !== undefined)
-        yield* sql`INSERT OR IGNORE INTO list_members (list_id, person_id) VALUES (${listId}, ${id})`;
-      if (inserted[0] === undefined) return null;
-      yield* insertActivity(id, "found", `via ${source}`);
-      return id;
-    });
+    const id = inserted[0]?.id ?? (yield* idOfHandle(c.handle))[0]!.id;
+    if (listId !== undefined)
+      yield* sql`INSERT OR IGNORE INTO list_members (list_id, person_id) VALUES (${listId}, ${id})`;
+    if (inserted[0] === undefined) return null;
+    yield* insertActivity(id, "found", `via ${source}`);
+    return id;
+  });
 
   const add = Effect.fn("PeopleStore.add")(
     function* (input: PersonAdd) {
@@ -368,8 +374,8 @@ const make = Effect.gen(function* () {
     Effect.mapError(fail("logActivity")),
   );
 
-  const handles = (where: "all" | "ignored") =>
-    Effect.gen(function* () {
+  const handles = Effect.fn("PeopleStore.handles")(
+    function* (where: "all" | "ignored") {
       const rows =
         where === "all"
           ? yield* sql<{
@@ -379,7 +385,9 @@ const make = Effect.gen(function* () {
               handle: string;
             }>`SELECT handle FROM people WHERE stage = 'ignored' AND account_id = ${sql.literal(CURRENT_ACCOUNT)}`;
       return new Set(rows.map((r) => r.handle.toLowerCase()));
-    }).pipe(Effect.mapError(fail("handles")));
+    },
+    Effect.mapError(fail("handles")),
+  );
 
   const listHandles = Effect.fn("PeopleStore.listHandles")(
     function* (listId: number) {

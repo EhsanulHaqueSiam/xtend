@@ -53,6 +53,9 @@ const RisingRows = Schema.fromJsonString(
     ),
   }),
 );
+const decodeRegister = Schema.decodeUnknownEffect(Register);
+const decodeHotRows = Schema.decodeUnknownEffect(HotRows);
+const decodeRisingRows = Schema.decodeUnknownEffect(RisingRows);
 
 /** Surfaces whose posts are public by construction. Notifications and unknown pages stay home. */
 const SHARED_SOURCES: ReadonlySet<ObservationBatch["source"]> = new Set([
@@ -122,9 +125,7 @@ const make = Effect.gen(function* () {
 
   const register = Effect.fn("Pool.register")(function* () {
     const { text } = yield* call(HttpClientRequest.post(new URL("/register", POOL_URL).href));
-    const { installId } = yield* Schema.decodeUnknownEffect(Register)(text).pipe(
-      Effect.mapError(decodeError),
-    );
+    const { installId } = yield* decodeRegister(text).pipe(Effect.mapError(decodeError));
     yield* sql`UPDATE settings SET pool_install_id = ${installId} WHERE id = 1`.pipe(
       Effect.mapError(httpError),
     );
@@ -174,12 +175,8 @@ const make = Effect.gen(function* () {
       [get(`/trends/hot?limit=${HOT_LIMIT}`), get(`/trends/rising?limit=${RISING_LIMIT}`)],
       { concurrency: 2 },
     );
-    const h = yield* Schema.decodeUnknownEffect(HotRows)(hot.text).pipe(
-      Effect.mapError(decodeError),
-    );
-    const r = yield* Schema.decodeUnknownEffect(RisingRows)(rising.text).pipe(
-      Effect.mapError(decodeError),
-    );
+    const h = yield* decodeHotRows(hot.text).pipe(Effect.mapError(decodeError));
+    const r = yield* decodeRisingRows(rising.text).pipe(Effect.mapError(decodeError));
     return {
       posts: h.posts,
       installs: h.installs,

@@ -22,7 +22,7 @@ Xtend is a desktop-first X (Twitter) growth suite: one app whose sidebar holds b
 
 - `packages/contracts` - Effect Schema contracts and the RPC group. Anything that crosses the wire is typed here first.
 - `apps/server` - the service. Effect-heavy. Foundation services every screen uses: `x/Treg.ts` (the only HTTP door to treg: token, budget, read cache, spend log), `x/XClient.ts` (typed X reads and writes, every call names its `purpose`), `ai/Assist.ts` (one structured-output model call; screens pass instructions, input and an output schema), `settings/SettingsStore.ts` (handle, token, budget, voice notes, keywords, spend).
-- Each suite area (compose, plan, analyze, scores, library, engage, leads, automate) owns `packages/contracts/src/<area>.ts` (schemas, method names, its RpcGroup, merged into `WsRpcGroup`), `apps/server/src/<area>/<Area>Handlers.ts` (`layer` for its services, `layerHandlers` for its rpcs, both pre-merged in `server.ts` and `ws.ts`), one migration per area pair, and its own routes, components and state files in `apps/web`. Adding a screen never edits another screen's files. Read `docs/internals/effect-services.md` in T3 Code (vendored reference at `~/Work/ref/t3code`) before adding server code; the same rules apply here.
+- Each suite area (compose, plan, analyze, scores, library, engage, leads, automate) owns `packages/contracts/src/<area>.ts` (schemas, method names, its RpcGroup, merged into `WsRpcGroup`), `apps/server/src/<area>/<Area>Handlers.ts` (`layer` for its services, `layerHandlers` for its rpcs, both pre-merged in `server.ts` and `ws.ts`), one migration per area pair, and its own routes, components and state files in `apps/web`. Adding a screen never edits another screen's files. Read [Effect services](docs/internals/effect-services.md) before adding server code.
 - `apps/web` - React, Vite, TanStack Router, Tailwind 4, `@effect/atom-react`. The desktop wraps it.
 - Screens share one shape: `PageHeader` on top (the open section's name, plain-word filters, actions), then `components/ui/layout.tsx` (`PageBody`, `Section`, `Empty`, `Cost`, `Stat`, `table`). A tool's sections live in `components/shell/sections.ts` and show as rows under it in the sidebar; the page reads the open one with `useSection` and never draws its own tab row. Groups are a label and a hairline, not a card. Shared pieces live in `components/ui/` (`split.tsx` list plus detail column, `menu.tsx`, `popover.tsx`, `switch.tsx`, `field.tsx`, `x-link.tsx` to open a post on X beside the tool, `no-handle.tsx`); use them before writing a local one.
 - `apps/pool` - the Cloudflare Worker in front of the shared pool (Neon Postgres through Hyperdrive): issues install ids, takes observation batches, serves trends. The only thing that holds the pool's credentials. `pnpm --filter @xtend/pool deploy`.
@@ -35,17 +35,54 @@ Xtend is a desktop-first X (Twitter) growth suite: one app whose sidebar holds b
 - Reusable Effect functions are `Effect.fn("Service.operation")`. `Effect.gen` stays inline.
 - Errors are `Schema.TaggedError` with bounded attributes and the underlying failure in `cause`.
 - Inferred types over annotations. `any` is the enemy.
-- Comments say why. Not what, not how.
+- Comments say why. Not what, not how. Default to none; four lines at most.
 - Conventional commit titles: `feat(desktop): capture home timeline observations`.
+
+## Ways to hurt yourself
+
+1. **Killing by pattern.** Never `pkill -f`, `pgrep | kill`, or `kill` a PID found by matching a name, path or worktree string: your own agent process has the worktree path in its argv, and this machine runs other checkouts' dev desktops and services. Kill only a PID you captured at spawn, or the owner of your port after checking its cwd is your checkout.
+2. **Touching the live install.** `~/.xtend` and the installed app's Electron profile (its `x-session` partition holds the user's X cookies) are in use while you work. Reading and copying from them is fine. Never start a service against them, open them read-write, or clean them up. Two services on one database both run the scheduler and post the same drafts.
+3. **Writing to X.** A dev desktop is the user's real account. Never press like, reply, repost, follow, vote, post or a menu row from a script; only the user's click does that. The engine bench presses nothing but one bookmark it removes again.
+
+## Hit every surface
+
+The most common defect is a change that works on the path you tested and is missing everywhere else. Before calling work done, walk this list and say which entries applied:
+
+- **Entry points.** A sidebar section, the command palette, a keybinding, a post's "...", the side panel.
+- **Clients.** The web app alone in a browser, the desktop's app page, and the session view under it. Web has no engine: X screens must say so, not break.
+- **Lanes.** Session, API and model. Each capability takes the cheapest correct lane; a paid one shows its cost and is budget-capped.
+- **Transports.** WebSocket, HTTP, MCP, CLI and scheduled jobs call the same service method.
+- **Accounts.** Everything is scoped to one account; switching accounts must not leak another's data.
+- **Contracts.** Anything crossing the wire changes in `packages/contracts` first.
+- **Reverse states.** A way in needs the way out and the way to see it: queue and unqueue, follow and unfollow, enable and disable.
+- **Docs.** Does the change make existing guidance inaccurate?
 
 ## Dev
 
 - In a T3 worktree, `scripts/setup-worktree.ts` installs in the background (`t3.json`). While `.t3/setup-running` names a live PID, wait for it and do not install yourself. It ends with `.t3/setup-done` or `.t3/setup-failed` (with the error tail). With no marker at all, setup never ran here, so run `pnpm i`.
-- `pnpm i` installs. `pnpm dev` runs the service and the web app. `pnpm dev:desktop` builds the Electron main and launches it against the dev web server.
+- `pnpm i` installs. `pnpm dev` runs the service and the web app on this checkout's own port pair (read the real ports from its output). `pnpm dev:desktop` builds the Electron main and launches it against the dev web server.
 - Service state lives in `~/.xtend` by default; `--base-dir` overrides it. Dev runs use `<repo>/.xtend`, which is gitignored.
-- `pnpm check:changed` before you hand work back: it checks only what you changed. Otherwise `vp run typecheck` (tsc-rs), `vp test run <files>`, `vp lint`, `vp fmt`. Do not run repo-wide checks unless asked.
-- Screen tests render against a fake service: `render(ui, { service })`. See `docs/operations/development.md#screen-tests`.
-- Backend behaviour ships with a focused test beside it. Visual changes ship with a screenshot.
+- Need a second checkout? `git worktree add` it next to this one, not in `/tmp`, and remove it when done.
+
+## Verifying
+
+- `pnpm check:changed` before you push: format, lint, knip, typecheck of the packages your change reaches, and the tests beside changed files. CI runs the full suites. While iterating, `vp test run <files>` (`-t "<name>"` for one case).
+- **Do not run repo-wide checks** (`vp run -r test`, `pnpm test`, `pnpm typecheck`) unless asked. CI owns the full suite.
+- Lint gates: errors and warnings both fail. A suppression needs `-- <reason>`; a React effect needs one saying what it syncs with.
+- [Testing](docs/internals/testing.md) holds the rules. The short form:
+  - Test behavior that can break, at the lowest layer that fails on `main`; extend an existing case before adding one. No tests for types, copy, wiring or static markup.
+  - A logic, data or state bug gets a failing test first, then the fix. A visual bug gets before/after captures and no test. A service-only fix gets its test plus a short runtime transcript.
+  - Never wait on sleeps, polling or timeouts: `it.effect` with `TestClock`, await the `Deferred` or event, fake timers in browser tests. Lint enforces it.
+  - Screen tests are `*.browser.test.tsx` and render against a fake service: `await using screen = await render(ui, { service })`. See `docs/operations/development.md#screen-tests`.
+- Engine work (what the session view loads, reads or presses) is proven live with the engine bench on a signed-in dev desktop, three clean runs five minutes apart; the `test-xtend-app` skill shows how. Name the result in the PR.
+- User-visible changes get one integrated pass in the real app through `test-xtend-app`, by the primary agent after integrating. Subagents do not launch their own dev servers or desktops.
+- Paid lanes (treg, X API, models) spend the user's balance. Prefer fake-service tests and seeded observations; use a paid call only when the change depends on it, and say what it cost.
+
+## Pull requests
+
+- Title: a conventional commit in plain words, `fix(web): new threads no longer spike CPU`. One problem per PR.
+- Body (`.github/pull_request_template.md`): the problem in a sentence or two, then the fix, then what you ran and saw. UI changes carry before/after captures; motion or timing a short recording. Upload evidence to GitHub; never commit PR-only assets (CI rejects `.github/pr-assets/`).
+- `Check` is the one required CI job. Babysitting a PR: verify each bot finding against the source, fix real ones, dismiss false positives with a written reason, stay quiet when nothing is new.
 
 ## X parity references (Mobbin MCP)
 

@@ -15,6 +15,7 @@ import {
   type Locator,
   type LocatorSelectors,
 } from "vite-plus/test/browser";
+import { vi } from "vite-plus/test";
 
 import { fakeServiceValues, type FakeService } from "./fakeService";
 
@@ -132,6 +133,29 @@ export async function render(
 }
 
 /** Picks `option` in a `ui/select.tsx` Select: opens its list, then clicks the option by name. */
+/** Fake timers for one test: `using _timers = fakeTimers()`. Fakes every clock by default. */
+export function fakeTimers(config?: Parameters<typeof vi.useFakeTimers>[0]): Disposable {
+  vi.useFakeTimers(config);
+  return { [Symbol.dispose]: () => void vi.useRealTimers() };
+}
+
+/** Replaces one global for one test and restores exactly that global on dispose. */
+export function stubGlobal(name: string, value: unknown): Disposable {
+  const original = Object.getOwnPropertyDescriptor(globalThis, name);
+  Object.defineProperty(globalThis, name, {
+    value,
+    configurable: true,
+    enumerable: true,
+    writable: true,
+  });
+  return {
+    [Symbol.dispose]() {
+      if (original) Object.defineProperty(globalThis, name, original);
+      else Reflect.deleteProperty(globalThis, name);
+    },
+  };
+}
+
 export async function choose(trigger: Locator, option: string) {
   await userEvent.click(trigger);
   await userEvent.click(page.getByRole("option", { name: option, exact: true }));

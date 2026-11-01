@@ -75,6 +75,7 @@ const assistStub = Layer.succeed(Assist.Assist)({
   generate: (request) =>
     Effect.suspend(() => {
       assistCalls++;
+      // oxlint-disable-next-line xtend/no-inline-schema-compile -- the stub answers in whatever schema the request asks for
       return Schema.decodeUnknownEffect(request.output)([
         { handle: "@Ada", score: 80, reason: "ships rust weekly" },
         { handle: "ERIN", score: 40, reason: "hobbyist" },

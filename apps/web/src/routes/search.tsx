@@ -54,6 +54,7 @@ function SearchScreen() {
       ? undefined
       : xNavigate(`https://x.com/search?q=${encodeURIComponent(q)}&src=typed_query${X_TAB[f]}`));
 
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- moves the engine (the session view) to this screen's X page while it is open.
   useEffect(open, [open]);
   // Each query and tab has its own key, so a search X still holds shows at once.
   const surface = searchSurface(PRODUCT[f], q);
@@ -85,7 +86,6 @@ function SearchScreen() {
         >
           <Search className="size-4 shrink-0 text-[#71767b]" />
           <input
-            // oxlint-disable-next-line jsx-a11y/no-autofocus -- the screen exists to type a query
             autoFocus={q === ""}
             aria-label="Search X"
             placeholder="Search"

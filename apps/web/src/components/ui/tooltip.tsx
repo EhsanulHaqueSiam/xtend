@@ -42,6 +42,7 @@ function Tooltip<Payload>(props: TooltipPrimitive.Root.Props<Payload>) {
   const tracker = use(TooltipScrollContext);
   const localActionsRef = useRef<TooltipPrimitive.Root.Actions | null>(null);
   const actionsRef = props.actionsRef ?? localActionsRef;
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- releases this tooltip from the shared hover tracker on unmount.
   useEffect(() => () => tracker?.release(actionsRef), [actionsRef, tracker]);
 
   if (!tracker) return <TooltipPrimitive.Root {...props} />;

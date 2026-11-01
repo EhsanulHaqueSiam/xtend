@@ -32,11 +32,9 @@ const excludedWords = (exclude: string) =>
     .filter((w) => w !== "");
 
 /**
- * X search. The free way is X's own search page in the panel, whose results the
- * session observes; what it already saw for the query lists first. The paid
- * search is for volume and filters, and every run and next page shows its price;
- * a `?q=` link (the palette) only fills the box. Excluded words filter the
- * results here, after they arrive.
+ * X search. Free: X's own search page in the panel, observed by the session, listed first. Paid:
+ * volume and filters, every run and next page priced. A `?q=` link only fills the box; excluded
+ * words filter the results here, after they arrive.
  */
 export function SearchTab({ initialQuery }: { readonly initialQuery: string }) {
   const search = useAtomSet(searchAtom, { mode: "promise" });

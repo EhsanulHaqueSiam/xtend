@@ -1,7 +1,7 @@
-// Packs the xtend CLI as an npm tarball, dist-cli/xtend-cli-<version>.tgz: the bundled service
-// with the web app beside it, in the layout the desktop ships (the service finds the web app at
-// ../../web/dist from its own file). AI assist runs the user's own claude or codex CLI, so the
-// tarball has no dependencies.
+// Packs the xtend CLI as dist-cli/xtend-cli-<version>.tgz: the bundled service with the web app
+// beside it in the desktop's layout (the service finds ../../web/dist from its own file). AI assist
+// runs the user's own claude or codex CLI, so the tarball has no dependencies.
+
 //   pnpm build && pnpm cli:pack            the tarball
 //   pnpm cli:pack --check                  and install it into a throwaway prefix and start it
 //   npm install -g dist-cli/xtend-cli-*.tgz

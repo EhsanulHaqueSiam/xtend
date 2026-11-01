@@ -1,6 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off -- the MCP transport is newline-delimited JSON on raw stdio streams.
-import * as readline from "node:readline";
-import type { Readable, Writable } from "node:stream";
+import * as NodeReadline from "node:readline";
+import type * as NodeStream from "node:stream";
 
 import {
   Compose_METHODS,
@@ -137,8 +137,12 @@ export async function handleMcpMessage(message: unknown, call: Call): Promise<un
 }
 
 /** Serves MCP over a line-delimited stdio pair until the input ends. */
-export function runMcpStdio(input: Readable, output: Writable, call: Call): Promise<void> {
-  const lines = readline.createInterface({ input, crlfDelay: Infinity });
+export function runMcpStdio(
+  input: NodeStream.Readable,
+  output: NodeStream.Writable,
+  call: Call,
+): Promise<void> {
+  const lines = NodeReadline.createInterface({ input, crlfDelay: Infinity });
   let chain = Promise.resolve();
   lines.on("line", (line) => {
     if (line.trim() === "") return;

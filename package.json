@@ -21,7 +21,7 @@
     "check:changed": "node scripts/check-changed.ts",
     "bench": "pnpm --filter xtend --filter @xtend/desktop exec vp test bench --no-file-parallelism --reporter=verbose",
     "bench:web": "pnpm --filter @xtend/web exec vp test bench",
-    "lint": "vp lint --report-unused-disable-directives",
+    "lint": "vp lint --deny-warnings --report-unused-disable-directives",
     "knip": "knip",
     "test": "vp run -r test && vp test run --dir scripts && node --test .github/scripts",
     "test:e2e": "pnpm --filter @xtend/e2e test:e2e",

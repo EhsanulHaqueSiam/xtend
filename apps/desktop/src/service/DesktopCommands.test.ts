@@ -11,6 +11,9 @@ import {
   postThroughComposer,
 } from "./DesktopCommands.ts";
 
+// Every test runs on fake timers from here: deadlines are this plus the command's budget.
+const T0 = Date.parse("2026-10-31T12:00:00.000Z");
+
 // x.com's DOM over CDP: the home page's inline composer first, the compose modal after it in
 // X's layers root, with the same test ids. Node ids: 1x inline, 2x modal.
 const MATCHES: Record<string, Array<number>> = {
@@ -26,6 +29,7 @@ const BOXES: Record<number, Array<number>> = {
 };
 
 it("types into the compose modal, not the inline composer behind it, and presses Post once uploads finish", async () => {
+  vi.useFakeTimers({ now: T0 });
   const log: Array<string> = [];
   const loaded: Array<string> = [];
   let buttonPolls = 0;
@@ -58,7 +62,7 @@ it("types into the compose modal, not the inline composer behind it, and presses
     }
   };
 
-  const postId = await postThroughComposer(
+  const posting = postThroughComposer(
     { loadURL: async (url) => void loaded.push(url) },
     cdp,
     { type: "sessionPost", text: "hello", mediaPaths: ["/tmp/a.png"], replyToPostId: "42" },
@@ -66,8 +70,10 @@ it("types into the compose modal, not the inline composer behind it, and presses
       log.push("listening for CreateTweet");
       return Promise.resolve("777");
     },
-    Date.now() + 60_000,
+    T0 + 60_000,
   );
+  await vi.runAllTimersAsync();
+  const postId = await posting;
 
   expect(postId).toBe("777");
   expect(loaded).toEqual(["https://x.com/intent/post?in_reply_to=42"]);
@@ -99,7 +105,9 @@ const composer = (log: Array<string>, uploadedAt = 0) => ({
       case "DOM.getAttributes":
         return {
           attributes:
-            params.nodeId === 23 && Date.now() < uploadedAt ? ["aria-disabled", "true"] : [],
+            params.nodeId === 23 && (vi.getMockedSystemTime()?.getTime() ?? 0) < uploadedAt
+              ? ["aria-disabled", "true"]
+              : [],
         };
       case "DOM.getBoxModel":
         return { model: { content: BOXES[Number(params.nodeId)] } };
@@ -122,13 +130,18 @@ const post = (text: string, mediaPaths: Array<string> = []) =>
   ({ type: "sessionPost", text, mediaPaths }) as const;
 
 it("waits for a long video upload, past the 15s the composer itself gets", async () => {
-  vi.useFakeTimers();
+  vi.useFakeTimers({ now: T0 });
   const log: Array<string> = [];
-  const page = composer(log, Date.now() + 90_000);
+  const page = composer(log, T0 + 90_000);
   const run = commandRunner({
     ...page,
     navigate: () => {},
-    nextCreatedPost: () => new Promise((resolve) => setTimeout(() => resolve("9"), 1_000)),
+    // X answers a second after Post, on the faked clock.
+    nextCreatedPost: () => {
+      const created = Promise.withResolvers<string>();
+      setTimeout(() => created.resolve("9"), 1_000);
+      return created.promise;
+    },
     sessionPostingEnabled: async () => true,
   });
   const result = run(post("clip", ["/tmp/clip.mp4"]));
@@ -138,6 +151,7 @@ it("waits for a long video upload, past the 15s the composer itself gets", async
 });
 
 it("runs a post that arrives over a new socket only after the one orphaned by the old socket ends", async () => {
+  vi.useFakeTimers({ now: T0 });
   const log: Array<string> = [];
   const page = composer(log);
   let finishFirstLoad = () => {};
@@ -161,7 +175,7 @@ it("runs a post that arrives over a new socket only after the one orphaned by th
 
   const first = run(post("first"));
   const second = run(post("second"));
-  await new Promise((resolve) => setTimeout(resolve, 10));
+  await vi.advanceTimersByTimeAsync(10);
   // The second post must not navigate away from the first one's composer.
   expect(log).toEqual(["load https://x.com/compose/post"]);
 
@@ -307,6 +321,7 @@ it("acknowledges saving and success, and permits retry after a disconnected or f
 });
 
 it("likes the post's own article on its page, waits for X to show it liked, and skips a liked one", async () => {
+  vi.useFakeTimers({ now: T0 });
   const article = 'article:has(a[href$="/status/9"] time)';
   const either = `${article} button[data-testid="like"], ${article} button[data-testid="unlike"]`;
   const presses: Array<string> = [];
@@ -339,13 +354,19 @@ it("likes the post's own article on its page, waits for X to show it liked, and 
   const loaded: Array<string> = [];
   const contents = { loadURL: async (url: string) => void loaded.push(url) };
 
-  await likeOnPage(contents, page(false), "9", Date.now() + 5_000);
-  await likeOnPage(contents, page(true), "9", Date.now() + 5_000);
+  for (const liked of [false, true]) {
+    // Running the first like out moved the clock to its deadline; each like gets its own budget.
+    vi.setSystemTime(T0);
+    const liking = likeOnPage(contents, page(liked), "9", T0 + 5_000);
+    await vi.runAllTimersAsync();
+    await liking;
+  }
   expect(loaded).toEqual(["https://x.com/i/web/status/9", "https://x.com/i/web/status/9"]);
   expect(presses).toEqual(["like"]);
 });
 
 it("DMs through X's message composer, presses Send once it enables, and waits for X to clear it", async () => {
+  vi.useFakeTimers({ now: T0 });
   const log: Array<string> = [];
   // Send is disabled while the composer is empty: before typing and again once X sent the message.
   let typed = "";
@@ -384,12 +405,14 @@ it("DMs through X's message composer, presses Send once it enables, and waits fo
         throw new Error(`unexpected ${method}`);
     }
   };
-  await dmThroughComposer(
+  const sending = dmThroughComposer(
     { loadURL: async (url) => void log.push(`load ${url}`) },
     cdp,
     { type: "sessionDm", userId: "42", text: "hey" },
-    Date.now() + 5_000,
+    T0 + 5_000,
   );
+  await vi.runAllTimersAsync();
+  await sending;
   expect(log).toEqual([
     "load https://x.com/messages/compose?recipient_id=42",
     "focus",

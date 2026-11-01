@@ -22,6 +22,7 @@ const QUIET_MS = 12_000;
 export function useMore() {
   const last = useRef(0);
   const trailing = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- clears the trailing load-more timer on unmount.
   useEffect(() => () => clearTimeout(trailing.current ?? undefined), []);
   const more = () => {
     const wait = last.current + MORE_EVERY_MS - Date.now();
@@ -52,6 +53,7 @@ export function XEmpty({
 }) {
   const navigate = useNavigate();
   const [quiet, setQuiet] = useState(false);
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- timer that offers Load again once the engine stays quiet.
   useEffect(() => {
     const timer = setTimeout(() => setQuiet(true), QUIET_MS);
     return () => clearTimeout(timer);

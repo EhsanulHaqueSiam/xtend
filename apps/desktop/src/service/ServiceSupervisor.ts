@@ -1,7 +1,7 @@
-import * as ChildProcess from "node:child_process";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import * as NodeChildProcess from "node:child_process";
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 
 import { app } from "electron";
 
@@ -41,14 +41,16 @@ const healthy = async (serviceUrl: string): Promise<boolean> => {
 
 const launchdLoaded = () =>
   process.platform === "darwin" &&
-  ChildProcess.spawnSync("launchctl", ["print", `gui/${os.userInfo().uid}/${LAUNCHD_LABEL}`])
-    .status === 0;
+  NodeChildProcess.spawnSync("launchctl", [
+    "print",
+    `gui/${NodeOS.userInfo().uid}/${LAUNCHD_LABEL}`,
+  ]).status === 0;
 
 /** The service entry: the bundle next to the app's resources, or the source tree in dev. */
 const serviceEntry = () =>
   app.isPackaged
-    ? path.join(process.resourcesPath, "apps", "server", "dist", "bin.mjs")
-    : path.resolve(import.meta.dirname, "..", "..", "server", "src", "bin.ts");
+    ? NodePath.join(process.resourcesPath, "apps", "server", "dist", "bin.mjs")
+    : NodePath.resolve(import.meta.dirname, "..", "..", "server", "src", "bin.ts");
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -80,9 +82,9 @@ export async function superviseService(options: SupervisorOptions): Promise<Supe
   }
 
   // First launch: the state dir does not exist yet, and the log lives in it.
-  fs.mkdirSync(options.baseDir, { recursive: true });
-  const logFile = fs.openSync(path.join(options.baseDir, "service.log"), "a");
-  let child: ChildProcess.ChildProcess | undefined;
+  NodeFS.mkdirSync(options.baseDir, { recursive: true });
+  const logFile = NodeFS.openSync(NodePath.join(options.baseDir, "service.log"), "a");
+  let child: NodeChildProcess.ChildProcess | undefined;
   let stopping = false;
   let attempt = 0;
   // Electron is a Node runtime too, so a user without node on PATH still gets a service.
@@ -91,7 +93,7 @@ export async function superviseService(options: SupervisorOptions): Promise<Supe
     // A restart timer can still fire after quit began; a child started then would outlive the app.
     if (stopping) return;
     const startedAt = Date.now();
-    child = ChildProcess.spawn(
+    child = NodeChildProcess.spawn(
       node,
       [
         serviceEntry(),

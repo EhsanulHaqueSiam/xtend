@@ -7,6 +7,7 @@ import {
   type XPost,
 } from "@xtend/contracts";
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -1048,7 +1049,7 @@ describe("AutomationEngine", () => {
         trigger: { kind: "schedule", weekdays: [0, 1, 2, 3, 4, 5, 6], time: "23:59" },
         action: { kind: "notify", message: "tick" },
       });
-      const now = Date.now();
+      const now = DateTime.toEpochMillis(yield* DateTime.now);
       const { fired } = yield* engine.dryRun7d(rule.id);
       // One slot a day, each at 23:59 local on the local date it names, none still to come.
       expect(fired).toHaveLength(7);
@@ -1111,11 +1112,12 @@ describe("AutomationEngine", () => {
     Effect.gen(function* () {
       const { rules, engine } = yield* setup;
       const rule = yield* rules.upsert(likeRule({}));
-      fake.onLike = Effect.never;
+      const calling = yield* Deferred.make<void>();
+      fake.onLike = Deferred.succeed(calling, undefined).pipe(Effect.andThen(Effect.never));
       const fiber = yield* engine
         .runRule(rule.id)
         .pipe(Effect.forkChild({ startImmediately: true }));
-      yield* Effect.sleep("20 millis");
+      yield* Deferred.await(calling);
       yield* Fiber.interrupt(fiber);
       fake.onLike = Effect.void;
       expect(yield* engine.runRule(rule.id)).toEqual([]);
@@ -1145,10 +1147,11 @@ describe("AutomationEngine", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
-  it.live(
+  it.effect(
     "a new-follower rule takes the account's first follower check as who already followed",
     () =>
       Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse("2026-10-24T12:00:00.000Z"));
         const { rules, engine } = yield* setup;
         const people = yield* PeopleStore.PeopleStore;
         fake.followers = [
@@ -1162,7 +1165,7 @@ describe("AutomationEngine", () => {
         });
         // Both followed before the rule existed, though this poll is the first to see them.
         expect(yield* engine.runRule(rule.id)).toEqual([]);
-        yield* Effect.sleep("5 millis");
+        yield* TestClock.adjust("1 minute");
         // A later check (the Leads tab, or the next poll) finds someone new.
         yield* people.markFollowersSeen([{ userId: "12", handle: "new1" }, ...fake.followers]);
         expect((yield* engine.runRule(rule.id)).map((r) => r.subjectId)).toEqual(["12"]);

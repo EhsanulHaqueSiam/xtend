@@ -182,6 +182,7 @@ function PaletteBody({
   };
   const selected = Math.min(cursor, commands.length - 1);
   // Arrow keys move past the fold once agents fill the list.
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- scrolls the DOM option under the cursor into view as arrow keys move it.
   useEffect(() => {
     const options = list.current?.querySelectorAll('[role="option"]');
     options?.[selected]?.scrollIntoView({ block: "nearest" });
@@ -291,6 +292,7 @@ export function CommandPalette() {
   const close = () => setOpen(false);
   // Where focus returns on close. The input's autoFocus lands before the dialog would note it.
   const opener = useRef<HTMLElement | null>(null);
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- document focusin listener that remembers where focus returns when the palette closes.
   useEffect(() => {
     if (open) return;
     const remember = () => {

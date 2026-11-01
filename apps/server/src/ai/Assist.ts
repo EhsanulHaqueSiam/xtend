@@ -95,6 +95,7 @@ const make = Effect.gen(function* () {
     const tone = request.tone === undefined ? "" : ` Every option ${TONES[request.tone]}.`;
     const prompt = `${request.instructions}${tone}\n\nInput:\n${encodeJson(request.input)}`;
     const decode = (output: unknown) =>
+      // oxlint-disable-next-line xtend/no-inline-schema-compile -- each request brings its own output schema
       Schema.decodeUnknownEffect(request.output)(output).pipe(
         Effect.mapError(
           (e) =>

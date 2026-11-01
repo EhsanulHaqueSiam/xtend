@@ -1,7 +1,6 @@
-// Boots the built desktop against a throwaway state dir and port and checks the whole start
-// path: Electron starts, the supervisor's child service answers, the window renders the
-// web app, and its x.com webview loads. Needs `pnpm build` first (web dist, desktop pack).
-// Linux CI runs it under xvfb-run. Fails on module or uncaught errors in the output too.
+// Boots the built desktop (`pnpm build` first) on a throwaway state dir and port: Electron, the
+// child service, the web app and its x.com webview must all come up, with no module or uncaught
+// errors in the output. Linux CI runs it under xvfb-run.
 //   node scripts/smoke-test.mjs
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";

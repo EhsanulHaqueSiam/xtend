@@ -57,6 +57,7 @@ export function PostInspector({
   readonly onClose: () => void;
   readonly children?: ReactNode;
 }) {
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- window Escape listener that closes the inspector while it is mounted.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       // A menu that handled the key (the Save menu) keeps the column open.

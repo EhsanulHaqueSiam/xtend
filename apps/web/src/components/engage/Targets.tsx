@@ -33,6 +33,7 @@ import { OpenOnX } from "../ui/x-link";
 import { xAction } from "../x";
 import { type Patch, ReplyBox, useWork, type Work } from "./ReplyBox";
 import { ErrorLine, pill, PostHead } from "./triage";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 const age = (minutes: number) =>
   minutes < 60 ? `${Math.round(minutes)}m` : `${(minutes / 60).toFixed(1)}h`;
@@ -67,6 +68,7 @@ export function Targets() {
   const free = useQuote({ kind: "engageTargets" })?.cached === true;
   const initial = AsyncResult.isInitial(result);
   // Opening the page only shows what the cache already holds; a paid search waits for the click.
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- loads the free cached targets once when the page opens; a paid search waits for the click.
   useEffect(() => {
     if (free && initial) load();
   }, [free, initial, load]);
@@ -132,27 +134,35 @@ export function Targets() {
         }
         actions={
           <>
-            <button
-              type="button"
-              className={pill}
-              disabled={finding || noHandle || findQuote === "…" || assistQuote === "…"}
-              title={noHandle ? "Needs your handle, from your X session or Settings" : undefined}
-              onClick={() => void runFind()}
-            >
-              <TextMorph duration={250}>{finding ? "Finding…" : "Find keywords"}</TextMorph>
-              {/* One page of your posts, then one model call over it. */}
-              <Cost label={costLabels(findQuote, assistQuote)} />
-            </button>
-            <button
-              type="button"
-              className={pill}
-              disabled={result.waiting || noKeywords !== null || targetsQuote === "…"}
-              title={noKeywords !== null ? "Add keywords first" : undefined}
-              onClick={() => load()}
-            >
-              <TextMorph duration={250}>{result.waiting ? "Searching…" : "Refresh"}</TextMorph>
-              <Cost label={targetsQuote} />
-            </button>
+            <Tooltip disabled={!noHandle}>
+              <TooltipTrigger render={<span className="inline-flex" />}>
+                <button
+                  type="button"
+                  className={pill}
+                  disabled={finding || noHandle || findQuote === "…" || assistQuote === "…"}
+                  onClick={() => void runFind()}
+                >
+                  <TextMorph duration={250}>{finding ? "Finding…" : "Find keywords"}</TextMorph>
+                  {/* One page of your posts, then one model call over it. */}
+                  <Cost label={costLabels(findQuote, assistQuote)} />
+                </button>
+              </TooltipTrigger>
+              <TooltipPopup>Needs your handle, from your X session or Settings</TooltipPopup>
+            </Tooltip>
+            <Tooltip disabled={noKeywords === null}>
+              <TooltipTrigger render={<span className="inline-flex" />}>
+                <button
+                  type="button"
+                  className={pill}
+                  disabled={result.waiting || noKeywords !== null || targetsQuote === "…"}
+                  onClick={() => load()}
+                >
+                  <TextMorph duration={250}>{result.waiting ? "Searching…" : "Refresh"}</TextMorph>
+                  <Cost label={targetsQuote} />
+                </button>
+              </TooltipTrigger>
+              <TooltipPopup>Add keywords first</TooltipPopup>
+            </Tooltip>
           </>
         }
       />

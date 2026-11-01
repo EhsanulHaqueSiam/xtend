@@ -200,14 +200,13 @@ const make = Effect.gen(function* () {
       ),
     );
 
-  const monthSpend = (r: SettingsRow) =>
-    Effect.gen(function* () {
-      const since = yield* startOf(r, "month");
-      const rows = yield* sql<{ total: number | null }>`
+  const monthSpend = Effect.fn("SettingsStore.monthSpend")(function* (r: SettingsRow) {
+    const since = yield* startOf(r, "month");
+    const rows = yield* sql<{ total: number | null }>`
         SELECT SUM(cost_usd) AS total FROM spend_log WHERE at >= ${since}
       `;
-      return rows[0]?.total ?? 0;
-    });
+    return rows[0]?.total ?? 0;
+  });
 
   const spendSummary = Effect.gen(function* () {
     const settings = yield* row;

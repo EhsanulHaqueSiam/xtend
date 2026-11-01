@@ -46,6 +46,34 @@ curl -s -X POST http://127.0.0.1:4820/api/observations -H 'content-type: applica
 A second batch for the same post with a later `observedAt` appends a metrics row; the UI shows
 the latest numbers and the sighting count.
 
+## Engine changes: the live bench
+
+Anything the session view loads, reads or presses on x.com is proven only on the real account. A
+worktree's dev desktop starts signed out (its own `.xtend/electron` profile): copy
+`Partitions/x-session` from an installed app's profile, minus its caches, to sign it in. Then, with
+the dev desktop on `XTEND_REMOTE_DEBUG=<port>`:
+
+```sh
+XTEND_REMOTE_DEBUG=<port> node apps/desktop/scripts/engine-bench.mjs --only <area>   # while iterating
+XTEND_REMOTE_DEBUG=<port> node apps/desktop/scripts/engine-bench.mjs --runs 3 --pause 300
+```
+
+- Three clean runs in a row, five minutes apart, are the proof an engine PR names. X rate-limits an
+  account per 15 minutes and a run is a few hundred calls; heavy reloading has earned the account
+  HTTP 429s on every device.
+- The bench presses no X write button except one bookmark it removes again. Never press like,
+  reply, repost, follow, vote or post from a script on the real account; only the user's click does.
+- Check `curl -s http://127.0.0.1:<port>/json` lists the app page and the x.com webview before a
+  run: a closed window leaves the process up with no pages, and the bench then fails at once.
+- Don't edit files the dev desktop serves while a bench runs: hot reload restarts the screen
+  mid-check. Work in another worktree meanwhile.
+
+## Free and paid
+
+Fake-service screen tests, seeded observations and session-lane reads are free. X API calls through
+treg and model calls spend the user's balance: use them only when the change depends on that lane,
+and say what it cost. Keep the treg token, X handles' DMs and cookies out of screenshots you share.
+
 ## Verify and retain
 
 Open `http://localhost:5820/<route>` in the Browser panel, exercise the affected flow, and

@@ -131,7 +131,7 @@ export function Slots({
                     ([day, weekday]) => (
                       <label
                         key={day}
-                        className="flex h-7 w-10 cursor-pointer items-center justify-center rounded-md font-mono text-2xs text-muted-foreground/60 transition-colors duration-150 select-none hover:bg-white/[0.05] has-checked:bg-white/[0.07] has-checked:text-foreground has-focus-visible:ring-2 has-focus-visible:ring-ring"
+                        className="flex h-7 w-10 cursor-pointer items-center justify-center rounded-md font-mono text-2xs text-muted-foreground/60 transition-colors duration-150 select-none hover:bg-white/[0.05] has-checked:bg-white/[0.07] has-checked:text-foreground has-focus-visible:ring-2 has-focus-visible:ring-inset has-focus-visible:ring-ring"
                       >
                         <input
                           type="checkbox"

@@ -1,7 +1,7 @@
-import { EventEmitter } from "node:events";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import * as NodeEvents from "node:events";
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 
 import type { ObservationBatch } from "@xtend/contracts";
 import type * as Electron from "electron";
@@ -29,7 +29,7 @@ const tweet = (id: string) => ({
 });
 
 /** Plays the window's `contents.debugger`: CDP events in, response bodies out. */
-class FakeDebugger extends EventEmitter {
+class FakeDebugger extends NodeEvents.EventEmitter {
   attached = false;
   /** Set while DevTools holds the target, so attach throws as Electron does. */
   held = false;
@@ -91,7 +91,7 @@ const start = (onCreatedPost?: (postId: string) => void, accountId = 1) => {
 
 beforeEach(() => {
   debug = new FakeDebugger();
-  queueDir = fs.mkdtempSync(path.join(os.tmpdir(), "xtend-capture-"));
+  queueDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "xtend-capture-"));
   sent = [];
   serviceUp = true;
   serviceStatus = 202;
@@ -112,7 +112,7 @@ afterEach(() => {
   detach();
   vi.unstubAllGlobals();
   vi.useRealTimers();
-  fs.rmSync(queueDir, { recursive: true, force: true });
+  NodeFS.rmSync(queueDir, { recursive: true, force: true });
 });
 
 it("sends the posts in GraphQL responses the window received, base64 bodies too, and nothing else", async () => {
@@ -148,14 +148,14 @@ it("keeps batches on disk while the service is down and replays them, past a cor
   serviceUp = false;
   debug.received("1", `${GRAPHQL}/UserTweets`, { data: [tweet("1")] });
   debug.finished("1");
-  await vi.waitFor(() => expect(fs.readdirSync(queueDir)).toHaveLength(1));
+  await vi.waitFor(() => expect(NodeFS.readdirSync(queueDir)).toHaveLength(1));
   // A batch cut short by a crash mid-write; it sorts before every real one.
-  fs.writeFileSync(path.join(queueDir, "0000-cut-short.json"), '{"posts": [');
+  NodeFS.writeFileSync(NodePath.join(queueDir, "0000-cut-short.json"), '{"posts": [');
 
   serviceUp = true;
   debug.received("2", `${GRAPHQL}/HomeTimeline`, { data: [tweet("2")] });
   debug.finished("2");
-  await vi.waitFor(() => expect(fs.readdirSync(queueDir)).toEqual([]));
+  await vi.waitFor(() => expect(NodeFS.readdirSync(queueDir)).toEqual([]));
   expect(sent.map((b) => [b.source, b.posts[0]?.postId])).toEqual([
     ["home", "2"],
     ["profile", "1"],
@@ -167,12 +167,12 @@ it("keeps a batch the service failed on (a proxy's 502) and sends it once the se
   serviceStatus = 502;
   debug.received("1", `${GRAPHQL}/UserTweets`, { data: [tweet("1")] });
   debug.finished("1");
-  await vi.waitFor(() => expect(fs.readdirSync(queueDir)).toHaveLength(1));
+  await vi.waitFor(() => expect(NodeFS.readdirSync(queueDir)).toHaveLength(1));
 
   serviceStatus = 202;
   debug.received("2", `${GRAPHQL}/HomeTimeline`, { data: [tweet("2")] });
   debug.finished("2");
-  await vi.waitFor(() => expect(fs.readdirSync(queueDir)).toEqual([]));
+  await vi.waitFor(() => expect(NodeFS.readdirSync(queueDir)).toEqual([]));
   expect(sent.map((b) => b.posts[0]?.postId)).toEqual(["2", "1"]);
 });
 
@@ -181,7 +181,7 @@ it("a batch queued before an account switch still names the account that capture
   serviceUp = false;
   debug.received("1", `${GRAPHQL}/HomeTimeline`, { data: [tweet("1")] });
   debug.finished("1");
-  await vi.waitFor(() => expect(fs.readdirSync(queueDir)).toHaveLength(1));
+  await vi.waitFor(() => expect(NodeFS.readdirSync(queueDir)).toHaveLength(1));
 
   // The switch rebuilds the window on account 2's session, sharing the queue.
   detach();
@@ -190,7 +190,7 @@ it("a batch queued before an account switch still names the account that capture
   serviceUp = true;
   debug.received("2", `${GRAPHQL}/HomeTimeline`, { data: [tweet("2")] });
   debug.finished("2");
-  await vi.waitFor(() => expect(fs.readdirSync(queueDir)).toEqual([]));
+  await vi.waitFor(() => expect(NodeFS.readdirSync(queueDir)).toEqual([]));
   expect(sent.map((b) => [b.posts[0]?.postId, b.accountId])).toEqual([
     ["2", 2],
     ["1", 1],
@@ -201,16 +201,16 @@ it("keeps at most 1000 queued batches while the service is away, dropping the ol
   start();
   serviceUp = false;
   for (let i = 0; i < 1_000; i++)
-    fs.writeFileSync(
-      path.join(queueDir, `2026-01-01T00-00-00.${String(i).padStart(3, "0")}Z-x.json`),
+    NodeFS.writeFileSync(
+      NodePath.join(queueDir, `2026-01-01T00-00-00.${String(i).padStart(3, "0")}Z-x.json`),
       "{}",
     );
   debug.received("1", `${GRAPHQL}/HomeTimeline`, { data: [tweet("1")] });
   debug.finished("1");
   await vi.waitFor(() =>
-    expect(fs.readdirSync(queueDir)).not.toContain("2026-01-01T00-00-00.000Z-x.json"),
+    expect(NodeFS.readdirSync(queueDir)).not.toContain("2026-01-01T00-00-00.000Z-x.json"),
   );
-  const queued = fs.readdirSync(queueDir);
+  const queued = NodeFS.readdirSync(queueDir);
   expect(queued).toHaveLength(1_000);
   expect(queued.some((name) => name.startsWith("2026-01-01T00-00-00.001Z"))).toBe(true);
 });
@@ -223,7 +223,7 @@ it("forgets requests x.com aborted and caps the ones that never finish", async (
   debug.received("stuck", `${GRAPHQL}/HomeTimeline`, { data: [tweet("2")] });
   for (let i = 0; i < 200; i++) debug.received(`r${i}`, `${GRAPHQL}/HomeTimeline`, {});
   debug.finished("stuck");
-  await new Promise((resolve) => setTimeout(resolve, 10));
+  // A finished request asks for its body at once, so none of these can still ask.
   expect(debug.commands).not.toContain("Network.getResponseBody");
   expect(sent).toEqual([]);
 });

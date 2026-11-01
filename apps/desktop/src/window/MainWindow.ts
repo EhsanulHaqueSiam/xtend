@@ -1,5 +1,5 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
+import * as NodeFS from "node:fs";
+import * as NodePath from "node:path";
 
 import { isXSkinToggle, X_SKIN_DEFAULTS, type XSkinToggle } from "@xtend/contracts";
 import {
@@ -111,12 +111,12 @@ async function importCookies(
 ): Promise<void> {
   let text: string;
   try {
-    text = fs.readFileSync(file, "utf8");
+    text = NodeFS.readFileSync(file, "utf8");
   } catch (error) {
     log("cookie import unreadable", String(error));
     return;
   } finally {
-    fs.rmSync(file, { force: true });
+    NodeFS.rmSync(file, { force: true });
   }
   const decoded = decodeCookieFile(text);
   if (decoded._tag === "Failure") {
@@ -126,7 +126,6 @@ async function importCookies(
   let count = 0;
   for (const cookie of decoded.success) {
     try {
-      // eslint-disable-next-line no-await-in-loop -- one at a time so a rejected cookie is logged by name.
       await xSession.cookies.set({
         url: `https://${cookie.domain.replace(/^\./, "")}/`,
         name: cookie.name,
@@ -173,13 +172,9 @@ const useSystemSpellcheckLanguages = (s: Electron.Session) => {
 };
 
 /**
- * The window is the Xtend app. x.com is one `<webview>` inside it, on the
- * account's cookie partition: the user's own logged-in browser session, so
- * browsing costs nothing and looks like Chromium to X. The app page asks for
- * the webview; main gates it (only x.com, only this partition, only our
- * preload) and wires it up when it attaches: identity, skin, capture,
- * shortcuts, menus and downloads. Returns the window plus `openRoute`, so deep
- * links can land on a screen.
+ * The Xtend window; x.com is one `<webview>` in it on the account's cookie partition. Main gates
+ * the webview (only x.com, this partition, our preload) and wires it on attach. Returns the window
+ * and `openRoute` for deep links.
  */
 export function createMainWindow(options: MainWindowOptions) {
   const partition = sessionPartition(options.accountId);
@@ -198,7 +193,7 @@ export function createMainWindow(options: MainWindowOptions) {
       ? { titleBarStyle: "hiddenInset" as const, trafficLightPosition: { x: 14, y: 14 } }
       : {}),
     webPreferences: {
-      preload: path.join(import.meta.dirname, "preload.cjs"),
+      preload: NodePath.join(import.meta.dirname, "preload.cjs"),
       contextIsolation: true,
       sandbox: true,
       webviewTag: true,
@@ -225,7 +220,7 @@ export function createMainWindow(options: MainWindowOptions) {
 
   let startUrl = X_HOME;
   try {
-    const saved = fs.readFileSync(options.sessionUrlFile, "utf8").trim();
+    const saved = NodeFS.readFileSync(options.sessionUrlFile, "utf8").trim();
     if (isXHost(saved)) startUrl = saved;
   } catch {}
 
@@ -262,7 +257,7 @@ export function createMainWindow(options: MainWindowOptions) {
   });
 
   // Main decides what the app's webview becomes, whatever the page asked for.
-  const overlayPreload = path.join(import.meta.dirname, "overlayPreload.cjs");
+  const overlayPreload = NodePath.join(import.meta.dirname, "overlayPreload.cjs");
   appContents.on("will-attach-webview", (event, webPreferences, params) => {
     if (hardenXWebview(webPreferences, params, { partition, preload: overlayPreload })) return;
     event.preventDefault();
@@ -272,11 +267,11 @@ export function createMainWindow(options: MainWindowOptions) {
   const onDownload = (_event: Electron.Event, item: Electron.DownloadItem) => {
     const downloads = app.getPath("downloads");
     let name = item.getFilename();
-    for (let n = 1; fs.existsSync(path.join(downloads, name)); n++) {
-      const ext = path.extname(item.getFilename());
-      name = `${path.basename(item.getFilename(), ext)} (${n})${ext}`;
+    for (let n = 1; NodeFS.existsSync(NodePath.join(downloads, name)); n++) {
+      const ext = NodePath.extname(item.getFilename());
+      name = `${NodePath.basename(item.getFilename(), ext)} (${n})${ext}`;
     }
-    item.setSavePath(path.join(downloads, name));
+    item.setSavePath(NodePath.join(downloads, name));
     const report = (state: SessionDownload["state"]) =>
       toApp(SESSION_DOWNLOAD_CHANNEL, { name, state } satisfies SessionDownload);
     report("started");
@@ -328,7 +323,7 @@ export function createMainWindow(options: MainWindowOptions) {
     const onUrlChange = () => {
       overlay.navigated();
       try {
-        fs.writeFileSync(options.sessionUrlFile, contents.getURL());
+        NodeFS.writeFileSync(options.sessionUrlFile, contents.getURL());
       } catch (error) {
         options.log("could not save session url", String(error));
       }

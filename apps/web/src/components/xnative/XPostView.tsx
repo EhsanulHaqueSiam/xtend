@@ -27,6 +27,7 @@ import { viewerAtom } from "./MediaViewer";
 import { ContextLine, LinkCard, Note, Poll } from "./PostParts";
 import { RichText } from "./RichText";
 import { avatar96, engagement, viewsPerHour, xAge, xStamp } from "./format";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 export const postUrl = (p: EnginePost) => `https://x.com/${p.author.handle}/status/${p.postId}`;
 
@@ -87,12 +88,18 @@ export function Verified({
 export function Affiliate({ user }: { readonly user: EngineUser | undefined }) {
   if (user?.affiliate?.badgeUrl == null) return null;
   return (
-    <img
-      src={user.affiliate.badgeUrl}
-      alt={user.affiliate.name}
-      title={user.affiliate.name}
-      className="size-4 shrink-0 rounded-[3px] border border-white/20"
-    />
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <img
+            src={user.affiliate.badgeUrl}
+            alt={user.affiliate.name}
+            className="size-4 shrink-0 rounded-[3px] border border-white/20"
+          />
+        }
+      />
+      <TooltipPopup>{user.affiliate.name}</TooltipPopup>
+    </Tooltip>
   );
 }
 
@@ -156,12 +163,16 @@ function MediaItem({
           onClick={still ? undefined : onView}
         />
         {m.altText === null ? null : (
-          <span
-            title={m.altText}
-            className="absolute bottom-2 left-2 rounded bg-black/75 px-1 text-[12px] font-bold"
-          >
-            ALT
-          </span>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <span className="absolute bottom-2 left-2 rounded bg-black/75 px-1 text-[12px] font-bold" />
+              }
+            >
+              ALT
+            </TooltipTrigger>
+            <TooltipPopup>{m.altText}</TooltipPopup>
+          </Tooltip>
         )}
       </span>
     );
@@ -794,9 +805,12 @@ export function XPostView({
           <span className={cn("min-w-0 truncate", X_GRAY)}>@{post.author.handle}</span>
           <span className={cn("shrink-0", X_GRAY)}>
             ·{" "}
-            <time dateTime={post.createdAt} title={xStamp(post.createdAt)}>
-              {xAge(post.createdAt)}
-            </time>
+            <Tooltip>
+              <TooltipTrigger render={<time dateTime={post.createdAt} />}>
+                {xAge(post.createdAt)}
+              </TooltipTrigger>
+              <TooltipPopup>{xStamp(post.createdAt)}</TooltipPopup>
+            </Tooltip>
           </span>
           {menu}
         </div>

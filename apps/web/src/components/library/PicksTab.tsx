@@ -36,6 +36,7 @@ import { DraftChoice } from "./DraftChoice";
 import { InspectorGroup, PostInspector } from "./PostInspector";
 import { RemixButton, SaveButton, useSavedIds } from "./SaveButton";
 import { AppLink, ErrorLine, causeMessage, errorMessage } from "./shared";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 const button = cn(xPill, xPillSm);
 
@@ -87,22 +88,29 @@ function useRuns() {
     </button>
   );
   const readyButton = (
-    <button
-      type="button"
-      className={button}
-      disabled={busy !== null || trendingQuote === "…" || assistQuote === "…"}
-      title="Three posts for today in your voice, from your for-you topics and the picks. Filed as suggested drafts."
-      onClick={() =>
-        void call("ready", async () => {
-          const posts = await generate(TREND_COUNTRIES[0]);
-          return `${posts.length} suggested drafts in Compose: ${posts.map((p) => `${p.basis} (voice ${p.voiceMatch})`).join(", ")}.`;
-        })
-      }
-    >
-      {busy === "ready" ? "Writing" : "Write 3 ready posts"}
-      {/* One model call writes all three; country trends are read only before any topic exists. */}
-      <Cost label={`${trendingQuote} + ${assistQuote}`} />
-    </button>
+    <Tooltip>
+      <TooltipTrigger render={<span className="inline-flex" />}>
+        <button
+          type="button"
+          className={button}
+          disabled={busy !== null || trendingQuote === "…" || assistQuote === "…"}
+          onClick={() =>
+            void call("ready", async () => {
+              const posts = await generate(TREND_COUNTRIES[0]);
+              return `${posts.length} suggested drafts in Compose: ${posts.map((p) => `${p.basis} (voice ${p.voiceMatch})`).join(", ")}.`;
+            })
+          }
+        >
+          {busy === "ready" ? "Writing" : "Write 3 ready posts"}
+          {/* One model call writes all three; country trends are read only before any topic exists. */}
+          <Cost label={`${trendingQuote} + ${assistQuote}`} />
+        </button>
+      </TooltipTrigger>
+      <TooltipPopup>
+        Three posts for today in your voice, from your for-you topics and the picks. Filed as
+        suggested drafts.
+      </TooltipPopup>
+    </Tooltip>
   );
   return { fetchButton, readyButton, notice };
 }

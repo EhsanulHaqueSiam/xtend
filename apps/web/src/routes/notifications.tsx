@@ -147,6 +147,7 @@ function NotificationsScreen() {
   // "Load again": a full load of the same page, since X's router does nothing on the page it shows.
   const reload = () => void xNavigate(`https://x.com${current.path}`);
 
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- moves the engine (the session view) to this screen's X page while it is open.
   useEffect(open, [open]);
   const rows = at(engine.notifications, current.surface);
   return (

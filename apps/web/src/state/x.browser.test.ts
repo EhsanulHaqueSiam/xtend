@@ -36,7 +36,6 @@ it("presses X's button on the post's own article, edited or not, never on a post
   const el = {
     loadURL: async () => {},
     getURL: () => "https://x.com/home",
-    // oxlint-disable-next-line no-implied-eval -- the script under test is the one sent to X's page
     executeJavaScript: (code: string) => Promise.resolve(new Function(`return ${code}`)()),
   } satisfies Pick<XWebview, "loadURL" | "executeJavaScript" | "getURL">;
   registerXWebview(el as unknown as XWebview);
@@ -51,7 +50,6 @@ const inThisPage = (url = () => "https://x.com/theo") => {
   const el = {
     loadURL: async () => {},
     getURL: url,
-    // oxlint-disable-next-line no-implied-eval -- the script under test is the one sent to X's page
     executeJavaScript: (code: string) => Promise.resolve(new Function(`return ${code}`)()),
   } satisfies Pick<XWebview, "loadURL" | "executeJavaScript" | "getURL">;
   registerXWebview(el as unknown as XWebview);

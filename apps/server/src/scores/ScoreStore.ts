@@ -21,6 +21,14 @@ const TopFollowersJson = Schema.fromJsonString(Schema.Array(TopFollower));
 const CategoriesJson = Schema.fromJsonString(Schema.Array(CategoryCount));
 const BotJson = Schema.fromJsonString(BotReport);
 const FollowerJson = Schema.fromJsonString(TopFollower);
+const decodeTopFollowersJson = Schema.decodeUnknownSync(TopFollowersJson);
+const decodeCategoriesJson = Schema.decodeUnknownSync(CategoriesJson);
+const decodeBotJson = Schema.decodeUnknownSync(BotJson);
+const decodeFollowerJson = Schema.decodeUnknownSync(FollowerJson);
+const encodeTopFollowersJson = Schema.encodeSync(TopFollowersJson);
+const encodeCategoriesJson = Schema.encodeSync(CategoriesJson);
+const encodeBotJson = Schema.encodeSync(BotJson);
+const encodeFollowerJson = Schema.encodeSync(FollowerJson);
 
 interface SampleRow {
   readonly handle: string;
@@ -45,9 +53,9 @@ const toSample = (r: SampleRow): ScoreSample => ({
   sampled: r.sampled,
   pages: r.pages,
   botShare: r.bot_share,
-  topFollowers: Schema.decodeUnknownSync(TopFollowersJson)(r.top_followers_json),
-  categories: Schema.decodeUnknownSync(CategoriesJson)(r.categories_json),
-  bot: Schema.decodeUnknownSync(BotJson)(r.bot_json),
+  topFollowers: decodeTopFollowersJson(r.top_followers_json),
+  categories: decodeCategoriesJson(r.categories_json),
+  bot: decodeBotJson(r.bot_json),
 });
 
 /** One sample's scored set, keyed by the day it was taken. */
@@ -103,7 +111,7 @@ const make = Effect.gen(function* () {
           yield* sql`
             INSERT INTO score_samples (handle, day, at, score, tier, followers, sampled, pages, bot_share, top_followers_json, categories_json, bot_json)
             VALUES (${s.handle}, ${day}, ${s.at}, ${s.score}, ${s.tier}, ${s.followers}, ${s.sampled}, ${s.pages}, ${s.botShare},
-                    ${Schema.encodeSync(TopFollowersJson)(s.topFollowers)}, ${Schema.encodeSync(CategoriesJson)(s.categories)}, ${Schema.encodeSync(BotJson)(s.bot)})
+                    ${encodeTopFollowersJson(s.topFollowers)}, ${encodeCategoriesJson(s.categories)}, ${encodeBotJson(s.bot)})
             ON CONFLICT(handle, day) DO UPDATE SET
               at = excluded.at, score = excluded.score, tier = excluded.tier, followers = excluded.followers,
               sampled = excluded.sampled, pages = excluded.pages, bot_share = excluded.bot_share,
@@ -114,7 +122,7 @@ const make = Effect.gen(function* () {
             scored,
             (f) => sql`
               INSERT INTO score_sample_followers (handle, day, user_id, follower_json, points)
-              VALUES (${s.handle}, ${day}, ${f.userId}, ${Schema.encodeSync(FollowerJson)(f)}, ${f.points})
+              VALUES (${s.handle}, ${day}, ${f.userId}, ${encodeFollowerJson(f)}, ${f.points})
             `,
             { discard: true },
           );
@@ -158,7 +166,7 @@ const make = Effect.gen(function* () {
           `,
           (rows): ScoredSet => ({
             at: d.at,
-            followers: rows.map((r) => Schema.decodeUnknownSync(FollowerJson)(r.follower_json)),
+            followers: rows.map((r) => decodeFollowerJson(r.follower_json)),
           }),
         ),
       );

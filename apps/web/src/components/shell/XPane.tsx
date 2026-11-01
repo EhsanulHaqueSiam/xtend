@@ -50,6 +50,7 @@ const stringField = (event: Event, field: "url" | "title"): string | null => {
 function useXWebview(container: HTMLDivElement | null) {
   const setUrl = useAtomSet(xUrlAtom);
   const setUnread = useAtomSet(xUnreadAtom);
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- creates and attaches the x.com webview element, held until unmount.
   useEffect(() => {
     const bridge = window.desktopBridge;
     if (container === null || bridge === undefined) return;
@@ -86,6 +87,7 @@ function FindBar({ container }: { readonly container: HTMLDivElement | null }) {
   const [open, setOpen] = useAtom(xFindOpenAtom);
   const [text, setText] = useState("");
   const [result, setResult] = useState<{ active: number; matches: number } | null>(null);
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- listens for the webview's found-in-page results while find is open.
   useEffect(() => {
     const el = container?.querySelector("webview");
     if (el === null || el === undefined) return;
@@ -232,6 +234,7 @@ function ResizeHandle() {
     event.preventDefault();
     setDragging(true);
   };
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- window pointer listeners while the panel edge is dragged.
   useEffect(() => {
     if (!dragging) return;
     const move = (event: PointerEvent) =>

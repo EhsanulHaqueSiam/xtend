@@ -5,6 +5,7 @@ import type { UpdateState } from "../desktopBridge";
 /** The desktop's own update as main reports it; null in a browser or before the first answer. */
 export function useDesktopUpdate() {
   const [state, setState] = useState<UpdateState | null>(null);
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- subscribes to the desktop bridge's update state while mounted.
   useEffect(() => {
     const bridge = window.desktopBridge;
     if (bridge === undefined) return;

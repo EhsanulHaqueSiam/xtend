@@ -146,7 +146,7 @@ export function DraftsBoard({
                   type="button"
                   draggable={editable}
                   className={cn(
-                    "flex cursor-pointer flex-col gap-1 rounded-lg border border-border bg-background px-3 py-2 text-left outline-hidden transition-[border-color,opacity] duration-150 hover:border-white/15 focus-visible:ring-2 focus-visible:ring-ring",
+                    "flex cursor-pointer flex-col gap-1 rounded-lg border border-border bg-background px-3 py-2 text-left outline-hidden transition-[border-color,opacity] duration-150 hover:border-white/15 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                     editable && "cursor-grab active:cursor-grabbing",
                     dragging === d.id && "opacity-40",
                   )}

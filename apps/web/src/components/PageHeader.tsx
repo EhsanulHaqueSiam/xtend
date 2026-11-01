@@ -8,6 +8,7 @@ import { cn } from "../lib/utils";
 import { stored, xPanelOpenAtom } from "../state/x";
 import { ABOUT, isSectionRoute, sectionAbout } from "./shell/sections";
 import { Button } from "./ui/button";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 /** Tools whose about line the user closed; it stays closed until the ⓘ opens it again. */
 const closedAtom = stored<ReadonlyArray<string>>(
@@ -113,11 +114,9 @@ function XPanelToggle() {
 }
 
 /**
- * The top of every screen: 52px, the section's name (a long one truncates
- * before the actions do), an optional row of filters right after it, and the
- * screen's actions on the right. `detail` is a
- * short mono fact (a count, a date range) and never a sentence. Under it, the
- * about line while it is open.
+ * The top of every screen: the section's name (truncating before the actions do), optional
+ * filters after it, actions on the right, and the about line under it while open. `detail` is a
+ * short mono fact (a count, a date range), never a sentence.
  */
 export function PageHeader({
   title,
@@ -180,13 +179,15 @@ export function PageHeader({
       {about !== null && about.open ? (
         // One line, no box: a first-visit guide the ⓘ brings back, not a subtitle.
         <p role="note" className="mx-6 mb-2 flex shrink-0 items-center gap-2 text-xs leading-5">
-          <span
-            className="min-w-0 truncate text-muted-foreground"
-            title={about.section === undefined ? about.tool : `${about.tool} ${about.section}`}
-          >
-            <span className="text-foreground/80">{about.tool}</span>
-            {about.section === undefined ? null : <span> {about.section}</span>}
-          </span>
+          <Tooltip>
+            <TooltipTrigger render={<span className="min-w-0 truncate text-muted-foreground" />}>
+              <span className="text-foreground/80">{about.tool}</span>
+              {about.section === undefined ? null : <span> {about.section}</span>}
+            </TooltipTrigger>
+            <TooltipPopup>
+              {about.section === undefined ? about.tool : `${about.tool} ${about.section}`}
+            </TooltipPopup>
+          </Tooltip>
           <Button
             variant="ghost-muted"
             size="icon-tiny"

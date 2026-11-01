@@ -12,11 +12,9 @@ const MAX_POSTS = 2_000;
 const STALE_MS = 60 * 60 * 1_000;
 
 /**
- * Main-process side of the overlay: turns what the capture normalized into
- * per-post strip data for the session view's preload, keeps the viewer's own
- * averages, and pulls the overlay when the normalizer has gone quiet for an
- * hour while the page kept navigating (X changed shapes; stale numbers would
- * be worse than none).
+ * Main-process side of the overlay: per-post strip data for the preload and the viewer's averages.
+ * Pulls the overlay when the normalizer is quiet for an hour while the page navigates: X changed
+ * shapes, and stale numbers are worse than none.
  */
 export function createOverlayFeed(contents: Electron.WebContents) {
   const posts = new Map<string, ObservedPost>();

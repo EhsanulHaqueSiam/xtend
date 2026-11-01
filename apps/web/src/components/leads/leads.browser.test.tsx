@@ -600,14 +600,12 @@ it("pages list members beyond the old cap and searches within the list", async (
   });
   await expect.element(screen.getByText("1-50 of 251")).toBeVisible();
   // Each page must settle before its Next button can request the following page.
-  /* oxlint-disable no-await-in-loop */
   for (let i = 0; i < 4; i++) {
     await userEvent.click(screen.getByRole("button", { name: "Next", exact: true }));
     await expect
       .element(screen.getByText(`${(i + 1) * 50 + 1}-${(i + 2) * 50} of 251`))
       .toBeVisible();
   }
-  /* oxlint-enable no-await-in-loop */
   expect(queries.at(-1)).toMatchObject({ listId: 1, offset: 200 });
   await userEvent.fill(screen.getByRole("textbox", { name: "Search people" }), "lead251");
   await expect.element(screen.getByRole("button", { name: /^@lead251/ })).toBeVisible();

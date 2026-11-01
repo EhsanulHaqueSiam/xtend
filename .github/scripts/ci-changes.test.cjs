@@ -9,6 +9,7 @@ const all = [
   "@xtend/contracts",
   "@xtend/desktop",
   "@xtend/e2e",
+  "@xtend/oxlint-plugin",
   "@xtend/pool",
   "@xtend/web",
   "xtend",
@@ -39,6 +40,12 @@ test("a contracts change reaches every package", () => {
     affected: all,
     outputs: { build: true, test: true },
   });
+});
+
+test("the lint plugin reaches only itself", () => {
+  assert.deepEqual(run("packages/oxlint-plugin/rules/no-test-in-loop.ts").affected, [
+    "@xtend/oxlint-plugin",
+  ]);
 });
 
 test("root scripts run tests but no build", () => {

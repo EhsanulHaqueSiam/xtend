@@ -1,25 +1,7 @@
 /**
- * A deterministic, realistic database for benchmarks and payload budgets: what one heavy user's
- * install holds after three months (SIZES.days) of daily use, written through the real stores.
- *
- * - Observations: 20,000 posts from 3,000 authors, each seen twice (~40,000 metrics rows). About
- *   220 new posts a day: a long daily scroll of Home plus profiles and searches.
- * - Leads: 1,000 people over 5 lists, one in eight contacted (stage change plus a note).
- * - Compose: 300 drafts, three or four a day: 210 posted, 30 queued, 30 drafts, 15 failed, 15
- *   suggested. 15 are 6 KB articles (10 posted, 5 unfinished); every 5th thread carries images.
- * - Automate: 50 rules with 2,000 runs, busy rules running most.
- * - Analyze: 100 own posts (what one refresh keeps: Analytics' MAX_POSTS, and replacePosts swaps
- *   the whole set), a profile snapshot a day, and the nightly private-metrics job opted in for all
- *   90 nights (rows for every own post of the last 30 days, four posts a day).
- * - Library: 9,000 archived search results (five searches a day), the daily picks for the last 30
- *   days (3,000, each mirrored into Staff picks) and 450 posts saved by hand, most into 4
- *   collections.
- * - Read cache: the Engage screen's reads made ten minutes before SEED_NOW (a search per keyword,
- *   the own timeline, the connected account), through Treg.call against canned treg answers, so
- *   cost quotes probe warm rows the way they do right after a screen loads.
- *
- * Every "now" the seeded service reads is SEED_NOW, so time windows (Analyze's 7 and 30 days, a
- * rule's day) come out the same on every run. Nothing reaches the network or a model.
+ * A deterministic database for benchmarks and payload budgets: one heavy user's install after
+ * SIZES.days of daily use, written through the real stores (sizes per area in SIZES). Every "now"
+ * is SEED_NOW, so time windows come out the same on every run. Nothing reaches the network or a model.
  */
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import type {

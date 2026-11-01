@@ -237,7 +237,9 @@ why: one sentence on why these angles fit this author and post.`,
         )
       : yield* x.createPost({ text, replyToPostId: post.postId, purpose: "engage.reply" }).pipe(
           Effect.map((r) => ({ postId: r.postId, error: null })),
-          Effect.catchTag("XApiError", (e) => Effect.succeed({ postId: null, error: e.message })),
+          Effect.catchTags({
+            XApiError: (e) => Effect.succeed({ postId: null, error: e.message }),
+          }),
         );
     return yield* store.recordReply(post, { text, ...result });
   });
@@ -295,7 +297,7 @@ why: one sentence on why these angles fit this author and post.`,
           if (fresh.length > 0)
             yield* events.publish({ type: "mention_arrived", payload: { count: fresh.length } });
           return null;
-        }).pipe(Effect.catchTag("XApiError", (e) => Effect.succeed(e.message)))
+        }).pipe(Effect.catchTags({ XApiError: (e) => Effect.succeed(e.message) }))
       : null;
     const api = { posts: yield* store.apiMentions, error: apiError };
     const observed =
@@ -368,7 +370,7 @@ why: one sentence on why these angles fit this author and post.`,
     const result = load
       ? yield* fetchDmEvents("engage.dms").pipe(
           Effect.map((events) => ({ events, error: null })),
-          Effect.catchTag("XApiError", (e) => Effect.succeed({ events: [], error: e.message })),
+          Effect.catchTags({ XApiError: (e) => Effect.succeed({ events: [], error: e.message }) }),
           Effect.provideService(Treg.Treg, treg),
         )
       : { events: [], error: null };

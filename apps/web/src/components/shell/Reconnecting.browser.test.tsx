@@ -2,11 +2,11 @@ import { RegistryProvider } from "@effect/atom-react";
 import { SettingsError } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import * as Atom from "effect/reactivity/Atom";
-import { expect, it, onTestFinished, vi } from "vite-plus/test";
+import { expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
 import { fakeServiceValues } from "../../../test/fakeService";
-import { render } from "../../../test/render";
+import { fakeTimers, render } from "../../../test/render";
 import { installFakeBridge } from "../../../test/fakeBridge";
 
 installFakeBridge();
@@ -49,13 +49,9 @@ it("makes disconnected controls inert and moves focus to the recovery notice", a
 });
 
 it("keeps the real service configuration usable when service reads fail", async () => {
-  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+  using _timers = fakeTimers();
   // A poll is itself a regression here; rejecting avoids navigating away on the broken version.
-  const health = vi.spyOn(window, "fetch").mockRejectedValue(new Error("unexpected health poll"));
-  onTestFinished(() => {
-    health.mockRestore();
-    vi.useRealTimers();
-  });
+  using health = vi.spyOn(window, "fetch").mockRejectedValue(new Error("unexpected health poll"));
   const setRemote = vi.fn();
   const checkRemote = vi
     .fn()
