@@ -124,20 +124,33 @@ const xRun = (code: string): Promise<unknown> => {
  */
 export const xScrollMore = () =>
   xRun(`(async () => {
+    const path = location.pathname + location.search;
+    const run = window.__xtendScroll = (window.__xtendScroll ?? 0) + 1;
+    const current = () => window.__xtendScroll === run && location.pathname + location.search === path;
+    // Virtuoso asks once per length: keep its request alive while a trend lookup owns the scroll.
+    const resume = async () => {
+      for (let i = 0; i < 80 && current() && window.__xtendTrendLookups; i++)
+        await new Promise((r) => setTimeout(r, 100));
+      return current() && !window.__xtendTrendLookups;
+    };
+    if (!current() || (window.__xtendTrendLookups && !(await resume()))) return false;
     // A people list (reposters, search People) has no posts: without its rows this never sees X's
     // next page land and keeps scrolling, so X fetches page after page.
     const last = () => [...document.querySelectorAll('article a[href*="/status/"] time, [data-testid="UserCell"] a[href^="/"]')].at(-1)?.closest("a")?.getAttribute("href");
     window.scrollTo(0, document.documentElement.scrollHeight);
     await new Promise((r) => setTimeout(r, 300));
+    if (!current() || (window.__xtendTrendLookups && !(await resume()))) return false;
     const before = last();
     for (let attempt = 0; attempt < 4; attempt++) {
       for (let i = 0; i < 15; i++) {
         await new Promise((r) => setTimeout(r, 250));
+        if (!current() || (window.__xtendTrendLookups && !(await resume()))) return false;
         window.scrollTo(0, document.documentElement.scrollHeight);
         if (last() !== before) return true;
       }
       window.scrollBy(0, -window.innerHeight);
       await new Promise((r) => setTimeout(r, 300));
+      if (!current() || (window.__xtendTrendLookups && !(await resume()))) return false;
     }
     return false;
   })()`);
@@ -248,12 +261,13 @@ export type XPostMenu = keyof typeof MENUS;
  * `root` names to the element holding it (or null), `trigger` selects X's button inside it.
  */
 interface MenuAt {
-  readonly find: string;
+  readonly find: (current: string) => string;
   readonly root: string;
   readonly trigger: string;
+  readonly trend?: boolean;
 }
 const postMenuAt = (postId: string, menu: XPostMenu): MenuAt => ({
-  find: findArticle(postId),
+  find: () => findArticle(postId),
   root: "article",
   trigger: MENUS[menu],
 });
@@ -263,7 +277,7 @@ const postMenuAt = (postId: string, menu: XPostMenu): MenuAt => ({
  * none on the user's own profile. `handle` must be a handle.
  */
 const profileMenuAt = (handle: string): MenuAt => ({
-  find: `
+  find: () => `
     let profile = null;
     if (location.pathname.split("/")[1]?.toLowerCase() === ${JSON.stringify(handle.toLowerCase())})
       for (let i = 0; i < 50 && !profile; i++) {
@@ -275,78 +289,196 @@ const profileMenuAt = (handle: string): MenuAt => ({
 });
 
 /**
+ * X's "..." on a trend in X's Explore list, the one whose cell names it. X has no page for a trend's
+ * menu, so it is only ever read and pressed on the Explore tab the engine shows.
+ */
+const trendMenuAt = (name: string): MenuAt => ({
+  find: (current) => `
+    // X's name line is bold; emoji may be images, and context can name a different trend.
+    const trendText = (s) => {
+      const copy = s.cloneNode(true);
+      for (const img of copy.querySelectorAll("img[alt]")) img.replaceWith(img.alt);
+      return copy.textContent.trim();
+    };
+    const named = (c) => [...c.querySelectorAll("span")].some((s) => Number(getComputedStyle(s).fontWeight) >= 600 && trendText(s) === ${JSON.stringify(name)});
+    const cells = () => [...document.querySelectorAll('[data-testid="trend"]')];
+    const own = () => cells().find(named) ?? null;
+    const trendPath = location.pathname + location.search;
+    let trend = trendPath.startsWith("/explore") ? own() : null;
+    if (!trend && trendPath.startsWith("/explore") && (${current})) {
+      window.__xtendTrendLookups = (window.__xtendTrendLookups ?? 0) + 1;
+      try {
+        window.scrollTo({ top: 0, behavior: "instant" });
+        let end = null, stalled = 0;
+        for (let i = 0; i < 40 && !trend; i++) {
+          await new Promise((r) => setTimeout(r, 150));
+          if (!(${current}) || location.pathname + location.search !== trendPath) break;
+          const drawn = cells();
+          trend = drawn.find(named) ?? null;
+          if (trend) break;
+          for (const c of drawn) end = Math.max(end ?? 0, window.scrollY + c.getBoundingClientRect().bottom);
+          // Wait at the mounted edge for virtualization; never scroll on into For you's posts.
+          const before = window.scrollY;
+          if (end !== null && before < end - 1)
+            window.scrollBy({ top: Math.ceil(Math.min(Math.max(200, window.innerHeight * 0.75), end - before)), behavior: "instant" });
+          stalled = before === window.scrollY ? stalled + 1 : 0;
+          if (stalled >= 14) break;
+        }
+      } finally {
+        window.__xtendTrendLookups--;
+      }
+    }`,
+  root: "trend",
+  trigger: '[data-testid="caret"]',
+  trend: true,
+});
+
+/**
  * A script step that opens X's menu `at` and sets `items` to its rows once drawn; the step after
  * it closes the menu (`closeMenu`) or presses a row.
  */
-const openMenu = (at: MenuAt, mine = "true") => `
-    ${at.find}
+const openMenu = (at: MenuAt, mine = "true", press = false) => `
+    ${at.find(mine)}
     const trigger = ${at.root}?.querySelector(${JSON.stringify(at.trigger)});
-    if (!trigger || !(${mine})) return null;
+    if (!trigger || !(${mine}) || expanded(trigger)) return null;
     trigger.click();
+    clickedCarets.add(trigger);
+    // A later click, including the user reopening this caret, is a different opening.
+    trigger.addEventListener("click", () => clickedCarets.delete(trigger), { once: true });
+    let opened = ${mine} ? menuFor(trigger) : null;
+    const closeMenu = () => closeOwnedMenu(trigger, opened);
     let items = [];
     for (let i = 0; i < 20 && items.length === 0; i++) {
       await new Promise((r) => setTimeout(r, 100));
-      // The user moved on: any menu now showing is theirs, not this step's.
-      if (!(${mine})) return null;
-      items = [...document.querySelectorAll('[data-testid="Dropdown"] [role="menuitem"]')];
+      if (!(${mine}) || ${press && at.trend ? "(!opened && request !== window.__xtendMenuRequest)" : "false"}) return (closeMenu(), null);
+      opened ??= menuFor(trigger);
+      if (opened && menuFor(trigger) !== opened) return null;
+      items = [...(opened?.querySelectorAll('[role="menuitem"]') ?? [])];
     }
-    // X closes its menu on a click outside it, on the mask drawn beside it; Escape from a script
-    // does not. Only the menu this step opened, and only while the step is still the user's.
-    const opened = items[0]?.closest('[role="menu"]') ?? null;
-    const closeMenu = () => {
-      if (!opened?.isConnected || !(${mine})) return;
-      [...(opened.parentElement?.children ?? [])].find((k) => k !== opened && k.getBoundingClientRect().height > 0)?.click();
-    };`;
+    if (!opened) return null;`;
 
 /** What X did when the user pressed one of its menu items. */
 export type XMenuOutcome =
-  /** X acted at once; `toast` is what X said, `undo` whether X offered to take it back. */
-  | { readonly kind: "done"; readonly toast: string | null; readonly undo: boolean }
+  /**
+   * X acted at once; `toast` is what X said, `undo` whether X offered to take it back, `gone`
+   * whether the menu's subject left X's page.
+   */
+  | {
+      readonly kind: "done";
+      readonly toast: string | null;
+      readonly undo: boolean;
+      readonly gone: boolean;
+      /** Only a fresh dismissal acknowledgement from X confirms a trend was dismissed. */
+      readonly dismissed?: boolean;
+      /** A superseded press still reports X's feedback, but must not change the open screen. */
+      readonly current: boolean;
+    }
   /** X opened its own dialog or page (Report, Block, Delete, Send via Chat) at `path`'s page. */
   | { readonly kind: "over"; readonly path: string };
 
+/** Serializes menu steps; X's expanded caret proves ownership even after an earlier timeout. */
+const xMenuRun = (step: string, start = "") =>
+  xRun(`(async () => {
+    const request = window.__xtendMenuRequest = (window.__xtendMenuRequest ?? 0) + 1;
+    const previousStep = window.__xtendMenuQueue;
+    let release;
+    const waiting = new Promise((resolve) => { release = resolve; });
+    window.__xtendMenuQueue = waiting;
+    ${start}
+    if (previousStep) await previousStep;
+    try {
+      const clickedCarets = window.__xtendMenuCarets ??= new WeakSet();
+      const expanded = (caret) => caret?.isConnected && caret.getAttribute("aria-expanded") === "true";
+      const menuFor = (caret) => {
+        if (!clickedCarets.has(caret) || !expanded(caret)) return null;
+        const controlled = caret.getAttribute("aria-controls")?.split(" ").map((id) => document.getElementById(id)?.closest('[role="menu"]')).find(Boolean);
+        if (controlled) return controlled;
+        const menus = document.querySelectorAll('[role="menu"]');
+        return menus.length === 1 ? menus[0] : null;
+      };
+      const closeOwnedMenu = (caret, menu) => {
+        if (!clickedCarets.has(caret) || !menu?.isConnected || menuFor(caret) !== menu) return;
+        clickedCarets.delete(caret);
+        [...(menu.parentElement?.children ?? [])].find((k) => k !== menu && k.getBoundingClientRect().height > 0)?.click();
+      };
+      // A late dropdown can remain after its request timed out. Only our expanded caret owns it.
+      for (const caret of document.querySelectorAll('[aria-expanded="true"]'))
+        if (clickedCarets.has(caret)) closeOwnedMenu(caret, menuFor(caret));
+      ${step}
+    } finally {
+      release();
+      if (window.__xtendMenuQueue === waiting) delete window.__xtendMenuQueue;
+    }
+  })()`);
+
 /** X's menu `at`, read on the engine page: its rows' labels, in X's order. */
-const xMenuInPlace = (at: MenuAt, run?: number) => {
-  // Read for a press: once the user moved on, X's page is theirs, so nothing opens or counts.
-  const mine = run === undefined ? "true" : stillMine(run);
-  return xRun(`(async () => {
+const xMenuInPlace = (
+  at: MenuAt,
+  options?: { readonly run?: number; readonly cancelRead?: boolean },
+) => {
+  // Only in-place trend reads cancel: null from a post/profile read asks onPage to navigate.
+  const current = options?.run === undefined ? "true" : stillMine(options.run);
+  const mine = options?.cancelRead ? `(window.__xtendMenuRead === read && ${current})` : current;
+  return xMenuRun(
+    `
     ${openMenu(at, mine)}
     const labels = items.map((i) => i.textContent.trim());
     closeMenu();
     return ${mine} ? labels : null;
-  })()`).then((labels) =>
+  `,
+    options?.cancelRead
+      ? "const read = window.__xtendMenuRead = (window.__xtendMenuRead ?? 0) + 1;"
+      : "",
+  ).then((labels) =>
     Array.isArray(labels) && labels.every((l) => typeof l === "string")
       ? (labels as ReadonlyArray<string>)
       : null,
   );
 };
 
-/** Presses row `label` of X's menu `at` on the engine page. Null when it is not there. */
-const xMenuPressInPlace = (at: MenuAt, label: string, run: number) =>
-  xRun(`(async () => {
-    ${openMenu(at, stillMine(run))}
-    const item = items.find((i) => i.textContent.trim() === ${JSON.stringify(label)});
-    if (!item || !${stillMine(run)}) return (closeMenu(), null);
-    const path = location.pathname + location.search;
-    item.click();
-    await new Promise((r) => setTimeout(r, 800));
-    // A confirm sheet (Block, Mute this conversation, Delete) or a page (Report, post activity).
-    if (location.pathname + location.search !== path || document.querySelector('[role="dialog"], [role="alertdialog"]'))
-      return { kind: "over", path };
+/** X's feedback after a menu press or its dialog finishes. */
+const menuDone = (at: MenuAt, current = "true", run?: number) => `
     const toast = document.querySelector('[data-testid="toast"]');
     const actions = [...(toast?.querySelectorAll('button, a, [role="button"]') ?? [])];
     const text = actions.reduce((t, a) => t.replace(a.textContent, ""), toast?.textContent ?? "").trim();
-    return { kind: "done", toast: text || null, undo: actions.some((a) => a.textContent.trim() === "Undo") };
-  })()`).then((outcome) => (outcome === null ? null : (outcome as XMenuOutcome)));
+    const undo = actions.some((a) => a.textContent.trim() === "Undo");
+    ${
+      at.trend
+        ? `
+    const before = window.__xtendTrendFeedback;
+    const fresh = before?.run === ${run} && (before.toast !== toast || before.text !== toast?.textContent);
+    if (!fresh) return { kind: "done", toast: null, undo: false, gone: false, dismissed: false, current: ${current} };
+    const dismissed = undo && /^Thanks(?:[.! ,]|$)/i.test(text);
+    `
+        : ""
+    }
+    return { kind: "done", toast: text || null, undo, gone: ${at.trend ? "false, dismissed" : `!${at.root}?.isConnected`}, current: ${current} };`;
+
+/** Presses row `label` of X's menu `at` on the engine page. Null when it is not there. */
+const xMenuPressInPlace = (at: MenuAt, label: string, run: number) =>
+  xMenuRun(`
+    ${openMenu(at, stillMine(run), true)}
+    const item = items.find((i) => i.textContent.trim() === ${JSON.stringify(label)});
+    if (!item?.isConnected || !${stillMine(run)} || menuFor(trigger) !== opened) return (closeMenu(), null);
+    const path = location.pathname + location.search;
+    ${at.trend ? `const beforeToast = document.querySelector('[data-testid="toast"]'); window.__xtendTrendFeedback = { run: ${run}, toast: beforeToast, text: beforeToast?.textContent };` : ""}
+    item.click();
+    if (!expanded(trigger)) clickedCarets.delete(trigger);
+    await new Promise((r) => setTimeout(r, 800));
+    // A confirm sheet (Block, Mute this conversation, Delete) or a page (Report, post activity).
+    if (${stillMine(run)} && (location.pathname + location.search !== path || document.querySelector('[role="dialog"], [role="alertdialog"]')))
+      return { kind: "over", path };
+    ${menuDone(at, stillMine(run), run)}
+  `).then((outcome) => (outcome === null ? null : (outcome as XMenuOutcome)));
 
 /**
  * Runs `step` where X shows what it acts on: in place on the engine page, or on `page` (its own
- * x.com page, and how that page's path ends) reached through X's router. `leave` runs on the step's result before
- * the engine goes Back from a page this opened, so X restores the list it was on. Null when X
- * showed it on neither.
+ * x.com page, and how that page's path ends) reached through X's router; null `page` is in place
+ * only. `leave` runs on the step's result before the engine goes Back from a page this opened, so
+ * X restores the list it was on. Null when X showed it on neither.
  */
 const onPage = async <A>(
-  page: { readonly url: string; readonly path: string },
+  page: { readonly url: string; readonly path: string } | null,
   step: () => Promise<A | null>,
   leave: (result: A) => Promise<unknown> = () => Promise.resolve(),
   live: () => boolean = () => true,
@@ -356,7 +488,7 @@ const onPage = async <A>(
   const here = await step();
   if (here !== null) return (await leave(here), here);
   // The user moved on meanwhile: the engine is theirs, not this press's.
-  if (!live()) return null;
+  if (page === null || !live()) return null;
   const moved = await xGo(page.url);
   const there = live() ? await step() : null;
   if (there !== null) await leave(there);
@@ -400,7 +532,9 @@ let overRun = 0;
 /** Starts a new press: the latest one, in Xtend and in X's page alike. */
 const nextRun = async () => {
   const run = ++overRun;
-  await xRun(`window.__xtendPress = ${run}, true`);
+  await xRun(
+    `window.__xtendMenuRead = (window.__xtendMenuRead ?? 0) + 1, window.__xtendPress = ${run}, true`,
+  );
   return run;
 };
 
@@ -419,7 +553,7 @@ const stillMine = (run: number) => `((window.__xtendPress ?? 0) === ${run})`;
  * dialog (the user finished or closed it), or the user moved to another screen.
  */
 const pressMenu = async (
-  page: { readonly url: string; readonly path: string },
+  page: { readonly url: string; readonly path: string } | null,
   at: MenuAt,
   label: string,
   over: (shown: boolean) => void,
@@ -595,6 +729,29 @@ export const xCommunityJoin = async (
   return label === null ? null : { refused: false, label };
 };
 
+/** X's own rows of a trend's "...", read from X's menu on the Explore tab the engine shows. */
+export const xTrendMenu = async (name: string) => {
+  const rows = await onPage(null, () => xMenuInPlace(trendMenuAt(name), { cancelRead: true }));
+  return rows?.length ? rows : null;
+};
+
+/** Presses X's own row `label` of a trend's "..." for the user's click (see `pressMenu`), in place. */
+export const xTrendMenuPress = async (
+  name: string,
+  label: string,
+  over: (shown: boolean) => void,
+) => {
+  const at = trendMenuAt(name);
+  const pressing = pressMenu(null, at, label, over);
+  const run = overRun;
+  const outcome = await pressing;
+  if (outcome?.kind !== "over" || run !== overRun) return outcome;
+  return xRun(`(async () => {
+    ${at.find(stillMine(run))}
+    ${menuDone(at, stillMine(run), run)}
+  })()`).then((done) => (done === null ? null : (done as XMenuOutcome)));
+};
+
 /** Presses X's own row `label` of a post's `menu` for the user's click (see `pressMenu`). */
 export const xPostMenuPress = async (
   post: PostRef,
@@ -624,7 +781,7 @@ export const xPostFollowPress = async (
   if (outcome === null || !live()) return { outcome, following: null };
   const rows = await onPage(
     postPage(post),
-    () => xMenuInPlace(postMenuAt(post.postId, "more"), run),
+    () => xMenuInPlace(postMenuAt(post.postId, "more"), { run }),
     () => Promise.resolve(),
     live,
   );
@@ -706,7 +863,7 @@ export const xBellPress = async (handle: string, on: boolean) =>
  * digits; `labels` are X's names for the orders.
  */
 const sortMenuAt = (postId: string, labels: ReadonlyArray<string>): MenuAt => ({
-  find: `
+  find: () => `
     ${findArticle(postId)}
     let sortAt = null;
     for (let i = 0; i < 50 && article && !sortAt; i++) {
@@ -729,16 +886,16 @@ export const xSortReplies = (
   labels: ReadonlyArray<string>,
 ) =>
   validPost(post)
-    ? xRun(`(async () => {
+    ? xMenuRun(`
     ${openMenu(sortMenuAt(post.postId, labels))}
     const item = items.find((i) => i.textContent.trim() === ${JSON.stringify(pick.label)});
-    if (!item) return (closeMenu(), false);
+    if (!item || menuFor(trigger) !== opened) return (closeMenu(), false);
     item.click();
     // X puts the order in its URL a moment later; the route's own move waits for it, or it races X.
     const took = () => new URLSearchParams(location.search).get("sort_replies") === ${JSON.stringify(pick.param)};
     for (let i = 0; i < 20 && !took(); i++) await new Promise((r) => setTimeout(r, 100));
     return took();
-  })()`).then((done) => done === true)
+  `).then((done) => done === true)
     : Promise.resolve(false);
 
 /**

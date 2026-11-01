@@ -284,6 +284,10 @@ export interface EngineState {
   /** X's titled boxes of people per surface (a Community's Moderators and Members). */
   readonly sections: PerSurface<EnginePeopleSection>;
   readonly trends: PerSurface<EngineTrend>;
+  /**
+   * Trend names hidden for the user's click until a fresh capture of that tab omits them.
+   */
+  readonly hiddenTrends: PerSurface<string>;
   readonly notifications: PerSurface<EngineNotification>;
   /** X Lists by id: the Lists page's rows and each List's own header. */
   readonly xLists: ReadonlyMap<string, EngineList>;
@@ -317,6 +321,7 @@ export const emptyEngine: EngineState = {
   people: NONE,
   sections: NONE,
   trends: NONE,
+  hiddenTrends: NONE,
   notifications: NONE,
   xLists: new Map(),
   listIds: NONE,
@@ -562,7 +567,7 @@ function mergeInto(state: EngineState, batch: EngineBatch, surface: AnySurface):
           page === "first" ? userIds : join(at(state.people, surface), userIds, String),
         );
   const trends =
-    batch.trends.length === 0
+    batch.trends.length === 0 && !(surface.startsWith("explore:") && page === "first")
       ? state.trends
       : set(
           state.trends,
@@ -630,6 +635,17 @@ function mergeInto(state: EngineState, batch: EngineBatch, surface: AnySurface):
     listIds,
     communityIds,
     trends,
+    // A stale capture may still list a dismissed trend; release it only once X agrees.
+    hiddenTrends:
+      surface.startsWith("explore:") && page === "first"
+        ? set(
+            state.hiddenTrends,
+            surface,
+            at(state.hiddenTrends, surface).filter((name) =>
+              batch.trends.some((t) => t.name === name),
+            ),
+          )
+        : state.hiddenTrends,
     notifications,
     lists: newer
       ? state.lists
@@ -747,6 +763,27 @@ export const askFollow = (
   if (following === null) asked.delete(userId);
   else asked.set(userId, following);
   return { ...state, asked };
+};
+
+/** Hides a trend X took off `surface` for the user's click, or shows it again (X's Undo). */
+export const hideTrend = (
+  state: EngineState,
+  surface: AnySurface,
+  trend: EngineTrend,
+  hidden: boolean,
+  index: number,
+): EngineState => {
+  const name = trend.name;
+  const list = at(state.trends, surface);
+  const restore = !hidden && !list.some((t) => t.name === name);
+  const names = at(state.hiddenTrends, surface).filter((n) => n !== name);
+  return {
+    ...state,
+    hiddenTrends: set(state.hiddenTrends, surface, hidden ? [...names, name] : names),
+    trends: restore
+      ? set(state.trends, surface, [...list.slice(0, index), trend, ...list.slice(index)])
+      : state.trends,
+  };
 };
 
 /** The person behind a handle, once X has listed them or opened their profile. */

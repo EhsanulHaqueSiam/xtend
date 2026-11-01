@@ -991,6 +991,59 @@ const benchmarks = [
     },
   ],
   [
+    `Explore's first trend menu matches X's own rows (dry)`,
+    async () => {
+      await go("#/explore");
+      const more = `document.querySelector('[data-x="trend"] button[aria-label="More"]')`;
+      if (!(await until(() => app(`!!${more}`), 10_000))) return false;
+      const name = await store(`at($.trends, "explore:" + $.exploreTabs[0].timelineId)[0]?.name`);
+      if (!name) return false;
+      const own = `[...document.querySelectorAll('[data-testid="trend"]')].find((c) => [...c.querySelectorAll("span")].some((s) => { if (Number(getComputedStyle(s).fontWeight) < 600) return false; const copy = s.cloneNode(true); for (const img of copy.querySelectorAll("img[alt]")) img.replaceWith(img.alt); return copy.textContent.trim() === ${JSON.stringify(name)}; }))`;
+      if (
+        !(await until(
+          () =>
+            engine(
+              `location.pathname === "/explore" && !!(${own})?.querySelector('[data-testid="caret"]')`,
+            ),
+          10_000,
+        ))
+      )
+        return false;
+      const xs = await engine(`(async () => {
+        const trend = ${own};
+        const trigger = trend?.querySelector('[data-testid="caret"]');
+        if (!trigger) return null;
+        trigger.click();
+        let items = [];
+        for (let i = 0; i < 20 && items.length === 0; i++) {
+          await new Promise((r) => setTimeout(r, 100));
+          items = [...document.querySelectorAll('[data-testid="Dropdown"] [role="menuitem"]')];
+        }
+        const rows = items.map((i) => i.textContent.trim());
+        const opened = items[0]?.closest('[role="menu"]');
+        [...(opened?.parentElement?.children ?? [])].find((k) => k !== opened && k.getBoundingClientRect().height > 0)?.click();
+        return rows;
+      })()`);
+      await app(`${more}.click(), true`);
+      const ours = await until(async () => {
+        const rows = await app(
+          `[...document.querySelectorAll('[role="menu"] [role="menuitem"]')].map((i) => i.textContent)`,
+        );
+        return rows?.includes("Not interested in this") && rows;
+      }, 10_000);
+      const closed = await engine(`!document.querySelector('[data-testid="Dropdown"]')`);
+      await app(
+        `document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`,
+      );
+      return (
+        closed &&
+        xs?.length > 0 &&
+        JSON.stringify(xs) === JSON.stringify(ours) &&
+        `${xs.length} rows, nothing pressed`
+      );
+    },
+  ],
+  [
     "Lists reads X's Lists page and a List's posts",
     async () => {
       const viewer = await until(

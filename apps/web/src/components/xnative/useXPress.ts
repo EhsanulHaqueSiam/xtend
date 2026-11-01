@@ -22,10 +22,15 @@ export function useXPress() {
         ? null
         : "Session actions are off in Settings, X session.";
   };
-  /** Presses one of X's menu rows (`row`); X's toast comes back as Xtend's, with X's Undo. */
-  const pressRow = async (row: () => Promise<XMenuOutcome | null>) => {
+  /**
+   * Presses one of X's menu rows (`row`); X's toast comes back as Xtend's, with X's Undo, after
+   * which `undone` runs.
+   */
+  const pressRow = async (row: () => Promise<XMenuOutcome | null>, undone?: () => void) => {
     const why = blocked();
     if (why !== null) return setToast({ text: why });
+    // An earlier press's toast goes: X's toast is now this press's, so its Undo would undo this one.
+    setToast(null);
     const outcome = await row();
     if (outcome === null) return setToast({ text: "X did not take that. Try again in a moment." });
     if (outcome.kind === "done" && outcome.toast !== null)
@@ -37,6 +42,7 @@ export function useXPress() {
                 const no = blocked();
                 if (no !== null) throw new Error(no);
                 if (!(await xToastUndo())) throw new Error("X no longer offers Undo here.");
+                undone?.();
               },
             }
           : {}),

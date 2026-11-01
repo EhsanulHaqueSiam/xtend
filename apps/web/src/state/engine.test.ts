@@ -14,6 +14,7 @@ import {
   communityRole,
   communitySurface,
   emptyEngine,
+  hideTrend,
   mergeBatch,
   postOn,
   postSurface,
@@ -531,4 +532,28 @@ it("puts the user's new reply under the post it answers, and a new post on top o
   expect(at(state.lists, "following")).toEqual(["10", "3"]);
   expect(at(state.lists, "profile:posts:1")).toEqual(["10"]);
   expect(at(showWaiting(state, "following").lists, "following")).toEqual(["10", "4", "3"]);
+});
+
+it("keeps dismissed trends hidden across stale captures of their tab, reconciles removal, and restores on Undo", () => {
+  const trend = {
+    name: "A trend",
+    context: null,
+    url: "https://x.com/search?q=trend",
+    images: [],
+    group: null,
+  };
+  const capture = (trends: EngineBatch["trends"], key = "news") =>
+    batch("GenericTimelineById", [], { key, trends });
+  let state = mergeBatch(emptyEngine, capture([trend]));
+  state = hideTrend(state, "explore:news", trend, true, 0);
+  state = mergeBatch(state, capture([trend]));
+  expect(at(state.hiddenTrends, "explore:news")).toEqual([trend.name]);
+  state = mergeBatch(state, capture([], "trending"));
+  expect(at(state.hiddenTrends, "explore:news")).toEqual([trend.name]);
+  state = mergeBatch(state, capture([]));
+  expect(at(state.hiddenTrends, "explore:news")).toEqual([]);
+  expect(at(state.trends, "explore:news")).toEqual([]);
+  state = hideTrend(state, "explore:news", trend, false, 0);
+  expect(at(state.trends, "explore:news")).toEqual([trend]);
+  expect(at(state.trends, "explore:trending")).toEqual([]);
 });

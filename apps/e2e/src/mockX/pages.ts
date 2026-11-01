@@ -81,11 +81,11 @@ const actions = (
   p: EnginePost,
 ) => `<div role="group" class="actions" aria-label="${p.metrics.replies} replies, ${p.metrics.reposts} reposts, ${p.metrics.likes} likes">
   <button data-testid="reply" data-post="${p.postId}" aria-label="${p.metrics.replies} Replies. Reply">💬 <span>${compact(p.metrics.replies)}</span></button>
-  <button data-testid="${p.reposted ? "unretweet" : "retweet"}" data-post="${p.postId}" aria-haspopup="menu" aria-label="Repost">🔁 <span data-count="reposts">${compact(p.metrics.reposts)}</span></button>
+  <button data-testid="${p.reposted ? "unretweet" : "retweet"}" data-post="${p.postId}" aria-haspopup="menu" aria-expanded="false" aria-label="Repost">🔁 <span data-count="reposts">${compact(p.metrics.reposts)}</span></button>
   <button data-testid="${p.liked ? "unlike" : "like"}" data-post="${p.postId}" aria-label="Like">♥ <span data-count="likes">${compact(p.metrics.likes)}</span></button>
   <a href="/${esc(p.author.handle)}/status/${p.postId}/analytics" aria-label="View post analytics">📊 <span>${compact(p.metrics.views)}</span></a>
   <button data-testid="${p.bookmarked ? "removeBookmark" : "bookmark"}" data-post="${p.postId}" aria-label="Bookmark">🔖 <span data-count="bookmarks">${compact(p.metrics.bookmarks)}</span></button>
-  <button aria-label="Share post" aria-haspopup="menu" data-menu="share:${p.postId}">⤴</button>
+  <button aria-label="Share post" aria-haspopup="menu" aria-expanded="false" data-menu="share:${p.postId}">⤴</button>
 </div>`;
 
 /**
@@ -127,13 +127,13 @@ function article(p: EnginePost, state: MockState, opts: { focal?: boolean; sort?
   const sort =
     opts.sort === undefined
       ? ""
-      : `<div class="sort"><div><button aria-haspopup="menu" data-menu="sort:${p.postId}">${esc(opts.sort)}</button></div><a href="/${esc(p.author.handle)}/status/${p.postId}/quotes">View quotes ›</a></div>`;
+      : `<div class="sort"><div><button aria-haspopup="menu" aria-expanded="false" data-menu="sort:${p.postId}">${esc(opts.sort)}</button></div><a href="/${esc(p.author.handle)}/status/${p.postId}/quotes">View quotes ›</a></div>`;
   return `<article data-testid="tweet" role="article" tabindex="${opts.focal === true ? "-1" : "0"}" aria-labelledby="t${p.postId}">
   ${context}
   <div class="row"><div data-testid="Tweet-User-Avatar"><a href="/${esc(p.author.handle)}">${avatar(p.avatarUrl, p.author.handle)}</a></div>
   <div class="body">
     <div class="head"><div data-testid="User-Name"><a href="/${esc(p.author.handle)}"><span>${esc(p.author.name)}</span></a> <a href="/${esc(p.author.handle)}"><span>@${esc(p.author.handle)}</span></a> · <a href="${esc(href)}"><time datetime="${p.createdAt}">${shortDate(p.createdAt)}</time></a></div>
-    <button data-testid="caret" aria-label="More" aria-haspopup="menu" data-menu="post:${p.postId}">…</button></div>
+    <button data-testid="caret" aria-label="More" aria-haspopup="menu" aria-expanded="false" data-menu="post:${p.postId}">…</button></div>
     ${replying}
     <div data-testid="tweetText" lang="en" id="t${p.postId}">${esc(text)}</div>
     ${translation}${media}${card}${p.poll === null ? "" : pollMarkup(p)}${quote}${note}
@@ -162,7 +162,7 @@ const followButton = (u: EngineUser) =>
     : `<button data-testid="${u.userId}-follow" aria-label="Follow @${esc(u.handle)}" data-handle="${esc(u.handle)}">Follow</button>`;
 
 const trendRow = (t: EngineTrend, i: number) =>
-  `<div data-testid="trend" role="link" tabindex="0" data-href="${esc(new URL(t.url).pathname + new URL(t.url).search)}"><div class="muted">${i + 1} · ${esc(t.context ?? "Trending")}</div><div>${esc(t.name)}</div><button aria-label="More" aria-haspopup="menu" data-menu="trend:${i}">…</button></div>`;
+  `<div data-testid="trend" data-trend="${esc(t.name)}" role="link" tabindex="0" data-href="${esc(new URL(t.url).pathname + new URL(t.url).search)}"><div class="muted">${i + 1} · ${esc(t.context ?? "Trending")}</div><div style="font-weight:700"><span>${esc(t.name)}</span></div><button data-testid="caret" aria-label="More" aria-haspopup="menu" aria-expanded="false" data-menu="trend:${esc(t.name)}">…</button></div>`;
 
 const notificationRow = (n: EngineNotification, state: MockState) =>
   n.kind === "post"
@@ -367,7 +367,7 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
         )}${tab.id === "trending" ? `<div class="banner">Global Trending</div>` : ""}<section data-list>${(
           b?.trends ?? []
         )
-          .map(trendRow)
+          .map((t, i) => `<div data-trend-slot style="height:120px">${trendRow(t, i)}</div>`)
           .join(
             "",
           )}${b != null && b.people.length > 0 ? `<h3>Who to follow</h3>${peopleOf(b)}` : ""}</section>`,
@@ -387,7 +387,7 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
         }),
       ],
       render: ([b]) =>
-        `<div class="bar"><button data-testid="app-bar-back" aria-label="Back">←</button><input data-testid="SearchBox_Search_Input" aria-label="Search query" value="${esc(query)}"><button aria-label="More" aria-haspopup="menu" data-menu="search">…</button></div>${tabs(
+        `<div class="bar"><button data-testid="app-bar-back" aria-label="Back">←</button><input data-testid="SearchBox_Search_Input" aria-label="Search query" value="${esc(query)}"><button aria-label="More" aria-haspopup="menu" aria-expanded="false" data-menu="search">…</button></div>${tabs(
           "Search",
           SEARCH_TABS.map((t) => ({
             label: t.label,
@@ -694,7 +694,7 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
         const bell = state.bellOn(live.userId);
         const buttons = own
           ? `<a href="/settings/profile" data-testid="editProfileButton">Edit profile</a>`
-          : `<button data-testid="userActions" aria-label="More" aria-haspopup="menu" data-menu="profile:${esc(live.handle)}">…</button>
+          : `<button data-testid="userActions" aria-label="More" aria-haspopup="menu" aria-expanded="false" data-menu="profile:${esc(live.handle)}">…</button>
              <a href="/messages/compose?recipient_id=${live.userId}" data-testid="sendDMFromProfile" aria-label="Message">✉</a>
              ${live.youFollow ? `<button aria-label="${bell ? "Turn off post notifications" : "Turn on post notifications"}" data-bell="${live.userId}">🔔</button>` : ""}
              <span>${followButton(live)}</span>

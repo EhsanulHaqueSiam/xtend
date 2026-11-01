@@ -1,4 +1,6 @@
-import { expect, it } from "vite-plus/test";
+import { expect, it, vi } from "vite-plus/test";
+
+import { fakeTimers, stubGlobal } from "../../test/render";
 
 import {
   communityJoinButton,
@@ -15,8 +17,11 @@ import {
   xProfileMenu,
   xProfileMenuPress,
   xSortReplies,
+  xScrollMore,
   xSubscribe,
   xVote,
+  xTrendMenu,
+  xTrendMenuPress,
   type XWebview,
 } from "./x";
 
@@ -135,31 +140,45 @@ it("follows the person asked for, waiting past another person's button drawn fir
   expect(await xFollow({ userId: "786", handle: "theo" }, true)).toBe(false);
 });
 
-/**
- * A menu on post 42 (its "...", or the button `trigger` selects): pressing it draws the rows
- * with a mask beside them, as X does.
- */
+/** X reflects the active menu on its caret, including when a delayed dropdown replaces another. */
+const drawMenu = (caret: Element, rows: Record<string, () => void>) => {
+  for (const other of document.querySelectorAll('[aria-expanded="true"]'))
+    other.setAttribute("aria-expanded", "false");
+  for (const menu of document.querySelectorAll("[data-fake-menu]")) menu.remove();
+  caret.setAttribute("aria-haspopup", "menu");
+  caret.setAttribute("aria-expanded", "true");
+  const layer = document.createElement("div");
+  layer.dataset.fakeMenu = "";
+  layer.innerHTML = `<div style="height:10px"></div><div role="menu"><div data-testid="Dropdown">${Object.keys(
+    rows,
+  )
+    .map((row) => `<div role="menuitem">${row}</div>`)
+    .join("")}</div></div>`;
+  const close = () => {
+    layer.remove();
+    caret.setAttribute("aria-expanded", "false");
+  };
+  layer.firstElementChild!.addEventListener("click", close);
+  for (const item of layer.querySelectorAll('[role="menuitem"]'))
+    item.addEventListener("click", () => {
+      close();
+      rows[item.textContent!]!();
+    });
+  document.body.append(layer);
+  return layer;
+};
+
+/** A menu on post 42; no aria-controls, as on X's trend carets. */
 const withMenu = (
   rows: Record<string, () => void>,
   trigger = '[data-testid="caret"]',
   button = `<button data-testid="caret"></button>`,
 ) => {
   document.body.innerHTML = `<article><a href="/theo/status/42"><time></time></a>${button}</article>`;
-  document.querySelector(trigger)!.addEventListener("click", () => {
-    const layer = document.createElement("div");
-    layer.innerHTML = `<div style="height:10px"></div><div role="menu"><div data-testid="Dropdown">${Object.keys(
-      rows,
-    )
-      .map((row) => `<div role="menuitem">${row}</div>`)
-      .join("")}</div></div>`;
-    layer.firstElementChild!.addEventListener("click", () => layer.remove());
-    for (const item of layer.querySelectorAll('[role="menuitem"]'))
-      item.addEventListener("click", () => {
-        layer.remove();
-        rows[item.textContent!]!();
-      });
-    document.body.append(layer);
-  });
+  const caret = document.querySelector(trigger)!;
+  caret.setAttribute("aria-haspopup", "menu");
+  caret.setAttribute("aria-expanded", "false");
+  caret.addEventListener("click", () => drawMenu(caret, rows));
   inThisPage();
 };
 const post42 = { postId: "42", handle: "theo" };
@@ -189,6 +208,8 @@ it("presses only the row asked for: X's toast comes back, X's dialog keeps the e
     kind: "done",
     toast: "You muted @theo",
     undo: true,
+    gone: false,
+    current: true,
   });
   const shown: Array<boolean> = [];
   const outcome = await xPostMenuPress(post42, "Block @theo", (on) => {
@@ -429,5 +450,688 @@ it("reads X's new membership label on the Community's own page, before the engin
   } finally {
     history.back = back;
     history.replaceState(null, "", start);
+  }
+});
+
+it("finds a trend by its exact name, reads only its menu, and presses only the requested row", async () => {
+  using _clock = fakeTimers();
+  const path = location.pathname + location.search;
+  history.replaceState(null, "", "/explore/tabs/news");
+  const pressed: Array<string> = [];
+  withMenu({
+    "This trend is spam": () => pressed.push("spam"),
+    "This trend is abusive or harmful": () =>
+      document.body.insertAdjacentHTML("beforeend", '<div role="dialog"></div>'),
+    "Not interested in this": () => {
+      pressed.push("not interested");
+      document.querySelector("article")?.remove();
+      document.body.insertAdjacentHTML(
+        "beforeend",
+        '<div data-testid="toast">Thanks<button>Undo</button></div>',
+      );
+    },
+  });
+  const article = document.querySelector("article")!;
+  article.dataset.testid = "trend";
+  article.insertAdjacentHTML(
+    "afterbegin",
+    '<div style="font-weight:700"><span>A "quoted" trend <img alt="🧭"></span></div>',
+  );
+  const other = document.createElement("div");
+  other.dataset.testid = "trend";
+  other.innerHTML =
+    '<div><span>A "quoted" trend 🧭</span><span> · Trending</span></div><div style="font-weight:700"><span>Another name</span></div><button data-testid="caret"></button>';
+  other.querySelector("button")!.addEventListener("click", () => pressed.push("wrong trend"));
+  article.before(other);
+  try {
+    const reading = xTrendMenu('A "quoted" trend 🧭');
+    await vi.runAllTimersAsync();
+    expect(await reading).toEqual([
+      "This trend is spam",
+      "This trend is abusive or harmful",
+      "Not interested in this",
+    ]);
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(pressed).toEqual([]);
+    const missing = xTrendMenuPress('A "quoted" trend 🧭', "Not a row", () => {});
+    await vi.runAllTimersAsync();
+    expect(await missing).toBeNull();
+    expect(pressed).toEqual([]);
+    const shown: Array<boolean> = [];
+    const dialog = xTrendMenuPress(
+      'A "quoted" trend 🧭',
+      "This trend is abusive or harmful",
+      (on) => {
+        shown.push(on);
+        if (on) document.querySelector('[role="dialog"]')?.remove();
+      },
+    );
+    await vi.runAllTimersAsync();
+    expect((await dialog)?.kind).toBe("done");
+    expect(shown).toEqual([true, false]);
+    const pressing = xTrendMenuPress('A "quoted" trend 🧭', "Not interested in this", () => {});
+    await vi.runAllTimersAsync();
+    expect(await pressing).toEqual({
+      kind: "done",
+      toast: "Thanks",
+      undo: true,
+      gone: false,
+      dismissed: true,
+      current: true,
+    });
+    expect(pressed).toEqual(["not interested"]);
+
+    document.body.append(article);
+    expect(article.isConnected).toBe(true);
+    const cancelled = xTrendMenuPress('A "quoted" trend 🧭', "This trend is spam", () => {});
+    xOverEnded();
+    await vi.runAllTimersAsync();
+    expect(pressed).toEqual(["not interested"]);
+    expect(await cancelled).toBeNull();
+  } finally {
+    history.replaceState(null, "", path);
+    registerXWebview(null);
+  }
+});
+
+it("keeps X's toast and Undo when a post menu press is cancelled after X's row was clicked", async () => {
+  using _clock = fakeTimers();
+  withMenu({
+    "Mute @theo": () => {
+      document.body.insertAdjacentHTML(
+        "beforeend",
+        '<div data-testid="toast">Muted<button>Undo</button></div>',
+      );
+      xOverEnded();
+    },
+  });
+  const pressing = xPostMenuPress(post42, "Mute @theo", () => {});
+  await vi.runAllTimersAsync();
+  expect(await pressing).toMatchObject({
+    kind: "done",
+    toast: "Muted",
+    undo: true,
+    current: false,
+  });
+});
+
+it.each([false, true])(
+  "keeps a clicked trend's outcome when another menu is read or its tab is left (%s)",
+  async (leave) => {
+    using _clock = fakeTimers();
+    const path = location.pathname + location.search;
+    history.replaceState(null, "", "/explore/tabs/news");
+    let reading: Promise<ReadonlyArray<string> | null> | undefined;
+    withMenu({
+      "Not interested in this": () => {
+        document.body.insertAdjacentHTML(
+          "beforeend",
+          '<div data-testid="toast">Thanks<button>Undo</button></div>',
+        );
+        if (leave) xOverEnded();
+        else reading = xTrendMenu("Trend B");
+      },
+    });
+    const article = document.querySelector("article")!;
+    article.dataset.testid = "trend";
+    article.insertAdjacentHTML(
+      "afterbegin",
+      '<div style="font-weight:700"><span>Trend A</span></div>',
+    );
+    const b = article.cloneNode(true) as HTMLElement;
+    b.querySelector("span")!.textContent = "Trend B";
+    b.querySelector("button")!.addEventListener("click", () => {
+      drawMenu(b.querySelector("button")!, { "B feedback": () => {} });
+    });
+    article.after(b);
+    try {
+      const pressing = xTrendMenuPress("Trend A", "Not interested in this", () => {});
+      await vi.runAllTimersAsync();
+      expect(await pressing).toMatchObject({
+        kind: "done",
+        toast: "Thanks",
+        undo: true,
+        current: !leave,
+      });
+      if (!leave) expect(await reading).toEqual(["B feedback"]);
+    } finally {
+      history.replaceState(null, "", path);
+      registerXWebview(null);
+    }
+  },
+);
+
+it.each(["read", "press"])(
+  "cancels an undrawn trend read before a newer %s opens X's menu",
+  async (next) => {
+    using _clock = fakeTimers();
+    const path = location.pathname + location.search;
+    history.replaceState(null, "", "/explore/tabs/news");
+    const pressed: Array<string> = [];
+    withMenu({ "Not interested in this": () => pressed.push("T2") });
+    const t2 = document.querySelector("article")!;
+    t2.dataset.testid = "trend";
+    t2.insertAdjacentHTML("afterbegin", '<span style="font-weight:700">T2</span>');
+    try {
+      const stale = xTrendMenu("T1");
+      await vi.advanceTimersByTimeAsync(100);
+      const t1 = t2.cloneNode(true) as HTMLElement;
+      t1.querySelector("span")!.textContent = "T1";
+      const opened = vi.fn();
+      t1.querySelector("button")!.addEventListener("click", opened);
+      document.body.append(t1);
+      const latest =
+        next === "read"
+          ? xTrendMenu("T2")
+          : xTrendMenuPress("T2", "Not interested in this", () => {});
+      await vi.runAllTimersAsync();
+      expect(await stale).toBeNull();
+      expect(opened).not.toHaveBeenCalled();
+      if (next === "read") expect(await latest).toEqual(["Not interested in this"]);
+      else expect(await latest).toMatchObject({ kind: "done" });
+      expect(pressed).toEqual(next === "press" ? ["T2"] : []);
+    } finally {
+      history.replaceState(null, "", path);
+      registerXWebview(null);
+    }
+  },
+);
+
+it("reads and presses only the dropdown opened by its caret when another menu exists", async () => {
+  using _clock = fakeTimers();
+  const pressed: Array<string> = [];
+  withMenu({ "Mute @theo": () => pressed.push("own") });
+  document.querySelector("button")!.addEventListener("click", () => {
+    const own = document.querySelector('[data-fake-menu] [role="menu"]')!;
+    own.id = "own-menu";
+    document.querySelector("button")!.setAttribute("aria-controls", own.id);
+  });
+  const foreign = document.createElement("div");
+  foreign.innerHTML =
+    '<div role="menu"><div data-testid="Dropdown"><div role="menuitem">Mute @theo</div><div role="menuitem">Foreign row</div></div></div>';
+  foreign
+    .querySelector('[role="menuitem"]')!
+    .addEventListener("click", () => pressed.push("foreign"));
+  document.body.prepend(foreign);
+  const reading = xPostMenu(post42);
+  await vi.runAllTimersAsync();
+  expect(await reading).toEqual(["Mute @theo"]);
+  expect(foreign.isConnected).toBe(true);
+  const pressing = xPostMenuPress(post42, "Mute @theo", () => {});
+  await vi.runAllTimersAsync();
+  expect((await pressing)?.kind).toBe("done");
+  expect(pressed).toEqual(["own"]);
+});
+
+it.each(["before", "during"])(
+  "resumes paging requested %s a trend lookup without another native endReached",
+  async (when) => {
+    using _clock = fakeTimers();
+    const path = location.pathname + location.search;
+    history.replaceState(null, "", "/explore");
+    withMenu({});
+    let bottoms = 0;
+    using _scroll = vi.spyOn(window, "scrollTo").mockImplementation((...args) => {
+      if (typeof args[0] !== "number") return;
+      if (++bottoms === 2)
+        document.querySelector("article a")!.setAttribute("href", "/theo/status/43");
+    });
+    using _back = vi.spyOn(window, "scrollBy").mockImplementation(() => {});
+    try {
+      const paging = when === "before" ? xScrollMore() : undefined;
+      const reading = xTrendMenu("Missing");
+      const pending = paging ?? xScrollMore();
+      await vi.runAllTimersAsync();
+      expect(await reading).toBeNull();
+      expect(await pending).toBe(true);
+      expect(bottoms).toBe(2);
+    } finally {
+      history.replaceState(null, "", path);
+      registerXWebview(null);
+    }
+  },
+);
+
+it("keeps paging while a post menu read waits for X's rows", async () => {
+  using _clock = fakeTimers();
+  withMenu({});
+  let bottoms = 0;
+  using _scroll = vi.spyOn(window, "scrollTo").mockImplementation(() => {
+    if (++bottoms === 2)
+      document.querySelector("article a")!.setAttribute("href", "/theo/status/43");
+  });
+  const reading = xPostMenu(post42);
+  const paging = xScrollMore();
+  await vi.advanceTimersByTimeAsync(600);
+  expect(bottoms).toBe(2);
+  expect(await paging).toBe(true);
+  await vi.runAllTimersAsync();
+  await reading;
+});
+
+it("stops searching for a missing trend at the end of X's trend cells before the endless posts", async () => {
+  using _clock = fakeTimers();
+  const path = location.pathname + location.search;
+  history.replaceState(null, "", "/explore");
+  document.body.innerHTML =
+    '<div style="height:50000px"><div data-testid="trend" style="position:absolute;top:100px;height:100px"><span style="font-weight:700">Other trend</span></div></div>';
+  inThisPage();
+  try {
+    const reading = xTrendMenu("Missing");
+    await vi.runAllTimersAsync();
+    expect(await reading).toBeNull();
+    expect(window.scrollY).toBeLessThanOrEqual(201);
+  } finally {
+    window.scrollTo(0, 0);
+    history.replaceState(null, "", path);
+    registerXWebview(null);
+  }
+});
+
+it.each(["post", "profile"])(
+  "keeps overlapping %s menu reads in place when a newer read and screen change supersede them",
+  async (kind) => {
+    using _clock = fakeTimers();
+    const path = location.pathname + location.search;
+    history.replaceState(null, "", kind === "profile" ? "/theo" : "/home");
+    withMenu(
+      { "First menu": () => {} },
+      kind === "profile" ? '[data-testid="userActions"]' : '[data-testid="caret"]',
+      kind === "profile"
+        ? '<button data-testid="userActions"></button>'
+        : '<button data-testid="caret"></button>',
+    );
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      '<article id="second"><a href="/ann/status/43"><time></time></a><button data-testid="caret"></button></article>',
+    );
+    document.querySelector("#second button")!.addEventListener("click", () => {
+      drawMenu(document.querySelector("#second button")!, { "Second menu": () => {} });
+    });
+    inThisPage(() => "https://x.com/home");
+    using navigation = vi.spyOn(history, "pushState");
+    try {
+      const first = kind === "profile" ? xProfileMenu("theo") : xPostMenu(post42);
+      const second = xPostMenu({ postId: "43", handle: "ann" });
+      xOverEnded();
+      await vi.runAllTimersAsync();
+      expect(navigation).not.toHaveBeenCalled();
+      expect(await first).toEqual(["First menu"]);
+      expect(await second).toEqual(["Second menu"]);
+    } finally {
+      history.replaceState(null, "", path);
+      registerXWebview(null);
+    }
+  },
+);
+
+it("closes a cancelled trend read's own dropdown while leaving the newer dropdown alone", async () => {
+  using _clock = fakeTimers();
+  const path = location.pathname + location.search;
+  history.replaceState(null, "", "/explore");
+  withMenu({ "First menu": () => {} });
+  const t1 = document.querySelector("article")!;
+  t1.dataset.testid = "trend";
+  t1.insertAdjacentHTML("afterbegin", '<span style="font-weight:700">T1</span>');
+  const t2 = t1.cloneNode(true) as HTMLElement;
+  t2.querySelector("span")!.textContent = "T2";
+  let secondLayer: HTMLElement | undefined;
+  t2.querySelector("button")!.addEventListener("click", () => {
+    secondLayer = drawMenu(t2.querySelector("button")!, {});
+  });
+  document.body.append(t2);
+  try {
+    const first = xTrendMenu("T1");
+    const firstMenu = document.querySelector('[role="menu"]')!;
+    const second = xTrendMenu("T2");
+    await vi.advanceTimersByTimeAsync(100);
+    expect(await first).toBeNull();
+    expect(firstMenu.isConnected).toBe(false);
+    expect(secondLayer!.isConnected).toBe(true);
+    secondLayer!.querySelector('[data-testid="Dropdown"]')!.innerHTML =
+      '<div role="menuitem">Second menu</div>';
+    await vi.runAllTimersAsync();
+    expect(await second).toEqual(["Second menu"]);
+    expect(secondLayer!.isConnected).toBe(false);
+  } finally {
+    history.replaceState(null, "", path);
+    registerXWebview(null);
+  }
+});
+
+it.each([300, 2300])(
+  "never presses another trend's row when its dropdown takes %s ms and a read intervenes",
+  async (delay) => {
+    using _ownership = stubGlobal("__xtendMenuCarets", new WeakSet());
+    using _clock = fakeTimers();
+    const path = location.pathname + location.search;
+    history.replaceState(null, "", "/explore");
+    document.body.innerHTML = ["A", "B"]
+      .map(
+        (name) =>
+          `<div data-testid="trend"><span style="font-weight:700">${name}</span><button data-testid="caret" aria-haspopup="menu" aria-expanded="false">${name}</button></div>`,
+      )
+      .join("");
+    const pressed: Array<string> = [];
+    for (const caret of document.querySelectorAll("button"))
+      caret.addEventListener("click", () => {
+        const name = caret.textContent!;
+        setTimeout(
+          () => {
+            drawMenu(caret, { "Not interested in this": () => pressed.push(name) });
+          },
+          name === "A" ? delay : 30,
+        );
+      });
+    inThisPage();
+    try {
+      const pressing = xTrendMenuPress("A", "Not interested in this", () => {});
+      await vi.advanceTimersByTimeAsync(50);
+      const reading = xTrendMenu("B");
+      await vi.runAllTimersAsync();
+      expect(pressed).toEqual([]);
+      expect(await pressing).toBeNull();
+      expect(await reading).toEqual(["Not interested in this"]);
+    } finally {
+      history.replaceState(null, "", path);
+      registerXWebview(null);
+    }
+  },
+);
+
+it.each(["error", "unmounted", "stale acknowledgement"])(
+  "does not confirm dismissal from %s feedback",
+  async (feedback) => {
+    using _clock = fakeTimers();
+    const path = location.pathname + location.search;
+    history.replaceState(null, "", "/explore");
+    withMenu({
+      "Not interested in this": () => {
+        if (feedback === "unmounted") document.querySelector("article")!.remove();
+        else if (feedback === "error")
+          document.body.insertAdjacentHTML(
+            "beforeend",
+            '<div data-testid="toast">Something went wrong. Try again.</div>',
+          );
+      },
+    });
+    const trend = document.querySelector("article")!;
+    trend.dataset.testid = "trend";
+    trend.insertAdjacentHTML("afterbegin", '<span style="font-weight:700">A</span>');
+    if (feedback === "stale acknowledgement")
+      document.body.insertAdjacentHTML(
+        "beforeend",
+        '<div data-testid="toast">Thanks<button>Undo</button></div>',
+      );
+    try {
+      const pressing = xTrendMenuPress("A", "Not interested in this", () => {});
+      await vi.runAllTimersAsync();
+      expect(await pressing).toMatchObject({ kind: "done", dismissed: false, gone: false });
+    } finally {
+      history.replaceState(null, "", path);
+      registerXWebview(null);
+    }
+  },
+);
+
+it.each(["trend", "post", "profile"] as const)(
+  "recovers asynchronous %s menu reads and presses after a timed-out dropdown closes",
+  async (kind) => {
+    using _ownership = stubGlobal("__xtendMenuCarets", new WeakSet());
+    using _clock = fakeTimers();
+    const path = location.pathname + location.search;
+    history.replaceState(null, "", kind === "profile" ? "/theo" : "/explore");
+    document.body.innerHTML = `<article data-testid="trend"><span style="font-weight:700">A</span><a href="/theo/status/42"><time></time></a><button data-testid="${kind === "profile" ? "userActions" : "caret"}" aria-haspopup="menu" aria-expanded="false"></button></article>`;
+    let opens = 0;
+    const pressed: Array<string> = [];
+    document.querySelector("button")!.addEventListener("click", () => {
+      opens++;
+      // Post/profile reads can retry on their own page; both attempts must time out first.
+      if (kind !== "trend" && opens === 2) return;
+      const delay = opens === 1 ? (kind === "trend" ? 2300 : 4500) : 30;
+      setTimeout(() => {
+        drawMenu(document.querySelector("button")!, {
+          "Requested row": () => pressed.push("Requested row"),
+        });
+      }, delay);
+    });
+    inThisPage(() => `https://x.com${location.pathname}`);
+    const read = () =>
+      kind === "trend"
+        ? xTrendMenu("A")
+        : kind === "post"
+          ? xPostMenu(post42)
+          : xProfileMenu("theo");
+    try {
+      const timedOut = read();
+      await vi.advanceTimersByTimeAsync(kind === "trend" ? 2100 : 4100);
+      expect(await timedOut).toBeNull();
+      await vi.advanceTimersByTimeAsync(500);
+      // The user may have closed the late menu before trying another native menu.
+      document.querySelector<HTMLElement>("[data-fake-menu] > div")?.click();
+      const retry = read();
+      await vi.runAllTimersAsync();
+      expect(await retry).toEqual(["Requested row"]);
+      expect(pressed).toEqual([]);
+      const pressing =
+        kind === "trend"
+          ? xTrendMenuPress("A", "Requested row", () => {})
+          : kind === "post"
+            ? xPostMenuPress(post42, "Requested row", () => {})
+            : xProfileMenuPress("theo", "Requested row", () => {});
+      await vi.runAllTimersAsync();
+      expect((await pressing)?.kind).toBe("done");
+      expect(pressed).toEqual(["Requested row"]);
+    } finally {
+      history.replaceState(null, "", path);
+      registerXWebview(null);
+    }
+  },
+);
+
+it("keeps a previous trend's toast and Undo from attaching to a press with no new feedback", async () => {
+  using _clock = fakeTimers();
+  const path = location.pathname + location.search;
+  history.replaceState(null, "", "/explore");
+  const pressed: Array<string> = [];
+  withMenu({
+    "Not interested in this": () => {
+      pressed.push("A");
+      document.body.insertAdjacentHTML(
+        "beforeend",
+        '<div data-testid="toast">Thanks<button>Undo</button></div>',
+      );
+    },
+  });
+  const a = document.querySelector("article")!;
+  a.dataset.testid = "trend";
+  a.insertAdjacentHTML("afterbegin", '<span style="font-weight:700">A</span>');
+  const b = a.cloneNode(true) as HTMLElement;
+  b.querySelector("span")!.textContent = "B";
+  b.querySelector("button")!.addEventListener("click", () => {
+    drawMenu(b.querySelector("button")!, { "Not interested in this": () => pressed.push("B") });
+  });
+  document.body.append(b);
+  try {
+    const first = xTrendMenuPress("A", "Not interested in this", () => {});
+    await vi.runAllTimersAsync();
+    expect(await first).toMatchObject({
+      kind: "done",
+      toast: "Thanks",
+      undo: true,
+      dismissed: true,
+    });
+    const second = xTrendMenuPress("B", "Not interested in this", () => {});
+    await vi.runAllTimersAsync();
+    expect(pressed).toEqual(["A", "B"]);
+    expect(document.querySelector('[data-testid="toast"]')?.textContent).toBe("ThanksUndo");
+    expect(await second).toMatchObject({
+      kind: "done",
+      toast: null,
+      undo: false,
+      dismissed: false,
+    });
+  } finally {
+    history.replaceState(null, "", path);
+    registerXWebview(null);
+  }
+});
+
+it.each([100, 2100])(
+  "leaves a user-opened X menu alone when its own caret never expands (%s ms)",
+  async (when) => {
+    using _ownership = stubGlobal("__xtendMenuCarets", new WeakSet());
+    using _clock = fakeTimers();
+    const path = location.pathname + location.search;
+    history.replaceState(null, "", "/explore");
+    document.body.innerHTML =
+      '<div data-testid="trend"><span style="font-weight:700">A</span><button data-testid="caret" aria-haspopup="menu" aria-expanded="false"></button></div><button id="user" aria-haspopup="menu" aria-expanded="false"></button>';
+    const user = document.querySelector("#user")!;
+    let layer: HTMLElement | undefined;
+    user.addEventListener("click", () => {
+      layer = drawMenu(user, { "User menu": () => {} });
+    });
+    inThisPage();
+    try {
+      const reading = xTrendMenu("A");
+      await vi.advanceTimersByTimeAsync(when);
+      user.dispatchEvent(new MouseEvent("click"));
+      await vi.runAllTimersAsync();
+      expect(layer!.isConnected).toBe(true);
+      expect(await reading).toBeNull();
+      const retry = xTrendMenu("A");
+      await vi.runAllTimersAsync();
+      expect(await retry).toBeNull();
+      expect(layer!.isConnected).toBe(true);
+    } finally {
+      history.replaceState(null, "", path);
+      registerXWebview(null);
+    }
+  },
+);
+
+it("never claims A's late dropdown while B's caret is waiting to expand", async () => {
+  using _ownership = stubGlobal("__xtendMenuCarets", new WeakSet());
+  using _clock = fakeTimers();
+  const path = location.pathname + location.search;
+  history.replaceState(null, "", "/explore");
+  document.body.innerHTML = ["A", "B"]
+    .map(
+      (name) =>
+        `<div data-testid="trend"><span style="font-weight:700">${name}</span><button data-testid="caret" aria-haspopup="menu" aria-expanded="false">${name}</button></div>`,
+    )
+    .join("");
+  const [a, b] = [...document.querySelectorAll("button")];
+  const clicked: Array<string> = [];
+  let late: HTMLElement | undefined;
+  a!.addEventListener("click", () => {
+    setTimeout(() => {
+      late = drawMenu(a!, { "A row": () => clicked.push("A") });
+    }, 2300);
+  });
+  const bClick = vi.fn();
+  b!.addEventListener("click", bClick);
+  inThisPage();
+  try {
+    const first = xTrendMenu("A");
+    await vi.advanceTimersByTimeAsync(2100);
+    expect(await first).toBeNull();
+    const second = xTrendMenu("B");
+    await vi.runAllTimersAsync();
+    expect(bClick).toHaveBeenCalledOnce();
+    expect(late!.isConnected).toBe(true);
+    expect(await second).toBeNull();
+    expect(clicked).toEqual([]);
+    b!.addEventListener("click", () => drawMenu(b!, { "B row": () => clicked.push("B") }));
+    const retry = xTrendMenuPress("B", "B row", () => {});
+    await vi.runAllTimersAsync();
+    expect(late!.isConnected).toBe(false);
+    expect((await retry)?.kind).toBe("done");
+    expect(clicked).toEqual(["B"]);
+  } finally {
+    history.replaceState(null, "", path);
+    registerXWebview(null);
+  }
+});
+
+it.each(["trend", "post", "profile"] as const)(
+  "a dropdown that never mounts does not block later %s presses",
+  async (kind) => {
+    using _ownership = stubGlobal("__xtendMenuCarets", new WeakSet());
+    using _clock = fakeTimers();
+    const path = location.pathname + location.search;
+    history.replaceState(
+      null,
+      "",
+      kind === "profile" ? "/theo" : kind === "post" ? "/theo/status/42" : "/explore",
+    );
+    document.body.innerHTML = `<article data-testid="trend"><span style="font-weight:700">A</span><a href="/theo/status/42"><time></time></a><button data-testid="${kind === "profile" ? "userActions" : "caret"}" aria-haspopup="menu" aria-expanded="false"></button></article>`;
+    const caret = document.querySelector("button")!;
+    const pressed: Array<string> = [];
+    inThisPage(() => `https://x.com${location.pathname}`);
+    try {
+      const reading =
+        kind === "trend"
+          ? xTrendMenu("A")
+          : kind === "post"
+            ? xPostMenu(post42)
+            : xProfileMenu("theo");
+      await vi.runAllTimersAsync();
+      await reading;
+      caret.addEventListener("click", () =>
+        drawMenu(caret, { "Requested row": () => pressed.push("own") }),
+      );
+      const pressing =
+        kind === "trend"
+          ? xTrendMenuPress("A", "Requested row", () => {})
+          : kind === "post"
+            ? xPostMenuPress(post42, "Requested row", () => {})
+            : xProfileMenuPress("theo", "Requested row", () => {});
+      await vi.runAllTimersAsync();
+      expect(pressed).toEqual(["own"]);
+      expect((await pressing)?.kind).toBe("done");
+    } finally {
+      history.replaceState(null, "", path);
+      registerXWebview(null);
+    }
+  },
+);
+
+it("does not close a user reopening a previously clicked caret after its late menu closed", async () => {
+  using _ownership = stubGlobal("__xtendMenuCarets", new WeakSet());
+  using _clock = fakeTimers();
+  const path = location.pathname + location.search;
+  history.replaceState(null, "", "/explore");
+  document.body.innerHTML = ["A", "B"]
+    .map(
+      (name) =>
+        `<div data-testid="trend"><span style="font-weight:700">${name}</span><button data-testid="caret" aria-haspopup="menu" aria-expanded="false">${name}</button></div>`,
+    )
+    .join("");
+  const a = document.querySelector("button")!;
+  let opens = 0;
+  let layer: HTMLElement | undefined;
+  a.addEventListener("click", () => {
+    if (++opens === 1)
+      setTimeout(() => {
+        layer = drawMenu(a, { "A row": () => {} });
+      }, 2300);
+    else layer = drawMenu(a, { "User reopened A": () => {} });
+  });
+  inThisPage();
+  try {
+    const reading = xTrendMenu("A");
+    await vi.advanceTimersByTimeAsync(2400);
+    expect(await reading).toBeNull();
+    (layer!.firstElementChild as HTMLElement).click();
+    a.click();
+    const userMenu = layer!;
+    const other = xTrendMenu("B");
+    await vi.runAllTimersAsync();
+    expect(await other).toBeNull();
+    expect(userMenu.isConnected).toBe(true);
+  } finally {
+    history.replaceState(null, "", path);
+    registerXWebview(null);
   }
 });

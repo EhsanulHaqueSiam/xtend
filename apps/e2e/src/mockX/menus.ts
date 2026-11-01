@@ -13,6 +13,7 @@ export interface Write {
 }
 
 interface Step {
+  readonly trend?: { readonly name: string; readonly hidden: boolean };
   readonly write?: Write;
   /** Turns every follow button for the person, as X does once a follow went through. */
   readonly follow?: { readonly userId: string; readonly on: boolean };
@@ -168,7 +169,8 @@ const copied = { toast: { text: "Copied to clipboard" } };
 
 /** The rows of the menu `spec` names (`post:<id>`, `share:<id>`, `profile:<handle>`, `sort:<id>`). */
 export function menuRows(state: MockState, spec: string): ReadonlyArray<Row> {
-  const [kind = "", arg = ""] = spec.split(":");
+  const [kind = "", ...parts] = spec.split(":");
+  const arg = parts.join(":");
   if (kind === "post") {
     const p = state.post(arg);
     if (p === undefined) return [];
@@ -329,10 +331,20 @@ export function menuRows(state: MockState, spec: string): ReadonlyArray<Row> {
   }
   if (kind === "trend")
     return [
-      { label: "The associated content is not relevant" },
-      { label: "This trend is spam" },
-      { label: "Not interested in this" },
-    ];
+      "The associated content is not relevant",
+      "This trend is spam",
+      "This trend is abusive or harmful",
+      "Not interested in this",
+      "This trend is a duplicate",
+      "This trend is harmful or spammy",
+    ].map((label) => ({
+      label,
+      trend: { name: arg, hidden: true },
+      toast: {
+        text: "Thanks. We'll use this to make your timeline better.",
+        undo: { trend: { name: arg, hidden: false } },
+      },
+    }));
   if (kind === "search")
     return [
       {
