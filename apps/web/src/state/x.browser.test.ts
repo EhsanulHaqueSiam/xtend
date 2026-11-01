@@ -1259,6 +1259,21 @@ it("picks X's search tab only on the Community search it was asked for, and give
     draw();
     await vi.runAllTimersAsync();
     expect([await left, clicked]).toEqual([false, []]);
+    // Asked as X starts loading the page: nothing is pressed before that load settles, and the
+    // user moving on meanwhile (another order, a reload) ends it.
+    let loaded = () => {};
+    const loading = xPickCommunitySearchTab(
+      "11",
+      "ship",
+      "Latest",
+      new Promise<void>((r) => (loaded = r)),
+    );
+    await vi.runAllTimersAsync();
+    expect(clicked).toEqual([]);
+    xOverEnded();
+    loaded();
+    await vi.runAllTimersAsync();
+    expect([await loading, clicked]).toEqual([false, []]);
     const own = xPickCommunitySearchTab("11", "ship", "Latest");
     await vi.runAllTimersAsync();
     expect([await own, clicked]).toEqual([true, ["Latest"]]);

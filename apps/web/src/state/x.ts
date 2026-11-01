@@ -170,17 +170,23 @@ export const xPickHomeTab = (label: string) =>
   })`);
 
 /**
- * Picks X's tab `label` (Top, Latest) on Community `communityId`'s search for `query`, once X has
- * drawn it: only while the engine shows that very search and this pick is the user's latest, so a
- * pick still waiting on a slow page never presses the tab of a page the user opened since.
+ * Picks X's tab `label` (Top, Latest) on Community `communityId`'s search for `query`, once
+ * `loaded` (the engine's move to that page) settles and X has drawn it: only while the engine
+ * shows that very search and this pick is the user's latest, so a pick still waiting on a slow page
+ * never presses the tab of a page the user opened since.
  */
 export const xPickCommunitySearchTab = async (
   communityId: string,
   query: string,
   label: string,
+  loaded: Promise<unknown> = Promise.resolve(),
 ) => {
   // It goes into a script run in X's page: digits only.
   if (!/^\d{1,25}$/.test(communityId)) return false;
+  // Asked before the page loads: anything the user does meanwhile (another tab, a reload) ends it.
+  const asked = overRun;
+  await loaded;
+  if (overRun !== asked) return false;
   const run = await nextRun();
   return (
     (await xRun(`(async () => {

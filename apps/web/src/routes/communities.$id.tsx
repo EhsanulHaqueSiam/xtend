@@ -66,14 +66,17 @@ function CommunityScreen() {
   // X's search page switches Top and Latest in place, on one URL: X's own tab picks the order,
   // only on this search, and only until the user moves on (the effect below ends it).
   const searchTab = q === undefined || q === "" ? null : tab === "latest" ? "Latest" : "Top";
+  // Asked as the move starts, so the user moving on while X loads ends it (see the picker).
   const pick = useCallback(
-    () =>
-      q === undefined || searchTab === null ? null : xPickCommunitySearchTab(id, q, searchTab),
+    (loaded: Promise<unknown>) =>
+      void (q === undefined || searchTab === null
+        ? loaded
+        : xPickCommunitySearchTab(id, q, searchTab, loaded)),
     [id, q, searchTab],
   );
-  const open = useCallback(() => void xGo(url).then(pick), [url, pick]);
+  const open = useCallback(() => pick(xGo(url)), [url, pick]);
   // ⌘R and "Load again": X's page in full, since X's router does nothing on the page it shows.
-  const reload = () => void xNavigate(url).then(pick);
+  const reload = () => pick(xNavigate(url));
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- moves the engine (the session view) to this screen's X page while it is open.
   useEffect(open, [open]);
   // The tabs and searches share a route, which is what ends a press elsewhere: leaving one (or a
