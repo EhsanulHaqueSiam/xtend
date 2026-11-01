@@ -1,6 +1,10 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
+// @effect-diagnostics nodeBuiltinImport:off -- util.format prints captured arguments as Node's console does.
+import * as NodeUtil from "node:util";
+
 import { describe, expect, it } from "@effect/vitest";
 import * as Cause from "effect/Cause";
+import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
@@ -298,7 +302,51 @@ describe("local trace file", () => {
       const long = records.find((r) => r.name === "long");
       expect(long?.exit._tag === "Failure" && long.exit.cause).toContain("    at ");
       expect(JSON.stringify(seen.at(-1))).toContain("    at ");
+      // Past the 64 KB scan the token is cut after 16 characters; redacting the bearer shrinks the
+      // rest under the output limit, so a fragment at the cut would otherwise show.
+      yield* Effect.annotateCurrentSpan({
+        scanned: `Bearer ${"A".repeat(65490)}\n${" ".repeat(22)}${serviceToken}`,
+      }).pipe(Effect.withSpan("scan-cut"), Effect.withTracer(tracer));
+      expect(JSON.stringify([seen, records])).not.toContain(serviceToken.slice(0, 16));
     }).pipe(Effect.provide(Logger.layer([LocalTrace.tracerLogger])));
+  });
+
+  it.effect("keeps the operation frames of a failure and scrubs a secret-shaped one", () => {
+    const { seen, delegate } = capturing();
+    const records: Array<LocalTrace.TraceRecord> = [];
+    const tracer = LocalTrace.makeTracer({ delegate, push: (record) => records.push(record) });
+    const printed: Array<ReadonlyArray<unknown>> = [];
+    const capture: Console.Console = {
+      ...globalThis.console,
+      log: (...args: ReadonlyArray<unknown>) => void printed.push(args),
+      error: (...args: ReadonlyArray<unknown>) => void printed.push(args),
+    };
+    const outerOperation = Effect.fn("outerOperation")(function* () {
+      return yield* Effect.fail(new Error("broken"));
+    });
+    const leaky = Effect.fn("leakyOperation token=framesecret")(function* () {
+      return yield* Effect.fail(new Error("broken too"));
+    });
+    return Effect.gen(function* () {
+      for (const operation of [outerOperation(), leaky()])
+        yield* operation.pipe(
+          Effect.tapCause((cause) => Effect.logError("failed", cause)),
+          Effect.withSpan("caller"),
+          Effect.withTracer(tracer),
+          Effect.exit,
+        );
+      const callers = records.filter((r) => r.name === "caller");
+      const console = printed.map((args) => NodeUtil.format(...args)).join("\n");
+      const exported = JSON.stringify(seen);
+      for (const text of [JSON.stringify(callers), console, exported]) {
+        expect(text).toContain("outerOperation");
+        expect(text).toContain("leakyOperation");
+        expect(text).not.toContain("framesecret");
+      }
+    }).pipe(
+      Effect.provide(Logger.layer([LocalTrace.tracerLogger, LocalTrace.consoleLogger])),
+      Effect.provideService(Console.Console, capture),
+    );
   });
 
   it("names credentials by their last word, not by substring", () => {

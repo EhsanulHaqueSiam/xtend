@@ -141,16 +141,24 @@ export const redactText = (text: string) =>
 const MAX_DEPTH = 6;
 const MAX_SCRUBBED = 2000;
 const MAX_FRAMES = 4000;
-// Only bounds the work; anything past it is dropped by the final cut, so a token it splits never
-// shows.
+// Only bounds the work. Past it, the run a cut splits is dropped (see `scanned`), so no fragment
+// of a token can survive even when redaction shrinks the text under the output limit.
 const MAX_SCANNED = 64 * 1024;
+const TOKEN_CHAR = /[\w.~+/=-]/;
+
+/** The text up to the scan budget, less any token-shaped run the cut would split. */
+const scanned = (text: string) => {
+  if (text.length <= MAX_SCANNED) return text;
+  let end = MAX_SCANNED;
+  while (end > 0 && TOKEN_CHAR.test(text[end - 1]!)) end--;
+  return text.slice(0, end);
+};
 
 const truncate = (text: string, max: number) =>
   text.length <= max ? text : `${text.slice(0, max)}…[truncated]`;
 
 // Redacted before it is cut, so a cut can never leave the visible part of a token behind.
-const scrub = (text: string, max = MAX_SCRUBBED) =>
-  truncate(redactText(text.slice(0, MAX_SCANNED)), max);
+const scrub = (text: string, max = MAX_SCRUBBED) => truncate(redactText(scanned(text)), max);
 
 /**
  * A scrubbed copy: name, message, the stack's frames on their own budget (a long message must not
@@ -202,10 +210,12 @@ const sanitizeAttributes = (attributes: Readonly<Record<string, unknown>>, depth
 const sanitizeCause = (cause: Cause.Cause<unknown>): Cause.Cause<unknown> =>
   Cause.fromReasons(
     cause.reasons.map((reason) =>
+      // The original annotations carry the operation and definition frames; every rendered cause
+      // goes through `scrub`, which cleans names in them.
       reason._tag === "Fail"
-        ? Cause.makeFailReason(sanitize(reason.error))
+        ? Cause.makeFailReason(sanitize(reason.error)).annotate(Cause.reasonAnnotations(reason))
         : reason._tag === "Die"
-          ? Cause.makeDieReason(sanitize(reason.defect))
+          ? Cause.makeDieReason(sanitize(reason.defect)).annotate(Cause.reasonAnnotations(reason))
           : reason,
     ),
   );
