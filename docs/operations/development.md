@@ -226,7 +226,8 @@ running Xtend), so main's gating and capture run unchanged and no request leaves
 the machine; a packaged build ignores it.
 
 - `pnpm mock-x --desktop` (with `pnpm dev` running) opens the dev desktop on mock X: UI work on X
-  screens with no account. `pnpm mock-x` alone prints the origin for `XTEND_MOCK_X`.
+  screens with no account. It starts Electron itself, never through `pnpm dev:desktop`, so the
+  saved X session is never copied in. `pnpm mock-x` alone prints the origin for `XTEND_MOCK_X`.
 - `pnpm test:engine` builds the web app and the desktop, then drives Xtend's screens on the
   desktop with mock X as the engine (`apps/e2e/src/engine`). CI runs it in the build job under
   `xvfb-run`.

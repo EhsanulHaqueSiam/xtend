@@ -568,7 +568,7 @@ export function synth(): Readonly<Record<string, Fixture>> {
         ...NO_ENTITIES,
         urls: [
           {
-            url: "https://t.co/ratelimits",
+            url: "https://t.co/s1",
             expanded: "https://example.com/rate-limits",
             display: "example.com/rate-limits",
             indices: null,

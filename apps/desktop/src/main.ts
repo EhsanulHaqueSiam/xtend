@@ -49,6 +49,7 @@ const userDataOverride =
     ? process.env.XTEND_USER_DATA
     : NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "xtend-mock-x-"));
 if (userDataOverride !== undefined && !app.isPackaged) app.setPath("userData", userDataOverride);
+// Best effort: Chromium may still write to it, so whoever started Electron removes what is left.
 if (mockX !== null)
   app.on("will-quit", () => NodeFS.rmSync(userDataOverride!, { recursive: true, force: true }));
 
