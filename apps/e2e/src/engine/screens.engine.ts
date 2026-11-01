@@ -107,7 +107,10 @@ test("For you pages through X's next page at the list's end, and newer posts wai
     const s = document.querySelector("main [data-virtuoso-scroller]");
     if (s !== null) s.scrollTop = 0;
   });
-  const top = (await nativeIds())[0];
+  // The virtualized list redraws after the scroll: until then its first row is one from further
+  // down. The top is X's first post, so wait for the list to draw it there.
+  const top = e.mock.state.feed("forYou")[0];
+  await expect.poll(async () => (await nativeIds())[0]).toBe(top);
   const fresh = e.mock.state.arrive("forYou", 2).map((p) => p.postId);
   // X loading its first page again under an open list is what its "Show 2 posts" fetch is.
   await e.engine("location.reload()");
