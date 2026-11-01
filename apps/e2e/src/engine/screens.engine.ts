@@ -603,3 +603,39 @@ test("Explore, Notifications and Bookmarks render what X sends", async () => {
   await e.app.locator("main").getByText(explore.trends[0]!.name).first().waitFor();
   expect(e.mock.reads.slice(before)).toEqual([]);
 });
+
+test("Explore's trend menu lists X's rows, dismisses only that trend, and Undo restores it", async () => {
+  await go("/explore");
+  const news = e.mock.state.exploreTabs.find((t) => t.id === "news")!;
+  await e.app.getByRole("tab", { name: news.label, exact: true }).click();
+  await expect.poll(enginePath).toBe("/explore/tabs/news");
+  const trends = e.mock.state.batchFor("GenericTimelineById", {
+    timelineId: news.timelineId,
+  })!.trends;
+  const name = trends[1]!.name;
+  const row = e.app.locator('main [data-x="trend"]', { hasText: name });
+  await row.getByRole("button", { name: "More", exact: true }).click();
+  const want = [
+    "The associated content is not relevant",
+    "This trend is spam",
+    "This trend is abusive or harmful",
+    "Not interested in this",
+    "This trend is a duplicate",
+    "This trend is harmful or spammy",
+  ];
+  await expect.poll(appMenuRows).toEqual(want);
+  expect(await engineHas('[data-testid="Dropdown"]')).toBe(false);
+  await e.app.getByRole("menuitem", { name: "Not interested in this", exact: true }).click();
+  await expect.poll(() => row.count()).toBe(0);
+  await expect
+    .poll(presses)
+    .toEqual(expect.arrayContaining([`press row:Not interested in this trend:${name}`]));
+  expect(
+    e.mock.state
+      .batchFor("GenericTimelineById", { timelineId: news.timelineId })!
+      .trends.map((t) => t.name),
+  ).toEqual(trends.filter((t) => t.name !== name).map((t) => t.name));
+  await e.app.getByRole("button", { name: "Undo", exact: true }).click();
+  await row.waitFor();
+  expect(await enginePath()).toBe("/explore/tabs/news");
+});

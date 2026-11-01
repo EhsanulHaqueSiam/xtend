@@ -149,6 +149,11 @@ export async function startMockX(options: { readonly port?: number } = {}) {
           title: r.title,
         });
       }
+      case "/__mock/trend": {
+        const body = await readBody(req);
+        state.setTrendHidden(String(body.path), String(body.name), body.hidden === true);
+        return json({ ok: true });
+      }
       case "/__mock/menu":
         return json(menuRows(state, url.searchParams.get("spec") ?? ""));
       case "/__mock/dialog": {

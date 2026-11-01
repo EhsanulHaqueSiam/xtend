@@ -251,6 +251,7 @@ interface MenuAt {
   readonly find: string;
   readonly root: string;
   readonly trigger: string;
+  readonly present?: string;
 }
 const postMenuAt = (postId: string, menu: XPostMenu): MenuAt => ({
   find: findArticle(postId),
@@ -272,6 +273,24 @@ const profileMenuAt = (handle: string): MenuAt => ({
       }`,
   root: "profile",
   trigger: '[data-testid="userActions"]',
+});
+
+/**
+ * X's "..." on a trend in X's Explore list, the one whose cell names it. X has no page for a trend's
+ * menu, so it is only ever read and pressed on the Explore tab the engine shows.
+ */
+const trendMenuAt = (name: string): MenuAt => ({
+  find: `
+    const named = (c) => [...c.querySelectorAll("span, div")].some((s) => s.textContent.trim() === ${JSON.stringify(name)});
+    const own = () => [...document.querySelectorAll('[data-testid="trend"]')].find(named) ?? null;
+    let trend = null;
+    for (let i = 0; i < 20 && !trend && location.pathname.startsWith("/explore"); i++) {
+      trend = own();
+      if (!trend) await new Promise((r) => setTimeout(r, 100));
+    }`,
+  root: "trend",
+  trigger: '[data-testid="caret"]',
+  present: "!!own()",
 });
 
 /**
@@ -300,8 +319,16 @@ const openMenu = (at: MenuAt, mine = "true") => `
 
 /** What X did when the user pressed one of its menu items. */
 export type XMenuOutcome =
-  /** X acted at once; `toast` is what X said, `undo` whether X offered to take it back. */
-  | { readonly kind: "done"; readonly toast: string | null; readonly undo: boolean }
+  /**
+   * X acted at once; `toast` is what X said, `undo` whether X offered to take it back, `gone`
+   * whether the menu's subject left X's page.
+   */
+  | {
+      readonly kind: "done";
+      readonly toast: string | null;
+      readonly undo: boolean;
+      readonly gone: boolean;
+    }
   /** X opened its own dialog or page (Report, Block, Delete, Send via Chat) at `path`'s page. */
   | { readonly kind: "over"; readonly path: string };
 
@@ -321,6 +348,13 @@ const xMenuInPlace = (at: MenuAt, run?: number) => {
   );
 };
 
+/** X's feedback after a menu press or its dialog finishes. */
+const menuDone = (at: MenuAt) => `
+    const toast = document.querySelector('[data-testid="toast"]');
+    const actions = [...(toast?.querySelectorAll('button, a, [role="button"]') ?? [])];
+    const text = actions.reduce((t, a) => t.replace(a.textContent, ""), toast?.textContent ?? "").trim();
+    return { kind: "done", toast: text || null, undo: actions.some((a) => a.textContent.trim() === "Undo"), gone: !(${at.present ?? `${at.root}?.isConnected`}) };`;
+
 /** Presses row `label` of X's menu `at` on the engine page. Null when it is not there. */
 const xMenuPressInPlace = (at: MenuAt, label: string, run: number) =>
   xRun(`(async () => {
@@ -330,23 +364,21 @@ const xMenuPressInPlace = (at: MenuAt, label: string, run: number) =>
     const path = location.pathname + location.search;
     item.click();
     await new Promise((r) => setTimeout(r, 800));
+    if (!${stillMine(run)}) return null;
     // A confirm sheet (Block, Mute this conversation, Delete) or a page (Report, post activity).
     if (location.pathname + location.search !== path || document.querySelector('[role="dialog"], [role="alertdialog"]'))
       return { kind: "over", path };
-    const toast = document.querySelector('[data-testid="toast"]');
-    const actions = [...(toast?.querySelectorAll('button, a, [role="button"]') ?? [])];
-    const text = actions.reduce((t, a) => t.replace(a.textContent, ""), toast?.textContent ?? "").trim();
-    return { kind: "done", toast: text || null, undo: actions.some((a) => a.textContent.trim() === "Undo") };
+    ${menuDone(at)}
   })()`).then((outcome) => (outcome === null ? null : (outcome as XMenuOutcome)));
 
 /**
  * Runs `step` where X shows what it acts on: in place on the engine page, or on `page` (its own
- * x.com page, and how that page's path ends) reached through X's router. `leave` runs on the step's result before
- * the engine goes Back from a page this opened, so X restores the list it was on. Null when X
- * showed it on neither.
+ * x.com page, and how that page's path ends) reached through X's router; null `page` is in place
+ * only. `leave` runs on the step's result before the engine goes Back from a page this opened, so
+ * X restores the list it was on. Null when X showed it on neither.
  */
 const onPage = async <A>(
-  page: { readonly url: string; readonly path: string },
+  page: { readonly url: string; readonly path: string } | null,
   step: () => Promise<A | null>,
   leave: (result: A) => Promise<unknown> = () => Promise.resolve(),
   live: () => boolean = () => true,
@@ -356,7 +388,7 @@ const onPage = async <A>(
   const here = await step();
   if (here !== null) return (await leave(here), here);
   // The user moved on meanwhile: the engine is theirs, not this press's.
-  if (!live()) return null;
+  if (page === null || !live()) return null;
   const moved = await xGo(page.url);
   const there = live() ? await step() : null;
   if (there !== null) await leave(there);
@@ -419,7 +451,7 @@ const stillMine = (run: number) => `((window.__xtendPress ?? 0) === ${run})`;
  * dialog (the user finished or closed it), or the user moved to another screen.
  */
 const pressMenu = async (
-  page: { readonly url: string; readonly path: string },
+  page: { readonly url: string; readonly path: string } | null,
   at: MenuAt,
   label: string,
   over: (shown: boolean) => void,
@@ -593,6 +625,31 @@ export const xCommunityJoin = async (
   if (pressed === null || !live()) return null;
   if (pressed.refused !== undefined) return { refused: true, label: pressed.refused };
   return label === null ? null : { refused: false, label };
+};
+
+/** X's own rows of a trend's "...", read from X's menu on the Explore tab the engine shows. */
+export const xTrendMenu = async (name: string) => {
+  const run = await nextRun();
+  const rows = await onPage(null, () => xMenuInPlace(trendMenuAt(name), run));
+  return rows?.length ? rows : null;
+};
+
+/** Presses X's own row `label` of a trend's "..." for the user's click (see `pressMenu`), in place. */
+export const xTrendMenuPress = async (
+  name: string,
+  label: string,
+  over: (shown: boolean) => void,
+) => {
+  const at = trendMenuAt(name);
+  const pressing = pressMenu(null, at, label, over);
+  const run = overRun;
+  const outcome = await pressing;
+  if (outcome?.kind !== "over" || run !== overRun) return outcome;
+  return xRun(`(async () => {
+    ${at.find}
+    if (!${stillMine(run)}) return null;
+    ${menuDone(at)}
+  })()`).then((done) => (done === null ? null : (done as XMenuOutcome)));
 };
 
 /** Presses X's own row `label` of a post's `menu` for the user's click (see `pressMenu`). */

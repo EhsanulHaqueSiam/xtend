@@ -216,7 +216,25 @@ const SCRIPT = String.raw`
     }
   }
 
+  const removedTrends = new Map();
   async function run(step) {
+    if (step.trend) {
+      const { name, hidden } = step.trend;
+      await post("/__mock/trend", { name, hidden, path: here() });
+      if (hidden) {
+        const el = [...document.querySelectorAll('[data-testid="trend"]')].find((t) => t.dataset.trend === name);
+        if (el) {
+          removedTrends.set(name, { el, parent: el.parentElement, next: el.nextSibling });
+          el.remove();
+        }
+      } else {
+        const saved = removedTrends.get(name);
+        if (saved) {
+          saved.parent.insertBefore(saved.el, saved.next?.parentNode === saved.parent ? saved.next : null);
+          removedTrends.delete(name);
+        }
+      }
+    }
     if (step.write) await post(step.write.path, step.write.body);
     if (step.follow) turnFollow(step.follow.userId, step.follow.on);
     if (step.community) turnJoin(step.community.id, step.community.label);

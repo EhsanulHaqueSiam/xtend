@@ -1,4 +1,6 @@
-import { expect, it } from "vite-plus/test";
+import { expect, it, vi } from "vite-plus/test";
+
+import { fakeTimers } from "../../test/render";
 
 import {
   communityJoinButton,
@@ -17,6 +19,8 @@ import {
   xSortReplies,
   xSubscribe,
   xVote,
+  xTrendMenu,
+  xTrendMenuPress,
   type XWebview,
 } from "./x";
 
@@ -189,6 +193,7 @@ it("presses only the row asked for: X's toast comes back, X's dialog keeps the e
     kind: "done",
     toast: "You muted @theo",
     undo: true,
+    gone: false,
   });
   const shown: Array<boolean> = [];
   const outcome = await xPostMenuPress(post42, "Block @theo", (on) => {
@@ -429,5 +434,69 @@ it("reads X's new membership label on the Community's own page, before the engin
   } finally {
     history.back = back;
     history.replaceState(null, "", start);
+  }
+});
+
+it("finds a trend by its exact name, reads only its menu, and presses only the requested row", async () => {
+  using _clock = fakeTimers();
+  const path = location.pathname + location.search;
+  history.replaceState(null, "", "/explore/tabs/news");
+  const pressed: Array<string> = [];
+  withMenu({
+    "This trend is spam": () => pressed.push("spam"),
+    "This trend is abusive or harmful": () =>
+      document.body.insertAdjacentHTML("beforeend", '<div role="dialog"></div>'),
+    "Not interested in this": () => {
+      pressed.push("not interested");
+      document.querySelector("article")?.remove();
+      document.body.insertAdjacentHTML(
+        "beforeend",
+        '<div data-testid="toast">Thanks<button>Undo</button></div>',
+      );
+    },
+  });
+  const article = document.querySelector("article")!;
+  article.dataset.testid = "trend";
+  article.insertAdjacentHTML("afterbegin", '<span>A "quoted" trend</span>');
+  const other = document.createElement("div");
+  other.dataset.testid = "trend";
+  other.innerHTML = '<span>A "quoted" trend elsewhere</span><button data-testid="caret"></button>';
+  other.querySelector("button")!.addEventListener("click", () => pressed.push("wrong trend"));
+  article.before(other);
+  try {
+    const reading = xTrendMenu('A "quoted" trend');
+    await vi.runAllTimersAsync();
+    expect(await reading).toEqual([
+      "This trend is spam",
+      "This trend is abusive or harmful",
+      "Not interested in this",
+    ]);
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(pressed).toEqual([]);
+    const missing = xTrendMenuPress('A "quoted" trend', "Not a row", () => {});
+    await vi.runAllTimersAsync();
+    expect(await missing).toBeNull();
+    expect(pressed).toEqual([]);
+    const shown: Array<boolean> = [];
+    const dialog = xTrendMenuPress('A "quoted" trend', "This trend is abusive or harmful", (on) => {
+      shown.push(on);
+      if (on) document.querySelector('[role="dialog"]')?.remove();
+    });
+    await vi.runAllTimersAsync();
+    expect((await dialog)?.kind).toBe("done");
+    expect(shown).toEqual([true, false]);
+    const pressing = xTrendMenuPress('A "quoted" trend', "Not interested in this", () => {});
+    await vi.runAllTimersAsync();
+    expect(await pressing).toEqual({ kind: "done", toast: "Thanks", undo: true, gone: true });
+    expect(pressed).toEqual(["not interested"]);
+
+    const cancelled = xTrendMenuPress('A "quoted" trend', "This trend is spam", () => {});
+    xOverEnded();
+    await vi.runAllTimersAsync();
+    expect(await cancelled).toBeNull();
+    expect(pressed).toEqual(["not interested"]);
+  } finally {
+    history.replaceState(null, "", path);
+    registerXWebview(null);
   }
 });

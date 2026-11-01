@@ -158,6 +158,7 @@ export function createMockState() {
   const arrived: Record<Feed, Array<EnginePost>> = { forYou: [], following: [] };
   const bookmarks = fixture("Bookmarks", null)!.posts.map((p) => p.postId);
   const presses: Array<Press> = [];
+  const hiddenTrends = new Map<string, Set<string>>();
 
   const livePost = (p: EnginePost): EnginePost => ({ ...p, ...postChanges.get(p.postId) });
   const liveUser = (u: EngineUser): EngineUser => ({ ...u, ...userChanges.get(u.userId) });
@@ -435,13 +436,18 @@ export function createMockState() {
         return own === undefined ? page(op, s(variables, "timeline_type") ?? null, []) : live(own);
       }
       case "ExplorePage":
-        return live(explore);
+        return {
+          ...live(explore),
+          trends: explore.trends.filter((t) => !hiddenTrends.get("/explore")?.has(t.name)),
+        };
       case "GenericTimelineById": {
         const id = s(variables, "timelineId") ?? "";
         const tab = exploreTabs.find((t) => t.timelineId === id);
         if (tab === undefined) return null;
         return page(op, id, [], {
-          trends: trendRows(tab.label, tab.id === "news" ? "Today's News" : null),
+          trends: trendRows(tab.label, tab.id === "news" ? "Today's News" : null).filter(
+            (t) => !hiddenTrends.get(`/explore/tabs/${tab.id}`)?.has(t.name),
+          ),
         });
       }
       case "ListsManagementPageTimeline":
@@ -668,6 +674,12 @@ export function createMockState() {
       fixture("ConnectTabTimeline", "connect:creators")!.people.includes(userId),
     /** Everything pressed and written, in order. */
     presses,
+    setTrendHidden: (path: string, name: string, hidden: boolean) => {
+      const names = hiddenTrends.get(path) ?? new Set<string>();
+      if (hidden) names.add(name);
+      else names.delete(name);
+      hiddenTrends.set(path, names);
+    },
     /** New posts at the top of a Home feed's first page, as X has them on its next load. */
     arrive: (feed: Feed, n: number): ReadonlyArray<EnginePost> => {
       const top = feedFirst(feed).posts[0]!;
