@@ -5,7 +5,7 @@ import { useState } from "react";
 
 import { cn } from "../../lib/utils";
 import { askFollow, engineAtom, updateEngine, youFollow } from "../../state/engine";
-import { settingsAtom } from "../../state/settings";
+import { ownHandleAtom, settingsAtom } from "../../state/settings";
 import { xFollow, xOverAtom, xSubscribe } from "../../state/x";
 import { toastAtom } from "../ui/toast";
 
@@ -25,6 +25,8 @@ export function FollowButton({
   readonly onFollowed?: (userId: string, following: boolean) => void;
 }) {
   const settings = AsyncResult.getOrElse(useAtomValue(settingsAtom), () => null);
+  // The account X is signed in as: no Follow on the user's own rows.
+  const ownHandle = useAtomValue(ownHandleAtom);
   const setToast = useAtomSet(toastAtom);
   const engine = useAtomValue(engineAtom);
   const setEngine = useAtomSet(engineAtom);
@@ -32,8 +34,7 @@ export function FollowButton({
   // profile to the next), so requests must not touch each other. Once X takes one, the store
   // keeps it until X's capture agrees, across rows that scroll away and back.
   const [pending, setPending] = useState<ReadonlyMap<string, boolean>>(new Map());
-  if (user === undefined || settings?.handle?.toLowerCase() === user.handle.toLowerCase())
-    return null;
+  if (user === undefined || ownHandle?.toLowerCase() === user.handle.toLowerCase()) return null;
   const following = pending.get(user.userId) ?? youFollow(engine, user);
   const follow = async () => {
     const id = user.userId;
