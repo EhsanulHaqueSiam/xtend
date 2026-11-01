@@ -5,6 +5,7 @@ import * as Schedule from "effect/Schedule";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import * as SettingsStore from "../settings/SettingsStore.ts";
+import * as Metrics from "../observability/Metrics.ts";
 
 export interface DailyJob<E, R> {
   readonly name: string;
@@ -42,6 +43,7 @@ export const layerDaily = <E, R>(jobs: ReadonlyArray<DailyJob<E, R>>) =>
           `;
           if (claimed.length === 0) continue;
           yield* job.run.pipe(
+            Metrics.withJobMetrics(`daily.${job.name}`),
             Effect.catchCause((cause) => Effect.logWarning(`daily job ${job.name} failed`, cause)),
           );
         }

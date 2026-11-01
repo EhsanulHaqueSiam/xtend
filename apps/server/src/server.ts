@@ -34,6 +34,7 @@ import * as ObservationStore from "./observations/ObservationStore.ts";
 import * as Sqlite from "./persistence/Sqlite.ts";
 import * as SettingsStore from "./settings/SettingsStore.ts";
 import * as TokenCipher from "./settings/TokenCipher.ts";
+import * as Observability from "./observability/Observability.ts";
 import * as XClient from "./x/XClient.ts";
 import * as Ws from "./ws.ts";
 import * as HttpRpc from "./rpc/HttpRpc.ts";
@@ -105,4 +106,5 @@ const layerApplication = HttpRouter.serve(layerRoutes).pipe(
   Layer.provideMerge(NodeServices.layer),
 );
 
-export const runServer = Layer.launch(layerApplication);
+// Outermost, so startup work (migrations, layer construction) is already traced.
+export const runServer = Layer.launch(layerApplication.pipe(Layer.provide(Observability.layer)));

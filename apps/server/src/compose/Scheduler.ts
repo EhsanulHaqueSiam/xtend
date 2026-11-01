@@ -9,6 +9,7 @@ import * as Semaphore from "effect/Semaphore";
 import * as DraftStore from "./DraftStore.ts";
 import * as Publisher from "./Publisher.ts";
 import * as SlotStore from "./SlotStore.ts";
+import * as Metrics from "../observability/Metrics.ts";
 
 const TICK = "30 seconds";
 
@@ -93,6 +94,7 @@ const layerLoop = Layer.effectDiscard(
     const scope = yield* Effect.scope;
     yield* (yield* DraftStore.DraftStore).failInterrupted;
     yield* scheduler.tick.pipe(
+      Metrics.withJobMetrics("compose.scheduler"),
       Effect.catch((e) => Effect.logWarning("Scheduler tick failed", e)),
       Effect.forkIn(scope),
       Effect.repeat(Schedule.spaced(TICK)),

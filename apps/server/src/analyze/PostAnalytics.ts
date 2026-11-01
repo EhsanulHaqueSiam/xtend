@@ -11,6 +11,7 @@ import * as SettingsStore from "../settings/SettingsStore.ts";
 import * as Treg from "../x/Treg.ts";
 import { RATE_CARD } from "../x/XClient.ts";
 import * as AnalyticsStore from "./AnalyticsStore.ts";
+import * as Metrics from "../observability/Metrics.ts";
 
 const DAY_MS = 86_400_000;
 const WINDOW_DAYS = 30;
@@ -247,6 +248,7 @@ const layerLoop = Layer.effectDiscard(
   Effect.gen(function* () {
     const { nightlyTick } = yield* PostAnalytics;
     yield* nightlyTick.pipe(
+      Metrics.withJobMetrics("analyze.nightly"),
       Effect.catch((e) => Effect.logWarning("PostAnalytics nightly tick failed", e)),
       Effect.repeat(Schedule.spaced(TICK)),
       Effect.forkScoped,

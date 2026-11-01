@@ -33,6 +33,7 @@ import * as ObservationStore from "../observations/ObservationStore.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 import * as XClient from "../x/XClient.ts";
 import * as RuleStore from "./RuleStore.ts";
+import * as Metrics from "../observability/Metrics.ts";
 
 const sameAction = Schema.toEquivalence(Action);
 
@@ -1247,6 +1248,7 @@ export const layerScheduler = Layer.effectDiscard(
   Effect.gen(function* () {
     const engine = yield* AutomationEngine;
     yield* engine.tick.pipe(
+      Metrics.withJobMetrics("automate.rules"),
       Effect.catchCause((cause) => Effect.logWarning("automation tick failed", cause)),
       Effect.repeat(Schedule.spaced(TICK)),
       Effect.forkScoped,

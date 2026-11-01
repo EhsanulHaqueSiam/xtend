@@ -13,6 +13,7 @@ import * as RpcGroup from "effect/rpc/RpcGroup";
 import * as RpcMessage from "effect/rpc/RpcMessage";
 
 import * as ServiceAuth from "../auth/ServiceAuth.ts";
+import * as RpcInstrumentation from "../observability/RpcInstrumentation.ts";
 import { layerHandlers } from "../ws.ts";
 
 /** One client id for every HTTP caller; nothing here calls back into a client. */
@@ -60,7 +61,9 @@ export const handlerFor = <R extends Rpc.AnyWithProps>(group: RpcGroup.RpcGroup<
         ? result.value
         : result;
       if (!Effect.isEffect(run)) return yield* json({ error: "stream_only_over_ws", method }, 400);
-      const exit = yield* Effect.exit(Effect.provide(run, entry.context));
+      const exit = yield* Effect.exit(
+        Effect.provide(run, entry.context).pipe(RpcInstrumentation.instrument(method, "http")),
+      );
       // A void success encodes to undefined, which is no JSON body at all; callers parse one.
       // An encode failure is a defect, answered as one by the catchCause below.
       if (Exit.isSuccess(exit))

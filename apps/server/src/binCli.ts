@@ -26,7 +26,10 @@ import { Argument, Command, Flag } from "effect/cli";
 
 import packageJson from "../package.json" with { type: "json" };
 import * as Api from "./cli/api.ts";
+import * as Doctor from "./cli/doctor.ts";
+import * as Trace from "./cli/trace.ts";
 import { runMcpStdio } from "./cli/mcp.ts";
+import { loginPath } from "./ai/loginPath.ts";
 import * as ServerConfig from "./config.ts";
 import { runServer } from "./server.ts";
 import * as Launchd from "./service/launchd.ts";
@@ -224,6 +227,51 @@ const service = Command.make("service").pipe(
   Command.withSubcommands([serviceInstall, serviceUninstall, serviceStatus]),
 );
 
+const trace = Command.make("trace", {
+  since: Flag.String("since").pipe(
+    Flag.filterMap(Trace.parseSince, (text) => `not a duration: ${text} (try 30m, 2h, 7d)`),
+    Flag.withDescription("Only spans that ended in this window, like 30m, 2h or 7d."),
+    Flag.optional,
+  ),
+  limit: Flag.Int("limit").pipe(
+    Flag.withDescription("Span names to show, busiest first."),
+    Flag.withDefault(25),
+  ),
+}).pipe(
+  Command.withDescription(
+    "Summarize the service's trace file: count, p50, p95, max and failures per span, then the latest failures.",
+  ),
+  Command.withHandler(({ since, limit }) =>
+    Effect.gen(function* () {
+      const config = yield* resolveConfig(yield* root);
+      yield* Console.log(yield* Trace.traceReport({ baseDir: config.baseDir, since, limit }));
+    }),
+  ),
+);
+
+const doctor = Command.make("doctor").pipe(
+  Command.withDescription(
+    "Check the base dir, database, service, trace file, treg token, assist CLI and launchd. Read-only.",
+  ),
+  Command.withHandler(() =>
+    Effect.gen(function* () {
+      const config = yield* resolveConfig(yield* root);
+      const checks = yield* Doctor.runDoctor({
+        baseDir: config.baseDir,
+        dbPath: config.dbPath,
+        serviceUrl: process.env.XTEND_SERVICE_URL ?? `http://127.0.0.1:${config.port}`,
+        version: config.version,
+        pathEnv: yield* loginPath,
+        launchd: process.platform === "darwin" ? Launchd.status() : undefined,
+        homeDir: process.env.HOME ?? process.env.USERPROFILE ?? ".",
+      }).pipe(Effect.provide(NodeHttpClient.layerNodeHttp));
+      yield* Console.log(Doctor.formatChecks(checks));
+      // A failed check is already printed; the exit code is for scripts.
+      if (checks.some((c) => !c.ok)) yield* Effect.sync(() => (process.exitCode = 1));
+    }),
+  ),
+);
+
 /**
  * A desktop's child stops with the desktop. An Electron that crashed sends no SIGTERM, but the OS
  * closes its end of the child's stdin pipe. launchd and a shell give stdin no such meaning, so
@@ -255,7 +303,7 @@ export const cli = root.pipe(
       ),
     ),
   ),
-  Command.withSubcommands([post, queue, report, spend, agents, mcp, service]),
+  Command.withSubcommands([post, queue, report, spend, agents, mcp, service, trace, doctor]),
 );
 
 export function runCli() {

@@ -21,6 +21,7 @@ import * as PoolHandlers from "./pool/PoolHandlers.ts";
 import * as ServiceAuth from "./auth/ServiceAuth.ts";
 import * as ServerConfig from "./config.ts";
 import * as Costs from "./costs/Costs.ts";
+import * as RpcInstrumentation from "./observability/RpcInstrumentation.ts";
 import * as ObservationStore from "./observations/ObservationStore.ts";
 import * as Pool from "./pool/Pool.ts";
 import * as SettingsStore from "./settings/SettingsStore.ts";
@@ -76,8 +77,14 @@ export const layerRoute = HttpRouter.add(
   WS_PATH,
   ServiceAuth.guarded(
     Effect.gen(function* () {
-      const httpEffect = yield* RpcServer.toHttpEffectWebsocket(WsRpcGroup).pipe(
-        Effect.provide(layerHandlers.pipe(Layer.provideMerge(RpcSerialization.layerJson))),
+      // RpcInstrumentation names the span and records metrics, so the server's own span is off.
+      const httpEffect = yield* RpcServer.toHttpEffectWebsocket(
+        WsRpcGroup.middleware(RpcInstrumentation.RpcInstrumentation),
+        { disableTracing: true },
+      ).pipe(
+        Effect.provide(
+          Layer.mergeAll(layerHandlers, RpcSerialization.layerJson, RpcInstrumentation.layer),
+        ),
       );
       return yield* httpEffect;
     }),
