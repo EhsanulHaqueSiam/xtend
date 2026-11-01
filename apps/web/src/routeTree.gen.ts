@@ -32,6 +32,7 @@ import { Route as UHandleRouteImport } from './routes/u.$handle'
 import { Route as PostIdRouteImport } from './routes/post.$id'
 import { Route as ListsIdRouteImport } from './routes/lists.$id'
 import { Route as PostIdActivityRouteImport } from './routes/post.$id_.activity'
+import { Route as ListsIdPeopleRouteImport } from './routes/lists.$id_.people'
 
 const XRoute = XRouteImport.update({
   id: '/x',
@@ -148,6 +149,11 @@ const PostIdActivityRoute = PostIdActivityRouteImport.update({
   path: '/post/$id/activity',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ListsIdPeopleRoute = ListsIdPeopleRouteImport.update({
+  id: '/lists/$id_/people',
+  path: '/lists/$id/people',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -172,6 +178,7 @@ export interface FileRoutesByFullPath {
   '/post/$id': typeof PostIdRoute
   '/u/$handle': typeof UHandleRoute
   '/lists/': typeof ListsIndexRoute
+  '/lists/$id/people': typeof ListsIdPeopleRoute
   '/post/$id/activity': typeof PostIdActivityRoute
 }
 export interface FileRoutesByTo {
@@ -197,6 +204,7 @@ export interface FileRoutesByTo {
   '/post/$id': typeof PostIdRoute
   '/u/$handle': typeof UHandleRoute
   '/lists': typeof ListsIndexRoute
+  '/lists/$id/people': typeof ListsIdPeopleRoute
   '/post/$id/activity': typeof PostIdActivityRoute
 }
 export interface FileRoutesById {
@@ -223,6 +231,7 @@ export interface FileRoutesById {
   '/post/$id': typeof PostIdRoute
   '/u/$handle': typeof UHandleRoute
   '/lists/': typeof ListsIndexRoute
+  '/lists/$id_/people': typeof ListsIdPeopleRoute
   '/post/$id_/activity': typeof PostIdActivityRoute
 }
 export interface FileRouteTypes {
@@ -250,6 +259,7 @@ export interface FileRouteTypes {
     | '/post/$id'
     | '/u/$handle'
     | '/lists/'
+    | '/lists/$id/people'
     | '/post/$id/activity'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -275,6 +285,7 @@ export interface FileRouteTypes {
     | '/post/$id'
     | '/u/$handle'
     | '/lists'
+    | '/lists/$id/people'
     | '/post/$id/activity'
   id:
     | '__root__'
@@ -300,6 +311,7 @@ export interface FileRouteTypes {
     | '/post/$id'
     | '/u/$handle'
     | '/lists/'
+    | '/lists/$id_/people'
     | '/post/$id_/activity'
   fileRoutesById: FileRoutesById
 }
@@ -326,6 +338,7 @@ export interface RootRouteChildren {
   PostIdRoute: typeof PostIdRoute
   UHandleRoute: typeof UHandleRoute
   ListsIndexRoute: typeof ListsIndexRoute
+  ListsIdPeopleRoute: typeof ListsIdPeopleRoute
   PostIdActivityRoute: typeof PostIdActivityRoute
 }
 
@@ -492,6 +505,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PostIdActivityRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/lists/$id_/people': {
+      id: '/lists/$id_/people'
+      path: '/lists/$id/people'
+      fullPath: '/lists/$id/people'
+      preLoaderRoute: typeof ListsIdPeopleRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -518,6 +538,7 @@ const rootRouteChildren: RootRouteChildren = {
   PostIdRoute: PostIdRoute,
   UHandleRoute: UHandleRoute,
   ListsIndexRoute: ListsIndexRoute,
+  ListsIdPeopleRoute: ListsIdPeopleRoute,
   PostIdActivityRoute: PostIdActivityRoute,
 }
 export const routeTree = rootRouteImport

@@ -662,6 +662,51 @@ const benchmarks = [
     },
   ],
   [
+    "List: X's header, and members and followers as X's pages list them",
+    async () => {
+      await go("#/lists");
+      const list = await until(() =>
+        store(
+          `(() => { const l = [...$.xLists.values()].find((l) => (l.members ?? 0) >= 3 && (l.followers ?? 0) >= 3); return l && { id: l.listId, name: l.name, members: l.members }; })()`,
+        ),
+      );
+      if (!list) return false;
+      await go(`#/lists/${list.id}`);
+      const header = await until(() =>
+        app(
+          `(() => { const t = document.querySelector('main [data-x="list"]')?.innerText ?? ""; return t.includes(${JSON.stringify(list.name)}) && t.includes("Members") && t; })()`,
+        ),
+      );
+      if (!header) return false;
+      // As for reposters: X's page keeps only the rows near its scroll, so X's first three must
+      // sit together, in X's order, in the native list.
+      const people = async (of, surface) => {
+        await go(`#/lists/${list.id}/people?of=${of}`);
+        return until(async () => {
+          if (!(await enginePath()).endsWith(`/i/lists/${list.id}/${of}`)) return false;
+          const ours = await store(
+            `at($.people, "${surface}:${list.id}").map((id) => $.users.get(id)?.handle)`,
+          );
+          const xs = await engine(
+            `[...document.querySelectorAll('[data-testid="UserCell"]')].slice(0, 3).map((u) => u.querySelector('a[href^="/"]')?.getAttribute("href").slice(1).toLowerCase())`,
+          );
+          const drawn = await app(`document.querySelectorAll('main [data-x="user"]').length`);
+          const at = ours?.indexOf(xs?.[0]) ?? -1;
+          return (
+            drawn >= 3 &&
+            xs?.length === 3 &&
+            at !== -1 &&
+            JSON.stringify(ours.slice(at, at + 3)) === JSON.stringify(xs) &&
+            xs.join(",")
+          );
+        });
+      };
+      const members = await people("members", "listMembers");
+      const followers = members && (await people("followers", "listFollowers"));
+      return followers && `${list.id}: members ${members}; followers ${followers}`;
+    },
+  ],
+  [
     "X's reply, repost, quote and like are reachable on the post (dry)",
     async () => {
       const post = await until(() =>
