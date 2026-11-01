@@ -12,6 +12,7 @@ import {
   Mail,
   Bookmark,
   Compass,
+  UserPlus,
   UserRound,
   PenLine,
   CalendarDays,
@@ -77,6 +78,7 @@ const ICONS = {
   Messages: Mail,
   Bookmarks: Bookmark,
   Lists: ListIcon,
+  Follow: UserPlus,
   Profile: UserRound,
   Compose: PenLine,
   Plan: CalendarDays,
@@ -293,6 +295,7 @@ const NATIVE: Readonly<Record<string, string>> = {
   Notifications: "/notifications",
   Bookmarks: "/bookmarks",
   Lists: "/lists",
+  Follow: "/follow",
 };
 
 /** X's own pages; each loads in the one x.com webview, shown in the main area. */
@@ -317,6 +320,7 @@ function XRows({ compact }: { readonly compact: boolean }) {
     { label: "Messages", path: "/messages" },
     { label: "Bookmarks", path: "/i/bookmarks" },
     { label: "Lists", path: "/i/lists" },
+    { label: "Follow", path: "/i/connect_people" },
     ...(handle === null ? [] : [{ label: "Profile", path: `/${handle}` }]),
   ];
   return (

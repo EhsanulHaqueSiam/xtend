@@ -388,20 +388,51 @@ const pressMenu = (
   return onPage(
     page,
     () => xMenuPressInPlace(at, label),
-    async (outcome) => {
-      if (outcome.kind !== "over" || run !== overRun) return;
-      over(true);
-      for (;;) {
-        await new Promise((r) => setTimeout(r, 500));
-        if (run !== overRun) return;
-        const open = await xRun(
-          `location.pathname + location.search !== ${JSON.stringify(outcome.path)} || !!document.querySelector('[role="dialog"], [role="alertdialog"]')`,
-        );
-        if (open !== true) break;
-      }
-      over(false);
-    },
+    (outcome) => (outcome.kind === "over" ? holdOver(run, outcome.path, over) : Promise.resolve()),
   );
+};
+
+/**
+ * Shows the engine over the main area while X's own dialog or page, opened by a press at `path`,
+ * is up: until X is back on `path` with no dialog, or press `run` is no longer the latest.
+ */
+const holdOver = async (run: number, path: string, over: (shown: boolean) => void) => {
+  if (run !== overRun) return;
+  over(true);
+  for (;;) {
+    await new Promise((r) => setTimeout(r, 500));
+    if (run !== overRun) return;
+    const open = await xRun(
+      `location.pathname + location.search !== ${JSON.stringify(path)} || !!document.querySelector('[role="dialog"], [role="alertdialog"]')`,
+    );
+    if (open !== true) break;
+  }
+  over(false);
+};
+
+/**
+ * Presses X's own Subscribe for a person where the engine page shows it (X's Follow page lists
+ * creators with it) for the user's click. X answers with its own subscribe dialog, shown over the
+ * main area (see `holdOver`); paying happens there, in X. False when X showed no dialog.
+ */
+export const xSubscribe = async (userId: string, over: (shown: boolean) => void) => {
+  // The id goes into a script: digits only.
+  if (!/^\d{1,25}$/.test(userId)) return false;
+  const run = ++overRun;
+  const path = await xRun(`(async () => {
+    const button = document.querySelector('[data-testid="${userId}-subscribe"]');
+    if (!button) return null;
+    const path = location.pathname + location.search;
+    button.click();
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      if (location.pathname + location.search !== path || document.querySelector('[role="dialog"]')) return path;
+    }
+    return null;
+  })()`);
+  if (typeof path !== "string") return false;
+  void holdOver(run, path, over);
+  return true;
 };
 
 /** Presses X's own row `label` of a post's `menu` for the user's click (see `pressMenu`). */

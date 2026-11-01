@@ -572,6 +572,14 @@ describe("renderEngineBatch around posts", () => {
     // Post activity's people: who reposted and who liked post 42.
     expect(renderEngineBatch("Retweeters", { tweetId: "42", count: 20 }, {}).key).toBe("42");
     expect(renderEngineBatch("Favoriters", { tweetId: "42", count: 20 }, {}).key).toBe("42");
+    // The Follow page's two tabs, as X's requests carry them; other suggestions are no tab.
+    const connect = (context: string) =>
+      renderEngineBatch("ConnectTabTimeline", { count: 20, context }, {}).key;
+    expect([
+      connect("{}"),
+      connect('{"isCreatorOnlyConnectTab":true}'),
+      connect('{"contextualUserId":"7"}'),
+    ]).toEqual(["connect:who", "connect:creators", null]);
     const header = renderEngineBatch(
       "ListByRestId",
       { listId: "12" },

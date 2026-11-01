@@ -5,7 +5,7 @@
 `⌘K` opens the palette over everything, x.com included. Type a command, `@handle` or a search:
 
 - a screen, or once you type, a section (Compose, Plan: Slots, …)
-- X's pages (Home, Notifications, Messages, Bookmarks, Explore)
+- X's pages (Home, Notifications, Messages, Bookmarks, Explore, Follow)
 - **Schedule this**: a new draft in Compose
 - `@handle`: report on the handle in Scores, or open the profile on X
 - run a Leads agent by name, with its price beside it

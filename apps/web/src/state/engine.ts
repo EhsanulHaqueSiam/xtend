@@ -68,7 +68,10 @@ type KeyedSurface =
   | `likers:${string}`
   | `listMembers:${string}`
   | `listFollowers:${string}`
+  | ConnectTab
   | `profile:${ProfileTab}:${string}`;
+/** X's Follow page's tabs (Who to follow, Creators for you), as the capture keys them. */
+export type ConnectTab = "connect:who" | "connect:creators";
 export type AnySurface = Surface | KeyedSurface;
 
 /** @public The keyed surfaces screens read, named the way the capture keys them. */
@@ -148,6 +151,8 @@ export function surfacesOf(batch: Pick<EngineBatch, "op" | "key">): ReadonlyArra
   // The signed-in account's likes, under X's History beside Bookmarks.
   if (op === "Likes") return ["likes"];
   if (op === "ListsManagementPageTimeline") return ["lists"];
+  if (op === "ConnectTabTimeline" && (key === "connect:who" || key === "connect:creators"))
+    return [key];
   // The capture keys every List call `list:<id>`.
   const listId = tabKey(key, "list")?.slice("list:".length);
   if (listId !== undefined && op === "ListMembers")

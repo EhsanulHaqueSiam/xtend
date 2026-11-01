@@ -21,6 +21,8 @@ export function xtendRoute(href: string): string | null {
   if (!/^(www\.|mobile\.)?(x|twitter)\.com$/.test(url.hostname)) return null;
   const [first, second, third] = url.pathname.split("/").filter(Boolean);
   if (first === "search") return `/search?q=${encodeURIComponent(url.searchParams.get("q") ?? "")}`;
+  if (first === "i" && second === "connect_people")
+    return url.searchParams.get("is_creator_only") === "true" ? "/follow?tab=creators" : "/follow";
   if (first === undefined || first === "i" || first === "home") return null;
   if (second === "status" && third !== undefined && /^\d+$/.test(third))
     return `/post/${third}?h=${first}`;

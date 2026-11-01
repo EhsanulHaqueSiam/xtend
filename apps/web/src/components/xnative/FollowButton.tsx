@@ -5,7 +5,7 @@ import { useState } from "react";
 
 import { cn } from "../../lib/utils";
 import { settingsAtom } from "../../state/settings";
-import { xFollow } from "../../state/x";
+import { xFollow, xOverAtom, xSubscribe } from "../../state/x";
 import { toastAtom } from "../ui/toast";
 
 /**
@@ -76,6 +76,34 @@ export function FollowButton({
       ) : (
         "Follow"
       )}
+    </button>
+  );
+}
+
+/**
+ * X's Subscribe for a creator, as X's Follow page lists them: presses X's own button for the
+ * user's click, and X's subscribe dialog (its price, its checkout) shows over the main area.
+ */
+export function SubscribeButton({ user }: { readonly user: EngineUser }) {
+  const settings = AsyncResult.getOrElse(useAtomValue(settingsAtom), () => null);
+  const setToast = useAtomSet(toastAtom);
+  const setOver = useAtomSet(xOverAtom);
+  const subscribe = async () => {
+    if (settings !== null && !settings.sessionPostingEnabled)
+      return setToast({ text: "Session actions are off in Settings, X session." });
+    if (!(await xSubscribe(user.userId, setOver)))
+      setToast({ text: "X did not open its subscribe dialog. Try again in a moment." });
+  };
+  return (
+    <button
+      type="button"
+      className="h-8 shrink-0 cursor-pointer rounded-full bg-foreground px-3.5 text-[14px] font-bold text-background transition-opacity duration-150 hover:opacity-90"
+      onClick={(e) => {
+        e.stopPropagation();
+        void subscribe();
+      }}
+    >
+      Subscribe
     </button>
   );
 }

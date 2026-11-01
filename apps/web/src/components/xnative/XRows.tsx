@@ -7,6 +7,7 @@ import { isElectron } from "../../env";
 import { xScrollMore } from "../../state/x";
 import { Empty } from "../ui/layout";
 import { useXScrollParent } from "./XColumn";
+import { FollowButton, SubscribeButton } from "./FollowButton";
 import { Affiliate, Avatar, Verified } from "./XPostView";
 
 /** How often a list may ask X for its next page; X's own scrolling pace, not faster. */
@@ -131,31 +132,53 @@ export function XRows<A>({
   );
 }
 
-/** A person as X lists them: face, name, handle, "Follows you", bio; a click opens the profile. */
-export function UserRow({ user }: { readonly user: EngineUser }) {
+/**
+ * A person as X lists them: face, name, handle, "Follows you", bio, and X's button for them,
+ * Follow or (on X's creators list) Subscribe. A click elsewhere on the row opens the profile.
+ */
+export function UserRow({
+  user,
+  action = "follow",
+}: {
+  readonly user: EngineUser;
+  readonly action?: "follow" | "subscribe";
+}) {
   const navigate = useNavigate();
+  const open = () => void navigate({ to: "/u/$handle", params: { handle: user.handle } });
   return (
-    <button
-      type="button"
+    <div
       data-x="user"
       className="grid w-full cursor-pointer grid-cols-[40px_minmax(0,1fr)] gap-x-3 px-4 py-3 text-left transition-colors duration-150 hover:bg-white/[0.03]"
-      onClick={() => void navigate({ to: "/u/$handle", params: { handle: user.handle } })}
+      onClick={open}
     >
-      <Avatar url={user.avatarUrl} size={40} square={user.avatarShape === "Square"} />
+      <button type="button" aria-label={`@${user.handle}`} className="cursor-pointer self-start">
+        <Avatar url={user.avatarUrl} size={40} square={user.avatarShape === "Square"} />
+      </button>
       <span className="min-w-0 text-[15px] leading-5">
-        <span className="flex items-center gap-1">
-          <b className="truncate font-bold">{user.name}</b>
-          {user.verified ? <Verified type={user.verifiedType} /> : null}
-          <Affiliate user={user} />
-        </span>
-        <span className="flex items-center gap-1.5 text-[#71767b]">
-          <span className="truncate">@{user.handle}</span>
-          {user.followsYou ? (
-            <span className="shrink-0 rounded bg-white/[0.08] px-1 text-[12px]">Follows you</span>
-          ) : null}
+        <span className="flex items-center gap-3">
+          <span className="min-w-0 flex-1">
+            <span className="flex items-center gap-1">
+              <b className="truncate font-bold">{user.name}</b>
+              {user.verified ? <Verified type={user.verifiedType} /> : null}
+              <Affiliate user={user} />
+            </span>
+            <span className="flex items-center gap-1.5 text-[#71767b]">
+              <span className="truncate">@{user.handle}</span>
+              {user.followsYou ? (
+                <span className="shrink-0 rounded bg-white/[0.08] px-1 text-[12px]">
+                  Follows you
+                </span>
+              ) : null}
+            </span>
+          </span>
+          {action === "subscribe" ? (
+            <SubscribeButton user={user} />
+          ) : (
+            <FollowButton user={user} size="sm" />
+          )}
         </span>
         {user.bio === "" ? null : <span className="mt-1 line-clamp-2 block">{user.bio}</span>}
       </span>
-    </button>
+    </div>
   );
 }
