@@ -531,7 +531,9 @@ function mergeInto(state: EngineState, batch: EngineBatch, surface: AnySurface):
   const freshPosts = fresh.filter((id) => posts.has(id));
   const top = list.map((id) => posts.get(id)).find((p) => p !== undefined);
   const again = top !== undefined && (page === "top" || page === "first");
-  const waitingNow = new Set(at(state.waiting, surface));
+  // Modules only, while posts wait behind the pill: they wait too, placed among what will show.
+  const staged =
+    again && fresh.length > 0 && freshPosts.length === 0 && at(state.waiting, surface).length > 0;
   const newer =
     // A thread's newer replies join it at once, as X shows them.
     surface !== "post" &&
@@ -541,8 +543,7 @@ function mergeInto(state: EngineState, batch: EngineBatch, surface: AnySurface):
       (again ||
         (page === "unknown" &&
           freshPosts.every((id) => posts.get(id)!.createdAt > top.createdAt)))) ||
-      // X's top again around posts still behind the pill: a module it adds waits with them.
-      (again && fresh.length > 0 && order.some((id) => waitingNow.has(id))));
+      staged);
 
   // People, trends and notifications: a first page replaces, a newer page goes on top.
   const userIds = batch.people;
@@ -634,9 +635,15 @@ function mergeInto(state: EngineState, batch: EngineBatch, surface: AnySurface):
     waiting: newer
       ? set(state.waiting, surface, [...fresh, ...at(state.waiting, surface)])
       : state.waiting,
-    nextTop: newer
-      ? set(state.nextTop, surface, unique([...order, ...at(state.nextTop, surface)]))
-      : state.nextTop,
+    nextTop: !newer
+      ? state.nextTop
+      : set(
+          state.nextTop,
+          surface,
+          staged
+            ? besideNeighbors(unique([...at(state.nextTop, surface), ...list]), order, fresh)
+            : unique([...order, ...at(state.nextTop, surface)]),
+        ),
   };
 }
 
