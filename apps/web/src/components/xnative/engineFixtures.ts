@@ -32,7 +32,8 @@ export interface Fixture {
 export const formatFixture = (fixture: Fixture) =>
   [fixture.meta, ...fixture.batches].map((line) => JSON.stringify(line)).join("\n") + "\n";
 
-type Recorded = Omit<EngineBatch, "communities"> & Partial<Pick<EngineBatch, "communities">>;
+type Recorded = Omit<EngineBatch, "communities" | "sections"> &
+  Partial<Pick<EngineBatch, "communities" | "sections">>;
 
 export const parseFixture = (raw: string): Fixture => {
   const [meta, ...batches] = raw
@@ -43,10 +44,11 @@ export const parseFixture = (raw: string): Fixture => {
     throw new Error("an engine fixture starts with its meta line");
   return {
     meta: meta as FixtureMeta,
-    // A recording made before the engine read Communities names none.
+    // A recording made before the engine read Communities and people sections names none.
     batches: (batches as ReadonlyArray<Recorded>).map((b) => ({
       ...b,
       communities: b.communities ?? [],
+      sections: b.sections ?? [],
     })),
   };
 };
@@ -325,7 +327,7 @@ export function scrub(batches: ReadonlyArray<EngineBatch>): ReadonlyArray<Engine
   // What a request asked for, in the same disguise as the pages it names.
   const key = (op: string, k: string | null) => {
     if (k === null) return null;
-    if (op === "NotificationsTimeline") return k;
+    if (op === "NotificationsTimeline" || op === "CarouselQuery") return k;
     if (op === "UserByScreenName") return handle(k).toLowerCase();
     if (op === "SearchTimeline") {
       const at = k.indexOf(":");
@@ -351,6 +353,11 @@ export function scrub(batches: ReadonlyArray<EngineBatch>): ReadonlyArray<Engine
     posts: b.posts.map(post),
     users: b.users.map(user),
     people: b.people.map(id),
+    sections: b.sections.map((s) => ({
+      title: text(s.title),
+      userIds: s.userIds.map(id),
+      link: s.link?.replace(/\d{5,}/g, id) ?? null,
+    })),
     order: b.order.map(id),
     trends: b.trends.map(trend),
     notifications: b.notifications.map(notification),
@@ -524,6 +531,7 @@ const batch = (
   posts,
   users: [],
   people: [],
+  sections: [],
   order: posts.map((p) => p.postId),
   trends: [],
   notifications: [],
@@ -993,7 +1001,7 @@ export function synth(): Readonly<Record<string, Fixture>> {
       ["/communities", "/communities?tab=explore", `/communities/${open.communityId}`],
     ),
     batches: [
-      batch("CarouselQuery", null, [], { communities: joined.map(tile) }),
+      batch("CarouselQuery", "communities:mine", [], { communities: joined.map(tile) }),
       batch(
         "CommunitiesRankedTimeline",
         null,
@@ -1025,10 +1033,18 @@ export function synth(): Readonly<Record<string, Fixture>> {
         inOpen.filter((p) => p.hasMedia),
         { users: PEOPLE },
       ),
-      // X's About: its moderators, after the faces it draws beside the member count.
+      // X's About: a few of its moderators, then of its members, each box with "Show more".
       batch("CommunityAboutTimeline", `community:${open.communityId}`, [], {
         users: PEOPLE,
-        people: [PEOPLE[4]!.userId, PEOPLE[6]!.userId],
+        people: [4, 6, 0, 1, 2].map((n) => PEOPLE[n]!.userId),
+        sections: [
+          { title: "Moderators", people: [4, 6], page: "moderators" },
+          { title: "Members", people: [0, 1, 2], page: "members" },
+        ].map((s) => ({
+          title: s.title,
+          userIds: s.people.map((n) => PEOPLE[n]!.userId),
+          link: `https://x.com/i/communities/${open.communityId}/${s.page}`,
+        })),
       }),
     ],
   };

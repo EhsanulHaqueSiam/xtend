@@ -10,6 +10,7 @@ import type {
   EngineList,
   EngineMedia,
   EngineNotification,
+  EnginePeopleSection,
   EnginePoll,
   EnginePost,
   EngineTrend,
@@ -545,6 +546,24 @@ function readCommunity(value: Json): EngineCommunity | undefined {
   };
 }
 
+/**
+ * A module of people under X's own header (a Community's Moderators, its Members), with where its
+ * footer's "Show more" goes. X links there on twitter.com; the engine lives on x.com.
+ */
+function readSection(entry: Json): EnginePeopleSection | undefined {
+  const content = record(entry.content);
+  const title = asString(record(content.header).text);
+  if (typeof entry.entryId !== "string" || title === undefined) return undefined;
+  const items = arr(content.items).map((i) => record(record(record(i).item).itemContent));
+  if (items.length === 0 || items.some((i) => i.itemType !== "TimelineUser")) return undefined;
+  const link = asString(record(record(content.footer).landingUrl).url);
+  return {
+    title,
+    userIds: items.flatMap((i) => readUser(record(i.user_results).result)?.userId ?? []),
+    link: link?.replace(/^https:\/\/(www\.)?twitter\.com\//, "https://x.com/") ?? null,
+  };
+}
+
 function readHomeTabs(body: Json): ReadonlyArray<EngineHomeTab> | null {
   const pinned = record(record(body.data).pinned_timelines).pinned_timelines;
   if (!Array.isArray(pinned)) return null;
@@ -651,6 +670,7 @@ function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExp
  */
 export function renderEngineBatch(op: string, variables: Json, body: unknown): EngineBatch {
   const people: Array<string> = [];
+  const sections: Array<EnginePeopleSection> = [];
   const order: Array<string> = [];
   const conversations = new Map<string, NonNullable<EnginePost["conversation"]>>();
   const trends: Array<EngineTrend> = [];
@@ -668,13 +688,13 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
       continue;
     }
     if (!isRecord(node)) continue;
-    // A Community's About lists its moderators; its members module is only faces beside the count.
-    if (typeof node.entryId === "string" && node.entryId.startsWith("communityMembers")) continue;
     const type = node.itemType;
     if (type === "TimelineTweet") {
       const id = listedId(node);
       if (id !== undefined && !order.includes(id)) order.push(id);
     }
+    const section = readSection(node);
+    if (section !== undefined) sections.push(section);
     if (type === "TimelineUser") {
       const user = readUser(record(node.user_results).result);
       if (user !== undefined && !people.includes(user.userId)) people.push(user.userId);
@@ -734,7 +754,16 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
   const exploreTabs = readExploreTabs(record(body));
   return {
     op,
-    key: keyOf(op, variables, exploreTabs),
+    // The user's Communities, once X answered with the list (empty, when they left the last one).
+    key:
+      op === "CarouselQuery"
+        ? Array.isArray(
+            record(result(record(data.viewer_v2).user_results).community_memberships_slice)
+              .items_results,
+          )
+          ? "communities:mine"
+          : null
+        : keyOf(op, variables, exploreTabs),
     // Explore asks with an empty cursor for its first page.
     cursor: asString(variables.cursor) || null,
     top,
@@ -748,6 +777,7 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     }),
     users: readUsers(body),
     people,
+    sections,
     order,
     trends,
     notifications,
@@ -801,6 +831,7 @@ export const viewerBatch = (viewer: EngineViewer): EngineBatch => ({
   posts: [],
   users: [],
   people: [],
+  sections: [],
   order: [],
   trends: [],
   notifications: [],
@@ -819,6 +850,7 @@ export const hasEngineContent = (b: EngineBatch) =>
   b.notifications.length > 0 ||
   b.lists.length > 0 ||
   b.communities.length > 0 ||
+  b.key === "communities:mine" ||
   b.homeTabs !== null ||
   b.exploreTabs !== null ||
   b.viewer !== null;

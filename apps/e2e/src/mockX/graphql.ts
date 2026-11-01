@@ -498,25 +498,6 @@ function encodeCommunity(c: EngineCommunity): Json {
   };
 }
 
-/** X's About for a Community: faces beside its member count, then its moderators. */
-function aboutEntries(batch: EngineBatch, users: ReadonlyMap<string, EngineUser>) {
-  const cell = (u: EngineUser) => ({
-    id: `user-${u.userId}`,
-    content: {
-      itemType: "TimelineUser",
-      __typename: "TimelineUser",
-      userDisplayType: "User",
-      user_results: { result: encodeUser(u) },
-    },
-  });
-  const moderators = batch.people.flatMap((id) => users.get(id) ?? []);
-  const faces = batch.users.filter((u) => !batch.people.includes(u.userId)).slice(0, 3);
-  return [
-    moduleEntry("communityMembers-1", faces.map(cell), { displayType: "Vertical" }),
-    moduleEntry("communityModerators-1", moderators.map(cell), { displayType: "Vertical" }),
-  ];
-}
-
 /**
  * A batch's timeline as X's entries: its posts (threads as conversation modules), people, trends,
  * notifications and Lists, each module under its header, between the page's cursors. Every post
@@ -578,8 +559,32 @@ function timelineEntries(batch: EngineBatch, users: ReadonlyMap<string, EngineUs
       ),
     );
 
+  const cell = (u: EngineUser) => ({
+    id: `user-${u.userId}`,
+    content: {
+      itemType: "TimelineUser",
+      __typename: "TimelineUser",
+      userDisplayType: "UserConcise",
+      user_results: { result: encodeUser(u) },
+    },
+  });
+  // X's titled boxes of people (a Community's Moderators and Members), each with its "Show more".
+  for (const [i, section] of batch.sections.entries())
+    entries.push(
+      moduleEntry(`people-${i}`, section.userIds.flatMap((id) => users.get(id) ?? []).map(cell), {
+        displayType: "Vertical",
+        header: { displayType: "Classic", text: section.title },
+        ...when(section.link !== null, () => ({
+          footer: {
+            displayType: "Classic",
+            text: "Show more",
+            landingUrl: { url: section.link, urlType: "ExternalUrl" },
+          },
+        })),
+      }),
+    );
   const people = batch.people.flatMap((id) => users.get(id) ?? []);
-  if (people.length > 0)
+  if (people.length > 0 && batch.sections.length === 0)
     entries.push(
       moduleEntry(
         "who-to-follow",
@@ -708,9 +713,7 @@ export function encodeBody(
     case "CommunityAboutTimeline":
       return {
         data: {
-          communityResults: {
-            result: { about_timeline: { timeline: instructions(aboutEntries(batch, users)) } },
-          },
+          communityResults: { result: { about_timeline: { timeline: timeline() } } },
         },
       };
     case "GenericTimelineById":

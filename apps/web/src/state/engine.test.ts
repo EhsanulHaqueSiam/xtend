@@ -9,7 +9,9 @@ import { expect, it } from "vite-plus/test";
 
 import {
   askFollow,
+  askMembership,
   at,
+  communityRole,
   communitySurface,
   emptyEngine,
   mergeBatch,
@@ -67,6 +69,7 @@ const batch = (
   posts,
   users: [],
   people: [],
+  sections: [],
   order: [],
   trends: [],
   notifications: [],
@@ -232,9 +235,46 @@ it("lists the user's Communities in X's order, and keeps what each response said
   expect(state.communities.get("20")).toEqual(
     community("20", { name: "Renamed", bannerUrl: "b.jpg", members: 9, role: "Member", rules: [] }),
   );
-  // A first page again (the carousel loaded anew) is X's list now.
+  // A first page again (the carousel loaded anew) is X's list now, even once the user left them all.
   const again = mergeBatch(state, batch("CarouselQuery", [], { communities: [community("20")] }));
   expect(at(again.communityIds, "communities:mine")).toEqual(["20"]);
+  const none = mergeBatch(again, batch("CarouselQuery", [], { key: "communities:mine" }));
+  expect(at(none.communityIds, "communities:mine")).toEqual([]);
+});
+
+it("keeps what X took for a join, ask or leave until X's capture of the Community agrees", () => {
+  const card = (role: string): EngineBatch =>
+    batch("CommunitiesFetchOneQuery", [], {
+      key: "community:20",
+      communities: [
+        {
+          communityId: "20",
+          name: "C",
+          description: null,
+          bannerUrl: null,
+          members: null,
+          topic: null,
+          rules: null,
+          joinPolicy: "Open",
+          role,
+        },
+      ],
+    });
+  const joined = mergeBatch(emptyEngine, card("Member"));
+  const c = () => joined.communities.get("20")!;
+  // The user left; X's cached page sends nothing, and an older capture still says Member.
+  const left = askMembership(joined, "20", "NonMember");
+  const stale = mergeBatch(left, card("Member"));
+  expect(communityRole(stale, c())).toBe("NonMember");
+  const agreed = mergeBatch(stale, card("NonMember"));
+  expect([agreed.membership.size, communityRole(agreed, agreed.communities.get("20")!)]).toEqual([
+    0,
+    "NonMember",
+  ]);
+  // A request stands while X still says NonMember, and ends once X makes them a member.
+  const asked = mergeBatch(askMembership(agreed, "20", "Requested"), card("NonMember"));
+  expect(communityRole(asked, c())).toBe("Requested");
+  expect(mergeBatch(asked, card("Member")).membership.size).toBe(0);
 });
 
 it("keeps notifications in X's order, newer on top, people by surface, and follows until X agrees", () => {

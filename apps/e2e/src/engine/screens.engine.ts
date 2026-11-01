@@ -391,6 +391,37 @@ test("Join presses X's own Join, and Ask to join shows X's rules over the main a
   await membership("Joined").waitFor();
   expect(e.mock.state.community(open.communityId)!.role).toBe("Member");
 
+  // Leaving: X's confirm shows over the main area, and Xtend says Join as X does, also back on X's
+  // cached page, which fetches nothing to say so.
+  const confirm = `document.querySelector('#layers [data-testid="confirmationSheetConfirm"]')`;
+  await membership("Joined").click();
+  await expect.poll(() => e.engine(`!!${confirm}`)).toBe(true);
+  await expect.poll(pane).toBe("main");
+  await e.engine(`${confirm}.click()`);
+  await expect.poll(pane).toBe("hidden");
+  await membership("Join").waitFor();
+  expect(presses()).toContain(`write LeaveCommunity ${open.communityId}`);
+  await go("/communities");
+  await expect.poll(enginePath).toBe(`/${e.mock.state.viewer.handle}/communities`);
+  await go(`/communities/${open.communityId}`);
+  await expect.poll(enginePath).toBe(`/i/communities/${open.communityId}`);
+  await membership("Join").waitFor();
+
+  // Joined again, then left on x.com itself: Xtend's Joined no longer matches X's button, so
+  // pressing it presses nothing on X and takes X's word.
+  await membership("Join").click();
+  await membership("Joined").waitFor();
+  await e.engine(`document.querySelector('[data-community-join="${open.communityId}"]').click()`);
+  await expect.poll(() => e.engine(`!!${confirm}`)).toBe(true);
+  await e.engine(`${confirm}.click()`);
+  await expect
+    .poll(() => presses().filter((p) => p === `write LeaveCommunity ${open.communityId}`).length)
+    .toBe(2);
+  const before = presses().length;
+  await membership("Joined").click();
+  await membership("Join").waitFor();
+  expect(presses().slice(before)).toEqual([]);
+
   await go(`/communities/${asks.communityId}`);
   await expect.poll(enginePath).toBe(`/i/communities/${asks.communityId}`);
   await membership("Ask to join").click();

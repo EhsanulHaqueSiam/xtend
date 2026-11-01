@@ -104,6 +104,13 @@ const recorded: ReadonlyArray<EngineBatch> = [
     ],
     users: [real],
     people: [real.userId],
+    sections: [
+      {
+        title: "Hushlabs regulars",
+        userIds: [real.userId],
+        link: "https://x.com/i/communities/1777000000000000077/members",
+      },
+    ],
     order: ["1888000000000000001", "1888000000000000002"],
     trends: [],
     notifications: [
@@ -118,7 +125,19 @@ const recorded: ReadonlyArray<EngineBatch> = [
       },
     ],
     lists: [],
-    communities: [],
+    communities: [
+      {
+        communityId: "1777000000000000077",
+        name: "Hushlabs insiders",
+        description: "Secretive founders of Gulshanpur",
+        bannerUrl: "https://pbs.twimg.com/community_banner_img/1777/b.jpg",
+        members: 40,
+        topic: "Moonshot",
+        rules: [{ name: "Lunch with Realname", description: "Whiteboard only" }],
+        joinPolicy: "Open",
+        role: "Member",
+      },
+    ],
     homeTabs: null,
     exploreTabs: null,
     viewer: { userId: "1450099999999", handle: "siamships", name: "Ehsanul Siam", avatarUrl: null },
@@ -148,6 +167,7 @@ it("leaves nothing of the account it was recorded on: no id, handle, name, word,
     "siamships",
     "Ehsanul",
     "1450099999999",
+    "1777000000000000077",
   ])
     expect(out).not.toContain(secret);
 });

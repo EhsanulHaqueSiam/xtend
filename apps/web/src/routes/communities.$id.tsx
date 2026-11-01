@@ -1,29 +1,47 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
-import type { EngineCommunity } from "@xtend/contracts";
+import type { EngineCommunity, EnginePeopleSection } from "@xtend/contracts";
 import { useCallback, useEffect, useState } from "react";
 
 import { fmt } from "../components/analyze/ui";
 import { Timeline } from "../components/xnative/Timeline";
 import { useXPress } from "../components/xnative/useXPress";
 import { XColumn, XTabs, XTitle } from "../components/xnative/XColumn";
-import { UserRow, XRows } from "../components/xnative/XRows";
-import { at, type CommunityTab, communitySurface, engineAtom } from "../state/engine";
-import { xCommunityJoin, xGo, xNavigate, xOverAtom, xOverEnded, xPickHomeTab } from "../state/x";
+import { xtendRoute } from "../components/xnative/RichText";
+import { UserRow, XEmpty } from "../components/xnative/XRows";
+import {
+  askMembership,
+  at,
+  type CommunityRole,
+  communityRole,
+  type CommunityTab,
+  communitySurface,
+  engineAtom,
+  updateEngine,
+} from "../state/engine";
+import {
+  type MembershipAction,
+  xCommunityJoin,
+  xGo,
+  xNavigate,
+  xOverAtom,
+  xOverEnded,
+} from "../state/x";
 
+// Each tab is its own page on X, as x.com/i/communities/<id>/latest.
 const TABS = [
-  { id: "top", label: "Top" },
-  { id: "latest", label: "Latest" },
-  { id: "media", label: "Media" },
-  { id: "about", label: "About" },
-] as const satisfies ReadonlyArray<{ id: string; label: CommunityTab }>;
+  { id: "top", label: "Top", path: "" },
+  { id: "latest", label: "Latest", path: "/latest" },
+  { id: "media", label: "Media", path: "/media" },
+  { id: "about", label: "About", path: "/about" },
+] as const satisfies ReadonlyArray<{ id: string; label: CommunityTab; path: string }>;
 type Tab = (typeof TABS)[number]["id"];
 const TAB_IDS: ReadonlySet<string> = new Set(TABS.map((t) => t.id));
 
 /**
  * One Community, drawn by Xtend from the engine on x.com/i/communities/<id>: X's header (banner,
  * name, members, X's Join) from the Community X sent, then the open tab: its posts, its media, or
- * About with its rules and moderators. The engine picks each tab on X's page by its label.
+ * About with its rules, moderators and members.
  */
 function CommunityScreen() {
   const { id } = Route.useParams();
@@ -34,13 +52,10 @@ function CommunityScreen() {
   const setOver = useAtomSet(xOverAtom);
   const current = TABS.find((t) => t.id === tab) ?? TABS[0];
   const community = engine.communities.get(id);
-  const url = `https://x.com/i/communities/${id}`;
-  const open = useCallback(
-    () => void xGo(url).then(() => xPickHomeTab(current.label)),
-    [url, current.label],
-  );
-  // ⌘R and "Load again": X's page in full, then this tab again.
-  const reload = () => void xNavigate(url).then(() => xPickHomeTab(current.label));
+  const url = `https://x.com/i/communities/${id}${current.path}`;
+  const open = useCallback(() => void xGo(url), [url]);
+  // ⌘R and "Load again": X's page in full, since X's router does nothing on the page it shows.
+  const reload = () => void xNavigate(url);
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- moves the engine (the session view) to this screen's X page while it is open.
   useEffect(open, [open]);
   // The tabs share a path, which is what ends a press elsewhere: leaving a tab ends X's dialog.
@@ -81,7 +96,7 @@ function CommunityScreen() {
     return (
       <XColumn header={header} refresh={{ surfaces: [surface], load: reload }}>
         {top}
-        <About community={community} moderators={at(engine.people, surface)} onReopen={reload} />
+        <About community={community} sections={at(engine.sections, surface)} onReopen={reload} />
       </XColumn>
     );
   return (
@@ -125,51 +140,65 @@ function CommunityHeader({ community }: { readonly community: EngineCommunity })
   );
 }
 
-/** X's label for its membership button, from what X said of the viewer's role and the policy. */
-const joinLabel = (c: EngineCommunity) =>
-  c.role === null
+/** The role X's words on its membership button say the viewer has. */
+const roleOf = (label: string): CommunityRole =>
+  label === "Joined"
+    ? "Member"
+    : label === "Requested" || label === "Pending"
+      ? "Requested"
+      : "NonMember";
+
+/** X's membership button for a role and policy: its words, and what pressing it does. */
+const membershipButton = (
+  role: string | null,
+  joinPolicy: string | null,
+): { readonly label: string; readonly action: MembershipAction | null } | null =>
+  role === null
     ? null
-    : c.role !== "NonMember"
-      ? "Joined"
-      : c.joinPolicy === "Open"
-        ? "Join"
-        : "Ask to join";
+    : role === "Requested"
+      ? { label: "Requested", action: null }
+      : role !== "NonMember"
+        ? { label: "Joined", action: "leave" }
+        : joinPolicy === "Open"
+          ? { label: "Join", action: "join" }
+          : { label: "Ask to join", action: "ask" };
 
 /**
  * X's Join, Ask to join or Joined for the user's click, pressed on X's own button. Asking first
- * shows X's rules dialog over the main area, and leaving X's confirm; afterwards the button says
- * what X's says.
+ * shows X's rules dialog over the main area, and leaving X's confirm. What X took stays in the
+ * store until X's capture agrees, since X's own page shows it from its cache; a button X has
+ * turned since is not pressed, and Xtend's takes X's words.
  */
 function JoinButton({ community }: { readonly community: EngineCommunity }) {
   const { blocked, setToast } = useXPress();
   const setOver = useAtomSet(xOverAtom);
-  // What X's button said after the user's last press here, until X sends the Community again.
-  const [pressed, setPressed] = useState<{
-    readonly of: EngineCommunity;
-    readonly label: string;
-  }>();
+  const engine = useAtomValue(engineAtom);
+  const setEngine = useAtomSet(engineAtom);
   const [busy, setBusy] = useState(false);
-  const label = (pressed?.of === community ? pressed.label : null) ?? joinLabel(community);
-  if (label === null) return null;
+  const button = membershipButton(communityRole(engine, community), community.joinPolicy);
+  if (button === null) return null;
+  const { label, action } = button;
   const press = async () => {
+    if (action === null) return;
     const why = blocked();
     if (why !== null) return setToast({ text: why });
     setBusy(true);
-    const after = await xCommunityJoin(community.communityId, setOver);
+    const after = await xCommunityJoin(community.communityId, action, setOver);
     setBusy(false);
     if (after === null) return setToast({ text: "X did not take that. Try again in a moment." });
-    setPressed({ of: community, label: after });
+    setEngine(updateEngine((s) => askMembership(s, community.communityId, roleOf(after.label))));
+    if (after.refused)
+      setToast({ text: `X shows ${after.label} for this Community now, so nothing was pressed.` });
   };
-  const member = label === "Joined";
   return (
     <button
       type="button"
-      disabled={busy}
+      disabled={busy || action === null}
       aria-label={`${label} ${community.name}`}
       className={
-        member || label === "Requested" || label === "Pending"
-          ? "h-9 shrink-0 cursor-pointer rounded-full border border-white/[0.35] px-4 text-[15px] font-bold transition-colors duration-150 hover:bg-white/[0.06] disabled:opacity-60"
-          : "h-9 shrink-0 cursor-pointer rounded-full bg-foreground px-4 text-[15px] font-bold text-background transition-opacity duration-150 hover:opacity-90 disabled:opacity-60"
+        action === "join" || action === "ask"
+          ? "h-9 shrink-0 cursor-pointer rounded-full bg-foreground px-4 text-[15px] font-bold text-background transition-opacity duration-150 hover:opacity-90 disabled:opacity-60"
+          : "h-9 shrink-0 cursor-pointer rounded-full border border-white/[0.35] px-4 text-[15px] font-bold transition-colors duration-150 hover:bg-white/[0.06] disabled:cursor-default disabled:opacity-60"
       }
       onClick={() => void press()}
     >
@@ -178,18 +207,27 @@ function JoinButton({ community }: { readonly community: EngineCommunity }) {
   );
 }
 
-/** X's About: what the Community is for, its numbered rules, and its moderators. */
+/**
+ * X's About: what the Community is for, its numbered rules, then X's own boxes of people
+ * (Moderators, Members), each with X's "Show more", which opens X's full list on x.com.
+ */
 function About({
   community,
-  moderators,
+  sections,
   onReopen,
 }: {
   readonly community: EngineCommunity | undefined;
-  readonly moderators: ReadonlyArray<string>;
+  readonly sections: ReadonlyArray<EnginePeopleSection>;
   readonly onReopen: () => void;
 }) {
   const engine = useAtomValue(engineAtom);
-  const people = moderators.flatMap((m) => engine.users.get(m) ?? []);
+  const navigate = useNavigate();
+  const showMore = (link: string) => {
+    const inside = xtendRoute(link);
+    if (inside !== null) return void navigate({ href: inside });
+    void xNavigate(link);
+    void navigate({ to: "/x" });
+  };
   return (
     <>
       {community === undefined ? null : (
@@ -220,16 +258,33 @@ function About({
           )}
         </section>
       )}
-      <h2 className="px-4 pt-3 pb-1 text-[20px] font-extrabold">Moderators</h2>
-      <XRows
-        waitKey={`communityAbout:${community?.communityId ?? ""}`}
-        onReopen={onReopen}
-        paged={false}
-        items={people}
-        rowKey={(u) => u.userId}
-        empty="Loading the Community's moderators from X."
-        row={(u) => <UserRow user={u} />}
-      />
+      {sections.length === 0 ? (
+        <XEmpty
+          key={community?.communityId ?? ""}
+          empty="Loading the Community's moderators and members from X."
+          onReopen={onReopen}
+        />
+      ) : (
+        // A few people each: X sends the rest behind "Show more".
+        sections.map(({ title, userIds, link }) => (
+          <section key={title} data-x="people-section" className="border-b border-border">
+            <h2 className="px-4 pt-3 pb-1 text-[20px] font-extrabold">{title}</h2>
+            {userIds.flatMap((userId) => {
+              const user = engine.users.get(userId);
+              return user === undefined ? [] : [<UserRow key={userId} user={user} />];
+            })}
+            {link === null ? null : (
+              <button
+                type="button"
+                className="w-full cursor-pointer px-4 py-3 text-left text-[15px] text-[#1d9bf0] transition-colors duration-150 hover:bg-white/[0.03]"
+                onClick={() => showMore(link)}
+              >
+                Show more
+              </button>
+            )}
+          </section>
+        ))
+      )}
     </>
   );
 }

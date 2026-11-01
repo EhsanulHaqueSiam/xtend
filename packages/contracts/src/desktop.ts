@@ -285,6 +285,17 @@ export interface EngineList {
 }
 
 /**
+ * People X draws together in one titled box, and where its "Show more" goes: a Community's
+ * Moderators and Members on its About.
+ */
+export interface EnginePeopleSection {
+  readonly title: string;
+  readonly userIds: ReadonlyArray<string>;
+  /** The x.com page X's footer opens, when it has one. */
+  readonly link: string | null;
+}
+
+/**
  * A Community as X's Communities pages show it. X sends a Community in pieces (a carousel tile
  * names it and its banner, its own page the rest), so a field X left out of one response is null
  * and the store keeps what an earlier one said.
@@ -347,6 +358,8 @@ export interface EngineBatch {
   readonly users: ReadonlyArray<EngineUser>;
   /** The user ids X listed as people on this page (search People, Who to follow), in order. */
   readonly people: ReadonlyArray<string>;
+  /** X's titled boxes of people on this page, in order; `people` lists them too. */
+  readonly sections: ReadonlyArray<EnginePeopleSection>;
   /**
    * The posts X listed as entries, in order (a pinned post first, a repost as its original): a
    * post that only appears quoted inside another is not one, but the same post listed on its own is.

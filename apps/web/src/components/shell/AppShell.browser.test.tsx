@@ -272,6 +272,7 @@ it("moves the panel to each section's X page, hides it where X has none, and rel
     posts: [],
     users: [],
     people: [],
+    sections: [],
     order: [],
     trends: [],
     notifications: [],

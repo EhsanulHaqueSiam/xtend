@@ -13,6 +13,13 @@ it("opens x.com posts, profiles, searches, the Follow page and Communities in Xt
   expect(xtendRoute("https://twitter.com/i/communities/1600000000000000001")).toBe(
     "/communities/1600000000000000001",
   );
+  expect(xtendRoute("https://x.com/i/communities/1600000000000000001/latest")).toBe(
+    "/communities/1600000000000000001?tab=latest",
+  );
+  expect(xtendRoute("https://x.com/i/communities/1600000000000000001/about?s=20")).toBe(
+    "/communities/1600000000000000001?tab=about",
+  );
+  expect(xtendRoute("https://x.com/i/communities/1600000000000000001/members")).toBeNull();
   expect(xtendRoute("https://x.com/you/communities/explore")).toBe("/communities?tab=explore");
   expect(xtendRoute("https://x.com/you/communities")).toBe("/communities");
   // X's own pages Xtend does not draw, and other sites, open in the browser.

@@ -496,37 +496,72 @@ export const xSubscribe = async (
 };
 
 /**
- * A script step: `join()` is X's membership button in a Community's header, whose words say what a
- * press does (Join, Ask to join, Joined), or null. X labels it "Ask to join <name>".
+ * X's membership button for Community `communityId` in X's page at `path`: only on its own page,
+ * in the header that links into it alone. X's path names the next Community while the last one's
+ * header is still drawn. Runs in X's page as its own source, so it uses nothing outside itself.
  */
-const JOIN_BUTTON = `
-    const join = () => [...document.querySelectorAll('button, [role="button"]')].find((b) =>
-      /^(Join|Ask to join|Joined|Requested|Pending)$/.test(b.textContent.trim()) ||
-      /^(Join|Ask to join) /.test(b.getAttribute("aria-label") ?? "")) ?? null;`;
+export function communityJoinButton(
+  root: ParentNode,
+  path: string,
+  communityId: string,
+): HTMLElement | null {
+  const segment = path.split("/");
+  if (segment[1] !== "i" || segment[2] !== "communities" || segment[3] !== communityId) return null;
+  const isJoin = (b: Element) =>
+    /^(Join|Ask to join|Joined|Requested|Pending)$/.test(b.textContent?.trim() ?? "") ||
+    /^(Join|Ask to join) /.test(b.getAttribute("aria-label") ?? "");
+  const buttons = [...root.querySelectorAll<HTMLElement>('button, [role="button"]')].filter(isJoin);
+  const mine = buttons.filter((button) => {
+    for (let box = button.parentElement; box !== null; box = box.parentElement) {
+      const links = [...box.querySelectorAll('a[href*="/i/communities/"]')].map(
+        (a) => (a.getAttribute("href") ?? "").split("/i/communities/")[1]?.split(/[/?#]/)[0],
+      );
+      if (links.length === 0) continue;
+      // The header: it names this Community only, and holds no other Community's button.
+      return (
+        links.every((id) => id === communityId) &&
+        buttons.every((b) => b === button || !box.contains(b))
+      );
+    }
+    return false;
+  });
+  return mine.length === 1 ? mine[0]! : null;
+}
+
+/** What a press on X's membership button does, by the words X draws on it. */
+export type MembershipAction = "join" | "ask" | "leave";
+const ACTION_WORDS: Readonly<Record<MembershipAction, string>> = {
+  join: "Join",
+  ask: "Ask to join",
+  leave: "Joined",
+};
 
 /**
- * Presses X's own membership button on Community `communityId`'s page for the user's click: Join,
- * Ask to join or Joined, whichever X shows. A dialog X answers with (its rules before asking, its
- * confirm before leaving) shows over the main area until it closes (see `holdOver`). What X's
- * button says afterwards; null when X showed none, or the user moved on.
+ * Presses X's membership button for the user's click, only when X offers the `action` clicked: one
+ * X has turned since is refused with X's words. X's rules or confirm dialog shows over the main
+ * area (see `holdOver`). What X's button says afterwards; null when X drew none or the user left.
  */
-export const xCommunityJoin = async (communityId: string, over: (shown: boolean) => void) => {
+export const xCommunityJoin = async (
+  communityId: string,
+  action: MembershipAction,
+  over: (shown: boolean) => void,
+): Promise<{ readonly refused: boolean; readonly label: string } | null> => {
   // It goes into scripts run in X's page: digits only.
   if (!/^\d{1,25}$/.test(communityId)) return null;
   const run = await nextRun();
   const path = `/i/communities/${communityId}`;
+  const join = `(() => (${communityJoinButton.toString()})(document, location.pathname, ${JSON.stringify(communityId)}))`;
   const live = () => run === overRun;
   let tries = 10;
   const press = () =>
     xRun(`(async () => {
-    ${JOIN_BUTTON}
-    // Only on this Community's own page: another page's button is another Community's.
-    const here = () => location.pathname.startsWith(${JSON.stringify(path)});
-    for (let i = 0; i < ${tries} && !(here() && join()); i++) await new Promise((r) => setTimeout(r, 100));
-    const button = here() ? join() : null;
+    const join = ${join};
+    for (let i = 0; i < ${tries} && !join(); i++) await new Promise((r) => setTimeout(r, 100));
+    const button = join();
     if (!button || !${stillMine(run)}) return null;
-    const at = location.pathname + location.search;
     const was = button.textContent.trim();
+    if (was !== ${JSON.stringify(ACTION_WORDS[action])}) return { refused: was };
+    const at = location.pathname + location.search;
     button.click();
     for (let i = 0; i < 20; i++) {
       await new Promise((r) => setTimeout(r, 100));
@@ -538,19 +573,20 @@ export const xCommunityJoin = async (communityId: string, over: (shown: boolean)
     return { over: null };
   })()`).then((done) => {
       tries = 50;
-      return typeof done === "object" && done !== null ? (done as { over: string | null }) : null;
+      return typeof done === "object" && done !== null
+        ? (done as { readonly over?: string | null; readonly refused?: string })
+        : null;
     });
   const pressed = await onPage(
     { url: `https://x.com${path}`, path },
     press,
-    (done) => (done.over === null ? Promise.resolve() : holdOver(run, done.over, over)),
+    (done) => (typeof done.over === "string" ? holdOver(run, done.over, over) : Promise.resolve()),
     live,
   );
   if (pressed === null || !live()) return null;
-  const label = await xRun(
-    `(() => { ${JOIN_BUTTON} return location.pathname.startsWith(${JSON.stringify(path)}) ? (join()?.textContent.trim() ?? null) : null; })()`,
-  );
-  return typeof label === "string" ? label : null;
+  if (pressed.refused !== undefined) return { refused: true, label: pressed.refused };
+  const label = await xRun(`${join}()?.textContent.trim() ?? null`);
+  return typeof label === "string" ? { refused: false, label } : null;
 };
 
 /** Presses X's own row `label` of a post's `menu` for the user's click (see `pressMenu`). */

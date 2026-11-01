@@ -792,9 +792,11 @@ const benchmarks = [
       await reset(`community:${id}`);
       await go(`#/communities/${id}`);
       const top = (await xTab("Top")) && (await same());
+      // As Xtend presses it (communityJoinButton in apps/web/src/state/x.ts): in the header that
+      // links into this Community alone.
       const xs = await until(() =>
         engine(
-          `[...document.querySelectorAll('button, [role="button"]')].find((b) => /^(Join|Ask to join|Joined|Requested|Pending)$/.test(b.textContent.trim()) || /^(Join|Ask to join) /.test(b.getAttribute("aria-label") ?? ""))?.textContent.trim()`,
+          `(() => { const id = ${JSON.stringify(id)}; const join = [...document.querySelectorAll('button, [role="button"]')].filter((b) => /^(Join|Ask to join|Joined|Requested|Pending)$/.test(b.textContent.trim()) || /^(Join|Ask to join) /.test(b.getAttribute("aria-label") ?? "")); const mine = join.filter((b) => { for (let box = b.parentElement; box; box = box.parentElement) { const links = [...box.querySelectorAll('a[href*="/i/communities/"]')].map((a) => a.getAttribute("href").split("/i/communities/")[1]?.split(/[/?#]/)[0]); if (links.length > 0) return links.every((l) => l === id) && join.every((o) => o === b || !box.contains(o)); } return false; }); return mine.length === 1 ? mine[0].textContent.trim() : undefined; })()`,
         ),
       );
       // Xtend's button says what X's does, from what X sent of the viewer's role.

@@ -208,6 +208,7 @@ export function createMockState() {
     posts: posts.map(livePost),
     users: [],
     people: [],
+    sections: [],
     order: posts.filter((p) => !posts.some((q) => q.quotedId === p.postId)).map((p) => p.postId),
     trends: [],
     notifications: [],
@@ -465,6 +466,7 @@ export function createMockState() {
         return ofPeople(op, id, listPeople(id, op === "Retweeters" ? 1 : 4));
       }
       case "CarouselQuery":
+        return live(fixture(op, "communities:mine")!);
       case "CommunitiesRankedTimeline":
       case "CommunitiesExploreTimeline":
         return live(fixture(op, null)!);
@@ -488,8 +490,21 @@ export function createMockState() {
         const own = fixture(op, k);
         if (own !== undefined) return live(own);
         // The Communities the fixtures only name: a few posts, two moderators, no media.
-        if (op === "CommunityAboutTimeline")
-          return { ...ofPeople(op, k, people.slice(0, 2)), top: null };
+        if (op === "CommunityAboutTimeline") {
+          const box = (title: string, page: string, who: ReadonlyArray<EngineUser>) => ({
+            title,
+            userIds: who.map((u) => u.userId),
+            link: `https://x.com/i/communities/${id}/${page}`,
+          });
+          return {
+            ...ofPeople(op, k, people.slice(0, 5)),
+            top: null,
+            sections: [
+              box("Moderators", "moderators", people.slice(0, 2)),
+              box("Members", "members", people.slice(2, 5)),
+            ],
+          };
+        }
         return page(op, k, op === "CommunityMediaTimeline" ? [] : morePages.forYou[0]!.slice(0, 3));
       }
       case "ConnectTabTimeline": {

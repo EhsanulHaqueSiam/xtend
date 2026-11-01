@@ -5,6 +5,7 @@ import type {
   EngineHomeTab,
   EngineList,
   EngineNotification,
+  EnginePeopleSection,
   EnginePost,
   EngineTrend,
   EngineUser,
@@ -261,6 +262,11 @@ export interface EngineState {
    * agrees: a page X answered before the click would otherwise turn the button back.
    */
   readonly asked: ReadonlyMap<string, boolean>;
+  /**
+   * The role X took for the user's join, ask or leave, per Community, until a capture of it agrees:
+   * X's page shows its own state from its cache and fetches nothing to say so.
+   */
+  readonly membership: ReadonlyMap<string, CommunityRole>;
   /** Post ids per surface. */
   readonly lists: PerSurface<string>;
   /** Newer posts X fetched for a list's top; they wait behind a pill instead of shifting the list. */
@@ -272,6 +278,8 @@ export interface EngineState {
   readonly nextTop: PerSurface<string>;
   /** User ids per surface. */
   readonly people: PerSurface<string>;
+  /** X's titled boxes of people per surface (a Community's Moderators and Members). */
+  readonly sections: PerSurface<EnginePeopleSection>;
   readonly trends: PerSurface<EngineTrend>;
   readonly notifications: PerSurface<EngineNotification>;
   /** X Lists by id: the Lists page's rows and each List's own header. */
@@ -298,10 +306,12 @@ export const emptyEngine: EngineState = {
   entries: {},
   users: new Map(),
   asked: new Map(),
+  membership: new Map(),
   lists: NONE,
   waiting: NONE,
   nextTop: NONE,
   people: NONE,
+  sections: NONE,
   trends: NONE,
   notifications: NONE,
   xLists: new Map(),
@@ -391,11 +401,24 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
     }
     communities = next;
   }
+  // X agrees once it sends the role taken; a request stands until X makes them a member.
+  const agreed = batch.communities.filter((c) => {
+    const taken = state.membership.get(c.communityId);
+    return (
+      taken !== undefined &&
+      (c.role === taken || (taken === "Requested" && c.role !== null && c.role !== "NonMember"))
+    );
+  });
+  const membership =
+    agreed.length === 0
+      ? state.membership
+      : new Map([...state.membership].filter(([id]) => !agreed.some((c) => c.communityId === id)));
   const merged: EngineState = {
     ...state,
     posts,
     users,
     asked,
+    membership,
     xLists,
     communities,
     homeTabs: batch.homeTabs ?? state.homeTabs,
@@ -536,8 +559,9 @@ function mergeInto(state: EngineState, batch: EngineBatch, surface: AnySurface):
           page === "first" ? listIdsNow : join(at(state.listIds, surface), listIdsNow, String),
         );
   const communityIdsNow = batch.communities.map((c) => c.communityId);
+  // The user's Communities replace the list on X's first page, even with none left.
   const communityIds =
-    communityIdsNow.length === 0
+    communityIdsNow.length === 0 && !(surface === "communities:mine" && page === "first")
       ? state.communityIds
       : set(
           state.communityIds,
@@ -545,6 +569,14 @@ function mergeInto(state: EngineState, batch: EngineBatch, surface: AnySurface):
           page === "first"
             ? communityIdsNow
             : join(at(state.communityIds, surface), communityIdsNow, String),
+        );
+  const sections =
+    batch.sections.length === 0
+      ? state.sections
+      : set(
+          state.sections,
+          surface,
+          page === "first" ? batch.sections : [...at(state.sections, surface), ...batch.sections],
         );
   const notifications =
     batch.notifications.length === 0
@@ -574,6 +606,7 @@ function mergeInto(state: EngineState, batch: EngineBatch, surface: AnySurface):
     entries: { ...state.entries, [surface]: entries },
     cursors,
     people,
+    sections,
     listIds,
     communityIds,
     trends,
@@ -613,6 +646,7 @@ export const resetSurface = (state: EngineState, surface: AnySurface): EngineSta
   waiting: set(state.waiting, surface, []),
   nextTop: set(state.nextTop, surface, []),
   people: set(state.people, surface, []),
+  sections: set(state.sections, surface, []),
   listIds: set(state.listIds, surface, []),
   communityIds: set(state.communityIds, surface, []),
   trends: set(state.trends, surface, []),
@@ -631,6 +665,20 @@ export const postOn = (
   const entry = state.entries[surface]?.get(postId);
   return post === undefined || entry === undefined ? post : { ...post, ...entry };
 };
+
+/** The viewer's role in a Community: "Requested" while X waits on its moderators. */
+export type CommunityRole = "NonMember" | "Member" | "Moderator" | "Admin" | "Requested";
+
+/** The viewer's role in a Community: what X took for their click, until X's capture agrees. */
+export const communityRole = (state: EngineState, c: EngineCommunity) =>
+  state.membership.get(c.communityId) ?? c.role;
+
+/** Keeps the role X took for the user's join, ask or leave (see `membership`). */
+export const askMembership = (
+  state: EngineState,
+  communityId: string,
+  role: CommunityRole,
+): EngineState => ({ ...state, membership: new Map(state.membership).set(communityId, role) });
 
 /** Whether the user follows someone: what they asked X for, until X's capture agrees. */
 export const youFollow = (state: EngineState, user: EngineUser) =>

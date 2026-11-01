@@ -477,8 +477,18 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
           .map(
             (rule) => `<li>${esc(rule.name)}<div class="muted">${esc(rule.description)}</div></li>`,
           )
-          .join("")}</ol><h3>Moderators</h3>${peopleOf(b ?? null)}</div>`;
-        return `${header(c.name)}<div data-testid="communityHeader"><img alt="" src="${esc(c.bannerUrl ?? "")}" class="banner-img"><h2>${esc(c.name)}</h2><div><b>${compact(c.members)}</b> Members</div><button aria-label="More">…</button><button aria-label="Pin Community">📌</button><button aria-label="Share Community">⤴</button>${joinButton(c, state.communityRequested(id))}</div>${tabs(
+          .join("")}</ol>${(b?.sections ?? [])
+          .map(
+            (s) =>
+              `<h3>${esc(s.title)}</h3>${s.userIds
+                .flatMap((u) => b!.users.find((x) => x.userId === u) ?? [])
+                .map((u) => userCell(u))
+                .join(
+                  "",
+                )}${s.link === null ? "" : `<a href="${esc(new URL(s.link).pathname)}">Show more</a>`}`,
+          )
+          .join("")}</div>`;
+        return `${header(c.name)}<div data-testid="communityHeader"><img alt="" src="${esc(c.bannerUrl ?? "")}" class="banner-img"><h2>${esc(c.name)}</h2><a href="/i/communities/${c.communityId}/members"><b>${compact(c.members)}</b> Members</a><button aria-label="More">…</button><button aria-label="Pin Community">📌</button><button aria-label="Share Community">⤴</button>${joinButton(c, state.communityRequested(id))}</div>${tabs(
           "Community",
           COMMUNITY_TABS.map((t) => ({
             label: t.label,

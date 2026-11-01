@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 
-import { renderEngineBatch, requestVariables } from "./engineBatch.ts";
+import { hasEngineContent, renderEngineBatch, requestVariables } from "./engineBatch.ts";
 import { normalizeGraphqlResponse } from "./normalizeGraphql.ts";
 
 // X's 2026 user: no `legacy` block, counts and bio in their own fields.
@@ -718,15 +718,33 @@ describe("renderEngineBatch around posts", () => {
     expect([feed.order, feed.communities, feed.posts[0]?.context?.text]).toEqual([["50"], [], "A"]);
   });
 
-  it("lists a Community's moderators from its About, not the faces beside its member count", () => {
-    const people = (entryId: string, ids: ReadonlyArray<string>) => ({
+  it("reads a Community's About as X's two boxes, Moderators then Members, each with its Show more", () => {
+    // X's About: one module per box, under its header, with a footer to the full list.
+    const box = (entryId: string, title: string, page: string, ids: ReadonlyArray<string>) => ({
       entryId,
+      sortIndex: "1",
       content: {
+        __typename: "TimelineTimelineModule",
         entryType: "TimelineTimelineModule",
         displayType: "Vertical",
+        header: { displayType: "Classic", sticky: true, text: title },
+        footer: {
+          displayType: "Classic",
+          text: "Show more",
+          landingUrl: {
+            url: `https://twitter.com/i/communities/20/${page}`,
+            urlType: "ExternalUrl",
+          },
+        },
         items: ids.map((id) => ({
+          entryId: `${entryId.slice(0, -1)}-${id}`,
           item: {
-            itemContent: { itemType: "TimelineUser", user_results: { result: user(id, `u${id}`) } },
+            itemContent: {
+              __typename: "TimelineUser",
+              itemType: "TimelineUser",
+              userDisplayType: "UserConcise",
+              user_results: { result: user(id, `u${id}`) },
+            },
           },
         })),
       },
@@ -738,16 +756,19 @@ describe("renderEngineBatch around posts", () => {
         data: {
           communityResults: {
             result: {
+              __typename: "Community",
               about_timeline: {
                 timeline: {
                   instructions: [
+                    { type: "TimelineClearCache" },
                     {
                       type: "TimelineAddEntries",
                       entries: [
-                        people("communityMembers-1", ["3", "4"]),
-                        people("communityModerators-1", ["5", "6"]),
+                        box("communityModerators", "Moderators", "moderators", ["5", "6"]),
+                        box("communityMembers", "Members", "members", ["3", "5", "4"]),
                       ],
                     },
+                    { type: "TimelineTerminateTimeline", direction: "Top" },
                   ],
                 },
               },
@@ -756,7 +777,43 @@ describe("renderEngineBatch around posts", () => {
         },
       },
     );
-    expect(about.people).toEqual(["5", "6"]);
+    expect([about.key, about.people, about.sections]).toEqual([
+      "community:20",
+      ["5", "6", "3", "4"],
+      [
+        {
+          title: "Moderators",
+          userIds: ["5", "6"],
+          link: "https://x.com/i/communities/20/moderators",
+        },
+        {
+          title: "Members",
+          userIds: ["3", "5", "4"],
+          link: "https://x.com/i/communities/20/members",
+        },
+      ],
+    ]);
+  });
+
+  it("passes on the user's Communities when X lists none, and nothing when X answered without the list", () => {
+    const carousel = (slice: unknown) =>
+      renderEngineBatch(
+        "CarouselQuery",
+        {},
+        {
+          data: {
+            viewer_v2: { user_results: { result: { __typename: "User", ...(slice as object) } } },
+          },
+        },
+      );
+    const none = carousel({ community_memberships_slice: { items_results: [] } });
+    expect([none.key, none.communities, hasEngineContent(none)]).toEqual([
+      "communities:mine",
+      [],
+      true,
+    ]);
+    const unknown = carousel({});
+    expect([unknown.key, hasEngineContent(unknown)]).toEqual([null, false]);
   });
 });
 
