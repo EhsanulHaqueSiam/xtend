@@ -80,7 +80,7 @@ const placeholder = (seed: string, w = 400, h = 400) =>
 
 // Words a scrub keeps: X's own UI words and English glue. They name nobody.
 const KEEP = new Set(
-  "a an and are as at be but by for from has have he her his i in is it its me my no not of on or our she so that the their them they this to us was we were what when who will with you your pinned reposted liked replying followed post posts reply replies others more show translated original new".split(
+  "a an and are as at be but by for from has have he her his i in is it its me my no not of on or our she so that the their them they this to us was we were what when who will with you your pinned reposted liked replying followed post posts reply replies others more show follow translated original new".split(
     " ",
   ),
 );
@@ -344,6 +344,8 @@ export function scrub(batches: ReadonlyArray<EngineBatch>): ReadonlyArray<Engine
     return /^\d+$/.test(k) ? id(k) : str(k);
   };
 
+  // A Who to follow keeps X's entry prefix, which is how the capture knows one.
+  const moduleId = (real: string) => `who-to-follow-${id(real)}`;
   return batches.map((b) => ({
     op: b.op,
     key: key(b.op, b.key),
@@ -358,7 +360,12 @@ export function scrub(batches: ReadonlyArray<EngineBatch>): ReadonlyArray<Engine
       userIds: s.userIds.map(id),
       link: s.link?.replace(/\d{5,}/g, id) ?? null,
     })),
-    order: b.order.map(id),
+    order: b.order.map((x) => (b.modules.some((m) => m.id === x) ? moduleId(x) : id(x))),
+    modules: b.modules.map((m) => ({
+      id: moduleId(m.id),
+      title: text(m.title),
+      userIds: m.userIds.map(id),
+    })),
     trends: b.trends.map(trend),
     notifications: b.notifications.map(notification),
     lists: b.lists.map(list),
@@ -533,6 +540,7 @@ const batch = (
   people: [],
   sections: [],
   order: posts.map((p) => p.postId),
+  modules: [],
   trends: [],
   notifications: [],
   lists: [],
@@ -664,16 +672,29 @@ export function synth(): Readonly<Record<string, Fixture>> {
       translation: { text: "Test three things before launch.", entities: NO_ENTITIES, from: "bn" },
     }),
   ];
+  // People the account does not follow yet, apart from the authors.
+  const suggest = [8, 9, 10].map((n) => person(n, { youFollow: false, followsYou: false }));
+  const whoToFollow = {
+    id: "who-to-follow-700000000900",
+    title: "Who to follow",
+    userIds: suggest.map((u) => u.userId),
+  };
   const home: Fixture = {
     meta: meta(
       "home",
-      "Home: Following (text, photo, a thread, a poll, a link card, a quote, a repost, a note) and For you",
+      "Home: Following (text, photo, a thread, a poll, a link card, a quote, a repost, a note) and For you with Who to follow",
       ["/home?feed=following", "/home?feed=forYou"],
     ),
     batches: [
       batch("Viewer", null, [], { viewer: VIEWER }),
       batch("HomeLatestTimeline", null, following, { users: PEOPLE }),
-      batch("HomeTimeline", null, forYou, { users: PEOPLE }),
+      batch("HomeTimeline", null, forYou, {
+        users: [...PEOPLE, ...suggest],
+        people: suggest.map((u) => u.userId),
+        // X puts its Who to follow a few posts down For you.
+        order: forYou.map((p) => p.postId).toSpliced(2, 0, whoToFollow.id),
+        modules: [whoToFollow],
+      }),
     ],
   };
 

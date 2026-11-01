@@ -1,9 +1,11 @@
-import { useNavigate } from "@tanstack/react-router";
-import type { EngineUser } from "@xtend/contracts";
+import { useAtomValue } from "@effect/atom-react";
+import { Link, useNavigate } from "@tanstack/react-router";
+import type { EngineModule, EngineUser } from "@xtend/contracts";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Virtuoso } from "react-virtuoso";
 
 import { isElectron } from "../../env";
+import { engineAtom } from "../../state/engine";
 import { xScrollMore } from "../../state/x";
 import { Empty } from "../ui/layout";
 import { useXScrollParent } from "./XColumn";
@@ -180,5 +182,29 @@ export function UserRow({
         {user.bio === "" ? null : <span className="mt-1 line-clamp-2 block">{user.bio}</span>}
       </span>
     </div>
+  );
+}
+
+/**
+ * X's Who to follow among a timeline's posts: its header, the first three people X suggests with
+ * Follow, and Show more, which opens X's Follow page.
+ */
+export function WhoToFollow({ module }: { readonly module: EngineModule }) {
+  const users = useAtomValue(engineAtom).users;
+  return (
+    <section aria-label={module.title} data-x="module" className="border-b border-border">
+      <h2 className="px-4 pt-3 pb-1 text-[20px] leading-6 font-extrabold">{module.title}</h2>
+      {module.userIds.slice(0, 3).flatMap((id) => {
+        const user = users.get(id);
+        return user === undefined ? [] : [<UserRow key={id} user={user} />];
+      })}
+      <Link
+        to="/follow"
+        search={{ tab: "who" }}
+        className="block px-4 py-4 text-[15px] text-[#1d9bf0] transition-colors duration-150 hover:bg-white/[0.03]"
+      >
+        Show more
+      </Link>
+    </section>
   );
 }

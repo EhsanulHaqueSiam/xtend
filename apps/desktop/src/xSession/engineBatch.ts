@@ -9,6 +9,7 @@ import type {
   EngineLink,
   EngineList,
   EngineMedia,
+  EngineModule,
   EngineNotification,
   EnginePeopleSection,
   EnginePoll,
@@ -672,6 +673,7 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
   const people: Array<string> = [];
   const sections: Array<EnginePeopleSection> = [];
   const order: Array<string> = [];
+  const modules: Array<EngineModule> = [];
   const conversations = new Map<string, NonNullable<EnginePost["conversation"]>>();
   const trends: Array<EngineTrend> = [];
   const notifications: Array<EngineNotification> = [];
@@ -693,11 +695,34 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
       const id = listedId(node);
       if (id !== undefined && !order.includes(id)) order.push(id);
     }
-    const section = readSection(node);
+    const amongPosts =
+      typeof node.entryId === "string" &&
+      node.entryId.startsWith("who-to-follow") &&
+      Array.isArray(record(node.content).items) &&
+      asString(record(record(node.content).header).text) !== undefined;
+    // A Who to follow among the posts is a module, not one of a page's titled boxes of people.
+    const section = amongPosts ? undefined : readSection(node);
     if (section !== undefined) sections.push(section);
     if (type === "TimelineUser") {
       const user = readUser(record(node.user_results).result);
       if (user !== undefined && !people.includes(user.userId)) people.push(user.userId);
+    } else if (amongPosts && typeof node.entryId === "string") {
+      // X's Who to follow among the posts, under its header: listed where it sits, its people in
+      // X's order. A box with no header is a people page's own list.
+      const content = record(node.content);
+      const userIds = arr(content.items).flatMap(
+        (item) =>
+          readUser(result(record(record(record(item).item).itemContent).user_results))?.userId ??
+          [],
+      );
+      if (userIds.length > 0 && !order.includes(node.entryId)) {
+        order.push(node.entryId);
+        modules.push({
+          id: node.entryId,
+          title: asString(record(content.header).text)!,
+          userIds,
+        });
+      }
     } else if (
       typeof node.entryId === "string" &&
       record(node.content).displayType === "VerticalConversation"
@@ -779,6 +804,7 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     people,
     sections,
     order,
+    modules,
     trends,
     notifications,
     lists,
@@ -833,6 +859,7 @@ export const viewerBatch = (viewer: EngineViewer): EngineBatch => ({
   people: [],
   sections: [],
   order: [],
+  modules: [],
   trends: [],
   notifications: [],
   lists: [],

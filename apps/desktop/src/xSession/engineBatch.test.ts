@@ -999,6 +999,57 @@ describe("renderEngineBatch entry order, badges and labels", () => {
     expect(batch.order).toEqual(["1", "2", "3"]);
   });
 
+  it("lists X's Who to follow where it sits among the posts, its people in X's order", () => {
+    // X's module entry as HomeTimeline sends it (synthetic: no recording holds one yet).
+    const suggested = (id: string, handle: string) => ({
+      entryId: `who-to-follow-1849-user-${id}`,
+      item: {
+        itemContent: {
+          itemType: "TimelineUser",
+          userDisplayType: "User",
+          user_results: { result: user(id, handle) },
+        },
+      },
+    });
+    const batch = renderEngineBatch(
+      "HomeTimeline",
+      {},
+      {
+        data: {
+          home: {
+            home_timeline_urt: {
+              instructions: [
+                {
+                  type: "TimelineAddEntries",
+                  entries: [
+                    { entryId: "tweet-1", ...item(tweet("1")) },
+                    {
+                      entryId: "who-to-follow-1849",
+                      content: {
+                        entryType: "TimelineTimelineModule",
+                        displayType: "Vertical",
+                        header: { displayType: "Classic", text: "Who to follow" },
+                        footer: { displayType: "Classic", text: "Show more" },
+                        items: [suggested("12", "zed"), suggested("11", "amy")],
+                      },
+                    },
+                    { entryId: "tweet-2", ...item(tweet("2")) },
+                  ],
+                },
+              ],
+            },
+          },
+        },
+      },
+    );
+    expect(batch.order).toEqual(["1", "who-to-follow-1849", "2"]);
+    expect(batch.modules).toEqual([
+      { id: "who-to-follow-1849", title: "Who to follow", userIds: ["12", "11"] },
+    ]);
+    // Drawn once, as the module: not also as a page's titled box of people.
+    expect(batch.sections).toEqual([]);
+  });
+
   it("reads the badge kind, avatar shape, organisation badge and the Made with AI label", () => {
     const org = user("8", "heyglif", {
       verification: { verified_type: "Business" },

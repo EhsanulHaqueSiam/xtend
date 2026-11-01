@@ -341,6 +341,15 @@ export interface EngineViewer {
   readonly avatarUrl: string | null;
 }
 
+/** A people module X lists among a timeline's posts (Who to follow): its header and people. */
+export interface EngineModule {
+  /** X's entry id for the module (`who-to-follow-…`), which `order` names where X put it. */
+  readonly id: string;
+  readonly title: string;
+  /** The people X suggests, in X's order. */
+  readonly userIds: ReadonlyArray<string>;
+}
+
 /**
  * One GraphQL response the engine received, by operation (HomeTimeline, TweetDetail, ...). `key`
  * names what the request asked for when one operation serves many pages (a Home tab's tag, a
@@ -361,10 +370,12 @@ export interface EngineBatch {
   /** X's titled boxes of people on this page, in order; `people` lists them too. */
   readonly sections: ReadonlyArray<EnginePeopleSection>;
   /**
-   * The posts X listed as entries, in order (a pinned post first, a repost as its original): a
-   * post that only appears quoted inside another is not one, but the same post listed on its own is.
+   * The entries X listed, in order: posts by id (a pinned post first, a repost as its original)
+   * and `modules` by theirs. A post that only appears quoted inside another is not one, but the
+   * same post listed on its own is.
    */
   readonly order: ReadonlyArray<string>;
+  readonly modules: ReadonlyArray<EngineModule>;
   readonly trends: ReadonlyArray<EngineTrend>;
   readonly notifications: ReadonlyArray<EngineNotification>;
   readonly lists: ReadonlyArray<EngineList>;

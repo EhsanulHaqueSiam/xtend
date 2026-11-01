@@ -71,6 +71,7 @@ const batch = (
   people: [],
   sections: [],
   order: [],
+  modules: [],
   trends: [],
   notifications: [],
   lists: [],
@@ -146,6 +147,54 @@ it("tells For you's ranked pages apart by cursor, not by date", () => {
   );
   expect([state.lists.forYou, state.waiting.forYou]).toEqual([["1", "2"], ["3"]]);
   expect(showWaiting(state, "forYou").lists.forYou).toEqual(["2", "3", "1"]);
+});
+
+it("keeps X's Who to follow among the posts across pages and the pill", () => {
+  const wtf = (id: string) => ({ id, title: "Who to follow", userIds: ["5"] });
+  const hour = (h: number) => `2026-10-01T0${h}:00:00Z`;
+  let state = mergeBatch(
+    emptyEngine,
+    batch("HomeTimeline", [post("1", hour(3)), post("2", hour(2))], {
+      order: ["1", "wtf-a", "2"],
+      modules: [wtf("wtf-a")],
+      top: "t",
+      bottom: "b",
+    }),
+  );
+  state = mergeBatch(
+    state,
+    batch("HomeTimeline", [post("3", hour(1))], {
+      cursor: "b",
+      bottom: "b2",
+      order: ["wtf-b", "3"],
+      modules: [wtf("wtf-b")],
+    }),
+  );
+  expect(state.lists.forYou).toEqual(["1", "wtf-a", "2", "wtf-b", "3"]);
+  expect(state.modules.get("wtf-b")?.userIds).toEqual(["5"]);
+  // X's first page again: a new post and its module wait behind the pill, and show in X's order.
+  state = mergeBatch(
+    state,
+    batch("HomeTimeline", [post("4", hour(4)), post("1", hour(3))], {
+      order: ["4", "wtf-c", "1"],
+      modules: [wtf("wtf-c")],
+    }),
+  );
+  expect([state.lists.forYou, state.waiting.forYou]).toEqual([
+    ["1", "wtf-a", "2", "wtf-b", "3"],
+    ["4", "wtf-c"],
+  ]);
+  state = showWaiting(state, "forYou");
+  expect(state.lists.forYou).toEqual(["4", "wtf-c", "1", "wtf-a", "2", "wtf-b", "3"]);
+  // Again with no new post: its module belongs at X's top, so it does not land at the end.
+  state = mergeBatch(
+    state,
+    batch("HomeTimeline", [post("4", hour(4))], { order: ["wtf-d", "4"], modules: [wtf("wtf-d")] }),
+  );
+  expect([state.lists.forYou, state.waiting.forYou]).toEqual([
+    ["4", "wtf-c", "1", "wtf-a", "2", "wtf-b", "3"],
+    [],
+  ]);
 });
 
 it("files pinned Home tabs, Lists, Communities and Explore tabs under their own surface", () => {

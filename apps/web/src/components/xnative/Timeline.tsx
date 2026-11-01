@@ -1,6 +1,6 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
-import type { EnginePost } from "@xtend/contracts";
+import type { EngineModule, EnginePost } from "@xtend/contracts";
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { type StateSnapshot, Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 
@@ -15,7 +15,10 @@ import {
 import { PostRail } from "./PostRail";
 import { useXScrollParent, XColumn } from "./XColumn";
 import { Avatar, postUrl, XPostView } from "./XPostView";
-import { useMore, XEmpty } from "./XRows";
+import { useMore, WhoToFollow, XEmpty } from "./XRows";
+
+const isPost = (item: EnginePost | EngineModule | undefined): item is EnginePost =>
+  item !== undefined && "postId" in item;
 
 /** Where each list was left (scroll and measured heights), so Back lands on the same post. */
 const places = new Map<AnySurface, StateSnapshot>();
@@ -72,7 +75,7 @@ function NewPostsPill({
 function PostList({
   surface,
   keepPlace,
-  posts,
+  items,
   quoted,
   selected,
   setSelected,
@@ -81,7 +84,7 @@ function PostList({
 }: {
   readonly surface: AnySurface;
   readonly keepPlace: boolean;
-  readonly posts: ReadonlyArray<EnginePost>;
+  readonly items: ReadonlyArray<EnginePost | EngineModule>;
   readonly quoted: (id: string | null) => EnginePost | undefined;
   readonly selected: number;
   readonly setSelected: (i: number) => void;
@@ -95,28 +98,34 @@ function PostList({
     <Virtuoso
       ref={list}
       customScrollParent={scroller}
-      data={posts}
+      data={items}
       {...(keepPlace && places.has(surface) ? { restoreStateFrom: places.get(surface)! } : {})}
       isScrolling={(moving) => {
         if (!moving && keepPlace) list.current?.getState((state) => places.set(surface, state));
       }}
-      computeItemKey={(_, p) => p.postId}
+      computeItemKey={(_, item) => (isPost(item) ? item.postId : item.id)}
       increaseViewportBy={800}
       endReached={more}
-      itemContent={(index, p) => (
-        <XPostView
-          post={p}
-          // X joins a conversation it groups on a timeline (a self-thread, a reply under its
-          // post) with a line from each avatar down to the next.
-          threaded={
-            p.conversation !== null && posts[index + 1]?.conversation?.id === p.conversation.id
-          }
-          quoted={quoted(p.quotedId)}
-          selected={index === selected}
-          onOpen={onOpen}
-          onHover={() => setSelected(index)}
-        />
-      )}
+      itemContent={(index, item) => {
+        if (!isPost(item)) return <WhoToFollow module={item} />;
+        const below = items[index + 1];
+        return (
+          <XPostView
+            post={item}
+            // X joins a conversation it groups on a timeline (a self-thread, a reply under its
+            // post) with a line from each avatar down to the next.
+            threaded={
+              item.conversation !== null &&
+              isPost(below) &&
+              below.conversation?.id === item.conversation.id
+            }
+            quoted={quoted(item.quotedId)}
+            selected={index === selected}
+            onOpen={onOpen}
+            onHover={() => setSelected(index)}
+          />
+        );
+      }}
     />
   );
 }
@@ -152,10 +161,13 @@ export function Timeline({
   const open = useOpenPost();
   const list = useRef<VirtuosoHandle>(null);
   const [selected, setSelected] = useState(0);
-  // Each post as this list shows it: its own "reposted" line and thread place.
-  const posts = at(engine.lists, surface).flatMap((id) => postOn(engine, surface, id) ?? []);
+  // Each post as this list shows it (its own "reposted" line and thread place), and X's modules.
+  const items = at(engine.lists, surface).flatMap(
+    (id) => postOn(engine, surface, id) ?? engine.modules.get(id) ?? [],
+  );
   const waiting = at(engine.waiting, surface).flatMap((id) => postOn(engine, surface, id) ?? []);
-  const current = posts[Math.min(selected, posts.length - 1)];
+  const shown = items[Math.min(selected, items.length - 1)];
+  const current = isPost(shown) ? shown : undefined;
   const quoted = (id: string | null) => (id === null ? undefined : engine.posts.get(id));
   const [, setMinute] = useState(0);
   // Ages ("4m") move on while the list sits open; one re-render a minute is enough.
@@ -180,7 +192,12 @@ export function Timeline({
       const step = event.key === "j" ? 1 : event.key === "k" ? -1 : 0;
       const label = KEY_BUTTONS[event.key];
       if (step !== 0) {
-        const next = Math.max(0, Math.min(posts.length - 1, selected + step));
+        // J and K go post to post, past X's modules.
+        const next =
+          step > 0
+            ? items.findIndex((item, i) => i > selected && isPost(item))
+            : items.findLastIndex((item, i) => i < selected && isPost(item));
+        if (next === -1) return event.preventDefault();
         setSelected(next);
         list.current?.scrollIntoView({ index: next, behavior: "auto" });
       } else if (current === undefined) return;
@@ -197,7 +214,7 @@ export function Timeline({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [current, open, posts.length, selected]);
+  }, [current, open, items, selected]);
 
   return (
     <XColumn
@@ -224,13 +241,13 @@ export function Timeline({
       rail={<PostRail post={current} seen={engine.posts.values()} onReply={open} />}
     >
       {top}
-      {posts.length === 0 ? (
+      {items.length === 0 ? (
         <XEmpty key={surface} empty={empty} onReopen={onReopen} />
       ) : (
         <PostList
           surface={surface}
           keepPlace={keepPlace}
-          posts={posts}
+          items={items}
           quoted={quoted}
           selected={selected}
           setSelected={setSelected}

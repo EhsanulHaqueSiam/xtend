@@ -4,6 +4,7 @@ import type {
   EngineExploreTab,
   EngineHomeTab,
   EngineList,
+  EngineModule,
   EngineNotification,
   EnginePeopleSection,
   EnginePost,
@@ -267,7 +268,9 @@ export interface EngineState {
    * X's page shows its own state from its cache and fetches nothing to say so.
    */
   readonly membership: ReadonlyMap<string, CommunityRole>;
-  /** Post ids per surface. */
+  /** X's people modules (Who to follow) by id; a list names one where X put it among the posts. */
+  readonly modules: ReadonlyMap<string, EngineModule>;
+  /** Post and module ids per surface, in X's order. */
   readonly lists: PerSurface<string>;
   /** Newer posts X fetched for a list's top; they wait behind a pill instead of shifting the list. */
   readonly waiting: PerSurface<string>;
@@ -307,6 +310,7 @@ export const emptyEngine: EngineState = {
   users: new Map(),
   asked: new Map(),
   membership: new Map(),
+  modules: new Map(),
   lists: NONE,
   waiting: NONE,
   nextTop: NONE,
@@ -416,6 +420,10 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
   const merged: EngineState = {
     ...state,
     posts,
+    modules:
+      batch.modules.length === 0
+        ? state.modules
+        : new Map([...state.modules, ...batch.modules.map((m) => [m.id, m] as const)]),
     users,
     asked,
     membership,
@@ -513,23 +521,24 @@ function mergeInto(state: EngineState, batch: EngineBatch, surface: AnySurface):
   const list = at(state.lists, surface);
   // X's own entry order; failing that, every post but the ones only quoted inside another.
   const quoted = new Set(batch.posts.flatMap((p) => (p.quotedId === null ? [] : [p.quotedId])));
-  const sent = new Set(batch.posts.map((p) => p.postId));
+  const sent = new Set([...batch.posts.map((p) => p.postId), ...batch.modules.map((m) => m.id)]);
   const known = new Set([...list, ...at(state.waiting, surface)]);
   const order =
     batch.order.length > 0
       ? batch.order.filter((id) => sent.has(id))
       : batch.posts.map((p) => p.postId).filter((id) => !quoted.has(id));
   const fresh = order.filter((id) => !known.has(id));
-  const top = list[0] === undefined ? undefined : posts.get(list[0]);
+  const freshPosts = fresh.filter((id) => posts.has(id));
+  const top = list.map((id) => posts.get(id)).find((p) => p !== undefined);
+  const again = top !== undefined && (page === "top" || page === "first");
   const newer =
     // A thread's newer replies join it at once, as X shows them.
     surface !== "post" &&
     !surface.startsWith("post:") &&
     top !== undefined &&
-    fresh.length > 0 &&
-    (page === "top" ||
-      page === "first" ||
-      (page === "unknown" && fresh.every((id) => posts.get(id)!.createdAt > top.createdAt)));
+    freshPosts.length > 0 &&
+    (again ||
+      (page === "unknown" && freshPosts.every((id) => posts.get(id)!.createdAt > top.createdAt)));
 
   // People, trends and notifications: a first page replaces, a newer page goes on top.
   const userIds = batch.people;
@@ -597,8 +606,8 @@ function mergeInto(state: EngineState, batch: EngineBatch, surface: AnySurface):
   const entries = new Map(state.entries[surface] ?? []);
   const byId = new Map(batch.posts.map((p) => [p.postId, p]));
   for (const id of order) {
-    const p = byId.get(id)!;
-    entries.set(id, { context: p.context, conversation: p.conversation });
+    const p = byId.get(id);
+    if (p !== undefined) entries.set(id, { context: p.context, conversation: p.conversation });
   }
 
   return {
@@ -611,7 +620,10 @@ function mergeInto(state: EngineState, batch: EngineBatch, surface: AnySurface):
     communityIds,
     trends,
     notifications,
-    lists: newer ? state.lists : set(state.lists, surface, [...list, ...fresh]),
+    // X's top again with no new posts: a module it sent with them belongs up there, not at the end.
+    lists: newer
+      ? state.lists
+      : set(state.lists, surface, [...list, ...(again ? freshPosts : fresh)]),
     waiting: newer
       ? set(state.waiting, surface, [...fresh, ...at(state.waiting, surface)])
       : state.waiting,

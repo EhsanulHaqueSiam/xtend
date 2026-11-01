@@ -53,8 +53,8 @@ test("Home renders mock X's Following and For you in X's order, with the engine 
 
   await go("/home?feed=forYou");
   await expect
-    .poll(async () => (await nativeIds()).slice(0, 5))
-    .toEqual(e.mock.state.feed("forYou"));
+    .poll(async () => (await nativeIds()).slice(0, 3))
+    .toEqual(e.mock.state.feed("forYou").slice(0, 3));
   await expect
     .poll(() =>
       e.engine(`document.querySelector('[role="tab"][aria-selected="true"]').textContent.trim()`),
@@ -72,6 +72,51 @@ test("Home renders mock X's Following and For you in X's order, with the engine 
       ),
     ),
   ).toBe("refused");
+});
+
+test("For you draws X's Who to follow under the post X put it after, and its Follow presses X's own button", async () => {
+  const { module, after } = e.mock.state.whoToFollow("forYou")!;
+  const people = e.mock.state
+    .fixtures()
+    .home!.batches.flatMap((b) => b.users)
+    .filter((u) => module.userIds.includes(u.userId));
+  await go("/home?feed=forYou");
+  const box = e.app.locator('main [data-x="module"]');
+  await box.waitFor();
+  expect(
+    await box.evaluate(
+      (m) =>
+        m
+          .closest("[data-index]")
+          ?.previousElementSibling?.querySelector<HTMLElement>("article[data-post]")?.dataset.post,
+    ),
+  ).toBe(after);
+  expect(
+    await box
+      .locator('[data-x="user"] button[aria-label^="@"]')
+      .evaluateAll((bs) => bs.map((b) => b.getAttribute("aria-label")!.slice(1))),
+  ).toEqual(module.userIds.slice(0, 3).map((id) => people.find((u) => u.userId === id)!.handle));
+
+  const [target] = module.userIds;
+  await box
+    .locator('[data-x="user"]')
+    .first()
+    .getByRole("button", { name: "Follow", exact: true })
+    .click();
+  await expect
+    .poll(presses)
+    .toEqual(
+      expect.arrayContaining([
+        `press ${target}-follow ${target}`,
+        `write friendships/create ${target}`,
+      ]),
+    );
+  await expect
+    .poll(() =>
+      box.locator('[data-x="user"]').first().getByRole("button", { pressed: true }).count(),
+    )
+    .toBe(1);
+  await expect.poll(enginePath).toBe("/home");
 });
 
 test("Home's pinned tabs are read from X and switch through the engine", async () => {

@@ -394,6 +394,13 @@ const moduleEntry = (
   },
 });
 
+const userItem = (u: EngineUser): Json => ({
+  itemType: "TimelineUser",
+  __typename: "TimelineUser",
+  userDisplayType: "User",
+  user_results: { result: encodeUser(u) },
+});
+
 const cursorEntry = (cursorType: "Top" | "Bottom", value: string) => ({
   entryId: `cursor-${cursorType.toLowerCase()}-${value}`,
   sortIndex: value,
@@ -509,15 +516,39 @@ function timelineEntries(batch: EngineBatch, users: ReadonlyMap<string, EngineUs
   const entries: Array<Json> = [];
   if (batch.top !== null) entries.push(cursorEntry("Top", batch.top));
 
-  const listed = batch.order.flatMap((id) => posts.get(id) ?? []);
-  for (const run of runs(listed, (p) => p.conversation?.id ?? null)) {
-    const [first] = run.items;
-    if (run.key === null) entries.push(item(`tweet-${first!.postId}`, tweetItem(first!, x)));
+  const modules = new Map(batch.modules.map((m) => [m.id, m]));
+  const listed = batch.order.flatMap((id) => posts.get(id) ?? modules.get(id) ?? []);
+  for (const run of runs(listed, (e) => ("postId" in e ? (e.conversation?.id ?? null) : null))) {
+    const first = run.items[0]!;
+    if (!("postId" in first))
+      // X's Who to follow among the posts: its header, its people, Show more to the Follow page.
+      entries.push(
+        moduleEntry(
+          first.id,
+          first.userIds.flatMap((id) => {
+            const u = users.get(id);
+            return u === undefined ? [] : [{ id: `user-${id}`, content: userItem(u) }];
+          }),
+          {
+            displayType: "Vertical",
+            header: { displayType: "Classic", text: first.title, sticky: false },
+            footer: {
+              displayType: "Classic",
+              text: "Show more",
+              landingUrl: { url: "twitter://connect_people", urlType: "DeepLink" },
+            },
+            clientEventInfo: { component: "suggest_who_to_follow", element: "module" },
+          },
+        ),
+      );
+    else if (run.key === null) entries.push(item(`tweet-${first.postId}`, tweetItem(first, x)));
     else
       entries.push(
         moduleEntry(
           run.key,
-          run.items.map((p) => ({ id: `tweet-${p.postId}`, content: tweetItem(p, x) })),
+          run.items.flatMap((p) =>
+            "postId" in p ? [{ id: `tweet-${p.postId}`, content: tweetItem(p, x) }] : [],
+          ),
           { displayType: "VerticalConversation" },
         ),
       );
@@ -583,20 +614,14 @@ function timelineEntries(batch: EngineBatch, users: ReadonlyMap<string, EngineUs
         })),
       }),
     );
-  const people = batch.people.flatMap((id) => users.get(id) ?? []);
+  // A people page's own list; the people of a Who to follow among the posts are listed there.
+  const inModules = new Set(batch.modules.flatMap((m) => m.userIds));
+  const people = batch.people.flatMap((id) => (inModules.has(id) ? [] : (users.get(id) ?? [])));
   if (people.length > 0 && batch.sections.length === 0)
     entries.push(
       moduleEntry(
         "who-to-follow",
-        people.map((u) => ({
-          id: `user-${u.userId}`,
-          content: {
-            itemType: "TimelineUser",
-            __typename: "TimelineUser",
-            userDisplayType: "User",
-            user_results: { result: encodeUser(u) },
-          },
-        })),
+        people.map((u) => ({ id: `user-${u.userId}`, content: userItem(u) })),
         { displayType: "Vertical" },
       ),
     );

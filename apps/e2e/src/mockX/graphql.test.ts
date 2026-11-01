@@ -61,4 +61,9 @@ it("answers every request X's pages make with the batch the made-up fixtures hol
     for (const u of got!.users) expect(u).toEqual(users.get(u.userId));
     expect({ ...got!, users: [] }).toEqual({ ...want, users: [] });
   }
+  // For you's Who to follow, in X's module shape, reads back where the fixture puts it.
+  const forYou = read.find((b) => b.op === "HomeTimeline" && b.key === null)!;
+  expect(forYou.modules.map((m) => [m.title, forYou.order.indexOf(m.id)])).toEqual([
+    ["Who to follow", 2],
+  ]);
 });
