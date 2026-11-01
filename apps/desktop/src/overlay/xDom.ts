@@ -88,3 +88,33 @@ export function viewerFromNav(
 
 /** Direct messages never get a strip: the classic inbox and X's Chat, which replaced it in 2025. */
 export const isDmPath = (pathname: string): boolean => /^\/(messages|i\/chat)(\/|$)/.test(pathname);
+
+/**
+ * X's composer controls the desktop presses for a post the user clicked (DesktopCommands). Read
+ * live from x.com/compose/post on 2026-11-02: the reply button's "Everyone can reply" and
+ * `createPollButton`. The rest is unconfirmed until checked live: the reply menu's rows, the
+ * reply button's label after a pick, the poll's choice inputs, its add button and its selects.
+ */
+export const X_COMPOSER = {
+  replyButton: '[aria-label="Everyone can reply"]',
+  /** Unconfirmed: the button X shows once the row took. */
+  replyButtonFor: (row: string) => `[aria-label="${row} can reply"]`,
+  /** Unconfirmed: X's dropdown rows carry no test id, so the driver matches their text. */
+  menuRow: '[role="menuitem"]',
+  addPoll: '[data-testid="createPollButton"]',
+  /** Unconfirmed: X names the inputs behind its "Choice 1", "Choice 2" labels. */
+  choice: (n: number) => `input[name="Choice${n}"]`,
+  /** Unconfirmed: the + beside the last choice. */
+  addChoice: '[aria-label="Add a choice"]',
+  /** Unconfirmed: "Poll length" as Days, Hours and Minutes selects. */
+  pollDays: 'select[data-testid="selectPollDays"]',
+  pollHours: 'select[data-testid="selectPollHours"]',
+  pollMinutes: 'select[data-testid="selectPollMinutes"]',
+} as const;
+
+/** X's reply menu rows, by the setting each one picks; "Everyone" is X's default and never pressed. */
+export const X_REPLY_ROWS = {
+  following: "Accounts you follow",
+  verified: "Verified accounts",
+  mentionedUsers: "Only accounts you mention",
+} as const;

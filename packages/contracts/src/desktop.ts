@@ -3,6 +3,7 @@ import * as Rpc from "effect/rpc/Rpc";
 import * as RpcGroup from "effect/rpc/RpcGroup";
 
 import { XId } from "./baseSchemas.ts";
+import { DraftPoll, ReplySettings } from "./compose.ts";
 import type { ObservedPost } from "./observation.ts";
 
 /**
@@ -19,6 +20,9 @@ export const DesktopCommand = Schema.Union([
     text: Schema.String,
     mediaPaths: Schema.Array(Schema.String),
     replyToPostId: Schema.optional(XId),
+    /** Set in X's own composer before Post; absent means X's default, everyone. */
+    replySettings: Schema.optional(ReplySettings),
+    poll: Schema.optional(DraftPoll),
   }),
   Schema.Struct({ type: Schema.Literal("sessionNavigate"), url: Schema.String }),
   /** Clicks X's own like on the post's page in the session view; same setting as sessionPost. */

@@ -30,11 +30,14 @@ import {
   type OverlaySave,
   type OverlayReply,
 } from "../ipc/channels.ts";
+import { X_COMPOSER, X_REPLY_ROWS } from "../overlay/xDom.ts";
 
 const RECONNECT_MS = 2_000;
 const POLL_MS = 250;
 const COMPOSER_TIMEOUT_MS = 15_000;
 const CREATED_TIMEOUT_MS = 15_000;
+// X draws the composer's controls with its text box; one still missing by then is not coming.
+const CONTROL_TIMEOUT_MS = 5_000;
 
 type Cdp = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 
@@ -332,11 +335,98 @@ async function click(cdp: Cdp, nodeId: number): Promise<void> {
 const enabled = (attrs: Record<string, string>) =>
   attrs["aria-disabled"] !== "true" && !("disabled" in attrs);
 
+/** Like `waitForNode`, for X's menu rows, which carry no test id: the last match whose text has `text`. */
+async function waitForText(
+  cdp: Cdp,
+  selector: string,
+  text: string,
+  deadline: number,
+): Promise<number> {
+  if (Date.now() >= deadline) throw new Error(`composer element not ready: ${selector} ${text}`);
+  const { root } = (await cdp("DOM.getDocument", { depth: 0 })) as { root: { nodeId: number } };
+  const { nodeIds } = (await cdp("DOM.querySelectorAll", { nodeId: root.nodeId, selector })) as {
+    nodeIds: Array<number>;
+  };
+  for (const nodeId of nodeIds.toReversed()) {
+    const { outerHTML } = (await cdp("DOM.getOuterHTML", { nodeId })) as { outerHTML: string };
+    if (outerHTML.replace(/<[^>]*>/g, "").includes(text)) return nodeId;
+  }
+  await sleep(POLL_MS);
+  return waitForText(cdp, selector, text, deadline);
+}
+
+// React keeps a select's value itself: the native setter plus a change event is what a pick does.
+const PICK = `function (value) {
+  Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set.call(this, value);
+  this.dispatchEvent(new Event("change", { bubbles: true }));
+  return this.value === value;
+}`;
+
+/** Picks `value` in a select; false when it has no such option. */
+async function pick(cdp: Cdp, nodeId: number, value: string): Promise<boolean> {
+  const { object } = (await cdp("DOM.resolveNode", { nodeId })) as {
+    object: { objectId: string };
+  };
+  const { result } = (await cdp("Runtime.callFunctionOn", {
+    objectId: object.objectId,
+    functionDeclaration: PICK,
+    arguments: [{ value }],
+    returnByValue: true,
+  })) as { result: { value: unknown } };
+  return result.value === true;
+}
+
 /**
- * Types into x.com's own composer exactly as a user would: focus, insert text,
- * pick files through the hidden input, press Post. The id comes from the
- * CreateTweet response the capture sees, not from any guess. Every step ends
- * by `deadline`; the upload alone may take whatever is left of it.
+ * Sets the poll and who can reply in X's own composer, before any text goes in, so a control X
+ * no longer draws refuses the post untouched instead of posting it without the user's choice.
+ */
+async function setComposerOptions(
+  cdp: Cdp,
+  command: Extract<DesktopCommand, { type: "sessionPost" }>,
+  deadline: number,
+): Promise<void> {
+  const missing = (what: string) =>
+    new NotAttempted(`x.com's composer has no ${what}; nothing was posted`);
+  const step = () => Math.min(Date.now() + CONTROL_TIMEOUT_MS, deadline);
+  const control = (selector: string, what: string) =>
+    waitForNode(cdp, selector, step()).catch(() => {
+      throw missing(what);
+    });
+  const { poll, replySettings } = command;
+  if (poll !== undefined) {
+    await click(cdp, await control(X_COMPOSER.addPoll, "Add poll"));
+    for (const [i, option] of poll.options.entries()) {
+      if (i >= 2) await click(cdp, await control(X_COMPOSER.addChoice, "Add a choice"));
+      await click(cdp, await control(X_COMPOSER.choice(i + 1), `poll choice ${i + 1}`));
+      await cdp("Input.insertText", { text: option });
+    }
+    const m = poll.durationMinutes;
+    const length = [
+      [X_COMPOSER.pollDays, Math.floor(m / 1440), "days"],
+      [X_COMPOSER.pollHours, Math.floor((m % 1440) / 60), "hours"],
+      [X_COMPOSER.pollMinutes, m % 60, "minutes"],
+    ] as const;
+    for (const [selector, value, unit] of length)
+      if (!(await pick(cdp, await control(selector, `poll ${unit}`), String(value))))
+        throw missing(`${value} poll ${unit}`);
+  }
+  if (replySettings !== undefined && replySettings !== "everyone") {
+    const row = X_REPLY_ROWS[replySettings];
+    await click(cdp, await control(X_COMPOSER.replyButton, "Everyone can reply"));
+    const rowNode = await waitForText(cdp, X_COMPOSER.menuRow, row, step()).catch(() => {
+      throw missing(`"${row}" row`);
+    });
+    await click(cdp, rowNode);
+    // X's button names the setting once it took; without that the post would go out to everyone.
+    await control(X_COMPOSER.replyButtonFor(row), `"${row} can reply"`);
+  }
+}
+
+/**
+ * Types into x.com's own composer exactly as a user would: set the poll and who can reply,
+ * focus, insert text, pick files through the hidden input, press Post. The id comes from the
+ * CreateTweet response the capture sees, not from any guess. Every step ends by `deadline`;
+ * the upload alone may take whatever is left of it.
  */
 export async function postThroughComposer(
   contents: Pick<Electron.WebContents, "loadURL">,
@@ -347,7 +437,8 @@ export async function postThroughComposer(
 ): Promise<string> {
   const step = (ms: number) => Math.min(Date.now() + ms, deadline);
   // Until the first keystroke a failure leaves nothing that could become a post.
-  const textarea = await until(
+  const textbox = 'div[data-testid="tweetTextarea_0"]';
+  await until(
     contents.loadURL(
       command.replyToPostId === undefined
         ? "https://x.com/compose/post"
@@ -356,11 +447,13 @@ export async function postThroughComposer(
     deadline,
     "x.com's composer did not load",
   )
-    .then(() => waitForNode(cdp, 'div[data-testid="tweetTextarea_0"]', step(COMPOSER_TIMEOUT_MS)))
+    .then(() => waitForNode(cdp, textbox, step(COMPOSER_TIMEOUT_MS)))
     .catch((error: unknown) => {
       throw untouched(error);
     });
-  await click(cdp, textarea);
+  await setComposerOptions(cdp, command, deadline);
+  // Found again: adding a poll redraws the composer around its text box.
+  await click(cdp, await waitForNode(cdp, textbox, step(COMPOSER_TIMEOUT_MS)));
   await cdp("Input.insertText", { text: command.text });
   if (command.mediaPaths.length > 0) {
     const input = await waitForNode(
