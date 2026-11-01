@@ -1,6 +1,7 @@
 import * as NodeHttpClient from "@effect/platform-node/NodeHttpClient";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Logger from "effect/Logger";
 import * as Tracer from "effect/Tracer";
 import { HttpMiddleware, UrlParams } from "effect/http";
 import * as OtlpExporter from "effect/observability/OtlpExporter";
@@ -19,6 +20,17 @@ const layerRedactedParams = Layer.succeed(UrlParams.CurrentRedactedNames)([
   ...UrlParams.CurrentRedactedNames.defaultValue(),
   "token",
 ]);
+
+// Same loggers, with Effect's tracer logger swapped for one that sanitises log arguments.
+const layerLoggers = Layer.unwrap(
+  Effect.map(Effect.service(Logger.CurrentLoggers), (current) =>
+    Layer.succeed(Logger.CurrentLoggers)(
+      new Set([...current].filter((logger) => logger !== Logger.tracerLogger)).add(
+        LocalTrace.tracerLogger,
+      ),
+    ),
+  ),
+);
 
 // Ids in a path (`/api/webhooks/12`) would give every rule its own span name.
 const layerHttpSpanNames = Layer.succeed(HttpMiddleware.SpanNameGenerator)((request) => {
@@ -76,6 +88,7 @@ export const layer = Layer.unwrap(
           layerMetrics,
           layerRedactedParams,
           layerHttpSpanNames,
+          layerLoggers,
           DefectReporter.layer,
         ),
       ),

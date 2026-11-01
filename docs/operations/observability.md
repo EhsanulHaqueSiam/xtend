@@ -51,12 +51,17 @@ Neither the trace file nor an OTLP backend may receive the treg token, the servi
 (`auth_token`, `ct0`, `twid`, `kdt`), assist keys or webhook secrets. The service's tracer scrubs
 every span before anything sees it, with the trace file on or off:
 
-- attributes and event attributes, nested values included, whose key names a credential become
-  `<redacted>`; every string is scrubbed for JWT-shaped values (treg tokens), `trg_` tokens, 64-hex
-  service tokens, `Bearer` values, `name=value` cookie and token pairs, and `"key": "value"` pairs
-  under a credential name (how a structured log argument is written into an event's name);
-- a failed span's exit is rebuilt from scrubbed messages and stacks, so an error quoting a token
-  never reaches OTLP's exception events.
+- a key names a credential by its last word or two (`tregToken`, `auth_token`, `webhookSecret`,
+  `apiKey`, `ct0`; not `tokenCount` or `token_budget`), and its value, whatever its type except a
+  boolean, becomes `<redacted>`, in attributes, event attributes and nested values alike;
+- log arguments are sanitised the same way before Effect formats them into the event's name;
+- every string is cut to 2,000 characters, then scrubbed in one linear pass for JWT-shaped values
+  (treg tokens), `trg_` tokens, 64-hex service tokens, `Bearer` values and credential-named
+  `key=value` / `"key": "value"` pairs;
+- a failed span's exit is rebuilt from scrubbed names, messages and stacks, so an error quoting a
+  token never reaches OTLP's exception events.
+
+Stdout keeps the raw log line, as before; the trace file and OTLP never do.
 
 The trace file is made `0600` before each append, including one that already existed; if that
 fails, nothing is written. A new credential name or shape goes in `LocalTrace.ts` with a case in

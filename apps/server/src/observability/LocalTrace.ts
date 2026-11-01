@@ -2,10 +2,13 @@ import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as Inspectable from "effect/Inspectable";
 import * as FileSystem from "effect/FileSystem";
+import * as Logger from "effect/Logger";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
+import * as References from "effect/References";
 import * as Semaphore from "effect/Semaphore";
 import * as Tracer from "effect/Tracer";
 
@@ -36,40 +39,110 @@ export interface TraceRecord {
 }
 
 const REDACTED = "<redacted>";
-// Credential names: X's session cookies, the treg and service tokens, assist keys, webhook secrets.
-const SECRET_NAMES =
-  "token|secret|password|passwd|cookie|authorization|bearer|api[-_]?key|assist[-_.]?key|private[-_]?key|ct0|twid|kdt|credential";
-const SECRET_KEY = new RegExp(SECRET_NAMES, "i");
-// The treg token is JWT-shaped, the service token 64 hex chars; X's session cookies ride as name=value.
-const SECRET_TEXT: ReadonlyArray<readonly [RegExp, string]> = [
-  // A quoted key naming a credential, as JSON or inspect writes a structured log argument.
-  [
-    new RegExp(
-      `(["']?[\\w.-]*(?:${SECRET_NAMES})[\\w.-]*["']?\\s*:\\s*)(["'])(?:\\\\.|(?!\\2).)*\\2`,
-      "gi",
-    ),
-    `$1$2${REDACTED}$2`,
-  ],
+
+// Matched on a key's last word, so `tregToken` and `auth_token` are credentials and `tokenCount`,
+// `token_budget` and `tokens` are not.
+const SECRET_WORDS: ReadonlySet<string> = new Set([
+  "token",
+  "secret",
+  "password",
+  "passwd",
+  "cookie",
+  "cookies",
+  "authorization",
+  "bearer",
+  "credential",
+  "credentials",
+  "ct0",
+  "twid",
+  "kdt",
+]);
+const SECRET_KEY_PAIRS: ReadonlySet<string> = new Set([
+  "api key",
+  "assist key",
+  "private key",
+  "access key",
+]);
+
+/** Whether an attribute or argument key names a credential, judged by its last word or two. */
+export const isSecretKey = (key: string) => {
+  const words = (key.split(".").pop() ?? "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((word) => word !== "");
+  const last = words.at(-1) ?? "";
+  return SECRET_WORDS.has(last) || SECRET_KEY_PAIRS.has(words.slice(-2).join(" "));
+};
+
+// Every pattern here is linear: no two adjacent quantifiers can match the same characters.
+// The treg token is JWT-shaped and the service token 64 hex chars.
+const SECRET_SHAPES: ReadonlyArray<readonly [RegExp, string]> = [
   [/eyJ[\w-]{8,}(?:\.[\w-]+)*/g, REDACTED],
   [/\btrg_[\w-]+/g, REDACTED],
   [/\b[a-f0-9]{64}\b/g, REDACTED],
   [/(Bearer\s+)[\w.~+/=-]+/gi, `$1${REDACTED}`],
-  [/((?:x-treg-token|authorization|cookie)["']?\s*[:=]\s*["']?)[^"'\\\n]+/gi, `$1${REDACTED}`],
-  [
-    /(\b(?:token|access_token|auth_token|ct0|twid|kdt|api_key|secret)=)[^&#;\s"'\\]+/gi,
-    `$1${REDACTED}`,
-  ],
 ];
 
-const redactText = (text: string) =>
-  SECRET_TEXT.reduce((acc, [pattern, replacement]) => acc.replace(pattern, replacement), text);
+// A candidate `key: value` or `key=value`, the key starting at a word boundary and bounded.
+const PAIR = /(?<![\w.-])(["']?)([A-Za-z_][\w.-]{0,79})\1\s*([:=])\s*/g;
+// `key=value` (a query, a cookie) ends at whitespace too; `key: value` (a header) runs on.
+const UNQUOTED_END = { ":": /[\n\r,;&#}\]"'\\]/, "=": /[\s,;&#}\]"'\\]/ };
+
+/** Where a pair's value ends: its closing quote, or the first separator. */
+const valueEnd = (text: string, start: number, separator: string) => {
+  const quote = text[start];
+  if (quote === '"' || quote === "'") {
+    for (let at = start + 1; at < text.length; at++) {
+      if (text[at] === "\\") at++;
+      else if (text[at] === quote) return at + 1;
+    }
+    return text.length;
+  }
+  if (quote === "[" || quote === "{") return start; // Containers are sanitised before formatting.
+  const end = UNQUOTED_END[separator === "=" ? "=" : ":"];
+  let at = start;
+  while (at < text.length && !end.test(text[at]!)) at++;
+  return at;
+};
+
+/** One pass over the text: each credential-named pair's value becomes `<redacted>`. */
+const redactPairs = (text: string) => {
+  let out = "";
+  let copied = 0;
+  PAIR.lastIndex = 0;
+  for (let match = PAIR.exec(text); match !== null; match = PAIR.exec(text)) {
+    if (!isSecretKey(match[2]!)) continue;
+    const start = match.index + match[0].length;
+    const end = valueEnd(text, start, match[3]!);
+    if (end === start) continue;
+    const quote = text[start] === '"' || text[start] === "'" ? text[start]! : "";
+    out += `${text.slice(copied, start)}${quote}${REDACTED}${quote}`;
+    copied = end;
+    PAIR.lastIndex = end;
+  }
+  return copied === 0 ? text : out + text.slice(copied);
+};
+
+/** Scrubs credential shapes and credential-named pairs. Linear in the text's length. */
+export const redactText = (text: string) =>
+  redactPairs(
+    SECRET_SHAPES.reduce((acc, [pattern, replacement]) => acc.replace(pattern, replacement), text),
+  );
 
 const MAX_DEPTH = 6;
+// Anything from outside (a User-Agent, a provider's error) is cut to this before any pattern runs.
+const MAX_SCRUBBED = 2000;
+
+const truncate = (text: string, max: number) =>
+  text.length <= max ? text : `${text.slice(0, max)}…[truncated]`;
+
+const scrub = (text: string) => redactText(truncate(text, MAX_SCRUBBED));
 
 const safeError = (error: Error) => {
-  const copy = new Error(redactText(error.message));
-  copy.name = error.name;
-  if (error.stack !== undefined) copy.stack = redactText(error.stack);
+  const copy = new Error(scrub(error.message));
+  copy.name = scrub(error.name);
+  if (error.stack !== undefined) copy.stack = scrub(error.stack);
   return copy;
 };
 
@@ -79,7 +152,7 @@ const safeError = (error: Error) => {
  * `tregTokenSet: true` says nothing secret.
  */
 const sanitize = (value: unknown, depth = 0): unknown => {
-  if (typeof value === "string") return redactText(value);
+  if (typeof value === "string") return scrub(value);
   if (value === null || typeof value !== "object") return value;
   if (depth >= MAX_DEPTH) return "[Truncated]";
   if (value instanceof Error) return safeError(value);
@@ -87,18 +160,39 @@ const sanitize = (value: unknown, depth = 0): unknown => {
   if (value instanceof Map) return sanitizeAttributes(Object.fromEntries(value), depth + 1);
   if (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)
     return sanitizeAttributes(value as Record<string, unknown>, depth + 1);
-  return redactText(String(value));
+  return scrub(String(value));
 };
 
 const sanitizeAttributes = (attributes: Readonly<Record<string, unknown>>, depth = 0) => {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(attributes))
     out[key] =
-      SECRET_KEY.test(key) && value != null && typeof value !== "boolean"
+      isSecretKey(key) && value != null && typeof value !== "boolean"
         ? REDACTED
         : sanitize(value, depth);
   return out;
 };
+
+/**
+ * Effect's tracer logger, with the log's arguments sanitised before they are formatted into the
+ * event's name. Formatted text cannot be redacted reliably: `{ secret: ["x"] }` keeps no quoted
+ * value next to its key. `Observability` puts it in place of the built-in one.
+ */
+export const tracerLogger = Logger.make(({ cause, fiber, logLevel, message, date }) => {
+  const span = Context.getOrUndefined(fiber.context, Tracer.ParentSpan);
+  if (span === undefined || span._tag === "ExternalSpan") return;
+  const parts = (Array.isArray(message) ? message : [message]).map((part) => sanitize(part));
+  span.event(
+    Inspectable.toStringUnknown(parts.length === 1 ? parts[0] : parts),
+    BigInt(date.getTime()) * 1_000_000n,
+    {
+      ...fiber.getRef(References.CurrentLogAnnotations),
+      "effect.fiberId": fiber.id,
+      "effect.logLevel": logLevel.toUpperCase(),
+      ...(cause.reasons.length > 0 ? { "effect.cause": Cause.pretty(cause) } : {}),
+    },
+  );
+});
 
 /** The exit a tracer may see: failures rebuilt from scrubbed messages and stacks, never the errors. */
 const sanitizeExit = (exit: Exit.Exit<unknown, unknown>): Exit.Exit<unknown, unknown> => {
@@ -110,9 +204,6 @@ const sanitizeExit = (exit: Exit.Exit<unknown, unknown>): Exit.Exit<unknown, unk
 
 const MAX_STRING = 500;
 const MAX_SQL = 200;
-
-const truncate = (text: string, max: number) =>
-  text.length <= max ? text : `${text.slice(0, max)}…[truncated]`;
 
 // Plain JSON only: a Map, Error or class instance would otherwise serialize as {} or throw.
 const toJson = (value: unknown, depth: number): unknown => {
@@ -249,13 +340,15 @@ export const makeTraceSink = Effect.fn("makeTraceSink")(function* (options: Trac
       chunkBytes += bytes;
     }
     if (chunkBytes > 0) yield* append(joinText(lines, start, lines.length), chunkBytes);
+    return lines.length;
   });
 
   const lock = yield* Semaphore.make(1);
   const flush = flushBuffered.pipe(
     Effect.matchEffect({
-      onSuccess: () =>
-        failing
+      // Only a write that happened is a recovery; an empty flush proves nothing.
+      onSuccess: (written) =>
+        failing && written > 0
           ? Effect.sync(() => (failing = false)).pipe(
               Effect.andThen(Effect.logInfo("trace writes recovered", { filePath })),
             )
@@ -329,7 +422,8 @@ class SafeSpan implements Tracer.Span {
     this.traceId = delegate.traceId;
     this.parent = options.parent;
     this.annotations = options.annotations;
-    this.links = options.links;
+    // Its own array: the delegate keeps `options.links`, and each records its own `addLinks`.
+    this.links = [...options.links];
     this.sampled = delegate.sampled;
     this.kind = delegate.kind;
     this.status = { _tag: "Started", startTime: options.startTime };
@@ -370,7 +464,7 @@ class SafeSpan implements Tracer.Span {
   }
 
   event(name: string, startTime: bigint, attributes: Record<string, unknown> = {}): void {
-    const safeName = redactText(name);
+    const safeName = scrub(name);
     const safe = sanitizeAttributes(attributes);
     this.events.push([safeName, startTime, safe]);
     this.delegate.event(safeName, startTime, safe);

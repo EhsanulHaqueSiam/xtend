@@ -3,7 +3,9 @@ import { describe, expect, it } from "@effect/vitest";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as Layer from "effect/Layer";
 import * as FileSystem from "effect/FileSystem";
+import * as Logger from "effect/Logger";
 import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 import * as Tracer from "effect/Tracer";
@@ -79,6 +81,9 @@ describe("local trace file", () => {
         "assistsecret",
         "hooksecret",
         "attrct0",
+        "opaque-secret",
+        "objsecret",
+        "987654321",
       ];
       yield* Effect.logInfo(`calling with X-Treg-Token: ${jwt}`, { tregToken: "trg_live123" }).pipe(
         // Structured arguments are formatted into the event's name, not its attributes.
@@ -92,6 +97,9 @@ describe("local trace file", () => {
             },
             assistKey: "assistsecret",
             webhookSecret: "hooksecret",
+            secret: ["opaque-secret"],
+            credentials: { user: "objsecret" },
+            kdt: 987654321,
           }),
         ),
         Effect.andThen(Effect.annotateCurrentSpan({ ct0: "attrct0" })),
@@ -107,7 +115,10 @@ describe("local trace file", () => {
       const text = (yield* readLines(sink.filePath)).join("\n");
       expect(text).toContain("<redacted>");
       for (const secret of secrets) expect(text).not.toContain(secret);
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(Layer.merge(NodeServices.layer, Logger.layer([LocalTrace.tracerLogger]))),
+    ),
   );
 
   it.effect("rotates by size and keeps only maxFiles backups", () =>
@@ -142,6 +153,7 @@ describe("local trace file", () => {
 
   it.effect("scrubs what an OTLP delegate sees, with no trace file", () => {
     const seen: Array<unknown> = [];
+    const spans: Array<Tracer.NativeSpan> = [];
     class Captured extends Tracer.NativeSpan {
       override attribute(key: string, value: unknown) {
         seen.push([key, value]);
@@ -156,6 +168,7 @@ describe("local trace file", () => {
         if (Exit.isFailure(exit))
           seen.push(
             Cause.prettyErrors(exit.cause, { includeCauseInStack: true }).map((e) => [
+              e.name,
               e.message,
               e.stack,
             ]),
@@ -163,11 +176,40 @@ describe("local trace file", () => {
         super.end(time, exit);
       }
     }
-    const delegate = Tracer.make({ span: (options) => new Captured(options) });
+    const delegate = Tracer.make({
+      span: (options) => {
+        const span = new Captured(options);
+        spans.push(span);
+        return span;
+      },
+    });
+    const renamed = new Error("ct0=diect0");
+    renamed.name = "Bearer namesecret";
     return Effect.gen(function* () {
-      yield* Effect.logInfo("event", { ct0: "logct0", nested: { api_key: "lognested" } }).pipe(
+      yield* Effect.logInfo("event", {
+        ct0: "logct0",
+        nested: { api_key: "lognested" },
+        secret: ["arraysecret"],
+        cookies: { auth_token: "objectsecret" },
+        twid: 4242424242,
+      }).pipe(
         Effect.andThen(
-          Effect.annotateCurrentSpan({ config: { api_key: "attrnested", region: "visible" } }),
+          Effect.annotateCurrentSpan({
+            config: { api_key: "attrnested", region: "visible" },
+            tokenCount: 42,
+          }),
+        ),
+        Effect.andThen(
+          Effect.flatMap(Effect.currentSpan, (span) =>
+            Effect.sync(() =>
+              span.addLinks([
+                {
+                  span: Tracer.externalSpan({ spanId: "s1", traceId: "t1" }),
+                  attributes: { ct0: "linksecret" },
+                },
+              ]),
+            ),
+          ),
         ),
         Effect.andThen(Effect.fail(new Leaky({ detail: "refused: Bearer bearersecret" }))),
         Effect.annotateLogs({ assistKey: "annotated" }),
@@ -175,24 +217,85 @@ describe("local trace file", () => {
         Effect.withTracer(LocalTrace.makeTracer({ delegate })),
         Effect.exit,
       );
-      yield* Effect.die(new Error("ct0=diect0")).pipe(
+      yield* Effect.die(renamed).pipe(
         Effect.withSpan("defect"),
         Effect.withTracer(LocalTrace.makeTracer({ delegate })),
         Effect.exit,
       );
-      const text = JSON.stringify(seen);
+      const text = JSON.stringify([seen, spans.map((span) => span.links)]);
       expect(text).toContain("visible");
       expect(text).toContain("refused");
       for (const secret of [
         "logct0",
         "lognested",
+        "arraysecret",
+        "objectsecret",
+        "4242424242",
         "attrnested",
         "bearersecret",
         "annotated",
         "diect0",
+        "namesecret",
+        "linksecret",
       ])
         expect(text).not.toContain(secret);
-    });
+      // A count keeps its value and type; a link reaches the delegate once.
+      expect(seen).toContainEqual(["tokenCount", 42]);
+      expect(spans[0]?.links).toHaveLength(1);
+    }).pipe(Effect.provide(Logger.layer([LocalTrace.tracerLogger])));
+  });
+
+  it("names credentials by their last word, not by substring", () => {
+    const secret = [
+      "token",
+      "auth_token",
+      "tregToken",
+      "x-treg-token",
+      "http.request.header.authorization",
+      "set-cookie",
+      "cookies",
+      "secret",
+      "webhookSecret",
+      "password",
+      "bearer",
+      "api_key",
+      "apiKey",
+      "assistKey",
+      "private_key",
+      "ct0",
+      "twid",
+      "kdt",
+      "credential",
+      "credentials",
+    ];
+    const harmless = [
+      "tokenCount",
+      "token_budget",
+      "tokens",
+      "tregTokenSet",
+      "x.purpose",
+      "keywords",
+      "monthlyBudgetUsd",
+      "key",
+    ];
+    expect(secret.filter((key) => !LocalTrace.isSecretKey(key))).toEqual([]);
+    expect(harmless.filter(LocalTrace.isSecretKey)).toEqual([]);
+  });
+
+  it("scrubs a megabyte in one pass, whatever its shape", () => {
+    const mb = 1024 * 1024;
+    // Each would take minutes with a pattern that backtracks quadratically.
+    for (const text of [
+      "a".repeat(mb),
+      "a.".repeat(mb / 2),
+      '"k":'.repeat(mb / 4),
+      `ct0=${"v".repeat(mb)}`,
+      `"secret": "${"x\\".repeat(mb / 2)}`,
+    ])
+      expect(LocalTrace.redactText(text).length).toBeLessThanOrEqual(text.length);
+    expect(
+      LocalTrace.redactText('cookie: auth_token=a1; ct0=b2, "kdt": "c3", authorization: Bearer d4'),
+    ).toBe('cookie: <redacted>; ct0=<redacted>, "kdt": "<redacted>", authorization: <redacted>');
   });
 
   it.effect("makes an existing trace file owner-only before appending to it", () =>
@@ -212,8 +315,9 @@ describe("local trace file", () => {
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
-  it.effect("writes nothing to a trace file it cannot make owner-only", () =>
-    Effect.gen(function* () {
+  it.effect("writes nothing to a trace file it cannot make owner-only, and says so once", () => {
+    const logged: Array<string> = [];
+    return Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const dir = yield* fs.makeTempDirectoryScoped();
       yield* fs.writeFileString(`${dir}/service.trace.ndjson`, "");
@@ -235,9 +339,29 @@ describe("local trace file", () => {
         Effect.withTracer(LocalTrace.makeTracer({ push: sink.push })),
       );
       yield* sink.flush;
+      // An empty flush between two refused ones is not a recovery.
+      yield* sink.flush;
+      yield* Effect.void.pipe(
+        Effect.withSpan("t"),
+        Effect.withTracer(LocalTrace.makeTracer({ push: sink.push })),
+      );
+      yield* sink.flush;
       expect(yield* readLines(sink.filePath)).toEqual([]);
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
-  );
+      expect(logged).toEqual(["trace write failed; dropping records"]);
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.merge(
+          NodeServices.layer,
+          Logger.layer([
+            Logger.make(({ message }) => {
+              logged.push(String(Array.isArray(message) ? message[0] : message));
+            }),
+          ]),
+        ),
+      ),
+    );
+  });
 
   it.effect("drains a full buffer without re-measuring the batch per line", () =>
     Effect.gen(function* () {
