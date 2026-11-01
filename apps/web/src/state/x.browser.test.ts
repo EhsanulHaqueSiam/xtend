@@ -48,7 +48,9 @@ it("presses X's button on the post's own article, edited or not, never on a post
   expect(pressed).toEqual(["edited"]);
 
   // X refuses: the press says so, and nothing presses again on the post's page, which could undo it.
-  document.body.innerHTML = `<article><a href="/theo/status/43"><time></time></a><button data-testid="bookmark"></button></article>`;
+  // Another post's button, already turned, is not this post's answer.
+  document.body.innerHTML = `<article><a href="/theo/status/43"><time></time></a><button data-testid="bookmark"></button></article>
+    <article><a href="/ann/status/44"><time></time></a><button data-testid="removeBookmark"></button></article>`;
   let presses = 0;
   document.querySelector("button")!.addEventListener("click", () => presses++);
   expect(await xAct({ postId: "43", handle: "theo" }, "bookmark")).toBe(false);

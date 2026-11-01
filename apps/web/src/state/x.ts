@@ -175,7 +175,13 @@ export type XAction = keyof typeof BUTTONS;
  * waits for it to turn into `turns`, and gives X's save time to go out. Whether X took it; null when
  * there was no button, the only case where a caller may press elsewhere without undoing a press.
  */
-const pressScript = (scope: string, testid: string, turns: string, confirm: string | undefined) => `
+const pressScript = (
+  scope: string,
+  testid: string,
+  turns: string,
+  confirm: string | undefined,
+  live: string,
+) => `
     const scope = ${scope};
     const button = scope?.querySelector('[data-testid="${testid}"]');
     if (!button) return null;
@@ -190,10 +196,11 @@ const pressScript = (scope: string, testid: string, turns: string, confirm: stri
       confirm.click();
     }
     // X turns the button at once when it takes the press; one it refuses stays as it was. X may
-    // draw the turned button anew, outside the scope the press began in.
-    const turned = () =>
-      !!scope.querySelector('[data-testid="${turns}"]') ||
-      (!scope.isConnected && !!document.querySelector('[data-testid="${turns}"]'));
+    // draw it anew, so each look finds the live target again (\`live\`), never a removed one.
+    const turned = () => {
+      const now = ${live};
+      return !!now?.isConnected && !!now.querySelector('[data-testid="${turns}"]');
+    };
     for (let i = 0; i < 30 && !turned(); i++) await new Promise((r) => setTimeout(r, 100));
     await new Promise((r) => setTimeout(r, 1000));
     return turned();`;
@@ -209,7 +216,7 @@ export const xActInPlace = (postId: string, action: XAction): Promise<boolean | 
   const { turns, confirm }: { readonly turns: string; readonly confirm?: string } = BUTTONS[action];
   return xRun(`(async () => {
     ${findArticle(postId)}
-    ${pressScript("article", action, turns, confirm)}
+    ${pressScript("article", action, turns, confirm, "own()")}
   })()`).then((done) => (typeof done === "boolean" ? done : null));
 };
 
@@ -222,9 +229,10 @@ export const xActInPlace = (postId: string, action: XAction): Promise<boolean | 
 const findArticle = (postId: string) => `
     for (let i = 0; i < 100 && !document.querySelector("article"); i++)
       await new Promise((r) => setTimeout(r, 100));
+    const own = () => document.querySelector('article a[href$="/status/${postId}"] time, article a[href$="/status/${postId}/history"] time')?.closest("article") ?? null;
     let article = null;
     for (let i = 0; i < 10 && !article; i++) {
-      article = document.querySelector('article a[href$="/status/${postId}"] time, article a[href$="/status/${postId}/history"] time')?.closest("article") ?? null;
+      article = own();
       if (!article) await new Promise((r) => setTimeout(r, 100));
     }`;
 
@@ -280,10 +288,12 @@ const openMenu = (at: MenuAt, mine = "true") => `
       await new Promise((r) => setTimeout(r, 100));
       items = [...document.querySelectorAll('[data-testid="Dropdown"] [role="menuitem"]')];
     }
-    // X closes its menu on a click outside it, on the mask drawn beside it; Escape from a script does not.
+    // X closes its menu on a click outside it, on the mask drawn beside it; Escape from a script
+    // does not. Only the menu this step opened: by then the user may have opened another.
+    const opened = items[0]?.closest('[role="menu"]') ?? null;
     const closeMenu = () => {
-      const menu = document.querySelector('[role="menu"]');
-      [...(menu?.parentElement?.children ?? [])].find((k) => k !== menu && k.getBoundingClientRect().height > 0)?.click();
+      if (!opened?.isConnected) return;
+      [...(opened.parentElement?.children ?? [])].find((k) => k !== opened && k.getBoundingClientRect().height > 0)?.click();
     };`;
 
 /** What X did when the user pressed one of its menu items. */
@@ -680,6 +690,8 @@ export const xFollow = async (
       `${user.userId}-${press}`,
       `${user.userId}-${turns}`,
       follow ? undefined : "confirmationSheetConfirm",
+      // The test id names the person, so X's page as a whole is where it turns.
+      "document.documentElement",
     )}
   })()`;
   // Only when nothing was pressed here: pressing again where X refused could undo it.
