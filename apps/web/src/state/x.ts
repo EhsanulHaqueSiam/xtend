@@ -426,6 +426,46 @@ export const xProfileMenuPress = async (
   validHandle(handle) ? pressMenu(profilePage(handle), profileMenuAt(handle), label, over) : null;
 
 /**
+ * X's reply sort ("Relevant ⌄") in the post's own article, once X has drawn it. `postId` must be
+ * digits; `labels` are X's names for the orders.
+ */
+const sortMenuAt = (postId: string, labels: ReadonlyArray<string>): MenuAt => ({
+  find: `
+    ${findArticle(postId)}
+    let sortAt = null;
+    for (let i = 0; i < 50 && article && !sortAt; i++) {
+      sortAt = [...article.querySelectorAll('button[aria-haspopup="menu"]')].find((b) => ${JSON.stringify(labels)}.includes(b.textContent.trim()))?.parentElement ?? null;
+      if (!sortAt) await new Promise((r) => setTimeout(r, 100));
+    }`,
+  root: "sortAt",
+  trigger: 'button[aria-haspopup="menu"]',
+});
+
+/**
+ * Sorts a thread's replies for the user's pick by pressing X's own row `pick.label` under the post,
+ * in place on the engine page; X fetches the thread in that order and puts `pick.param` in its URL
+ * (`sort_replies`, none for its default). Pushing that URL instead loses the pick while X's first
+ * fetch of the thread is still out. True once X's URL carries the pick.
+ */
+export const xSortReplies = (
+  post: PostRef,
+  pick: { readonly label: string; readonly param: string | null },
+  labels: ReadonlyArray<string>,
+) =>
+  validPost(post)
+    ? xRun(`(async () => {
+    ${openMenu(sortMenuAt(post.postId, labels))}
+    const item = items.find((i) => i.textContent.trim() === ${JSON.stringify(pick.label)});
+    if (!item) return (closeMenu(), false);
+    item.click();
+    // X puts the order in its URL a moment later; the route's own move waits for it, or it races X.
+    const took = () => new URLSearchParams(location.search).get("sort_replies") === ${JSON.stringify(pick.param)};
+    for (let i = 0; i < 20 && !took(); i++) await new Promise((r) => setTimeout(r, 100));
+    return took();
+  })()`).then((done) => done === true)
+    : Promise.resolve(false);
+
+/**
  * Votes `choice` in a post's poll for the user's click, pressing X's own radio where the post sits
  * (X asks for no confirm; a vote cannot be changed). True once X drew its results instead.
  */

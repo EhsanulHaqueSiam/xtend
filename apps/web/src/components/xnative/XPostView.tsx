@@ -410,6 +410,7 @@ export function XPostView({
   threaded = false,
   onOpen,
   onHover,
+  under,
 }: {
   readonly post: EnginePost;
   readonly quoted?: EnginePost | undefined;
@@ -419,6 +420,8 @@ export function XPostView({
   readonly threaded?: boolean;
   readonly onOpen?: ((post: EnginePost) => void) | undefined;
   readonly onHover?: (() => void) | undefined;
+  /** The focal post's row under its actions, as X draws its reply sort there. */
+  readonly under?: ReactNode;
 }) {
   const { blocked, pressRow, setToast } = useXPress();
   const drop = useDropPost();
@@ -739,6 +742,7 @@ export function XPostView({
           )}
         </p>
         {actions}
+        {under}
         <div className="py-2.5">
           <XtendLine post={post} />
         </div>

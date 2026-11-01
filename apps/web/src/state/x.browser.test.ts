@@ -10,6 +10,7 @@ import {
   xPostMenuPress,
   xProfileMenu,
   xProfileMenuPress,
+  xSortReplies,
   xVote,
   type XWebview,
 } from "./x";
@@ -273,4 +274,24 @@ it("votes by pressing X's radio for that choice on the post's own poll, and wait
   expect(await xVote(post42, "Maybe")).toBe(false);
   expect(await xVote(post42, "Spaces")).toBe(true);
   expect(pressed).toEqual(["Spaces"]);
+});
+
+it("sorts replies through X's own row under the post, and only reports a sort X put in its URL", async () => {
+  const start = location.pathname + location.search;
+  const sortAt = (search: string) => () =>
+    history.replaceState(null, "", `${location.pathname}${search}`);
+  withMenu(
+    // X drops a pick it gets while its first fetch of the thread is out: Likes leaves the URL alone.
+    { Relevant: sortAt(""), Recent: sortAt("?sort_replies=recency"), Likes: () => {} },
+    'button[aria-haspopup="menu"]',
+    `<div><button aria-haspopup="menu">Relevant</button></div>`,
+  );
+  const labels = ["Relevant", "Recent", "Likes"];
+  try {
+    expect(await xSortReplies(post42, { label: "Recent", param: "recency" }, labels)).toBe(true);
+    expect(location.search).toBe("?sort_replies=recency");
+    expect(await xSortReplies(post42, { label: "Likes", param: "likes" }, labels)).toBe(false);
+  } finally {
+    history.replaceState(null, "", start);
+  }
 });

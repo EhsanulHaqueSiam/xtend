@@ -576,7 +576,16 @@ function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExp
     return s("product") === undefined || s("rawQuery") === undefined
       ? null
       : `${s("product")}:${s("rawQuery")}`;
-  if (op === "TweetDetail") return s("focalTweetId") ?? null;
+  if (op === "TweetDetail") {
+    // Each reply order is its own list (`?sort_replies=` on X's page); Relevance is X's default.
+    const mode = s("rankingMode");
+    const id = s("focalTweetId");
+    return id === undefined
+      ? null
+      : mode === undefined || mode === "Relevance"
+        ? id
+        : `${id}:${mode}`;
+  }
   if (op === "UserByScreenName") return s("screen_name")?.toLowerCase() ?? null;
   return s("userId") ?? null;
 }
