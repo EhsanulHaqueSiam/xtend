@@ -1,8 +1,9 @@
 import { useAtomValue } from "@effect/atom-react";
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
-import { Search } from "lucide-react";
+import { Search, SlidersHorizontal } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
+import { AdvancedSearch } from "../components/xnative/AdvancedSearch";
 import { Timeline } from "../components/xnative/Timeline";
 import { XColumn, XTabs } from "../components/xnative/XColumn";
 import { UserRow, XRows } from "../components/xnative/XRows";
@@ -33,7 +34,7 @@ type Kind = (typeof KINDS)[number]["id"];
 
 /** X's search ran by the engine in the session, free; operators (from:, min_faves:) work as on X. */
 function SearchScreen() {
-  const { q, f } = Route.useSearch();
+  const { q, f, advanced } = Route.useSearch();
   const navigate = useNavigate();
   const router = useRouter();
   const engine = useAtomValue(engineAtom);
@@ -94,7 +95,23 @@ function SearchScreen() {
             onChange={(e) => setDraft(e.target.value)}
           />
         </form>
+        <button
+          type="button"
+          aria-label="Advanced search"
+          className="no-drag -m-2 grid size-9 shrink-0 cursor-pointer place-items-center rounded-full transition-colors duration-150 hover:bg-white/10"
+          onClick={() =>
+            void navigate({ to: "/search", search: { q, f, advanced: true }, replace: true })
+          }
+        >
+          <SlidersHorizontal className="size-5" />
+        </button>
       </div>
+      <AdvancedSearch
+        open={advanced === true}
+        query={q}
+        onClose={() => void navigate({ to: "/search", search: { q, f }, replace: true })}
+        onSearch={(next) => void navigate({ to: "/search", search: { q: next, f } })}
+      />
       <XTabs
         label="Results"
         tabs={KINDS}
@@ -129,9 +146,11 @@ function SearchScreen() {
 }
 
 export const Route = createFileRoute("/search")({
-  validateSearch: (s: Record<string, unknown>): { q: string; f: Kind } => ({
+  validateSearch: (s: Record<string, unknown>): { q: string; f: Kind; advanced?: true } => ({
     q: typeof s.q === "string" ? s.q : "",
     f: s.f === "latest" || s.f === "media" || s.f === "people" ? s.f : "top",
+    // X's advanced search over this one, so the palette and a link can open it.
+    ...(s.advanced === true || s.advanced === "true" ? { advanced: true as const } : {}),
   }),
   component: SearchScreen,
 });

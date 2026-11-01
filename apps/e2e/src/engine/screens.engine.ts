@@ -326,6 +326,35 @@ test("Search reads X's Top and People tabs for the query", async () => {
   await expect.poll(enginePath).toBe(`/search?q=${encodeURIComponent(q)}&src=typed_query&f=user`);
 });
 
+test("Advanced search writes X's operators, and X's SearchTimeline runs them", async () => {
+  await go(`/search?q=${encodeURIComponent("design system")}&f=top`);
+  await e.app.locator("main").getByRole("button", { name: "Advanced search" }).click();
+  const form = e.app.getByRole("dialog", { name: "Advanced search" });
+  await expect.poll(() => form.getByLabel("All of these words").inputValue()).toBe("design system");
+  await form.getByLabel("None of these words").fill("crypto");
+  await form.getByLabel("Minimum Likes").fill("10");
+  await form.getByRole("switch", { name: "Replies" }).click();
+  // A date counts once Month, Day and Year are all picked.
+  for (const [list, option] of [
+    ["From month", "March"],
+    ["From day", "7"],
+    ["From year", "2026"],
+  ] as const) {
+    await form.getByRole("combobox", { name: list }).click();
+    await e.app.getByRole("option", { name: option, exact: true }).click();
+  }
+  await form.getByRole("button", { name: "Search" }).click();
+
+  const q = "design system -crypto min_faves:10 since:2026-03-07 -filter:replies";
+  await expect
+    .poll(() => e.mock.reads.filter((r) => r.op === "SearchTimeline").map((r) => r.variables))
+    .toContainEqual(expect.objectContaining({ rawQuery: q, product: "Top" }));
+  await expect
+    .poll(nativeIds)
+    .toEqual(e.mock.state.batchFor("SearchTimeline", { product: "Top", rawQuery: q })!.order);
+  await expect.poll(() => e.app.getByLabel("Search X").inputValue()).toBe(q);
+});
+
 test("Lists, a List's posts and its members read X's pages", async () => {
   await go("/lists");
   const [list] = e.mock.state.lists().filter((l) => l.owner?.userId === e.mock.state.viewer.userId);

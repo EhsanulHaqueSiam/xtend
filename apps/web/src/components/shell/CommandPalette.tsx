@@ -91,6 +91,17 @@ function PaletteBody({
             run: onX(p.path),
           }))
         : []),
+      ...(isElectron
+        ? [
+            {
+              id: "x:advanced-search",
+              group: "X" as const,
+              label: "Advanced search",
+              icon: Search,
+              run: to("/search?advanced=true"),
+            },
+          ]
+        : []),
       // Sections only once something is typed, so the empty palette stays short.
       ...(query.trim() === ""
         ? []
