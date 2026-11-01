@@ -16,7 +16,15 @@ import { useState, type ComponentProps, type MouseEvent, type ReactNode } from "
 
 import { cn } from "../../lib/utils";
 import { askFollow, engineAtom, updateEngine, youFollow } from "../../state/engine";
-import { xAct, xOverAtom, xPostMenu, xPostMenuPress, xVote, type XPostMenu } from "../../state/x";
+import {
+  xAct,
+  xOverAtom,
+  xPostFollowPress,
+  xPostMenu,
+  xPostMenuPress,
+  xVote,
+  type XPostMenu,
+} from "../../state/x";
 import { fmt } from "../analyze/ui";
 import { useDropPost } from "../shell/drops";
 import { Menu, MenuItem } from "../ui/menu";
@@ -551,29 +559,16 @@ export function XPostView({
           search: { h: post.author.handle, tab: "quotes" },
         })
       : pressRow(async () => {
-          const outcome = await xPostMenuPress(xPost, label, setOver, menu);
-          // X's own "Follow @handle" / "Unfollow @handle" row: what X took holds like a Follow
-          // button's. After X's dialog (confirm or cancel), X's menu, read again, says which.
-          const follow = /^(Follow|Unfollow) @(\w{1,15})$/.exec(label);
-          if (
-            follow === null ||
-            follow[2]!.toLowerCase() !== post.author.handle.toLowerCase() ||
-            outcome === null
-          )
-            return outcome;
-          const following =
-            outcome.kind === "done"
-              ? follow[1] === "Follow"
-              : await xPostMenu(xPost).then((rows) =>
-                  rows?.includes(`Unfollow @${follow[2]}`)
-                    ? true
-                    : rows?.includes(`Follow @${follow[2]}`)
-                      ? false
-                      : undefined,
-                );
-          if (following !== undefined)
+          // X's own "Follow @handle" / "Unfollow @handle" row for this author: what X's menu says
+          // afterwards holds like a Follow button's press.
+          const follow = /^(?:Follow|Unfollow) @(\w{1,15})$/.exec(label);
+          if (follow === null || follow[1]!.toLowerCase() !== post.author.handle.toLowerCase())
+            return xPostMenuPress(xPost, label, setOver, menu);
+          const pressed = await xPostFollowPress(xPost, label, setOver);
+          const following = pressed?.following ?? null;
+          if (following !== null)
             setEngine(updateEngine((s) => askFollow(s, post.author.userId, following)));
-          return outcome;
+          return pressed?.outcome ?? null;
         });
 
   const name = (

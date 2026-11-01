@@ -485,6 +485,39 @@ export const xPostMenuPress = async (
 ) =>
   validPost(post) ? pressMenu(postPage(post), postMenuAt(post.postId, menu), label, over) : null;
 
+/**
+ * Presses X's own "Follow @handle" or "Unfollow @handle" row of a post's "..." for the user's
+ * click, then reads X's menu again: whatever X did (acted, asked in its dialog, refused), its row
+ * now says whether the user follows. `following` is null when X's menu did not say, or the user
+ * moved on before it could be read.
+ */
+export const xPostFollowPress = async (
+  post: PostRef,
+  label: string,
+  over: (shown: boolean) => void,
+) => {
+  if (!validPost(post)) return null;
+  const pressing = pressMenu(postPage(post), postMenuAt(post.postId, "more"), label, over);
+  // pressMenu takes its run before its first await: this is that press.
+  const run = overRun;
+  const live = () => run === overRun;
+  const outcome = await pressing;
+  if (outcome === null || !live()) return { outcome, following: null };
+  const rows = await onPage(
+    postPage(post),
+    () => xMenuInPlace(postMenuAt(post.postId, "more")),
+    () => Promise.resolve(),
+    live,
+  );
+  const handle = label.slice(label.indexOf("@"));
+  const following = rows?.includes(`Unfollow ${handle}`)
+    ? true
+    : rows?.includes(`Follow ${handle}`)
+      ? false
+      : null;
+  return { outcome, following };
+};
+
 /** Presses X's own row `label` of a profile's "..." for the user's click (see `pressMenu`). */
 export const xProfileMenuPress = async (
   handle: string,

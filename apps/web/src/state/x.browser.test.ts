@@ -7,6 +7,7 @@ import {
   xFollow,
   xPostMenu,
   xOverEnded,
+  xPostFollowPress,
   xPostMenuPress,
   xProfileMenu,
   xProfileMenuPress,
@@ -183,7 +184,7 @@ it("presses only the row asked for: X's toast comes back, X's dialog keeps the e
   expect(shown).toEqual([true, false]);
 });
 
-it("leaves X's dialog, and a Subscribe still waiting, to the screen they began on when the user moves on", async () => {
+it("leaves X's dialog, a Subscribe still waiting, and an Unfollow's reread to the screen they began on when the user moves on", async () => {
   withMenu({
     "Block @theo": () =>
       document.body.insertAdjacentHTML("beforeend", `<div role="alertdialog"></div>`),
@@ -203,6 +204,18 @@ it("leaves X's dialog, and a Subscribe still waiting, to the screen they began o
   document.querySelector("button")!.addEventListener("click", () => clicked.push("subscribe"));
   expect(await subscribing).toBe(false);
   expect(clicked).toEqual([]);
+
+  // An Unfollow whose dialog the user leaves: X's menu is not opened again behind their back.
+  let opened = 0;
+  withMenu({
+    "Unfollow @theo": () =>
+      document.body.insertAdjacentHTML("beforeend", `<div role="alertdialog"></div>`),
+  });
+  document.querySelector('[data-testid="caret"]')!.addEventListener("click", () => opened++);
+  const unfollowing = xPostFollowPress(post42, "Unfollow @theo", (on) => shown.push(on));
+  xOverEnded();
+  expect((await unfollowing)?.following).toBeNull();
+  expect(opened).toBe(1);
 });
 
 it("reads X's share rows from its share button, and Send via Chat keeps X's dialog over", async () => {
