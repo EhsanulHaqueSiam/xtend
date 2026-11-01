@@ -8,7 +8,11 @@ import * as NodeEvents from "node:events";
  */
 
 function fakeSession() {
+  const cookies: Array<unknown> = [];
   return Object.assign(new NodeEvents.EventEmitter(), {
+    cookies: Object.assign(cookies, { set: async (cookie: unknown) => void cookies.push(cookie) }),
+    protocol: { handle: () => {} },
+    webRequest: { onBeforeRequest: () => {} },
     availableSpellCheckerLanguages: [],
     setPermissionRequestHandler: () => {},
     setPermissionCheckHandler: () => {},
@@ -60,7 +64,10 @@ export class FakeContents extends NodeEvents.EventEmitter {
     return "Mozilla/5.0 Chrome/140.0.0.0 Electron/38.0.0 Safari/537.36";
   }
   setUserAgent() {}
-  setWindowOpenHandler() {}
+  windowOpenHandler: ((details: { url: string }) => unknown) | null = null;
+  setWindowOpenHandler(handler: (details: { url: string }) => unknown) {
+    this.windowOpenHandler = handler;
+  }
   async insertCSS(css: string) {
     this.insertedCss.push(css);
     return `css-${this.insertedCss.length}`;
@@ -108,6 +115,9 @@ export class BrowserWindow extends NodeEvents.EventEmitter {
 /** One fake session per partition, like Electron's. */
 const sessions = new Map<string, ReturnType<typeof fakeSession>>();
 export const session = {
+  get defaultSession() {
+    return session.fromPartition("");
+  },
   fromPartition: (partition: string) => {
     let found = sessions.get(partition);
     if (found === undefined) sessions.set(partition, (found = fakeSession()));

@@ -29,6 +29,36 @@ export function mockXOrigin(value: string | undefined, packaged: boolean): strin
   }
 }
 
+/**
+ * The protocol handler for mock X's partition: x.com requests go to the mock at `origin`, anything
+ * else is refused. Exported for its test.
+ */
+export const mockForward =
+  (origin: string, log: (message: string, detail?: unknown) => void) =>
+  async (request: Request) => {
+    const url = new URL(request.url);
+    // The path is set on a copy of the mock's own URL: a path like `//elsewhere/` cannot move it.
+    const target = new URL(origin);
+    target.pathname = url.pathname;
+    target.search = url.search;
+    if (!isXHost(request.url) || target.origin !== origin) {
+      log("mock X refused a request off the machine", request.url);
+      return new Response(null, { status: 404 });
+    }
+    const headers = new Headers(request.headers);
+    if (request.referrer !== "" && request.referrer !== "about:client")
+      headers.set("referer", request.referrer);
+    // Node's fetch from main, so the request reaches the mock rather than this handler again. A
+    // redirect goes back to the page, whose next request passes this check again.
+    return fetch(target, {
+      method: request.method,
+      headers,
+      redirect: "manual",
+      body:
+        request.method === "GET" || request.method === "HEAD" ? null : await request.arrayBuffer(),
+    });
+  };
+
 const guarded = new WeakSet<Electron.Session>();
 
 /**
@@ -42,25 +72,7 @@ export function useMockX(
 ) {
   if (!guarded.has(xSession)) {
     guarded.add(xSession);
-    const forward = async (request: Request) => {
-      if (!isXHost(request.url)) {
-        log("mock X refused a request off the machine", request.url);
-        return new Response(null, { status: 404 });
-      }
-      const url = new URL(request.url);
-      const headers = new Headers(request.headers);
-      if (request.referrer !== "" && request.referrer !== "about:client")
-        headers.set("referer", request.referrer);
-      // Node's fetch from main, so the request reaches the mock rather than this handler again.
-      return fetch(new URL(url.pathname + url.search, origin), {
-        method: request.method,
-        headers,
-        body:
-          request.method === "GET" || request.method === "HEAD"
-            ? null
-            : await request.arrayBuffer(),
-      });
-    };
+    const forward = mockForward(origin, log);
     xSession.protocol.handle("https", forward);
     xSession.protocol.handle("http", forward);
     // Sockets are not protocol requests; X's page opens none on the mock.

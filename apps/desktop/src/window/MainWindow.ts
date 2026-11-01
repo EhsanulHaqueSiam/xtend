@@ -184,6 +184,9 @@ export function createMainWindow(options: MainWindowOptions) {
   const partition = mockX === null ? sessionPartition(options.accountId) : MOCK_X_PARTITION;
   const xSession = session.fromPartition(partition);
   if (mockX !== null) useMockX(xSession, mockX, options.log);
+  // On mock X nothing leaves the machine, the system browser included.
+  const openExternal = (url: string) =>
+    mockX === null ? openExternalWeb(url) : options.log("mock X refused an external open", url);
   allowXPermissions(xSession);
   useSystemSpellcheckLanguages(xSession);
 
@@ -252,13 +255,13 @@ export function createMainWindow(options: MainWindowOptions) {
   // The app renderer is ours, but a `_blank` link in it must not open a window carrying the preload.
   const appOrigin = new URL(options.appUrl).origin;
   appContents.setWindowOpenHandler(({ url }) => {
-    openExternalWeb(url);
+    openExternal(url);
     return { action: "deny" };
   });
   appContents.on("will-navigate", (event, url) => {
     if (new URL(url).origin === appOrigin) return;
     event.preventDefault();
-    openExternalWeb(url);
+    openExternal(url);
   });
 
   // Main decides what the app's webview becomes, whatever the page asked for.
@@ -316,13 +319,13 @@ export function createMainWindow(options: MainWindowOptions) {
         };
       }
       if (isXHost(url)) void contents.loadURL(url);
-      else openExternalWeb(url);
+      else openExternal(url);
       return { action: "deny" };
     });
     contents.on("will-navigate", (event, url) => {
       if (isXHost(url)) return;
       event.preventDefault();
-      openExternalWeb(url);
+      openExternal(url);
     });
 
     const onUrlChange = () => {
@@ -349,7 +352,7 @@ export function createMainWindow(options: MainWindowOptions) {
       if (params.linkURL !== "") {
         items.push(
           { label: "Copy link", click: () => clipboard.writeText(params.linkURL) },
-          { label: "Open link in browser", click: () => openExternalWeb(params.linkURL) },
+          { label: "Open link in browser", click: () => openExternal(params.linkURL) },
         );
       }
       if (params.selectionText.trim() !== "") items.push({ label: "Copy text", role: "copy" });
@@ -361,7 +364,7 @@ export function createMainWindow(options: MainWindowOptions) {
       }
       if (params.isEditable) items.push({ role: "cut" }, { role: "copy" }, { role: "paste" });
       if (items.length > 0 && items.at(-1)?.type !== "separator") items.push({ type: "separator" });
-      items.push({ label: "Open page in browser", click: () => openExternalWeb(params.pageURL) });
+      items.push({ label: "Open page in browser", click: () => openExternal(params.pageURL) });
       if (!app.isPackaged) {
         items.push({ label: "Inspect", click: () => contents.inspectElement(params.x, params.y) });
       }
@@ -551,7 +554,7 @@ export function createMainWindow(options: MainWindowOptions) {
     from(RECOVERY_RETRY_CHANNEL, () => {
       if (recovering) void loadApp();
     }),
-    from<string>(OPEN_EXTERNAL_CHANNEL, openExternalWeb),
+    from<string>(OPEN_EXTERNAL_CHANNEL, openExternal),
     from<Glance>(GLANCE_CHANNEL, (value) => {
       glance = value;
       guest?.contents.send(OVERLAY_GLANCE_CHANNEL, glance);
@@ -573,7 +576,8 @@ export function createMainWindow(options: MainWindowOptions) {
     guest = null;
   });
 
-  const importPath = options.importCookiesPath;
+  // Real X cookies never go into mock X's partition.
+  const importPath = mockX === null ? options.importCookiesPath : undefined;
   void (
     importPath === undefined ? Promise.resolve() : importCookies(xSession, importPath, options.log)
   )

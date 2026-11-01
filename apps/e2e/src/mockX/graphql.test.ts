@@ -43,9 +43,16 @@ it("answers every request X's pages make with the batch the made-up fixtures hol
   for (const want of fixtures) {
     const got = read.find((b) => b.op === want.op && b.key === want.key);
     expect(got, `${want.op} ${want.key}`).toBeDefined();
-    // A response names only the people it shows; each as the fixture has them.
+    // The people a screen needs from this response: a profile's own header, everyone a people
+    // timeline lists, every post's author. Each comes as the fixture has them.
+    const needed = [
+      ...(want.op === "UserByScreenName" ? want.users.map((u) => u.userId) : []),
+      ...want.people,
+      ...want.posts.map((p) => p.author.userId),
+    ];
+    expect(got!.users.map((u) => u.userId)).toEqual(expect.arrayContaining(needed));
     const users = new Map(want.users.map((u) => [u.userId, u]));
-    expect(got!.users).toEqual(got!.users.map((u) => users.get(u.userId)));
+    for (const u of got!.users) expect(u).toEqual(users.get(u.userId));
     expect({ ...got!, users: [] }).toEqual({ ...want, users: [] });
   }
 });

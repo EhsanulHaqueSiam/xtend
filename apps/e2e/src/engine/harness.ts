@@ -20,8 +20,10 @@ export const startEngine = () =>
     const mock = await startMockX();
     undo.push(mock.close);
     const env: Record<string, string> = {};
+    // None of the caller's XTEND_* reach this desktop (a cookie import, a dev URL, a debug port):
+    // it runs only on what is set below.
     for (const [k, v] of Object.entries(process.env))
-      if (v !== undefined && k !== "XTEND_DEV_URL" && !k.startsWith("ELECTRON_RUN_AS_NODE"))
+      if (v !== undefined && !k.startsWith("XTEND_") && !k.startsWith("ELECTRON_RUN_AS_NODE"))
         env[k] = v;
     const electron = await _electron.launch({
       executablePath: NodeModule.createRequire(NodePath.join(DESKTOP, "package.json"))(
