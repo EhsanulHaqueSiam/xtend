@@ -6,6 +6,8 @@ import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
+import { accountKey, looksRateLimited, pace, readStarts } from "./bench-pace.mjs";
+
 const USAGE = `node scripts/engine-bench.mjs [flags]
   (none)           every check once
   --runs 3         until three passes in a row, at most 3 rounds
@@ -14,7 +16,9 @@ const USAGE = `node scripts/engine-bench.mjs [flags]
   --only video     checks whose name contains "video"
   --shots DIR      a screenshot of the app after each check
   --parity DIR     per screen, Xtend's screen and x.com on the same page:
-                   DIR/<screen>-xtend.png and DIR/<screen>-x.png`;
+                   DIR/<screen>-xtend.png and DIR/<screen>-x.png
+  --force          start even when this account ran the bench too recently
+                   (under 5 minutes ago, or more than 4 runs in 30 minutes)`;
 if (process.argv.includes("--help")) {
   console.log(USAGE);
   process.exit(0);
@@ -1216,6 +1220,8 @@ const git = (...args) =>
 const branch = git("branch", "--show-current");
 const report = {
   branch: branch || "detached",
+  // Which account ran it, for pacing: a hash of X's user id, never the handle.
+  account: null,
   commit: git("rev-parse", "HEAD"),
   startedAt: new Date().toISOString(),
   flags: { runs: RUNS, pause: PAUSE_MS / 1000, only: ONLY ?? null },
@@ -1224,9 +1230,9 @@ const report = {
   bookmarks: null,
 };
 // For comparing runs and citing one in a PR; outside the repo, as it names the account's posts.
+const RESULTS = NodePath.join(NodeOS.homedir(), "Pictures/xtend-ui/bench");
 const reportFile = NodePath.join(
-  NodeOS.homedir(),
-  "Pictures/xtend-ui/bench",
+  RESULTS,
   branch.replaceAll("/", "-") || "detached",
   `${report.startedAt.replaceAll(":", "-")}.json`,
 );
@@ -1238,6 +1244,7 @@ const saveReport = () => {
 /** One pass over the chosen checks; the names that failed. */
 async function round(n) {
   const failed = [];
+  let emptyFailures = 0;
   const checks = [];
   report.runs.push({ n, startedAt: new Date().toISOString(), checks });
   for (const [index, [name, run]] of chosen.entries()) {
@@ -1273,6 +1280,7 @@ async function round(n) {
           `Object.entries($.lists).filter(([k, l]) => l.length > 0 && !k.startsWith("post:")).map(([k, l]) => k + "=" + l.length + ":" + l[0]).join(" ").slice(0, 400)`,
         ),
       ]).catch((error) => [error.message]);
+      if (where[3] === "") emptyFailures++;
       const timers = await Promise.race([
         engine(
           `new Promise((r) => { const t = performance.now(); setTimeout(() => r(document.visibilityState + ", a 100ms timer took " + Math.round(performance.now() - t) + "ms, page up " + Math.round(performance.now() / 1000) + "s"), 100); })`,
@@ -1305,6 +1313,10 @@ async function round(n) {
   touched.clear();
   if (cleaned) await go("#/home?feed=following");
   console.log(`${chosen.length - failed.length}/${chosen.length} passed`);
+  if (looksRateLimited(emptyFailures))
+    console.log(
+      `  ${emptyFailures} checks failed with the engine's lists empty: X may be rate-limiting this account. Wait 15 to 30 minutes before the next run.`,
+    );
   saveReport();
   return failed;
 }
@@ -1336,6 +1348,30 @@ async function startFresh() {
   await until(async () => (await engine(`document.readyState`)) === "complete", 30_000);
   await until(() => store(`$.homeTabs.length > 0`), 20_000);
 }
+// Paced across invocations, before anything reloads X: the account's id comes from the store
+// as the idle engine left it, or X's twid cookie. Unknown, every recorded run counts.
+const userId =
+  (await store(`$.viewer?.userId ?? null`).catch(() => null)) ??
+  (await engine(`decodeURIComponent(document.cookie).match(/twid=u=(\\d+)/)?.[1] ?? null`).catch(
+    () => null,
+  ));
+report.account = typeof userId === "string" ? accountKey(userId) : null;
+const paced = pace(readStarts(RESULTS, report.account ?? undefined), Date.now());
+if (!paced.ok) {
+  const at = new Date(paced.until).toTimeString().slice(0, 5);
+  if (!process.argv.includes("--force")) {
+    console.error(
+      `Not running: ${paced.why}, and X rate-limits the account. Run again after ${at}, or pass --force.`,
+    );
+    process.exit(1);
+  }
+  console.log(
+    `  WARNING: --force: ${paced.why}; X may answer with rate limits (wait until ${at}).`,
+  );
+}
+// Written now, so a run that dies before its first round still counts for the next one's pacing.
+saveReport();
+
 await startFresh();
 
 // Screens that open the user's own pages (Lists) follow the settings handle, and a seeded dev

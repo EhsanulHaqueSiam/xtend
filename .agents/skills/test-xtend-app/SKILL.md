@@ -82,6 +82,10 @@ XTEND_REMOTE_DEBUG=<port> node apps/desktop/scripts/engine-bench.mjs --only <are
 XTEND_REMOTE_DEBUG=<port> node apps/desktop/scripts/engine-bench.mjs --runs 3 --pause 300
 ```
 
+- The bench refuses to start under 5 minutes after the account's last run, or while more than 4
+  runs started in the last 30 minutes (from its results files, any branch), and prints when it
+  may run again. Don't `--force` it to retry a failure: when many checks fail at once with empty
+  lists it prints a rate-limit hint, and the cure is waiting 15 to 30 minutes.
 - Three clean runs in a row, five minutes apart, are the proof an engine PR names. Each run's
   table and timings land in `~/Pictures/xtend-ui/bench/<branch>/<time>.json` (the last line
   prints the path); cite that file's summary, and diff it against main's to spot a slower check. X rate-limits an
