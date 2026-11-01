@@ -106,10 +106,15 @@ export const xShows = (path: string) => {
  * Engine steps for Xtend's own X screens, run in X's page on the user's intent: X's own app does
  * the fetching, and the capture hands its responses to the screens. Nothing here sends anything.
  */
-const xRun = (code: string) =>
-  ready && element !== null
-    ? element.executeJavaScript(code).catch(() => null)
-    : Promise.resolve(null);
+const xRun = (code: string): Promise<unknown> => {
+  if (!ready || element === null) return Promise.resolve(null);
+  // Electron throws, not rejects, when the guest is not attached (yet, or any more).
+  try {
+    return element.executeJavaScript(code).catch(() => null);
+  } catch {
+    return Promise.resolve(null);
+  }
+};
 
 /**
  * Near a native list's end, X scrolls its own page to fetch the next. A jump to the bottom can
@@ -373,22 +378,35 @@ export const xProfileMenu = async (handle: string) =>
 export const xOverAtom = Atom.make(false);
 
 let overRun = 0;
-/** The user moved to another screen: whatever X's dialog was, the engine is no longer over it. */
-export const xOverEnded = () => void overRun++;
+/** Starts a new press: the latest one, in Xtend and in X's page alike. */
+const nextRun = async () => {
+  const run = ++overRun;
+  await xRun(`window.__xtendPress = ${run}, true`);
+  return run;
+};
+
+/**
+ * The user moved to another screen or tab: whatever X's dialog was, the engine is no longer over
+ * it, and a press still waiting in X's page (`stillMine`) gives up.
+ */
+export const xOverEnded = () => void nextRun();
+
+/** A script step in X's page: true while press `run` is still the user's latest. */
+const stillMine = (run: number) => `((window.__xtendPress ?? 0) === ${run})`;
 
 /**
  * Presses row `label` of X's menu `at` on `page` for the user's click. When X answers with its own
  * dialog or page, `over` puts the engine over the main area until X is back where it was with no
  * dialog (the user finished or closed it), or the user moved to another screen.
  */
-const pressMenu = (
+const pressMenu = async (
   page: { readonly url: string; readonly path: string },
   at: MenuAt,
   label: string,
   over: (shown: boolean) => void,
 ) => {
   // Taken before X answers: a screen change meanwhile means the dialog no longer belongs here.
-  const run = ++overRun;
+  const run = await nextRun();
   return onPage(
     page,
     () => xMenuPressInPlace(at, label),
@@ -427,7 +445,7 @@ export const xSubscribe = async (
 ) => {
   // Both go into scripts run in X's page: digits and a handle only.
   if (!/^\d{1,25}$/.test(user.userId) || !validHandle(user.handle)) return false;
-  const run = ++overRun;
+  const run = await nextRun();
   // A list row has the test id; a profile's header labels it "Subscribe to @handle" (any case).
   // Briefly where the engine is, longer on a profile X is still drawing.
   let tries = 10;
@@ -438,7 +456,8 @@ export const xSubscribe = async (
       [...document.querySelectorAll("button[aria-label]")].find((b) => b.getAttribute("aria-label").toLowerCase() === label);
     for (let i = 0; i < ${tries} && !find(); i++) await new Promise((r) => setTimeout(r, 100));
     const button = find();
-    if (!button) return null;
+    // The user moved on while X drew the page: the click is no longer theirs.
+    if (!button || !${stillMine(run)}) return null;
     const path = location.pathname + location.search;
     button.click();
     for (let i = 0; i < 20; i++) {

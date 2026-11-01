@@ -150,13 +150,15 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
   useEffect(() => {
     if (!onX) rememberToolRoute(href);
   }, [href, onX]);
-  // X's own dialog from a "..." row (Report, Block) belongs to the screen it was opened on.
-  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- ends X's own dialog over the main area when the user moves to another screen.
+  // X's own dialog from a "..." row (Report, Block) belongs to the screen it was opened on; a
+  // tab is a screen too (Follow's two tabs share a path).
+  const searchStr = useLocation({ select: (l) => l.searchStr });
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- ends X's own dialog over the main area when the user moves to another screen or tab.
   useEffect(() => {
     xOverEnded();
     setOver(false);
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- the pathname is the trigger: any screen change ends X's dialog.
-  }, [pathname, setOver]);
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- the path and search are the trigger: any screen or tab change ends X's dialog.
+  }, [pathname, searchStr, setOver]);
   const mode: XPaneMode = onX || over ? "main" : panelOpen ? "panel" : "hidden";
   // On Home the companion column takes X's hidden right column, so the pane leaves it room.
   const companionWidth = onX && wide ? COMPANION_WIDTH : 0;

@@ -11,6 +11,7 @@ import {
   xProfileMenu,
   xProfileMenuPress,
   xSortReplies,
+  xSubscribe,
   xVote,
   type XWebview,
 } from "./x";
@@ -182,7 +183,7 @@ it("presses only the row asked for: X's toast comes back, X's dialog keeps the e
   expect(shown).toEqual([true, false]);
 });
 
-it("leaves X's dialog to the screen it was opened on when the user moves on before X answers", async () => {
+it("leaves X's dialog, and a Subscribe still waiting, to the screen they began on when the user moves on", async () => {
   withMenu({
     "Block @theo": () =>
       document.body.insertAdjacentHTML("beforeend", `<div role="alertdialog"></div>`),
@@ -192,6 +193,16 @@ it("leaves X's dialog to the screen it was opened on when the user moves on befo
   xOverEnded();
   expect((await pressing)?.kind).toBe("over");
   expect(shown).toEqual([]);
+
+  // A Subscribe whose button X draws only after the user moved on never clicks it.
+  document.body.innerHTML = "";
+  const clicked: Array<string> = [];
+  const subscribing = xSubscribe({ userId: "786", handle: "theo" }, (on) => shown.push(on));
+  xOverEnded();
+  document.body.innerHTML = `<button data-testid="786-subscribe"></button>`;
+  document.querySelector("button")!.addEventListener("click", () => clicked.push("subscribe"));
+  expect(await subscribing).toBe(false);
+  expect(clicked).toEqual([]);
 });
 
 it("reads X's share rows from its share button, and Send via Chat keeps X's dialog over", async () => {

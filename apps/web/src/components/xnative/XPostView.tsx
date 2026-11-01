@@ -552,19 +552,27 @@ export function XPostView({
         })
       : pressRow(async () => {
           const outcome = await xPostMenuPress(xPost, label, setOver, menu);
-          // X's own Follow or Unfollow row: what X took holds like a Follow button's; after a
-          // dialog or a refusal, X's own word rules again.
-          const follow = /^(Un)?follow @/.exec(label);
-          if (follow !== null)
-            setEngine(
-              updateEngine((s) =>
-                askFollow(
-                  s,
-                  post.author.userId,
-                  outcome?.kind === "done" ? follow[1] === undefined : null,
-                ),
-              ),
-            );
+          // X's own "Follow @handle" / "Unfollow @handle" row: what X took holds like a Follow
+          // button's. After X's dialog (confirm or cancel), X's menu, read again, says which.
+          const follow = /^(Follow|Unfollow) @(\w{1,15})$/.exec(label);
+          if (
+            follow === null ||
+            follow[2]!.toLowerCase() !== post.author.handle.toLowerCase() ||
+            outcome === null
+          )
+            return outcome;
+          const following =
+            outcome.kind === "done"
+              ? follow[1] === "Follow"
+              : await xPostMenu(xPost).then((rows) =>
+                  rows?.includes(`Unfollow @${follow[2]}`)
+                    ? true
+                    : rows?.includes(`Follow @${follow[2]}`)
+                      ? false
+                      : undefined,
+                );
+          if (following !== undefined)
+            setEngine(updateEngine((s) => askFollow(s, post.author.userId, following)));
           return outcome;
         });
 

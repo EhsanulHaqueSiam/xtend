@@ -433,6 +433,53 @@ it("opens X's Lists page of the account X is signed in to, not the one Settings 
     });
     await expect.poll(() => scripts.some((s) => s.includes('"/me/lists"'))).toBe(true);
     expect(scripts.some((s) => s.includes("someone_else"))).toBe(false);
+
+it("keeps a follow X took from its own post menu, and asks X's menu again after X's dialog", async () => {
+  const bridge = installFakeBridge();
+  // The engine's answers, by what each script does: X's menu rows, then the row pressed.
+  let rows = ["Follow @theo"];
+  let pressed: unknown = { kind: "done", toast: null, undo: false };
+  registerXWebview({
+    getURL: () => "https://x.com/home",
+    loadURL: () => Promise.resolve(),
+    executeJavaScript: (code: string) =>
+      Promise.resolve(
+        code.includes("const labels") ? rows : code.includes("item.click()") ? pressed : false,
+      ),
+  } as unknown as XWebview);
+  markXReady();
+  const asked = () =>
+    (Reflect.get(window, "__xtendEngine") as () => { asked: ReadonlyMap<string, boolean> })().asked;
+  try {
+    await using screen = await render(
+      <div style={{ height: 800, display: "flex" }}>
+        <EngineSync />
+        <Timeline surface="likes" header={null} empty="Loading" onReopen={() => {}} />
+      </div>,
+      {
+        service: {
+          "settings.get": () => Effect.succeed({ ...settings, sessionPostingEnabled: true }),
+        },
+      },
+    );
+    bridge.emitEngine(batch("Likes", [post("60", "Shipping today")]));
+    const row = screen.getByRole("article").first();
+    await row.getByRole("button", { name: "More" }).click();
+    await screen.getByRole("menuitem", { name: "Follow @theo" }).click();
+    await expect.poll(() => asked().get("1")).toBe(true);
+
+    // Unfollow asks first in X's dialog; the user cancels, and X's menu still says Unfollow.
+    rows = ["Unfollow @theo"];
+    pressed = { kind: "over", path: "/home" };
+    await row.getByRole("button", { name: "More" }).click();
+    await screen.getByRole("menuitem", { name: "Unfollow @theo" }).click();
+    await expect.poll(() => asked().get("1"), { timeout: 5000 }).toBe(true);
+    // A row for someone else is not this author's follow.
+    rows = ["Follow @theodore"];
+    pressed = { kind: "done", toast: null, undo: false };
+    await row.getByRole("button", { name: "More" }).click();
+    await screen.getByRole("menuitem", { name: "Follow @theodore" }).click();
+    expect(asked().get("1")).toBe(true);
   } finally {
     registerXWebview(null);
   }
