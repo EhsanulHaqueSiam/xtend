@@ -569,6 +569,9 @@ describe("renderEngineBatch around posts", () => {
       "42:Recency",
       "42:Likes",
     ]);
+    // Post activity's people: who reposted and who liked post 42.
+    expect(renderEngineBatch("Retweeters", { tweetId: "42", count: 20 }, {}).key).toBe("42");
+    expect(renderEngineBatch("Favoriters", { tweetId: "42", count: 20 }, {}).key).toBe("42");
     const header = renderEngineBatch(
       "ListByRestId",
       { listId: "12" },

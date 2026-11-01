@@ -64,6 +64,8 @@ type KeyedSurface =
   | `explore:${string}`
   | `search:${SearchProduct}:${string}`
   | `post:${string}`
+  | `reposters:${string}`
+  | `likers:${string}`
   | `profile:${ProfileTab}:${string}`;
 export type AnySurface = Surface | KeyedSurface;
 
@@ -76,6 +78,15 @@ export type ReplySort = (typeof REPLY_SORTS)[number];
 /** @public A thread's list per reply order: X sends each order's replies afresh, in its own order. */
 export const postSurface = (postId: string, sort: ReplySort = "Relevance") =>
   sort === "Relevance" ? (`post:${postId}` as const) : (`post:${postId}:${sort}` as const);
+/** @public Who reposted and who liked a post, as X's Post activity lists them. */
+export const postPeopleSurface = (kind: "reposters" | "likers", postId: string) =>
+  `${kind}:${postId}` as const;
+/**
+ * The search X's Post activity runs for a post's quotes, as its Quotes tab sends it; the results
+ * sit under that search's own surface.
+ */
+export const quotesQuery = (postId: string) =>
+  `quoted_tweet_id:${postId} OR url:"status/${postId}/video" OR url:"status/${postId}/photo"`;
 /** @public */
 export const profileSurface = (tab: ProfileTab, userId: string) =>
   `profile:${tab}:${userId}` as const;
@@ -127,6 +138,8 @@ export function surfacesOf(batch: Pick<EngineBatch, "op" | "key">): ReadonlyArra
   if (op === "HomeTimeline") return [tabKey(key, "tag") ?? "forYou"];
   if (op === "HomeLatestTimeline") return ["following"];
   if (op === "Bookmarks") return ["bookmarks"];
+  if (key !== null && op === "Retweeters") return [postPeopleSurface("reposters", key)];
+  if (key !== null && op === "Favoriters") return [postPeopleSurface("likers", key)];
   // The signed-in account's likes, under X's History beside Bookmarks.
   if (op === "Likes") return ["likes"];
   if (op === "ListsManagementPageTimeline") return ["lists"];

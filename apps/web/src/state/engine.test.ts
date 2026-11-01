@@ -160,6 +160,8 @@ it("files pinned Home tabs, Lists, Communities and Explore tabs under their own 
     postSurface("42", "Recency"),
     "post",
   ]);
+  expect(surfacesOf({ op: "Retweeters", key: "42" })).toEqual(["reposters:42"]);
+  expect(surfacesOf({ op: "Favoriters", key: "42" })).toEqual(["likers:42"]);
   expect(surfacesOf({ op: "UserFollowers", key: null })).toEqual([]);
 
   const state = mergeBatch(

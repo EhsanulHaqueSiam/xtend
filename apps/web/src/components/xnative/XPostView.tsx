@@ -527,9 +527,18 @@ export function XPostView({
   const shareItems = shareRows?.includes("Copy link")
     ? shareRows
     : [...(shareRows ?? []), "Copy link"];
-  /** X's own row for the user's click; X's dialogs (Report, Block, Send via Chat) show over the main area. */
+  /**
+   * X's own row for the user's click; X's dialogs (Report, Block, Send via Chat) show over the main
+   * area. Post activity, X's own page of quotes and reposts, is Xtend's native screen of it.
+   */
   const pressX = (label: string, menu: XPostMenu = "more") =>
-    pressRow(() => xPostMenuPress(xPost, label, setOver, menu));
+    label === "View post activity"
+      ? void navigate({
+          to: "/post/$id/activity",
+          params: { id: post.postId },
+          search: { h: post.author.handle, tab: "quotes" },
+        })
+      : pressRow(() => xPostMenuPress(xPost, label, setOver, menu));
 
   const name = (
     <span className="flex min-w-0 items-center gap-1">

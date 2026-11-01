@@ -616,6 +616,57 @@ const benchmarks = [
     },
   ],
   [
+    "Post activity: Quotes and Reposts list what X's page lists",
+    async () => {
+      await go(`#/search?q=${encodeURIComponent(SEARCH)}&f=top`);
+      const post = await until(() =>
+        store(
+          `(() => { const p = at($.lists, ${JSON.stringify(`search:Top:${SEARCH}`)}).map((id) => $.posts.get(id)).find((p) => p.metrics.quotes >= 3 && p.metrics.reposts >= 3); return p && { id: p.postId, handle: p.author.handle }; })()`,
+        ),
+      );
+      if (!post) return false;
+      // The top of the quotes, native and on X's page. Quotes are tall rows (the quoted post
+      // inside), so the virtualized list draws only two at first.
+      const same = async (ours, xs, n) =>
+        until(async () => {
+          const [a, b] = [await app(ours), await engine(xs)];
+          return (
+            a?.length === n && JSON.stringify(a) === JSON.stringify(b.slice(0, n)) && a.join(",")
+          );
+        });
+      await go(`#/post/${post.id}/activity?h=${post.handle}&tab=quotes`);
+      const quotes = await same(
+        `[...document.querySelectorAll("main article[data-post]")].slice(0, 2).map((a) => a.dataset.post)`,
+        `[...document.querySelectorAll("article")].slice(0, 2).map((a) => a.querySelector('a[href*="/status/"] time')?.parentElement.getAttribute("href")?.split("/status/")[1])`,
+        2,
+      );
+      if (!quotes || !(await enginePath()).endsWith(`/status/${post.id}/quotes`)) return false;
+      await app(
+        `[...document.querySelectorAll('[role="tab"]')].find((t) => t.textContent === "Reposts")?.click(), true`,
+      );
+      // X's page keeps only the rows near its scroll, and paging scrolls it down: the people X
+      // draws must sit together, in X's order, in the list the native screen draws.
+      const reposts = await until(async () => {
+        const ours = await store(
+          `at($.people, "reposters:${post.id}").map((id) => $.users.get(id)?.handle)`,
+        );
+        const xs = await engine(
+          `[...document.querySelectorAll('[data-testid="UserCell"]')].slice(0, 3).map((u) => u.querySelector('a[href^="/"]')?.getAttribute("href").slice(1).toLowerCase())`,
+        );
+        const drawn = await app(`document.querySelectorAll('main [data-x="user"]').length`);
+        const at = ours?.indexOf(xs?.[0]) ?? -1;
+        return (
+          drawn >= 3 &&
+          xs?.length === 3 &&
+          at !== -1 &&
+          JSON.stringify(ours.slice(at, at + 3)) === JSON.stringify(xs) &&
+          xs.join(",")
+        );
+      });
+      return reposts && `${post.id}: quotes ${quotes}; reposts ${reposts}`;
+    },
+  ],
+  [
     "X's reply, repost, quote and like are reachable on the post (dry)",
     async () => {
       const post = await until(() =>
