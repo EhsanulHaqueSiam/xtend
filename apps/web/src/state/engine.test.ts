@@ -2,6 +2,7 @@ import type { EngineBatch, EngineNotification, EnginePost, EngineUser } from "@x
 import { expect, it } from "vite-plus/test";
 
 import {
+  askFollow,
   at,
   emptyEngine,
   mergeBatch,
@@ -11,6 +12,7 @@ import {
   showWaiting,
   surfacesOf,
   userByHandle,
+  youFollow,
 } from "./engine";
 
 const post = (postId: string, createdAt: string, quotedId: string | null = null): EnginePost => ({
@@ -182,7 +184,7 @@ it("files pinned Home tabs, Lists, Communities and Explore tabs under their own 
   expect(state.homeTabs).toEqual([{ id: "tag:19", label: "Tech" }]);
 });
 
-it("keeps notifications in X's order, newer on top, and people by surface", () => {
+it("keeps notifications in X's order, newer on top, people by surface, and follows until X agrees", () => {
   const note = (id: string): EngineNotification => ({
     id,
     kind: "event",
@@ -246,6 +248,18 @@ it("keeps notifications in X's order, newer on top, and people by surface", () =
   expect(userByHandle(state, "Theo")?.userId).toBe("5");
   expect(userByHandle(state, "ann")?.userId).toBe("1");
   expect(resetSurface(state, "search").people.search).toEqual([]);
+
+  // A follow X took holds against a page X answered before it, until a capture agrees.
+  state = mergeBatch(
+    askFollow(state, "5", true),
+    batch("Other", [], { users: [user("5", "theo")] }),
+  );
+  expect(youFollow(state, state.users.get("5")!)).toBe(true);
+  state = mergeBatch(
+    state,
+    batch("Other", [], { users: [{ ...user("5", "theo"), youFollow: true }] }),
+  );
+  expect(state.asked.size).toBe(0);
 });
 
 it("keeps the signed-in account's id when X's nav names it again without one", () => {

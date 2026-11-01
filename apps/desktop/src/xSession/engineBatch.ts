@@ -598,7 +598,7 @@ function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExp
     } catch {
       return null;
     }
-    if (!isRecord(context)) return null;
+    if (!isRecord(context) || Array.isArray(context)) return null;
     const keys = Object.keys(context);
     return keys.length === 0
       ? "connect:who"

@@ -325,6 +325,7 @@ const onPage = async <A>(
   page: { readonly url: string; readonly path: string },
   step: () => Promise<A | null>,
   leave: (result: A) => Promise<unknown> = () => Promise.resolve(),
+  live: () => boolean = () => true,
 ): Promise<A | null> => {
   // No engine (a browser): no X.
   if (element === null || !ready) return null;
@@ -333,8 +334,9 @@ const onPage = async <A>(
   const moved = await xGo(page.url);
   const there = await step();
   if (there !== null) await leave(there);
-  // Back only from a page this step opened, and only while the engine is still on it.
-  if (moved)
+  // Back only from a page this step opened, while the engine is still on it, and while this
+  // press is still the user's latest: a screen they opened since owns the engine now.
+  if (moved && live())
     await xRun(
       `location.pathname.toLowerCase().endsWith(${JSON.stringify(page.path.toLowerCase())}) && history.back(), true`,
     );
@@ -389,6 +391,7 @@ const pressMenu = (
     page,
     () => xMenuPressInPlace(at, label),
     (outcome) => (outcome.kind === "over" ? holdOver(run, outcome.path, over) : Promise.resolve()),
+    () => run === overRun,
   );
 };
 
@@ -445,8 +448,10 @@ export const xSubscribe = async (
       tries = 50;
       return typeof path === "string" ? path : null;
     });
+  const live = () => run === overRun;
   return (
-    (await onPage(profilePage(user.handle), press, (path) => holdOver(run, path, over))) !== null
+    (await onPage(profilePage(user.handle), press, (path) => holdOver(run, path, over), live)) !==
+    null
   );
 };
 

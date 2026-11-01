@@ -216,6 +216,11 @@ export interface EngineState {
   readonly entries: Readonly<Partial<Record<AnySurface, ReadonlyMap<string, PostEntry>>>>;
   /** Everyone the engine has seen (authors, people X listed, profile headers), by user id. */
   readonly users: ReadonlyMap<string, EngineUser>;
+  /**
+   * Follows and unfollows X took for the user's click, per person, until a capture of that person
+   * agrees: a page X answered before the click would otherwise turn the button back.
+   */
+  readonly asked: ReadonlyMap<string, boolean>;
   /** Post ids per surface. */
   readonly lists: PerSurface<string>;
   /** Newer posts X fetched for a list's top; they wait behind a pill instead of shifting the list. */
@@ -248,6 +253,7 @@ export const emptyEngine: EngineState = {
   posts: new Map(),
   entries: {},
   users: new Map(),
+  asked: new Map(),
   lists: NONE,
   waiting: NONE,
   nextTop: NONE,
@@ -297,10 +303,13 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
   const posts = new Map(state.posts);
   for (const post of batch.posts) posts.set(post.postId, post);
   let users = state.users;
+  let asked = state.asked;
   if (batch.users.length > 0) {
     const next = new Map(users);
     for (const user of batch.users) next.set(user.userId, user);
     users = next;
+    if (batch.users.some((u) => asked.get(u.userId) === u.youFollow))
+      asked = new Map([...asked].filter(([id, f]) => next.get(id)?.youFollow !== f));
   }
   let xLists = state.xLists;
   if (batch.lists.length > 0) {
@@ -312,6 +321,7 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
     ...state,
     posts,
     users,
+    asked,
     xLists,
     homeTabs: batch.homeTabs ?? state.homeTabs,
     exploreTabs: batch.exploreTabs ?? state.exploreTabs,
@@ -533,6 +543,16 @@ export const postOn = (
   const entry = state.entries[surface]?.get(postId);
   return post === undefined || entry === undefined ? post : { ...post, ...entry };
 };
+
+/** Whether the user follows someone: what they asked X for, until X's capture agrees. */
+export const youFollow = (state: EngineState, user: EngineUser) =>
+  state.asked.get(user.userId) ?? user.youFollow;
+
+/** Keeps a follow or unfollow X took for the user's click (see `asked`). */
+export const askFollow = (state: EngineState, userId: string, following: boolean): EngineState => ({
+  ...state,
+  asked: new Map(state.asked).set(userId, following),
+});
 
 /** The person behind a handle, once X has listed them or opened their profile. */
 export const userByHandle = (state: EngineState, handle: string): EngineUser | undefined => {

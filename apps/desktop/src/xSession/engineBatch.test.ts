@@ -581,7 +581,8 @@ describe("renderEngineBatch around posts", () => {
       connect('{"contextualUserId":"7"}'),
       connect('{"contextualUserId":"7","isCreatorOnlyConnectTab":true}'),
       connect("not json"),
-    ]).toEqual(["connect:who", "connect:creators", null, null, null]);
+      connect("[]"),
+    ]).toEqual(["connect:who", "connect:creators", null, null, null, null]);
     expect(renderEngineBatch("ConnectTabTimeline", { count: 20 }, {}).key).toBeNull();
     const header = renderEngineBatch(
       "ListByRestId",
