@@ -14,15 +14,18 @@ do not install another automation system.
 Reuse this task's healthy dev processes. Otherwise, from the repository root:
 
 ```sh
-pnpm dev
+pnpm dev                          # seeded demo data on first start, paid lanes fake
+pnpm dev --fixture <name>         # one named UI state, in .xtend-fixtures/<name>; prints its URL
 ```
 
-This runs the service and the web app on this checkout's port pair, with state in the gitignored
-`<repo>/.xtend`, and prints both URLs. The main checkout gets `http://127.0.0.1:4820` and
-`http://localhost:5820` while they are free; a worktree gets a pair of its own. The examples
-below use the defaults: substitute the printed ports. Never point a dev service at `~/.xtend`.
+It prints the port pair, the state home and the lanes line; use the printed ports. Fixtures live
+in `scripts/fixtures` (`first-run`, `failed-posts`, `budget-nearly-spent`, `x-screens`, ...): pick
+the one that shows the change, or add one for it. Never point a dev service at `~/.xtend`; `--seed
+real` copies it safely when the change needs real data.
 
-The desktop shell needs `pnpm dev` running first and connects to the pair it printed:
+Native X screens need the engine: in a plain browser add `?engine=all` (or named fixtures) to
+the URL, which replays recorded X data. For the real engine, the desktop shell needs `pnpm dev`
+running first and connects to the pair it printed:
 
 ```sh
 pnpm dev:desktop
@@ -30,8 +33,15 @@ pnpm dev:desktop
 
 On a host without a display (the Mac mini over ssh), start it with `XTEND_REMOTE_DEBUG=9223`
 (another free port when a second dev desktop holds 9223) and drive it with
-`node apps/desktop/scripts/cdp.mjs shot|eval|click|type`. A dev desktop
+`node apps/desktop/scripts/cdp.mjs shot|eval|click|type|record|dump`. A dev desktop
 started with `XTEND_SHOT_DIR` also writes a capture on `kill -USR2 <pid>`.
+
+## Inspect and bend state
+
+`node apps/server/scripts/xtend-sqlite-state.ts query --base-dir <home> --sql "..."` reads the
+dev database. `exec` writes one statement after a backup, refuses `~/.xtend`, and refuses while
+the service holds the database: stop it first. Direct writes are for visual states; prove
+behaviour through the service.
 
 ## Seed observations
 
@@ -73,6 +83,12 @@ XTEND_REMOTE_DEBUG=<port> node apps/desktop/scripts/engine-bench.mjs --runs 3 --
 Fake-service screen tests, seeded observations and session-lane reads are free. X API calls through
 treg and model calls spend the user's balance: use them only when the change depends on that lane,
 and say what it cost. Keep the treg token, X handles' DMs and cookies out of screenshots you share.
+
+## Capture evidence
+
+`pnpm capture --routes /a,/b --viewports 1440x900,390x844 --label after` screenshots the running
+dev app into `~/Pictures/xtend-ui/<branch>/` and prints Markdown embeds. For before/after, run the
+same fixture with the same `--clock` on main's checkout (`--label before`) and on the branch.
 
 ## Verify and retain
 

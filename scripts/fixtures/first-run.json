@@ -1,0 +1,5 @@
+{
+  "description": "A fresh install: no handle, no token, nothing observed. Every screen's empty state and its first step.",
+  "seed": "none",
+  "open": "/today"
+}

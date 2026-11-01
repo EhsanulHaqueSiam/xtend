@@ -11,7 +11,8 @@ dist-electron/
 .tanstack
 .env
 .env.local
-.xtend/
+# Dev state, its moved-aside copies and fixture homes.
+.xtend*/
 .plans/
 apps/desktop/release/
 dist-cli/

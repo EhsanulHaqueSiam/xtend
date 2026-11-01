@@ -3,6 +3,7 @@ import type { EngineUser } from "@xtend/contracts";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Virtuoso } from "react-virtuoso";
 
+import { isElectron } from "../../env";
 import { xScrollMore } from "../../state/x";
 import { Empty } from "../ui/layout";
 import { useXScrollParent } from "./XColumn";
@@ -61,7 +62,7 @@ export function XEmpty({
   return (
     <Empty
       action={
-        quiet ? (
+        quiet && isElectron ? (
           <span className="flex gap-2">
             <button
               type="button"
@@ -81,7 +82,11 @@ export function XEmpty({
         ) : undefined
       }
     >
-      {quiet ? "X has not sent this yet. It may be signed out or slow." : empty}
+      {!quiet
+        ? empty
+        : isElectron
+          ? "X has not sent this yet. It may be signed out or slow."
+          : "A browser has no X engine. In dev, replay a fixture: add ?engine=<name> to the URL."}
     </Empty>
   );
 }

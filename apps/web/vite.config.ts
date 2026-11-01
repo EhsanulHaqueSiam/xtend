@@ -43,8 +43,6 @@ const browserTestProject = {
     include: ["src/**/*.browser.test.{ts,tsx}"],
     // Render benchmarks: measurements, not gates, so only `vp test bench` runs them.
     benchmark: { include: ["src/**/*.browser.bench.{ts,tsx}"] },
-    hookTimeout: 15_000,
-    testTimeout: 15_000,
     setupFiles: ["./test/browserSetup.ts"],
     api: { port: browserTestApiPort, strictPort: false },
     browser: {

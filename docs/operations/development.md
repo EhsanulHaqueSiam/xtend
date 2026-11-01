@@ -65,7 +65,42 @@ it from one through the GitHub CLI, since the repo is private. It needs Node 24 
 
 The service keeps everything under one base directory: `~/.xtend` by default, `--base-dir`
 to override, `XTEND_HOME` as the environment equivalent. Dev always passes an explicit
-`--base-dir` so a development server never touches the real data.
+`--base-dir` (`<repo>/.xtend`, or `pnpm dev --home <dir>`) so a development server never touches
+the real data.
+
+## Dev data and UI states
+
+An empty database is a bad test. `pnpm dev` seeds a fresh home on its first start
+(`apps/server/scripts/seed-dev.ts`): every screen has data (posts with metric history, drafts in
+every status, rules with runs, people, lists, library, inbox, spend), times shifted to now, and
+nothing that acts on its own: rules and agents off, nothing due, session posting off, pool
+sharing off, no treg token.
+
+- **Paid lanes are fake.** Dev points treg, the pool and AI assist at a local fake
+  (`apps/e2e/src/fakeTreg.ts`, the one the e2e journeys use); the runner prints the lanes line.
+  `--live` sends treg and the pool to the real services and spends the balance.
+- **Seeds.** `--seed demo` (default, `XTEND_DEV_SEED`), `--seed real` copies `~/.xtend`
+  read-only (`copy-dev-db.ts`: recent rows only, the same neutralizing, tokens and secrets dropped,
+  never the auth token or the Electron profile), `--seed none` starts empty. A seed runs only when
+  the home has no database; move `.xtend` aside to reseed.
+- **Fixtures** reproduce one UI state: `pnpm dev --fixture <name> [--fresh]` seeds
+  `.xtend-fixtures/<name>`, applies the fixture's SQL and prints the URL that shows it.
+  A fixture is `scripts/fixtures/<name>.json` (`description`, `seed`, `frozen`, `sql`, `open`).
+  Write one per bug or edge case worth seeing again; direct SQL is for visual states only.
+- **X screens without the desktop.** `?engine=home,post` (or `all`) on any dev URL replays engine
+  fixtures from `apps/web/test/fixtures/engine` into the native screens; `window.xtendDev` has
+  `replay(name)` and `fixtures()`. `pnpm engine-fixture synth` rewrites the made-up set;
+  `cdp.mjs record` / `dump` on a running dev desktop records real batches outside the repo, and
+  `pnpm engine-fixture scrub <recording> <name>` replaces every id, handle, name, text and image
+  before anything is committed.
+- **Inspecting state.** `node apps/server/scripts/xtend-sqlite-state.ts query|exec --base-dir <home>
+  --sql ...`: `query` is read-only; `exec` refuses `~/.xtend` and an open database and backs up
+  first.
+- **Evidence.** `pnpm capture --routes /a,/b [--viewports 1440x900,390x844] [--clock <iso>]
+  [--label before|after]` screenshots the running dev app into `~/Pictures/xtend-ui/<branch>/` and
+  prints Markdown embeds. Before/after: the same fixture and clock on main's checkout and on the
+  branch. A `frozen` fixture with `--clock 2026-10-28T09:00:00Z` (the seed's clock) captures the
+  same pixels every run. Upload images for a PR; never commit them.
 
 ## Checks
 

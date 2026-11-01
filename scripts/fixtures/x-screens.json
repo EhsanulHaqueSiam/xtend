@@ -1,0 +1,6 @@
+{
+  "description": "Demo data plus every recorded X screen replayed into the browser: Home, a post, a profile, notifications, search, bookmarks, Explore and Lists, with no desktop.",
+  "seed": "demo",
+  "frozen": true,
+  "open": "/home?engine=all"
+}

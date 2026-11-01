@@ -1,16 +1,29 @@
 import { useAtomValue } from "@effect/atom-react";
 import { createRootRoute, Outlet, useLocation, useNavigate } from "@tanstack/react-router";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { useEffect, useRef } from "react";
+import { lazy, Suspense, useEffect, useRef } from "react";
 
 import { AccountSync } from "../components/shell/AccountSync";
 import { AppShell } from "../components/shell/AppShell";
 import { ShellHotkeys } from "../components/shell/ShellHotkeys";
 import { ShellNotifications } from "../components/shell/ShellNotifications";
 import { TooltipProvider } from "../components/ui/tooltip";
+import { isElectron } from "../env";
 import { setDisplayZone } from "../lib/time";
 import { settingsAtom } from "../state/settings";
 import { connectionAtom } from "../state/shell";
+
+// Dev in a browser: X engine fixtures replayed into the native X screens. Never in a build, and
+// never beside a real engine. `?engine=` is read here, before the router drops undeclared params.
+const DevEngineReplay =
+  import.meta.env.DEV && !isElectron
+    ? lazy(() =>
+        import("../components/xnative/DevEngineReplay").then((m) => ({
+          default: m.DevEngineReplay,
+        })),
+      )
+    : null;
+const ENGINE_ASKED = new URLSearchParams(window.location.search).get("engine");
 
 /** Every timestamp the UI prints follows the account zone from Settings. */
 function ZoneSync() {
@@ -92,6 +105,11 @@ export const Route = createRootRoute({
   component: () => (
     <TooltipProvider delay={300}>
       <ZoneSync />
+      {DevEngineReplay === null ? null : (
+        <Suspense fallback={null}>
+          <DevEngineReplay asked={ENGINE_ASKED} />
+        </Suspense>
+      )}
       <AccountSync />
       <ShellHotkeys />
       <ShellNotifications />
