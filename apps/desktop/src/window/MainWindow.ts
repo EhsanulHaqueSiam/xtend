@@ -39,6 +39,7 @@ import { failureReason, recoveryPage } from "../service/recoveryPage.ts";
 import { attachDesktopCommands } from "../service/DesktopCommands.ts";
 import { viewerBatch } from "../xSession/engineBatch.ts";
 import { attachSessionCapture } from "../xSession/SessionCapture.ts";
+import { MOCK_X_PARTITION, useMockX } from "./mockX.ts";
 import {
   browserUserAgent,
   externalWebUrl,
@@ -85,6 +86,8 @@ export interface MainWindowOptions {
   readonly sessionUrlFile: string;
   /** One-time cookie import: a JSON array of {name, value, domain} written by the user; deleted after import. */
   readonly importCookiesPath?: string | undefined;
+  /** Mock X's origin (dev and tests): x.com on its own partition, answered by the mock. */
+  readonly mockX?: string | null;
   readonly log: (message: string, detail?: unknown) => void;
 }
 
@@ -177,8 +180,10 @@ const useSystemSpellcheckLanguages = (s: Electron.Session) => {
  * and `openRoute` for deep links.
  */
 export function createMainWindow(options: MainWindowOptions) {
-  const partition = sessionPartition(options.accountId);
+  const mockX = options.mockX ?? null;
+  const partition = mockX === null ? sessionPartition(options.accountId) : MOCK_X_PARTITION;
   const xSession = session.fromPartition(partition);
+  if (mockX !== null) useMockX(xSession, mockX, options.log);
   allowXPermissions(xSession);
   useSystemSpellcheckLanguages(xSession);
 

@@ -213,6 +213,37 @@ Both need `pnpm build` first.
 - macOS has no `timeout` command. Bound a command with its own limit (`cdp.mjs net <seconds>`,
   `check:changed --timeout`, `curl --max-time`) or `perl -e 'alarm shift; exec @ARGV' 30 <cmd>`.
 
+## Mock X
+
+`apps/e2e/src/mockX` is a local x.com for the engine: X's pages (Home with its tabs, a post and its
+reply sorts, profiles, search tabs, Bookmarks, Notifications, Explore, Lists and a List's people,
+Post activity, the Follow page) with X's markup and test ids, X's client-side routing and page
+cache, and X's GraphQL answers built from the made-up people and posts of `synth()`. Presses
+change its state and land in a press log; nothing is sent anywhere, and its images are `data:`
+URLs. `XTEND_MOCK_X=<origin>` on an unpackaged desktop serves `https://x.com` from it on the
+in-memory `x-mock` partition, so main's gating and capture run unchanged and no request leaves
+the machine; a packaged build ignores it.
+
+- `pnpm mock-x --desktop` (with `pnpm dev` running) opens the dev desktop on mock X: UI work on X
+  screens with no account. `pnpm mock-x` alone prints the origin for `XTEND_MOCK_X`.
+- `pnpm test:engine` builds the web app and the desktop, then drives Xtend's screens on the
+  desktop with mock X as the engine (`apps/e2e/src/engine`). CI runs it in the build job under
+  `xvfb-run`.
+- `graphql.test.ts` holds the contract: every request mock X's pages make, read by the
+  capture's `renderEngineBatch`, is the matching `synth()` batch. A capture change that drifts
+  from X's shapes fails there or in `engineBatch.test.ts`.
+
+Which tier proves what:
+
+| tier                            | proves                                                                      |
+| ------------------------------- | --------------------------------------------------------------------------- |
+| fixtures replay (`?engine=`)    | how a native screen draws engine data, in a plain browser                   |
+| mock X (`pnpm test:engine`)     | the engine loop: X's page, the capture, the store, Xtend's screens, presses |
+| live bench (`engine-bench.mjs`) | that x.com itself still sends and draws what the mock assumes               |
+
+PR screenshots and recordings come from mock X or the fixtures, never the real account: the repo
+is public.
+
 ## CI and releases
 
 `.github/workflows/ci.yml` runs on `ubuntu-24.04`, each job set up by `.github/actions/setup`:

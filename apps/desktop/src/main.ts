@@ -22,6 +22,7 @@ import { deepLinkToRoute, type ServiceMode } from "./service/supervision.ts";
 import { createTray } from "./tray.ts";
 import { defaultChannel, devUpdateFeed, startUpdates } from "./updates.ts";
 import { createMainWindow } from "./window/MainWindow.ts";
+import { mockXOrigin } from "./window/mockX.ts";
 import * as Schema from "effect/Schema";
 
 const log = (message: string, detail?: unknown) => {
@@ -48,6 +49,9 @@ const configFile = NodePath.join(app.getPath("userData"), "config.json");
 const remote = process.env.XTEND_SERVICE_URL === undefined ? readRemote(configFile) : null;
 const serviceUrl = process.env.XTEND_SERVICE_URL ?? remote?.url ?? "http://127.0.0.1:4820";
 const appUrl = process.env.XTEND_DEV_URL ?? serviceUrl;
+// Dev and tests only: the session view's x.com answered by mock X on this machine.
+const mockX = mockXOrigin(process.env.XTEND_MOCK_X, app.isPackaged);
+if (mockX !== null) log("x.com is mock X", mockX);
 
 // The service writes auth-token on first start; sharing its base dir is how the desktop is trusted.
 const readServiceToken = (): string => {
@@ -127,6 +131,7 @@ const openWindow = () => {
     queueDir: NodePath.join(baseDir, "observation-queue"),
     sessionUrlFile: NodePath.join(baseDir, "session-url"),
     importCookiesPath: process.env.XTEND_IMPORT_COOKIES,
+    mockX,
     log,
   });
   main = created;

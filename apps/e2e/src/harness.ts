@@ -35,14 +35,15 @@ type Method = Rpc.Tag<Rpcs>;
 type RpcOf<M extends Method> = Rpc.ExtractTag<Rpcs, M>;
 
 /**
- * The real service on a temp base dir and free port, talking to a fake treg, plus a headless
- * Chromium page on the web app it serves. One per test file; `close` removes all of it.
+ * Runs `launch` in a fresh temp dir. Everything startup acquires is undone in reverse on close
+ * and also when startup fails partway, so a failed launch leaves no process or temp dir behind;
+ * one failing step does not skip the rest.
  */
-export async function startApp() {
-  const dir = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "xtend-e2e-"));
-  // Everything startup acquires, undone in reverse on close and also when startup fails partway,
-  // so a failed launch leaves no service, fake treg or temp dir behind; one failing step does not
-  // skip the rest.
+export async function withTempDir<A>(
+  prefix: string,
+  launch: (dir: string, undo: Array<() => Promise<unknown>>) => Promise<A>,
+) {
+  const dir = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), prefix));
   const undo: Array<() => Promise<unknown>> = [
     () => NodeFSP.rm(dir, { recursive: true, force: true }),
   ];
@@ -57,8 +58,26 @@ export async function startApp() {
   }
 }
 
-/** Starts each piece in order, registering how to undo it before the next step can fail. */
-async function launch(dir: string, undo: Array<() => Promise<unknown>>) {
+/**
+ * The real service on a temp base dir and free port, talking to a fake treg, plus a headless
+ * Chromium page on the web app it serves. One per test file; `close` removes all of it.
+ */
+export const startApp = () =>
+  withTempDir("xtend-e2e-", async (dir, undo) => {
+    const service = await startService(dir, undo);
+    const browser = await chromium.launch();
+    undo.push(() => browser.close());
+    const context = await browser.newContext({
+      baseURL: service.url,
+      viewport: { width: 1440, height: 900 },
+    });
+    context.setDefaultTimeout(10_000);
+    const page = await context.newPage();
+    return { page, treg: service.treg, rpc: service.rpc, observe: service.observe };
+  });
+
+/** The service and its fake treg, each registered in `undo` before the next step can fail. */
+export async function startService(dir: string, undo: Array<() => Promise<unknown>>) {
   const baseDir = NodePath.join(dir, "state");
   const treg = await startFakeTreg();
   undo.push(treg.close);
@@ -125,16 +144,7 @@ async function launch(dir: string, undo: Array<() => Promise<unknown>>) {
     await post("/api/observations", batch);
   };
 
-  const browser = await chromium.launch();
-  undo.push(() => browser.close());
-  const context = await browser.newContext({
-    baseURL: url,
-    viewport: { width: 1440, height: 900 },
-  });
-  context.setDefaultTimeout(10_000);
-  const page = await context.newPage();
-
-  return { page, treg, rpc, observe };
+  return { url, baseDir, token, treg, rpc, observe };
 }
 
 export type App = Awaited<ReturnType<typeof startApp>>;

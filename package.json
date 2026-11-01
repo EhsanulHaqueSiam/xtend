@@ -29,6 +29,8 @@
     "knip": "knip",
     "test": "vp run -r test && vp test run --dir scripts && node --test .github/scripts",
     "test:e2e": "pnpm --filter @xtend/e2e test:e2e",
+    "test:engine": "pnpm --filter @xtend/e2e test:engine",
+    "mock-x": "node apps/e2e/scripts/mock-x.ts",
     "fmt": "vp fmt",
     "fmt:check": "vp fmt --check",
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/*/dist apps/*/dist-electron packages/*/dist .vite-plus apps/*/.vite-plus packages/*/.vite-plus",
