@@ -170,6 +170,36 @@ export const xPickHomeTab = (label: string) =>
   })`);
 
 /**
+ * Picks X's tab `label` (Top, Latest) on Community `communityId`'s search for `query`, once X has
+ * drawn it: only while the engine shows that very search and this pick is the user's latest, so a
+ * pick still waiting on a slow page never presses the tab of a page the user opened since.
+ */
+export const xPickCommunitySearchTab = async (
+  communityId: string,
+  query: string,
+  label: string,
+) => {
+  // It goes into a script run in X's page: digits only.
+  if (!/^\d{1,25}$/.test(communityId)) return false;
+  const run = await nextRun();
+  return (
+    (await xRun(`(async () => {
+    const here = () => location.pathname === ${JSON.stringify(`/i/communities/${communityId}/search`)} &&
+      new URLSearchParams(location.search).get("q") === ${JSON.stringify(query)};
+    for (let i = 0; i < 40 && ${stillMine(run)}; i++) {
+      const tab = here() ? [...document.querySelectorAll('[role="tab"]')].find((t) => t.textContent.trim() === ${JSON.stringify(label)}) : undefined;
+      if (tab !== undefined) {
+        if (tab.getAttribute("aria-selected") !== "true") tab.click();
+        return true;
+      }
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    return false;
+  })()`)) === true
+  );
+};
+
+/**
  * X's own buttons on a post, by test id, for the user's click on Xtend's copy of it: what each
  * turns into once pressed, and the confirm X asks for first.
  */
@@ -682,10 +712,9 @@ const ACTION_WORDS: Readonly<Record<MembershipAction, string>> = {
 };
 
 /**
- * Presses X's own `kind` button in a Community's header for the user's click, only while what it
- * says (its words for a membership button, its label for Pin) matches `offers`: one X has turned
- * since is refused with what it says now. X's dialog, if it asks one, shows over the main area (see `holdOver`).
- * What X's button says afterwards and X's toast; null when X drew none or the user left.
+ * Presses X's own `kind` button in a Community's header for the user's click while what it says
+ * matches `offers` (else refused with X's words); X's dialog shows over the main area. What X's
+ * button and toast say after, even once a later press started; null when X drew none first.
  */
 const pressCommunity = async (
   communityId: string,
@@ -722,7 +751,7 @@ const pressCommunity = async (
     }
     // X turns its button at once and saves a moment later; leaving before then would cancel it.
     await new Promise((r) => setTimeout(r, 1000));
-    return { over: null, toast: ${TOAST_TEXT} };
+    return { over: null, toast: ${TOAST_TEXT}, label: find()${says} ?? null };
   })()`).then((done) => {
       tries = 50;
       return typeof done === "object" && done !== null
@@ -730,24 +759,27 @@ const pressCommunity = async (
             readonly over?: string | null;
             readonly refused?: string;
             readonly toast?: string | null;
+            readonly label?: string | null;
           })
         : null;
     });
-  // X's button is only on the Community's page: its new label is read there, before onPage
-  // takes the engine back to where the user had it.
+  // X's button is only on the Community's page: after X's dialog, its label is read there again,
+  // before onPage takes the engine back to where the user had it.
   let label: string | null = null;
   const pressed = await onPage(
     { url: `https://x.com${path}`, path },
     press,
     async (done) => {
-      if (typeof done.over === "string") await holdOver(run, done.over, over);
+      if (typeof done.over !== "string") return;
+      await holdOver(run, done.over, over);
       const now = await xRun(`${find}()${says} ?? null`);
       label = typeof now === "string" ? now : null;
     },
     live,
   );
-  if (pressed === null || !live()) return null;
+  if (pressed === null) return null;
   if (pressed.refused !== undefined) return { refused: true, label: pressed.refused, toast: null };
+  label ??= pressed.label ?? null;
   return label === null ? null : { refused: false, label, toast: pressed.toast ?? null };
 };
 

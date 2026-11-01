@@ -1,39 +1,24 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
 import type { EngineCommunity, EnginePeopleSection } from "@xtend/contracts";
-import { MoreHorizontal, Pin, Search, Share } from "lucide-react";
+import { MoreHorizontal, Search } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { fmt } from "../components/analyze/ui";
 import { Menu, MenuItem } from "../components/ui/menu";
+import { CommunityHeader, ICON_BUTTON } from "../components/xnative/CommunityHeader";
 import { Timeline } from "../components/xnative/Timeline";
-import { useXPress } from "../components/xnative/useXPress";
 import { XColumn, XSearchBar, XTabs, XTitle } from "../components/xnative/XColumn";
 import { xtendRoute } from "../components/xnative/RichText";
 import { UserRow, XEmpty } from "../components/xnative/XRows";
 import {
-  askMembership,
-  askPin,
   at,
-  communityPinned,
-  type CommunityRole,
-  communityRole,
   communitySearchSurface,
   type CommunityTab,
   communitySurface,
   engineAtom,
-  updateEngine,
 } from "../state/engine";
-import {
-  type MembershipAction,
-  xCommunityJoin,
-  xCommunityPin,
-  xGo,
-  xNavigate,
-  xOverAtom,
-  xOverEnded,
-  xPickHomeTab,
-} from "../state/x";
+import { xGo, xNavigate, xOverAtom, xOverEnded, xPickCommunitySearchTab } from "../state/x";
 
 // Each tab is its own page on X, as x.com/i/communities/<id>/latest.
 const TABS = [
@@ -60,10 +45,6 @@ const SEARCH_TABS = [
   { id: "latest", label: "Latest" },
 ] as const;
 
-/** X's round icon buttons in a Community's header and top bar. */
-const ICON_BUTTON =
-  "no-drag grid size-9 shrink-0 cursor-pointer place-items-center rounded-full transition-colors duration-150 hover:bg-white/10 disabled:cursor-default disabled:opacity-60";
-
 /**
  * One Community, drawn by Xtend from the engine on x.com/i/communities/<id>: X's header (banner,
  * name, members, X's Pin, Share and Join) from the Community X sent, then the open tab: its posts,
@@ -82,27 +63,29 @@ function CommunityScreen() {
     q === undefined
       ? `https://x.com/i/communities/${id}${current.path}`
       : `https://x.com/i/communities/${id}/search${q === "" ? "" : `?q=${encodeURIComponent(q)}`}`;
-  // X's search page switches Top and Latest in place, on one URL: X's own tab picks the order.
+  // X's search page switches Top and Latest in place, on one URL: X's own tab picks the order,
+  // only on this search, and only until the user moves on (the effect below ends it).
   const searchTab = q === undefined || q === "" ? null : tab === "latest" ? "Latest" : "Top";
-  const open = useCallback(
-    () => void xGo(url).then(() => (searchTab === null ? null : xPickHomeTab(searchTab))),
-    [url, searchTab],
+  const pick = useCallback(
+    () =>
+      q === undefined || searchTab === null ? null : xPickCommunitySearchTab(id, q, searchTab),
+    [id, q, searchTab],
   );
+  const open = useCallback(() => void xGo(url).then(pick), [url, pick]);
   // ⌘R and "Load again": X's page in full, since X's router does nothing on the page it shows.
-  const reload = () =>
-    void xNavigate(url).then(() => (searchTab === null ? null : xPickHomeTab(searchTab)));
+  const reload = () => void xNavigate(url).then(pick);
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- moves the engine (the session view) to this screen's X page while it is open.
   useEffect(open, [open]);
-  // The tabs and searches share a route, which is what ends a press elsewhere: leaving one ends
-  // X's dialog.
-  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- ends X's press and dialog when the open Community tab or search changes.
+  // The tabs and searches share a route, which is what ends a press elsewhere: leaving one (or a
+  // search's order) ends X's dialog and a tab pick still waiting.
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- ends X's press, dialog and tab pick when the open Community tab, search or order changes.
   useEffect(
     () => () => {
       xOverEnded();
       setOver(false);
     },
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- the open page is the trigger: leaving it ends its press.
-    [url, setOver],
+    [url, searchTab, setOver],
   );
 
   if (q !== undefined)
@@ -174,36 +157,6 @@ function CommunityScreen() {
       }
       onReopen={reload}
     />
-  );
-}
-
-function CommunityHeader({ community }: { readonly community: EngineCommunity }) {
-  return (
-    <>
-      {community.bannerUrl === null ? (
-        <div className="aspect-[3/1] bg-[#333639]" />
-      ) : (
-        <img src={community.bannerUrl} alt="" className="aspect-[3/1] w-full object-cover" />
-      )}
-      <div className="flex items-start justify-between gap-3 px-4 py-3">
-        <div className="min-w-0">
-          <p className="text-[24px] leading-7 font-extrabold">{community.name}</p>
-          {community.topic === null ? null : (
-            <p className="text-[15px] text-[#71767b]">{community.topic}</p>
-          )}
-          {community.members === null ? null : (
-            <p className="mt-2 text-[15px] text-[#71767b]">
-              <b className="font-bold text-foreground">{fmt(community.members)}</b> Members
-            </p>
-          )}
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <PinButton community={community} />
-          <ShareMenu id={community.communityId} />
-          <JoinButton community={community} />
-        </div>
-      </div>
-    </>
   );
 }
 
@@ -297,141 +250,6 @@ function CommunityMore() {
         </MenuItem>
       ))}
     </Menu>
-  );
-}
-
-/** X's Share for a Community: its one row copies the Community's link, here, with no press on X. */
-function ShareMenu({ id }: { readonly id: string }) {
-  const { setToast } = useXPress();
-  const copy = () =>
-    void navigator.clipboard
-      .writeText(`https://x.com/i/communities/${id}`)
-      .then(() => setToast({ text: "Copied to clipboard" }));
-  return (
-    <Menu
-      label="Share Community"
-      align="end"
-      trigger={
-        <button
-          type="button"
-          aria-label="Share Community"
-          className={`${ICON_BUTTON} border border-white/[0.35]`}
-        >
-          <Share className="size-[18px]" />
-        </button>
-      }
-    >
-      <MenuItem onClick={copy}>Copy link</MenuItem>
-    </Menu>
-  );
-}
-
-/**
- * X's Pin for the user's click, pressed on X's own button: pinned, the Community is a tab on Home.
- * What X took holds until X's pinned tabs agree, which X sends when its Home loads; a button X has
- * turned since is not pressed, and Xtend's takes X's word.
- */
-function PinButton({ community }: { readonly community: EngineCommunity }) {
-  const { blocked, setToast } = useXPress();
-  const setOver = useAtomSet(xOverAtom);
-  const engine = useAtomValue(engineAtom);
-  const setEngine = useAtomSet(engineAtom);
-  const [busy, setBusy] = useState(false);
-  const pinned = communityPinned(engine, community.communityId);
-  const press = async () => {
-    const why = blocked();
-    if (why !== null) return setToast({ text: why });
-    setBusy(true);
-    const after = await xCommunityPin(community.communityId, !pinned, setOver);
-    setBusy(false);
-    if (after === null) return setToast({ text: "X did not take that. Try again in a moment." });
-    // Only X's button says whether it took the pin: X keeps it unpinned at its limit, with a toast.
-    const now = after.label.startsWith("Unpin");
-    setEngine(updateEngine((s) => askPin(s, community.communityId, now)));
-    if (after.refused)
-      setToast({
-        text: `X shows this Community ${now ? "pinned" : "not pinned"} now, so nothing was pressed.`,
-      });
-    else if (after.toast !== null) setToast({ text: after.toast });
-  };
-  return (
-    <button
-      type="button"
-      disabled={busy}
-      aria-label={pinned ? "Unpin Community" : "Pin Community"}
-      aria-pressed={pinned}
-      className={`${ICON_BUTTON} border border-white/[0.35]`}
-      onClick={() => void press()}
-    >
-      <Pin className={pinned ? "size-[18px] fill-current" : "size-[18px]"} />
-    </button>
-  );
-}
-
-/** The role X's words on its membership button say the viewer has. */
-const roleOf = (label: string): CommunityRole =>
-  label === "Joined"
-    ? "Member"
-    : label === "Requested" || label === "Pending"
-      ? "Requested"
-      : "NonMember";
-
-/** X's membership button for a role and policy: its words, and what pressing it does. */
-const membershipButton = (
-  role: string | null,
-  joinPolicy: string | null,
-): { readonly label: string; readonly action: MembershipAction | null } | null =>
-  role === null
-    ? null
-    : role === "Requested"
-      ? { label: "Requested", action: null }
-      : role !== "NonMember"
-        ? { label: "Joined", action: "leave" }
-        : joinPolicy === "Open"
-          ? { label: "Join", action: "join" }
-          : { label: "Ask to join", action: "ask" };
-
-/**
- * X's Join, Ask to join or Joined for the user's click, pressed on X's own button. Asking first
- * shows X's rules dialog over the main area, and leaving X's confirm. What X took stays in the
- * store until X's capture agrees, since X's own page shows it from its cache; a button X has
- * turned since is not pressed, and Xtend's takes X's words.
- */
-function JoinButton({ community }: { readonly community: EngineCommunity }) {
-  const { blocked, setToast } = useXPress();
-  const setOver = useAtomSet(xOverAtom);
-  const engine = useAtomValue(engineAtom);
-  const setEngine = useAtomSet(engineAtom);
-  const [busy, setBusy] = useState(false);
-  const button = membershipButton(communityRole(engine, community), community.joinPolicy);
-  if (button === null) return null;
-  const { label, action } = button;
-  const press = async () => {
-    if (action === null) return;
-    const why = blocked();
-    if (why !== null) return setToast({ text: why });
-    setBusy(true);
-    const after = await xCommunityJoin(community.communityId, action, setOver);
-    setBusy(false);
-    if (after === null) return setToast({ text: "X did not take that. Try again in a moment." });
-    setEngine(updateEngine((s) => askMembership(s, community.communityId, roleOf(after.label))));
-    if (after.refused)
-      setToast({ text: `X shows ${after.label} for this Community now, so nothing was pressed.` });
-  };
-  return (
-    <button
-      type="button"
-      disabled={busy || action === null}
-      aria-label={`${label} ${community.name}`}
-      className={
-        action === "join" || action === "ask"
-          ? "h-9 shrink-0 cursor-pointer rounded-full bg-foreground px-4 text-[15px] font-bold text-background transition-opacity duration-150 hover:opacity-90 disabled:opacity-60"
-          : "h-9 shrink-0 cursor-pointer rounded-full border border-white/[0.35] px-4 text-[15px] font-bold transition-colors duration-150 hover:bg-white/[0.06] disabled:cursor-default disabled:opacity-60"
-      }
-      onClick={() => void press()}
-    >
-      {label}
-    </button>
   );
 }
 

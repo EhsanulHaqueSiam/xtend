@@ -7,6 +7,7 @@ import { installFakeBridge } from "../../../test/fakeBridge";
 import { draft, settings } from "../../../test/fixtures";
 import { fakeTimers, render } from "../../../test/render";
 import { markXReady, refreshScreen, registerXWebview, type XWebview } from "../../state/x";
+import { CommunityHeader } from "./CommunityHeader";
 import { EngineSync } from "./EngineSync";
 import { synth } from "./engineFixtures";
 import { Poll } from "./PostParts";
@@ -530,6 +531,49 @@ it("opens X's Lists page of the account X is signed in to, not the one Settings 
     });
     await expect.poll(() => scripts.some((s) => s.includes('"/me/lists"'))).toBe(true);
     expect(scripts.some((s) => s.includes("someone_else"))).toBe(false);
+  } finally {
+    registerXWebview(null);
+  }
+});
+
+it("runs one of a Community header's presses at a time: Join waits while X takes Pin", async () => {
+  // X's page holds the Pin press until the test lets it finish.
+  let finish: (done: unknown) => void = () => {};
+  registerXWebview({
+    getURL: () => "https://x.com/i/communities/20",
+    loadURL: () => Promise.resolve(),
+    executeJavaScript: (code: string) =>
+      code.includes("button.click()")
+        ? new Promise((resolve) => (finish = resolve))
+        : Promise.resolve(true),
+  } as unknown as XWebview);
+  markXReady();
+  try {
+    await using screen = await render(
+      <CommunityHeader
+        community={{
+          communityId: "20",
+          name: "C20",
+          description: null,
+          bannerUrl: null,
+          members: 9,
+          topic: null,
+          rules: null,
+          joinPolicy: "Open",
+          role: "NonMember",
+        }}
+      />,
+      {
+        service: {
+          "settings.get": () => Effect.succeed({ ...settings, sessionPostingEnabled: true }),
+        },
+      },
+    );
+    const join = screen.getByRole("button", { name: "Join C20" });
+    await screen.getByRole("button", { name: "Pin Community" }).click();
+    await expect.element(join).toBeDisabled();
+    finish({ over: null, toast: null, label: "Unpin" });
+    await expect.element(join).toBeEnabled();
   } finally {
     registerXWebview(null);
   }

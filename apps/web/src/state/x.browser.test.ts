@@ -13,6 +13,7 @@ import {
   xFollow,
   xPostMenu,
   xOverEnded,
+  xPickCommunitySearchTab,
   xPostFollowPress,
   xPostMenuPress,
   xProfileMenu,
@@ -1206,6 +1207,61 @@ it("pins and unpins only as the user clicked, on this Community's own Pin, and p
     });
     expect(pressed).toEqual([pinned, "Pin Community"]);
     expect(pinLabel(document, "/i/communities/12", "12")).toBe(pinned);
+  } finally {
+    history.replaceState(null, "", start);
+  }
+});
+
+it("keeps what X's Pin says after the press, even once a later press has started", async () => {
+  using _clock = fakeTimers();
+  document.body.innerHTML = header("11", "Join");
+  const pin = document.querySelector<HTMLElement>('[aria-label="Pin Community"]')!;
+  pin.addEventListener("click", () => pin.setAttribute("aria-label", "Unpin"));
+  inThisPage(() => `https://x.com${location.pathname}`);
+  const start = location.href;
+  try {
+    history.replaceState(null, "", "/i/communities/11");
+    const pinning = xCommunityPin("11", true, () => {});
+    // X took the press; then the user starts another one before X's save went out.
+    await vi.advanceTimersByTimeAsync(300);
+    expect(pin.getAttribute("aria-label")).toBe("Unpin");
+    xOverEnded();
+    await vi.runAllTimersAsync();
+    expect(await pinning).toEqual({ refused: false, label: "Unpin", toast: null });
+  } finally {
+    history.replaceState(null, "", start);
+  }
+});
+
+it("picks X's search tab only on the Community search it was asked for, and gives up once the user moved on", async () => {
+  using _clock = fakeTimers();
+  const clicked: Array<string> = [];
+  const draw = () => {
+    document.body.innerHTML = `<nav><div role="tab" aria-selected="true">Top</div><div role="tab" aria-selected="false">Latest</div></nav>`;
+    for (const tab of document.querySelectorAll('[role="tab"]'))
+      tab.addEventListener("click", () => clicked.push(tab.textContent!));
+  };
+  inThisPage(() => `https://x.com${location.pathname}${location.search}`);
+  const start = location.href;
+  try {
+    // Another Community's search, with its own Latest: not this one's.
+    history.replaceState(null, "", "/i/communities/12/search?q=ship");
+    draw();
+    const other = xPickCommunitySearchTab("11", "ship", "Latest");
+    await vi.runAllTimersAsync();
+    expect([await other, clicked]).toEqual([false, []]);
+    // This search is still loading when the user moves on: X's tabs drawn after are not pressed.
+    history.replaceState(null, "", "/i/communities/11/search?q=ship");
+    document.body.innerHTML = "";
+    const left = xPickCommunitySearchTab("11", "ship", "Latest");
+    await vi.advanceTimersByTimeAsync(300);
+    xOverEnded();
+    draw();
+    await vi.runAllTimersAsync();
+    expect([await left, clicked]).toEqual([false, []]);
+    const own = xPickCommunitySearchTab("11", "ship", "Latest");
+    await vi.runAllTimersAsync();
+    expect([await own, clicked]).toEqual([true, ["Latest"]]);
   } finally {
     history.replaceState(null, "", start);
   }
