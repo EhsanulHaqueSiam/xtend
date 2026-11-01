@@ -174,6 +174,42 @@ it("passes the committed engine fixtures and fails one that was not scrubbed", (
   ).toBeUndefined();
 });
 
+it("reads a search query as text, except where it names an account or a post", () => {
+  const search = (query: string, field: "key" | "top" = "key") =>
+    problem(
+      "apps/web/test/fixtures/engine/search.ndjson",
+      text(
+        JSON.stringify({
+          op: "SearchTimeline",
+          [field]: field === "key" ? `Top:${query}` : `top-SearchTimeline-Top:${query}`,
+        }),
+      ),
+    );
+  for (const query of [
+    "from:44196397",
+    "to:12 launch",
+    "@44196397 thanks",
+    "conversation_id:1985123456789012345",
+    "quoted_tweet_id:1985123456789",
+    "list:1234567",
+    "url:1985123456789012345",
+    "https://x.com/example/status/1985123456789012345",
+    "twitter.com/i/user/12",
+    "1985123456789",
+  ]) {
+    expect(search(query), query).toMatch(/search query/);
+    expect(search(query, "top"), `top ${query}`).toMatch(/search query/);
+  }
+  for (const query of [
+    "2026 roadmap",
+    "top 10 tools",
+    "from:mira_brandt",
+    "since:2026-01-01",
+    "100k followers 1234567",
+  ])
+    expect(search(query), query).toBeUndefined();
+});
+
 it("passes whatever scrub makes of a recording, numbers in search queries included", () => {
   const dir = NodePath.join(import.meta.dirname, "../apps/web/test/fixtures/engine");
   const { meta, batches } = parseFixture(

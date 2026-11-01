@@ -85,6 +85,7 @@ export const parsePs = (output: string): ProcessInfo | "unreadable" => {
 export const COMMANDS = {
   dev: /dev-runner\.ts/,
   desktop: /electron|xtend/i,
+  copy: /dev-x-session\.ts|dev-runner\.ts|setup-worktree\.ts/,
 } as const;
 
 /**

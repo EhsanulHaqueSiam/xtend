@@ -6,6 +6,7 @@
 //   pnpm dev:x-session status
 //   pnpm dev:x-session save [--from <checkout or user data dir> | --installed]   default: this checkout
 //   pnpm dev:x-session use [--home <dir>]                                       default: the recorded home
+//   pnpm dev:x-session forget                                                   delete the saved copy
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
@@ -130,50 +131,162 @@ const links = (dir: string): Array<string> =>
     .filter((entry) => entry.isSymbolicLink())
     .map((entry) => NodePath.join(entry.parentPath, entry.name));
 
-/**
- * Moves a complete, validated `staging` into `to` without a lock: the current `to` goes aside to
- * this copy's own `.old-<suffix>`, then `staging` takes its place. When another copy installed in
- * between (`to` exists again), its session stands and this one is dropped. Any other failure puts
- * this copy's original back if `to` is still missing. Only this copy's own files are removed.
- */
-export function install(staging: string, to: string, rename = NodeFS.renameSync) {
-  const old = `${to}.old-${staging.slice(staging.lastIndexOf("-") + 1)}`;
-  let movedAside = false;
+/** A partition a desktop can start signed in from: a live login, no links out of it. */
+const complete = (partition: string) => {
   try {
-    rename(to, old);
-    movedAside = true;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    return signedIn(partition) && links(partition).length === 0;
+  } catch {
+    return false;
   }
+};
+
+/** Who is copying into a staging dir, so a later run can tell an abandoned one from a live one. */
+const ownerFile = (staging: string) => `${staging}.owner`;
+const suffixOf = (name: string) => /-([A-Za-z0-9]{6})(?:\.|$)/.exec(name)?.[1];
+
+/**
+ * Installs a validated `staging` as `to` without a lock, via this copy's own `.old-<suffix>`.
+ * A `to` that appears meanwhile stands: dropping this copy if it validates (another copy's),
+ * else keeping this copy and the backup (a desktop starting). Other failures restore the backup.
+ */
+export function install(
+  staging: string,
+  to: string,
+  options: { readonly rename?: typeof NodeFS.renameSync; readonly ready?: () => void } = {},
+) {
+  const rename = options.rename ?? NodeFS.renameSync;
+  const old = `${to}.old-${suffixOf(staging)}`;
+  let movedAside = false;
+  let keep = false;
   try {
-    rename(staging, to);
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code !== "ENOTEMPTY" && code !== "EEXIST") {
-      if (movedAside && !NodeFS.existsSync(to)) rename(old, to);
+    try {
+      rename(to, old);
+      movedAside = true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    try {
+      options.ready?.();
+      rename(staging, to);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ENOTEMPTY" || code === "EEXIST") {
+        if (complete(to)) return;
+        keep = true;
+        throw new Error(
+          `${to} appeared while installing and holds no usable session: a desktop probably started meanwhile. Nothing was removed: this copy is at ${staging}${movedAside ? `, the previous session at ${old}` : ""}.`,
+          { cause: error },
+        );
+      }
+      if (movedAside && !NodeFS.existsSync(to)) {
+        try {
+          rename(old, to);
+        } catch {
+          keep = true;
+          throw new Error(
+            `installing ${to} failed and the previous session could not be put back; it is kept at ${old}.`,
+            { cause: error },
+          );
+        }
+      }
       throw error;
     }
   } finally {
-    NodeFS.rmSync(staging, { recursive: true, force: true });
-    NodeFS.rmSync(old, { recursive: true, force: true });
+    if (!keep) {
+      NodeFS.rmSync(staging, { recursive: true, force: true });
+      NodeFS.rmSync(old, { recursive: true, force: true });
+      NodeFS.rmSync(ownerFile(staging), { force: true });
+    }
   }
+}
+
+/** How long a staging dir or backup with no live owner may sit before a later run removes it. */
+const LEFTOVER_MS = 5 * 60_000;
+
+/**
+ * Clears what copies into `to` that died left beside it (staging dirs and backups, each holding
+ * real cookies): once older than LEFTOVER_MS with its owner gone, removed, except a backup whose
+ * `to` is missing, which goes back in place. Returns what it removed.
+ */
+export function sweep(
+  to: string,
+  now = Date.now(),
+  info: (pid: number) => ReturnType<typeof processInfo> = processInfo,
+) {
+  const dir = NodePath.dirname(to);
+  const base = `${NodePath.basename(to)}.`;
+  let names: Array<string>;
+  try {
+    names = NodeFS.readdirSync(dir).filter((n) => n.startsWith(base));
+  } catch {
+    return [];
+  }
+  const ownerAlive = (suffix: string | undefined) => {
+    if (suffix === undefined) return false;
+    try {
+      const record = JSON.parse(
+        NodeFS.readFileSync(ownerFile(`${to}.copying-${suffix}`), "utf8"),
+      ) as { pid: number; at: number };
+      const state = verdict(info(record.pid), record.at, COMMANDS.copy);
+      return state === "alive" || state === "unknown";
+    } catch {
+      return false;
+    }
+  };
+  const removed: Array<string> = [];
+  for (const name of names.filter((n) => !n.endsWith(".owner"))) {
+    const path = NodePath.join(dir, name);
+    const age = now - (NodeFS.lstatSync(path, { throwIfNoEntry: false })?.mtimeMs ?? now);
+    if (age < LEFTOVER_MS || ownerAlive(suffixOf(name))) continue;
+    if (name.includes(".old") && !NodeFS.existsSync(to)) {
+      NodeFS.renameSync(path, to);
+      continue;
+    }
+    NodeFS.rmSync(path, { recursive: true, force: true });
+    removed.push(path);
+  }
+  const left = NodeFS.readdirSync(dir);
+  for (const name of names.filter((n) => n.endsWith(".owner"))) {
+    const suffix = suffixOf(name);
+    if (!left.some((n) => n !== name && suffixOf(n) === suffix) && !ownerAlive(suffix))
+      NodeFS.rmSync(NodePath.join(dir, name), { force: true });
+  }
+  return removed;
+}
+
+/** Removes `to` and everything a copy into it ever left beside it. */
+export function forget(to: string) {
+  const dir = NodePath.dirname(to);
+  const base = NodePath.basename(to);
+  let names: Array<string> = [];
+  try {
+    names = NodeFS.readdirSync(dir).filter((n) => n === base || n.startsWith(`${base}.`));
+  } catch {
+    return [];
+  }
+  for (const name of names)
+    NodeFS.rmSync(NodePath.join(dir, name), { recursive: true, force: true });
+  return names.map((n) => NodePath.join(dir, n));
 }
 
 /**
  * Copies a partition without its caches into a staging dir of its own beside `to`, refuses any
- * symlink in the copy, runs `accept` on it, and only then installs it. A failure before the
- * install leaves `to` as it was.
+ * symlink in the copy, runs `accept` on it, and only then installs it (`ready` runs right before
+ * the final rename). A failure before the install leaves `to` as it was.
  */
 export function copyPartition(
   from: string,
   to: string,
   accept: (staging: string) => void = () => {},
+  ready?: () => void,
 ) {
   const source = NodeFS.realpathSync(from);
   if (!NodeFS.existsSync(NodePath.join(source, "Cookies")))
     throw new Error(`${from} has no Cookies file; is it an x.com partition?`);
   NodeFS.mkdirSync(NodePath.dirname(to), { recursive: true, mode: 0o700 });
+  sweep(to);
   const staging = NodeFS.mkdtempSync(`${to}.copying-`);
+  NodeFS.writeFileSync(ownerFile(staging), JSON.stringify({ pid: process.pid, at: Date.now() }));
   try {
     NodeFS.cpSync(source, staging, {
       recursive: true,
@@ -188,9 +301,10 @@ export function copyPartition(
     accept(staging);
   } catch (error) {
     NodeFS.rmSync(staging, { recursive: true, force: true });
+    NodeFS.rmSync(ownerFile(staging), { force: true });
     throw error;
   }
-  install(staging, to);
+  install(staging, to, ready === undefined ? {} : { ready });
 }
 
 /**
@@ -200,13 +314,23 @@ export function copyPartition(
  */
 export function useSaved(userData: string, saved = SAVED) {
   refuseProfile(userData);
-  copyPartition(saved, partitionOf(userData), (staging) => {
-    if (signedIn(staging)) return;
-    const expired = loginExpiry(staging)?.toISOString().slice(0, 10);
-    throw new Error(
-      `the saved X session ${expired === undefined ? "holds no login" : `expired on ${expired}`}; sign in in a dev desktop, then \`pnpm dev:x-session save\` again.`,
-    );
-  });
+  copyPartition(
+    saved,
+    partitionOf(userData),
+    (staging) => {
+      if (signedIn(staging)) return;
+      const expired = loginExpiry(staging)?.toISOString().slice(0, 10);
+      throw new Error(
+        `the saved X session ${expired === undefined ? "holds no login" : `expired on ${expired}`}; sign in in a dev desktop, then \`pnpm dev:x-session save\` again.`,
+      );
+    },
+    // A desktop may have started while the copy ran.
+    () => {
+      const holder = profileHolder(userData);
+      if (holder !== undefined)
+        throw new Error(`a desktop (PID ${holder}) started on ${userData}; quit it first.`);
+    },
+  );
   return partitionOf(userData);
 }
 
@@ -313,9 +437,16 @@ if (import.meta.main) {
     } catch (error) {
       fail((error as Error).message);
     }
+  } else if (command === "forget") {
+    const gone = forget(SAVED);
+    console.log(
+      gone.length === 0
+        ? `[x-session] nothing saved in ${NodePath.dirname(SAVED)}.`
+        : `[x-session] removed ${gone.join(", ")}. Dev desktops already signed in keep their copy; sign out on x.com to end the session everywhere.`,
+    );
   } else {
     console.error(
-      "usage: pnpm dev:x-session status | save [--from <checkout or user data dir> | --installed] | use [--home <dir>]",
+      "usage: pnpm dev:x-session status | save [--from <checkout or user data dir> | --installed] | use [--home <dir>] | forget",
     );
     process.exit(2);
   }

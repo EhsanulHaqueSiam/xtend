@@ -1236,9 +1236,12 @@ const reportFile = NodePath.join(
   branch.replaceAll("/", "-") || "detached",
   `${report.startedAt.replaceAll(":", "-")}.json`,
 );
+// Replaced whole (temp file, then rename): pacing reads these while another run may write one.
 const saveReport = () => {
   NodeFS.mkdirSync(NodePath.dirname(reportFile), { recursive: true });
-  NodeFS.writeFileSync(reportFile, JSON.stringify(report, null, 2) + "\n");
+  const draft = `${reportFile}.${process.pid}.tmp`;
+  NodeFS.writeFileSync(draft, JSON.stringify(report, null, 2) + "\n");
+  NodeFS.renameSync(draft, reportFile);
 };
 
 /** One pass over the chosen checks; the names that failed. */
@@ -1247,6 +1250,8 @@ async function round(n) {
   let emptyFailures = 0;
   const checks = [];
   report.runs.push({ n, startedAt: new Date().toISOString(), checks });
+  // Before the first check loads X, so a run that dies mid-round still counts for pacing.
+  saveReport();
   for (const [index, [name, run]] of chosen.entries()) {
     await sameAppPage();
     primed = true;
@@ -1373,20 +1378,6 @@ if (!paced.ok) {
 saveReport();
 
 await startFresh();
-
-// Screens that open the user's own pages (Lists) follow the settings handle, and a seeded dev
-// home names someone else's: those checks would load another account's pages every run. An
-// empty handle is taken from the session, so only a different one stops the bench.
-const signedInAs = await until(() => store(`$.viewer?.handle`), 20_000);
-const bare = (h) => h.replace(/^@/, "").toLowerCase();
-if (signedInAs === undefined)
-  console.log("  (the engine reported no signed-in account; the handle was not compared)");
-else if (settings.handle !== null && bare(settings.handle) !== bare(signedInAs)) {
-  console.error(
-    `Settings, Account, Handle is @${bare(settings.handle)} but the engine is signed in as @${bare(signedInAs)}. Set the handle to @${bare(signedInAs)} for this dev home, then run again.`,
-  );
-  process.exit(1);
-}
 
 /** The app window as it is now, to `file`. */
 async function shoot(file) {

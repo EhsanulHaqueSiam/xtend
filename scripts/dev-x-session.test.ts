@@ -7,6 +7,7 @@ import { expect, it } from "vite-plus/test";
 
 import {
   copyPartition,
+  forget,
   install,
   inside,
   installedProfile,
@@ -14,6 +15,7 @@ import {
   profileHolder,
   refuseDestination,
   signedIn,
+  sweep,
   useSaved,
 } from "./dev-x-session.ts";
 
@@ -60,9 +62,10 @@ it("copies a partition without Chromium's caches, replacing the target only once
 });
 
 /** A validated copy staged beside `to` as copyPartition stages one, marked with `who`. */
+const FAR = (BigInt(Date.UTC(2099, 0, 1)) + 11_644_473_600_000n) * 1000n;
 const staged = (to: string, who: string) => {
   const staging = NodeFS.mkdtempSync(`${to}.copying-`);
-  signedIn_(staging);
+  partition(staging, [{ name: "auth_token", expires: FAR }]);
   NodeFS.writeFileSync(NodePath.join(staging, "who"), who);
   return staging;
 };
@@ -76,14 +79,16 @@ it("installs two interleaved copies without a lock: one complete session, nothin
     const b = staged(to, "B");
     let calls = 0;
     // B installs completely at one of A's two steps.
-    install(a, to, (from, dest) => {
-      calls++;
-      if (
-        (at === "before moving aside" && calls === 1) ||
-        (at === "before taking its place" && calls === 2)
-      )
-        install(b, to);
-      NodeFS.renameSync(from, dest);
+    install(a, to, {
+      rename: (from, dest) => {
+        calls++;
+        if (
+          (at === "before moving aside" && calls === 1) ||
+          (at === "before taking its place" && calls === 2)
+        )
+          install(b, to);
+        NodeFS.renameSync(from, dest);
+      },
     });
     // Before A moved aside, A replaces B; after, B's session stands and A's is dropped.
     expect(holder(to), at).toBe(at === "before moving aside" ? "A" : "B");
@@ -98,13 +103,101 @@ it("puts the original back when installing fails for any other reason", () => {
   const copy = staged(to, "new");
   const crossDevice = Object.assign(new Error("EXDEV"), { code: "EXDEV" });
   expect(() =>
-    install(copy, to, (from, dest) => {
-      if (from === copy) throw crossDevice;
-      NodeFS.renameSync(from, dest);
+    install(copy, to, {
+      rename: (from, dest) => {
+        if (from === copy) throw crossDevice;
+        NodeFS.renameSync(from, dest);
+      },
     }),
   ).toThrow("EXDEV");
   expect(holder(to)).toBe("original");
   expect(NodeFS.readdirSync(NodePath.dirname(to))).toEqual(["x-session"]);
+
+  // A desktop that starts right before the final rename: the original goes back.
+  const late = staged(to, "late");
+  expect(() =>
+    install(late, to, {
+      ready: () => {
+        throw new Error("a desktop started");
+      },
+    }),
+  ).toThrow("a desktop started");
+  expect(holder(to)).toBe("original");
+});
+
+it("keeps the backup when it cannot be put back, and says where it is", () => {
+  const to = NodePath.join(temp(), "x-session");
+  NodeFS.renameSync(staged(to, "original"), to);
+  const copy = staged(to, "new");
+  const fail = (code: string) => Object.assign(new Error(code), { code });
+  let message = "";
+  try {
+    install(copy, to, {
+      rename: (from, dest) => {
+        if (from === copy) throw fail("EXDEV");
+        if (dest === to) throw fail("EACCES");
+        NodeFS.renameSync(from, dest);
+      },
+    });
+  } catch (error) {
+    message = (error as Error).message;
+  }
+  const backup = NodeFS.readdirSync(NodePath.dirname(to)).find((n) => n.includes(".old-"));
+  expect(backup).toBeDefined();
+  expect(message).toContain(`kept at ${NodePath.join(NodePath.dirname(to), backup!)}`);
+  expect(holder(NodePath.join(NodePath.dirname(to), backup!))).toBe("original");
+});
+
+it("leaves a signed-out partition a desktop made meanwhile, and keeps both copies", () => {
+  const to = NodePath.join(temp(), "x-session");
+  NodeFS.renameSync(staged(to, "original"), to);
+  const copy = staged(to, "new");
+  expect(() =>
+    install(copy, to, {
+      rename: (from, dest) => {
+        // The desktop's fresh profile lands first: populated, signed out.
+        if (from === copy) partition(to, [{ name: "guest_id", expires: FAR }]);
+        NodeFS.renameSync(from, dest);
+      },
+    }),
+  ).toThrow("a desktop probably started meanwhile");
+  expect(signedIn(to)).toBe(false);
+  expect(holder(copy)).toBe("new");
+  const backup = NodeFS.readdirSync(NodePath.dirname(to)).find((n) => n.includes(".old-"));
+  expect(holder(NodePath.join(NodePath.dirname(to), backup!))).toBe("original");
+});
+
+it("clears a dead copy's leftovers once they are old, restores a lone backup, and forgets all", () => {
+  const to = NodePath.join(temp(), "x-session");
+  const dir = NodePath.dirname(to);
+  const at = Date.UTC(2026, 10, 1, 12);
+  const leftover = (name: string, owner?: object) => {
+    const path = NodePath.join(dir, name);
+    partition(path, [{ name: "auth_token", expires: FAR }]);
+    NodeFS.utimesSync(path, new Date(at), new Date(at));
+    if (owner !== undefined)
+      NodeFS.writeFileSync(`${to}.copying-${name.slice(-6)}.owner`, JSON.stringify(owner));
+    return path;
+  };
+  const dead = leftover("x-session.copying-dead01", { pid: 41, at });
+  const live = leftover("x-session.copying-live01", { pid: 42, at });
+  const lone = leftover("x-session.old-lone01");
+  const electron = (pid: number) =>
+    pid === 42
+      ? { start: at - 1_000, command: "node scripts/dev-x-session.ts use" }
+      : ("gone" as const);
+
+  // Too young: nothing moves.
+  expect(sweep(to, at + 60_000, electron)).toEqual([]);
+  expect(sweep(to, at + 10 * 60_000, electron)).toEqual([dead]);
+  expect(NodeFS.existsSync(live)).toBe(true);
+  // The only copy of the session went aside and its owner died: it goes back, not away.
+  expect(NodeFS.existsSync(lone)).toBe(false);
+  expect(signedIn(to)).toBe(true);
+  expect(NodeFS.existsSync(`${to}.copying-dead01.owner`)).toBe(false);
+
+  expect(forget(to).length).toBeGreaterThan(0);
+  expect(NodeFS.readdirSync(dir)).toEqual([]);
 });
 
 it("will not install a saved session whose login expired", () => {

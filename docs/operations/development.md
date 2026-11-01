@@ -50,8 +50,10 @@ account 1's partition, which is what a dev home starts with. The installed app's
 `~/Library/Application Support/Xtend` on macOS and `~/.config/Xtend` on Linux.
 
 The saved session is your real X login. Anyone with the folder acts as you on X: never commit
-it, attach it to a PR, copy it to another machine or share it. `rm -rf ~/.xtend-dev/x-session`
-forgets it; signing out on x.com ends it everywhere. `save` refuses a source whose desktop (or
+it, attach it to a PR, copy it to another machine or share it. `pnpm dev:x-session forget`
+deletes it with every staging copy and backup a copy left beside it (a plain `rm -rf` of the
+folder misses those); signing out on x.com ends the session everywhere. Leftovers of a copy that
+died are also removed by the next `save` or `use` once their process is gone. `save` refuses a source whose desktop (or
 the installed app) is running, since the copy would be torn; quit it first.
 
 The repo is public. Nothing from the real account goes into it, a PR body or a comment: the X
@@ -195,9 +197,7 @@ Both need `pnpm build` first.
   `--bodies` writes the responses to a directory outside any git checkout: they are your data.
 - The engine bench (`engine-bench.mjs`) refuses to start while session actions are off: its
   press checks go through the app's X buttons. A seeded dev home starts with them off; turn on
-  Settings, X session, "Act through my X session for what I click" in the dev desktop. It also
-  stops when Settings, Account, Handle names someone other than the account the engine is signed
-  in as (the seed sets one): screens like Lists open that handle's pages. Each run's
+  Settings, X session, "Act through my X session for what I click" in the dev desktop. Each run's
   results go to `~/Pictures/xtend-ui/bench/<branch>/<time>.json` (every check's pass, time and
   detail, the commit and flags) for comparing runs and citing in a PR.
 - The bench paces itself across invocations from those files (any branch, matched by a hash of

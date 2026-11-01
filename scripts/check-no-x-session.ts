@@ -69,6 +69,18 @@ const FAKE_OPAQUE = /^(([a-z_]+:)?s\d+|n-\d+|conv-\d+|post-[6-9]00000\d{6}|[a-z_
 // Batch keys and cursors: an id, a search, a handle, or a counter.
 const CURSORS = new Set(["key", "top", "bottom", "cursor"]);
 
+// X's search operators that take an account, a post or a list, and links that name one.
+const QUERY_IDS: ReadonlyArray<[RegExp, string]> = [
+  [/\b(from|to|conversation_id|quoted_tweet_id|list|url):\d+/i, "an operator naming an id"],
+  [/(^|\s)@\d+\b/, "an account by id"],
+  [/(x|twitter)\.com\/[^\s]*\/status(es)?\/\d+/i, "a post's link"],
+  [/(x|twitter)\.com\/i\/(user|web\/status)\/\d+|user_id=\d+/i, "an account's link by id"],
+  [/\d{8,}/, "an id-length number"],
+];
+
+/** Why a search query names a real account or post, or undefined. */
+const realInQuery = (query: string) => QUERY_IDS.find(([pattern]) => pattern.test(query))?.[1];
+
 /** Why a value under `key` names something real, or undefined. */
 function realField(
   key: string,
@@ -86,10 +98,13 @@ function realField(
   if (CURSORS.has(key)) {
     if (key === "key" && owner.op === "UserByScreenName")
       return FAKE_HANDLE.test(value) ? undefined : `a real-looking handle @${value}`;
-    // A search's query is text, scrubbed as text: its digits are words, not ids.
-    const search = /^((top|bottom)-SearchTimeline-)?[A-Za-z]+:/;
-    const ids =
-      owner.op === "SearchTimeline" && search.test(value) ? value.replace(/:.*$/s, "") : value;
+    // A search's query is text, scrubbed as text: short numbers in it are words (years, counts).
+    const search = /^((top|bottom)-SearchTimeline-)?[A-Za-z]+:/.exec(value);
+    if (owner.op === "SearchTimeline" && search !== null) {
+      const real = realInQuery(value.slice(search[0].length));
+      if (real !== undefined) return `${real} in a search query`;
+    }
+    const ids = owner.op === "SearchTimeline" && search !== null ? search[0] : value;
     // Counters (s12) aside, every other number in a key or cursor is an id.
     const id = ids
       .replace(/\bs\d+\b/g, "")
