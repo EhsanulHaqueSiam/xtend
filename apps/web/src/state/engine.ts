@@ -471,6 +471,12 @@ function placeCreated(state: EngineState, post: EnginePost): EngineState {
         (lists, s) => set(lists, s, unique([post.postId, ...at(lists, s)])),
         state.lists,
       ),
+      // Still on top once the pill shows what waited behind it.
+      nextTop: surfaces.reduce(
+        (next, s) =>
+          at(next, s).length === 0 ? next : set(next, s, unique([post.postId, ...at(next, s)])),
+        state.nextTop,
+      ),
     };
   }
   const parent = state.posts.get(parentId);

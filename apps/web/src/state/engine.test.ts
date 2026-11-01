@@ -518,8 +518,17 @@ it("puts the user's new reply under the post it answers, and a new post on top o
   expect(at(state.lists, postSurface("1", "Recency"))).toEqual(["1", "9", "2"]);
   expect(at(state.lists, postSurface("1", "Likes"))).toEqual([]);
   expect(state.posts.get("1")?.metrics.replies).toBe(1);
+  // A newer post waits behind the pill when the user posts: theirs stays on top after it.
+  state = mergeBatch(
+    state,
+    batch("HomeLatestTimeline", [
+      post("4", "2026-10-30T03:00:00Z"),
+      post("3", "2026-10-30T02:00:00Z"),
+    ]),
+  );
   const quote = { ...post("10", "2026-10-31T01:00:00Z"), quotedId: "3" };
   state = mergeBatch(state, batch("CreateNoteTweet", [quote, post("3", "2026-10-30T02:00:00Z")]));
   expect(at(state.lists, "following")).toEqual(["10", "3"]);
   expect(at(state.lists, "profile:posts:1")).toEqual(["10"]);
+  expect(at(showWaiting(state, "following").lists, "following")).toEqual(["10", "4", "3"]);
 });
