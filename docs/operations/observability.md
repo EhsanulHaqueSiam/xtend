@@ -10,10 +10,12 @@ endpoint.
   (`~/.xtend/logs/...` for the installed app, `<repo>/.xtend/logs/...` for `pnpm dev`).
 - **Metrics** live in the process and are exported only over OTLP.
 - **Desktop log**: the desktop's main process writes `<baseDir>/logs/desktop.log` (rotated at
-  5 MB to `.1` to `.3`, `0600`), scrubbed with the same `redactText` as the trace file: the service
-  child's starts and exits, renderer and x.com view crashes, helper processes that died, and
-  pages that failed to load (URL without its query). It also prints each line to the launcher's
-  terminal.
+  5 MB to `.1` to `.3`, made `0600` before every write, backups included): the service child's
+  starts and exits, renderer and x.com view crashes, helper processes that died, and pages that
+  failed to load. Only allowlisted detail fields are written. URLs and routes keep their shape and
+  lose the rest: no query (deep-link text, GraphQL variables), handles and ids as `:handle` and
+  `:id`, GraphQL as `/i/api/graphql/:hash/<Op>`. Error text gets the same treatment plus
+  `redactText`. Each line also goes to the launcher's terminal.
 
 ## Reading it
 
