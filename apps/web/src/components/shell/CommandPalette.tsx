@@ -1,6 +1,6 @@
 import { Dialog } from "@base-ui/react/dialog";
 import { RegistryContext, useAtom, useAtomSet, useAtomValue } from "@effect/atom-react";
-import { useLocation, useNavigate } from "@tanstack/react-router";
+import { useLocation, useNavigate, useSearch } from "@tanstack/react-router";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { AtSign, Bot, Gauge, Search, SquarePen, Twitter, type LucideIcon } from "lucide-react";
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
@@ -61,6 +61,8 @@ function PaletteBody({
   const agents = useAtomValue(agentsAtom);
   const [panelOpen, setPanel] = useAtom(xPanelOpenAtom);
   const pathname = useLocation({ select: (l) => l.pathname });
+  const search = useSearch({ strict: false });
+  const navigate = useNavigate();
   const rates = useRates();
   const assistQuote = useQuoteLabel({ kind: "assist" });
   const [query, setQuery] = useState("");
@@ -98,7 +100,16 @@ function PaletteBody({
               group: "X" as const,
               label: "Advanced search",
               icon: Search,
-              run: to("/search?advanced=true"),
+              // Over the open search, to edit it; anywhere else, an empty form.
+              run: () =>
+                void navigate({
+                  to: "/search",
+                  search: {
+                    q: pathname === "/search" ? (search.q ?? "") : "",
+                    f: pathname === "/search" ? (search.f ?? "top") : "top",
+                    advanced: true,
+                  },
+                }),
             },
           ]
         : []),
@@ -185,7 +196,20 @@ function PaletteBody({
         run: to(`/library?q=${encodeURIComponent(query.trim())}`),
       });
     return [...dynamic, ...fixed];
-  }, [agents, assistQuote, go, panelOpen, pathname, query, rates, runAgent, running, setPanel]);
+  }, [
+    agents,
+    assistQuote,
+    go,
+    navigate,
+    panelOpen,
+    pathname,
+    query,
+    rates,
+    runAgent,
+    running,
+    search,
+    setPanel,
+  ]);
 
   const pick = (command: Command) => {
     if (command.disabled) return;

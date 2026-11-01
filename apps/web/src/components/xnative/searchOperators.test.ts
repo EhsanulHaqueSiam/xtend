@@ -59,17 +59,37 @@ it("never lets a typed quote, dash or zero change what X searches", () => {
   expect(writeQuery(form({ since: "2026-1-1" }))).toBe("");
 });
 
-it("keeps every term of a query the form cannot hold", () => {
-  // Repeats mean every one (both authors, both tags), not either, so they stay as typed.
-  const queries = [
+it("keeps a query the form cannot hold whole, and its fields empty", () => {
+  // Written back exactly as typed: OR between operators, groups X reads as one, quoted values.
+  const verbatim: ReadonlyArray<readonly [string, Partial<AdvancedSearch>]> = [
+    ["from:alice OR from:bob", { all: "from:alice OR from:bob" }],
+    [
+      "cats OR dogs min_faves:10 -filter:replies",
+      { all: "cats OR dogs min_faves:10 -filter:replies" },
+    ],
+    ["((from:a OR from:b) OR cats) dogs", { all: "((from:a OR from:b) OR cats) dogs" }],
+    ["(from:alice cats) from:bob", { all: "(from:alice cats)", from: "bob" }],
+    ["-(from:a OR @b) cats", { all: "-(from:a OR @b) cats" }],
+    ['near:"New York" cats', { all: 'near:"New York" cats' }],
+    ['cats -near:"New York"', { all: "cats", none: 'near:"New York"' }],
+  ];
+  for (const [query, fields] of verbatim) {
+    expect(readQuery(query)).toEqual(form(fields));
+    expect(writeQuery(readQuery(query))).toBe(query);
+  }
+  // Repeats mean every one (both authors, both tags), not either: the first fills the field.
+  const sorted = (query: string) => query.split(" ").sort();
+  for (const query of [
     "from:a from:b",
     "#one #two lang:xx",
     '"first phrase" "second phrase"',
-    "(from:a OR @b) cats",
     "filter:replies -filter:replies",
     "until:yesterday since:2026-01-01",
-  ];
-  const sorted = (query: string) => query.split(" ").sort();
-  for (const query of queries) expect(sorted(writeQuery(readQuery(query)))).toEqual(sorted(query));
+  ])
+    expect(sorted(writeQuery(readQuery(query)))).toEqual(sorted(query));
   expect(readQuery("from:a from:b")).toMatchObject({ from: "a", all: "from:b" });
+  // A field added to an OR query never joins the OR's run.
+  expect(writeQuery(form({ all: "cats OR dogs", minLikes: "10" }))).toBe(
+    "(cats OR dogs) min_faves:10",
+  );
 });

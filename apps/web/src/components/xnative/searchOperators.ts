@@ -94,14 +94,46 @@ const COUNT_FIELD = {
   min_retweets: "minReposts",
 } as const;
 
-/** Words as typed: whitespace apart, a "quoted phrase" (with an optional leading -) stays one. */
+/**
+ * A query's terms as X reads them, each whole: words, `op:"quoted value"`, "phrases", and
+ * (groups), nested ones included, each with an optional leading -. A stray ) is its own term.
+ */
+function scan(text: string): Array<string> {
+  const terms: Array<string> = [];
+  // The index past the quote closing the one at `i`, or the end when none closes it.
+  const pastQuote = (i: number) => {
+    const end = text.indexOf('"', i + 1);
+    return end === -1 ? text.length : end + 1;
+  };
+  let i = 0;
+  while (i < text.length) {
+    if (/\s/.test(text[i]!)) {
+      i++;
+      continue;
+    }
+    const start = i;
+    if (text[i] === "-") i++;
+    if (text[i] === "(") {
+      for (let depth = 0; i < text.length;) {
+        const c = text[i];
+        i = c === '"' ? pastQuote(i) : i + 1;
+        if (c === "(") depth++;
+        else if (c === ")" && --depth === 0) break;
+      }
+    } else if (text[i] === ")") i++;
+    else
+      while (i < text.length && !/[\s()]/.test(text[i]!))
+        i = text[i] === '"' ? pastQuote(i) : i + 1;
+    terms.push(text.slice(start, i));
+  }
+  return terms;
+}
+
+/** Terms as typed in a field. An unclosed quote would swallow the rest of the query, so it goes. */
 const words = (text: string) =>
-  // An unclosed quote would swallow the rest of the query, so the odd one out is dropped.
-  (
-    (text.split('"').length % 2 === 0 ? text.replace(/"(?=[^"]*$)/, "") : text).match(
-      /-?"[^"]*"|[^\s"]+/g,
-    ) ?? []
-  ).filter((w) => w !== "-" && w !== '""' && w !== '-""');
+  scan(text.split('"').length % 2 === 0 ? text.replace(/"(?=[^"]*$)/, "") : text).filter(
+    (w) => w !== "-" && w !== '""' && w !== '-""',
+  );
 /** Handles typed with or without @, apart by spaces or commas. */
 const handles = (text: string) =>
   text
@@ -120,10 +152,10 @@ export function writeQuery(form: AdvancedSearch): string {
   const phrase = form.phrase.replace(/"/g, "").trim();
   const count = (op: string, value: string) =>
     digits(value) === "" ? "" : `${op}:${digits(value)}`;
-  return [
-    words(form.all).join(" "),
+  const all = words(form.all);
+  const rest = [
     phrase === "" ? "" : `"${phrase}"`,
-    either(words(form.any)),
+    either(words(form.any).filter((w) => w !== "OR")),
     ...words(form.none).map((w) => `-${w.replace(/^-+/, "")}`),
     either(words(form.hashtags).map((t) => `#${t.replace(/^#+/, "")}`)),
     either(handles(form.from).map((h) => `from:${h}`)),
@@ -137,13 +169,13 @@ export function writeQuery(form: AdvancedSearch): string {
     DATE.test(form.since) ? `since:${form.since}` : "",
     filter("replies", form.replies),
     filter("links", form.links),
-  ]
+  ].filter((part) => part !== "");
+  // A bare OR's reach over what follows is X's to decide, so other fields never join its run.
+  const typed = all.join(" ");
+  return [all.includes("OR") && rest.length > 0 ? `(${typed})` : typed, ...rest]
     .filter((part) => part !== "")
     .join(" ");
 }
-
-/** A query's terms: words, "phrases", (a OR b) groups kept whole, and stray brackets. */
-const terms = (query: string) => query.match(/\([^()]*\)|-?"[^"]*"?|[^\s"()]+|[()]/g) ?? [];
 
 type Field = keyof AdvancedSearch;
 /** One term the form can hold, as the field it fills and that field's value. */
@@ -158,10 +190,11 @@ const LISTS = [
 
 function readTerm(term: string): Read | undefined {
   if (term.startsWith("(")) {
-    const parts = term
-      .slice(1, -1)
-      .trim()
-      .split(/\s+OR\s+/);
+    // Only a flat (a OR b OR c) fills a field; any other group is not the form's to split.
+    const inner = term.endsWith(")") ? scan(term.slice(1, -1)) : [];
+    const parts = inner.filter((_, i) => i % 2 === 0);
+    if (inner.length % 2 === 0 || inner.some((t, i) => (i % 2 === 1) !== (t === "OR")))
+      return undefined;
     for (const [field, re] of LISTS) {
       const found = parts.map((p) => re.exec(p)?.[1]);
       if (found.every((f) => f !== undefined)) return [field, found.join(" ")];
@@ -185,7 +218,7 @@ function readTerm(term: string): Read | undefined {
   if ((op === "since" || op === "until") && DATE.test(value)) return [op, value];
   if (op !== undefined) return undefined;
   if (/^"[^"]+"$/.test(term)) return ["phrase", term.slice(1, -1)];
-  if (/^-[^-]/.test(term)) return ["none", term.slice(1)];
+  if (/^-[^-(]/.test(term)) return ["none", term.slice(1)];
   return undefined;
 }
 
@@ -196,11 +229,14 @@ const include = (mode: string): Include =>
  * The form a query fills, so editing a search starts from it. Each field takes its operator
  * once; a repeat (`from:a from:b` means both, not either) and anything the form cannot say
  * stay as typed in "All of these words", so writing the form back keeps the search the same.
+ * A bare OR ties the terms around it together, so such a query stays whole in that field.
  */
 export function readQuery(query: string): AdvancedSearch {
+  const terms = scan(query);
+  if (terms.includes("OR")) return { ...EMPTY_SEARCH, all: terms.join(" ") };
   const form: Record<Field, string> = { ...EMPTY_SEARCH };
   const all: Array<string> = [];
-  for (const term of terms(query)) {
+  for (const term of terms) {
     const read = readTerm(term);
     if (read?.[0] === "none") form.none = `${form.none} ${read[1]}`.trim();
     else if (read !== undefined && form[read[0]] === EMPTY_SEARCH[read[0]]) form[read[0]] = read[1];

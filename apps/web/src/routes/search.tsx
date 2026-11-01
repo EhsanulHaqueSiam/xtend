@@ -108,7 +108,7 @@ function SearchScreen() {
       </div>
       <AdvancedSearch
         open={advanced === true}
-        query={q}
+        query={draft}
         onClose={() => void navigate({ to: "/search", search: { q, f }, replace: true })}
         onSearch={(next) => void navigate({ to: "/search", search: { q: next, f } })}
       />

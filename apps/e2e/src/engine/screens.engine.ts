@@ -327,10 +327,28 @@ test("Search reads X's Top and People tabs for the query", async () => {
 });
 
 test("Advanced search writes X's operators, and X's SearchTimeline runs them", async () => {
-  await go(`/search?q=${encodeURIComponent("design system")}&f=top`);
-  await e.app.locator("main").getByRole("button", { name: "Advanced search" }).click();
   const form = e.app.getByRole("dialog", { name: "Advanced search" });
-  await expect.poll(() => form.getByLabel("All of these words").inputValue()).toBe("design system");
+  const allWords = () => form.getByLabel("All of these words").inputValue();
+  const fromPalette = async () => {
+    await e.app.keyboard.press("Control+k");
+    await e.app.getByRole("option", { name: "Advanced search", exact: true }).click();
+  };
+  // From the palette over an open search, the form edits that search on its tab; elsewhere it is empty.
+  await go(`/search?q=design&f=latest`);
+  await fromPalette();
+  await expect.poll(allWords).toBe("design");
+  expect(await e.app.evaluate(() => location.hash)).toContain("f=latest");
+  await form.getByRole("button", { name: "Close" }).click();
+  await go("/home?feed=following");
+  await fromPalette();
+  await expect.poll(allWords).toBe("");
+  await form.getByRole("button", { name: "Close" }).click();
+
+  // The box's typed, unsent text is what the form opens with.
+  await go(`/search?q=design&f=top`);
+  await e.app.getByLabel("Search X").fill("design system");
+  await e.app.locator("main").getByRole("button", { name: "Advanced search" }).click();
+  await expect.poll(allWords).toBe("design system");
   await form.getByLabel("None of these words").fill("crypto");
   await form.getByLabel("Minimum Likes").fill("10");
   await form.getByRole("switch", { name: "Replies" }).click();
