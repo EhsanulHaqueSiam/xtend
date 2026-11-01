@@ -123,7 +123,7 @@ export const communitySurface = (id: string, tab: CommunityTab) =>
         : (`communityAbout:${id}` as const);
 /**
  * X's two orders for a search inside a Community, by the `timelineRankingMode` each tab sends:
- * Top is by likes, Latest by time. Unconfirmed: "Recency" for Latest awaits a live read.
+ * Top is by likes, Latest by time.
  */
 export type CommunitySearchMode = "Likes" | "Recency";
 /** A search inside a Community, as X's search page there lists it for the order and query. */
