@@ -36,6 +36,42 @@ const readLines = (path: string) =>
     Effect.map((text) => text.split("\n").filter((line) => line !== "")),
   );
 
+/** A delegate recording what an OTLP exporter would receive: attributes, events, failures, names. */
+const capturing = () => {
+  const seen: Array<unknown> = [];
+  const spans: Array<Tracer.NativeSpan> = [];
+  class Captured extends Tracer.NativeSpan {
+    override attribute(key: string, value: unknown) {
+      seen.push([key, value]);
+      super.attribute(key, value);
+    }
+    override event(name: string, time: bigint, attributes?: Record<string, unknown>) {
+      seen.push([name, attributes]);
+      super.event(name, time, attributes);
+    }
+    override end(time: bigint, exit: Exit.Exit<unknown, unknown>) {
+      // What Effect's OTLP tracer exports for a failure: each error's name, message and stack.
+      if (Exit.isFailure(exit))
+        seen.push(
+          Cause.prettyErrors(exit.cause, { includeCauseInStack: true }).map((e) => [
+            e.name,
+            e.message,
+            e.stack,
+          ]),
+        );
+      super.end(time, exit);
+    }
+  }
+  const delegate = Tracer.make({
+    span: (options) => {
+      const span = new Captured(options);
+      spans.push(span);
+      return span;
+    },
+  });
+  return { seen, spans, delegate };
+};
+
 describe("local trace file", () => {
   it.effect("records logs inside a span as events, and a failure with its error tag", () =>
     Effect.gen(function* () {
@@ -152,37 +188,7 @@ describe("local trace file", () => {
   );
 
   it.effect("scrubs what an OTLP delegate sees, with no trace file", () => {
-    const seen: Array<unknown> = [];
-    const spans: Array<Tracer.NativeSpan> = [];
-    class Captured extends Tracer.NativeSpan {
-      override attribute(key: string, value: unknown) {
-        seen.push([key, value]);
-        super.attribute(key, value);
-      }
-      override event(name: string, time: bigint, attributes?: Record<string, unknown>) {
-        seen.push([name, attributes]);
-        super.event(name, time, attributes);
-      }
-      override end(time: bigint, exit: Exit.Exit<unknown, unknown>) {
-        // What Effect's OTLP tracer exports for a failure: each error's message and stack.
-        if (Exit.isFailure(exit))
-          seen.push(
-            Cause.prettyErrors(exit.cause, { includeCauseInStack: true }).map((e) => [
-              e.name,
-              e.message,
-              e.stack,
-            ]),
-          );
-        super.end(time, exit);
-      }
-    }
-    const delegate = Tracer.make({
-      span: (options) => {
-        const span = new Captured(options);
-        spans.push(span);
-        return span;
-      },
-    });
+    const { seen, spans, delegate } = capturing();
     const renamed = new Error("ct0=diect0");
     renamed.name = "Bearer namesecret";
     return Effect.gen(function* () {
@@ -245,6 +251,56 @@ describe("local trace file", () => {
     }).pipe(Effect.provide(Logger.layer([LocalTrace.tracerLogger])));
   });
 
+  it.effect("scrubs failure values, span names and a token at the cut, keeping call sites", () => {
+    const { seen, spans, delegate } = capturing();
+    const records: Array<LocalTrace.TraceRecord> = [];
+    const tracer = LocalTrace.makeTracer({ delegate, push: (record) => records.push(record) });
+    const serviceToken = "ab12".repeat(16);
+    return Effect.gen(function* () {
+      yield* Effect.die({ secret: ["opaque-secret"], cookies: { value: "opaque-cookie" } }).pipe(
+        Effect.withSpan("die"),
+        Effect.withTracer(tracer),
+        Effect.exit,
+      );
+      yield* Effect.fail({ password: "failsecret", note: ["kept"] }).pipe(
+        Effect.withSpan("fail"),
+        Effect.withTracer(tracer),
+        Effect.exit,
+      );
+      // Logged inside a span: the cause lands as the event's `effect.cause`.
+      yield* Effect.die({ secret: ["eventsecret"] }).pipe(
+        Effect.catchCause((cause) => Effect.logError("caught", cause)),
+        Effect.withSpan("caught"),
+        Effect.withTracer(tracer),
+      );
+      // The cut at 2,000 characters would split the token after its first 63 characters.
+      yield* Effect.annotateCurrentSpan({ note: `${" ".repeat(1937)}${serviceToken}` }).pipe(
+        Effect.withSpan("GET /token=opaque-service-token"),
+        Effect.withTracer(tracer),
+      );
+      yield* Effect.fail(new Leaky({ detail: "y".repeat(3000) })).pipe(
+        Effect.withSpan("long"),
+        Effect.withTracer(tracer),
+        Effect.exit,
+      );
+      const text = JSON.stringify([seen, spans.map((span) => span.name), records]);
+      expect(text).toContain("kept");
+      for (const secret of [
+        "opaque-secret",
+        "opaque-cookie",
+        "failsecret",
+        "eventsecret",
+        "opaque-service-token",
+        serviceToken.slice(0, 16),
+      ])
+        expect(text).not.toContain(secret);
+      // The message is cut on its own budget; the frames after it survive.
+      const long = records.find((r) => r.name === "long");
+      expect(long?.exit._tag === "Failure" && long.exit.cause).toContain("    at ");
+      expect(JSON.stringify(seen.at(-1))).toContain("    at ");
+    }).pipe(Effect.provide(Logger.layer([LocalTrace.tracerLogger])));
+  });
+
   it("names credentials by their last word, not by substring", () => {
     const secret = [
       "token",
@@ -267,6 +323,20 @@ describe("local trace file", () => {
       "kdt",
       "credential",
       "credentials",
+      "sessionId",
+      "session_id",
+      "sessionToken",
+      "sessionKey",
+      "password_hash",
+      "passwordHash",
+      "refresh_token",
+      "accessToken",
+      "id_token",
+      "client_secret",
+      "csrf",
+      "csrfToken",
+      "x-csrf-token",
+      "authToken",
     ];
     const harmless = [
       "tokenCount",
@@ -277,6 +347,12 @@ describe("local trace file", () => {
       "keywords",
       "monthlyBudgetUsd",
       "key",
+      "id",
+      "userId",
+      "hash",
+      "session",
+      "sessionCount",
+      "passwordUpdatedAt",
     ];
     expect(secret.filter((key) => !LocalTrace.isSecretKey(key))).toEqual([]);
     expect(harmless.filter(LocalTrace.isSecretKey)).toEqual([]);

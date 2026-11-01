@@ -14,6 +14,7 @@ import * as RpcGroup from "effect/rpc/RpcGroup";
 
 import * as ServiceAuth from "../auth/ServiceAuth.ts";
 import * as LocalTrace from "../observability/LocalTrace.ts";
+import * as Observability from "../observability/Observability.ts";
 import * as HttpRpc from "./HttpRpc.ts";
 
 const TOKEN = "t".repeat(64);
@@ -119,6 +120,10 @@ describe("HTTP rpc bridge", () => {
       const p = yield* port;
       yield* post(p, "math.double", { n: 2 }, TOKEN);
       yield* post(p, "math.double", { n: -1 }, TOKEN);
+      yield* post(p, "math.double?token=opaque-query", { n: 1 }, TOKEN);
+      // The request span is named by the route template, never the raw path or its query.
+      expect(records.map((r) => r.name)).toContain("http POST /api/rpc/:method");
+      expect(JSON.stringify(records)).not.toContain("opaque-query");
       expect(
         records
           .filter((r) => r.name === "http.rpc.math.double")
@@ -130,7 +135,16 @@ describe("HTTP rpc bridge", () => {
       ).toEqual([
         ["http", "Success", false],
         ["http", "Failure", "Boom"],
+        ["http", "Success", false],
       ]);
-    }).pipe(Effect.provide(layerServer.pipe(Layer.provide(Layer.succeed(Tracer.Tracer)(tracer)))));
+    }).pipe(
+      Effect.provide(
+        layerServer.pipe(
+          Layer.provide(
+            Layer.merge(Layer.succeed(Tracer.Tracer)(tracer), Observability.layerHttpSpanNames),
+          ),
+        ),
+      ),
+    );
   });
 });

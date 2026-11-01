@@ -40,11 +40,10 @@ export const layerLoggers = Layer.unwrap(
   ),
 );
 
-// Ids in a path (`/api/webhooks/12`) would give every rule its own span name.
-const layerHttpSpanNames = Layer.succeed(HttpMiddleware.SpanNameGenerator)((request) => {
-  const path = new URL(request.url, "http://x").pathname.replace(/\/\d+(?=\/|$)/g, "/:id");
-  return `http ${request.method} ${path}`;
-});
+// A path is not a span name (ids, `?token=`); the span adds the route template the router matched.
+export const layerHttpSpanNames = Layer.succeed(HttpMiddleware.SpanNameGenerator)(
+  (request) => `http ${request.method}`,
+);
 
 /**
  * Tracing, metrics and diagnostics for the service: the local trace file, optional OTLP export,

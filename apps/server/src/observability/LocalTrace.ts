@@ -57,12 +57,19 @@ const SECRET_WORDS: ReadonlySet<string> = new Set([
   "ct0",
   "twid",
   "kdt",
+  "csrf",
+  "xsrf",
 ]);
+// Compounds whose last word alone is harmless (`id`, `hash`, `key`). `refreshToken`,
+// `clientSecret`, `set-cookie` and the like already end in a credential word.
 const SECRET_KEY_PAIRS: ReadonlySet<string> = new Set([
   "api key",
   "assist key",
   "private key",
   "access key",
+  "session id",
+  "session key",
+  "password hash",
 ]);
 
 /** Whether an attribute or argument key names a credential, judged by its last word or two. */
@@ -132,18 +139,35 @@ export const redactText = (text: string) =>
   );
 
 const MAX_DEPTH = 6;
-// Anything from outside (a User-Agent, a provider's error) is cut to this before any pattern runs.
 const MAX_SCRUBBED = 2000;
+const MAX_FRAMES = 4000;
+// Only bounds the work; anything past it is dropped by the final cut, so a token it splits never
+// shows.
+const MAX_SCANNED = 64 * 1024;
 
 const truncate = (text: string, max: number) =>
   text.length <= max ? text : `${text.slice(0, max)}…[truncated]`;
 
-const scrub = (text: string) => redactText(truncate(text, MAX_SCRUBBED));
+// Redacted before it is cut, so a cut can never leave the visible part of a token behind.
+const scrub = (text: string, max = MAX_SCRUBBED) =>
+  truncate(redactText(text.slice(0, MAX_SCANNED)), max);
 
-const safeError = (error: Error) => {
-  const copy = new Error(scrub(error.message));
+/**
+ * A scrubbed copy: name, message, the stack's frames on their own budget (a long message must not
+ * push the call sites out), and its `cause` chain, depth-bounded.
+ */
+const safeError = (error: Error, depth = 0): Error => {
+  const cause = "cause" in error ? sanitize(error.cause, depth + 1) : undefined;
+  const copy =
+    cause === undefined
+      ? new Error(scrub(error.message))
+      : new Error(scrub(error.message), { cause });
   copy.name = scrub(error.name);
-  if (error.stack !== undefined) copy.stack = scrub(error.stack);
+  const head = `${error.name}: ${error.message}`;
+  if (error.stack !== undefined)
+    copy.stack = error.stack.startsWith(head)
+      ? `${copy.name}: ${copy.message}${scrub(error.stack.slice(head.length), MAX_FRAMES)}`
+      : scrub(error.stack, MAX_SCRUBBED + MAX_FRAMES);
   return copy;
 };
 
@@ -156,7 +180,7 @@ const sanitize = (value: unknown, depth = 0): unknown => {
   if (typeof value === "string") return scrub(value);
   if (value === null || typeof value !== "object") return value;
   if (depth >= MAX_DEPTH) return "[Truncated]";
-  if (value instanceof Error) return safeError(value);
+  if (value instanceof Error) return safeError(value, depth);
   if (Array.isArray(value)) return value.map((entry) => sanitize(entry, depth + 1));
   if (value instanceof Map) return sanitizeAttributes(Object.fromEntries(value), depth + 1);
   if (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)
@@ -174,6 +198,18 @@ const sanitizeAttributes = (attributes: Readonly<Record<string, unknown>>, depth
   return out;
 };
 
+/** The cause with every failure and defect value sanitised, so formatting it can show no secret. */
+const sanitizeCause = (cause: Cause.Cause<unknown>): Cause.Cause<unknown> =>
+  Cause.fromReasons(
+    cause.reasons.map((reason) =>
+      reason._tag === "Fail"
+        ? Cause.makeFailReason(sanitize(reason.error))
+        : reason._tag === "Die"
+          ? Cause.makeDieReason(sanitize(reason.defect))
+          : reason,
+    ),
+  );
+
 /**
  * Effect's tracer logger, with the log's arguments sanitised before they are formatted into the
  * event's name. Formatted text cannot be redacted reliably: `{ secret: ["x"] }` keeps no quoted
@@ -190,7 +226,7 @@ export const tracerLogger = Logger.make(({ cause, fiber, logLevel, message, date
       ...fiber.getRef(References.CurrentLogAnnotations),
       "effect.fiberId": fiber.id,
       "effect.logLevel": logLevel.toUpperCase(),
-      ...(cause.reasons.length > 0 ? { "effect.cause": Cause.pretty(cause) } : {}),
+      ...(cause.reasons.length > 0 ? { "effect.cause": Cause.pretty(sanitizeCause(cause)) } : {}),
     },
   );
 });
@@ -204,7 +240,7 @@ const pad = (n: number, width = 2) => String(n).padStart(width, "0");
  */
 export const consoleLogger = Logger.make(({ cause, fiber, logLevel, message, date }) => {
   const parts = (Array.isArray(message) ? message : [message]).map((part) => sanitize(part));
-  if (cause.reasons.length > 0) parts.push(scrub(Cause.pretty(cause)));
+  if (cause.reasons.length > 0) parts.push(scrub(Cause.pretty(sanitizeCause(cause)), MAX_FRAMES));
   const annotations = fiber.getRef(References.CurrentLogAnnotations);
   if (Object.keys(annotations).length > 0) parts.push(sanitizeAttributes(annotations));
   const now = date.getTime();
@@ -222,7 +258,9 @@ export const consoleLogger = Logger.make(({ cause, fiber, logLevel, message, dat
 const sanitizeExit = (exit: Exit.Exit<unknown, unknown>): Exit.Exit<unknown, unknown> => {
   if (Exit.isSuccess(exit)) return Exit.void;
   if (Cause.hasInterruptsOnly(exit.cause)) return exit;
-  const errors = Cause.prettyErrors(exit.cause, { includeCauseInStack: true }).map(safeError);
+  const errors = Cause.prettyErrors(sanitizeCause(exit.cause), { includeCauseInStack: true }).map(
+    (error) => safeError(error),
+  );
   return Exit.failCause(Cause.fromReasons(errors.map(Cause.makeDieReason)));
 };
 
@@ -282,7 +320,8 @@ const exitOf = (
     : {
         _tag: Cause.hasInterruptsOnly(exit.cause) ? "Interrupted" : "Failure",
         errorTag: causeErrorTag(exit.cause),
-        cause: truncate(Cause.pretty(safe.cause), 4 * MAX_STRING),
+        // The scrubbed errors already bound message and frames; this only caps several of them.
+        cause: truncate(Cause.pretty(safe.cause), 2 * (MAX_SCRUBBED + MAX_FRAMES)),
       };
 
 export interface TraceSinkOptions {
@@ -420,7 +459,7 @@ export const makeTraceSink = Effect.fn("makeTraceSink")(function* (options: Trac
  */
 class SafeSpan implements Tracer.Span {
   readonly _tag = "Span";
-  readonly name: string;
+  name: string;
   readonly spanId: string;
   readonly traceId: string;
   readonly parent: Option.Option<Tracer.AnySpan>;
@@ -483,6 +522,10 @@ class SafeSpan implements Tracer.Span {
 
   attribute(key: string, value: unknown): void {
     const safe = sanitizeAttributes({ [key]: value })[key];
+    // HTTP spans start as `http GET` (the path is not a name: ids, tokens); the router names the
+    // route it matched, a template like `/api/rpc/:method`. The delegate keeps the bare name.
+    if (key === "http.route" && typeof safe === "string" && /^http [A-Z]+$/.test(this.name))
+      this.name = `${this.name} ${safe}`;
     this.attributes.set(key, safe);
     this.delegate.attribute(key, safe);
   }
@@ -517,7 +560,7 @@ export const makeTracer = (options: {
   const delegate = options.delegate ?? Tracer.make({ span: (span) => new Tracer.NativeSpan(span) });
   return Tracer.make({
     span: (span) => {
-      const safe = { ...span, links: span.links.map(sanitizeLink) };
+      const safe = { ...span, name: scrub(span.name), links: span.links.map(sanitizeLink) };
       return new SafeSpan(safe, delegate.span(safe), options.push);
     },
     ...(delegate.context === undefined ? {} : { context: delegate.context }),

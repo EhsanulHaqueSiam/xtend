@@ -1,3 +1,6 @@
+// @effect-diagnostics nodeBuiltinImport:off -- util.format prints captured arguments as Node's console does.
+import * as NodeUtil from "node:util";
+
 import { describe, expect, it } from "@effect/vitest";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
@@ -22,10 +25,20 @@ describe("service loggers", () => {
         Effect.annotateLogs({ assistKey: "annotatedkey", url: "http://127.0.0.1/ws?token=abcd" }),
         Effect.andThen(Effect.logError("cause", new Error("Bearer causebearer"))),
       );
-      const text = JSON.stringify(printed);
-      expect(printed).toHaveLength(2);
+      yield* Effect.die({
+        secret: ["opaque-secret-die"],
+        cookies: { value: "opaque-cookie" },
+      }).pipe(Effect.catchCause((cause) => Effect.logError("defect", cause)));
+      yield* Effect.logError(
+        "query",
+        new Error("SQL execution failed", { cause: new Error("SQLITE_BUSY ct0=chainsecret") }),
+      );
+      // What stdout would show: Node formats the arguments, Errors with their cause chain.
+      const text = printed.map((args) => NodeUtil.format(...args)).join("\n");
+      expect(printed).toHaveLength(4);
       expect(text).toContain("treg refused");
-      expect(text).toContain('"tokenCount":42');
+      expect(text).toContain("tokenCount: 42");
+      expect(text).toContain("SQLITE_BUSY");
       for (const secret of [
         "opaque-secret",
         "cookiect0",
@@ -34,6 +47,9 @@ describe("service loggers", () => {
         "annotatedkey",
         "token=abcd",
         "causebearer",
+        "opaque-secret-die",
+        "opaque-cookie",
+        "chainsecret",
       ])
         expect(text).not.toContain(secret);
     }).pipe(

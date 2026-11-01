@@ -41,7 +41,7 @@ with `effect.logLevel`) and `exit` (`Success`, or `Failure`/`Interrupted` with `
 `cause`). The shape is `TraceRecord` in `apps/server/src/observability/LocalTrace.ts`.
 
 What is spanned: every RPC (`ws.rpc.<method>`, `http.rpc.<method>`), every HTTP request
-(`http GET /api/health`), every `Effect.fn` service operation, every SQL statement (`sqlite`, query
+(`http GET /api/rpc/:method`, named by the route template the router matched, never the raw path), every `Effect.fn` service operation, every SQL statement (`sqlite`, query
 text cut to 200 characters), and every treg call (`Treg.call` with `x.purpose`, `x.endpoint`,
 `x.cost_usd`, `x.cached`).
 
@@ -52,14 +52,17 @@ Neither the trace file, `service.log` (stdout) nor an OTLP backend may receive t
 every span before anything sees it, with the trace file on or off:
 
 - a key names a credential by its last word or two (`tregToken`, `auth_token`, `webhookSecret`,
-  `apiKey`, `ct0`; not `tokenCount` or `token_budget`), and its value, whatever its type except a
+  `apiKey`, `ct0`, `csrf`, `sessionId`, `password_hash`; not `tokenCount`, `token_budget` or
+  `userId`), and its value, whatever its type except a
   boolean, becomes `<redacted>`, in attributes, event attributes and nested values alike;
 - log arguments are sanitised the same way before Effect formats them into the event's name;
-- every string is cut to 2,000 characters, then scrubbed in one linear pass for JWT-shaped values
-  (treg tokens), `trg_` tokens, 64-hex service tokens, `Bearer` values and credential-named
-  `key=value` / `"key": "value"` pairs;
-- a failed span's exit is rebuilt from scrubbed names, messages and stacks, so an error quoting a
-  token never reaches OTLP's exception events.
+- every string, span names included, is scrubbed in one linear pass for JWT-shaped values (treg
+  tokens), `trg_` tokens, 64-hex service tokens, `Bearer` values and credential-named
+  `key=value` / `"key": "value"` pairs, and only then cut to 2,000 characters, so a cut never
+  leaves part of a token;
+- failure and defect values are sanitised as structures before a cause is formatted, so a failed
+  span's exit, a logged cause and OTLP's exception events never show them. An error keeps its
+  name, message, call sites (on their own budget) and its `cause` chain, all scrubbed.
 
 Stdout gets the same treatment, since the desktop pipes it to `<baseDir>/service.log`: the
 console logger is swapped for one with the same line format whose message, cause and annotations
