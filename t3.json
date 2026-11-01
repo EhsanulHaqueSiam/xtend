@@ -6,6 +6,41 @@
       "command": "node scripts/setup-worktree.ts",
       "icon": "configure",
       "runOnWorktreeCreate": true
+    },
+    {
+      "name": "Dev (seeded, paid lanes fake)",
+      "command": "pnpm dev",
+      "icon": "play"
+    },
+    {
+      "name": "Dev with X screens replayed",
+      "command": "pnpm dev --fixture x-screens",
+      "icon": "play"
+    },
+    {
+      "name": "Desktop (debuggable on 9223)",
+      "command": "XTEND_REMOTE_DEBUG=9223 pnpm dev:desktop",
+      "icon": "debug"
+    },
+    {
+      "name": "Check changed",
+      "command": "pnpm check:changed",
+      "icon": "lint"
+    },
+    {
+      "name": "Engine bench (3 runs, live account)",
+      "command": "XTEND_REMOTE_DEBUG=9223 node apps/desktop/scripts/engine-bench.mjs --runs 3 --pause 300",
+      "icon": "test"
+    },
+    {
+      "name": "Capture screens",
+      "command": "pnpm capture --routes /today,/compose,/plan,/library,/engage,/leads,/automate,/analyze --viewports 1440x900,390x844",
+      "icon": "test"
+    },
+    {
+      "name": "Package the desktop app",
+      "command": "pnpm dist:desktop:dmg:arm64 && pnpm release:smoke",
+      "icon": "build"
     }
   ]
 }

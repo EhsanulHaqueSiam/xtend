@@ -1,7 +1,9 @@
+// @effect-diagnostics nodeBuiltinImport:off -- the renders project writes its reports from Node.
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
 import * as Hash from "effect/Hash";
+import * as NodeFSP from "node:fs/promises";
 import * as NodeURL from "node:url";
 import { playwright } from "vite-plus/test/browser-playwright";
 import { defineProject, type TestProjectInlineConfiguration } from "vite-plus/test/config";
@@ -62,6 +64,33 @@ const browserTestProject = {
   },
 } satisfies TestProjectInlineConfiguration;
 
+// Render scenarios count React commits and component renders; they run only through
+// scripts/render-metrics.ts, which reads the per-scenario reports this command writes.
+const renderScenariosProject = {
+  ...browserTestProject,
+  test: {
+    ...browserTestProject.test,
+    name: "renders",
+    include: ["test/*.renders.tsx"],
+    benchmark: { include: [] },
+    // The counter must hook React before react-dom loads.
+    setupFiles: ["./test/renderCounter.ts", ...browserTestProject.test.setupFiles],
+    browser: {
+      ...browserTestProject.test.browser,
+      // Vitest names each instance in place, so a shared array would clash with the browser project.
+      instances: [{ browser: "chromium" }],
+      commands: {
+        ...browserTestProject.test.browser.commands,
+        writeRenderReport: async (_context, scenario: string, json: string) => {
+          const directory = process.env.XTEND_RENDER_REPORT_DIR;
+          if (directory === undefined) throw new Error("XTEND_RENDER_REPORT_DIR is not set");
+          await NodeFSP.writeFile(`${directory}/${scenario}.json`, json);
+        },
+      },
+    },
+  },
+} satisfies TestProjectInlineConfiguration;
+
 // Dev is single-origin: the web app talks to /ws and /api on its own origin and
 // Vite proxies them to the service, so a remote browser works unchanged.
 export default defineConfig({
@@ -82,6 +111,10 @@ export default defineConfig({
   },
   test: {
     ...TEST_DEFAULTS,
-    projects: [defineProject(unitTestProject), defineProject(browserTestProject)],
+    projects: [
+      defineProject(unitTestProject),
+      defineProject(browserTestProject),
+      defineProject(renderScenariosProject),
+    ],
   },
 });

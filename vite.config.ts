@@ -139,7 +139,8 @@ export default defineConfig({
       "xtend/no-inline-schema-compile": "error",
       "xtend/no-low-value-comments": "error",
       "xtend/no-manual-effect-runtime-in-tests": "error",
-      "xtend/no-native-title-tooltip": "error",
+      // The router's Link puts `title` on its <a>.
+      "xtend/no-native-title-tooltip": ["error", { components: ["Link"] }],
       "xtend/no-polling-loop-in-tests": "error",
       "xtend/no-real-time-wait-in-tests": "error",
       "xtend/no-test-in-loop": "error",
