@@ -561,6 +561,14 @@ describe("renderEngineBatch around posts", () => {
       renderEngineBatch("SearchTimeline", { rawQuery: "from:theo", product: "Latest" }, {}).key,
     ).toBe("Latest:from:theo");
     expect(renderEngineBatch("TweetDetail", { focalTweetId: "42" }, {}).key).toBe("42");
+    // A thread sorted by Recent or Likes is its own list; Relevant is X's default.
+    const sorted = (rankingMode: string) =>
+      renderEngineBatch("TweetDetail", { focalTweetId: "42", rankingMode }, {}).key;
+    expect([sorted("Relevance"), sorted("Recency"), sorted("Likes")]).toEqual([
+      "42",
+      "42:Recency",
+      "42:Likes",
+    ]);
     const header = renderEngineBatch(
       "ListByRestId",
       { listId: "12" },

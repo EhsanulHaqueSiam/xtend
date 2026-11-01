@@ -10,6 +10,7 @@ import { markXReady, registerXWebview, type XWebview } from "../../state/x";
 import { EngineSync } from "./EngineSync";
 import { Poll } from "./PostParts";
 import { ReplyComposer } from "./ReplyComposer";
+import { ReplySort } from "./ReplySort";
 import { Timeline } from "./Timeline";
 
 const post = (postId: string, text: string, extra: Partial<EnginePost> = {}): EnginePost => ({
@@ -374,4 +375,21 @@ it("keeps a vote X took when the poll is drawn again, as a list does after scrol
   await screen.rerender(<Poll key="b" postId="51" poll={poll} onVote={vote} />);
   await expect.element(screen.getByText("Spaces ✓")).toBeVisible();
   expect(screen.getByRole("radio").elements()).toHaveLength(0);
+});
+
+it("sorts replies through X's own menu: Relevant, Recent, Likes, the open one checked", async () => {
+  const picked: Array<string> = [];
+  await using screen = await render(
+    <ReplySort value="Relevance" onChange={(sort) => picked.push(sort)} />,
+    { service: {} },
+  );
+  await screen.getByRole("button", { name: "Relevant" }).click();
+  await expect.element(screen.getByText("Sort replies")).toBeVisible();
+  const rows = screen.getByRole("menuitem");
+  expect(rows.elements().map((r) => r.textContent)).toEqual(["Relevant", "Recent", "Likes"]);
+  expect(rows.first().element().querySelector("svg")).not.toBeNull();
+  await screen.getByRole("menuitem", { name: "Recent" }).click();
+  expect(picked).toEqual(["Recency"]);
+  await screen.rerender(<ReplySort value="Recency" onChange={() => {}} />);
+  await expect.element(screen.getByRole("button", { name: "Recent" })).toBeVisible();
 });

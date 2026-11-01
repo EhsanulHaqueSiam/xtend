@@ -70,8 +70,12 @@ export type AnySurface = Surface | KeyedSurface;
 /** @public The keyed surfaces screens read, named the way the capture keys them. */
 export const searchSurface = (product: SearchProduct, query: string) =>
   `search:${product}:${query}` as const;
-/** @public */
-export const postSurface = (postId: string) => `post:${postId}` as const;
+/** X's reply orders for a thread, as TweetDetail's `rankingMode` names them; Relevance is X's default. */
+export const REPLY_SORTS = ["Relevance", "Recency", "Likes"] as const;
+export type ReplySort = (typeof REPLY_SORTS)[number];
+/** @public A thread's list per reply order: X sends each order's replies afresh, in its own order. */
+export const postSurface = (postId: string, sort: ReplySort = "Relevance") =>
+  sort === "Relevance" ? (`post:${postId}` as const) : (`post:${postId}:${sort}` as const);
 /** @public */
 export const profileSurface = (tab: ProfileTab, userId: string) =>
   `profile:${tab}:${userId}` as const;
@@ -118,7 +122,8 @@ export function surfacesOf(batch: Pick<EngineBatch, "op" | "key">): ReadonlyArra
       ? [searchSurface(product, key.slice(product.length + 1)), "search"]
       : ["search"];
   }
-  if (op === "TweetDetail") return key === null ? ["post"] : [postSurface(key), "post"];
+  // The capture keys a sorted thread `<id>:<rankingMode>`, which is that sort's own surface.
+  if (op === "TweetDetail") return key === null ? ["post"] : [`post:${key}`, "post"];
   if (op === "HomeTimeline") return [tabKey(key, "tag") ?? "forYou"];
   if (op === "HomeLatestTimeline") return ["following"];
   if (op === "Bookmarks") return ["bookmarks"];
@@ -323,9 +328,6 @@ function placeCreated(state: EngineState, post: EnginePost): EngineState {
       ),
     };
   }
-  const surface = postSurface(parentId);
-  const list = at(state.lists, surface).filter((id) => id !== post.postId);
-  const under = list.indexOf(parentId) + 1;
   const parent = state.posts.get(parentId);
   const posts =
     parent === undefined
@@ -337,11 +339,16 @@ function placeCreated(state: EngineState, post: EnginePost): EngineState {
   return {
     ...state,
     posts,
-    // A thread never opened here has nothing to join; X's page brings the reply when it opens.
-    lists:
-      under === 0
-        ? state.lists
-        : set(state.lists, surface, [...list.slice(0, under), post.postId, ...list.slice(under)]),
+    // X shows it under the post whatever the reply order. A thread never opened here has nothing
+    // to join; X's page brings the reply when it opens.
+    lists: REPLY_SORTS.reduce((lists, sort) => {
+      const surface = postSurface(parentId, sort);
+      const list = at(lists, surface).filter((id) => id !== post.postId);
+      const under = list.indexOf(parentId) + 1;
+      return under === 0
+        ? lists
+        : set(lists, surface, [...list.slice(0, under), post.postId, ...list.slice(under)]);
+    }, state.lists),
   };
 }
 

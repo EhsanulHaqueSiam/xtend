@@ -585,6 +585,37 @@ const benchmarks = [
     },
   ],
   [
+    "Reply sort: Recent re-sorts the replies as X's page orders them",
+    async () => {
+      await go(`#/search?q=${encodeURIComponent(SEARCH)}&f=top`);
+      const post = await until(() =>
+        store(
+          `(() => { const p = at($.lists, ${JSON.stringify(`search:Top:${SEARCH}`)}).map((id) => $.posts.get(id)).find((p) => p.metrics.replies >= 10); return p && { id: p.postId, handle: p.author.handle }; })()`,
+        ),
+      );
+      if (!post) return false;
+      await go(`#/post/${post.id}?h=${post.handle}`);
+      const sortButton = `[...document.querySelectorAll("main button")].find((b) => ["Relevant", "Recent", "Likes"].includes(b.textContent.trim()))`;
+      if (!(await until(() => app(`!!${sortButton}`)))) return false;
+      await app(`${sortButton}.click(), true`);
+      await sleep(400);
+      await app(
+        `[...document.querySelectorAll('[role="menu"] [role="menuitem"]')].find((i) => i.textContent.trim() === "Recent")?.click(), true`,
+      );
+      const xReplies = `[...document.querySelectorAll("article")].map((a) => a.querySelector('a[href*="/status/"] time')?.parentElement.getAttribute("href")?.split("/status/")[1]).filter((id) => id && id !== ${JSON.stringify(post.id)}).slice(0, 3)`;
+      return until(async () => {
+        if (!(await enginePath()).endsWith(`/status/${post.id}?sort_replies=recency`)) return false;
+        const ours = (await nativeIds()).filter((id) => id !== post.id).slice(0, 3);
+        const xs = await engine(xReplies);
+        return (
+          ours.length === 3 &&
+          JSON.stringify(ours) === JSON.stringify(xs) &&
+          `${post.id}: ${ours.join(",")}`
+        );
+      });
+    },
+  ],
+  [
     "X's reply, repost, quote and like are reachable on the post (dry)",
     async () => {
       const post = await until(() =>

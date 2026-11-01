@@ -6,6 +6,7 @@ import {
   emptyEngine,
   mergeBatch,
   postOn,
+  postSurface,
   resetSurface,
   showWaiting,
   surfacesOf,
@@ -155,6 +156,10 @@ it("files pinned Home tabs, Lists, Communities and Explore tabs under their own 
     "search",
   ]);
   expect(surfacesOf({ op: "TweetDetail", key: "42" })).toEqual(["post:42", "post"]);
+  expect(surfacesOf({ op: "TweetDetail", key: "42:Recency" })).toEqual([
+    postSurface("42", "Recency"),
+    "post",
+  ]);
   expect(surfacesOf({ op: "UserFollowers", key: null })).toEqual([]);
 
   const state = mergeBatch(
@@ -302,10 +307,14 @@ it("puts the user's new reply under the post it answers, and a new post on top o
     emptyEngine,
     batch("TweetDetail", thread, { key: "1", order: ["1", "2"] }),
   );
+  state = mergeBatch(state, batch("TweetDetail", thread, { key: "1:Recency", order: ["1", "2"] }));
   state = mergeBatch(state, batch("HomeLatestTimeline", [post("3", "2026-10-30T02:00:00Z")]));
   const reply = { ...post("9", "2026-10-31T00:00:00Z"), replyToId: "1" };
   state = mergeBatch(state, batch("CreateTweet", [reply]));
+  // Under the post in every reply order the thread was opened in.
   expect(at(state.lists, "post:1")).toEqual(["1", "9", "2"]);
+  expect(at(state.lists, postSurface("1", "Recency"))).toEqual(["1", "9", "2"]);
+  expect(at(state.lists, postSurface("1", "Likes"))).toEqual([]);
   expect(state.posts.get("1")?.metrics.replies).toBe(1);
   const quote = { ...post("10", "2026-10-31T01:00:00Z"), quotedId: "3" };
   state = mergeBatch(state, batch("CreateNoteTweet", [quote, post("3", "2026-10-30T02:00:00Z")]));
