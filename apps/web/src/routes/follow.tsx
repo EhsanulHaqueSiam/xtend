@@ -42,6 +42,17 @@ function FollowScreen() {
   const reload = () => void xNavigate(current.url);
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- moves the engine (the session view) to this screen's X page while it is open.
   useEffect(open, [open]);
+  // The tabs share a path, which is what ends a press elsewhere: leaving a tab by any way (its
+  // tab, the sidebar, Back) ends a Subscribe begun there, and X's dialog over it.
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- ends X's press and dialog when the open Follow tab changes.
+  useEffect(
+    () => () => {
+      xOverEnded();
+      setOver(false);
+    },
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- the open tab is the trigger: leaving it ends its press.
+    [current.id, setOver],
+  );
 
   const people = at(engine.people, surface).flatMap((id) => engine.users.get(id) ?? []);
   const rows: ReadonlyArray<EngineUser | string> =
@@ -56,12 +67,7 @@ function FollowScreen() {
             label="Follow"
             tabs={TABS}
             value={current.id}
-            onChange={(next) => {
-              // The tabs share a path, so a Subscribe still running belongs to the tab it began on.
-              xOverEnded();
-              setOver(false);
-              void navigate({ to: "/follow", search: { tab: next } });
-            }}
+            onChange={(next) => void navigate({ to: "/follow", search: { tab: next } })}
           />
         </>
       }
