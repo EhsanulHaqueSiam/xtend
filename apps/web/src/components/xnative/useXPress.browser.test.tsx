@@ -10,7 +10,13 @@ import { useXPress } from "./useXPress";
 it("takes away an earlier press's Undo once another press starts", async () => {
   let finish: (o: XMenuOutcome) => void = () => {};
   const second = new Promise<XMenuOutcome>((resolve) => (finish = resolve));
-  const done = (toast: string): XMenuOutcome => ({ kind: "done", toast, undo: true });
+  const done = (toast: string): XMenuOutcome => ({
+    kind: "done",
+    toast,
+    undo: true,
+    gone: true,
+    current: true,
+  });
   function Rows() {
     const { pressRow } = useXPress();
     return (
