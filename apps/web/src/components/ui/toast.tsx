@@ -19,6 +19,7 @@ const SHOWN_MS = 4000;
 export function Toasts() {
   const toast = useAtomValue(toastAtom);
   const setToast = useAtomSet(toastAtom);
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- timer that clears the toast after it has shown.
   useEffect(() => {
     if (toast === null) return;
     const timer = setTimeout(() => setToast(null), SHOWN_MS);

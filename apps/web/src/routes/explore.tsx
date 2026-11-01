@@ -84,6 +84,7 @@ function ExploreScreen() {
   const label = current === undefined || current === tabs[0] ? null : current.label;
   const received = surface !== null && at(engine.trends, surface).length > 0;
   const receivedRef = useRef(received);
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- keeps whether X's trends arrived for open() to read without re-running it.
   useEffect(() => {
     receivedRef.current = received;
   }, [received]);
@@ -98,6 +99,7 @@ function ExploreScreen() {
       label === null ? undefined : xPickHomeTab(label),
     );
 
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- moves the engine (the session view) to this screen's X page while it is open.
   useEffect(open, [open]);
 
   const rows: Array<Row> = [];

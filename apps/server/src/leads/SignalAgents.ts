@@ -168,121 +168,118 @@ const make = Effect.gen(function* () {
   );
 
   // One search page, new authors scored in one model call, rows filed under the agent's name.
-  const runAgent = (agent: AgentRow) =>
-    Effect.gen(function* () {
-      const at = yield* now;
-      const nowMs = Date.parse(at);
-      const known = yield* people.knownHandles;
-      const page = yield* x.searchPosts(agent.query, {
-        mode: "latest",
-        limit: SEARCH_LIMIT,
-        purpose: `leads.agent.${agent.name}`,
-      });
-      const byHandle = new Map<string, { post: string; candidate: Candidate }>();
-      for (const p of page.items) {
-        const key = p.author.handle.toLowerCase();
-        if (known.has(key) || byHandle.has(key)) continue;
-        if ((p.author.followers ?? 0) < agent.min_followers) continue;
-        if (agent.lang !== null && p.lang !== agent.lang) continue;
-        byHandle.set(key, {
-          post: p.text,
-          candidate: {
-            handle: p.author.handle,
-            name: p.author.name,
-            userId: p.author.userId,
-            followers: p.author.followers,
-            bio: "",
-          },
-        });
-      }
-      let found = [...byHandle.values()];
-      // A run inside the search's 30-minute cache paid nothing for it.
-      let costUsd = page.fromCache ? 0 : XClient.RATE_CARD.searchPage;
-      // The bot check needs following, bio and account age, which only a profile has.
-      if (agent.exclude_bots === 1) {
-        costUsd += found.length * XClient.RATE_CARD.scraperProfile;
-        const profiled = yield* Effect.forEach(found, (f) =>
-          Effect.map(x.profile(f.candidate.handle, `leads.agent.${agent.name}`), (p) =>
-            p === null || looksLikeBot(p, nowMs)
-              ? null
-              : {
-                  post: f.post,
-                  candidate: {
-                    ...f.candidate,
-                    userId: p.userId,
-                    followers: p.followers,
-                    bio: p.bio,
-                  },
-                },
-          ),
-        );
-        found = profiled.filter((f) => f !== null);
-      }
-      let scored: ReadonlyArray<Candidate> = [];
-      if (found.length > 0) {
-        const { keywords } = yield* settings.get;
-        const scores = yield* assist.generate({
-          task: "leads.agentScore",
-          instructions: `Score each author 0-100 as a lead for the user. Scoring guidance from the user: ${agent.scoring_prompt || "(none)"}. Give one short reason each. Return one entry per handle.`,
-          input: {
-            keywords,
-            authors: found.map((f) => ({
-              handle: f.candidate.handle,
-              followers: f.candidate.followers,
-              post: f.post,
-            })),
-          },
-          output: Scores,
-        });
-        // Models often answer "@Alice" for alice.
-        const byScore = new Map(scores.map((s) => [s.handle.replace(/^@/, "").toLowerCase(), s]));
-        scored = found.map((f) => {
-          const s = byScore.get(f.candidate.handle.toLowerCase());
-          return { ...f.candidate, score: s?.score ?? null, bio: s?.reason || f.candidate.bio };
-        });
-      }
-      const ids = yield* people.addMany(scored, `agent:${agent.name}`, agent.list_id ?? undefined);
-      const min = agent.notify_min_score;
-      if (min !== null)
-        for (const [i, id] of ids.entries()) {
-          const c = scored[i]!;
-          if (id !== null && c.score !== undefined && c.score !== null && c.score >= min)
-            yield* events.publish({
-              type: "lead_found",
-              payload: { personId: id, handle: c.handle, score: c.score, agent: agent.name },
-            });
-        }
-      // shortcut: a profile read does not say whether the cache served it, so those are logged at the quoted rate.
-      return { at, found: found.length, inserted: ids.filter((id) => id !== null).length, costUsd };
+  const runAgent = Effect.fn("SignalAgents.runAgent")(function* (agent: AgentRow) {
+    const at = yield* now;
+    const nowMs = Date.parse(at);
+    const known = yield* people.knownHandles;
+    const page = yield* x.searchPosts(agent.query, {
+      mode: "latest",
+      limit: SEARCH_LIMIT,
+      purpose: `leads.agent.${agent.name}`,
     });
+    const byHandle = new Map<string, { post: string; candidate: Candidate }>();
+    for (const p of page.items) {
+      const key = p.author.handle.toLowerCase();
+      if (known.has(key) || byHandle.has(key)) continue;
+      if ((p.author.followers ?? 0) < agent.min_followers) continue;
+      if (agent.lang !== null && p.lang !== agent.lang) continue;
+      byHandle.set(key, {
+        post: p.text,
+        candidate: {
+          handle: p.author.handle,
+          name: p.author.name,
+          userId: p.author.userId,
+          followers: p.author.followers,
+          bio: "",
+        },
+      });
+    }
+    let found = [...byHandle.values()];
+    // A run inside the search's 30-minute cache paid nothing for it.
+    let costUsd = page.fromCache ? 0 : XClient.RATE_CARD.searchPage;
+    // The bot check needs following, bio and account age, which only a profile has.
+    if (agent.exclude_bots === 1) {
+      costUsd += found.length * XClient.RATE_CARD.scraperProfile;
+      const profiled = yield* Effect.forEach(found, (f) =>
+        Effect.map(x.profile(f.candidate.handle, `leads.agent.${agent.name}`), (p) =>
+          p === null || looksLikeBot(p, nowMs)
+            ? null
+            : {
+                post: f.post,
+                candidate: {
+                  ...f.candidate,
+                  userId: p.userId,
+                  followers: p.followers,
+                  bio: p.bio,
+                },
+              },
+        ),
+      );
+      found = profiled.filter((f) => f !== null);
+    }
+    let scored: ReadonlyArray<Candidate> = [];
+    if (found.length > 0) {
+      const { keywords } = yield* settings.get;
+      const scores = yield* assist.generate({
+        task: "leads.agentScore",
+        instructions: `Score each author 0-100 as a lead for the user. Scoring guidance from the user: ${agent.scoring_prompt || "(none)"}. Give one short reason each. Return one entry per handle.`,
+        input: {
+          keywords,
+          authors: found.map((f) => ({
+            handle: f.candidate.handle,
+            followers: f.candidate.followers,
+            post: f.post,
+          })),
+        },
+        output: Scores,
+      });
+      // Models often answer "@Alice" for alice.
+      const byScore = new Map(scores.map((s) => [s.handle.replace(/^@/, "").toLowerCase(), s]));
+      scored = found.map((f) => {
+        const s = byScore.get(f.candidate.handle.toLowerCase());
+        return { ...f.candidate, score: s?.score ?? null, bio: s?.reason || f.candidate.bio };
+      });
+    }
+    const ids = yield* people.addMany(scored, `agent:${agent.name}`, agent.list_id ?? undefined);
+    const min = agent.notify_min_score;
+    if (min !== null)
+      for (const [i, id] of ids.entries()) {
+        const c = scored[i]!;
+        if (id !== null && c.score !== undefined && c.score !== null && c.score >= min)
+          yield* events.publish({
+            type: "lead_found",
+            payload: { personId: id, handle: c.handle, score: c.score, agent: agent.name },
+          });
+      }
+    // shortcut: a profile read does not say whether the cache served it, so those are logged at the quoted rate.
+    return { at, found: found.length, inserted: ids.filter((id) => id !== null).length, costUsd };
+  });
 
-  const record = (
+  const record = Effect.fn("SignalAgents.record")(function* (
     agentId: number,
     r: { at: string; found: number; inserted: number; costUsd: number; error: string | null },
-  ) =>
-    Effect.gen(function* () {
-      const rows = yield* sql<RunRow>`
+  ) {
+    const rows = yield* sql<RunRow>`
         INSERT INTO agent_runs (agent_id, at, found, inserted, cost_usd, error)
         VALUES (${agentId}, ${r.at}, ${r.found}, ${r.inserted}, ${r.costUsd}, ${r.error}) RETURNING *`;
-      yield* sql`UPDATE agents SET last_run = ${r.at} WHERE id = ${agentId}`;
-      return toRun(rows[0]!);
-    });
+    yield* sql`UPDATE agents SET last_run = ${r.at} WHERE id = ${agentId}`;
+    return toRun(rows[0]!);
+  });
 
   // Agents with a run in flight: "Run now" during a scheduled run, or a double click, must not pay twice.
   const running = new Set<number>();
 
-  const runOnce = (id: number) =>
-    Effect.gen(function* () {
-      const agent = yield* byId(id);
-      const at = yield* now;
-      const result = yield* runAgent(agent).pipe(
-        Effect.map((r) => ({ ...r, error: null })),
-        Effect.catch((e) =>
-          Effect.succeed({ at, found: 0, inserted: 0, costUsd: 0, error: String(e).slice(0, 300) }),
-        ),
-      );
-      return yield* record(id, result);
-    });
+  const runOnce = Effect.fn("SignalAgents.runOnce")(function* (id: number) {
+    const agent = yield* byId(id);
+    const at = yield* now;
+    const result = yield* runAgent(agent).pipe(
+      Effect.map((r) => ({ ...r, error: null })),
+      Effect.catch((e) =>
+        Effect.succeed({ at, found: 0, inserted: 0, costUsd: 0, error: String(e).slice(0, 300) }),
+      ),
+    );
+    return yield* record(id, result);
+  });
 
   const run = Effect.fn("SignalAgents.run")(
     function* (id: number) {

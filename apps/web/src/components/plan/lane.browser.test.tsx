@@ -84,7 +84,7 @@ it("keeps a post with restricted replies on the API, as Publisher does, block by
 
 it("prices the editor's Post now through the session, and Queue and Schedule at the API's rate", async () => {
   const d1 = draft("d1", "draft", { blocks: [{ text: "Plain text post" }] });
-  await using screen = await render(
+  await using _screen = await render(
     <ComposeEditor
       draftParam="d1"
       inspire={undefined}

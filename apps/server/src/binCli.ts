@@ -1,5 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off -- a desktop child watches its raw stdin pipe.
-import { finished } from "node:stream";
+import * as NodeStream from "node:stream";
 
 import * as NodeHttpClient from "@effect/platform-node/NodeHttpClient";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
@@ -75,17 +75,16 @@ const resolveConfig = (flags: RootFlags) =>
  * context (tests) wins; otherwise the token comes from the base dir and the URL
  * from XTEND_SERVICE_URL or the port flag.
  */
-const withApi = <A, E>(effect: Effect.Effect<A, E, Api.Api>) =>
-  Effect.gen(function* () {
-    const given = yield* Effect.serviceOption(Api.Api);
-    if (Option.isSome(given)) return yield* Effect.provideService(effect, Api.Api, given.value);
-    const config = yield* resolveConfig(yield* root);
-    const token = yield* Api.readToken(config.baseDir);
-    const url = process.env.XTEND_SERVICE_URL ?? `http://127.0.0.1:${config.port}`;
-    return yield* effect.pipe(
-      Effect.provide(Api.layer({ url, token }).pipe(Layer.provide(NodeHttpClient.layerNodeHttp))),
-    );
-  });
+const withApi = Effect.fn("binCli.withApi")(function* <A, E>(effect: Effect.Effect<A, E, Api.Api>) {
+  const given = yield* Effect.serviceOption(Api.Api);
+  if (Option.isSome(given)) return yield* Effect.provideService(effect, Api.Api, given.value);
+  const config = yield* resolveConfig(yield* root);
+  const token = yield* Api.readToken(config.baseDir);
+  const url = process.env.XTEND_SERVICE_URL ?? `http://127.0.0.1:${config.port}`;
+  return yield* effect.pipe(
+    Effect.provide(Api.layer({ url, token }).pipe(Layer.provide(NodeHttpClient.layerNodeHttp))),
+  );
+});
 
 const call = <A>(method: string, payload: unknown) =>
   Effect.flatMap(Api.Api, (api) => api.call(method, payload)).pipe(Effect.map((r) => r as A));
@@ -238,7 +237,7 @@ export const stopWithDesktop =
       : Effect.raceFirst(
           server,
           Effect.callback<void>((resume) => {
-            const forget = finished(stdin, () =>
+            const forget = NodeStream.finished(stdin, () =>
               resume(Effect.logInfo("the desktop that started this service is gone; stopping")),
             );
             stdin.resume();

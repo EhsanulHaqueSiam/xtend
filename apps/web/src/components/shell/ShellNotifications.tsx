@@ -37,6 +37,7 @@ export function ShellNotifications() {
   const events = useAtomValue(eventsAtom);
   // The list is capped, so remember the last event itself rather than an index.
   const last = useRef<XtendEvent | undefined>(undefined);
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- shows system Notifications for new service events.
   useEffect(() => {
     if (typeof Notification === "undefined" || !AsyncResult.isSuccess(events)) return;
     const all = events.value;

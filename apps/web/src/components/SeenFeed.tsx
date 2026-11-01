@@ -14,6 +14,7 @@ import { Button } from "./ui/button";
 import { Cost, Empty, PageBody, table } from "./ui/layout";
 import { Marks, useMarks } from "./ui/marks";
 import { useOpenOnX } from "./ui/x-link";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 const compact = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
 const fmt = (n: number | null) => (n === null ? "–" : compact.format(n));
@@ -92,17 +93,23 @@ function PostRow({
             ) : null}
           </div>
           <div className="truncate font-mono text-2xs text-muted-foreground">
-            <button
-              type="button"
-              className="cursor-pointer outline-hidden hover:text-foreground hover:underline focus-visible:underline"
-              title={`Only posts by @${post.author.handle}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                onAuthor(post.author.handle);
-              }}
-            >
-              @{post.author.handle}
-            </button>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    className="cursor-pointer outline-hidden hover:text-foreground hover:underline focus-visible:underline"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onAuthor(post.author.handle);
+                    }}
+                  />
+                }
+              >
+                @{post.author.handle}
+              </TooltipTrigger>
+              <TooltipPopup>{`Only posts by @${post.author.handle}`}</TooltipPopup>
+            </Tooltip>
             {post.author.followers !== null ? ` · ${fmt(post.author.followers)}` : ""}
           </div>
         </div>

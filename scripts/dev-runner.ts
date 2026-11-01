@@ -1,8 +1,7 @@
-// Runs this checkout's dev processes on a port pair of its own, so several checkouts and T3
-// worktrees run at once. The search starts at the defaults (service 4820, web 5820) in the main
-// checkout, at an offset hashed from the path in a linked worktree, or at XTEND_PORT_OFFSET; the
-// first pair whose ports are free wins. `dev` records its pair in .xtend/dev-ports.json, and
-// dev:desktop connects to it.
+// Runs this checkout's dev processes on a free port pair of its own, so several checkouts run at
+// once: defaults (service 4820, web 5820) in the main checkout, an offset hashed from the path in a
+// worktree, or XTEND_PORT_OFFSET. `dev` records the pair in .xtend/dev-ports.json for dev:desktop.
+
 //   pnpm dev           contracts, service and web
 //   pnpm dev:server    the service
 //   pnpm dev:web       the web app

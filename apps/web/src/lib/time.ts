@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 /**
  * Calendar arithmetic in the account's zone (Settings.timeZone), never the
  * browser's: a slot at 09:00 Dhaka is 09:00 wherever the UI is opened.
@@ -119,3 +121,14 @@ export const setDisplayZone = (zone: string) => {
 export const fmtWhen = (iso: string) => whenFormat.format(new Date(iso));
 /** "YYYY-MM-DD" in the display zone; slicing the ISO string would give the UTC day. */
 export const fmtDay = (iso: string) => dayKeyIn(displayZone, new Date(iso));
+
+/** The time, refreshed every minute: labels such as "Today 09:30" turn into "Tomorrow" on their own. */
+export function useMinuteClock() {
+  const [now, setNow] = useState(() => new Date());
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- minute interval so the clock re-renders.
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+  return now;
+}

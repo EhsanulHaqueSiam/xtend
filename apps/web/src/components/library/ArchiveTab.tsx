@@ -26,6 +26,7 @@ import { DraftChoice } from "./DraftChoice";
 import { InspectorGroup, PostInspector } from "./PostInspector";
 import { RemixButton, SaveButton, useSavedIds } from "./SaveButton";
 import { AppLink, ErrorLine, ShowMore, causeMessage, errorMessage } from "./shared";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 const THIS_YEAR = new Date().getFullYear();
 const YEARS = Array.from({ length: 6 }, (_, i) => THIS_YEAR - i);
@@ -253,17 +254,21 @@ export function ArchiveTab() {
             {notice !== null ? (
               <span className="font-mono text-2xs text-muted-foreground">{notice}</span>
             ) : null}
-            <button
-              type="button"
-              className={cn(xPill, xPillSm)}
-              disabled={busy || assistQuote === "…"}
-              title="Label the hook pattern of the next 20 unlabelled posts"
-              onClick={() => void runDetect()}
-            >
-              {busy ? "Detecting" : "Detect hooks"}
-              {/* One model call labels the batch of 20. */}
-              <Cost label={`20 posts · ${assistQuote}`} />
-            </button>
+            <Tooltip>
+              <TooltipTrigger render={<span className="inline-flex" />}>
+                <button
+                  type="button"
+                  className={cn(xPill, xPillSm)}
+                  disabled={busy || assistQuote === "…"}
+                  onClick={() => void runDetect()}
+                >
+                  {busy ? "Detecting" : "Detect hooks"}
+                  {/* One model call labels the batch of 20. */}
+                  <Cost label={`20 posts · ${assistQuote}`} />
+                </button>
+              </TooltipTrigger>
+              <TooltipPopup>Label the hook pattern of the next 20 unlabelled posts</TooltipPopup>
+            </Tooltip>
           </>
         }
       />

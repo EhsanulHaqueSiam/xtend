@@ -5,6 +5,7 @@ import {
   type DraftPatch,
   XApiError,
 } from "@xtend/contracts";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
@@ -31,6 +32,31 @@ const desktopCalls: Array<DesktopCommand> = [];
 const unsure = { lost: "http", garbled: "decode" } as const;
 // How an article publish fails; unset, it dies, so a test that reaches it unasked fails.
 const article = { failure: null as XApiError | null };
+// Completed by the next post X accepts, and by the next draft marked posted: a test whose caller
+// leaves mid-thread waits on these instead of on time.
+const next = {
+  post: null as Deferred.Deferred<void> | null,
+  posted: null as Deferred.Deferred<void> | null,
+};
+const draftsWatched = Layer.effect(
+  DraftStore.DraftStore,
+  Effect.gen(function* () {
+    const drafts = yield* DraftStore.DraftStore;
+    return DraftStore.DraftStore.of({
+      ...drafts,
+      setOutcome: (id, outcome) =>
+        drafts
+          .setOutcome(id, outcome)
+          .pipe(
+            Effect.tap(() =>
+              outcome.status === "posted" && next.posted !== null
+                ? Deferred.succeed(next.posted, undefined)
+                : Effect.void,
+            ),
+          ),
+    });
+  }),
+).pipe(Layer.provide(DraftStore.layer));
 const articlesFake = Layer.succeed(Articles.Articles)({
   publish: () =>
     article.failure === null
@@ -40,7 +66,7 @@ const articlesFake = Layer.succeed(Articles.Articles)({
   quote: { articleUsd: 0, coverUsd: 0, coverModel: "stub" },
 });
 const layerTest = Publisher.layer.pipe(
-  Layer.provideMerge(Layer.mergeAll(DraftStore.layer, SessionPosting.layer, articlesFake)),
+  Layer.provideMerge(Layer.mergeAll(draftsWatched, SessionPosting.layer, articlesFake)),
   Layer.provideMerge(SettingsStore.layer),
   Layer.provideMerge(
     Layer.mergeAll(
@@ -59,7 +85,8 @@ const layerTest = Publisher.layer.pipe(
       xClientStub({
         createPost: (input) =>
           Effect.gen(function* () {
-            yield* Effect.sleep("10 millis");
+            // Lets a racing publisher run between posts.
+            yield* Effect.yieldNow;
             if (crash.on && input.text.includes("crash")) return yield* Effect.die("client bug");
             if (input.text.includes("boom"))
               return yield* new XApiError({
@@ -77,6 +104,7 @@ const layerTest = Publisher.layer.pipe(
                   detail: word,
                 });
             calls.push({ text: input.text, replyToPostId: input.replyToPostId });
+            if (next.post !== null) yield* Deferred.succeed(next.post, undefined);
             return { postId: input.text.includes("noid") ? "" : String(calls.length), costUsd: 0 };
           }),
       }),
@@ -90,6 +118,8 @@ const reset = () => {
   crash.on = false;
   desktop.answer = "ok";
   article.failure = null;
+  next.post = null;
+  next.posted = null;
 };
 
 /** What the Compose editor sends on every autosave: every field, changed or not. */
@@ -111,7 +141,7 @@ const postNow = { purpose: "compose.postNow", retry: false } as const;
 const scheduled = { purpose: "plan.scheduler", retry: true } as const;
 
 describe("Publisher", () => {
-  it.live("posts a draft once however many publishers race for it", () =>
+  it.effect("posts a draft once however many publishers race for it", () =>
     Effect.gen(function* () {
       reset();
       const drafts = yield* DraftStore.DraftStore;
@@ -139,7 +169,7 @@ describe("Publisher", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
-  it.live("fixing the post that failed resumes the thread instead of reposting it", () =>
+  it.effect("fixing the post that failed resumes the thread instead of reposting it", () =>
     Effect.gen(function* () {
       reset();
       const drafts = yield* DraftStore.DraftStore;
@@ -168,7 +198,7 @@ describe("Publisher", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
-  it.live("editing a post that is already on X starts the thread over", () =>
+  it.effect("editing a post that is already on X starts the thread over", () =>
     Effect.gen(function* () {
       reset();
       const drafts = yield* DraftStore.DraftStore;
@@ -184,24 +214,29 @@ describe("Publisher", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
-  it.live("a thread keeps posting after the caller goes away", () =>
+  it.effect("a thread keeps posting after the caller goes away", () =>
     Effect.gen(function* () {
       reset();
       const drafts = yield* DraftStore.DraftStore;
       const publisher = yield* Publisher.Publisher;
       const d = yield* drafts.create({ blocks: [{ text: "a" }, { text: "b" }, { text: "c" }] });
+      const firstPost = yield* Deferred.make<void>();
+      const allPosted = yield* Deferred.make<void>();
+      next.post = firstPost;
+      next.posted = allPosted;
       // The tab closes once the first post is out.
       const caller = yield* Effect.forkChild(publisher.post(d.id, postNow));
-      while (calls.length === 0) yield* Effect.sleep("2 millis");
+      yield* Deferred.await(firstPost);
+      next.post = null;
       yield* Fiber.interrupt(caller);
-      while ((yield* drafts.get(d.id)).status === "posting") yield* Effect.sleep("5 millis");
+      yield* Deferred.await(allPosted);
       const after = yield* drafts.get(d.id);
       expect(after.status).toBe("posted");
       expect(calls.map((c) => c.text)).toEqual(["a", "b", "c"]);
     }).pipe(Effect.provide(layerTest)),
   );
 
-  it.live("a crash mid-thread leaves it failed with what went out, and a retry resumes", () =>
+  it.effect("a crash mid-thread leaves it failed with what went out, and a retry resumes", () =>
     Effect.gen(function* () {
       reset();
       crash.on = true;
@@ -221,7 +256,7 @@ describe("Publisher", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
-  it.live("a post that may be on X stops the thread and is never retried on its own", () =>
+  it.effect("a post that may be on X stops the thread and is never retried on its own", () =>
     Effect.gen(function* () {
       reset();
       const drafts = yield* DraftStore.DraftStore;
@@ -240,7 +275,7 @@ describe("Publisher", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
-  it.live(
+  it.effect(
     "a session post the desktop never got or refused untouched is retried; one it went quiet or failed on is not",
     () =>
       Effect.gen(function* () {
@@ -280,7 +315,7 @@ describe("Publisher", () => {
       }).pipe(Effect.provide(layerTest)),
   );
 
-  it.live("says a link card it was asked to hide was kept, and touches no session for it", () =>
+  it.effect("says a link card it was asked to hide was kept, and touches no session for it", () =>
     Effect.gen(function* () {
       reset();
       const drafts = yield* DraftStore.DraftStore;
@@ -390,7 +425,7 @@ describe("Publisher", () => {
       }).pipe(Effect.provide(layerTest)),
   );
 
-  it.live(
+  it.effect(
     "a clicked text post goes through the x.com session while the lane is on; a scheduled one takes the API",
     () =>
       Effect.gen(function* () {
@@ -416,7 +451,7 @@ describe("Publisher", () => {
       }).pipe(Effect.provide(layerTest)),
   );
 
-  it.live(
+  it.effect(
     "a session-only post is refused while the session lane is off, never sent through the API",
     () =>
       Effect.gen(function* () {
@@ -437,7 +472,7 @@ describe("Publisher", () => {
       }).pipe(Effect.provide(layerTest)),
   );
 
-  it.live("blocks with media go through the x.com session, only when the setting is on", () =>
+  it.effect("blocks with media go through the x.com session, only when the setting is on", () =>
     Effect.gen(function* () {
       reset();
       const drafts = yield* DraftStore.DraftStore;

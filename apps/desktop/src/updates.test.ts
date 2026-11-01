@@ -1,8 +1,8 @@
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 
-import { expect, it } from "vite-plus/test";
+import { expect, it, vi } from "vite-plus/test";
 
 import type { UpdateState } from "./ipc/channels.ts";
 import { startUpdates, type Updater } from "./updates.ts";
@@ -42,11 +42,12 @@ const fakeUpdater = () => {
   };
 };
 
-const flush = () => new Promise((resolve) => setTimeout(resolve));
-
 const start = (version: string, platform: NodeJS.Platform, fake = fakeUpdater()) => {
   const seen: Array<UpdateState> = [];
-  const channelFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "xtend-updates-")), "u.json");
+  const channelFile = NodePath.join(
+    NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "xtend-updates-")),
+    "u.json",
+  );
   const updates = startUpdates({
     updater: fake.updater,
     version,
@@ -91,11 +92,10 @@ it("links unsigned macOS builds to the release instead of downloading", () => {
 it("saves a channel switch, allows the step down to stable, and checks again", async () => {
   const run = start("0.0.3-nightly.20261030.7", "linux");
   run.updates.setChannel("stable");
-  await flush();
+  await vi.waitFor(() => expect(run.checks()).toBe(2));
   expect(run.updater.channel).toBe("latest");
   expect(run.updater.allowDowngrade).toBe(true);
-  expect(run.checks()).toBe(2);
-  expect(JSON.parse(fs.readFileSync(run.channelFile, "utf8"))).toEqual({ channel: "stable" });
+  expect(JSON.parse(NodeFS.readFileSync(run.channelFile, "utf8"))).toEqual({ channel: "stable" });
   run.updates.stop();
 });
 
@@ -109,16 +109,15 @@ it("drops what a running check finds for the old channel and switches once it se
   expect(run.updater.channel).toBe("latest");
 
   run.settle();
-  await flush();
+  await vi.waitFor(() => expect(run.checks()).toBe(2));
   expect(run.updater.channel).toBe("nightly");
-  expect(run.checks()).toBe(2);
   run.updates.stop();
 });
 
 it("never readies a nightly that was downloading when the user switched to stable", async () => {
   const run = start("0.0.3", "linux");
   run.updates.setChannel("nightly");
-  await flush();
+  await vi.waitFor(() => expect(run.checks()).toBe(2));
   run.hold();
   run.updates.check();
   run.emit("update-available", { version: "0.0.4-nightly.20261030.9" });
@@ -130,8 +129,7 @@ it("never readies a nightly that was downloading when the user switched to stabl
   expect(run.installs()).toBe(0);
 
   run.settle();
-  await flush();
+  await vi.waitFor(() => expect(run.checks()).toBe(4));
   expect(run.updater.channel).toBe("latest");
-  expect(run.checks()).toBe(4);
   run.updates.stop();
 });

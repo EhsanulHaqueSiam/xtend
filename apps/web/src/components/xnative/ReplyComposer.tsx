@@ -55,10 +55,10 @@ export function ReplyComposer({
     if (Exit.isSuccess(exit)) setRead(exit.value);
     else setError(failText(exit.cause));
   };
-  // Once per post: reading is free, and the angles are the point of opening the composer.
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- reads the post from the service once per post: reading is free, and the angles are the point of opening the composer.
   useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect, react/exhaustive-effect-dependencies -- once per post, starting with the reading state: runRead is rebuilt every render, and reading again would replace the angles shown.
     void runRead();
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- once per post, not per render
   }, [post.postId]);
 
   const pick = (angle: string) => {

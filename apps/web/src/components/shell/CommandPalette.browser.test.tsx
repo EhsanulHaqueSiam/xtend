@@ -190,7 +190,7 @@ it("an agent run started from the palette finishes after the palette closes", as
   expect(payloads).toEqual([{ id: agent.id }]);
   await userEvent.keyboard("{Escape}");
   // The palette is gone while the paid search is still out; the run must not die with it.
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  await expect.element(command).not.toBeInTheDocument();
   release();
   await expect.poll(() => finished).toBe(true);
   await expect.element(page.getByLabelText("Shared run")).toHaveTextContent("idle");

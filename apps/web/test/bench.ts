@@ -5,14 +5,9 @@ import type { ReactNode } from "react";
 import { render, type RenderOptions } from "./render";
 
 /**
- * Helpers for the render benchmarks (`src/**\/*.browser.bench.tsx`), which only
- * `vp test bench` runs. Numbers come from React's development build, as every browser test
- * uses: compare them with each other and over time, not with production. Each bench asserts
- * only a ceiling about ten times the median measured on an Apple M4 (noted beside it), which
- * catches a pathological regression and nothing finer.
- *
- * Bench functions must be `async` functions: tinybench calls any other function once, without
- * awaiting it, to learn whether it returns a promise, and that stray run overlaps the next one.
+ * Render-benchmark helpers (`vp test bench` only). React's development build: compare runs with
+ * each other, not production. Ceilings are about ten times an Apple M4 median, for pathological
+ * regressions only. Benches must be `async`: tinybench probes other functions with a stray run.
  */
 
 /** A fixed sample count rather than a time budget, so a slower screen takes longer instead of measuring less. */

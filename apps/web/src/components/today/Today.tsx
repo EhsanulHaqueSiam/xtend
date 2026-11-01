@@ -4,7 +4,7 @@ import * as AsyncResult from "effect/reactivity/AsyncResult";
 import type { ReactNode } from "react";
 
 import { nextSlotLabel } from "../../lib/glance";
-import { fmtWhen } from "../../lib/time";
+import { fmtWhen, useMinuteClock } from "../../lib/time";
 import { cn } from "../../lib/utils";
 import { analyzeDataAtom } from "../../state/analyze";
 import { pendingAtom } from "../../state/automate";
@@ -83,7 +83,8 @@ export function Today() {
   const settings = or(useAtomValue(settingsAtom), null);
   const spend = or(useAtomValue(spendLiveAtom), null);
   const analyze = or(useAtomValue(analyzeDataAtom), null);
-  const zone = settings?.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const zone = settings?.timeZone ?? new Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const now = useMinuteClock();
   const failed = drafts.filter((d) => d.status === "failed");
   const queued = drafts
     .filter((d) => d.status === "queued")
@@ -91,7 +92,7 @@ export function Today() {
   const open = inbox?.items.filter((m) => !m.handled) ?? [];
   const week = analyze?.windows.find((w) => w.days === 7);
   const followers = analyze?.snapshots.at(-1)?.followers ?? null;
-  const nextSlot = nextSlotLabel(slots, zone, new Date());
+  const nextSlot = nextSlotLabel(slots, zone, now);
   const waiting = pending.length + failed.length;
   return (
     <div className="flex h-full flex-col">

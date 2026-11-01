@@ -1,7 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off preferSchemaOverJson:off -- real sockets, raw Host headers, raw JSON and a built web dir are the point of this test.
-import * as NodeFs from "node:fs";
+import * as NodeFS from "node:fs";
 import * as NodeHttp from "node:http";
-import * as NodeOs from "node:os";
+import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
@@ -25,15 +25,15 @@ const TOKEN = "t".repeat(64);
 const DEV = "http://localhost:5820";
 
 // A built web app with a secret beside it, which no request may reach.
-const root = NodeFs.mkdtempSync(NodePath.join(NodeOs.tmpdir(), "xtend-http-"));
+const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "xtend-http-"));
 const staticDir = NodePath.join(root, "dist");
-NodeFs.mkdirSync(NodePath.join(staticDir, "assets"), { recursive: true });
-NodeFs.writeFileSync(
+NodeFS.mkdirSync(NodePath.join(staticDir, "assets"), { recursive: true });
+NodeFS.writeFileSync(
   NodePath.join(staticDir, "index.html"),
   "<html><head></head><body></body></html>",
 );
-NodeFs.writeFileSync(NodePath.join(staticDir, "assets", "app.js"), "boot()");
-NodeFs.writeFileSync(NodePath.join(root, "secret.txt"), "secret");
+NodeFS.writeFileSync(NodePath.join(staticDir, "assets", "app.js"), "boot()");
+NodeFS.writeFileSync(NodePath.join(root, "secret.txt"), "secret");
 
 const config = (devUrl: URL | undefined) =>
   ServerConfig.layer({

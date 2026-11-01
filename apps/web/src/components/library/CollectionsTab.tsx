@@ -32,6 +32,7 @@ import { PostGrid } from "./PostCard";
 import { InspectorGroup, PostInspector } from "./PostInspector";
 import { RemixButton, SaveButton } from "./SaveButton";
 import { ErrorLine, ShowMore, causeMessage, errorMessage } from "./shared";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 /**
  * The selected saved post: its note, more collections, remix, remove. Remove in a collection
@@ -71,31 +72,37 @@ function SavedInspector({
           <RemixButton post={saved.post} />
           {/* Staff picks is read-only, as the service keeps it. */}
           {collection?.builtIn === true ? null : (
-            <button
-              type="button"
-              className={cn(xAction, "ml-auto text-xs hover:text-error-foreground")}
-              title={
-                collection === undefined
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    className={cn(xAction, "ml-auto text-xs hover:text-error-foreground")}
+                    onClick={() => {
+                      if (
+                        collection === undefined &&
+                        !window.confirm(
+                          "Delete this saved post? Its note goes with it, and it leaves every collection.",
+                        )
+                      )
+                        return;
+                      void (
+                        collection === undefined
+                          ? remove([saved.id])
+                          : unlink({ collectionId: collection.id, savedId: saved.id })
+                      ).then(onRemoved, fail);
+                    }}
+                  />
+                }
+              >
+                <Trash2 /> {collection === undefined ? "Delete saved post" : "Remove"}
+              </TooltipTrigger>
+              <TooltipPopup>
+                {collection === undefined
                   ? "Delete from the swipe file and every collection"
-                  : `Take out of ${collection.name}; it stays in the swipe file`
-              }
-              onClick={() => {
-                if (
-                  collection === undefined &&
-                  !window.confirm(
-                    "Delete this saved post? Its note goes with it, and it leaves every collection.",
-                  )
-                )
-                  return;
-                void (
-                  collection === undefined
-                    ? remove([saved.id])
-                    : unlink({ collectionId: collection.id, savedId: saved.id })
-                ).then(onRemoved, fail);
-              }}
-            >
-              <Trash2 /> {collection === undefined ? "Delete saved post" : "Remove"}
-            </button>
+                  : `Take out of ${collection.name}; it stays in the swipe file`}
+              </TooltipPopup>
+            </Tooltip>
           )}
         </div>
       </InspectorGroup>
@@ -471,7 +478,7 @@ function CollectionRow({
       <button
         type="button"
         data-active={active}
-        className="flex h-7 min-w-0 flex-1 cursor-pointer items-center rounded-[var(--control-radius)] px-2 text-left text-[13px] text-muted-foreground outline-hidden transition-colors duration-150 hover:bg-white/[0.05] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[active=true]:bg-white/[0.06] data-[active=true]:text-foreground data-over:ring-1 data-over:ring-inset data-over:ring-foreground"
+        className="flex h-7 min-w-0 flex-1 cursor-pointer items-center rounded-[var(--control-radius)] px-2 text-left text-[13px] text-muted-foreground outline-hidden transition-colors duration-150 hover:bg-white/[0.05] hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring data-[active=true]:bg-white/[0.06] data-[active=true]:text-foreground data-over:ring-1 data-over:ring-inset data-over:ring-foreground"
         onClick={onOpen}
         {...takesPost}
       >

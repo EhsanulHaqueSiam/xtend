@@ -1,4 +1,4 @@
-import { EventEmitter } from "node:events";
+import * as NodeEvents from "node:events";
 
 /**
  * Just enough of Electron for main.ts and MainWindow.ts to run in a unit test:
@@ -8,7 +8,7 @@ import { EventEmitter } from "node:events";
  */
 
 function fakeSession() {
-  return Object.assign(new EventEmitter(), {
+  return Object.assign(new NodeEvents.EventEmitter(), {
     availableSpellCheckerLanguages: [],
     setPermissionRequestHandler: () => {},
     setPermissionCheckHandler: () => {},
@@ -16,13 +16,13 @@ function fakeSession() {
   });
 }
 
-export class FakeContents extends EventEmitter {
+export class FakeContents extends NodeEvents.EventEmitter {
   readonly sent: Array<readonly [string, unknown]> = [];
   readonly loaded: Array<string> = [];
   zoomLevel = 0;
   focused = false;
   readonly session = fakeSession();
-  readonly debugger = Object.assign(new EventEmitter(), {
+  readonly debugger = Object.assign(new NodeEvents.EventEmitter(), {
     attach: () => {},
     detach: () => {},
     isAttached: () => false,
@@ -72,7 +72,7 @@ export class FakeContents extends EventEmitter {
   close() {}
 }
 
-export class BrowserWindow extends EventEmitter {
+export class BrowserWindow extends NodeEvents.EventEmitter {
   static readonly all: Array<BrowserWindow> = [];
   static getAllWindows() {
     return BrowserWindow.all.filter((w) => !w.closed);
@@ -117,7 +117,7 @@ export const session = {
 
 export const nativeTheme = { themeSource: "system" };
 
-class FakeIpcMain extends EventEmitter {
+class FakeIpcMain extends NodeEvents.EventEmitter {
   readonly handlers = new Map<string, (event: unknown, ...args: Array<unknown>) => unknown>();
   handle(channel: string, handler: (event: unknown, ...args: Array<unknown>) => unknown) {
     this.handlers.set(channel, handler);
@@ -140,7 +140,7 @@ class FakeIpcMain extends EventEmitter {
 export const ipcMain = new FakeIpcMain();
 
 const userData = { path: "" };
-export const app = Object.assign(new EventEmitter(), {
+export const app = Object.assign(new NodeEvents.EventEmitter(), {
   isPackaged: false,
   getVersion: () => "0.0.1",
   relaunched: 0,

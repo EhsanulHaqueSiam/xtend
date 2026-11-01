@@ -15,6 +15,7 @@ import { Empty, PageBody, table } from "../ui/layout";
 import { XLink } from "../ui/x-link";
 import { runLinks, statusLabel, statusTone } from "./describe";
 import { Select } from "../ui/select";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 type StatusFilter = RuleRunStatus | "all";
 
@@ -172,21 +173,29 @@ function RunsLog({
                       {statusLabel[r.status]}
                     </td>
                     <td className={cn(table.td, "w-full max-w-0")}>
-                      <p
-                        className={cn(
-                          "truncate",
-                          r.status === "failed" ? "text-error-foreground" : "text-foreground/90",
-                        )}
-                        title={r.detail}
-                      >
-                        {target === null ? (
-                          r.detail
-                        ) : (
-                          <XLink href={target} className="hover:underline">
-                            {r.detail}
-                          </XLink>
-                        )}
-                      </p>
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <p
+                              className={cn(
+                                "truncate",
+                                r.status === "failed"
+                                  ? "text-error-foreground"
+                                  : "text-foreground/90",
+                              )}
+                            />
+                          }
+                        >
+                          {target === null ? (
+                            r.detail
+                          ) : (
+                            <XLink href={target} className="hover:underline">
+                              {r.detail}
+                            </XLink>
+                          )}
+                        </TooltipTrigger>
+                        <TooltipPopup>{r.detail}</TooltipPopup>
+                      </Tooltip>
                     </td>
                     <td
                       className={cn(

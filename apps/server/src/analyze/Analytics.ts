@@ -33,6 +33,10 @@ const MAX_POSTS = 100;
 
 const ThemesJson = Schema.fromJsonString(Schema.Array(Theme));
 const CompetitorJson = Schema.fromJsonString(CompetitorReport);
+const decodeThemesJson = Schema.decodeUnknownSync(ThemesJson);
+const decodeCompetitorJson = Schema.decodeUnknownSync(CompetitorJson);
+const encodeThemesJson = Schema.encodeSync(ThemesJson);
+const encodeCompetitorJson = Schema.encodeSync(CompetitorJson);
 
 // shortcut: a thread is guessed from "1/" or the thread emoji in the text; the scraper has no self-reply flag.
 const looksLikeThread = (text: string) => /🧵|(^|\s|\()1\/\d*/.test(text);
@@ -207,22 +211,25 @@ const make = Effect.gen(function* () {
       : Effect.succeed(h),
   );
 
-  const userPosts = (h: string, pages: number, purpose: string) =>
-    Effect.gen(function* () {
-      const posts: Array<AccountPost> = [];
-      let cursor: string | null = null;
-      for (let page = 0; page < pages && posts.length < MAX_POSTS; page++) {
-        const result: XClient.Page<XPost> = yield* x.userPosts(h, {
-          purpose,
-          ...(cursor === null ? {} : { cursor }),
-        });
-        // Reposts are someone else's post wearing this handle; they are not the account's performance.
-        posts.push(...result.items.filter((p) => !p.isRepost).map(toAccountPost));
-        cursor = result.nextCursor;
-        if (cursor === null) break;
-      }
-      return posts.slice(0, MAX_POSTS);
-    });
+  const userPosts = Effect.fn("Analytics.userPosts")(function* (
+    h: string,
+    pages: number,
+    purpose: string,
+  ) {
+    const posts: Array<AccountPost> = [];
+    let cursor: string | null = null;
+    for (let page = 0; page < pages && posts.length < MAX_POSTS; page++) {
+      const result: XClient.Page<XPost> = yield* x.userPosts(h, {
+        purpose,
+        ...(cursor === null ? {} : { cursor }),
+      });
+      // Reposts are someone else's post wearing this handle; they are not the account's performance.
+      posts.push(...result.items.filter((p) => !p.isRepost).map(toAccountPost));
+      cursor = result.nextCursor;
+      if (cursor === null) break;
+    }
+    return posts.slice(0, MAX_POSTS);
+  });
 
   const data: Effect.Effect<AnalyzeData, AnalyzeError> = Effect.gen(function* () {
     const { handle: h, timeZone } = yield* current;
@@ -299,7 +306,7 @@ const make = Effect.gen(function* () {
     if (best.length === 0) return [];
     const key = `themes:${best.map((p) => p.postId).join(",")}`;
     const cached = yield* store.cacheGet(key);
-    if (cached !== null) return Schema.decodeUnknownSync(ThemesJson)(cached);
+    if (cached !== null) return decodeThemesJson(cached);
     const result = yield* assist.generate({
       task: "analyze.themes",
       instructions:
@@ -307,7 +314,7 @@ const make = Effect.gen(function* () {
       input: best.map((p) => ({ id: p.postId, text: p.text, views: p.views, likes: p.likes })),
       output: Schema.Array(Theme),
     });
-    yield* store.cacheSet(key, Schema.encodeSync(ThemesJson)(result), yield* nowIso);
+    yield* store.cacheSet(key, encodeThemesJson(result), yield* nowIso);
     return result;
   }).pipe(Effect.mapError(fail("themes")));
 
@@ -316,7 +323,7 @@ const make = Effect.gen(function* () {
     const reports: Array<CompetitorReport> = [];
     for (const w of watched) {
       const cached = yield* store.cacheGet(`competitor:${w.handle}`);
-      if (cached !== null) reports.push(Schema.decodeUnknownSync(CompetitorJson)(cached));
+      if (cached !== null) reports.push(decodeCompetitorJson(cached));
     }
     return reports;
   }).pipe(Effect.mapError(fail("competitors")));
@@ -334,11 +341,7 @@ const make = Effect.gen(function* () {
         avgViews: avgViews(posts),
         topPosts: [...posts].sort((a, b) => (b.views ?? 0) - (a.views ?? 0)).slice(0, 5),
       };
-      yield* store.cacheSet(
-        `competitor:${h}`,
-        Schema.encodeSync(CompetitorJson)(report),
-        report.fetchedAt,
-      );
+      yield* store.cacheSet(`competitor:${h}`, encodeCompetitorJson(report), report.fetchedAt);
       return report;
     },
     Effect.mapError(fail("competitorFetch")),

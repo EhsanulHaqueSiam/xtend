@@ -2,6 +2,8 @@ import type { OverlayAction, OverlayData, OverlaySave } from "../ipc/channels.ts
 import { afterEach, beforeAll, expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
+import { fakeTimers } from "../testing/fakeTimers.ts";
+
 const ipc = vi.hoisted(() => ({
   listeners: new Map<string, (event: unknown, value: unknown) => void>(),
   sent: [] as Array<readonly [string, OverlayAction]>,
@@ -48,7 +50,7 @@ const seed = async () => {
         replies: 0,
         quotes: 0,
         bookmarks: 0,
-        createdAt: new Date().toISOString(),
+        createdAt: "2026-10-31T12:00:00.000Z",
         authorHandle: "jack",
         authorFollowers: 500,
         authorVerified: false,
@@ -67,11 +69,15 @@ it("keeps the author card reachable while moving from its trigger to the card", 
   trigger.dispatchEvent(new MouseEvent("mouseenter"));
   await expect.poll(() => document.querySelector('[data-xtend="card"]')).not.toBeNull();
   const card = rootFor('[data-xtend="card"]').querySelector<HTMLElement>(".card")!;
-  trigger.dispatchEvent(new MouseEvent("mouseleave"));
-  expect(card.isConnected).toBe(true);
-  card.dispatchEvent(new MouseEvent("mouseenter"));
-  await new Promise((resolve) => setTimeout(resolve, 250));
-  expect(card.isConnected).toBe(true);
+  {
+    using _timers = fakeTimers();
+    trigger.dispatchEvent(new MouseEvent("mouseleave"));
+    expect(card.isConnected).toBe(true);
+    card.dispatchEvent(new MouseEvent("mouseenter"));
+    // Past the card's 200ms dismiss: entering the card cancelled it.
+    vi.advanceTimersByTime(250);
+    expect(card.isConnected).toBe(true);
+  }
   card.querySelector<HTMLButtonElement>("button")!.click();
   expect(ipc.sent.at(-1)).toEqual([
     "xtend:overlay-action",

@@ -1,17 +1,9 @@
 import { type XSkinToggle, X_SKIN_DEFAULTS } from "@xtend/contracts";
 
 /**
- * The X skin: CSS main inserts into the x.com webview so X reads as part of
- * Xtend. CSS only, never script: x.com's own code runs untouched, nothing is
- * clicked or fetched, and the page behaves exactly as it would in Chromium.
- * Each Clean X toggle is one rule set here; Settings sends the enabled ids.
- *
- * Xtend's sidebar replaces X's navigation (and its floating Messages drawer)
- * and its tools replace X's right column (trends, who to follow, Premium and
- * Grok prompts), so all of them are hidden and the timeline is centred. X serves two clients at the moment: the
- * long-standing one keyed by data-testid, and a newer one built from semantic
- * `main` and `aside` elements in a grid. Each has its own block; a rule whose
- * landmark is missing simply matches nothing.
+ * The X skin main inserts into the x.com webview: CSS only, never script, so x.com runs untouched.
+ * Each Clean X toggle is one rule set. X serves two clients (data-testid and a newer `main`/`aside`
+ * grid), each with its own block; a rule whose landmark is missing matches nothing.
  */
 
 // The legacy client: X's nav rail, its right column and the primary column between them.

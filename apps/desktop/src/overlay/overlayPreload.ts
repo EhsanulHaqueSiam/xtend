@@ -34,12 +34,9 @@ import {
 import { emptyPanel, panelHtml, type ReplyPanel } from "./replyPanel.ts";
 
 /**
- * x.com webview preload: the native injections. A metrics row under every post,
- * the Schedule chip in X's composer toolbar and the hover card. Runs in the
- * isolated world, so x.com's scripts never see it; it only reads the DOM X
- * already rendered and never clicks, scrolls or fetches anything. Post numbers
- * come from the capture through main; the chip shows the "glance" the app
- * pushes. Markup lives in closed shadow roots so x.com's CSS and ours never meet.
+ * x.com webview preload: metrics row, composer Schedule chip, hover card. Isolated world, read
+ * only: it never clicks, scrolls or fetches. Numbers come from the capture through main, and the
+ * markup sits in closed shadow roots so x.com's CSS and ours never meet.
  */
 
 const MIN_VIEWS = 100;

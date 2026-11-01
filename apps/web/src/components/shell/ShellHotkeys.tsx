@@ -33,6 +33,7 @@ export function ShellHotkeys() {
   const panelOpen = useAtomValue(xPanelOpenAtom);
   const setPanel = useAtomSet(xPanelOpenAtom);
 
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- subscribes to the desktop bridge's shortcut chords while mounted.
   useEffect(() => {
     const onX = isXRoute(pathname);
     const chord = (key: ShortcutKey) => {

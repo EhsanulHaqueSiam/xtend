@@ -20,10 +20,9 @@ it("follows an account switch made in another client onto that account", async (
     service: { "events.subscribe": events.subscribe },
   });
 
-  // This window's own switch echoing back is nothing to follow.
+  // This window's own switch echoing back is nothing to follow: events arrive in order, so the
+  // calls after the next switch show whether it did.
   events.emit("account_switched", { accountId: 1 });
-  await new Promise((resolve) => setTimeout(resolve, 50));
-  expect(calls).toEqual([]);
 
   // A browser tab switched to account 2: this window rebuilds on that account's session.
   events.emit("account_switched", { accountId: 2 });

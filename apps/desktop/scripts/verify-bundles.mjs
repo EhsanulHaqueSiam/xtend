@@ -1,9 +1,7 @@
-// Runs both built preloads the way Electron's sandbox would: only `electron` and the few
-// Node modules a sandboxed preload may require are available. A preload that pulls in a
-// shared chunk, an inlined-too-little dependency or a dynamic require fails here instead of
-// as a blank window. The app preload must also expose every function DesktopBridge declares,
-// and the x.com preload must listen on every channel main sends it.
-//   node scripts/verify-bundles.mjs        after `vp pack`; CI runs it in the build job
+// Runs both built preloads (after `vp pack`) as Electron's sandbox would, so a shared chunk or a
+// dynamic require fails here instead of as a blank window. The app preload must expose every
+// DesktopBridge function, the x.com preload must listen on every channel main sends.
+//   node scripts/verify-bundles.mjs
 import * as NodeEvents from "node:events";
 import * as NodeFS from "node:fs";
 import * as NodeTimers from "node:timers";

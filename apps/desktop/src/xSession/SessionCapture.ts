@@ -1,5 +1,5 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
+import * as NodeFS from "node:fs";
+import * as NodePath from "node:path";
 
 import type { EngineBatch, ObservationBatch, ObservedPost } from "@xtend/contracts";
 import type * as Electron from "electron";
@@ -165,12 +165,12 @@ export function attachSessionCapture(
 
   const enqueue = (batch: ObservationBatch) => {
     try {
-      fs.mkdirSync(options.queueDir, { recursive: true });
+      NodeFS.mkdirSync(options.queueDir, { recursive: true });
       const name = `${batch.observedAt.replaceAll(":", "-")}-${Math.random().toString(36).slice(2, 8)}.json`;
-      fs.writeFileSync(path.join(options.queueDir, name), JSON.stringify(batch));
-      const queued = fs.readdirSync(options.queueDir).filter((n) => n.endsWith(".json"));
+      NodeFS.writeFileSync(NodePath.join(options.queueDir, name), JSON.stringify(batch));
+      const queued = NodeFS.readdirSync(options.queueDir).filter((n) => n.endsWith(".json"));
       for (const old of queued.sort().slice(0, -MAX_QUEUED))
-        fs.rmSync(path.join(options.queueDir, old), { force: true });
+        NodeFS.rmSync(NodePath.join(options.queueDir, old), { force: true });
     } catch (error) {
       options.log("could not queue batch", { error: String(error) });
     }
@@ -178,25 +178,24 @@ export function attachSessionCapture(
 
   let draining = false;
   const drainQueue = async () => {
-    if (draining || !fs.existsSync(options.queueDir)) return;
+    if (draining || !NodeFS.existsSync(options.queueDir)) return;
     draining = true;
     try {
       // Oldest first; file names start with the observation time.
-      for (const name of fs.readdirSync(options.queueDir).sort()) {
+      for (const name of NodeFS.readdirSync(options.queueDir).sort()) {
         if (!name.endsWith(".json")) continue;
-        const file = path.join(options.queueDir, name);
+        const file = NodePath.join(options.queueDir, name);
         let batch: ObservationBatch;
         try {
-          batch = JSON.parse(fs.readFileSync(file, "utf8")) as ObservationBatch;
+          batch = JSON.parse(NodeFS.readFileSync(file, "utf8")) as ObservationBatch;
         } catch (error) {
           // A file cut short by a crash mid-write sorts first forever and would hold back every batch after it.
           options.log("dropped unreadable queued batch", { name, error: String(error) });
-          fs.rmSync(file, { force: true });
+          NodeFS.rmSync(file, { force: true });
           continue;
         }
-        // eslint-disable-next-line no-await-in-loop -- replayed in order; a failure stops the drain where it is.
         await post(batch);
-        fs.rmSync(file, { force: true });
+        NodeFS.rmSync(file, { force: true });
       }
     } catch {
       // Still down; the next successful send tries again.

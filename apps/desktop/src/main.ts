@@ -1,6 +1,6 @@
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 
 import { app, BrowserWindow, ipcMain, nativeTheme } from "electron";
 import { autoUpdater } from "electron-updater";
@@ -31,10 +31,10 @@ const log = (message: string, detail?: unknown) => {
 
 /** The service's data directory: `--base-dir`, then XTEND_HOME, then ~/.xtend, same order as the service. */
 const baseDirArg = process.argv.indexOf("--base-dir");
-const baseDir = path.resolve(
+const baseDir = NodePath.resolve(
   (baseDirArg !== -1 ? process.argv[baseDirArg + 1] : undefined) ??
     process.env.XTEND_HOME ??
-    path.join(os.homedir(), ".xtend"),
+    NodePath.join(NodeOS.homedir(), ".xtend"),
 );
 
 // Smoke runs and tests keep their window config, sessions and cookies apart from the user's.
@@ -42,7 +42,7 @@ const userDataOverride = process.env.XTEND_USER_DATA;
 if (userDataOverride !== undefined && !app.isPackaged) app.setPath("userData", userDataOverride);
 
 // The desktop's own config (which service to use) lives in userData, never in the service DB.
-const configFile = path.join(app.getPath("userData"), "config.json");
+const configFile = NodePath.join(app.getPath("userData"), "config.json");
 // An explicit service URL wins over the saved remote, token included: a dev desktop shares the
 // installed app's userData and must not send the remote's token to its own service.
 const remote = process.env.XTEND_SERVICE_URL === undefined ? readRemote(configFile) : null;
@@ -55,7 +55,7 @@ const readServiceToken = (): string => {
   if (override !== undefined && override !== "") return override;
   if (remote !== null) return remote.token;
   try {
-    return fs.readFileSync(path.join(baseDir, "auth-token"), "utf8").trim();
+    return NodeFS.readFileSync(NodePath.join(baseDir, "auth-token"), "utf8").trim();
   } catch (error) {
     log("no service token yet", { baseDir, error: String(error) });
     return "";
@@ -124,8 +124,8 @@ const openWindow = () => {
     serviceToken,
     accountId,
     bridgeInfo: { serviceToken, serviceMode, remote, accountId },
-    queueDir: path.join(baseDir, "observation-queue"),
-    sessionUrlFile: path.join(baseDir, "session-url"),
+    queueDir: NodePath.join(baseDir, "observation-queue"),
+    sessionUrlFile: NodePath.join(baseDir, "session-url"),
     importCookiesPath: process.env.XTEND_IMPORT_COOKIES,
     log,
   });
@@ -142,7 +142,7 @@ const shotDir = process.env.XTEND_SHOT_DIR;
 if (shotDir !== undefined && !app.isPackaged) {
   process.on("SIGUSR2", () => {
     void main?.capture().then((image) => {
-      fs.writeFileSync(path.join(shotDir, `${Date.now()}.png`), image.toPNG());
+      NodeFS.writeFileSync(NodePath.join(shotDir, `${Date.now()}.png`), image.toPNG());
     });
   });
 }
@@ -250,7 +250,7 @@ void app.whenReady().then(async () => {
         updater: autoUpdater,
         version,
         platform: process.platform,
-        channelFile: path.join(app.getPath("userData"), "updates.json"),
+        channelFile: NodePath.join(app.getPath("userData"), "updates.json"),
         broadcast: (state: UpdateState) => main?.appContents.send(UPDATE_STATE_CHANNEL, state),
         log,
       })

@@ -13,6 +13,7 @@ import { compactInputClass } from "../ui/field";
 import { Cost, Empty, PageBody, table } from "../ui/layout";
 import { xIconButton, xPill, xPillSm } from "../x";
 import { ErrorLine, causeMessage, errorMessage, fmt } from "../library/shared";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 const WINDOWS = ["d1", "d7", "d14", "d30"] as const satisfies ReadonlyArray<keyof ScoreChange>;
 
@@ -195,15 +196,21 @@ export function Watchlist({ onOpen }: { readonly onOpen: (handle: string) => voi
                             disabled={scoreState.waiting}
                             onClick={() => void run(() => score({ handle: w.handle }))}
                           />
-                          <button
-                            type="button"
-                            aria-label={`Stop watching @${w.handle}`}
-                            title="Stop watching"
-                            className={cn(xIconButton, "size-6 [&_svg]:size-3.5")}
-                            onClick={() => void run(() => remove(w.handle))}
-                          >
-                            <X />
-                          </button>
+                          <Tooltip>
+                            <TooltipTrigger
+                              render={
+                                <button
+                                  type="button"
+                                  aria-label={`Stop watching @${w.handle}`}
+                                  className={cn(xIconButton, "size-6 [&_svg]:size-3.5")}
+                                  onClick={() => void run(() => remove(w.handle))}
+                                />
+                              }
+                            >
+                              <X />
+                            </TooltipTrigger>
+                            <TooltipPopup>Stop watching</TooltipPopup>
+                          </Tooltip>
                         </div>
                       </td>
                     </tr>

@@ -5,7 +5,7 @@ import { use, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { nextScheduledLabel } from "../../lib/glance";
-import { partsIn } from "../../lib/time";
+import { partsIn, useMinuteClock } from "../../lib/time";
 import { inboxItemsAtom } from "../../state/engage";
 import { picksAtom } from "../../state/library";
 import { pendingAtom } from "../../state/automate";
@@ -34,7 +34,7 @@ function Card({
   return (
     <Link
       to={to}
-      className="no-drag block border-t border-border py-3 outline-hidden transition-colors duration-150 hover:bg-white/[0.03] focus-visible:ring-2 focus-visible:ring-ring"
+      className="no-drag block border-t border-border py-3 outline-hidden transition-colors duration-150 hover:bg-white/[0.03] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
     >
       <span className="flex items-baseline gap-2 text-[12.5px] font-semibold">
         {title}
@@ -60,8 +60,8 @@ export function DayGlance() {
   const picks = or(useAtomValue(picksAtom), null);
   const heatmap = or(useAtomValue(heatmapAtom), null);
   const settings = or(useAtomValue(settingsAtom), null);
-  const zone = settings?.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const now = new Date();
+  const zone = settings?.timeZone ?? new Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const now = useMinuteClock();
   const next = nextScheduledLabel(queued, zone, now);
   const open = inbox?.items.filter((m) => !m.handled).length ?? 0;
   const here = partsIn(zone, now);

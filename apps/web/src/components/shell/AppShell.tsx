@@ -1,7 +1,7 @@
 import { useAtom, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { type ReactNode, useEffect, useEffectEvent, useRef, useState } from "react";
 
 import { isElectron } from "../../env";
 import { settingsAtom } from "../../state/settings";
@@ -37,6 +37,7 @@ const RAIL_THRESHOLD = SIDEBAR_WIDTH + TOOL_MIN_WIDTH + 360;
 
 function useWidth(el: HTMLElement | null) {
   const [width, setWidth] = useState(0);
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- ResizeObserver on the element, held while mounted.
   useEffect(() => {
     if (el === null) return;
     const observer = new ResizeObserver(([entry]) => setWidth(entry?.contentRect.width ?? 0));
@@ -69,6 +70,7 @@ function AppRoutes({ main }: { readonly main: HTMLElement }) {
   const navigate = useNavigate();
   const setPanel = useAtomSet(xPanelOpenAtom);
   const skin = useAtomValue(xSkinAtom);
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- subscribes to the desktop bridge's app-route pushes while mounted.
   useEffect(() => {
     const bridge = window.desktopBridge;
     if (bridge === undefined) return;
@@ -80,6 +82,7 @@ function AppRoutes({ main }: { readonly main: HTMLElement }) {
     if (bridge.initialRoute !== null) open(bridge.initialRoute);
     return bridge.onAppRoute(open);
   }, [main, navigate, setPanel]);
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- pushes the skin setting to the desktop, which inserts the CSS into the session view.
   useEffect(() => {
     window.desktopBridge?.setXSkin(skin);
   }, [skin]);
@@ -101,13 +104,11 @@ function XPanelFollow({ onX }: { readonly onX: boolean }) {
   );
   const [panelOpen, setPanel] = useAtom(xPanelOpenAtom);
   const url = useAtomValue(xUrlAtom);
-  // Read inside the effect, not deps: they change as the user browses and toggles.
-  const now = useRef({ url, panelOpen });
-  now.current = { url, panelOpen };
   const previous = useRef<string | null | undefined>(undefined);
   const page = xPageFor(pathname, tab, handle);
-  useEffect(() => {
-    if (onX) return;
+  // Reads the panel as it is now: the url and the open state change as the user browses and
+  // toggles, and neither should move the panel.
+  const follow = useEffectEvent(() => {
     const was = previous.current;
     previous.current = page;
     if (xPageHeld()) return;
@@ -116,13 +117,18 @@ function XPanelFollow({ onX }: { readonly onX: boolean }) {
       return;
     }
     if (was == null) setPanel(true);
-    else if (!now.current.panelOpen) return;
+    else if (!panelOpen) return;
     let shown = "";
     try {
-      shown = new URL(now.current.url).pathname;
+      shown = new URL(url).pathname;
     } catch {}
     if (shown.toLowerCase() !== page.toLowerCase()) xNavigate(`https://x.com${page}`);
-  }, [pathname, tab, page, onX, setPanel]);
+  });
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- moves the side panel's x.com page (the session view) along with the open section.
+  useEffect(() => {
+    if (!onX) follow();
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- every section change (pathname, tab) runs it, even one with the same x.com page, so the panel goes back to that page.
+  }, [pathname, tab, page, onX]);
   return null;
 }
 
@@ -144,13 +150,16 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
   const wide = useWidth(main) >= COMPANION_MIN_MAIN;
 
   const onX = isXRoute(pathname);
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- records the last tool route in the module the X screens read to go back.
   useEffect(() => {
     if (!onX) rememberToolRoute(href);
   }, [href, onX]);
   // X's own dialog from a "..." row (Report, Block) belongs to the screen it was opened on.
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- ends X's own dialog over the main area when the user moves to another screen.
   useEffect(() => {
     xOverEnded();
     setOver(false);
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- the pathname is the trigger: any screen change ends X's dialog.
   }, [pathname, setOver]);
   const mode: XPaneMode = onX || over ? "main" : panelOpen ? "panel" : "hidden";
   // On Home the companion column takes X's hidden right column, so the pane leaves it room.

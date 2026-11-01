@@ -74,12 +74,9 @@ export class ObservationStore extends Context.Service<
   ObservationStore,
   {
     /**
-     * Upserts authors and posts, appends one metrics row per post. A replayed batch (same
-     * observedAt) adds nothing, not even a sighting; a batch older than what is stored (a
-     * retried send arriving late) adds its metrics row but never overwrites newer profile data.
-     * Sightings go to the account whose session captured them, or the current one when the batch
-     * names no account this service has. That account adopts the batch's viewer as its handle
-     * when it has none, so a fresh install never asks who is signed in.
+     * Upserts authors and posts, one metrics row per post. A replayed batch adds nothing; a late
+     * one adds metrics but never overwrites newer profile data. Sightings go to the capturing
+     * account (else the current one), which adopts the batch's viewer as its handle if it has none.
      */
     readonly record: (
       batch: ObservationBatch,

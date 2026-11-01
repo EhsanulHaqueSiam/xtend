@@ -15,11 +15,9 @@ export class XtendClient extends Context.Service<XtendClient, Client>()("xtend/w
 const TOKEN_KEY = "xtend:token";
 
 /**
- * The service token, in order: the desktop already holds it; the Vite dev
- * server asks the service, which answers only that origin; a packaged build
- * has it in the page the service served; a remote browser brings it once as
- * `?token=` and keeps it for the tab. That one leaves the address bar and
- * history first, whichever token wins.
+ * The service token, first found: the desktop's; the dev server's (the service answers only that
+ * origin); the page a packaged service served; or a remote browser's one-time `?token=`, kept for
+ * the tab and always stripped from the address bar and history.
  */
 export const serviceToken = Effect.gen(function* () {
   const url = new URL(window.location.href);

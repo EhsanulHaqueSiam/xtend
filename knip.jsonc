@@ -9,6 +9,10 @@
     ".": {
       "entry": ["scripts/setup-worktree.ts"],
     },
+    // vite.config.ts loads it through `lint.jsPlugins`, which knip does not read.
+    "packages/oxlint-plugin": {
+      "entry": ["index.ts", "rules/*.test.ts"],
+    },
     "apps/web": {
       "entry": ["src/routes/**/*.tsx"],
     },

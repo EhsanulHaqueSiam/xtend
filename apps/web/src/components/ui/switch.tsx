@@ -28,7 +28,7 @@ export function Switch({
         onChange(!checked);
       }}
       className={cn(
-        "group relative inline-flex h-[18px] w-[30px] shrink-0 cursor-pointer items-center rounded-[9px] bg-white/13 outline-hidden transition-[background-color] duration-150 focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60 aria-checked:bg-success",
+        "group relative inline-flex h-[18px] w-[30px] shrink-0 cursor-pointer items-center rounded-[9px] bg-white/13 outline-hidden transition-[background-color] duration-150 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60 aria-checked:bg-success",
         className,
       )}
     >

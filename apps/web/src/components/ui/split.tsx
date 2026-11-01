@@ -52,6 +52,7 @@ export function DetailSplit({
   if (detail !== null && (!wasOpen.current || detailKey !== previousKey.current))
     opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   /* oxlint-enable react/refs */
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- restores DOM focus to the opener when the detail closes and tracks the selected row node.
   useLayoutEffect(() => {
     if (detail === null && wasOpen.current && opener.current?.isConnected) {
       opener.current.focus();
@@ -63,6 +64,7 @@ export function DetailSplit({
     if (previousRow.current !== null && !previousRow.current.isConnected) row?.focus();
     previousRow.current = row;
   });
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- window Escape listener that closes the detail while it is open.
   useEffect(() => {
     if (detail === null || onClose === undefined) return;
     const escape = (event: KeyboardEvent) => {
@@ -80,6 +82,7 @@ export function DetailSplit({
     window.addEventListener("keydown", escape);
     return () => window.removeEventListener("keydown", escape);
   }, [detail, onClose]);
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- window j/k listener that moves the list selection.
   useEffect(() => {
     const navigate = (event: KeyboardEvent) => {
       if (
@@ -207,6 +210,7 @@ export function ListRow<T>({
 }) {
   const ref = useRef<HTMLButtonElement>(null);
   // j/k move the selection too, so the selected row scrolls into view when it changes.
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- scrolls the selected row into view when j/k changes it.
   useEffect(() => {
     if (selected) ref.current?.scrollIntoView({ block: "nearest" });
   }, [selected]);

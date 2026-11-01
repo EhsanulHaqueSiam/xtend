@@ -112,12 +112,7 @@ function Autofocusing() {
     <DetailSplit
       onClose={() => setOpen(false)}
       list={<button onClick={() => setOpen(true)}>Open detail</button>}
-      detail={
-        open ? (
-          // oxlint-disable-next-line jsx-a11y/no-autofocus -- the case under test: a detail that takes focus on mount.
-          <button autoFocus>First field</button>
-        ) : null
-      }
+      detail={open ? <button autoFocus>First field</button> : null}
     />
   );
 }

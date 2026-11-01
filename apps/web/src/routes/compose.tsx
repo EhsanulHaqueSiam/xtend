@@ -519,6 +519,7 @@ export function ComposeEditor({
   };
 
   // ?draft= opens that draft once the list has it; the param stays, so reloads land here too.
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- opens the deep-linked ?draft= once the drafts list has it.
   useEffect(() => {
     if (draftParam === undefined || selected !== null || !AsyncResult.isSuccess(drafts)) return;
     const d = drafts.value.find((x) => x.id === draftParam);
@@ -533,7 +534,6 @@ export function ComposeEditor({
   const save = async (force = false): Promise<Draft | null> => {
     let base = selected;
     // A save in flight that fails is its own caller's to report; this one saves again.
-    // eslint-disable-next-line no-await-in-loop -- waits out each save in turn, one at a time on purpose.
     while (saving.current !== null) base = (await saving.current.catch(() => null)) ?? base;
     const json = JSON.stringify(editor);
     if (json === lastSaved.current && (!force || base !== null)) return base;
@@ -572,6 +572,7 @@ export function ComposeEditor({
         return false;
       },
     );
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- debounced autosave timer on editor changes.
   useEffect(() => {
     // eslint-disable-next-line react/exhaustive-effect-dependencies -- debounced on content only; `save` is rebuilt each render. `selected` reruns it after every save, so an edit skipped while one was in flight still goes out.
     const t = setTimeout(saveOrReport, 600);
@@ -579,9 +580,11 @@ export function ComposeEditor({
   }, [editor, selected]);
   // Leaving inside the debounce (a sidebar link, a new ?draft=) still saves the last keystrokes.
   const flush = useRef(save);
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- keeps the latest save for the unmount flush below.
   useEffect(() => {
     flush.current = save;
   });
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- flushes the last keystrokes to the service on unmount.
   useEffect(() => () => void flush.current().catch(() => {}), []);
 
   /** Rows the service just stored join the editor's; its own rows keep their block, order and alt. */
@@ -599,7 +602,6 @@ export function ComposeEditor({
     if (d === null) return;
     let known = d.media;
     // One at a time on purpose: positions follow the order the files were picked in.
-    /* eslint-disable no-await-in-loop */
     for (const file of files) {
       if (file.size > MEDIA_MAX_BYTES) {
         setNotice(`Failed: ${file.name} is over ${MEDIA_MAX_BYTES / 1024 / 1024} MB`);
@@ -621,7 +623,6 @@ export function ComposeEditor({
       for (const id of added) setPreviews((p) => ({ ...p, [id]: URL.createObjectURL(file) }));
       attach(exit.value, added);
     }
-    /* eslint-enable no-await-in-loop */
   };
 
   // Queued one after another: a second call on the shared rpc atom would interrupt the first.

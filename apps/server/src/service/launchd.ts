@@ -1,13 +1,13 @@
 // @effect-diagnostics nodeBuiltinImport:off -- launchctl is a local binary and the plist a local file.
-import * as ChildProcess from "node:child_process";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import * as NodeChildProcess from "node:child_process";
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 
 export const LAUNCHD_LABEL = "com.xtend.service";
 
 const plistPath = () =>
-  path.join(os.homedir(), "Library", "LaunchAgents", `${LAUNCHD_LABEL}.plist`);
+  NodePath.join(NodeOS.homedir(), "Library", "LaunchAgents", `${LAUNCHD_LABEL}.plist`);
 
 const escapeXml = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -49,9 +49,9 @@ ${input.programArguments.map((a) => `    <string>${escapeXml(a)}</string>`).join
 `;
 
 const launchctl = (...args: ReadonlyArray<string>) =>
-  ChildProcess.spawnSync("launchctl", args, { encoding: "utf8" });
+  NodeChildProcess.spawnSync("launchctl", args, { encoding: "utf8" });
 
-const domain = () => `gui/${os.userInfo().uid}`;
+const domain = () => `gui/${NodeOS.userInfo().uid}`;
 
 export interface ServiceOptions {
   readonly baseDir: string;
@@ -64,15 +64,15 @@ export const install = (options: ServiceOptions): string => {
   const file = plistPath();
   const serviceArgs = ["--base-dir", options.baseDir, "--port", String(options.port)];
   if (options.host !== undefined) serviceArgs.push("--host", options.host);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.mkdirSync(options.baseDir, { recursive: true });
-  fs.writeFileSync(
+  NodeFS.mkdirSync(NodePath.dirname(file), { recursive: true });
+  NodeFS.mkdirSync(options.baseDir, { recursive: true });
+  NodeFS.writeFileSync(
     file,
     renderPlist({
-      programArguments: [process.execPath, path.resolve(process.argv[1] ?? ""), ...serviceArgs],
+      programArguments: [process.execPath, NodePath.resolve(process.argv[1] ?? ""), ...serviceArgs],
       baseDir: options.baseDir,
-      logPath: path.join(options.baseDir, "service.log"),
-      pathEnv: `${path.dirname(process.execPath)}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin`,
+      logPath: NodePath.join(options.baseDir, "service.log"),
+      pathEnv: `${NodePath.dirname(process.execPath)}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin`,
       electronAsNode: process.versions["electron"] !== undefined,
     }),
   );
@@ -85,12 +85,12 @@ export const install = (options: ServiceOptions): string => {
 export const uninstall = (): boolean => {
   const file = plistPath();
   launchctl("bootout", `${domain()}/${LAUNCHD_LABEL}`);
-  const existed = fs.existsSync(file);
-  fs.rmSync(file, { force: true });
+  const existed = NodeFS.existsSync(file);
+  NodeFS.rmSync(file, { force: true });
   return existed;
 };
 
 export const status = (): { readonly installed: boolean; readonly loaded: boolean } => ({
-  installed: fs.existsSync(plistPath()),
+  installed: NodeFS.existsSync(plistPath()),
   loaded: launchctl("print", `${domain()}/${LAUNCHD_LABEL}`).status === 0,
 });

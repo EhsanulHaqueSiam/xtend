@@ -7,6 +7,7 @@ import { cn } from "../../lib/utils";
 import { xNavigate, xPanelOpenAtom } from "../../state/x";
 import { Cost } from "./layout";
 import { xPill, xPillSm } from "../x";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./tooltip";
 
 export const profileUrl = (handle: string) => `https://x.com/${handle}`;
 export const searchUrl = (query: string, mode: "top" | "latest") =>
@@ -40,22 +41,34 @@ export function XLink({
 }) {
   const open = useOpenOnX();
   return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      aria-label={label}
-      title={label}
-      className={className}
-      onClick={(event) => {
-        if (!isElectron || event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0)
-          return;
-        event.preventDefault();
-        open(href);
-      }}
-    >
-      {children}
-    </a>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <a
+            href={href}
+            target="_blank"
+            rel="noreferrer"
+            aria-label={label}
+            className={className}
+            onClick={(event) => {
+              if (
+                !isElectron ||
+                event.metaKey ||
+                event.ctrlKey ||
+                event.shiftKey ||
+                event.button !== 0
+              )
+                return;
+              event.preventDefault();
+              open(href);
+            }}
+          />
+        }
+      >
+        {children}
+      </TooltipTrigger>
+      <TooltipPopup>{label}</TooltipPopup>
+    </Tooltip>
   );
 }
 

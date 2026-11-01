@@ -8,6 +8,8 @@ import { defineProject, type TestProjectInlineConfiguration } from "vite-plus/te
 import "vite-plus/test/config";
 import { defineConfig } from "vite-plus";
 
+import { TEST_DEFAULTS } from "../../vite.config.ts";
+
 // scripts/dev-runner.ts picks both per checkout; a plain `vp dev` keeps the defaults.
 const WEB_PORT = Number(process.env.XTEND_WEB_PORT ?? 5820);
 const SERVICE_PORT = Number(process.env.XTEND_PORT ?? 4820);
@@ -81,7 +83,7 @@ export default defineConfig({
     sourcemap: true,
   },
   test: {
-    retry: 0,
+    ...TEST_DEFAULTS,
     projects: [defineProject(unitTestProject), defineProject(browserTestProject)],
   },
 });

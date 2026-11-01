@@ -1,15 +1,14 @@
-// Drives a running dev desktop through the DevTools port it opens with XTEND_REMOTE_DEBUG,
-// for headless hosts where nobody can click. Targets are picked by a URL substring:
-// "x.com" is the x.com webview, the service or dev URL ("localhost:5820") is the app window.
-//   XTEND_REMOTE_DEBUG=9223 node scripts/dev-electron.mjs     start the app with the port open
-//   node scripts/cdp.mjs shot /tmp/xtend                       every page to /tmp/xtend-<n>.png
-//   node scripts/cdp.mjs eval x.com 'location.href'            prints the JSON value
-//   node scripts/cdp.mjs click x.com 470 86                    a real mouse click in CSS pixels
-//   node scripts/cdp.mjs type x.com 'hello'                    inserts text at the focus
-// Keys sent this way skip Electron's before-input-event, so the chords main forwards from
-// x.com (⌘K, ⌘\, ⌘F) cannot be driven there; send them to the app window instead.
-import { writeFile } from "node:fs/promises";
+// Drives a running dev desktop through the DevTools port XTEND_REMOTE_DEBUG opens, for hosts
+// where nobody can click. Keys sent this way skip Electron's before-input-event, so chords main
+// forwards from x.com (⌘K, ⌘\, ⌘F) must go to the app window. No command prints usage.
+import * as NodeFSP from "node:fs/promises";
 
+// Targets are picked by a URL substring: "x.com" is the webview, the dev URL the app window.
+const USAGE = `XTEND_REMOTE_DEBUG=9223 node scripts/dev-electron.mjs   start the app with the port open
+node scripts/cdp.mjs shot /tmp/xtend                     every page to /tmp/xtend-<n>.png
+node scripts/cdp.mjs eval x.com 'location.href'          prints the JSON value
+node scripts/cdp.mjs click x.com 470 86                  a real mouse click in CSS pixels
+node scripts/cdp.mjs type x.com 'hello'                  inserts text at the focus`;
 const port = process.env.XTEND_REMOTE_DEBUG ?? "9223";
 const TIMEOUT_MS = 5_000;
 const [command, ...args] = process.argv.slice(2);
@@ -62,7 +61,7 @@ const commands = {
         const { call, close } = await connect(target);
         try {
           const { data } = await call("Page.captureScreenshot", { format: "png" });
-          await writeFile(`${prefix}-${index}.png`, Buffer.from(data, "base64"));
+          await NodeFSP.writeFile(`${prefix}-${index}.png`, Buffer.from(data, "base64"));
           console.log(`${prefix}-${index}.png  ${target.url}`);
         } catch (error) {
           // A parked webview (hidden off-screen) may not paint.
@@ -107,7 +106,7 @@ const commands = {
 
 const run = commands[command];
 if (run === undefined) {
-  console.error(`usage: cdp.mjs ${Object.keys(commands).join("|")} ...`);
+  console.error(USAGE);
   process.exit(2);
 }
 await run(...args);

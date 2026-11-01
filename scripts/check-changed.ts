@@ -1,11 +1,10 @@
-// The fast local version of CI for this branch's changes: format and lint of the changed
-// files, typecheck of the packages they reach, knip when code or a manifest changed, and the
-// test files beside the changed files. Packages come from .github/scripts/ci-changes.cjs, the
-// mapping CI gates its jobs by: contracts, a manifest or a root config reach every package.
-// CI runs the full suites of the jobs the change reaches.
+// The fast local version of CI for this branch's changes: format and lint of the changed files,
+// typecheck of the packages they reach (per .github/scripts/ci-changes.cjs, as CI gates), knip
+// when code or a manifest changed, and the tests beside the changed files. Uncommitted and
+// untracked files count; CI still runs the full suites.
+
 //   pnpm check:changed          against the merge base with origin/main
 //   pnpm check:changed <ref>    against the merge base with <ref>
-// Uncommitted and untracked files count.
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
@@ -63,6 +62,9 @@ for (const file of code) {
   }
 }
 
+// The WebSocket payload budgets sit beside no source file they guard.
+if (reached.has("xtend")) tests.add("apps/server/src/payloads.test.ts");
+
 interface Step {
   readonly name: string;
   readonly cwd: string;
@@ -77,7 +79,13 @@ if (files.length > 0) {
     args: ["exec", "vp", "fmt", "--check", "--no-error-on-unmatched-pattern", ...files],
   });
 }
-if (code.length > 0) steps.push({ name: "lint", cwd: root, args: ["exec", "vp", "lint", ...code] });
+// A rule or config change can flag files this branch never touched, so it lints everything.
+const LINT = ["exec", "vp", "lint", "--deny-warnings", "--report-unused-disable-directives"];
+if (changed.some((f) => f === "vite.config.ts" || f.startsWith("packages/oxlint-plugin/"))) {
+  steps.push({ name: "lint (rules changed: every file)", cwd: root, args: LINT });
+} else if (code.length > 0) {
+  steps.push({ name: "lint", cwd: root, args: [...LINT, ...code] });
+}
 for (const p of affected) {
   steps.push({
     name: `typecheck ${p.name}`,

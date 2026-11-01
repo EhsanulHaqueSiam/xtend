@@ -446,7 +446,7 @@ function StagesBoard({
                 draggable
                 aria-pressed={p.id === selected}
                 className={cn(
-                  "flex cursor-grab flex-col gap-1 rounded-xl border border-border bg-background px-3 py-2 text-left outline-hidden transition-[border-color,opacity] duration-150 hover:border-white/15 focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing aria-pressed:border-white/40",
+                  "flex cursor-grab flex-col gap-1 rounded-xl border border-border bg-background px-3 py-2 text-left outline-hidden transition-[border-color,opacity] duration-150 hover:border-white/15 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring active:cursor-grabbing aria-pressed:border-white/40",
                   dragging === p.id && "opacity-40",
                 )}
                 onClick={() => onSelect(p.id)}

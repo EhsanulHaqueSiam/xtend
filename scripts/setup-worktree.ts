@@ -1,9 +1,8 @@
-// T3 Code runs this when it creates a worktree of Xtend (t3.json, runOnWorktreeCreate): it
-// installs the workspace from the lockfile. It runs in the background, so agents can start
-// before it ends: `.t3/setup-running` holds this PID until setup ends with `.t3/setup-done` or
-// `.t3/setup-failed` (with the end of the install output), and agents wait instead of racing
-// it with their own install. Dev state (.xtend) is per checkout and never copied: two services
-// on one database would both run the scheduler and post the same drafts.
+// T3 Code runs this in the background for a new worktree (t3.json): installs from the lockfile.
+// `.t3/setup-running` holds its PID until `.t3/setup-done` or `.t3/setup-failed` (with the install
+// tail), so agents wait instead of racing it. Dev state (.xtend) is never copied: two services on
+// one database would both run the scheduler and post the same drafts.
+
 //   node scripts/setup-worktree.ts
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";

@@ -20,11 +20,9 @@ import * as ObservationStore from "./observations/ObservationStore.ts";
 import * as Seed from "./testing/seed.ts";
 
 /**
- * AGENTS.md rule 4: no oversized WebSocket payloads. Each list a screen loads is produced from a
- * heavy user's database (testing/seed.ts) by the service method its handler calls, then measured
- * as the WebSocket sends it. Budgets are the measured size plus about half again: a field added to
- * a row fits, a list that loses its cap or starts carrying bodies does not. Over budget, shrink the
- * payload; raise a budget only for a field a screen needs.
+ * AGENTS.md rule 4: each list a screen loads, from a heavy user's seed, measured as the WebSocket
+ * sends it. Budgets are measured plus about half: a new field fits, a list that loses its cap or
+ * carries bodies does not. Over budget, shrink the payload; raise one only for a field a screen needs.
  */
 const wireBytes = (rpc: string, value: unknown) => {
   const success = WsRpcGroup.requests.get(rpc)!.successSchema;

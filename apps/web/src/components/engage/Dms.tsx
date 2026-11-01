@@ -19,6 +19,7 @@ export function Dms() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- fetches the free DM quote from the service when the panel mounts.
   useEffect(() => {
     void call(false).then((exit) =>
       Exit.isSuccess(exit) ? setQuote(exit.value.quoteUsd) : setError(errorText(exit.cause)),

@@ -97,11 +97,9 @@ export const isolatedConfig = (toml: string) => {
 };
 
 /**
- * One structured answer through the Codex login on the service machine (ChatGPT or its own key).
- * `binary` is the user's command for it; PATH is the login shell's.
- * Fails with a short reason the screen can show.
- * shortcut: strict mode makes every field required, so an optional field in an assist output
- * schema always comes back; give such outputs explicit nulls if one ever needs to be absent.
+ * One structured answer through the Codex login on the service machine; `binary` is the user's
+ * command, PATH the login shell's. Fails with a short reason the screen can show.
+ * shortcut: strict mode makes every field required, so give optional outputs explicit nulls.
  */
 export const complete = Effect.fn("Codex.complete")(function* (input: {
   readonly binary: string;

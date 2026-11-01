@@ -36,6 +36,7 @@ function PostActivityScreen() {
   // "Load again": a full load of the same page, since X's router does nothing on the page it shows.
   const reload = () => void xNavigate(url);
 
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- moves the engine to X's page for the open tab
   useEffect(open, [open]);
   const header = (
     <>

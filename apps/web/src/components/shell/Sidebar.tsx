@@ -30,6 +30,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { isElectron } from "../../env";
 import { carriesLink, postFromTransfer } from "../../lib/drag";
 import { nextScheduledLabel } from "../../lib/glance";
+import { useMinuteClock } from "../../lib/time";
 import { cn } from "../../lib/utils";
 import { accountsAtom, selectAccountAtom, switchAccount } from "../../state/accounts";
 import { pendingAtom } from "../../state/automate";
@@ -55,6 +56,7 @@ import { Menu, MenuItem } from "../ui/menu";
 import { toastAtom } from "../ui/toast";
 import { DROP_VERBS, linkDragAtom, useDropPost } from "./drops";
 import { ABOUT, isSectionRoute, SECTIONS } from "./sections";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 const or = <A, B>(result: AsyncResult.AsyncResult<A, unknown>, fallback: B): A | B =>
   AsyncResult.getOrElse(result, () => fallback);
@@ -225,28 +227,31 @@ function ToolRow({
         />
       </Link>
       {compact && sections.length > 0 ? (
-        <Menu
-          label={`${tool.label} sections`}
-          trigger={
-            <button
-              type="button"
-              aria-label={`${tool.label} sections`}
-              title={`${tool.label} sections`}
-              className={ROW}
-            >
-              <ChevronDown className="mx-auto size-3" />
-            </button>
-          }
-        >
-          {sections.map((section) => (
-            <MenuItem
-              key={section.id}
-              onClick={() => void navigate({ href: `${tool.to}?tab=${section.id}` })}
-            >
-              {section.label}
-            </MenuItem>
-          ))}
-        </Menu>
+        // The tooltip wraps the menu: Menu clones its trigger, so the trigger is the tooltip's.
+        <Tooltip>
+          <Menu
+            label={`${tool.label} sections`}
+            trigger={
+              <TooltipTrigger
+                render={
+                  <button type="button" aria-label={`${tool.label} sections`} className={ROW} />
+                }
+              >
+                <ChevronDown className="mx-auto size-3" />
+              </TooltipTrigger>
+            }
+          >
+            {sections.map((section) => (
+              <MenuItem
+                key={section.id}
+                onClick={() => void navigate({ href: `${tool.to}?tab=${section.id}` })}
+              >
+                {section.label}
+              </MenuItem>
+            ))}
+          </Menu>
+          <TooltipPopup>{`${tool.label} sections`}</TooltipPopup>
+        </Tooltip>
       ) : null}
       {(compact ? [] : sections).map((section) => {
         const href = `${tool.to}?tab=${section.id}`;
@@ -313,34 +318,40 @@ function XRows({ compact }: { readonly compact: boolean }) {
   return (
     <>
       {pages.map((page) => (
-        <button
-          key={page.label}
-          aria-label={compact ? page.label : undefined}
-          title={compact ? page.label : undefined}
-          type="button"
-          data-active={
-            page.label === "Profile"
-              ? pathname === `/u/${handle}`
-              : NATIVE[page.label] !== undefined
-                ? pathname === NATIVE[page.label] || pathname.startsWith(`${NATIVE[page.label]}/`)
-                : onX && (path === page.path || path.startsWith(`${page.path}/`))
-          }
-          className={cn(ROW, dragClass(dragging, false))}
-          onClick={() => {
-            // Xtend draws these itself; the engine follows them off screen.
-            const native = page.label === "Profile" ? `/u/${handle}` : NATIVE[page.label];
-            if (native !== undefined) return void navigate({ href: native });
-            // A page already in the webview is only revealed; clicked again where it shows, it
-            // reloads, like X's own Home.
-            if (path !== page.path) xNavigate(`https://x.com${page.path}`);
-            else if (onX || (pinned && panelOpen)) xReload();
-            // Pinned beside a tool, X's pages open in the panel and the tool stays.
-            if (pinned && !onX) setPanel(true);
-            else void navigate({ to: "/x" });
-          }}
-        >
-          <RowBody label={page.label} count={page.count} compact={compact} />
-        </button>
+        <Tooltip key={page.label} disabled={!compact}>
+          <TooltipTrigger
+            render={
+              <button
+                aria-label={compact ? page.label : undefined}
+                type="button"
+                data-active={
+                  page.label === "Profile"
+                    ? pathname === `/u/${handle}`
+                    : NATIVE[page.label] !== undefined
+                      ? pathname === NATIVE[page.label] ||
+                        pathname.startsWith(`${NATIVE[page.label]}/`)
+                      : onX && (path === page.path || path.startsWith(`${page.path}/`))
+                }
+                className={cn(ROW, dragClass(dragging, false))}
+                onClick={() => {
+                  // Xtend draws these itself; the engine follows them off screen.
+                  const native = page.label === "Profile" ? `/u/${handle}` : NATIVE[page.label];
+                  if (native !== undefined) return void navigate({ href: native });
+                  // A page already in the webview is only revealed; clicked again where it shows, it
+                  // reloads, like X's own Home.
+                  if (path !== page.path) xNavigate(`https://x.com${page.path}`);
+                  else if (onX || (pinned && panelOpen)) xReload();
+                  // Pinned beside a tool, X's pages open in the panel and the tool stays.
+                  if (pinned && !onX) setPanel(true);
+                  else void navigate({ to: "/x" });
+                }}
+              />
+            }
+          >
+            <RowBody label={page.label} count={page.count} compact={compact} />
+          </TooltipTrigger>
+          <TooltipPopup>{page.label}</TooltipPopup>
+        </Tooltip>
       ))}
     </>
   );
@@ -372,58 +383,54 @@ function AccountMenu({
       <span className="truncate text-xs text-sidebar-muted-foreground">@{label}</span>
     );
   return (
-    <Menu
-      align="end"
-      trigger={
-        <button
-          type="button"
-          aria-label="Switch account"
-          title="Switch account"
-          className="no-drag flex cursor-pointer items-center gap-1 rounded-[var(--control-radius)] px-1.5 py-0.5 text-xs text-sidebar-muted-foreground outline-hidden hover:text-sidebar-foreground"
-        >
-          {compact ? (
-            <UserRound className="size-4" />
-          ) : label === null || label === undefined ? (
-            (current?.label ?? "Account")
-          ) : (
-            `@${label}`
-          )}
-          <ChevronDown className="size-3" />
-        </button>
-      }
-    >
-      {list.map((a) => (
-        <MenuItem
-          key={a.id}
-          onClick={() => {
-            onError(null);
-            void select(a.id).then(
-              () => switchAccount(a.id),
-              (e: unknown) => onError(e instanceof Error ? e.message : String(e)),
-            );
-          }}
-        >
-          <span className="truncate">{a.label}</span>
-          {a.handle !== null ? (
-            <span className="ml-auto font-mono text-2xs">@{a.handle}</span>
-          ) : null}
-        </MenuItem>
-      ))}
-    </Menu>
+    <Tooltip>
+      <Menu
+        align="end"
+        trigger={
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                aria-label="Switch account"
+                className="no-drag flex cursor-pointer items-center gap-1 rounded-[var(--control-radius)] px-1.5 py-0.5 text-xs text-sidebar-muted-foreground outline-hidden hover:text-sidebar-foreground"
+              />
+            }
+          >
+            {compact ? (
+              <UserRound className="size-4" />
+            ) : label === null || label === undefined ? (
+              (current?.label ?? "Account")
+            ) : (
+              `@${label}`
+            )}
+            <ChevronDown className="size-3" />
+          </TooltipTrigger>
+        }
+      >
+        {list.map((a) => (
+          <MenuItem
+            key={a.id}
+            onClick={() => {
+              onError(null);
+              void select(a.id).then(
+                () => switchAccount(a.id),
+                (e: unknown) => onError(e instanceof Error ? e.message : String(e)),
+              );
+            }}
+          >
+            <span className="truncate">{a.label}</span>
+            {a.handle !== null ? (
+              <span className="ml-auto font-mono text-2xs">@{a.handle}</span>
+            ) : null}
+          </MenuItem>
+        ))}
+      </Menu>
+      <TooltipPopup>Switch account</TooltipPopup>
+    </Tooltip>
   );
 }
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
-
-/** The time, refreshed every minute: labels such as "Today 09:30" turn into "Tomorrow" on their own. */
-function useMinuteClock() {
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), 60_000);
-    return () => clearInterval(timer);
-  }, []);
-  return now;
-}
 
 /** The version this window last ran, so the first launch after an update can say so. */
 const seenVersionAtom = stored<string>("xtend:seen-version", (raw) => raw, "");
@@ -440,15 +447,21 @@ function UpdateButton() {
   const fresh = seen !== "" && seen !== update.version;
   const icon = "size-3.5";
   const button = (label: string, run: () => void, body: ReactNode) => (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      className="no-drag relative grid size-6 cursor-pointer place-items-center rounded-md text-sidebar-muted-foreground outline-hidden hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring"
-      onClick={run}
-    >
-      {body}
-    </button>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            aria-label={label}
+            className="no-drag relative grid size-6 cursor-pointer place-items-center rounded-md text-sidebar-muted-foreground outline-hidden hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+            onClick={run}
+          />
+        }
+      >
+        {body}
+      </TooltipTrigger>
+      <TooltipPopup>{label}</TooltipPopup>
+    </Tooltip>
   );
   const dot = (
     <span className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-sidebar-foreground" />
@@ -479,15 +492,21 @@ function UpdateButton() {
     );
   if (fresh)
     return (
-      <button
-        type="button"
-        title={`Updated to ${update.version}`}
-        className="no-drag flex h-6 cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-2xs text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
-        onClick={() => setSeen(update.version)}
-      >
-        Updated
-        <CircleCheck className={icon} />
-      </button>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              className="no-drag flex h-6 cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-2xs text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+              onClick={() => setSeen(update.version)}
+            />
+          }
+        >
+          Updated
+          <CircleCheck className={icon} />
+        </TooltipTrigger>
+        <TooltipPopup>{`Updated to ${update.version}`}</TooltipPopup>
+      </Tooltip>
     );
   return button(
     update.status === "error"
@@ -564,6 +583,7 @@ export function Sidebar({ compact = false }: { readonly compact?: boolean }) {
   const setDragging = useAtomSet(linkDragAtom);
   // The window sees every drag, including one coming out of the x.com webview; the data is only
   // readable on drop, so until then the sidebar only knows a link is in the air.
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- window drag listeners that light up the drop target while a link is dragged.
   useEffect(() => {
     const enter = (e: DragEvent) => {
       if (carriesLink(e.dataTransfer)) setDragging(true);
@@ -625,23 +645,29 @@ export function Sidebar({ compact = false }: { readonly compact?: boolean }) {
           {accountError}
         </p>
       ) : null}
-      <button
-        type="button"
-        aria-label={compact ? "Search" : undefined}
-        title={compact ? `Search (${mod} K)` : undefined}
-        className="no-drag mb-3 flex h-[30px] w-full cursor-pointer items-center gap-2 rounded-[var(--control-radius)] bg-sidebar-control-surface pr-1.5 pl-2.5 text-[13px] text-sidebar-muted-foreground outline-hidden hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring"
-        onClick={() => setPalette(true)}
-      >
-        <Search className="size-3.5" />
-        {compact ? null : (
-          <>
-            Search
-            <kbd className="ml-auto rounded-[5px] border border-white/13 px-1.5 font-mono text-2xs leading-[18px] text-sidebar-foreground/80">
-              {mod} K
-            </kbd>
-          </>
-        )}
-      </button>
+      <Tooltip disabled={!compact}>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              aria-label={compact ? "Search" : undefined}
+              className="no-drag mb-3 flex h-[30px] w-full cursor-pointer items-center gap-2 rounded-[var(--control-radius)] bg-sidebar-control-surface pr-1.5 pl-2.5 text-[13px] text-sidebar-muted-foreground outline-hidden hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+              onClick={() => setPalette(true)}
+            />
+          }
+        >
+          <Search className="size-3.5" />
+          {compact ? null : (
+            <>
+              Search
+              <kbd className="ml-auto rounded-[5px] border border-white/13 px-1.5 font-mono text-2xs leading-[18px] text-sidebar-foreground/80">
+                {mod} K
+              </kbd>
+            </>
+          )}
+        </TooltipTrigger>
+        <TooltipPopup>{`Search (${mod} K)`}</TooltipPopup>
+      </Tooltip>
       <nav className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {isElectron ? (
           <>

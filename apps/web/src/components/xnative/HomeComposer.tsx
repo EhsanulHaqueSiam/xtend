@@ -12,6 +12,7 @@ import { settingsAtom } from "../../state/settings";
 import { failText } from "../compose/AssistPanel";
 import { toastAtom } from "../ui/toast";
 import { Avatar } from "./XPostView";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 /** The user's own face: X's signed-in account, else any of their posts the engine has seen. */
 export const useOwnAvatar = () => {
@@ -103,16 +104,21 @@ export function HomeComposer() {
               [ListPlus, "Make a thread in Compose"],
             ] as const
           ).map(([Icon, label]) => (
-            <button
-              key={label}
-              type="button"
-              aria-label={label}
-              title={label}
-              className="-m-1.5 grid size-[34px] cursor-pointer place-items-center rounded-full text-[#1d9bf0] transition-colors duration-150 hover:bg-[#1d9bf0]/10"
-              onClick={handOff}
-            >
-              <Icon className="size-[18px]" />
-            </button>
+            <Tooltip key={label}>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    aria-label={label}
+                    className="-m-1.5 grid size-[34px] cursor-pointer place-items-center rounded-full text-[#1d9bf0] transition-colors duration-150 hover:bg-[#1d9bf0]/10"
+                    onClick={handOff}
+                  />
+                }
+              >
+                <Icon className="size-[18px]" />
+              </TooltipTrigger>
+              <TooltipPopup>{label}</TooltipPopup>
+            </Tooltip>
           ))}
           <span className="ml-auto font-mono text-xs text-muted-foreground tabular-nums">
             {text === "" ? (session ? "free · your session" : "") : `${length}/${POST_LIMIT}`}

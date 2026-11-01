@@ -169,6 +169,7 @@ export function PostGrid({
   // The open card, so closing its inspector can hand focus back: at panel width the column
   // covers the grid, and closing it leaves focus nowhere.
   const open = useRef<{ readonly key: string; readonly index: number } | null>(null);
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- hands DOM focus back to the card whose inspector closed, when the close left focus on body.
   useEffect(() => {
     const closed = open.current;
     const index = items.findIndex((i) => i.key === selected);

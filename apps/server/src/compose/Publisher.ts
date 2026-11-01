@@ -86,12 +86,9 @@ export class Publisher extends Context.Service<
   Publisher,
   {
     /**
-     * Claims the draft, then posts block 1 and each block as a reply to the previous one,
-     * recording ids as it goes. Blocks with media go through the x.com session; articles
-     * through treg's article endpoints. Marks the draft posted, or failed with the detail;
-     * with `retry` a failure requeues it with backoff until MAX_ATTEMPTS, unless the post may
-     * already be on X. Fails without posting when another publisher holds the draft, or with
-     * `due` when it is no longer queued for then (see DraftStore.claim).
+     * Claims the draft and posts it as a thread, recording ids as it goes. With `retry` a failure
+     * requeues it with backoff until MAX_ATTEMPTS, unless the post may already be on X. Posts
+     * nothing when another publisher holds the draft or it is no longer queued for `due`.
      */
     readonly post: (
       id: string,

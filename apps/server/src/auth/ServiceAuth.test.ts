@@ -1,7 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off -- a real listening socket is the point of this test.
-import * as NodeFs from "node:fs";
+import * as NodeFS from "node:fs";
 import * as NodeHttp from "node:http";
-import * as NodeOs from "node:os";
+import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
@@ -113,7 +113,7 @@ describe("ServiceAuth", () => {
 
   it.effect("keeps one owner-only token across restarts and trusts the service's own origins", () =>
     Effect.gen(function* () {
-      const baseDir = NodeFs.mkdtempSync(NodePath.join(NodeOs.tmpdir(), "xtend-auth-"));
+      const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "xtend-auth-"));
       const start = ServiceAuth.ServiceAuth.pipe(
         Effect.provide(
           Layer.fresh(ServiceAuth.layer).pipe(
@@ -135,8 +135,8 @@ describe("ServiceAuth", () => {
       );
       const first = yield* start;
       const file = NodePath.join(baseDir, "auth-token");
-      expect(NodeFs.readFileSync(file, "utf8").trim()).toBe(first.token);
-      expect(NodeFs.statSync(file).mode & 0o777).toBe(0o600);
+      expect(NodeFS.readFileSync(file, "utf8").trim()).toBe(first.token);
+      expect(NodeFS.statSync(file).mode & 0o777).toBe(0o600);
       // The desktop and CLI read the file once; a restart must not hand out a new token.
       expect((yield* start).token).toBe(first.token);
 

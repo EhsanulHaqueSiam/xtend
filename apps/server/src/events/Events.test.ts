@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Stream from "effect/Stream";
@@ -26,11 +27,15 @@ describe("Events", () => {
     Effect.gen(function* () {
       const events = yield* Events.Events;
       // Takes the first event and then never asks for another, like a stalled socket.
+      const stalled = yield* Deferred.make<void>();
       yield* events.stream.pipe(
-        Stream.runForEach(() => Effect.never),
+        Stream.runForEach(() =>
+          Deferred.succeed(stalled, undefined).pipe(Effect.andThen(Effect.never)),
+        ),
         Effect.forkChild({ startImmediately: true }),
       );
-      yield* Effect.sleep("10 millis");
+      yield* events.publish({ type: "rule_fired", payload: { i: -1 } });
+      yield* Deferred.await(stalled);
       // Rule firings publish inline; a full hub that blocked would stall the engine.
       const published = yield* Effect.forEach(
         Array.from({ length: 1000 }, (_, i) => i),

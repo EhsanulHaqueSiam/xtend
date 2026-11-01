@@ -12,6 +12,7 @@ import { collectionsAtom, savedIdsAtom, savePostAtom, swipeFileAtom } from "../.
 import { Menu, MenuItem } from "../ui/menu";
 import { xPill, xPillSm, xPillSolid } from "../x";
 import { errorMessage } from "./shared";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 const small = "[&_svg]:size-3.5";
 
@@ -40,25 +41,31 @@ export function QuickSave({ post, saved }: { readonly post: XPost; readonly save
   const [error, setError] = useState<string | null>(null);
   const isSaved = saved || done;
   return (
-    <button
-      type="button"
-      className={cn(
-        isSaved ? xPill : xPillSolid,
-        xPillSm,
-        small,
-        isSaved && "text-muted-foreground disabled:opacity-100",
-      )}
-      disabled={isSaved}
-      title={error ?? undefined}
-      onClick={() =>
-        void save(post, null).then(
-          () => setDone(true),
-          (e: unknown) => setError(errorMessage(e)),
-        )
-      }
-    >
-      <TextMorph duration={250}>{isSaved ? "Saved" : error !== null ? "Retry" : "Save"}</TextMorph>
-    </button>
+    <Tooltip disabled={error === null}>
+      <TooltipTrigger render={<span className="inline-flex" />}>
+        <button
+          type="button"
+          className={cn(
+            isSaved ? xPill : xPillSolid,
+            xPillSm,
+            small,
+            isSaved && "text-muted-foreground disabled:opacity-100",
+          )}
+          disabled={isSaved}
+          onClick={() =>
+            void save(post, null).then(
+              () => setDone(true),
+              (e: unknown) => setError(errorMessage(e)),
+            )
+          }
+        >
+          <TextMorph duration={250}>
+            {isSaved ? "Saved" : error !== null ? "Retry" : "Save"}
+          </TextMorph>
+        </button>
+      </TooltipTrigger>
+      <TooltipPopup>{error}</TooltipPopup>
+    </Tooltip>
   );
 }
 
@@ -121,19 +128,27 @@ export function RemixButton({ post }: { readonly post: XPost }) {
   // A failed save stays on the button: Compose would open with nothing to remix.
   const [error, setError] = useState<string | null>(null);
   return (
-    <button
-      type="button"
-      className={cn(xPill, xPillSm, small, error !== null && "text-error-foreground")}
-      title={error ?? "Write your own in Compose, with this post as inspiration"}
-      onClick={() =>
-        void save({ post, collectionId: null }).then(
-          () => navigate({ href: `/compose?inspire=${post.postId}` }),
-          (e: unknown) => setError(errorMessage(e)),
-        )
-      }
-    >
-      <TextMorph duration={250}>{error !== null ? "Retry" : "Remix in Compose"}</TextMorph>
-      {error !== null ? null : <Cost usd={0} />}
-    </button>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            className={cn(xPill, xPillSm, small, error !== null && "text-error-foreground")}
+            onClick={() =>
+              void save({ post, collectionId: null }).then(
+                () => navigate({ href: `/compose?inspire=${post.postId}` }),
+                (e: unknown) => setError(errorMessage(e)),
+              )
+            }
+          />
+        }
+      >
+        <TextMorph duration={250}>{error !== null ? "Retry" : "Remix in Compose"}</TextMorph>
+        {error !== null ? null : <Cost usd={0} />}
+      </TooltipTrigger>
+      <TooltipPopup>
+        {error ?? "Write your own in Compose, with this post as inspiration"}
+      </TooltipPopup>
+    </Tooltip>
   );
 }

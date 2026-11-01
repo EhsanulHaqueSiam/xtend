@@ -58,6 +58,7 @@ function PostScreen() {
       .finally(() => setPicked(null));
   };
 
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- moves the engine (the session view) to this screen's X page while it is open.
   useEffect(open, [open]);
   // A reply through the session left the engine on X's composer, so X's router brings the thread
   // back fresh, the reply already in place. One through the API left it here: load the thread again.

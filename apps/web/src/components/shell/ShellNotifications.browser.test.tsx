@@ -1,31 +1,26 @@
-import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
+import { expect, it } from "vite-plus/test";
 
 import { liveEvents } from "../../../test/fixtures";
-import { render } from "../../../test/render";
+import { render, stubGlobal } from "../../../test/render";
 import { ShellNotifications } from "./ShellNotifications";
 
-const shown: Array<{ readonly title: string; readonly body: string | undefined }> = [];
-
-/** Records what would reach the OS; the permission is already granted. */
-class FakeNotification extends EventTarget {
-  static readonly permission = "granted";
-  static readonly requestPermission = () => Promise.resolve("granted");
-  constructor(title: string, options?: NotificationOptions) {
-    super();
-    shown.push({ title, body: options?.body });
+/** Records what would reach the OS, with the permission already granted, until disposed. */
+function fakeNotifications() {
+  const shown: Array<{ readonly title: string; readonly body: string | undefined }> = [];
+  class FakeNotification extends EventTarget {
+    static readonly permission = "granted";
+    static readonly requestPermission = () => Promise.resolve("granted");
+    constructor(title: string, options?: NotificationOptions) {
+      super();
+      shown.push({ title, body: options?.body });
+    }
   }
+  return Object.assign(stubGlobal("Notification", FakeNotification), { shown });
 }
 
-beforeEach(() => {
-  shown.length = 0;
-  vi.stubGlobal("Notification", FakeNotification);
-});
-
-afterEach(() => {
-  vi.unstubAllGlobals();
-});
-
 it("tells the user what an automation's notify action says and when a rule needs them", async () => {
+  using notifications = fakeNotifications();
+  const { shown } = notifications;
   const events = liveEvents();
   await using _screen = await render(<ShellNotifications />, {
     service: { "events.subscribe": events.subscribe },

@@ -35,9 +35,11 @@ export function Reconnecting({ children }: { readonly children: React.ReactNode 
     new URLSearchParams(location.searchStr).get("tab") === "service";
   const down = connection === "disconnected";
   const notice = useRef<HTMLDivElement>(null);
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- moves DOM focus to the disconnected notice.
   useEffect(() => {
     if (down) notice.current?.focus();
   }, [down]);
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- polls the service's /api/health while disconnected and reloads once it answers.
   useEffect(() => {
     if (!down || serviceSettings) return;
     let active = true;

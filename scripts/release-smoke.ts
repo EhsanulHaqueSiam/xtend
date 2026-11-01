@@ -1,8 +1,8 @@
-// Checks every packaged app in apps/desktop/release: the Electron main and both preloads inside
-// app.asar, the web app and the service bundle beside it, and then that the service starts. It
-// runs the service the way the app does, with the app's own Electron as Node and nothing but the
-// packaged files (copied out, so no node_modules up the tree can stand in for a missing one), and
-// waits for /api/health. Apps for another platform get the contents check only.
+// Checks every packaged app in apps/desktop/release: main and preloads in app.asar, the web app
+// and service beside it, then that the service answers /api/health when run like the app runs it
+// (its own Electron as Node, the packaged files copied out so no node_modules can stand in).
+// Apps for another platform get the contents check only.
+
 //   pnpm dist:desktop:dmg:arm64 && pnpm release:smoke
 //   pnpm dist:desktop:appimage && pnpm release:smoke
 import * as NodeChildProcess from "node:child_process";
@@ -154,7 +154,6 @@ for (const app of found) {
     continue;
   }
   // One at a time, so a failure's output is its own.
-  // eslint-disable-next-line no-await-in-loop
   const error = await bootService(app);
   if (error === null) console.log(`release-smoke: ${app.name}: contents ok, service started`);
   else failures.push(`${app.name}: service did not start\n${error}`);

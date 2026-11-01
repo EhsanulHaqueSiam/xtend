@@ -5,12 +5,15 @@ on:
   push:
     branches:
       - main
+  # The release workflow runs the same checks on the commit it ships.
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.sha }}
+  # A release calling this runs in its own group, so a push's CI never cancels it.
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Runners are pinned: ubuntu-latest moved to 26.04 before Playwright supported it, and every
@@ -51,6 +54,11 @@ jobs:
             decide
           }
 
+          # main keeps a full run as the backstop for whatever path gating missed.
+          if [[ "$EVENT_NAME" != pull_request ]]; then
+            echo "Push to main: running every job."
+            decide
+          fi
           if [[ "$EVENT_NAME" == pull_request ]]; then
             base=HEAD^1
           else
@@ -66,12 +74,19 @@ jobs:
           decide --paths "$RUNNER_TEMP/changed-paths"
 
   # No `needs`: it formats every file, docs included, so every change runs it.
-  check:
+  lint:
     name: Format, lint, unused code
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
+      - name: Reject committed PR evidence
+        run: |
+          files="$(git ls-files .github/pr-assets)"
+          if test -n "$files"; then
+            printf 'PR evidence is uploaded to GitHub, not committed:\n%s\n' "$files" >&2
+            exit 1
+          fi
       - uses: ./.github/actions/setup
       - run: pnpm fmt:check
       - run: pnpm lint
@@ -91,6 +106,10 @@ jobs:
       - uses: ./.github/actions/setup
       - run: pnpm typecheck
       - run: pnpm build
+      # The router plugin rewrites the route tree during the build; a stale committed copy
+      # typechecks against routes that no longer exist.
+      - name: Route tree is current
+        run: git diff --exit-code -- apps/web/src/routeTree.gen.ts
       - name: Verify preload bundles
         run: pnpm --filter @xtend/desktop verify:bundles
 
@@ -121,26 +140,26 @@ jobs:
       - uses: ./.github/actions/setup
 
       # Web and desktop both run *.browser.test.* files in headless Chromium.
-      - name: Resolve Playwright version
-        id: playwright
-        run: echo "version=$(node -p "require('./apps/web/node_modules/playwright/package.json').version")" >> "$GITHUB_OUTPUT"
-      - name: Cache Chromium
-        id: chromium
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-chromium-shell-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
-      - name: Install Chromium
-        if: steps.chromium.outputs.cache-hit != 'true'
-        run: node apps/web/node_modules/playwright/cli.js install --only-shell chromium
-      # The runner image usually has every library already; apt only runs when one is missing.
-      - name: Install missing Chromium libraries
-        run: |
-          browser=$(find "$HOME/.cache/ms-playwright" -name chrome-headless-shell -type f -print -quit)
-          test -n "$browser"
-          if ldd "$browser" | grep '=> not found'; then
-            sudo node apps/web/node_modules/playwright/cli.js install-deps chromium
-          fi
-
+      - uses: ./.github/actions/chromium
       - run: pnpm test
       - run: pnpm test:e2e
+
+  # The one required check. A skipped job reports success to branch protection, so this passes
+  # only when every job passed or was skipped because `changes` said its gate was not needed, and
+  # a cancelled run still fails. Add every new job to `needs`.
+  check:
+    name: Check
+    if: ${{ always() }}
+    needs: [changes, lint, build, test]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every job to pass
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          echo "$RESULTS" | jq -e '.changes.outputs as $gates
+            | all(to_entries[];
+                .value.result == "success"
+                or (.value.result == "skipped" and $gates[.key] == "false"))' > /dev/null

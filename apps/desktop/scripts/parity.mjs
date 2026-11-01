@@ -1,12 +1,10 @@
-// Side-by-side capture of x.com and Xtend's own X screens on a running dev desktop, for the
-// parity loop: each screen is drawn natively first, then the engine's x.com page (which by then
-// shows the same content) is put over the main area. Read only: it navigates and screenshots.
+// Captures x.com and Xtend's own X screens side by side on a running dev desktop: each screen
+// natively, then the engine's x.com page over it. Read only. Writes <screen>-xtend.png and
+// <screen>-x.png; keep them outside the repo, they show the user's real account.
 //   XTEND_REMOTE_DEBUG=9224 node scripts/parity.mjs [outDir] [--width 1100]
-// Writes <screen>-xtend.png and <screen>-x.png per screen. Keep the output outside the repo: it
-// is the user's real account.
-import { mkdir, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import * as NodeFSP from "node:fs/promises";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 
 const port = process.env.XTEND_REMOTE_DEBUG ?? "9223";
 const args = process.argv.slice(2);
@@ -14,7 +12,11 @@ const widthAt = args.indexOf("--width");
 const width = widthAt === -1 ? null : Number(args[widthAt + 1]);
 const out =
   args.find((a, i) => !a.startsWith("--") && (widthAt === -1 || i !== widthAt + 1)) ??
-  join(homedir(), "Pictures/xtend-ui/parity", new Date().toISOString().slice(0, 16));
+  NodePath.join(
+    NodeOS.homedir(),
+    "Pictures/xtend-ui/parity",
+    new Date().toISOString().slice(0, 16),
+  );
 
 const targets = async () =>
   (await (await fetch(`http://127.0.0.1:${port}/json`)).json()).filter(
@@ -59,7 +61,7 @@ const until = async (expression, ms = 20_000) => {
 };
 const shot = async (file) => {
   const { data } = await call("Page.captureScreenshot", { format: "png" });
-  await writeFile(join(out, file), Buffer.from(data, "base64"));
+  await NodeFSP.writeFile(NodePath.join(out, file), Buffer.from(data, "base64"));
 };
 /** Runs an expression in the x.com page itself (the engine), through its own DevTools target. */
 const xPage = async (expression) => {
@@ -85,7 +87,7 @@ if (width !== null) {
   });
   await sleep(800);
 }
-await mkdir(out, { recursive: true });
+await NodeFSP.mkdir(out, { recursive: true });
 
 /** Each screen: its native route, and what must be on screen before the shot. */
 // Following: X refetches it on load; a tab X has cached sends nothing (engine bug, see the bench).

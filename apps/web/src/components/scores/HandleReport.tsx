@@ -14,6 +14,7 @@ import { Cost, Empty, PageBody } from "../ui/layout";
 import { xPill, xPillSm } from "../x";
 import { ErrorLine, causeMessage, errorMessage } from "../library/shared";
 import { ReportCard } from "./ReportCard";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 const DEFAULT_PAGES = 5;
 
@@ -52,9 +53,14 @@ function ScoreControls({
   return (
     <div className="flex flex-wrap items-center justify-end gap-3">
       {error !== null ? (
-        <span className="max-w-64 truncate text-2xs text-error-foreground" title={error}>
-          {error}
-        </span>
+        <Tooltip>
+          <TooltipTrigger
+            render={<span className="max-w-64 truncate text-2xs text-error-foreground" />}
+          >
+            {error}
+          </TooltipTrigger>
+          <TooltipPopup>{error}</TooltipPopup>
+        </Tooltip>
       ) : null}
       <Select
         compact

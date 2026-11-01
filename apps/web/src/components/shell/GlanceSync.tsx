@@ -30,6 +30,7 @@ export function GlanceSync() {
   const zone = settings?.timeZone ?? new Intl.DateTimeFormat().resolvedOptions().timeZone;
   // "18:00" and "Tomorrow 09:00" are relative to now: without a tick they outlive the slot they name.
   const [now, setNow] = useState(() => new Date());
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- minute interval so relative slot times re-render.
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), MINUTE_MS);
     return () => clearInterval(timer);
@@ -37,6 +38,7 @@ export function GlanceSync() {
   const glance = glanceOf({ queued, slots, openMentions, spendTodayUsd, connected, zone, now });
   // Only a changed card crosses to main; most ticks change nothing.
   const sent = useRef("");
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- pushes a changed glance card to the desktop main process.
   useEffect(() => {
     const key = JSON.stringify(glance);
     if (key === sent.current) return;

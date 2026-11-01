@@ -115,17 +115,16 @@ const make = Effect.gen(function* () {
         : Effect.succeed(m.userId),
     );
 
-  const own = (
+  const own = Effect.fn("XExtra.own")(function* (
     method: "POST" | "DELETE",
     path: (meId: string) => string,
     purpose: string,
     expectedCostUsd: number,
     body?: unknown,
-  ) =>
-    Effect.gen(function* () {
-      const id = yield* me(purpose);
-      yield* treg.call({ endpoint: `x/${path(id)}`, method, body, purpose, expectedCostUsd });
-    });
+  ) {
+    const id = yield* me(purpose);
+    yield* treg.call({ endpoint: `x/${path(id)}`, method, body, purpose, expectedCostUsd });
+  });
 
   return XExtra.of({
     engagers,

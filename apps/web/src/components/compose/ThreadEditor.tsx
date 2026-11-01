@@ -192,6 +192,7 @@ export function ThreadEditor({
   const areas = useRef<Array<HTMLTextAreaElement | null>>([]);
   // The post a move or an insert lands on takes the focus, and with it the tools.
   const focusNext = useRef<number | null>(null);
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- moves DOM focus to the textarea a move or insert landed on, after React drew it.
   useEffect(() => {
     if (focusNext.current === null) return;
     areas.current[focusNext.current]?.focus();

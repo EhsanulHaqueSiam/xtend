@@ -23,6 +23,7 @@ import { useOpenOnX, XLink } from "../ui/x-link";
 import { Themes } from "./Themes";
 import { AnalyzePage, NotLoaded } from "./AnalyzePage";
 import { engagementRate, errorText, fmt, insetTable, pct, when } from "./ui";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 // `hide` drops the less telling columns first as the page narrows (the X panel takes its share).
 const COLUMNS = [
@@ -149,23 +150,29 @@ function SortHeader({
   const on = column.id === sort;
   const Arrow = desc ? ChevronDown : ChevronUp;
   return (
-    <th
-      className={cn(table.th, "text-right", column.hide)}
-      aria-sort={on ? (desc ? "descending" : "ascending") : undefined}
-      title={column.id === "er" ? "Green: top 5 by engagement rate. Red: bottom 5." : undefined}
-    >
-      <button
-        type="button"
-        className={cn(
-          "inline-flex cursor-pointer items-center gap-0.5 transition-colors duration-150 hover:text-foreground",
-          on && "text-foreground",
-        )}
-        onClick={() => onSort(column.id)}
+    <Tooltip disabled={column.id !== "er"}>
+      <TooltipTrigger
+        render={
+          <th
+            className={cn(table.th, "text-right", column.hide)}
+            aria-sort={on ? (desc ? "descending" : "ascending") : undefined}
+          />
+        }
       >
-        {on ? <Arrow className="size-3" /> : null}
-        {column.label}
-      </button>
-    </th>
+        <button
+          type="button"
+          className={cn(
+            "inline-flex cursor-pointer items-center gap-0.5 transition-colors duration-150 hover:text-foreground",
+            on && "text-foreground",
+          )}
+          onClick={() => onSort(column.id)}
+        >
+          {on ? <Arrow className="size-3" /> : null}
+          {column.label}
+        </button>
+      </TooltipTrigger>
+      <TooltipPopup>Green: top 5 by engagement rate. Red: bottom 5.</TooltipPopup>
+    </Tooltip>
   );
 }
 
@@ -265,21 +272,34 @@ export function Posts({ data }: { readonly data: AnalyzeData }) {
                   }}
                 >
                   <td className={cn(table.td, "w-full max-w-0")}>
-                    <p className="truncate text-foreground/90" title={p.text}>
-                      {p.text || "(no text)"}
-                    </p>
+                    <Tooltip>
+                      <TooltipTrigger render={<p className="truncate text-foreground/90" />}>
+                        {p.text || "(no text)"}
+                      </TooltipTrigger>
+                      <TooltipPopup>{p.text}</TooltipPopup>
+                    </Tooltip>
                   </td>
                   <td
                     className={cn(table.td, "hidden text-xs text-muted-foreground @4xl:table-cell")}
                   >
                     {p.kind}
                   </td>
-                  <td
-                    className={cn(table.td, table.num, "whitespace-nowrap text-muted-foreground")}
-                    title={fmtDay(p.createdAt)}
-                  >
-                    {shortDay(p.createdAt)}
-                  </td>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <td
+                          className={cn(
+                            table.td,
+                            table.num,
+                            "whitespace-nowrap text-muted-foreground",
+                          )}
+                        />
+                      }
+                    >
+                      {shortDay(p.createdAt)}
+                    </TooltipTrigger>
+                    <TooltipPopup>{fmtDay(p.createdAt)}</TooltipPopup>
+                  </Tooltip>
                   <td className={cn(table.td, table.num)}>{fmt(p.views)}</td>
                   <td className={cn(table.td, table.num)}>{fmt(p.likes)}</td>
                   <td className={cn(table.td, table.num, "hidden @3xl:table-cell")}>

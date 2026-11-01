@@ -30,6 +30,7 @@ function HomeScreen() {
   // only then). From elsewhere, X's router brings Home back.
   const received = useRef(false);
   const has = at(engine.lists, surface).length > 0;
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- keeps whether X's posts arrived for open() to read without re-running it.
   useEffect(() => {
     received.current = has;
   }, [has]);
@@ -40,6 +41,7 @@ function HomeScreen() {
         xPickHomeTab(tab.label),
       );
   }, [tab.label]);
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- moves the engine (the session view) to this screen's X page while it is open.
   useEffect(open, [open]);
   // ⌘R: X's Home in full, as reloading x.com does, then this tab again.
   const reload = () => void xNavigate("https://x.com/home").then(() => xPickHomeTab(tab.label));

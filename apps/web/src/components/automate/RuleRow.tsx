@@ -62,10 +62,12 @@ export function RuleRow({
         <p className={cn("truncate text-[13px]", !rule.enabled && "text-muted-foreground")}>
           {describeRule(rule).map((s, i) =>
             typeof s === "string" ? (
+              // oxlint-disable-next-line react/no-array-index-key -- the parts of one sentence, in order; they never reorder.
               <span key={i} className="text-muted-foreground">
                 {s}
               </span>
             ) : (
+              // oxlint-disable-next-line react/no-array-index-key -- the parts of one sentence, in order; they never reorder.
               <span key={i} className={cn("font-medium", rule.enabled && "text-foreground")}>
                 {s.tag}
               </span>

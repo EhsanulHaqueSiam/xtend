@@ -43,10 +43,12 @@ export function XColumn({
   const [scroller, setScroller] = useState<HTMLElement | null>(null);
   const setEngine = useAtomSet(engineAtom);
   const latest = useRef(refresh);
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- keeps the latest refresh callback for the screen-refresh registration below, without re-registering.
   useEffect(() => {
     latest.current = refresh;
   });
   const refreshes = refresh !== undefined;
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- registers this screen's refresh with the global refresh hotkey, released on unmount.
   useEffect(() => {
     if (!refreshes) return;
     return setScreenRefresh(() => {

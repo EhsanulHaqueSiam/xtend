@@ -3,7 +3,7 @@ import type { EngineEntities } from "@xtend/contracts";
 import type { MouseEvent } from "react";
 
 /** t.co links, @mentions, #hashtags and $cashtags, for text that comes without X's entities. */
-// A hashtag needs a letter (#2026 is not one); a cashtag is letters only ($5,000 is not one).
+// A hashtag needs a letter (a bare year is not one); a cashtag is letters only ($5,000 is not one).
 const TOKEN =
   /(https:\/\/t\.co\/\w+)|(^|[^\w@])(@\w{1,15})|(^|[^\w&])(#[\p{L}\p{N}_]*\p{L}[\p{L}\p{N}_]*|\$[A-Za-z]{1,6}(?![\w]))/gu;
 

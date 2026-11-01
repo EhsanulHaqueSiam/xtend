@@ -1,11 +1,9 @@
-// Decides which CI jobs a change needs. Prints `key=value` lines for $GITHUB_OUTPUT; a job
-// runs unless its key is "false". `check` always runs: it formats every file, docs included.
-//
+// Decides which CI jobs a change needs: prints `key=value` lines for $GITHUB_OUTPUT, and a job
+// runs unless its key is "false". A path this does not recognize runs everything, so a new root
+// file only costs minutes. scripts/check-changed.ts typechecks the packages this returns.
+
 //   node .github/scripts/ci-changes.cjs --paths <file>   gate by the paths listed in <file>
 //   node .github/scripts/ci-changes.cjs                  changed paths unknown: run everything
-//
-// scripts/check-changed.ts typechecks the packages this returns, so local runs match CI.
-// A path this file does not recognize runs everything, so a new root file can only cost minutes.
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -45,7 +43,9 @@ function decide(files, packages) {
     // itself, and a manifest can change the dependencies every package resolves.
     if (owner === undefined || path.posix.basename(file) === "package.json") everything = true;
     // Every app imports the shared packages.
-    else if (owner.dir.startsWith("packages/")) for (const name of all) affected.add(name);
+    // The lint plugin is loaded by vite.config.ts, never imported: it reaches only itself.
+    else if (owner.dir.startsWith("packages/") && owner.dir !== "packages/oxlint-plugin")
+      for (const name of all) affected.add(name);
     else affected.add(owner.name);
   }
 

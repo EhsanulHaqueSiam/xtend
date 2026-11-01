@@ -14,6 +14,7 @@ import { sectionHref } from "../shell/sections";
 import { Button } from "../ui/button";
 import { Cost, PageBody, Section } from "../ui/layout";
 import { Select } from "../ui/select";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 /** Rows of what would fire, each with its price, and the total. */
 function WouldFire({
@@ -42,9 +43,12 @@ function WouldFire({
           <tr key={r.key} className={t.row}>
             <td className={cn(t.td, "whitespace-nowrap")}>{r.first}</td>
             <td className={cn(t.td, "w-full max-w-0")}>
-              <p className="truncate text-foreground/90" title={r.description}>
-                {r.description}
-              </p>
+              <Tooltip>
+                <TooltipTrigger render={<p className="truncate text-foreground/90" />}>
+                  {r.description}
+                </TooltipTrigger>
+                <TooltipPopup>{r.description}</TooltipPopup>
+              </Tooltip>
             </td>
             <td className={cn(t.td, t.num)}>{usd(r.usd)}</td>
           </tr>

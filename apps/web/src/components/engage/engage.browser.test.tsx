@@ -1,11 +1,11 @@
 import type { Mention, ReplyTarget, SentReply, XPost } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
-import { expect, it } from "vite-plus/test";
+import { expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
 import { liveEvents, paid, quoting, settings, xPost } from "../../../test/fixtures";
 import type { FakeService } from "../../../test/fakeService";
-import { render } from "../../../test/render";
+import { fakeTimers, render } from "../../../test/render";
 import { Inbox } from "./Mentions";
 import { Targets } from "./Targets";
 
@@ -328,6 +328,8 @@ it("paid fetches wait for their price", async () => {
 });
 
 it("the inbox follows what the session sees, one refetch for a burst of batches", async () => {
+  // The burst's refetch waits out a 1 s debounce; the clock moves on its own and can be jumped.
+  using _timers = fakeTimers({ shouldAdvanceTime: true });
   const events = liveEvents();
   let reads = 0;
   await using screen = await render(<Inbox />, {
@@ -348,7 +350,8 @@ it("the inbox follows what the session sees, one refetch for a burst of batches"
   await expect
     .element(screen.getByRole("complementary").getByText(`@${settings.handle} love this`))
     .toBeVisible();
-  await new Promise((resolve) => setTimeout(resolve, 1500));
+  // Past any later debounce: the burst made one refetch, not one per batch.
+  await vi.advanceTimersByTimeAsync(1500);
   expect(reads).toBe(2);
 });
 

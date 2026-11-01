@@ -34,6 +34,7 @@ import { settingsAtom, updateSettingsAtom } from "../state/settings";
 import { spendLiveAtom } from "../state/shell";
 import { useDesktopUpdate } from "../state/update";
 import { xSkinAtom } from "../state/x";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../components/ui/tooltip";
 
 const usd = (n: number) => `$${n.toFixed(2)}`;
 
@@ -697,9 +698,14 @@ function SpendMeter() {
                   >
                     {fmtWhen(r.at)}
                   </td>
-                  <td className={cn(table.td, "h-8 max-w-0 truncate")} title={r.endpoint}>
-                    {purposeLabel(r.purpose)}
-                  </td>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={<td className={cn(table.td, "h-8 max-w-0 truncate")} />}
+                    >
+                      {purposeLabel(r.purpose)}
+                    </TooltipTrigger>
+                    <TooltipPopup>{r.endpoint}</TooltipPopup>
+                  </Tooltip>
                   <td className={cn(table.td, table.num, "h-8 pr-0!")}>{price(r.costUsd)}</td>
                 </tr>
               ))}

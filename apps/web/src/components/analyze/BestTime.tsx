@@ -4,6 +4,7 @@ import { cn } from "../../lib/utils";
 import { Empty, Section, Stat } from "../ui/layout";
 import { AnalyzePage, RefreshPosts } from "./AnalyzePage";
 import { fmt } from "./ui";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
@@ -76,22 +77,29 @@ export function BestTime({ data }: { readonly data: AnalyzeData }) {
                 const key = weekday * 24 + hour;
                 const cell = cells.get(key);
                 return (
-                  <div
-                    key={hour}
-                    title={`${day} ${hh(hour)}:00, ${
+                  <Tooltip key={hour}>
+                    <TooltipTrigger
+                      render={
+                        <div
+                          className={cn(
+                            "h-6 rounded-[3px] bg-foreground",
+                            topKeys.has(key) && "outline-1 outline-foreground",
+                          )}
+                          style={{
+                            opacity:
+                              cell === undefined
+                                ? EMPTY
+                                : FLOOR + (1 - FLOOR) * (cell.avgViews / max),
+                          }}
+                        />
+                      }
+                    />
+                    <TooltipPopup>{`${day} ${hh(hour)}:00, ${
                       cell === undefined
                         ? "no posts"
                         : `${fmt(cell.avgViews)} avg views, ${cell.posts} posts`
-                    }`}
-                    className={cn(
-                      "h-6 rounded-[3px] bg-foreground",
-                      topKeys.has(key) && "outline-1 outline-offset-1 outline-foreground",
-                    )}
-                    style={{
-                      opacity:
-                        cell === undefined ? EMPTY : FLOOR + (1 - FLOOR) * (cell.avgViews / max),
-                    }}
-                  />
+                    }`}</TooltipPopup>
+                  </Tooltip>
                 );
               })}
             </div>

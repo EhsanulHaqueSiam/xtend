@@ -101,7 +101,7 @@ export function SortMenu({
       trigger={
         <button
           type="button"
-          className="inline-flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-[var(--control-radius)] px-2 text-[13px] text-muted-foreground outline-hidden transition-colors duration-150 hover:bg-white/[0.05] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[popup-open]:text-foreground"
+          className="inline-flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-[var(--control-radius)] px-2 text-[13px] text-muted-foreground outline-hidden transition-colors duration-150 hover:bg-white/[0.05] hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring data-[popup-open]:text-foreground"
         >
           {SORTS.find((s) => s.id === value)?.label}
           <ChevronDown className="size-3.5" />
