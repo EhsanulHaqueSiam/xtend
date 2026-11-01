@@ -708,3 +708,80 @@ it("stops searching for a missing trend at the end of X's trend cells before the
     registerXWebview(null);
   }
 });
+
+it.each(["post", "profile"])(
+  "keeps overlapping %s menu reads in place when a newer read and screen change supersede them",
+  async (kind) => {
+    using _clock = fakeTimers();
+    const path = location.pathname + location.search;
+    history.replaceState(null, "", kind === "profile" ? "/theo" : "/home");
+    withMenu(
+      { "First menu": () => {} },
+      kind === "profile" ? '[data-testid="userActions"]' : '[data-testid="caret"]',
+      kind === "profile"
+        ? '<button data-testid="userActions"></button>'
+        : '<button data-testid="caret"></button>',
+    );
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      '<article id="second"><a href="/ann/status/43"><time></time></a><button data-testid="caret"></button></article>',
+    );
+    document.querySelector("#second button")!.addEventListener("click", () => {
+      for (const menu of document.querySelectorAll('[role="menu"]')) menu.parentElement!.remove();
+      const layer = document.createElement("div");
+      layer.innerHTML =
+        '<div style="height:10px"></div><div role="menu"><div data-testid="Dropdown"><div role="menuitem">Second menu</div></div></div>';
+      layer.firstElementChild!.addEventListener("click", () => layer.remove());
+      document.body.append(layer);
+    });
+    inThisPage(() => "https://x.com/home");
+    using navigation = vi.spyOn(history, "pushState");
+    try {
+      const first = kind === "profile" ? xProfileMenu("theo") : xPostMenu(post42);
+      const second = xPostMenu({ postId: "43", handle: "ann" });
+      xOverEnded();
+      await vi.runAllTimersAsync();
+      expect(navigation).not.toHaveBeenCalled();
+      expect(await first).toEqual(["First menu"]);
+      expect(await second).toEqual(["Second menu"]);
+    } finally {
+      history.replaceState(null, "", path);
+      registerXWebview(null);
+    }
+  },
+);
+
+it("closes a cancelled trend read's own dropdown while leaving the newer dropdown alone", async () => {
+  using _clock = fakeTimers();
+  const path = location.pathname + location.search;
+  history.replaceState(null, "", "/explore");
+  withMenu({ "First menu": () => {} });
+  const t1 = document.querySelector("article")!;
+  t1.dataset.testid = "trend";
+  t1.insertAdjacentHTML("afterbegin", '<span style="font-weight:700">T1</span>');
+  const t2 = t1.cloneNode(true) as HTMLElement;
+  t2.querySelector("span")!.textContent = "T2";
+  const secondLayer = document.createElement("div");
+  secondLayer.innerHTML =
+    '<div style="height:10px"></div><div role="menu"><div data-testid="Dropdown"></div></div>';
+  secondLayer.firstElementChild!.addEventListener("click", () => secondLayer.remove());
+  t2.querySelector("button")!.addEventListener("click", () => document.body.append(secondLayer));
+  document.body.append(t2);
+  try {
+    const first = xTrendMenu("T1");
+    const firstMenu = document.querySelector('[role="menu"]')!;
+    const second = xTrendMenu("T2");
+    await vi.advanceTimersByTimeAsync(100);
+    expect(await first).toBeNull();
+    expect(firstMenu.isConnected).toBe(false);
+    expect(secondLayer.isConnected).toBe(true);
+    secondLayer.querySelector('[data-testid="Dropdown"]')!.innerHTML =
+      '<div role="menuitem">Second menu</div>';
+    await vi.runAllTimersAsync();
+    expect(await second).toEqual(["Second menu"]);
+    expect(secondLayer.isConnected).toBe(false);
+  } finally {
+    history.replaceState(null, "", path);
+    registerXWebview(null);
+  }
+});

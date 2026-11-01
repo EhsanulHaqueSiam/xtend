@@ -350,20 +350,19 @@ const openMenu = (at: MenuAt, mine = "true") => `
       return added.length === 1 ? added[0] : null;
     };
     let opened = findOpened();
+    // Even a cancelled read can close its own dropdown; a newer menu has a different reference.
+    const closeMenu = () => {
+      if (!opened?.isConnected) return;
+      [...(opened.parentElement?.children ?? [])].find((k) => k !== opened && k.getBoundingClientRect().height > 0)?.click();
+    };
     let items = [];
     for (let i = 0; i < 20 && items.length === 0; i++) {
       await new Promise((r) => setTimeout(r, 100));
-      // The user moved on: any menu now showing is theirs, not this step's.
-      if (!(${mine}) || (opened && !opened.isConnected)) return null;
+      if (!(${mine})) return (closeMenu(), null);
       opened ??= findOpened();
+      // Retain this menu's labels if X removed it; returning null would ask a read to navigate.
       items = [...(opened?.querySelectorAll('[role="menuitem"]') ?? [])];
-    }
-    // X closes its menu on the mask beside it. Keep this menu's reference so another step's
-    // dropdown can never supply rows or be closed by this one.
-    const closeMenu = () => {
-      if (!opened?.isConnected || !(${mine})) return;
-      [...(opened.parentElement?.children ?? [])].find((k) => k !== opened && k.getBoundingClientRect().height > 0)?.click();
-    };`;
+    }`;
 
 /** What X did when the user pressed one of its menu items. */
 export type XMenuOutcome =
@@ -383,11 +382,15 @@ export type XMenuOutcome =
   | { readonly kind: "over"; readonly path: string };
 
 /** X's menu `at`, read on the engine page: its rows' labels, in X's order. */
-const xMenuInPlace = (at: MenuAt, run?: number) => {
-  // A slow read must not borrow or close a newer menu, and reading never supersedes a press.
-  const mine = `(window.__xtendMenuRead === read && ${run === undefined ? "true" : stillMine(run)})`;
+const xMenuInPlace = (
+  at: MenuAt,
+  options?: { readonly run?: number; readonly cancelRead?: boolean },
+) => {
+  // Only in-place trend reads cancel: null from a post/profile read asks onPage to navigate.
+  const current = options?.run === undefined ? "true" : stillMine(options.run);
+  const mine = options?.cancelRead ? `(window.__xtendMenuRead === read && ${current})` : current;
   return xRun(`(async () => {
-    const read = window.__xtendMenuRead = (window.__xtendMenuRead ?? 0) + 1;
+    ${options?.cancelRead ? "const read = window.__xtendMenuRead = (window.__xtendMenuRead ?? 0) + 1;" : ""}
     ${openMenu(at, mine)}
     const labels = items.map((i) => i.textContent.trim());
     closeMenu();
@@ -411,7 +414,7 @@ const xMenuPressInPlace = (at: MenuAt, label: string, run: number) =>
   xRun(`(async () => {
     ${openMenu(at, stillMine(run))}
     const item = items.find((i) => i.textContent.trim() === ${JSON.stringify(label)});
-    if (!item || !${stillMine(run)}) return (closeMenu(), null);
+    if (!item?.isConnected || !${stillMine(run)}) return (closeMenu(), null);
     const path = location.pathname + location.search;
     item.click();
     await new Promise((r) => setTimeout(r, 800));
@@ -681,7 +684,7 @@ export const xCommunityJoin = async (
 
 /** X's own rows of a trend's "...", read from X's menu on the Explore tab the engine shows. */
 export const xTrendMenu = async (name: string) => {
-  const rows = await onPage(null, () => xMenuInPlace(trendMenuAt(name)));
+  const rows = await onPage(null, () => xMenuInPlace(trendMenuAt(name), { cancelRead: true }));
   return rows?.length ? rows : null;
 };
 
@@ -731,7 +734,7 @@ export const xPostFollowPress = async (
   if (outcome === null || !live()) return { outcome, following: null };
   const rows = await onPage(
     postPage(post),
-    () => xMenuInPlace(postMenuAt(post.postId, "more"), run),
+    () => xMenuInPlace(postMenuAt(post.postId, "more"), { run }),
     () => Promise.resolve(),
     live,
   );
