@@ -10,6 +10,8 @@
         "diagnosticSeverity": {
           "nodeBuiltinImport": "off",
           "globalDate": "off",
+          "globalRandom": "off",
+          "globalTimers": "off",
           "globalFetch": "off",
           "preferSchemaOverJson": "off"
         }

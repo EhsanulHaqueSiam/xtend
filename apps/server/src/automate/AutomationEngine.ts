@@ -12,10 +12,12 @@ import {
   type RuleRun,
   type SettingsError,
   type XApiError,
+  isAutomateError,
 } from "@xtend/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Random from "effect/Random";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Schedule from "effect/Schedule";
@@ -204,7 +206,7 @@ const make = Effect.gen(function* () {
   const people = yield* PeopleStore.PeopleStore;
   const events = yield* Events.Events;
   const fail = (operation: string) => (cause: unknown) =>
-    cause instanceof AutomateError
+    isAutomateError(cause)
       ? cause
       : new AutomateError({ operation, detail: String(cause).slice(0, 200), cause });
   const nowMs = Effect.map(DateTime.now, DateTime.toEpochMillis);
@@ -473,13 +475,15 @@ const make = Effect.gen(function* () {
   };
 
   const bestOwnPost = (rule: Rule, evergreen: boolean) =>
-    Effect.map(Effect.all([ownPosts(rule), nowMs]), ([posts, ms]) => {
+    Effect.flatMap(Effect.all([ownPosts(rule), nowMs]), ([posts, ms]) => {
       const since = ms - BEST_WINDOW_DAYS * DAY_MS;
       const top = posts
         .filter((p) => Date.parse(p.createdAt) >= since)
         .sort((a, b) => b.views - a.views)
         .slice(0, evergreen ? EVERGREEN_POOL : 1);
-      return top.length === 0 ? null : top[Math.floor(Math.random() * top.length)]!;
+      return top.length === 0
+        ? Effect.succeed(null)
+        : Effect.map(Random.nextIntBetween(0, top.length, { halfOpen: true }), (i) => top[i]!);
     });
 
   const staleOwnPosts = (rule: Rule, olderThanDays: number, maxViews: number) =>
@@ -1225,7 +1229,10 @@ const make = Effect.gen(function* () {
 
   return AutomationEngine.of({
     preview,
-    runRule: (id) => run(id, false),
+    // `run` already traces as AutomationEngine.runRule.
+    runRule: Effect.fnUntraced(function* (id: number) {
+      return yield* run(id, false);
+    }),
     approve,
     dismiss,
     dryRun7d,

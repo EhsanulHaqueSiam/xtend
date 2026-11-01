@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { describe, expect, it } from "@effect/vitest";
 import {
   type DesktopCommand,
@@ -71,6 +72,7 @@ const layerTest = Publisher.layer.pipe(
   Layer.provideMerge(
     Layer.mergeAll(
       Sqlite.layerMemory,
+      NodeCrypto.layer,
       TokenCipher.layerTest,
       Events.layer,
       desktopStub(desktopCalls, (command) =>

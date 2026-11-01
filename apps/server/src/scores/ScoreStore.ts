@@ -8,6 +8,7 @@ import {
   TopFollower,
   type WatchEntry,
   type XProfile,
+  isScoresError,
 } from "@xtend/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -98,7 +99,7 @@ export class ScoreStore extends Context.Service<
 
 // A ScoresError raised inside keeps its own operation; wrapping it would read "run failed: run failed".
 const fail = (operation: string) => (cause: { readonly message: string }) =>
-  cause instanceof ScoresError ? cause : new ScoresError({ operation, detail: cause.message });
+  isScoresError(cause) ? cause : new ScoresError({ operation, detail: cause.message });
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;

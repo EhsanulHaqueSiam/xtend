@@ -10,7 +10,9 @@ import * as Socket from "effect/socket/Socket";
 const makeClient = RpcClient.make(WsRpcGroup);
 type Client = Effect.Success<typeof makeClient>;
 
-export class XtendClient extends Context.Service<XtendClient, Client>()("xtend/web/XtendClient") {}
+export class XtendClient extends Context.Service<XtendClient, Client>()(
+  "@xtend/web/rpc/client/XtendClient",
+) {}
 
 const TOKEN_KEY = "xtend:token";
 
@@ -31,6 +33,7 @@ export const serviceToken = Effect.gen(function* () {
   if (fromDesktop !== undefined && fromDesktop !== "") return fromDesktop;
   if (import.meta.env.DEV) {
     const { token } = yield* Effect.promise(() =>
+      // @effect-diagnostics-next-line globalFetchInEffect:off -- read once, before the RPC client and any HTTP layer exist
       fetch("/api/auth/dev-token", { method: "POST" }).then(
         (r) => r.json() as Promise<{ token: string }>,
       ),

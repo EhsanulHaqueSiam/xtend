@@ -1,4 +1,4 @@
-// @effect-diagnostics nodeBuiltinImport:off -- a real listening socket is the point of this test.
+// @effect-diagnostics nodeBuiltinImport:off globalFetchInEffect:off -- a real listening socket, reached with a plain fetch, is the point of this test.
 import * as NodeFS from "node:fs";
 import * as NodeHttp from "node:http";
 import * as NodeOS from "node:os";

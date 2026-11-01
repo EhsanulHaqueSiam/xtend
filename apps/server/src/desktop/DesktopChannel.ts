@@ -8,6 +8,7 @@ import {
   DesktopUnavailableError,
 } from "@xtend/contracts";
 import * as Context from "effect/Context";
+import * as Crypto from "effect/Crypto";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -37,6 +38,7 @@ export class DesktopChannel extends Context.Service<
 >()("xtend/desktop/DesktopChannel") {}
 
 const make = Effect.gen(function* () {
+  const uuids = yield* Crypto.Crypto;
   // Each command goes to the newest desktop only. Broadcast, a session post would run in every
   // desktop on this service (a laptop and a Mac mini, or a reconnect overlapping its old socket).
   const commands = yield* PubSub.unbounded<{
@@ -57,7 +59,8 @@ const make = Effect.gen(function* () {
         reason: "no_desktop",
         detail: "no desktop is connected",
       });
-    const id = crypto.randomUUID();
+    // A failed random source is a broken platform, not a refusal of this command.
+    const id = yield* Effect.orDie(uuids.randomUUIDv4());
     const done = yield* Deferred.make<DesktopCommandResult, DesktopUnavailableError>();
     pending.set(id, done);
     yield* PubSub.publish(commands, { to, request: { id, command } });

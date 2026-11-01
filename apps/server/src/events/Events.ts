@@ -23,7 +23,7 @@ export class Events extends Context.Service<
     /** Events published after subscribing. No history. */
     readonly stream: Stream.Stream<XtendEvent>;
   }
->()("xtend/server/Events") {}
+>()("xtend/events/Events") {}
 
 const make = Effect.gen(function* () {
   // Sliding so a client that stops reading can never block the publisher.

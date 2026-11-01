@@ -1,12 +1,16 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { describe, expect, it } from "@effect/vitest";
 import { DESKTOP_COMMAND_LIMIT_MS, type DesktopCommandRequest } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
+import * as Layer from "effect/Layer";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as DesktopChannel from "./DesktopChannel.ts";
+
+const layerTest = DesktopChannel.layer.pipe(Layer.provide(NodeCrypto.layer));
 
 describe("DesktopChannel", () => {
   it.effect("fails fast with no desktop connected", () =>
@@ -14,7 +18,7 @@ describe("DesktopChannel", () => {
       const channel = yield* DesktopChannel.DesktopChannel;
       const error = yield* Effect.flip(channel.request({ type: "sessionScreenshot" }));
       expect(error.reason).toBe("no_desktop");
-    }).pipe(Effect.provide(DesktopChannel.layer)),
+    }).pipe(Effect.provide(layerTest)),
   );
 
   it.effect("delivers a command to the subscriber and returns its completion", () =>
@@ -39,7 +43,7 @@ describe("DesktopChannel", () => {
       expect(result.postId).toBe("42");
       yield* Fiber.join(desktop);
       yield* Effect.repeat(channel.connected, { until: (connected) => !connected });
-    }).pipe(Effect.provide(DesktopChannel.layer)),
+    }).pipe(Effect.provide(layerTest)),
   );
 
   it.effect("sends each command to the newest desktop only, so two desktops never both post", () =>
@@ -79,7 +83,7 @@ describe("DesktopChannel", () => {
       yield* Fiber.interrupt(newer);
       expect(yield* answeredBy).toBe("1");
       expect(seenByOld).not.toContain("sessionPost");
-    }).pipe(Effect.provide(DesktopChannel.layer)),
+    }).pipe(Effect.provide(layerTest)),
   );
 
   it.effect(
@@ -110,7 +114,7 @@ describe("DesktopChannel", () => {
         yield* Queue.take(received);
         yield* TestClock.adjust(DESKTOP_COMMAND_LIMIT_MS.sessionScreenshot + 10_000);
         expect((yield* Fiber.join(shot)).reason).toBe("timeout");
-      }).pipe(Effect.provide(DesktopChannel.layer)),
+      }).pipe(Effect.provide(layerTest)),
   );
 
   it.effect(
@@ -140,6 +144,6 @@ describe("DesktopChannel", () => {
         ]);
         const refused = yield* Effect.flip(channel.request(post));
         expect([refused.reason, refused.detail]).toEqual(["not_attempted", "posting disabled"]);
-      }).pipe(Effect.provide(DesktopChannel.layer)),
+      }).pipe(Effect.provide(layerTest)),
   );
 });

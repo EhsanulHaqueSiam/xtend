@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { describe, expect, it } from "@effect/vitest";
 import { XApiError, type XPost } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
@@ -79,6 +80,7 @@ const layerWith = (searchPosts: XClient.XClient["Service"]["searchPosts"]) =>
     Layer.provideMerge(
       Layer.mergeAll(
         Sqlite.layerMemory,
+        NodeCrypto.layer,
         TokenCipher.layerTest,
         xClientStub({
           searchPosts,

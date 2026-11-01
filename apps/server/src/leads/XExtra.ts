@@ -128,16 +128,20 @@ const make = Effect.gen(function* () {
 
   return XExtra.of({
     engagers,
-    unrepost: (postId, purpose) =>
+    unrepost: Effect.fn("XExtra.unrepost")((postId: string, purpose: string) =>
       own("DELETE", (id) => `2/users/${id}/retweets/${postId}`, purpose, rates.delete),
-    unlike: (postId, purpose) =>
+    ),
+    unlike: Effect.fn("XExtra.unlike")((postId: string, purpose: string) =>
       own("DELETE", (id) => `2/users/${id}/likes/${postId}`, purpose, rates.delete),
-    follow: (userId, purpose) =>
+    ),
+    follow: Effect.fn("XExtra.follow")((userId: string, purpose: string) =>
       own("POST", (id) => `2/users/${id}/following`, purpose, rates.follow, {
         target_user_id: userId,
       }),
-    unfollow: (userId, purpose) =>
+    ),
+    unfollow: Effect.fn("XExtra.unfollow")((userId: string, purpose: string) =>
       own("DELETE", (id) => `2/users/${id}/following/${userId}`, purpose, rates.delete),
+    ),
   });
 });
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import type { AccountPost } from "@xtend/contracts";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -53,7 +54,7 @@ describe("AnalyticsStore.listSnapshots", () => {
       const store = yield* AnalyticsStore.AnalyticsStore;
       const start = Date.parse("2025-01-01T00:00:00.000Z");
       for (let i = 0; i < 400; i++) {
-        const day = new Date(start + i * 86_400_000).toISOString().slice(0, 10);
+        const day = DateTime.formatIsoDate(DateTime.makeUnsafe(start + i * 86_400_000));
         yield* sql`
           INSERT INTO profile_snapshots (handle, day, followers, following, posts)
           VALUES ('siam', ${day}, ${i}, 0, 0)`;

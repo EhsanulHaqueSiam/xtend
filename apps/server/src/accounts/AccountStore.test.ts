@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -12,7 +13,9 @@ import * as TokenCipher from "../settings/TokenCipher.ts";
 import * as AccountStore from "./AccountStore.ts";
 
 const layerTest = Layer.mergeAll(AccountStore.layer, SettingsStore.layer, DraftStore.layer).pipe(
-  Layer.provideMerge(Layer.mergeAll(Sqlite.layerMemory, TokenCipher.layerTest, Events.layer)),
+  Layer.provideMerge(
+    Layer.mergeAll(Sqlite.layerMemory, NodeCrypto.layer, TokenCipher.layerTest, Events.layer),
+  ),
 );
 
 describe("AccountStore", () => {

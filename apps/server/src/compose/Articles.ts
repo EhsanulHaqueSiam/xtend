@@ -1,4 +1,4 @@
-import { ComposeError, type Draft, type XApiError } from "@xtend/contracts";
+import { ComposeError, type Draft, type XApiError, isComposeError } from "@xtend/contracts";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -61,7 +61,7 @@ const make = Effect.gen(function* () {
   const drafts = yield* DraftStore.DraftStore;
   const http = yield* HttpClient.HttpClient;
   const fail = (operation: string) => (cause: { readonly message: string }) =>
-    cause instanceof ComposeError
+    isComposeError(cause)
       ? cause
       : new ComposeError({ operation, detail: cause.message.slice(0, 300) });
 

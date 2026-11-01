@@ -219,6 +219,8 @@ export class ComposeError extends Schema.TaggedError<ComposeError>()("ComposeErr
   }
 }
 
+export const isComposeError = Schema.is(ComposeError);
+
 export const Compose_METHODS = {
   draftsList: "compose.draftsList",
   draftCreate: "compose.draftCreate",
