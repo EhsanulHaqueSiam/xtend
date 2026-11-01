@@ -118,6 +118,7 @@ const recorded: ReadonlyArray<EngineBatch> = [
       },
     ],
     lists: [],
+    communities: [],
     homeTabs: null,
     exploreTabs: null,
     viewer: { userId: "1450099999999", handle: "siamships", name: "Ehsanul Siam", avatarUrl: null },

@@ -1,6 +1,7 @@
 import type {
   EngineBatch,
   EngineCard,
+  EngineCommunity,
   EngineEntities,
   EngineRange,
   EngineExploreTab,
@@ -514,6 +515,36 @@ function readList(item: Json, group: string | null): EngineList | undefined {
   };
 }
 
+/**
+ * A Community in any of X's shapes for it: a carousel tile (name and banner), a card or its own
+ * page (counts, rules, the viewer's role). A post's bare community reference names none of it.
+ */
+function readCommunity(value: Json): EngineCommunity | undefined {
+  const communityId = asString(value.id_str) ?? asString(value.rest_id);
+  const name = asString(value.name);
+  if (communityId === undefined || !X_ID.test(communityId) || name === undefined) return undefined;
+  const banner = (m: unknown) => asString(record(record(m).media_info).original_img_url);
+  const rules = Array.isArray(value.rules)
+    ? value.rules.flatMap((r) => {
+        const rule = asString(record(r).name);
+        return rule === undefined
+          ? []
+          : [{ name: rule, description: asString(record(r).description) ?? "" }];
+      })
+    : null;
+  return {
+    communityId,
+    name,
+    description: asString(value.description) ?? null,
+    bannerUrl: banner(value.custom_banner_media) ?? banner(value.default_banner_media) ?? null,
+    members: asCount(value.member_count),
+    topic: asString(record(value.primary_community_topic).topic_name) ?? null,
+    rules,
+    joinPolicy: asString(value.join_policy) ?? null,
+    role: asString(value.role) ?? null,
+  };
+}
+
 function readHomeTabs(body: Json): ReadonlyArray<EngineHomeTab> | null {
   const pinned = record(record(body.data).pinned_timelines).pinned_timelines;
   if (!Array.isArray(pinned)) return null;
@@ -565,8 +596,13 @@ export function requestVariables(url: string, postData: string | undefined): Jso
 function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExploreTab> | null) {
   const s = (k: string) => asString(variables[k]);
   if (op === "HomeTimeline") return s("tag") === undefined ? null : `tag:${s("tag")}`;
-  if (op === "CommunityTweetsTimeline")
-    return s("communityId") === undefined ? null : `community:${s("communityId")}`;
+  // Every Community call names it; a Community's Latest is its posts by Recency, its own list.
+  if (op.startsWith("Communit") && s("communityId") !== undefined) {
+    const mode = s("rankingMode");
+    return op === "CommunityTweetsTimeline" && mode !== undefined && mode !== "Relevance"
+      ? `community:${s("communityId")}:${mode}`
+      : `community:${s("communityId")}`;
+  }
   if (op.startsWith("List") && s("listId") !== undefined) return `list:${s("listId")}`;
   if (op === "NotificationsTimeline") return s("timeline_type") ?? null;
   if (op === "GenericTimelineById") return s("timelineId") ?? null;
@@ -620,6 +656,7 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
   const trends: Array<EngineTrend> = [];
   const notifications: Array<EngineNotification> = [];
   const lists: Array<EngineList> = [];
+  const communities = new Map<string, EngineCommunity>();
   let top: string | null = null;
   let bottom: string | null = null;
   // Depth first in document order, each node with the header of the module it sits in.
@@ -631,6 +668,8 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
       continue;
     }
     if (!isRecord(node)) continue;
+    // A Community's About lists its moderators; its members module is only faces beside the count.
+    if (typeof node.entryId === "string" && node.entryId.startsWith("communityMembers")) continue;
     const type = node.itemType;
     if (type === "TimelineTweet") {
       const id = listedId(node);
@@ -670,6 +709,10 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     } else if (type === "TimelineTwitterList") {
       const list = readList(node, group);
       if (list !== undefined) lists.push(list);
+    } else if (node.__typename === "Community") {
+      const community = readCommunity(node);
+      if (community !== undefined && !communities.has(community.communityId))
+        communities.set(community.communityId, community);
     } else if (node.cursorType === "Top" || node.cursorType === "Bottom") {
       const value = asString(node.value) ?? null;
       if (node.cursorType === "Top") top ??= value;
@@ -709,6 +752,7 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     trends,
     notifications,
     lists,
+    communities: [...communities.values()],
     homeTabs: readHomeTabs(record(body)),
     exploreTabs,
     viewer: op === "Viewer" ? readViewer(result(record(data.viewer).user_results)) : null,
@@ -761,6 +805,7 @@ export const viewerBatch = (viewer: EngineViewer): EngineBatch => ({
   trends: [],
   notifications: [],
   lists: [],
+  communities: [],
   homeTabs: null,
   exploreTabs: null,
   viewer,
@@ -773,6 +818,7 @@ export const hasEngineContent = (b: EngineBatch) =>
   b.trends.length > 0 ||
   b.notifications.length > 0 ||
   b.lists.length > 0 ||
+  b.communities.length > 0 ||
   b.homeTabs !== null ||
   b.exploreTabs !== null ||
   b.viewer !== null;

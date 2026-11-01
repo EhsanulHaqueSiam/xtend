@@ -209,9 +209,17 @@ const SCRIPT = String.raw`
     }
   }
 
+  function turnJoin(id, label) {
+    for (const b of document.querySelectorAll('[data-community-join="' + id + '"]')) {
+      b.setAttribute("aria-label", label + b.getAttribute("aria-label").replace(/^(Join|Ask to join|Joined|Requested)/, ""));
+      b.textContent = label;
+    }
+  }
+
   async function run(step) {
     if (step.write) await post(step.write.path, step.write.body);
     if (step.follow) turnFollow(step.follow.userId, step.follow.on);
+    if (step.community) turnJoin(step.community.id, step.community.label);
     if (step.toast) toast(step.toast);
     if (step.dialog) dialog(step.dialog);
     if (step.go) go(step.go, false);
@@ -289,7 +297,7 @@ const SCRIPT = String.raw`
     // Menus and dialogs handle their own clicks; the path is taken at dispatch, so a close button
     // that removed its layer still counts as inside it.
     if (!target || event.composedPath().includes(layers)) return;
-    const el = target.closest("[data-testid], [data-menu], [data-home-tab], [data-vote], [data-bell], [data-subscribe], [data-href], a[href], [data-toggle-translation]");
+    const el = target.closest("[data-testid], [data-menu], [data-home-tab], [data-vote], [data-bell], [data-subscribe], [data-community-join], [data-href], a[href], [data-toggle-translation]");
     if (!el) return;
     const testid = el.dataset.testid ?? "";
     const id = el.dataset.post;
@@ -334,6 +342,18 @@ const SCRIPT = String.raw`
     if (el.dataset.subscribe !== undefined) {
       log("subscribe", el.dataset.subscribe);
       void fetch("/__mock/dialog?spec=" + encodeURIComponent("subscribe:" + el.dataset.subscribe)).then(json).then(dialog);
+      return;
+    }
+    if (el.dataset.communityJoin !== undefined) {
+      const id = el.dataset.communityJoin;
+      const label = el.textContent.trim();
+      log("communityJoin:" + label, id);
+      // An open Community joins at once; one that asks first shows its rules, and leaving asks to confirm.
+      if (label === "Join") {
+        turnJoin(id, "Joined");
+        void post("/i/api/graphql/" + window.__mockHash.JoinCommunity + "/JoinCommunity", { variables: { communityId: id } });
+      } else if (label === "Ask to join" || label === "Joined")
+        void fetch("/__mock/dialog?spec=" + encodeURIComponent((label === "Joined" ? "leave:" : "join:") + id)).then(json).then(dialog);
       return;
     }
     if (el.dataset.bell !== undefined) {

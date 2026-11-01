@@ -1,9 +1,16 @@
-import type { EngineBatch, EngineNotification, EnginePost, EngineUser } from "@xtend/contracts";
+import type {
+  EngineBatch,
+  EngineCommunity,
+  EngineNotification,
+  EnginePost,
+  EngineUser,
+} from "@xtend/contracts";
 import { expect, it } from "vite-plus/test";
 
 import {
   askFollow,
   at,
+  communitySurface,
   emptyEngine,
   mergeBatch,
   postOn,
@@ -64,6 +71,7 @@ const batch = (
   trends: [],
   notifications: [],
   lists: [],
+  communities: [],
   homeTabs: null,
   exploreTabs: null,
   viewer: null,
@@ -182,6 +190,51 @@ it("files pinned Home tabs, Lists, Communities and Explore tabs under their own 
   expect(at(state.lists, "tag:19")).toEqual(["1"]);
   expect(at(state.lists, "community:14")).toEqual([]);
   expect(state.homeTabs).toEqual([{ id: "tag:19", label: "Tech" }]);
+
+  // X's Communities hub, and a Community's tabs: Top is Home's pinned tab's list.
+  expect(surfacesOf({ op: "CommunitiesRankedTimeline", key: null })).toEqual(["communities:home"]);
+  expect(surfacesOf({ op: "CarouselQuery", key: null })).toEqual(["communities:mine"]);
+  expect(surfacesOf({ op: "CommunityTweetsTimeline", key: "community:14:Recency" })).toEqual([
+    communitySurface("14", "Latest"),
+  ]);
+  expect(surfacesOf({ op: "CommunityMediaTimeline", key: "community:14" })).toEqual([
+    communitySurface("14", "Media"),
+  ]);
+  expect(surfacesOf({ op: "CommunityAboutTimeline", key: "community:14" })).toEqual([
+    communitySurface("14", "About"),
+  ]);
+  expect(surfacesOf({ op: "CommunityQuery", key: "community:14" })).toEqual([]);
+});
+
+it("lists the user's Communities in X's order, and keeps what each response said of one", () => {
+  const community = (id: string, extra: Partial<EngineCommunity> = {}): EngineCommunity => ({
+    communityId: id,
+    name: `C${id}`,
+    description: null,
+    bannerUrl: null,
+    members: null,
+    topic: null,
+    rules: null,
+    joinPolicy: null,
+    role: null,
+    ...extra,
+  });
+  // X's card for it first, then the carousel's tile, which names only its name and banner.
+  const card = batch("CommunitiesFetchOneQuery", [], {
+    key: "community:20",
+    communities: [community("20", { members: 9, role: "Member", rules: [] })],
+  });
+  const carousel = batch("CarouselQuery", [], {
+    communities: [community("21"), community("20", { name: "Renamed", bannerUrl: "b.jpg" })],
+  });
+  const state = [card, carousel].reduce(mergeBatch, emptyEngine);
+  expect(at(state.communityIds, "communities:mine")).toEqual(["21", "20"]);
+  expect(state.communities.get("20")).toEqual(
+    community("20", { name: "Renamed", bannerUrl: "b.jpg", members: 9, role: "Member", rules: [] }),
+  );
+  // A first page again (the carousel loaded anew) is X's list now.
+  const again = mergeBatch(state, batch("CarouselQuery", [], { communities: [community("20")] }));
+  expect(at(again.communityIds, "communities:mine")).toEqual(["20"]);
 });
 
 it("keeps notifications in X's order, newer on top, people by surface, and follows until X agrees", () => {

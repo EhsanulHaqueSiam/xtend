@@ -65,6 +65,7 @@ const batch = (op: string, posts: ReadonlyArray<EnginePost>) => ({
   trends: [],
   notifications: [],
   lists: [],
+  communities: [],
   homeTabs: null,
   exploreTabs: null,
   viewer: null,

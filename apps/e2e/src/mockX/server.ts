@@ -3,7 +3,14 @@ import * as NodeHttp from "node:http";
 import type * as NodeNet from "node:net";
 
 import { clientScript, shell } from "./client.ts";
-import { menuRows, opHash, subscribeDialog, unfollowSheet } from "./menus.ts";
+import {
+  askToJoinDialog,
+  leaveCommunitySheet,
+  menuRows,
+  opHash,
+  subscribeDialog,
+  unfollowSheet,
+} from "./menus.ts";
 import { pollMarkup, postsOf, route } from "./pages.ts";
 import { createMockState, type GraphqlRequest, type Json } from "./state.ts";
 
@@ -26,6 +33,9 @@ const WRITES = new Set([
   "PinTweet",
   "MuteConversation",
   "UnmuteConversation",
+  "JoinCommunity",
+  "RequestToJoinCommunity",
+  "LeaveCommunity",
 ]);
 /** X sends Home's timelines as POSTs, its other reads as GETs. */
 const POSTED = new Set(["HomeTimeline", "HomeLatestTimeline"]);
@@ -143,6 +153,11 @@ export async function startMockX(options: { readonly port?: number } = {}) {
         return json(menuRows(state, url.searchParams.get("spec") ?? ""));
       case "/__mock/dialog": {
         const [kind, userId = ""] = (url.searchParams.get("spec") ?? "").split(":");
+        if (kind === "join" || kind === "leave") {
+          const c = state.community(userId);
+          if (c === undefined) return send(404, "{}", "application/json");
+          return json(kind === "join" ? askToJoinDialog(c) : leaveCommunitySheet(c));
+        }
         const u = state.user(userId);
         if (u === undefined) return send(404, "{}", "application/json");
         return json(

@@ -37,6 +37,8 @@ const pagesOf = (batches: ReadonlyArray<EngineBatch>) => [
       if (b.op === "ListsManagementPageTimeline") return ["/lists"];
       if (b.op === "ConnectTabTimeline")
         return [b.key === "connect:creators" ? "/follow?tab=creators" : "/follow"];
+      if (b.op === "CommunitiesRankedTimeline") return ["/communities"];
+      if (b.op === "CommunityQuery" && b.key !== null) return [`/communities/${b.key.slice(10)}`];
       if (b.op === "ListLatestTweetsTimeline" && b.key !== null)
         return [`/lists/${b.key.slice(5)}`];
       if (b.op === "SearchTimeline" && b.key !== null) {

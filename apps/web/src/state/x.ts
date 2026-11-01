@@ -142,7 +142,7 @@ export const xScrollMore = () =>
     return false;
   })()`);
 
-/** Picks a tab on X's Home ("For you", "Following") once the page has drawn it. */
+/** Picks a tab on X's page (Home's "Following", a Community's "Latest") once X has drawn it. */
 export const xPickHomeTab = (label: string) =>
   xRun(`new Promise((done) => {
     let tries = 0;
@@ -493,6 +493,64 @@ export const xSubscribe = async (
     (await onPage(profilePage(user.handle), press, (path) => holdOver(run, path, over), live)) !==
     null
   );
+};
+
+/**
+ * A script step: `join()` is X's membership button in a Community's header, whose words say what a
+ * press does (Join, Ask to join, Joined), or null. X labels it "Ask to join <name>".
+ */
+const JOIN_BUTTON = `
+    const join = () => [...document.querySelectorAll('button, [role="button"]')].find((b) =>
+      /^(Join|Ask to join|Joined|Requested|Pending)$/.test(b.textContent.trim()) ||
+      /^(Join|Ask to join) /.test(b.getAttribute("aria-label") ?? "")) ?? null;`;
+
+/**
+ * Presses X's own membership button on Community `communityId`'s page for the user's click: Join,
+ * Ask to join or Joined, whichever X shows. A dialog X answers with (its rules before asking, its
+ * confirm before leaving) shows over the main area until it closes (see `holdOver`). What X's
+ * button says afterwards; null when X showed none, or the user moved on.
+ */
+export const xCommunityJoin = async (communityId: string, over: (shown: boolean) => void) => {
+  // It goes into scripts run in X's page: digits only.
+  if (!/^\d{1,25}$/.test(communityId)) return null;
+  const run = await nextRun();
+  const path = `/i/communities/${communityId}`;
+  const live = () => run === overRun;
+  let tries = 10;
+  const press = () =>
+    xRun(`(async () => {
+    ${JOIN_BUTTON}
+    // Only on this Community's own page: another page's button is another Community's.
+    const here = () => location.pathname.startsWith(${JSON.stringify(path)});
+    for (let i = 0; i < ${tries} && !(here() && join()); i++) await new Promise((r) => setTimeout(r, 100));
+    const button = here() ? join() : null;
+    if (!button || !${stillMine(run)}) return null;
+    const at = location.pathname + location.search;
+    const was = button.textContent.trim();
+    button.click();
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      if (location.pathname + location.search !== at || document.querySelector('[role="dialog"], [role="alertdialog"]')) return { over: at };
+      if (join()?.textContent.trim() !== was) break;
+    }
+    // X turns its button at once and saves a moment later; leaving before then would cancel it.
+    await new Promise((r) => setTimeout(r, 1000));
+    return { over: null };
+  })()`).then((done) => {
+      tries = 50;
+      return typeof done === "object" && done !== null ? (done as { over: string | null }) : null;
+    });
+  const pressed = await onPage(
+    { url: `https://x.com${path}`, path },
+    press,
+    (done) => (done.over === null ? Promise.resolve() : holdOver(run, done.over, over)),
+    live,
+  );
+  if (pressed === null || !live()) return null;
+  const label = await xRun(
+    `(() => { ${JOIN_BUTTON} return location.pathname.startsWith(${JSON.stringify(path)}) ? (join()?.textContent.trim() ?? null) : null; })()`,
+  );
+  return typeof label === "string" ? label : null;
 };
 
 /** Presses X's own row `label` of a post's `menu` for the user's click (see `pressMenu`). */

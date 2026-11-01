@@ -29,9 +29,11 @@ import { Route as AutomateRouteImport } from './routes/automate'
 import { Route as AnalyzeRouteImport } from './routes/analyze'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ListsIndexRouteImport } from './routes/lists.index'
+import { Route as CommunitiesIndexRouteImport } from './routes/communities.index'
 import { Route as UHandleRouteImport } from './routes/u.$handle'
 import { Route as PostIdRouteImport } from './routes/post.$id'
 import { Route as ListsIdRouteImport } from './routes/lists.$id'
+import { Route as CommunitiesIdRouteImport } from './routes/communities.$id'
 import { Route as PostIdActivityRouteImport } from './routes/post.$id_.activity'
 import { Route as ListsIdPeopleRouteImport } from './routes/lists.$id_.people'
 
@@ -135,6 +137,11 @@ const ListsIndexRoute = ListsIndexRouteImport.update({
   path: '/lists/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CommunitiesIndexRoute = CommunitiesIndexRouteImport.update({
+  id: '/communities/',
+  path: '/communities/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const UHandleRoute = UHandleRouteImport.update({
   id: '/u/$handle',
   path: '/u/$handle',
@@ -148,6 +155,11 @@ const PostIdRoute = PostIdRouteImport.update({
 const ListsIdRoute = ListsIdRouteImport.update({
   id: '/lists/$id',
   path: '/lists/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CommunitiesIdRoute = CommunitiesIdRouteImport.update({
+  id: '/communities/$id',
+  path: '/communities/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PostIdActivityRoute = PostIdActivityRouteImport.update({
@@ -181,9 +193,11 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRoute
   '/today': typeof TodayRoute
   '/x': typeof XRoute
+  '/communities/$id': typeof CommunitiesIdRoute
   '/lists/$id': typeof ListsIdRoute
   '/post/$id': typeof PostIdRoute
   '/u/$handle': typeof UHandleRoute
+  '/communities/': typeof CommunitiesIndexRoute
   '/lists/': typeof ListsIndexRoute
   '/lists/$id/people': typeof ListsIdPeopleRoute
   '/post/$id/activity': typeof PostIdActivityRoute
@@ -208,9 +222,11 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsRoute
   '/today': typeof TodayRoute
   '/x': typeof XRoute
+  '/communities/$id': typeof CommunitiesIdRoute
   '/lists/$id': typeof ListsIdRoute
   '/post/$id': typeof PostIdRoute
   '/u/$handle': typeof UHandleRoute
+  '/communities': typeof CommunitiesIndexRoute
   '/lists': typeof ListsIndexRoute
   '/lists/$id/people': typeof ListsIdPeopleRoute
   '/post/$id/activity': typeof PostIdActivityRoute
@@ -236,9 +252,11 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRoute
   '/today': typeof TodayRoute
   '/x': typeof XRoute
+  '/communities/$id': typeof CommunitiesIdRoute
   '/lists/$id': typeof ListsIdRoute
   '/post/$id': typeof PostIdRoute
   '/u/$handle': typeof UHandleRoute
+  '/communities/': typeof CommunitiesIndexRoute
   '/lists/': typeof ListsIndexRoute
   '/lists/$id_/people': typeof ListsIdPeopleRoute
   '/post/$id_/activity': typeof PostIdActivityRoute
@@ -265,9 +283,11 @@ export interface FileRouteTypes {
     | '/settings'
     | '/today'
     | '/x'
+    | '/communities/$id'
     | '/lists/$id'
     | '/post/$id'
     | '/u/$handle'
+    | '/communities/'
     | '/lists/'
     | '/lists/$id/people'
     | '/post/$id/activity'
@@ -292,9 +312,11 @@ export interface FileRouteTypes {
     | '/settings'
     | '/today'
     | '/x'
+    | '/communities/$id'
     | '/lists/$id'
     | '/post/$id'
     | '/u/$handle'
+    | '/communities'
     | '/lists'
     | '/lists/$id/people'
     | '/post/$id/activity'
@@ -319,9 +341,11 @@ export interface FileRouteTypes {
     | '/settings'
     | '/today'
     | '/x'
+    | '/communities/$id'
     | '/lists/$id'
     | '/post/$id'
     | '/u/$handle'
+    | '/communities/'
     | '/lists/'
     | '/lists/$id_/people'
     | '/post/$id_/activity'
@@ -347,9 +371,11 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRoute
   TodayRoute: typeof TodayRoute
   XRoute: typeof XRoute
+  CommunitiesIdRoute: typeof CommunitiesIdRoute
   ListsIdRoute: typeof ListsIdRoute
   PostIdRoute: typeof PostIdRoute
   UHandleRoute: typeof UHandleRoute
+  CommunitiesIndexRoute: typeof CommunitiesIndexRoute
   ListsIndexRoute: typeof ListsIndexRoute
   ListsIdPeopleRoute: typeof ListsIdPeopleRoute
   PostIdActivityRoute: typeof PostIdActivityRoute
@@ -497,6 +523,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ListsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/communities/': {
+      id: '/communities/'
+      path: '/communities'
+      fullPath: '/communities/'
+      preLoaderRoute: typeof CommunitiesIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/u/$handle': {
       id: '/u/$handle'
       path: '/u/$handle'
@@ -516,6 +549,13 @@ declare module '@tanstack/react-router' {
       path: '/lists/$id'
       fullPath: '/lists/$id'
       preLoaderRoute: typeof ListsIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/communities/$id': {
+      id: '/communities/$id'
+      path: '/communities/$id'
+      fullPath: '/communities/$id'
+      preLoaderRoute: typeof CommunitiesIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/post/$id_/activity': {
@@ -555,9 +595,11 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRoute,
   TodayRoute: TodayRoute,
   XRoute: XRoute,
+  CommunitiesIdRoute: CommunitiesIdRoute,
   ListsIdRoute: ListsIdRoute,
   PostIdRoute: PostIdRoute,
   UHandleRoute: UHandleRoute,
+  CommunitiesIndexRoute: CommunitiesIndexRoute,
   ListsIndexRoute: ListsIndexRoute,
   ListsIdPeopleRoute: ListsIdPeopleRoute,
   PostIdActivityRoute: PostIdActivityRoute,

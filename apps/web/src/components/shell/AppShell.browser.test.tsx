@@ -276,6 +276,7 @@ it("moves the panel to each section's X page, hides it where X has none, and rel
     trends: [],
     notifications: [],
     lists: [],
+    communities: [],
     homeTabs: null,
     exploreTabs: null,
     viewer: { userId: "7", handle: "siamships", name: "Siam", avatarUrl: null },

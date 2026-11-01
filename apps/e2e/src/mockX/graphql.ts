@@ -1,5 +1,6 @@
 import type {
   EngineBatch,
+  EngineCommunity,
   EngineEntities,
   EngineList,
   EngineNotification,
@@ -474,6 +475,48 @@ function encodeList(l: EngineList): Json {
   };
 }
 
+/** A Community as X sends it; a field the batch does not know is left out, as a tile leaves most. */
+function encodeCommunity(c: EngineCommunity): Json {
+  return {
+    __typename: "Community",
+    id: `Q29tbXVuaXR5OjE${c.communityId}`,
+    id_str: c.communityId,
+    name: c.name,
+    ...when(c.description !== null, () => ({ description: c.description })),
+    ...when(c.bannerUrl !== null, () => ({
+      default_banner_media: { media_info: { original_img_url: c.bannerUrl } },
+    })),
+    ...when(c.members !== null, () => ({ member_count: c.members })),
+    ...when(c.topic !== null, () => ({
+      primary_community_topic: { topic_id: "1", topic_name: c.topic },
+    })),
+    ...when(c.rules !== null, () => ({
+      rules: c.rules!.map((r, i) => ({ rest_id: String(i + 1), ...r })),
+    })),
+    ...when(c.joinPolicy !== null, () => ({ join_policy: c.joinPolicy })),
+    ...when(c.role !== null, () => ({ role: c.role })),
+  };
+}
+
+/** X's About for a Community: faces beside its member count, then its moderators. */
+function aboutEntries(batch: EngineBatch, users: ReadonlyMap<string, EngineUser>) {
+  const cell = (u: EngineUser) => ({
+    id: `user-${u.userId}`,
+    content: {
+      itemType: "TimelineUser",
+      __typename: "TimelineUser",
+      userDisplayType: "User",
+      user_results: { result: encodeUser(u) },
+    },
+  });
+  const moderators = batch.people.flatMap((id) => users.get(id) ?? []);
+  const faces = batch.users.filter((u) => !batch.people.includes(u.userId)).slice(0, 3);
+  return [
+    moduleEntry("communityMembers-1", faces.map(cell), { displayType: "Vertical" }),
+    moduleEntry("communityModerators-1", moderators.map(cell), { displayType: "Vertical" }),
+  ];
+}
+
 /**
  * A batch's timeline as X's entries: its posts (threads as conversation modules), people, trends,
  * notifications and Lists, each module under its header, between the page's cursors. Every post
@@ -623,6 +666,50 @@ export function encodeBody(
               })),
               initialTimeline: { id: "for_you", timeline: { timeline: timeline() } },
             },
+          },
+        },
+      };
+    case "CarouselQuery":
+      return {
+        data: {
+          viewer_v2: {
+            user_results: {
+              result: {
+                __typename: "User",
+                community_memberships_slice: {
+                  items_results: batch.communities.map((c) => ({ result: encodeCommunity(c) })),
+                },
+              },
+            },
+          },
+        },
+      };
+    case "CommunitiesRankedTimeline":
+      return { data: { viewer: { ranked_communities_timeline: { timeline: timeline() } } } };
+    case "CommunitiesExploreTimeline":
+      return { data: { viewer: { explore_communities_timeline: { timeline: timeline() } } } };
+    case "CommunityQuery":
+    case "CommunitiesFetchOneQuery": {
+      const c = batch.communities[0];
+      return { data: { communityResults: c === undefined ? {} : { result: encodeCommunity(c) } } };
+    }
+    case "CommunityTweetsTimeline":
+      return {
+        data: {
+          communityResults: { result: { ranked_community_timeline: { timeline: timeline() } } },
+        },
+      };
+    case "CommunityMediaTimeline":
+      return {
+        data: {
+          communityResults: { result: { community_media_timeline: { timeline: timeline() } } },
+        },
+      };
+    case "CommunityAboutTimeline":
+      return {
+        data: {
+          communityResults: {
+            result: { about_timeline: { timeline: instructions(aboutEntries(batch, users)) } },
           },
         },
       };

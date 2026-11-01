@@ -285,6 +285,27 @@ export interface EngineList {
 }
 
 /**
+ * A Community as X's Communities pages show it. X sends a Community in pieces (a carousel tile
+ * names it and its banner, its own page the rest), so a field X left out of one response is null
+ * and the store keeps what an earlier one said.
+ */
+export interface EngineCommunity {
+  readonly communityId: string;
+  readonly name: string;
+  readonly description: string | null;
+  readonly bannerUrl: string | null;
+  readonly members: number | null;
+  /** The topic X files it under. */
+  readonly topic: string | null;
+  /** Its rules in X's order, as About and X's join dialog number them. */
+  readonly rules: ReadonlyArray<{ readonly name: string; readonly description: string }> | null;
+  /** "Open", or a policy that asks moderators first (X's "Ask to join"). */
+  readonly joinPolicy: string | null;
+  /** The viewer's role in it: "NonMember", "Member", "Moderator", "Admin". */
+  readonly role: string | null;
+}
+
+/**
  * A tab the user pinned to X's Home after For you and Following: a topic, a Community or a List.
  * `id` is the surface its posts land in (`tag:<id>`, `community:<id>`, `list:<id>`); `label` is
  * the tab's text on X, which is how the engine picks it.
@@ -334,6 +355,8 @@ export interface EngineBatch {
   readonly trends: ReadonlyArray<EngineTrend>;
   readonly notifications: ReadonlyArray<EngineNotification>;
   readonly lists: ReadonlyArray<EngineList>;
+  /** Every Community the response names, in X's order (the user's Communities, a Community's page). */
+  readonly communities: ReadonlyArray<EngineCommunity>;
   readonly homeTabs: ReadonlyArray<EngineHomeTab> | null;
   readonly exploreTabs: ReadonlyArray<EngineExploreTab> | null;
   /** The signed-in account, from X's own Viewer call or X's nav. */

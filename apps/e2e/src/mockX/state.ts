@@ -1,5 +1,6 @@
 import type {
   EngineBatch,
+  EngineCommunity,
   EngineList,
   EnginePost,
   EngineTrend,
@@ -211,6 +212,7 @@ export function createMockState() {
     trends: [],
     notifications: [],
     lists: [],
+    communities: [],
     homeTabs: null,
     exploreTabs: null,
     viewer: null,
@@ -363,6 +365,27 @@ export function createMockState() {
       (_, i) => people[(Number(id.slice(-1)) + offset + i) % people.length]!,
     );
 
+  // Every Community the fixtures describe, by X's card for it, with what the user's joins changed.
+  const communityCards = new Map(
+    fixtures
+      .communities!.batches.filter((b) => b.op === "CommunitiesFetchOneQuery")
+      .flatMap((b) => b.communities)
+      .map((c) => [c.communityId, c]),
+  );
+  const communityChanges = new Map<string, Partial<EngineCommunity>>();
+  const requested = new Set<string>();
+  const community = (id: string): EngineCommunity | undefined => {
+    const c = communityCards.get(id);
+    return c === undefined ? undefined : { ...c, ...communityChanges.get(id) };
+  };
+  const changeCommunity = (
+    id: string,
+    change: (c: EngineCommunity) => Partial<EngineCommunity>,
+  ) => {
+    const c = community(id);
+    if (c !== undefined) communityChanges.set(id, { ...communityChanges.get(id), ...change(c) });
+  };
+
   const pinnedTabs = [
     { id: `tag:${PINNED_TAG}` as const, label: "Design" },
     { id: "list:600000000001" as const, label: "Indie founders" },
@@ -441,6 +464,34 @@ export function createMockState() {
         if (post(id) === undefined) return null;
         return ofPeople(op, id, listPeople(id, op === "Retweeters" ? 1 : 4));
       }
+      case "CarouselQuery":
+      case "CommunitiesRankedTimeline":
+      case "CommunitiesExploreTimeline":
+        return live(fixture(op, null)!);
+      case "CommunityQuery":
+      case "CommunitiesFetchOneQuery": {
+        const c = community(s(variables, "communityId") ?? "");
+        return c === undefined
+          ? null
+          : page(op, `community:${c.communityId}`, [], { top: null, communities: [c] });
+      }
+      case "CommunityTweetsTimeline":
+      case "CommunityMediaTimeline":
+      case "CommunityAboutTimeline": {
+        const id = s(variables, "communityId") ?? "";
+        if (!communityCards.has(id)) return null;
+        const mode = s(variables, "rankingMode");
+        const k =
+          op === "CommunityTweetsTimeline" && mode !== undefined && mode !== "Relevance"
+            ? `community:${id}:${mode}`
+            : `community:${id}`;
+        const own = fixture(op, k);
+        if (own !== undefined) return live(own);
+        // The Communities the fixtures only name: a few posts, two moderators, no media.
+        if (op === "CommunityAboutTimeline")
+          return { ...ofPeople(op, k, people.slice(0, 2)), top: null };
+        return page(op, k, op === "CommunityMediaTimeline" ? [] : morePages.forYou[0]!.slice(0, 3));
+      }
       case "ConnectTabTimeline": {
         const creators = (s(variables, "context") ?? "").includes("isCreatorOnlyConnectTab");
         return live(fixture(op, creators ? "connect:creators" : "connect:who")!);
@@ -484,6 +535,7 @@ export function createMockState() {
       s(input, "source_tweet_id") ??
       s(input, "user_id") ??
       s(input, "id") ??
+      s(input, "communityId") ??
       null;
     presses.push({ kind: "write", name, target: id, path });
     const tweet = s(input, "tweet_id") ?? s(input, "source_tweet_id") ?? "";
@@ -560,6 +612,20 @@ export function createMockState() {
         const { __typename: _, ...result } = encodeTweet(created, liveUsers());
         return { data: { create_tweet: { tweet_results: { result } } } };
       }
+      case "JoinCommunity":
+        changeCommunity(id ?? "", (c) => ({ role: "Member", members: (c.members ?? 0) + 1 }));
+        return {
+          data: { community_join: { __typename: "Community", id_str: id, role: "Member" } },
+        };
+      case "RequestToJoinCommunity":
+        requested.add(id ?? "");
+        return { data: { community_join_request: "Done" } };
+      case "LeaveCommunity":
+        changeCommunity(id ?? "", (c) => ({
+          role: "NonMember",
+          members: Math.max(0, (c.members ?? 1) - 1),
+        }));
+        return { data: { community_leave: "Done" } };
       default:
         // Mutes, blocks and the rest are only logged: no screen reads them back.
         return { data: {} };
@@ -604,6 +670,19 @@ export function createMockState() {
     fixture,
     fixtures: () => fixtures,
     lists: (): ReadonlyArray<EngineList> => [...xLists.values()],
+    community,
+    /** Whether the user asked to join a Community that asks first, and waits for its moderators. */
+    communityRequested: (id: string) => requested.has(id),
+    /** The Communities a hub tab's posts are from, in X's order: X fetches a card for each. */
+    hubCommunities: (op: "CommunitiesRankedTimeline" | "CommunitiesExploreTimeline") => [
+      ...new Set(
+        fixture(op, null)!.posts.flatMap((p) =>
+          [...communityCards.values()].flatMap((c) =>
+            c.name === p.context?.text ? [c.communityId] : [],
+          ),
+        ),
+      ),
+    ],
   };
 }
 

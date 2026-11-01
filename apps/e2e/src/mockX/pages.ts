@@ -1,5 +1,6 @@
 import type {
   EngineBatch,
+  EngineCommunity,
   EngineList,
   EngineNotification,
   EnginePost,
@@ -174,6 +175,26 @@ const notificationRow = (n: EngineNotification, state: MockState) =>
 
 const listRow = (l: EngineList) =>
   `<div data-testid="listCell" role="link" tabindex="0" data-href="/i/lists/${l.listId}"><div>${esc(l.name)}${l.isPrivate ? " 🔒" : ""}</div><div class="muted">${compact(l.members)} members · ${compact(l.followers)} followers${l.owner === null ? "" : ` including @${esc(l.owner.handle)}`}</div></div>`;
+
+/** X's membership button in a Community's header, labelled with what pressing it does. */
+const joinButton = (c: EngineCommunity, requested: boolean) => {
+  const label =
+    c.role !== null && c.role !== "NonMember"
+      ? "Joined"
+      : requested
+        ? "Requested"
+        : c.joinPolicy === "Open"
+          ? "Join"
+          : "Ask to join";
+  return `<button data-community-join="${c.communityId}" aria-label="${esc(`${label} ${c.name}`)}">${label}</button>`;
+};
+
+const COMMUNITY_TABS = [
+  { path: "", label: "Top" },
+  { path: "/latest", label: "Latest" },
+  { path: "/media", label: "Media" },
+  { path: "/about", label: "About" },
+] as const;
 
 /** A page's list body: its posts in X's order, with what the capture lists around them. */
 export const postsOf = (b: EngineBatch | null, state: MockState) =>
@@ -422,6 +443,52 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
       },
     };
   }
+  if (lower === "i" && second === "communities" && third !== undefined) {
+    const tab = COMMUNITY_TABS.find((t) => t.path === (fourth === undefined ? "" : `/${fourth}`));
+    const id = third;
+    const timeline =
+      tab === undefined
+        ? null
+        : tab.label === "Media"
+          ? r("CommunityMediaTimeline", { communityId: id, count: 20, withCommunity: true })
+          : tab.label === "About"
+            ? r("CommunityAboutTimeline", { communityId: id })
+            : r("CommunityTweetsTimeline", {
+                communityId: id,
+                count: 20,
+                displayLocation: "Community",
+                rankingMode: tab.label === "Latest" ? "Recency" : "Relevance",
+                withCommunity: true,
+              });
+    return {
+      title: "Community / X",
+      requests: [
+        r("CommunityQuery", { communityId: id }),
+        ...(timeline === null ? [] : [timeline]),
+      ],
+      paged: tab?.label === "Top" || tab?.label === "Latest" ? 1 : undefined,
+      render: ([head, b]) => {
+        const c = head?.communities[0];
+        if (c === undefined || tab === undefined)
+          return `${header("Community")}<div class="empty"><h3>Hmm...this page doesn't exist.</h3></div>`;
+        const about = `<div data-testid="communityAbout"><h3>Community Info</h3><div>${esc(c.description ?? "")}</div><h3>Rules</h3><ol>${(
+          c.rules ?? []
+        )
+          .map(
+            (rule) => `<li>${esc(rule.name)}<div class="muted">${esc(rule.description)}</div></li>`,
+          )
+          .join("")}</ol><h3>Moderators</h3>${peopleOf(b ?? null)}</div>`;
+        return `${header(c.name)}<div data-testid="communityHeader"><img alt="" src="${esc(c.bannerUrl ?? "")}" class="banner-img"><h2>${esc(c.name)}</h2><div><b>${compact(c.members)}</b> Members</div><button aria-label="More">…</button><button aria-label="Pin Community">📌</button><button aria-label="Share Community">⤴</button>${joinButton(c, state.communityRequested(id))}</div>${tabs(
+          "Community",
+          COMMUNITY_TABS.map((t) => ({
+            label: t.label,
+            href: `/i/communities/${id}${t.path}`,
+            on: t === tab,
+          })),
+        )}<section data-list>${tab.label === "About" ? about : postsOf(b ?? null, state)}</section>`;
+      },
+    };
+  }
   if (lower === "i" && second === "safety")
     return {
       title: "Report / X",
@@ -525,6 +592,38 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
               "",
             )}</section><div data-testid="inline_reply_offscreen"><div data-testid="tweetTextarea_0" contenteditable="true" role="textbox" aria-label="Post text" data-placeholder="Post your reply"></div><button data-testid="tweetButtonInline" disabled>Reply</button></div>`;
         },
+      };
+    }
+    if (second === "communities") {
+      const explore = third === "explore";
+      const feed = explore ? "CommunitiesExploreTimeline" : "CommunitiesRankedTimeline";
+      return {
+        title: "Communities / X",
+        requests: [
+          explore ? r("TopicCarouselQuery", {}) : r("CarouselQuery", {}),
+          r(feed, { count: 20, withCommunity: true }),
+          // X fetches a card for each Community its posts are from.
+          ...state
+            .hubCommunities(feed)
+            .map((communityId) => r("CommunitiesFetchOneQuery", { communityId })),
+        ],
+        paged: 1,
+        render: ([carousel, b]) =>
+          `${header("Communities")}${tabs("Communities", [
+            { label: "Home", href: `/${first}/communities`, on: !explore },
+            { label: "Explore", href: `/${first}/communities/explore`, on: explore },
+          ])}${
+            explore
+              ? "<h3>Discover new Communities</h3>"
+              : `<h3>My Communities</h3><div data-testid="communitiesCarousel">${(
+                  carousel?.communities ?? []
+                )
+                  .map(
+                    (c) =>
+                      `<a href="/i/communities/${c.communityId}" data-testid="communityTile"><img alt="" src="${esc(c.bannerUrl ?? "")}" class="avatar"><span>${esc(c.name)}</span></a>`,
+                  )
+                  .join("")}</div>`
+          }<section data-list>${postsOf(b ?? null, state)}</section>`,
       };
     }
     if (second === "lists")

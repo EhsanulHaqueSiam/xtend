@@ -315,6 +315,95 @@ test("The Follow page lists X's two tabs with X's buttons, and Follow presses <i
   await expect.poll(enginePath).toBe("/i/connect_people?is_creator_only=true");
 });
 
+test("Communities: the hub's Home and Explore, and a Community's tabs, read X's pages", async () => {
+  const hub = `/${e.mock.state.viewer.handle}/communities`;
+  await go("/communities");
+  await expect.poll(enginePath).toBe(hub);
+  const read = (op: string, variables: Record<string, unknown> = {}) =>
+    e.mock.state.batchFor(op, variables)!;
+  await expect.poll(nativeIds).toEqual(read("CommunitiesRankedTimeline").order);
+  await expect
+    .poll(() => e.app.locator('main [data-x="community-tile"]').allTextContents())
+    .toEqual(read("CarouselQuery").communities.map((c) => c.name));
+
+  await e.app.getByRole("tab", { name: "Explore", exact: true }).click();
+  await expect.poll(enginePath).toBe(`${hub}/explore`);
+  const explore = read("CommunitiesExploreTimeline");
+  await expect.poll(nativeIds).toEqual(explore.order);
+  // X labels each post with the Community it is from.
+  await e.app.locator("main").getByText(explore.posts[0]!.context!.text).first().waitFor();
+
+  // The Community the fixtures give a page of its own.
+  const community = e.mock.state
+    .fixtures()
+    .communities!.batches.find((b) => b.op === "CommunityQuery")!.communities[0]!;
+  const id = community.communityId;
+  await go(`/communities/${id}`);
+  await expect.poll(enginePath).toBe(`/i/communities/${id}`);
+  const header = e.app.locator('main [data-x="community"]');
+  await header.getByText("Members").waitFor();
+  expect(await header.innerText()).toContain(community.name);
+  const tweets = (rankingMode: string) =>
+    read("CommunityTweetsTimeline", { communityId: id, rankingMode }).order;
+  await expect.poll(nativeIds).toEqual(tweets("Relevance"));
+
+  const tab = async (label: string, path: string) => {
+    await e.app.getByRole("tab", { name: label, exact: true }).click();
+    await expect.poll(enginePath).toBe(`/i/communities/${id}${path}`);
+  };
+  await tab("Latest", "/latest");
+  await expect.poll(nativeIds).toEqual(tweets("Recency"));
+  await tab("Media", "/media");
+  await expect.poll(nativeIds).toEqual(read("CommunityMediaTimeline", { communityId: id }).order);
+  await tab("About", "/about");
+  const about = read("CommunityAboutTimeline", { communityId: id });
+  await expect
+    .poll(nativeHandles)
+    .toEqual(about.people.map((u) => about.users.find((x) => x.userId === u)!.handle));
+  await e.app
+    .locator('main [data-x="community-about"]')
+    .getByText(community.rules![0]!.name)
+    .waitFor();
+});
+
+test("Join presses X's own Join, and Ask to join shows X's rules over the main area", async () => {
+  const communities = e.mock.state
+    .fixtures()
+    .communities!.batches.flatMap((b) =>
+      b.op === "CommunitiesFetchOneQuery" ? b.communities : [],
+    );
+  const open = communities.find((c) => c.role === "NonMember" && c.joinPolicy === "Open")!;
+  const asks = communities.find((c) => c.role === "NonMember" && c.joinPolicy !== "Open")!;
+  const membership = (label: string) =>
+    e.app.locator('main [data-x="community"]').getByRole("button", { name: `${label} ` });
+
+  await go(`/communities/${open.communityId}`);
+  await expect.poll(enginePath).toBe(`/i/communities/${open.communityId}`);
+  await membership("Join").click();
+  await expect
+    .poll(presses)
+    .toEqual(
+      expect.arrayContaining([
+        `press communityJoin:Join ${open.communityId}`,
+        `write JoinCommunity ${open.communityId}`,
+      ]),
+    );
+  await membership("Joined").waitFor();
+  expect(e.mock.state.community(open.communityId)!.role).toBe("Member");
+
+  await go(`/communities/${asks.communityId}`);
+  await expect.poll(enginePath).toBe(`/i/communities/${asks.communityId}`);
+  await membership("Ask to join").click();
+  await expect.poll(() => engineHas('#layers [role="dialog"]')).toBe(true);
+  await expect.poll(pane).toBe("main");
+  expect(presses()).toContain(`press communityJoin:Ask to join ${asks.communityId}`);
+  // The user closes X's rules without asking: nothing was sent, and the screen is back.
+  await e.engine(`document.querySelector('#layers [data-testid="app-bar-close"]').click()`);
+  await expect.poll(pane).toBe("hidden");
+  expect(presses()).not.toContain(`write RequestToJoinCommunity ${asks.communityId}`);
+  await membership("Ask to join").waitFor();
+});
+
 test("Search reads X's Top and People tabs for the query", async () => {
   const q = "design system";
   await go(`/search?q=${encodeURIComponent(q)}&f=top`);
