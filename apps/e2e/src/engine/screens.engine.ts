@@ -173,30 +173,36 @@ test("A post's ... lists mock X's own rows, read and closed on the engine, and R
   expect(await enginePath()).toBe("/home");
 });
 
-test("Follow from a post's ... presses X's own row, and X's menu read again confirms it", async () => {
-  await go("/home?feed=following");
+test("Follow from a post's ... presses X's own row, and Xtend holds what X's menu says after", async () => {
   const id = e.mock.state.feed("following").find((pid) => {
     const author = e.mock.state.post(pid)!.author;
     return e.mock.state.user(author.userId)?.youFollow === false;
   })!;
   const author = e.mock.state.post(id)!.author;
-  await e.app.locator(`main [data-post="${id}"] button[aria-label="More"]`).click();
-  const row = e.app.getByRole("menuitem", { name: `Follow @${author.handle}`, exact: true });
-  await row.click();
-  await expect
-    .poll(presses)
-    .toEqual(
-      expect.arrayContaining([
-        `press row:Follow @${author.handle} post:${id}`,
-        `write friendships/create ${author.userId}`,
-      ]),
-    );
-  // Read twice: once to press the row, once more to see what X's menu says now.
-  await expect
-    .poll(() => presses().filter((p) => p === `press menu:post:${id}`).length)
-    .toBeGreaterThanOrEqual(2);
+  // The post's own page draws Follow beside its author until Xtend holds that the user follows.
+  await go(`/post/${id}?h=${author.handle}`);
+  const post = e.app.locator(`main [data-post="${id}"]`).first();
+  const follow = post.getByRole("button", { name: "Follow", exact: true });
+  await follow.waitFor();
+  await expect.poll(enginePath).toBe(`/${author.handle}/status/${id}`);
+
+  await post.locator('button[aria-label="More"]').click();
+  await e.app.getByRole("menuitem", { name: `Follow @${author.handle}`, exact: true }).click();
+  // X's menu is opened to press the row, and once more after X took it, to read what it says now.
+  const order = () => {
+    const log = presses();
+    const at = (entry: string, from = 0) => log.indexOf(entry, from);
+    const write = at(`write friendships/create ${author.userId}`);
+    return [
+      at(`press menu:post:${id}`) < at(`press row:Follow @${author.handle} post:${id}`),
+      at(`press row:Follow @${author.handle} post:${id}`) < write,
+      write !== -1 && at(`press menu:post:${id}`, write) !== -1,
+    ];
+  };
+  await expect.poll(order).toEqual([true, true, true]);
+  // Nothing refetched the author meanwhile: only that read can tell Xtend the follow went through.
+  await expect.poll(() => follow.count()).toBe(0);
   expect(e.mock.state.user(author.userId)?.youFollow).toBe(true);
-  await expect.poll(enginePath).toBe("/home");
 });
 
 test("A post opens with its replies, and Recent re-sorts them as X's page orders them", async () => {
