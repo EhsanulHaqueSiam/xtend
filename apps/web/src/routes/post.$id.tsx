@@ -1,5 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
-import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
+import { ChevronRight } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { PostRail } from "../components/xnative/PostRail";
@@ -92,10 +93,23 @@ function PostScreen() {
             quoted={quoted(focal.quotedId)}
             focal
             under={
-              // Once X's first fetch of the thread is in: X drops a sort picked while it is out.
-              REPLY_SORTS.some((s) => at(engine.lists, postSurface(id, s)).length > 0) ? (
-                <ReplySort value={picked ?? sort} onChange={sortBy} />
-              ) : null
+              <div className="flex items-center pt-2.5 empty:hidden">
+                {/* Once X's first fetch of the thread is in: X drops a sort picked while it is out. */}
+                {REPLY_SORTS.some((s) => at(engine.lists, postSurface(id, s)).length > 0) ? (
+                  <ReplySort value={picked ?? sort} onChange={sortBy} />
+                ) : null}
+                {focal.metrics.quotes === 0 ? null : (
+                  <Link
+                    to="/post/$id/activity"
+                    params={{ id }}
+                    search={{ h, tab: "quotes" }}
+                    className="ml-auto flex items-center text-[14px] text-[#71767b] hover:text-foreground"
+                  >
+                    View quotes
+                    <ChevronRight className="size-4" />
+                  </Link>
+                )}
+              </div>
             }
           />
           <ReplyComposer post={focal} thread={above.map((p) => p.text)} onSent={afterReply} />

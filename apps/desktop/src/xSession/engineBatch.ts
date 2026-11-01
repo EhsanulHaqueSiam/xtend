@@ -587,6 +587,8 @@ function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExp
         : `${id}:${mode}`;
   }
   if (op === "UserByScreenName") return s("screen_name")?.toLowerCase() ?? null;
+  // A post's reposters and likers (X's Post activity).
+  if (op === "Retweeters" || op === "Favoriters") return s("tweetId") ?? null;
   return s("userId") ?? null;
 }
 
