@@ -88,6 +88,8 @@ jobs:
             exit 1
           fi
       - uses: ./.github/actions/setup
+      - name: Reject X sessions and unscrubbed account data
+        run: node scripts/check-no-x-session.ts
       - run: pnpm fmt:check
       - run: pnpm lint
       - run: pnpm knip
@@ -141,6 +143,8 @@ jobs:
 
       # Web and desktop both run *.browser.test.* files in headless Chromium.
       - uses: ./.github/actions/chromium
+      # Root scripts alone skip the build job, whose `pnpm typecheck` covers them otherwise.
+      - run: pnpm typecheck:scripts
       - run: pnpm test
       - run: pnpm test:e2e
 

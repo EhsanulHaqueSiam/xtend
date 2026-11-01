@@ -1,7 +1,12 @@
 // Benchmarks the X engine under Xtend's own X screens on a running dev desktop
 // (XTEND_REMOTE_DEBUG, see docs/internals/native-shell.md). Writes stay dry: X's buttons are only
 // found, never pressed, except one private bookmark that is undone. `--help` lists the flags.
+import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
+
+import { accountKey, looksRateLimited, pace, readStarts } from "./bench-pace.mjs";
 
 const USAGE = `node scripts/engine-bench.mjs [flags]
   (none)           every check once
@@ -11,7 +16,9 @@ const USAGE = `node scripts/engine-bench.mjs [flags]
   --only video     checks whose name contains "video"
   --shots DIR      a screenshot of the app after each check
   --parity DIR     per screen, Xtend's screen and x.com on the same page:
-                   DIR/<screen>-xtend.png and DIR/<screen>-x.png`;
+                   DIR/<screen>-xtend.png and DIR/<screen>-x.png
+  --force          start even when this account ran the bench too recently
+                   (under 5 minutes ago, or more than 4 runs in 30 minutes)`;
 if (process.argv.includes("--help")) {
   console.log(USAGE);
   process.exit(0);
@@ -1244,9 +1251,46 @@ async function sameAppPage({ reloadEngine = true } = {}) {
 }
 let primed = false;
 
+const git = (...args) =>
+  NodeChildProcess.spawnSync("git", args, {
+    cwd: import.meta.dirname,
+    encoding: "utf8",
+  }).stdout.trim();
+const branch = git("branch", "--show-current");
+const report = {
+  branch: branch || "detached",
+  // Which account ran it, for pacing: a hash of X's user id, never the handle.
+  account: null,
+  commit: git("rev-parse", "HEAD"),
+  startedAt: new Date().toISOString(),
+  flags: { runs: RUNS, pause: PAUSE_MS / 1000, only: ONLY ?? null },
+  runs: [],
+  streak: 0,
+  bookmarks: null,
+};
+// For comparing runs and citing one in a PR; outside the repo, as it names the account's posts.
+const RESULTS = NodePath.join(NodeOS.homedir(), "Pictures/xtend-ui/bench");
+const reportFile = NodePath.join(
+  RESULTS,
+  branch.replaceAll("/", "-") || "detached",
+  `${report.startedAt.replaceAll(":", "-")}.json`,
+);
+// Replaced whole (temp file, then rename): pacing reads these while another run may write one.
+const saveReport = () => {
+  NodeFS.mkdirSync(NodePath.dirname(reportFile), { recursive: true });
+  const draft = `${reportFile}.${process.pid}.tmp`;
+  NodeFS.writeFileSync(draft, JSON.stringify(report, null, 2) + "\n");
+  NodeFS.renameSync(draft, reportFile);
+};
+
 /** One pass over the chosen checks; the names that failed. */
 async function round(n) {
   const failed = [];
+  let emptyFailures = 0;
+  const checks = [];
+  report.runs.push({ n, startedAt: new Date().toISOString(), checks });
+  // Before the first check loads X, so a run that dies mid-round still counts for pacing.
+  saveReport();
   for (const [index, [name, run]] of chosen.entries()) {
     await sameAppPage();
     primed = true;
@@ -1280,6 +1324,7 @@ async function round(n) {
           `Object.entries($.lists).filter(([k, l]) => l.length > 0 && !k.startsWith("post:")).map(([k, l]) => k + "=" + l.length + ":" + l[0]).join(" ").slice(0, 400)`,
         ),
       ]).catch((error) => [error.message]);
+      if (where[3] === "") emptyFailures++;
       const timers = await Promise.race([
         engine(
           `new Promise((r) => { const t = performance.now(); setTimeout(() => r(document.visibilityState + ", a 100ms timer took " + Math.round(performance.now() - t) + "ms, page up " + Math.round(performance.now() / 1000) + "s"), 100); })`,
@@ -1291,6 +1336,7 @@ async function round(n) {
       );
     }
     const detail = typeof value === "string" || typeof value === "number" ? `  (${value})` : "";
+    checks.push({ name, ok, ms: Date.now() - started, detail: detail === "" ? null : value });
     console.log(
       `${ok ? "PASS" : "FAIL"}  ${String(Date.now() - started).padStart(6)}ms  ${name}${detail}`,
     );
@@ -1311,7 +1357,27 @@ async function round(n) {
   touched.clear();
   if (cleaned) await go("#/home?feed=following");
   console.log(`${chosen.length - failed.length}/${chosen.length} passed`);
+  if (looksRateLimited(emptyFailures))
+    console.log(
+      `  ${emptyFailures} checks failed with the engine's lists empty: X may be rate-limiting this account. Wait 15 to 30 minutes before the next run.`,
+    );
+  saveReport();
   return failed;
+}
+
+// X's buttons refuse every press while session actions are off, and a seeded dev home starts
+// with them off (apps/server/scripts/devData.ts): the press checks would fail with no reason.
+const settings = await app(
+  `fetch("/api/rpc/settings.get", { method: "POST", headers: { authorization: "Bearer " + window.desktopBridge.serviceToken, "content-type": "application/json" }, body: "{}" }).then((r) => r.json())`,
+).catch((error) => error.message);
+const sessionActions = settings?.sessionPostingEnabled;
+if (sessionActions !== true) {
+  console.error(
+    sessionActions === false
+      ? 'Session actions are off for this dev home, so the press checks cannot pass. Turn on Settings, X session, "Act through my X session for what I click" in the dev desktop, then run again.'
+      : `Could not read the app's settings (got ${JSON.stringify(settings)}); is the dev service up?`,
+  );
+  process.exit(1);
 }
 
 /**
@@ -1326,6 +1392,30 @@ async function startFresh() {
   await until(async () => (await engine(`document.readyState`)) === "complete", 30_000);
   await until(() => store(`$.homeTabs.length > 0`), 20_000);
 }
+// Paced across invocations, before anything reloads X: the account's id comes from the store
+// as the idle engine left it, or X's twid cookie. Unknown, every recorded run counts.
+const userId =
+  (await store(`$.viewer?.userId ?? null`).catch(() => null)) ??
+  (await engine(`decodeURIComponent(document.cookie).match(/twid=u=(\\d+)/)?.[1] ?? null`).catch(
+    () => null,
+  ));
+report.account = typeof userId === "string" ? accountKey(userId) : null;
+const paced = pace(readStarts(RESULTS, report.account ?? undefined), Date.now());
+if (!paced.ok) {
+  const at = new Date(paced.until).toTimeString().slice(0, 5);
+  if (!process.argv.includes("--force")) {
+    console.error(
+      `Not running: ${paced.why}, and X rate-limits the account. Run again after ${at}, or pass --force.`,
+    );
+    process.exit(1);
+  }
+  console.log(
+    `  WARNING: --force: ${paced.why}; X may answer with rate limits (wait until ${at}).`,
+  );
+}
+// Written now, so a run that dies before its first round still counts for the next one's pacing.
+saveReport();
+
 await startFresh();
 
 /** The app window as it is now, to `file`. */
@@ -1405,7 +1495,11 @@ if (writes) {
       : `WARNING: newest bookmark was ${bookmarkBefore}, now ${after}`,
   );
   if (after !== bookmarkBefore) streak = 0;
+  report.bookmarks = { before: bookmarkBefore, after };
   await go("#/home?feed=following");
 }
+report.streak = streak;
+saveReport();
+console.log(`results -> ${reportFile}`);
 for (const { socket } of sessions.values()) socket.close();
 process.exit(streak === RUNS ? 0 : 1);

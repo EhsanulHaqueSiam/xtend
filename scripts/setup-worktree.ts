@@ -1,11 +1,12 @@
 // T3 Code runs this in the background for a new worktree (t3.json): installs from the lockfile.
 // `.t3/setup-running` holds its PID until `.t3/setup-done` or `.t3/setup-failed` (with the install
-// tail), so agents wait instead of racing it. Dev state (.xtend) is never copied: two services on
-// one database would both run the scheduler and post the same drafts.
+// tail), so agents wait instead of racing it. Dev state (.xtend) is never copied, since two services
+// on one database would post the same drafts; only a saved X session (dev-x-session.ts) is.
 
 //   node scripts/setup-worktree.ts
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
 const worktree = NodePath.dirname(import.meta.dirname);
@@ -57,4 +58,14 @@ if (status !== 0 || cancelled !== undefined) {
       ? `Cancelled by ${cancelled}.`
       : tail.trimEnd().split("\n").slice(-30).join("\n");
   process.exit(status || 1);
+}
+// Spawned, not imported: the session script needs the packages the install just put in place.
+if (NodeFS.existsSync(NodePath.join(NodeOS.homedir(), ".xtend-dev", "x-session"))) {
+  const use = NodeChildProcess.spawnSync(
+    process.execPath,
+    [NodePath.join(worktree, "scripts", "dev-x-session.ts"), "use"],
+    { cwd: worktree, stdio: "inherit" },
+  );
+  // A worktree without the login still works; the dev desktop says how to sign in.
+  if (use.status !== 0) console.error("[setup] could not copy the saved X session; continuing.");
 }

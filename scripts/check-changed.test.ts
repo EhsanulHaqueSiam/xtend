@@ -43,7 +43,17 @@ it("formats docs alone, and lints, typechecks and tests what a code change reach
     names(["apps/web/src/state/x.ts"], {
       "apps/web/src/state": ["x.ts", "x.test.ts", "y.test.ts"],
     }),
-  ).toEqual(["format", "lint", "knip", "typecheck (1 packages)", "test @xtend/web"]);
+  ).toEqual([
+    "format",
+    "lint",
+    "knip",
+    "typecheck (1 packages)",
+    "typecheck scripts",
+    "test @xtend/web",
+  ]);
+  // Root scripts belong to no package: only their own typecheck runs for them.
+  expect(names(["scripts/dev-ps.ts"])).toContain("typecheck scripts");
+  expect(names(["scripts/dev-ps.ts"])).not.toContain("typecheck (1 packages)");
   const web = plan(["apps/web/src/state/x.ts"], { "apps/web/src/state": ["x.test.ts"] });
   expect(web.steps.at(-1)).toMatchObject({
     cwd: "apps/web",

@@ -1,9 +1,11 @@
 // Drives a running dev desktop through the DevTools port XTEND_REMOTE_DEBUG opens, for hosts
 // where nobody can click. Keys sent this way skip Electron's before-input-event, so chords main
 // forwards from x.com (⌘K, ⌘\, ⌘F) must go to the app window. No command prints usage.
+import * as NodeFS from "node:fs";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
+import * as NodeUtil from "node:util";
 
 // Targets are picked by a URL substring: "x.com" is the webview, the dev URL the app window.
 const USAGE = `XTEND_REMOTE_DEBUG=9223 node scripts/dev-electron.mjs   start the app with the port open
@@ -12,10 +14,12 @@ node scripts/cdp.mjs eval x.com 'location.href'          prints the JSON value
 node scripts/cdp.mjs click x.com 470 86                  a real mouse click in CSS pixels
 node scripts/cdp.mjs type x.com 'hello'                  inserts text at the focus
 node scripts/cdp.mjs record localhost                     start keeping the app page's engine batches
-node scripts/cdp.mjs dump localhost [file.ndjson]         write them (default ~/Pictures/xtend-ui/rec/)`;
+node scripts/cdp.mjs dump localhost [file.ndjson]         write them (default ~/Pictures/xtend-ui/rec/)
+node scripts/cdp.mjs net x.com [seconds] [--eval <expr>] [--bodies <dir>]
+    every X GraphQL call for 10s (or seconds) as "op  variables"; --eval runs first (a
+    navigation), --bodies writes each response to <dir>, which must be outside any repo`;
 const port = process.env.XTEND_REMOTE_DEBUG ?? "9223";
 const TIMEOUT_MS = 5_000;
-const [command, ...args] = process.argv.slice(2);
 
 const pages = async () =>
   (await (await fetch(`http://127.0.0.1:${port}/json`)).json()).filter(
@@ -30,6 +34,12 @@ async function connect(target) {
     socket.addEventListener("error", () => reject(new Error("socket failed")), { once: true });
   });
   let id = 0;
+  /** Calls `handler(params)` for every event named `method`. */
+  const on = (method, handler) =>
+    socket.addEventListener("message", (event) => {
+      const message = JSON.parse(String(event.data));
+      if (message.method === method) handler(message.params);
+    });
   const call = (method, params = {}) =>
     new Promise((resolve, reject) => {
       const own = ++id;
@@ -45,7 +55,33 @@ async function connect(target) {
       socket.addEventListener("message", onMessage);
       socket.send(JSON.stringify({ id: own, method, params }));
     });
-  return { call, close: () => socket.close() };
+  return { call, on, close: () => socket.close() };
+}
+
+/** X's GraphQL operation and decoded variables in a request, or undefined for any other request. */
+export function graphqlCall(url, postData) {
+  const op = /\/graphql\/[^/]+\/([^/]+)$/.exec(new URL(url).pathname)?.[1];
+  if (op === undefined) return undefined;
+  const decode = (raw) => (typeof raw === "string" ? JSON.parse(raw) : (raw ?? null));
+  try {
+    const query = new URL(url).searchParams.get("variables");
+    return { op, variables: decode(query ?? (postData ? JSON.parse(postData).variables : null)) };
+  } catch {
+    return { op, variables: null };
+  }
+}
+
+/**
+ * True when `dir` is inside a git checkout by its real path: response bodies are the user's real
+ * data. Its nearest existing ancestor is resolved first, so a symlink into a checkout counts.
+ */
+export function insideRepo(dir) {
+  let at = NodePath.resolve(dir);
+  while (NodeFS.lstatSync(at, { throwIfNoEntry: false }) === undefined) at = NodePath.dirname(at);
+  for (at = NodeFS.realpathSync(at); ; at = NodePath.dirname(at)) {
+    if (NodeFS.existsSync(NodePath.join(at, ".git"))) return true;
+    if (NodePath.dirname(at) === at) return false;
+  }
 }
 
 async function page(match) {
@@ -134,6 +170,62 @@ const commands = {
     await NodeFSP.writeFile(out, batches.map((b) => JSON.stringify(b)).join("\n") + "\n");
     console.log(`${batches.length} batches -> ${out}`);
   },
+  async net(match, ...rest) {
+    const { values, positionals } = NodeUtil.parseArgs({
+      args: rest,
+      options: { eval: { type: "string" }, bodies: { type: "string" } },
+      allowPositionals: true,
+    });
+    const seconds = Number(positionals[0] ?? 10);
+    const bodies = values.bodies === undefined ? undefined : NodePath.resolve(values.bodies);
+    const refuse = () => {
+      if (insideRepo(bodies))
+        throw new Error(
+          `${bodies} is inside a git checkout; bodies are your real X data, keep them out`,
+        );
+    };
+    if (bodies !== undefined) {
+      // Again once made: the path may resolve differently once it exists.
+      refuse();
+      await NodeFSP.mkdir(bodies, { recursive: true });
+      refuse();
+    }
+    const { call, on, close } = await page(match);
+    const ops = new Map();
+    const writes = [];
+    on("Network.requestWillBeSent", ({ requestId, request }) => {
+      const found = graphqlCall(request.url, request.postData);
+      if (found === undefined) return;
+      ops.set(requestId, found.op);
+      console.log(`${found.op}  ${JSON.stringify(found.variables)}`);
+    });
+    on("Network.loadingFinished", ({ requestId }) => {
+      const op = ops.get(requestId);
+      if (bodies === undefined || op === undefined) return;
+      const file = NodePath.join(
+        bodies,
+        `${String(writes.length + 1).padStart(3, "0")}-${op}.json`,
+      );
+      writes.push(
+        call("Network.getResponseBody", { requestId })
+          .then(({ body, base64Encoded }) =>
+            // "wx": a file already there, a planted symlink included, is never written through.
+            NodeFSP.writeFile(file, base64Encoded ? Buffer.from(body, "base64") : body, {
+              flag: "wx",
+            }),
+          )
+          .catch((error) => console.error(`no body for ${op}: ${error.message}`)),
+      );
+    });
+    await call("Network.enable");
+    if (values.eval !== undefined)
+      await call("Runtime.evaluate", { expression: values.eval, awaitPromise: true });
+    await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+    await Promise.all(writes);
+    await call("Network.disable");
+    close();
+    if (bodies !== undefined) console.log(`${writes.length} bodies -> ${bodies}`);
+  },
   async type(match, text) {
     const { call, close } = await page(match);
     await call("Input.insertText", { text });
@@ -141,9 +233,12 @@ const commands = {
   },
 };
 
-const run = commands[command];
-if (run === undefined) {
-  console.error(USAGE);
-  process.exit(2);
+if (import.meta.main) {
+  const [command, ...args] = process.argv.slice(2);
+  const run = commands[command];
+  if (run === undefined) {
+    console.error(USAGE);
+    process.exit(2);
+  }
+  await run(...args);
 }
-await run(...args);

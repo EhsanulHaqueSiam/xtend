@@ -23,9 +23,58 @@ keep 4820 and 5820.
 
 `pnpm dev:desktop` bundles the Electron main process in watch mode and launches it against the
 pair `pnpm dev` recorded in `.xtend/dev-ports.json`, reading the service token from this
-checkout's `.xtend`. It expects `pnpm dev` to be running. On any pair but the default, Electron
-keeps its user data (x.com session included) in `.xtend/electron`, so two dev desktops can run at
-once.
+checkout's `.xtend`. It expects `pnpm dev` to be running. Electron keeps its user data (x.com
+session included) in `<home>/electron`, never the installed app's profile, so dev desktops of
+several checkouts run beside the installed app.
+
+### Signed-in dev desktop
+
+A new profile is signed out of X. Sign in once, then save that session for every checkout, as
+T3 Code's reusable dev credential does for its pairing cookie:
+
+```sh
+pnpm dev:x-session save                    # this checkout's dev desktop
+pnpm dev:x-session save --from <checkout>  # another checkout's (or a user data dir)
+pnpm dev:x-session save --installed        # the installed app's profile, read only
+pnpm dev:x-session use                     # copy it into this checkout's profile
+pnpm dev:x-session status                  # saved, here, and every other checkout
+```
+
+The copy lives in `~/.xtend-dev/x-session` (owner-only, never `~/.xtend`) without Chromium's
+caches, a few MB. `pnpm dev:desktop` and the Setup Worktree action copy it into a signed-out
+(or expired) profile on their own. `pnpm dev:desktop` will not launch on, and nothing copies
+into, a profile that is inside `~/.xtend` or the installed app's profile by any path or case,
+reached through a symlink, or held by a running desktop; when `ps` cannot confirm who holds a
+profile's lock, it counts as held. It is
+account 1's partition, which is what a dev home starts with. The installed app's profile is
+`~/Library/Application Support/Xtend` on macOS and `~/.config/Xtend` on Linux.
+
+The saved session is your real X login. Anyone with the folder acts as you on X: never commit
+it, attach it to a PR, copy it to another machine or share it. `pnpm dev:x-session forget`
+deletes it, with every staging copy and backup left beside it and beside this checkout's dev
+profile partition, and lists what it removed (a plain `rm -rf` of the folder misses those);
+signing out on x.com ends the session everywhere. Leftovers of a copy that died are removed by
+the next `save` or `use` once their process is gone, unless one is the only usable session left
+(a desktop started mid-copy and holds a signed-out profile in its place): that one is kept and
+`status` names it; run `pnpm dev:x-session use` again once no desktop holds the profile. `save`
+refuses a source whose desktop (or the installed app) is running, since the copy would be torn; quit it first.
+
+The repo is public. Nothing from the real account goes into it, a PR body or a comment: the X
+session, recordings that are not scrubbed (`pnpm engine-fixture scrub`), bench results or logs
+with real handles, screenshots of the real account. PR evidence comes from fixtures
+(`pnpm capture`). `node scripts/check-no-x-session.ts` runs in the pre-commit hook on staged
+files and in CI's lint job on the whole tree. It rejects profile directories (`Partitions`,
+`x-session`, `Local Storage`, ...), session and database files (`Cookies`, `*.sqlite*`,
+`*.ldb`, `auth-token`), X cookie values, and engine fixtures with real ids, handles, `twimg.com`
+images or t.co links.
+
+### Dev processes
+
+`pnpm dev:ps` lists every checkout's dev run and dev desktop (`git worktree list`) with its PID,
+ports, DevTools port, uptime and whether the PID is alive, from the records `pnpm dev` and the
+desktop launcher keep in `.xtend/dev-ports.json` and `.xtend/dev-desktop.json` while they run.
+It only prints. Stop a process from the terminal that started it, or by a PID listed for your
+own checkout; never by name (AGENTS.md "Ways to hurt yourself").
 
 `pnpm dist:desktop:dmg` builds the web app, the service bundle and the Electron main, verifies
 the preloads, then runs electron-builder for macOS: a dmg and a zip for arm64 and x64 in
@@ -50,7 +99,8 @@ waiting for `/api/health`, so a dependency the bundle expects but the app lacks 
 T3 Code runs `scripts/setup-worktree.ts` when it creates a worktree (`t3.json`): a frozen
 install, with `.t3/setup-running`, `.t3/setup-done` or `.t3/setup-failed` as markers for agents.
 `.xtend` is never copied into a worktree: two services on one database would both run the
-scheduler and post the same drafts.
+scheduler and post the same drafts. A session saved with `pnpm dev:x-session save` is copied into the new
+worktree's dev desktop profile, so it starts signed in to X.
 
 ## CLI package
 
@@ -112,7 +162,8 @@ sharing off, no treg token.
   when a manifest, the lockfile or `patches/` changed. Steps run in parallel within the machine's
   budget (`--concurrency`, `--timeout`); a rerun on identical input prints the last passing summary.
   Pass a ref to compare against something other than the closest remote `main`.
-- `pnpm typecheck` runs tsc-rs across the workspace. Do not use `npx tsc`.
+- `pnpm typecheck` runs tsc-rs across the workspace, then the root `scripts/` (`pnpm typecheck:scripts`,
+  `scripts/tsconfig.json`; they belong to no package). Do not use `npx tsc`.
 - `vp test run <files>` runs focused tests. `pnpm test` also runs the tests under `scripts/`
   with the root config; alone, that is `vp test run --dir scripts`. Anything that renders React or touches the DOM is
   `*.browser.test.{ts,tsx}` and runs in headless Chromium; the first run downloads it with
@@ -145,6 +196,22 @@ Both need `pnpm build` first.
 - `node apps/desktop/scripts/cdp.mjs shot|eval|click|type` drives a dev desktop started with
   `XTEND_REMOTE_DEBUG=9223` on a host without a display. See
   [native-shell.md](../internals/native-shell.md#dev-capture) for its limits.
+- `cdp.mjs net x.com [seconds] [--eval <expr>] [--bodies <dir>]` prints every X GraphQL call the
+  webview makes as `op  variables`, for learning what an X page requests. `--eval` runs first,
+  usually a navigation; each one is a real page load on the account, so keep them few.
+  `--bodies` writes the responses to a directory outside any git checkout: they are your data.
+- The engine bench (`engine-bench.mjs`) refuses to start while session actions are off: its
+  press checks go through the app's X buttons. A seeded dev home starts with them off; turn on
+  Settings, X session, "Act through my X session for what I click" in the dev desktop. Each run's
+  results go to `~/Pictures/xtend-ui/bench/<branch>/<time>.json` (every check's pass, time and
+  detail, the commit and flags) for comparing runs and citing in a PR.
+- The bench paces itself across invocations from those files (any branch, matched by a hash of
+  the signed-in user id): it refuses to start under 5 minutes after the last run on the account,
+  or while more than 4 runs started in the last 30 minutes, and says when it may run again.
+  `--force` runs anyway with a warning. When five or more checks fail with the engine's lists
+  empty, X is likely rate-limiting the account: wait 15 to 30 minutes before the next run.
+- macOS has no `timeout` command. Bound a command with its own limit (`cdp.mjs net <seconds>`,
+  `check:changed --timeout`, `curl --max-time`) or `perl -e 'alarm shift; exec @ARGV' 30 <cmd>`.
 
 ## CI and releases
 
@@ -154,7 +221,7 @@ Both need `pnpm build` first.
 | ----- | ---------------------------------------------------------------------------------------------------------- |
 | lint  | rejects committed PR evidence (`.github/pr-assets`), then `fmt:check`, `lint`, `knip`                      |
 | build | `typecheck`, `build`, the route tree is current, `verify:bundles`, the desktop smoke test under `xvfb-run` |
-| test  | every package's tests and the e2e journeys, Chromium from `.github/actions/chromium`                       |
+| test  | `typecheck:scripts`, every package's tests and the e2e journeys, Chromium from `.github/actions/chromium`  |
 | Check | passes only when every job above passed or was skipped because its gate said so                            |
 
 A `changes` job first reads the changed paths of a pull request against its base, and
