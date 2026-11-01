@@ -293,11 +293,19 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
           ? r("HomeTimeline", { count: 20, tag: homeTab.slice(4) })
           : homeTab.startsWith("list:")
             ? r("ListLatestTweetsTimeline", { listId: homeTab.slice(5), count: 20 })
-            : r("HomeTimeline", {
-                count: 20,
-                includePromotedContent: true,
-                latestControlAvailable: true,
-              });
+            : homeTab.startsWith("community:")
+              ? r("CommunityTweetsTimeline", {
+                  communityId: homeTab.slice("community:".length),
+                  count: 20,
+                  displayLocation: "Community",
+                  rankingMode: "Relevance",
+                  withCommunity: true,
+                })
+              : r("HomeTimeline", {
+                  count: 20,
+                  includePromotedContent: true,
+                  latestControlAvailable: true,
+                });
     const all = [
       { tab: "forYou", label: "For you" },
       { tab: "following", label: "Following" },
@@ -454,6 +462,37 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
       },
     };
   }
+  if (lower === "i" && second === "communities" && third !== undefined && fourth === "search") {
+    const id = third;
+    const query = q.get("q") ?? "";
+    // Top and Latest switch in place on this one URL, each its own ranking mode.
+    const mode = homeTab === "Recency" ? "Recency" : "Likes";
+    return {
+      title: "Search Community / X",
+      requests: [
+        r("CommunityQuery", { communityId: id }),
+        ...(query === ""
+          ? []
+          : [
+              r("CommunityTweetSearchModuleQuery", {
+                count: 20,
+                query,
+                communityId: id,
+                timelineRankingMode: mode,
+              }),
+            ]),
+      ],
+      render: ([head, b]) =>
+        `<div class="bar"><button data-testid="app-bar-back" aria-label="Back">←</button><form role="search"><input aria-label="Search Community" placeholder="Search ${esc(head?.communities[0]?.name ?? "")}" value="${esc(query)}"></form></div>${
+          query === ""
+            ? ""
+            : tabs("Search Community", [
+                { label: "Top", tab: "Likes", on: mode === "Likes" },
+                { label: "Latest", tab: "Recency", on: mode === "Recency" },
+              ])
+        }<section data-list>${postsOf(b ?? null, state)}</section>`,
+    };
+  }
   if (lower === "i" && second === "communities" && third !== undefined) {
     const tab = COMMUNITY_TABS.find((t) => t.path === (fourth === undefined ? "" : `/${fourth}`));
     const id = third;
@@ -499,7 +538,12 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
                 )}${s.link === null ? "" : `<a href="${esc(new URL(s.link).pathname)}">Show more</a>`}`,
           )
           .join("")}</div>`;
-        return `${header(c.name)}<div data-testid="communityHeader"><img alt="" src="${esc(c.bannerUrl ?? "")}" class="banner-img"><h2>${esc(c.name)}</h2><a href="/i/communities/${c.communityId}/members"><b>${compact(c.members)}</b> Members</a><button aria-label="More">…</button><button aria-label="Pin Community">📌</button><button aria-label="Share Community">⤴</button>${joinButton(c, state.communityRequested(id))}</div>${tabs(
+        // X's top bar: the Community's name, its search and its "More"; the header's own buttons
+        // after the member count.
+        const pin = state.communityPinned(id)
+          ? "Unpin Community from Home screen"
+          : "Pin Community";
+        return `<div class="bar"><button data-testid="app-bar-back" aria-label="Back">←</button><h2 role="heading">${esc(c.name)}</h2><a href="/i/communities/${id}/search" aria-label="Search Community">⌕</a><button aria-label="More">…</button></div><div data-testid="communityHeader"><img alt="" src="${esc(c.bannerUrl ?? "")}" class="banner-img"><h2>${esc(c.name)}</h2><a href="/i/communities/${c.communityId}/members"><b>${compact(c.members)}</b> Members</a><button aria-label="${pin}" data-community-pin="${id}">📌</button><button aria-label="Share Community">⤴</button>${joinButton(c, state.communityRequested(id))}</div>${tabs(
           "Community",
           COMMUNITY_TABS.map((t) => ({
             label: t.label,

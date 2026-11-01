@@ -1,4 +1,5 @@
 import { useAtomSet } from "@effect/atom-react";
+import { Search } from "lucide-react";
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { isElectron } from "../../env";
@@ -141,6 +142,65 @@ export function XTitle({
       {actions === undefined ? null : (
         <div className="no-drag flex shrink-0 items-center gap-2">{actions}</div>
       )}
+    </div>
+  );
+}
+
+/**
+ * X's search bar atop a search page: Back, the rounded box (`label` names it), and the page's own
+ * buttons after it. Enter runs `onSubmit` with what was typed.
+ */
+export function XSearchBar({
+  label,
+  value,
+  onChange,
+  onSubmit,
+  onBack,
+  children,
+}: {
+  readonly label: string;
+  readonly value: string;
+  readonly onChange: (value: string) => void;
+  readonly onSubmit: () => void;
+  readonly onBack: () => void;
+  readonly children?: ReactNode;
+}) {
+  return (
+    <div className="flex items-center gap-4 px-4 pt-1.5 pb-1">
+      <button
+        type="button"
+        aria-label="Back"
+        className="no-drag -m-2 grid size-9 shrink-0 cursor-pointer place-items-center rounded-full transition-colors duration-150 hover:bg-white/10"
+        onClick={onBack}
+      >
+        <svg
+          viewBox="0 0 24 24"
+          className="size-5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <path d="M19 12H5M11 6l-6 6 6 6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      <form
+        className="no-drag flex h-[42px] flex-1 items-center gap-3 rounded-full border border-transparent bg-[#202327] px-4 focus-within:border-[#1d9bf0] focus-within:bg-black"
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSubmit();
+        }}
+      >
+        <Search className="size-4 shrink-0 text-[#71767b]" />
+        <input
+          autoFocus={value === ""}
+          aria-label={label}
+          placeholder="Search"
+          className="min-w-0 flex-1 bg-transparent text-[15px] outline-hidden placeholder:text-[#71767b]"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      </form>
+      {children}
     </div>
   );
 }

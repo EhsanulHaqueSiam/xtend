@@ -27,7 +27,9 @@ the reading runs on your own Claude or Codex login.
 
 The X rows at the top open X's pages: Home, Explore, Notifications, Bookmarks, Lists, Communities,
 Follow and Profile in Xtend, Messages as x.com itself in the main area. A Community's Join presses
-X's own button; one that asks first opens X's own rules dialog, where you agree and ask. Follow is X's Who to follow and
+X's own button; one that asks first opens X's own rules dialog, where you agree and ask. Its Pin
+presses X's Pin too; the Community shows as a tab on Home once X's Home loads again (⌘R there).
+Follow is X's Who to follow and
 Creators for you; a creator's Subscribe opens X's own subscribe dialog, where X shows the price. Notifications shows X's unread count. The tools follow: Compose, Plan,
 Library, Engage, Leads, Automate, Analyze, Scores, Seen, then Settings. Each tool's sections
 show as rows under it once it is open. Compose counts queued drafts and Engage counts open

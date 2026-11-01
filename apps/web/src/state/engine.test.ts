@@ -10,8 +10,11 @@ import { expect, it } from "vite-plus/test";
 import {
   askFollow,
   askMembership,
+  askPin,
   at,
+  communityPinned,
   communityRole,
+  communitySearchSurface,
   communitySurface,
   emptyEngine,
   hideTrend,
@@ -287,6 +290,12 @@ it("files pinned Home tabs, Lists, Communities and Explore tabs under their own 
     communitySurface("14", "About"),
   ]);
   expect(surfacesOf({ op: "CommunityQuery", key: "community:14" })).toEqual([]);
+  expect(
+    surfacesOf({
+      op: "CommunityTweetSearchModuleQuery",
+      key: "communitySearch:14:Recency:ship it",
+    }),
+  ).toEqual([communitySearchSurface("14", "Recency", "ship it")]);
 });
 
 it("lists the user's Communities in X's order, and keeps what each response said of one", () => {
@@ -355,6 +364,28 @@ it("keeps what X took for a join, ask or leave until X's capture of the Communit
   const asked = mergeBatch(askMembership(agreed, "20", "Requested"), card("NonMember"));
   expect(communityRole(asked, c())).toBe("Requested");
   expect(mergeBatch(asked, card("Member")).membership.size).toBe(0);
+});
+
+it("holds a pin or unpin X took until X's pinned tabs agree", () => {
+  const tabs = (...ids: ReadonlyArray<string>): EngineBatch =>
+    batch("PinnedTimelines", [], {
+      homeTabs: ids.map((id) => ({ id: `community:${id}`, label: `C${id}` })),
+    });
+  const before = mergeBatch(emptyEngine, tabs("21"));
+  expect([communityPinned(before, "20"), communityPinned(before, "21")]).toEqual([false, true]);
+  // Pinned on X; X's next pinned tabs, sent before the press, still leave it out.
+  const pinned = mergeBatch(askPin(before, "20", true), tabs("21"));
+  expect(communityPinned(pinned, "20")).toBe(true);
+  // Home's tab row draws only what X sends: nothing local joins it.
+  expect(pinned.homeTabs.map((t) => t.id)).toEqual(["community:21"]);
+  // A response with no pinned tabs says nothing either way.
+  expect(communityPinned(mergeBatch(pinned, batch("HomeTimeline", [])), "20")).toBe(true);
+  const agreed = mergeBatch(pinned, tabs("21", "20"));
+  expect([agreed.pinned.size, communityPinned(agreed, "20")]).toEqual([0, true]);
+  // Unpinned: held until X's tabs drop it.
+  const unpinned = mergeBatch(askPin(agreed, "21", false), tabs("21", "20"));
+  expect(communityPinned(unpinned, "21")).toBe(false);
+  expect(mergeBatch(unpinned, tabs("20")).pinned.size).toBe(0);
 });
 
 it("keeps notifications in X's order, newer on top, people by surface, and follows until X agrees", () => {

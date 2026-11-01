@@ -1,11 +1,11 @@
 import { useAtomValue } from "@effect/atom-react";
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
-import { Search, SlidersHorizontal } from "lucide-react";
+import { SlidersHorizontal } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { AdvancedSearch } from "../components/xnative/AdvancedSearch";
 import { Timeline } from "../components/xnative/Timeline";
-import { XColumn, XTabs } from "../components/xnative/XColumn";
+import { XColumn, XSearchBar, XTabs } from "../components/xnative/XColumn";
 import { UserRow, XRows } from "../components/xnative/XRows";
 import { at, engineAtom, type SearchProduct, searchSurface } from "../state/engine";
 import { xGo, xNavigate } from "../state/x";
@@ -61,40 +61,13 @@ function SearchScreen() {
   const surface = searchSurface(PRODUCT[f], q);
   const header = (
     <>
-      <div className="flex items-center gap-4 px-4 pt-1.5 pb-1">
-        <button
-          type="button"
-          aria-label="Back"
-          className="no-drag -m-2 grid size-9 shrink-0 cursor-pointer place-items-center rounded-full transition-colors duration-150 hover:bg-white/10"
-          onClick={() => router.history.back()}
-        >
-          <svg
-            viewBox="0 0 24 24"
-            className="size-5"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <path d="M19 12H5M11 6l-6 6 6 6" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
-        <form
-          className="no-drag flex h-[42px] flex-1 items-center gap-3 rounded-full border border-transparent bg-[#202327] px-4 focus-within:border-[#1d9bf0] focus-within:bg-black"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void navigate({ to: "/search", search: { q: draft.trim(), f } });
-          }}
-        >
-          <Search className="size-4 shrink-0 text-[#71767b]" />
-          <input
-            autoFocus={q === ""}
-            aria-label="Search X"
-            placeholder="Search"
-            className="min-w-0 flex-1 bg-transparent text-[15px] outline-hidden placeholder:text-[#71767b]"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-          />
-        </form>
+      <XSearchBar
+        label="Search X"
+        value={draft}
+        onChange={setDraft}
+        onSubmit={() => void navigate({ to: "/search", search: { q: draft.trim(), f } })}
+        onBack={() => router.history.back()}
+      >
         <button
           type="button"
           aria-label="Advanced search"
@@ -105,7 +78,7 @@ function SearchScreen() {
         >
           <SlidersHorizontal className="size-5" />
         </button>
-      </div>
+      </XSearchBar>
       <AdvancedSearch
         open={advanced === true}
         query={draft}

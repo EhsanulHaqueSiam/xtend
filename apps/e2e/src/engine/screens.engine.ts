@@ -480,6 +480,104 @@ test("Join presses X's own Join, and Ask to join shows X's rules over the main a
   await membership("Ask to join").waitFor();
 });
 
+test("Pin presses X's own Pin and holds until X's pinned tabs agree, Home then lists it, and Unpin takes it back", async () => {
+  const community = e.mock.state
+    .fixtures()
+    .communities!.batches.find((b) => b.op === "CommunityQuery")!.communities[0]!;
+  const id = community.communityId;
+  const header = e.app.locator('main [data-x="community"]');
+  const pin = (label: string) => header.getByRole("button", { name: label, exact: true });
+  await go(`/communities/${id}`);
+  await expect.poll(enginePath).toBe(`/i/communities/${id}`);
+  await pin("Pin Community").click();
+  await expect
+    .poll(presses)
+    .toEqual(expect.arrayContaining([`press communityPin:Pin ${id}`, `write PinTimeline ${id}`]));
+  // X's toast comes back as Xtend's, and X's Home has not said so yet: the pin is held.
+  await e.app.getByText("Pinned to your Home timeline").waitFor();
+  await pin("Unpin Community").waitFor();
+  expect(e.mock.state.communityPinned(id)).toBe(true);
+
+  // Home lists the tab once X's Home sends its pinned tabs again, on its next full load.
+  await go("/home?feed=following");
+  await expect.poll(enginePath).toBe("/home");
+  await e.engine("setTimeout(() => location.reload()), true");
+  const tab = e.app.getByRole("tab", { name: community.name, exact: true });
+  await tab.waitFor();
+  await tab.click();
+  await expect.poll(nativeIds).toEqual(
+    e.mock.state.batchFor("CommunityTweetsTimeline", {
+      communityId: id,
+      rankingMode: "Relevance",
+    })!.order,
+  );
+
+  await go(`/communities/${id}`);
+  await expect.poll(enginePath).toBe(`/i/communities/${id}`);
+  await pin("Unpin Community").click();
+  await expect.poll(presses).toContain(`write UnpinTimeline ${id}`);
+  await pin("Pin Community").waitFor();
+  expect(e.mock.state.communityPinned(id)).toBe(false);
+
+  // Pinned again on x.com itself: Xtend's Pin no longer matches X's button, so pressing it presses
+  // nothing on X and takes X's word.
+  await e.engine(`document.querySelector('[data-community-pin="${id}"]').click()`);
+  await expect.poll(() => e.mock.state.communityPinned(id)).toBe(true);
+  const before = presses().length;
+  await pin("Pin Community").click();
+  await pin("Unpin Community").waitFor();
+  expect(presses().slice(before)).toEqual([]);
+  await pin("Unpin Community").click();
+  await expect.poll(() => e.mock.state.communityPinned(id)).toBe(false);
+});
+
+test("Search in a Community lists what X finds there, Top and Latest by X's own tabs", async () => {
+  const community = e.mock.state
+    .fixtures()
+    .communities!.batches.find((b) => b.op === "CommunityQuery")!.communities[0]!;
+  const id = community.communityId;
+  await go(`/communities/${id}`);
+  await expect.poll(enginePath).toBe(`/i/communities/${id}`);
+  const posts = e.mock.state.batchFor("CommunityTweetsTimeline", {
+    communityId: id,
+    rankingMode: "Relevance",
+  })!;
+  const word = posts.posts
+    .find((p) => p.postId === posts.order[0])!
+    .text.split(/\W+/)
+    .find((w) => w.length > 3)!;
+  await e.app.getByRole("button", { name: "Search Community", exact: true }).click();
+  await expect.poll(enginePath).toBe(`/i/communities/${id}/search`);
+  const box = e.app.getByRole("textbox", { name: "Search Community" });
+  await box.fill(word);
+  await box.press("Enter");
+  await expect.poll(enginePath).toBe(`/i/communities/${id}/search?q=${encodeURIComponent(word)}`);
+  const found = e.mock.state.batchFor("CommunityTweetSearchModuleQuery", {
+    communityId: id,
+    query: word,
+    timelineRankingMode: "Likes",
+  })!.order;
+  expect(found.length).toBeGreaterThan(0);
+  await expect.poll(nativeIds).toEqual(found);
+
+  // Latest is X's other tab on the same page: the engine presses it there and X sends its order.
+  await e.app.getByRole("tab", { name: "Latest", exact: true }).click();
+  const xTab = () =>
+    e.engine(`document.querySelector('[role="tab"][aria-selected="true"]')?.textContent.trim()`);
+  await expect.poll(xTab).toBe("Latest");
+  expect(await enginePath()).toBe(`/i/communities/${id}/search?q=${encodeURIComponent(word)}`);
+  await expect.poll(nativeIds).toEqual(
+    e.mock.state.batchFor("CommunityTweetSearchModuleQuery", {
+      communityId: id,
+      query: word,
+      timelineRankingMode: "Recency",
+    })!.order,
+  );
+  await e.app.getByRole("tab", { name: "Top", exact: true }).click();
+  await expect.poll(xTab).toBe("Top");
+  await expect.poll(nativeIds).toEqual(found);
+});
+
 test("Search reads X's Top and People tabs for the query", async () => {
   const q = "design system";
   await go(`/search?q=${encodeURIComponent(q)}&f=top`);

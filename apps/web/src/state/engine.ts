@@ -80,6 +80,7 @@ type KeyedSurface =
   | ConnectTab
   | `communityMedia:${string}`
   | `communityAbout:${string}`
+  | `communitySearch:${string}`
   | `profile:${ProfileTab}:${string}`;
 /** X's Follow page's tabs (Who to follow, Creators for you), as the capture keys them. */
 export type ConnectTab = "connect:who" | "connect:creators";
@@ -120,6 +121,14 @@ export const communitySurface = (id: string, tab: CommunityTab) =>
       : tab === "Media"
         ? (`communityMedia:${id}` as const)
         : (`communityAbout:${id}` as const);
+/**
+ * X's two orders for a search inside a Community, by the `timelineRankingMode` each tab sends:
+ * Top is by likes, Latest by time.
+ */
+export type CommunitySearchMode = "Likes" | "Recency";
+/** A search inside a Community, as X's search page there lists it for the order and query. */
+export const communitySearchSurface = (id: string, mode: CommunitySearchMode, query: string) =>
+  `communitySearch:${id}:${mode}:${query}` as const;
 /** @public */
 export const profileSurface = (tab: ProfileTab, userId: string) =>
   `profile:${tab}:${userId}` as const;
@@ -153,8 +162,10 @@ const SEARCH_PRODUCTS: ReadonlyArray<string> = [
 const isProduct = (p: string): p is SearchProduct => SEARCH_PRODUCTS.includes(p);
 
 /** The capture's key for a Home tab, a Community or a List, typed as the surface it names. */
-const tabKey = <P extends "tag" | "community" | "list">(key: string | null, prefix: P) =>
-  key?.startsWith(`${prefix}:`) === true ? (key as `${P}:${string}`) : undefined;
+const tabKey = <P extends "tag" | "community" | "communitySearch" | "list">(
+  key: string | null,
+  prefix: P,
+) => (key?.startsWith(`${prefix}:`) === true ? (key as `${P}:${string}`) : undefined);
 
 /**
  * Which surfaces a response feeds, its own first; none for the many X calls no screen lists.
@@ -190,6 +201,10 @@ export function surfacesOf(batch: Pick<EngineBatch, "op" | "key">): ReadonlyArra
     return [communitySurface(communityId, "Media")];
   if (communityId !== undefined && op === "CommunityAboutTimeline")
     return [communitySurface(communityId, "About")];
+  if (op === "CommunityTweetSearchModuleQuery") {
+    const search = tabKey(key, "communitySearch");
+    return search === undefined ? [] : [search];
+  }
   if (op === "ConnectTabTimeline" && (key === "connect:who" || key === "connect:creators"))
     return [key];
   // The capture keys every List call `list:<id>`.
@@ -268,6 +283,11 @@ export interface EngineState {
    * X's page shows its own state from its cache and fetches nothing to say so.
    */
   readonly membership: ReadonlyMap<string, CommunityRole>;
+  /**
+   * Pins and unpins X took for the user's click, per Community, until X's pinned tabs agree: X sends
+   * them only when its Home loads, and Home's tab row draws only what X sent.
+   */
+  readonly pinned: ReadonlyMap<string, boolean>;
   /** X's people modules (Who to follow) by id; a list names one where X put it among the posts. */
   readonly modules: ReadonlyMap<string, EngineModule>;
   /** Post and module ids per surface, in X's order. */
@@ -314,6 +334,7 @@ export const emptyEngine: EngineState = {
   users: new Map(),
   asked: new Map(),
   membership: new Map(),
+  pinned: new Map(),
   modules: new Map(),
   lists: NONE,
   waiting: NONE,
@@ -422,6 +443,15 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
     agreed.length === 0
       ? state.membership
       : new Map([...state.membership].filter(([id]) => !agreed.some((c) => c.communityId === id)));
+  const homeTabs = batch.homeTabs;
+  const pinned =
+    homeTabs === null
+      ? state.pinned
+      : new Map(
+          [...state.pinned].filter(
+            ([id, on]) => homeTabs.some((t) => t.id === `community:${id}`) !== on,
+          ),
+        );
   const merged: EngineState = {
     ...state,
     posts,
@@ -432,6 +462,7 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
     users,
     asked,
     membership,
+    pinned,
     xLists,
     communities,
     homeTabs: batch.homeTabs ?? state.homeTabs,
@@ -748,6 +779,16 @@ export const askMembership = (
   communityId: string,
   role: CommunityRole,
 ): EngineState => ({ ...state, membership: new Map(state.membership).set(communityId, role) });
+
+/** Whether a Community is pinned to Home: what X took for the user's click, until X's tabs agree. */
+export const communityPinned = (state: EngineState, communityId: string) =>
+  state.pinned.get(communityId) ?? state.homeTabs.some((t) => t.id === `community:${communityId}`);
+
+/** Keeps a pin or unpin X took for the user's click (see `pinned`). */
+export const askPin = (state: EngineState, communityId: string, on: boolean): EngineState => ({
+  ...state,
+  pinned: new Map(state.pinned).set(communityId, on),
+});
 
 /** Whether the user follows someone: what they asked X for, until X's capture agrees. */
 export const youFollow = (state: EngineState, user: EngineUser) =>

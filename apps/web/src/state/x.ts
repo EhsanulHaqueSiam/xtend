@@ -170,6 +170,41 @@ export const xPickHomeTab = (label: string) =>
   })`);
 
 /**
+ * Picks X's tab `label` (Top, Latest) on Community `communityId`'s search for `query`, once
+ * `loaded` (the engine's move to that page) settles and X has drawn it: only while the engine
+ * shows that very search, the screen that asked has not let it go (`signal`), and this pick is the
+ * user's latest press, so a pick still waiting on a slow page never presses another page's tab.
+ */
+export const xPickCommunitySearchTab = async (
+  communityId: string,
+  query: string,
+  label: string,
+  loaded: Promise<unknown>,
+  signal: AbortSignal,
+) => {
+  // It goes into a script run in X's page: digits only.
+  if (!/^\d{1,25}$/.test(communityId)) return false;
+  await loaded;
+  if (signal.aborted) return false;
+  const run = await nextRun();
+  return (
+    (await xRun(`(async () => {
+    const here = () => location.pathname === ${JSON.stringify(`/i/communities/${communityId}/search`)} &&
+      new URLSearchParams(location.search).get("q") === ${JSON.stringify(query)};
+    for (let i = 0; i < 40 && ${stillMine(run)}; i++) {
+      const tab = here() ? [...document.querySelectorAll('[role="tab"]')].find((t) => t.textContent.trim() === ${JSON.stringify(label)}) : undefined;
+      if (tab !== undefined) {
+        if (tab.getAttribute("aria-selected") !== "true") tab.click();
+        return true;
+      }
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    return false;
+  })()`)) === true
+  );
+};
+
+/**
  * X's own buttons on a post, by test id, for the user's click on Xtend's copy of it: what each
  * turns into once pressed, and the confirm X asks for first.
  */
@@ -630,21 +665,25 @@ export const xSubscribe = async (
 };
 
 /**
- * X's membership button for Community `communityId` in X's page at `path`: only on its own page,
- * in the header that links into it alone. X's path names the next Community while the last one's
- * header is still drawn. Runs in X's page as its own source, so it uses nothing outside itself.
+ * X's own button of `kind` for Community `communityId` in X's page at `path`: its membership button
+ * (Join, Joined, ...) or its Pin, only on its own page, in the header that links into it alone. X's
+ * path names the next Community while the last one's header is still drawn. Runs in X's page as
+ * its own source, so it uses nothing outside itself.
  */
-export function communityJoinButton(
+export function communityButton(
   root: ParentNode,
   path: string,
   communityId: string,
+  kind: "join" | "pin",
 ): HTMLElement | null {
   const segment = path.split("/");
   if (segment[1] !== "i" || segment[2] !== "communities" || segment[3] !== communityId) return null;
-  const isJoin = (b: Element) =>
-    /^(Join|Ask to join|Joined|Requested|Pending)$/.test(b.textContent?.trim() ?? "") ||
-    /^(Join|Ask to join) /.test(b.getAttribute("aria-label") ?? "");
-  const buttons = [...root.querySelectorAll<HTMLElement>('button, [role="button"]')].filter(isJoin);
+  const isKind = (b: Element) =>
+    kind === "pin"
+      ? /^(Pin Community|Unpin)/.test(b.getAttribute("aria-label") ?? "")
+      : /^(Join|Ask to join|Joined|Requested|Pending)$/.test(b.textContent?.trim() ?? "") ||
+        /^(Join|Ask to join) /.test(b.getAttribute("aria-label") ?? "");
+  const buttons = [...root.querySelectorAll<HTMLElement>('button, [role="button"]')].filter(isKind);
   const mine = buttons.filter((button) => {
     for (let box = button.parentElement; box !== null; box = box.parentElement) {
       const links = [...box.querySelectorAll('a[href*="/i/communities/"]')].map(
@@ -662,6 +701,13 @@ export function communityJoinButton(
   return mine.length === 1 ? mine[0]! : null;
 }
 
+/** A script step: the text of X's toast now showing, without its action buttons' words. */
+const TOAST_TEXT = `(() => {
+    const toast = document.querySelector('[data-testid="toast"]');
+    const actions = [...(toast?.querySelectorAll('button, a, [role="button"]') ?? [])];
+    return actions.reduce((t, a) => t.replace(a.textContent, ""), toast?.textContent ?? "").trim() || null;
+  })()`;
+
 /** What a press on X's membership button does, by the words X draws on it. */
 export type MembershipAction = "join" | "ask" | "leave";
 const ACTION_WORDS: Readonly<Record<MembershipAction, string>> = {
@@ -671,62 +717,75 @@ const ACTION_WORDS: Readonly<Record<MembershipAction, string>> = {
 };
 
 /**
- * Presses X's membership button for the user's click, only when X offers the `action` clicked: one
- * X has turned since is refused with X's words. X's rules or confirm dialog shows over the main
- * area (see `holdOver`). What X's button says afterwards; null when X drew none or the user left.
+ * Presses X's own `kind` button in a Community's header for the user's click while what it says
+ * matches `offers` (else refused with X's words); X's dialog shows over the main area. What X's
+ * button and toast say after, even once a later press started; null when X drew none first.
  */
-export const xCommunityJoin = async (
+const pressCommunity = async (
   communityId: string,
-  action: MembershipAction,
+  kind: "join" | "pin",
+  offers: RegExp,
   over: (shown: boolean) => void,
-): Promise<{ readonly refused: boolean; readonly label: string } | null> => {
+): Promise<{
+  readonly refused: boolean;
+  readonly label: string;
+  readonly toast: string | null;
+} | null> => {
   // It goes into scripts run in X's page: digits only.
   if (!/^\d{1,25}$/.test(communityId)) return null;
   const run = await nextRun();
   const path = `/i/communities/${communityId}`;
-  const join = `(() => (${communityJoinButton.toString()})(document, location.pathname, ${JSON.stringify(communityId)}))`;
+  const find = `(() => (${communityButton.toString()})(document, location.pathname, ${JSON.stringify(communityId)}, ${JSON.stringify(kind)}))`;
+  const says = kind === "pin" ? `?.getAttribute("aria-label")` : `?.textContent.trim()`;
   const live = () => run === overRun;
   let tries = 10;
   const press = () =>
     xRun(`(async () => {
-    const join = ${join};
-    for (let i = 0; i < ${tries} && !join(); i++) await new Promise((r) => setTimeout(r, 100));
-    const button = join();
+    const find = ${find};
+    for (let i = 0; i < ${tries} && !find(); i++) await new Promise((r) => setTimeout(r, 100));
+    const button = find();
     if (!button || !${stillMine(run)}) return null;
-    const was = button.textContent.trim();
-    if (was !== ${JSON.stringify(ACTION_WORDS[action])}) return { refused: was };
+    const was = button${says};
+    if (!${String(offers)}.test(was)) return { refused: was };
     const at = location.pathname + location.search;
     button.click();
     for (let i = 0; i < 20; i++) {
       await new Promise((r) => setTimeout(r, 100));
       if (location.pathname + location.search !== at || document.querySelector('[role="dialog"], [role="alertdialog"]')) return { over: at };
-      if (join()?.textContent.trim() !== was) break;
+      if (find()${says} !== was) break;
     }
     // X turns its button at once and saves a moment later; leaving before then would cancel it.
     await new Promise((r) => setTimeout(r, 1000));
-    return { over: null };
+    return { over: null, toast: ${TOAST_TEXT}, label: find()${says} ?? null };
   })()`).then((done) => {
       tries = 50;
       return typeof done === "object" && done !== null
-        ? (done as { readonly over?: string | null; readonly refused?: string })
+        ? (done as {
+            readonly over?: string | null;
+            readonly refused?: string;
+            readonly toast?: string | null;
+            readonly label?: string | null;
+          })
         : null;
     });
-  // X's button is only on the Community's page: its new label is read there, before onPage
-  // takes the engine back to where the user had it.
+  // X's button is only on the Community's page: after X's dialog, its label is read there again,
+  // before onPage takes the engine back to where the user had it.
   let label: string | null = null;
   const pressed = await onPage(
     { url: `https://x.com${path}`, path },
     press,
     async (done) => {
-      if (typeof done.over === "string") await holdOver(run, done.over, over);
-      const now = await xRun(`${join}()?.textContent.trim() ?? null`);
+      if (typeof done.over !== "string") return;
+      await holdOver(run, done.over, over);
+      const now = await xRun(`${find}()${says} ?? null`);
       label = typeof now === "string" ? now : null;
     },
     live,
   );
-  if (pressed === null || !live()) return null;
-  if (pressed.refused !== undefined) return { refused: true, label: pressed.refused };
-  return label === null ? null : { refused: false, label };
+  if (pressed === null) return null;
+  if (pressed.refused !== undefined) return { refused: true, label: pressed.refused, toast: null };
+  label ??= pressed.label ?? null;
+  return label === null ? null : { refused: false, label, toast: pressed.toast ?? null };
 };
 
 /** X's own rows of a trend's "...", read from X's menu on the Explore tab the engine shows. */
@@ -751,6 +810,25 @@ export const xTrendMenuPress = async (
     ${menuDone(at, stillMine(run), run)}
   })()`).then((done) => (done === null ? null : (done as XMenuOutcome)));
 };
+
+/**
+ * Presses X's membership button for the user's click, only when X offers the `action` clicked: one
+ * X has turned since is refused with X's words. X's rules or confirm dialog shows over the main
+ * area. What X's button says afterwards; null when X drew none or the user left.
+ */
+export const xCommunityJoin = (
+  communityId: string,
+  action: MembershipAction,
+  over: (shown: boolean) => void,
+) => pressCommunity(communityId, "join", new RegExp(`^${ACTION_WORDS[action]}$`), over);
+
+/**
+ * Pins (`on`) or unpins a Community as a Home tab for the user's click, on X's own Pin in its
+ * header, only while X's offers that: "Pin Community" unpinned, and pinned a label starting with
+ * "Unpin" (X has "Unpin" and "Unpin Community from Home screen"). One X has turned since is refused.
+ */
+export const xCommunityPin = (communityId: string, on: boolean, over: (shown: boolean) => void) =>
+  pressCommunity(communityId, "pin", on ? /^Pin Community/ : /^Unpin/, over);
 
 /** Presses X's own row `label` of a post's `menu` for the user's click (see `pressMenu`). */
 export const xPostMenuPress = async (

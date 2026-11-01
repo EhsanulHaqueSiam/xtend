@@ -1,6 +1,7 @@
 import type {
   EngineBatch,
   EngineCommunity,
+  EngineHomeTab,
   EngineList,
   EnginePost,
   EngineTrend,
@@ -391,9 +392,18 @@ export function createMockState() {
     if (c !== undefined) communityChanges.set(id, { ...communityChanges.get(id), ...change(c) });
   };
 
-  const pinnedTabs = [
-    { id: `tag:${PINNED_TAG}` as const, label: "Design" },
-    { id: "list:600000000001" as const, label: "Indie founders" },
+  const fixedTabs: ReadonlyArray<EngineHomeTab> = [
+    { id: `tag:${PINNED_TAG}`, label: "Design" },
+    { id: "list:600000000001", label: "Indie founders" },
+  ];
+  /** Communities the user pinned to Home, after X's other pinned tabs. */
+  const pinnedCommunities = new Set<string>();
+  const pinnedTabs = (): ReadonlyArray<EngineHomeTab> => [
+    ...fixedTabs,
+    ...[...pinnedCommunities].flatMap((id) => {
+      const c = community(id);
+      return c === undefined ? [] : [{ id: `community:${id}` as const, label: c.name }];
+    }),
   ];
 
   /** The batch X answers `op` with, or null for a call no screen reads. */
@@ -403,7 +413,7 @@ export function createMockState() {
       case "Viewer":
         return fixture("Viewer", null)!;
       case "PinnedTimelines":
-        return page("PinnedTimelines", null, [], { top: null, homeTabs: pinnedTabs });
+        return page("PinnedTimelines", null, [], { top: null, homeTabs: pinnedTabs() });
       case "HomeTimeline":
       case "HomeLatestTimeline": {
         const tag = s(variables, "tag");
@@ -515,6 +525,26 @@ export function createMockState() {
           };
         }
         return page(op, k, op === "CommunityMediaTimeline" ? [] : morePages.forYou[0]!.slice(0, 3));
+      }
+      case "CommunityTweetSearchModuleQuery": {
+        const id = s(variables, "communityId") ?? "";
+        const query = s(variables, "query") ?? "";
+        const mode = s(variables, "timelineRankingMode") ?? "Likes";
+        const all = batchFor("CommunityTweetsTimeline", { communityId: id });
+        if (all === null) return null;
+        const words = query
+          .toLowerCase()
+          .split(/\s+/)
+          .filter((w) => w.length > 2);
+        const found = all.order
+          .flatMap((pid) => all.posts.find((p) => p.postId === pid) ?? [])
+          .filter((p) => words.some((w) => p.text.toLowerCase().includes(w)))
+          .toSorted((a, b) =>
+            mode === "Recency"
+              ? Date.parse(b.createdAt) - Date.parse(a.createdAt)
+              : b.metrics.likes - a.metrics.likes,
+          );
+        return page(op, `communitySearch:${id}:${mode}:${query}`, found);
       }
       case "ConnectTabTimeline": {
         const creators = (s(variables, "context") ?? "").includes("isCreatorOnlyConnectTab");
@@ -644,6 +674,13 @@ export function createMockState() {
       case "RequestToJoinCommunity":
         requested.add(id ?? "");
         return { data: { community_join_request: "Done" } };
+      // X's pin operations; synthetic: their variables are unconfirmed by a capture.
+      case "PinTimeline":
+        pinnedCommunities.add(id ?? "");
+        return { data: { pin_timeline: "Done" } };
+      case "UnpinTimeline":
+        pinnedCommunities.delete(id ?? "");
+        return { data: { unpin_timeline: "Done" } };
       case "LeaveCommunity":
         changeCommunity(id ?? "", (c) => ({
           role: "NonMember",
@@ -660,7 +697,10 @@ export function createMockState() {
     viewer,
     viewerUser,
     people,
-    pinnedTabs,
+    /** Home's pinned tabs as X's PinnedTimelines lists them now. */
+    get pinnedTabs() {
+      return pinnedTabs();
+    },
     exploreTabs,
     xLists,
     batchFor,
@@ -712,6 +752,8 @@ export function createMockState() {
     fixtures: () => fixtures,
     lists: (): ReadonlyArray<EngineList> => [...xLists.values()],
     community,
+    /** Whether the user pinned a Community to Home (X's Pin in its header). */
+    communityPinned: (id: string) => pinnedCommunities.has(id),
     /** Whether the user asked to join a Community that asks first, and waits for its moderators. */
     communityRequested: (id: string) => requested.has(id),
     /** The Communities a hub tab's posts are from, in X's order: X fetches a card for each. */
