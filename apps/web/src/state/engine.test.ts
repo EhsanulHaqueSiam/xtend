@@ -260,6 +260,14 @@ it("keeps notifications in X's order, newer on top, people by surface, and follo
     batch("Other", [], { users: [{ ...user("5", "theo"), youFollow: true }] }),
   );
   expect(state.asked.size).toBe(0);
+  // Only a capture of that person settles it: theo's unfollow holds while ann's agrees.
+  state = askFollow(askFollow(state, "5", false), "1", true);
+  state = mergeBatch(
+    state,
+    batch("Other", [], { users: [{ ...user("1", "ann"), youFollow: true }] }),
+  );
+  expect([...state.asked]).toEqual([["5", false]]);
+  expect(askFollow(state, "5", null).asked.size).toBe(0);
 });
 
 it("keeps the signed-in account's id when X's nav names it again without one", () => {

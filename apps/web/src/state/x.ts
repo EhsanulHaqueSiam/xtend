@@ -331,8 +331,10 @@ const onPage = async <A>(
   if (element === null || !ready) return null;
   const here = await step();
   if (here !== null) return (await leave(here), here);
+  // The user moved on meanwhile: the engine is theirs, not this press's.
+  if (!live()) return null;
   const moved = await xGo(page.url);
-  const there = await step();
+  const there = live() ? await step() : null;
   if (there !== null) await leave(there);
   // Back only from a page this step opened, while the engine is still on it, and while this
   // press is still the user's latest: a screen they opened since owns the engine now.

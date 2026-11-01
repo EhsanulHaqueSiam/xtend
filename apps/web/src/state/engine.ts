@@ -308,8 +308,12 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
     const next = new Map(users);
     for (const user of batch.users) next.set(user.userId, user);
     users = next;
-    if (batch.users.some((u) => asked.get(u.userId) === u.youFollow))
-      asked = new Map([...asked].filter(([id, f]) => next.get(id)?.youFollow !== f));
+    const agreed = batch.users.filter((u) => asked.get(u.userId) === u.youFollow);
+    if (agreed.length > 0) {
+      const left = new Map(asked);
+      for (const u of agreed) left.delete(u.userId);
+      asked = left;
+    }
   }
   let xLists = state.xLists;
   if (batch.lists.length > 0) {
@@ -548,11 +552,17 @@ export const postOn = (
 export const youFollow = (state: EngineState, user: EngineUser) =>
   state.asked.get(user.userId) ?? user.youFollow;
 
-/** Keeps a follow or unfollow X took for the user's click (see `asked`). */
-export const askFollow = (state: EngineState, userId: string, following: boolean): EngineState => ({
-  ...state,
-  asked: new Map(state.asked).set(userId, following),
-});
+/** Keeps a follow or unfollow X took for the user's click (see `asked`); null: X's word again. */
+export const askFollow = (
+  state: EngineState,
+  userId: string,
+  following: boolean | null,
+): EngineState => {
+  const asked = new Map(state.asked);
+  if (following === null) asked.delete(userId);
+  else asked.set(userId, following);
+  return { ...state, asked };
+};
 
 /** The person behind a handle, once X has listed them or opened their profile. */
 export const userByHandle = (state: EngineState, handle: string): EngineUser | undefined => {
