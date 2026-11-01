@@ -411,16 +411,28 @@ const holdOver = async (run: number, path: string, over: (shown: boolean) => voi
 };
 
 /**
- * Presses X's own Subscribe for a person where the engine page shows it (X's Follow page lists
- * creators with it) for the user's click. X answers with its own subscribe dialog, shown over the
- * main area (see `holdOver`); paying happens there, in X. False when X showed no dialog.
+ * Presses X's own Subscribe for a creator for the user's click: in place where the engine page
+ * draws it (X's Follow page lists creators with it, but only the rows near its scroll), otherwise
+ * on their profile. X answers with its own subscribe dialog, shown over the main area (see
+ * `holdOver`); paying happens there, in X. False when X showed no dialog.
  */
-export const xSubscribe = async (userId: string, over: (shown: boolean) => void) => {
-  // The id goes into a script: digits only.
-  if (!/^\d{1,25}$/.test(userId)) return false;
+export const xSubscribe = async (
+  user: { readonly userId: string; readonly handle: string },
+  over: (shown: boolean) => void,
+) => {
+  // Both go into scripts run in X's page: digits and a handle only.
+  if (!/^\d{1,25}$/.test(user.userId) || !validHandle(user.handle)) return false;
   const run = ++overRun;
-  const path = await xRun(`(async () => {
-    const button = document.querySelector('[data-testid="${userId}-subscribe"]');
+  // A list row has the test id; a profile's header labels it "Subscribe to @handle" (any case).
+  // Briefly where the engine is, longer on a profile X is still drawing.
+  let tries = 10;
+  const press = () =>
+    xRun(`(async () => {
+    const label = ${JSON.stringify(`subscribe to @${user.handle.toLowerCase()}`)};
+    const find = () => document.querySelector('[data-testid="${user.userId}-subscribe"]') ??
+      [...document.querySelectorAll("button[aria-label]")].find((b) => b.getAttribute("aria-label").toLowerCase() === label);
+    for (let i = 0; i < ${tries} && !find(); i++) await new Promise((r) => setTimeout(r, 100));
+    const button = find();
     if (!button) return null;
     const path = location.pathname + location.search;
     button.click();
@@ -429,10 +441,13 @@ export const xSubscribe = async (userId: string, over: (shown: boolean) => void)
       if (location.pathname + location.search !== path || document.querySelector('[role="dialog"]')) return path;
     }
     return null;
-  })()`);
-  if (typeof path !== "string") return false;
-  void holdOver(run, path, over);
-  return true;
+  })()`).then((path) => {
+      tries = 50;
+      return typeof path === "string" ? path : null;
+    });
+  return (
+    (await onPage(profilePage(user.handle), press, (path) => holdOver(run, path, over))) !== null
+  );
 };
 
 /** Presses X's own row `label` of a post's `menu` for the user's click (see `pressMenu`). */

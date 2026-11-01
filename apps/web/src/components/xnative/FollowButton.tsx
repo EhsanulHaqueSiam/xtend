@@ -4,6 +4,7 @@ import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 
 import { cn } from "../../lib/utils";
+import { engineAtom, updateEngine } from "../../state/engine";
 import { settingsAtom } from "../../state/settings";
 import { xFollow, xOverAtom, xSubscribe } from "../../state/x";
 import { toastAtom } from "../ui/toast";
@@ -25,6 +26,7 @@ export function FollowButton({
 }) {
   const settings = AsyncResult.getOrElse(useAtomValue(settingsAtom), () => null);
   const setToast = useAtomSet(toastAtom);
+  const setEngine = useAtomSet(engineAtom);
   // What the user asked for and what is in flight, per person: the button stays mounted while
   // its person changes (one profile to the next), so requests must not touch each other.
   const [want, setWant] = useState<ReadonlyMap<string, boolean>>(new Map());
@@ -47,7 +49,18 @@ export function FollowButton({
     setBusy((b) => new Set(b).add(id));
     const ok = await xFollow({ userId: id, handle: user.handle }, target);
     setBusy((b) => new Set([...b].filter((x) => x !== id)));
-    if (ok) return onFollowed?.(id, target);
+    if (ok) {
+      // Rows unmount as a list scrolls: the store keeps what X took until X's next capture.
+      setEngine(
+        updateEngine((s) => {
+          const u = s.users.get(id);
+          return u === undefined
+            ? s
+            : { ...s, users: new Map(s.users).set(id, { ...u, youFollow: target }) };
+        }),
+      );
+      return onFollowed?.(id, target);
+    }
     // Take back only this request, and only if nothing newer replaced it.
     setWant((w) => (w.get(id) === target ? without(w, id) : w));
     setToast({ text: "X did not take that. Try again in a moment." });
@@ -91,7 +104,7 @@ export function SubscribeButton({ user }: { readonly user: EngineUser }) {
   const subscribe = async () => {
     if (settings !== null && !settings.sessionPostingEnabled)
       return setToast({ text: "Session actions are off in Settings, X session." });
-    if (!(await xSubscribe(user.userId, setOver)))
+    if (!(await xSubscribe(user, setOver)))
       setToast({ text: "X did not open its subscribe dialog. Try again in a moment." });
   };
   return (

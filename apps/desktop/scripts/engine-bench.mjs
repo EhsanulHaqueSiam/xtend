@@ -709,45 +709,39 @@ const benchmarks = [
   [
     "Follow page: Who to follow and Creators list what X lists, with X's own buttons (dry)",
     async () => {
-      // Each tab: X's first three people sit together, in X's order, in the native list, and X's
-      // own button for the first of them (Follow or Subscribe) is on its page. Nothing is pressed.
-      const tab = async (search, surface, path, button) => {
+      // Each tab: X's first three people are drawn together, in X's order, on the native screen,
+      // each with X's button for them (Follow or Subscribe), and that button is on X's page for
+      // the first of them. X's page keeps only the rows near its scroll. Nothing is pressed.
+      const tab = async (search, path, button) => {
         await go(`#/follow${search}`);
         return until(async () => {
           if ((await enginePath()) !== path) return false;
-          const ours = await store(
-            `at($.people, "${surface}").map((id) => ({ id, handle: $.users.get(id)?.handle }))`,
-          );
           const xs = await engine(
             `[...document.querySelectorAll('[data-testid="UserCell"]')].slice(0, 3).map((u) => u.querySelector('a[href^="/"]')?.getAttribute("href").slice(1).toLowerCase())`,
           );
-          const at = ours?.findIndex((u) => u.handle === xs?.[0]) ?? -1;
+          // Each drawn row: its handle (the avatar's label) and its last button, X's own.
+          const rows = await app(
+            `[...document.querySelectorAll('main [data-x="user"]')].map((r) => { const b = [...r.querySelectorAll("button")]; return [b[0]?.getAttribute("aria-label")?.slice(1), b.at(-1)?.textContent.toLowerCase()]; })`,
+          );
+          const at = rows?.findIndex(([h]) => h === xs?.[0]) ?? -1;
           if (xs?.length !== 3 || at === -1) return false;
-          const same =
-            JSON.stringify(ours.slice(at, at + 3).map((u) => u.handle)) === JSON.stringify(xs);
-          const id = ours[at].id;
+          const drawn = rows.slice(at, at + 3);
+          if (JSON.stringify(drawn.map(([h]) => h)) !== JSON.stringify(xs)) return false;
+          // Native rows draw Follow (or Following) or Subscribe, as X's do.
+          if (!drawn.every(([, label]) => label?.startsWith(button[0]))) return false;
+          const id = await store(
+            `[...$.users.values()].find((u) => u.handle === ${JSON.stringify(xs[0])})?.userId`,
+          );
           const xButton = await engine(
             `!!document.querySelector('${button.map((b) => `[data-testid="${id}-${b}"]`).join(", ")}')`,
           );
-          const drawn = await app(
-            `[...document.querySelectorAll('main [data-x="user"]')].slice(0, 3).map((r) => [...r.querySelectorAll("button")].at(-1)?.textContent.toLowerCase())`,
-          );
-          return (
-            same &&
-            xButton &&
-            drawn?.length === 3 &&
-            // Native rows draw Follow (or Following) or Subscribe, as X's do.
-            drawn.every((t) => t?.startsWith(button[0])) &&
-            xs.join(",")
-          );
+          return xButton && xs.join(",");
         });
       };
-      const who = await tab("", "connect:who", "/i/connect_people", ["follow", "unfollow"]);
+      const who = await tab("", "/i/connect_people", ["follow", "unfollow"]);
       const creators =
         who &&
-        (await tab("?tab=creators", "connect:creators", "/i/connect_people?is_creator_only=true", [
-          "subscribe",
-        ]));
+        (await tab("?tab=creators", "/i/connect_people?is_creator_only=true", ["subscribe"]));
       return creators && `who ${who}; creators ${creators}`;
     },
   ],

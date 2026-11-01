@@ -589,13 +589,20 @@ function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExp
   if (op === "UserByScreenName") return s("screen_name")?.toLowerCase() ?? null;
   // A post's reposters and likers (X's Post activity).
   if (op === "Retweeters" || op === "Favoriters") return s("tweetId") ?? null;
-  // X's Follow page asks with a JSON context: `{}` for Who to follow, a creators flag for its
-  // other tab. Any other context (people like someone) is no tab of that page.
+  // X's Follow page asks with a JSON context: empty for Who to follow, only the creators flag
+  // for its other tab. Any other context (people like someone) is no tab of that page.
   if (op === "ConnectTabTimeline") {
-    const context = s("context") ?? "{}";
-    return context === "{}"
+    let context: unknown;
+    try {
+      context = JSON.parse(s("context") ?? "");
+    } catch {
+      return null;
+    }
+    if (!isRecord(context)) return null;
+    const keys = Object.keys(context);
+    return keys.length === 0
       ? "connect:who"
-      : /"isCreatorOnlyConnectTab":\s*true/.test(context)
+      : keys.length === 1 && context.isCreatorOnlyConnectTab === true
         ? "connect:creators"
         : null;
   }

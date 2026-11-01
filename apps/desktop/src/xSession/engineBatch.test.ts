@@ -576,10 +576,13 @@ describe("renderEngineBatch around posts", () => {
     const connect = (context: string) =>
       renderEngineBatch("ConnectTabTimeline", { count: 20, context }, {}).key;
     expect([
-      connect("{}"),
-      connect('{"isCreatorOnlyConnectTab":true}'),
+      connect("{ }"),
+      connect('{"isCreatorOnlyConnectTab" : true}'),
       connect('{"contextualUserId":"7"}'),
-    ]).toEqual(["connect:who", "connect:creators", null]);
+      connect('{"contextualUserId":"7","isCreatorOnlyConnectTab":true}'),
+      connect("not json"),
+    ]).toEqual(["connect:who", "connect:creators", null, null, null]);
+    expect(renderEngineBatch("ConnectTabTimeline", { count: 20 }, {}).key).toBeNull();
     const header = renderEngineBatch(
       "ListByRestId",
       { listId: "12" },
