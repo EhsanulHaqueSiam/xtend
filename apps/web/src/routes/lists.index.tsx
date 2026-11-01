@@ -1,5 +1,4 @@
 import { useAtomValue } from "@effect/atom-react";
-import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import type { EngineList } from "@xtend/contracts";
 import { Lock } from "lucide-react";
@@ -10,7 +9,6 @@ import { XColumn, XTitle } from "../components/xnative/XColumn";
 import { XRows } from "../components/xnative/XRows";
 import { Avatar } from "../components/xnative/XPostView";
 import { engineAtom } from "../state/engine";
-import { settingsAtom } from "../state/settings";
 import { xGo, xNavigate } from "../state/x";
 
 type Row =
@@ -64,8 +62,9 @@ function ListRow({ list }: { readonly list: EngineList }) {
 /** X's Lists page, drawn by Xtend from the engine on x.com/<handle>/lists: yours, then X's picks. */
 function ListsScreen() {
   const engine = useAtomValue(engineAtom);
-  const handle = AsyncResult.getOrElse(useAtomValue(settingsAtom), () => null)?.handle ?? null;
-  // X's Lists page is the account's own: x.com/<handle>/lists.
+  // X's Lists page is the signed-in account's own, x.com/<handle>/lists: the handle X's page
+  // names, not Settings' handle, which can name another account.
+  const handle = engine.viewer?.handle ?? null;
   const open = useCallback(
     () => void (handle === null ? undefined : xGo(`https://x.com/${handle}/lists`)),
     [handle],
