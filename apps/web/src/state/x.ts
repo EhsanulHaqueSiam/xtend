@@ -117,13 +117,15 @@ const xRun = (code: string) =>
  * The user scrolled near the end of a native list: X scrolls its own page and fetches the next.
  * X fetches when its end marker comes into view, and some jumps to the bottom fetch nothing (the
  * marker was in view already, or X was mid-fetch), so keep following the bottom until the last
- * post X draws there changes, stepping back a screen between tries so the marker comes into view
- * anew. A native list asks once per length, so one ask has to land. Page height is no signal:
- * images loading grow it too.
+ * post or person X draws there changes, stepping back a screen between tries so the marker comes
+ * into view anew. A native list asks once per length, so one ask has to land. Page height is no
+ * signal: images loading grow it too.
  */
 export const xScrollMore = () =>
   xRun(`(async () => {
-    const last = () => [...document.querySelectorAll('article a[href*="/status/"] time')].at(-1)?.closest("a")?.getAttribute("href");
+    // A people list (reposters, search People) has no posts: without its rows this never sees X's
+    // next page land and keeps scrolling, so X fetches page after page.
+    const last = () => [...document.querySelectorAll('article a[href*="/status/"] time, [data-testid="UserCell"] a[href^="/"]')].at(-1)?.closest("a")?.getAttribute("href");
     window.scrollTo(0, document.documentElement.scrollHeight);
     await new Promise((r) => setTimeout(r, 300));
     const before = last();
