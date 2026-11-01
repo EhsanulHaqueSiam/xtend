@@ -140,31 +140,45 @@ it("follows the person asked for, waiting past another person's button drawn fir
   expect(await xFollow({ userId: "786", handle: "theo" }, true)).toBe(false);
 });
 
-/**
- * A menu on post 42 (its "...", or the button `trigger` selects): pressing it draws the rows
- * with a mask beside them, as X does.
- */
+/** X reflects the active menu on its caret, including when a delayed dropdown replaces another. */
+const drawMenu = (caret: Element, rows: Record<string, () => void>) => {
+  for (const other of document.querySelectorAll('[aria-expanded="true"]'))
+    other.setAttribute("aria-expanded", "false");
+  for (const menu of document.querySelectorAll("[data-fake-menu]")) menu.remove();
+  caret.setAttribute("aria-haspopup", "menu");
+  caret.setAttribute("aria-expanded", "true");
+  const layer = document.createElement("div");
+  layer.dataset.fakeMenu = "";
+  layer.innerHTML = `<div style="height:10px"></div><div role="menu"><div data-testid="Dropdown">${Object.keys(
+    rows,
+  )
+    .map((row) => `<div role="menuitem">${row}</div>`)
+    .join("")}</div></div>`;
+  const close = () => {
+    layer.remove();
+    caret.setAttribute("aria-expanded", "false");
+  };
+  layer.firstElementChild!.addEventListener("click", close);
+  for (const item of layer.querySelectorAll('[role="menuitem"]'))
+    item.addEventListener("click", () => {
+      close();
+      rows[item.textContent!]!();
+    });
+  document.body.append(layer);
+  return layer;
+};
+
+/** A menu on post 42; no aria-controls, as on X's trend carets. */
 const withMenu = (
   rows: Record<string, () => void>,
   trigger = '[data-testid="caret"]',
   button = `<button data-testid="caret"></button>`,
 ) => {
   document.body.innerHTML = `<article><a href="/theo/status/42"><time></time></a>${button}</article>`;
-  document.querySelector(trigger)!.addEventListener("click", () => {
-    const layer = document.createElement("div");
-    layer.innerHTML = `<div style="height:10px"></div><div role="menu"><div data-testid="Dropdown">${Object.keys(
-      rows,
-    )
-      .map((row) => `<div role="menuitem">${row}</div>`)
-      .join("")}</div></div>`;
-    layer.firstElementChild!.addEventListener("click", () => layer.remove());
-    for (const item of layer.querySelectorAll('[role="menuitem"]'))
-      item.addEventListener("click", () => {
-        layer.remove();
-        rows[item.textContent!]!();
-      });
-    document.body.append(layer);
-  });
+  const caret = document.querySelector(trigger)!;
+  caret.setAttribute("aria-haspopup", "menu");
+  caret.setAttribute("aria-expanded", "false");
+  caret.addEventListener("click", () => drawMenu(caret, rows));
   inThisPage();
 };
 const post42 = { postId: "42", handle: "theo" };
@@ -567,10 +581,7 @@ it.each([false, true])(
     const b = article.cloneNode(true) as HTMLElement;
     b.querySelector("span")!.textContent = "Trend B";
     b.querySelector("button")!.addEventListener("click", () => {
-      document.body.insertAdjacentHTML(
-        "beforeend",
-        '<div role="menu"><div data-testid="Dropdown"><div role="menuitem">B feedback</div></div></div>',
-      );
+      drawMenu(b.querySelector("button")!, { "B feedback": () => {} });
     });
     article.after(b);
     try {
@@ -630,6 +641,11 @@ it("reads and presses only the dropdown opened by its caret when another menu ex
   using _clock = fakeTimers();
   const pressed: Array<string> = [];
   withMenu({ "Mute @theo": () => pressed.push("own") });
+  document.querySelector("button")!.addEventListener("click", () => {
+    const own = document.querySelector('[data-fake-menu] [role="menu"]')!;
+    own.id = "own-menu";
+    document.querySelector("button")!.setAttribute("aria-controls", own.id);
+  });
   const foreign = document.createElement("div");
   foreign.innerHTML =
     '<div role="menu"><div data-testid="Dropdown"><div role="menuitem">Mute @theo</div><div role="menuitem">Foreign row</div></div></div>';
@@ -730,12 +746,7 @@ it.each(["post", "profile"])(
       '<article id="second"><a href="/ann/status/43"><time></time></a><button data-testid="caret"></button></article>',
     );
     document.querySelector("#second button")!.addEventListener("click", () => {
-      for (const menu of document.querySelectorAll('[role="menu"]')) menu.parentElement!.remove();
-      const layer = document.createElement("div");
-      layer.innerHTML =
-        '<div style="height:10px"></div><div role="menu"><div data-testid="Dropdown"><div role="menuitem">Second menu</div></div></div>';
-      layer.firstElementChild!.addEventListener("click", () => layer.remove());
-      document.body.append(layer);
+      drawMenu(document.querySelector("#second button")!, { "Second menu": () => {} });
     });
     inThisPage(() => "https://x.com/home");
     using navigation = vi.spyOn(history, "pushState");
@@ -764,11 +775,10 @@ it("closes a cancelled trend read's own dropdown while leaving the newer dropdow
   t1.insertAdjacentHTML("afterbegin", '<span style="font-weight:700">T1</span>');
   const t2 = t1.cloneNode(true) as HTMLElement;
   t2.querySelector("span")!.textContent = "T2";
-  const secondLayer = document.createElement("div");
-  secondLayer.innerHTML =
-    '<div style="height:10px"></div><div role="menu"><div data-testid="Dropdown"></div></div>';
-  secondLayer.firstElementChild!.addEventListener("click", () => secondLayer.remove());
-  t2.querySelector("button")!.addEventListener("click", () => document.body.append(secondLayer));
+  let secondLayer: HTMLElement | undefined;
+  t2.querySelector("button")!.addEventListener("click", () => {
+    secondLayer = drawMenu(t2.querySelector("button")!, {});
+  });
   document.body.append(t2);
   try {
     const first = xTrendMenu("T1");
@@ -777,12 +787,12 @@ it("closes a cancelled trend read's own dropdown while leaving the newer dropdow
     await vi.advanceTimersByTimeAsync(100);
     expect(await first).toBeNull();
     expect(firstMenu.isConnected).toBe(false);
-    expect(secondLayer.isConnected).toBe(true);
-    secondLayer.querySelector('[data-testid="Dropdown"]')!.innerHTML =
+    expect(secondLayer!.isConnected).toBe(true);
+    secondLayer!.querySelector('[data-testid="Dropdown"]')!.innerHTML =
       '<div role="menuitem">Second menu</div>';
     await vi.runAllTimersAsync();
     expect(await second).toEqual(["Second menu"]);
-    expect(secondLayer.isConnected).toBe(false);
+    expect(secondLayer!.isConnected).toBe(false);
   } finally {
     history.replaceState(null, "", path);
     registerXWebview(null);
@@ -792,14 +802,14 @@ it("closes a cancelled trend read's own dropdown while leaving the newer dropdow
 it.each([300, 2300])(
   "never presses another trend's row when its dropdown takes %s ms and a read intervenes",
   async (delay) => {
-    using _ownership = stubGlobal("__xtendMenuDrain", undefined);
+    using _ownership = stubGlobal("__xtendMenuCarets", new WeakSet());
     using _clock = fakeTimers();
     const path = location.pathname + location.search;
     history.replaceState(null, "", "/explore");
     document.body.innerHTML = ["A", "B"]
       .map(
         (name) =>
-          `<div data-testid="trend"><span style="font-weight:700">${name}</span><button data-testid="caret">${name}</button></div>`,
+          `<div data-testid="trend"><span style="font-weight:700">${name}</span><button data-testid="caret" aria-haspopup="menu" aria-expanded="false">${name}</button></div>`,
       )
       .join("");
     const pressed: Array<string> = [];
@@ -808,15 +818,7 @@ it.each([300, 2300])(
         const name = caret.textContent!;
         setTimeout(
           () => {
-            const layer = document.createElement("div");
-            layer.innerHTML =
-              '<div style="height:10px"></div><div role="menu"><div data-testid="Dropdown"><div role="menuitem">Not interested in this</div></div></div>';
-            layer.firstElementChild!.addEventListener("click", () => layer.remove());
-            layer.querySelector('[role="menuitem"]')!.addEventListener("click", () => {
-              pressed.push(name);
-              layer.remove();
-            });
-            document.body.append(layer);
+            drawMenu(caret, { "Not interested in this": () => pressed.push(name) });
           },
           name === "A" ? delay : 30,
         );
@@ -875,25 +877,22 @@ it.each(["error", "unmounted", "stale acknowledgement"])(
 it.each(["trend", "post", "profile"] as const)(
   "recovers asynchronous %s menu reads and presses after a timed-out dropdown closes",
   async (kind) => {
-    using _ownership = stubGlobal("__xtendMenuDrain", undefined);
+    using _ownership = stubGlobal("__xtendMenuCarets", new WeakSet());
     using _clock = fakeTimers();
     const path = location.pathname + location.search;
     history.replaceState(null, "", kind === "profile" ? "/theo" : "/explore");
-    document.body.innerHTML = `<article data-testid="trend"><span style="font-weight:700">A</span><a href="/theo/status/42"><time></time></a><button data-testid="${kind === "profile" ? "userActions" : "caret"}"></button></article>`;
+    document.body.innerHTML = `<article data-testid="trend"><span style="font-weight:700">A</span><a href="/theo/status/42"><time></time></a><button data-testid="${kind === "profile" ? "userActions" : "caret"}" aria-haspopup="menu" aria-expanded="false"></button></article>`;
     let opens = 0;
     const pressed: Array<string> = [];
     document.querySelector("button")!.addEventListener("click", () => {
-      const delay = ++opens === 1 ? 2300 : 30;
+      opens++;
+      // Post/profile reads can retry on their own page; both attempts must time out first.
+      if (kind !== "trend" && opens === 2) return;
+      const delay = opens === 1 ? (kind === "trend" ? 2300 : 4500) : 30;
       setTimeout(() => {
-        const layer = document.createElement("div");
-        layer.innerHTML =
-          '<div style="height:10px"></div><div role="menu"><div role="menuitem">Requested row</div></div>';
-        layer.firstElementChild!.addEventListener("click", () => layer.remove());
-        layer.querySelector('[role="menuitem"]')!.addEventListener("click", () => {
-          pressed.push("Requested row");
-          layer.remove();
+        drawMenu(document.querySelector("button")!, {
+          "Requested row": () => pressed.push("Requested row"),
         });
-        document.body.append(layer);
       }, delay);
     });
     inThisPage(() => `https://x.com${location.pathname}`);
@@ -905,11 +904,11 @@ it.each(["trend", "post", "profile"] as const)(
           : xProfileMenu("theo");
     try {
       const timedOut = read();
-      await vi.advanceTimersByTimeAsync(2100);
-      expect(await timedOut).toEqual(kind === "trend" ? null : []);
-      await vi.advanceTimersByTimeAsync(300);
+      await vi.advanceTimersByTimeAsync(kind === "trend" ? 2100 : 4100);
+      expect(await timedOut).toBeNull();
+      await vi.advanceTimersByTimeAsync(500);
       // The user may have closed the late menu before trying another native menu.
-      document.querySelector('[role="menu"]')?.parentElement?.remove();
+      document.querySelector<HTMLElement>("[data-fake-menu] > div")?.click();
       const retry = read();
       await vi.runAllTimersAsync();
       expect(await retry).toEqual(["Requested row"]);
@@ -950,15 +949,7 @@ it("keeps a previous trend's toast and Undo from attaching to a press with no ne
   const b = a.cloneNode(true) as HTMLElement;
   b.querySelector("span")!.textContent = "B";
   b.querySelector("button")!.addEventListener("click", () => {
-    const layer = document.createElement("div");
-    layer.innerHTML =
-      '<div style="height:10px"></div><div role="menu"><div role="menuitem">Not interested in this</div></div>';
-    layer.firstElementChild!.addEventListener("click", () => layer.remove());
-    layer.querySelector('[role="menuitem"]')!.addEventListener("click", () => {
-      pressed.push("B");
-      layer.remove();
-    });
-    document.body.append(layer);
+    drawMenu(b.querySelector("button")!, { "Not interested in this": () => pressed.push("B") });
   });
   document.body.append(b);
   try {
@@ -980,6 +971,165 @@ it("keeps a previous trend's toast and Undo from attaching to a press with no ne
       undo: false,
       dismissed: false,
     });
+  } finally {
+    history.replaceState(null, "", path);
+    registerXWebview(null);
+  }
+});
+
+it.each([100, 2100])(
+  "leaves a user-opened X menu alone when its own caret never expands (%s ms)",
+  async (when) => {
+    using _ownership = stubGlobal("__xtendMenuCarets", new WeakSet());
+    using _clock = fakeTimers();
+    const path = location.pathname + location.search;
+    history.replaceState(null, "", "/explore");
+    document.body.innerHTML =
+      '<div data-testid="trend"><span style="font-weight:700">A</span><button data-testid="caret" aria-haspopup="menu" aria-expanded="false"></button></div><button id="user" aria-haspopup="menu" aria-expanded="false"></button>';
+    const user = document.querySelector("#user")!;
+    let layer: HTMLElement | undefined;
+    user.addEventListener("click", () => {
+      layer = drawMenu(user, { "User menu": () => {} });
+    });
+    inThisPage();
+    try {
+      const reading = xTrendMenu("A");
+      await vi.advanceTimersByTimeAsync(when);
+      user.dispatchEvent(new MouseEvent("click"));
+      await vi.runAllTimersAsync();
+      expect(layer!.isConnected).toBe(true);
+      expect(await reading).toBeNull();
+      const retry = xTrendMenu("A");
+      await vi.runAllTimersAsync();
+      expect(await retry).toBeNull();
+      expect(layer!.isConnected).toBe(true);
+    } finally {
+      history.replaceState(null, "", path);
+      registerXWebview(null);
+    }
+  },
+);
+
+it("never claims A's late dropdown while B's caret is waiting to expand", async () => {
+  using _ownership = stubGlobal("__xtendMenuCarets", new WeakSet());
+  using _clock = fakeTimers();
+  const path = location.pathname + location.search;
+  history.replaceState(null, "", "/explore");
+  document.body.innerHTML = ["A", "B"]
+    .map(
+      (name) =>
+        `<div data-testid="trend"><span style="font-weight:700">${name}</span><button data-testid="caret" aria-haspopup="menu" aria-expanded="false">${name}</button></div>`,
+    )
+    .join("");
+  const [a, b] = [...document.querySelectorAll("button")];
+  const clicked: Array<string> = [];
+  let late: HTMLElement | undefined;
+  a!.addEventListener("click", () => {
+    setTimeout(() => {
+      late = drawMenu(a!, { "A row": () => clicked.push("A") });
+    }, 2300);
+  });
+  const bClick = vi.fn();
+  b!.addEventListener("click", bClick);
+  inThisPage();
+  try {
+    const first = xTrendMenu("A");
+    await vi.advanceTimersByTimeAsync(2100);
+    expect(await first).toBeNull();
+    const second = xTrendMenu("B");
+    await vi.runAllTimersAsync();
+    expect(bClick).toHaveBeenCalledOnce();
+    expect(late!.isConnected).toBe(true);
+    expect(await second).toBeNull();
+    expect(clicked).toEqual([]);
+    b!.addEventListener("click", () => drawMenu(b!, { "B row": () => clicked.push("B") }));
+    const retry = xTrendMenuPress("B", "B row", () => {});
+    await vi.runAllTimersAsync();
+    expect(late!.isConnected).toBe(false);
+    expect((await retry)?.kind).toBe("done");
+    expect(clicked).toEqual(["B"]);
+  } finally {
+    history.replaceState(null, "", path);
+    registerXWebview(null);
+  }
+});
+
+it.each(["trend", "post", "profile"] as const)(
+  "a dropdown that never mounts does not block later %s presses",
+  async (kind) => {
+    using _ownership = stubGlobal("__xtendMenuCarets", new WeakSet());
+    using _clock = fakeTimers();
+    const path = location.pathname + location.search;
+    history.replaceState(
+      null,
+      "",
+      kind === "profile" ? "/theo" : kind === "post" ? "/theo/status/42" : "/explore",
+    );
+    document.body.innerHTML = `<article data-testid="trend"><span style="font-weight:700">A</span><a href="/theo/status/42"><time></time></a><button data-testid="${kind === "profile" ? "userActions" : "caret"}" aria-haspopup="menu" aria-expanded="false"></button></article>`;
+    const caret = document.querySelector("button")!;
+    const pressed: Array<string> = [];
+    inThisPage(() => `https://x.com${location.pathname}`);
+    try {
+      const reading =
+        kind === "trend"
+          ? xTrendMenu("A")
+          : kind === "post"
+            ? xPostMenu(post42)
+            : xProfileMenu("theo");
+      await vi.runAllTimersAsync();
+      await reading;
+      caret.addEventListener("click", () =>
+        drawMenu(caret, { "Requested row": () => pressed.push("own") }),
+      );
+      const pressing =
+        kind === "trend"
+          ? xTrendMenuPress("A", "Requested row", () => {})
+          : kind === "post"
+            ? xPostMenuPress(post42, "Requested row", () => {})
+            : xProfileMenuPress("theo", "Requested row", () => {});
+      await vi.runAllTimersAsync();
+      expect(pressed).toEqual(["own"]);
+      expect((await pressing)?.kind).toBe("done");
+    } finally {
+      history.replaceState(null, "", path);
+      registerXWebview(null);
+    }
+  },
+);
+
+it("does not close a user reopening a previously clicked caret after its late menu closed", async () => {
+  using _ownership = stubGlobal("__xtendMenuCarets", new WeakSet());
+  using _clock = fakeTimers();
+  const path = location.pathname + location.search;
+  history.replaceState(null, "", "/explore");
+  document.body.innerHTML = ["A", "B"]
+    .map(
+      (name) =>
+        `<div data-testid="trend"><span style="font-weight:700">${name}</span><button data-testid="caret" aria-haspopup="menu" aria-expanded="false">${name}</button></div>`,
+    )
+    .join("");
+  const a = document.querySelector("button")!;
+  let opens = 0;
+  let layer: HTMLElement | undefined;
+  a.addEventListener("click", () => {
+    if (++opens === 1)
+      setTimeout(() => {
+        layer = drawMenu(a, { "A row": () => {} });
+      }, 2300);
+    else layer = drawMenu(a, { "User reopened A": () => {} });
+  });
+  inThisPage();
+  try {
+    const reading = xTrendMenu("A");
+    await vi.advanceTimersByTimeAsync(2400);
+    expect(await reading).toBeNull();
+    (layer!.firstElementChild as HTMLElement).click();
+    a.click();
+    const userMenu = layer!;
+    const other = xTrendMenu("B");
+    await vi.runAllTimersAsync();
+    expect(await other).toBeNull();
+    expect(userMenu.isConnected).toBe(true);
   } finally {
     history.replaceState(null, "", path);
     registerXWebview(null);

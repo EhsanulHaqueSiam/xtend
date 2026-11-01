@@ -148,6 +148,8 @@ const SCRIPT = String.raw`
   };
 
   function closeLayers() {
+    for (const caret of document.querySelectorAll('[aria-haspopup="menu"][aria-expanded="true"]'))
+      caret.setAttribute("aria-expanded", "false");
     layers.replaceChildren();
   }
 
@@ -266,6 +268,7 @@ const SCRIPT = String.raw`
     log("menu:" + spec);
     rows = rows ?? (await fetch("/__mock/menu?spec=" + encodeURIComponent(spec)).then(json));
     closeLayers();
+    trigger.setAttribute("aria-expanded", "true");
     const at = trigger.getBoundingClientRect();
     const wrap = document.createElement("div");
     const mask = document.createElement("div");

@@ -340,47 +340,22 @@ const trendMenuAt = (name: string): MenuAt => ({
 const openMenu = (at: MenuAt, mine = "true", press = false) => `
     ${at.find(mine)}
     const trigger = ${at.root}?.querySelector(${JSON.stringify(at.trigger)});
-    if (!trigger || !(${mine})) return null;
-    const previous = new Set(document.querySelectorAll('[role="menu"]'));
-    const openingPath = location.pathname + location.search;
+    if (!trigger || !(${mine}) || expanded(trigger)) return null;
     trigger.click();
-    const findOpened = () => {
-      const controlled = trigger.getAttribute("aria-controls")?.split(" ").map((id) => document.getElementById(id)?.closest('[role="menu"]')).find(Boolean);
-      if (controlled) return controlled;
-      const added = [...document.querySelectorAll('[role="menu"]')].filter((m) => !previous.has(m));
-      return added.length === 1 ? added[0] : null;
-    };
-    let opened = findOpened();
-    // Even a cancelled read can close its own dropdown; a newer menu has a different reference.
-    const closeMenu = () => {
-      if (!opened?.isConnected) return;
-      [...(opened.parentElement?.children ?? [])].find((k) => k !== opened && k.getBoundingClientRect().height > 0)?.click();
-    };
-    let items = [], interrupted = false;
+    clickedCarets.add(trigger);
+    // A later click, including the user reopening this caret, is a different opening.
+    trigger.addEventListener("click", () => clickedCarets.delete(trigger), { once: true });
+    let opened = ${mine} ? menuFor(trigger) : null;
+    const closeMenu = () => closeOwnedMenu(trigger, opened);
+    let items = [];
     for (let i = 0; i < 20 && items.length === 0; i++) {
       await new Promise((r) => setTimeout(r, 100));
-      interrupted ||= !(${mine}) || ${press && at.trend ? "(!opened && request !== window.__xtendMenuRequest)" : "false"};
-      opened ??= findOpened();
-      // Keep the opening slot until X draws this dropdown, even when its press was superseded.
-      if (interrupted && opened) return (closeMenu(), null);
-      // Retain this menu's labels if X removed it; returning null would ask a read to navigate.
+      if (!(${mine}) || ${press && at.trend ? "(!opened && request !== window.__xtendMenuRequest)" : "false"}) return (closeMenu(), null);
+      opened ??= menuFor(trigger);
+      if (opened && menuFor(trigger) !== opened) return null;
       items = [...(opened?.querySelectorAll('[role="menuitem"]') ?? [])];
     }
-    if (!opened) {
-      // A late dropdown still belongs to this opening. Drain it before another caret can open.
-      const drain = () => {
-        opened ??= findOpened();
-        if (!opened && location.pathname + location.search === openingPath) return;
-        observer.disconnect();
-        closeMenu();
-        if (window.__xtendMenuDrain === drain) delete window.__xtendMenuDrain;
-      };
-      const observer = new MutationObserver(drain);
-      window.__xtendMenuDrain = drain;
-      observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-controls", "role"] });
-      drain();
-    }
-    if (interrupted) return (closeMenu(), null);`;
+    if (!opened) return null;`;
 
 /** What X did when the user pressed one of its menu items. */
 export type XMenuOutcome =
@@ -401,7 +376,7 @@ export type XMenuOutcome =
   /** X opened its own dialog or page (Report, Block, Delete, Send via Chat) at `path`'s page. */
   | { readonly kind: "over"; readonly path: string };
 
-/** Only one caret can be awaiting X's dropdown, so an asynchronous mount has one owner. */
+/** Serializes menu steps; X's expanded caret proves ownership even after an earlier timeout. */
 const xMenuRun = (step: string, start = "") =>
   xRun(`(async () => {
     const request = window.__xtendMenuRequest = (window.__xtendMenuRequest ?? 0) + 1;
@@ -412,11 +387,23 @@ const xMenuRun = (step: string, start = "") =>
     ${start}
     if (previousStep) await previousStep;
     try {
-      for (let i = 0; i < 20 && window.__xtendMenuDrain; i++) {
-        window.__xtendMenuDrain();
-        if (window.__xtendMenuDrain) await new Promise((r) => setTimeout(r, 100));
-      }
-      if (window.__xtendMenuDrain) return null;
+      const clickedCarets = window.__xtendMenuCarets ??= new WeakSet();
+      const expanded = (caret) => caret?.isConnected && caret.getAttribute("aria-expanded") === "true";
+      const menuFor = (caret) => {
+        if (!clickedCarets.has(caret) || !expanded(caret)) return null;
+        const controlled = caret.getAttribute("aria-controls")?.split(" ").map((id) => document.getElementById(id)?.closest('[role="menu"]')).find(Boolean);
+        if (controlled) return controlled;
+        const menus = document.querySelectorAll('[role="menu"]');
+        return menus.length === 1 ? menus[0] : null;
+      };
+      const closeOwnedMenu = (caret, menu) => {
+        if (!clickedCarets.has(caret) || !menu?.isConnected || menuFor(caret) !== menu) return;
+        clickedCarets.delete(caret);
+        [...(menu.parentElement?.children ?? [])].find((k) => k !== menu && k.getBoundingClientRect().height > 0)?.click();
+      };
+      // A late dropdown can remain after its request timed out. Only our expanded caret owns it.
+      for (const caret of document.querySelectorAll('[aria-expanded="true"]'))
+        if (clickedCarets.has(caret)) closeOwnedMenu(caret, menuFor(caret));
       ${step}
     } finally {
       release();
@@ -472,10 +459,11 @@ const xMenuPressInPlace = (at: MenuAt, label: string, run: number) =>
   xMenuRun(`
     ${openMenu(at, stillMine(run), true)}
     const item = items.find((i) => i.textContent.trim() === ${JSON.stringify(label)});
-    if (!item?.isConnected || !${stillMine(run)}) return (closeMenu(), null);
+    if (!item?.isConnected || !${stillMine(run)} || menuFor(trigger) !== opened) return (closeMenu(), null);
     const path = location.pathname + location.search;
     ${at.trend ? `const beforeToast = document.querySelector('[data-testid="toast"]'); window.__xtendTrendFeedback = { run: ${run}, toast: beforeToast, text: beforeToast?.textContent };` : ""}
     item.click();
+    if (!expanded(trigger)) clickedCarets.delete(trigger);
     await new Promise((r) => setTimeout(r, 800));
     // A confirm sheet (Block, Mute this conversation, Delete) or a page (Report, post activity).
     if (${stillMine(run)} && (location.pathname + location.search !== path || document.querySelector('[role="dialog"], [role="alertdialog"]')))
@@ -901,7 +889,7 @@ export const xSortReplies = (
     ? xMenuRun(`
     ${openMenu(sortMenuAt(post.postId, labels))}
     const item = items.find((i) => i.textContent.trim() === ${JSON.stringify(pick.label)});
-    if (!item) return (closeMenu(), false);
+    if (!item || menuFor(trigger) !== opened) return (closeMenu(), false);
     item.click();
     // X puts the order in its URL a moment later; the route's own move waits for it, or it races X.
     const took = () => new URLSearchParams(location.search).get("sort_replies") === ${JSON.stringify(pick.param)};
