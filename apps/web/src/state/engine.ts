@@ -531,14 +531,18 @@ function mergeInto(state: EngineState, batch: EngineBatch, surface: AnySurface):
   const freshPosts = fresh.filter((id) => posts.has(id));
   const top = list.map((id) => posts.get(id)).find((p) => p !== undefined);
   const again = top !== undefined && (page === "top" || page === "first");
+  const waitingNow = new Set(at(state.waiting, surface));
   const newer =
     // A thread's newer replies join it at once, as X shows them.
     surface !== "post" &&
     !surface.startsWith("post:") &&
     top !== undefined &&
-    freshPosts.length > 0 &&
-    (again ||
-      (page === "unknown" && freshPosts.every((id) => posts.get(id)!.createdAt > top.createdAt)));
+    ((freshPosts.length > 0 &&
+      (again ||
+        (page === "unknown" &&
+          freshPosts.every((id) => posts.get(id)!.createdAt > top.createdAt)))) ||
+      // X's top again around posts still behind the pill: a module it adds waits with them.
+      (again && fresh.length > 0 && order.some((id) => waitingNow.has(id))));
 
   // People, trends and notifications: a first page replaces, a newer page goes on top.
   const userIds = batch.people;

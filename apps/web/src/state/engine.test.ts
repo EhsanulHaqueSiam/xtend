@@ -184,8 +184,17 @@ it("keeps X's Who to follow among the posts across pages and the pill", () => {
     ["1", "wtf-a", "2", "wtf-b", "3"],
     ["4", "wtf-c"],
   ]);
+  // The same top again with one more module, while the pill waits: it waits too, in X's order.
+  state = mergeBatch(
+    state,
+    batch("HomeTimeline", [post("4", hour(4)), post("1", hour(3))], {
+      order: ["4", "wtf-c", "wtf-f", "1"],
+      modules: [wtf("wtf-c"), wtf("wtf-f")],
+    }),
+  );
+  expect(state.lists.forYou).toEqual(["1", "wtf-a", "2", "wtf-b", "3"]);
   state = showWaiting(state, "forYou");
-  expect(state.lists.forYou).toEqual(["4", "wtf-c", "1", "wtf-a", "2", "wtf-b", "3"]);
+  expect(state.lists.forYou).toEqual(["4", "wtf-c", "wtf-f", "1", "wtf-a", "2", "wtf-b", "3"]);
   // Again with no new post: its module shows where X put it, not at the end and not dropped.
   state = mergeBatch(
     state,
@@ -195,7 +204,7 @@ it("keeps X's Who to follow among the posts across pages and the pill", () => {
     }),
   );
   expect([state.lists.forYou, state.waiting.forYou]).toEqual([
-    ["wtf-d", "4", "wtf-c", "1", "wtf-e", "wtf-a", "2", "wtf-b", "3"],
+    ["wtf-d", "4", "wtf-c", "wtf-f", "1", "wtf-e", "wtf-a", "2", "wtf-b", "3"],
     [],
   ]);
 });
