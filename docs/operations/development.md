@@ -42,7 +42,10 @@ pnpm dev:x-session status                  # saved, here, and every other checko
 
 The copy lives in `~/.xtend-dev/x-session` (owner-only, never `~/.xtend`) without Chromium's
 caches, a few MB. `pnpm dev:desktop` and the Setup Worktree action copy it into a signed-out
-profile on their own; `use` refuses while this checkout's dev desktop holds the profile. It is
+(or expired) profile on their own. `pnpm dev:desktop` will not launch on, and nothing copies
+into, a profile that is inside `~/.xtend` or the installed app's profile by any path or case,
+reached through a symlink, or held by a running desktop; when `ps` cannot confirm who holds a
+profile's lock, it counts as held. It is
 account 1's partition, which is what a dev home starts with. The installed app's profile is
 `~/Library/Application Support/Xtend` on macOS and `~/.config/Xtend` on Linux.
 

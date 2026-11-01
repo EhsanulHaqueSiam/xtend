@@ -54,30 +54,52 @@ export interface ProcessInfo {
   readonly command: string;
 }
 
-/** A running process's start time and command line from `ps`; undefined when the PID is gone. */
-export const processInfo = (pid: number): ProcessInfo | undefined => {
+/**
+ * A process's start time and command line from `ps`: "gone" when the PID exists no more,
+ * "unreadable" when `ps` failed or printed something this cannot parse.
+ */
+export const processInfo = (pid: number): ProcessInfo | "gone" | "unreadable" => {
+  try {
+    process.kill(pid, 0);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") return "gone";
+  }
+  // lstart is only English, "Sun Nov  1 14:10:01 2026", in the C locale.
   const ps = NodeChildProcess.spawnSync("ps", ["-o", "lstart=,command=", "-p", String(pid)], {
     encoding: "utf8",
+    env: { ...process.env, LC_ALL: "C", LANG: "C" },
   });
-  const line = ps.status === 0 ? ps.stdout.trim() : "";
-  if (line === "") return undefined;
-  // lstart is 24 characters of local time on macOS and Linux: "Sun Nov  1 14:10:01 2026".
-  return { start: new Date(line.slice(0, 24)).getTime(), command: line.slice(24).trim() };
+  return parsePs(ps.status === 0 ? ps.stdout : "");
+};
+
+/** One `ps -o lstart=,command=` line, or "unreadable". */
+export const parsePs = (output: string): ProcessInfo | "unreadable" => {
+  const match = /^\s*([A-Z][a-z]{2} [A-Z][a-z]{2} [ \d]\d \d\d:\d\d:\d\d \d{4})\s+(\S.*)$/.exec(
+    output.trim(),
+  );
+  const start = match === null ? Number.NaN : new Date(match[1]!).getTime();
+  return Number.isNaN(start) ? "unreadable" : { start, command: match![2]! };
 };
 
 /** How each kind of record's process shows in `ps`. */
-export const COMMANDS = { dev: /dev-runner\.ts/, desktop: /electron|xtend/i } as const;
+export const COMMANDS = {
+  dev: /dev-runner\.ts/,
+  desktop: /electron|xtend/i,
+  copy: /dev-x-session\.ts|dev-runner\.ts|setup-worktree\.ts/,
+} as const;
 
 /**
  * Whether a recorded PID is still the process that wrote the record: running `command`, and
  * started shortly before `recordedAt`. After a crash the PID can belong to a stranger: stale.
+ * Unknown when `ps` could not say; callers guarding a write treat that as held.
  */
 export function verdict(
-  info: ProcessInfo | undefined,
+  info: ProcessInfo | "gone" | "unreadable",
   recordedAt: number,
   command: RegExp,
-): "alive" | "dead" | "stale" {
-  if (info === undefined) return "dead";
+): "alive" | "dead" | "stale" | "unknown" {
+  if (info === "gone") return "dead";
+  if (info === "unreadable") return "unknown";
   const started = info.start <= recordedAt + 2_000 && info.start >= recordedAt - 120_000;
   return started && command.test(info.command) ? "alive" : "stale";
 }
@@ -113,7 +135,7 @@ const uptime = (startedAt: string | undefined, now: number) => {
 /** One row per recorded process. A record without a PID predates this script and stays unknown. */
 export function rows(
   checkouts: ReadonlyArray<string>,
-  info: (pid: number) => ProcessInfo | undefined,
+  info: (pid: number) => ReturnType<typeof processInfo>,
   now: number,
 ): Array<Row> {
   const state = (
@@ -178,6 +200,10 @@ if (import.meta.main) {
   const widths = table[0]!.map((_, i) => Math.max(...table.map((row) => row[i]!.length)));
   if (found.length > 0)
     for (const row of table) console.log(row.map((cell, i) => cell.padEnd(widths[i]!)).join("  "));
+  if (found.some((r) => r.state === "unknown"))
+    console.log(
+      "unknown: no PID recorded (an older run) or `ps` could not say which process it is.",
+    );
   if (found.some((r) => r.state === "dead"))
     console.log("dead: the process crashed or was killed; its record is left over and harmless.");
   if (found.some((r) => r.state === "stale"))

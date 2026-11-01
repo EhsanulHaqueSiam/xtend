@@ -13,14 +13,7 @@ import * as NodeSqlite from "node:sqlite";
 import * as NodeUtil from "node:util";
 
 import { refuseLiveHome } from "../apps/server/scripts/devData.ts";
-import {
-  COMMANDS,
-  processInfo,
-  readDevRecord,
-  verdict,
-  worktrees,
-  type ProcessInfo,
-} from "./dev-ps.ts";
+import { COMMANDS, processInfo, readDevRecord, verdict, worktrees } from "./dev-ps.ts";
 
 /** The shared copy: outside every checkout, and never ~/.xtend. */
 export const SAVED = NodePath.join(NodeOS.homedir(), ".xtend-dev", "x-session");
@@ -49,11 +42,12 @@ export const partitionOf = (userData: string) => NodePath.join(userData, PARTITI
 /**
  * The PID holding a Chromium profile, from the SingletonLock symlink ("<host>-<pid>") Electron
  * makes in user data at start. A PID that is gone, or reused by a process that is not Electron
- * or started after the lock, holds nothing: the lock was left by a crash.
+ * or started after the lock, holds nothing: the lock was left by a crash. When `ps` cannot say,
+ * the profile counts as held.
  */
 export const profileHolder = (
   userData: string,
-  info: (pid: number) => ProcessInfo | undefined = processInfo,
+  info: (pid: number) => ReturnType<typeof processInfo> = processInfo,
 ) => {
   const lock = NodePath.join(userData, "SingletonLock");
   let target: string;
@@ -64,29 +58,47 @@ export const profileHolder = (
   }
   const pid = Number(target.slice(target.lastIndexOf("-") + 1));
   if (!Number.isInteger(pid)) return undefined;
-  return verdict(info(pid), NodeFS.lstatSync(lock).mtimeMs, COMMANDS.desktop) === "alive"
-    ? pid
-    : undefined;
+  const state = verdict(info(pid), NodeFS.lstatSync(lock).mtimeMs, COMMANDS.desktop);
+  return state === "alive" || state === "unknown" ? pid : undefined;
 };
 
-/** `path` with its nearest existing ancestor resolved, so a symlink anywhere above shows. */
-const real = (path: string): string => {
+/** `path` through its nearest existing ancestor's canonical path: real case, no symlinks. */
+const canonical = (path: string): string => {
   const resolved = NodePath.resolve(path);
   if (NodeFS.lstatSync(resolved, { throwIfNoEntry: false }) !== undefined)
-    return NodeFS.realpathSync(resolved);
+    return NodeFS.realpathSync.native(resolved);
   const parent = NodePath.dirname(resolved);
-  return parent === resolved ? resolved : NodePath.join(real(parent), NodePath.basename(resolved));
+  return parent === resolved
+    ? resolved
+    : NodePath.join(canonical(parent), NodePath.basename(resolved));
 };
 
-const within = (path: string, dir: string) =>
-  path === dir || path.startsWith(`${dir}${NodePath.sep}`);
+/**
+ * Whether `path` is `dir` or under it. By identity: some existing ancestor of `path` is `dir`'s
+ * inode, whatever case or link spells either. A `dir` that does not exist yet is compared by
+ * canonical path, case-folded where the filesystem may ignore case.
+ */
+export function inside(path: string, dir: string): boolean {
+  const target = NodeFS.statSync(dir, { throwIfNoEntry: false });
+  if (target !== undefined) {
+    for (let at = canonical(path); ; at = NodePath.dirname(at)) {
+      const here = NodeFS.statSync(at, { throwIfNoEntry: false });
+      if (here !== undefined && here.dev === target.dev && here.ino === target.ino) return true;
+      if (NodePath.dirname(at) === at) return false;
+    }
+  }
+  const fold = (p: string) =>
+    process.platform === "darwin" || process.platform === "win32" ? p.toLowerCase() : p;
+  const [a, b] = [fold(canonical(path)), fold(canonical(dir))];
+  return a === b || a.startsWith(`${b}${NodePath.sep}`);
+}
 
 /** Profiles no copy may land in, by any path: the live install and the installed app's. */
 const PROTECTED = () => [NodePath.join(NodeOS.homedir(), ".xtend"), installedProfile()];
 
 /**
  * Throws unless `target` may be replaced: no step of `chain` (the directories this script makes
- * or replaces, down to `target`) is a symlink, and `target` resolves outside every protected dir.
+ * or replaces, down to `target`) is a symlink, and `target` is outside every protected dir.
  */
 export function refuseDestination(
   target: string,
@@ -96,9 +108,20 @@ export function refuseDestination(
   for (const step of [...chain, target])
     if (NodeFS.lstatSync(step, { throwIfNoEntry: false })?.isSymbolicLink())
       throw new Error(`${step} is a symlink; refusing to write through it.`);
-  const resolved = real(target);
-  const hit = protectedDirs.find((dir) => within(resolved, real(dir)));
+  const hit = protectedDirs.find((dir) => inside(target, dir));
   if (hit !== undefined) throw new Error(`${target} is inside ${hit}; refusing to write there.`);
+}
+
+/**
+ * Throws unless a dev desktop may run on, and be signed in into, `userData`: not protected, not
+ * reached through a symlink, not held by another desktop. `pnpm dev:desktop` checks it before
+ * launching, `useSaved` before copying.
+ */
+export function refuseProfile(userData: string) {
+  refuseDestination(partitionOf(userData), [userData, NodePath.join(userData, "Partitions")]);
+  const holder = profileHolder(userData);
+  if (holder !== undefined)
+    throw new Error(`a desktop (PID ${holder}) holds ${userData}; quit it first.`);
 }
 
 /** Every symlink under `dir`: a copy must hold files of its own, not links back to a live profile. */
@@ -108,9 +131,49 @@ const links = (dir: string): Array<string> =>
     .map((entry) => NodePath.join(entry.parentPath, entry.name));
 
 /**
- * Copies a partition without its caches into a staging dir beside `to`, refuses any symlink in
- * the copy, runs `accept` on it, and only then swaps it in. A failure at any step leaves `to` as
- * it was.
+ * Holds `<to>.lock` (created exclusively) while `run` replaces `to`, so two copies never mix.
+ * A lock whose PID is gone or reused is taken over; one `ps` cannot place is respected.
+ */
+function withLock<T>(to: string, run: () => T): T {
+  const lock = `${to}.lock`;
+  const take = () => {
+    try {
+      NodeFS.writeFileSync(lock, JSON.stringify({ pid: process.pid, at: Date.now() }), {
+        flag: "wx",
+      });
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      return false;
+    }
+  };
+  if (!take()) {
+    let held: { pid?: unknown; at?: unknown } = {};
+    try {
+      held = JSON.parse(NodeFS.readFileSync(lock, "utf8")) as typeof held;
+    } catch {
+      // Half written by a copy that died at once: as stale as an empty lock.
+    }
+    const state =
+      typeof held.pid === "number" && typeof held.at === "number"
+        ? verdict(processInfo(held.pid), held.at, COMMANDS.copy)
+        : "dead";
+    if ((state !== "dead" && state !== "stale") || held.pid === process.pid)
+      throw new Error(`another copy (PID ${String(held.pid)}) is writing ${to}; try again.`);
+    NodeFS.rmSync(lock, { force: true });
+    if (!take()) throw new Error(`another copy took ${lock} first; try again.`);
+  }
+  try {
+    return run();
+  } finally {
+    NodeFS.rmSync(lock, { force: true });
+  }
+}
+
+/**
+ * Copies a partition without its caches into a staging dir of its own beside `to`, refuses any
+ * symlink in the copy, runs `accept` on it, and only then swaps it in, one copy per `to` at a
+ * time. A failure at any step leaves `to` as it was.
  */
 export function copyPartition(
   from: string,
@@ -120,43 +183,43 @@ export function copyPartition(
   const source = NodeFS.realpathSync(from);
   if (!NodeFS.existsSync(NodePath.join(source, "Cookies")))
     throw new Error(`${from} has no Cookies file; is it an x.com partition?`);
-  const staging = `${to}.copying`;
-  const old = `${to}.old`;
-  NodeFS.rmSync(staging, { recursive: true, force: true });
   NodeFS.mkdirSync(NodePath.dirname(to), { recursive: true, mode: 0o700 });
-  try {
-    NodeFS.cpSync(source, staging, {
-      recursive: true,
-      verbatimSymlinks: true,
-      filter: (entry) => !CACHES.has(NodePath.basename(entry)),
-    });
-    const found = links(staging);
-    if (found.length > 0)
-      throw new Error(
-        `${from} holds symlinks (${found.map((l) => NodePath.relative(staging, l)).join(", ")}); copy a profile of real files.`,
-      );
-    accept(staging);
-  } catch (error) {
-    NodeFS.rmSync(staging, { recursive: true, force: true });
-    throw error;
-  }
-  NodeFS.rmSync(old, { recursive: true, force: true });
-  if (NodeFS.existsSync(to)) NodeFS.renameSync(to, old);
-  NodeFS.renameSync(staging, to);
-  NodeFS.rmSync(old, { recursive: true, force: true });
+  withLock(to, () => {
+    const staging = NodeFS.mkdtempSync(`${to}.copying-`);
+    try {
+      NodeFS.cpSync(source, staging, {
+        recursive: true,
+        verbatimSymlinks: true,
+        filter: (entry) => !CACHES.has(NodePath.basename(entry)),
+      });
+      const found = links(staging);
+      if (found.length > 0)
+        throw new Error(
+          `${from} holds symlinks (${found.map((l) => NodePath.relative(staging, l)).join(", ")}); copy a profile of real files.`,
+        );
+      accept(staging);
+      const old = `${staging}.old`;
+      const had = NodeFS.existsSync(to);
+      if (had) NodeFS.renameSync(to, old);
+      try {
+        NodeFS.renameSync(staging, to);
+      } catch (error) {
+        if (had) NodeFS.renameSync(old, to);
+        throw error;
+      }
+      NodeFS.rmSync(old, { recursive: true, force: true });
+    } finally {
+      NodeFS.rmSync(staging, { recursive: true, force: true });
+    }
+  });
 }
 
 /**
  * Copies the saved session into a dev desktop's profile, for `use`, `pnpm dev:desktop` and
- * worktree setup alike. Throws before touching anything when the profile is protected, reached
- * through a symlink, or held by a running desktop.
+ * worktree setup alike. Throws before touching anything when `refuseProfile` does.
  */
 export function useSaved(userData: string) {
-  const partitions = NodePath.join(userData, "Partitions");
-  refuseDestination(partitionOf(userData), [userData, partitions]);
-  const holder = profileHolder(userData);
-  if (holder !== undefined)
-    throw new Error(`a desktop (PID ${holder}) holds ${userData}; quit it first.`);
+  refuseProfile(userData);
   copyPartition(SAVED, partitionOf(userData));
   return partitionOf(userData);
 }
@@ -186,11 +249,15 @@ export function loginExpiry(partition: string): Date | undefined {
   }
 }
 
+/** A login that still works: an auth_token that expires after `now`. */
+export const signedIn = (partition: string, now = Date.now()) =>
+  (loginExpiry(partition)?.getTime() ?? 0) > now;
+
 const describe = (partition: string) => {
   const expiry = loginExpiry(partition);
-  return expiry === undefined
-    ? "signed out"
-    : `signed in until ${expiry.toISOString().slice(0, 10)}`;
+  if (expiry === undefined) return "signed out";
+  const day = expiry.toISOString().slice(0, 10);
+  return expiry.getTime() > Date.now() ? `signed in until ${day}` : `signed out (expired ${day})`;
 };
 
 /** Where `--from` points: a checkout (its .xtend/electron) or a user data dir itself. */
@@ -243,7 +310,7 @@ if (import.meta.main) {
       refuseDestination(SAVED, [NodePath.dirname(SAVED)]);
       // Validates the copy, never the source: an installed app's profile is only read.
       copyPartition(partitionOf(from), SAVED, (staging) => {
-        if (loginExpiry(staging) === undefined)
+        if (!signedIn(staging))
           throw new Error(`${from} is signed out of X; the saved session is unchanged.`);
       });
     } catch (error) {

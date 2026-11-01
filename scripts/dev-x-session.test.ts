@@ -7,10 +7,12 @@ import { expect, it } from "vite-plus/test";
 
 import {
   copyPartition,
+  inside,
   installedProfile,
   loginExpiry,
   profileHolder,
   refuseDestination,
+  signedIn,
 } from "./dev-x-session.ts";
 
 const temp = () =>
@@ -28,11 +30,11 @@ const partition = (dir: string, cookies: ReadonlyArray<{ name: string; expires: 
 };
 // 2027-01-01T00:00:00Z in Chromium's microseconds since 1601.
 const JAN_2027 = (BigInt(Date.UTC(2027, 0, 1)) + 11_644_473_600_000n) * 1000n;
-const signedIn = (dir: string) => partition(dir, [{ name: "auth_token", expires: JAN_2027 }]);
+const signedIn_ = (dir: string) => partition(dir, [{ name: "auth_token", expires: JAN_2027 }]);
 
 it("copies a partition without Chromium's caches, replacing the target only once complete", () => {
   const dir = temp();
-  const from = signedIn(NodePath.join(dir, "from"));
+  const from = signedIn_(NodePath.join(dir, "from"));
   for (const cache of ["Cache", "Code Cache", "GPUCache", "Service Worker"])
     NodeFS.mkdirSync(NodePath.join(from, cache, "deep"), { recursive: true });
   NodeFS.mkdirSync(NodePath.join(from, "Local Storage", "leveldb"), { recursive: true });
@@ -51,13 +53,38 @@ it("copies a partition without Chromium's caches, replacing the target only once
     }),
   ).toThrow("signed out");
   expect(loginExpiry(to)).toBeDefined();
+  // No staging, backup or lock is left beside it.
   expect(NodeFS.readdirSync(NodePath.dirname(to))).toEqual(["x-session"]);
+});
+
+it("lets one copy at a time replace a partition, taking over a lock its owner left behind", () => {
+  const dir = temp();
+  const from = signedIn_(NodePath.join(dir, "from"));
+  const to = NodePath.join(dir, "to", "x-session");
+  NodeFS.mkdirSync(NodePath.dirname(to));
+  // A live copy (this process stands in for it) holds the lock: nothing is written.
+  NodeFS.writeFileSync(`${to}.lock`, JSON.stringify({ pid: process.pid, at: 0 }));
+  expect(() => copyPartition(from, to)).toThrow("another copy");
+  expect(NodeFS.existsSync(to)).toBe(false);
+  // Its PID is gone: the lock is stale and the copy goes ahead.
+  NodeFS.writeFileSync(`${to}.lock`, JSON.stringify({ pid: 999_999, at: 0 }));
+  copyPartition(from, to);
+  expect(loginExpiry(to)).toBeDefined();
+  expect(NodeFS.existsSync(`${to}.lock`)).toBe(false);
+});
+
+it("counts only a login that has not expired", () => {
+  const dir = temp();
+  const partition = signedIn_(NodePath.join(dir, "p"));
+  expect(signedIn(partition, Date.UTC(2026, 10, 1))).toBe(true);
+  expect(signedIn(partition, Date.UTC(2027, 0, 2))).toBe(false);
+  expect(signedIn(NodePath.join(dir, "missing"), 0)).toBe(false);
 });
 
 it("refuses a source holding symlinks, so a copy never writes through to a live profile", () => {
   const dir = temp();
-  const live = signedIn(NodePath.join(dir, "live"));
-  const from = signedIn(NodePath.join(dir, "from"));
+  const live = signedIn_(NodePath.join(dir, "live"));
+  const from = signedIn_(NodePath.join(dir, "from"));
   NodeFS.symlinkSync(NodePath.join(live, "Cookies"), NodePath.join(from, "Cookies-journal"));
   NodeFS.mkdirSync(NodePath.join(from, "Local Storage"));
   NodeFS.symlinkSync(live, NodePath.join(from, "Local Storage", "leveldb"));
@@ -84,6 +111,13 @@ it("refuses a destination reached through a symlink or inside a protected profil
   expect(() => refuseDestination(target(userData), chain(userData), [installed])).toThrow(
     "symlink",
   );
+  // A case alias of the protected dir, existing or not below it, is the same dir where the
+  // filesystem ignores case (macOS by default) and a different one where it does not.
+  const alias = installed.replace("Xtend", "XTEND");
+  const caseless = NodeFS.existsSync(alias);
+  expect(inside(NodePath.join(alias, "Partitions", "x-session"), installed)).toBe(caseless);
+  expect(inside(NodePath.join(alias, "new", "deep"), installed)).toBe(caseless);
+  expect(inside(NodePath.join(dir, "checkout"), installed)).toBe(false);
   // A symlink above the chain still resolves into the protected dir.
   const above = NodePath.join(dir, "above");
   NodeFS.symlinkSync(installed, above);
@@ -96,8 +130,10 @@ it("finds the desktop holding a profile from its SingletonLock, not a stranger w
   const locked = NodeFS.lstatSync(NodePath.join(dir, "SingletonLock")).mtimeMs;
   const electron = "/x/Electron.app/Contents/MacOS/Electron /x/apps/desktop";
   expect(profileHolder(dir, () => ({ start: locked - 1_000, command: electron }))).toBe(4242);
+  // `ps` could not say: held, so nothing writes over a profile that may be live.
+  expect(profileHolder(dir, () => "unreadable")).toBe(4242);
   // A crash left the lock: the PID is gone, or reused by another program or a later process.
-  expect(profileHolder(dir, () => undefined)).toBe(undefined);
+  expect(profileHolder(dir, () => "gone")).toBe(undefined);
   expect(profileHolder(dir, () => ({ start: locked - 1_000, command: "/usr/bin/vim" }))).toBe(
     undefined,
   );

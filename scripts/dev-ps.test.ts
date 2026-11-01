@@ -4,7 +4,7 @@ import * as NodePath from "node:path";
 
 import { expect, it } from "vite-plus/test";
 
-import { desktopRecordFile, devRecordFile, rows } from "./dev-ps.ts";
+import { desktopRecordFile, devRecordFile, parsePs, rows } from "./dev-ps.ts";
 
 const checkout = (records: { dev?: object; desktop?: object }) => {
   const dir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "xtend-ps-"));
@@ -56,7 +56,7 @@ it("lists each checkout's dev run and desktop with ports, DevTools port, uptime 
     [14, { start: Date.parse("2026-11-01T11:30:00Z"), command: "/usr/bin/vim" }],
   ]);
 
-  expect(rows([a, b, empty, c], (pid) => ps.get(pid), now)).toEqual([
+  expect(rows([a, b, empty, c], (pid) => ps.get(pid) ?? "gone", now)).toEqual([
     {
       checkout: a,
       kind: "dev",
@@ -95,4 +95,14 @@ it("lists each checkout's dev run and desktop with ports, DevTools port, uptime 
       state: "stale",
     },
   ]);
+});
+
+it("reads ps's C-locale start time and refuses to guess at any other", () => {
+  expect(parsePs("Sun Nov  1 14:10:01 2026     node scripts/dev-runner.ts dev\n")).toEqual({
+    start: new Date("Sun Nov  1 14:10:01 2026").getTime(),
+    command: "node scripts/dev-runner.ts dev",
+  });
+  // What ps prints under LC_ALL=fr_FR, and nothing at all.
+  expect(parsePs("dim.  1 nov. 14:25:47 2026  node scripts/dev-runner.ts dev")).toBe("unreadable");
+  expect(parsePs("")).toBe("unreadable");
 });

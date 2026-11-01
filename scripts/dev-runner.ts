@@ -16,7 +16,14 @@ import * as NodeUtil from "node:util";
 
 import { startFakeTreg } from "../apps/e2e/src/fakeTreg.ts";
 import { refuseLiveHome } from "../apps/server/scripts/devData.ts";
-import { devUserData, loginExpiry, partitionOf, SAVED, useSaved } from "./dev-x-session.ts";
+import {
+  devUserData,
+  partitionOf,
+  refuseProfile,
+  SAVED,
+  signedIn,
+  useSaved,
+} from "./dev-x-session.ts";
 
 const SERVICE_PORT = 4820;
 const WEB_PORT = 5820;
@@ -238,9 +245,15 @@ if (import.meta.main) {
     // Always a profile of this checkout's own: the default one is the installed app's, and its
     // x-session partition is the user's live X login.
     env.XTEND_USER_DATA ??= devUserData(home);
-    const partition = partitionOf(env.XTEND_USER_DATA);
-    // Signed out and nothing holds the profile yet: start from the saved session (dev-x-session.ts).
-    if (loginExpiry(partition) === undefined) {
+    // Before anything runs on it: Electron opens the profile read-write.
+    try {
+      refuseProfile(env.XTEND_USER_DATA);
+    } catch (error) {
+      console.error(`[dev-runner] not launching the dev desktop: ${(error as Error).message}`);
+      process.exit(1);
+    }
+    // Signed out: start from the saved session (dev-x-session.ts).
+    if (!signedIn(partitionOf(env.XTEND_USER_DATA))) {
       if (NodeFS.existsSync(SAVED))
         try {
           useSaved(env.XTEND_USER_DATA);
