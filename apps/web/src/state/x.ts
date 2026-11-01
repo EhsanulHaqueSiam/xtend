@@ -421,6 +421,61 @@ export const xProfileMenuPress = async (
 ) =>
   validHandle(handle) ? pressMenu(profilePage(handle), profileMenuAt(handle), label, over) : null;
 
+/** X's post-notification bell in a profile's header (no test id); its label says what a press does. */
+const BELL =
+  'button[aria-label="Turn on post notifications"], button[aria-label="Turn off post notifications"]';
+
+/**
+ * A script step for `handle`'s profile on X's page: `here()` holds while X shows that profile's
+ * header (its path and its @handle; X can move on mid-script), `bell()` is X's bell there. It waits
+ * for the header, then briefly for the bell, which X draws only for someone the user follows.
+ * `handle` must be a handle.
+ */
+const profileBell = (handle: string) => `
+    const want = ${JSON.stringify(handle.toLowerCase())};
+    const here = () =>
+      location.pathname.split("/")[1]?.toLowerCase() === want &&
+      [...document.querySelectorAll('[data-testid="UserName"] span')].some((s) => s.textContent.trim().toLowerCase() === "@" + want);
+    const bell = () => (here() ? document.querySelector(${JSON.stringify(BELL)}) : null);
+    for (let i = 0; i < 50 && !here(); i++) await new Promise((r) => setTimeout(r, 100));
+    for (let i = 0; i < 15 && here() && !bell(); i++) await new Promise((r) => setTimeout(r, 100));`;
+
+/**
+ * X's bell on `handle`'s profile where the engine shows it: true or false for on or off, null when
+ * X draws none there, "away" when the engine is not (or no longer) on that profile.
+ */
+export const xBell = (handle: string): Promise<boolean | null | "away"> =>
+  validHandle(handle)
+    ? xRun(`(async () => {
+    ${profileBell(handle)}
+    if (!here()) return "away";
+    return bell() ? bell().getAttribute("aria-label").startsWith("Turn off") : "none";
+  })()`).then((on) =>
+        // A read cut short (a reload, no engine) answers null: that is "away", never "no bell".
+        typeof on === "boolean" ? on : on === "none" ? null : "away",
+      )
+    : Promise.resolve("away");
+
+/**
+ * Turns post notifications for `handle` on or off for the user's click, pressing X's own bell on
+ * their profile. It presses only while X still shows that profile. True once X's bell says so.
+ */
+export const xBellPress = async (handle: string, on: boolean) =>
+  validHandle(handle) &&
+  (await onPage(profilePage(handle), () =>
+    xRun(`(async () => {
+    ${profileBell(handle)}
+    if (!bell()) return null;
+    const took = () => bell()?.getAttribute("aria-label").startsWith("Turn off") === ${on};
+    if (took()) return true;
+    bell().click();
+    for (let i = 0; i < 30 && !took(); i++) await new Promise((r) => setTimeout(r, 100));
+    // X flips the bell at once and saves a moment later; leaving before then would cancel it.
+    await new Promise((r) => setTimeout(r, 1000));
+    return took();
+  })()`).then((done) => (typeof done === "boolean" ? done : null)),
+  )) === true;
+
 /**
  * X's reply sort ("Relevant ⌄") in the post's own article, once X has drawn it. `postId` must be
  * digits; `labels` are X's names for the orders.

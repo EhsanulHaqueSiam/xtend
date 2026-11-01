@@ -707,6 +707,28 @@ const benchmarks = [
     },
   ],
   [
+    "Profile bell: shows X's own state for someone you follow (dry)",
+    async () => {
+      // Following holds people the account follows (and what they reposted), so X draws their bell.
+      await go("#/home?feed=following");
+      const handle = await until(() =>
+        store(
+          `(() => { const p = $.lists.following.map((id) => $.posts.get(id)).find((p) => p && $.users.get(p.author.userId)?.youFollow === true); return p?.author.handle; })()`,
+        ),
+      );
+      if (!handle) return false;
+      await go(`#/u/${handle}`);
+      const bell = `[aria-label="Turn on post notifications"], [aria-label="Turn off post notifications"]`;
+      return until(async () => {
+        const ours = await app(
+          `document.querySelector('main [data-x="profile"]')?.querySelector('${bell}')?.getAttribute("aria-label")`,
+        );
+        const xs = await engine(`document.querySelector('${bell}')?.getAttribute("aria-label")`);
+        return typeof ours === "string" && ours === xs && `@${handle}: ${ours}`;
+      });
+    },
+  ],
+  [
     "X's reply, repost, quote and like are reachable on the post (dry)",
     async () => {
       const post = await until(() =>
