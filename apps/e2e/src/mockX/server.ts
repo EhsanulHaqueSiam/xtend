@@ -65,8 +65,8 @@ const readBody = async (req: NodeHttp.IncomingMessage): Promise<Json> => {
 /** Starts mock X on `port` (0 picks one). `close` stops it. */
 export async function startMockX(options: { readonly port?: number } = {}) {
   const state = createMockState();
-  /** Every GraphQL read the page made, by operation, in order. */
-  const reads: Array<string> = [];
+  /** Every GraphQL read the page made, with its variables, in order. */
+  const reads: Array<GraphqlRequest> = [];
   const ops = [...WRITES, ...POSTED];
   const hashes = Object.fromEntries(ops.map((op) => [op, opHash(op)]));
 
@@ -96,14 +96,14 @@ export async function startMockX(options: { readonly port?: number } = {}) {
           typeof body.variables === "object" && body.variables !== null ? body.variables : {}
         ) as Json;
         if (WRITES.has(op)) return json(state.write(op, variables, from));
-        reads.push(op);
+        reads.push({ op, variables });
         return json(state.respond(op, variables));
       }
       let variables: Json = {};
       try {
         variables = JSON.parse(url.searchParams.get("variables") ?? "{}") as Json;
       } catch {}
-      reads.push(op);
+      reads.push({ op, variables });
       return json(state.respond(op, variables));
     }
     const restWrite = /^\/i\/api\/1\.1\/(.+)\.json$/.exec(url.pathname);

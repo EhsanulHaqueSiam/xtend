@@ -329,6 +329,71 @@ test("Search reads X's Top and People tabs for the query", async () => {
   await expect.poll(enginePath).toBe(`/search?q=${encodeURIComponent(q)}&src=typed_query&f=user`);
 });
 
+test("Advanced search writes X's operators, and X's SearchTimeline runs them", async () => {
+  const form = e.app.getByRole("dialog", { name: "Advanced search" });
+  const allWords = () => form.getByLabel("All of these words").inputValue();
+  const fromPalette = async () => {
+    await e.app.keyboard.press("Control+k");
+    await e.app.getByRole("option", { name: "Advanced search", exact: true }).click();
+  };
+  // From the palette over an open search, the form edits that search on its tab; elsewhere it is empty.
+  await go(`/search?q=design&f=latest`);
+  await fromPalette();
+  await expect.poll(allWords).toBe("design");
+  expect(await e.app.evaluate(() => location.hash)).toContain("f=latest");
+  await form.getByRole("button", { name: "Close" }).click();
+  await go("/home?feed=following");
+  await fromPalette();
+  await expect.poll(allWords).toBe("");
+  await form.getByRole("button", { name: "Close" }).click();
+
+  // The box's typed, unsent text is what the form opens with.
+  await go(`/search?q=design&f=top`);
+  await e.app.getByLabel("Search X").fill("design system");
+  await e.app.locator("main").getByRole("button", { name: "Advanced search" }).click();
+  await expect.poll(allWords).toBe("design system");
+  await form.getByLabel("None of these words").fill("crypto");
+  await form.getByLabel("Minimum Likes").fill("10");
+  await form.getByRole("switch", { name: "Replies" }).click();
+  // A date counts once Month, Day and Year are all picked.
+  for (const [list, option] of [
+    ["From month", "March"],
+    ["From day", "7"],
+    ["From year", "2026"],
+  ] as const) {
+    await form.getByRole("combobox", { name: list }).click();
+    await e.app.getByRole("option", { name: option, exact: true }).click();
+  }
+  await form.getByRole("button", { name: "Search" }).click();
+
+  const q = "design system -crypto min_faves:10 since:2026-03-07 -filter:replies";
+  await expect
+    .poll(() => e.mock.reads.filter((r) => r.op === "SearchTimeline").map((r) => r.variables))
+    .toContainEqual(expect.objectContaining({ rawQuery: q, product: "Top" }));
+  await expect
+    .poll(nativeIds)
+    .toEqual(e.mock.state.batchFor("SearchTimeline", { product: "Top", rawQuery: q })!.order);
+  await expect.poll(() => e.app.getByLabel("Search X").inputValue()).toBe(q);
+
+  // The box shows what the form searched even when that is the search already open: cut the box
+  // back, put the same filters back in the form, and the box must say so again.
+  await e.app.getByLabel("Search X").fill("design system");
+  await e.app.locator("main").getByRole("button", { name: "Advanced search" }).click();
+  await form.getByLabel("None of these words").fill("crypto");
+  await form.getByLabel("Minimum Likes").fill("10");
+  await form.getByRole("switch", { name: "Replies" }).click();
+  for (const [list, option] of [
+    ["From month", "March"],
+    ["From day", "7"],
+    ["From year", "2026"],
+  ] as const) {
+    await form.getByRole("combobox", { name: list }).click();
+    await e.app.getByRole("option", { name: option, exact: true }).click();
+  }
+  await form.getByRole("button", { name: "Search" }).click();
+  await expect.poll(() => e.app.getByLabel("Search X").inputValue()).toBe(q);
+});
+
 test("Lists, a List's posts and its members read X's pages", async () => {
   await go("/lists");
   const [list] = e.mock.state.lists().filter((l) => l.owner?.userId === e.mock.state.viewer.userId);

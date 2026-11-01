@@ -13,7 +13,9 @@ you see is exactly what X would show you, free. **For you** and **Following** ar
 J and K move between posts, Enter opens one, L likes, S saves to Library. Like, repost and
 bookmark press X's own buttons; quote opens Compose with the post. Videos play in
 Xtend's player, with fullscreen and picture in picture. Search takes X's operators
-(`from:`, `min_faves:`, `filter:media`).
+(`from:`, `min_faves:`, `filter:media`), or writes them for you: the sliders button beside the
+search box (or **Advanced search** in the command palette) opens X's advanced search form,
+filled from the search you have open.
 
 Replying starts by reading the post: its text, its images and the thread above it. Xtend says
 what it thinks the post is ("Playful hot take") and why; if that is wrong, say what it is
