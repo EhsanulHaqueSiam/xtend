@@ -406,3 +406,28 @@ it("presses X's membership button only for the action the user clicked, and says
     history.replaceState(null, "", start);
   }
 });
+
+it("reads X's new membership label on the Community's own page, before the engine goes back", async () => {
+  const start = location.pathname + location.search;
+  // The Community is not where the engine is (a pinned pane on Messages): X's page is reached
+  // through X's router, pressed there, then left.
+  document.body.innerHTML = `<main>${header("21", "Join")}</main>`;
+  const button = document.querySelector("button")!;
+  button.addEventListener("click", () => (button.textContent = "Joined"));
+  inThisPage(() => "https://x.com/messages");
+  // Back draws the page the user had, as X does: Messages, with no Community header.
+  const back = history.back.bind(history);
+  history.back = () => {
+    history.replaceState(null, "", "/messages");
+    document.body.innerHTML = "<main></main>";
+  };
+  try {
+    expect(await xCommunityJoin("21", "join", () => {})).toEqual({
+      refused: false,
+      label: "Joined",
+    });
+  } finally {
+    history.back = back;
+    history.replaceState(null, "", start);
+  }
+});

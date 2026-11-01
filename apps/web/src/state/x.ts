@@ -577,16 +577,22 @@ export const xCommunityJoin = async (
         ? (done as { readonly over?: string | null; readonly refused?: string })
         : null;
     });
+  // X's button is only on the Community's page: its new label is read there, before onPage
+  // takes the engine back to where the user had it.
+  let label: string | null = null;
   const pressed = await onPage(
     { url: `https://x.com${path}`, path },
     press,
-    (done) => (typeof done.over === "string" ? holdOver(run, done.over, over) : Promise.resolve()),
+    async (done) => {
+      if (typeof done.over === "string") await holdOver(run, done.over, over);
+      const now = await xRun(`${join}()?.textContent.trim() ?? null`);
+      label = typeof now === "string" ? now : null;
+    },
     live,
   );
   if (pressed === null || !live()) return null;
   if (pressed.refused !== undefined) return { refused: true, label: pressed.refused };
-  const label = await xRun(`${join}()?.textContent.trim() ?? null`);
-  return typeof label === "string" ? { refused: false, label } : null;
+  return label === null ? null : { refused: false, label };
 };
 
 /** Presses X's own row `label` of a post's `menu` for the user's click (see `pressMenu`). */
