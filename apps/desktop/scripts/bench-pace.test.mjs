@@ -35,7 +35,10 @@ it("reads every branch's rounds for one account, counting a run that died before
   write("main", "a.json", {
     account: mine,
     startedAt: "2026-11-01T14:00:00Z",
-    runs: [{ startedAt: "2026-11-01T14:01:00Z" }, { startedAt: "2026-11-01T14:07:00Z" }],
+    runs: [
+      { startedAt: "2026-11-01T14:01:00Z", checks: [{ name: "GIF picker" }] },
+      { startedAt: "2026-11-01T14:07:00Z", checks: Array.from({ length: 40 }, () => ({})) },
+    ],
   });
   write("feat-x", "b.json", { account: mine, startedAt: "2026-11-01T14:30:00Z", runs: [] });
   write("feat-x", "c.json", {
@@ -45,11 +48,11 @@ it("reads every branch's rounds for one account, counting a run that died before
   });
   write("feat-x", "broken.json", "{");
   const at = (iso) => Date.parse(iso);
-  // Uncounted rounds (recorded before rounds counted) cost a full round each.
+  // Rounds recorded before rounds counted cost their checks plus the start, at 33 calls a check.
   expect(readSpent(dir, mine).toSorted((x, y) => x.at - y.at)).toEqual([
-    { at: at("2026-11-01T14:01:00Z"), calls: 1400 },
-    { at: at("2026-11-01T14:07:00Z"), calls: 1400 },
-    { at: at("2026-11-01T14:30:00Z"), calls: 1400 },
+    { at: at("2026-11-01T14:01:00Z"), calls: 99 },
+    { at: at("2026-11-01T14:07:00Z"), calls: 1386 },
+    { at: at("2026-11-01T14:30:00Z"), calls: 66 },
   ]);
   // An account the bench could not tell paces against every run.
   expect(readSpent(dir, undefined)).toHaveLength(4);

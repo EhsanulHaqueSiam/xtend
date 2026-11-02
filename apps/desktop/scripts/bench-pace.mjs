@@ -13,9 +13,7 @@ const WINDOW_MS = 15 * MINUTE;
  * allowed (four runs in thirty minutes) without the account seeing a 429.
  */
 export const BUDGET = 2_800;
-/** A round with no count (recorded before rounds counted) is taken as a full one. */
-const UNCOUNTED = 1_400;
-/** What a check costs before any round on the account has counted its calls. */
+/** What a check costs before rounds counted their calls; the start costs about two checks. */
 const PER_CHECK = 33;
 
 /** The account's key in results files: never its handle or raw id. */
@@ -69,8 +67,8 @@ function reports(dir, account) {
 /**
  * Every round's X calls and when they last ran, in the results under `dir`, for `account` (any
  * account when it is undefined: the bench could not tell, so it paces against all of them). A
- * round still going counts what it planned from its start; a run that died before its first round
- * still loaded X.
+ * round still going counts what it planned from its start; one recorded before rounds counted, by
+ * its checks; a run that died before its first round still loaded X.
  */
 export function readSpent(dir, account) {
   return reports(dir, account).flatMap((report) => {
@@ -78,7 +76,10 @@ export function readSpent(dir, account) {
     return rounds
       .map((r) => ({
         at: Date.parse(r.endedAt ?? r.startedAt),
-        calls: r.endedAt === undefined ? Math.max(r.planned ?? UNCOUNTED, r.calls ?? 0) : r.calls,
+        calls:
+          r.endedAt === undefined
+            ? Math.max(r.planned ?? ((r.checks?.length ?? 0) + 2) * PER_CHECK, r.calls ?? 0)
+            : r.calls,
       }))
       .filter((s) => !Number.isNaN(s.at));
   });
