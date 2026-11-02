@@ -2,8 +2,9 @@ import { expect, it } from "vite-plus/test";
 
 import { xtendRoute } from "./RichText";
 
-it("opens x.com posts, profiles, searches, the Follow page and Communities in Xtend's own screens, and everything else outside", () => {
+it("opens x.com posts, Articles, profiles, searches, the Follow page and Communities in Xtend's own screens, and everything else outside", () => {
   expect(xtendRoute("https://x.com/rauchg/status/123?s=20")).toBe("/post/123?h=rauchg");
+  expect(xtendRoute("https://x.com/rauchg/article/124")).toBe("/article/124?h=rauchg");
   expect(xtendRoute("https://twitter.com/levelsio")).toBe("/u/levelsio");
   expect(xtendRoute("https://x.com/search?q=%23buildinpublic")).toBe("/search?q=%23buildinpublic");
   expect(xtendRoute("https://x.com/i/connect_people?show_topics=false")).toBe("/follow");

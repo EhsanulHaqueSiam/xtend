@@ -1,4 +1,6 @@
 import type {
+  EngineArticle,
+  EngineArticleBlock,
   EngineBatch,
   EngineCard,
   EngineCommunity,
@@ -167,6 +169,78 @@ function readUnifiedCard(raw: unknown): EngineCard | null {
     description: null,
     imageUrl: asString(media?.media_url_https) ?? null,
   };
+}
+
+/**
+ * An X Article's body, which X sends only on its reader page: the Draft.js blocks of its
+ * `content_state`, each block's entities resolved to links, the Article's own images (by media id)
+ * and Markdown. An entity of another kind leaves its block's text as it is.
+ */
+function readArticle(tweet: Json): EngineArticle | undefined {
+  const postId = asString(tweet.rest_id);
+  const article = result(record(tweet.article).article_results);
+  const state = record(article.content_state);
+  if (postId === undefined || !X_ID.test(postId) || !Array.isArray(state.blocks)) return undefined;
+  const images = new Map(
+    arr(article.media_entities).flatMap((m) => {
+      const id = asString(record(m).media_id);
+      const info = record(record(m).media_info);
+      const url = asString(info.original_img_url);
+      return id === undefined || url === undefined
+        ? []
+        : [
+            [
+              id,
+              {
+                url,
+                width: asNumber(info.original_img_width),
+                height: asNumber(info.original_img_height),
+              },
+            ] as const,
+          ];
+    }),
+  );
+  // X sends the entity map as a list of `{ key, value }`.
+  const entities = new Map(
+    arr(state.entityMap).flatMap((e) => {
+      const key = record(e).key;
+      return typeof key === "string" || typeof key === "number"
+        ? [[String(key), record(record(e).value)] as const]
+        : [];
+    }),
+  );
+  const span = (r: Json) => ({ offset: asNumber(r.offset), length: asNumber(r.length) });
+  const blocks = state.blocks.filter(isRecord).map((block, i): EngineArticleBlock => {
+    const used = arr(block.entityRanges).flatMap((r) => {
+      const entity = entities.get(String(record(r).key));
+      return entity === undefined ? [] : [{ range: record(r), entity, data: record(entity.data) }];
+    });
+    return {
+      key: asString(block.key) ?? String(i),
+      type: asString(block.type) ?? "unstyled",
+      text: asString(block.text) ?? "",
+      styles: arr(block.inlineStyleRanges).flatMap((r) => {
+        const style = asString(record(r).style);
+        return style === undefined ? [] : [{ ...span(record(r)), style }];
+      }),
+      links: used.flatMap(({ range, entity, data }) => {
+        const url = asString(data.url);
+        return entity.type === "LINK" && url !== undefined && /^https?:\/\//i.test(url)
+          ? [{ ...span(range), url }]
+          : [];
+      }),
+      images: used.flatMap(({ entity, data }) =>
+        entity.type === "MEDIA"
+          ? arr(data.mediaItems).flatMap((i) => images.get(asString(record(i).mediaId) ?? "") ?? [])
+          : [],
+      ),
+      markdown:
+        used.flatMap(({ entity, data }) =>
+          entity.type === "MARKDOWN" ? (asString(data.markdown) ?? []) : [],
+        )[0] ?? null,
+    };
+  });
+  return { postId, blocks };
 }
 
 /** A post's entities as X lists them: a long post's live with its full text in note_tweet. */
@@ -873,6 +947,7 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     if (list !== undefined) lists.push(list);
   }
   const exploreTabs = readExploreTabs(record(body));
+  const articles = walkTweets(body, readArticle);
   return {
     op,
     // The user's Communities, once X answered with the list (empty, when they left the last one).
@@ -905,6 +980,7 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     notifications,
     lists,
     communities: [...communities.values()],
+    ...(articles.length === 0 ? {} : { articles }),
     homeTabs: readHomeTabs(record(body)),
     exploreTabs,
     viewer: op === "Viewer" ? readViewer(result(record(data.viewer).user_results)) : null,

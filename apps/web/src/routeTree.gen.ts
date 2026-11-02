@@ -34,6 +34,7 @@ import { Route as UHandleRouteImport } from './routes/u.$handle'
 import { Route as PostIdRouteImport } from './routes/post.$id'
 import { Route as ListsIdRouteImport } from './routes/lists.$id'
 import { Route as CommunitiesIdRouteImport } from './routes/communities.$id'
+import { Route as ArticleIdRouteImport } from './routes/article.$id'
 import { Route as PostIdAnalyticsRouteImport } from './routes/post.$id_.analytics'
 import { Route as PostIdActivityRouteImport } from './routes/post.$id_.activity'
 import { Route as ListsIdPeopleRouteImport } from './routes/lists.$id_.people'
@@ -163,6 +164,11 @@ const CommunitiesIdRoute = CommunitiesIdRouteImport.update({
   path: '/communities/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ArticleIdRoute = ArticleIdRouteImport.update({
+  id: '/article/$id',
+  path: '/article/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PostIdAnalyticsRoute = PostIdAnalyticsRouteImport.update({
   id: '/post/$id_/analytics',
   path: '/post/$id/analytics',
@@ -199,6 +205,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRoute
   '/today': typeof TodayRoute
   '/x': typeof XRoute
+  '/article/$id': typeof ArticleIdRoute
   '/communities/$id': typeof CommunitiesIdRoute
   '/lists/$id': typeof ListsIdRoute
   '/post/$id': typeof PostIdRoute
@@ -229,6 +236,7 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsRoute
   '/today': typeof TodayRoute
   '/x': typeof XRoute
+  '/article/$id': typeof ArticleIdRoute
   '/communities/$id': typeof CommunitiesIdRoute
   '/lists/$id': typeof ListsIdRoute
   '/post/$id': typeof PostIdRoute
@@ -260,6 +268,7 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRoute
   '/today': typeof TodayRoute
   '/x': typeof XRoute
+  '/article/$id': typeof ArticleIdRoute
   '/communities/$id': typeof CommunitiesIdRoute
   '/lists/$id': typeof ListsIdRoute
   '/post/$id': typeof PostIdRoute
@@ -292,6 +301,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/today'
     | '/x'
+    | '/article/$id'
     | '/communities/$id'
     | '/lists/$id'
     | '/post/$id'
@@ -322,6 +332,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/today'
     | '/x'
+    | '/article/$id'
     | '/communities/$id'
     | '/lists/$id'
     | '/post/$id'
@@ -352,6 +363,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/today'
     | '/x'
+    | '/article/$id'
     | '/communities/$id'
     | '/lists/$id'
     | '/post/$id'
@@ -383,6 +395,7 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRoute
   TodayRoute: typeof TodayRoute
   XRoute: typeof XRoute
+  ArticleIdRoute: typeof ArticleIdRoute
   CommunitiesIdRoute: typeof CommunitiesIdRoute
   ListsIdRoute: typeof ListsIdRoute
   PostIdRoute: typeof PostIdRoute
@@ -571,6 +584,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CommunitiesIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/article/$id': {
+      id: '/article/$id'
+      path: '/article/$id'
+      fullPath: '/article/$id'
+      preLoaderRoute: typeof ArticleIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/post/$id_/analytics': {
       id: '/post/$id_/analytics'
       path: '/post/$id/analytics'
@@ -615,6 +635,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRoute,
   TodayRoute: TodayRoute,
   XRoute: XRoute,
+  ArticleIdRoute: ArticleIdRoute,
   CommunitiesIdRoute: CommunitiesIdRoute,
   ListsIdRoute: ListsIdRoute,
   PostIdRoute: PostIdRoute,

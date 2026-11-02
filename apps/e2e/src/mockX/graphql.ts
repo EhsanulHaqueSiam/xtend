@@ -1,4 +1,5 @@
 import type {
+  EngineArticle,
   EngineBatch,
   EngineCommunity,
   EngineEntities,
@@ -324,6 +325,50 @@ export function encodeTweet(
       })),
     },
   };
+}
+
+/**
+ * An Article's body as X's reader page sends it in the Article's result: Draft.js blocks, one
+ * entity per link, set of images and Markdown, X's entity map as a list, and the images as the
+ * Article's own media.
+ */
+function encodeArticleBody(body: EngineArticle): Json {
+  const entityMap: Array<Json> = [];
+  const media: Array<Json> = [];
+  const entity = (offset: number, length: number, type: string, data: Json) => {
+    entityMap.push({ key: String(entityMap.length), value: { type, mutability: "Mutable", data } });
+    return { offset, length, key: entityMap.length - 1 };
+  };
+  const blocks = body.blocks.map((b) => ({
+    key: b.key,
+    type: b.type,
+    text: b.text,
+    data: {},
+    inlineStyleRanges: b.styles,
+    entityRanges: [
+      ...b.links.map((l) => entity(l.offset, l.length, "LINK", { url: l.url })),
+      ...(b.images.length === 0
+        ? []
+        : [
+            entity(0, 1, "MEDIA", {
+              mediaItems: b.images.map((img) => {
+                const mediaId = String(1_000 + media.length);
+                media.push({
+                  media_id: mediaId,
+                  media_info: {
+                    original_img_url: img.url,
+                    original_img_width: img.width,
+                    original_img_height: img.height,
+                  },
+                });
+                return { mediaId, localMediaId: mediaId, mediaCategory: "DraftTweetImage" };
+              }),
+            }),
+          ]),
+      ...(b.markdown === null ? [] : [entity(0, 1, "MARKDOWN", { markdown: b.markdown })]),
+    ],
+  }));
+  return { content_state: { blocks, entityMap }, media_entities: media };
 }
 
 interface Encoder {
@@ -812,6 +857,30 @@ export function encodeBody(
           },
         },
       };
+    case "TweetResultByRestId": {
+      // X's reader page: the post, its Article's body inside the result its card is read from.
+      const p = batch.posts[0];
+      if (p === undefined) return { data: { tweetResult: {} } };
+      const tweet = encodeTweet(p, users);
+      const body = batch.articles?.find((a) => a.postId === p.postId);
+      const article = (tweet.article as { article_results: { result: Json } } | undefined)
+        ?.article_results.result;
+      return {
+        data: {
+          tweetResult: {
+            result:
+              body === undefined || article === undefined
+                ? tweet
+                : {
+                    ...tweet,
+                    article: {
+                      article_results: { result: { ...article, ...encodeArticleBody(body) } },
+                    },
+                  },
+          },
+        },
+      };
+    }
     case "CommunitiesSearchQuery":
       return {
         data: {
