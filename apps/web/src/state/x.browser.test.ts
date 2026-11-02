@@ -1750,14 +1750,19 @@ it("creates a Radar query through X's own form: the query typed into X's field, 
   }
 });
 
-it("presses X's Delete only on the row that names the query, and shows X's dialog until the user closes it", async () => {
+it("presses X's Delete only on the one row showing exactly the query, and shows X's dialog until the user closes it", async () => {
   using _clock = fakeTimers();
   inThisPage(() => `https://x.com${location.pathname}`);
   const start = location.href;
-  const row = (text: string) =>
-    `<div class="group">${text}<button><svg data-icon="icon-trashcan"></svg></button></div>`;
-  // X draws an older query's tags one by one.
-  document.body.innerHTML = `<main>${row("Bitcoin bitcoin")}${row("Untitled query $GOOGL $AAPL")}</main>`;
+  // X's row: its title, its date, then its query, or an older query's tags one by one.
+  const row = (title: string, ...query: Array<string>) =>
+    `<div class="group"><div>${title}</div><span>Oct 28</span>${query.map((q) => `<span>${q}</span>`).join("")}<button><svg data-icon="icon-trashcan"></svg></button></div>`;
+  document.body.innerHTML = `<main>${[
+    row("bitcoin", "bitcoin min_faves:100"),
+    row("Untitled query", "$GOOGL", "$AAPL"),
+    row("Untitled query", "eth"),
+    row("Untitled query", "eth"),
+  ].join("")}</main>`;
   const pressed: Array<number> = [];
   document.querySelectorAll("main button").forEach((b, i) =>
     b.addEventListener("click", () => {
@@ -1766,13 +1771,16 @@ it("presses X's Delete only on the row that names the query, and shows X's dialo
     }),
   );
   const over: Array<boolean> = [];
+  const show = (shown: boolean) => over.push(shown);
   try {
-    // X's list changed under the screen: its second row is no longer the query asked for.
-    const stale = xRadarDelete("bitcoin", 1, (shown) => over.push(shown));
+    // "bitcoin" is only part of a query, and only a title; "eth" is two rows.
+    const partial = xRadarDelete({ title: "", query: "bitcoin" }, show);
     await vi.runAllTimersAsync();
-    expect([await stale, pressed]).toEqual([false, []]);
+    const twice = xRadarDelete({ title: "", query: "eth" }, show);
+    await vi.runAllTimersAsync();
+    expect([await partial, await twice, pressed]).toEqual([false, false, []]);
 
-    const done = xRadarDelete("$GOOGL OR $AAPL", 1, (shown) => over.push(shown));
+    const done = xRadarDelete({ title: "", query: "$GOOGL OR $AAPL" }, show);
     await vi.advanceTimersByTimeAsync(2_000);
     expect([pressed, over]).toEqual([[1], [true]]);
     // The user answers X's dialog in X.

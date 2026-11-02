@@ -43,7 +43,9 @@ lists your queries as X does, with X's Posts count; open one for its posts by da
 posts for it, which save and remix like any Library post. **New query** types into X's own form
 and submits it there. A query's delete presses X's own Delete, and X asks you to confirm in its
 dialog. Without Premium the section shows X's intro, and **Subscribe to Premium** opens X's
-page. Latest, the time range, renaming and alerts stay on X's Radar page.
+page. On a plan X allows one query, the section shows that query as X does, and **Open on X**
+opens X's Radar page, where X lets you change it. Latest, the time range, renaming and alerts
+stay on X's Radar page.
 
 ## Search
 

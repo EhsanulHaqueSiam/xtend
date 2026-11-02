@@ -1,6 +1,7 @@
 import {
   type EngineBatch,
   type EngineGameTeam,
+  type EngineRadarQuery,
   isXSkinToggle,
   X_SKIN_DEFAULTS,
   type XSkinToggle,
@@ -450,26 +451,34 @@ export const xRadarCreate = async (query: string) => {
 };
 
 /**
- * Deletes a Radar query for the user's click: presses its own Delete on X's list, X's `index`th
- * row there once that row names `query`, and X's confirm dialog shows over the main area (see
- * `holdOver`) for the user to confirm in X. False when X's list showed no such row.
+ * Deletes a Radar query for the user's click: presses its own Delete on X's list, on the one row
+ * that shows exactly this query (and its title, when it has one), and X's confirm dialog shows
+ * over the main area (see `holdOver`) for the user to confirm in X. False when X's list showed no
+ * such row, or more than one.
  */
 export const xRadarDelete = async (
-  query: string,
-  index: number,
+  query: Pick<EngineRadarQuery, "query" | "title">,
   over: (shown: boolean) => void,
 ) => {
   await xGo(RADAR_URL);
   const run = await nextRun();
+  const want = { title: query.title, query: query.query, parts: query.query.split(" OR ") };
   const path = await xRun(`(async () => {
     const wait = () => new Promise((r) => setTimeout(r, 150));
-    const rows = () => (location.pathname === "/i/radar" ? [...document.querySelectorAll('main button:has(svg[data-icon="icon-trashcan"])')] : []);
-    for (let i = 0; i < 40 && rows().length <= ${index} && ${stillMine(run)}; i++) await wait();
-    const button = rows()[${index}];
-    // X draws an older query's tags one by one, without its OR.
-    const named = ${JSON.stringify(query.split(" OR "))}.every((part) => button?.closest(".group")?.textContent.includes(part));
-    if (!button || !named || !${stillMine(run)}) return null;
-    button.click();
+    const want = ${JSON.stringify(want)};
+    const buttons = () => (location.pathname === "/i/radar" ? [...document.querySelectorAll('main button:has(svg[data-icon="icon-trashcan"])')] : []);
+    // X's row draws its title first, then its date and its query, or an older query's tags one by one.
+    const names = (button) => {
+      const [title, ...rest] = [...(button.closest(".group")?.querySelectorAll("*") ?? [])]
+        .filter((el) => el.children.length === 0)
+        .map((el) => el.textContent.trim())
+        .filter((text) => text !== "");
+      return (want.title === "" || title === want.title) && (rest.includes(want.query) || want.parts.every((part) => rest.includes(part)));
+    };
+    for (let i = 0; i < 40 && buttons().length === 0 && ${stillMine(run)}; i++) await wait();
+    const named = buttons().filter(names);
+    if (named.length !== 1 || !${stillMine(run)}) return null;
+    named[0].click();
     for (let i = 0; i < 20; i++) {
       if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return location.pathname + location.search;
       await wait();

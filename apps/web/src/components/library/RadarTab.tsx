@@ -1,12 +1,10 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import type { EngineRadarCount, EngineRadarQuery } from "@xtend/contracts";
-import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { ChevronLeft, Plus, Trash2 } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 
 import { isElectron } from "../../env";
 import { at, engineAtom, postOn, radarSurface, toXPost } from "../../state/engine";
-import { settingsAtom } from "../../state/settings";
 import {
   RADAR_URL,
   xGo,
@@ -23,15 +21,14 @@ import { Button } from "../ui/button";
 import { inputClass } from "../ui/field";
 import { PageBody, Stat } from "../ui/layout";
 import { DetailSplit } from "../ui/split";
-import { toastAtom } from "../ui/toast";
 import { OpenOnX } from "../ui/x-link";
 import { XEmpty } from "../xnative/XRows";
+import { useXPress } from "../xnative/useXPress";
 import { PostGrid } from "./PostCard";
 import { InspectorGroup, PostInspector } from "./PostInspector";
 import { RemixButton, SaveButton, useSavedIds } from "./SaveButton";
 
 const UNTITLED = "Untitled query";
-const SESSION_OFF = "Session actions are off in Settings, X session.";
 const day = (iso: string) =>
   new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 /** X's Posts count: the days it has counted. */
@@ -52,8 +49,7 @@ const HIGHLIGHTS = [
  */
 export function RadarTab() {
   const { radar } = useAtomValue(engineAtom);
-  const settings = AsyncResult.getOrElse(useAtomValue(settingsAtom), () => null);
-  const setToast = useAtomSet(toastAtom);
+  const { blocked, setToast } = useXPress();
   const setOver = useAtomSet(xOverAtom);
   const [open, setOpen] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -62,7 +58,6 @@ export function RadarTab() {
   const single = radar.limit !== null && radar.limit <= 1;
   const shown = open ?? (single ? (radar.list?.[0] ?? null) : null);
   const query = shown === null ? undefined : radar.queries.get(shown);
-  const sessionOff = settings !== null && !settings.sessionPostingEnabled;
 
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- moves the engine (the session view) to X's Radar page for what the section shows, and reads whether X shows its Premium upsell there.
   useEffect(() => {
@@ -77,15 +72,17 @@ export function RadarTab() {
   }, [open, creating]);
 
   const create = async (text: string) => {
-    if (sessionOff) return void setToast({ text: SESSION_OFF });
+    const why = blocked();
+    if (why !== null) return void setToast({ text: why });
     const id = await xRadarCreate(text);
     if (id === null) return void setToast({ text: "X did not take the query. Try again." });
     setCreating(false);
     setOpen(id);
   };
-  const remove = async (q: EngineRadarQuery, index: number) => {
-    if (sessionOff) return void setToast({ text: SESSION_OFF });
-    if (!(await xRadarDelete(q.query, index, setOver)))
+  const remove = async (q: EngineRadarQuery) => {
+    const why = blocked();
+    if (why !== null) return void setToast({ text: why });
+    if (!(await xRadarDelete(q, setOver)))
       setToast({ text: "X did not show that query's Delete. Try again in a moment." });
   };
   const newQuery = single ? null : (
@@ -96,7 +93,8 @@ export function RadarTab() {
   );
 
   if (radar.list === null && upsell) return <RadarIntro />;
-  if (creating || radar.list?.length === 0)
+  // A query X just opened shows even while X's last list had none.
+  if (creating || (radar.list?.length === 0 && open === null))
     return (
       <NewQuery
         full={radar.limit !== null && (radar.list?.length ?? 0) >= radar.limit}
@@ -125,7 +123,8 @@ export function RadarTab() {
         query={query}
         counts={radar.counts.get(query.id) ?? []}
         back={single ? null : () => setOpen(null)}
-        actions={newQuery}
+        // X's page for a one-query plan has no list and no Delete; X's own controls are there.
+        actions={single ? <OpenOnX href={RADAR_URL} /> : newQuery}
       />
     );
   return (
@@ -133,7 +132,7 @@ export function RadarTab() {
       <PageHeader title="Radar" actions={newQuery} />
       <PageBody>
         <ul>
-          {radar.list.flatMap((id, index) => {
+          {radar.list.flatMap((id) => {
             const q = radar.queries.get(id);
             if (q === undefined) return [];
             const counts = radar.counts.get(id);
@@ -173,7 +172,7 @@ export function RadarTab() {
                   size="icon-xs"
                   variant="ghost-destructive"
                   aria-label={`Delete ${q.title || UNTITLED}`}
-                  onClick={() => void remove(q, index)}
+                  onClick={() => void remove(q)}
                 >
                   <Trash2 />
                 </Button>

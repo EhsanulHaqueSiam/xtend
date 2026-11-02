@@ -9,6 +9,7 @@ import { render } from "../../../test/render";
 import { markXReady, registerXWebview, type XWebview } from "../../state/x";
 import { EngineSync } from "../xnative/EngineSync";
 import { synth } from "../xnative/engineFixtures";
+import { Toasts } from "../ui/toast";
 import { RadarTab } from "./RadarTab";
 
 const answer = (op: string, extra: Partial<EngineBatch>): EngineBatch => ({
@@ -150,6 +151,86 @@ it("lists X's queries in X's order, opens one's days and posts, and creates one 
     );
     await expect.element(screen.getByRole("heading", { name: "Untitled query" })).toBeVisible();
     await expect.element(screen.getByText("$NVDA (sell OR buy)")).toBeVisible();
+  } finally {
+    registerXWebview(null);
+  }
+});
+
+/** Renders the section on an engine where X has the account's queries, with session actions on. */
+const premium = (reply: (code: string) => unknown, sessionActions: "on" | "loading" = "on") => {
+  const bridge = installFakeBridge();
+  const scripts = engine((code) => (code.includes("premium_sign_up") ? false : reply(code)));
+  const screen = render(
+    <>
+      <EngineSync />
+      <RadarTab />
+      <Toasts />
+    </>,
+    {
+      service: {
+        ...service,
+        "settings.get": () =>
+          sessionActions === "on"
+            ? Effect.succeed({ ...settings, sessionPostingEnabled: true })
+            : Effect.never,
+      },
+    },
+  );
+  return { bridge, scripts, screen };
+};
+
+it("opens the first query X made from its empty Radar, though X's last list had none", async () => {
+  const { bridge, screen: rendered } = premium((code) =>
+    code.includes("icon-arrow-up") ? "1901" : true,
+  );
+  try {
+    await using screen = await rendered;
+    bridge.emitEngine(answer("insightsListContextQuery", { key: "radar", radarQueries: [] }));
+    await userEvent.fill(screen.getByRole("textbox", { name: "Query" }), "solar");
+    await userEvent.click(screen.getByRole("button", { name: "Create" }));
+    bridge.emitEngine(
+      answer("insightProviderGetQuery", {
+        key: "1901",
+        radarQueries: [query("1901", "", "solar")],
+      }),
+    );
+    await expect.element(screen.getByRole("heading", { name: "Untitled query" })).toBeVisible();
+  } finally {
+    registerXWebview(null);
+  }
+});
+
+it("presses nothing on X while Settings has not said session actions are on", async () => {
+  const { bridge, scripts, screen: rendered } = premium(() => true, "loading");
+  try {
+    await using screen = await rendered;
+    bridge.emitEngine(answer("insightsListContextQuery", { key: "radar", radarQueries: [] }));
+    await userEvent.fill(screen.getByRole("textbox", { name: "Query" }), "solar");
+    await userEvent.click(screen.getByRole("button", { name: "Create" }));
+    await expect
+      .element(screen.getByText("Your settings are still loading. Try again in a moment."))
+      .toBeVisible();
+    expect(scripts.some((s) => s.includes("icon-arrow-up"))).toBe(false);
+  } finally {
+    registerXWebview(null);
+  }
+});
+
+it("shows a one-query plan's query as X does, with X's own Radar page a click away", async () => {
+  const { bridge, screen: rendered } = premium(() => true);
+  try {
+    await using screen = await rendered;
+    bridge.emitEngine(answer("insightsConfigQuery", { radarLimit: 1 }));
+    bridge.emitEngine(
+      answer("insightsListContextQuery", {
+        key: "radar",
+        radarQueries: [query("1902", "Explore X", "solar")],
+      }),
+    );
+    await expect.element(screen.getByRole("heading", { name: "Explore X" })).toBeVisible();
+    await expect
+      .element(screen.getByRole("link", { name: "Open on X" }))
+      .toHaveAttribute("href", "https://x.com/i/radar");
   } finally {
     registerXWebview(null);
   }
