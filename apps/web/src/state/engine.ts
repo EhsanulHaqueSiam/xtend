@@ -260,14 +260,17 @@ const NONE: PerSurface<never> = {
   "communities:mine": [],
 };
 
-/** What a post is on one page only: the line above it there, and its place in a thread there. */
-type PostEntry = Pick<EnginePost, "context" | "conversation">;
+/**
+ * What a post is on one page only: the line above it there, its place in a thread there, and
+ * whether X served it there as an ad.
+ */
+type PostEntry = Pick<EnginePost, "context" | "conversation" | "isPromoted">;
 
 export interface EngineState {
   /** Every post by id, as last sent; read a list's posts with `postOn`. */
   readonly posts: ReadonlyMap<string, EnginePost>;
   /**
-   * Per surface, each listed post's own context and thread place: a repost on Home keeps
+   * Per surface, each listed post's own context, thread place and ad mark: a repost on Home keeps
    * "Theo reposted" after its thread page sent the same post without it.
    */
   readonly entries: Readonly<Partial<Record<AnySurface, ReadonlyMap<string, PostEntry>>>>;
@@ -654,7 +657,12 @@ function mergeInto(state: EngineState, batch: EngineBatch, surface: AnySurface):
   const byId = new Map(batch.posts.map((p) => [p.postId, p]));
   for (const id of order) {
     const p = byId.get(id);
-    if (p !== undefined) entries.set(id, { context: p.context, conversation: p.conversation });
+    if (p !== undefined)
+      entries.set(id, {
+        context: p.context,
+        conversation: p.conversation,
+        isPromoted: p.isPromoted,
+      });
   }
 
   return {
@@ -755,7 +763,7 @@ export const resetSurface = (state: EngineState, surface: AnySurface): EngineSta
   entries: { ...state.entries, [surface]: undefined },
 });
 
-/** A listed post as `surface` shows it: the shared post with that page's context and thread place. */
+/** A listed post as `surface` shows it: the shared post with that page's own `PostEntry`. */
 export const postOn = (
   state: EngineState,
   surface: AnySurface,

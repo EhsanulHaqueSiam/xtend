@@ -498,19 +498,28 @@ it("keeps the signed-in account's id when X's nav names it again without one", (
   });
 });
 
-it("keeps a post's context per page, and lets a thread's newer replies in at once", () => {
+it("keeps a post's context and ad mark per page, and lets a thread's newer replies in at once", () => {
   const reposted = {
     ...post("2", "2026-10-31T00:00:00Z"),
     context: { type: "Retweet", text: "Theo reposted", handle: "theo" },
   };
-  let state = mergeBatch(emptyEngine, batch("HomeLatestTimeline", [reposted]));
-  // The post's own thread page sends the same post with no context.
+  const ad = { ...post("4", "2026-10-31T00:00:00Z"), isPromoted: true };
+  let state = mergeBatch(emptyEngine, batch("HomeLatestTimeline", [reposted, ad]));
+  // The posts' own thread pages send the same posts with no context and no ad mark.
   state = mergeBatch(
     state,
     batch("TweetDetail", [post("2", "2026-10-31T00:00:00Z")], { key: "2", top: "t" }),
   );
+  state = mergeBatch(
+    state,
+    batch("TweetDetail", [post("4", "2026-10-31T00:00:00Z")], { key: "4" }),
+  );
   expect(postOn(state, "following", "2")?.context?.text).toBe("Theo reposted");
   expect(postOn(state, "post:2", "2")?.context).toBeNull();
+  expect([
+    postOn(state, "following", "4")?.isPromoted,
+    postOn(state, "post:4", "4")?.isPromoted,
+  ]).toEqual([true, false]);
   // Refreshing the thread brings a newer reply: it shows, no pill.
   state = mergeBatch(
     state,
