@@ -5,6 +5,7 @@ import type {
   EngineList,
   EngineNotification,
   EnginePost,
+  EnginePrompt,
   EngineTrend,
   EngineUser,
   EngineViewer,
@@ -91,6 +92,9 @@ function encodeUser(u: EngineUser, typed = true): Json {
           ...when(u.affiliate!.url !== null, () => ({ url: { url: u.affiliate!.url } })),
         },
       },
+    })),
+    ...when(u.offersSubscriptions !== undefined, () => ({
+      super_follow_eligible: u.offersSubscriptions,
     })),
   };
 }
@@ -378,6 +382,26 @@ const item = (entryId: string, itemContent: Json) => ({
   content: { entryType: "TimelineTimelineItem", __typename: "TimelineTimelineItem", itemContent },
 });
 
+/** X's prompt in a timeline, as the Subs tab's subscribe prompt; X links its button on twitter.com. */
+const promptItem = (p: EnginePrompt): Json => ({
+  __typename: "TimelineMessagePrompt",
+  itemType: "TimelineMessagePrompt",
+  content: {
+    contentType: "TimelineInlinePrompt",
+    headerText: p.header,
+    bodyText: p.body,
+    ...when(p.button !== null, () => ({
+      primaryButtonAction: {
+        text: p.button!.text,
+        action: {
+          dismissOnClick: false,
+          url: p.button!.url.replace(/^https:\/\/x\.com\//, "https://twitter.com/"),
+        },
+      },
+    })),
+  },
+});
+
 /** A module: X's box of items under one header (or a thread, `VerticalConversation`). */
 const moduleEntry = (
   entryId: string,
@@ -515,6 +539,8 @@ function timelineEntries(batch: EngineBatch, users: ReadonlyMap<string, EngineUs
   const x: Encoder = { users, posts };
   const entries: Array<Json> = [];
   if (batch.top !== null) entries.push(cursorEntry("Top", batch.top));
+  if (batch.prompt !== undefined)
+    entries.push(item(`messageprompt-${batch.key ?? "0"}`, promptItem(batch.prompt)));
 
   const modules = new Map(batch.modules.map((m) => [m.id, m]));
   const listed = batch.order.flatMap((id) => posts.get(id) ?? modules.get(id) ?? []);

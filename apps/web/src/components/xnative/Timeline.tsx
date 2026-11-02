@@ -151,6 +151,7 @@ export function Timeline({
   readonly keepPlace?: boolean;
   /** Sits above the list inside the column, as Home's composer does. */
   readonly top?: ReactNode;
+  /** The wait for X's first posts; null when X answered with something else (a Subs prompt). */
   readonly empty: ReactNode;
   readonly onReopen: () => void;
   /** A full load of the list's x.com page, for ⌘R and F5; `onReopen` when that already is one. */
@@ -242,7 +243,9 @@ export function Timeline({
     >
       {top}
       {items.length === 0 ? (
-        <XEmpty key={surface} empty={empty} onReopen={onReopen} />
+        empty === null ? null : (
+          <XEmpty key={surface} empty={empty} onReopen={onReopen} />
+        )
       ) : (
         <PostList
           surface={surface}

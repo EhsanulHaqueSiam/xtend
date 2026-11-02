@@ -14,6 +14,7 @@ import type {
   EnginePeopleSection,
   EnginePoll,
   EnginePost,
+  EnginePrompt,
   EngineTrend,
   EngineUser,
   EngineViewer,
@@ -419,6 +420,10 @@ function readUser(value: unknown): EngineUser | undefined {
       asString(record(user.verification).verified_type) ?? asString(legacy.verified_type) ?? null,
     avatarShape: asString(user.profile_image_shape) ?? "Circle",
     affiliate: readAffiliate(record(record(user.affiliates_highlighted_label).label)),
+    // X's word that the creator offers Subscriptions, only where this response says it.
+    ...(typeof user.super_follow_eligible === "boolean"
+      ? { offersSubscriptions: user.super_follow_eligible }
+      : {}),
   };
 }
 
@@ -565,6 +570,25 @@ function readSection(entry: Json): EnginePeopleSection | undefined {
   };
 }
 
+/** X's prompt in a timeline (the Subs tab's subscribe prompt): its words and its button. */
+function readPrompt(item: Json): EnginePrompt | undefined {
+  const content = record(item.content);
+  const header = asString(content.headerText);
+  if (header === undefined) return undefined;
+  const action = record(content.primaryButtonAction);
+  const text = asString(action.text);
+  const url = asString(record(action.action).url);
+  return {
+    header,
+    body: asString(content.bodyText) ?? "",
+    // X links there on twitter.com; the engine lives on x.com.
+    button:
+      text === undefined || url === undefined
+        ? null
+        : { text, url: url.replace(/^https:\/\/(www\.)?twitter\.com\//, "https://x.com/") },
+  };
+}
+
 function readHomeTabs(body: Json): ReadonlyArray<EngineHomeTab> | null {
   const pinned = record(record(body.data).pinned_timelines).pinned_timelines;
   if (!Array.isArray(pinned)) return null;
@@ -684,6 +708,7 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
   const notifications: Array<EngineNotification> = [];
   const lists: Array<EngineList> = [];
   const communities = new Map<string, EngineCommunity>();
+  let prompt: EnginePrompt | undefined;
   let top: string | null = null;
   let bottom: string | null = null;
   // Depth first in document order, each node with the header of the module it sits in.
@@ -763,6 +788,8 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
       const community = readCommunity(node);
       if (community !== undefined && !communities.has(community.communityId))
         communities.set(community.communityId, community);
+    } else if (type === "TimelineMessagePrompt") {
+      prompt ??= readPrompt(node);
     } else if (node.cursorType === "Top" || node.cursorType === "Bottom") {
       const value = asString(node.value) ?? null;
       if (node.cursorType === "Top") top ??= value;
@@ -817,6 +844,7 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     homeTabs: readHomeTabs(record(body)),
     exploreTabs,
     viewer: op === "Viewer" ? readViewer(result(record(data.viewer).user_results)) : null,
+    ...(prompt === undefined ? {} : { prompt }),
   };
 }
 
@@ -885,4 +913,5 @@ export const hasEngineContent = (b: EngineBatch) =>
   b.key === "communities:mine" ||
   b.homeTabs !== null ||
   b.exploreTabs !== null ||
-  b.viewer !== null;
+  b.viewer !== null ||
+  b.prompt !== undefined;

@@ -21,6 +21,7 @@ import {
   mergeBatch,
   postOn,
   postSurface,
+  profileSurface,
   resetSurface,
   showWaiting,
   surfacesOf,
@@ -472,6 +473,36 @@ it("keeps notifications in X's order, newer on top, people by surface, and follo
   );
   expect([...state.asked]).toEqual([["5", false]]);
   expect(askFollow(state, "5", null).asked.size).toBe(0);
+
+  // A creator's Subscriptions hold when a later response names them without saying.
+  state = mergeBatch(
+    state,
+    batch("UserByScreenName", [], { users: [{ ...user("5", "theo"), offersSubscriptions: true }] }),
+  );
+  state = mergeBatch(state, batch("Other", [], { users: [user("5", "theo")] }));
+  expect(state.users.get("5")?.offersSubscriptions).toBe(true);
+});
+
+it("keeps X's Subs prompt per profile across X's next page, until X lists posts there", () => {
+  const subs = profileSurface("subs", "50");
+  const prompt = {
+    header: "Unlock more with Subscriptions",
+    body: "@maker has shared 12 Subscriber-only posts.",
+    button: { text: "Subscribe", url: "https://x.com/maker/superfollows/subscribe" },
+  };
+  let state = mergeBatch(emptyEngine, batch("UserSuperFollowTweets", [], { key: "50", prompt }));
+  // X's next page, asked with a cursor, lists nothing more.
+  state = mergeBatch(state, batch("UserSuperFollowTweets", [], { key: "50", cursor: "c-Bottom" }));
+  expect([state.prompts.get(subs), state.prompts.has(profileSurface("subs", "51"))]).toEqual([
+    prompt,
+    false,
+  ]);
+  // Once subscribed, X's first page lists their posts instead.
+  state = mergeBatch(
+    state,
+    batch("UserSuperFollowTweets", [post("9", "2026-11-02T00:00:00.000Z")], { key: "50" }),
+  );
+  expect(state.prompts.has(subs)).toBe(false);
 });
 
 it("keeps the signed-in account's id when X's nav names it again without one", () => {

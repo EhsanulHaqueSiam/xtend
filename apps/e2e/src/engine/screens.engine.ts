@@ -311,6 +311,41 @@ test("A profile renders X's header and posts; its ... rows come from X, its bell
   expect(await enginePath()).toBe(`/${user.handle}`);
 });
 
+test("A creator's profile has X's Reposts and Subs: Reposts reads X's tab, Subs shows X's prompt, and its Subscribe opens X's dialog", async () => {
+  const creator = e.mock.state.user(
+    e.mock.state.fixture("ConnectTabTimeline", "connect:creators")!.people[0]!,
+  )!;
+  await go(`/u/${creator.handle}`);
+  await expect.poll(enginePath).toBe(`/${creator.handle}`);
+  const tabs = () =>
+    e.app.getByRole("tablist", { name: "Profile" }).getByRole("tab").allTextContents();
+  await expect
+    .poll(tabs)
+    .toEqual(["Posts", "Replies", "Reposts", "Subs", "Highlights", "Articles", "Media"]);
+
+  await e.app.getByRole("tab", { name: "Reposts", exact: true }).click();
+  await expect.poll(enginePath).toBe(`/${creator.handle}/reposts`);
+  await expect
+    .poll(nativeIds)
+    .toEqual(e.mock.state.batchFor("UserRepostsTimeline", { userId: creator.userId })!.order);
+
+  await e.app.getByRole("tab", { name: "Subs", exact: true }).click();
+  await expect.poll(enginePath).toBe(`/${creator.handle}/subs`);
+  const prompt = e.mock.state.batchFor("UserSuperFollowTweets", {
+    userId: creator.userId,
+  })!.prompt!;
+  const subs = e.app.locator('main [data-x="subs"]');
+  await expect.poll(() => subs.getByText(prompt.body).isVisible()).toBe(true);
+  // #83's Subscribe: X's own button in place, X's dialog over the main area until it closes.
+  await subs.getByRole("button", { name: "Subscribe", exact: true }).click();
+  await expect.poll(() => engineHas('#layers [role="dialog"]')).toBe(true);
+  await expect.poll(pane).toBe("main");
+  await expect.poll(presses).toEqual(expect.arrayContaining([`press subscribe ${creator.userId}`]));
+  await e.engine(`document.querySelector('#layers [data-testid="app-bar-close"]').click()`);
+  await expect.poll(pane).toBe("hidden");
+  expect(await enginePath()).toBe(`/${creator.handle}/subs`);
+});
+
 test("The Follow page lists X's two tabs with X's buttons, and Follow presses <id>-follow on the engine", async () => {
   await go("/follow");
   const who = e.mock.state.batchFor("ConnectTabTimeline", { context: "{}" })!.people;
