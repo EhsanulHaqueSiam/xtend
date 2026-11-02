@@ -9,6 +9,7 @@ import { settings } from "../../../test/fixtures";
 import { render } from "../../../test/render";
 import { Toasts } from "../ui/toast";
 import { EngineSync } from "./EngineSync";
+import { synth } from "./engineFixtures";
 import { markXReady, registerXWebview, type XWebview } from "../../state/x";
 import { Route } from "../../routes/explore";
 
@@ -144,3 +145,92 @@ it.each([
     }
   },
 );
+
+it("draws For you in X's order, and pages X's next posts in under the ones shown", async () => {
+  const search = vi.spyOn(Route, "useSearch").mockReturnValue({ tab: "" });
+  const bridge = installFakeBridge();
+  const Explore = Route.options.component!;
+  // People and a plain post from the dev fixture `?engine=home`.
+  const home = synth().home!.batches.find((b) => b.op === "HomeTimeline")!;
+  const wtf = home.modules[0]!;
+  const post = (postId: string, text: string) => ({ ...home.posts[1]!, postId, text });
+  const trend = (name: string, group: string | null, images: ReadonlyArray<string>) => ({
+    name,
+    context: group === null ? "Trending in Bangladesh" : "2 hours ago · News",
+    url: `https://x.com/search?q=${encodeURIComponent(name)}`,
+    images,
+    group,
+  });
+  const capture: EngineBatch = {
+    op: "ExplorePage",
+    key: "for-you",
+    cursor: null,
+    top: "t1",
+    bottom: "b1",
+    posts: [post("11", "First post for you")],
+    users: home.users,
+    people: wtf.userIds,
+    sections: [],
+    order: [wtf.id, "pfy", "11"],
+    modules: [wtf, { id: "pfy", title: "Posts For You", userIds: [] }],
+    communities: [],
+    notifications: [],
+    lists: [],
+    homeTabs: null,
+    viewer: null,
+    exploreTabs: [
+      { id: "for_you", label: "For you", timelineId: "for-you" },
+      { id: "news", label: "News", timelineId: "news" },
+    ],
+    trends: [
+      trend("A news story", "Today's News", [
+        "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
+      ]),
+      trend("A plain trend", null, []),
+    ],
+  };
+  try {
+    await using screen = await render(
+      <div style={{ height: 1600, display: "flex" }}>
+        <EngineSync />
+        <Suspense>
+          <Explore />
+        </Suspense>
+      </div>,
+      { service: { "settings.get": () => Effect.succeed(settings) } },
+    );
+    bridge.emitEngine(capture);
+    const heading = (name: string) => screen.getByRole("heading", { name, exact: true });
+    const module = screen.getByRole("region", { name: "Who to follow" });
+    await expect.element(heading("Posts For You")).toBeVisible();
+    const index = (el: Element) => Number(el.closest("[data-index]")?.getAttribute("data-index"));
+    expect(
+      [
+        heading("Today's News"),
+        screen.getByText("A news story", { exact: true }),
+        screen.getByRole("separator"),
+        screen.getByText("A plain trend", { exact: true }),
+        module,
+        heading("Posts For You"),
+        screen.getByRole("article"),
+      ].map((l) => index(l.element())),
+    ).toEqual([0, 1, 2, 3, 4, 5, 6]);
+    expect(module.getByRole("button", { name: "Follow", exact: true }).elements()).toHaveLength(3);
+    // Scrolling X's page brings plain posts with the bottom cursor: they join under the list.
+    bridge.emitEngine({
+      ...capture,
+      cursor: "b1",
+      top: "t2",
+      bottom: "b2",
+      posts: [post("12", "Next post for you")],
+      people: [],
+      order: ["12"],
+      modules: [],
+      trends: [],
+    });
+    await expect.element(screen.getByText("Next post for you", { exact: true })).toBeVisible();
+    expect(screen.getByRole("article").elements().map(index)).toEqual([6, 7]);
+  } finally {
+    search.mockRestore();
+  }
+});

@@ -1096,6 +1096,56 @@ const benchmarks = [
     },
   ],
   [
+    "Explore For you is X's feed: trends, Who to follow, Posts For You, then paged posts",
+    async () => {
+      await go("#/explore");
+      const id = await until(
+        () => store(`$.exploreTabs.find((t) => t.id === "for_you")?.timelineId`),
+        15_000,
+      );
+      if (!id) return false;
+      const s = JSON.stringify(`explore:${id}`);
+      await reset(`explore:${id}`);
+      // X's first page anew: trends, then its modules and posts in X's order.
+      const loaded = await visit("/explore", () =>
+        store(`at($.trends, ${s}).length >= 3 && at($.lists, ${s}).length >= 5`),
+      );
+      if (!loaded) return false;
+      const shape = await store(`(() => {
+        const list = at($.lists, ${s});
+        const who = list.findIndex((x) => $.modules.get(x)?.userIds.length > 0);
+        const box = list.findIndex((x) => $.modules.get(x)?.userIds.length === 0);
+        const post = list.findIndex((x) => $.posts.has(x));
+        return who !== -1 && who < box && box < post && { box: $.modules.get(list[box]).title, trends: at($.trends, ${s}).length };
+      })()`);
+      if (!shape) return false;
+      // Drawn in that order: a trend, Who to follow, X's header for the posts, the first post.
+      const drawn = await until(() =>
+        app(`(() => {
+          const main = document.querySelector("main");
+          const heading = [...main.querySelectorAll("h2")].find((h) => h.textContent === ${JSON.stringify(shape.box)});
+          const els = [main.querySelector('[data-x="trend"]'), main.querySelector('section[data-x="module"]'), heading, main.querySelector("article[data-post]")];
+          return els.every(Boolean) && els.every((el, i) => i === 0 || !!(els[i - 1].compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING));
+        })()`),
+      );
+      if (!drawn) return false;
+      // Reaching the list's end asks X's page for For you's next page, which goes under the list.
+      const before = await store(`at($.lists, ${s})`);
+      const grew = await until(async () => {
+        await app(
+          `(() => { const s = document.querySelector("main [data-virtuoso-scroller]"); if (s) s.scrollTop = s.scrollHeight; return true; })()`,
+        );
+        const now = await store(`at($.lists, ${s})`);
+        return (
+          now.length > before.length + 3 &&
+          now.slice(0, before.length).join() === before.join() &&
+          now.length
+        );
+      }, 30_000);
+      return grew && `${shape.trends} trends, "${shape.box}", ${before.length} → ${grew} entries`;
+    },
+  ],
+  [
     `Explore's first trend menu matches X's own rows (dry)`,
     async () => {
       // X's For you tab opens with posts now; Trending lists trends from its top.

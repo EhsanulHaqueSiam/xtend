@@ -779,6 +779,42 @@ test("Explore, Notifications and Bookmarks render what X sends", async () => {
   expect(e.mock.reads.slice(before)).toEqual([]);
 });
 
+test("Explore For you draws X's modules in X's order, then pages X's next posts in under them", async () => {
+  await go("/explore");
+  await expect.poll(enginePath).toBe("/explore");
+  const first = e.mock.state.batchFor("ExplorePage", {})!;
+  const main = e.app.locator("main");
+  const heading = main.getByRole("heading", { name: "Posts For You", exact: true });
+  await heading.waitFor();
+  // Today's News and the trends, then Who to follow, then Posts For You over its first post.
+  const rows = await Promise.all(
+    [
+      main.getByRole("heading", { name: "Today's News", exact: true }),
+      main.locator('[data-x="trend"]').last(),
+      main.getByRole("region", { name: "Who to follow" }),
+      heading,
+      main.locator(`article[data-post="${first.order.find((id) => /^\d+$/.test(id))}"]`),
+    ].map((l) =>
+      l.evaluate((el) => Number(el.closest("[data-index]")?.getAttribute("data-index"))),
+    ),
+  );
+  expect(rows).toEqual(rows.toSorted((a, b) => a - b));
+  const next = e.mock.state.exploreNextIds();
+  // The native list's end asks the engine to scroll X's page, which fetches For you's next page.
+  await expect
+    .poll(async () => {
+      await e.app.evaluate(() => {
+        const s = document.querySelector("main [data-virtuoso-scroller]");
+        if (s !== null) s.scrollTop = s.scrollHeight;
+      });
+      return nativeIds();
+    })
+    .toEqual(expect.arrayContaining([...next]));
+  expect(e.mock.reads.filter((r) => r.op === "ExplorePage").at(-1)?.variables.cursor).toBe(
+    first.bottom,
+  );
+});
+
 test("Explore's trend menu lists X's rows, dismisses only that trend, and Undo restores it", async () => {
   await go("/explore");
   const news = e.mock.state.exploreTabs.find((t) => t.id === "news")!;

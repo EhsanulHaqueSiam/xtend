@@ -232,6 +232,42 @@ it("keeps X's Who to follow among the posts across pages and the pill", () => {
   ]);
 });
 
+it("pages Explore's For you in after what it shows, and takes X's first page again whole", () => {
+  const hour = (h: number) => `2026-10-01T0${h}:00:00Z`;
+  const titled = (id: string) => ({ id, title: "Posts For You", userIds: [] });
+  const forYou = (posts: ReadonlyArray<EnginePost>, extra: Partial<EngineBatch>) =>
+    batch("ExplorePage", posts, { key: "VF9", ...extra });
+  let state = mergeBatch(
+    emptyEngine,
+    forYou([post("1", hour(3)), post("2", hour(2))], {
+      order: ["wtf", "pfy", "1", "2"],
+      modules: [{ id: "wtf", title: "Who to follow", userIds: ["5"] }, titled("pfy")],
+      top: "t1",
+      bottom: "b1",
+    }),
+  );
+  // X ranks For you, so a later page may hold newer posts: it still goes under the list.
+  state = mergeBatch(
+    state,
+    forYou([post("3", hour(5))], { cursor: "b1", order: ["3"], top: "t2", bottom: "b2" }),
+  );
+  expect(at(state.lists, "explore:VF9")).toEqual(["wtf", "pfy", "1", "2", "3"]);
+  // X's first page again (a refresh) is the tab anew: it replaces the list, and nothing waits.
+  state = mergeBatch(
+    state,
+    forYou([post("4", hour(6)), post("1", hour(3))], {
+      order: ["pfy2", "4", "1"],
+      modules: [titled("pfy2")],
+      top: "t3",
+      bottom: "b3",
+    }),
+  );
+  expect([at(state.lists, "explore:VF9"), at(state.waiting, "explore:VF9")]).toEqual([
+    ["pfy2", "4", "1"],
+    [],
+  ]);
+});
+
 it("files pinned Home tabs, Lists, Communities and Explore tabs under their own surface", () => {
   expect(surfacesOf({ op: "HomeTimeline", key: "tag:19" })[0]).toBe("tag:19");
   expect(surfacesOf({ op: "HomeTimeline", key: null })[0]).toBe("forYou");

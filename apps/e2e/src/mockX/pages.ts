@@ -219,6 +219,8 @@ export const postsOf = (b: EngineBatch | null, state: MockState) =>
           const p = b.posts.find((post) => post.postId === id);
           if (p !== undefined) return [article(p, state)];
           const m = b.modules.find((module) => module.id === id);
+          // A titled box of posts (Explore's Posts For You) is its header over the posts after it.
+          if (m?.userIds.length === 0) return [`<h2>${esc(m.title)}</h2>`];
           return m === undefined ? [] : [whoToFollow(m, b)];
         })
         .join("");
@@ -377,6 +379,7 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
           ? r("ExplorePage", { cursor: "" })
           : r("GenericTimelineById", { timelineId: tab.timelineId, count: 20 }),
       ],
+      paged: tab.id === "for_you" ? 0 : undefined,
       render: ([b]) =>
         `<div class="bar"><input aria-label="Search query" placeholder="Search"><a href="/settings/explore" aria-label="Settings">⚙</a></div>${tabs(
           "Explore",
@@ -389,9 +392,7 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
           b?.trends ?? []
         )
           .map((t, i) => `<div data-trend-slot style="height:120px">${trendRow(t, i)}</div>`)
-          .join(
-            "",
-          )}${b != null && b.people.length > 0 ? `<h3>Who to follow</h3>${peopleOf(b)}` : ""}</section>`,
+          .join("")}${postsOf(b ?? null, state)}</section>`,
     };
   }
   if (lower === "search") {
