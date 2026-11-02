@@ -12,7 +12,14 @@ import {
   Repeat2,
   Share,
 } from "lucide-react";
-import { useState, type ComponentProps, type MouseEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ComponentProps,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 
 import { cn } from "../../lib/utils";
 import { askFollow, engineAtom, updateEngine, youFollow } from "../../state/engine";
@@ -200,23 +207,86 @@ function MediaItem({
         </span>
       </span>
     );
+  if (m.kind === "video") return <AutoVideo url={m.videoUrl} poster={m.url} fill={fill} />;
   return (
     <span className={cn("relative block bg-black", fill && "h-full")}>
       <video
         src={m.videoUrl}
         poster={m.url}
-        controls={m.kind === "video"}
-        autoPlay={m.kind === "gif"}
-        loop={m.kind === "gif"}
-        muted={m.kind === "gif"}
+        autoPlay
+        loop
+        muted
         playsInline
         preload="metadata"
         className={cn("block w-full bg-black object-cover", fill && "h-full")}
       />
-      {m.kind === "gif" ? (
-        <span className="absolute bottom-2 left-2 rounded bg-black/70 px-1 text-[11px] font-bold">
-          GIF
-        </span>
+      <span className="absolute bottom-2 left-2 rounded bg-black/70 px-1 text-[11px] font-bold">
+        GIF
+      </span>
+    </span>
+  );
+}
+
+/**
+ * A video as X plays it in a list: muted and looping on its own while half of it is in view,
+ * paused once scrolled away. One click turns the sound on and gives the player's controls.
+ */
+function AutoVideo({
+  url,
+  poster,
+  fill,
+}: {
+  readonly url: string;
+  readonly poster: string;
+  readonly fill: boolean;
+}) {
+  const ref = useRef<HTMLVideoElement>(null);
+  const [muted, setMuted] = useState(true);
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- plays and pauses with how much of the video is on screen.
+  useEffect(() => {
+    const video = ref.current;
+    if (video === null) return;
+    const seen = new IntersectionObserver(
+      ([entry]) => {
+        if (entry !== undefined && entry.intersectionRatio >= 0.5)
+          void video.play().catch(() => {});
+        else video.pause();
+      },
+      { threshold: 0.5 },
+    );
+    seen.observe(video);
+    return () => seen.disconnect();
+  }, []);
+  const unmute = () => {
+    if (ref.current !== null) ref.current.muted = false;
+    setMuted(false);
+  };
+  return (
+    <span className={cn("relative block bg-black", fill && "h-full")}>
+      <video
+        ref={ref}
+        src={url}
+        poster={poster}
+        controls={!muted}
+        muted={muted}
+        // The muted preview loops, as a GIF does, rather than freezing on its last frame.
+        loop={muted}
+        playsInline
+        preload="metadata"
+        className={cn("block w-full bg-black object-cover", fill && "h-full")}
+        onClick={muted ? unmute : undefined}
+      />
+      {muted ? (
+        <button
+          type="button"
+          aria-label="Unmute"
+          className="absolute right-2 bottom-2 grid size-8 cursor-pointer place-items-center rounded-full bg-black/70"
+          onClick={unmute}
+        >
+          <svg viewBox="0 0 24 24" className="size-[18px] fill-white">
+            <path d="M3 9v6h4l5 5V4L7 9H3zm13.6 3 2.7-2.7-1.4-1.4-2.7 2.7-2.7-2.7-1.4 1.4 2.7 2.7-2.7 2.7 1.4 1.4 2.7-2.7 2.7 2.7 1.4-1.4-2.7-2.7z" />
+          </svg>
+        </button>
       ) : null}
     </span>
   );
