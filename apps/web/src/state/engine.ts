@@ -5,6 +5,7 @@ import type {
   EngineExploreTab,
   EngineGame,
   EngineGameTeam,
+  EngineGif,
   EngineHomeTab,
   EngineList,
   EngineModule,
@@ -81,6 +82,7 @@ type KeyedSurface =
   | `likers:${string}`
   | `listMembers:${string}`
   | `listFollowers:${string}`
+  | `${FollowersTab}:${string}`
   | ConnectTab
   | `communityMedia:${string}`
   | `communityAbout:${string}`
@@ -89,7 +91,8 @@ type KeyedSurface =
   | `communitiesSearch:${string}`
   | `communityPostsSearch:${"Top" | "Latest"}:${string}`
   | `profile:${ProfileTab}:${string}`
-  | `sportsGame:${GameTab}:${string}`;
+  | `sportsGame:${GameTab}:${string}`
+  | `gifs:${string}`;
 /** X's Follow page's tabs (Who to follow, Creators for you), as the capture keys them. */
 export type ConnectTab = "connect:who" | "connect:creators";
 export type AnySurface = Surface | KeyedSurface;
@@ -109,6 +112,20 @@ export const postPeopleSurface = (kind: "reposters" | "likers", postId: string) 
 /** @public A List's members and followers, as X's List members and followers pages list them. */
 export const listPeopleSurface = (kind: "listMembers" | "listFollowers", listId: string) =>
   `${kind}:${listId}` as const;
+/** A profile's people pages, as X names their paths (x.com/<handle>/followers_you_follow). */
+export type FollowersTab =
+  | "verified_followers"
+  | "followers_you_follow"
+  | "followers"
+  | "following";
+/** One profile's people page, under the person's id as X's request names them. */
+export const followersSurface = (tab: FollowersTab, userId: string) => `${tab}:${userId}` as const;
+const FOLLOWERS_OPS: Readonly<Record<string, FollowersTab>> = {
+  BlueVerifiedFollowers: "verified_followers",
+  FollowersYouKnow: "followers_you_follow",
+  Followers: "followers",
+  Following: "following",
+};
 /**
  * The search X's Post activity runs for a post's quotes, as its Quotes tab sends it; the results
  * sit under that search's own surface.
@@ -137,6 +154,8 @@ export type CommunitySearchMode = "Likes" | "Recency";
 /** A search inside a Community, as X's search page there lists it for the order and query. */
 export const communitySearchSurface = (id: string, mode: CommunitySearchMode, query: string) =>
   `communitySearch:${id}:${mode}:${query}` as const;
+/** What X's GIF search lists for a query; X's picker opens on the empty one. */
+export const gifSurface = (query: string) => `gifs:${query}` as const;
 /** X's search of Communities, from the hub: the Communities it finds for the query. */
 export const communitiesSearchSurface = (query: string) => `communitiesSearch:${query}` as const;
 /** The same search's posts from Communities, in X's Top or Latest order (each its own tab). */
@@ -221,6 +240,9 @@ export function surfacesOf(batch: Pick<EngineBatch, "op" | "key">): ReadonlyArra
   if (op === "Bookmarks") return ["bookmarks"];
   if (key !== null && op === "Retweeters") return [postPeopleSurface("reposters", key)];
   if (key !== null && op === "Favoriters") return [postPeopleSurface("likers", key)];
+  // The capture keys a profile's people pages by the person's id.
+  const followers = FOLLOWERS_OPS[op];
+  if (key !== null && followers !== undefined) return [followersSurface(followers, key)];
   // The signed-in account's likes, under X's History beside Bookmarks.
   if (op === "Likes") return ["likes"];
   if (op === "ListsManagementPageTimeline") return ["lists"];
@@ -236,6 +258,8 @@ export function surfacesOf(batch: Pick<EngineBatch, "op" | "key">): ReadonlyArra
     const search = tabKey(key, "communitySearch");
     return search === undefined ? [] : [search];
   }
+  if (op === "GifSearch" && key?.startsWith("gifs:") === true)
+    return [gifSurface(key.slice("gifs:".length))];
   // The capture keys a search of Communities by its query; the operation is the tab.
   if (key !== null && op === "CommunitiesSearchQuery") return [communitiesSearchSurface(key)];
   if (key !== null && op === "GlobalCommunitiesPostSearchTimeline")
@@ -354,6 +378,8 @@ export interface EngineState {
    */
   readonly hiddenTrends: PerSurface<string>;
   readonly notifications: PerSurface<EngineNotification>;
+  /** X's GIF search per query (`gifSurface`), in X's order, pages joined. */
+  readonly gifs: PerSurface<EngineGif>;
   /** X Lists by id: the Lists page's rows and each List's own header. */
   readonly xLists: ReadonlyMap<string, EngineList>;
   /** List ids per surface, in X's order (the Lists page's sections follow it). */
@@ -384,6 +410,8 @@ export interface EngineState {
   readonly viewer: EngineViewer | null;
   /** X's Post Analytics per post id, as X last counted them (see `EngineBatch.analytics`). */
   readonly analytics: ReadonlyMap<string, Readonly<Record<string, number>>>;
+  /** How many people the viewer follows follow each user, by user id (see `EngineBatch.knownFollowers`). */
+  readonly knownFollowers: ReadonlyMap<string, number>;
   /** The page cursors X last answered per surface, to tell a fetch of newer posts from the next page. */
   readonly cursors: Readonly<
     Partial<Record<AnySurface, { readonly top: string | null; readonly bottom: string | null }>>
@@ -406,6 +434,7 @@ export const emptyEngine: EngineState = {
   trends: NONE,
   hiddenTrends: NONE,
   notifications: NONE,
+  gifs: NONE,
   xLists: new Map(),
   listIds: NONE,
   communities: new Map(),
@@ -420,6 +449,7 @@ export const emptyEngine: EngineState = {
   inspiration: null,
   viewer: null,
   analytics: new Map(),
+  knownFollowers: new Map(),
   cursors: {},
 };
 
@@ -560,6 +590,10 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
       batch.analytics === undefined || batch.key === null
         ? state.analytics
         : new Map(state.analytics).set(batch.key, batch.analytics),
+    knownFollowers:
+      batch.knownFollowers === undefined || batch.key === null
+        ? state.knownFollowers
+        : new Map(state.knownFollowers).set(batch.key, batch.knownFollowers),
   };
   const listed = surfacesOf(batch).reduce(
     (state, surface) =>
@@ -751,8 +785,9 @@ function mergeInto(state: EngineState, batch: EngineBatch, surface: AnySurface):
 
   // People, trends and notifications: a first page replaces, a newer page goes on top.
   const userIds = batch.people;
+  // A profile's people page: X's first page replaces it even with nobody on it, as X lists it now.
   const people =
-    userIds.length === 0
+    userIds.length === 0 && !(page === "first" && FOLLOWERS_OPS[batch.op] !== undefined)
       ? state.people
       : set(
           state.people,
@@ -812,6 +847,15 @@ function mergeInto(state: EngineState, batch: EngineBatch, surface: AnySurface):
               ),
         );
 
+  const gifs =
+    batch.gifs === undefined
+      ? state.gifs
+      : set(
+          state.gifs,
+          surface,
+          page === "first" ? batch.gifs : join(at(state.gifs, surface), batch.gifs, (g) => g.id),
+        );
+
   const entries = new Map(state.entries[surface] ?? []);
   const byId = new Map(batch.posts.map((p) => [p.postId, p]));
   for (const id of order) {
@@ -845,6 +889,7 @@ function mergeInto(state: EngineState, batch: EngineBatch, surface: AnySurface):
           )
         : state.hiddenTrends,
     notifications,
+    gifs,
     lists: newer
       ? state.lists
       : set(
@@ -918,6 +963,7 @@ export const resetSurface = (state: EngineState, surface: AnySurface): EngineSta
   communityIds: set(state.communityIds, surface, []),
   trends: set(state.trends, surface, []),
   notifications: set(state.notifications, surface, []),
+  gifs: set(state.gifs, surface, []),
   cursors: { ...state.cursors, [surface]: undefined },
   entries: { ...state.entries, [surface]: undefined },
 });

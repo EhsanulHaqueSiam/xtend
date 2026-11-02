@@ -1,6 +1,7 @@
 import type {
   EngineBatch,
   EngineCommunity,
+  EngineGif,
   EngineHomeTab,
   EngineList,
   EnginePost,
@@ -105,6 +106,14 @@ export type Feed = (typeof FEEDS)[number];
 /** How many pages each Home feed has before X runs out; the rest of the mock's lists have one. */
 const FEED_PAGES: Readonly<Record<Feed, number>> = { forYou: 3, following: 2 };
 const PAGE_SIZE = 6;
+
+/** A longer For you than the screens need, as the scroll bench reads one: X's page is about 20 posts. */
+export interface MockOptions {
+  readonly forYouPages?: number;
+  readonly pageSize?: number;
+  /** Every nth made-up post carries a photo, so a page is as tall as X's. */
+  readonly photoEvery?: number;
+}
 const PINNED_TAG = "1540000000000000001";
 
 const key = (op: string, k: string | null) => `${op}|${k ?? ""}`;
@@ -112,7 +121,9 @@ const s = (variables: Json, name: string) =>
   typeof variables[name] === "string" ? (variables[name] as string) : undefined;
 
 /** One mock X: its state, and the answers and pages read from it. */
-export function createMockState() {
+export function createMockState(options: MockOptions = {}) {
+  const pages = { ...FEED_PAGES, forYou: options.forYouPages ?? FEED_PAGES.forYou };
+  const pageSize = options.pageSize ?? PAGE_SIZE;
   const fixtures = synth();
   const batches = Object.values(fixtures).flatMap((f) => f.batches);
   const snapshot = new Map(batches.map((b) => [key(b.op, b.key), b]));
@@ -133,6 +144,7 @@ export function createMockState() {
 
   // Made-up posts past the fixtures' first pages, by the same people.
   let made = 0;
+  const photo = [...basePosts.values()].find((p) => p.media.length > 0)!.media.slice(0, 1);
   const make = (minutesAgo: number, extra: Partial<EnginePost> = {}): EnginePost => {
     const n = made++;
     const base = forYou.posts[n % forYou.posts.length]!;
@@ -159,8 +171,9 @@ export function createMockState() {
         quotes: Math.round(views / 1_500),
         bookmarks: Math.round(views / 200),
       },
-      media: [],
-      hasMedia: false,
+      ...(options.photoEvery !== undefined && n % options.photoEvery === 0
+        ? { media: photo, hasMedia: true }
+        : { media: [], hasMedia: false }),
       hasLink: false,
       card: null,
       poll: null,
@@ -178,11 +191,11 @@ export function createMockState() {
   };
   /** Each feed's pages after its first, made once so a page reads the same every time. */
   const morePages: Record<Feed, ReadonlyArray<ReadonlyArray<EnginePost>>> = {
-    forYou: Array.from({ length: FEED_PAGES.forYou - 1 }, (_, page) =>
-      Array.from({ length: PAGE_SIZE }, (_, i) => make(400 + page * 600 + i * 40)),
+    forYou: Array.from({ length: pages.forYou - 1 }, (_, page) =>
+      Array.from({ length: pageSize }, (_, i) => make(400 + page * 600 + i * 40)),
     ),
-    following: Array.from({ length: FEED_PAGES.following - 1 }, (_, page) =>
-      Array.from({ length: PAGE_SIZE }, (_, i) => make(500 + page * 600 + i * 45)),
+    following: Array.from({ length: pages.following - 1 }, (_, page) =>
+      Array.from({ length: pageSize }, (_, i) => make(500 + page * 600 + i * 45)),
     ),
   };
   const pinnedTopic = Array.from({ length: 4 }, (_, i) => make(30 + i * 20));
@@ -279,7 +292,7 @@ export function createMockState() {
     return {
       ...page(first.op, first.key, posts),
       top: first.top,
-      bottom: n < FEED_PAGES[feed] ? `${first.bottom}#p${n + 1}` : null,
+      bottom: n < pages[feed] ? `${first.bottom}#p${n + 1}` : null,
     };
   };
   /** Which page of a feed a cursor asks for: the fixture's bottom is page 2. */
@@ -450,6 +463,26 @@ export function createMockState() {
       { length: 5 },
       (_, i) => people[(Number(id.slice(-1)) + offset + i) % people.length]!,
     );
+  /** The people the viewer follows who follow `id`: none for noor_lind and kofi_haddad. */
+  const followersYouKnow = (id: string) =>
+    id.endsWith("002") || id.endsWith("007") ? [] : listPeople(id, 3);
+  /** X's REST friends/following/list.json for `id`: the first three of them, and how many. */
+  const knownFollowers = (id: string) => {
+    const known = followersYouKnow(id);
+    return {
+      users: known.slice(0, 3).map((u) => ({
+        id_str: u.userId,
+        screen_name: u.handle,
+        name: u.name,
+        profile_image_url_https: u.avatarUrl,
+      })),
+      next_cursor: 0,
+      next_cursor_str: "0",
+      previous_cursor: 0,
+      previous_cursor_str: "0",
+      total_count: known.length,
+    };
+  };
 
   // Every Community the fixtures describe, by X's card for it, with what the user's joins changed.
   const communityCards = new Map(
@@ -488,6 +521,9 @@ export function createMockState() {
       return c === undefined ? [] : [{ id: `community:${id}` as const, label: c.name }];
     }),
   ];
+
+  /** X's cursor for its GIF search's second page, as read live. */
+  const GIF_NEXT = "go50c50";
 
   /** The batch X answers `op` with, or null for a call no screen reads. */
   function batchFor(op: string, variables: Json): EngineBatch | null {
@@ -593,6 +629,20 @@ export function createMockState() {
         if (!xLists.has(id)) return null;
         return ofPeople(op, `list:${id}`, listPeople(id, op === "ListMembers" ? 0 : 3));
       }
+      // A profile's people pages, a different five people on each.
+      case "BlueVerifiedFollowers":
+      case "FollowersYouKnow":
+      case "Followers":
+      case "Following": {
+        const id = s(variables, "userId") ?? "";
+        if (user(id) === undefined) return null;
+        const pages = ["Following", "Followers", "FollowersYouKnow", "BlueVerifiedFollowers"];
+        return ofPeople(
+          op,
+          id,
+          op === "FollowersYouKnow" ? followersYouKnow(id) : listPeople(id, pages.indexOf(op) + 1),
+        );
+      }
       case "Retweeters":
       case "Favoriters": {
         const id = s(variables, "tweetId") ?? "";
@@ -675,6 +725,31 @@ export function createMockState() {
       case "SportsGameLatestTimeline": {
         const own = fixture(op, s(variables, "gameId") ?? "");
         return own === undefined ? null : live(own);
+      }
+      case "GifSearch": {
+        // 50 a page, then a last page of 10, as X pages its GIF search; tiles named after the query.
+        const query = s(variables, "query") ?? "";
+        const from = cursor === undefined || cursor === "" ? 0 : cursor === GIF_NEXT ? 50 : null;
+        if (from === null) return null;
+        const gifs = Array.from({ length: from === 0 ? 50 : 10 }, (_, i): EngineGif => {
+          const id = `m${from + i}${query.replace(/[^A-Za-z0-9]/g, "")}`;
+          return {
+            id: `giphy_${id}`,
+            altText: `${query || "Trending"} ${from + i + 1} GIF`,
+            // Never fetched from GIPHY: the mock's own path, holding the id as GIPHY's URLs do.
+            url: `/media/${id}/200_d.gif`,
+            stillUrl: `/media/${id}/200_d_s.gif`,
+            width: 200,
+            height: 150,
+            provider: "GIPHY",
+          };
+        });
+        return page(op, `gifs:${query}`, [], {
+          top: null,
+          cursor: cursor || null,
+          bottom: from === 0 ? GIF_NEXT : null,
+          gifs,
+        });
       }
       // X's search of Communities, each tab its own operation; X finds nothing for a query the
       // fixtures hold no answer for.
@@ -855,6 +930,7 @@ export function createMockState() {
     xLists,
     batchFor,
     respond,
+    knownFollowers,
     write,
     post,
     user,

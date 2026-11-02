@@ -1,6 +1,6 @@
 import { PreviewCard } from "@base-ui/react/preview-card";
 import { useAtomValue } from "@effect/atom-react";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import type { EnginePost } from "@xtend/contracts";
 import type { ReactElement } from "react";
 
@@ -56,14 +56,24 @@ function Card({
       )}
       <p className="flex gap-4 text-[#71767b]">
         {user?.following == null ? null : (
-          <span>
+          <Link
+            to="/u/$handle/people"
+            params={{ handle: author.handle }}
+            search={{ tab: "following" }}
+            className="hover:underline"
+          >
             <b className="font-bold text-foreground">{fmt(user.following)}</b> Following
-          </span>
+          </Link>
         )}
         {followers === null ? null : (
-          <span>
+          <Link
+            to="/u/$handle/people"
+            params={{ handle: author.handle }}
+            search={{ tab: "verified_followers" }}
+            className="hover:underline"
+          >
             <b className="font-bold text-foreground">{fmt(followers)}</b> Followers
-          </span>
+          </Link>
         )}
       </p>
       <button

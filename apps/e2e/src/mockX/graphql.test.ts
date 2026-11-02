@@ -1,7 +1,10 @@
 import type { EngineBatch } from "@xtend/contracts";
 import { expect, it } from "vite-plus/test";
 
-import { renderEngineBatch } from "../../../desktop/src/xSession/engineBatch.ts";
+import {
+  renderEngineBatch,
+  renderKnownFollowers,
+} from "../../../desktop/src/xSession/engineBatch.ts";
 import { route } from "./pages.ts";
 import { createMockState } from "./state.ts";
 
@@ -102,4 +105,31 @@ it("answers every request X's pages make with the batch the made-up fixtures hol
   expect(roundTrip("UserSuperFollowTweets", subs).prompt).toEqual(
     state.batchFor("UserSuperFollowTweets", subs)!.prompt,
   );
+
+  // X's REST count of followers you know, for someone with them and someone with none.
+  const known = (handle: string) => {
+    const id = state.people.find((u) => u.handle === handle)!.userId;
+    const url = `https://x.com/i/api/1.1/friends/following/list.json?user_id=${id}&count=3`;
+    return renderKnownFollowers(url, JSON.parse(JSON.stringify(state.knownFollowers(id))))
+      ?.knownFollowers;
+  };
+  expect([known("sam_sato"), known("noor_lind")]).toEqual([5, 0]);
+});
+
+it("answers X's GIF search page by page, read back as the batch mock X draws its tiles from", () => {
+  const state = createMockState();
+  for (const variables of [{ query: "cat" }, { query: "cat", cursor: "go50c50" }]) {
+    const want = state.batchFor("GifSearch", variables)!;
+    const got = renderEngineBatch(
+      "GifSearch",
+      variables,
+      JSON.parse(JSON.stringify(state.respond("GifSearch", variables))),
+    );
+    expect([got.key, got.cursor, got.bottom, got.gifs]).toEqual([
+      want.key,
+      want.cursor,
+      want.bottom,
+      want.gifs,
+    ]);
+  }
 });

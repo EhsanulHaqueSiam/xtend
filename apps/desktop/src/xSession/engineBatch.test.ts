@@ -1,6 +1,11 @@
 import { describe, expect, it } from "@effect/vitest";
 
-import { hasEngineContent, renderEngineBatch, requestVariables } from "./engineBatch.ts";
+import {
+  hasEngineContent,
+  renderEngineBatch,
+  renderKnownFollowers,
+  requestVariables,
+} from "./engineBatch.ts";
 import { normalizeGraphqlResponse } from "./normalizeGraphql.ts";
 
 // X's 2026 user: no `legacy` block, counts and bio in their own fields.
@@ -1154,6 +1159,69 @@ describe("renderEngineBatch around posts", () => {
       false,
     );
   });
+
+  it("lists a profile's followers under the person's id in X's order, and passes on X's answer of nobody", () => {
+    const page = (entries: ReadonlyArray<unknown>) => ({
+      data: {
+        user: {
+          result: {
+            __typename: "User",
+            timeline: { timeline: { instructions: [{ type: "TimelineAddEntries", entries }] } },
+          },
+        },
+      },
+    });
+    const follower = (id: string, handle: string) => ({
+      entryId: `user-${id}`,
+      content: {
+        entryType: "TimelineTimelineItem",
+        itemContent: {
+          itemType: "TimelineUser",
+          user_results: {
+            result: user(id, handle, { relationship_perspectives: { followed_by: true } }),
+          },
+        },
+      },
+    });
+    const followers = renderEngineBatch(
+      "Followers",
+      { userId: "5", count: 20 },
+      page([
+        follower("12", "zed"),
+        follower("11", "amy"),
+        { entryId: "cursor-bottom-1", content: { cursorType: "Bottom", value: "1369|2117" } },
+      ]),
+    );
+    expect([followers.key, followers.people, followers.bottom]).toEqual([
+      "5",
+      ["12", "11"],
+      "1369|2117",
+    ]);
+    expect(followers.users.map((u) => u.followsYou)).toEqual([true, true]);
+    const none = renderEngineBatch("FollowersYouKnow", { userId: "5", count: 20 }, page([]));
+    expect([none.key, none.people, hasEngineContent(none)]).toEqual(["5", [], true]);
+    // X's rate limit answers with an error alone: no list, so no answer of nobody.
+    const limited = renderEngineBatch(
+      "Followers",
+      { userId: "5", count: 20 },
+      { errors: [{ code: 88, message: "Rate limit exceeded" }] },
+    );
+    expect([limited.key, hasEngineContent(limited)]).toEqual([null, false]);
+  });
+
+  it("reads X's count of followers you know by the profile it asked about, and nothing from an error", () => {
+    const url = (id: string) =>
+      `https://x.com/i/api/1.1/friends/following/list.json?include_profile_interstitial_type=1&user_id=${id}&count=3`;
+    const known = renderKnownFollowers(url("5"), {
+      users: [{ id_str: "11", screen_name: "amy" }],
+      next_cursor: 0,
+      previous_cursor: 0,
+      total_count: 75,
+    })!;
+    expect([known.key, known.knownFollowers, hasEngineContent(known)]).toEqual(["5", 75, true]);
+    expect(renderKnownFollowers(url("6"), { users: [], total_count: 0 })?.knownFollowers).toBe(0);
+    expect(renderKnownFollowers(url("5"), { errors: [{ code: 88 }] })).toBeNull();
+  });
 });
 
 describe("renderEngineBatch for live text, edits, threads and people", () => {
@@ -1560,6 +1628,66 @@ describe("renderEngineBatch entry order, badges and labels", () => {
       },
     });
     expect(plain!.translation).toBeNull();
+  });
+});
+
+describe("renderEngineBatch GIF search", () => {
+  // X's GifSearch item, as read live on 2026-11-02 (gif_search_slice), with made-up values.
+  const image = (n: number) => ({
+    url: `https://media1.giphy.com/media/g${n}/200_d.gif`,
+    still_image_url: `https://media1.giphy.com/media/g${n}/200_d_s.gif`,
+    width: 200,
+    height: 150,
+  });
+  const gif = (n: number, alt?: string) => ({
+    id: `giphy_g${n}`,
+    provider: { id: "giphy", display_name: "GIPHY" },
+    preview_image: image(n),
+    full_image: image(n),
+    thumbnail_images: [image(n)],
+    ...(alt === undefined ? {} : { alt_text: alt }),
+  });
+  const slice = (items: ReadonlyArray<unknown>, next?: string) => ({
+    data: {
+      gif_search_slice: { items, slice_info: next === undefined ? {} : { next_cursor: next } },
+    },
+  });
+
+  it("lists X's tiles in X's order under the query, with the cursor of X's next page", () => {
+    const first = renderEngineBatch(
+      "GifSearch",
+      { query: "cat" },
+      slice([gif(1, "Cat Jump"), { id: "giphy_none" }, gif(2)], "go50c50"),
+    );
+    expect([first.key, first.cursor, first.bottom]).toEqual(["gifs:cat", null, "go50c50"]);
+    expect(first.gifs).toEqual([
+      {
+        id: "giphy_g1",
+        altText: "Cat Jump",
+        url: "https://media1.giphy.com/media/g1/200_d.gif",
+        stillUrl: "https://media1.giphy.com/media/g1/200_d_s.gif",
+        width: 200,
+        height: 150,
+        provider: "GIPHY",
+      },
+      expect.objectContaining({ id: "giphy_g2", altText: null }),
+    ]);
+    const next = renderEngineBatch(
+      "GifSearch",
+      { query: "cat", cursor: "go50c50" },
+      slice([gif(3)]),
+    );
+    expect([next.cursor, next.bottom, next.gifs?.map((g) => g.id)]).toEqual([
+      "go50c50",
+      null,
+      ["giphy_g3"],
+    ]);
+  });
+
+  it("passes on a search X found nothing for, and no GIFs on any other call", () => {
+    const none = renderEngineBatch("GifSearch", {}, slice([]));
+    expect([none.key, none.gifs, hasEngineContent(none)]).toEqual(["gifs:", [], true]);
+    expect(renderEngineBatch("HomeTimeline", {}, {}).gifs).toBeUndefined();
   });
 });
 

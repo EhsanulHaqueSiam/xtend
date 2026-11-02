@@ -2,6 +2,7 @@ import type {
   EngineBatch,
   EngineCommunity,
   EngineGame,
+  EngineGif,
   EngineNotification,
   EnginePost,
   EngineUser,
@@ -19,6 +20,8 @@ import {
   communitySurface,
   emptyEngine,
   gameSurface,
+  type EngineState,
+  gifSurface,
   hideTrend,
   inspirationSurface,
   mergeBatch,
@@ -300,6 +303,12 @@ it("files pinned Home tabs, Lists, Communities and Explore tabs under their own 
   expect(surfacesOf({ op: "Favoriters", key: "42" })).toEqual(["likers:42"]);
   expect(surfacesOf({ op: "ListMembers", key: "list:12" })).toEqual(["listMembers:12"]);
   expect(surfacesOf({ op: "ListSubscribers", key: "list:12" })).toEqual(["listFollowers:12"]);
+  // A profile's people pages, each its own list per person.
+  expect(
+    ["BlueVerifiedFollowers", "FollowersYouKnow", "Followers", "Following"].map(
+      (op) => surfacesOf({ op, key: "5" })[0],
+    ),
+  ).toEqual(["verified_followers:5", "followers_you_follow:5", "followers:5", "following:5"]);
   expect(surfacesOf({ op: "ConnectTabTimeline", key: "connect:creators" })).toEqual([
     "connect:creators",
   ]);
@@ -461,6 +470,15 @@ it("holds a pin or unpin X took until X's pinned tabs agree", () => {
   const unpinned = mergeBatch(askPin(agreed, "21", false), tabs("21", "20"));
   expect(communityPinned(unpinned, "21")).toBe(false);
   expect(mergeBatch(unpinned, tabs("20")).pinned.size).toBe(0);
+});
+
+it("replaces a profile's people page with X's first page even when X now lists nobody", () => {
+  const followers = (cursor: string | null, people: ReadonlyArray<string>) =>
+    batch("Followers", [], { key: "5", cursor, bottom: "next", people });
+  const listed = mergeBatch(emptyEngine, followers(null, ["11", "12"]));
+  // A later page with nobody on it keeps the rows; a fresh first page with nobody empties them.
+  expect(at(mergeBatch(listed, followers("next", [])).people, "followers:5")).toEqual(["11", "12"]);
+  expect(at(mergeBatch(listed, followers(null, [])).people, "followers:5")).toEqual([]);
 });
 
 it("keeps notifications in X's order, newer on top, people by surface, and follows until X agrees", () => {
@@ -717,6 +735,37 @@ it("keeps dismissed trends hidden across stale captures of their tab, reconciles
   state = hideTrend(state, "explore:news", trend, false, 0);
   expect(at(state.trends, "explore:news")).toEqual([trend]);
   expect(at(state.trends, "explore:trending")).toEqual([]);
+});
+
+it("lists X's GIF search per query in X's order, joins its next page, and starts a query over on its first", () => {
+  const gif = (id: string): EngineGif => ({
+    id,
+    altText: null,
+    url: `https://media1.giphy.com/media/${id}/200_d.gif`,
+    stillUrl: null,
+    width: 200,
+    height: 150,
+    provider: "GIPHY",
+  });
+  const search = (
+    query: string,
+    gifs: ReadonlyArray<EngineGif>,
+    extra: Partial<EngineBatch> = {},
+  ) => batch("GifSearch", [], { key: `gifs:${query}`, gifs, ...extra });
+  const ids = (state: EngineState, query: string) =>
+    at(state.gifs, gifSurface(query)).map((g) => g.id);
+  let state = mergeBatch(emptyEngine, search("cat", [gif("1"), gif("2")], { bottom: "go50c50" }));
+  state = mergeBatch(state, search("dog", [gif("9")]));
+  state = mergeBatch(state, search("cat", [gif("2"), gif("3")], { cursor: "go50c50" }));
+  expect([ids(state, "cat"), ids(state, "dog")]).toEqual([["1", "2", "3"], ["9"]]);
+  state = mergeBatch(state, search("cat", [gif("4")]));
+  expect(ids(state, "cat")).toEqual(["4"]);
+  // X found nothing: the query is answered, with nothing listed.
+  state = mergeBatch(state, search("zzz", []));
+  expect([ids(state, "zzz"), state.cursors[gifSurface("zzz")]]).toEqual([
+    [],
+    { top: null, bottom: null },
+  ]);
 });
 
 it("keeps an Article's body when a timeline sends its post again with the card only", () => {

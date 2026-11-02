@@ -206,9 +206,10 @@ Both need `pnpm build` first.
   results go to `~/Pictures/xtend-ui/bench/<branch>/<time>.json` (every check's pass, time and
   detail, the commit and flags) for comparing runs and citing in a PR.
 - The bench paces itself across invocations from those files (any branch, matched by a hash of
-  the signed-in user id): it refuses to start under 5 minutes after the last run on the account,
-  or while more than 4 runs started in the last 30 minutes, and says when it may run again.
-  `--force` runs anyway with a warning. When five or more checks fail with the engine's lists
+  the signed-in user id): each round records the X calls it made, and a round waits, saying until
+  when, while the account's rounds in the last 15 minutes plus its own estimate would pass 2,800
+  calls (about two full rounds). A one-check `--only` round fits almost always. `--no-wait` exits
+  instead; `--force` runs anyway with a warning. When five or more checks fail with the engine's lists
   empty, X is likely rate-limiting the account: wait 15 to 30 minutes before the next run.
 - macOS has no `timeout` command. Bound a command with its own limit (`cdp.mjs net <seconds>`,
   `check:changed --timeout`, `curl --max-time`) or `perl -e 'alarm shift; exec @ARGV' 30 <cmd>`.
@@ -231,6 +232,12 @@ the machine; a packaged build ignores it.
 - `pnpm test:engine` builds the web app and the desktop, then drives Xtend's screens on the
   desktop with mock X as the engine (`apps/e2e/src/engine`). CI runs it in the build job under
   `xvfb-run`.
+- `pnpm bench:scroll` reads For you at a steady pace through a long mock feed whose reads answer
+  after a delay (`--pages`, `--latency`, `--speed`, `--photo-every`), and reports the time spent
+  stuck at the list's end, frames, and each process's memory and heap. Run it before and after a
+  change to infinite scroll (`--out` then `--compare`). Working set moves 10 to 20% run to run;
+  heap and DOM counts are the stable memory numbers. Mock X keeps every post in its DOM, so the
+  engine's numbers there are not X's.
 - `graphql.test.ts` holds the contract: every request mock X's pages make, read by the
   capture's `renderEngineBatch`, is the matching `synth()` batch. A capture change that drifts
   from X's shapes fails there or in `engineBatch.test.ts`.

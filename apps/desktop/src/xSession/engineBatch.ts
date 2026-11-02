@@ -9,6 +9,7 @@ import type {
   EngineExploreTab,
   EngineGame,
   EngineGameTeam,
+  EngineGif,
   EngineHomeTab,
   EngineLink,
   EngineList,
@@ -759,6 +760,26 @@ function readExploreTabs(body: Json): ReadonlyArray<EngineExploreTab> | null {
   });
 }
 
+/** One tile of X's GIF search; none without an id or a picture. */
+function readGif(item: unknown): ReadonlyArray<EngineGif> {
+  if (!isRecord(item)) return [];
+  const id = asString(item.id);
+  const preview = record(item.preview_image);
+  const url = asString(preview.url);
+  if (id === undefined || url === undefined) return [];
+  return [
+    {
+      id,
+      altText: asString(item.alt_text) ?? null,
+      url,
+      stillUrl: asString(preview.still_image_url) ?? null,
+      width: asNumber(preview.width),
+      height: asNumber(preview.height),
+      provider: asString(record(item.provider).display_name) ?? "",
+    },
+  ];
+}
+
 /**
  * The request's variables, from the URL of a GET or the body of a POST (X sends HomeTimeline as
  * a POST). Unknown or unreadable variables are empty.
@@ -813,6 +834,8 @@ const HUB_SEARCH_POSTS = /^GlobalCommunities(Latest)?PostSearchTimeline$/;
 /** What one operation's request asked for, when the operation serves many pages. */
 function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExploreTab> | null) {
   const s = (k: string) => asString(variables[k]);
+  // One list per query; X's picker opens on its empty query.
+  if (op === "GifSearch") return `gifs:${s("query") ?? ""}`;
   if (op === "HomeTimeline") return s("tag") === undefined ? null : `tag:${s("tag")}`;
   // A search inside a Community, one list per order and query; Top is X's default, by likes.
   if (op === "CommunityTweetSearchModuleQuery")
@@ -878,6 +901,9 @@ function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExp
     return s("gameId") ?? null;
   return s("userId") ?? null;
 }
+
+/** A profile's people pages (X's Followers, Following, Followers you know, Verified Followers). */
+const PEOPLE_PAGES = /^(Followers|Following|FollowersYouKnow|BlueVerifiedFollowers)$/;
 
 /**
  * Everything in one response for the engine's screens. People are the ones X lists (search
@@ -1011,6 +1037,9 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     if (list !== undefined) lists.push(list);
   }
   const exploreTabs = readExploreTabs(record(body));
+  // X's GIF search is no timeline: its tiles and its next page's cursor sit in one slice.
+  const gifSlice = op === "GifSearch" ? record(data.gif_search_slice) : null;
+  if (gifSlice !== null) bottom = asString(record(gifSlice.slice_info).next_cursor) ?? null;
   const articles = walkTweets(body, readArticle);
   return {
     op,
@@ -1023,7 +1052,11 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
           )
           ? "communities:mine"
           : null
-        : keyOf(op, variables, exploreTabs),
+        : // An error alone (X's rate limit) carries no list, so it is no answer of nobody.
+          PEOPLE_PAGES.test(op) &&
+            !Array.isArray(record(record(result(data.user).timeline).timeline).instructions)
+          ? null
+          : keyOf(op, variables, exploreTabs),
     // Explore asks with an empty cursor for its first page.
     cursor: asString(variables.cursor) || null,
     top,
@@ -1049,6 +1082,7 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     exploreTabs,
     viewer: op === "Viewer" ? readViewer(result(record(data.viewer).user_results)) : null,
     ...(games.size === 0 ? {} : { games: [...games.values()] }),
+    ...(gifSlice === null ? {} : { gifs: arr(gifSlice.items).flatMap(readGif) }),
     ...(prompt === undefined ? {} : { prompt }),
     ...readAnalytics(op, data),
   };
@@ -1100,6 +1134,26 @@ function readViewer(value: unknown): EngineViewer | null {
     : { userId: user.userId, handle: user.handle, name: user.name, avatarUrl: user.avatarUrl };
 }
 
+/** X's REST call, on each profile load, for the people the viewer follows who follow that profile. */
+export const isKnownFollowersUrl = (url: string) =>
+  url.includes("/i/api/1.1/friends/following/list.json");
+
+/**
+ * How many people the viewer follows follow the profile X asked about (`user_id`), from X's
+ * friends/following/list.json; null for any other answer (an error alone, no such user).
+ */
+export function renderKnownFollowers(url: string, body: unknown): EngineBatch | null {
+  const userId = URL.canParse(url) ? new URL(url).searchParams.get("user_id") : null;
+  const count = record(body).total_count;
+  if (userId === null || !X_ID.test(userId) || !Number.isSafeInteger(count) || Number(count) < 0)
+    return null;
+  return {
+    ...renderEngineBatch("FriendsFollowingList", {}, {}),
+    key: userId,
+    knownFollowers: Number(count),
+  };
+}
+
 /** A batch that only names the signed-in account, as X's nav shows it. */
 export const viewerBatch = (viewer: EngineViewer): EngineBatch => ({
   op: "ViewerFromNav",
@@ -1134,9 +1188,13 @@ export const hasEngineContent = (b: EngineBatch) =>
   // A search of Communities X found nothing for still reaches its screen, which says so.
   // shortcut: an error answer reads the same; tell them apart by the body if X errs there.
   (b.key !== null && (b.op === "CommunitiesSearchQuery" || HUB_SEARCH_POSTS.test(b.op))) ||
+  // A profile's people page X answered with nobody (no verified followers): the screen says so.
+  (b.key !== null && PEOPLE_PAGES.test(b.op)) ||
   b.homeTabs !== null ||
   b.exploreTabs !== null ||
   b.viewer !== null ||
   (b.games?.length ?? 0) > 0 ||
+  b.gifs !== undefined ||
   b.prompt !== undefined ||
-  b.analytics !== undefined;
+  b.analytics !== undefined ||
+  b.knownFollowers !== undefined;

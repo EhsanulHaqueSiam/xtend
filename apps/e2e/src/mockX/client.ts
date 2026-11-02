@@ -150,6 +150,39 @@ const SCRIPT = String.raw`
     }
   }
   addEventListener("scroll", () => { drawTrends(); void more(); }, { passive: true });
+
+  // X's GIF search runs what is typed in place, on its own route: its list starts over per query,
+  // and each query searched is a history entry, so Back returns to the query before it.
+  const GIF_PATH = "/i/foundmedia/search";
+  let gifQuery = 0;
+  async function searchGifs(entry, query) {
+    const mine = ++gifQuery;
+    const path = GIF_PATH + "?q=" + encodeURIComponent(query);
+    const view = await load(path);
+    if (mine !== gifQuery) return;
+    const list = fragment(view.html).querySelector("[data-list]");
+    entry.el.querySelector("[data-list]")?.replaceChildren(...(list ? [...list.childNodes] : []));
+    entry.path = path;
+    entry.next = view.next;
+  }
+  let typed = 0;
+  document.addEventListener("input", (event) => {
+    const field = event.target;
+    const entry = shown;
+    if (!(field instanceof HTMLInputElement) || field.placeholder !== "Search for GIFs" || !entry) return;
+    const mine = ++typed;
+    setTimeout(() => {
+      if (mine !== typed) return;
+      history.pushState({ gifQuery: field.value }, "", location.pathname);
+      void searchGifs(entry, field.value);
+    }, 300);
+  });
+  addEventListener("popstate", () => {
+    const field = document.querySelector('input[placeholder="Search for GIFs"]');
+    if (location.pathname !== GIF_PATH || !field || !shown) return;
+    field.value = history.state?.gifQuery ?? "";
+    void searchGifs(shown, field.value);
+  });
   addEventListener("popstate", () => void show());
 
   const go = (path, replace) => {
@@ -435,6 +468,11 @@ const SCRIPT = String.raw`
     if (el.dataset.toggleTranslation !== undefined) {
       el.textContent = el.textContent === "Show original" ? "Show translation" : "Show original";
       el.setAttribute("aria-label", el.textContent);
+      return;
+    }
+    if (testid === "gifSearchButton") {
+      log(testid);
+      go("/i/foundmedia/search", false);
       return;
     }
     if (testid === "app-bar-back" || testid === "app-bar-close") {

@@ -889,6 +889,41 @@ test("Lists, a List's posts and its members read X's pages", async () => {
   expect(await enginePath()).toBe(`/i/lists/${list!.listId}/members`);
 });
 
+test("A profile's Followers and Following open X's people pages, in X's tabs and X's order", async () => {
+  const user = e.mock.state.people[1]!;
+  const listed = (op: string) => {
+    const b = e.mock.state.batchFor(op, { userId: user.userId })!;
+    return b.people.map((id) => b.users.find((u) => u.userId === id)!.handle);
+  };
+  await go(`/u/${user.handle}`);
+  const profile = e.app.locator('main [data-x="profile"]');
+  // As X's own link does, Followers opens Verified Followers.
+  await profile.getByRole("link", { name: /Followers$/ }).click();
+  await expect.poll(nativeHandles).toEqual(listed("BlueVerifiedFollowers"));
+  expect(await enginePath()).toBe(`/${user.handle}/verified_followers`);
+  // X's tabs, as its page draws them: Followers you know only for someone with any.
+  const tabs = () => e.app.locator("main").getByRole("tab").allTextContents();
+  const xTabs = () =>
+    e.engine<ReadonlyArray<string>>(
+      `[...document.querySelectorAll('[role="tab"]')].map((t) => t.textContent.trim())`,
+    );
+  const all = ["Verified Followers", "Followers you know", "Followers", "Following"];
+  await expect.poll(tabs).toEqual(all);
+  expect(await xTabs()).toEqual(all);
+  await e.app.locator("main").getByRole("tab", { name: "Following", exact: true }).click();
+  await expect.poll(nativeHandles).toEqual(listed("Following"));
+  await expect.poll(enginePath).toBe(`/${user.handle}/following`);
+
+  // Someone none of the people the account follows follow: X draws no Followers you know.
+  const stranger = e.mock.state.people.find((u) => u.handle === "noor_lind")!;
+  await go(`/u/${stranger.handle}`);
+  await profile.getByRole("link", { name: /Followers$/ }).click();
+  await expect.poll(enginePath).toBe(`/${stranger.handle}/verified_followers`);
+  const none = ["Verified Followers", "Followers", "Following"];
+  await expect.poll(xTabs).toEqual(none);
+  await expect.poll(tabs).toEqual(none);
+});
+
 test("Explore, Notifications and Bookmarks render what X sends", async () => {
   await go("/explore");
   const explore = e.mock.state.batchFor("ExplorePage", {})!;
@@ -1043,6 +1078,53 @@ test("Explore finds virtualized trends above and below X's scroll for menu reads
     .toEqual(expect.arrayContaining([`press row:Not interested in this trend:${name}`]));
   await e.app.getByRole("button", { name: "Undo", exact: true }).click();
   await row.waitFor();
+});
+
+test("Home's GIF picker searches X's own GIF search on the engine, pages it, and leaves it with X's Back", async () => {
+  await go("/home?feed=following");
+  await expect.poll(enginePath).toBe("/home");
+  const writes = () => e.mock.state.presses.filter((p) => p.kind === "write").length;
+  const backs = () => presses().filter((p) => p === "press app-bar-back").length;
+  const before = writes();
+  const backsBefore = backs();
+  await e.app.getByRole("button", { name: "GIF", exact: true }).click();
+  // X's own GIF button on its Home composer opened X's search, which lists X's trending GIFs.
+  await expect.poll(enginePath).toBe("/i/foundmedia/search");
+  expect(presses()).toContain("press gifSearchButton");
+  const picker = e.app.getByRole("dialog", { name: "Choose a GIF" });
+  const scroller = picker.locator("[data-virtuoso-scroller]");
+  const labels = () =>
+    picker
+      .locator('button[aria-label$=" GIF"]')
+      .evaluateAll((bs) => bs.map((b) => b.getAttribute("aria-label")));
+  await expect.poll(async () => (await labels())[0]).toBe("Trending 1 GIF");
+
+  // Typed into X's field, X runs the search and sends its first page.
+  await picker.getByPlaceholder("Search for GIFs").fill("cat");
+  await expect
+    .poll(() => e.engine(`document.querySelector('input[placeholder="Search for GIFs"]').value`))
+    .toBe("cat");
+  await expect.poll(async () => (await labels())[0]).toBe("cat 1 GIF");
+  // At the list's end, X's list scrolls on and X sends its next page, with X's cursor.
+  await expect
+    .poll(async () => {
+      await scroller.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+      return (await labels()).at(-1);
+    })
+    .toBe("cat 60 GIF");
+  expect(e.mock.reads.filter((r) => r.op === "GifSearch").map((r) => r.variables)).toEqual(
+    expect.arrayContaining([{ query: "cat" }, { query: "cat", cursor: "go50c50" }]),
+  );
+
+  // A pick fills Xtend's box only; the engine goes Back to X's Home, and nothing went to X.
+  await scroller.evaluate((el) => el.scrollTo(0, 0));
+  await picker.getByRole("button", { name: "cat 2 GIF", exact: true }).click();
+  await expect.poll(enginePath).toBe("/home");
+  // One Back for the query X searched and one for the search it opened on, none from Home.
+  expect(backs() - backsBefore).toBe(2);
+  await e.app.getByRole("img", { name: "cat 2 GIF", exact: true }).waitFor();
+  await e.app.getByRole("button", { name: "Remove GIF", exact: true }).click();
+  expect(writes()).toBe(before);
 });
 
 test("An Article's card opens Xtend's reader with the engine on X's reader page, the body from X's answer", async () => {

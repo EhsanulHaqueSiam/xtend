@@ -1,6 +1,6 @@
-import type { EngineBatch } from "@xtend/contracts";
 import { expect, it, vi } from "vite-plus/test";
 
+import type { EngineBatch } from "@xtend/contracts";
 import { fakeTimers, stubGlobal } from "../../test/render";
 
 import {
@@ -12,13 +12,13 @@ import {
   xCommunityPin,
   xActInPlace,
   xFollow,
+  xGifIdle,
+  xGifPicker,
   xPostMenu,
   xOverEnded,
   xPickCommunitySearchTab,
+  xPickHomeTab,
   xPickInspiration,
-  xPickGameTab,
-  xHeard,
-  xNavigate,
   xPostFollowPress,
   xPostMenuPress,
   xProfileMenu,
@@ -30,6 +30,9 @@ import {
   xTrendMenu,
   xTrendMenuPress,
   type XWebview,
+  xPickGameTab,
+  xHeard,
+  xNavigate,
 } from "./x";
 
 // X's page as the engine holds it: a post quoting 42, then 42 itself, edited, so its timestamp
@@ -1323,6 +1326,194 @@ it("picks X's search tab only on the Community search it was asked for, and give
   }
 });
 
+/** Puts this document's URL back as it was, once the test is done with X's routes. */
+const keepUrl = (): Disposable => {
+  const start = location.href;
+  return { [Symbol.dispose]: () => history.replaceState(null, "", start) };
+};
+
+/**
+ * X's composer and its GIF search on this document's URL: the search on its own route (a dialog,
+ * or the page at the engine's width), a history entry per query, so one Back steps back a query.
+ * A Back lands `backMs` later; X removes the search `lingerMs` after leaving; `stuck` ignores Back.
+ */
+function fakeGifSearch({
+  layout = "page",
+  who = "search",
+  backMs = 100,
+  lingerMs = 0,
+  stuck = false,
+}: {
+  readonly layout?: "dialog" | "page";
+  readonly who?: string;
+  readonly backMs?: number;
+  readonly lingerMs?: number;
+  readonly stuck?: boolean;
+} = {}) {
+  for (const key of ["__xtendGif", "__xtendGifLive"]) Reflect.deleteProperty(window, key);
+  history.replaceState(null, "", "/home");
+  const home = `<header><button data-testid="app-bar-back">page back</button></header>
+    <main><div data-testid="toolBar"><button data-testid="gifSearchButton" aria-label="Add a GIF"></button></div></main>`;
+  document.body.innerHTML = home;
+  const x = { opened: 0, typed: [] as Array<string>, backs: [] as Array<string>, stuck };
+  document.querySelector("header button")!.addEventListener("click", () => x.backs.push("page"));
+  document.querySelector('[data-testid="gifSearchButton"]')!.addEventListener("click", () => {
+    x.opened++;
+    // X draws its search a moment after the press.
+    setTimeout(() => {
+      history.replaceState(null, "", "/i/foundmedia/search");
+      const search = `<div class="bar"><button data-testid="app-bar-back">back</button></div><div><input placeholder="Search for GIFs"></div><div data-testid="gifSearchGifImage" style="background-image:url(/media/g1/200_d.gif)"></div>`;
+      if (layout === "dialog")
+        document.body.insertAdjacentHTML(
+          "beforeend",
+          `<div role="dialog" data-who="${who}">${search}</div>`,
+        );
+      else document.body.innerHTML = `<main data-who="${who}">${search}</main>`;
+      const view = document.querySelector(`[data-who="${who}"]`)!;
+      const field = view.querySelector("input")!;
+      const queries: Array<string> = [];
+      field.addEventListener("input", () => {
+        x.typed.push(field.value);
+        queries.push(field.value);
+      });
+      view.querySelector("button")!.addEventListener("click", () => {
+        x.backs.push(who);
+        if (x.stuck) return;
+        setTimeout(() => {
+          if (queries.pop() !== undefined) field.value = queries.at(-1) ?? "";
+          else {
+            history.replaceState(null, "", "/home");
+            setTimeout(() => {
+              if (layout === "dialog") view.remove();
+              else document.body.innerHTML = home;
+            }, lingerMs);
+          }
+        }, backMs);
+      });
+    }, 300);
+  });
+  return x;
+}
+
+it.each(["dialog", "page"] as const)(
+  "opens X's GIF search once from X's own button, types each query as X sees typing, and leaves it a query at a time with its own Back (%s)",
+  async (layout) => {
+    using _clock = fakeTimers();
+    using _url = keepUrl();
+    const x = fakeGifSearch({ layout });
+    inThisPage(() => "https://x.com/home");
+
+    const picker = xGifPicker();
+    const searches = [picker.search(""), picker.search("ca"), picker.search("cat")];
+    await vi.runAllTimersAsync();
+    expect([await Promise.all(searches), x.opened, x.typed]).toEqual([
+      [true, true, true],
+      1,
+      ["ca", "cat"],
+    ]);
+    const closing = picker.close();
+    await vi.runAllTimersAsync();
+    // "cat", then "ca", then the search X opened on.
+    expect([await closing, x.backs, location.pathname]).toEqual([
+      true,
+      ["search", "search", "search"],
+      "/home",
+    ]);
+    expect(document.querySelector('input[placeholder="Search for GIFs"]')).toBeNull();
+    // With X's search gone, closing again presses nothing, the page's own Back included.
+    const again = picker.close();
+    await vi.runAllTimersAsync();
+    expect([await again, x.backs.length]).toEqual([false, 3]);
+  },
+);
+
+it("presses Back only while X is on its search, however late X removes it, and as often as its queries need", async () => {
+  using _clock = fakeTimers();
+  using _url = keepUrl();
+  // X takes a while to take each Back, and draws its search a while longer after leaving it.
+  const slow = fakeGifSearch({ backMs: 400, lingerMs: 2_000 });
+  inThisPage(() => "https://x.com/home");
+  const picker = xGifPicker();
+  void picker.search("cat");
+  await vi.runAllTimersAsync();
+  const closing = picker.close();
+  await vi.runAllTimersAsync();
+  expect([await closing, slow.backs, location.pathname]).toEqual([
+    true,
+    ["search", "search"],
+    "/home",
+  ]);
+
+  // Nine queries are nine history entries: ten Backs to leave.
+  const many = fakeGifSearch();
+  const typing = xGifPicker();
+  for (const query of ["a", "b", "c", "d", "e", "f", "g", "h", "i"]) void typing.search(query);
+  await vi.runAllTimersAsync();
+  const leaving = typing.close();
+  await vi.runAllTimersAsync();
+  expect([await leaving, many.backs.length, location.pathname]).toEqual([true, 10, "/home"]);
+});
+
+it("keeps X's search its own when X does not take its Back, so a later close still leaves it", async () => {
+  using _clock = fakeTimers();
+  using _url = keepUrl();
+  const x = fakeGifSearch({ stuck: true });
+  inThisPage(() => "https://x.com/home");
+  const picker = xGifPicker();
+  void picker.search("cat");
+  await vi.runAllTimersAsync();
+  const closing = picker.close();
+  await vi.runAllTimersAsync();
+  // One Back X never took; nothing more is pressed, and X is still on its search.
+  expect([await closing, x.backs, location.pathname]).toEqual([
+    false,
+    ["search"],
+    "/i/foundmedia/search",
+  ]);
+  // X answers again: the same picker can still leave its search.
+  x.stuck = false;
+  const again = picker.close();
+  await vi.runAllTimersAsync();
+  expect([await again, x.backs.length, location.pathname]).toEqual([true, 3, "/home"]);
+});
+
+it("a GIF picker closed while X's next page is still coming stops at once, so Post goes next, and never closes a search it did not open", async () => {
+  using _clock = fakeTimers();
+  using _url = keepUrl();
+  const x = fakeGifSearch({ layout: "dialog", who: "picker" });
+  inThisPage(() => "https://x.com/home");
+  const picker = xGifPicker();
+  const opened = picker.search("");
+  await vi.advanceTimersByTimeAsync(300);
+  expect(await opened).toBe(true);
+  // At the grid's end; X has not sent its next page yet.
+  void picker.more();
+  await vi.advanceTimersByTimeAsync(400);
+
+  // The user picks a GIF, which closes the picker, and presses Post at once.
+  void picker.close();
+  let postMayStart = false;
+  void xGifIdle().then(() => (postMayStart = true));
+  await vi.advanceTimersByTimeAsync(500);
+  expect([postMayStart, x.backs]).toEqual([true, ["picker"]]);
+
+  // Another picker's search is open when the desktop's Post loads X's page afresh and opens X's
+  // search in its composer: that picker closing afterwards leaves the desktop's search alone.
+  fakeGifSearch({ layout: "dialog", who: "other" });
+  const other = xGifPicker();
+  void other.search("");
+  await vi.advanceTimersByTimeAsync(300);
+  const desktop = fakeGifSearch({ layout: "dialog", who: "desktop" });
+  (document.querySelector('[data-testid="gifSearchButton"]') as HTMLElement).click();
+  await vi.advanceTimersByTimeAsync(300);
+  void other.close();
+  await vi.runAllTimersAsync();
+  expect([desktop.backs, document.querySelector('[data-who="desktop"]') !== null]).toEqual([
+    [],
+    true,
+  ]);
+});
+
 it("presses X's Inspiration filter as a pointer's whole press, only that filter, only on X's Inspiration", async () => {
   using _clock = fakeTimers();
   const pressed: Array<string> = [];
@@ -1416,6 +1607,40 @@ it("lets later Inspiration picks run once the screen or X's next page load lets 
     ["Last 7d", "Most Likes", "Last 30d", "Most Quotes"],
   ]);
   registerXWebview(null);
+});
+
+it("picks a tab only on the page it was asked on, or under it, never another page's tab of that name", async () => {
+  using _clock = fakeTimers();
+  const clicked: Array<string> = [];
+  const draw = (labels: ReadonlyArray<string>) => {
+    document.body.innerHTML = `<nav>${labels.map((l) => `<a role="tab" aria-selected="false">${l}</a>`).join("")}</nav>`;
+    for (const tab of document.querySelectorAll('[role="tab"]'))
+      tab.addEventListener("click", () => clicked.push(`${location.pathname} ${tab.textContent}`));
+  };
+  inThisPage(() => `https://x.com${location.pathname}`);
+  const start = location.href;
+  try {
+    // Home's Following, asked before X drew Home: the engine moves on to a profile's people pages,
+    // whose Following tab is not Home's.
+    history.replaceState(null, "", "/home");
+    document.body.innerHTML = "";
+    const home = xPickHomeTab("Following");
+    await vi.advanceTimersByTimeAsync(300);
+    history.replaceState(null, "", "/ann/verified_followers");
+    draw(["Verified Followers", "Followers", "Following"]);
+    await vi.runAllTimersAsync();
+    expect([await home, clicked]).toEqual([false, []]);
+    // A page X moves under once it loads (Explore's own tabs) is still that page.
+    history.replaceState(null, "", "/explore");
+    document.body.innerHTML = "";
+    const explore = xPickHomeTab("News");
+    history.replaceState(null, "", "/explore/tabs/for_you");
+    draw(["For You", "News"]);
+    await vi.runAllTimersAsync();
+    expect([await explore, clicked]).toEqual([true, ["/explore/tabs/for_you News"]]);
+  } finally {
+    history.replaceState(null, "", start);
+  }
 });
 
 it("picks a game's tab once X answered for that game since the engine's last move, whoever picks it", async () => {

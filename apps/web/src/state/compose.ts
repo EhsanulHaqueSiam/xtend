@@ -1,4 +1,10 @@
-import { Compose_METHODS, type DraftPatch, type MediaKind, type ReplyTone } from "@xtend/contracts";
+import {
+  Compose_METHODS,
+  type DraftPatch,
+  type MediaKind,
+  type PickedGif,
+  type ReplyTone,
+} from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 
 import { clientRuntime, XtendClient } from "../rpc/client";
@@ -45,10 +51,17 @@ export const postNowAtom = clientRuntime.fn<string>()(
 );
 
 /** Post now through the user's session only, for a Post button that showed no price. */
-export const sessionPostNowAtom = clientRuntime.fn<string>()(
-  Effect.fnUntraced(function* (id) {
+export const sessionPostNowAtom = clientRuntime.fn<{
+  readonly id: string;
+  readonly gif?: PickedGif | undefined;
+}>()(
+  Effect.fnUntraced(function* ({ id, gif }) {
     const client = yield* XtendClient;
-    return yield* client[Compose_METHODS.postNow]({ id, sessionOnly: true });
+    return yield* client[Compose_METHODS.postNow]({
+      id,
+      sessionOnly: true,
+      ...(gif === undefined ? {} : { gif }),
+    });
   }),
 );
 

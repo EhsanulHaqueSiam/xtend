@@ -4,6 +4,7 @@ import {
   type DesktopUnavailableError,
   type Draft,
   hasLink,
+  type PickedGif,
   POST_LIMIT,
   type XApiError,
   XId,
@@ -57,13 +58,16 @@ const mayHavePosted = (e: ComposeError | XApiError | DesktopUnavailableError) =>
       e.reason !== "no_desktop" &&
       e.reason !== "not_attempted";
 
-/** Why X would refuse the draft, found before the first post goes out so a thread never stops halfway. */
-const refusal = (draft: Draft): string | null => {
+/**
+ * Why X would refuse the draft, found before the first post goes out so a thread never stops
+ * halfway. `gif`: the click picked one for the first post.
+ */
+const refusal = (draft: Draft, gif: boolean): string | null => {
   if (draft.kind === "article")
     return draft.title.trim() === "" || draft.body.trim() === ""
       ? "Article needs a title and a body"
       : null;
-  const hasMedia = (i: number) => draft.media.some((m) => m.blockIndex === i);
+  const hasMedia = (i: number) => draft.media.some((m) => m.blockIndex === i) || (i === 0 && gif);
   // A post may be only media or only the quote link, but not nothing.
   const blank = draft.blocks.findIndex((_, i) => blockText(draft, i).trim() === "" && !hasMedia(i));
   if (draft.blocks.length === 0 || (blank !== -1 && draft.blocks.length === 1))
@@ -71,6 +75,8 @@ const refusal = (draft: Draft): string | null => {
   if (blank !== -1) return `Post ${blank + 1} is empty`;
   const long = draft.blocks.findIndex((_, i) => charCount(blockText(draft, i)) > POST_LIMIT);
   if (long !== -1) return `Post ${long + 1} is over ${POST_LIMIT} characters`;
+  if (gif && draft.media.some((m) => m.blockIndex === 0))
+    return "A GIF cannot share the first post with media";
   if (draft.poll === null) return null;
   if (draft.poll.options.some((o) => o.trim() === "")) return "Poll has a blank option";
   // X takes a poll or media on a post, not both.
@@ -95,6 +101,8 @@ export class Publisher extends Context.Service<
         readonly clicked?: boolean;
         /** The click showed no price: a post the session cannot take fails instead of going paid. */
         readonly sessionOnly?: boolean;
+        /** Picked in X's GIF search for the first post; only the session can post it. */
+        readonly gif?: PickedGif;
       },
     ) => Effect.Effect<Draft, ComposeError>;
   }
@@ -112,10 +120,11 @@ const make = Effect.gen(function* () {
     purpose: string,
     clicked: boolean,
     sessionOnly: boolean,
+    gif: PickedGif | undefined,
   ) {
     const ids = [...draft.postIds];
     // A click goes through the user's own composer, poll and who-can-reply included; unattended
-    // posts keep the API. Media only the session can upload, so it waits for a click.
+    // posts keep the API. Media and a GIF only the session can add, so media waits for a click.
     const sessionClick =
       clicked &&
       (yield* settings.get.pipe(
@@ -133,6 +142,7 @@ const make = Effect.gen(function* () {
       const unsure = <E extends ComposeError | XApiError | DesktopUnavailableError>(e: E) =>
         Effect.fail(mayHavePosted(e) ? new Unconfirmed({ post: i + 1, detail: e.message }) : e);
       const poll = i === 0 && draft.poll !== null ? { poll: draft.poll } : {};
+      const picked = i === 0 && gif !== undefined ? { gif } : {};
       // Media rides only the session, and the session only acts on a click.
       if (media.length > 0 && !clicked)
         return yield* new ComposeError({
@@ -140,13 +150,14 @@ const make = Effect.gen(function* () {
           detail: "Posts with media need your click: press Post now",
         });
       const { postId } =
-        media.length > 0 || sessionClick
+        media.length > 0 || "gif" in picked || sessionClick
           ? yield* session
               .post({
                 text,
                 mediaPaths: media,
                 replySettings,
                 ...poll,
+                ...picked,
                 ...(previous === undefined ? {} : { replyToPostId: previous }),
               })
               .pipe(Effect.catch(unsure))
@@ -207,12 +218,13 @@ const make = Effect.gen(function* () {
       readonly retry: boolean;
       readonly clicked?: boolean;
       readonly sessionOnly?: boolean;
+      readonly gif?: PickedGif;
     },
   ) {
     // Read after the claim so the editor's last autosave is what goes out.
     const draft = yield* drafts.get(id);
     const attempt = draft.attempts + 1;
-    const failure = refusal(draft);
+    const failure = refusal(draft, options.gif !== undefined);
     const result =
       failure !== null
         ? { error: failure, ids: [] as ReadonlyArray<string>, retryable: false }
@@ -224,6 +236,7 @@ const make = Effect.gen(function* () {
                   options.purpose,
                   options.clicked === true,
                   options.sessionOnly === true,
+                  options.gif,
                 )
           ).pipe(
             Effect.map((ids) => ({ error: null, ids, retryable: false })),
@@ -267,6 +280,7 @@ const make = Effect.gen(function* () {
       readonly due?: string;
       readonly clicked?: boolean;
       readonly sessionOnly?: boolean;
+      readonly gif?: PickedGif;
     },
   ) {
     if (!(yield* drafts.claim(id, options.due)))
