@@ -1031,6 +1031,13 @@ describe("renderEngineBatch around posts", () => {
     expect(followers.users.map((u) => u.followsYou)).toEqual([true, true]);
     const none = renderEngineBatch("FollowersYouKnow", { userId: "5", count: 20 }, page([]));
     expect([none.key, none.people, hasEngineContent(none)]).toEqual(["5", [], true]);
+    // X's rate limit answers with an error alone: no list, so no answer of nobody.
+    const limited = renderEngineBatch(
+      "Followers",
+      { userId: "5", count: 20 },
+      { errors: [{ code: 88, message: "Rate limit exceeded" }] },
+    );
+    expect([limited.key, hasEngineContent(limited)]).toEqual([null, false]);
   });
 });
 

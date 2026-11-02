@@ -623,8 +623,9 @@ function mergeInto(state: EngineState, batch: EngineBatch, surface: AnySurface):
 
   // People, trends and notifications: a first page replaces, a newer page goes on top.
   const userIds = batch.people;
+  // A profile's people page: X's first page replaces it even with nobody on it, as X lists it now.
   const people =
-    userIds.length === 0
+    userIds.length === 0 && !(page === "first" && FOLLOWERS_OPS[batch.op] !== undefined)
       ? state.people
       : set(
           state.people,

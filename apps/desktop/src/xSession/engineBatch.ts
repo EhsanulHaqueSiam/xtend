@@ -676,6 +676,9 @@ function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExp
   return s("userId") ?? null;
 }
 
+/** A profile's people pages (X's Followers, Following, Followers you know, Verified Followers). */
+const PEOPLE_PAGES = /^(Followers|Following|FollowersYouKnow|BlueVerifiedFollowers)$/;
+
 /**
  * Everything in one response for the engine's screens. People are the ones X lists (search
  * People, Who to follow, a profile's own header), not every post's author.
@@ -799,7 +802,11 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
           )
           ? "communities:mine"
           : null
-        : keyOf(op, variables, exploreTabs),
+        : // An error alone (X's rate limit) carries no list, so it is no answer of nobody.
+          PEOPLE_PAGES.test(op) &&
+            !Array.isArray(record(record(result(data.user).timeline).timeline).instructions)
+          ? null
+          : keyOf(op, variables, exploreTabs),
     // Explore asks with an empty cursor for its first page.
     cursor: asString(variables.cursor) || null,
     top,
@@ -893,8 +900,7 @@ export const hasEngineContent = (b: EngineBatch) =>
   // shortcut: an error answer reads the same; tell them apart by the body if X errs there.
   (b.key !== null && (b.op === "CommunitiesSearchQuery" || HUB_SEARCH_POSTS.test(b.op))) ||
   // A profile's people page X answered with nobody (no verified followers): the screen says so.
-  // shortcut: an error answer reads the same; tell them apart by the body if X errs there.
-  (b.key !== null && /^(Followers|Following|FollowersYouKnow|BlueVerifiedFollowers)$/.test(b.op)) ||
+  (b.key !== null && PEOPLE_PAGES.test(b.op)) ||
   b.homeTabs !== null ||
   b.exploreTabs !== null ||
   b.viewer !== null;

@@ -406,6 +406,15 @@ it("holds a pin or unpin X took until X's pinned tabs agree", () => {
   expect(mergeBatch(unpinned, tabs("20")).pinned.size).toBe(0);
 });
 
+it("replaces a profile's people page with X's first page even when X now lists nobody", () => {
+  const followers = (cursor: string | null, people: ReadonlyArray<string>) =>
+    batch("Followers", [], { key: "5", cursor, bottom: "next", people });
+  const listed = mergeBatch(emptyEngine, followers(null, ["11", "12"]));
+  // A later page with nobody on it keeps the rows; a fresh first page with nobody empties them.
+  expect(at(mergeBatch(listed, followers("next", [])).people, "followers:5")).toEqual(["11", "12"]);
+  expect(at(mergeBatch(listed, followers(null, [])).people, "followers:5")).toEqual([]);
+});
+
 it("keeps notifications in X's order, newer on top, people by surface, and follows until X agrees", () => {
   const note = (id: string): EngineNotification => ({
     id,
