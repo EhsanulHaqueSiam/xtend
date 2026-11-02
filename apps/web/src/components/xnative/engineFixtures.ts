@@ -2,6 +2,7 @@
 // native X screens render in a plain browser. Type imports only: scripts/engine-fixture.ts runs
 // this file under Node as is.
 import type {
+  EngineAccountAnalytics,
   EngineArticle,
   EngineArticleBlock,
   EngineBatch,
@@ -1255,6 +1256,172 @@ export function synth(): Readonly<Record<string, Fixture>> {
     ],
   };
 
+  // X's own account analytics for @you, in the ranges X's pages open on; Premium on X.
+  const DAY = 86_400_000;
+  const today = Date.parse(SYNTH_AT.slice(0, 10));
+  const ranged = (op: string, key: string, accountAnalytics: EngineAccountAnalytics) =>
+    batch(op, key, [], { top: null, bottom: null, accountAnalytics });
+  const overview = (days: number) =>
+    ranged("accountOverviewDailyQuery", `overview:${days}`, {
+      kind: "overview",
+      days,
+      from: new Date(today - (days - 1) * DAY).toISOString(),
+      daily: Array.from({ length: days }, (_, i) => {
+        const n = (i * 7 + days) % 11;
+        return {
+          Impressions: 180 + n * 45,
+          Likes: 6 + n,
+          Replies: n % 4,
+          Retweets: n % 3,
+          Bookmark: n % 2,
+          Share: (n + 1) % 2,
+          ProfileVisits: 2 + (n % 5),
+          CreateTweet: 1 + (n % 2),
+          // X counts follows on the days it has them.
+          ...(i % 3 === 0 ? { Follows: n % 4, Unfollows: i % 2 } : {}),
+        };
+      }),
+      previous: {
+        Impressions: 150 * days,
+        Likes: 5 * days,
+        Replies: days,
+        Retweets: days,
+        Bookmark: 2,
+        Share: 1,
+        ProfileVisits: 2 * days,
+        CreateTweet: days,
+        Follows: 3,
+        Unfollows: 1,
+      },
+      followers: 1_840,
+      verifiedFollowers: 212,
+    });
+  const mediaKey = (minutes: number) =>
+    `13_${(BigInt(Date.parse(ago(minutes))) - 1_288_834_974_657n) << 22n}`;
+  const accountAnalytics: Fixture = {
+    meta: meta("accountAnalytics", "X's own account analytics for @you, as a Premium account", [
+      "/analyze?tab=x-overview",
+      "/analyze?tab=x-content",
+      "/analyze?tab=x-video",
+      "/analyze?tab=x-audience",
+    ]),
+    batches: [
+      batch("GetUserClaims", null, [], { top: null, bottom: null, analyticsAccess: true }),
+      overview(7),
+      overview(28),
+      ranged("contentPageQuery", "content:7", {
+        kind: "content",
+        days: 7,
+        posts: [
+          {
+            postId: yours.postId,
+            text: yours.text,
+            createdAt: yours.createdAt,
+            reply: false,
+            community: false,
+            metrics: { Impressions: 48_210, Likes: 912, Replies: 41, Retweets: 77, Bookmark: 130 },
+          },
+          {
+            postId: "700000000901",
+            text: "Happy to share the template, sending it over now.",
+            createdAt: ago(1_500),
+            reply: true,
+            community: false,
+            metrics: { Impressions: 640, Likes: 12, Replies: 2, Retweets: 0, Bookmark: 1 },
+          },
+          {
+            postId: "700000000902",
+            text: "Shipped a dark mode for the editor. Took a weekend.",
+            createdAt: ago(4_200),
+            reply: false,
+            community: false,
+            metrics: { Impressions: 9_870, Likes: 233, Replies: 18, Retweets: 25, Bookmark: 40 },
+          },
+        ],
+      }),
+      ranged("mediaMetricsQuery", "video:7", {
+        kind: "video",
+        days: 7,
+        totals: {
+          VideoView: 3,
+          WatchTime: 111_000,
+          PlaybackStart: 3,
+          Playback25: 3,
+          Playback50: 3,
+          Playback75: 2,
+          PlaybackComplete: 2,
+        },
+      }),
+      batch("videoListProviderQuery", "videos", [], {
+        top: null,
+        bottom: null,
+        accountAnalytics: {
+          kind: "videos",
+          videos: [
+            {
+              mediaKey: mediaKey(1_500),
+              name: "Editor dark mode walkthrough",
+              views: 3,
+              durationMs: 74_000,
+              previewUrl: placeholder("video-1", 640, 360),
+              postId: "700000000902",
+              createdAt: ago(1_500),
+            },
+            {
+              mediaKey: mediaKey(9_000),
+              name: "",
+              views: 0,
+              durationMs: 12_000,
+              previewUrl: null,
+              postId: null,
+              createdAt: ago(9_000),
+            },
+          ],
+        },
+      }),
+      ranged("audienceOverviewDataQuery", "audience:7", {
+        kind: "audience",
+        days: 7,
+        rows: [
+          {
+            type: "Fav",
+            count: 30,
+            age: "Age25to34",
+            gender: "Female",
+            app: "129032",
+            country: null,
+          },
+          {
+            type: "Fav",
+            count: 22,
+            age: "Age18to24",
+            gender: "Male",
+            app: "258901",
+            country: null,
+          },
+          {
+            type: "Fav",
+            count: 8,
+            age: "Age35To44",
+            gender: "Unknown",
+            app: "3033300",
+            country: null,
+          },
+          {
+            type: "Displayed",
+            count: 900,
+            age: "Age25to34",
+            gender: "Male",
+            app: "3033300",
+            country: null,
+          },
+          { type: "Fav", count: 41, age: null, gender: null, app: null, country: "BD" },
+          { type: "Fav", count: 19, age: null, gender: null, app: null, country: "US" },
+        ],
+      }),
+    ],
+  };
+
   // A made-up team: its profile carries X's schedule, and its live game opens a game page.
   const team = person(20, {
     bio: "Official account of the Harbor Hawks.",
@@ -1346,6 +1513,7 @@ export function synth(): Readonly<Record<string, Fixture>> {
     follow,
     communities,
     analytics,
+    accountAnalytics,
     sports,
   };
 }

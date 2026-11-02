@@ -42,6 +42,11 @@ const PAGES: ReadonlyArray<readonly [path: string, tab?: string]> = [
   ["/yuki_mensah20"],
   ["/i/nba/game/900000500004", "Top"],
   ["/i/nba/game/900000500004", "Latest"],
+  ["/i/account_analytics"],
+  ["/i/account_analytics", "4W"],
+  ["/i/account_analytics/content"],
+  ["/i/account_analytics/video"],
+  ["/i/account_analytics/audience"],
 ];
 
 it("answers every request X's pages make with the batch the made-up fixtures hold, as the capture reads it", () => {
@@ -50,6 +55,7 @@ it("answers every request X's pages make with the batch the made-up fixtures hol
   for (const [path, tab = "forYou"] of PAGES)
     for (const { op, variables } of [
       { op: "Viewer", variables: {} },
+      { op: "GetUserClaims", variables: {} },
       ...route(state, path, tab).requests,
     ])
       // A response round-trips through JSON on its way to the capture.

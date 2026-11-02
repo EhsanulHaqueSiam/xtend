@@ -113,7 +113,21 @@ export interface MockOptions {
   readonly pageSize?: number;
   /** Every nth made-up post carries a photo, so a page is as tall as X's. */
   readonly photoEvery?: number;
+  /** Whether X's claims give @you X's account analytics; false draws X's paywall. Default true. */
+  readonly premium?: boolean;
 }
+
+const DAY_MS = 86_400_000;
+const msOf = (v: unknown) => (typeof v === "number" ? v : Date.parse(String(v)));
+const span = (from: unknown, to: unknown) => Math.round((msOf(to) - msOf(from)) / DAY_MS);
+/** The range each of X's account analytics queries asked for, as the capture keys its answer. */
+const ACCOUNT_ANALYTICS_KEYS: Readonly<Record<string, (v: Json) => string>> = {
+  accountOverviewDailyQuery: (v) => `overview:${span(v.current_from, v.current_to)}`,
+  contentPageQuery: (v) => `content:${span(v.from_time, v.to_time)}`,
+  mediaMetricsQuery: (v) => `video:${Math.round(span(v.from_timestamp, v.to_timestamp) / 2)}`,
+  videoListProviderQuery: () => "videos",
+  audienceOverviewDataQuery: (v) => `audience:${span(v.from_time_incl, v.to_time_excl)}`,
+};
 const PINNED_TAG = "1540000000000000001";
 
 const key = (op: string, k: string | null) => `${op}|${k ?? ""}`;
@@ -128,6 +142,7 @@ export function createMockState(options: MockOptions = {}) {
   const batches = Object.values(fixtures).flatMap((f) => f.batches);
   const snapshot = new Map(batches.map((b) => [key(b.op, b.key), b]));
   const fixture = (op: string, k: string | null) => snapshot.get(key(op, k));
+  const premium = options.premium ?? true;
   const home = fixtures.home!.batches;
   const viewer = home.find((b) => b.viewer !== null)!.viewer!;
 
@@ -771,7 +786,12 @@ export function createMockState(options: MockOptions = {}) {
       // X's Post Analytics, for the user's own post the fixtures count.
       case "TweetActivityQuery":
         return fixture(op, s(variables, "restId") ?? "") ?? null;
+      // X's claims at each boot, and its account analytics only for an account they unlock.
+      case "GetUserClaims":
+        return { ...fixture(op, null)!, analyticsAccess: premium };
       default:
+        if (Object.hasOwn(ACCOUNT_ANALYTICS_KEYS, op))
+          return premium ? (fixture(op, ACCOUNT_ANALYTICS_KEYS[op]!(variables)) ?? null) : null;
         if (
           /^User(Tweets|TweetsAndReplies|Media|HighlightsTweets|SuperFollowTweets|RepostsTimeline)$/.test(
             op,
@@ -787,7 +807,7 @@ export function createMockState(options: MockOptions = {}) {
   /** X's GraphQL answer to one request; writes go through `write`. */
   const respond = (op: string, variables: Json): Json => {
     const b = batchFor(op, variables);
-    return b === null ? { data: {} } : encodeBody(b, liveUsers());
+    return b === null ? { data: {} } : encodeBody(b, liveUsers(), variables);
   };
 
   const changePost = (id: string, change: (p: EnginePost) => Partial<EnginePost>) => {
@@ -977,6 +997,7 @@ export function createMockState(options: MockOptions = {}) {
     /** Post ids of a feed page after the first. */
     feedPageIds: (feed: Feed, n: number) => feedPage(feed, n).order,
     fixture,
+    premium,
     fixtures: () => fixtures,
     lists: (): ReadonlyArray<EngineList> => [...xLists.values()],
     community,

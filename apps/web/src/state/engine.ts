@@ -1,4 +1,5 @@
 import type {
+  EngineAccountAnalytics,
   EngineArticle,
   EngineBatch,
   EngineCommunity,
@@ -412,11 +413,33 @@ export interface EngineState {
   readonly analytics: ReadonlyMap<string, Readonly<Record<string, number>>>;
   /** How many people the viewer follows follow each user, by user id (see `EngineBatch.knownFollowers`). */
   readonly knownFollowers: ReadonlyMap<string, number>;
+  readonly accountAnalytics: AccountAnalytics;
   /** The page cursors X last answered per surface, to tell a fetch of newer posts from the next page. */
   readonly cursors: Readonly<
     Partial<Record<AnySurface, { readonly top: string | null; readonly bottom: string | null }>>
   >;
 }
+
+/** X's own account analytics (x.com/i/account_analytics), as the engine read it. */
+interface AccountAnalytics {
+  /** Whether X's claims unlock it for this account (Premium); null until X's page has said. */
+  readonly access: boolean | null;
+  /** X's answers by `<kind>:<days>` (see `EngineBatch.accountAnalytics`). */
+  readonly answers: ReadonlyMap<string, EngineAccountAnalytics>;
+  /** Per kind, the key of X's latest answer: the range X's page shows now. */
+  readonly shown: Readonly<Partial<Record<EngineAccountAnalytics["kind"], string>>>;
+}
+
+const mergeAccountAnalytics = (a: AccountAnalytics, b: EngineBatch): AccountAnalytics => {
+  const access = b.analyticsAccess ?? a.access;
+  const answer = b.accountAnalytics;
+  if (answer === undefined || b.key === null) return access === a.access ? a : { ...a, access };
+  return {
+    access,
+    answers: new Map(a.answers).set(b.key, answer),
+    shown: { ...a.shown, [answer.kind]: b.key },
+  };
+};
 
 export const emptyEngine: EngineState = {
   posts: new Map(),
@@ -450,6 +473,7 @@ export const emptyEngine: EngineState = {
   viewer: null,
   analytics: new Map(),
   knownFollowers: new Map(),
+  accountAnalytics: { access: null, answers: new Map(), shown: {} },
   cursors: {},
 };
 
@@ -594,6 +618,7 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
       batch.knownFollowers === undefined || batch.key === null
         ? state.knownFollowers
         : new Map(state.knownFollowers).set(batch.key, batch.knownFollowers),
+    accountAnalytics: mergeAccountAnalytics(state.accountAnalytics, batch),
   };
   const listed = surfacesOf(batch).reduce(
     (state, surface) =>

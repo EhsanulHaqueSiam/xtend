@@ -321,6 +321,43 @@ test("Your own post's views and X's ... row open Post Analytics natively, with t
   ).toEqual([]);
 });
 
+test("Analyze draws X's own analytics for the range X's page shows, a range presses X's own button, and a post opens its Post Analytics", async () => {
+  const impressions = (key: string) => {
+    const a = e.mock.state.fixture("accountOverviewDailyQuery", key)!.accountAnalytics!;
+    return a.kind === "overview"
+      ? a.daily.reduce((n, d) => n + (d.Impressions ?? 0), 0).toLocaleString("en")
+      : null;
+  };
+  const tile = () =>
+    e.app.locator('main [data-x-tile="Impressions"] .font-mono').first().textContent();
+  const xTile = () =>
+    e.engine<string>(
+      `[...document.querySelectorAll('[data-testid="analytics-tile"]')].find((t) => t.firstChild.textContent === "Impressions")?.lastChild.textContent`,
+    );
+  await go("/analyze?tab=x-overview");
+  await expect.poll(enginePath).toBe("/i/account_analytics");
+  await expect.poll(tile).toBe(impressions("overview:7"));
+  expect(await xTile()).toBe(impressions("overview:7"));
+
+  await e.app.getByRole("tab", { name: "4W", exact: true }).click();
+  await expect.poll(tile).toBe(impressions("overview:28"));
+  expect(await xTile()).toBe(impressions("overview:28"));
+  // Back to 7D: X shows it from its own store and asks for nothing; the week X sent stays.
+  const asked = e.mock.reads.length;
+  await e.app.getByRole("tab", { name: "7D", exact: true }).click();
+  await expect.poll(tile).toBe(impressions("overview:7"));
+  expect(e.mock.reads.slice(asked).map((r) => r.op)).not.toContain("accountOverviewDailyQuery");
+  expect(presses().filter((p) => p.startsWith("press range:"))).toEqual([
+    "press range:4W",
+    "press range:7D",
+  ]);
+
+  await go("/analyze?tab=x-content");
+  await expect.poll(enginePath).toBe("/i/account_analytics/content");
+  await e.app.getByText("Shipped a dark mode for the editor.", { exact: false }).click();
+  await expect.poll(enginePath).toBe("/you/status/700000000902/analytics");
+});
+
 test("A profile renders X's header and posts; its ... rows come from X, its bell is X's, and About opens X's page", async () => {
   const user = e.mock.state.people[0]!;
   await go(`/u/${user.handle}`);

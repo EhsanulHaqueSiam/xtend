@@ -1,4 +1,5 @@
 import type {
+  EngineAccountAnalytics,
   EngineArticle,
   EngineArticleBlock,
   EngineBatch,
@@ -877,6 +878,8 @@ function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExp
   // A post's reposters and likers (X's Post activity).
   if (op === "Retweeters" || op === "Favoriters") return s("tweetId") ?? null;
   if (op === "TweetActivityQuery") return s("restId") ?? null;
+  const accountAnalytics = accountAnalyticsKey(op, variables);
+  if (accountAnalytics !== undefined) return accountAnalytics;
   // X's Follow page asks with a JSON context: empty for Who to follow, only the creators flag
   // for its other tab. Any other context (people like someone) is no tab of that page.
   if (op === "ConnectTabTimeline") {
@@ -1085,7 +1088,277 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     ...(gifSlice === null ? {} : { gifs: arr(gifSlice.items).flatMap(readGif) }),
     ...(prompt === undefined ? {} : { prompt }),
     ...readAnalytics(op, data),
+    ...readAccountAnalytics(op, variables, data),
   };
+}
+
+const DAY_MS = 86_400_000;
+/** Milliseconds from a number, or from an ISO time or X's `{ iso8601_time }`; NaN for neither. */
+const msOf = (value: unknown) =>
+  typeof value === "number"
+    ? value
+    : Date.parse(asString(value) ?? asString(record(value).iso8601_time) ?? "");
+
+/** The days a range of X's analytics spans; X's ranges end a millisecond short of midnight. */
+const spanDays = (from: unknown, to: unknown) => Math.round((msOf(to) - msOf(from)) / DAY_MS);
+
+/**
+ * X's account analytics queries (x.com/i/account_analytics) and the range each asked for, in
+ * days. The video overview asks for its range and the one before it at once.
+ */
+const ACCOUNT_ANALYTICS: Readonly<
+  Record<string, (v: Json) => { kind: EngineAccountAnalytics["kind"]; days: number | null }>
+> = {
+  accountOverviewDailyQuery: (v) => ({
+    kind: "overview",
+    days: spanDays(v.current_from, v.current_to),
+  }),
+  contentPageQuery: (v) => ({ kind: "content", days: spanDays(v.from_time, v.to_time) }),
+  mediaMetricsQuery: (v) => ({
+    kind: "video",
+    days: Math.round(spanDays(v.from_timestamp, v.to_timestamp) / 2),
+  }),
+  videoListProviderQuery: () => ({ kind: "videos", days: null }),
+  audienceOverviewDataQuery: (v) => ({
+    kind: "audience",
+    days: spanDays(v.from_time_incl, v.to_time_excl),
+  }),
+};
+
+/** `<kind>:<days>` for an account analytics answer; undefined for any other operation. */
+function accountAnalyticsKey(op: string, variables: Json): string | null | undefined {
+  if (!Object.hasOwn(ACCOUNT_ANALYTICS, op)) return undefined;
+  const { kind, days } = ACCOUNT_ANALYTICS[op]!(variables);
+  // X's next pages of videos, as its own list scrolls: Xtend lists the first.
+  if (days === null)
+    return variables.cursor === null || variables.cursor === undefined ? kind : null;
+  return Number.isSafeInteger(days) && days > 0 ? `${kind}:${days}` : null;
+}
+
+/** X's overview counts its engagement types as these metrics (its `cd` map). */
+const ENGAGEMENT_METRIC: Readonly<Record<string, string>> = {
+  Bookmark: "Bookmark",
+  Displayed: "Impressions",
+  Fav: "Likes",
+  Follow: "Follows",
+  ProfilePic: "ProfileVisits",
+  QuoteCreate: "CreateQuote",
+  QuoteTweet: "Retweets",
+  Reply: "Replies",
+  ReplyCreate: "CreateReply",
+  Retweet: "Retweets",
+  Share: "Share",
+  TweetCreate: "CreateTweet",
+  Unfollow: "Unfollows",
+};
+
+/** Sums X's `{ engagement_type, count }` rows by metric. */
+function countRows(rows: ReadonlyArray<unknown>): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const row of rows) {
+    const metric = ENGAGEMENT_METRIC[asString(record(row).engagement_type) ?? ""];
+    if (metric !== undefined) out[metric] = (out[metric] ?? 0) + Number(record(row).count ?? 0);
+  }
+  return out;
+}
+
+/** X's rows by the day (its UTC midnight) each counts. */
+function rowsByDay(rows: unknown): ReadonlyMap<number, ReadonlyArray<unknown>> {
+  const out = new Map<number, Array<unknown>>();
+  for (const row of arr(rows)) {
+    const day = msOf(record(row).timestamp);
+    out.set(day, [...(out.get(day) ?? []), row]);
+  }
+  return out;
+}
+
+/** X's `[{ metric_type, metric_value }]` as counts; a value X leaves out is 0. */
+const metricValues = (values: unknown): Record<string, number> =>
+  Object.fromEntries(
+    arr(values).flatMap((m) => {
+      const type = asString(record(m).metric_type);
+      return type === undefined ? [] : [[type, asNumber(record(m).metric_value)]];
+    }),
+  );
+
+/** X's follows and unfollows per day, which replace the engagement rows' own (X's `cj`). */
+const followsByDay = (series: unknown) =>
+  new Map(
+    arr(series).map((point) => [
+      msOf(record(point).timestamp),
+      metricValues(record(point).metric_values),
+    ]),
+  );
+const followsOf = (counts: Readonly<Record<string, number>>) => ({
+  Follows: counts.Follows ?? 0,
+  Unfollows: counts.Unfollows ?? 0,
+});
+
+const MEDIA_KEY = /^(7|13)_(\d{1,20})$/;
+
+/**
+ * X's account analytics answers, read as X's page reads them, and X's claim that unlocks them.
+ * Each kind keeps X's own numbers; what X's page derives (engagement rate, totals) is the screen's.
+ */
+function readAccountAnalytics(
+  op: string,
+  variables: Json,
+  data: Json,
+): Pick<EngineBatch, "accountAnalytics" | "analyticsAccess"> {
+  if (op === "GetUserClaims") {
+    if (!isRecord(data.viewer_v2)) return {};
+    return {
+      analyticsAccess: arr(data.viewer_v2.claims).some((claim) =>
+        arr(record(claim).resources).some(
+          (r) =>
+            record(r).rest_id ===
+            "client_feature_switch/subscriptions_feature_account_analytics/true",
+        ),
+      ),
+    };
+  }
+  const key = accountAnalyticsKey(op, variables);
+  if (key === undefined || key === null) return {};
+  const days = Number(key.split(":")[1]);
+  const viewer = result(record(data.viewer_v2).user_results);
+  // An error alone (X's rate limit, no access) carries no user.
+  if (viewer.__typename !== "User") return {};
+  switch (op) {
+    case "accountOverviewDailyQuery": {
+      const from = msOf(variables.current_from);
+      const byDay = rowsByDay(viewer.current_time_series);
+      const backfill = rowsByDay(viewer.hourly_backfill);
+      const daily = Array.from({ length: days }, (_, i) =>
+        countRows(byDay.get(from + i * DAY_MS) ?? []),
+      );
+      // The latest days X has not counted yet read from its hourly counts, as X's page does.
+      for (let i = days - 1; i >= 0 && (daily[i]!.Impressions ?? 0) === 0; i--) {
+        const hours = backfill.get(from + i * DAY_MS);
+        if (hours !== undefined) daily[i] = countRows(hours);
+      }
+      const follows = followsByDay(viewer.legacy_current_follow_metrics);
+      const previousFollows = [...followsByDay(viewer.legacy_previous_follow_metrics).values()];
+      return {
+        accountAnalytics: {
+          kind: "overview",
+          days,
+          from: new Date(from).toISOString(),
+          daily: daily.map((counts, i) => {
+            const day = follows.get(from + i * DAY_MS);
+            return day === undefined ? counts : { ...counts, ...followsOf(day) };
+          }),
+          previous: {
+            ...countRows(arr(viewer.previous_totals)),
+            Follows: previousFollows.reduce((n, d) => n + (d.Follows ?? 0), 0),
+            Unfollows: previousFollows.reduce((n, d) => n + (d.Unfollows ?? 0), 0),
+          },
+          followers: asNumber(record(viewer.relationship_counts).followers),
+          verifiedFollowers:
+            typeof viewer.verified_follower_count === "number"
+              ? viewer.verified_follower_count
+              : null,
+        },
+      };
+    }
+    case "contentPageQuery":
+      return {
+        accountAnalytics: {
+          kind: "content",
+          days,
+          posts: arr(viewer.tweets_results).flatMap((entry) => {
+            const tweet = result(entry);
+            const postId = asString(tweet.rest_id);
+            const details = record(tweet.details);
+            if (postId === undefined || !X_ID.test(postId)) return [];
+            const range = arr(details.display_text_range);
+            const text = [...(asString(details.full_text) ?? "")];
+            return [
+              {
+                postId,
+                text: text.slice(asNumber(range[0]), asNumber(range[1]) || undefined).join(""),
+                createdAt: new Date(asNumber(details.created_at_ms)).toISOString(),
+                reply: asString(record(tweet.reply_to_results).rest_id) !== undefined,
+                community: asString(record(tweet.community_results).rest_id) !== undefined,
+                metrics: metricValues(tweet.organic_metrics_total),
+              },
+            ];
+          }),
+        },
+      };
+    case "mediaMetricsQuery": {
+      // X counts the range only, from its first day; the rows before are the range before it.
+      const start = msOf(variables.to_timestamp) + 1 - days * DAY_MS;
+      const totals: Record<string, number> = {};
+      for (const point of arr(record(viewer.media_metrics_time_series_for_publisher).metric_values))
+        if (msOf(record(point).timestamp) >= start)
+          for (const [metric, value] of Object.entries(metricValues(record(point).metric_values)))
+            totals[metric] = (totals[metric] ?? 0) + value;
+      return { accountAnalytics: { kind: "video", days, totals } };
+    }
+    case "videoListProviderQuery": {
+      const seen = new Set<string>();
+      const videos = arr(record(viewer.get_media_filtered).media_results).flatMap((entry) => {
+        const media = result(entry);
+        const mediaKey = asString(media.media_key) ?? "";
+        const id = MEDIA_KEY.exec(mediaKey)?.[2];
+        if (id === undefined || seen.has(mediaKey)) return [];
+        seen.add(mediaKey);
+        const info = record(media.media_info);
+        const views = record(media.video_view_count).total;
+        // shortcut: the first post X lists carries the video; X picks its earliest, which needs
+        // the post's date X's Relay resolver reads. Upgrade if a video lists several posts.
+        const postId = arr(media.get_media_posts_results)
+          .map((p) => asString(record(p).rest_id))
+          .find((p) => p !== undefined && X_ID.test(p));
+        return [
+          {
+            mediaKey,
+            name: asString(media.video_media_name) ?? "",
+            views: typeof views === "number" ? views : asNumber(media.public_video_view_count),
+            durationMs: asNumber(info.duration_millis),
+            previewUrl: asString(record(info.preview_image).original_img_url) ?? null,
+            postId: postId ?? null,
+            // A media id is a snowflake: its time is in its upper bits, as X's page reads it.
+            createdAt: new Date(Number((BigInt(id) >> 22n) + 1_288_834_974_657n)).toISOString(),
+          },
+        ];
+      });
+      return {
+        accountAnalytics: {
+          kind: "videos",
+          videos: videos.toSorted((a, b) => b.createdAt.localeCompare(a.createdAt)),
+        },
+      };
+    }
+    case "audienceOverviewDataQuery": {
+      const text = (value: unknown) => asString(value) ?? null;
+      const row = (r: Json) => ({
+        type: asString(r.engagement_type) ?? "",
+        count: Number(r.count ?? 0),
+        age: text(r.age),
+        gender: text(r.gender),
+        app:
+          r.client_app_id === undefined || r.client_app_id === null
+            ? null
+            : String(r.client_app_id),
+        country: text(r.country),
+      });
+      return {
+        accountAnalytics: {
+          kind: "audience",
+          days,
+          rows: [
+            ...arr(viewer.uec_metrics_daily_time_series_count),
+            ...arr(viewer.uec_country_metrics_daily_time_series_count),
+          ]
+            .map((r) => row(record(r)))
+            .filter((r) => r.type !== ""),
+        },
+      };
+    }
+    default:
+      return {};
+  }
 }
 
 /** X's Post Analytics numbers (TweetActivityQuery), by X's metric name. */
@@ -1197,4 +1470,6 @@ export const hasEngineContent = (b: EngineBatch) =>
   b.gifs !== undefined ||
   b.prompt !== undefined ||
   b.analytics !== undefined ||
-  b.knownFollowers !== undefined;
+  b.knownFollowers !== undefined ||
+  b.accountAnalytics !== undefined ||
+  b.analyticsAccess !== undefined;

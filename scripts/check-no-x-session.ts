@@ -103,6 +103,10 @@ function realField(
   if (CURSORS.has(key)) {
     if (key === "key" && owner.op === "UserByScreenName")
       return FAKE_HANDLE.test(value) ? undefined : `a real-looking handle @${value}`;
+    // X's account analytics answers are keyed by their own kind and range in days, not an id.
+    const range = owner.accountAnalytics as { kind?: unknown; days?: unknown } | undefined;
+    if (key === "key" && range !== undefined && value === `${range.kind}:${range.days}`)
+      return undefined;
     // A search's query is text, scrubbed as text: short numbers in it are words (years, counts).
     const search = /^((top|bottom)-SearchTimeline-)?[A-Za-z]+:/.exec(value);
     if (owner.op === "SearchTimeline" && search !== null) {

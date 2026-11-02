@@ -395,6 +395,56 @@ export const xPickInspiration = (
   return press;
 };
 
+let analyticsPresses: Promise<unknown> = Promise.resolve();
+let analyticsLatest: object | null = null;
+
+/**
+ * Presses X's range button `label` (7D, 4W, 3M) on X's analytics page `path` once `loaded` settles
+ * and X has drawn it, while the engine shows that page and the screen has not let it go
+ * (`signal`). Presses run one at a time; a later pick drops one still waiting its turn.
+ */
+export const xPickAnalyticsRange = (
+  path: string,
+  label: string,
+  loaded: Promise<unknown>,
+  signal: AbortSignal,
+) => {
+  const mine = {};
+  analyticsLatest = mine;
+  const press = analyticsPresses.then(async () => {
+    await loaded;
+    if (signal.aborted || analyticsLatest !== mine) return false;
+    const run = await nextRun();
+    // As with Inspiration: a full load under the script, or leaving the screen, ends the wait.
+    return new Promise<boolean>((settle) => {
+      const done = (pressed: boolean) => {
+        onPageLoad.delete(abandon);
+        signal.removeEventListener("abort", abandon);
+        settle(pressed);
+      };
+      const abandon = () => done(false);
+      onPageLoad.add(abandon);
+      signal.addEventListener("abort", abandon);
+      if (signal.aborted) abandon();
+      void xRun(`(async () => {
+    for (let i = 0; i < 40 && ${stillMine(run)}; i++) {
+      const button = location.pathname === ${JSON.stringify(path)}
+        ? [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === ${JSON.stringify(label)})
+        : undefined;
+      if (button !== undefined) {
+        button.click();
+        return true;
+      }
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    return false;
+  })()`).then((pressed) => done(pressed === true));
+    });
+  });
+  analyticsPresses = press.catch(() => false);
+  return press;
+};
+
 /**
  * X's own buttons on a post, by test id, for the user's click on Xtend's copy of it: what each
  * turns into once pressed, and the confirm X asks for first.

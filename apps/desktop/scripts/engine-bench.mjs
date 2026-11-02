@@ -997,6 +997,66 @@ const benchmarks = [
     },
   ],
   [
+    "Analyze X overview: X's own numbers and a range X's page answers, or without Premium X's paywall as X gates it (reads only)",
+    async () => {
+      // X's claims, read at its every boot, say whether the account has X's analytics (Premium).
+      await go("#/analyze?tab=x-overview");
+      const access = await until(async () => {
+        const at = await enginePath();
+        const said = await store(`$.accountAnalytics.access`);
+        return (
+          /^\/i\/(account_analytics|premium_sign_up)/.test(at ?? "") &&
+          said !== null &&
+          said !== undefined &&
+          String(said)
+        );
+      }, 30_000);
+      if (!access) return false;
+      // Xtend's Impressions, and the number X's page draws right under its own "Impressions".
+      const ours = `document.querySelector('main [data-x-tile="Impressions"] .font-mono')?.textContent`;
+      const xs = `[...document.querySelectorAll("main *")].map((e) => /^Impressions\\s*\\n\\s*([\\d,.]+[KM]?)/.exec(e.innerText)?.[1]).filter(Boolean).at(-1)`;
+      if (access === "false") {
+        // Xtend shows X's paywall and X's Upgrade page; X's own page shows its gate, not the numbers.
+        const shown = await until(() =>
+          app(
+            `(() => { const up = [...document.querySelectorAll("main a")].find((a) => a.textContent.trim() === "Upgrade"); return document.querySelector("main").innerText.includes("Advanced analytics with X Premium") && up?.getAttribute("href") === "https://x.com/i/premium_sign_up"; })()`,
+          ),
+        );
+        if (!shown) return false;
+        await sleep(5_000);
+        const gated = await engine(
+          `!document.body.innerText.includes("Account overview") && (location.pathname.startsWith("/i/premium_sign_up") || /Premium/.test(document.body.innerText))`,
+        );
+        return (
+          gated &&
+          `no Premium: X's claims leave analytics out; X's page at ${await enginePath()} gates it`
+        );
+      }
+      const same = () =>
+        until(async () => {
+          const [a, b] = [await app(ours), await engine(xs)];
+          return a && a === b && a;
+        }, 30_000);
+      const first = await same();
+      if (!first) return false;
+      // Another of X's ranges: Xtend presses X's own button, and X's answer for it is drawn.
+      const shown = await store(`$.accountAnalytics.shown.overview`);
+      const [label, key] = shown === "overview:28" ? ["7D", "overview:7"] : ["4W", "overview:28"];
+      await app(
+        `[...document.querySelectorAll('main [role="tab"]')].find((t) => t.textContent.trim() === ${JSON.stringify(label)})?.click(), true`,
+      );
+      // X may show a range it holds from its own store without asking again: then Xtend shows the
+      // answer it kept for it. Either way X's page and Xtend's agree on the picked range.
+      const picked = await until(() =>
+        app(
+          `document.querySelector('main [role="tab"][aria-selected="true"]')?.textContent.trim() === ${JSON.stringify(label)}`,
+        ),
+      );
+      const then = picked && (await same());
+      return then && `${shown}: Impressions ${first}; ${key}: Impressions ${then}`;
+    },
+  ],
+  [
     "Communities search: the Communities X finds, then its Top and Latest, are X's own (dry)",
     async () => {
       // A word from a Community the account has seen, so X finds something; nothing is pressed.

@@ -259,6 +259,33 @@ const peopleOf = (
  */
 const ROWS_NEAR_SCROLL = 3;
 
+const DAY_MS = 86_400_000;
+/** X's analytics tabs, and the range buttons each page draws, in X's order. */
+const ANALYTICS_TABS = [
+  ["overview", "Overview"],
+  ["audience", "Audience"],
+  ["content", "Content"],
+  ["video", "Video"],
+  ["live", "Live"],
+  ["spaces", "Spaces"],
+] as const;
+const ANALYTICS_RANGES: Readonly<Record<string, ReadonlyArray<string>>> = {
+  overview: ["7D", "2W", "4W", "3M", "1Y"],
+  content: ["7D", "2W", "4W", "3M"],
+  video: ["7D", "2W", "4W", "3M", "1Y"],
+  audience: ["7D", "28D", "3M"],
+};
+const ANALYTICS_DAYS: Readonly<Record<string, number>> = {
+  "7D": 7,
+  "2W": 14,
+  "4W": 28,
+  "28D": 28,
+  "3M": 90,
+  "1Y": 365,
+};
+/** The engagements X's overview sums. */
+const ANALYTICS_ENGAGING = ["Bookmark", "Likes", "ProfileVisits", "Retweets", "Replies", "Share"];
+
 interface Route {
   readonly title: string;
   readonly requests: ReadonlyArray<GraphqlRequest>;
@@ -510,6 +537,138 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
             : `<div data-testid="listHeader"><img alt="" src="${esc(l.bannerUrl ?? "")}" class="banner-img"><h2>${esc(l.name)}</h2><div>${esc(l.description)}</div>${l.owner === null ? "" : `<div><a href="/${esc(l.owner.handle)}">${esc(l.owner.name)}</a> @${esc(l.owner.handle)}</div>`}<div><a href="/i/lists/${l.listId}/members"><b>${compact(l.members)}</b> Members</a> <a href="/i/lists/${l.listId}/followers"><b>${compact(l.followers)}</b> Followers</a></div><button data-testid="listFollow">Follow</button></div>`
         }<section data-list>${postsOf(b ?? null, state)}</section>`;
       },
+    };
+  }
+  if (lower === "i" && second === "account_analytics") {
+    const page = third ?? "overview";
+    const labels = ANALYTICS_RANGES[page];
+    const nav = tabs(
+      "Analytics",
+      ANALYTICS_TABS.map(([id, label]) => ({
+        label,
+        href: `/i/account_analytics/${id}`,
+        on: id === page,
+      })),
+    );
+    // X's own paywall, in the words its Creator Studio shows an account without Premium.
+    if (!state.premium || labels === undefined)
+      return {
+        title: "Analytics / X",
+        requests: [],
+        render: () =>
+          state.premium
+            ? `${header("Analytics")}${nav}`
+            : `${header("Analytics")}<div role="dialog" data-testid="analytics-paywall"><h2>Analytics</h2><p>Advanced analytics with X Premium</p><p>See your profile analytics, understand your audience and more. Upgrade to continue.</p><a href="/i/premium_sign_up">Upgrade</a></div>`,
+      };
+    const range = labels.includes(homeTab) ? homeTab : "7D";
+    const days = ANALYTICS_DAYS[range]!;
+    // X's analytics end with today, here the made-up overview's last day; ranges start at midnight.
+    const week = state.fixture("accountOverviewDailyQuery", "overview:7")!.accountAnalytics!;
+    const end = Date.parse(week.kind === "overview" ? week.from : "") + 7 * DAY_MS;
+    const from = end - days * DAY_MS;
+    const iso = (ms: number) => new Date(ms).toISOString();
+    const buttons = `<div class="ranges">${labels
+      .map(
+        (l) =>
+          `<button type="button" data-range="${l}"${l === range ? ' aria-pressed="true"' : ""}>${l}</button>`,
+      )
+      .join("")}</div>`;
+    const tile = (label: string, value: string) =>
+      `<div data-testid="analytics-tile"><span>${esc(label)}</span> <span>${esc(value)}</span></div>`;
+    const top = (title: string) => `${header("Analytics")}${nav}<h2>${title}</h2>${buttons}`;
+    if (page === "overview")
+      return {
+        title: "Analytics / X",
+        requests: [
+          r("accountOverviewDailyQuery", {
+            current_from: from,
+            current_from_iso: iso(from),
+            current_to: end,
+            current_to_iso: iso(end),
+            prev_from: from - days * DAY_MS,
+            prev_from_iso: iso(from - days * DAY_MS),
+            prev_to: from,
+            prev_to_iso: iso(from),
+            backfill_from: end - 2 * DAY_MS,
+            backfill_to: end,
+            show_realtime_active_followers: false,
+            show_verified_followers: true,
+          }),
+        ],
+        render: ([b]) => {
+          const a = b?.accountAnalytics;
+          if (a?.kind !== "overview") return top("Account overview");
+          const total = (m: string) => a.daily.reduce((n, d) => n + (d[m] ?? 0), 0);
+          const engagements = ANALYTICS_ENGAGING.reduce((n, m) => n + total(m), 0);
+          return `${top("Account overview")}<div class="tiles">${[
+            tile("Impressions", total("Impressions").toLocaleString("en")),
+            tile("Engagements", engagements.toLocaleString("en")),
+            tile("Likes", total("Likes").toLocaleString("en")),
+            tile("Reposts", total("Retweets").toLocaleString("en")),
+          ].join("")}</div>`;
+        },
+      };
+    if (page === "content")
+      return {
+        title: "Analytics / X",
+        requests: [
+          r("contentPageQuery", {
+            from_time: iso(from),
+            to_time: iso(end - 1),
+            max_results: 1000,
+            query_page_size: 100,
+            requested_metrics: ["Impressions", "Likes", "Engagements", "Replies", "Retweets"],
+          }),
+        ],
+        render: ([b]) => {
+          const a = b?.accountAnalytics;
+          return `${top("Content")}<table>${(a?.kind === "content" ? a.posts : [])
+            .map(
+              (p) =>
+                `<tr data-testid="analytics-post"><td><a href="/you/status/${p.postId}">${esc(p.text)}</a></td><td>${p.metrics.Impressions ?? 0}</td><td>${p.metrics.Likes ?? 0}</td></tr>`,
+            )
+            .join("")}</table>`;
+        },
+      };
+    if (page === "video")
+      return {
+        title: "Analytics / X",
+        requests: [
+          r("mediaMetricsQuery", {
+            from_timestamp: end - 2 * days * DAY_MS,
+            to_timestamp: end - 1,
+            to_timestamp_revenue: end,
+            metric_types: [
+              "Playback25",
+              "Playback50",
+              "Playback75",
+              "PlaybackComplete",
+              "PlaybackStart",
+              "VideoView",
+              "WatchTime",
+            ],
+            estimated_revenue_enabled: false,
+          }),
+          r("videoListProviderQuery", { cursor: null, limit: 30, estimatedRevenueEnabled: false }),
+        ],
+        render: ([b]) => {
+          const a = b?.accountAnalytics;
+          return `${top("Video overview")}${tile("Views", String(a?.kind === "video" ? (a.totals.VideoView ?? 0) : 0))}`;
+        },
+      };
+    return {
+      title: "Analytics / X",
+      requests: [
+        r("audienceOverviewDataQuery", {
+          dimensions: ["Age", "Gender", "EngagementType", "ClientAppId"],
+          from_time_incl: from,
+          to_time_excl: end - 1,
+          heatmap_from_time_incl: iso(end - 28 * DAY_MS),
+          heatmap_to_time_excl: iso(end - 1),
+          requested_metrics: ["Likes"],
+        }),
+      ],
+      render: () => `${top("Audience")}<section>Gender</section><section>Age</section>`,
     };
   }
   if (url.pathname === "/i/jf/creators/inspiration/top_posts") {

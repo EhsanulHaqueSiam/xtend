@@ -508,4 +508,77 @@ export interface EngineBatch {
    * you know only when it is above 0.
    */
   readonly knownFollowers?: number;
+  /**
+   * One answer of X's own account analytics (x.com/i/account_analytics), read off the Relay
+   * query its page made; `key` is `<kind>:<days>` (`videos` for the video list).
+   */
+  readonly accountAnalytics?: EngineAccountAnalytics;
+  /**
+   * Whether X's claims for this account unlock X's account analytics
+   * (`subscriptions_feature_account_analytics`, Premium), from X's GetUserClaims at each boot.
+   */
+  readonly analyticsAccess?: boolean;
 }
+
+/** Counts by X's metric name (`Impressions`, `Likes`, `Retweets`, `Bookmark`, `Share`...). */
+export type EngineMetrics = Readonly<Record<string, number>>;
+
+/** A post of the user's on X's analytics Content page, with X's totals for it. */
+export interface EngineAnalyticsPost {
+  readonly postId: string;
+  readonly text: string;
+  readonly createdAt: string;
+  readonly reply: boolean;
+  readonly community: boolean;
+  readonly metrics: EngineMetrics;
+}
+
+/** One of the user's videos on X's analytics Video page. */
+export interface EngineAnalyticsVideo {
+  readonly mediaKey: string;
+  readonly name: string;
+  readonly views: number;
+  readonly durationMs: number;
+  readonly previewUrl: string | null;
+  /** The post that carries it, when X names one. */
+  readonly postId: string | null;
+  readonly createdAt: string;
+}
+
+/** One row of X's audience breakdown: a count of one engagement type for one slice. */
+export interface EngineAudienceRow {
+  /** X's engagement type: `Displayed` (impressions), `Fav`, `Reply`, `Retweet`... */
+  readonly type: string;
+  readonly count: number;
+  readonly age: string | null;
+  readonly gender: string | null;
+  /** X's client app id, which X names iOS, Android, Web or Other. */
+  readonly app: string | null;
+  readonly country: string | null;
+}
+
+export type EngineAccountAnalytics =
+  | {
+      /** Account overview: `daily[i]` is the UTC day `from` plus i, X's counts for it. */
+      readonly kind: "overview";
+      readonly days: number;
+      readonly from: string;
+      readonly daily: ReadonlyArray<EngineMetrics>;
+      /** The same counts over the range before, for X's change. */
+      readonly previous: EngineMetrics;
+      readonly followers: number;
+      readonly verifiedFollowers: number | null;
+    }
+  | {
+      readonly kind: "content";
+      readonly days: number;
+      readonly posts: ReadonlyArray<EngineAnalyticsPost>;
+    }
+  /** Video overview: X's video counts over the range (VideoView, WatchTime, PlaybackStart...). */
+  | { readonly kind: "video"; readonly days: number; readonly totals: EngineMetrics }
+  | { readonly kind: "videos"; readonly videos: ReadonlyArray<EngineAnalyticsVideo> }
+  | {
+      readonly kind: "audience";
+      readonly days: number;
+      readonly rows: ReadonlyArray<EngineAudienceRow>;
+    };

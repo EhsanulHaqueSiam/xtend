@@ -21,7 +21,7 @@ export const ABOUT: Readonly<Record<string, string>> = {
   "/automate":
     "Rules that act for you through the X API, each with a price, a budget and an approval step when you want one.",
   "/analyze":
-    "How your account is doing, from your posts your session saw, free. Refresh reads your full timeline and follower count, priced on the button.",
+    "How your account is doing, from your posts your session saw and X's own analytics (Premium on X), free. Refresh reads your full timeline and follower count, priced on the button.",
   "/scores":
     "Account scores for you and anyone you watch. Stored reports are free; a score run reads their followers through treg, priced on the button.",
   "/settings": "Your handle, token, budget, voice, and the app itself.",
@@ -150,6 +150,29 @@ export const SECTIONS = {
       id: "competitors",
       label: "Competitors",
       about: "Accounts to compare against; each fetch is priced on its row.",
+    },
+    {
+      id: "x-overview",
+      label: "X overview",
+      about:
+        "X's own account analytics by day, free through your session; X shows them with Premium.",
+    },
+    {
+      id: "x-content",
+      label: "X content",
+      about:
+        "Each of your posts with X's numbers for the range, free through your session; Premium on X.",
+    },
+    {
+      id: "x-video",
+      label: "X video",
+      about: "Your videos' views and watch time from X, free through your session; Premium on X.",
+    },
+    {
+      id: "x-audience",
+      label: "X audience",
+      about:
+        "Who engaged by gender, age, country and device, from X, free through your session; Premium on X.",
     },
   ],
   "/scores": [

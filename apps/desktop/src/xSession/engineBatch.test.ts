@@ -1039,6 +1039,265 @@ describe("renderEngineBatch around posts", () => {
     expect([none.analytics, hasEngineContent(none)]).toEqual([undefined, false]);
   });
 
+  it("reads whether X's claims unlock its account analytics", () => {
+    const claims = (resources: ReadonlyArray<string>) =>
+      renderEngineBatch(
+        "GetUserClaims",
+        {},
+        {
+          data: {
+            viewer_v2: {
+              claims: [
+                { rest_id: "premium-plus", resources: resources.map((rest_id) => ({ rest_id })) },
+              ],
+            },
+          },
+        },
+      );
+    const premium = claims(["client_feature_switch/subscriptions_feature_account_analytics/true"]);
+    expect([premium.analyticsAccess, hasEngineContent(premium)]).toEqual([true, true]);
+    expect(
+      claims(["client_feature_switch/subscriptions_feature_reader_mode/true"]).analyticsAccess,
+    ).toBe(false);
+    // An error alone says nothing either way.
+    expect(renderEngineBatch("GetUserClaims", {}, { errors: [{}] }).analyticsAccess).toBe(
+      undefined,
+    );
+  });
+
+  it("reads X's account overview by day as X's page counts it", () => {
+    const day = (n: number) => Date.UTC(2026, 9, 27 + n);
+    const row = (n: number, engagement_type: string, count: number, verified = "false") => ({
+      timestamp: day(n),
+      engagement_type,
+      count,
+      is_engaging_user_verified: verified,
+    });
+    const follows = (n: number, Follows: number, Unfollows: number) => ({
+      timestamp: { iso8601_time: new Date(day(n)).toISOString() },
+      metric_values: [
+        { metric_type: "Follows", metric_value: Follows },
+        { metric_type: "Unfollows", metric_value: Unfollows },
+      ],
+    });
+    const overview = renderEngineBatch(
+      "accountOverviewDailyQuery",
+      { current_from: day(0), current_to: day(3), prev_from: day(-3), prev_to: day(0) },
+      {
+        data: {
+          viewer_v2: {
+            user_results: {
+              result: {
+                __typename: "User",
+                verified_follower_count: 4,
+                relationship_counts: { followers: 120 },
+                current_time_series: [
+                  row(0, "Displayed", 300),
+                  row(0, "Displayed", 20, "true"),
+                  row(0, "Retweet", 2),
+                  row(0, "QuoteTweet", 1),
+                  row(0, "Follow", 9),
+                  row(1, "Displayed", 80),
+                  row(1, "Fav", 5),
+                ],
+                // The last day X has not counted yet comes from its hourly counts.
+                hourly_backfill: [
+                  { timestamp: day(2), engagement_type: "Displayed", count: 40 },
+                  { timestamp: day(1), engagement_type: "Displayed", count: 999 },
+                ],
+                previous_totals: [row(-3, "Displayed", 250), row(-3, "Reply", 3)],
+                legacy_current_follow_metrics: [follows(0, 2, 1)],
+                legacy_previous_follow_metrics: [follows(-3, 1, 0), follows(-2, 1, 1)],
+              },
+            },
+          },
+        },
+      },
+    );
+    expect([overview.key, overview.accountAnalytics, hasEngineContent(overview)]).toEqual([
+      "overview:3",
+      {
+        kind: "overview",
+        days: 3,
+        from: "2026-10-27T00:00:00.000Z",
+        daily: [
+          // X's follows replace the engagement rows' own; a quote counts as a repost.
+          { Impressions: 320, Retweets: 3, Follows: 2, Unfollows: 1 },
+          { Impressions: 80, Likes: 5 },
+          { Impressions: 40 },
+        ],
+        previous: { Impressions: 250, Replies: 3, Follows: 2, Unfollows: 1 },
+        followers: 120,
+        verifiedFollowers: 4,
+      },
+      true,
+    ]);
+  });
+
+  it("reads X's analytics Content, Video and Audience pages for the range each asked about", () => {
+    const viewer = (result: Record<string, unknown>) => ({
+      data: { viewer_v2: { user_results: { result: { __typename: "User", ...result } } } },
+    });
+    const content = renderEngineBatch(
+      "contentPageQuery",
+      {
+        from_time: "2026-10-06T00:00:00.000Z",
+        to_time: "2026-11-02T23:59:59.999Z",
+        max_results: 1000,
+      },
+      viewer({
+        tweets_results: [
+          {
+            rest_id: "51",
+            result: {
+              __typename: "Tweet",
+              rest_id: "51",
+              details: {
+                created_at_ms: Date.UTC(2026, 10, 1, 9),
+                full_text: "@sam thanks 🙏 https://t.co/x",
+                display_text_range: [5, 13],
+              },
+              reply_to_results: { rest_id: "50" },
+              organic_metrics_total: [
+                { metric_type: "Impressions", metric_value: 900 },
+                { metric_type: "Likes" },
+              ],
+            },
+          },
+        ],
+      }),
+    );
+    expect([content.key, content.accountAnalytics]).toEqual([
+      "content:28",
+      {
+        kind: "content",
+        days: 28,
+        posts: [
+          {
+            postId: "51",
+            text: "thanks 🙏",
+            createdAt: "2026-11-01T09:00:00.000Z",
+            reply: true,
+            community: false,
+            metrics: { Impressions: 900, Likes: 0 },
+          },
+        ],
+      },
+    ]);
+
+    // The video overview asks for its 7 days and the 7 before at once; it counts its own.
+    const to = Date.UTC(2026, 10, 2, 23, 59, 59, 999);
+    const point = (daysBack: number, views: number) => ({
+      timestamp: to + 1 - daysBack * 86_400_000,
+      metric_values: [{ metric_type: "VideoView", metric_value: views }],
+    });
+    const video = renderEngineBatch(
+      "mediaMetricsQuery",
+      { from_timestamp: to + 1 - 14 * 86_400_000, to_timestamp: to },
+      viewer({
+        media_metrics_time_series_for_publisher: {
+          metric_values: [point(9, 1000), point(7, 30), point(1, 12)],
+        },
+      }),
+    );
+    expect([video.key, video.accountAnalytics]).toEqual([
+      "video:7",
+      { kind: "video", days: 7, totals: { VideoView: 42 } },
+    ]);
+
+    // Its videos, newest first by the time in their media id; X lists only videos.
+    const media = (key: string, total: number) => ({
+      result: {
+        __typename: "ApiMedia",
+        media_key: key,
+        video_media_name: `clip ${key}`,
+        video_view_count: { __typename: "Count", total },
+        media_info: {
+          __typename: "ApiVideo",
+          duration_millis: 37_000,
+          preview_image: { original_img_url: `https://pbs.twimg.com/${key}.jpg` },
+        },
+        get_media_posts_results: [{ rest_id: "61", result: { __typename: "Tweet" } }],
+      },
+    });
+    const videos = renderEngineBatch(
+      "videoListProviderQuery",
+      { cursor: null, limit: 30 },
+      viewer({
+        get_media_filtered: {
+          media_results: [
+            media("13_1700000000000000000", 5),
+            media("3_1800000000000000000", 1),
+            media("7_1800000000000000000", 9),
+          ],
+        },
+      }),
+    );
+    expect([videos.key, videos.accountAnalytics]).toEqual([
+      "videos",
+      {
+        kind: "videos",
+        videos: [
+          {
+            mediaKey: "7_1800000000000000000",
+            name: "clip 7_1800000000000000000",
+            views: 9,
+            durationMs: 37_000,
+            previewUrl: "https://pbs.twimg.com/7_1800000000000000000.jpg",
+            postId: "61",
+            createdAt: "2024-06-10T03:00:17.039Z",
+          },
+          {
+            mediaKey: "13_1700000000000000000",
+            name: "clip 13_1700000000000000000",
+            views: 5,
+            durationMs: 37_000,
+            previewUrl: "https://pbs.twimg.com/13_1700000000000000000.jpg",
+            postId: "61",
+            createdAt: "2023-09-08T04:15:59.129Z",
+          },
+        ],
+      },
+    ]);
+
+    const audience = renderEngineBatch(
+      "audienceOverviewDataQuery",
+      { from_time_incl: Date.UTC(2026, 9, 27), to_time_excl: Date.UTC(2026, 10, 3) - 1 },
+      viewer({
+        uec_metrics_daily_time_series_count: [
+          {
+            engagement_type: "Displayed",
+            count: 70,
+            age: "Age25to34",
+            gender: "Female",
+            client_app_id: 129032,
+          },
+        ],
+        uec_country_metrics_daily_time_series_count: [
+          { engagement_type: "Fav", count: 3, country: "BD" },
+        ],
+      }),
+    );
+    expect([audience.key, audience.accountAnalytics]).toEqual([
+      "audience:7",
+      {
+        kind: "audience",
+        days: 7,
+        rows: [
+          {
+            type: "Displayed",
+            count: 70,
+            age: "Age25to34",
+            gender: "Female",
+            app: "129032",
+            country: null,
+          },
+          { type: "Fav", count: 3, age: null, gender: null, app: null, country: "BD" },
+        ],
+      },
+    ]);
+  });
+
   it("reads a search of Communities by its query: X's Communities, then its Top and Latest posts", () => {
     const banner = (url: string) => ({ media_info: { original_img_url: url } });
     // X's Communities tab, in the shape a live read showed: each one by `rest_id`, with a facepile.

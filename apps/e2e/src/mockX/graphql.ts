@@ -1,4 +1,5 @@
 import type {
+  EngineAccountAnalytics,
   EngineArticle,
   EngineBatch,
   EngineCommunity,
@@ -6,6 +7,7 @@ import type {
   EngineGame,
   EngineGameTeam,
   EngineList,
+  EngineMetrics,
   EngineNotification,
   EnginePost,
   EnginePrompt,
@@ -789,13 +791,155 @@ const viewerBody = (v: EngineViewer) => ({
   },
 });
 
+const DAY_MS = 86_400_000;
+/** X's engagement type for each metric its overview counts; follows come in their own series. */
+const ENGAGEMENT_TYPE: Readonly<Record<string, string>> = {
+  Bookmark: "Bookmark",
+  Impressions: "Displayed",
+  Likes: "Fav",
+  ProfileVisits: "ProfilePic",
+  CreateQuote: "QuoteCreate",
+  Retweets: "Retweet",
+  Replies: "Reply",
+  CreateReply: "ReplyCreate",
+  Share: "Share",
+  CreateTweet: "TweetCreate",
+};
+const metricList = (m: EngineMetrics) =>
+  Object.entries(m).map(([metric_type, metric_value]) => ({ metric_type, metric_value }));
+/** X's analytics answer about the signed-in account, under `viewer_v2` as its Relay queries ask. */
+const viewerV2 = (fields: Json) => ({
+  data: {
+    viewer_v2: {
+      user_results: {
+        id: btoa("UserResults:you"),
+        result: { __typename: "User", id: btoa("User:you"), ...fields },
+      },
+    },
+  },
+});
+
+/** X's account analytics answers (x.com/i/account_analytics), for the request's range. */
+function encodeAccountAnalytics(a: EngineAccountAnalytics | undefined, variables: Json): Json {
+  if (a === undefined) return { data: {} };
+  switch (a.kind) {
+    case "overview": {
+      const from = Date.parse(a.from);
+      const rows = (m: EngineMetrics, timestamp: number) =>
+        Object.entries(m).flatMap(([metric, count]) => {
+          const type = ENGAGEMENT_TYPE[metric];
+          return type === undefined
+            ? []
+            : [{ count, timestamp, engagement_type: type, is_engaging_user_verified: "false" }];
+        });
+      const follows = (m: EngineMetrics, ms: number) => ({
+        metric_values: metricList({ Follows: m.Follows ?? 0, Unfollows: m.Unfollows ?? 0 }),
+        timestamp: { iso8601_time: new Date(ms).toISOString() },
+      });
+      return viewerV2({
+        ...when(a.verifiedFollowers !== null, () => ({
+          verified_follower_count: a.verifiedFollowers,
+          author_follower_metrics: { active_followers: 0, active_verified_followers: 0 },
+        })),
+        relationship_counts: { followers: a.followers },
+        current_time_series: a.daily.flatMap((m, i) => rows(m, from + i * DAY_MS)),
+        previous_totals: rows(a.previous, from - a.days * DAY_MS),
+        hourly_backfill: [],
+        legacy_current_follow_metrics: a.daily.flatMap((m, i) =>
+          m.Follows === undefined ? [] : [follows(m, from + i * DAY_MS)],
+        ),
+        legacy_previous_follow_metrics: [follows(a.previous, from - a.days * DAY_MS)],
+      });
+    }
+    case "content":
+      return viewerV2({
+        tweets_results: a.posts.map((p) => ({
+          rest_id: p.postId,
+          result: {
+            __typename: "Tweet",
+            rest_id: p.postId,
+            details: {
+              created_at_ms: Date.parse(p.createdAt),
+              full_text: p.text,
+              display_text_range: [0, [...p.text].length],
+            },
+            organic_metrics_total: metricList(p.metrics),
+            ...when(p.reply, () => ({ reply_to_results: { rest_id: "700000000001" } })),
+            ...when(p.community, () => ({ community_results: { rest_id: "600000000103" } })),
+          },
+        })),
+      });
+    case "video":
+      // One point on the range's last day; X sends one per day, the range before it too.
+      return viewerV2({
+        media_metrics_time_series_for_publisher: {
+          metric_values: [
+            {
+              timestamp: Number(variables.to_timestamp) + 1 - DAY_MS,
+              metric_values: metricList(a.totals),
+            },
+          ],
+        },
+      });
+    case "videos":
+      return viewerV2({
+        get_media_filtered: {
+          cursor: { offset: a.videos.length },
+          media_results: a.videos.map((v) => ({
+            result: {
+              __typename: "ApiMedia",
+              id: btoa(`ApiMedia:${v.mediaKey}`),
+              media_key: v.mediaKey,
+              video_media_name: v.name,
+              public_video_view_count: v.views,
+              video_view_count: { __typename: "Count", total: v.views },
+              media_info: {
+                __typename: "ApiVideo",
+                duration_millis: v.durationMs,
+                ...when(v.previewUrl !== null, () => ({
+                  preview_image: { original_img_url: v.previewUrl },
+                })),
+              },
+              get_media_posts_results:
+                v.postId === null
+                  ? []
+                  : [{ rest_id: v.postId, result: { __typename: "Tweet", rest_id: v.postId } }],
+            },
+          })),
+        },
+      });
+    case "audience": {
+      const timestamp = Number(variables.from_time_incl);
+      return viewerV2({
+        uec_metrics_daily_time_series_count: a.rows
+          .filter((r) => r.country === null)
+          .map((r) => ({
+            age: r.age,
+            gender: r.gender,
+            engagement_type: r.type,
+            count: r.count,
+            timestamp,
+            is_in_network: null,
+            client_app_id: r.app === null ? null : Number(r.app),
+          })),
+        uec_country_metrics_daily_time_series_count: a.rows
+          .filter((r) => r.country !== null)
+          .map((r) => ({ country: r.country, count: r.count, engagement_type: r.type, timestamp })),
+        organic_metrics_time_series: [],
+      });
+    }
+  }
+}
+
 /**
  * The body X answers `batch.op` with, each operation under its own path in `data` as x.com sends
- * it; `everyone` names the authors the batch does not. Calls no screen lists answer `{ data: {} }`.
+ * it; `everyone` names the authors the batch does not, and `variables` are the request's. Calls no
+ * screen lists answer `{ data: {} }`.
  */
 export function encodeBody(
   batch: EngineBatch,
   everyone: ReadonlyMap<string, EngineUser> = new Map(),
+  variables: Json = {},
 ): Json {
   // The batch's own record of a person wins: a page can show them as it saw them.
   const users = new Map([...everyone, ...batch.users.map((u) => [u.userId, u] as const)]);
@@ -1082,6 +1226,35 @@ export function encodeBody(
           },
         },
       };
+    // X's claims at boot: the analytics one only for an account that has it.
+    case "GetUserClaims":
+      return {
+        data: {
+          viewer_v2: {
+            claims:
+              batch.analyticsAccess === true
+                ? [
+                    {
+                      rest_id: "premium-plus",
+                      origin: "Commerce",
+                      resources: [
+                        {
+                          rest_id:
+                            "client_feature_switch/subscriptions_feature_account_analytics/true",
+                        },
+                      ],
+                    },
+                  ]
+                : [],
+          },
+        },
+      };
+    case "accountOverviewDailyQuery":
+    case "contentPageQuery":
+    case "mediaMetricsQuery":
+    case "videoListProviderQuery":
+    case "audienceOverviewDataQuery":
+      return encodeAccountAnalytics(batch.accountAnalytics, variables);
     default:
       // A profile's tabs (UserTweets, UserMedia...) share one path.
       if (batch.op.startsWith("User"))

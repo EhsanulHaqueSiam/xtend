@@ -637,6 +637,39 @@ it("keeps X's Post Analytics per post, as X last counted them", () => {
   ]);
 });
 
+it("keeps X's account analytics per range, the range X's page shows now, and X's claim", () => {
+  const overview = (days: number, impressions: number) => ({
+    ...batch("accountOverviewDailyQuery", []),
+    key: `overview:${days}`,
+    accountAnalytics: {
+      kind: "overview" as const,
+      days,
+      from: "2026-10-27T00:00:00.000Z",
+      daily: [{ Impressions: impressions }],
+      previous: {},
+      followers: 80,
+      verifiedFollowers: null,
+    },
+  });
+  let state = mergeBatch(emptyEngine, { ...batch("GetUserClaims", []), analyticsAccess: true });
+  state = mergeBatch(state, overview(7, 10));
+  state = mergeBatch(state, overview(28, 90));
+  state = mergeBatch(state, batch("HomeLatestTimeline", []));
+  expect([state.accountAnalytics.access, state.accountAnalytics.shown]).toEqual([
+    true,
+    { overview: "overview:28" },
+  ]);
+  // Back to 7D from X's own cache: X's next answer for it moves the page back.
+  state = mergeBatch(state, overview(7, 12));
+  expect([
+    state.accountAnalytics.shown.overview,
+    [...state.accountAnalytics.answers.keys()],
+  ]).toEqual(["overview:7", ["overview:7", "overview:28"]]);
+  // X's claims every few minutes say the same, or that the account lost it.
+  state = mergeBatch(state, { ...batch("GetUserClaims", []), analyticsAccess: false });
+  expect(state.accountAnalytics.access).toBe(false);
+});
+
 it("keeps a post's context and ad mark per page, and lets a thread's newer replies in at once", () => {
   const reposted = {
     ...post("2", "2026-10-31T00:00:00Z"),

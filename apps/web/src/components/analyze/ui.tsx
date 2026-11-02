@@ -59,23 +59,28 @@ export function ErrorBar({ children }: { readonly children: string | null }) {
   );
 }
 
-/** One focus stop for a history: pointer or arrows inspect samples on a fitted y range. */
+/**
+ * One focus stop for a history: pointer or arrows inspect samples on a fitted y range, or as bars
+ * from zero.
+ */
 export function LineChart({
   points,
   height = 120,
   unit,
+  bars = false,
 }: {
   readonly points: ReadonlyArray<{ readonly label: string; readonly value: number }>;
   readonly height?: number;
   /** Named after the number in the readout, e.g. "views". */
   readonly unit?: string;
+  readonly bars?: boolean;
 }) {
   const gradient = useId();
   const hint = useId();
   const [inspected, setInspected] = useState<number | null>(null);
   const width = 600;
   const pad = 2;
-  if (points.length < 2)
+  if (points.length < (bars ? 1 : 2))
     return (
       <p className="py-6 text-center text-sm text-muted-foreground">
         Not enough data for a chart yet.
@@ -85,9 +90,10 @@ export function LineChart({
   const min = Math.min(...points.map((p) => p.value));
   // Breathing room keeps extrema and constant histories clear without forcing zero into the range.
   const margin = max === min ? Math.max(Math.abs(max) * 0.05, 1) : (max - min) * 0.1;
-  const lower = min - margin;
-  const upper = max + margin;
-  const x = (i: number) => (i / (points.length - 1)) * width;
+  const lower = bars ? 0 : min - margin;
+  const upper = bars ? Math.max(max * 1.1, 1) : max + margin;
+  const x = (i: number) =>
+    bars ? ((i + 0.5) / points.length) * width : (i / (points.length - 1)) * width;
   const y = (v: number) => height - pad - ((v - lower) / (upper - lower)) * (height - pad * 2);
   const line = points
     .map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(p.value).toFixed(1)}`)
@@ -124,7 +130,11 @@ export function LineChart({
           const box = event.currentTarget.getBoundingClientRect();
           if (box.width === 0) return;
           const ratio = Math.max(0, Math.min(1, (event.clientX - box.left) / box.width));
-          setInspected(Math.round(ratio * (points.length - 1)));
+          setInspected(
+            bars
+              ? Math.min(points.length - 1, Math.floor(ratio * points.length))
+              : Math.round(ratio * (points.length - 1)),
+          );
         }}
         onPointerLeave={(event) => {
           if (!event.currentTarget.matches(":focus")) setInspected(null);
@@ -159,15 +169,31 @@ export function LineChart({
               <stop offset="1" stopColor="currentColor" stopOpacity={0} />
             </linearGradient>
           </defs>
-          <path d={`${line} L${width},${height} L0,${height} Z`} fill={`url(#${gradient})`} />
-          <path
-            d={line}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-            strokeLinejoin="round"
-            vectorEffect="non-scaling-stroke"
-          />
+          {bars ? (
+            points.map((p, i) => (
+              <rect
+                key={p.label}
+                x={x(i) - (width / points.length) * 0.35}
+                width={(width / points.length) * 0.7}
+                y={y(p.value)}
+                height={height - pad - y(p.value)}
+                fill="currentColor"
+                fillOpacity={0.7}
+              />
+            ))
+          ) : (
+            <>
+              <path d={`${line} L${width},${height} L0,${height} Z`} fill={`url(#${gradient})`} />
+              <path
+                d={line}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinejoin="round"
+                vectorEffect="non-scaling-stroke"
+              />
+            </>
+          )}
           {index !== null && (
             <line
               x1={x(index)}
@@ -184,7 +210,7 @@ export function LineChart({
           <span
             aria-hidden="true"
             className="pointer-events-none absolute size-2 -translate-1/2 rounded-full bg-foreground"
-            style={{ left: `${(index / (points.length - 1)) * 100}%`, top: y(point.value) }}
+            style={{ left: `${(x(index) / width) * 100}%`, top: y(point.value) }}
           />
         )}
       </div>
