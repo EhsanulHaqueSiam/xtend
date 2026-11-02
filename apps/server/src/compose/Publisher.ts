@@ -115,7 +115,7 @@ const make = Effect.gen(function* () {
   ) {
     const ids = [...draft.postIds];
     // A click goes through the user's own composer, poll and who-can-reply included; unattended
-    // posts keep the API, except media, which only the session can upload.
+    // posts keep the API. Media only the session can upload, so it waits for a click.
     const sessionClick =
       clicked &&
       (yield* settings.get.pipe(
@@ -133,6 +133,12 @@ const make = Effect.gen(function* () {
       const unsure = <E extends ComposeError | XApiError | DesktopUnavailableError>(e: E) =>
         Effect.fail(mayHavePosted(e) ? new Unconfirmed({ post: i + 1, detail: e.message }) : e);
       const poll = i === 0 && draft.poll !== null ? { poll: draft.poll } : {};
+      // Media rides only the session, and the session only acts on a click.
+      if (media.length > 0 && !clicked)
+        return yield* new ComposeError({
+          operation: "post",
+          detail: "Posts with media need your click: press Post now",
+        });
       const { postId } =
         media.length > 0 || sessionClick
           ? yield* session

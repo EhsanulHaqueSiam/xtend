@@ -33,6 +33,7 @@ import {
   updatePersonAtom,
 } from "../../state/leads";
 import { seenByAtom } from "../../state/observations";
+import { SessionStuck, sessionRefused } from "../engage/ReplyBox";
 import { errorText, fmt } from "../analyze/ui";
 import { useWorkBy } from "../engage/ReplyBox";
 import { ago, ErrorLine, pill, pillSolid } from "../engage/triage";
@@ -103,6 +104,8 @@ interface Outreach {
   readonly replyError: string | null;
   readonly replyTone: ReplyTone | null;
   readonly replyDrafts: ReadonlyArray<string>;
+  /** The session could not take that click; nothing went out, so the API may. */
+  readonly stuck: "dm" | "reply" | null;
 }
 
 type OutreachPatch = (change: Partial<Outreach>) => void;
@@ -121,6 +124,7 @@ const idle: Outreach = {
   replyError: null,
   replyTone: null,
   replyDrafts: [],
+  stuck: null,
 };
 
 /** Everyone the screens have found, as a table by stage or a board of stages, with the selected person beside. */
@@ -685,10 +689,15 @@ function DirectMessage({
   const sendUsd =
     rates === null ? null : (viaSession ? 0 : rates.dm) + (lookup ? rates.scraperProfile : 0);
 
-  const onSend = async () => {
-    patch({ dmBusy: "send", dmError: null });
-    const exit = await sendDm(dm);
-    if (Exit.isFailure(exit)) return patch({ dmBusy: null, dmError: errorText(exit.cause) });
+  const onSend = async (viaApi = false) => {
+    patch({ dmBusy: "send", dmError: null, stuck: null });
+    const exit = await sendDm({ text: dm, viaApi });
+    if (Exit.isFailure(exit))
+      return patch({
+        dmBusy: null,
+        dmError: errorText(exit.cause),
+        stuck: sessionRefused(exit.cause) ? "dm" : null,
+      });
     patch({ dmBusy: null, dm: "", dmSent: true });
     onSent();
   };
@@ -748,6 +757,15 @@ function DirectMessage({
         </button>
       </div>
       {dmError !== null ? <p className="mt-2 text-xs text-error-foreground">{dmError}</p> : null}
+      {work.stuck === "dm" ? (
+        <SessionStuck
+          paidLabel="Send now through the API"
+          paidUsd={rates === null ? null : rates.dm + (lookup ? rates.scraperProfile : 0)}
+          disabled={dmBusy !== null || dm.trim() === ""}
+          onFree={() => void onSend()}
+          onPaid={() => void onSend(true)}
+        />
+      ) : null}
     </Section>
   );
 }
@@ -817,10 +835,15 @@ function Reply({
           },
     );
   };
-  const onSend = async (to: XPost) => {
-    patch({ replyBusy: "send", replyError: null });
-    const exit = await send({ postId: to.postId, text: reply });
-    if (Exit.isFailure(exit)) return patch({ replyBusy: null, replyError: errorText(exit.cause) });
+  const onSend = async (to: XPost, viaApi = false) => {
+    patch({ replyBusy: "send", replyError: null, stuck: null });
+    const exit = await send({ postId: to.postId, text: reply, viaApi });
+    if (Exit.isFailure(exit))
+      return patch({
+        replyBusy: null,
+        replyError: errorText(exit.cause),
+        stuck: sessionRefused(exit.cause) ? "reply" : null,
+      });
     patch({ replyBusy: null, reply: "", replied: true });
     onSent();
   };
@@ -907,6 +930,15 @@ function Reply({
       )}
       {replyError !== null ? (
         <p className="mt-2 text-xs text-error-foreground">{replyError}</p>
+      ) : null}
+      {work.stuck === "reply" && post !== undefined && post !== null ? (
+        <SessionStuck
+          paidLabel="Send now through the API"
+          paidUsd={rates === null ? null : postCostUsd(rates, reply)}
+          disabled={busy || reply.trim() === ""}
+          onFree={() => void onSend(post)}
+          onPaid={() => void onSend(post, true)}
+        />
       ) : null}
     </Section>
   );

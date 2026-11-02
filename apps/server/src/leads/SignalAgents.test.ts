@@ -86,6 +86,7 @@ const assistStub = Layer.succeed(Assist.Assist)({
 const eventsStub = Layer.succeed(Events.Events)({
   publish: (event) => Effect.sync(() => void published.push(event)),
   stream: Stream.empty,
+  listening: Effect.succeed(false),
 });
 
 const layerTest = SignalAgents.layer.pipe(

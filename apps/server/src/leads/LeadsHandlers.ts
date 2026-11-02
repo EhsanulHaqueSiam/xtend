@@ -40,7 +40,7 @@ export const layerHandlers = LeadsRpcGroup.toLayer(
       [Leads_METHODS.personUpdate]: (patch) => people.update(patch),
       [Leads_METHODS.draftDm]: ({ id, tone }) =>
         Effect.map(ops.draftDm(id, tone), (drafts) => ({ drafts })),
-      [Leads_METHODS.sendDm]: ({ id, text }) => ops.sendDm(id, text),
+      [Leads_METHODS.sendDm]: ({ id, text, viaApi }) => ops.sendDm(id, text, viaApi === true),
       [Leads_METHODS.listsList]: () => people.lists,
       [Leads_METHODS.listCreate]: ({ name }) => people.createList(name),
       [Leads_METHODS.listPreview]: (criteria) => ops.listPreview(criteria),
@@ -61,7 +61,8 @@ export const layerHandlers = LeadsRpcGroup.toLayer(
       [Leads_METHODS.latestPost]: ({ id, fromX }) => ops.latestPost(id, fromX),
       [Leads_METHODS.draftReply]: ({ post, tone }) =>
         Effect.map(ops.draftReply(post, tone), (drafts) => ({ drafts })),
-      [Leads_METHODS.sendReply]: ({ id, postId, text }) => ops.sendReply(id, postId, text),
+      [Leads_METHODS.sendReply]: ({ id, postId, text, viaApi }) =>
+        ops.sendReply(id, postId, text, viaApi === true),
     });
   }),
 );

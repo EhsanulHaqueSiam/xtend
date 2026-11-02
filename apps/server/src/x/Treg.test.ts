@@ -134,6 +134,12 @@ describe("Treg.call", () => {
 
       yield* TestClock.adjust("61 minutes");
       expect(yield* treg.isCached(read)).toBe(false);
+      // A free read past expiry answers empty instead of paying.
+      expect(yield* treg.call({ ...read, cacheOnly: true })).toMatchObject({
+        body: null,
+        costUsd: 0,
+      });
+      expect(sent).toHaveLength(2);
     }).pipe(Effect.provide(layerTest)),
   );
 

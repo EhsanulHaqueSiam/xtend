@@ -45,6 +45,7 @@ It reads the posts above, seen or refreshed; Plan's Slots turn its best hours in
 
 ## Competitors
 
-Watched handles side by side with you: followers, posting rate, average views. A row opens
+Watched handles side by side with you: followers, posting rate, average views. Before a fetch,
+followers and average views come free from their posts your session saw, marked seen. A row opens
 their top posts. Watching is free; the list is shared with Scores' Watchlist. Each row has
 **Profile on X**, free, beside **Fetch**, the paid read that fills the row, with its price.

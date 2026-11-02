@@ -86,10 +86,10 @@ export const draftDmAtom = Atom.family((id: number) =>
 );
 
 export const sendDmAtom = Atom.family((id: number) =>
-  clientRuntime.fn<string>()(
-    Effect.fnUntraced(function* (text) {
+  clientRuntime.fn<{ readonly text: string; readonly viaApi: boolean }>()(
+    Effect.fnUntraced(function* ({ text, viaApi }) {
       const client = yield* XtendClient;
-      return yield* client[Leads_METHODS.sendDm]({ id, text });
+      return yield* client[Leads_METHODS.sendDm]({ id, text, viaApi });
     }),
   ),
 );
@@ -186,10 +186,10 @@ export const draftReplyAtom = Atom.family((_id: number) =>
 );
 
 export const sendReplyAtom = Atom.family((id: number) =>
-  clientRuntime.fn<{ readonly postId: string; readonly text: string }>()(
-    Effect.fnUntraced(function* ({ postId, text }) {
+  clientRuntime.fn<{ readonly postId: string; readonly text: string; readonly viaApi: boolean }>()(
+    Effect.fnUntraced(function* ({ postId, text, viaApi }) {
       const client = yield* XtendClient;
-      return yield* client[Leads_METHODS.sendReply]({ id, postId, text });
+      return yield* client[Leads_METHODS.sendReply]({ id, postId, text, viaApi });
     }),
   ),
 );

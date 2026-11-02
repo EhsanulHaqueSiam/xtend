@@ -266,7 +266,7 @@ it("changes a stage, and prices a DM to someone without a user id with the profi
   // $0.015 for the DM, plus the $0.00022 profile read that finds the user id.
   await userEvent.click(screen.getByRole("button", { name: /^Send DM.*\$0\.01522$/ }));
   // To the person whose panel it was typed in.
-  await expect.poll(() => dms).toEqual([{ id: 1, text: "Loved your launch" }]);
+  await expect.poll(() => dms).toEqual([{ id: 1, text: "Loved your launch", viaApi: false }]);
   await expect.element(dm).toHaveValue("");
 
   // The panel follows the person: what was typed for one is not sent to the next.
@@ -394,7 +394,7 @@ it("a DM in flight cannot go twice, and its text is locked until it lands", asyn
   send.element().dispatchEvent(new MouseEvent("click", { bubbles: true }));
   release();
   await expect.element(dm).toHaveValue("");
-  expect(sent).toEqual([{ id: 1, text: "Loved your launch" }]);
+  expect(sent).toEqual([{ id: 1, text: "Loved your launch", viaApi: false }]);
 });
 
 it("a person's DM, reply and paid post survive picking someone else, even mid-load", async () => {

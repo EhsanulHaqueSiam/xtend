@@ -181,6 +181,8 @@ const make = Effect.gen(function* () {
         query === ""
           ? sql``
           : sql`AND p.text LIKE ${`%${query.replace(/[\\%_]/g, "\\$&")}%`} ESCAPE '\\'`;
+      const newerThan =
+        input.createdAfter === undefined ? sql`` : sql`AND p.created_at > ${input.createdAfter}`;
       // A cursor, not an offset: a fresh sighting moves a post to the top and would shift offsets.
       const b = input.before;
       const olderThan =
@@ -198,7 +200,7 @@ const make = Effect.gen(function* () {
         JOIN observed_authors a ON a.user_id = p.author_id
         JOIN post_metrics m ON m.post_id = p.post_id
           AND m.observed_at = (SELECT MAX(observed_at) FROM post_metrics WHERE post_id = p.post_id)
-        WHERE p.is_repost = 0 AND p.is_promoted = 0 ${authorFilter} ${textFilter} ${olderThan}
+        WHERE p.is_repost = 0 AND p.is_promoted = 0 ${authorFilter} ${textFilter} ${newerThan} ${olderThan}
           AND EXISTS (SELECT 1 FROM post_metrics s WHERE s.post_id = p.post_id AND s.account_id = ${sql.literal(CURRENT_ACCOUNT)})
         ORDER BY p.last_seen_at DESC, p.created_at DESC, p.post_id DESC
         LIMIT ${limit + 1}

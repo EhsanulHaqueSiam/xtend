@@ -79,8 +79,9 @@ export function Queue({
           d.media.length === 0
             ? null
             : d.media.some((m) => m.kind === "video")
-              ? "video via session"
-              : `${d.media.length} ${d.media.length === 1 ? "image" : "images"} via session`;
+              ? "video · posts on your click"
+              : `${d.media.length} ${d.media.length === 1 ? "image" : "images"} · posts on your click`;
+
         const meta = [
           d.status === "failed"
             ? null
@@ -151,7 +152,9 @@ export function Queue({
                       : `Post ${d.blocks.length} ${d.blocks.length === 1 ? "post" : "posts"}`}{" "}
                     now for {cost === null ? "…" : <Cost usd={cost} />}.
                   </p>
-                  <p className="mt-1 text-xs text-muted-foreground">Charges your treg balance.</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {cost === 0 ? "Free, through your X session." : "Charges your treg balance."}
+                  </p>
                   <div className="mt-3 flex justify-end gap-1.5">
                     <Button variant="ghost" size="xs" onClick={() => setConfirm(null)}>
                       Cancel

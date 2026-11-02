@@ -6,6 +6,7 @@ import * as Layer from "effect/Layer";
 import * as Schedule from "effect/Schedule";
 import * as Semaphore from "effect/Semaphore";
 
+import * as Events from "../events/Events.ts";
 import * as DraftStore from "./DraftStore.ts";
 import * as Publisher from "./Publisher.ts";
 import * as SlotStore from "./SlotStore.ts";
@@ -16,7 +17,10 @@ const TICK = "30 seconds";
 export class Scheduler extends Context.Service<
   Scheduler,
   {
-    /** Posts every queued draft whose time has passed. Returns the drafts it posted or requeued. */
+    /**
+     * Posts every queued draft whose time has passed, except posts with media, which wait for the
+     * user's click. Returns the drafts it posted or requeued.
+     */
     readonly tick: Effect.Effect<ReadonlyArray<Draft>, ComposeError>;
     /** Posts one queued draft now, with the scheduler's retry rules. */
     readonly runNow: (id: string) => Effect.Effect<Draft, ComposeError>;
@@ -31,12 +35,28 @@ const make = Effect.gen(function* () {
   const drafts = yield* DraftStore.DraftStore;
   const publisher = yield* Publisher.Publisher;
   const slots = yield* SlotStore.SlotStore;
+  const events = yield* Events.Events;
+  // Media posts told about once per run of the service, once a client is listening to hear it;
+  // a restart tells again, which is harmless.
+  const announced = new Set<string>();
   // Finding a free slot and taking it are two steps; two queue clicks must not land on one slot.
   const slotLock = yield* Semaphore.make(1);
 
   const tick = Effect.gen(function* () {
     const now = DateTime.formatIso(yield* DateTime.now);
-    const due = yield* drafts.due(now);
+    const all = yield* drafts.due(now);
+    // Only the session uploads media and it acts only on the user's click (AGENTS.md rule 1):
+    // a due media post waits queued, and the user is told once that it needs Post now.
+    const due = all.filter((d) => d.media.length === 0);
+    const listening = yield* events.listening;
+    for (const d of all)
+      if (d.media.length > 0 && listening && !announced.has(d.id)) {
+        announced.add(d.id);
+        yield* events.publish({
+          type: "draft_status_changed",
+          payload: { draftId: d.id, status: d.status, needsClick: true },
+        });
+      }
     // One draft's failure, even a defect, or a Post now that claimed it first must not hold back the rest.
     const touched = yield* Effect.forEach(due, (d) =>
       publisher.post(d.id, { purpose: "plan.scheduler", retry: true, due: now }).pipe(

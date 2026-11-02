@@ -41,7 +41,7 @@ const layerTest = Costs.layer.pipe(
           search: (query, mode, cursor) =>
             Effect.succeed(query === "warm" && mode !== "latest" && cursor === undefined),
           profile: (handle) => Effect.succeed(handle === "warm"),
-          userPosts: () => Effect.succeed(false),
+          userPosts: (handle) => Effect.succeed(handle === "warm"),
           // The 12-hour copy a score run reads is warm; a new-follower check wants a fresher one.
           followers: (_handle, fresh) => Effect.succeed(fresh !== true),
           trending: () => Effect.succeed(true),
@@ -136,6 +136,7 @@ describe("Costs", () => {
 
   it.effect("quotes from the one rate card and marks cached reads free", () =>
     Effect.gen(function* () {
+      yield* (yield* SettingsStore.SettingsStore).update({ handle: "warm" });
       const costs = yield* Costs.Costs;
       const { rates, quotes } = yield* costs.quote([
         { kind: "post", text: "plain" },
@@ -150,6 +151,7 @@ describe("Costs", () => {
         { kind: "scoreRun", handle: "warm" },
         { kind: "followersPage", handle: "levelsio" },
         { kind: "assist" },
+        { kind: "analyzeRefresh" },
       ]);
       expect(rates).toEqual(XClient.RATE_CARD);
       expect(quotes.map((q) => q.usd)).toEqual([
@@ -165,6 +167,8 @@ describe("Costs", () => {
         4 * rates.followersPage,
         rates.followersPage,
         0,
+        // Same for a refresh: a warm profile and first page leave four uncached post pages.
+        4 * rates.searchPage,
       ]);
       expect(quotes.map((q) => q.cached)).toEqual([
         false,
@@ -174,6 +178,7 @@ describe("Costs", () => {
         false,
         false,
         true,
+        false,
         false,
         false,
         false,
