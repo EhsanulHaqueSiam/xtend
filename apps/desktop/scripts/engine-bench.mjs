@@ -993,17 +993,24 @@ const benchmarks = [
   [
     `Explore's first trend menu matches X's own rows (dry)`,
     async () => {
+      // X's For you tab opens with posts now; Trending lists trends from its top.
       await go("#/explore");
+      const trending = await until(
+        () => store(`$.exploreTabs.find((t) => t.id === "trending")?.timelineId`),
+        10_000,
+      );
+      if (!trending) return false;
+      await go(`#/explore?tab=${encodeURIComponent(trending)}`);
       const more = `document.querySelector('[data-x="trend"] button[aria-label="More"]')`;
       if (!(await until(() => app(`!!${more}`), 10_000))) return false;
-      const name = await store(`at($.trends, "explore:" + $.exploreTabs[0].timelineId)[0]?.name`);
+      const name = await store(`at($.trends, "explore:" + ${JSON.stringify(trending)})[0]?.name`);
       if (!name) return false;
       const own = `[...document.querySelectorAll('[data-testid="trend"]')].find((c) => [...c.querySelectorAll("span")].some((s) => { if (Number(getComputedStyle(s).fontWeight) < 600) return false; const copy = s.cloneNode(true); for (const img of copy.querySelectorAll("img[alt]")) img.replaceWith(img.alt); return copy.textContent.trim() === ${JSON.stringify(name)}; }))`;
       if (
         !(await until(
           () =>
             engine(
-              `location.pathname === "/explore" && !!(${own})?.querySelector('[data-testid="caret"]')`,
+              `location.pathname === "/explore/tabs/trending" && !!(${own})?.querySelector('[data-testid="caret"]')`,
             ),
           10_000,
         ))
