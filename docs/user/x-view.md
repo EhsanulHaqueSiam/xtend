@@ -17,6 +17,10 @@ Xtend's player, with fullscreen and picture in picture. Search takes X's operato
 search box (or **Advanced search** in the command palette) opens X's advanced search form,
 filled from the search you have open.
 
+An NBA team's profile shows its schedule as X does. A game opens with the day's scores, the
+score, clock and last play, and X's Top and Latest posts; Highlights, Stats, Plays and Chat open
+X's own game page in the panel.
+
 The box at the top of Home is X's composer: images or a video, a poll, who can reply, emoji
 (the system picker, on macOS and Windows) and @mentions suggested from people Xtend has already
 seen on X. Post goes through your session, free, and X's own composer sets the poll and who can

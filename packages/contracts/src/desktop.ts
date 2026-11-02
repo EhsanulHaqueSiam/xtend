@@ -354,6 +354,39 @@ export interface EngineModule {
   readonly userIds: ReadonlyArray<string>;
 }
 
+/** One side of a game as X's scoreboard draws it; null where this response did not say. */
+export interface EngineGameTeam {
+  readonly abbreviation: string | null;
+  readonly name: string | null;
+  readonly points: number | null;
+  /** X's "N of 7 timeouts remaining". */
+  readonly timeouts: number | null;
+  /** X's "Bonus". */
+  readonly bonus: boolean | null;
+}
+
+/**
+ * An NBA game as X's schedule carousel, score strip and game page draw it. X sends a game in
+ * pieces (a team's schedule names teams and score, the game's own calls its clock, timeouts and
+ * plays), so a field this response left out is null and the store keeps what an earlier one said.
+ */
+export interface EngineGame {
+  readonly gameId: string;
+  /** X's status: "COMPLETED", "IN_PROGRESS", or one before tip-off. */
+  readonly status: string | null;
+  readonly startsAt: string | null;
+  readonly away: EngineGameTeam;
+  readonly home: EngineGameTeam;
+  /** The quarter X's clock is in, and X's period type ("QUARTER", or overtime). */
+  readonly period: number | null;
+  readonly periodType: string | null;
+  /** The game clock as X shows it: "00:00". */
+  readonly clock: string | null;
+  readonly halftime: boolean | null;
+  /** The newest play X lists: "REBOUND", "Raptors offensive rebound". */
+  readonly lastPlay: { readonly kind: string; readonly description: string } | null;
+}
+
 /**
  * One GraphQL response the engine received, by operation (HomeTimeline, TweetDetail, ...). `key`
  * names what the request asked for when one operation serves many pages (a Home tab's tag, a
@@ -389,4 +422,6 @@ export interface EngineBatch {
   readonly exploreTabs: ReadonlyArray<EngineExploreTab> | null;
   /** The signed-in account, from X's own Viewer call or X's nav. */
   readonly viewer: EngineViewer | null;
+  /** NBA games in X's order: a team's schedule, the day's scoreboard, one game's own calls. */
+  readonly games?: ReadonlyArray<EngineGame>;
 }

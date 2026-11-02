@@ -392,6 +392,9 @@ export function createMockState() {
     if (c !== undefined) communityChanges.set(id, { ...communityChanges.get(id), ...change(c) });
   };
 
+  // The NBA games the fixtures name, by id: a team's schedule, the day's scoreboard, one game.
+  const games = new Map(batches.flatMap((b) => b.games ?? []).map((g) => [g.gameId, g]));
+
   const fixedTabs: ReadonlyArray<EngineHomeTab> = [
     { id: `tag:${PINNED_TAG}`, label: "Design" },
     { id: "list:600000000001", label: "Indie founders" },
@@ -545,6 +548,21 @@ export function createMockState() {
               : b.metrics.likes - a.metrics.likes,
           );
         return page(op, `communitySearch:${id}:${mode}:${query}`, found);
+      }
+      // X asks every profile for a schedule; only a team's has one.
+      case "UserSportsProfile":
+        return fixture(op, s(variables, "rest_id") ?? "") ?? null;
+      case "NBASchedule":
+        return fixture(op, null) ?? null;
+      case "NBAGameHydrate":
+      case "NBALiveGame": {
+        const g = games.get(s(variables, "rest_id") ?? "");
+        return g === undefined ? null : page(op, g.gameId, [], { top: null, games: [g] });
+      }
+      case "SportsGameTopTimeline":
+      case "SportsGameLatestTimeline": {
+        const own = fixture(op, s(variables, "gameId") ?? "");
+        return own === undefined ? null : live(own);
       }
       case "ConnectTabTimeline": {
         const creators = (s(variables, "context") ?? "").includes("isCreatorOnlyConnectTab");
@@ -752,6 +770,8 @@ export function createMockState() {
     fixtures: () => fixtures,
     lists: (): ReadonlyArray<EngineList> => [...xLists.values()],
     community,
+    /** An NBA game the fixtures name. */
+    game: (id: string) => games.get(id),
     /** Whether the user pinned a Community to Home (X's Pin in its header). */
     communityPinned: (id: string) => pinnedCommunities.has(id),
     /** Whether the user asked to join a Community that asks first, and waits for its moderators. */

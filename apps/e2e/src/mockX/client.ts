@@ -60,14 +60,15 @@ const SCRIPT = String.raw`
   let booted = false;
   let loadingMore = false;
   const here = () => location.pathname + location.search;
-  // Pages that switch tabs in place, on one URL: Home's timelines, a Community search's orders.
+  // Pages that switch tabs in place, on one URL: Home's timelines, a Community search's orders,
+  // a game's tabs.
   const inPage = (path) => {
     const p = path.split("?")[0];
-    return p === "/home" ? "home" : /^\/i\/communities\/\d+\/search$/.test(p) ? "communitySearch" : null;
+    return p === "/home" ? "home" : /^\/i\/communities\/\d+\/search$/.test(p) ? "communitySearch" : /^\/i\/nba\/game\/\d+$/.test(p) ? "game" : null;
   };
   const pageTab = (path) => {
     const kind = inPage(path);
-    return kind === null ? "" : localStorage.getItem("mockx:tab:" + kind) || (kind === "home" ? "forYou" : "Likes");
+    return kind === null ? "" : localStorage.getItem("mockx:tab:" + kind) || (kind === "home" ? "forYou" : kind === "game" ? "Top" : "Likes");
   };
   const cacheKey = (path) => (inPage(path) === null ? path : path + "|" + pageTab(path));
   const json = (r) => r.json();

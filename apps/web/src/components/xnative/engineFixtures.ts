@@ -6,6 +6,7 @@ import type {
   EngineCard,
   EngineCommunity,
   EngineEntities,
+  EngineGame,
   EngineList,
   EngineMedia,
   EngineNotification,
@@ -1089,6 +1090,82 @@ export function synth(): Readonly<Record<string, Fixture>> {
     ],
   };
 
+  // A made-up team: its profile carries X's schedule, and its live game opens a game page.
+  const team = person(20, {
+    bio: "Official account of the Harbor Hawks.",
+    location: "Harbor City",
+    verifiedType: "Business",
+    avatarShape: "Square",
+  });
+  const side = (abbreviation: string, name: string, points: number | null) => ({
+    abbreviation,
+    name,
+    points,
+    timeouts: null,
+    bonus: null,
+  });
+  const HBH = side("HBH", "Hawks", null);
+  const game = (
+    n: number,
+    status: string,
+    days: number,
+    away: EngineGame["away"],
+    home: EngineGame["home"],
+  ): EngineGame => ({
+    gameId: String(900_000_500_000 + n),
+    status,
+    startsAt: new Date(Date.parse(SYNTH_AT) + days * 86_400_000).toISOString(),
+    away,
+    home,
+    period: null,
+    periodType: null,
+    clock: null,
+    halftime: false,
+    lastPlay: null,
+  });
+  const liveGame: EngineGame = {
+    ...game(4, "IN_PROGRESS", 0, side("RVR", "Rays", 82), side("HBH", "Hawks", 104)),
+    away: { ...side("RVR", "Rays", 82), timeouts: 3, bonus: true },
+    home: { ...side("HBH", "Hawks", 104), timeouts: 5, bonus: false },
+    period: 3,
+    periodType: "QUARTER",
+    clock: "04:12",
+    lastPlay: { kind: "REBOUND", description: "Rays offensive rebound" },
+  };
+  const season = [
+    game(1, "COMPLETED", -6, { ...HBH, points: 132 }, side("MTN", "Peaks", 123)),
+    game(2, "COMPLETED", -4, side("CTY", "Lights", 108), { ...HBH, points: 97 }),
+    game(3, "COMPLETED", -2, { ...HBH, points: 115 }, side("BAY", "Gulls", 111)),
+    liveGame,
+    game(5, "SCHEDULED", 2, side("DES", "Dunes", null), HBH),
+    game(6, "SCHEDULED", 4, HBH, side("FRS", "Pines", null)),
+  ];
+  const day = [
+    game(7, "COMPLETED", 0, side("MTN", "Peaks", 101), side("CTY", "Lights", 99)),
+    liveGame,
+    { ...game(8, "IN_PROGRESS", 0, side("BAY", "Gulls", 54), side("DES", "Dunes", 60)), period: 2 },
+  ];
+  const fans = [
+    say(1, "Third quarter and the Hawks are pulling away. That bench is deep.", 4),
+    say(5, "Rays need a timeout here, three straight turnovers.", 7),
+    say(3, "Best home crowd of the season tonight.", 11),
+  ];
+  const sports: Fixture = {
+    meta: meta(
+      "sports",
+      "A team's profile with X's schedule carousel, and its live game: the day's strip, X's header, Top and Latest",
+      [`/u/${team.handle}`, `/nba/game/${liveGame.gameId}`],
+    ),
+    batches: [
+      batch("UserByScreenName", team.handle, [], { users: [team] }),
+      batch("UserSportsProfile", team.userId, [], { top: null, bottom: null, games: season }),
+      batch("NBASchedule", null, [], { top: null, bottom: null, games: day }),
+      batch("NBAGameHydrate", liveGame.gameId, [], { top: null, bottom: null, games: [liveGame] }),
+      batch("SportsGameTopTimeline", liveGame.gameId, fans, { users: PEOPLE }),
+      batch("SportsGameLatestTimeline", liveGame.gameId, fans.toReversed(), { users: PEOPLE }),
+    ],
+  };
+
   return {
     home,
     post,
@@ -1100,5 +1177,6 @@ export function synth(): Readonly<Record<string, Fixture>> {
     lists,
     follow,
     communities,
+    sports,
   };
 }

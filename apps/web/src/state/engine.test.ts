@@ -1,6 +1,7 @@
 import type {
   EngineBatch,
   EngineCommunity,
+  EngineGame,
   EngineNotification,
   EnginePost,
   EngineUser,
@@ -17,6 +18,7 @@ import {
   communitySearchSurface,
   communitySurface,
   emptyEngine,
+  gameSurface,
   hideTrend,
   mergeBatch,
   postOn,
@@ -596,4 +598,75 @@ it("keeps dismissed trends hidden across stale captures of their tab, reconciles
   state = hideTrend(state, "explore:news", trend, false, 0);
   expect(at(state.trends, "explore:news")).toEqual([trend]);
   expect(at(state.trends, "explore:trending")).toEqual([]);
+});
+
+it("keeps what each response said of a game, a team's schedule, each game's day, and a game's tabs apart", () => {
+  const team = (abbreviation: string | null, points: number | null) => ({
+    abbreviation,
+    name: abbreviation,
+    points,
+    timeouts: null,
+    bonus: null,
+  });
+  const game = (gameId: string, extra: Partial<EngineGame> = {}): EngineGame => ({
+    gameId,
+    status: "IN_PROGRESS",
+    startsAt: "2026-11-02T02:00:00.000Z",
+    away: team("TOR", 82),
+    home: team("LAL", 104),
+    period: 3,
+    periodType: "QUARTER",
+    clock: "00:00",
+    halftime: false,
+    lastPlay: { kind: "REBOUND", description: "Raptors offensive rebound" },
+    ...extra,
+  });
+  let state = mergeBatch(
+    emptyEngine,
+    batch("UserSportsProfile", [], { key: "20", games: [game("41"), game("40")] }),
+  );
+  state = mergeBatch(state, batch("NBASchedule", [], { games: [game("42"), game("41")] }));
+  // X's live re-poll names the new score only.
+  state = mergeBatch(
+    state,
+    batch("NBALiveGame", [], {
+      key: "41",
+      games: [
+        game("41", {
+          away: { ...team(null, 85), timeouts: 2, bonus: true },
+          home: team(null, null),
+          status: null,
+          startsAt: null,
+          period: null,
+          periodType: null,
+          clock: null,
+          halftime: null,
+          lastPlay: null,
+        }),
+      ],
+    }),
+  );
+  expect(state.games.get("41")).toEqual(
+    game("41", { away: { ...team("TOR", 85), timeouts: 2, bonus: true } }),
+  );
+  expect(state.schedules.get("20")).toEqual(["41", "40"]);
+  expect([state.gameDays.get("41"), state.gameDays.get("40")]).toEqual([["42", "41"], undefined]);
+
+  const top = batch("SportsGameTopTimeline", [post("7", "2026-11-02T03:00:00.000Z")], {
+    key: "41",
+  });
+  const latest = {
+    ...top,
+    op: "SportsGameLatestTimeline",
+    posts: [post("8", "2026-11-02T03:05:00.000Z")],
+  };
+  expect([surfacesOf(top), surfacesOf(latest)]).toEqual([
+    [gameSurface("41", "Top")],
+    [gameSurface("41", "Latest")],
+  ]);
+  state = [top, latest].reduce(mergeBatch, state);
+  expect([
+    at(state.lists, gameSurface("41", "Top")),
+    at(state.lists, gameSurface("41", "Latest")),
+  ]).toEqual([["7"], ["8"]]);
 });

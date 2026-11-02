@@ -205,6 +205,37 @@ export const xPickCommunitySearchTab = async (
 };
 
 /**
+ * Picks X's tab `label` (Top, Latest) on NBA game `gameId`'s page, the way
+ * `xPickCommunitySearchTab` picks a search's: after `loaded`, only on that game's page, only while
+ * the screen holds it (`signal`), and only as the user's latest press.
+ */
+export const xPickGameTab = async (
+  gameId: string,
+  label: string,
+  loaded: Promise<unknown>,
+  signal: AbortSignal,
+) => {
+  // It goes into a script run in X's page: digits only.
+  if (!/^\d{1,25}$/.test(gameId)) return false;
+  await loaded;
+  if (signal.aborted) return false;
+  const run = await nextRun();
+  return (
+    (await xRun(`(async () => {
+    for (let i = 0; i < 40 && ${stillMine(run)}; i++) {
+      const tab = location.pathname === "/i/nba/game/${gameId}" ? [...document.querySelectorAll('[role="tab"]')].find((t) => t.textContent.trim() === ${JSON.stringify(label)}) : undefined;
+      if (tab !== undefined) {
+        if (tab.getAttribute("aria-selected") !== "true") tab.click();
+        return true;
+      }
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    return false;
+  })()`)) === true
+  );
+};
+
+/**
  * X's own buttons on a post, by test id, for the user's click on Xtend's copy of it: what each
  * turns into once pressed, and the confirm X asks for first.
  */

@@ -2,6 +2,8 @@ import type {
   EngineBatch,
   EngineCommunity,
   EngineExploreTab,
+  EngineGame,
+  EngineGameTeam,
   EngineHomeTab,
   EngineList,
   EngineModule,
@@ -81,7 +83,8 @@ type KeyedSurface =
   | `communityMedia:${string}`
   | `communityAbout:${string}`
   | `communitySearch:${string}`
-  | `profile:${ProfileTab}:${string}`;
+  | `profile:${ProfileTab}:${string}`
+  | `sportsGame:${GameTab}:${string}`;
 /** X's Follow page's tabs (Who to follow, Creators for you), as the capture keys them. */
 export type ConnectTab = "connect:who" | "connect:creators";
 export type AnySurface = Surface | KeyedSurface;
@@ -132,6 +135,9 @@ export const communitySearchSurface = (id: string, mode: CommunitySearchMode, qu
 /** @public */
 export const profileSurface = (tab: ProfileTab, userId: string) =>
   `profile:${tab}:${userId}` as const;
+/** A game page's post tabs: X switches them in place, each its own call. */
+export type GameTab = "Top" | "Latest";
+export const gameSurface = (gameId: string, tab: GameTab) => `sportsGame:${tab}:${gameId}` as const;
 
 const PROFILE_OPS: Readonly<Record<string, ProfileTab>> = {
   // X has used each pair of names for a profile's tabs.
@@ -207,6 +213,9 @@ export function surfacesOf(batch: Pick<EngineBatch, "op" | "key">): ReadonlyArra
   }
   if (op === "ConnectTabTimeline" && (key === "connect:who" || key === "connect:creators"))
     return [key];
+  // The capture keys a game's posts by the game.
+  if (key !== null && op === "SportsGameTopTimeline") return [gameSurface(key, "Top")];
+  if (key !== null && op === "SportsGameLatestTimeline") return [gameSurface(key, "Latest")];
   // The capture keys every List call `list:<id>`.
   const listId = tabKey(key, "list")?.slice("list:".length);
   if (listId !== undefined && op === "ListMembers")
@@ -320,6 +329,12 @@ export interface EngineState {
   readonly communities: ReadonlyMap<string, EngineCommunity>;
   /** Community ids per surface, in X's order (the user's Communities). */
   readonly communityIds: PerSurface<string>;
+  /** NBA games by id, each the sum of what X's responses said of it (see `EngineGame`). */
+  readonly games: ReadonlyMap<string, EngineGame>;
+  /** A team's schedule by the team's user id, in X's order: its profile's carousel. */
+  readonly schedules: ReadonlyMap<string, ReadonlyArray<string>>;
+  /** Per game, the games of its day in X's order: the score strip atop its page. */
+  readonly gameDays: ReadonlyMap<string, ReadonlyArray<string>>;
   /** Home's pinned tabs after For you and Following, as X named them. */
   readonly homeTabs: ReadonlyArray<EngineHomeTab>;
   readonly exploreTabs: ReadonlyArray<EngineExploreTab>;
@@ -351,6 +366,9 @@ export const emptyEngine: EngineState = {
   listIds: NONE,
   communities: new Map(),
   communityIds: NONE,
+  games: new Map(),
+  schedules: new Map(),
+  gameDays: new Map(),
   homeTabs: [],
   exploreTabs: [],
   viewer: null,
@@ -483,12 +501,64 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
   };
   const listed = surfacesOf(batch).reduce(
     (state, surface) => mergeInto(state, batch, surface),
-    merged,
+    mergeGames(merged, batch),
   );
   if (!/^Create(Note)?Tweet$/.test(batch.op)) return listed;
   // The response also carries the post it quotes, which stays where it was.
   const created = batch.posts.filter((p) => !batch.posts.some((q) => q.quotedId === p.postId));
   return created.reduce(placeCreated, listed);
+}
+
+const keepTeam = (known: EngineGameTeam, fresh: EngineGameTeam): EngineGameTeam => ({
+  abbreviation: fresh.abbreviation ?? known.abbreviation,
+  name: fresh.name ?? known.name,
+  points: fresh.points ?? known.points,
+  timeouts: fresh.timeouts ?? known.timeouts,
+  bonus: fresh.bonus ?? known.bonus,
+});
+
+/**
+ * A response's games into the store, each field X left out (null) keeping what an earlier one
+ * said: a live re-poll names only the score. A team's profile lists its schedule; X's scoreboard
+ * names each of its games' day.
+ */
+function mergeGames(state: EngineState, batch: EngineBatch): EngineState {
+  const fresh = batch.games ?? [];
+  if (fresh.length === 0) return state;
+  const games = new Map(state.games);
+  for (const g of fresh) {
+    const known = games.get(g.gameId);
+    games.set(
+      g.gameId,
+      known === undefined
+        ? g
+        : {
+            gameId: g.gameId,
+            status: g.status ?? known.status,
+            startsAt: g.startsAt ?? known.startsAt,
+            away: keepTeam(known.away, g.away),
+            home: keepTeam(known.home, g.home),
+            period: g.period ?? known.period,
+            periodType: g.periodType ?? known.periodType,
+            clock: g.clock ?? known.clock,
+            halftime: g.halftime ?? known.halftime,
+            lastPlay: g.lastPlay ?? known.lastPlay,
+          },
+    );
+  }
+  const ids = fresh.map((g) => g.gameId);
+  return {
+    ...state,
+    games,
+    schedules:
+      batch.op === "UserSportsProfile" && batch.key !== null
+        ? new Map(state.schedules).set(batch.key, ids)
+        : state.schedules,
+    gameDays:
+      batch.op === "NBASchedule"
+        ? new Map([...state.gameDays, ...ids.map((id) => [id, ids] as const)])
+        : state.gameDays,
+  };
 }
 
 /**

@@ -578,6 +578,46 @@ test("Search in a Community lists what X finds there, Top and Latest by X's own 
   await expect.poll(nativeIds).toEqual(found);
 });
 
+test("A team's profile shows X's schedule, a card opens its game, and Latest is X's own tab there", async () => {
+  const schedule = e.mock.state
+    .fixtures()
+    .sports!.batches.find((b) => b.op === "UserSportsProfile")!;
+  const team = e.mock.state.user(schedule.key!)!;
+  const season = schedule.games!;
+  await go(`/u/${team.handle}`);
+  await expect.poll(enginePath).toBe(`/${team.handle}`);
+  const cards = () =>
+    e.app
+      .locator('main [data-x="game-card"]')
+      .evaluateAll((as) => as.map((a) => a.getAttribute("href")!.split("/nba/game/")[1]));
+  await expect.poll(cards).toEqual(season.map((g) => g.gameId));
+
+  const game = season.find((g) => g.status === "IN_PROGRESS")!;
+  await e.app.locator(`main [data-x="game-card"][href$="/nba/game/${game.gameId}"]`).click();
+  await expect.poll(enginePath).toBe(`/i/nba/game/${game.gameId}`);
+  await expect
+    .poll(nativeIds)
+    .toEqual(e.mock.state.batchFor("SportsGameTopTimeline", { gameId: game.gameId })!.order);
+  // X's header and the day's strip, from X's own calls on that page.
+  await expect.poll(() => e.app.getByText(game.lastPlay!.description).isVisible()).toBe(true);
+  const strip = e.app.getByRole("navigation", { name: "Today's games" }).getByRole("link");
+  await expect
+    .poll(() => strip.count())
+    .toBe(e.mock.state.fixture("NBASchedule", null)!.games!.length);
+
+  // Latest is X's tab on the same page: the engine presses it there and X sends its posts.
+  await e.app.getByRole("tab", { name: "Latest", exact: true }).click();
+  const xTab = () =>
+    e.engine(`document.querySelector('[role="tab"][aria-selected="true"]')?.textContent.trim()`);
+  await expect.poll(xTab).toBe("Latest");
+  expect(await enginePath()).toBe(`/i/nba/game/${game.gameId}`);
+  await expect
+    .poll(nativeIds)
+    .toEqual(e.mock.state.batchFor("SportsGameLatestTimeline", { gameId: game.gameId })!.order);
+  await e.app.getByRole("tab", { name: "Top", exact: true }).click();
+  await expect.poll(xTab).toBe("Top");
+});
+
 test("Search reads X's Top and People tabs for the query", async () => {
   const q = "design system";
   await go(`/search?q=${encodeURIComponent(q)}&f=top`);
