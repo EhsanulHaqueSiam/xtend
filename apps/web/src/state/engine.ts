@@ -495,7 +495,16 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
           },
   };
   const listed = surfacesOf(batch).reduce(
-    (state, surface) => mergeInto(state, batch, surface),
+    (state, surface) =>
+      mergeInto(
+        // Explore's first page is X's whole tab again (X clears its own with it), so it replaces
+        // the list; Home's waits behind a pill, which Explore does not draw.
+        surface.startsWith("explore:") && batch.cursor === null
+          ? resetSurface(state, surface)
+          : state,
+        batch,
+        surface,
+      ),
     merged,
   );
   if (!/^Create(Note)?Tweet$/.test(batch.op)) return listed;

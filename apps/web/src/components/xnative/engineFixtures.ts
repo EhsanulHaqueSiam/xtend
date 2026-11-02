@@ -881,21 +881,8 @@ export function synth(): Readonly<Record<string, Fixture>> {
     { id: "trending", label: "Trending", timelineId: "explore-trending" },
     { id: "news", label: "News", timelineId: "explore-news" },
   ];
+  // X's For you opens with Today's News, then trends on their own.
   const trends: ReadonlyArray<EngineTrend> = [
-    {
-      name: "#BuildInPublic",
-      context: "Trending in Technology",
-      url: "https://x.com/search?q=%23BuildInPublic",
-      images: [],
-      group: null,
-    },
-    {
-      name: "Design systems",
-      context: "Technology · 12.4K posts",
-      url: "https://x.com/search?q=Design%20systems",
-      images: [],
-      group: null,
-    },
     {
       name: "A new open source license for AI models",
       context: "2 hours ago · News · 3.1K posts",
@@ -910,17 +897,41 @@ export function synth(): Readonly<Record<string, Fixture>> {
       images: [PEOPLE[0]!.avatarUrl!],
       group: "Today's News",
     },
+    {
+      name: "#BuildInPublic",
+      context: "Trending in Technology",
+      url: "https://x.com/search?q=%23BuildInPublic",
+      images: [],
+      group: null,
+    },
+    {
+      name: "Design systems",
+      context: "Technology · 12.4K posts",
+      url: "https://x.com/search?q=Design%20systems",
+      images: [],
+      group: null,
+    },
+  ];
+  // Then Who to follow, and Posts For You: the start of the feed X pages in as it scrolls.
+  const recommended = [forYou[1]!, following[0]!, following[1]!, forYou[3]!];
+  const exploreModules = [
+    { id: "who-to-follow-700000000901", title: "Who to follow", userIds: whoToFollow.userIds },
+    { id: `tweet-${recommended[0]!.postId}`, title: "Posts For You", userIds: [] },
   ];
   const explore: Fixture = {
-    meta: meta("explore", "Explore: For you tab with trends, today's news and Who to follow", [
-      "/explore",
-    ]),
+    meta: meta(
+      "explore",
+      "Explore: For you with Today's News, trends, Who to follow and Posts For You",
+      ["/explore"],
+    ),
     batches: [
-      batch("ExplorePage", "explore-for-you", [], {
+      batch("ExplorePage", "explore-for-you", recommended, {
         trends,
         exploreTabs: tabs,
-        users: PEOPLE,
-        people: [PEOPLE[3]!.userId, PEOPLE[5]!.userId],
+        users: [...PEOPLE, ...suggest],
+        people: whoToFollow.userIds,
+        order: [...exploreModules.map((m) => m.id), ...recommended.map((p) => p.postId)],
+        modules: exploreModules,
       }),
     ],
   };
