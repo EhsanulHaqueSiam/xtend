@@ -16,6 +16,8 @@ import {
   xOverEnded,
   xPickCommunitySearchTab,
   xPickGameTab,
+  xHeard,
+  xNavigate,
   xPostFollowPress,
   xPostMenuPress,
   xProfileMenu,
@@ -1299,17 +1301,9 @@ it("picks X's search tab only on the Community search it was asked for, and give
   }
 });
 
-it("picks a game's tab after a move only once X has answered for that game, and at once in place", async () => {
+it("picks a game's tab once X answered for that game since the engine's last move, whoever picks it", async () => {
   using _clock = fakeTimers();
-  const listeners = new Set<(batch: EngineBatch) => void>();
-  using _bridge = stubGlobal("desktopBridge", {
-    onEngine: (cb: (batch: EngineBatch) => void) => (
-      listeners.add(cb),
-      () => void listeners.delete(cb)
-    ),
-  });
-  const answer = (op: string, key: string) =>
-    listeners.forEach((cb) => cb({ op, key } as unknown as EngineBatch));
+  const answer = (op: string, key: string) => xHeard({ op, key } as unknown as EngineBatch);
   const open = () => new AbortController().signal;
   const clicked: Array<string> = [];
   // The last game's tabs, still drawn while X's path already names the next game.
@@ -1317,10 +1311,14 @@ it("picks a game's tab after a move only once X has answered for that game, and 
   for (const tab of document.querySelectorAll('[role="tab"]'))
     tab.addEventListener("click", () => clicked.push(tab.textContent!));
   inThisPage(() => `https://x.com${location.pathname}`);
+  // The engine moves to game `id`, as a game screen's load does.
+  const move = (id: string) => {
+    history.replaceState(null, "", `/i/nba/game/${id}`);
+    return xNavigate(`https://x.com/i/nba/game/${id}`);
+  };
   const start = location.href;
   try {
-    history.replaceState(null, "", "/i/nba/game/42");
-    const moved = xPickGameTab("42", "Latest", Promise.resolve(true), open());
+    const moved = xPickGameTab("42", "Latest", move("42"), open());
     await vi.advanceTimersByTimeAsync(1_000);
     answer("NBAGameHydrate", "41");
     await vi.advanceTimersByTimeAsync(1_000);
@@ -1328,20 +1326,19 @@ it("picks a game's tab after a move only once X has answered for that game, and 
     answer("NBAGameHydrate", "42");
     await vi.runAllTimersAsync();
     expect([await moved, clicked]).toEqual([true, ["Latest"]]);
-    // In place: the engine already showed this game, so the tabs drawn are its own.
+    // In place: X answered for this game since the engine moved there.
     const inPlace = xPickGameTab("42", "Latest", Promise.resolve(false), open());
     await vi.runAllTimersAsync();
     expect([await inPlace, clicked]).toEqual([true, ["Latest", "Latest"]]);
     // X stays quiet after a move: nothing is pressed.
-    const quiet = xPickGameTab("42", "Latest", Promise.resolve(true), open());
+    const quiet = xPickGameTab("42", "Latest", move("42"), open());
     await vi.runAllTimersAsync();
     expect([await quiet, clicked]).toEqual([false, ["Latest", "Latest"]]);
     // Latest clicked after the move to 43, before X answers for it: the URL already names 43, but
-    // the tabs drawn are still 42's. The pick joins 43's wait and presses once X answers for 43.
+    // the tabs drawn are still 42's. Every pick waits for X's answer for 43, then presses.
     clicked.length = 0;
-    history.replaceState(null, "", "/i/nba/game/43");
     const top = new AbortController();
-    const opening = xPickGameTab("43", "Top", Promise.resolve(true), top.signal);
+    const opening = xPickGameTab("43", "Top", move("43"), top.signal);
     await vi.advanceTimersByTimeAsync(500);
     top.abort();
     const latest = xPickGameTab("43", "Latest", Promise.resolve(false), open());
@@ -1350,6 +1347,13 @@ it("picks a game's tab after a move only once X has answered for that game, and 
     answer("SportsGameTopTimeline", "43");
     await vi.runAllTimersAsync();
     expect([await opening, await latest, clicked]).toEqual([false, true, ["Latest"]]);
+    // A finished game X answered once, before any pick: Latest in place is pressed at once.
+    clicked.length = 0;
+    void move("44");
+    answer("NBAGameHydrate", "44");
+    const finished = xPickGameTab("44", "Latest", Promise.resolve(false), open());
+    await vi.advanceTimersByTimeAsync(0);
+    expect([await finished, clicked]).toEqual([true, ["Latest"]]);
   } finally {
     history.replaceState(null, "", start);
   }

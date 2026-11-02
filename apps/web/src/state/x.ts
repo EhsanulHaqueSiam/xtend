@@ -235,35 +235,40 @@ const GAME_CALLS: ReadonlySet<string> = new Set([
   "SportsGameLatestTimeline",
 ]);
 const GAME_ANSWER_MS = 10_000;
-const answers = (b: EngineBatch, gameId: string) => b.key === gameId && GAME_CALLS.has(b.op);
+
+/** Per game, the engine move X last answered it after (see `moves`), and who waits for it. */
+const answeredAfter = new Map<string, number>();
+const hearing = new Set<() => void>();
+
+/** Notes X's answer for a game's page; EngineSync hands it every batch the engine receives. */
+export const xHeard = (batch: EngineBatch) => {
+  if (batch.key === null || !GAME_CALLS.has(batch.op)) return;
+  answeredAfter.set(batch.key, moves);
+  for (const wake of hearing) wake();
+};
 
 /**
- * Per game, whether X is drawing its page since the engine's last move: X's first answer for the
- * game settles it, X's silence fails it, and every pick of that game's tabs shares it.
+ * Whether X has answered for game `gameId` since the engine's last move, waiting for it a while:
+ * a finished game X answered once is drawn, and a move to another game starts the wait again.
  */
-const drawn = new Map<string, { readonly moves: number; readonly ready: Promise<boolean> }>();
-
-function waitForGame(gameId: string, heard: boolean) {
-  let settle = (_answered: boolean) => {};
-  const ready = new Promise<boolean>((resolve) => (settle = resolve));
-  const stop = window.desktopBridge?.onEngine((b) => answers(b, gameId) && settle(true));
-  const quiet = setTimeout(() => settle(false), GAME_ANSWER_MS);
-  if (heard) settle(true);
-  const entry = { moves, ready };
-  drawn.set(gameId, entry);
-  void ready.then((answered) => {
-    stop?.();
-    clearTimeout(quiet);
-    // X stayed quiet: the next pick waits afresh.
-    if (!answered && drawn.get(gameId) === entry) drawn.delete(gameId);
+const gameDrawn = (gameId: string) =>
+  new Promise<boolean>((resolve) => {
+    const drawn = () => answeredAfter.get(gameId) === moves;
+    if (drawn()) return resolve(true);
+    const done = (answered: boolean) => {
+      hearing.delete(wake);
+      clearTimeout(quiet);
+      resolve(answered);
+    };
+    const wake = () => void (drawn() && done(true));
+    const quiet = setTimeout(() => done(false), GAME_ANSWER_MS);
+    hearing.add(wake);
   });
-  return ready;
-}
 
 /**
  * Picks X's tab `label` (Top, Latest) on NBA game `gameId`'s page, as `xPickCommunitySearchTab`
- * does, once X has answered for this game since the engine's last move (`drawn`), never by X's
- * path alone: that names a new game while the last one's tabs still show.
+ * does, once X has answered for this game since the engine's last move (`gameDrawn`), never by
+ * X's path alone: that names a new game while the last one's tabs still show.
  */
 export const xPickGameTab = async (
   gameId: string,
@@ -273,22 +278,8 @@ export const xPickGameTab = async (
 ) => {
   // It goes into a script run in X's page: digits only.
   if (!/^\d{1,25}$/.test(gameId)) return false;
-  // X may answer while the move settles.
-  let heard = false;
-  const stop = window.desktopBridge?.onEngine((b) => void (heard ||= answers(b, gameId)));
-  let moved: boolean;
-  try {
-    moved = (await loaded) !== false;
-  } finally {
-    stop?.();
-  }
-  // A pick with no move of its own joins the wait since the last one, while it still stands.
-  const known = drawn.get(gameId);
-  const ready =
-    !moved && known !== undefined && known.moves === moves
-      ? known.ready
-      : waitForGame(gameId, heard);
-  if (!(await ready) || signal.aborted) return false;
+  await loaded;
+  if (!(await gameDrawn(gameId)) || signal.aborted) return false;
   const run = await nextRun();
   return (
     (await xRun(`(async () => {

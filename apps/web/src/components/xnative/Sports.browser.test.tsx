@@ -265,3 +265,47 @@ it("takes the engine off a game the user left for a screen that moves it nowhere
     else localStorage.setItem("xtend:x-panel-open", panel);
   }
 });
+
+it("presses a finished game's Latest at once in place, once X answered for it before any pick", async () => {
+  const bridge = installFakeBridge();
+  const scripts: Array<string> = [];
+  // The engine already shows the game (the user opened it in X's panel), so nothing moves it.
+  registerXWebview({
+    executeJavaScript: (code: string) => (scripts.push(code), Promise.resolve(true)),
+    getURL: () => "https://x.com/i/nba/game/53",
+    loadURL: () => Promise.resolve(),
+  } as unknown as XWebview);
+  markXReady();
+  const root = createRootRoute();
+  const router = createRouter({
+    routeTree: root.addChildren([
+      createRoute({
+        getParentRoute: () => root,
+        path: "/nba/game/$id",
+        validateSearch: GameRoute.options.validateSearch,
+        component: GameRoute.options.component!,
+      }),
+      createRoute({ getParentRoute: () => root, path: "/settings", component: () => null }),
+    ]),
+    history: createMemoryHistory({ initialEntries: ["/settings"] }),
+  });
+  try {
+    await using screen = await render(
+      <div style={{ height: 800, display: "flex" }}>
+        <EngineSync />
+        <RouterProvider router={router} />
+      </div>,
+      { router: false, service: {} },
+    );
+    // A finished game: X answers once and sends nothing more.
+    bridge.emitEngine(batch("NBAGameHydrate", { key: "53", games: [later] }));
+    router.history.push("/nba/game/53");
+    await expect.element(screen.getByRole("tab", { name: "Latest" })).toBeVisible();
+    await screen.getByRole("tab", { name: "Latest" }).click();
+    await expect
+      .poll(() => scripts.some((s) => s.includes("/i/nba/game/53") && s.includes('"Latest"')))
+      .toBe(true);
+  } finally {
+    registerXWebview(null);
+  }
+});
