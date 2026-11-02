@@ -196,6 +196,13 @@ const joinButton = (c: EngineCommunity, requested: boolean) => {
   return `<button data-community-join="${c.communityId}" aria-label="${esc(`${label} ${c.name}`)}">${label}</button>`;
 };
 
+/** X's search of Communities: its tabs, each its own page, x.com/i/communities/<page>?q=. */
+const COMMUNITIES_SEARCH_TABS = [
+  { page: "suggested", label: "Communities", op: "CommunitiesSearchQuery" },
+  { page: "top", label: "Top", op: "GlobalCommunitiesPostSearchTimeline" },
+  { page: "latest", label: "Latest", op: "GlobalCommunitiesLatestPostSearchTimeline" },
+] as const;
+
 const COMMUNITY_TABS = [
   { path: "", label: "Top" },
   { path: "/latest", label: "Latest" },
@@ -488,6 +495,49 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
           .join("")}${INSPIRATION_FILTERS.engagement
           .map((f) => button("engagement", f.id, f.label, f.id === engagement))
           .join("")}</div><section data-list>${postsOf(b ?? null, state)}</section>`,
+    };
+  }
+  const searchTab = COMMUNITIES_SEARCH_TABS.find((t) => t.page === third);
+  if (
+    lower === "i" &&
+    second === "communities" &&
+    searchTab !== undefined &&
+    fourth === undefined
+  ) {
+    const query = q.get("q") ?? "";
+    const none = `<div class="empty"><h3>No results for "${esc(query)}"</h3><div>The term you entered did not bring up any results. Try a different search term.</div></div>`;
+    return {
+      title: "Search Communities / X",
+      requests:
+        query === ""
+          ? []
+          : [
+              searchTab.op === "CommunitiesSearchQuery"
+                ? r(searchTab.op, { query, cursor: null })
+                : r(searchTab.op, { rawQuery: query, count: 20 }),
+            ],
+      render: ([b]) =>
+        `<div class="bar"><button data-testid="app-bar-back" aria-label="Back">←</button><form role="search"><input aria-label="Search Communities" placeholder="Search for Communities and Posts" value="${esc(query)}"></form></div>${
+          query === ""
+            ? `<div class="empty"><h3>Search results will appear here</h3></div>`
+            : `${tabs(
+                "Search Communities",
+                COMMUNITIES_SEARCH_TABS.map((t) => ({
+                  label: t.label,
+                  href: `/i/communities/${t.page}?q=${encodeURIComponent(query)}`,
+                  on: t === searchTab,
+                })),
+              )}<section data-list>${
+                searchTab.op !== "CommunitiesSearchQuery"
+                  ? postsOf(b ?? null, state) || none
+                  : (b?.communities ?? [])
+                      .map(
+                        (c) =>
+                          `<a href="/i/communities/${c.communityId}" data-testid="communityCell"><img alt="" src="${esc(c.bannerUrl ?? "")}" class="avatar"><span>${esc(c.name)}</span> <span class="muted">${compact(c.members)} Members · ${esc(c.topic ?? "")}</span></a>`,
+                      )
+                      .join("") || none
+              }</section>`
+        }`,
     };
   }
   if (lower === "i" && second === "communities" && third !== undefined && fourth === "search") {

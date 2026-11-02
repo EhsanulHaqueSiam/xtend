@@ -137,9 +137,9 @@ export const xScrollMore = () =>
       return current() && !window.__xtendTrendLookups;
     };
     if (!current() || (window.__xtendTrendLookups && !(await resume()))) return false;
-    // A people list (reposters, search People) has no posts: without its rows this never sees X's
-    // next page land and keeps scrolling, so X fetches page after page.
-    const last = () => [...document.querySelectorAll('article a[href*="/status/"] time, [data-testid="UserCell"] a[href^="/"]')].at(-1)?.closest("a")?.getAttribute("href");
+    // People lists and Community search results have no posts: without their rows this never sees
+    // X's next page land and keeps scrolling, so X fetches page after page.
+    const last = () => [...document.querySelectorAll('article a[href*="/status/"] time, [data-testid="UserCell"] a[href^="/"], [data-testid="cellInnerDiv"]:not(:has(article)) a[href^="/i/communities/"]')].at(-1)?.closest("a")?.getAttribute("href");
     window.scrollTo(0, document.documentElement.scrollHeight);
     await new Promise((r) => setTimeout(r, 300));
     if (!current() || (window.__xtendTrendLookups && !(await resume()))) return false;

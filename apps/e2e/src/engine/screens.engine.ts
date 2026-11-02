@@ -617,6 +617,44 @@ test("Library's Inspiration lists X's top posts, and a pick presses X's own filt
   ]);
 });
 
+test("The hub's search lists the Communities X finds, its Top and Latest on X's own pages, and X's line when it finds none", async () => {
+  const read = (op: string, variables: Record<string, unknown>) =>
+    e.mock.state.batchFor(op, variables)!;
+  await go("/communities");
+  await e.app.getByRole("button", { name: "Search Communities", exact: true }).click();
+  await expect.poll(enginePath).toBe("/i/communities/suggested");
+  const box = e.app.getByRole("textbox", { name: "Search Communities" });
+  await box.fill("founders");
+  await box.press("Enter");
+  await expect.poll(enginePath).toBe("/i/communities/suggested?q=founders");
+  const found = read("CommunitiesSearchQuery", { query: "founders" }).communities;
+  expect(found.length).toBeGreaterThan(1);
+  await expect
+    .poll(() => e.app.locator('main [data-x="community-row"] b').allTextContents())
+    .toEqual(found.map((c) => c.name));
+
+  // Top and Latest are X's own pages for the query, each its posts from Communities.
+  for (const [label, page, op] of [
+    ["Top", "top", "GlobalCommunitiesPostSearchTimeline"],
+    ["Latest", "latest", "GlobalCommunitiesLatestPostSearchTimeline"],
+  ] as const) {
+    await e.app.getByRole("tab", { name: label, exact: true }).click();
+    await expect.poll(enginePath).toBe(`/i/communities/${page}?q=founders`);
+    await expect.poll(nativeIds).toEqual(read(op, { rawQuery: "founders" }).order);
+  }
+
+  // A row opens its Community.
+  await e.app.getByRole("tab", { name: "Communities", exact: true }).click();
+  await e.app.locator('main [data-x="community-row"]').first().click();
+  await expect.poll(enginePath).toBe(`/i/communities/${found[0]!.communityId}`);
+
+  await go("/communities?q=zzzz");
+  await expect.poll(enginePath).toBe("/i/communities/suggested?q=zzzz");
+  await e.app
+    .getByText("The term you entered did not bring up any results. Try a different search term.")
+    .waitFor();
+});
+
 test("Search reads X's Top and People tabs for the query", async () => {
   const q = "design system";
   await go(`/search?q=${encodeURIComponent(q)}&f=top`);
