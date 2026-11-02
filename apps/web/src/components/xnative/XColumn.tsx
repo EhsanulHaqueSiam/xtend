@@ -1,11 +1,30 @@
 import { useAtomSet } from "@effect/atom-react";
-import { Search } from "lucide-react";
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { useRouter } from "@tanstack/react-router";
+import { ArrowDown, ChevronLeft, ChevronRight, Search } from "lucide-react";
+import {
+  createContext,
+  type ReactNode,
+  type RefObject,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
+import {
+  advance,
+  armed,
+  type Gesture,
+  IDLE,
+  progress,
+  release,
+  type WheelAction,
+  WHEEL_PAUSE_MS,
+} from "../../lib/wheelGesture";
 import { type AnySurface, engineAtom, resetSurface, updateEngine } from "../../state/engine";
-import { setScreenRefresh } from "../../state/x";
+import { loadNewPosts, setScreenRefresh } from "../../state/x";
 import { DayGlance } from "../shell/HomeCompanion";
 import { MediaViewer } from "./MediaViewer";
 import { QuoteComposer } from "./QuoteComposer";
@@ -13,6 +32,105 @@ import { QuoteComposer } from "./QuoteComposer";
 /** The element that scrolls an X screen; lists inside virtualize against it. */
 const ScrollParent = createContext<HTMLElement | null>(null);
 export const useXScrollParent = () => useContext(ScrollParent);
+
+// A browser draws its own swipe and pull; the desktop follows macOS's "Swipe between pages".
+const GESTURES = isElectron && window.desktopBridge?.swipeNavigation !== false;
+const COLUMN_SHIFT_PX = 64;
+const PULL_ROW_PX = 44;
+
+// One gesture for the whole app: momentum that outlives a Back must not go back again on the
+// screen it lands on, whose column is a new one.
+let gesture: Gesture = IDLE;
+let pause: ReturnType<typeof setTimeout> | undefined;
+
+/** A menu, a dialog or a row that scrolls sideways keeps the gesture for itself. */
+const keepsGesture = (target: EventTarget | null, scroller: HTMLElement) => {
+  if (!(target instanceof Element)) return false;
+  if (target.closest('[role="menu"], [role="dialog"]')) return true;
+  for (let el: Element | null = target; el !== null && el !== scroller; el = el.parentElement)
+    if (el.scrollWidth > el.clientWidth + 1 && /auto|scroll/.test(getComputedStyle(el).overflowX))
+      return true;
+  return false;
+};
+
+/**
+ * Two fingers sideways go back or forward with the column following them, and two fingers down
+ * at the top of a list load newer posts, as X's apps and the Mac's own pages do.
+ */
+function useWheelGestures(
+  scroller: HTMLElement | null,
+  page: RefObject<HTMLElement | null>,
+  arrow: RefObject<HTMLElement | null>,
+  pull: RefObject<HTMLElement | null>,
+  refreshes: boolean,
+) {
+  const router = useRouter();
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- listens to the column's wheel events while it shows.
+  useEffect(() => {
+    if (!GESTURES || scroller === null) return;
+    const draw = () => {
+      const p = progress(gesture);
+      const on = armed(gesture);
+      const action = gesture.kind === "drag" ? gesture.action : null;
+      const sideways = action === "back" || action === "forward";
+      const shift = sideways ? (action === "back" ? 1 : -1) * p * COLUMN_SHIFT_PX : 0;
+      if (page.current !== null) {
+        page.current.style.transform = shift === 0 ? "" : `translateX(${shift}px)`;
+        page.current.style.transition = sideways ? "none" : "transform 150ms ease-out";
+      }
+      if (arrow.current !== null) {
+        // Centred in the gap the page leaves at the main area's edge, halfway down.
+        const area = scroller.getBoundingClientRect();
+        arrow.current.hidden = !sideways;
+        arrow.current.dataset.side = action ?? "";
+        arrow.current.dataset.armed = String(on);
+        arrow.current.style.left = `${action === "back" ? area.left + shift / 2 : area.right + shift / 2}px`;
+        arrow.current.style.top = `${area.top + area.height / 2}px`;
+      }
+      if (pull.current !== null) {
+        pull.current.style.height = `${action === "refresh" ? Math.round(p * PULL_ROW_PX) : 0}px`;
+        pull.current.dataset.armed = String(on);
+        const label = pull.current.querySelector("span");
+        if (label !== null) label.textContent = on ? "Release to refresh" : "Pull to refresh";
+      }
+    };
+    const act = (action: WheelAction) =>
+      action === "refresh"
+        ? loadNewPosts()
+        : action === "back"
+          ? router.history.back()
+          : router.history.forward();
+    const onWheel = (event: WheelEvent) => {
+      if (event.ctrlKey) return; // a pinch zooms
+      if (gesture.kind === "idle" && keepsGesture(event.target, scroller))
+        gesture = { kind: "scroll" };
+      const next = advance(gesture, {
+        dx: event.deltaX,
+        dy: event.deltaY,
+        atTop: scroller.scrollTop <= 0,
+        can: {
+          back: window.navigation.canGoBack,
+          forward: window.navigation.canGoForward,
+          refresh: refreshes,
+        },
+      });
+      gesture = next.gesture;
+      // Pushing back up during a pull shrinks it rather than scrolling the list.
+      if (gesture.kind === "drag" && gesture.action === "refresh") event.preventDefault();
+      draw();
+      if (next.fire !== undefined) act(next.fire);
+      clearTimeout(pause);
+      pause = setTimeout(() => {
+        const action = release(gesture);
+        gesture = IDLE;
+        draw();
+        if (action !== null) act(action);
+      }, WHEEL_PAUSE_MS);
+    };
+    scroller.addEventListener("wheel", onWheel, { passive: false });
+    return () => scroller.removeEventListener("wheel", onWheel);
+  }, [scroller, page, arrow, pull, refreshes, router]);
+}
 
 /**
  * X's own reading shape: one 600px column between hairlines, and Xtend's rail beside it (the
@@ -34,6 +152,8 @@ export function XColumn({
   readonly refresh?: {
     readonly surfaces: ReadonlyArray<AnySurface>;
     readonly load: () => void;
+    /** Shows posts already waiting behind the pill; false when none wait, so X is asked. */
+    readonly showNew?: () => boolean;
   };
   readonly header: ReactNode;
   /** Floats just under the header while the column scrolls, as X's "Show N posts" does. */
@@ -52,14 +172,19 @@ export function XColumn({
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- registers this screen's refresh with the global refresh hotkey, released on unmount.
   useEffect(() => {
     if (!refreshes) return;
-    return setScreenRefresh(() => {
+    return setScreenRefresh((mode) => {
       const r = latest.current;
       if (r === undefined) return;
-      setEngine(updateEngine((s) => r.surfaces.reduce(resetSurface, s)));
       scroller?.scrollTo({ top: 0 });
+      if (mode === "new" && r.showNew?.() === true) return;
+      setEngine(updateEngine((s) => r.surfaces.reduce(resetSurface, s)));
       r.load();
     });
   }, [refreshes, scroller, setEngine]);
+  const page = useRef<HTMLDivElement>(null);
+  const arrow = useRef<HTMLDivElement>(null);
+  const pull = useRef<HTMLDivElement>(null);
+  useWheelGestures(scroller, page, arrow, pull, refreshes);
   return (
     <div
       ref={setScroller}
@@ -67,7 +192,7 @@ export function XColumn({
       data-virtuoso-scroller
       className="@container h-full min-h-0 overflow-y-auto [overflow-anchor:none]"
     >
-      <div className="flex min-h-full justify-center gap-7 px-4">
+      <div ref={page} className="flex min-h-full justify-center gap-7 px-4">
         <section
           data-x="column"
           className="relative flex min-h-full w-full max-w-[600px] min-w-0 flex-col border-x border-border"
@@ -85,6 +210,17 @@ export function XColumn({
               </div>
             )}
           </div>
+          {GESTURES && refreshes ? (
+            <div
+              ref={pull}
+              aria-hidden="true"
+              data-armed="false"
+              className="group flex h-0 shrink-0 items-center justify-center gap-1.5 overflow-hidden text-[13px] text-[#71767b] data-[armed=true]:text-foreground"
+            >
+              <ArrowDown className="size-3.5 group-data-[armed=true]:rotate-180" />
+              <span>Pull to refresh</span>
+            </div>
+          ) : null}
           <ScrollParent value={scroller}>{children}</ScrollParent>
           <MediaViewer />
           <QuoteComposer />
@@ -97,6 +233,18 @@ export function XColumn({
           </section>
         </aside>
       </div>
+      {GESTURES ? (
+        <div
+          ref={arrow}
+          hidden
+          aria-hidden="true"
+          data-armed="false"
+          className="group pointer-events-none fixed z-30 grid size-9 -translate-1/2 place-items-center text-[#71767b] data-[armed=true]:text-foreground"
+        >
+          <ChevronLeft className="size-5 group-data-[side=forward]:hidden group-data-[armed=true]:size-6" />
+          <ChevronRight className="hidden size-5 group-data-[side=forward]:block group-data-[armed=true]:size-6" />
+        </div>
+      ) : null}
     </div>
   );
 }

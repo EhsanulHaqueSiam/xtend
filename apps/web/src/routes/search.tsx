@@ -113,6 +113,7 @@ function SearchScreen() {
   return (
     <Timeline
       surface={surface}
+      keepPlace
       header={header}
       empty={
         q === "" ? "Search X: words, @handles, or operators like min_faves:500." : "Searching X."

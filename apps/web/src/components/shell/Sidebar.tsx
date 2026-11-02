@@ -20,6 +20,7 @@ import {
   List as ListIcon,
   MessageCircle,
   Users,
+  UsersRound,
   Workflow,
   ChartNoAxesCombined,
   Gauge,
@@ -49,6 +50,7 @@ import {
   xPanelOpenAtom,
   xPanelPinnedAtom,
   stored,
+  loadNewPosts,
   xReload,
   xUnreadAtom,
   xUrlAtom,
@@ -79,6 +81,7 @@ const ICONS = {
   Messages: Mail,
   Bookmarks: Bookmark,
   Lists: ListIcon,
+  Communities: UsersRound,
   Follow: UserPlus,
   Profile: UserRound,
   Compose: PenLine,
@@ -347,6 +350,8 @@ function XRows({ compact }: { readonly compact: boolean }) {
                 onClick={() => {
                   // Xtend draws these itself; the engine follows them off screen.
                   const native = page.label === "Profile" ? `/u/${handle}` : NATIVE[page.label];
+                  // Clicked again on its own page, it loads fresh posts from the top, as X's does.
+                  if (native === pathname) return loadNewPosts();
                   if (native !== undefined) return void navigate({ href: native });
                   // A page already in the webview is only revealed; clicked again where it shows, it
                   // reloads, like X's own Home.

@@ -12,6 +12,7 @@ import {
   showWaiting,
   updateEngine,
 } from "../../state/engine";
+import { loadNewPosts } from "../../state/x";
 import { PostRail } from "./PostRail";
 import { useXScrollParent, XColumn } from "./XColumn";
 import { Avatar, postUrl, XPostView } from "./XPostView";
@@ -134,7 +135,7 @@ function PostList({
  * A native X list in X's own column: the surface's posts in X's order, virtualized. Reaching the
  * end asks X's own page for more; newer posts wait behind a pill. The rail shows the post under
  * the pointer or the keyboard. J/K move, Enter opens, L like, T repost, B bookmark, S save,
- * O opens on x.com.
+ * O opens on x.com, "." loads newer posts as on X.
  */
 export function Timeline({
   surface,
@@ -190,6 +191,10 @@ export function Timeline({
           (event.key === "Enter" && event.target.closest("button, a")))
       )
         return;
+      if (event.key === ".") {
+        event.preventDefault();
+        return loadNewPosts();
+      }
       const step = event.key === "j" ? 1 : event.key === "k" ? -1 : 0;
       const label = KEY_BUTTONS[event.key];
       if (step !== 0) {
@@ -217,6 +222,11 @@ export function Timeline({
     return () => window.removeEventListener("keydown", onKey);
   }, [current, open, items, selected]);
 
+  const showNew = () => {
+    setEngine(updateEngine((s) => showWaiting(s, surface)));
+    setSelected(0);
+    list.current?.scrollToIndex({ index: 0 });
+  };
   return (
     <XColumn
       header={header}
@@ -228,17 +238,13 @@ export function Timeline({
           setSelected(0);
           onRefresh();
         },
+        showNew: () => {
+          if (waiting.length === 0) return false;
+          showNew();
+          return true;
+        },
       }}
-      float={
-        <NewPostsPill
-          waiting={waiting}
-          onShow={() => {
-            setEngine(updateEngine((s) => showWaiting(s, surface)));
-            setSelected(0);
-            list.current?.scrollToIndex({ index: 0 });
-          }}
-        />
-      }
+      float={<NewPostsPill waiting={waiting} onShow={showNew} />}
       rail={<PostRail post={current} seen={engine.posts.values()} onReply={open} />}
     >
       {top}
