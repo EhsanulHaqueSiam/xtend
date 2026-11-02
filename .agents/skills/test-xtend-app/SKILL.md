@@ -104,7 +104,7 @@ XTEND_REMOTE_DEBUG=<port> node apps/desktop/scripts/engine-bench.mjs --runs 3 --
 - Three clean runs in a row, five minutes apart, are the proof an engine PR names. Each run's
   table and timings land in `~/Pictures/xtend-ui/bench/<branch>/<time>.json` (the last line
   prints the path); cite that file's summary, and diff it against main's to spot a slower check. X rate-limits an
-  account per 15 minutes and a run is a few hundred calls; heavy reloading has earned the account
+  account per 15 minutes and a full round is about 1,400 calls; heavy reloading has earned the account
   HTTP 429s on every device.
 - The bench presses no X write button except one bookmark it removes again. Never press like,
   reply, repost, follow, vote or post from a script on the real account; only the user's click does.
