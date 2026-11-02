@@ -669,6 +669,34 @@ const benchmarks = [
     },
   ],
   [
+    "Post Analytics: your own post's numbers are the ones X's analytics page draws",
+    async () => {
+      const handle = await until(() => store(`$.viewer?.handle`));
+      if (!handle) return false;
+      await go(`#/u/${handle}`);
+      // The user's own post, not a repost, on their profile.
+      const id = await until(() =>
+        store(
+          `(() => { const me = [...$.users.values()].find((u) => u.handle === ${JSON.stringify(handle)}); return me && at($.lists, "profile:posts:" + me.userId).find((id) => $.posts.get(id)?.author.userId === me.userId); })()`,
+        ),
+      );
+      if (!id) return false;
+      await go(`#/post/${id}/analytics?h=${handle}`);
+      // Xtend's labels and numbers in order, then the number X's page draws beside each label.
+      const ours = `[...document.querySelectorAll('main [data-x="analytics"] > div')].map((d) => [d.querySelector("dt").textContent, d.querySelector("dd").textContent])`;
+      const xs = (labels) =>
+        `${JSON.stringify(labels)}.map((label) => { let box = [...document.querySelectorAll("*")].find((e) => e.children.length === 0 && e.textContent.trim() === label); while (box && !/\\d/.test(box.textContent.replace(label, ""))) box = box.parentElement; return [label, box?.textContent.replace(label, "").match(/[\\d.,]+[KM]?/)?.[0] ?? null]; })`;
+      const drawn = await until(async () => {
+        if (!(await enginePath()).endsWith(`/status/${id}/analytics`)) return false;
+        const native = await app(ours);
+        if (native?.length !== 5) return false;
+        const onX = await engine(xs(native.map(([label]) => label)));
+        return JSON.stringify(native) === JSON.stringify(onX) && native;
+      });
+      return drawn && `${id}: ${drawn.map(([label, n]) => `${label} ${n}`).join(", ")}`;
+    },
+  ],
+  [
     "List: X's header, and members and followers as X's pages list them",
     async () => {
       await go("#/lists");

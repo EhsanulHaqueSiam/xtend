@@ -498,6 +498,22 @@ it("keeps the signed-in account's id when X's nav names it again without one", (
   });
 });
 
+it("keeps X's Post Analytics per post, as X last counted them", () => {
+  const activity = (id: string, impressions: number) => ({
+    ...batch("TweetActivityQuery", []),
+    key: id,
+    analytics: { Impressions: impressions, Engagements: 2 },
+  });
+  let state = mergeBatch(emptyEngine, activity("42", 90));
+  state = mergeBatch(state, activity("43", 7));
+  state = mergeBatch(state, activity("42", 120));
+  state = mergeBatch(state, batch("HomeLatestTimeline", []));
+  expect([...state.analytics]).toEqual([
+    ["42", { Impressions: 120, Engagements: 2 }],
+    ["43", { Impressions: 7, Engagements: 2 }],
+  ]);
+});
+
 it("keeps a post's context and ad mark per page, and lets a thread's newer replies in at once", () => {
   const reposted = {
     ...post("2", "2026-10-31T00:00:00Z"),

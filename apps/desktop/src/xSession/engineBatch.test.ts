@@ -869,6 +869,53 @@ describe("renderEngineBatch around posts", () => {
     const unknown = carousel({});
     expect([unknown.key, hasEngineContent(unknown)]).toEqual([null, false]);
   });
+
+  it("reads X's Post Analytics for the post asked about, a metric X sent without a value as 0", () => {
+    const activity = renderEngineBatch(
+      "TweetActivityQuery",
+      {
+        restId: "42",
+        from_time: "2026-10-30T08:00:00.000Z",
+        requested_organic_metrics: ["DetailExpands", "Engagements", "Follows", "Impressions"],
+      },
+      {
+        data: {
+          tweet_result_by_rest_id: {
+            id: "VHdlZXQ6NDI=",
+            result: {
+              __typename: "Tweet",
+              id: "VHdlZXQ6NDI=",
+              datapoints_grid: [
+                { metric_type: "DetailExpands", metric_value: 31 },
+                { metric_type: "Engagements", metric_value: 118 },
+                { metric_type: "Follows" },
+                { metric_type: "Impressions", metric_value: 4020 },
+                { metric_type: "LinkClicks", metric_value: 3 },
+                { metric_type: "ProfileVisits", metric_value: 9 },
+              ],
+              promotion_info: [{ metric_type: "Impressions", metric_value: 0 }],
+              video: [],
+            },
+          },
+        },
+      },
+    );
+    expect([activity.key, activity.analytics, hasEngineContent(activity)]).toEqual([
+      "42",
+      {
+        DetailExpands: 31,
+        Engagements: 118,
+        Follows: 0,
+        Impressions: 4020,
+        LinkClicks: 3,
+        ProfileVisits: 9,
+      },
+      true,
+    ]);
+    // X answered without the numbers (a post that is not the user's): nothing to pass on.
+    const none = renderEngineBatch("TweetActivityQuery", { restId: "42" }, { data: {} });
+    expect([none.analytics, hasEngineContent(none)]).toEqual([undefined, false]);
+  });
 });
 
 describe("renderEngineBatch for live text, edits, threads and people", () => {

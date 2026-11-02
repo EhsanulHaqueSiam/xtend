@@ -547,9 +547,16 @@ export function XPostView({
   const shareItems = shareRows?.includes("Copy link")
     ? shareRows
     : [...(shareRows ?? []), "Copy link"];
+  /** X's Post Analytics, which X offers only on the user's own posts, as Xtend's native screen. */
+  const openAnalytics = () =>
+    void navigate({
+      to: "/post/$id/analytics",
+      params: { id: post.postId },
+      search: { h: post.author.handle },
+    });
   /**
    * X's own row for the user's click; X's dialogs (Report, Block, Send via Chat) show over the main
-   * area. Post activity, X's own page of quotes and reposts, is Xtend's native screen of it.
+   * area. Post activity and Post analytics, X's own pages, are Xtend's native screens of them.
    */
   const pressX = (label: string, menu: XPostMenu = "more") =>
     label === "View post activity"
@@ -558,18 +565,20 @@ export function XPostView({
           params: { id: post.postId },
           search: { h: post.author.handle, tab: "quotes" },
         })
-      : pressRow(async () => {
-          // X's own "Follow @handle" / "Unfollow @handle" row for this author: what X's menu says
-          // afterwards holds like a Follow button's press.
-          const follow = /^(?:Follow|Unfollow) @(\w{1,15})$/.exec(label);
-          if (follow === null || follow[1]!.toLowerCase() !== post.author.handle.toLowerCase())
-            return xPostMenuPress(xPost, label, setOver, menu);
-          const pressed = await xPostFollowPress(xPost, label, setOver);
-          const following = pressed?.following ?? null;
-          if (following !== null)
-            setEngine(updateEngine((s) => askFollow(s, post.author.userId, following)));
-          return pressed?.outcome ?? null;
-        });
+      : label === "View post analytics"
+        ? openAnalytics()
+        : pressRow(async () => {
+            // X's own "Follow @handle" / "Unfollow @handle" row for this author: what X's menu says
+            // afterwards holds like a Follow button's press.
+            const follow = /^(?:Follow|Unfollow) @(\w{1,15})$/.exec(label);
+            if (follow === null || follow[1]!.toLowerCase() !== post.author.handle.toLowerCase())
+              return xPostMenuPress(xPost, label, setOver, menu);
+            const pressed = await xPostFollowPress(xPost, label, setOver);
+            const following = pressed?.following ?? null;
+            if (following !== null)
+              setEngine(updateEngine((s) => askFollow(s, post.author.userId, following)));
+            return pressed?.outcome ?? null;
+          });
 
   const name = (
     <span className="flex min-w-0 items-center gap-1">
@@ -689,7 +698,12 @@ export function XPostView({
         <Heart className={cn("size-[18px]", has("like") && "fill-current")} />
       </Action>
       {focal ? null : (
-        <Action label="Views" tone="blue" count={fmt(m.views)} onClick={() => onOpen?.(post)}>
+        <Action
+          label={own ? "View post analytics" : "Views"}
+          tone="blue"
+          count={fmt(m.views)}
+          onClick={() => (own ? openAnalytics() : onOpen?.(post))}
+        >
           <BarChart2 className="size-[18px]" />
         </Action>
       )}
@@ -738,6 +752,12 @@ export function XPostView({
     </div>
   );
 
+  const views =
+    m.views === null ? null : (
+      <>
+        <b className="font-bold text-foreground">{m.views.toLocaleString("en")}</b> Views
+      </>
+    );
   if (focal)
     return (
       <article data-post={post.postId} data-x="post" className="border-b border-border px-4 pt-3">
@@ -776,10 +796,20 @@ export function XPostView({
         <p className={cn("mt-4 pb-4 text-[15px]", X_GRAY)}>
           {post.edits.length > 1 ? "Last edited " : ""}
           {xStamp(post.createdAt)}
-          {m.views === null ? null : (
+          {views === null ? null : (
             <>
               {" · "}
-              <b className="font-bold text-foreground">{m.views.toLocaleString("en")}</b> Views
+              {own ? (
+                <button
+                  type="button"
+                  className="cursor-pointer hover:underline"
+                  onClick={openAnalytics}
+                >
+                  {views}
+                </button>
+              ) : (
+                views
+              )}
             </>
           )}
         </p>

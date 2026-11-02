@@ -325,6 +325,8 @@ export interface EngineState {
   readonly exploreTabs: ReadonlyArray<EngineExploreTab>;
   /** The signed-in account (the composer's avatar), once X's page has loaded. */
   readonly viewer: EngineViewer | null;
+  /** X's Post Analytics per post id, as X last counted them (see `EngineBatch.analytics`). */
+  readonly analytics: ReadonlyMap<string, Readonly<Record<string, number>>>;
   /** The page cursors X last answered per surface, to tell a fetch of newer posts from the next page. */
   readonly cursors: Readonly<
     Partial<Record<AnySurface, { readonly top: string | null; readonly bottom: string | null }>>
@@ -354,6 +356,7 @@ export const emptyEngine: EngineState = {
   homeTabs: [],
   exploreTabs: [],
   viewer: null,
+  analytics: new Map(),
   cursors: {},
 };
 
@@ -480,6 +483,10 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
               batch.viewer.userId ??
               (state.viewer?.handle === batch.viewer.handle ? state.viewer.userId : null),
           },
+    analytics:
+      batch.analytics === undefined || batch.key === null
+        ? state.analytics
+        : new Map(state.analytics).set(batch.key, batch.analytics),
   };
   const listed = surfacesOf(batch).reduce(
     (state, surface) => mergeInto(state, batch, surface),

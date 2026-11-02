@@ -389,4 +389,10 @@ export interface EngineBatch {
   readonly exploreTabs: ReadonlyArray<EngineExploreTab> | null;
   /** The signed-in account, from X's own Viewer call or X's nav. */
   readonly viewer: EngineViewer | null;
+  /**
+   * X's Post Analytics for the post `key` names (TweetActivityQuery, only ever the user's own), by
+   * X's metric name: `Impressions`, `Engagements`, `DetailExpands`, `ProfileVisits`, `LinkClicks`,
+   * `Follows`. X leaves a zero's value out; it reads 0 here.
+   */
+  readonly analytics?: Readonly<Record<string, number>>;
 }

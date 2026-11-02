@@ -275,6 +275,51 @@ test("A post opens with its replies, and Recent re-sorts them as X's page orders
   expect(xOrder).toEqual(recent);
 });
 
+test("Your own post's views and X's ... row open Post Analytics natively, with the numbers X's analytics page draws", async () => {
+  const [profile, activity] = e.mock.state.fixtures().analytics!.batches;
+  const yours = profile!.posts[0]!;
+  const handle = yours.author.handle;
+  const page = `/${handle}/status/${yours.postId}/analytics`;
+  const numbers = () =>
+    e.app
+      .locator('main [data-x="analytics"] > div')
+      .evaluateAll((ds) => ds.map((d) => [...d.children].map((c) => c.textContent)));
+  const xNumbers = () =>
+    e.engine<Array<Array<string>>>(
+      `[...document.querySelectorAll('[data-testid="analytics"] > div')].map((d) => [...d.querySelectorAll("span")].map((s) => s.textContent))`,
+    );
+  await go(`/u/${handle}`);
+  await expect.poll(nativeIds).toEqual([yours.postId]);
+
+  await e.app
+    .locator(`main [data-post="${yours.postId}"] button[aria-label="View post analytics"]`)
+    .click();
+  await expect.poll(enginePath).toBe(page);
+  await expect
+    .poll(async () => {
+      const ours = await numbers();
+      return ours.length === 5 && JSON.stringify(ours) === JSON.stringify(await xNumbers());
+    })
+    .toBe(true);
+  expect((await numbers())[0]).toEqual([
+    "Impressions",
+    activity!.analytics!.Impressions!.toLocaleString("en"),
+  ]);
+
+  // X's own "..." row is Xtend's screen too: nothing is pressed on X's menu.
+  await go(`/u/${handle}`);
+  await expect.poll(enginePath).toBe(`/${handle}`);
+  await e.app.locator(`main [data-post="${yours.postId}"] button[aria-label="More"]`).click();
+  await e.app.getByRole("menuitem", { name: "View post analytics", exact: true }).click();
+  await expect.poll(enginePath).toBe(page);
+  expect(await e.app.evaluate(() => location.hash)).toBe(
+    `#/post/${yours.postId}/analytics?h=${handle}`,
+  );
+  expect(
+    presses().filter((p) => p.startsWith("press row:") && p.endsWith(`post:${yours.postId}`)),
+  ).toEqual([]);
+});
+
 test("A profile renders X's header and posts; its ... rows come from X, its bell is X's, and About opens X's page", async () => {
   const user = e.mock.state.people[0]!;
   await go(`/u/${user.handle}`);
