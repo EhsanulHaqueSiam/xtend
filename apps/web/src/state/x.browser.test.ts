@@ -16,6 +16,7 @@ import {
   xPostMenu,
   xOverEnded,
   xPickCommunitySearchTab,
+  xPickInspiration,
   xPostFollowPress,
   xPostMenuPress,
   xProfileMenu,
@@ -1422,4 +1423,99 @@ it("a GIF picker closed while X's next page is still coming stops at once, so Po
     ["picker"],
     true,
   ]);
+});
+
+it("presses X's Inspiration filter as a pointer's whole press, only that filter, only on X's Inspiration", async () => {
+  using _clock = fakeTimers();
+  const pressed: Array<string> = [];
+  // X's Creator Studio buttons act on a pointer's press: a bare click() does nothing.
+  const draw = () => {
+    document.body.innerHTML = ["💬 EN", "Last 24h", "Last 7d", "Most Likes", "Most Replies"]
+      .map((label) => `<button type="button">${label}</button>`)
+      .join("");
+    for (const button of document.querySelectorAll("button")) {
+      let down = false;
+      button.addEventListener(
+        "pointerdown",
+        (e) => (down = e.isPrimary && e.pointerType === "mouse"),
+      );
+      button.addEventListener("click", () => down && pressed.push(button.textContent!));
+    }
+  };
+  inThisPage(() => `https://x.com${location.pathname}`);
+  const start = location.href;
+  try {
+    draw();
+    history.replaceState(null, "", "/i/jf/creators/studio");
+    const open = new AbortController().signal;
+    const away = xPickInspiration("period", "Last 7d", Promise.resolve(), open);
+    await vi.runAllTimersAsync();
+    expect([await away, pressed]).toEqual([false, []]);
+    history.replaceState(null, "", "/i/jf/creators/inspiration/top_posts");
+    const picked = xPickInspiration("period", "Last 7d", Promise.resolve(), open);
+    await vi.runAllTimersAsync();
+    expect([await picked, pressed]).toEqual([true, ["Last 7d"]]);
+    // Picked while X still draws its buttons: an engagement and a period both reach X, in order,
+    // and a second period still waiting its turn replaces the first.
+    pressed.length = 0;
+    document.body.innerHTML = "";
+    const picks = [
+      xPickInspiration("engagement", "Most Replies", Promise.resolve(), open),
+      xPickInspiration("period", "Last 7d", Promise.resolve(), open),
+      xPickInspiration("period", "Last 24h", Promise.resolve(), open),
+    ];
+    await vi.advanceTimersByTimeAsync(300);
+    draw();
+    await vi.runAllTimersAsync();
+    expect([await Promise.all(picks), pressed]).toEqual([
+      [true, false, true],
+      ["Most Replies", "Last 24h"],
+    ]);
+  } finally {
+    history.replaceState(null, "", start);
+  }
+});
+
+it("lets later Inspiration picks run once the screen or X's next page load lets a stuck press go", async () => {
+  using _clock = fakeTimers();
+  // A full load of X's page under a waiting press script: the webview never settles that script.
+  const pressed: Array<string> = [];
+  registerXWebview({
+    getURL: () => "https://x.com/i/jf/creators/inspiration/top_posts",
+    loadURL: () => Promise.resolve(),
+    executeJavaScript: (code: string) => {
+      const label = /"(Last 7d|Last 30d|Most Likes|Most Quotes)"/.exec(code)?.[1];
+      if (label === undefined) return Promise.resolve(true);
+      pressed.push(label);
+      return label.startsWith("Last") ? new Promise(() => {}) : Promise.resolve(true);
+    },
+  } as unknown as XWebview);
+  markXReady();
+  const outcome = (press: Promise<boolean>) => {
+    const seen: { value?: boolean } = {};
+    void press.then((value) => (seen.value = value));
+    return seen;
+  };
+  const screen = new AbortController();
+  const left = outcome(xPickInspiration("period", "Last 7d", Promise.resolve(), screen.signal));
+  await vi.runAllTimersAsync();
+  screen.abort();
+  const after = outcome(
+    xPickInspiration("engagement", "Most Likes", Promise.resolve(), new AbortController().signal),
+  );
+  await vi.runAllTimersAsync();
+  expect([left.value, after.value]).toEqual([false, true]);
+
+  const open = new AbortController().signal;
+  const reloaded = outcome(xPickInspiration("period", "Last 30d", Promise.resolve(), open));
+  await vi.runAllTimersAsync();
+  markXReady();
+  const next = outcome(xPickInspiration("engagement", "Most Quotes", Promise.resolve(), open));
+  await vi.runAllTimersAsync();
+  expect([reloaded.value, next.value, pressed]).toEqual([
+    false,
+    true,
+    ["Last 7d", "Most Likes", "Last 30d", "Most Quotes"],
+  ]);
+  registerXWebview(null);
 });

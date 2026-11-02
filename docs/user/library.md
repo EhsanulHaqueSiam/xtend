@@ -1,7 +1,7 @@
 # Library
 
-The Library is posts worth learning from: today's picks for your keywords, X search, an
-archive of everything the two have seen, trends, and what you saved. Every list is cards in a
+The Library is posts worth learning from: today's picks for your keywords, X's own top posts,
+X search, an archive of everything the two have seen, trends, and what you saved. Every list is cards in a
 masonry; a click opens the post in the detail column with its full text and every number.
 Hover a card for **Remix** (Compose, with this post beside the editor) and **Save**. The arrow
 opens the post on X beside the tool. A card also drags like a post on X: onto a sidebar row
@@ -23,6 +23,15 @@ The picks are gathered by a morning run that spends treg with nobody clicking, s
 until **Daily Library jobs** is turned on in Settings. The section says when today's picks
 are in. The jobs also write **three posts for today** in your voice from your For you topics
 and the picks, filed under Compose's Drafts, marked with where they came from.
+
+## Inspiration
+
+X's own top posts by engagement (Creator Studio's Inspiration), free through your X session in
+the desktop app. Pick X's period (**Last 24h**, **Last 7d**, **Last 30d**) and what they ranked
+by (**Most Likes** and the rest) as X offers them; each pick asks X's own page. A choice X
+showed before keeps its last list until X answers again. The header shows X's language. To
+change the language or country, change it on X's Inspiration page itself; the Library follows
+what X shows.
 
 ## Search
 

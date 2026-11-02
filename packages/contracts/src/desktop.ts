@@ -131,6 +131,39 @@ export interface EngineCard {
   readonly imageUrl: string | null;
 }
 
+/**
+ * One paragraph of an X Article as X's editor saved it (a Draft.js block), its entities resolved.
+ * Offsets count code points, as Draft.js does, not UTF-16 units.
+ */
+export interface EngineArticleBlock {
+  /** X's editor's id for the block. */
+  readonly key: string;
+  /** X's block type: unstyled, header-one/two/three, blockquote, (un)ordered-list-item, code-block, atomic. */
+  readonly type: string;
+  readonly text: string;
+  /** Bold, Italic and the like, as X names them. */
+  readonly styles: ReadonlyArray<{
+    readonly offset: number;
+    readonly length: number;
+    readonly style: string;
+  }>;
+  readonly links: ReadonlyArray<{
+    readonly offset: number;
+    readonly length: number;
+    readonly url: string;
+  }>;
+  /** An atomic block's images, from the Article's own media. */
+  readonly images: ReadonlyArray<Pick<EngineMedia, "url" | "width" | "height">>;
+  /** An atomic block's Markdown: a fenced code block or a table. */
+  readonly markdown: string | null;
+}
+
+/** An X Article's body, sent on its own page only; `postId` is the post that carries it. */
+export interface EngineArticle {
+  readonly postId: string;
+  readonly blocks: ReadonlyArray<EngineArticleBlock>;
+}
+
 export interface EnginePoll {
   readonly choices: ReadonlyArray<{ readonly label: string; readonly votes: number }>;
   readonly endsAt: string | null;
@@ -347,12 +380,15 @@ export interface EngineViewer {
   readonly avatarUrl: string | null;
 }
 
-/** A people module X lists among a timeline's posts (Who to follow): its header and people. */
+/**
+ * A module X lists among a timeline's posts: a people module (Who to follow) with its header and
+ * people, or on Explore a titled box of posts (Posts For You), whose posts follow it in `order`.
+ */
 export interface EngineModule {
   /** X's entry id for the module (`who-to-follow-…`), which `order` names where X put it. */
   readonly id: string;
   readonly title: string;
-  /** The people X suggests, in X's order. */
+  /** The people X suggests, in X's order; none for a box of posts. */
   readonly userIds: ReadonlyArray<string>;
 }
 
@@ -400,6 +436,8 @@ export interface EngineBatch {
   readonly trends: ReadonlyArray<EngineTrend>;
   readonly notifications: ReadonlyArray<EngineNotification>;
   readonly lists: ReadonlyArray<EngineList>;
+  /** Article bodies, only on a response that carries one (X's reader page). */
+  readonly articles?: ReadonlyArray<EngineArticle>;
   /** Every Community the response names, in X's order (the user's Communities, a Community's page). */
   readonly communities: ReadonlyArray<EngineCommunity>;
   readonly homeTabs: ReadonlyArray<EngineHomeTab> | null;
@@ -408,4 +446,10 @@ export interface EngineBatch {
   readonly viewer: EngineViewer | null;
   /** X's GIF search results, in X's order: only on GifSearch, empty when X found none. */
   readonly gifs?: ReadonlyArray<EngineGif>;
+  /**
+   * X's Post Analytics for the post `key` names (TweetActivityQuery, only ever the user's own), by
+   * X's metric name: `Impressions`, `Engagements`, `DetailExpands`, `ProfileVisits`, `LinkClicks`,
+   * `Follows`. X leaves a zero's value out; it reads 0 here.
+   */
+  readonly analytics?: Readonly<Record<string, number>>;
 }

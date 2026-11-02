@@ -3,6 +3,7 @@ import { useState } from "react";
 
 import { ArchiveTab } from "../components/library/ArchiveTab";
 import { CollectionsTab } from "../components/library/CollectionsTab";
+import { InspirationTab } from "../components/library/InspirationTab";
 import { PicksTab } from "../components/library/PicksTab";
 import { SearchTab } from "../components/library/SearchTab";
 import { SwipeTab } from "../components/library/SwipeTab";
@@ -54,6 +55,8 @@ function LibraryScreen() {
     <div className="@container flex h-full min-w-0 flex-col">
       {section === "picks" ? (
         <PicksTab />
+      ) : section === "inspiration" ? (
+        <InspirationTab />
       ) : section === "search" ? (
         // A new `?q=` is a new search: remount so the query and results start from it.
         <SearchTab key={q ?? ""} initialQuery={q ?? ""} />

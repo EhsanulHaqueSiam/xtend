@@ -13,6 +13,7 @@ const PAGES: ReadonlyArray<readonly [path: string, tab?: string]> = [
   ["/home", "following"],
   ["/home", "forYou"],
   ["/noor_lind/status/700000000016"],
+  ["/theo_varga/article/700000000980"],
   ["/mira_brandt"],
   ["/notifications"],
   ["/notifications/mentions"],
@@ -33,6 +34,8 @@ const PAGES: ReadonlyArray<readonly [path: string, tab?: string]> = [
   ["/i/communities/suggested?q=founders"],
   ["/i/communities/top?q=founders"],
   ["/i/communities/latest?q=founders"],
+  ["/you"],
+  ["/you/status/700000000027/analytics"],
 ];
 
 it("answers every request X's pages make with the batch the made-up fixtures hold, as the capture reads it", () => {
@@ -68,6 +71,20 @@ it("answers every request X's pages make with the batch the made-up fixtures hol
   const forYou = read.find((b) => b.op === "HomeTimeline" && b.key === null)!;
   expect(forYou.modules.map((m) => [m.title, forYou.order.indexOf(m.id)])).toEqual([
     ["Who to follow", 2],
+  ]);
+  // Explore's For you pages on with plain posts, keyed to its tab like its first page.
+  const explore = read.find((b) => b.op === "ExplorePage")!;
+  const variables = { cursor: explore.bottom };
+  const next = renderEngineBatch(
+    "ExplorePage",
+    variables,
+    JSON.parse(JSON.stringify(state.respond("ExplorePage", variables))),
+  );
+  expect([next.key, next.cursor, next.order, next.modules]).toEqual([
+    explore.key,
+    explore.bottom,
+    state.exploreNextIds(),
+    [],
   ]);
 });
 

@@ -1,4 +1,5 @@
 import type {
+  EngineArticle,
   EngineBatch,
   EngineCommunity,
   EngineEntities,
@@ -322,6 +323,50 @@ export function encodeTweet(
   };
 }
 
+/**
+ * An Article's body as X's reader page sends it in the Article's result: Draft.js blocks, one
+ * entity per link, set of images and Markdown, X's entity map as a list, and the images as the
+ * Article's own media.
+ */
+function encodeArticleBody(body: EngineArticle): Json {
+  const entityMap: Array<Json> = [];
+  const media: Array<Json> = [];
+  const entity = (offset: number, length: number, type: string, data: Json) => {
+    entityMap.push({ key: String(entityMap.length), value: { type, mutability: "Mutable", data } });
+    return { offset, length, key: entityMap.length - 1 };
+  };
+  const blocks = body.blocks.map((b) => ({
+    key: b.key,
+    type: b.type,
+    text: b.text,
+    data: {},
+    inlineStyleRanges: b.styles,
+    entityRanges: [
+      ...b.links.map((l) => entity(l.offset, l.length, "LINK", { url: l.url })),
+      ...(b.images.length === 0
+        ? []
+        : [
+            entity(0, 1, "MEDIA", {
+              mediaItems: b.images.map((img) => {
+                const mediaId = String(1_000 + media.length);
+                media.push({
+                  media_id: mediaId,
+                  media_info: {
+                    original_img_url: img.url,
+                    original_img_width: img.width,
+                    original_img_height: img.height,
+                  },
+                });
+                return { mediaId, localMediaId: mediaId, mediaCategory: "DraftTweetImage" };
+              }),
+            }),
+          ]),
+      ...(b.markdown === null ? [] : [entity(0, 1, "MARKDOWN", { markdown: b.markdown })]),
+    ],
+  }));
+  return { content_state: { blocks, entityMap }, media_entities: media };
+}
+
 interface Encoder {
   readonly users: ReadonlyMap<string, EngineUser>;
   readonly posts: ReadonlyMap<string, EnginePost>;
@@ -517,10 +562,37 @@ function timelineEntries(batch: EngineBatch, users: ReadonlyMap<string, EngineUs
   if (batch.top !== null) entries.push(cursorEntry("Top", batch.top));
 
   const modules = new Map(batch.modules.map((m) => [m.id, m]));
-  const listed = batch.order.flatMap((id) => posts.get(id) ?? modules.get(id) ?? []);
+  // A titled box of posts (Explore's Posts For You) holds the posts after it, up to the next module.
+  const boxed = new Map<string, Array<EnginePost>>();
+  let box: Array<EnginePost> | undefined;
+  for (const id of batch.order) {
+    const m = modules.get(id);
+    if (m === undefined) {
+      if (posts.has(id)) box?.push(posts.get(id)!);
+      continue;
+    }
+    box = m.userIds.length === 0 ? [] : undefined;
+    if (box !== undefined) boxed.set(id, box);
+  }
+  const inBox = new Set([...boxed.values()].flat().map((p) => p.postId));
+  const listed = batch.order.flatMap((id) =>
+    inBox.has(id) ? [] : (posts.get(id) ?? modules.get(id) ?? []),
+  );
   for (const run of runs(listed, (e) => ("postId" in e ? (e.conversation?.id ?? null) : null))) {
     const first = run.items[0]!;
-    if (!("postId" in first))
+    if (!("postId" in first) && first.userIds.length === 0)
+      entries.push(
+        moduleEntry(
+          first.id,
+          boxed.get(first.id)!.map((p) => ({ id: `tweet-${p.postId}`, content: tweetItem(p, x) })),
+          {
+            displayType: "Vertical",
+            header: { displayType: "Classic", text: first.title, sticky: false },
+            clientEventInfo: { component: "tweets_for_you", element: "module" },
+          },
+        ),
+      );
+    else if (!("postId" in first))
       // X's Who to follow among the posts: its header, its people, Show more to the Follow page.
       entries.push(
         moduleEntry(
@@ -783,6 +855,30 @@ export function encodeBody(
           },
         },
       };
+    case "TweetResultByRestId": {
+      // X's reader page: the post, its Article's body inside the result its card is read from.
+      const p = batch.posts[0];
+      if (p === undefined) return { data: { tweetResult: {} } };
+      const tweet = encodeTweet(p, users);
+      const body = batch.articles?.find((a) => a.postId === p.postId);
+      const article = (tweet.article as { article_results: { result: Json } } | undefined)
+        ?.article_results.result;
+      return {
+        data: {
+          tweetResult: {
+            result:
+              body === undefined || article === undefined
+                ? tweet
+                : {
+                    ...tweet,
+                    article: {
+                      article_results: { result: { ...article, ...encodeArticleBody(body) } },
+                    },
+                  },
+          },
+        },
+      };
+    }
     case "CommunitiesSearchQuery":
       return {
         data: {
@@ -831,6 +927,26 @@ export function encodeBody(
       return { data: { favoriters_timeline: { timeline: timeline() } } };
     case "ConnectTabTimeline":
       return { data: { connect_tab_timeline: { timeline: timeline() } } };
+    case "TweetActivityQuery": {
+      // X's own shape: a grid of metrics, a zero's value left out, beside the promoted numbers.
+      const id = btoa(`Tweet:${batch.key ?? ""}`);
+      return {
+        data: {
+          tweet_result_by_rest_id: {
+            id,
+            result: {
+              __typename: "Tweet",
+              id,
+              datapoints_grid: Object.entries(batch.analytics ?? {}).map(([metric_type, value]) =>
+                value === 0 ? { metric_type } : { metric_type, metric_value: value },
+              ),
+              promotion_info: [{ metric_type: "Impressions" }],
+              video: [],
+            },
+          },
+        },
+      };
+    }
     case "PinnedTimelines":
       return {
         data: {

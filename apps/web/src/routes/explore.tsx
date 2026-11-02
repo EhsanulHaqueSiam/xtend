@@ -1,6 +1,6 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import type { EnginePost, EngineTrend, EngineUser } from "@xtend/contracts";
+import type { EngineModule, EnginePost, EngineTrend } from "@xtend/contracts";
 import { MoreHorizontal, Search } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -9,7 +9,7 @@ import { useOpenPost } from "../components/xnative/Timeline";
 import { useXPress } from "../components/xnative/useXPress";
 import { XColumn, XTabs } from "../components/xnative/XColumn";
 import { xtendRoute } from "../components/xnative/RichText";
-import { UserRow, XRows } from "../components/xnative/XRows";
+import { WhoToFollow, XRows } from "../components/xnative/XRows";
 import { XPostView } from "../components/xnative/XPostView";
 import { type AnySurface, at, engineAtom, hideTrend, postOn, updateEngine } from "../state/engine";
 import {
@@ -25,13 +25,14 @@ import {
 
 type Row =
   | { readonly kind: "group"; readonly name: string }
+  | { readonly kind: "rule"; readonly after: string }
   | {
       readonly kind: "trend";
       readonly trend: EngineTrend;
       readonly surface: AnySurface;
       readonly index: number;
     }
-  | { readonly kind: "user"; readonly user: EngineUser }
+  | { readonly kind: "module"; readonly module: EngineModule }
   | { readonly kind: "post"; readonly post: EnginePost };
 
 /**
@@ -150,7 +151,8 @@ function TrendRow({
 
 /**
  * X's Explore, drawn by Xtend from the engine on x.com/explore: X's own tabs (For you, Trending,
- * News, ...) with their trends and posts. A trend opens Xtend's search.
+ * News, ...) with their trends, then X's modules and posts in X's order, For you's paging in as it
+ * scrolls. A trend opens Xtend's search.
  */
 function ExploreScreen() {
   const { tab } = Route.useSearch();
@@ -202,17 +204,22 @@ function ExploreScreen() {
     const hidden = new Set(at(engine.hiddenTrends, surface));
     for (const [index, trend] of at(engine.trends, surface).entries()) {
       if (hidden.has(trend.name)) continue;
+      // X's module (Today's News) ends in a hairline before the trends it lists on their own.
+      if (group !== null && trend.group !== group) rows.push({ kind: "rule", after: group });
       if (trend.group !== null && trend.group !== group)
         rows.push({ kind: "group", name: trend.group });
       group = trend.group;
       rows.push({ kind: "trend", trend, surface, index });
     }
-    const people = at(engine.people, surface).flatMap((id) => engine.users.get(id) ?? []);
-    if (people.length > 0) rows.push({ kind: "group", name: "Who to follow" });
-    for (const user of people) rows.push({ kind: "user", user });
-    const posts = at(engine.lists, surface).flatMap((id) => postOn(engine, surface, id) ?? []);
-    if (posts.length > 0 && rows.length > 0) rows.push({ kind: "group", name: "Posts for you" });
-    for (const post of posts) rows.push({ kind: "post", post });
+    // Then X's list: Who to follow and Posts For You where X put them, and the posts it pages in.
+    for (const id of at(engine.lists, surface)) {
+      const post = postOn(engine, surface, id);
+      const module = engine.modules.get(id);
+      if (post !== undefined) rows.push({ kind: "post", post });
+      else if (module === undefined) continue;
+      else if (module.userIds.length > 0) rows.push({ kind: "module", module });
+      else rows.push({ kind: "group", name: module.title });
+    }
   }
   return (
     <XColumn
@@ -254,22 +261,30 @@ function ExploreScreen() {
         rowKey={(r) =>
           r.kind === "group"
             ? `g:${r.name}`
-            : r.kind === "trend"
-              ? `t:${r.trend.name}`
-              : r.kind === "user"
-                ? `u:${r.user.userId}`
-                : r.post.postId
+            : r.kind === "rule"
+              ? `r:${r.after}`
+              : r.kind === "trend"
+                ? `t:${r.trend.name}`
+                : r.kind === "module"
+                  ? `m:${r.module.id}`
+                  : r.post.postId
         }
         empty="Loading what is happening from X."
         row={(r) =>
           r.kind === "group" ? (
             <h2 className="px-4 pt-3 pb-1 text-[20px] font-extrabold">{r.name}</h2>
+          ) : r.kind === "rule" ? (
+            <hr className="border-border" />
           ) : r.kind === "trend" ? (
             <TrendRow key={surface} trend={r.trend} surface={r.surface} index={r.index} />
-          ) : r.kind === "user" ? (
-            <UserRow user={r.user} />
+          ) : r.kind === "module" ? (
+            <WhoToFollow module={r.module} />
           ) : (
-            <XPostView post={r.post} onOpen={openPost} />
+            <XPostView
+              post={r.post}
+              quoted={r.post.quotedId === null ? undefined : engine.posts.get(r.post.quotedId)}
+              onOpen={openPost}
+            />
           )
         }
       />

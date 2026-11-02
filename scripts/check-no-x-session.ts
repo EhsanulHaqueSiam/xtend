@@ -53,15 +53,16 @@ const ENGINE_FIXTURES = "apps/web/test/fixtures/engine/";
 // scrub and synth (apps/web/src/components/xnative/engineFixtures.ts) count ids up from
 // 600000000000..900000000000; X's real post ids are 19-digit snowflakes, user ids anything.
 const FAKE_ID = /^[6-9]00000\d{6}$/;
-// A Who to follow among the posts keeps X's entry prefix, which is how the capture knows one.
-const FAKE_MODULE = /^who-to-follow-[6-9]00000\d{6}$/;
+// A module among the posts (Who to follow, Explore's Posts For You) keeps X's entry prefix.
+const FAKE_MODULE = /^(who-to-follow|tweet)-[6-9]00000\d{6}$/;
 // handleFor's and nameFor's lists; the test runs this on the committed fixtures, so drift fails.
 const FIRST = "mira|sam|noor|theo|ines|ravi|lena|kofi|yuki|omar|ada|jonas";
 const LAST = "okafor|lind|haddad|brandt|silva|mehta|varga|mensah|sato|farouk|quinn|berg";
 const FAKE_HANDLE = new RegExp(`^(you|(${FIRST})_(${LAST})\\d*)$`);
 const FAKE_NAME = new RegExp(`^(You|(${FIRST}) (${LAST}))$`, "i");
+// A made-up Article's card names its x.com page by a made-up id.
 const FAKE_URL =
-  /^(data:|https:\/\/example\.com(\/|$)|https:\/\/t\.co\/s\d+$|https:\/\/x\.com\/search\?)/;
+  /^(data:|https:\/\/example\.com(\/|$)|https:\/\/t\.co\/s\d+$|https:\/\/x\.com\/search\?|https:\/\/x\.com\/i\/article\/[6-9]00000\d{6}$)/;
 
 // Fields holding X ids as arrays; any other *Id or *Ids field holds one or more too.
 const ID_ARRAYS = new Set(["people", "order", "edits"]);

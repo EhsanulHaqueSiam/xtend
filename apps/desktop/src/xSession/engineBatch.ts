@@ -1,4 +1,6 @@
 import type {
+  EngineArticle,
+  EngineArticleBlock,
   EngineBatch,
   EngineCard,
   EngineCommunity,
@@ -167,6 +169,78 @@ function readUnifiedCard(raw: unknown): EngineCard | null {
     description: null,
     imageUrl: asString(media?.media_url_https) ?? null,
   };
+}
+
+/**
+ * An X Article's body, which X sends only on its reader page: the Draft.js blocks of its
+ * `content_state`, each block's entities resolved to links, the Article's own images (by media id)
+ * and Markdown. An entity of another kind leaves its block's text as it is.
+ */
+function readArticle(tweet: Json): EngineArticle | undefined {
+  const postId = asString(tweet.rest_id);
+  const article = result(record(tweet.article).article_results);
+  const state = record(article.content_state);
+  if (postId === undefined || !X_ID.test(postId) || !Array.isArray(state.blocks)) return undefined;
+  const images = new Map(
+    arr(article.media_entities).flatMap((m) => {
+      const id = asString(record(m).media_id);
+      const info = record(record(m).media_info);
+      const url = asString(info.original_img_url);
+      return id === undefined || url === undefined
+        ? []
+        : [
+            [
+              id,
+              {
+                url,
+                width: asNumber(info.original_img_width),
+                height: asNumber(info.original_img_height),
+              },
+            ] as const,
+          ];
+    }),
+  );
+  // X sends the entity map as a list of `{ key, value }`.
+  const entities = new Map(
+    arr(state.entityMap).flatMap((e) => {
+      const key = record(e).key;
+      return typeof key === "string" || typeof key === "number"
+        ? [[String(key), record(record(e).value)] as const]
+        : [];
+    }),
+  );
+  const span = (r: Json) => ({ offset: asNumber(r.offset), length: asNumber(r.length) });
+  const blocks = state.blocks.filter(isRecord).map((block, i): EngineArticleBlock => {
+    const used = arr(block.entityRanges).flatMap((r) => {
+      const entity = entities.get(String(record(r).key));
+      return entity === undefined ? [] : [{ range: record(r), entity, data: record(entity.data) }];
+    });
+    return {
+      key: asString(block.key) ?? String(i),
+      type: asString(block.type) ?? "unstyled",
+      text: asString(block.text) ?? "",
+      styles: arr(block.inlineStyleRanges).flatMap((r) => {
+        const style = asString(record(r).style);
+        return style === undefined ? [] : [{ ...span(record(r)), style }];
+      }),
+      links: used.flatMap(({ range, entity, data }) => {
+        const url = asString(data.url);
+        return entity.type === "LINK" && url !== undefined && /^https?:\/\//i.test(url)
+          ? [{ ...span(range), url }]
+          : [];
+      }),
+      images: used.flatMap(({ entity, data }) =>
+        entity.type === "MEDIA"
+          ? arr(data.mediaItems).flatMap((i) => images.get(asString(record(i).mediaId) ?? "") ?? [])
+          : [],
+      ),
+      markdown:
+        used.flatMap(({ entity, data }) =>
+          entity.type === "MARKDOWN" ? (asString(data.markdown) ?? []) : [],
+        )[0] ?? null,
+    };
+  });
+  return { postId, blocks };
 }
 
 /** A post's entities as X lists them: a long post's live with its full text in note_tweet. */
@@ -566,6 +640,20 @@ function readSection(entry: Json): EnginePeopleSection | undefined {
   };
 }
 
+/** X's titled box of posts on Explore (For you's "Posts For You"): its header, with no people. */
+function readPostsModule(entry: Json): EngineModule | undefined {
+  const content = record(entry.content);
+  const title = asString(record(content.header).text);
+  const items = arr(content.items).map((i) => record(record(record(i).item).itemContent));
+  return typeof entry.entryId === "string" &&
+    title !== undefined &&
+    content.displayType === "Vertical" &&
+    items.length > 0 &&
+    items.every((i) => i.itemType === "TimelineTweet")
+    ? { id: entry.entryId, title, userIds: [] }
+    : undefined;
+}
+
 function readHomeTabs(body: Json): ReadonlyArray<EngineHomeTab> | null {
   const pinned = record(record(body.data).pinned_timelines).pinned_timelines;
   if (!Array.isArray(pinned)) return null;
@@ -633,6 +721,40 @@ export function requestVariables(url: string, postData: string | undefined): Jso
   }
 }
 
+const INSPIRATION_ID = "Timeline:\x0c\x00\xca";
+const FILTER_WORD = /^[A-Za-z-]{1,40}$/;
+
+/**
+ * X's Inspiration (Creator Studio's top posts) names its filters inside the timelineId it asks
+ * GenericTimelineById for: base64 of "Timeline:" and a thrift struct (field 202) of strings, the
+ * engagement (1), language (2) and period (6). Keyed `inspiration:Likes:Daily:en`; an Explore
+ * tab's id (field 182) or any shape this does not know is null.
+ */
+function inspirationKey(timelineId: string | undefined): string | null {
+  let raw: string;
+  try {
+    raw = atob(timelineId ?? "");
+  } catch {
+    return null;
+  }
+  if (!raw.startsWith(INSPIRATION_ID)) return null;
+  const bytes = Uint8Array.from(raw, (c) => c.charCodeAt(0));
+  const view = new DataView(bytes.buffer);
+  const fields = new Map<number, string>();
+  let at = INSPIRATION_ID.length;
+  // Each string field is its type (11), id and length, then its bytes; a stop byte ends the struct.
+  while (bytes[at] === 11 && at + 7 <= bytes.length) {
+    const length = view.getUint32(at + 3);
+    fields.set(view.getUint16(at + 1), raw.slice(at + 7, at + 7 + length));
+    at += 7 + length;
+  }
+  const [engagement, language, period] = [fields.get(1), fields.get(2), fields.get(6)];
+  return bytes[at] === 0 &&
+    [engagement, period, language].every((v) => v !== undefined && FILTER_WORD.test(v))
+    ? `inspiration:${engagement}:${period}:${language}`
+    : null;
+}
+
 /** X's two post tabs of a search of Communities: Top, and Latest. */
 const HUB_SEARCH_POSTS = /^GlobalCommunities(Latest)?PostSearchTimeline$/;
 
@@ -659,6 +781,8 @@ function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExp
   }
   if (op.startsWith("List") && s("listId") !== undefined) return `list:${s("listId")}`;
   if (op === "NotificationsTimeline") return s("timeline_type") ?? null;
+  const inspiration = op === "GenericTimelineById" ? inspirationKey(s("timelineId")) : null;
+  if (inspiration !== null) return inspiration;
   if (op === "GenericTimelineById") return s("timelineId") ?? null;
   // Explore's first page is its "for_you" tab, fetched by another name.
   if (op === "ExplorePage") return exploreTabs?.find((t) => t.id === "for_you")?.timelineId ?? null;
@@ -679,6 +803,7 @@ function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExp
   if (op === "UserByScreenName") return s("screen_name")?.toLowerCase() ?? null;
   // A post's reposters and likers (X's Post activity).
   if (op === "Retweeters" || op === "Favoriters") return s("tweetId") ?? null;
+  if (op === "TweetActivityQuery") return s("restId") ?? null;
   // X's Follow page asks with a JSON context: empty for Who to follow, only the creators flag
   // for its other tab. Any other context (people like someone) is no tab of that page.
   if (op === "ConnectTabTimeline") {
@@ -715,6 +840,7 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
   const communities = new Map<string, EngineCommunity>();
   let top: string | null = null;
   let bottom: string | null = null;
+  const explore = op === "ExplorePage" || op === "GenericTimelineById";
   // Depth first in document order, each node with the header of the module it sits in.
   const stack: Array<{ node: unknown; group: string | null }> = [{ node: body, group: null }];
   while (stack.length > 0) {
@@ -737,6 +863,12 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     // A Who to follow among the posts is a module, not one of a page's titled boxes of people.
     const section = amongPosts ? undefined : readSection(node);
     if (section !== undefined) sections.push(section);
+    // Listed before its posts, which the walk reaches next, so the header draws where X put it.
+    const titled = explore ? readPostsModule(node) : undefined;
+    if (titled !== undefined && !order.includes(titled.id)) {
+      order.push(titled.id);
+      modules.push(titled);
+    }
     if (type === "TimelineUser") {
       const user = readUser(record(node.user_results).result);
       if (user !== undefined && !people.includes(user.userId)) people.push(user.userId);
@@ -814,6 +946,7 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
   // X's GIF search is no timeline: its tiles and its next page's cursor sit in one slice.
   const gifSlice = op === "GifSearch" ? record(data.gif_search_slice) : null;
   if (gifSlice !== null) bottom = asString(record(gifSlice.slice_info).next_cursor) ?? null;
+  const articles = walkTweets(body, readArticle);
   return {
     op,
     // The user's Communities, once X answered with the list (empty, when they left the last one).
@@ -846,10 +979,26 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     notifications,
     lists,
     communities: [...communities.values()],
+    ...(articles.length === 0 ? {} : { articles }),
     homeTabs: readHomeTabs(record(body)),
     exploreTabs,
     viewer: op === "Viewer" ? readViewer(result(record(data.viewer).user_results)) : null,
     ...(gifSlice === null ? {} : { gifs: arr(gifSlice.items).flatMap(readGif) }),
+    ...readAnalytics(op, data),
+  };
+}
+
+/** X's Post Analytics numbers (TweetActivityQuery), by X's metric name. */
+function readAnalytics(op: string, data: Json): Pick<EngineBatch, "analytics"> {
+  const grid = result(data.tweet_result_by_rest_id).datapoints_grid;
+  if (op !== "TweetActivityQuery" || !Array.isArray(grid)) return {};
+  return {
+    analytics: Object.fromEntries(
+      grid.flatMap((d) => {
+        const metric = asString(record(d).metric_type);
+        return metric === undefined ? [] : [[metric, asNumber(record(d).metric_value)]];
+      }),
+    ),
   };
 }
 
@@ -922,4 +1071,5 @@ export const hasEngineContent = (b: EngineBatch) =>
   b.homeTabs !== null ||
   b.exploreTabs !== null ||
   b.viewer !== null ||
-  b.gifs !== undefined;
+  b.gifs !== undefined ||
+  b.analytics !== undefined;

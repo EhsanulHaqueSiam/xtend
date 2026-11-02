@@ -11,7 +11,9 @@ profile (click their name) are Xtend's own screens. Your X session still does th
 work out of sight: it loads the page you asked for and scrolls when you reach the end, so what
 you see is exactly what X would show you, free. **For you** and **Following** are X's own feeds.
 J and K move between posts, Enter opens one, L likes, S saves to Library. Like, repost and
-bookmark press X's own buttons; quote opens Compose with the post. Videos play in
+bookmark press X's own buttons; quote opens Compose with the post. On your own posts the views
+count (or "..." > View post analytics) opens X's Post Analytics: impressions, engagements,
+detail expands, profile visits and link clicks, free. Videos play in
 Xtend's player, with fullscreen and picture in picture. Search takes X's operators
 (`from:`, `min_faves:`, `filter:media`), or writes them for you: the sliders button beside the
 search box (or **Advanced search** in the command palette) opens X's advanced search form,
