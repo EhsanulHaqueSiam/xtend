@@ -64,20 +64,9 @@ it("prices Post now free through the session, but a slot fill at the API's price
   await expect.element(page.getByRole("menu").getByText("$0.015", { exact: true })).toBeVisible();
 });
 
-it("keeps a post with restricted replies on the API, as Publisher does, block by block", () => {
+it("prices a clicked post free whatever its reply setting, as X's own composer sets it", () => {
   const thread = [{ text: "open" }, { text: "closed", replySettings: "following" as const }];
-  expect(postCosts(rates, thread, [], null, true)).toEqual([0, rates.post]);
-  // The draft's own control applies where a block sets none.
-  expect(
-    postCosts(
-      rates,
-      [{ text: "a" }, { text: "b", replySettings: "everyone" }],
-      [],
-      null,
-      true,
-      "following",
-    ),
-  ).toEqual([rates.post, 0]);
+  expect(postCosts(rates, thread, [], null, true)).toEqual([0, 0]);
   // Unattended, nothing but media goes through the session.
   expect(postCosts(rates, thread, [], null, false)).toEqual([rates.post, rates.post]);
 });

@@ -118,7 +118,7 @@ e Engage, l Library, s Library search, r reply, x X.
 `apps/desktop/src/ipc/channels.ts`
 
 - app -> main: `xtend:glance` (the composer chip's best time), `xtend:x-skin` (boolean),
-  `xtend:open-external`, the account and remote channels, `xtend:bridge-info` (sync).
+  `xtend:open-external`, `xtend:emoji-panel` (the OS emoji picker, for Home's composer), the account and remote channels, `xtend:bridge-info` (sync).
 - main -> app: `xtend:app-route` (deep links and the injections), `xtend:shortcut`
   (`palette`, `xPanel`, `find`), `xtend:session-download`.
 - main <-> overlay preload: `xtend:overlay-data`, `xtend:overlay-toggle`, `xtend:overlay-hide`,

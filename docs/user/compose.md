@@ -49,7 +49,9 @@ without.
   sends the thread once you **Confirm and post**.
 - **Queue** puts it on the next free slot from [Plan](./plan.md). The button beside it shows
   that slot; open it to pick a time of your own and **Schedule**.
-- Posts with media go through your x.com session and are not billed (see
+- On the desktop with session actions on, **Post now** goes through your x.com session and is not
+  billed: X's own composer sets the poll and who can reply. Queued and scheduled posts go
+  through the API, except posts with media, which always go through your session (see
   [x.com inside Xtend](./x-view.md)).
 
 A thread posts one post at a time. If a later post fails, the draft lands in Plan's Queue as

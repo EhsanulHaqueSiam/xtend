@@ -32,6 +32,7 @@ export function installFakeBridge(overrides: Partial<DesktopBridge> = {}) {
     pushGlance: () => {},
     setXSkin: (on) => calls.push(`skin ${on.join(",")}`),
     openExternal: (url) => calls.push(`external ${url}`),
+    showEmojiPanel: () => calls.push("emoji panel"),
     onAppRoute: subscribe(routes),
     onSessionDownload: () => () => {},
     onShortcut: subscribe(shortcuts),

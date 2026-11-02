@@ -553,8 +553,8 @@ it("saves a poll and the delay between posts, and reopens with them", async () =
     // Nothing removes a link card after posting, so the option stays off.
     await expect.element(screen.getByRole("switch", { name: /Hide link previews/ })).toBeDisabled();
     await userEvent.click(screen.getByRole("switch", { name: "Poll on the first post" }));
-    await userEvent.fill(screen.getByPlaceholder("Option 1"), "web");
-    await userEvent.fill(screen.getByPlaceholder("Option 2"), "desktop");
+    await userEvent.fill(screen.getByPlaceholder("Choice 1"), "web");
+    await userEvent.fill(screen.getByPlaceholder("Choice 2"), "desktop");
     await choose(screen.getByRole("combobox", { name: "Poll length" }), "3 days");
     await userEvent.fill(screen.getByRole("spinbutton"), "30");
     await expect
@@ -567,7 +567,7 @@ it("saves a poll and the delay between posts, and reopens with them", async () =
   await using screen = await render(editor("d1"), { service });
   // Reopened, the row also lists what is set: "poll · 30s apart".
   await userEvent.click(screen.getByText(/^Options/));
-  await expect.element(screen.getByPlaceholder("Option 2")).toHaveValue("desktop");
+  await expect.element(screen.getByPlaceholder("Choice 2")).toHaveValue("desktop");
   await expect
     .element(screen.getByRole("combobox", { name: "Poll length" }))
     .toHaveTextContent("3 days");

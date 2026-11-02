@@ -46,9 +46,9 @@ class Unconfirmed extends Schema.TaggedError<Unconfirmed>()("Unconfirmed", {
 
 /**
  * Failures after the request went out with no answer saying how it went: a treg timeout or cut
- * connection, an unreadable 200, a desktop that went quiet or failed after typing into the composer.
+ * connection, an unreadable 200, a desktop that went quiet or failed after pressing Post.
  * A refusal, a missing token, the budget, no desktop at all or a desktop that refused before
- * touching x.com mean nothing was posted.
+ * pressing Post mean nothing was posted.
  */
 const mayHavePosted = (e: ComposeError | XApiError | DesktopUnavailableError) =>
   e._tag === "XApiError"
@@ -71,14 +71,9 @@ const refusal = (draft: Draft): string | null => {
   if (blank !== -1) return `Post ${blank + 1} is empty`;
   const long = draft.blocks.findIndex((_, i) => charCount(blockText(draft, i)) > POST_LIMIT);
   if (long !== -1) return `Post ${long + 1} is over ${POST_LIMIT} characters`;
-  // Media goes out through the x.com session with X's default reply setting; a limit would not hold.
-  const limited = draft.blocks.findIndex(
-    (b, i) => hasMedia(i) && (b.replySettings ?? draft.replySettings) !== "everyone",
-  );
-  if (limited !== -1) return `Post ${limited + 1} has media, so it cannot limit who replies yet`;
   if (draft.poll === null) return null;
   if (draft.poll.options.some((o) => o.trim() === "")) return "Poll has a blank option";
-  // X takes a poll or media on a post, not both; the session composer would silently drop the poll.
+  // X takes a poll or media on a post, not both.
   return hasMedia(0) ? "A poll cannot share the first post with media" : null;
 };
 
@@ -96,7 +91,7 @@ export class Publisher extends Context.Service<
         readonly purpose: string;
         readonly retry: boolean;
         readonly due?: string;
-        /** The user just clicked Post: free first, so text goes through their session while that lane is on. */
+        /** The user just clicked Post: free first, so it goes through their session while that lane is on. */
         readonly clicked?: boolean;
         /** The click showed no price: a post the session cannot take fails instead of going paid. */
         readonly sessionOnly?: boolean;
@@ -119,10 +114,10 @@ const make = Effect.gen(function* () {
     sessionOnly: boolean,
   ) {
     const ids = [...draft.postIds];
-    // X's composer takes no poll and no reply-settings choice; those posts keep the API lane.
-    const sessionText =
+    // A click goes through the user's own composer, poll and who-can-reply included; unattended
+    // posts keep the API, except media, which only the session can upload.
+    const sessionClick =
       clicked &&
-      draft.poll === null &&
       (yield* settings.get.pipe(
         Effect.map((s) => s.sessionPostingEnabled),
         Effect.orElseSucceed(() => false),
@@ -137,12 +132,15 @@ const make = Effect.gen(function* () {
       const replySettings = draft.blocks[i]?.replySettings ?? draft.replySettings;
       const unsure = <E extends ComposeError | XApiError | DesktopUnavailableError>(e: E) =>
         Effect.fail(mayHavePosted(e) ? new Unconfirmed({ post: i + 1, detail: e.message }) : e);
+      const poll = i === 0 && draft.poll !== null ? { poll: draft.poll } : {};
       const { postId } =
-        media.length > 0 || (sessionText && replySettings === "everyone")
+        media.length > 0 || sessionClick
           ? yield* session
               .post({
                 text,
                 mediaPaths: media,
+                replySettings,
+                ...poll,
                 ...(previous === undefined ? {} : { replyToPostId: previous }),
               })
               .pipe(Effect.catch(unsure))
@@ -157,7 +155,7 @@ const make = Effect.gen(function* () {
                   purpose,
                   ...(previous === undefined ? {} : { replyToPostId: previous }),
                   ...(replySettings === "everyone" ? {} : { replySettings }),
-                  ...(i === 0 && draft.poll !== null ? { poll: draft.poll } : {}),
+                  ...poll,
                 })
                 .pipe(Effect.catch(unsure));
       // Accepted, so probably on X; an id that is not X's would poison the next block's reply target.

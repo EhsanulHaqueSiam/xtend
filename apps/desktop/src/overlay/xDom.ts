@@ -88,3 +88,40 @@ export function viewerFromNav(
 
 /** Direct messages never get a strip: the classic inbox and X's Chat, which replaced it in 2025. */
 export const isDmPath = (pathname: string): boolean => /^\/(messages|i\/chat)(\/|$)/.test(pathname);
+
+/**
+ * X's composer controls the desktop presses for a post the user clicked (DesktopCommands), as
+ * read live on x.com/compose/post on 2026-11-02. Who can reply is no menu: the button opens a
+ * HoverCard in #layers whose radiogroup holds one <label> per row, matched by its text.
+ */
+export const X_COMPOSER = {
+  replyButton: 'button[aria-label="Everyone can reply"]',
+  /** The same button whatever it names: every label X gives it ends so. */
+  anyReplyButton: 'button[aria-label$=" can reply"]',
+  replyButtonFor: (label: string) => `button[aria-label="${label}"]`,
+  replyPopover: '[data-testid="HoverCard"]:has([role="radiogroup"])',
+  replyRow: '[data-testid="HoverCard"] [role="radiogroup"] label',
+  addPoll: '[data-testid="createPollButton"]',
+  choice: (n: number) => `input[name="Choice${n}"]`,
+  addChoice: '[data-testid="addPollChoice"]',
+  pollDays: 'select[data-testid="selectPollDays"]',
+  pollHours: 'select[data-testid="selectPollHours"]',
+  pollMinutes: 'select[data-testid="selectPollMinutes"]',
+  removePoll: '[data-testid="removePollButton"]',
+  /** Unconfirmed: the × on an attached image or video. */
+  removeMedia: '[aria-label="Remove media"]',
+} as const;
+
+/**
+ * X's reply row for each setting and the label its button takes once picked. X's "Accounts you
+ * follow and who they follow" has no ReplySettings value (nor one in X's API), so it is never
+ * picked; "Everyone" is X's default and never pressed.
+ */
+export const X_REPLY_ROWS = {
+  following: { row: "Accounts you follow", label: "Accounts you follow can reply" },
+  mentionedUsers: {
+    row: "Only accounts you mention",
+    label: "Only accounts you mention can reply",
+  },
+  verified: { row: "Verified accounts", label: "Only Verified accounts can reply" },
+} as const;

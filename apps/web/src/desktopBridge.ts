@@ -74,6 +74,8 @@ export interface DesktopBridge {
   /** Rebuilds the X skin (CSS only) in the webview from the enabled Clean X toggles. */
   readonly setXSkin: (on: ReadonlyArray<XSkinToggle>) => void;
   readonly openExternal: (url: string) => void;
+  /** The OS emoji picker over the focused field; nothing where the OS has none (Linux). */
+  readonly showEmojiPanel: () => void;
   /** Routes asked for from outside the page: deep links and the x.com injections. */
   readonly onAppRoute: (cb: (route: string) => void) => () => void;
   readonly onSessionDownload: (cb: (download: SessionDownload) => void) => () => void;

@@ -20,6 +20,7 @@ import { TextMorph } from "torph/react";
 import { AssistPanel, ComposeContext, failText, OnX } from "../components/compose/AssistPanel";
 import { COMPOSE_TABS, type ComposeTab, DraftsHome, tabOf } from "../components/compose/DraftsHome";
 import { fmtWhen, postCosts, sumUsd } from "../components/compose/DraftsList";
+import { NEW_POLL, PollEditor } from "../components/compose/PollEditor";
 import { PostPreview, quotedPostId } from "../components/compose/PostPreview";
 import {
   MediaList,
@@ -37,7 +38,7 @@ import { Cost, PageBody } from "../components/ui/layout";
 import { Popover } from "../components/ui/popover";
 import { XLink } from "../components/ui/x-link";
 import { XCard } from "../components/x";
-import { cn } from "../lib/utils";
+import { cn, toBase64 } from "../lib/utils";
 import { localInputToInstant } from "../lib/time";
 import {
   composeContextAtom,
@@ -146,14 +147,6 @@ const said = (
     d.media.filter((m) => m.blockIndex < posts).map((m) => [m.id, m.blockIndex, m.position]),
   ]);
 
-const toBase64 = (file: File) =>
-  new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.addEventListener("error", () => reject(reader.error));
-    reader.addEventListener("load", () => resolve((reader.result as string).split(",")[1] ?? ""));
-    reader.readAsDataURL(file);
-  });
-
 /** "Sun 09:00" within the week ahead, "Nov 3, 09:00" past it: short enough for a header button. */
 const slotLabel = (zone: string, at: Date, now: Date) =>
   new Intl.DateTimeFormat("en", {
@@ -213,14 +206,6 @@ function ReplyTarget({ postId }: { readonly postId: string }) {
   );
 }
 
-const POLL_DURATIONS = [
-  [60, "1 hour"],
-  [360, "6 hours"],
-  [1440, "1 day"],
-  [4320, "3 days"],
-  [10080, "7 days"],
-] as const;
-
 /** The options that differ from a plain thread, for the collapsed Options row. */
 const optionsSummary = (e: Editor) =>
   [
@@ -274,69 +259,14 @@ function Options({ editor, onChange }: { editor: Editor; onChange: (e: Editor) =
           onChange={(on) =>
             onChange({
               ...editor,
-              poll: on ? { options: ["", ""], durationMinutes: 1440 } : null,
+              poll: on ? NEW_POLL : null,
             })
           }
         />
       </label>
       {poll !== null ? (
-        <div className="flex flex-col gap-1.5 pb-2.5">
-          {poll.options.map((o, i) => (
-            // eslint-disable-next-line react/no-array-index-key -- options are plain strings; position is their identity.
-            <div key={i} className="flex gap-1">
-              <input
-                className={inputClass}
-                placeholder={`Option ${i + 1}`}
-                value={o}
-                maxLength={25}
-                onChange={(e) =>
-                  onChange({
-                    ...editor,
-                    poll: {
-                      ...poll,
-                      options: poll.options.map((x, j) => (j === i ? e.target.value : x)),
-                    },
-                  })
-                }
-              />
-              {poll.options.length > 2 ? (
-                <Button
-                  variant="ghost-muted"
-                  size="sm"
-                  aria-label={`Remove option ${i + 1}`}
-                  onClick={() =>
-                    onChange({
-                      ...editor,
-                      poll: { ...poll, options: poll.options.filter((_, j) => j !== i) },
-                    })
-                  }
-                >
-                  Remove
-                </Button>
-              ) : null}
-            </div>
-          ))}
-          <div className="flex items-center justify-between gap-2">
-            <Button
-              variant="ghost"
-              size="xs"
-              disabled={poll.options.length >= 4}
-              onClick={() =>
-                onChange({ ...editor, poll: { ...poll, options: [...poll.options, ""] } })
-              }
-            >
-              Add option
-            </Button>
-            <Select
-              compact
-              label="Poll length"
-              value={poll.durationMinutes}
-              onChange={(durationMinutes) =>
-                onChange({ ...editor, poll: { ...poll, durationMinutes } })
-              }
-              options={POLL_DURATIONS.map(([value, label]) => ({ value, label }))}
-            />
-          </div>
+        <div className="pb-2.5">
+          <PollEditor poll={poll} onChange={(next) => onChange({ ...editor, poll: next })} />
         </div>
       ) : null}
       <label className={row}>
@@ -487,8 +417,8 @@ export function ComposeEditor({
   const [selected, setSelected] = useState<Draft | null>(null);
   const [editor, setEditor] = useState<Editor>(initial);
   // Free first: on the desktop with the lane on, every clicked post goes through the session,
-  // except a poll, which X's composer cannot take.
-  const laneText = useSessionLane() && editor.poll === null;
+  // its poll and who-can-reply set in X's own composer.
+  const laneText = useSessionLane();
   const [previews, setPreviews] = useState<Record<string, string>>({});
   const [active, setActive] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
@@ -719,18 +649,12 @@ export function ComposeEditor({
   const priced = (sessionText: boolean) =>
     rates === null
       ? []
-      : postCosts(rates, blocks, media, quoteUrl, sessionText, editor.replySettings).map((c, i) =>
-          i < skipped ? 0 : c,
-        );
+      : postCosts(rates, blocks, media, quoteUrl, sessionText).map((c, i) => (i < skipped ? 0 : c));
   const costs = priced(laneText);
   const total = sumUsd(costs);
   const scheduledTotal = sumUsd(priced(false));
   const linkCount = rates === null ? 0 : costs.filter((c) => c === rates.postWithLink).length;
-  const sessionCount = blocks.filter(
-    (b, i) =>
-      i >= skipped &&
-      (hasMediaAt(i) || (laneText && (b.replySettings ?? editor.replySettings) === "everyone")),
-  ).length;
+  const sessionCount = blocks.filter((_, i) => i >= skipped && (hasMediaAt(i) || laneText)).length;
   const toPost = blocks.length - skipped;
   const cover = media.find((m) => m.blockIndex === 0 && m.kind === "image");
   // What the publisher would refuse (Publisher.refusal), caught before a thread stops halfway.
