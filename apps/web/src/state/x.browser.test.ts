@@ -1783,8 +1783,9 @@ it("presses X's Delete only on the one row whose query field is exactly the quer
       await none("bitcoin", row("bitcoin", "bitcoin min_faves:100")),
       await none("$GOOGL OR $AAPL", row("Untitled query", "$GOOGL", "$AAPL", "$TSLA")),
       await none("eth", row("Untitled query", "eth"), row("Untitled query", "eth")),
+      await none("$AAPL OR $AAPL", row("Untitled query", "$AAPL", "$TSLA")),
       pressed,
-    ]).toEqual([false, false, false, false, []]);
+    ]).toEqual([false, false, false, false, false, []]);
 
     list(
       row("Untitled query", "$GOOGL", "$AAPL", "$TSLA"),

@@ -478,7 +478,7 @@ export const xRadarDelete = async (
       const tags = new Set(shown);
       return (want.title === "" || texts(head)[0] === want.title) &&
         ((shown.length === 1 && shown[0] === want.query) ||
-          (tags.size === shown.length && tags.size === want.parts.length && want.parts.every((part) => tags.has(part))));
+          (tags.size === shown.length && tags.size === new Set(want.parts).size && want.parts.every((part) => tags.has(part))));
     };
     for (let i = 0; i < 40 && buttons().length === 0 && ${stillMine(run)}; i++) await wait();
     const named = buttons().filter(names);
