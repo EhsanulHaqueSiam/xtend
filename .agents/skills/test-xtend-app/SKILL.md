@@ -96,14 +96,15 @@ XTEND_REMOTE_DEBUG=<port> node apps/desktop/scripts/engine-bench.mjs --only <are
 XTEND_REMOTE_DEBUG=<port> node apps/desktop/scripts/engine-bench.mjs --runs 3 --pause 300
 ```
 
-- The bench refuses to start under 5 minutes after the account's last run, or while more than 4
-  runs started in the last 30 minutes (from its results files, any branch), and prints when it
-  may run again. Don't `--force` it to retry a failure: when many checks fail at once with empty
+- The bench counts the X calls each round makes and waits, saying until when, while the
+  account's rounds in the last 15 minutes (from its results files, any branch, any checkout) plus
+  its own would pass 2,800 calls (about two full rounds). Prefer `--only` while iterating: a one-check round costs a few dozen
+  calls and rarely waits. Don't `--force` it to retry a failure: when many checks fail at once with empty
   lists it prints a rate-limit hint, and the cure is waiting 15 to 30 minutes.
 - Three clean runs in a row, five minutes apart, are the proof an engine PR names. Each run's
   table and timings land in `~/Pictures/xtend-ui/bench/<branch>/<time>.json` (the last line
   prints the path); cite that file's summary, and diff it against main's to spot a slower check. X rate-limits an
-  account per 15 minutes and a run is a few hundred calls; heavy reloading has earned the account
+  account per 15 minutes and a full round is about 1,400 calls; heavy reloading has earned the account
   HTTP 429s on every device.
 - The bench presses no X write button except one bookmark it removes again. Never press like,
   reply, repost, follow, vote or post from a script on the real account; only the user's click does.

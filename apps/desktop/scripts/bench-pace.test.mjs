@@ -3,28 +3,29 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import { expect, it } from "vite-plus/test";
 
-import { accountKey, pace, readStarts } from "./bench-pace.mjs";
+import { accountKey, estimate, locked, pace, readSpent } from "./bench-pace.mjs";
 
 const MIN = 60_000;
 const NOW = Date.parse("2026-11-01T15:00:00Z");
-const ago = (...minutes) => minutes.map((m) => NOW - m * MIN);
+const spent = (...rounds) =>
+  rounds.map(([minutesAgo, calls]) => ({ at: NOW - minutesAgo * MIN, calls }));
 
-it("waits five minutes after the last run and while more than four started in thirty", () => {
-  expect(pace([], NOW)).toEqual({ ok: true });
-  expect(pace(ago(6, 40, 50), NOW)).toEqual({ ok: true });
-  expect(pace(ago(3), NOW)).toMatchObject({ ok: false, until: NOW + 2 * MIN });
-  // Four in the window is fine; a fifth recorded one is not, until the oldest leaves.
-  expect(pace(ago(6, 12, 18, 24), NOW)).toEqual({ ok: true });
-  expect(pace(ago(6, 12, 18, 24, 29), NOW)).toMatchObject({
+it("keeps the last fifteen minutes' X calls and the next round's within the budget", () => {
+  expect(pace([], NOW, 1400)).toEqual({ ok: true, used: 0 });
+  // A one-check round fits beside two full ones; a third full one waits for the first to leave.
+  expect(pace(spent([2, 1300], [8, 1400]), NOW, 60)).toEqual({ ok: true, used: 2700 });
+  expect(pace(spent([2, 1300], [8, 1400]), NOW, 1400)).toEqual({
     ok: false,
-    until: NOW + 1 * MIN,
-    why: "5 runs started in the last 30 minutes",
+    used: 2700,
+    until: NOW + 7 * MIN,
   });
-  // Both at once, the later wait wins: two of six must leave, the second at 25 minutes ago.
-  expect(pace(ago(1, 10, 15, 20, 25, 28), NOW)).toMatchObject({ ok: false, until: NOW + 5 * MIN });
+  // Rounds older than the window cost nothing.
+  expect(pace(spent([16, 2800], [40, 2800]), NOW, 1400)).toMatchObject({ ok: true });
+  // A round bigger than the whole budget never fits on its own.
+  expect(pace([], NOW, 3000)).toEqual({ ok: false, used: 0, until: null });
 });
 
-it("reads every branch's results for one account, counting a run that died before its first round", () => {
+it("reads every branch's rounds for one account, counting a run that died before its first round", () => {
   const dir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "xtend-bench-"));
   const mine = accountKey("44196397");
   const write = (branch, name, report) => {
@@ -34,7 +35,10 @@ it("reads every branch's results for one account, counting a run that died befor
   write("main", "a.json", {
     account: mine,
     startedAt: "2026-11-01T14:00:00Z",
-    runs: [{ startedAt: "2026-11-01T14:01:00Z" }, { startedAt: "2026-11-01T14:07:00Z" }],
+    runs: [
+      { startedAt: "2026-11-01T14:01:00Z", checks: [{ name: "GIF picker" }] },
+      { startedAt: "2026-11-01T14:07:00Z", checks: Array.from({ length: 40 }, () => ({})) },
+    ],
   });
   write("feat-x", "b.json", { account: mine, startedAt: "2026-11-01T14:30:00Z", runs: [] });
   write("feat-x", "c.json", {
@@ -43,14 +47,66 @@ it("reads every branch's results for one account, counting a run that died befor
     runs: [],
   });
   write("feat-x", "broken.json", "{");
-  const at = (...iso) => iso.map((s) => Date.parse(s));
-  expect(readStarts(dir, mine).toSorted()).toEqual(
-    at("2026-11-01T14:01:00Z", "2026-11-01T14:07:00Z", "2026-11-01T14:30:00Z"),
-  );
+  const at = (iso) => Date.parse(iso);
+  // Rounds recorded before rounds counted cost their checks plus the start, at 33 calls a check.
+  expect(readSpent(dir, mine).toSorted((x, y) => x.at - y.at)).toEqual([
+    { at: at("2026-11-01T14:01:00Z"), calls: 99 },
+    { at: at("2026-11-01T14:07:00Z"), calls: 1386 },
+    { at: at("2026-11-01T14:30:00Z"), calls: 66 },
+  ]);
   // An account the bench could not tell paces against every run.
-  expect(readStarts(dir, undefined)).toHaveLength(4);
-  expect(readStarts(NodePath.join(dir, "missing"), mine)).toEqual([]);
+  expect(readSpent(dir, undefined)).toHaveLength(4);
+  expect(readSpent(NodePath.join(dir, "missing"), mine)).toEqual([]);
   // The key names nobody: not the id, stable, and different per account.
   expect(mine).not.toContain("44196397");
   expect(accountKey("44196397")).toBe(mine);
+});
+
+it("counts a round by its calls, or what it planned while it runs, and estimates from counted rounds", () => {
+  const dir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "xtend-bench-"));
+  const mine = accountKey("44196397");
+  NodeFS.mkdirSync(NodePath.join(dir, "main"));
+  const checks = (n) => Array.from({ length: n }, (_, i) => ({ name: `check ${i}` }));
+  const write = (name, report) =>
+    NodeFS.writeFileSync(
+      NodePath.join(dir, "main", name),
+      JSON.stringify({ account: mine, ...report }),
+    );
+  // Before any counted round, a check is taken as 33 calls.
+  expect(estimate(dir, mine, 10)).toBe(330);
+  write("a.json", {
+    startedAt: "2026-11-01T14:00:00Z",
+    runs: [
+      {
+        startedAt: "2026-11-01T14:00:00Z",
+        endedAt: "2026-11-01T14:05:00Z",
+        planned: 320,
+        calls: 200,
+        checks: checks(40),
+      },
+      { startedAt: "2026-11-01T14:06:00Z", planned: 160, calls: null, checks: checks(3) },
+    ],
+  });
+  write("b.json", { startedAt: "2026-11-01T14:10:00Z", planned: 42, runs: [] });
+  expect(
+    readSpent(dir, mine)
+      .map((s) => s.calls)
+      .toSorted((x, y) => x - y),
+  ).toEqual([42, 160, 200]);
+  expect(estimate(dir, mine, 3)).toBe(15);
+});
+
+it("lets one checkout at a time check the budget and book", async () => {
+  const dir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "xtend-bench-"));
+  let inside = 0;
+  let most = 0;
+  const step = () =>
+    locked(dir, async () => {
+      most = Math.max(most, ++inside);
+      await Promise.resolve();
+      inside--;
+    });
+  await Promise.all([step(), step(), step()]);
+  expect(most).toBe(1);
+  expect(NodeFS.existsSync(NodePath.join(dir, ".pace-lock"))).toBe(false);
 });

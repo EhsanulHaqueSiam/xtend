@@ -6,19 +6,30 @@ import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
-import { accountKey, looksRateLimited, pace, readStarts } from "./bench-pace.mjs";
+import {
+  accountKey,
+  BUDGET,
+  estimate,
+  locked,
+  looksRateLimited,
+  pace,
+  readSpent,
+} from "./bench-pace.mjs";
 
 const USAGE = `node scripts/engine-bench.mjs [flags]
   (none)           every check once
   --runs 3         until three passes in a row, at most 3 rounds
-  --pause 300      seconds between runs: X rate-limits an account per 15 minutes,
-                   and a run is a few hundred calls
+  --pause 300      seconds between runs
   --only video     checks whose name contains "video"
   --shots DIR      a screenshot of the app after each check
   --parity DIR     per screen, Xtend's screen and x.com on the same page:
                    DIR/<screen>-xtend.png and DIR/<screen>-x.png
-  --force          start even when this account ran the bench too recently
-                   (under 5 minutes ago, or more than 4 runs in 30 minutes)`;
+  --no-wait        exit instead of waiting when this account's X budget is spent
+  --force          start even when it is spent
+
+X rate-limits an account per 15 minutes. Each round counts the X calls it makes, and a round
+waits until every checkout's rounds on the account in the last 15 minutes plus its own stay
+within ${BUDGET} calls.`;
 if (process.argv.includes("--help")) {
   console.log(USAGE);
   process.exit(0);
@@ -37,6 +48,9 @@ const PARITY = flag("--parity");
 
 /** One DevTools session per page, kept open across checks. */
 const sessions = new Map();
+/** X's API calls the engine page made while the bench watched it, for pacing. */
+let xCalls = 0;
+const X_API = /^https:\/\/(x\.com\/i\/api\/|api\.x\.com\/)/;
 async function session(match) {
   const all = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
   const target = all.find(
@@ -54,6 +68,8 @@ async function session(match) {
   const waiting = new Map();
   socket.addEventListener("message", (e) => {
     const message = JSON.parse(String(e.data));
+    if (message.method === "Network.requestWillBeSent" && X_API.test(message.params.request.url))
+      xCalls++;
     waiting.get(message.id)?.(message);
     waiting.delete(message.id);
   });
@@ -66,6 +82,17 @@ async function session(match) {
     });
   const made = { id: target.id, socket, call };
   sessions.set(match, made);
+  // shortcut: calls a new engine page makes before this attaches go uncounted (its first load's
+  // dozen or so); the budget leaves room for them. Upgrade to Target auto-attach if it ever matters.
+  if (match === "x.com") {
+    await call("Network.enable", {});
+    // What this page already called before the session attached (a fresh load's startup calls).
+    const { result } = await call("Runtime.evaluate", {
+      expression: `performance.getEntriesByType("resource").filter((e) => ${X_API}.test(e.name)).length`,
+      returnByValue: true,
+    });
+    xCalls += result?.result?.value ?? 0;
+  }
   return made;
 }
 
@@ -1713,13 +1740,21 @@ const saveReport = () => {
 };
 
 /** One pass over the chosen checks; the names that failed. */
-async function round(n) {
+async function round(n, planned) {
   const failed = [];
   let emptyFailures = 0;
   const checks = [];
-  report.runs.push({ n, startedAt: new Date().toISOString(), checks });
-  // Before the first check loads X, so a run that dies mid-round still counts for pacing.
-  saveReport();
+  const record = { n, startedAt: new Date().toISOString(), planned, calls: null, checks };
+  // Written before it loads X, so a run that dies mid-round still counts; the first round takes
+  // over the run's own booking, the others book their turn.
+  const book = () => {
+    record.startedAt = new Date().toISOString();
+    report.runs.push(record);
+  };
+  if (n === 1) {
+    book();
+    saveReport();
+  } else await reserve(planned, book);
   for (const [index, [name, run]] of chosen.entries()) {
     await sameAppPage();
     primed = true;
@@ -1785,7 +1820,8 @@ async function round(n) {
   }
   touched.clear();
   if (cleaned) await go("#/home?feed=following");
-  console.log(`${chosen.length - failed.length}/${chosen.length} passed`);
+  settle();
+  console.log(`${chosen.length - failed.length}/${chosen.length} passed, ${record.calls} X calls`);
   if (looksRateLimited(emptyFailures))
     console.log(
       `  ${emptyFailures} checks failed with the engine's lists empty: X may be rate-limiting this account. Wait 15 to 30 minutes before the next run.`,
@@ -1816,6 +1852,7 @@ if (sessionActions !== true) {
 async function startFresh() {
   await app(`location.reload(), true`).catch(() => {});
   await sleep(2_000);
+  for (const { socket } of sessions.values()) socket.close();
   sessions.clear();
   await until(() => app(`typeof window.__xtendEngine === "function"`), 30_000);
   await until(async () => (await engine(`document.readyState`)) === "complete", 30_000);
@@ -1829,21 +1866,68 @@ const userId =
     () => null,
   ));
 report.account = typeof userId === "string" ? accountKey(userId) : null;
-const paced = pace(readStarts(RESULTS, report.account ?? undefined), Date.now());
-if (!paced.ok) {
-  const at = new Date(paced.until).toTimeString().slice(0, 5);
-  if (!process.argv.includes("--force")) {
-    console.error(
-      `Not running: ${paced.why}, and X rate-limits the account. Run again after ${at}, or pass --force.`,
-    );
-    process.exit(1);
-  }
-  console.log(
-    `  WARNING: --force: ${paced.why}; X may answer with rate limits (wait until ${at}).`,
-  );
+// The start reloads X's page and may read Bookmarks: about two checks' worth on top of a round.
+const planned = estimate(RESULTS, report.account ?? undefined, chosen.length + 2);
+
+/**
+ * Every X call so far, charged to the latest round: the start's to the first, a pause's or a wait's
+ * to the round before it, the final bookmark check to the last. A round's end is when its calls
+ * expire; a wait's calls leave it where it was.
+ */
+let charged = 0;
+function settle({ end = true } = {}) {
+  const last = report.runs.at(-1);
+  if (last === undefined) return;
+  last.calls = (last.calls ?? 0) + xCalls - charged;
+  if (end || last.endedAt === undefined) last.endedAt = new Date().toISOString();
+  charged = xCalls;
 }
-// Written now, so a run that dies before its first round still counts for the next one's pacing.
-saveReport();
+
+/**
+ * Waits until this account's X budget has room for about `calls` more, unless told not to, then
+ * records the reservation with `book` in the same locked step, so two checkouts never both fit.
+ */
+async function reserve(calls, book) {
+  for (;;) {
+    const paced = await locked(RESULTS, () => {
+      // What X was called since the last round's count (a pause, this wait) counts before the check.
+      // A wait's calls (X's page polls while idle) count without moving the round's end, or the
+      // run's own polling would keep its last round in the window forever.
+      if (report.runs.length > 0 && xCalls > charged) {
+        settle({ end: false });
+        saveReport();
+      }
+      const verdict = pace(readSpent(RESULTS, report.account ?? undefined), Date.now(), calls);
+      if (verdict.ok || process.argv.includes("--force")) {
+        book();
+        saveReport();
+      }
+      return verdict;
+    });
+    if (paced.ok) return;
+    if (paced.until === null && !process.argv.includes("--force")) {
+      console.error(
+        `Not running: this round needs about ${calls} X calls, over the account's ${BUDGET} per 15 minutes. Narrow it with --only, or pass --force.`,
+      );
+      process.exit(1);
+    }
+    const at = paced.until === null ? "-" : new Date(paced.until).toTimeString().slice(0, 5);
+    const why = `${paced.used} of ${BUDGET} X calls spent on this account in the last 15 minutes, and this round needs about ${calls}`;
+    if (process.argv.includes("--force"))
+      return void console.log(`  WARNING: --force: ${why}; X may answer with rate limits.`);
+    if (process.argv.includes("--no-wait")) {
+      console.error(`Not running: ${why}. Run again after ${at}.`);
+      process.exit(1);
+    }
+    console.log(`  waiting until ${at}: ${why}`);
+    await sleep(Math.max(paced.until - Date.now(), 1_000));
+  }
+}
+// Booked when admitted, with what it plans to spend, so other runs pace against it before it counts.
+await reserve(planned, () => {
+  report.startedAt = new Date().toISOString();
+  report.planned = planned;
+});
 
 await startFresh();
 
@@ -1911,8 +1995,10 @@ if (!writes && chosen.some(([name]) => WRITES.test(name)))
 let streak = 0;
 for (let n = 1; n <= RUNS; n++) {
   if (n > 1 && PAUSE_MS > 0) await sleep(PAUSE_MS);
+  const roundPlan =
+    n === 1 ? planned : estimate(RESULTS, report.account ?? undefined, chosen.length);
   if (RUNS > 1) console.log(`-- run ${n} at ${new Date().toTimeString().slice(0, 8)}`);
-  streak = (await round(n)).length === 0 ? streak + 1 : 0;
+  streak = (await round(n, roundPlan)).length === 0 ? streak + 1 : 0;
 }
 if (writes) {
   // The bench's one write must leave the account as it found it.
@@ -1927,6 +2013,7 @@ if (writes) {
   report.bookmarks = { before: bookmarkBefore, after };
   await go("#/home?feed=following");
 }
+settle();
 report.streak = streak;
 saveReport();
 console.log(`results -> ${reportFile}`);
