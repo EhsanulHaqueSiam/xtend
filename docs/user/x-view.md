@@ -19,6 +19,14 @@ Xtend's player, with fullscreen and picture in picture. Search takes X's operato
 search box (or **Advanced search** in the command palette) opens X's advanced search form,
 filled from the search you have open.
 
+New posts never jump in while you read: they wait behind the blue **Show N posts**. To get them,
+click Home (or the tab you are on) again, press `.`, or pull down at the top with two fingers;
+with none waiting, X loads the feed fresh. ⌘R or F5 always reloads it from X. Back on Home after
+ten minutes or more away, Xtend asks X quietly and keeps your place. In the desktop app, go back
+from a post by swiping right with two fingers (as set in System Settings > Trackpad > Swipe
+between pages), the mouse's back button, or ⌘[ (Alt+← on Windows and Linux); you land on the
+same post.
+
 The box at the top of Home is X's composer: images or a video, a poll, who can reply, emoji
 (the system picker, on macOS and Windows) and @mentions suggested from people Xtend has already
 seen on X. Post goes through your session, free, and X's own composer sets the poll and who can
@@ -127,14 +135,16 @@ shared pool behind Library's Trends while pool sharing is on (see [Settings](./s
 What you click can go through your own session, free. **Act through X for what I click**
 (Settings, X session) is on by default:
 
-- A reply you send from Engage goes through your session, one at a time at a human pace: at
-  least 8 seconds apart and at most 30 an hour. Off, it goes through the X API at the price on
-  the button.
-- Posts with media always go through your session, since the API path has no media upload. With
-  the switch off they land in Failed, saying session actions are off.
+- Post now, and the replies, likes and DMs you send from Engage and Leads, go through your
+  session, one at a time at a human pace: at least 8 seconds apart and at most 30 an hour. A
+  click the session cannot take right then offers **Try again**, free, or the API now at its
+  price. Off, they go through the X API at the price on the button.
+- Posts with media always go through your session, since the API path has no media upload. A
+  queued one waits at its time for your **Post now**; with the switch off it says session
+  actions are off.
 
-Everything else that writes (Post now and queued posts without media, likes, DMs) goes through
-the X API at its price. Automations and agents never use the session.
+Queued posts without media go through the X API at its price. Automations and agents never use
+the session.
 
 ## Links
 

@@ -241,14 +241,14 @@ function StaffPicks({
       ) : null}
       {unfetched.length > 0 ? (
         <p className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          <span>{unfetched.length} posts wait for their text, by</span>
-          {[...new Set(unfetched.map((p) => p.handle))].map((handle) => (
+          <span>{unfetched.length} posts wait for their text. Open one on X to fill it, free:</span>
+          {unfetched.map((p) => (
             <XLink
-              key={handle}
-              href={profileUrl(handle)}
+              key={p.postId}
+              href={`${profileUrl(p.handle)}/status/${p.postId}`}
               className="font-mono text-2xs transition-colors duration-150 hover:text-foreground"
             >
-              @{handle}
+              @{p.handle}
             </XLink>
           ))}
         </p>

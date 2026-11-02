@@ -1,5 +1,7 @@
 import {
   type Candidate,
+  type ComposeError,
+  type DesktopUnavailableError,
   type EngagementVia,
   LeadsError,
   type ListCriteria,
@@ -41,9 +43,11 @@ export class LeadsOps extends Context.Service<
       personId: number,
       tone?: ReplyTone,
     ) => Effect.Effect<ReadonlyArray<string>, LeadsError | XApiError>;
+    /** `viaApi`: the paid API the user picked after the session could not take the click. */
     readonly sendDm: (
       personId: number,
       text: string,
+      viaApi?: boolean,
     ) => Effect.Effect<void, LeadsError | XApiError>;
     readonly listPreview: (
       criteria: ListCriteria,
@@ -80,6 +84,7 @@ export class LeadsOps extends Context.Service<
       personId: number,
       postId: string,
       text: string,
+      viaApi?: boolean,
     ) => Effect.Effect<{ readonly postId: string }, LeadsError | XApiError>;
   }
 >()("xtend/leads/LeadsOps") {}
@@ -135,7 +140,19 @@ const make = Effect.gen(function* () {
       ? Effect.asVoid(people.update({ id: person.id, stage: "contacted" }))
       : Effect.void;
 
-  const sendDm = Effect.fn("LeadsOps.sendDm")(function* (personId: number, text: string) {
+  // "session" means the session pressed nothing, so the UI may offer the paid lane safely.
+  const sessionFail = (operation: string) => (e: ComposeError | DesktopUnavailableError) =>
+    new LeadsError({
+      operation: SessionPosting.notAttempted(e) ? "session" : operation,
+      detail: e.message,
+      cause: e,
+    });
+
+  const sendDm = Effect.fn("LeadsOps.sendDm")(function* (
+    personId: number,
+    text: string,
+    viaApi = false,
+  ) {
     const person = yield* people.get(personId);
     // Free first: their id as the session saw it on one of their posts, the paid lookup last.
     const userId =
@@ -152,14 +169,8 @@ const make = Effect.gen(function* () {
     const { sessionPostingEnabled } = yield* settings.get.pipe(
       Effect.orElseSucceed(() => ({ sessionPostingEnabled: false })),
     );
-    if (sessionPostingEnabled)
-      yield* session
-        .dm(userId, text)
-        .pipe(
-          Effect.mapError(
-            (e) => new LeadsError({ operation: "sendDm", detail: e.message, cause: e }),
-          ),
-        );
+    if (sessionPostingEnabled && !viaApi)
+      yield* session.dm(userId, text).pipe(Effect.mapError(sessionFail("sendDm")));
     else yield* x.sendDm(userId, text, "leads.dm");
     yield* people.logActivity(personId, "dm", text.slice(0, 140));
     yield* markContacted(person);
@@ -272,6 +283,7 @@ const make = Effect.gen(function* () {
     personId: number,
     postId: string,
     text: string,
+    viaApi = false,
   ) {
     // Looked up before posting: a reply that went out must not end in an error the user retries.
     const person = yield* people.get(personId);
@@ -279,15 +291,12 @@ const make = Effect.gen(function* () {
     const { sessionPostingEnabled } = yield* settings.get.pipe(
       Effect.orElseSucceed(() => ({ sessionPostingEnabled: false })),
     );
-    const created = sessionPostingEnabled
-      ? yield* session
-          .post({ text, mediaPaths: [], replyToPostId: postId, paced: true })
-          .pipe(
-            Effect.mapError(
-              (e) => new LeadsError({ operation: "reply", detail: e.message, cause: e }),
-            ),
-          )
-      : yield* x.createPost({ text, replyToPostId: postId, purpose: "leads.reply" });
+    const created =
+      sessionPostingEnabled && !viaApi
+        ? yield* session
+            .post({ text, mediaPaths: [], replyToPostId: postId, paced: true })
+            .pipe(Effect.mapError(sessionFail("reply")))
+        : yield* x.createPost({ text, replyToPostId: postId, purpose: "leads.reply" });
     yield* people.logActivity(personId, "replied", text.slice(0, 140));
     yield* markContacted(person);
     return { postId: created.postId };

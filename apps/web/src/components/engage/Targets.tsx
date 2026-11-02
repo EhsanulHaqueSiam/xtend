@@ -3,15 +3,16 @@ import { Link } from "@tanstack/react-router";
 import type { ReplyTarget } from "@xtend/contracts";
 import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { TextMorph } from "torph/react";
 
-import { quoteAtom, useQuote, costLabels, useQuoteLabel } from "../../state/costs";
+import { quoteAtom, costLabels, useQuoteLabel } from "../../state/costs";
 import {
   addKeywordsAtom,
   findKeywordsAtom,
   nicheAtom,
   rebuildNicheAtom,
+  refreshTargetsAtom,
   targetsAtom,
 } from "../../state/engage";
 import { settingsAtom } from "../../state/settings";
@@ -29,7 +30,7 @@ import {
   RowTitle,
   useSelection,
 } from "../ui/split";
-import { OpenOnX } from "../ui/x-link";
+import { FreeOnX, OpenOnX, searchUrl } from "../ui/x-link";
 import { xAction } from "../x";
 import { type Patch, ReplyBox, useWork, type Work } from "./ReplyBox";
 import { ErrorLine, pill, PostHead } from "./triage";
@@ -58,20 +59,15 @@ type Suggestions = { keywords: ReadonlyArray<string>; handles: ReadonlyArray<str
 /** Posts worth replying to, ranked by the service; the selected one opens with its numbers and a reply. */
 export function Targets() {
   const result = useAtomValue(targetsAtom);
-  const load = useAtomSet(targetsAtom);
+  const reload = useAtomRefresh(targetsAtom);
+  const search = useAtomSet(refreshTargetsAtom, { mode: "promiseExit" });
+  const searching = useAtomValue(refreshTargetsAtom).waiting;
   const settings = AsyncResult.getOrElse(useAtomValue(settingsAtom), () => null);
   const find = useAtomSet(findKeywordsAtom, { mode: "promiseExit" });
   const finding = useAtomValue(findKeywordsAtom).waiting;
   const findQuote = useQuoteLabel({ kind: "findKeywords" });
   const assistQuote = useQuoteLabel({ kind: "assist" });
   const targetsQuote = useQuoteLabel({ kind: "engageTargets" });
-  const free = useQuote({ kind: "engageTargets" })?.cached === true;
-  const initial = AsyncResult.isInitial(result);
-  // Opening the page only shows what the cache already holds; a paid search waits for the click.
-  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- loads the free cached targets once when the page opens; a paid search waits for the click.
-  useEffect(() => {
-    if (free && initial) load();
-  }, [free, initial, load]);
   const [found, setFound] = useState<Suggestions | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Skipping only hides a target for this visit, as it always has.
@@ -88,6 +84,12 @@ export function Targets() {
     const exit = await find();
     if (Exit.isFailure(exit)) setError(errorText(exit.cause));
     else setFound(exit.value);
+  };
+  const runSearch = async () => {
+    setError(null);
+    const exit = await search();
+    if (Exit.isFailure(exit)) setError(errorText(exit.cause));
+    reload();
   };
   const skip = (id: string) => setSkipped((s) => new Set(s).add(id));
 
@@ -126,7 +128,7 @@ export function Targets() {
       <PageHeader
         title="Targets"
         detail={
-          result.waiting && AsyncResult.isSuccess(result)
+          searching || (result.waiting && AsyncResult.isSuccess(result))
             ? "refreshing"
             : AsyncResult.isSuccess(result)
               ? `${targets.length} targets`
@@ -149,15 +151,21 @@ export function Targets() {
               </TooltipTrigger>
               <TooltipPopup>Needs your handle, from your X session or Settings</TooltipPopup>
             </Tooltip>
+            {settings === null || settings.keywords.length === 0 ? null : (
+              <FreeOnX
+                href={searchUrl(settings.keywords.map((k) => `"${k}"`).join(" OR "), "latest")}
+                label="Search on X"
+              />
+            )}
             <Tooltip disabled={noKeywords === null}>
               <TooltipTrigger render={<span className="inline-flex" />}>
                 <button
                   type="button"
                   className={pill}
-                  disabled={result.waiting || noKeywords !== null || targetsQuote === "…"}
-                  onClick={() => load()}
+                  disabled={searching || noKeywords !== null || targetsQuote === "…"}
+                  onClick={() => void runSearch()}
                 >
-                  <TextMorph duration={250}>{result.waiting ? "Searching…" : "Refresh"}</TextMorph>
+                  <TextMorph duration={250}>{searching ? "Searching…" : "Refresh"}</TextMorph>
                   <Cost label={targetsQuote} />
                 </button>
               </TooltipTrigger>
@@ -167,19 +175,11 @@ export function Targets() {
         }
       />
       {AsyncResult.match(result, {
-        onInitial: ({ waiting }) => (
+        onInitial: () => (
           <TargetsBody
             targets={[]}
             top={top}
-            empty={
-              noKeywords ?? (
-                <Empty>
-                  {waiting
-                    ? "Searching your keywords…"
-                    : "Refresh to search your keywords for posts worth a reply."}
-                </Empty>
-              )
-            }
+            empty={noKeywords ?? <Empty>Reading what you saw on X…</Empty>}
             onSkip={skip}
           />
         ),
@@ -202,7 +202,7 @@ export function Targets() {
                     </Link>
                   }
                 >
-                  Nothing matches your keywords right now.
+                  Nothing you saw on X matches your keywords yet. Search on X looks for free.
                 </Empty>
               )
             }
@@ -342,13 +342,15 @@ function Found({
   const adding = useAtomValue(addKeywordsAtom).waiting;
   const refreshTargetsQuote = useAtomRefresh(quoteAtom([{ kind: "engageTargets" }]));
   const refreshSettings = useAtomRefresh(settingsAtom);
-  // New keywords are searches the cache has not seen: requote, and let the priced Refresh run them.
+  const refreshTargets = useAtomRefresh(targetsAtom);
+  // New keywords: list what the session saw for them, requote, and let the priced Refresh search them.
   const add = async () => {
     try {
       await addKeywords(found.keywords);
       onAdded();
       refreshTargetsQuote();
       refreshSettings();
+      refreshTargets();
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e));
     }

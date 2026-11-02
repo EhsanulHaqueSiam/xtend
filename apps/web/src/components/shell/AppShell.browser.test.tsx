@@ -14,6 +14,7 @@ const bridge = installFakeBridge();
 const { AppShell } = await import("./AppShell");
 const { PageHeader } = await import("../PageHeader");
 const { ShellHotkeys } = await import("./ShellHotkeys");
+const { setScreenRefresh } = await import("../../state/x");
 
 const settings = {
   handle: "siamships",
@@ -309,4 +310,13 @@ it("moves the panel to each section's X page, hides it where X has none, and rel
   await userEvent.click(screen.getByRole("button", { name: "Home" }));
   await expect.poll(() => screen.router!.state.location.pathname).toBe("/home");
   await expect.element(pane).toHaveAttribute("data-mode", "hidden");
+
+  // Clicked again on Home, the open screen loads fresh; the app page never reloads.
+  let refreshed = 0;
+  const unset = setScreenRefresh(() => refreshed++);
+  await userEvent.click(screen.getByRole("button", { name: "Home" }));
+  expect(refreshed).toBe(1);
+  unset();
+  await userEvent.click(screen.getByRole("button", { name: "Home" }));
+  expect(reloads).toBe(1);
 });

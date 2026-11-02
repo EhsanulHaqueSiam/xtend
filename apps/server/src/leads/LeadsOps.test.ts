@@ -234,6 +234,15 @@ describe("LeadsOps", () => {
       expect(posted).toEqual([]);
       expect((yield* people.get(p.id)).stage).toBe("replied");
 
+      // A second click inside the human pace presses nothing: tagged so the UI may offer the API.
+      expect(yield* Effect.flip(ops.sendReply(p.id, "7", "too soon"))).toMatchObject({
+        operation: "session",
+      });
+      yield* ops.sendReply(p.id, "7", "too soon", true);
+      expect(desktopCalls).toHaveLength(1);
+      expect(posted.map((x) => x.replyToPostId)).toEqual(["7"]);
+      posted.length = 0;
+
       const settings = yield* SettingsStore.SettingsStore;
       yield* settings.update({ sessionPostingEnabled: false });
       yield* ops.sendReply(p.id, "6", "and this");

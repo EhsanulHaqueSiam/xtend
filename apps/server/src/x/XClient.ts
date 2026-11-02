@@ -154,6 +154,8 @@ export interface SearchOptions {
   readonly limit?: number;
   readonly cursor?: string;
   readonly purpose: string;
+  /** Only what the read cache holds, free; a miss is an empty page. */
+  readonly cacheOnly?: boolean;
 }
 
 export interface Page<A> {
@@ -302,7 +304,11 @@ export const make = Effect.gen(function* () {
     query: string,
     options: SearchOptions,
   ) {
-    const response = yield* treg.call({ ...searchCall(query, options), purpose: options.purpose });
+    const response = yield* treg.call({
+      ...searchCall(query, options),
+      purpose: options.purpose,
+      ...(options.cacheOnly === true ? { cacheOnly: true } : {}),
+    });
     const data = obj(obj(obj(response.body).output).data);
     return {
       items: posts(arr(data.items), ""),

@@ -10,6 +10,7 @@ import * as Schema from "effect/Schema";
 import * as Atom from "effect/reactivity/Atom";
 
 import { clientRuntime, XtendClient } from "../rpc/client";
+import { observedAtom } from "./shell";
 
 export const searchAtom = clientRuntime.fn<{
   readonly query: string;
@@ -169,8 +170,10 @@ export const addToCollectionAtom = clientRuntime.fn<{
   }),
 );
 
-export const picksAtom = clientRuntime.atom(
+/** Free: stored picks plus what the session saw clearing the picks bar; follows the session. */
+export const picksAtom = clientRuntime.atom((get) =>
   Effect.gen(function* () {
+    get(observedAtom);
     const client = yield* XtendClient;
     return yield* client[Library_METHODS.picksGet]({});
   }),
@@ -265,8 +268,10 @@ export const writeInFormatAtom = Atom.family((postId: string) =>
   ),
 );
 
-export const staffPicksAtom = clientRuntime.atom(
+/** Free: the archive, then posts the session saw; follows the session so opening one on X fills it. */
+export const staffPicksAtom = clientRuntime.atom((get) =>
   Effect.gen(function* () {
+    get(observedAtom);
     const client = yield* XtendClient;
     return yield* client[Library_METHODS.staffPicks]({});
   }),

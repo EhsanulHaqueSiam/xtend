@@ -1,4 +1,10 @@
-import type { Mention, ReplyTarget, SentReply, XPost } from "@xtend/contracts";
+import {
+  EngageError,
+  type Mention,
+  type ReplyTarget,
+  type SentReply,
+  type XPost,
+} from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import { expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
@@ -29,28 +35,30 @@ const screenReads = {
   "engage.inbox": () => Effect.succeed({ sent: [], followUps: [], incoming: [] }),
 } satisfies FakeService;
 
-it("opening Targets pays for nothing: a paid search waits for the priced click", async () => {
-  let searches = 0;
+it("opening Targets lists what the session saw for free; a paid search waits for the priced click", async () => {
+  const asked: Array<boolean> = [];
   await using screen = await render(<Targets />, {
     service: {
       ...screenReads,
       // Two keywords, neither in the service's 30-minute cache.
       "costs.quote": quoting((a) => (a.kind === "engageTargets" ? paid(0.0015) : paid(0.001))),
-      "engage.targets": () =>
+      "engage.targets": ({ refresh }) =>
         Effect.sync(() => {
-          searches++;
-          return [target("1", "Shipping my first SaaS today")];
+          asked.push(refresh === true);
+          return [
+            target("1", "Seen in my session"),
+            // Once paid for, the search sits in the read cache, which the free read serves.
+            ...(asked.includes(true) ? [target("2", "Found by X search")] : []),
+          ];
         }),
     },
   });
-  await expect.element(screen.getByText(/^Refresh to search your keywords/)).toBeVisible();
-  expect(searches).toBe(0);
+  await expect.element(screen.getByRole("button", { name: /Seen in my session/ })).toBeVisible();
+  expect(asked).toEqual([false]);
 
   await userEvent.click(screen.getByRole("button", { name: /^Refresh\s*\$0\.0015$/ }));
-  await expect
-    .element(screen.getByRole("complementary").getByText("Shipping my first SaaS today"))
-    .toBeVisible();
-  expect(searches).toBe(1);
+  await expect.element(screen.getByRole("button", { name: /Found by X search/ })).toBeVisible();
+  expect(asked).toEqual([false, true, false]);
 });
 
 it("shows the cached targets on open when the cache makes them free", async () => {
@@ -131,13 +139,16 @@ it("a paid search still out when the user leaves Engage finishes, and shows on r
     service: {
       ...screenReads,
       "costs.quote": quoting((a) => (a.kind === "engageTargets" ? paid(0.0015) : paid(0.001))),
-      "engage.targets": () =>
-        Effect.promise(() => searched).pipe(
-          Effect.map(() => {
-            searches++;
-            return [target("1", "Shipping my first SaaS today")];
-          }),
-        ),
+      "engage.targets": ({ refresh }) =>
+        refresh === true
+          ? Effect.promise(() => searched).pipe(
+              Effect.map(() => {
+                searches++;
+                return [target("1", "Shipping my first SaaS today")];
+              }),
+            )
+          : // Once paid for, the search sits in the read cache, which the free read serves.
+            Effect.succeed(searches > 0 ? [target("1", "Shipping my first SaaS today")] : []),
     },
   });
   await userEvent.click(screen.getByRole("button", { name: /^Refresh\s*\$0\.0015$/ }));
@@ -237,8 +248,35 @@ it("a reply goes to the post it was written under with what was typed, locked wh
   release();
   await expect.element(detail.getByRole("button", { name: /^Replied/ })).toBeVisible();
   expect(sent).toEqual([
-    { post: xPost("2", "Second target"), text: "price per seat, not per call" },
+    { post: xPost("2", "Second target"), text: "price per seat, not per call", viaApi: false },
   ]);
+});
+
+it("a reply the session cannot take offers trying again free or sending now at its price", async () => {
+  const sent: Array<boolean | undefined> = [];
+  await using screen = await render(<Targets />, {
+    service: targetsService({
+      "engage.reply": (input) => {
+        sent.push(input.viaApi);
+        return input.viaApi === true
+          ? Effect.succeed(sentReply(input.post, input.text))
+          : Effect.fail(new EngageError({ operation: "session", detail: "Human pace: wait 6s" }));
+      },
+    }),
+  });
+  const detail = screen.getByRole("complementary");
+  await expect.element(detail.getByText("First target")).toBeVisible();
+  await userEvent.fill(detail.getByRole("textbox"), "price per seat");
+  await userEvent.click(detail.getByRole("button", { name: /^Reply\s*\$0\.015$/ }));
+  await expect.element(detail.getByText(/Human pace: wait 6s/)).toBeVisible();
+  await expect
+    .element(detail.getByRole("button", { name: /^Try again\s*free · your session$/ }))
+    .toBeVisible();
+  await userEvent.click(
+    detail.getByRole("button", { name: /^Send now through the API\s*\$0\.015$/ }),
+  );
+  await expect.element(detail.getByRole("button", { name: /^Replied/ })).toBeVisible();
+  expect(sent).toEqual([false, true]);
 });
 
 it("a like in flight cannot be paid for twice", async () => {

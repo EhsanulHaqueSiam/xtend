@@ -28,10 +28,14 @@ import * as Pool from "../pool/Pool.ts";
 import * as SettingsStore from "../settings/SettingsStore.ts";
 import * as XClient from "../x/XClient.ts";
 import { interests, rankTopics } from "./forYou.ts";
+import { observedToPost } from "../engage/inbox.ts";
 import * as LibraryStore from "./LibraryStore.ts";
 import staffPicksJson from "./staffPicks.json" with { type: "json" };
 
 export const MAX_PICK_KEYWORDS = 5;
+/** What makes a post a pick, from the fetch or from the session: this many likes within this many days. */
+const PICK_MIN_LIKES = 200;
+const PICK_DAYS = 7;
 /** Posts one pattern detection call labels. */
 const DETECT_BATCH = 20;
 const READY_COUNT = 3;
@@ -58,6 +62,8 @@ export interface PicksState {
 
 const assistError = (e: Assist.AssistError) =>
   new LibraryError({ operation: "assist", detail: e.message });
+const observedError = (e: { readonly message: string }) =>
+  new LibraryError({ operation: "store", detail: e.message });
 const settingsError = (e: { readonly message: string }) =>
   new LibraryError({ operation: "settings", detail: e.message });
 
@@ -138,8 +144,20 @@ const make = Effect.gen(function* () {
     return page;
   });
 
+  // Free first: what the session saw clearing the paid fetch's own bar becomes a pick too.
+  const pickSince = Effect.map(DateTime.now, (now) =>
+    DateTime.formatIso(DateTime.subtractDuration(now, Duration.days(PICK_DAYS))),
+  );
   const picksState = Effect.fn("Library.picksState")(function* (day: string) {
     const all = yield* keywords;
+    const createdAfter = yield* pickSince;
+    for (const keyword of all) {
+      const { posts } = yield* observations
+        .listRecent({ query: keyword, createdAfter, limit: 200 })
+        .pipe(Effect.mapError(observedError));
+      const strong = posts.filter((p) => p.metrics.likes >= PICK_MIN_LIKES).map(observedToPost);
+      if (strong.length > 0) yield* store.picksRecord({ day, keyword, posts: strong, seen: true });
+    }
     const fetched = yield* store.pickFetchedKeywords(day);
     return {
       day,
@@ -154,11 +172,9 @@ const make = Effect.gen(function* () {
   const picksFetch = Effect.gen(function* () {
     const day = yield* today;
     const state = yield* picksState(day);
-    const since = DateTime.formatIso(
-      DateTime.subtractDuration(yield* DateTime.now, Duration.days(7)),
-    ).slice(0, 10);
+    const since = (yield* pickSince).slice(0, 10);
     for (const keyword of state.pending) {
-      const page = yield* x.searchPosts(`${keyword} min_faves:200 since:${since}`, {
+      const page = yield* x.searchPosts(`${keyword} min_faves:${PICK_MIN_LIKES} since:${since}`, {
         mode: "top",
         purpose: "library.picks",
       });
@@ -283,11 +299,17 @@ const make = Effect.gen(function* () {
     return drafts.slice(0, 3);
   });
 
+  // Free first: the archive, then what the session saw of that exact post.
   const staffPicks = Effect.forEach(STAFF_PICKS, (s) =>
-    Effect.map(store.libraryPost(s.postId), (entry): StaffPick => ({
-      ...s,
-      post: entry?.post ?? null,
-    })),
+    Effect.gen(function* () {
+      const stored = (yield* store.libraryPost(s.postId))?.post ?? null;
+      if (stored !== null) return { ...s, post: stored } satisfies StaffPick;
+      const { posts } = yield* observations
+        .listRecent({ authorHandle: s.handle, limit: 200 })
+        .pipe(Effect.orElseSucceed(() => ({ posts: [] })));
+      const seen = posts.find((p) => p.postId === s.postId);
+      return { ...s, post: seen === undefined ? null : observedToPost(seen) } satisfies StaffPick;
+    }),
   );
 
   // One search per handle still missing a post; a pick whose id the search does not return stays empty.
@@ -304,8 +326,6 @@ const make = Effect.gen(function* () {
     return yield* staffPicks;
   });
 
-  const observedError = (e: { readonly message: string }) =>
-    new LibraryError({ operation: "store", detail: e.message });
   const ownPosts = (handle: string | null) =>
     handle === null
       ? Effect.succeed([])

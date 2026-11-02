@@ -51,8 +51,9 @@ without.
   that slot; open it to pick a time of your own and **Schedule**.
 - On the desktop with session actions on, **Post now** goes through your x.com session and is not
   billed: X's own composer sets the poll and who can reply. Queued and scheduled posts go
-  through the API, except posts with media, which always go through your session (see
-  [x.com inside Xtend](./x-view.md)).
+  through the API on their own. Only your session can post media, and it acts only on your
+  click, so a queued post with media waits at its time: you get a notification, and **Post now**
+  in Plan sends it free (see [x.com inside Xtend](./x-view.md)).
 
 A thread posts one post at a time. If a later post fails, the draft lands in Plan's Queue as
 failed, with what went out marked, and a retry continues from there.

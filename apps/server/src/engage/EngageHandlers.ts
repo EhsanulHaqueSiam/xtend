@@ -29,11 +29,11 @@ export const layerHandlers = EngageRpcGroup.toLayer(
     const engage = yield* Engage.Engage;
     const store = yield* EngageStore.EngageStore;
     return EngageRpcGroup.of({
-      [Engage_METHODS.targets]: () => engage.targets,
+      [Engage_METHODS.targets]: ({ refresh }) => engage.targets(refresh === true),
       [Engage_METHODS.draftReply]: ({ post, tone, own }) => engage.draftReply(post, tone, own),
       [Engage_METHODS.readPost]: (input) => engage.readPost(input),
-      [Engage_METHODS.reply]: ({ post, text }) => engage.reply(post, text),
-      [Engage_METHODS.like]: ({ postId }) => engage.like(postId),
+      [Engage_METHODS.reply]: ({ post, text, viaApi }) => engage.reply(post, text, viaApi === true),
+      [Engage_METHODS.like]: ({ postId, viaApi }) => engage.like(postId, viaApi === true),
       [Engage_METHODS.findKeywords]: () => engage.findKeywords,
       [Engage_METHODS.mentions]: ({ refresh }) => engage.mentions(refresh === true),
       [Engage_METHODS.mentionHandled]: ({ postIds, handled }) => store.setHandled(postIds, handled),

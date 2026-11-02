@@ -89,7 +89,8 @@ export const DmEvent = Schema.Struct({
 export type DmEvent = typeof DmEvent.Type;
 
 export class EngageError extends Schema.TaggedError<EngageError>()("EngageError", {
-  operation: Schema.Literals(["store", "assist", "settings", "session"]),
+  /** "session": the session pressed nothing, so the API is safe; "like": it may have liked. */
+  operation: Schema.Literals(["store", "assist", "settings", "session", "like"]),
   detail: Schema.String,
 }) {
   override get message(): string {
@@ -114,8 +115,9 @@ export const Engage_METHODS = {
 } as const;
 
 export const EngageRpcGroup = RpcGroup.make(
+  /** Posts the session saw matching the keywords and cached searches are free; `refresh` pays for the rest. */
   Rpc.make(Engage_METHODS.targets, {
-    payload: Schema.Struct({}),
+    payload: Schema.Struct({ refresh: Schema.optional(Schema.Boolean) }),
     success: Schema.Array(ReplyTarget),
     error: Schema.Union([EngageError, XApiError]),
   }),
@@ -140,13 +142,18 @@ export const EngageRpcGroup = RpcGroup.make(
     success: PostRead,
     error: EngageError,
   }),
+  /** Free through the session; `viaApi` is the paid API the user picked when the session could not take it. */
   Rpc.make(Engage_METHODS.reply, {
-    payload: Schema.Struct({ post: XPost, text: Schema.String }),
+    payload: Schema.Struct({
+      post: XPost,
+      text: Schema.String,
+      viaApi: Schema.optional(Schema.Boolean),
+    }),
     success: SentReply,
     error: EngageError,
   }),
   Rpc.make(Engage_METHODS.like, {
-    payload: Schema.Struct({ postId: XId }),
+    payload: Schema.Struct({ postId: XId, viaApi: Schema.optional(Schema.Boolean) }),
     success: Schema.Void,
     error: Schema.Union([XApiError, EngageError]),
   }),

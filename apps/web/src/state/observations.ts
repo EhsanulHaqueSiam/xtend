@@ -4,14 +4,17 @@ import * as Atom from "effect/reactivity/Atom";
 import * as Schema from "effect/Schema";
 
 import { clientRuntime, XtendClient } from "../rpc/client";
+import { observedAtom } from "./shell";
 
 // Keyed by the query's JSON so equal pages share one fetch.
 const InputJson = Schema.fromJsonString(ObservationListRecentInput);
 const decodeInput = Schema.decodeSync(InputJson);
 const encodeInput = Schema.encodeSync(InputJson);
+// Follows the session, so a free result fills in as the user browses X beside it.
 const seenPageFamily = Atom.family((key: string) =>
-  clientRuntime.atom(
+  clientRuntime.atom((get) =>
     Effect.gen(function* () {
+      get(observedAtom);
       const client = yield* XtendClient;
       return yield* client[WS_METHODS.observationsListRecent](decodeInput(key));
     }),
@@ -21,8 +24,10 @@ const seenPageFamily = Atom.family((key: string) =>
 export const seenPageAtom = (input: ObservationListRecentInput) =>
   seenPageFamily(encodeInput(input));
 
-export const recentPostsAtom = clientRuntime.atom(
+/** Follows the session, so a search on X beside Library or Compose shows up there free. */
+export const recentPostsAtom = clientRuntime.atom((get) =>
   Effect.gen(function* () {
+    get(observedAtom);
     const client = yield* XtendClient;
     return yield* client[WS_METHODS.observationsListRecent]({ limit: 100 });
   }),
@@ -30,8 +35,9 @@ export const recentPostsAtom = clientRuntime.atom(
 
 /** What the session saw one handle post, newest first: free to read, never a call to X. */
 export const seenByAtom = Atom.family((handle: string) =>
-  clientRuntime.atom(
+  clientRuntime.atom((get) =>
     Effect.gen(function* () {
+      get(observedAtom);
       const client = yield* XtendClient;
       return yield* client[WS_METHODS.observationsListRecent]({ authorHandle: handle, limit: 20 });
     }),

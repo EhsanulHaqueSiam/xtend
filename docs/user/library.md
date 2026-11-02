@@ -14,7 +14,9 @@ anywhere opens Picks with Search X focused.
 ## Picks
 
 Today's top posts for your keywords (Settings), and the staff picks under them: curated
-evergreen posts whose text arrives with one search per author. The selected pick offers **Why
+evergreen posts. A post your session saw this week with 200 likes or more for a keyword is a
+pick for free, and a staff pick fills in free once you open it on X; the paid fetch adds what
+the session has not seen. The selected pick offers **Why
 it works** and a **ready-to-post version** in your voice, each a model call. Ready to post,
 Archive's **Write mine in this format** and Trends' post ideas take a tone, or any, and offer
 three to pick from; the one you send lands in Compose as a suggested draft.
