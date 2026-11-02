@@ -358,12 +358,15 @@ export interface EnginePrompt {
   readonly button: { readonly text: string; readonly url: string } | null;
 }
 
-/** A people module X lists among a timeline's posts (Who to follow): its header and people. */
+/**
+ * A module X lists among a timeline's posts: a people module (Who to follow) with its header and
+ * people, or on Explore a titled box of posts (Posts For You), whose posts follow it in `order`.
+ */
 export interface EngineModule {
   /** X's entry id for the module (`who-to-follow-…`), which `order` names where X put it. */
   readonly id: string;
   readonly title: string;
-  /** The people X suggests, in X's order. */
+  /** The people X suggests, in X's order; none for a box of posts. */
   readonly userIds: ReadonlyArray<string>;
 }
 

@@ -481,11 +481,23 @@ export function createMockState() {
         const own = fixture(op, s(variables, "timeline_type") ?? "All");
         return own === undefined ? page(op, s(variables, "timeline_type") ?? null, []) : live(own);
       }
-      case "ExplorePage":
-        return {
-          ...live(explore),
-          trends: explore.trends.filter((t) => !hiddenTrends.get("/explore")?.has(t.name)),
-        };
+      case "ExplorePage": {
+        // For you, then the plain posts X pages in under it as it scrolls, and no more.
+        const n = pageOf(explore, cursor);
+        if (n === null) return null;
+        return n === 1
+          ? {
+              ...live(explore),
+              trends: explore.trends.filter((t) => !hiddenTrends.get("/explore")?.has(t.name)),
+            }
+          : n === 2
+            ? {
+                ...page(op, explore.key, morePages.forYou[1]!, { exploreTabs }),
+                cursor: cursor || null,
+                top: explore.top,
+              }
+            : null;
+      }
       case "GenericTimelineById": {
         const id = s(variables, "timelineId") ?? "";
         const tab = exploreTabs.find((t) => t.timelineId === id);
@@ -579,6 +591,19 @@ export function createMockState() {
               : b.metrics.likes - a.metrics.likes,
           );
         return page(op, `communitySearch:${id}:${mode}:${query}`, found);
+      }
+      // X's search of Communities, each tab its own operation; X finds nothing for a query the
+      // fixtures hold no answer for.
+      case "CommunitiesSearchQuery":
+      case "GlobalCommunitiesPostSearchTimeline":
+      case "GlobalCommunitiesLatestPostSearchTimeline": {
+        const query = s(variables, op === "CommunitiesSearchQuery" ? "query" : "rawQuery") ?? "";
+        const own = fixture(op, query);
+        return query === ""
+          ? null
+          : own === undefined
+            ? page(op, query, [], { top: null })
+            : live(own);
       }
       case "ConnectTabTimeline": {
         const creators = (s(variables, "context") ?? "").includes("isCreatorOnlyConnectTab");
@@ -784,6 +809,8 @@ export function createMockState() {
         ? undefined
         : { module, after: b.order[b.order.indexOf(module.id) - 1] };
     },
+    /** Post ids of Explore For you's second page, which X pages in as it scrolls. */
+    exploreNextIds: () => batchFor("ExplorePage", { cursor: explore.bottom })!.order,
     /** Post ids of a feed page after the first. */
     feedPageIds: (feed: Feed, n: number) => feedPage(feed, n).order,
     fixture,

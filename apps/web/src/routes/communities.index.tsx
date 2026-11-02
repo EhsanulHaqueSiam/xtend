@@ -1,7 +1,13 @@
 import { useAtomValue } from "@effect/atom-react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { Search } from "lucide-react";
 import { useCallback, useEffect } from "react";
 
+import {
+  CommunitiesSearch,
+  type CommunitiesSearchTab,
+} from "../components/xnative/CommunitiesSearch";
+import { ICON_BUTTON } from "../components/xnative/CommunityHeader";
 import { Timeline } from "../components/xnative/Timeline";
 import { XTabs, XTitle } from "../components/xnative/XColumn";
 import { at, type CommunitiesTab, engineAtom } from "../state/engine";
@@ -13,13 +19,22 @@ const TABS = [
 ] as const;
 type Tab = (typeof TABS)[number]["id"];
 
+/** X's Communities hub, or with `q` its search of Communities. */
+function CommunitiesScreen() {
+  const search = Route.useSearch();
+  return "q" in search ? (
+    <CommunitiesSearch key={search.q} q={search.q} tab={search.tab} />
+  ) : (
+    <CommunitiesHub tab={search.tab} />
+  );
+}
+
 /**
  * X's Communities, drawn by Xtend from the engine on x.com/<handle>/communities: Home, with the
  * user's Communities above posts from them, and Explore, posts from Communities to discover. X
  * labels each post with its Community.
  */
-function CommunitiesScreen() {
-  const { tab } = Route.useSearch();
+function CommunitiesHub({ tab }: { readonly tab: Tab }) {
   const navigate = useNavigate();
   const engine = useAtomValue(engineAtom);
   const current = TABS.find((t) => t.id === tab) ?? TABS[0];
@@ -43,7 +58,21 @@ function CommunitiesScreen() {
       surface={surface}
       header={
         <>
-          <XTitle title="Communities" />
+          <XTitle
+            title="Communities"
+            actions={
+              <button
+                type="button"
+                aria-label="Search Communities"
+                className={ICON_BUTTON}
+                onClick={() =>
+                  void navigate({ to: "/communities", search: { q: "", tab: "communities" } })
+                }
+              >
+                <Search className="size-5" />
+              </button>
+            }
+          />
           <XTabs
             label="Communities"
             tabs={TABS}
@@ -107,8 +136,12 @@ function MyCommunities() {
 }
 
 export const Route = createFileRoute("/communities/")({
-  validateSearch: (s: Record<string, unknown>): { tab: Tab } => ({
-    tab: s.tab === "explore" ? "explore" : "home",
-  }),
+  // With `q` (empty while the user types the first query), `tab` is the search's tab instead.
+  validateSearch: (
+    s: Record<string, unknown>,
+  ): { tab: Tab } | { q: string; tab: CommunitiesSearchTab } =>
+    typeof s.q === "string"
+      ? { q: s.q, tab: s.tab === "top" || s.tab === "latest" ? s.tab : "communities" }
+      : { tab: s.tab === "explore" ? "explore" : "home" },
   component: CommunitiesScreen,
 });
