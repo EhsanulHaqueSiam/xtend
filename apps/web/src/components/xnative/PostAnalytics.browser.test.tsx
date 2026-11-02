@@ -42,7 +42,7 @@ it("draws your post, then X's Post Analytics in X's order and words, without the
   ]);
 });
 
-it("opens Post Analytics from your own post's views and X's ... row without pressing X, and others' views still open the post", async () => {
+it("opens Post Analytics from your own post's views and X's ... row without pressing X, by the account X's nav names, and others' views still open the post", async () => {
   const bridge = installFakeBridge();
   // X's "..." for your own post; any press of X's row would run a script that clicks it.
   const scripts: Array<string> = [];
@@ -66,8 +66,19 @@ it("opens Post Analytics from your own post's views and X's ... row without pres
       { service: { "settings.get": () => Effect.succeed(settings) } },
     );
     const following = home!.batches.find((b) => b.op === "HomeLatestTimeline")!;
-    const theirs = following.posts[0]!;
-    bridge.emitEngine(home!.batches.find((b) => b.op === "Viewer")!);
+    // Someone else's post, its handle in another case than X's nav writes it.
+    const first = following.posts[0]!;
+    const theirs = {
+      ...first,
+      author: { ...first.author, handle: first.author.handle.toUpperCase() },
+    };
+    // X's nav names the signed-in account by handle alone; X may never make its Viewer call.
+    const navViewer = (handle: string) => ({
+      ...home!.batches.find((b) => b.op === "Viewer")!,
+      op: "ViewerFromNav",
+      viewer: { userId: null, handle, name: null, avatarUrl: null },
+    });
+    bridge.emitEngine(navViewer(yours.author.handle));
     bridge.emitEngine({
       ...following,
       posts: [yours, theirs],
@@ -88,6 +99,12 @@ it("opens Post Analytics from your own post's views and X's ... row without pres
     await page.getByRole("menuitem", { name: "View post analytics" }).click();
     await expect.poll(at).toBe(analyticsHref);
     expect(scripts.some((s) => s.includes("item.click()"))).toBe(false);
+
+    // Signed in to the other account now: its post is the user's own, and yours is not.
+    bridge.emitEngine(navViewer(first.author.handle));
+    await expect.element(other.getByRole("button", { name: "View post analytics" })).toBeVisible();
+    await own.getByRole("button", { name: "Views", exact: true }).click();
+    await expect.poll(at).toBe(`/post/${yours.postId}?h=${yours.author.handle}`);
   } finally {
     registerXWebview(null);
   }

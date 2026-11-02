@@ -494,8 +494,14 @@ export function XPostView({
       .writeText(postUrl(post))
       .then(() => setToast({ text: "Copied to clipboard" }));
   const m = post.metrics;
-  // X shows the author their poll's results; everyone else votes first.
-  const own = engine.viewer?.userId === post.author.userId;
+  // The signed-in account's own post: X shows it the poll's results and its Post Analytics. X's
+  // nav names the account by handle alone until X's Viewer call (if X makes one) gives its id.
+  const viewer = engine.viewer;
+  const own =
+    viewer !== null &&
+    (viewer.userId === null
+      ? viewer.handle.toLowerCase() === post.author.handle.toLowerCase()
+      : viewer.userId === post.author.userId);
   /** Votes through X's own poll for the user's click. */
   const vote = async (choice: string) => {
     const why = blocked();
