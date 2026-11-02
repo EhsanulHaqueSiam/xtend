@@ -11,6 +11,7 @@ import {
   xCommunityJoin,
   xCommunityPin,
   xActInPlace,
+  xFolderDialog,
   xFollow,
   xGifIdle,
   xGifPicker,
@@ -1718,6 +1719,34 @@ it("picks a game's tab once X answered for that game since the engine's last mov
     hero("Raptors", "Lakers");
     await vi.runAllTimersAsync();
     expect([await stale, clicked]).toEqual([true, ["Latest"]]);
+  } finally {
+    history.replaceState(null, "", start);
+  }
+});
+
+it("presses Delete Folder only in the editor X shows for that folder, never another folder's", async () => {
+  using _clock = fakeTimers();
+  const start = location.pathname + location.search;
+  const pressed: Array<string> = [];
+  // X's Edit Folder: its name field, then its red row.
+  const editor = (name: string) => {
+    document.body.innerHTML = `<div role="dialog"><input value="${name}"><div><span>Delete Folder</span></div></div>`;
+    document.querySelector("span")!.addEventListener("click", () => pressed.push(name));
+  };
+  inThisPage(() => `https://x.com${location.pathname}`);
+  // X is on this folder's route while the last folder's editor is still drawn.
+  editor("Ideas");
+  try {
+    const shown = xFolderDialog({ folderId: "801", name: "Reading" }, true, () => {});
+    await vi.advanceTimersByTimeAsync(1000);
+    expect([location.pathname, pressed]).toEqual(["/i/bookmarks/801/edit", []]);
+    editor("Reading");
+    await vi.advanceTimersByTimeAsync(200);
+    expect(pressed).toEqual(["Reading"]);
+    // The user confirmed in X's sheet: X leaves the route.
+    history.replaceState(null, "", start);
+    await vi.advanceTimersByTimeAsync(600);
+    expect(await shown).toBe(true);
   } finally {
     history.replaceState(null, "", start);
   }

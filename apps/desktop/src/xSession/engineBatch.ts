@@ -1058,9 +1058,14 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
           )
           ? "communities:mine"
           : null
-        : // An error alone (X's rate limit) carries no list, so it is no answer of nobody.
-          PEOPLE_PAGES.test(op) &&
-            !Array.isArray(record(record(result(data.user).timeline).timeline).instructions)
+        : // An error alone (X's rate limit) carries no list, so it is no answer of nobody, nor
+          // of an empty folder.
+          (PEOPLE_PAGES.test(op) &&
+              !Array.isArray(record(record(result(data.user).timeline).timeline).instructions)) ||
+            (op === "BookmarkFolderTimeline" &&
+              !Array.isArray(
+                record(record(data.bookmark_collection_timeline).timeline).instructions,
+              ))
           ? null
           : keyOf(op, variables, exploreTabs),
     // Explore asks with an empty cursor for its first page.

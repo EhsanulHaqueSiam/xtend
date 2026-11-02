@@ -2071,6 +2071,13 @@ describe("renderEngineBatch for bookmark folders", () => {
       { data: { bookmark_collection_timeline: { timeline: { instructions: [] } } } },
     );
     expect([empty.key, hasEngineContent(empty)]).toEqual(["802", true]);
+    // An error alone (X's rate limit) is no answer: the screen offers Load again, not "empty".
+    const limited = renderEngineBatch(
+      "BookmarkFolderTimeline",
+      { bookmark_collection_id: "802", includePromotedContent: true },
+      { errors: [{ code: 88, message: "Rate limit exceeded" }] },
+    );
+    expect([limited.key, hasEngineContent(limited)]).toEqual([null, false]);
 
     const did = (op: string, variables: Record<string, unknown>, data: Record<string, unknown>) =>
       renderEngineBatch(op, variables, { data }).bookmarkFolders;

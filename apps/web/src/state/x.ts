@@ -1195,29 +1195,33 @@ export const xToastUndo = () =>
   ).then((done) => done === true);
 
 /**
- * Opens X's own folder dialog for the user's click on X's route for it: Create (`folderId` null) or
+ * Opens X's own folder dialog for the user's click on X's route for it: Create (`folder` null) or
  * Edit, whose Delete Folder row `remove` presses so X asks its own confirm; over the main area until
  * X leaves the route. True once it came and went; false when X showed none (X sends an account
  * without folders back to Bookmarks); null when the user moved on.
  */
 export const xFolderDialog = async (
-  folderId: string | null,
+  folder: { readonly folderId: string; readonly name: string } | null,
   remove: boolean,
   over: (shown: boolean) => void,
 ): Promise<boolean | null> => {
   // No engine (a browser): no X. The id goes into a script: digits only.
-  if (element === null || !ready || (folderId !== null && !/^\d{1,25}$/.test(folderId)))
+  if (element === null || !ready || (folder !== null && !/^\d{1,25}$/.test(folder.folderId)))
     return false;
   const run = await nextRun();
-  const path = folderId === null ? "/i/bookmarks/create_folder" : `/i/bookmarks/${folderId}/edit`;
+  const path =
+    folder === null ? "/i/bookmarks/create_folder" : `/i/bookmarks/${folder.folderId}/edit`;
   await xGo(`https://x.com${path}`);
   const shown = await xRun(`(async () => {
     for (let i = 0; i < 50; i++) {
       if (!${stillMine(run)} || location.pathname !== ${JSON.stringify(path)}) return false;
       // A dialog on a wide window; the engine's narrow one gets X's compact layout, a page.
       const scope = document.querySelector('[role="dialog"]') ?? document;
-      // X's red row is a plain cell: its words are the only way to tell it.
-      const row = ${remove} ? [...scope.querySelectorAll("span, div, button")].find((el) => el.children.length === 0 && el.textContent.trim() === "Delete Folder") : null;
+      // X's red row is a plain cell: its words are the only way to tell it. Only in the editor
+      // whose name field holds this folder's name (X allows no two alike), never another
+      // folder's editor X still draws under this route.
+      const mine = [...scope.querySelectorAll("input")].some((f) => f.value === ${JSON.stringify(folder?.name ?? null)});
+      const row = ${remove} && mine ? [...scope.querySelectorAll("span, div, button")].find((el) => el.children.length === 0 && el.textContent.trim() === "Delete Folder") : null;
       // X sends an account without folders off the route at once; one it keeps is X's form.
       if (${remove} ? row : i >= 10) {
         row?.click();

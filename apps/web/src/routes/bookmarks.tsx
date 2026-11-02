@@ -46,15 +46,18 @@ const thumbnail = (url: string | null) =>
 function FolderMenu({
   name,
   open,
+  listed,
   folders,
   onPick,
   onDialog,
 }: {
   readonly name: string;
   readonly open: string | undefined;
+  /** The open folder as X lists it, which X's Edit and Delete act on. */
+  readonly listed: EngineBookmarkFolder | undefined;
   readonly folders: ReadonlyArray<EngineBookmarkFolder> | null;
   readonly onPick: (folderId: string | undefined) => void;
-  readonly onDialog: (folderId: string | null, remove: boolean) => void;
+  readonly onDialog: (folder: EngineBookmarkFolder | null, remove: boolean) => void;
 }) {
   const row = (label: ReactNode, on: boolean, pick: () => void, key: string) => (
     <MenuItem key={key} onClick={pick}>
@@ -84,10 +87,10 @@ function FolderMenu({
       )}
       <div role="separator" className="my-1 h-px bg-border" />
       <MenuItem onClick={() => onDialog(null, false)}>Create Folder</MenuItem>
-      {open === undefined ? null : (
+      {listed === undefined ? null : (
         <>
-          <MenuItem onClick={() => onDialog(open, false)}>Edit Folder</MenuItem>
-          <MenuItem onClick={() => onDialog(open, true)}>Delete Folder</MenuItem>
+          <MenuItem onClick={() => onDialog(listed, false)}>Edit Folder</MenuItem>
+          <MenuItem onClick={() => onDialog(listed, true)}>Delete Folder</MenuItem>
         </>
       )}
     </Menu>
@@ -149,10 +152,10 @@ function BookmarksScreen() {
   useEffect(() => {
     latest.current = go;
   });
-  const dialog = async (folderId: string | null, remove: boolean) => {
+  const dialog = async (folder: EngineBookmarkFolder | null, remove: boolean) => {
     const why = blocked();
     if (why !== null) return setToast({ text: why });
-    const shown = await xFolderDialog(folderId, remove, setOver);
+    const shown = await xFolderDialog(folder, remove, setOver);
     if (shown === false)
       setToast({ text: "X did not open its folder dialog. Try again in a moment." });
     else if (shown) latest.current();
@@ -176,6 +179,7 @@ function BookmarksScreen() {
               <FolderMenu
                 name={name}
                 open={open}
+                listed={listed}
                 folders={folders}
                 onPick={(id) =>
                   void navigate({
@@ -183,7 +187,7 @@ function BookmarksScreen() {
                     search: id === undefined ? {} : { folder: id },
                   })
                 }
-                onDialog={(id, remove) => void dialog(id, remove)}
+                onDialog={(f, remove) => void dialog(f, remove)}
               />
             ) : (
               <FolderUpsell />
