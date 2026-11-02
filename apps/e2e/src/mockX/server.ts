@@ -12,7 +12,7 @@ import {
   unfollowSheet,
 } from "./menus.ts";
 import { pollMarkup, postsOf, route } from "./pages.ts";
-import { createMockState, type GraphqlRequest, type Json } from "./state.ts";
+import { createMockState, type GraphqlRequest, type Json, type MockOptions } from "./state.ts";
 
 /**
  * Mock X over HTTP on 127.0.0.1: every x.com page path answers with mock X's document, and
@@ -74,9 +74,16 @@ const readBody = async (req: NodeHttp.IncomingMessage): Promise<Json> => {
   }
 };
 
-/** Starts mock X on `port` (0 picks one). `close` stops it. */
-export async function startMockX(options: { readonly port?: number } = {}) {
-  const state = createMockState();
+/**
+ * Starts mock X on `port` (0 picks one). `latencyMs` holds each GraphQL read that long, as X's
+ * network does; the screens' tests leave it at 0. `close` stops it.
+ */
+export async function startMockX(
+  options: MockOptions & { readonly port?: number; readonly latencyMs?: number } = {},
+) {
+  const state = createMockState(options);
+  const latency = () =>
+    options.latencyMs ? new Promise((r) => setTimeout(r, options.latencyMs)) : undefined;
   /** Every GraphQL read the page made, with its variables, in order. */
   const reads: Array<GraphqlRequest> = [];
   const ops = [...WRITES, ...POSTED];
@@ -109,6 +116,7 @@ export async function startMockX(options: { readonly port?: number } = {}) {
         ) as Json;
         if (WRITES.has(op)) return json(state.write(op, variables, from));
         reads.push({ op, variables });
+        await latency();
         return json(state.respond(op, variables));
       }
       let variables: Json = {};
@@ -116,6 +124,7 @@ export async function startMockX(options: { readonly port?: number } = {}) {
         variables = JSON.parse(url.searchParams.get("variables") ?? "{}") as Json;
       } catch {}
       reads.push({ op, variables });
+      await latency();
       return json(state.respond(op, variables));
     }
     const restWrite = /^\/i\/api\/1\.1\/(.+)\.json$/.exec(url.pathname);

@@ -231,6 +231,12 @@ the machine; a packaged build ignores it.
 - `pnpm test:engine` builds the web app and the desktop, then drives Xtend's screens on the
   desktop with mock X as the engine (`apps/e2e/src/engine`). CI runs it in the build job under
   `xvfb-run`.
+- `pnpm bench:scroll` reads For you at a steady pace through a long mock feed whose reads answer
+  after a delay (`--pages`, `--latency`, `--speed`, `--photo-every`), and reports the time spent
+  stuck at the list's end, frames, and each process's memory and heap. Run it before and after a
+  change to infinite scroll (`--out` then `--compare`). Working set moves 10 to 20% run to run;
+  heap and DOM counts are the stable memory numbers. Mock X keeps every post in its DOM, so the
+  engine's numbers there are not X's.
 - `graphql.test.ts` holds the contract: every request mock X's pages make, read by the
   capture's `renderEngineBatch`, is the matching `synth()` batch. A capture change that drifts
   from X's shapes fails there or in `engineBatch.test.ts`.
