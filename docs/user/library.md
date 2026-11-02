@@ -28,9 +28,10 @@ and the picks, filed under Compose's Drafts, marked with where they came from.
 
 X's own top posts by engagement (Creator Studio's Inspiration), free through your X session in
 the desktop app. Pick X's period (**Last 24h**, **Last 7d**, **Last 30d**) and what they ranked
-by (**Most Likes** and the rest) as X offers them; each pick asks X's own page, and the list
-waits for X's answer. The header shows X's language. To change the language or country, change
-it on X's Inspiration page itself; the Library follows what X shows.
+by (**Most Likes** and the rest) as X offers them; each pick asks X's own page. A choice X
+showed before keeps its last list until X answers again. The header shows X's language. To
+change the language or country, change it on X's Inspiration page itself; the Library follows
+what X shows.
 
 ## Search
 

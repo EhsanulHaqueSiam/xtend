@@ -207,21 +207,30 @@ export const xPickCommunitySearchTab = async (
 /** X's Inspiration (Creator Studio's top posts by engagement), free without Premium. */
 export const INSPIRATION_URL = "https://x.com/i/jf/creators/inspiration/top_posts";
 
+/** Inspiration presses in the order asked, and per filter group the latest one asked. */
+let inspirationPresses: Promise<unknown> = Promise.resolve();
+const inspirationLatest = new Map<"period" | "engagement", object>();
+
 /**
  * Presses X's Inspiration filter `label` (Last 7d, Most Replies) once `loaded` settles and X has
- * drawn it, while the engine shows that page, the screen has not let it go (`signal`) and this is
- * the user's latest press. X's Creator Studio buttons answer a pointer's whole press, not click().
+ * drawn it, while the engine shows that page and the screen has not let it go (`signal`). Presses
+ * run one at a time; only a later pick in the same `group` drops one still waiting its turn.
+ * X's Creator Studio buttons answer a pointer's whole press, not click().
  */
-export const xPickInspiration = async (
+export const xPickInspiration = (
+  group: "period" | "engagement",
   label: string,
   loaded: Promise<unknown>,
   signal: AbortSignal,
 ) => {
-  await loaded;
-  if (signal.aborted) return false;
-  const run = await nextRun();
-  return (
-    (await xRun(`(async () => {
+  const mine = {};
+  inspirationLatest.set(group, mine);
+  const press = inspirationPresses.then(async () => {
+    await loaded;
+    if (signal.aborted || inspirationLatest.get(group) !== mine) return false;
+    const run = await nextRun();
+    return (
+      (await xRun(`(async () => {
     for (let i = 0; i < 40 && ${stillMine(run)}; i++) {
       const button = location.pathname === ${JSON.stringify(new URL(INSPIRATION_URL).pathname)}
         ? [...document.querySelectorAll('button[type="button"]')].find((b) => b.textContent.trim() === ${JSON.stringify(label)})
@@ -236,7 +245,10 @@ export const xPickInspiration = async (
     }
     return false;
   })()`)) === true
-  );
+    );
+  });
+  inspirationPresses = press.catch(() => false);
+  return press;
 };
 
 /**

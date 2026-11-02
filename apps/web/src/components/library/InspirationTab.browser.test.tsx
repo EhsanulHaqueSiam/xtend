@@ -98,6 +98,10 @@ it("draws X's Inspiration as X's page filters it, presses X's own filter for a p
     await userEvent.click(card.getByRole("button", { name: "Save", exact: true }));
     expect(saves).toEqual([`https://x.com/${week!.author.handle}/status/${week!.postId}`]);
 
+    // Back to a period X sent before: X may show it from its own cache and send nothing.
+    await userEvent.click(screen.getByRole("tab", { name: "Last 24h" }));
+    await expect.element(screen.getByText(today!.text)).toBeVisible();
+
     await userEvent.click(screen.getByRole("button", { name: "Most Likes" }));
     await userEvent.click(page.getByRole("menuitem", { name: "Most Replies" }));
     await expect.poll(() => scripts.some((s) => s.includes('"Most Replies"'))).toBe(true);

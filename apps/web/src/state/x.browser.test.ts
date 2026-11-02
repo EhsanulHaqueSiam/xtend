@@ -1303,7 +1303,7 @@ it("presses X's Inspiration filter as a pointer's whole press, only that filter,
   const pressed: Array<string> = [];
   // X's Creator Studio buttons act on a pointer's press: a bare click() does nothing.
   const draw = () => {
-    document.body.innerHTML = ["💬 EN", "Last 24h", "Last 7d", "Most Likes"]
+    document.body.innerHTML = ["💬 EN", "Last 24h", "Last 7d", "Most Likes", "Most Replies"]
       .map((label) => `<button type="button">${label}</button>`)
       .join("");
     for (const button of document.querySelectorAll("button")) {
@@ -1320,13 +1320,30 @@ it("presses X's Inspiration filter as a pointer's whole press, only that filter,
   try {
     draw();
     history.replaceState(null, "", "/i/jf/creators/studio");
-    const away = xPickInspiration("Last 7d", Promise.resolve(), new AbortController().signal);
+    const open = new AbortController().signal;
+    const away = xPickInspiration("period", "Last 7d", Promise.resolve(), open);
     await vi.runAllTimersAsync();
     expect([await away, pressed]).toEqual([false, []]);
     history.replaceState(null, "", "/i/jf/creators/inspiration/top_posts");
-    const picked = xPickInspiration("Last 7d", Promise.resolve(), new AbortController().signal);
+    const picked = xPickInspiration("period", "Last 7d", Promise.resolve(), open);
     await vi.runAllTimersAsync();
     expect([await picked, pressed]).toEqual([true, ["Last 7d"]]);
+    // Picked while X still draws its buttons: an engagement and a period both reach X, in order,
+    // and a second period still waiting its turn replaces the first.
+    pressed.length = 0;
+    document.body.innerHTML = "";
+    const picks = [
+      xPickInspiration("engagement", "Most Replies", Promise.resolve(), open),
+      xPickInspiration("period", "Last 7d", Promise.resolve(), open),
+      xPickInspiration("period", "Last 24h", Promise.resolve(), open),
+    ];
+    await vi.advanceTimersByTimeAsync(300);
+    draw();
+    await vi.runAllTimersAsync();
+    expect([await Promise.all(picks), pressed]).toEqual([
+      [true, false, true],
+      ["Most Replies", "Last 24h"],
+    ]);
   } finally {
     history.replaceState(null, "", start);
   }

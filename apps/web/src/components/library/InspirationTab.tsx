@@ -1,4 +1,4 @@
-import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useAtomValue } from "@effect/atom-react";
 import { Check, ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -9,9 +9,7 @@ import {
   type Inspiration,
   inspirationSurface,
   postOn,
-  resetSurface,
   toXPost,
-  updateEngine,
 } from "../../state/engine";
 import { INSPIRATION_URL, xGo, xNavigate, xOverEnded, xPickInspiration } from "../../state/x";
 import { HeaderTabs, PageHeader } from "../PageHeader";
@@ -47,7 +45,6 @@ type Filter = keyof typeof FILTERS;
  */
 export function InspirationTab() {
   const engine = useAtomValue(engineAtom);
-  const setEngine = useAtomSet(engineAtom);
   const saved = useSavedIds();
   const x = engine.inspiration;
   // The user's picks X has not answered yet: any answer from X since ends them.
@@ -88,14 +85,9 @@ export function InspirationTab() {
   const pick = (filter: Filter, id: string) => {
     const label = FILTERS[filter].find((f) => f.id === id)?.label;
     if (label === undefined || shown[filter] === id) return;
-    const next = { ...shown, [filter]: id };
-    // Its list starts afresh, so it is X's answer in X's order; unless X shows it already.
-    if (x !== null && (next.period !== x.period || next.engagement !== x.engagement))
-      setEngine(
-        updateEngine((s) => resetSurface(s, inspirationSurface({ ...next, language: x.language }))),
-      );
+    // A list X sent before stays: X may show it again from its own cache, sending nothing.
     setAsked({ ...waiting, since: x, [filter]: id });
-    void xPickInspiration(label, loaded.current, live.current.signal);
+    void xPickInspiration(filter, label, loaded.current, live.current.signal);
   };
 
   return (

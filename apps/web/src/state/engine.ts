@@ -504,7 +504,16 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
           },
   };
   const listed = surfacesOf(batch).reduce(
-    (state, surface) => mergeInto(state, batch, surface),
+    (state, surface) =>
+      mergeInto(
+        // Inspiration's first page is X's whole ranking again, so it replaces the list; Home's
+        // waits behind a pill, which Inspiration does not draw.
+        surface.startsWith("inspiration:") && batch.cursor === null
+          ? resetSurface(state, surface)
+          : state,
+        batch,
+        surface,
+      ),
     merged,
   );
   if (!/^Create(Note)?Tweet$/.test(batch.op)) return listed;

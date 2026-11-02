@@ -461,7 +461,7 @@ const SCRIPT = String.raw`
   });
 
   // X's Creator Studio (Jetfuel) buttons act on a pointer's whole press, as on x.com: a bare
-  // click() does nothing. Each filter change asks X afresh, even for filters it showed before.
+  // click() does nothing. Filters shown before come back from the page cache, sending nothing.
   const jfPress = { down: null, up: null };
   const jfAt = (event) => (event.isPrimary && event.pointerType === "mouse" && event.target instanceof Element ? event.target.closest("[data-jf]") : null);
   addEventListener("pointerdown", (event) => { jfPress.down = jfAt(event); }, true);
@@ -476,7 +476,6 @@ const SCRIPT = String.raw`
     log("jf:" + el.textContent.trim());
     const [engagement, period] = pageTab(here()).split(":");
     localStorage.setItem("mockx:tab:inspiration", filter === "period" ? engagement + ":" + id : id + ":" + period);
-    cache.delete(cacheKey(here()));
     void show();
   });
 
