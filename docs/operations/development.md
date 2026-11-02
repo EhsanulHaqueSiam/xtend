@@ -215,7 +215,7 @@ Both need `pnpm build` first.
 
 ## Mock X
 
-`apps/e2e/src/mockX` is a local x.com for the engine: X's pages (Home with its tabs, a post and its
+`apps/e2e/src/mockX` is a local x.com for the engine: X's pages (Home with its tabs, an Article's reader, a post and its
 reply sorts, profiles, search tabs, Bookmarks, Notifications, Explore, Lists and a List's people,
 Post activity, your own post's Post Analytics, the Follow page, Communities with their search, a Community's tabs and search) with X's markup and test ids, X's client-side routing and page
 cache, and X's GraphQL answers built from the made-up people and posts of `synth()`. Presses

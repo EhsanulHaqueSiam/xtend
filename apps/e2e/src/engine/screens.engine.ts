@@ -954,3 +954,24 @@ test("Explore finds virtualized trends above and below X's scroll for menu reads
   await e.app.getByRole("button", { name: "Undo", exact: true }).click();
   await row.waitFor();
 });
+
+test("An Article's card opens Xtend's reader with the engine on X's reader page, the body from X's answer", async () => {
+  const reader = e.mock.state.fixtures().article!.batches[0]!;
+  const post = reader.posts[0]!;
+  const pressed = presses().length;
+  await go(`/post/${post.postId}?h=${post.author.handle}`);
+  await e.app.locator(`main article[data-post="${post.postId}"] [data-x="card"]`).click();
+  await expect.poll(enginePath).toBe(`/${post.author.handle}/article/${post.postId}`);
+  const column = e.app.locator('main [data-x="column"]');
+  await expect
+    .poll(() => column.locator('[data-x="article-title"]').textContent())
+    .toBe(post.card!.title);
+  const body = column.locator('[data-x="article-body"]');
+  await expect.poll(() => body.locator("h3").first().textContent()).toBe("What we tried");
+  // X's own page drew the same Article, and nothing was pressed to read it.
+  const first = reader.articles![0]!.blocks[0]!.text;
+  expect(
+    await e.engine<boolean>(`document.body.innerText.includes(${JSON.stringify(first)})`),
+  ).toBe(true);
+  expect(presses()).toHaveLength(pressed);
+});

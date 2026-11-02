@@ -129,6 +129,39 @@ export interface EngineCard {
   readonly imageUrl: string | null;
 }
 
+/**
+ * One paragraph of an X Article as X's editor saved it (a Draft.js block), its entities resolved.
+ * Offsets count code points, as Draft.js does, not UTF-16 units.
+ */
+export interface EngineArticleBlock {
+  /** X's editor's id for the block. */
+  readonly key: string;
+  /** X's block type: unstyled, header-one/two/three, blockquote, (un)ordered-list-item, code-block, atomic. */
+  readonly type: string;
+  readonly text: string;
+  /** Bold, Italic and the like, as X names them. */
+  readonly styles: ReadonlyArray<{
+    readonly offset: number;
+    readonly length: number;
+    readonly style: string;
+  }>;
+  readonly links: ReadonlyArray<{
+    readonly offset: number;
+    readonly length: number;
+    readonly url: string;
+  }>;
+  /** An atomic block's images, from the Article's own media. */
+  readonly images: ReadonlyArray<Pick<EngineMedia, "url" | "width" | "height">>;
+  /** An atomic block's Markdown: a fenced code block or a table. */
+  readonly markdown: string | null;
+}
+
+/** An X Article's body, sent on its own page only; `postId` is the post that carries it. */
+export interface EngineArticle {
+  readonly postId: string;
+  readonly blocks: ReadonlyArray<EngineArticleBlock>;
+}
+
 export interface EnginePoll {
   readonly choices: ReadonlyArray<{ readonly label: string; readonly votes: number }>;
   readonly endsAt: string | null;
@@ -386,6 +419,8 @@ export interface EngineBatch {
   readonly trends: ReadonlyArray<EngineTrend>;
   readonly notifications: ReadonlyArray<EngineNotification>;
   readonly lists: ReadonlyArray<EngineList>;
+  /** Article bodies, only on a response that carries one (X's reader page). */
+  readonly articles?: ReadonlyArray<EngineArticle>;
   /** Every Community the response names, in X's order (the user's Communities, a Community's page). */
   readonly communities: ReadonlyArray<EngineCommunity>;
   readonly homeTabs: ReadonlyArray<EngineHomeTab> | null;

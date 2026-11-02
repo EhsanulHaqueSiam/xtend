@@ -252,6 +252,103 @@ describe("renderEngineBatch posts", () => {
       final: false,
       voted: 2,
     });
+    // A timeline carries the Article's preview, not its body.
+    expect(batch.articles).toBeUndefined();
+  });
+
+  it("reads an Article's body on its reader page: styles, links, images by media id and Markdown", () => {
+    const block = (key: string, type: string, text: string, extra = {}) => ({
+      key,
+      type,
+      text,
+      inlineStyleRanges: [],
+      entityRanges: [],
+      data: {},
+      ...extra,
+    });
+    const entity = (key: string, type: string, data: unknown) => ({
+      key,
+      value: { type, mutability: "Mutable", data },
+    });
+    const article = {
+      rest_id: "55",
+      title: "Brand factory",
+      media_entities: [
+        {
+          media_id: "91",
+          media_info: {
+            original_img_url: "https://pbs.twimg.com/media/p.jpg",
+            original_img_width: 1200,
+            original_img_height: 800,
+          },
+        },
+      ],
+      content_state: {
+        blocks: [
+          block("a", "header-two", "Why brands"),
+          block("b", "unstyled", "Read 🙂 the guide now", {
+            inlineStyleRanges: [{ offset: 5, length: 3, style: "Bold" }],
+            entityRanges: [{ offset: 9, length: 5, key: 0 }],
+          }),
+          block("c", "atomic", " ", { entityRanges: [{ offset: 0, length: 1, key: 1 }] }),
+          block("d", "atomic", " ", { entityRanges: [{ offset: 0, length: 1, key: 2 }] }),
+          // An embedded post keeps its text; a link that is not the web's is no link.
+          block("e", "unstyled", "See this post", {
+            entityRanges: [
+              { offset: 0, length: 3, key: 3 },
+              { offset: 4, length: 4, key: 4 },
+            ],
+          }),
+        ],
+        entityMap: [
+          entity("0", "LINK", { url: "https://example.com/guide" }),
+          entity("1", "MEDIA", {
+            mediaItems: [{ mediaId: "91", localMediaId: "5", mediaCategory: "DraftTweetImage" }],
+          }),
+          entity("2", "MARKDOWN", { markdown: "```ts\nconst a = 1;\n```" }),
+          entity("3", "TWEET", { tweetId: "77" }),
+          entity("4", "LINK", { url: "javascript:alert(1)" }),
+        ],
+      },
+    };
+    const batch = renderEngineBatch(
+      "TweetResultByRestId",
+      { tweetId: "2" },
+      {
+        data: {
+          tweetResult: {
+            result: tweet("2", {}, { article: { article_results: { result: article } } }),
+          },
+        },
+      },
+    );
+    expect(batch.posts[0]?.card?.url).toBe("https://x.com/i/article/55");
+    const none = { styles: [], links: [], images: [], markdown: null };
+    expect(batch.articles).toEqual([
+      {
+        postId: "2",
+        blocks: [
+          { ...none, key: "a", type: "header-two", text: "Why brands" },
+          {
+            ...none,
+            key: "b",
+            type: "unstyled",
+            text: "Read 🙂 the guide now",
+            styles: [{ offset: 5, length: 3, style: "Bold" }],
+            links: [{ offset: 9, length: 5, url: "https://example.com/guide" }],
+          },
+          {
+            ...none,
+            key: "c",
+            type: "atomic",
+            text: " ",
+            images: [{ url: "https://pbs.twimg.com/media/p.jpg", width: 1200, height: 800 }],
+          },
+          { ...none, key: "d", type: "atomic", text: " ", markdown: "```ts\nconst a = 1;\n```" },
+          { ...none, key: "e", type: "unstyled", text: "See this post" },
+        ],
+      },
+    ]);
   });
 
   it("carries X's social context to the post below it, not to the post it quotes", () => {

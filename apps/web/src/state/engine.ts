@@ -1,4 +1,5 @@
 import type {
+  EngineArticle,
   EngineBatch,
   EngineCommunity,
   EngineExploreTab,
@@ -351,6 +352,11 @@ export interface EngineState {
   readonly communities: ReadonlyMap<string, EngineCommunity>;
   /** Community ids per surface, in X's order (the user's Communities). */
   readonly communityIds: PerSurface<string>;
+  /**
+   * Article bodies by the post that carries them. Apart from `posts`: a timeline sends the same
+   * post again with its card only, and X's cached reader page sends nothing.
+   */
+  readonly articles: ReadonlyMap<string, EngineArticle>;
   /** Home's pinned tabs after For you and Following, as X named them. */
   readonly homeTabs: ReadonlyArray<EngineHomeTab>;
   readonly exploreTabs: ReadonlyArray<EngineExploreTab>;
@@ -386,6 +392,7 @@ export const emptyEngine: EngineState = {
   listIds: NONE,
   communities: new Map(),
   communityIds: NONE,
+  articles: new Map(),
   homeTabs: [],
   exploreTabs: [],
   inspiration: null,
@@ -507,6 +514,10 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
     communities,
     homeTabs: batch.homeTabs ?? state.homeTabs,
     exploreTabs: batch.exploreTabs ?? state.exploreTabs,
+    articles:
+      batch.articles === undefined
+        ? state.articles
+        : new Map([...state.articles, ...batch.articles.map((a) => [a.postId, a] as const)]),
     inspiration: inspirationOf(batch) ?? state.inspiration,
     // X's nav names no user id; keep the one X's Viewer call gave for the same account.
     viewer:

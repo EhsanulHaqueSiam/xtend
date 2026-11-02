@@ -13,6 +13,7 @@ const PAGES: ReadonlyArray<readonly [path: string, tab?: string]> = [
   ["/home", "following"],
   ["/home", "forYou"],
   ["/noor_lind/status/700000000016"],
+  ["/theo_varga/article/700000000980"],
   ["/mira_brandt"],
   ["/notifications"],
   ["/notifications/mentions"],
