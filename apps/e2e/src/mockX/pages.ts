@@ -654,7 +654,8 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
           render: () =>
             `${header("Chat", false)}<div class="empty"><h3>Welcome to your inbox!</h3></div>`,
         };
-  // X's GIF search, opened over the composer by its GIF button; typing searches in place.
+  // X's GIF search, opened by the composer's GIF button; typing searches in place. At the engine's
+  // width X draws it in its compact layout, as the page itself with its only Back, not a dialog.
   if (lower === "i" && second === "foundmedia" && third === "search") {
     const query = q.get("q") ?? "";
     return {
@@ -662,7 +663,7 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
       requests: [r("GifSearch", { query })],
       paged: 0,
       render: ([b]) =>
-        `<div role="dialog" aria-modal="true" aria-label="Search for GIFs"><div class="bar"><button data-testid="app-bar-back" aria-label="Back">←</button><input placeholder="Search for GIFs" value="${esc(query)}"></div><label>Auto-play GIFs <input type="checkbox" role="switch" checked></label><section data-list>${postsOf(b ?? null, state)}</section></div>`,
+        `<div class="bar"><button data-testid="app-bar-back" aria-label="Back">←</button><input placeholder="Search for GIFs" value="${esc(query)}"></div><label>Auto-play GIFs <input type="checkbox" role="switch" checked></label><section data-list>${postsOf(b ?? null, state)}</section>`,
     };
   }
   if (lower === "compose")

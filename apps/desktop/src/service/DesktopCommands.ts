@@ -391,18 +391,40 @@ const FILL = `function (value) {
 }`;
 const BACKGROUND = `function () { return getComputedStyle(this).backgroundImage; }`;
 
+const objectOf = async (cdp: Cdp, nodeId: number) =>
+  ((await cdp("DOM.resolveNode", { nodeId })) as { object: { objectId: string } }).object.objectId;
+
 /** What `declaration` returns, run on the node with `value`. */
 async function callOn(cdp: Cdp, nodeId: number, declaration: string, value?: string) {
-  const { object } = (await cdp("DOM.resolveNode", { nodeId })) as {
-    object: { objectId: string };
-  };
   const { result } = (await cdp("Runtime.callFunctionOn", {
-    objectId: object.objectId,
+    objectId: await objectOf(cdp, nodeId),
     functionDeclaration: declaration,
     arguments: [{ value }],
     returnByValue: true,
   })) as { result: { value: unknown } };
   return result.value;
+}
+
+const NEAREST_BACK = `function () {
+  for (let n = this.parentElement; n !== null; n = n.parentElement) {
+    const back = n.querySelector(${JSON.stringify(X_COMPOSER.gifBack)});
+    if (back !== null) return back;
+  }
+  return null;
+}`;
+
+/** X's Back for its GIF search, found from the search's field (see `X_COMPOSER.gifBack`). */
+async function gifBack(cdp: Cdp, field: number): Promise<number> {
+  const { result } = (await cdp("Runtime.callFunctionOn", {
+    objectId: await objectOf(cdp, field),
+    functionDeclaration: NEAREST_BACK,
+    returnByValue: false,
+  })) as { result: { objectId?: string } };
+  if (result.objectId === undefined) throw new Error("x.com's GIF search has no Back");
+  const { nodeId } = (await cdp("DOM.requestNode", { objectId: result.objectId })) as {
+    nodeId: number;
+  };
+  return nodeId;
 }
 
 /** Picks `value` in a select; false when it has no such option. */
@@ -556,8 +578,9 @@ async function takeBack(cdp: Cdp, touched: Touched, error: unknown): Promise<Not
   });
   // So would X's GIF search, open over the composer.
   await undo("X's GIF search", async () => {
-    if ((await query(cdp, X_COMPOSER.gifSearch)).length === 0) return;
-    await click(cdp, await control(cdp, X_COMPOSER.gifBack, "GIF search Back"));
+    const [field] = (await query(cdp, X_COMPOSER.gifSearch)).toReversed();
+    if (field === undefined) return;
+    await click(cdp, await gifBack(cdp, field));
     await waitForGone(cdp, X_COMPOSER.gifSearch, soon());
   });
   if (touched.reply)

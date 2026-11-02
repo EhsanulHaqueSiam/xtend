@@ -46,6 +46,8 @@ interface FakeOptions {
   readonly noRemovePoll?: boolean;
   /** Post stays disabled, as while an upload never finishes. */
   readonly postDisabled?: boolean;
+  /** X's compact layout (the engine's width): the GIF search is a page with the only Back. */
+  readonly compact?: boolean;
 }
 
 /** X's GIF search for "cat", page by page: X adds the next as its list scrolls to the end. */
@@ -62,6 +64,8 @@ function fakeX(markup: string, log: Array<string>, options: FakeOptions = {}) {
   document.body.innerHTML = markup;
   const reply = document.querySelector<HTMLElement>('button[aria-label$="can reply"]');
   const layers = document.getElementById("layers");
+  // Body outlives a test with its listeners, so what one draws goes in this markup's own nodes.
+  const root = document.getElementById("react-root");
   const pollBox = document.querySelector<HTMLElement>('[data-x="poll"]');
   const mediaBox = document.querySelector<HTMLElement>('[data-x="media"]');
   if (options.postDisabled === true)
@@ -109,12 +113,14 @@ function fakeX(markup: string, log: Array<string>, options: FakeOptions = {}) {
       target.closest("[data-x=attachment]")?.remove();
     else if (target.closest('[data-testid="gifSearchButton"]') !== null) {
       // X's GIF search over the composer: the tiles for what is typed, the next page on scroll.
-      layers?.insertAdjacentHTML(
-        "beforeend",
-        `<div role="dialog"><button data-testid="app-bar-back">Back</button><input placeholder="Search for GIFs" /><div data-x="tiles"></div></div>`,
-      );
-      const field = layers!.querySelector("input")!;
-      const tiles = layers!.querySelector<HTMLElement>("[data-x=tiles]")!;
+      const search = `<div class="bar"><button data-testid="app-bar-back">Back</button></div><div><input placeholder="Search for GIFs" /></div><div data-x="tiles"></div>`;
+      const page = document.createElement(options.compact === true ? "main" : "div");
+      page.dataset.x = "gif-search";
+      if (options.compact !== true) page.setAttribute("role", "dialog");
+      page.innerHTML = search;
+      (options.compact === true ? root : layers)?.append(page);
+      const field = page.querySelector("input")!;
+      const tiles = page.querySelector<HTMLElement>("[data-x=tiles]")!;
       let pages = 0;
       field.addEventListener("input", () => {
         log.push(`search ${field.value}`);
@@ -127,14 +133,14 @@ function fakeX(markup: string, log: Array<string>, options: FakeOptions = {}) {
       });
     } else if (target.dataset.testid === "gifSearchGifImage") {
       log.push(`gif ${/\/media\/(\w+)\//.exec(target.getAttribute("style") ?? "")?.[1]}`);
-      layers?.querySelector('[role="dialog"]')?.remove();
+      target.closest("[data-x=gif-search]")?.remove();
       mediaBox?.insertAdjacentHTML(
         "beforeend",
         '<div data-x="attachment"><button aria-label="Remove media">x</button></div>',
       );
-    } else if (target.closest('[role="dialog"] [data-testid="app-bar-back"]') !== null) {
+    } else if (target.closest('[data-x=gif-search] [data-testid="app-bar-back"]') !== null) {
       log.push("gif search back");
-      target.closest('[role="dialog"]')?.remove();
+      target.closest("[data-x=gif-search]")?.remove();
     } else if (target.dataset.testid === "tweetButton") {
       if (layers?.querySelector('[data-testid="HoverCard"]') !== null) log.push("popover open");
       log.push(`press Post, ${reply?.getAttribute("aria-label")}`);
@@ -202,16 +208,18 @@ function domCdp(log: Array<string>) {
         const fn = (0, eval)(`(${String(params.functionDeclaration)})`) as (
           ...values: Array<unknown>
         ) => unknown;
-        const args = params.arguments as Array<{ value: unknown }>;
-        return {
-          result: {
-            value: fn.apply(
-              at(params),
-              args.map((a) => a.value),
-            ),
-          },
-        };
+        const args = (params.arguments as Array<{ value: unknown }> | undefined) ?? [];
+        const value = fn.apply(
+          at(params),
+          args.map((a) => a.value),
+        );
+        // A node handed back by reference, as Chromium answers without returnByValue.
+        return params.returnByValue === false
+          ? { result: value instanceof Element ? { objectId: String(idOf(value)) } : {} }
+          : { result: { value } };
       }
+      case "DOM.requestNode":
+        return { nodeId: Number(params.objectId) };
       case "Input.dispatchMouseEvent": {
         if (params.type !== "mouseReleased") return {};
         const el = document.elementFromPoint(Number(params.x), Number(params.y)) as HTMLElement;
@@ -402,10 +410,12 @@ it("picks the GIF in X's own search, paging X's list to reach it, before typing 
   expect(composer()).toEqual({ ...EMPTY, text: "meow", media: 1 });
 });
 
-it("leaves X's GIF search and refuses before Post when the picked GIF is not in it", async () => {
+it("leaves X's GIF search with its own Back and refuses before Post when the picked GIF is not in it", async () => {
+  // As at the engine's width, where X's GIF search is a page, not a dialog.
   const { log, result } = await run(
     COMPOSER,
     post({ replySettings: "following", gif: { query: "cat", id: "giphy_g9" } }),
+    { compact: true },
   );
   expect(result).toMatchObject({
     message: 'x.com\'s composer has no GIF "giphy_g9" in its search for "cat"; nothing was posted',

@@ -113,8 +113,11 @@ export const X_COMPOSER = {
   gifButton: 'button[data-testid="gifSearchButton"]',
   gifSearch: 'input[placeholder="Search for GIFs"]',
   gifTile: 'div[data-testid="gifSearchGifImage"]',
-  /** Unconfirmed: X's GIF search is a dialog holding its own Back. */
-  gifBack: '[role="dialog"]:has(input[placeholder="Search for GIFs"]) [data-testid="app-bar-back"]',
+  /**
+   * The search's Back is the nearest one around its field: X draws the search as a dialog on a
+   * wide window and, in its compact layout (the engine's width), as a page whose only Back it is.
+   */
+  gifBack: '[data-testid="app-bar-back"]',
 } as const;
 
 /**

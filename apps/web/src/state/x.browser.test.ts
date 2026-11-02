@@ -1320,48 +1320,57 @@ it("picks X's search tab only on the Community search it was asked for, and give
   }
 });
 
-it("opens X's GIF search once from X's own button, types each query as X sees typing, and leaves only with its Back", async () => {
-  using _clock = fakeTimers();
-  // X's Home composer; its GIF button opens X's picker over the page, which has a Back of its own.
-  document.body.innerHTML = `<header><button data-testid="app-bar-back">page back</button></header>
-    <div data-testid="toolBar"><button data-testid="gifSearchButton" aria-label="Add a GIF"></button></div>`;
-  const seen: Array<string> = [];
-  let opened = 0;
-  document.querySelector('[data-testid="gifSearchButton"]')!.addEventListener("click", () => {
-    opened++;
-    // X draws its picker a moment after the press.
-    setTimeout(() => {
-      document.body.insertAdjacentHTML(
-        "beforeend",
-        `<div role="dialog"><button data-testid="app-bar-back">back</button><input placeholder="Search for GIFs"></div>`,
-      );
-      const field = document.querySelector("input")!;
-      field.addEventListener("input", () => seen.push(field.value));
-      document
-        .querySelector('[role="dialog"] [data-testid="app-bar-back"]')!
-        .addEventListener("click", () => document.querySelector('[role="dialog"]')!.remove());
-    }, 300);
-  });
-  inThisPage(() => "https://x.com/home");
+// X's GIF search as X draws it: over the page in a dialog on a wide window, and in X's compact
+// layout (the engine's width) as the page itself, with the page's only Back.
+it.each(["dialog", "page"] as const)(
+  "opens X's GIF search once from X's own button, types each query as X sees typing, and leaves it with its own Back (%s)",
+  async (layout) => {
+    using _clock = fakeTimers();
+    const home = `<header><button data-testid="app-bar-back">page back</button></header>
+      <main><div data-testid="toolBar"><button data-testid="gifSearchButton" aria-label="Add a GIF"></button></div></main>`;
+    document.body.innerHTML = home;
+    const seen: Array<string> = [];
+    const backs: Array<string> = [];
+    let opened = 0;
+    document.querySelector('[data-testid="gifSearchButton"]')!.addEventListener("click", () => {
+      opened++;
+      // X draws its search a moment after the press.
+      setTimeout(() => {
+        const search = `<div class="bar"><button data-testid="app-bar-back">back</button></div><div><input placeholder="Search for GIFs"></div>`;
+        if (layout === "dialog")
+          document.body.insertAdjacentHTML("beforeend", `<div role="dialog">${search}</div>`);
+        else document.querySelector("header")!.parentElement!.innerHTML = `<main>${search}</main>`;
+        const field = document.querySelector("input")!;
+        field.addEventListener("input", () => seen.push(field.value));
+        const back = field.closest(layout === "dialog" ? '[role="dialog"]' : "main")!;
+        back.querySelector("button")!.addEventListener("click", () => {
+          backs.push("search");
+          if (layout === "dialog") back.remove();
+          else document.body.innerHTML = home;
+        });
+      }, 300);
+    });
+    document.querySelector("header button")!.addEventListener("click", () => backs.push("page"));
+    inThisPage(() => "https://x.com/home");
 
-  const picker = xGifPicker();
-  const searches = [picker.search(""), picker.search("ca"), picker.search("cat")];
-  await vi.runAllTimersAsync();
-  expect([await Promise.all(searches), opened, seen]).toEqual([
-    [true, true, true],
-    1,
-    ["ca", "cat"],
-  ]);
-  const closing = picker.close();
-  await vi.runAllTimersAsync();
-  expect(await closing).toBe(true);
-  expect(document.querySelector('[role="dialog"]')).toBeNull();
-  // The page's own Back is not X's picker's: with the picker gone, nothing is pressed.
-  const again = picker.close();
-  await vi.runAllTimersAsync();
-  expect(await again).toBe(false);
-  expect(document.querySelector("header button")).not.toBeNull();
-});
+    const picker = xGifPicker();
+    const searches = [picker.search(""), picker.search("ca"), picker.search("cat")];
+    await vi.runAllTimersAsync();
+    expect([await Promise.all(searches), opened, seen]).toEqual([
+      [true, true, true],
+      1,
+      ["ca", "cat"],
+    ]);
+    const closing = picker.close();
+    await vi.runAllTimersAsync();
+    expect([await closing, backs]).toEqual([true, ["search"]]);
+    expect(document.querySelector('input[placeholder="Search for GIFs"]')).toBeNull();
+    // With X's search gone, closing again presses nothing, the page's own Back included.
+    const again = picker.close();
+    await vi.runAllTimersAsync();
+    expect([await again, backs]).toEqual([false, ["search"]]);
+  },
+);
 
 it("a GIF picker closed while X's next page is still coming stops at once, so Post goes next, and never closes a search it did not open", async () => {
   using _clock = fakeTimers();

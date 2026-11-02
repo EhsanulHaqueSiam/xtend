@@ -1071,7 +1071,15 @@ export const xAct = async (
 // X's GIF search, as read live on x.com on 2026-11-02: its own route, its field, its tiles.
 const GIF_FIELD = 'input[placeholder="Search for GIFs"]';
 const GIF_TILE = '[data-testid="gifSearchGifImage"]';
-const GIF_BACK = `[role="dialog"]:has(${GIF_FIELD}) [data-testid="app-bar-back"]`;
+// X's Back for its search: the nearest one around the field. X draws the search as a dialog on a
+// wide window and, in its compact layout (the engine's width), as a page whose only Back it is.
+const GIF_BACK = `(() => {
+  for (let n = document.querySelector(${JSON.stringify(GIF_FIELD)})?.parentElement; n; n = n.parentElement) {
+    const back = n.querySelector('[data-testid="app-bar-back"]');
+    if (back) return back;
+  }
+  return null;
+})()`;
 // Every picker's steps go one after another: a search typed while X still opens its picker waits.
 let gifStep: Promise<unknown> = Promise.resolve();
 let gifPickers = 0;
@@ -1137,7 +1145,7 @@ export const xGifPicker = () => {
         xRun(`(async () => {
           if (window.__xtendGif !== ${id}) return false;
           window.__xtendGif = 0;
-          const back = document.querySelector(${JSON.stringify(GIF_BACK)});
+          const back = ${GIF_BACK};
           if (back) back.click();
           else if (location.pathname === "/i/foundmedia/search") history.back();
           for (let i = 0; i < 20 && document.querySelector(${JSON.stringify(GIF_FIELD)}); i++) ${wait};
