@@ -33,8 +33,9 @@ import { QuoteComposer } from "./QuoteComposer";
 const ScrollParent = createContext<HTMLElement | null>(null);
 export const useXScrollParent = () => useContext(ScrollParent);
 
-// A browser draws its own swipe and pull; the desktop follows macOS's "Swipe between pages".
-const GESTURES = isElectron && window.desktopBridge?.swipeNavigation !== false;
+// A browser draws its own swipe and pull. Sideways swipes follow macOS's "Swipe between pages".
+const GESTURES = isElectron;
+const SWIPES = window.desktopBridge?.swipeNavigation !== false;
 const COLUMN_SHIFT_PX = 64;
 const PULL_ROW_PX = 44;
 
@@ -109,8 +110,8 @@ function useWheelGestures(
         dy: event.deltaY,
         atTop: scroller.scrollTop <= 0,
         can: {
-          back: window.navigation.canGoBack,
-          forward: window.navigation.canGoForward,
+          back: SWIPES && window.navigation.canGoBack,
+          forward: SWIPES && window.navigation.canGoForward,
           refresh: refreshes,
         },
       });

@@ -651,3 +651,37 @@ it("loads new posts as X does: waiting ones show at once, and X loads again only
   loadNewPosts();
   expect(loads).toBe(1);
 });
+
+it("lands where it was left on a list opened again in the same screen, as Back to a query or tab does", async () => {
+  const bridge = installFakeBridge();
+  updateEngine((s) => resetSurface(resetSurface(s, "following"), "forYou"));
+  const many = (prefix: string) =>
+    Array.from({ length: 30 }, (_, i) => post(`${prefix}${i}`, `${prefix} post ${i}`));
+  const list = (surface: "following" | "forYou") => (
+    <div style={{ height: 600, display: "flex" }}>
+      <EngineSync />
+      <Timeline surface={surface} header={null} empty="Loading" keepPlace onReopen={() => {}} />
+    </div>
+  );
+  await using screen = await render(list("following"), { service: {} });
+  bridge.emitEngine(batch("HomeLatestTimeline", many("f")));
+  bridge.emitEngine(batch("HomeTimeline", many("y")));
+  await expect.element(screen.getByText("f post 0", { exact: true })).toBeVisible();
+  const scroller = document.querySelector<HTMLElement>("[data-virtuoso-scroller]")!;
+  // This file loads no stylesheet; the column's scroller needs its own two rules to scroll.
+  Object.assign(scroller.style, { height: "600px", overflowY: "auto" });
+  {
+    using _clock = fakeTimers();
+    scroller.scrollTo({ top: 1500, behavior: "instant" });
+    // The list keeps its place once scrolling settles.
+    await vi.advanceTimersByTimeAsync(1_000);
+  }
+  await expect.element(screen.getByText("f post 3", { exact: true })).toBeInTheDocument();
+  const left = scroller.scrollTop;
+
+  await screen.rerender(list("forYou"));
+  scroller.scrollTo({ top: 0, behavior: "instant" });
+  await expect.element(screen.getByText("y post 0", { exact: true })).toBeVisible();
+  await screen.rerender(list("following"));
+  await expect.poll(() => scroller.scrollTop).toBe(left);
+});

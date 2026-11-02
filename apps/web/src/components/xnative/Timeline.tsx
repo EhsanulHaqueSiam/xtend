@@ -254,6 +254,8 @@ export function Timeline({
         )
       ) : (
         <PostList
+          // One list per surface: a tab or query opened again restores its own place on mount.
+          key={surface}
           surface={surface}
           keepPlace={keepPlace}
           items={items}
