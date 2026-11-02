@@ -18,6 +18,7 @@ import {
   communitySurface,
   emptyEngine,
   hideTrend,
+  inspirationSurface,
   mergeBatch,
   postOn,
   postSurface,
@@ -231,6 +232,42 @@ it("keeps X's Who to follow among the posts across pages and the pill", () => {
   ]);
 });
 
+it("pages Explore's For you in after what it shows, and takes X's first page again whole", () => {
+  const hour = (h: number) => `2026-10-01T0${h}:00:00Z`;
+  const titled = (id: string) => ({ id, title: "Posts For You", userIds: [] });
+  const forYou = (posts: ReadonlyArray<EnginePost>, extra: Partial<EngineBatch>) =>
+    batch("ExplorePage", posts, { key: "VF9", ...extra });
+  let state = mergeBatch(
+    emptyEngine,
+    forYou([post("1", hour(3)), post("2", hour(2))], {
+      order: ["wtf", "pfy", "1", "2"],
+      modules: [{ id: "wtf", title: "Who to follow", userIds: ["5"] }, titled("pfy")],
+      top: "t1",
+      bottom: "b1",
+    }),
+  );
+  // X ranks For you, so a later page may hold newer posts: it still goes under the list.
+  state = mergeBatch(
+    state,
+    forYou([post("3", hour(5))], { cursor: "b1", order: ["3"], top: "t2", bottom: "b2" }),
+  );
+  expect(at(state.lists, "explore:VF9")).toEqual(["wtf", "pfy", "1", "2", "3"]);
+  // X's first page again (a refresh) is the tab anew: it replaces the list, and nothing waits.
+  state = mergeBatch(
+    state,
+    forYou([post("4", hour(6)), post("1", hour(3))], {
+      order: ["pfy2", "4", "1"],
+      modules: [titled("pfy2")],
+      top: "t3",
+      bottom: "b3",
+    }),
+  );
+  expect([at(state.lists, "explore:VF9"), at(state.waiting, "explore:VF9")]).toEqual([
+    ["pfy2", "4", "1"],
+    [],
+  ]);
+});
+
 it("files pinned Home tabs, Lists, Communities and Explore tabs under their own surface", () => {
   expect(surfacesOf({ op: "HomeTimeline", key: "tag:19" })[0]).toBe("tag:19");
   expect(surfacesOf({ op: "HomeTimeline", key: null })[0]).toBe("forYou");
@@ -296,6 +333,29 @@ it("files pinned Home tabs, Lists, Communities and Explore tabs under their own 
       key: "communitySearch:14:Recency:ship it",
     }),
   ).toEqual([communitySearchSurface("14", "Recency", "ship it")]);
+
+  // X's Inspiration lists each set of filters on its own, and its latest answer is what X shows.
+  const weekly = { engagement: "Replies", period: "Weekly", language: "en" };
+  const answer = (...ids: ReadonlyArray<string>) =>
+    batch(
+      "GenericTimelineById",
+      ids.map((id) => post(id, "2026-10-01T00:00:00Z")),
+      { key: "inspiration:Replies:Weekly:en" },
+    );
+  const inspired = mergeBatch(state, answer("1", "2"));
+  expect([
+    at(inspired.lists, inspirationSurface(weekly)),
+    inspired.inspiration,
+    mergeBatch(inspired, batch("GenericTimelineById", [], { key: "VTR" })).inspiration,
+    state.inspiration,
+  ]).toEqual([["1", "2"], weekly, weekly, null]);
+  // X's next first page is its ranking again: it replaces the list, and nothing waits on a pill.
+  const again = mergeBatch(inspired, answer("3", "2"));
+  expect([
+    at(again.lists, inspirationSurface(weekly)),
+    at(again.waiting, inspirationSurface(weekly)),
+  ]).toEqual([["3", "2"], []]);
+
   // X's search of Communities from the hub, keyed by its query: one list per tab.
   expect([
     surfacesOf({ op: "CommunitiesSearchQuery", key: "ship it" }),
@@ -508,6 +568,22 @@ it("keeps the signed-in account's id when X's nav names it again without one", (
     name: "Siam H",
     avatarUrl: "https://pbs.twimg.com/a_normal.jpg",
   });
+});
+
+it("keeps X's Post Analytics per post, as X last counted them", () => {
+  const activity = (id: string, impressions: number) => ({
+    ...batch("TweetActivityQuery", []),
+    key: id,
+    analytics: { Impressions: impressions, Engagements: 2 },
+  });
+  let state = mergeBatch(emptyEngine, activity("42", 90));
+  state = mergeBatch(state, activity("43", 7));
+  state = mergeBatch(state, activity("42", 120));
+  state = mergeBatch(state, batch("HomeLatestTimeline", []));
+  expect([...state.analytics]).toEqual([
+    ["42", { Impressions: 120, Engagements: 2 }],
+    ["43", { Impressions: 7, Engagements: 2 }],
+  ]);
 });
 
 it("keeps a post's context and ad mark per page, and lets a thread's newer replies in at once", () => {

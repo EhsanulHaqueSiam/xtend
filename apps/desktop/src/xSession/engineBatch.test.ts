@@ -766,6 +766,26 @@ describe("renderEngineBatch around posts", () => {
       },
     );
     expect([found.order, found.top, found.bottom]).toEqual([["61", "60"], "c-Top", "c-Bottom"]);
+    // X's Inspiration names its filters inside the timelineId. An Explore tab's id, one without a
+    // language, and a cut-off one are no Inspiration: they keep the id.
+    const generic = (timelineId: string) =>
+      renderEngineBatch("GenericTimelineById", { timelineId, count: 20 }, {}).key;
+    const others = [
+      "VGltZWxpbmU6DAC2CwABAAAACHRyZW5kaW5nAAA=",
+      "VGltZWxpbmU6DADKCwABAAAAB1JlcGxpZXMLAAYAAAAGV2Vla2x5AAA=",
+      "VGltZWxpbmU6DADKCwABAAAABUxpa2VzCwACAAAAAmVuCwA=",
+    ];
+    expect([
+      generic("VGltZWxpbmU6DADKCwABAAAABUxpa2VzCwACAAAAAmVuCwAGAAAABURhaWx5AAA="),
+      generic(
+        "VGltZWxpbmU6DADKCwABAAAAEVZpZGVvUXVhbGl0eVZpZXdzCwACAAAAAmVuCwAGAAAAB01vbnRobHkAAA==",
+      ),
+      ...others.map(generic),
+    ]).toEqual([
+      "inspiration:Likes:Daily:en",
+      "inspiration:VideoQualityViews:Monthly:en",
+      ...others,
+    ]);
   });
 
   it("reads Communities in X's shapes: a carousel's tiles, a card, and none from a post's reference", () => {
@@ -965,6 +985,53 @@ describe("renderEngineBatch around posts", () => {
     ]);
     const unknown = carousel({});
     expect([unknown.key, hasEngineContent(unknown)]).toEqual([null, false]);
+  });
+
+  it("reads X's Post Analytics for the post asked about, a metric X sent without a value as 0", () => {
+    const activity = renderEngineBatch(
+      "TweetActivityQuery",
+      {
+        restId: "42",
+        from_time: "2026-10-30T08:00:00.000Z",
+        requested_organic_metrics: ["DetailExpands", "Engagements", "Follows", "Impressions"],
+      },
+      {
+        data: {
+          tweet_result_by_rest_id: {
+            id: "VHdlZXQ6NDI=",
+            result: {
+              __typename: "Tweet",
+              id: "VHdlZXQ6NDI=",
+              datapoints_grid: [
+                { metric_type: "DetailExpands", metric_value: 31 },
+                { metric_type: "Engagements", metric_value: 118 },
+                { metric_type: "Follows" },
+                { metric_type: "Impressions", metric_value: 4020 },
+                { metric_type: "LinkClicks", metric_value: 3 },
+                { metric_type: "ProfileVisits", metric_value: 9 },
+              ],
+              promotion_info: [{ metric_type: "Impressions", metric_value: 0 }],
+              video: [],
+            },
+          },
+        },
+      },
+    );
+    expect([activity.key, activity.analytics, hasEngineContent(activity)]).toEqual([
+      "42",
+      {
+        DetailExpands: 31,
+        Engagements: 118,
+        Follows: 0,
+        Impressions: 4020,
+        LinkClicks: 3,
+        ProfileVisits: 9,
+      },
+      true,
+    ]);
+    // X answered without the numbers (a post that is not the user's): nothing to pass on.
+    const none = renderEngineBatch("TweetActivityQuery", { restId: "42" }, { data: {} });
+    expect([none.analytics, hasEngineContent(none)]).toEqual([undefined, false]);
   });
 
   it("reads a search of Communities by its query: X's Communities, then its Top and Latest posts", () => {
@@ -1320,6 +1387,93 @@ describe("renderEngineBatch entry order, badges and labels", () => {
     ]);
     // Drawn once, as the module: not also as a page's titled box of people.
     expect(batch.sections).toEqual([]);
+  });
+
+  it("reads Explore's For you in X's order: news, trends, Who to follow, Posts For You, then paged posts", () => {
+    // X's ExplorePage as x.com/explore sent it in November 2026 (synthetic values).
+    const trend = (name: string, context: string) => ({
+      itemType: "TimelineTrend",
+      name,
+      trend_metadata: { domain_context: context },
+      trend_url: { url: `twitter://search/?query=${name}` },
+    });
+    const module = (entryId: string, header: string, items: ReadonlyArray<unknown>) => ({
+      entryId,
+      content: {
+        entryType: "TimelineTimelineModule",
+        displayType: "Vertical",
+        header: { displayType: "Classic", text: header },
+        items: items.map((itemContent, i) => ({
+          entryId: `${entryId}-${i}`,
+          item: { itemContent },
+        })),
+      },
+    });
+    const cursors = (top: string, bottom: string) =>
+      (["Top", "Bottom"] as const).map((cursorType) => ({
+        entryId: `cursor-${cursorType.toLowerCase()}-1`,
+        content: {
+          entryType: "TimelineTimelineCursor",
+          cursorType,
+          value: cursorType === "Top" ? top : bottom,
+        },
+      }));
+    const page = (entries: ReadonlyArray<unknown>) => ({
+      data: {
+        explore_page: {
+          body: {
+            initialTimeline: {
+              id: "for_you",
+              labelText: "Explore",
+              timeline: { timeline: { instructions: [{ type: "TimelineAddEntries", entries }] } },
+            },
+            timelines: [
+              { id: "for_you", labelText: "Explore", timeline: { id: "VF9" } },
+              { id: "trending", labelText: "Trending", timeline: { id: "VTR" } },
+            ],
+          },
+        },
+      },
+    });
+    const tweetItem = (id: string) => item(tweet(id)).content.itemContent;
+    const first = renderEngineBatch(
+      "ExplorePage",
+      { cursor: "" },
+      page([
+        module("stories-9", "Today's News", [trend("Rockets launch", "2 hours ago · News")]),
+        { entryId: "trend-Halloween", content: { itemContent: trend("Halloween", "Trending") } },
+        module("who-to-follow-8", "Who to follow", [
+          { itemType: "TimelineUser", user_results: { result: user("12", "zed") } },
+        ]),
+        module("tweet-1", "Posts For You", [tweetItem("1"), tweetItem("2")]),
+        ...cursors("t1", "b1"),
+      ]),
+    );
+    expect(first.trends.map((t) => [t.name, t.group])).toEqual([
+      ["Rockets launch", "Today's News"],
+      ["Halloween", null],
+    ]);
+    expect(first.order).toEqual(["who-to-follow-8", "tweet-1", "1", "2"]);
+    expect(first.modules).toEqual([
+      { id: "who-to-follow-8", title: "Who to follow", userIds: ["12"] },
+      { id: "tweet-1", title: "Posts For You", userIds: [] },
+    ]);
+    expect([first.key, first.cursor, first.top, first.bottom]).toEqual(["VF9", null, "t1", "b1"]);
+    // Scrolling asks with the bottom cursor and gets plain posts, keyed to the same tab.
+    const next = renderEngineBatch(
+      "ExplorePage",
+      { cursor: "b1" },
+      page([{ entryId: "tweet-3", ...item(tweet("3")) }, ...cursors("t2", "b2")]),
+    );
+    expect([next.key, next.cursor, next.order, next.modules]).toEqual(["VF9", "b1", ["3"], []]);
+    // A thread's Discover more is a titled box of posts too, but not one Explore draws.
+    expect(
+      renderEngineBatch(
+        "TweetDetail",
+        {},
+        page([module("related-1", "Discover more", [tweetItem("4")])]),
+      ).modules,
+    ).toEqual([]);
   });
 
   it("reads the badge kind, avatar shape, organisation badge and the Made with AI label", () => {

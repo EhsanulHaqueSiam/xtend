@@ -562,10 +562,37 @@ function timelineEntries(batch: EngineBatch, users: ReadonlyMap<string, EngineUs
   if (batch.top !== null) entries.push(cursorEntry("Top", batch.top));
 
   const modules = new Map(batch.modules.map((m) => [m.id, m]));
-  const listed = batch.order.flatMap((id) => posts.get(id) ?? modules.get(id) ?? []);
+  // A titled box of posts (Explore's Posts For You) holds the posts after it, up to the next module.
+  const boxed = new Map<string, Array<EnginePost>>();
+  let box: Array<EnginePost> | undefined;
+  for (const id of batch.order) {
+    const m = modules.get(id);
+    if (m === undefined) {
+      if (posts.has(id)) box?.push(posts.get(id)!);
+      continue;
+    }
+    box = m.userIds.length === 0 ? [] : undefined;
+    if (box !== undefined) boxed.set(id, box);
+  }
+  const inBox = new Set([...boxed.values()].flat().map((p) => p.postId));
+  const listed = batch.order.flatMap((id) =>
+    inBox.has(id) ? [] : (posts.get(id) ?? modules.get(id) ?? []),
+  );
   for (const run of runs(listed, (e) => ("postId" in e ? (e.conversation?.id ?? null) : null))) {
     const first = run.items[0]!;
-    if (!("postId" in first))
+    if (!("postId" in first) && first.userIds.length === 0)
+      entries.push(
+        moduleEntry(
+          first.id,
+          boxed.get(first.id)!.map((p) => ({ id: `tweet-${p.postId}`, content: tweetItem(p, x) })),
+          {
+            displayType: "Vertical",
+            header: { displayType: "Classic", text: first.title, sticky: false },
+            clientEventInfo: { component: "tweets_for_you", element: "module" },
+          },
+        ),
+      );
+    else if (!("postId" in first))
       // X's Who to follow among the posts: its header, its people, Show more to the Follow page.
       entries.push(
         moduleEntry(
@@ -876,6 +903,26 @@ export function encodeBody(
       return { data: { favoriters_timeline: { timeline: timeline() } } };
     case "ConnectTabTimeline":
       return { data: { connect_tab_timeline: { timeline: timeline() } } };
+    case "TweetActivityQuery": {
+      // X's own shape: a grid of metrics, a zero's value left out, beside the promoted numbers.
+      const id = btoa(`Tweet:${batch.key ?? ""}`);
+      return {
+        data: {
+          tweet_result_by_rest_id: {
+            id,
+            result: {
+              __typename: "Tweet",
+              id,
+              datapoints_grid: Object.entries(batch.analytics ?? {}).map(([metric_type, value]) =>
+                value === 0 ? { metric_type } : { metric_type, metric_value: value },
+              ),
+              promotion_info: [{ metric_type: "Impressions" }],
+              video: [],
+            },
+          },
+        },
+      };
+    }
     case "PinnedTimelines":
       return {
         data: {

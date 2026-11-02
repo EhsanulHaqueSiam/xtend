@@ -9,7 +9,13 @@ import type {
   EngineUser,
 } from "@xtend/contracts";
 
-import { type GraphqlRequest, type MockState, quotesQuery } from "./state.ts";
+import {
+  type GraphqlRequest,
+  INSPIRATION_FILTERS,
+  inspirationTimelineId,
+  type MockState,
+  quotesQuery,
+} from "./state.ts";
 
 /**
  * Mock X's pages: per x.com route, the GraphQL calls X's page makes and the markup it draws from
@@ -213,6 +219,8 @@ export const postsOf = (b: EngineBatch | null, state: MockState) =>
           const p = b.posts.find((post) => post.postId === id);
           if (p !== undefined) return [article(p, state)];
           const m = b.modules.find((module) => module.id === id);
+          // A titled box of posts (Explore's Posts For You) is its header over the posts after it.
+          if (m?.userIds.length === 0) return [`<h2>${esc(m.title)}</h2>`];
           return m === undefined ? [] : [whoToFollow(m, b)];
         })
         .join("");
@@ -371,6 +379,7 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
           ? r("ExplorePage", { cursor: "" })
           : r("GenericTimelineById", { timelineId: tab.timelineId, count: 20 }),
       ],
+      paged: tab.id === "for_you" ? 0 : undefined,
       render: ([b]) =>
         `<div class="bar"><input aria-label="Search query" placeholder="Search"><a href="/settings/explore" aria-label="Settings">⚙</a></div>${tabs(
           "Explore",
@@ -383,9 +392,7 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
           b?.trends ?? []
         )
           .map((t, i) => `<div data-trend-slot style="height:120px">${trendRow(t, i)}</div>`)
-          .join(
-            "",
-          )}${b != null && b.people.length > 0 ? `<h3>Who to follow</h3>${peopleOf(b)}` : ""}</section>`,
+          .join("")}${postsOf(b ?? null, state)}</section>`,
     };
   }
   if (lower === "search") {
@@ -467,6 +474,28 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
             : `<div data-testid="listHeader"><img alt="" src="${esc(l.bannerUrl ?? "")}" class="banner-img"><h2>${esc(l.name)}</h2><div>${esc(l.description)}</div>${l.owner === null ? "" : `<div><a href="/${esc(l.owner.handle)}">${esc(l.owner.name)}</a> @${esc(l.owner.handle)}</div>`}<div><a href="/i/lists/${l.listId}/members"><b>${compact(l.members)}</b> Members</a> <a href="/i/lists/${l.listId}/followers"><b>${compact(l.followers)}</b> Followers</a></div><button data-testid="listFollow">Follow</button></div>`
         }<section data-list>${postsOf(b ?? null, state)}</section>`;
       },
+    };
+  }
+  if (url.pathname === "/i/jf/creators/inspiration/top_posts") {
+    // X's Creator Studio page: its filters are plain buttons that switch the list in place.
+    const [engagement = "Likes", period = "Daily"] = homeTab.split(":");
+    const button = (filter: string, id: string, label: string, on: boolean) =>
+      `<button type="button" class="jf-element" data-jf="${filter}:${id}"${on ? ' style="font-weight:700"' : ""}>${esc(label)}</button>`;
+    return {
+      title: "Inspiration / X",
+      requests: [
+        r("GenericTimelineById", {
+          timelineId: inspirationTimelineId(engagement, period),
+          count: 20,
+          withQuickPromoteEligibilityTweetFields: true,
+        }),
+      ],
+      render: ([b]) =>
+        `${header("Inspiration")}<div class="jf-element">${button("language", "en", "💬 EN", true)}${INSPIRATION_FILTERS.period
+          .map((f) => button("period", f.id, f.label, f.id === period))
+          .join("")}${INSPIRATION_FILTERS.engagement
+          .map((f) => button("engagement", f.id, f.label, f.id === engagement))
+          .join("")}</div><section data-list>${postsOf(b ?? null, state)}</section>`,
     };
   }
   const searchTab = COMMUNITIES_SEARCH_TABS.find((t) => t.page === third);
@@ -682,6 +711,47 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
       };
     if (second === "status" && third !== undefined) {
       const id = third;
+      if (fourth === "analytics") {
+        const p = state.post(id);
+        const created = p === undefined ? Date.now() : Date.parse(p.createdAt);
+        const organic = [
+          "DetailExpands",
+          "Engagements",
+          "Follows",
+          "Impressions",
+          "LinkClicks",
+          "ProfileVisits",
+        ];
+        return {
+          title: "Post Analytics / X",
+          requests: [
+            r("TweetActivityQuery", {
+              restId: id,
+              from_time: new Date(created).toISOString(),
+              to_time: new Date().toISOString(),
+              first_48_hours_time: new Date(created + 48 * 3_600_000).toISOString(),
+              requested_organic_metrics: organic,
+              requested_promoted_metrics: [...organic, "CostPerFollower"],
+            }),
+          ],
+          // X's labels in X's order; it counts Follows but does not draw them.
+          render: ([b]) =>
+            `${header("Post Analytics")}${p === undefined ? "" : article(p, state)}<div data-testid="analytics">${(
+              [
+                ["Impressions", "Impressions"],
+                ["Engagements", "Engagements"],
+                ["DetailExpands", "Detail expands"],
+                ["ProfileVisits", "Profile visits"],
+                ["LinkClicks", "Link clicks"],
+              ] as const
+            )
+              .map(
+                ([metric, label]) =>
+                  `<div><span>${label}</span> <span>${(b?.analytics?.[metric] ?? 0).toLocaleString("en")}</span></div>`,
+              )
+              .join("")}</div>`,
+        };
+      }
       if (fourth === "quotes" || fourth === "retweets" || fourth === "likes") {
         const tab = fourth;
         return {

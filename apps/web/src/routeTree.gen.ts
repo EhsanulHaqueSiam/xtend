@@ -35,6 +35,7 @@ import { Route as PostIdRouteImport } from './routes/post.$id'
 import { Route as ListsIdRouteImport } from './routes/lists.$id'
 import { Route as CommunitiesIdRouteImport } from './routes/communities.$id'
 import { Route as ArticleIdRouteImport } from './routes/article.$id'
+import { Route as PostIdAnalyticsRouteImport } from './routes/post.$id_.analytics'
 import { Route as PostIdActivityRouteImport } from './routes/post.$id_.activity'
 import { Route as ListsIdPeopleRouteImport } from './routes/lists.$id_.people'
 
@@ -168,6 +169,11 @@ const ArticleIdRoute = ArticleIdRouteImport.update({
   path: '/article/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PostIdAnalyticsRoute = PostIdAnalyticsRouteImport.update({
+  id: '/post/$id_/analytics',
+  path: '/post/$id/analytics',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PostIdActivityRoute = PostIdActivityRouteImport.update({
   id: '/post/$id_/activity',
   path: '/post/$id/activity',
@@ -208,6 +214,7 @@ export interface FileRoutesByFullPath {
   '/lists/': typeof ListsIndexRoute
   '/lists/$id/people': typeof ListsIdPeopleRoute
   '/post/$id/activity': typeof PostIdActivityRoute
+  '/post/$id/analytics': typeof PostIdAnalyticsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -238,6 +245,7 @@ export interface FileRoutesByTo {
   '/lists': typeof ListsIndexRoute
   '/lists/$id/people': typeof ListsIdPeopleRoute
   '/post/$id/activity': typeof PostIdActivityRoute
+  '/post/$id/analytics': typeof PostIdAnalyticsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -269,6 +277,7 @@ export interface FileRoutesById {
   '/lists/': typeof ListsIndexRoute
   '/lists/$id_/people': typeof ListsIdPeopleRoute
   '/post/$id_/activity': typeof PostIdActivityRoute
+  '/post/$id_/analytics': typeof PostIdAnalyticsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -301,6 +310,7 @@ export interface FileRouteTypes {
     | '/lists/'
     | '/lists/$id/people'
     | '/post/$id/activity'
+    | '/post/$id/analytics'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -331,6 +341,7 @@ export interface FileRouteTypes {
     | '/lists'
     | '/lists/$id/people'
     | '/post/$id/activity'
+    | '/post/$id/analytics'
   id:
     | '__root__'
     | '/'
@@ -361,6 +372,7 @@ export interface FileRouteTypes {
     | '/lists/'
     | '/lists/$id_/people'
     | '/post/$id_/activity'
+    | '/post/$id_/analytics'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -392,6 +404,7 @@ export interface RootRouteChildren {
   ListsIndexRoute: typeof ListsIndexRoute
   ListsIdPeopleRoute: typeof ListsIdPeopleRoute
   PostIdActivityRoute: typeof PostIdActivityRoute
+  PostIdAnalyticsRoute: typeof PostIdAnalyticsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -578,6 +591,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ArticleIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/post/$id_/analytics': {
+      id: '/post/$id_/analytics'
+      path: '/post/$id/analytics'
+      fullPath: '/post/$id/analytics'
+      preLoaderRoute: typeof PostIdAnalyticsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/post/$id_/activity': {
       id: '/post/$id_/activity'
       path: '/post/$id/activity'
@@ -624,6 +644,7 @@ const rootRouteChildren: RootRouteChildren = {
   ListsIndexRoute: ListsIndexRoute,
   ListsIdPeopleRoute: ListsIdPeopleRoute,
   PostIdActivityRoute: PostIdActivityRoute,
+  PostIdAnalyticsRoute: PostIdAnalyticsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
