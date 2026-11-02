@@ -18,6 +18,7 @@ import {
   communitySurface,
   emptyEngine,
   hideTrend,
+  inspirationSurface,
   mergeBatch,
   postOn,
   postSurface,
@@ -333,6 +334,29 @@ it("files pinned Home tabs, Lists, Communities and Explore tabs under their own 
       key: "communitySearch:14:Recency:ship it",
     }),
   ).toEqual([communitySearchSurface("14", "Recency", "ship it")]);
+
+  // X's Inspiration lists each set of filters on its own, and its latest answer is what X shows.
+  const weekly = { engagement: "Replies", period: "Weekly", language: "en" };
+  const answer = (...ids: ReadonlyArray<string>) =>
+    batch(
+      "GenericTimelineById",
+      ids.map((id) => post(id, "2026-10-01T00:00:00Z")),
+      { key: "inspiration:Replies:Weekly:en" },
+    );
+  const inspired = mergeBatch(state, answer("1", "2"));
+  expect([
+    at(inspired.lists, inspirationSurface(weekly)),
+    inspired.inspiration,
+    mergeBatch(inspired, batch("GenericTimelineById", [], { key: "VTR" })).inspiration,
+    state.inspiration,
+  ]).toEqual([["1", "2"], weekly, weekly, null]);
+  // X's next first page is its ranking again: it replaces the list, and nothing waits on a pill.
+  const again = mergeBatch(inspired, answer("3", "2"));
+  expect([
+    at(again.lists, inspirationSurface(weekly)),
+    at(again.waiting, inspirationSurface(weekly)),
+  ]).toEqual([["3", "2"], []]);
+
   // X's search of Communities from the hub, keyed by its query: one list per tab.
   expect([
     surfacesOf({ op: "CommunitiesSearchQuery", key: "ship it" }),
@@ -575,6 +599,22 @@ it("keeps the signed-in account's id when X's nav names it again without one", (
     name: "Siam H",
     avatarUrl: "https://pbs.twimg.com/a_normal.jpg",
   });
+});
+
+it("keeps X's Post Analytics per post, as X last counted them", () => {
+  const activity = (id: string, impressions: number) => ({
+    ...batch("TweetActivityQuery", []),
+    key: id,
+    analytics: { Impressions: impressions, Engagements: 2 },
+  });
+  let state = mergeBatch(emptyEngine, activity("42", 90));
+  state = mergeBatch(state, activity("43", 7));
+  state = mergeBatch(state, activity("42", 120));
+  state = mergeBatch(state, batch("HomeLatestTimeline", []));
+  expect([...state.analytics]).toEqual([
+    ["42", { Impressions: 120, Engagements: 2 }],
+    ["43", { Impressions: 7, Engagements: 2 }],
+  ]);
 });
 
 it("keeps a post's context and ad mark per page, and lets a thread's newer replies in at once", () => {

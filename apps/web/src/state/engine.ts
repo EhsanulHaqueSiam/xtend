@@ -82,6 +82,7 @@ type KeyedSurface =
   | `communityMedia:${string}`
   | `communityAbout:${string}`
   | `communitySearch:${string}`
+  | `inspiration:${string}`
   | `communitiesSearch:${string}`
   | `communityPostsSearch:${"Top" | "Latest"}:${string}`
   | `profile:${ProfileTab}:${string}`;
@@ -140,6 +141,21 @@ export const communityPostsSearchSurface = (order: "Top" | "Latest", query: stri
 /** @public */
 export const profileSurface = (tab: ProfileTab, userId: string) =>
   `profile:${tab}:${userId}` as const;
+/** X's Inspiration filters, as its timelineId names them: Likes, Daily, en. */
+export interface Inspiration {
+  readonly engagement: string;
+  readonly period: string;
+  readonly language: string;
+}
+/** X's Inspiration posts for one set of filters, as the capture keys them. */
+export const inspirationSurface = (f: Inspiration) =>
+  `inspiration:${f.engagement}:${f.period}:${f.language}` as const;
+const inspirationOf = ({ op, key }: Pick<EngineBatch, "op" | "key">): Inspiration | null => {
+  const m = /^inspiration:([^:]+):([^:]+):([^:]+)$/.exec(key ?? "");
+  return op !== "GenericTimelineById" || m === null
+    ? null
+    : { engagement: m[1]!, period: m[2]!, language: m[3]! };
+};
 
 const PROFILE_OPS: Readonly<Record<string, ProfileTab>> = {
   // X has used each pair of names for a profile's tabs.
@@ -221,6 +237,8 @@ export function surfacesOf(batch: Pick<EngineBatch, "op" | "key">): ReadonlyArra
     return [communityPostsSearchSurface("Latest", key)];
   if (op === "ConnectTabTimeline" && (key === "connect:who" || key === "connect:creators"))
     return [key];
+  const inspiration = inspirationOf(batch);
+  if (inspiration !== null) return [inspirationSurface(inspiration)];
   // The capture keys every List call `list:<id>`.
   const listId = tabKey(key, "list")?.slice("list:".length);
   if (listId !== undefined && op === "ListMembers")
@@ -339,8 +357,12 @@ export interface EngineState {
   /** Home's pinned tabs after For you and Following, as X named them. */
   readonly homeTabs: ReadonlyArray<EngineHomeTab>;
   readonly exploreTabs: ReadonlyArray<EngineExploreTab>;
+  /** X's Inspiration filters as its latest answer had them: what X's page shows now. */
+  readonly inspiration: Inspiration | null;
   /** The signed-in account (the composer's avatar), once X's page has loaded. */
   readonly viewer: EngineViewer | null;
+  /** X's Post Analytics per post id, as X last counted them (see `EngineBatch.analytics`). */
+  readonly analytics: ReadonlyMap<string, Readonly<Record<string, number>>>;
   /** The page cursors X last answered per surface, to tell a fetch of newer posts from the next page. */
   readonly cursors: Readonly<
     Partial<Record<AnySurface, { readonly top: string | null; readonly bottom: string | null }>>
@@ -370,7 +392,9 @@ export const emptyEngine: EngineState = {
   prompts: new Map(),
   homeTabs: [],
   exploreTabs: [],
+  inspiration: null,
   viewer: null,
+  analytics: new Map(),
   cursors: {},
 };
 
@@ -492,6 +516,7 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
     prompts: promptsOf(state, batch),
     homeTabs: batch.homeTabs ?? state.homeTabs,
     exploreTabs: batch.exploreTabs ?? state.exploreTabs,
+    inspiration: inspirationOf(batch) ?? state.inspiration,
     // X's nav names no user id; keep the one X's Viewer call gave for the same account.
     viewer:
       batch.viewer === null
@@ -502,13 +527,18 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
               batch.viewer.userId ??
               (state.viewer?.handle === batch.viewer.handle ? state.viewer.userId : null),
           },
+    analytics:
+      batch.analytics === undefined || batch.key === null
+        ? state.analytics
+        : new Map(state.analytics).set(batch.key, batch.analytics),
   };
   const listed = surfacesOf(batch).reduce(
     (state, surface) =>
       mergeInto(
-        // Explore's first page is X's whole tab again (X clears its own with it), so it replaces
-        // the list; Home's waits behind a pill, which Explore does not draw.
-        surface.startsWith("explore:") && batch.cursor === null
+        // Explore's and Inspiration's first page is X's whole list again, so it replaces ours;
+        // Home's waits behind a pill, which neither draws.
+        (surface.startsWith("explore:") || surface.startsWith("inspiration:")) &&
+          batch.cursor === null
           ? resetSurface(state, surface)
           : state,
         batch,

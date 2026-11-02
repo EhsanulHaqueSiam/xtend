@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "vite-plus/test";
 
+import { inspirationTimelineId } from "../mockX/state.ts";
 import { type Engine, startEngine } from "./harness.ts";
 
 /**
@@ -273,6 +274,51 @@ test("A post opens with its replies, and Recent re-sorts them as X's page orders
     `[...document.querySelectorAll("article")].map((a) => a.querySelector('a[href*="/status/"] time')?.parentElement.getAttribute("href").split("/status/")[1])`,
   );
   expect(xOrder).toEqual(recent);
+});
+
+test("Your own post's views and X's ... row open Post Analytics natively, with the numbers X's analytics page draws", async () => {
+  const [profile, activity] = e.mock.state.fixtures().analytics!.batches;
+  const yours = profile!.posts[0]!;
+  const handle = yours.author.handle;
+  const page = `/${handle}/status/${yours.postId}/analytics`;
+  const numbers = () =>
+    e.app
+      .locator('main [data-x="analytics"] > div')
+      .evaluateAll((ds) => ds.map((d) => [...d.children].map((c) => c.textContent)));
+  const xNumbers = () =>
+    e.engine<Array<Array<string>>>(
+      `[...document.querySelectorAll('[data-testid="analytics"] > div')].map((d) => [...d.querySelectorAll("span")].map((s) => s.textContent))`,
+    );
+  await go(`/u/${handle}`);
+  await expect.poll(nativeIds).toEqual([yours.postId]);
+
+  await e.app
+    .locator(`main [data-post="${yours.postId}"] button[aria-label="View post analytics"]`)
+    .click();
+  await expect.poll(enginePath).toBe(page);
+  await expect
+    .poll(async () => {
+      const ours = await numbers();
+      return ours.length === 5 && JSON.stringify(ours) === JSON.stringify(await xNumbers());
+    })
+    .toBe(true);
+  expect((await numbers())[0]).toEqual([
+    "Impressions",
+    activity!.analytics!.Impressions!.toLocaleString("en"),
+  ]);
+
+  // X's own "..." row is Xtend's screen too: nothing is pressed on X's menu.
+  await go(`/u/${handle}`);
+  await expect.poll(enginePath).toBe(`/${handle}`);
+  await e.app.locator(`main [data-post="${yours.postId}"] button[aria-label="More"]`).click();
+  await e.app.getByRole("menuitem", { name: "View post analytics", exact: true }).click();
+  await expect.poll(enginePath).toBe(page);
+  expect(await e.app.evaluate(() => location.hash)).toBe(
+    `#/post/${yours.postId}/analytics?h=${handle}`,
+  );
+  expect(
+    presses().filter((p) => p.startsWith("press row:") && p.endsWith(`post:${yours.postId}`)),
+  ).toEqual([]);
 });
 
 test("A profile renders X's header and posts; its ... rows come from X, its bell is X's, and About opens X's page", async () => {
@@ -611,6 +657,44 @@ test("Search in a Community lists what X finds there, Top and Latest by X's own 
   await e.app.getByRole("tab", { name: "Top", exact: true }).click();
   await expect.poll(xTab).toBe("Top");
   await expect.poll(nativeIds).toEqual(found);
+});
+
+test("Library's Inspiration lists X's top posts, and a pick presses X's own filter on X's page", async () => {
+  const order = (engagement: string, period: string) =>
+    e.mock.state.batchFor("GenericTimelineById", {
+      timelineId: inspirationTimelineId(engagement, period),
+    })!.order;
+  const libraryIds = () =>
+    e.app
+      .locator('main article a[href*="/status/"]')
+      .evaluateAll((as) => as.map((a) => a.getAttribute("href")!.split("/status/")[1]));
+  const [daily, weekly, quotes] = [
+    order("Likes", "Daily"),
+    order("Likes", "Weekly"),
+    order("Quotes", "Daily"),
+  ];
+  // Each set of filters is its own list on X, so a list drawn from the wrong answer shows.
+  expect(new Set([daily, weekly, quotes].map(String)).size).toBe(3);
+  await go("/library?tab=inspiration");
+  await expect.poll(enginePath).toBe("/i/jf/creators/inspiration/top_posts");
+  await expect.poll(libraryIds).toEqual(daily);
+  // X's buttons there take only a pointer's whole press; a filter not shown yet fetches its list.
+  await e.app.getByRole("tab", { name: "Last 7d", exact: true }).click();
+  await expect.poll(libraryIds).toEqual(weekly);
+  // Back to a day: X shows it from its own cache and asks for nothing; the list it sent stays.
+  const asked = e.mock.reads.length;
+  await e.app.getByRole("tab", { name: "Last 24h", exact: true }).click();
+  await expect.poll(presses).toContain("press jf:Last 24h");
+  await expect.poll(libraryIds).toEqual(daily);
+  expect(e.mock.reads.slice(asked).map((r) => r.op)).not.toContain("GenericTimelineById");
+  await e.app.getByRole("button", { name: "Most Likes", exact: true }).click();
+  await e.app.getByRole("menuitem", { name: "Most Quotes", exact: true }).click();
+  await expect.poll(libraryIds).toEqual(quotes);
+  expect(presses().filter((p) => p.startsWith("press jf:"))).toEqual([
+    "press jf:Last 7d",
+    "press jf:Last 24h",
+    "press jf:Most Quotes",
+  ]);
 });
 
 test("The hub's search lists the Communities X finds, its Top and Latest on X's own pages, and X's line when it finds none", async () => {

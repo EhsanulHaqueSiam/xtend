@@ -650,6 +650,40 @@ export function requestVariables(url: string, postData: string | undefined): Jso
   }
 }
 
+const INSPIRATION_ID = "Timeline:\x0c\x00\xca";
+const FILTER_WORD = /^[A-Za-z-]{1,40}$/;
+
+/**
+ * X's Inspiration (Creator Studio's top posts) names its filters inside the timelineId it asks
+ * GenericTimelineById for: base64 of "Timeline:" and a thrift struct (field 202) of strings, the
+ * engagement (1), language (2) and period (6). Keyed `inspiration:Likes:Daily:en`; an Explore
+ * tab's id (field 182) or any shape this does not know is null.
+ */
+function inspirationKey(timelineId: string | undefined): string | null {
+  let raw: string;
+  try {
+    raw = atob(timelineId ?? "");
+  } catch {
+    return null;
+  }
+  if (!raw.startsWith(INSPIRATION_ID)) return null;
+  const bytes = Uint8Array.from(raw, (c) => c.charCodeAt(0));
+  const view = new DataView(bytes.buffer);
+  const fields = new Map<number, string>();
+  let at = INSPIRATION_ID.length;
+  // Each string field is its type (11), id and length, then its bytes; a stop byte ends the struct.
+  while (bytes[at] === 11 && at + 7 <= bytes.length) {
+    const length = view.getUint32(at + 3);
+    fields.set(view.getUint16(at + 1), raw.slice(at + 7, at + 7 + length));
+    at += 7 + length;
+  }
+  const [engagement, language, period] = [fields.get(1), fields.get(2), fields.get(6)];
+  return bytes[at] === 0 &&
+    [engagement, period, language].every((v) => v !== undefined && FILTER_WORD.test(v))
+    ? `inspiration:${engagement}:${period}:${language}`
+    : null;
+}
+
 /** X's two post tabs of a search of Communities: Top, and Latest. */
 const HUB_SEARCH_POSTS = /^GlobalCommunities(Latest)?PostSearchTimeline$/;
 
@@ -674,6 +708,8 @@ function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExp
   }
   if (op.startsWith("List") && s("listId") !== undefined) return `list:${s("listId")}`;
   if (op === "NotificationsTimeline") return s("timeline_type") ?? null;
+  const inspiration = op === "GenericTimelineById" ? inspirationKey(s("timelineId")) : null;
+  if (inspiration !== null) return inspiration;
   if (op === "GenericTimelineById") return s("timelineId") ?? null;
   // Explore's first page is its "for_you" tab, fetched by another name.
   if (op === "ExplorePage") return exploreTabs?.find((t) => t.id === "for_you")?.timelineId ?? null;
@@ -694,6 +730,7 @@ function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExp
   if (op === "UserByScreenName") return s("screen_name")?.toLowerCase() ?? null;
   // A post's reposters and likers (X's Post activity).
   if (op === "Retweeters" || op === "Favoriters") return s("tweetId") ?? null;
+  if (op === "TweetActivityQuery") return s("restId") ?? null;
   // X's Follow page asks with a JSON context: empty for Who to follow, only the creators flag
   // for its other tab. Any other context (people like someone) is no tab of that page.
   if (op === "ConnectTabTimeline") {
@@ -872,6 +909,21 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     exploreTabs,
     viewer: op === "Viewer" ? readViewer(result(record(data.viewer).user_results)) : null,
     ...(prompt === undefined ? {} : { prompt }),
+    ...readAnalytics(op, data),
+  };
+}
+
+/** X's Post Analytics numbers (TweetActivityQuery), by X's metric name. */
+function readAnalytics(op: string, data: Json): Pick<EngineBatch, "analytics"> {
+  const grid = result(data.tweet_result_by_rest_id).datapoints_grid;
+  if (op !== "TweetActivityQuery" || !Array.isArray(grid)) return {};
+  return {
+    analytics: Object.fromEntries(
+      grid.flatMap((d) => {
+        const metric = asString(record(d).metric_type);
+        return metric === undefined ? [] : [[metric, asNumber(record(d).metric_value)]];
+      }),
+    ),
   };
 }
 
@@ -944,4 +996,5 @@ export const hasEngineContent = (b: EngineBatch) =>
   b.homeTabs !== null ||
   b.exploreTabs !== null ||
   b.viewer !== null ||
-  b.prompt !== undefined;
+  b.prompt !== undefined ||
+  b.analytics !== undefined;

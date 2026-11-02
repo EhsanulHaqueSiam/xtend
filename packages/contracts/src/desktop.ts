@@ -407,4 +407,10 @@ export interface EngineBatch {
   readonly viewer: EngineViewer | null;
   /** X's prompt in this timeline, when it lists one (see `EnginePrompt`). */
   readonly prompt?: EnginePrompt;
+  /**
+   * X's Post Analytics for the post `key` names (TweetActivityQuery, only ever the user's own), by
+   * X's metric name: `Impressions`, `Engagements`, `DetailExpands`, `ProfileVisits`, `LinkClicks`,
+   * `Follows`. X leaves a zero's value out; it reads 0 here.
+   */
+  readonly analytics?: Readonly<Record<string, number>>;
 }

@@ -1136,6 +1136,40 @@ export function synth(): Readonly<Record<string, Fixture>> {
     ],
   };
 
+  // One of the user's own posts, on their profile, and X's Post Analytics for it.
+  const you = person(99, { handle: VIEWER.handle, name: VIEWER.name! });
+  const yours = say(0, "Rewrote our pricing page in one afternoon. Three plans became one.", 180, {
+    author: {
+      userId: you.userId,
+      handle: you.handle,
+      name: you.name,
+      followers: you.followers,
+      verified: you.verified,
+    },
+    avatarUrl: you.avatarUrl,
+  });
+  const analytics: Fixture = {
+    meta: meta("analytics", "Post Analytics: X's numbers for one of your own posts", [
+      `/post/${yours.postId}/analytics?h=${you.handle}`,
+    ]),
+    batches: [
+      batch("UserTweets", you.userId, [yours], { users: [you] }),
+      batch("TweetActivityQuery", yours.postId, [], {
+        top: null,
+        bottom: null,
+        // X sends a zero without its value, and counts Follows, which its page does not draw.
+        analytics: {
+          DetailExpands: 214,
+          Engagements: 1_380,
+          Follows: 0,
+          Impressions: 48_210,
+          LinkClicks: 0,
+          ProfileVisits: 96,
+        },
+      }),
+    ],
+  };
+
   return {
     home,
     post,
@@ -1147,5 +1181,6 @@ export function synth(): Readonly<Record<string, Fixture>> {
     lists,
     follow,
     communities,
+    analytics,
   };
 }

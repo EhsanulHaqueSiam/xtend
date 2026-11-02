@@ -9,7 +9,13 @@ import type {
   EngineUser,
 } from "@xtend/contracts";
 
-import { type GraphqlRequest, type MockState, quotesQuery } from "./state.ts";
+import {
+  type GraphqlRequest,
+  INSPIRATION_FILTERS,
+  inspirationTimelineId,
+  type MockState,
+  quotesQuery,
+} from "./state.ts";
 
 /**
  * Mock X's pages: per x.com route, the GraphQL calls X's page makes and the markup it draws from
@@ -472,6 +478,28 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
       },
     };
   }
+  if (url.pathname === "/i/jf/creators/inspiration/top_posts") {
+    // X's Creator Studio page: its filters are plain buttons that switch the list in place.
+    const [engagement = "Likes", period = "Daily"] = homeTab.split(":");
+    const button = (filter: string, id: string, label: string, on: boolean) =>
+      `<button type="button" class="jf-element" data-jf="${filter}:${id}"${on ? ' style="font-weight:700"' : ""}>${esc(label)}</button>`;
+    return {
+      title: "Inspiration / X",
+      requests: [
+        r("GenericTimelineById", {
+          timelineId: inspirationTimelineId(engagement, period),
+          count: 20,
+          withQuickPromoteEligibilityTweetFields: true,
+        }),
+      ],
+      render: ([b]) =>
+        `${header("Inspiration")}<div class="jf-element">${button("language", "en", "💬 EN", true)}${INSPIRATION_FILTERS.period
+          .map((f) => button("period", f.id, f.label, f.id === period))
+          .join("")}${INSPIRATION_FILTERS.engagement
+          .map((f) => button("engagement", f.id, f.label, f.id === engagement))
+          .join("")}</div><section data-list>${postsOf(b ?? null, state)}</section>`,
+    };
+  }
   const searchTab = COMMUNITIES_SEARCH_TABS.find((t) => t.page === third);
   if (
     lower === "i" &&
@@ -662,6 +690,47 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
     const u = state.byHandle(first);
     if (second === "status" && third !== undefined) {
       const id = third;
+      if (fourth === "analytics") {
+        const p = state.post(id);
+        const created = p === undefined ? Date.now() : Date.parse(p.createdAt);
+        const organic = [
+          "DetailExpands",
+          "Engagements",
+          "Follows",
+          "Impressions",
+          "LinkClicks",
+          "ProfileVisits",
+        ];
+        return {
+          title: "Post Analytics / X",
+          requests: [
+            r("TweetActivityQuery", {
+              restId: id,
+              from_time: new Date(created).toISOString(),
+              to_time: new Date().toISOString(),
+              first_48_hours_time: new Date(created + 48 * 3_600_000).toISOString(),
+              requested_organic_metrics: organic,
+              requested_promoted_metrics: [...organic, "CostPerFollower"],
+            }),
+          ],
+          // X's labels in X's order; it counts Follows but does not draw them.
+          render: ([b]) =>
+            `${header("Post Analytics")}${p === undefined ? "" : article(p, state)}<div data-testid="analytics">${(
+              [
+                ["Impressions", "Impressions"],
+                ["Engagements", "Engagements"],
+                ["DetailExpands", "Detail expands"],
+                ["ProfileVisits", "Profile visits"],
+                ["LinkClicks", "Link clicks"],
+              ] as const
+            )
+              .map(
+                ([metric, label]) =>
+                  `<div><span>${label}</span> <span>${(b?.analytics?.[metric] ?? 0).toLocaleString("en")}</span></div>`,
+              )
+              .join("")}</div>`,
+        };
+      }
       if (fourth === "quotes" || fourth === "retweets" || fourth === "likes") {
         const tab = fourth;
         return {

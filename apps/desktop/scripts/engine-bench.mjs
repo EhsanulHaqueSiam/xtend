@@ -669,6 +669,34 @@ const benchmarks = [
     },
   ],
   [
+    "Post Analytics: your own post's numbers are the ones X's analytics page draws",
+    async () => {
+      const handle = await until(() => store(`$.viewer?.handle`));
+      if (!handle) return false;
+      await go(`#/u/${handle}`);
+      // The user's own post, not a repost, on their profile.
+      const id = await until(() =>
+        store(
+          `(() => { const me = [...$.users.values()].find((u) => u.handle === ${JSON.stringify(handle)}); return me && at($.lists, "profile:posts:" + me.userId).find((id) => $.posts.get(id)?.author.userId === me.userId); })()`,
+        ),
+      );
+      if (!id) return false;
+      await go(`#/post/${id}/analytics?h=${handle}`);
+      // Xtend's labels and numbers in order, then the number X's page draws beside each label.
+      const ours = `[...document.querySelectorAll('main [data-x="analytics"] > div')].map((d) => [d.querySelector("dt").textContent, d.querySelector("dd").textContent])`;
+      const xs = (labels) =>
+        `${JSON.stringify(labels)}.map((label) => { let box = [...document.querySelectorAll("*")].find((e) => e.children.length === 0 && e.textContent.trim() === label); while (box && !/\\d/.test(box.textContent.replace(label, ""))) box = box.parentElement; return [label, box?.textContent.replace(label, "").match(/[\\d.,]+[KM]?/)?.[0] ?? null]; })`;
+      const drawn = await until(async () => {
+        if (!(await enginePath()).endsWith(`/status/${id}/analytics`)) return false;
+        const native = await app(ours);
+        if (native?.length !== 5) return false;
+        const onX = await engine(xs(native.map(([label]) => label)));
+        return JSON.stringify(native) === JSON.stringify(onX) && native;
+      });
+      return drawn && `${id}: ${drawn.map(([label, n]) => `${label} ${n}`).join(", ")}`;
+    },
+  ],
+  [
     "List: X's header, and members and followers as X's pages list them",
     async () => {
       await go("#/lists");
@@ -808,6 +836,46 @@ const benchmarks = [
         xs !== undefined &&
         ours === xs &&
         `home ${home} (${tiles} Communities); explore ${explore}; ${id}: ${top}, X's "${xs}"`
+      );
+    },
+  ],
+  [
+    "Library Inspiration draws X's answer for X's filters, and a period pick presses X's own button (reads only)",
+    async () => {
+      // The section moves the engine to X's Creator Studio page and draws what X answered for the
+      // filters X shows. A pick presses X's own button there, so X answers for that period.
+      const path = "/i/jf/creators/inspiration/top_posts";
+      const drawn = (period) =>
+        until(async () => {
+          if ((await enginePath()) !== path) return false;
+          const x = await store(`$.inspiration`);
+          if (!x || (period !== undefined && x.period !== period)) return false;
+          const list = await store(
+            `at($.lists, "inspiration:" + $.inspiration.engagement + ":" + $.inspiration.period + ":" + $.inspiration.language)`,
+          );
+          const ours = await app(
+            `[...document.querySelectorAll('main article a[href*="/status/"]')].map((a) => a.getAttribute("href").split("/status/")[1]).slice(0, 3)`,
+          );
+          return (
+            list?.length >= 3 &&
+            JSON.stringify(ours) === JSON.stringify(list.slice(0, 3)) && {
+              ...x,
+              posts: list.length,
+            }
+          );
+        }, 30_000);
+      await go("#/library?tab=inspiration");
+      const first = await drawn();
+      if (!first) return false;
+      const other = first.period === "Daily" ? "Weekly" : "Daily";
+      const label = other === "Daily" ? "Last 24h" : "Last 7d";
+      await app(
+        `[...document.querySelectorAll('main [role="tab"]')].find((t) => t.textContent.trim() === ${JSON.stringify(label)})?.click(), true`,
+      );
+      const picked = await drawn(other);
+      return (
+        picked &&
+        `${first.engagement} ${first.period} ${first.language}: ${first.posts}; ${other}: ${picked.posts}`
       );
     },
   ],
