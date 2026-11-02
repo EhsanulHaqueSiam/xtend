@@ -670,6 +670,7 @@ function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExp
   if (op === "UserByScreenName") return s("screen_name")?.toLowerCase() ?? null;
   // A post's reposters and likers (X's Post activity).
   if (op === "Retweeters" || op === "Favoriters") return s("tweetId") ?? null;
+  if (op === "TweetActivityQuery") return s("restId") ?? null;
   // X's Follow page asks with a JSON context: empty for Who to follow, only the creators flag
   // for its other tab. Any other context (people like someone) is no tab of that page.
   if (op === "ConnectTabTimeline") {
@@ -844,6 +845,21 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     homeTabs: readHomeTabs(record(body)),
     exploreTabs,
     viewer: op === "Viewer" ? readViewer(result(record(data.viewer).user_results)) : null,
+    ...readAnalytics(op, data),
+  };
+}
+
+/** X's Post Analytics numbers (TweetActivityQuery), by X's metric name. */
+function readAnalytics(op: string, data: Json): Pick<EngineBatch, "analytics"> {
+  const grid = result(data.tweet_result_by_rest_id).datapoints_grid;
+  if (op !== "TweetActivityQuery" || !Array.isArray(grid)) return {};
+  return {
+    analytics: Object.fromEntries(
+      grid.flatMap((d) => {
+        const metric = asString(record(d).metric_type);
+        return metric === undefined ? [] : [[metric, asNumber(record(d).metric_value)]];
+      }),
+    ),
   };
 }
 
@@ -915,4 +931,5 @@ export const hasEngineContent = (b: EngineBatch) =>
   (b.key !== null && (b.op === "CommunitiesSearchQuery" || HUB_SEARCH_POSTS.test(b.op))) ||
   b.homeTabs !== null ||
   b.exploreTabs !== null ||
-  b.viewer !== null;
+  b.viewer !== null ||
+  b.analytics !== undefined;

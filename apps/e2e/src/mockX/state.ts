@@ -88,7 +88,8 @@ export function createMockState() {
     for (const p of b.posts) if (!basePosts.has(p.postId)) basePosts.set(p.postId, p);
     for (const u of b.users) if (!baseUsers.has(u.userId)) baseUsers.set(u.userId, u);
   }
-  const people = [...baseUsers.values()];
+  // The user is no one X lists or suggests: the fixtures name them only as their own posts' author.
+  const people = [...baseUsers.values()].filter((u) => u.userId !== viewer.userId);
   const forYou = fixture("HomeTimeline", null)!;
   const following = fixture("HomeLatestTimeline", null)!;
 
@@ -575,6 +576,9 @@ export function createMockState() {
         const creators = (s(variables, "context") ?? "").includes("isCreatorOnlyConnectTab");
         return live(fixture(op, creators ? "connect:creators" : "connect:who")!);
       }
+      // X's Post Analytics, for the user's own post the fixtures count.
+      case "TweetActivityQuery":
+        return fixture(op, s(variables, "restId") ?? "") ?? null;
       default:
         if (/^User(Tweets|TweetsAndReplies|Media|HighlightsTweets|SuperFollowTweets)$/.test(op)) {
           const u = user(s(variables, "userId") ?? "");

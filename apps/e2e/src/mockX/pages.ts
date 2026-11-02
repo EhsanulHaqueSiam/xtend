@@ -660,6 +660,47 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
     const u = state.byHandle(first);
     if (second === "status" && third !== undefined) {
       const id = third;
+      if (fourth === "analytics") {
+        const p = state.post(id);
+        const created = p === undefined ? Date.now() : Date.parse(p.createdAt);
+        const organic = [
+          "DetailExpands",
+          "Engagements",
+          "Follows",
+          "Impressions",
+          "LinkClicks",
+          "ProfileVisits",
+        ];
+        return {
+          title: "Post Analytics / X",
+          requests: [
+            r("TweetActivityQuery", {
+              restId: id,
+              from_time: new Date(created).toISOString(),
+              to_time: new Date().toISOString(),
+              first_48_hours_time: new Date(created + 48 * 3_600_000).toISOString(),
+              requested_organic_metrics: organic,
+              requested_promoted_metrics: [...organic, "CostPerFollower"],
+            }),
+          ],
+          // X's labels in X's order; it counts Follows but does not draw them.
+          render: ([b]) =>
+            `${header("Post Analytics")}${p === undefined ? "" : article(p, state)}<div data-testid="analytics">${(
+              [
+                ["Impressions", "Impressions"],
+                ["Engagements", "Engagements"],
+                ["DetailExpands", "Detail expands"],
+                ["ProfileVisits", "Profile visits"],
+                ["LinkClicks", "Link clicks"],
+              ] as const
+            )
+              .map(
+                ([metric, label]) =>
+                  `<div><span>${label}</span> <span>${(b?.analytics?.[metric] ?? 0).toLocaleString("en")}</span></div>`,
+              )
+              .join("")}</div>`,
+        };
+      }
       if (fourth === "quotes" || fourth === "retweets" || fourth === "likes") {
         const tab = fourth;
         return {

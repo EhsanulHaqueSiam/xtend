@@ -834,6 +834,26 @@ export function encodeBody(
       return { data: { favoriters_timeline: { timeline: timeline() } } };
     case "ConnectTabTimeline":
       return { data: { connect_tab_timeline: { timeline: timeline() } } };
+    case "TweetActivityQuery": {
+      // X's own shape: a grid of metrics, a zero's value left out, beside the promoted numbers.
+      const id = btoa(`Tweet:${batch.key ?? ""}`);
+      return {
+        data: {
+          tweet_result_by_rest_id: {
+            id,
+            result: {
+              __typename: "Tweet",
+              id,
+              datapoints_grid: Object.entries(batch.analytics ?? {}).map(([metric_type, value]) =>
+                value === 0 ? { metric_type } : { metric_type, metric_value: value },
+              ),
+              promotion_info: [{ metric_type: "Impressions" }],
+              video: [],
+            },
+          },
+        },
+      };
+    }
     case "PinnedTimelines":
       return {
         data: {
