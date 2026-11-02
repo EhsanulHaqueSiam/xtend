@@ -916,6 +916,127 @@ describe("renderEngineBatch around posts", () => {
     const none = renderEngineBatch("TweetActivityQuery", { restId: "42" }, { data: {} });
     expect([none.analytics, hasEngineContent(none)]).toEqual([undefined, false]);
   });
+
+  it("reads a search of Communities by its query: X's Communities, then its Top and Latest posts", () => {
+    const banner = (url: string) => ({ media_info: { original_img_url: url } });
+    // X's Communities tab, in the shape a live read showed: each one by `rest_id`, with a facepile.
+    const found = renderEngineBatch(
+      "CommunitiesSearchQuery",
+      { query: "makers", cursor: null },
+      {
+        data: {
+          communities_search_slice: {
+            items_results: [
+              {
+                id: "Q1",
+                result: {
+                  __typename: "Community",
+                  id: "Q29tbXVuaXR5OjIx",
+                  rest_id: "21",
+                  name: "Makers",
+                  member_count: 4200,
+                  is_nsfw: false,
+                  primary_community_topic: { topic_name: "Software" },
+                  custom_banner_media: banner("https://pbs.twimg.com/custom.jpg"),
+                  default_banner_media: banner("https://pbs.twimg.com/default.png"),
+                  members_facepile_results: [
+                    {
+                      id: "U1",
+                      result: {
+                        __typename: "User",
+                        id: "VXNlcjo3",
+                        avatar: { image_url: "https://pbs.twimg.com/face.jpg" },
+                      },
+                    },
+                  ],
+                },
+              },
+              {
+                id: "Q2",
+                result: {
+                  __typename: "Community",
+                  id: "Q29tbXVuaXR5OjIw",
+                  rest_id: "20",
+                  name: "Tools",
+                  member_count: 12,
+                  default_banner_media: banner("https://pbs.twimg.com/default.png"),
+                },
+              },
+            ],
+            slice_info: { next_cursor: "c-next" },
+          },
+        },
+      },
+    );
+    expect([
+      found.key,
+      found.communities.map((c) => [c.communityId, c.name, c.members, c.topic, c.bannerUrl]),
+      found.users,
+    ]).toEqual([
+      "makers",
+      [
+        ["21", "Makers", 4200, "Software", "https://pbs.twimg.com/custom.jpg"],
+        ["20", "Tools", 12, null, "https://pbs.twimg.com/default.png"],
+      ],
+      [],
+    ]);
+    // X found none: still its answer, which the screen says.
+    const none = renderEngineBatch(
+      "CommunitiesSearchQuery",
+      { query: "zzz", cursor: null },
+      { data: { communities_search_slice: { items_results: [], slice_info: {} } } },
+    );
+    expect([none.key, hasEngineContent(none)]).toEqual(["zzz", true]);
+
+    // Top and Latest: posts from Communities, each labelled with its Community.
+    const posts = (op: string, page: string) =>
+      renderEngineBatch(
+        op,
+        { rawQuery: "makers", count: 20 },
+        {
+          data: {
+            search_by_raw_query: {
+              [page]: {
+                timeline: {
+                  instructions: [
+                    { type: "TimelineClearCache" },
+                    { type: "TimelineTerminateTimeline", direction: "Top" },
+                    {
+                      type: "TimelineAddEntries",
+                      entries: ["62", "61"].map((id) =>
+                        item(tweet(id), {
+                          type: "TimelineGeneralContext",
+                          contextType: "Community",
+                          text: "Makers",
+                        }),
+                      ),
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      );
+    const top = posts("GlobalCommunitiesPostSearchTimeline", "communities_posts_search_page");
+    const latest = posts(
+      "GlobalCommunitiesLatestPostSearchTimeline",
+      "communities_latest_posts_search_page",
+    );
+    expect([top.key, top.order, top.posts[0]?.context?.text, latest.key, latest.order]).toEqual([
+      "makers",
+      ["62", "61"],
+      "Makers",
+      "makers",
+      ["62", "61"],
+    ]);
+    // No query is no search.
+    const blank = renderEngineBatch("CommunitiesSearchQuery", { query: "" }, {});
+    expect([blank.key, hasEngineContent(blank)]).toEqual([null, false]);
+    expect(hasEngineContent(renderEngineBatch("GlobalCommunitiesPostSearchTimeline", {}, {}))).toBe(
+      false,
+    );
+  });
 });
 
 describe("renderEngineBatch for live text, edits, threads and people", () => {

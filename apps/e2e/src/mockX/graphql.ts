@@ -759,6 +759,34 @@ export function encodeBody(
           },
         },
       };
+    case "CommunitiesSearchQuery":
+      return {
+        data: {
+          communities_search_slice: {
+            // X names each Community it finds by `rest_id`.
+            items_results: batch.communities.map((c) => {
+              const { id_str: _, ...found } = encodeCommunity(c);
+              return { id: found.id, result: { ...found, rest_id: c.communityId } };
+            }),
+            slice_info: batch.bottom === null ? {} : { next_cursor: batch.bottom },
+          },
+        },
+      };
+    case "GlobalCommunitiesPostSearchTimeline":
+    case "GlobalCommunitiesLatestPostSearchTimeline":
+      return {
+        data: {
+          search_by_raw_query: {
+            [batch.op === "GlobalCommunitiesPostSearchTimeline"
+              ? "communities_posts_search_page"
+              : "communities_latest_posts_search_page"]: {
+              timeline: {
+                instructions: [{ type: "TimelineClearCache" }, ...timeline().instructions],
+              },
+            },
+          },
+        },
+      };
     case "GenericTimelineById":
       return { data: { timeline: { timeline: timeline() } } };
     case "ListsManagementPageTimeline":

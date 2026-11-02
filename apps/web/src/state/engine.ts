@@ -81,6 +81,8 @@ type KeyedSurface =
   | `communityMedia:${string}`
   | `communityAbout:${string}`
   | `communitySearch:${string}`
+  | `communitiesSearch:${string}`
+  | `communityPostsSearch:${"Top" | "Latest"}:${string}`
   | `profile:${ProfileTab}:${string}`;
 /** X's Follow page's tabs (Who to follow, Creators for you), as the capture keys them. */
 export type ConnectTab = "connect:who" | "connect:creators";
@@ -129,6 +131,11 @@ export type CommunitySearchMode = "Likes" | "Recency";
 /** A search inside a Community, as X's search page there lists it for the order and query. */
 export const communitySearchSurface = (id: string, mode: CommunitySearchMode, query: string) =>
   `communitySearch:${id}:${mode}:${query}` as const;
+/** X's search of Communities, from the hub: the Communities it finds for the query. */
+export const communitiesSearchSurface = (query: string) => `communitiesSearch:${query}` as const;
+/** The same search's posts from Communities, in X's Top or Latest order (each its own tab). */
+export const communityPostsSearchSurface = (order: "Top" | "Latest", query: string) =>
+  `communityPostsSearch:${order}:${query}` as const;
 /** @public */
 export const profileSurface = (tab: ProfileTab, userId: string) =>
   `profile:${tab}:${userId}` as const;
@@ -205,6 +212,12 @@ export function surfacesOf(batch: Pick<EngineBatch, "op" | "key">): ReadonlyArra
     const search = tabKey(key, "communitySearch");
     return search === undefined ? [] : [search];
   }
+  // The capture keys a search of Communities by its query; the operation is the tab.
+  if (key !== null && op === "CommunitiesSearchQuery") return [communitiesSearchSurface(key)];
+  if (key !== null && op === "GlobalCommunitiesPostSearchTimeline")
+    return [communityPostsSearchSurface("Top", key)];
+  if (key !== null && op === "GlobalCommunitiesLatestPostSearchTimeline")
+    return [communityPostsSearchSurface("Latest", key)];
   if (op === "ConnectTabTimeline" && (key === "connect:who" || key === "connect:creators"))
     return [key];
   // The capture keys every List call `list:<id>`.

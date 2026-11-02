@@ -296,6 +296,18 @@ it("files pinned Home tabs, Lists, Communities and Explore tabs under their own 
       key: "communitySearch:14:Recency:ship it",
     }),
   ).toEqual([communitySearchSurface("14", "Recency", "ship it")]);
+  // X's search of Communities from the hub, keyed by its query: one list per tab.
+  expect([
+    surfacesOf({ op: "CommunitiesSearchQuery", key: "ship it" }),
+    surfacesOf({ op: "GlobalCommunitiesPostSearchTimeline", key: "ship it" }),
+    surfacesOf({ op: "GlobalCommunitiesLatestPostSearchTimeline", key: "ship it" }),
+    surfacesOf({ op: "CommunitiesSearchQuery", key: null }),
+  ]).toEqual([
+    ["communitiesSearch:ship it"],
+    ["communityPostsSearch:Top:ship it"],
+    ["communityPostsSearch:Latest:ship it"],
+    [],
+  ]);
 });
 
 it("lists the user's Communities in X's order, and keeps what each response said of one", () => {
