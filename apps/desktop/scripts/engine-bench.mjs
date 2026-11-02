@@ -758,14 +758,19 @@ const benchmarks = [
       // X's first three posts sit together, in X's order, in the native list (an ad has no
       // timestamp link). Nothing is pressed: X's membership button is only found.
       const xFirst = `[...document.querySelectorAll("article")].map((a) => a.querySelector('a[href*="/status/"] time')?.parentElement.getAttribute("href")?.split("/status/")[1]?.split("/")[0]).filter(Boolean).slice(0, 3)`;
-      const same = () =>
+      // X's first three posts lead the tab's list, and Xtend draws X's first: a tall first post
+      // can leave only one drawn in the window.
+      const same = (surface) =>
         until(async () => {
-          const [xs, ours] = [await engine(xFirst), await nativeIds()];
-          const at = ours?.indexOf(xs?.[0]) ?? -1;
+          const [xs, ours, drawn] = [
+            await engine(xFirst),
+            await store(`at($.lists, ${JSON.stringify(surface)})`),
+            await nativeIds(),
+          ];
           return (
             xs?.length === 3 &&
-            at !== -1 &&
-            JSON.stringify(ours.slice(at, at + 3)) === JSON.stringify(xs) &&
+            JSON.stringify(ours?.slice(0, 3)) === JSON.stringify(xs) &&
+            drawn?.[0] === xs[0] &&
             xs.join(",")
           );
         });
@@ -906,14 +911,19 @@ const benchmarks = [
       // A creator who offers Subscriptions today. Nothing is pressed but X's own tabs.
       const handle = "levelsio";
       const xFirst = `[...document.querySelectorAll("article")].map((a) => a.querySelector('a[href*="/status/"] time')?.parentElement.getAttribute("href")?.split("/status/")[1]?.split("/")[0]).filter(Boolean).slice(0, 3)`;
-      const same = () =>
+      // X's first three posts lead the tab's list, and Xtend draws X's first: a tall first post
+      // can leave only one drawn in the window.
+      const same = (surface) =>
         until(async () => {
-          const [xs, ours] = [await engine(xFirst), await nativeIds()];
-          const at = ours?.indexOf(xs?.[0]) ?? -1;
+          const [xs, ours, drawn] = [
+            await engine(xFirst),
+            await store(`at($.lists, ${JSON.stringify(surface)})`),
+            await nativeIds(),
+          ];
           return (
             xs?.length === 3 &&
-            at !== -1 &&
-            JSON.stringify(ours.slice(at, at + 3)) === JSON.stringify(xs) &&
+            JSON.stringify(ours?.slice(0, 3)) === JSON.stringify(xs) &&
+            drawn?.[0] === xs[0] &&
             xs.join(",")
           );
         });
@@ -951,14 +961,14 @@ const benchmarks = [
       const reposts =
         (await until(async () => (await enginePath()) === `/${handle}/reposts`)) &&
         (await xTab("Reposts")) &&
-        (await same());
+        (await same(`profile:reposts:${id}`));
       if (!reposts) return false;
       await go(`#/u/${handle}?tab=subs`);
       if (!(await until(async () => (await enginePath()) === `/${handle}/subs`))) return false;
       // A non-subscriber gets X's prompt, drawn in X's words; a subscriber gets the posts.
       const subs = await until(async () => {
         const prompt = await store(`$.prompts.get("profile:subs:${id}")`);
-        if (prompt === undefined) return (await nativeIds()).length > 0 && (await same());
+        if (prompt === undefined) return (await nativeIds()).length > 0 && (await same(`profile:subs:${id}`));
         const onX = await engine(
           `document.querySelector('[data-testid="primaryColumn"]')?.innerText ?? ""`,
         );
