@@ -245,6 +245,7 @@ function ProfileScreen() {
   return (
     <Timeline
       surface={surface}
+      keepPlace
       header={
         <XTitle
           title={

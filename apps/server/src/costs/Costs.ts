@@ -97,13 +97,15 @@ const make = Effect.gen(function* () {
       case "analyzeRefresh":
         return Effect.gen(function* () {
           const { handle } = yield* settings.get;
-          const usd = rates.scraperProfile + POST_PAGES * rates.searchPage;
-          if (handle === null) return paid(usd);
-          return yield* read(
-            usd,
-            Effect.map(Effect.all([x.cached.profile(handle), x.cached.userPosts(handle)]), (hits) =>
-              hits.every(Boolean),
-            ),
+          // Like scoreRun: pages after the first hang off cursors no probe knows, so they are always priced.
+          const later = (POST_PAGES - 1) * rates.searchPage;
+          if (handle === null) return paid(rates.scraperProfile + rates.searchPage + later);
+          const [profileHit, pageHit] = yield* Effect.all([
+            x.cached.profile(handle),
+            x.cached.userPosts(handle),
+          ]);
+          return paid(
+            (profileHit ? 0 : rates.scraperProfile) + (pageHit ? 0 : rates.searchPage) + later,
           );
         });
       case "competitorFetch":

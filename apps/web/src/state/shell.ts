@@ -54,6 +54,17 @@ export const eventsOfTypeAtom = Atom.family((type: XtendEventType) =>
   ),
 );
 
+/**
+ * The newest observation batch that carried posts, once a burst of them settles: the session may
+ * have seen something a free read lists. Debounced, so scrolling X refetches the free reads once.
+ */
+export const observedAtom = Atom.debounce(
+  Atom.make((get) =>
+    get(eventsOfTypeAtom("observation_recorded")).findLast((e) => e.payload["posts"] !== 0),
+  ),
+  "1 second",
+);
+
 export type ConnectionState = "connecting" | "connected" | "disconnected";
 
 /** Derived from the event heartbeat; every event counts as a beat. */

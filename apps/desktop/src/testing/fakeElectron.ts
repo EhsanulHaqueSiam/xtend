@@ -183,6 +183,7 @@ export const app = Object.assign(new NodeEvents.EventEmitter(), {
 export const Menu = { buildFromTemplate: () => ({ popup: () => {} }) };
 export const shell = { openExternal: async () => {} };
 export const clipboard = { writeText: () => {} };
+export const systemPreferences = { getUserDefault: () => "" };
 
 /** Forgets every listener, window and count, so the next test boots main.ts on a clean Electron. */
 export const reset = () => {

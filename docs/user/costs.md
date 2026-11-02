@@ -33,7 +33,7 @@ budget or logged.
 
 In the desktop app the free way sits beside the paid fetch: **Profile on X** beside Analyze's
 refresh and a competitor's Fetch, **Notifications on X** beside Engage's Fetch new, **Search on
-X** beside Library's paid search. Each opens the page in the X panel at no cost.
+X** beside Library's paid search and Engage's Targets refresh. Each opens the page in the X panel at no cost.
 
 ## What is free
 

@@ -33,8 +33,9 @@ One list's people, with a switcher for the others in the header. Lists are free;
 them from X costs. Add existing People for free, or discover people from the detail column:
 
 - **From people**: search and select existing people who are not in the list, then add them for free. **Remove from list** in a member's detail keeps them in People and other lists.
-- **From a search**: criteria, a paid preview of who matched, then everyone into the list in
-  one click.
+- **From a search**: as you type, the authors your session saw posting it list free (without a
+  bio filter); **Search on X** looks for more, free. **Preview** is the paid search, then everyone
+  goes into the list in one click.
 - **From a post**: who reposted or liked one post, priced by the service before the fetch,
   then into the list.
 

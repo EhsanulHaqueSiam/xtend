@@ -56,6 +56,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   xPartition: info.xPartition ?? "persist:x-session",
   xStartUrl: info.xStartUrl ?? X_HOME,
   initialRoute: info.initialRoute ?? null,
+  swipeNavigation: info.swipeNavigation ?? true,
   retryService: () => ipcRenderer.send(RECOVERY_RETRY_CHANNEL),
   checkRemote: (config: unknown) => ipcRenderer.invoke(REMOTE_CHECK_CHANNEL, config),
   setRemote: (config: unknown) => ipcRenderer.send(REMOTE_SET_CHANNEL, config),

@@ -6,7 +6,7 @@ import type { EngineBatch, XSkinToggle } from "@xtend/contracts";
  */
 
 /** Keys main caught for the app: ⌘K palette, ⌘\ X panel, ⌘F find, ⌘R or F5 refresh. */
-export type ShortcutKey = "palette" | "xPanel" | "find" | "refresh";
+export type ShortcutKey = "palette" | "xPanel" | "find" | "refresh" | "back" | "forward";
 
 interface SessionDownload {
   readonly name: string;
@@ -58,6 +58,8 @@ export interface DesktopBridge {
   readonly remote: RemoteConfig | null;
   /** The account whose x.com session the window opened. */
   readonly accountId: number;
+  /** Two-finger swipes go back and forward: macOS's "Swipe between pages", always elsewhere. */
+  readonly swipeNavigation: boolean;
   /** The cookie partition the x.com webview must use; main refuses any other. */
   readonly xPartition: string;
   /** Where x.com was when the app last closed. */

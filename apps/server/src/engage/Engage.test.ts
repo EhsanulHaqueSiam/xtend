@@ -10,6 +10,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 
 import * as Assist from "../ai/Assist.ts";
 import * as SessionPosting from "../compose/SessionPosting.ts";
@@ -52,6 +53,10 @@ const apiCalls: Array<string | undefined> = [];
 /** Texts sent to X's create-post endpoint, the paid lane. */
 const postedTexts: Array<string> = [];
 const apiLikes: Array<string> = [];
+/** Queries sent to X's paid search. */
+const searches: Array<string> = [];
+/** Whether the read cache holds a search page, so reading it costs nothing. */
+let searchCached = false;
 const published: Array<Events.EventInput> = [];
 const eventsStub = Layer.succeed(Events.Events)({
   publish: (event) =>
@@ -59,6 +64,7 @@ const eventsStub = Layer.succeed(Events.Events)({
       published.push(event);
     }),
   stream: Stream.empty,
+  listening: Effect.succeed(false),
 });
 const tregCalls: Array<Treg.TregCall> = [];
 // Assist echoes the tone it was asked for as the single draft, so a test can read what was asked.
@@ -126,11 +132,17 @@ const layerTest = Engage.layer.pipe(
           : Effect.fail(new DesktopUnavailableError({ reason: desktop.answer, detail: "test" })),
       ),
       xClientStub({
-        searchPosts: () =>
-          Effect.succeed({
-            items: [target("31", "ann"), target("32", "ben")],
-            nextCursor: null,
-            fromCache: false,
+        // A cache-only read pays nothing: it answers what the cache holds, or an empty page.
+        searchPosts: (query, { cacheOnly }) =>
+          Effect.sync(() => {
+            if (cacheOnly === true && !searchCached)
+              return { items: [], nextCursor: null, fromCache: true };
+            if (cacheOnly !== true) searches.push(query);
+            return {
+              items: [target("31", "ann"), target("32", "ben")],
+              nextCursor: null,
+              fromCache: cacheOnly === true,
+            };
           }),
         createPost: ({ text }) =>
           (postedTexts.push(text), text === "fail")
@@ -144,6 +156,7 @@ const layerTest = Engage.layer.pipe(
               )
             : Effect.succeed({ postId: "900", costUsd: 0.015 }),
         like: (postId) => Effect.sync(() => void apiLikes.push(postId)),
+
         mentions: ({ sinceId }) => {
           apiCalls.push(sinceId);
           return Effect.succeed(
@@ -226,6 +239,69 @@ describe("Engage.mentions, session", () => {
   );
 });
 
+describe("Engage.targets", () => {
+  it.effect("lists what the session saw and cached searches for free; only refresh pays X", () =>
+    Effect.gen(function* () {
+      searches.length = 0;
+      yield* (yield* SettingsStore.SettingsStore).update({ keywords: ["api pricing"] });
+      yield* (yield* ObservationStore.ObservationStore).record(
+        sessionSaw([
+          ["51", "We changed our API pricing today"],
+          ["52", "unrelated"],
+        ]),
+      );
+      const engage = yield* Engage.Engage;
+      const ids = (targets: ReadonlyArray<{ readonly post: XPost }>) =>
+        targets.map((t) => t.post.postId).toSorted();
+      expect(ids(yield* engage.targets(false))).toEqual(["51"]);
+      expect(searches).toEqual([]);
+      expect(ids(yield* engage.targets(true))).toEqual(["31", "32", "51"]);
+      expect(searches).toEqual(["api pricing"]);
+      // A search the read cache holds is free, so opening the page lists it too.
+      searchCached = true;
+      expect(ids(yield* engage.targets(false))).toEqual(["31", "32", "51"]);
+      searchCached = false;
+    }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect(
+    "old posts seen again do not crowd out a new one, and the fresher copy of a post wins",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse("2026-10-23T12:00:00.000Z"));
+        yield* (yield* SettingsStore.SettingsStore).update({ keywords: ["api pricing"] });
+        const observations = yield* ObservationStore.ObservationStore;
+        const fresh = sessionSaw([
+          ["51", "We changed our API pricing today"],
+          ["31", "how do you price an api? api pricing"],
+        ]);
+        yield* observations.record({
+          ...fresh,
+          observedAt: "2026-10-23T10:00:00.000Z",
+          posts: fresh.posts.map((p) => ({ ...p, createdAt: "2026-10-23T09:00:00.000Z" })),
+        });
+        // Fifty day-old posts, seen after the new ones.
+        yield* observations.record({
+          ...sessionSaw(
+            Array.from(
+              { length: 50 },
+              (_, i) => [`${100 + i}`, `old api pricing take ${i}`] as const,
+            ),
+          ),
+          observedAt: "2026-10-23T11:00:00.000Z",
+        });
+        const engage = yield* Engage.Engage;
+        expect((yield* engage.targets(false)).map((t) => t.post.postId).toSorted()).toEqual([
+          "31",
+          "51",
+        ]);
+        // X's search has post 31 with its views; the session's copy had none.
+        const paid = new Map((yield* engage.targets(true)).map((t) => [t.post.postId, t]));
+        expect(paid.get("31")?.post.metrics.views).toBe(1000);
+      }).pipe(Effect.provide(layerTest)),
+  );
+});
+
 describe("Engage.inbox", () => {
   it.effect(
     "announces each incoming reply once per account, however often the service restarts",
@@ -304,6 +380,21 @@ describe("Engage.reply", () => {
       desktop.answer = "no_desktop";
       const away = yield* engage.reply(target("42", "ben"), "again").pipe(Effect.flip);
       expect([away.operation, (yield* store.sentList([])).length]).toEqual(["session", 1]);
+      // The user picks the paid lane the error offered: it goes through the API, not the desktop.
+      const calls = desktopCalls.length;
+      const paid = yield* engage.reply(target("42", "ben"), "again", true);
+      expect([paid.postId, postedTexts.at(-1), desktopCalls.length]).toEqual([
+        "900",
+        "again",
+        calls,
+      ]);
+      apiLikes.length = 0;
+      yield* engage.like("43", true);
+      expect([apiLikes, desktopCalls.length]).toEqual([["43"], calls]);
+      // A like the desktop went quiet on may be on X: not offered to the API, which would like twice.
+      desktop.answer = "timeout";
+      yield* TestClock.adjust("1 hour");
+      expect(yield* engage.like("44").pipe(Effect.flip)).toMatchObject({ operation: "like" });
       desktop.answer = "ok";
     }).pipe(Effect.provide(layerTest)),
   );
@@ -320,7 +411,7 @@ describe("Engage.reply", () => {
       const sent = yield* engage.reply(target("32", "ben"), "charge per call, cap per month");
       expect([sent.postId, sent.error]).toEqual(["900", null]);
 
-      const targets = yield* engage.targets;
+      const targets = yield* engage.targets(true);
       const byPost = new Map(targets.map((t) => [t.post.postId, t]));
       expect([byPost.get("31")?.replied, byPost.get("31")?.repliesToAuthor]).toEqual([false, 0]);
       expect([byPost.get("32")?.replied, byPost.get("32")?.repliesToAuthor]).toEqual([true, 1]);

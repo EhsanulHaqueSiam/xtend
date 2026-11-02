@@ -1,6 +1,8 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { postCostUsd, type ReplyTone, type XPost } from "@xtend/contracts";
+import * as Cause from "effect/Cause";
 import * as Exit from "effect/Exit";
+import * as Predicate from "effect/Predicate";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { useState } from "react";
 import { TextMorph } from "torph/react";
@@ -27,6 +29,8 @@ export interface Work {
   readonly liked: boolean;
   /** What the like cost, quoted before it ran. */
   readonly likedUsd: number;
+  /** The session could not take this click (human pace, no desktop); nothing went out, so the API may. */
+  readonly stuck: "reply" | "like" | null;
 }
 
 export type Patch = (change: Partial<Work>) => void;
@@ -40,7 +44,51 @@ const idle: Work = {
   replied: false,
   liked: false,
   likedUsd: 0,
+  stuck: null,
 };
+
+/** The service's "session could not take it" (Engage or Leads): nothing was pressed, so the API is safe. */
+export const sessionRefused = (cause: Cause.Cause<unknown>) => {
+  const e = Cause.squash(cause);
+  return (
+    (Predicate.isTagged(e, "EngageError") || Predicate.isTagged(e, "LeadsError")) &&
+    Predicate.hasProperty(e, "operation") &&
+    e.operation === "session"
+  );
+};
+
+/** Free first, never stuck: when the session cannot take a click, retry it free or pay the API now. */
+export function SessionStuck({
+  paidLabel,
+  paidUsd,
+  disabled,
+  onFree,
+  onPaid,
+}: {
+  readonly paidLabel: string;
+  readonly paidUsd: number | null;
+  readonly disabled: boolean;
+  readonly onFree: () => void;
+  readonly onPaid: () => void;
+}) {
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      <button type="button" className={pill} disabled={disabled} onClick={onFree}>
+        Try again
+        <Cost label="free · your session" />
+      </button>
+      <button
+        type="button"
+        className={pill}
+        disabled={disabled || paidUsd === null}
+        onClick={onPaid}
+      >
+        {paidLabel}
+        {paidUsd === null ? <Cost label="…" /> : <Cost usd={paidUsd} />}
+      </button>
+    </div>
+  );
+}
 
 /**
  * Work per id (a post, a person), owned by the screen rather than the detail
@@ -106,10 +154,15 @@ export function ReplyBox({
     patch({ busy: null, drafts: exit.value.map((d) => d.text) });
   };
 
-  const onReply = async () => {
-    patch({ busy: "reply", error: null });
-    const exit = await send({ post, text });
-    if (Exit.isFailure(exit)) return patch({ busy: null, error: errorText(exit.cause) });
+  const onReply = async (viaApi = false) => {
+    patch({ busy: "reply", error: null, stuck: null });
+    const exit = await send({ post, text, viaApi });
+    if (Exit.isFailure(exit))
+      return patch({
+        busy: null,
+        error: errorText(exit.cause),
+        stuck: sessionRefused(exit.cause) ? "reply" : null,
+      });
     // The service records a failed X write on the row instead of throwing; surface it here.
     patch(
       exit.value.error !== null
@@ -118,17 +171,28 @@ export function ReplyBox({
     );
   };
 
-  const onLike = async () => {
+  const onLike = async (viaApi = false) => {
     // Read before the call: the like itself fills the lookup cache and requotes.
-    const price = viaSession ? 0 : (likeQuote?.usd ?? 0);
-    patch({ busy: "like", error: null });
-    const exit = await like();
+    const price = viaSession && !viaApi ? 0 : (likeQuote?.usd ?? 0);
+    patch({ busy: "like", error: null, stuck: null });
+    const exit = await like({ viaApi });
     patch(
       Exit.isFailure(exit)
-        ? { busy: null, error: errorText(exit.cause) }
+        ? {
+            busy: null,
+            error: errorText(exit.cause),
+            stuck: sessionRefused(exit.cause) ? "like" : null,
+          }
         : { busy: null, liked: true, likedUsd: price },
     );
   };
+  // Free first, never stuck: when the session cannot take the click, both ways on are offered.
+  const paidUsd =
+    work.stuck === "reply"
+      ? rates === null
+        ? null
+        : postCostUsd(rates, text)
+      : (likeQuote?.usd ?? null);
 
   return (
     <Section
@@ -223,6 +287,17 @@ export function ReplyBox({
         </button>
       </div>
       {error !== null ? <p className="mt-2 text-xs text-error-foreground">{error}</p> : null}
+      {work.stuck === null ? null : (
+        <SessionStuck
+          paidLabel={
+            work.stuck === "reply" ? "Send now through the API" : "Like now through the API"
+          }
+          paidUsd={paidUsd}
+          disabled={busy !== null || (work.stuck === "reply" && text.trim() === "")}
+          onFree={() => void (work.stuck === "reply" ? onReply() : onLike())}
+          onPaid={() => void (work.stuck === "reply" ? onReply(true) : onLike(true))}
+        />
+      )}
     </Section>
   );
 }

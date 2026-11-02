@@ -15,15 +15,19 @@ Settings, Writing. Write my own skips the model.
 **Reply** sends what is in the box. While **Act through X for what I click** is on in Settings
 (the default), it goes through your own x.com session in the desktop app, free, and the button
 says free · your session. Off, it goes through the X API at the price on the button. Session
-replies keep a human pace: a second reply within 8 seconds, or past 30 in an hour, is refused
-with how long to wait. **Like** takes the same lane and pace.
+replies keep a human pace: a second reply within 8 seconds, or past 30 in an hour, is held
+with how long to wait, since bursts of writes are what X flags. A held click, or one with no
+desktop running, offers **Try again** free or the same action through the API now at its
+price. **Like**, and Leads' replies and DMs, take the same lane and pace.
 
 Your work on a post survives moving to the next one and back.
 
 ## Targets
 
-Posts worth replying to, ranked by the service from what the session has seen and from your
-keywords. The profile of who you reply to and about what is rebuilt nightly at 03:00 or on
+Posts worth replying to, ranked by the service. Posts from the last day that the session saw
+matching your keywords list free when the page opens; **Search on X** runs your keywords in the
+panel, free, and what you scroll joins them. **Refresh** adds X's own search for up to five
+keywords, priced on the button. The profile of who you reply to and about what is rebuilt nightly at 03:00 or on
 demand from the header. **Suggested keywords** are handles and terms the model drew from your
 posts, one click into Settings.
 

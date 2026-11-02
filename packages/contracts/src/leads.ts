@@ -235,7 +235,12 @@ export const LeadsRpcGroup = RpcGroup.make(
     error: LeadsOrX,
   }),
   Rpc.make(Leads_METHODS.sendDm, {
-    payload: Schema.Struct({ id: Schema.Int, text: Schema.String }),
+    /** `viaApi`: the paid API, picked when the session could not take the click. */
+    payload: Schema.Struct({
+      id: Schema.Int,
+      text: Schema.String,
+      viaApi: Schema.optional(Schema.Boolean),
+    }),
     success: Schema.Void,
     error: LeadsOrX,
   }),
@@ -322,7 +327,12 @@ export const LeadsRpcGroup = RpcGroup.make(
     error: LeadsOrX,
   }),
   Rpc.make(Leads_METHODS.sendReply, {
-    payload: Schema.Struct({ id: Schema.Int, postId: XId, text: Schema.String }),
+    payload: Schema.Struct({
+      id: Schema.Int,
+      postId: XId,
+      text: Schema.String,
+      viaApi: Schema.optional(Schema.Boolean),
+    }),
     success: Schema.Struct({ postId: XId }),
     error: LeadsOrX,
   }),

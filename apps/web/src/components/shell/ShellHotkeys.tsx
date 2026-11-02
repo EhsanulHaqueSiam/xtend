@@ -1,5 +1,5 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
-import { useLocation, useNavigate } from "@tanstack/react-router";
+import { useLocation, useNavigate, useRouter } from "@tanstack/react-router";
 import { useEffect } from "react";
 
 import type { ShortcutKey } from "../../desktopBridge";
@@ -24,8 +24,23 @@ const isEditable = (target: EventTarget | null) =>
  * and single letters outside text fields open screens. While x.com has focus
  * its own keys stay X's; main forwards the chords so they work there too.
  */
+/**
+ * ⌘[ and ⌘] (Alt+← and Alt+→ off macOS) on the desktop, as a browser's own; text fields keep
+ * them, so a draft is never lost to a stray ⌘[.
+ */
+const historyStep = (event: KeyboardEvent): "back" | "forward" | null => {
+  const mac = window.desktopBridge?.platform === "darwin";
+  const plain =
+    !event.shiftKey && (mac ? event.metaKey && !event.altKey : event.altKey && !event.ctrlKey);
+  if (!plain) return null;
+  if (event.key === (mac ? "[" : "ArrowLeft")) return "back";
+  if (event.key === (mac ? "]" : "ArrowRight")) return "forward";
+  return null;
+};
+
 export function ShellHotkeys() {
   const navigate = useNavigate();
+  const { history } = useRouter();
   const pathname = useLocation({ select: (l) => l.pathname });
   const searchStr = useLocation({ select: (l) => l.searchStr });
   const setPalette = useAtomSet(paletteOpenAtom);
@@ -39,6 +54,8 @@ export function ShellHotkeys() {
     const chord = (key: ShortcutKey) => {
       if (key === "palette") return setPalette((open) => !open);
       if (key === "refresh") return refreshScreen();
+      if (key === "back") return history.back();
+      if (key === "forward") return history.forward();
       if (!isElectron) return;
       if (key === "find") return onX || panelOpen ? setFind(true) : undefined;
       // From X's own pages, ⌘\ goes back to the last tool with x.com beside it.
@@ -74,16 +91,29 @@ export function ShellHotkeys() {
           return chord(hit);
         }
       }
+      const step = isElectron && !isEditable(event.target) ? historyStep(event) : null;
+      if (step !== null) {
+        event.preventDefault();
+        return chord(step);
+      }
       if (mod || event.altKey || isEditable(event.target)) return;
       if (key.length === 1 && /[a-z]/.test(key)) letter(key);
     };
+    // Mouse buttons 4 and 5; Chromium in Electron does not navigate on them by itself.
+    const onMouseUp = (event: MouseEvent) => {
+      if (!isElectron || (event.button !== 3 && event.button !== 4)) return;
+      event.preventDefault();
+      chord(event.button === 3 ? "back" : "forward");
+    };
     window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("mouseup", onMouseUp);
     const offBridge = window.desktopBridge?.onShortcut(chord);
     return () => {
       window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("mouseup", onMouseUp);
       offBridge?.();
     };
-  }, [navigate, panelOpen, pathname, searchStr, setFind, setPalette, setPanel]);
+  }, [history, navigate, panelOpen, pathname, searchStr, setFind, setPalette, setPanel]);
 
   return null;
 }

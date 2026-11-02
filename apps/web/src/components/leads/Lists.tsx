@@ -5,6 +5,7 @@ import { ChevronDown, X } from "lucide-react";
 import { useState } from "react";
 import { TextMorph } from "torph/react";
 
+import { observedAuthors } from "../../lib/observed";
 import { cn, parsePostId } from "../../lib/utils";
 import { useRates, usd } from "../../state/costs";
 import {
@@ -29,6 +30,8 @@ import { xIconButton } from "../x";
 import { PeoplePager, PeopleSplit } from "./People";
 import { useAction } from "./ui";
 import { Select } from "../ui/select";
+import { FreeOnX, searchUrl } from "../ui/x-link";
+import { seenPageAtom } from "../../state/observations";
 
 type Builder = "search" | "engagement" | "people";
 
@@ -413,7 +416,7 @@ function Matches({ listId, found }: { readonly listId: number; readonly found: F
       aside={
         <>
           <span className="font-mono text-2xs text-muted-foreground">
-            spent {usd(found.costUsd)}
+            {found.costUsd === 0 ? "seen on X · free" : `spent ${usd(found.costUsd)}`}
           </span>
           <button
             type="button"
@@ -452,7 +455,7 @@ function Matches({ listId, found }: { readonly listId: number; readonly found: F
   );
 }
 
-/** Search criteria, a paid preview, then everyone it matched into the list. */
+/** Search criteria: authors seen on X free as you type, a paid preview, then everyone matched into the list. */
 function SearchBuilder({ listId }: { readonly listId: number }) {
   const rates = useRates();
   const preview = useAtomSet(listPreviewAtom, { mode: "promise" });
@@ -462,6 +465,12 @@ function SearchBuilder({ listId }: { readonly listId: number }) {
   const [bioKeyword, setBio] = useState("");
   const [found, setFound] = useState<Found | null>(null);
   const [attempt, setAttempt] = useState(0);
+  // Free first: authors the session saw posting this, as you type. Bios are not observed.
+  const recent = AsyncResult.getOrElse(useAtomValue(seenPageAtom({ limit: 200 })), () => null);
+  const seen =
+    recent === null || query.trim() === "" || bioKeyword.trim() !== ""
+      ? []
+      : observedAuthors(recent.posts, query, minFollowers === "" ? 0 : Number(minFollowers));
 
   // A bio keyword needs a profile read per author; the preview quotes the worst case.
   const quote =
@@ -517,6 +526,9 @@ function SearchBuilder({ listId }: { readonly listId: number }) {
             />
           </Field>
           <div className="mt-3 flex items-center gap-1.5">
+            {query.trim() === "" ? null : (
+              <FreeOnX href={searchUrl(query, "latest")} label="Search on X" />
+            )}
             <button
               type="submit"
               className={pill}
@@ -530,7 +542,11 @@ function SearchBuilder({ listId }: { readonly listId: number }) {
         </form>
       </Section>
       {/* A new result starts with its own Add all. */}
-      {found !== null ? <Matches key={attempt} listId={listId} found={found} /> : null}
+      {found !== null ? (
+        <Matches key={attempt} listId={listId} found={found} />
+      ) : seen.length > 0 ? (
+        <Matches key={`seen:${query}`} listId={listId} found={{ matches: seen, costUsd: 0 }} />
+      ) : null}
     </>
   );
 }
