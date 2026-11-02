@@ -35,6 +35,7 @@ import { rankTarget } from "./ranking.ts";
 const MAX_TARGETS = 30;
 /** Keywords one targets refresh searches; Costs prices a refresh from it. */
 export const MAX_KEYWORDS = 5;
+const SEEN_TARGET_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 const assistError = (e: Assist.AssistError) =>
   new EngageError({ operation: "assist", detail: e.message });
@@ -67,7 +68,10 @@ export interface DmsResult {
 export class Engage extends Context.Service<
   Engage,
   {
-    readonly targets: Effect.Effect<ReadonlyArray<ReplyTarget>, EngageError | XApiError>;
+    /** Posts the session saw and cached searches are free; `refresh` pays for the uncached searches. */
+    readonly targets: (
+      refresh: boolean,
+    ) => Effect.Effect<ReadonlyArray<ReplyTarget>, EngageError | XApiError>;
     readonly draftReply: (
       post: XPost,
       tone?: ReplyTone,
@@ -80,8 +84,16 @@ export class Engage extends Context.Service<
       readonly correction?: string | undefined;
     }) => Effect.Effect<PostRead, EngageError>;
     /** Posts the reply through X; a failure is recorded on the row, never thrown. */
-    readonly reply: (post: XPost, text: string) => Effect.Effect<SentReply, EngageError>;
-    readonly like: (postId: string) => Effect.Effect<void, XApiError | EngageError>;
+    /** `viaApi`: the user chose the paid API after the session could not take the click. */
+    readonly reply: (
+      post: XPost,
+      text: string,
+      viaApi?: boolean,
+    ) => Effect.Effect<SentReply, EngageError>;
+    readonly like: (
+      postId: string,
+      viaApi?: boolean,
+    ) => Effect.Effect<void, XApiError | EngageError>;
     readonly findKeywords: Effect.Effect<KeywordSuggestions, EngageError | XApiError>;
     readonly mentions: (refresh: boolean) => Effect.Effect<MentionsResult, EngageError>;
     readonly inbox: Effect.Effect<InboxResult, EngageError>;
@@ -105,24 +117,44 @@ const make = Effect.gen(function* () {
   const observedError = (e: { readonly message: string }) =>
     new EngageError({ operation: "store", detail: e.message });
 
-  const targets = Effect.gen(function* () {
+  const targets = Effect.fn("Engage.targets")(function* (refresh: boolean) {
     const { keywords } = yield* current;
     const replied = yield* store.repliedPostIds;
     const history = yield* store.repliesByAuthor;
     const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
-    const seen = new Set<string>();
-    const found: Array<{ post: XPost; keyword: string }> = [];
-    for (const keyword of keywords.slice(0, MAX_KEYWORDS)) {
-      // shortcut: XClient caches search pages for 30 min, not the 15 the screen asks for; upgrade when XClient takes a cacheFor option.
-      const page = yield* x.searchPosts(keyword, { mode: "latest", purpose: "engage.targets" });
-      for (const post of page.items) {
-        if (seen.has(post.postId) || post.isRepost) continue;
-        seen.add(post.postId);
-        found.push({ post, keyword });
+    // Keyed by post: the session and X's search can both hold one post, and metrics only grow,
+    // so the copy with more views is the fresher one.
+    const found = new Map<string, { post: XPost; keyword: string }>();
+    const add = (posts: ReadonlyArray<XPost>, keyword: string) => {
+      for (const post of posts) {
+        const had = found.get(post.postId);
+        if (
+          post.isRepost ||
+          (had !== undefined && (had.post.metrics.views ?? 0) >= (post.metrics.views ?? 0))
+        )
+          continue;
+        found.set(post.postId, { post, keyword: had?.keyword ?? keyword });
       }
+    };
+    // Free first: what the session saw. A day-old post is past the window a reply gets seen in.
+    const createdAfter = DateTime.formatIso(DateTime.makeUnsafe(nowMs - SEEN_TARGET_MAX_AGE_MS));
+    for (const [i, keyword] of keywords.entries()) {
+      const observed = yield* observations
+        .listRecent({ query: keyword, limit: 50, createdAfter })
+        .pipe(Effect.mapError(observedError));
+      add(observed.posts.map(observedToPost), keyword);
+      if (i >= MAX_KEYWORDS) continue;
+      // shortcut: XClient caches search pages for 30 min, not the 15 the screen asks for; upgrade when XClient takes a cacheFor option.
+      const page = yield* x.searchPosts(keyword, {
+        mode: "latest",
+        purpose: "engage.targets",
+        // Without refresh, only what the read cache holds: opening the page never pays.
+        ...(refresh ? {} : { cacheOnly: true }),
+      });
+      add(page.items, keyword);
     }
-    const scores = yield* store.authorScores(found.map((f) => f.post.author.handle));
-    const all = found.map(({ post, keyword }): ReplyTarget => {
+    const scores = yield* store.authorScores([...found.values()].map((f) => f.post.author.handle));
+    const all = [...found.values()].map(({ post, keyword }): ReplyTarget => {
       const handle = post.author.handle.toLowerCase();
       const authorScore = scores.get(handle) ?? null;
       const rank = rankTarget(post, nowMs, authorScore);
@@ -223,34 +255,44 @@ why: one sentence on why these angles fit this author and post.`,
   // Free first: a clicked reply goes through the user's own session while that lane is on.
   // Nothing attempted (lane off, no desktop, human pace) fails the call; a refusal or a
   // desktop that went quiet after it may have clicked Post is kept on the row like X's own.
-  const reply = Effect.fn("Engage.reply")(function* (post: XPost, text: string) {
+  const reply = Effect.fn("Engage.reply")(function* (post: XPost, text: string, viaApi = false) {
     const { sessionPostingEnabled } = yield* current;
-    const result = sessionPostingEnabled
-      ? yield* session.post({ text, mediaPaths: [], replyToPostId: post.postId, paced: true }).pipe(
-          Effect.map((r) => ({ postId: r.postId, error: null })),
-          Effect.catch((e) =>
-            e._tag === "DesktopUnavailableError" &&
-            (e.reason === "timeout" || e.reason === "failed")
-              ? Effect.succeed({ postId: null, error: e.message })
-              : new EngageError({ operation: "session", detail: e.message }),
-          ),
-        )
-      : yield* x.createPost({ text, replyToPostId: post.postId, purpose: "engage.reply" }).pipe(
-          Effect.map((r) => ({ postId: r.postId, error: null })),
-          Effect.catchTags({
-            XApiError: (e) => Effect.succeed({ postId: null, error: e.message }),
-          }),
-        );
+    const result =
+      sessionPostingEnabled && !viaApi
+        ? yield* session
+            .post({ text, mediaPaths: [], replyToPostId: post.postId, paced: true })
+            .pipe(
+              Effect.map((r) => ({ postId: r.postId, error: null })),
+              Effect.catch((e) =>
+                e._tag === "DesktopUnavailableError" &&
+                (e.reason === "timeout" || e.reason === "failed")
+                  ? Effect.succeed({ postId: null, error: e.message })
+                  : new EngageError({ operation: "session", detail: e.message }),
+              ),
+            )
+        : yield* x.createPost({ text, replyToPostId: post.postId, purpose: "engage.reply" }).pipe(
+            Effect.map((r) => ({ postId: r.postId, error: null })),
+            Effect.catchTags({
+              XApiError: (e) => Effect.succeed({ postId: null, error: e.message }),
+            }),
+          );
     return yield* store.recordReply(post, { text, ...result });
   });
 
   // Free first, like a reply: a clicked like goes through the user's session while that lane is on.
-  const like = Effect.fn("Engage.like")(function* (postId: string) {
+  const like = Effect.fn("Engage.like")(function* (postId: string, viaApi = false) {
     const { sessionPostingEnabled } = yield* current;
-    if (!sessionPostingEnabled) return yield* x.like(postId, "engage.like");
-    yield* session
-      .like(postId)
-      .pipe(Effect.mapError((e) => new EngageError({ operation: "session", detail: e.message })));
+    if (!sessionPostingEnabled || viaApi) return yield* x.like(postId, "engage.like");
+    // "session" only when nothing was pressed: the UI then offers the API, which must not like twice.
+    yield* session.like(postId).pipe(
+      Effect.mapError(
+        (e) =>
+          new EngageError({
+            operation: SessionPosting.notAttempted(e) ? "session" : "like",
+            detail: e.message,
+          }),
+      ),
+    );
   });
 
   const findKeywords = Effect.gen(function* () {

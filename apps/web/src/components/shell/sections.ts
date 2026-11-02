@@ -84,7 +84,7 @@ export const SECTIONS = {
     {
       id: "targets",
       label: "Targets",
-      about: "Fresh posts for your keywords to reply under; Refresh is one paid search each.",
+      about: "Posts you saw on X for your keywords, free; Refresh adds one paid search each.",
     },
     {
       id: "inbox",
@@ -108,7 +108,8 @@ export const SECTIONS = {
     {
       id: "lists",
       label: "Lists",
-      about: "Groups of people. Free; building one from a search is priced first.",
+      about:
+        "Groups of people. Free; a search lists who you saw on X free, and the paid preview finds more.",
     },
     { id: "agents", label: "Agents", about: "Finders that run on a schedule, paid per run." },
   ],

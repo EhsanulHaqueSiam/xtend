@@ -14,6 +14,8 @@ const notice = (event: XtendEvent): { title: string; body: string } | null => {
     const count = typeof p.count === "number" ? p.count : 1;
     return { title: "Xtend", body: count === 1 ? "New mention" : `${count} new mentions` };
   }
+  if (event.type === "draft_status_changed" && p.needsClick === true)
+    return { title: "Xtend", body: "A post with media is due: open Plan and press Post now" };
   if (event.type === "lead_found")
     return { title: "Xtend", body: `Lead found: @${str("handle") ?? "unknown"}` };
   if (event.type !== "rule_fired") return null;
@@ -30,7 +32,7 @@ const notice = (event: XtendEvent): { title: string; body: string } | null => {
 };
 
 /**
- * Mentions, leads, automation notify actions and ask-first requests become OS notifications;
+ * Mentions, leads, due media posts, automation notify actions and ask-first requests become OS notifications;
  * the desktop grants the permission, a browser asks once.
  */
 export function ShellNotifications() {

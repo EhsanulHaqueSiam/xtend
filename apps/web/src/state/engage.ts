@@ -4,18 +4,26 @@ import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Atom from "effect/reactivity/Atom";
 
 import { clientRuntime, XtendClient } from "../rpc/client";
-import { eventsOfTypeAtom } from "./shell";
+import { eventsOfTypeAtom, observedAtom } from "./shell";
+
+/** Free: posts the session saw matching the keywords and searches the read cache holds. Follows the session. */
+export const targetsAtom = clientRuntime.atom((get) =>
+  Effect.gen(function* () {
+    get(observedAtom);
+    const client = yield* XtendClient;
+    return yield* client[Engage_METHODS.targets]({});
+  }),
+);
 
 /**
- * Paid: one search per keyword, cached 30 min by the service. Runs on the priced click, or on
- * open when the quote says the cache serves it free; never just because the tab mounted. Kept
- * alive: the click does not await it, so leaving Engage mid-search would interrupt paid reads.
+ * Paid: one search per uncached keyword, cached 30 min by the service. Refresh targetsAtom after
+ * it. Kept alive: the click does not await it, so leaving Engage mid-search would interrupt paid reads.
  */
-export const targetsAtom = Atom.keepAlive(
+export const refreshTargetsAtom = Atom.keepAlive(
   clientRuntime.fn<void>()(
     Effect.fnUntraced(function* () {
       const client = yield* XtendClient;
-      return yield* client[Engage_METHODS.targets]({});
+      return yield* client[Engage_METHODS.targets]({ refresh: true });
     }),
   ),
 );
@@ -58,7 +66,7 @@ export const readPostAtom = Atom.family((_postId: string) =>
 );
 
 export const sendReplyAtom = Atom.family((_postId: string) =>
-  clientRuntime.fn<{ readonly post: XPost; readonly text: string }>()(
+  clientRuntime.fn<{ readonly post: XPost; readonly text: string; readonly viaApi?: boolean }>()(
     Effect.fnUntraced(function* (input) {
       const client = yield* XtendClient;
       return yield* client[Engage_METHODS.reply](input);
@@ -67,10 +75,10 @@ export const sendReplyAtom = Atom.family((_postId: string) =>
 );
 
 export const likeAtom = Atom.family((postId: string) =>
-  clientRuntime.fn<void>()(
-    Effect.fnUntraced(function* () {
+  clientRuntime.fn<{ readonly viaApi: boolean }>()(
+    Effect.fnUntraced(function* ({ viaApi }) {
       const client = yield* XtendClient;
-      return yield* client[Engage_METHODS.like]({ postId });
+      return yield* client[Engage_METHODS.like]({ postId, viaApi });
     }),
   ),
 );
@@ -90,17 +98,6 @@ export const addKeywordsAtom = clientRuntime.fn<ReadonlyArray<string>>()(
     const merged = [...new Set([...current.keywords, ...keywords])];
     return yield* client[WS_METHODS.settingsUpdate]({ keywords: merged });
   }),
-);
-
-/**
- * The newest observation batch that carried posts, once a burst of them settles: the session may
- * have seen a mention or a reply. Debounced, so scrolling X refetches the free reads once.
- */
-const observedAtom = Atom.debounce(
-  Atom.make((get) =>
-    get(eventsOfTypeAtom("observation_recorded")).findLast((e) => e.payload["posts"] !== 0),
-  ),
-  "1 second",
 );
 
 /** Free: session mentions plus what earlier refreshes fetched. Follows new mentions, so the Today card's count does. */

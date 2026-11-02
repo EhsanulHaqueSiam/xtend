@@ -7,6 +7,7 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
+import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as Events from "../events/Events.ts";
@@ -181,6 +182,42 @@ describe("Scheduler", () => {
       // Not left in `posting`, where it would sit until a restart.
       expect((yield* drafts.get(broken.id)).status).toBe("failed");
     }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect(
+    "a due post with media waits queued for the user's click; the session is never driven unattended",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(NOW);
+        calls.length = 0;
+        const drafts = yield* DraftStore.DraftStore;
+        const scheduler = yield* Scheduler.Scheduler;
+        yield* (yield* SettingsStore.SettingsStore).update({ sessionPostingEnabled: true });
+        const d = yield* drafts.create({ blocks: [{ text: "look" }] });
+        yield* drafts.mediaInsert(d.id, {
+          id: "m",
+          blockIndex: 0,
+          path: "/m/a.png",
+          kind: "image",
+          alt: "",
+        });
+        yield* drafts.reschedule(d.id, past);
+
+        // The desktop stub dies if anything reaches it. No client is listening yet.
+        expect(yield* scheduler.tick).toEqual([]);
+        // A client connecting after the service started is still told the post needs a click.
+        const heard = yield* (yield* Events.Events).stream.pipe(
+          Stream.take(1),
+          Stream.runCollect,
+          Effect.forkChild,
+        );
+        yield* Effect.yieldNow;
+        expect(yield* scheduler.tick).toEqual([]);
+        const [event] = yield* Fiber.join(heard);
+        expect(event?.payload).toMatchObject({ draftId: d.id, needsClick: true });
+        const after = yield* drafts.get(d.id);
+        expect([after.status, after.attempts, calls]).toEqual(["queued", 0, []]);
+      }).pipe(Effect.provide(layerTest)),
   );
 
   it.effect(
