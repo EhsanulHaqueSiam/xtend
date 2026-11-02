@@ -807,6 +807,13 @@ export function encodeBody(
       return { data: { favoriters_timeline: { timeline: timeline() } } };
     case "ConnectTabTimeline":
       return { data: { connect_tab_timeline: { timeline: timeline() } } };
+    case "BlueVerifiedFollowers":
+    case "FollowersYouKnow":
+    case "Followers":
+    case "Following":
+      return {
+        data: { user: { result: { __typename: "User", timeline: { timeline: timeline() } } } },
+      };
     case "PinnedTimelines":
       return {
         data: {

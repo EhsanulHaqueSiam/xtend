@@ -77,6 +77,7 @@ type KeyedSurface =
   | `likers:${string}`
   | `listMembers:${string}`
   | `listFollowers:${string}`
+  | `${FollowersTab}:${string}`
   | ConnectTab
   | `communityMedia:${string}`
   | `communityAbout:${string}`
@@ -103,6 +104,20 @@ export const postPeopleSurface = (kind: "reposters" | "likers", postId: string) 
 /** @public A List's members and followers, as X's List members and followers pages list them. */
 export const listPeopleSurface = (kind: "listMembers" | "listFollowers", listId: string) =>
   `${kind}:${listId}` as const;
+/** A profile's people pages, as X names their paths (x.com/<handle>/followers_you_follow). */
+export type FollowersTab =
+  | "verified_followers"
+  | "followers_you_follow"
+  | "followers"
+  | "following";
+/** One profile's people page, under the person's id as X's request names them. */
+export const followersSurface = (tab: FollowersTab, userId: string) => `${tab}:${userId}` as const;
+const FOLLOWERS_OPS: Readonly<Record<string, FollowersTab>> = {
+  BlueVerifiedFollowers: "verified_followers",
+  FollowersYouKnow: "followers_you_follow",
+  Followers: "followers",
+  Following: "following",
+};
 /**
  * The search X's Post activity runs for a post's quotes, as its Quotes tab sends it; the results
  * sit under that search's own surface.
@@ -197,6 +212,9 @@ export function surfacesOf(batch: Pick<EngineBatch, "op" | "key">): ReadonlyArra
   if (op === "Bookmarks") return ["bookmarks"];
   if (key !== null && op === "Retweeters") return [postPeopleSurface("reposters", key)];
   if (key !== null && op === "Favoriters") return [postPeopleSurface("likers", key)];
+  // The capture keys a profile's people pages by the person's id.
+  const followers = FOLLOWERS_OPS[op];
+  if (key !== null && followers !== undefined) return [followersSurface(followers, key)];
   // The signed-in account's likes, under X's History beside Bookmarks.
   if (op === "Likes") return ["likes"];
   if (op === "ListsManagementPageTimeline") return ["lists"];

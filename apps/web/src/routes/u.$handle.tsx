@@ -1,5 +1,5 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
-import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { BellPlus, BellRing, CalendarDays, Link2, MapPin, MoreHorizontal } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
@@ -313,16 +313,27 @@ function ProfileScreen() {
             {(user?.followers ?? seen?.author.followers) == null ? null : (
               <p className="mt-3 flex gap-5 text-[15px] text-[#71767b]">
                 {user?.following == null ? null : (
-                  <span>
+                  <Link
+                    to="/u/$handle/people"
+                    params={{ handle }}
+                    search={{ tab: "following" }}
+                    className="hover:underline"
+                  >
                     <b className="font-bold text-foreground">{fmt(user.following)}</b> Following
-                  </span>
+                  </Link>
                 )}
-                <span>
+                {/* X's own Followers link opens its Verified Followers tab. */}
+                <Link
+                  to="/u/$handle/people"
+                  params={{ handle }}
+                  search={{ tab: "verified_followers" }}
+                  className="hover:underline"
+                >
                   <b className="font-bold text-foreground">
                     {fmt(user?.followers ?? seen?.author.followers)}
                   </b>{" "}
                   Followers
-                </span>
+                </Link>
               </p>
             )}
           </div>

@@ -715,6 +715,29 @@ test("Lists, a List's posts and its members read X's pages", async () => {
   expect(await enginePath()).toBe(`/i/lists/${list!.listId}/members`);
 });
 
+test("A profile's Followers and Following open X's people pages, in X's tabs and X's order", async () => {
+  const user = e.mock.state.people[1]!;
+  const listed = (op: string) => {
+    const b = e.mock.state.batchFor(op, { userId: user.userId })!;
+    return b.people.map((id) => b.users.find((u) => u.userId === id)!.handle);
+  };
+  await go(`/u/${user.handle}`);
+  const profile = e.app.locator('main [data-x="profile"]');
+  // As X's own link does, Followers opens Verified Followers.
+  await profile.getByRole("link", { name: /Followers$/ }).click();
+  await expect.poll(nativeHandles).toEqual(listed("BlueVerifiedFollowers"));
+  expect(await enginePath()).toBe(`/${user.handle}/verified_followers`);
+  expect(await e.app.locator("main").getByRole("tab").allTextContents()).toEqual([
+    "Verified Followers",
+    "Followers you know",
+    "Followers",
+    "Following",
+  ]);
+  await e.app.locator("main").getByRole("tab", { name: "Following", exact: true }).click();
+  await expect.poll(nativeHandles).toEqual(listed("Following"));
+  await expect.poll(enginePath).toBe(`/${user.handle}/following`);
+});
+
 test("Explore, Notifications and Bookmarks render what X sends", async () => {
   await go("/explore");
   const explore = e.mock.state.batchFor("ExplorePage", {})!;

@@ -714,6 +714,64 @@ const benchmarks = [
     },
   ],
   [
+    "Profile people: X's four tabs, each listing what X's page lists, or nobody when X does",
+    async () => {
+      const who = await until(() =>
+        store(
+          `(() => { const me = $.viewer?.handle; const u = [...$.users.values()].find((u) => u.handle !== me && (u.followers ?? 0) >= 1000 && (u.following ?? 0) >= 3); return u && { id: u.userId, handle: u.handle }; })()`,
+        ),
+      );
+      if (!who) return false;
+      // As for List people: X's first rows sit together, in X's order, in the native list. A
+      // tab X answered with nobody shows no rows on either side and no loading line natively.
+      const tab = async (path) => {
+        const surface = JSON.stringify(`${path}:${who.id}`);
+        await go(`#/u/${who.handle}/people?tab=${path}`);
+        return until(async () => {
+          if ((await enginePath()) !== `/${who.handle}/${path}`) return false;
+          if (!(await store(`$.cursors[${surface}] !== undefined`))) return false;
+          const ours = await store(`at($.people, ${surface}).map((id) => $.users.get(id)?.handle)`);
+          const xs = await engine(
+            `[...document.querySelectorAll('[data-testid="UserCell"]')].slice(0, 3).map((u) => u.querySelector('a[href^="/"]')?.getAttribute("href").slice(1).toLowerCase())`,
+          );
+          if (ours.length === 0)
+            return (
+              xs.length === 0 &&
+              (await app(
+                `!document.querySelector('main [data-x="user"]') && !document.querySelector("main").innerText.includes("from X.")`,
+              )) &&
+              "nobody"
+            );
+          const n = Math.min(3, ours.length);
+          const drawn = await app(`document.querySelectorAll('main [data-x="user"]').length`);
+          const at = ours.indexOf(xs[0]);
+          return (
+            drawn >= n &&
+            xs.length === n &&
+            at !== -1 &&
+            JSON.stringify(ours.slice(at, at + n)) === JSON.stringify(xs) &&
+            xs.join(",")
+          );
+        });
+      };
+      const verified = await tab("verified_followers");
+      // X's tabs, labels and order, as the native screen draws them.
+      const tabs = (page) =>
+        page(
+          `[...document.querySelectorAll('main [role="tab"], [data-testid="primaryColumn"] [role="tab"]')].map((t) => t.textContent.trim())`,
+        );
+      const same =
+        verified && JSON.stringify(await tabs(app)) === JSON.stringify(await tabs(engine));
+      const know = same && (await tab("followers_you_follow"));
+      const followers = know && (await tab("followers"));
+      const following = followers && (await tab("following"));
+      return (
+        following &&
+        `@${who.handle}: verified ${verified}; you know ${know}; followers ${followers}; following ${following}`
+      );
+    },
+  ],
+  [
     "Follow page: Who to follow and Creators list what X lists, with X's own buttons (dry)",
     async () => {
       // Each tab: X's first three people are drawn together, in X's order, on the native screen,

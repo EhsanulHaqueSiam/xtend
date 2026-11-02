@@ -478,6 +478,16 @@ export function createMockState() {
         if (!xLists.has(id)) return null;
         return ofPeople(op, `list:${id}`, listPeople(id, op === "ListMembers" ? 0 : 3));
       }
+      // A profile's people pages, a different five people on each.
+      case "BlueVerifiedFollowers":
+      case "FollowersYouKnow":
+      case "Followers":
+      case "Following": {
+        const id = s(variables, "userId") ?? "";
+        if (user(id) === undefined) return null;
+        const pages = ["Following", "Followers", "FollowersYouKnow", "BlueVerifiedFollowers"];
+        return ofPeople(op, id, listPeople(id, pages.indexOf(op) + 1));
+      }
       case "Retweeters":
       case "Favoriters": {
         const id = s(variables, "tweetId") ?? "";

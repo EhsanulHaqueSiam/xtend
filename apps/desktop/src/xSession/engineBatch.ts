@@ -892,6 +892,9 @@ export const hasEngineContent = (b: EngineBatch) =>
   // A search of Communities X found nothing for still reaches its screen, which says so.
   // shortcut: an error answer reads the same; tell them apart by the body if X errs there.
   (b.key !== null && (b.op === "CommunitiesSearchQuery" || HUB_SEARCH_POSTS.test(b.op))) ||
+  // A profile's people page X answered with nobody (no verified followers): the screen says so.
+  // shortcut: an error answer reads the same; tell them apart by the body if X errs there.
+  (b.key !== null && /^(Followers|Following|FollowersYouKnow|BlueVerifiedFollowers)$/.test(b.op)) ||
   b.homeTabs !== null ||
   b.exploreTabs !== null ||
   b.viewer !== null;

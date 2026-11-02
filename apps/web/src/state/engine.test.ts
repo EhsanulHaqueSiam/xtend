@@ -260,6 +260,12 @@ it("files pinned Home tabs, Lists, Communities and Explore tabs under their own 
   expect(surfacesOf({ op: "Favoriters", key: "42" })).toEqual(["likers:42"]);
   expect(surfacesOf({ op: "ListMembers", key: "list:12" })).toEqual(["listMembers:12"]);
   expect(surfacesOf({ op: "ListSubscribers", key: "list:12" })).toEqual(["listFollowers:12"]);
+  // A profile's people pages, each its own list per person.
+  expect(
+    ["BlueVerifiedFollowers", "FollowersYouKnow", "Followers", "Following"].map(
+      (op) => surfacesOf({ op, key: "5" })[0],
+    ),
+  ).toEqual(["verified_followers:5", "followers_you_follow:5", "followers:5", "following:5"]);
   expect(surfacesOf({ op: "ConnectTabTimeline", key: "connect:creators" })).toEqual([
     "connect:creators",
   ]);
