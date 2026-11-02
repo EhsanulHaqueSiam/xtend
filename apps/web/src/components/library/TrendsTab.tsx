@@ -230,6 +230,10 @@ function ForYouSection() {
   const refresh = useAtomRefresh(forYouAtom);
   const generate = useAtomSet(generateReadyAtom, { mode: "promise" });
   const assistQuote = useQuoteLabel({ kind: "assist" });
+  const trendsQuote = useQuoteLabel({ kind: "trending", country: TREND_COUNTRIES[0] });
+  // With no topics yet the service writes from country trends, a paid read unless cached.
+  const cold = AsyncResult.getOrElse(result, () => []).length === 0;
+  const writeQuote = cold ? costLabels(trendsQuote, assistQuote) : assistQuote;
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ readonly text: string; readonly error: boolean } | null>(
     null,
@@ -261,11 +265,11 @@ function ForYouSection() {
               <button
                 type="button"
                 className={button}
-                disabled={busy || assistQuote === "…"}
+                disabled={busy || writeQuote.includes("…")}
                 onClick={() => void write()}
               >
                 {busy ? "Writing" : "Write 3 for today"}
-                <Cost label={assistQuote} />
+                <Cost label={writeQuote} />
               </button>
             </TooltipTrigger>
             <TooltipPopup>

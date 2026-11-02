@@ -129,14 +129,16 @@ shared pool behind Library's Trends while pool sharing is on (see [Settings](./s
 What you click can go through your own session, free. **Act through X for what I click**
 (Settings, X session) is on by default:
 
-- A reply you send from Engage goes through your session, one at a time at a human pace: at
-  least 8 seconds apart and at most 30 an hour. Off, it goes through the X API at the price on
-  the button.
-- Posts with media always go through your session, since the API path has no media upload. With
-  the switch off they land in Failed, saying session actions are off.
+- Post now, and the replies, likes and DMs you send from Engage and Leads, go through your
+  session, one at a time at a human pace: at least 8 seconds apart and at most 30 an hour. A
+  click the session cannot take right then offers **Try again**, free, or the API now at its
+  price. Off, they go through the X API at the price on the button.
+- Posts with media always go through your session, since the API path has no media upload. A
+  queued one waits at its time for your **Post now**; with the switch off it says session
+  actions are off.
 
-Everything else that writes (Post now and queued posts without media, likes, DMs) goes through
-the X API at its price. Automations and agents never use the session.
+Queued posts without media go through the X API at its price. Automations and agents never use
+the session.
 
 ## Links
 

@@ -97,6 +97,8 @@ export const ObservationListRecentInput = Schema.Struct({
   /** Literal text the post contains, any case. */
   query: Schema.optional(Schema.String.check(Schema.isMaxLength(200))),
   before: Schema.optional(ObservationCursor),
+  /** Only posts X created after this; applied before `limit`, so old posts seen again do not crowd out new ones. */
+  createdAfter: Schema.optional(IsoDateTime),
 });
 export type ObservationListRecentInput = typeof ObservationListRecentInput.Type;
 

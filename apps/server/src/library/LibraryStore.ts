@@ -149,11 +149,15 @@ export class LibraryStore extends Context.Service<
     readonly pickFetchedKeywords: (
       day: string,
     ) => Effect.Effect<ReadonlyArray<string>, LibraryError>;
-    /** Records the keyword as fetched and stores its posts; a post already picked today stays with its first keyword. */
+    /**
+     * Records the keyword as fetched and stores its posts; a post already picked today stays with
+     * its first keyword. `seen` posts came free from the session: stored, but the keyword stays due.
+     */
     readonly picksRecord: (input: {
       readonly day: string;
       readonly keyword: string;
       readonly posts: ReadonlyArray<XPost>;
+      readonly seen?: boolean;
     }) => Effect.Effect<void, LibraryError>;
     readonly pickGet: (postId: string) => Effect.Effect<Pick | null, LibraryError>;
     readonly pickSetWhy: (postId: string, why: string) => Effect.Effect<void, LibraryError>;
@@ -358,11 +362,13 @@ const make = Effect.gen(function* () {
     readonly day: string;
     readonly keyword: string;
     readonly posts: ReadonlyArray<XPost>;
+    readonly seen?: boolean;
   }) {
     // All or nothing: a keyword marked fetched with half its posts would never be fetched again.
     yield* sql.withTransaction(
       Effect.gen(function* () {
-        yield* sql`INSERT OR IGNORE INTO pick_fetches (day, keyword) VALUES (${input.day}, ${input.keyword})`;
+        if (input.seen !== true)
+          yield* sql`INSERT OR IGNORE INTO pick_fetches (day, keyword) VALUES (${input.day}, ${input.keyword})`;
         const collectionId = yield* staffPicksId;
         for (const post of input.posts) {
           yield* sql`

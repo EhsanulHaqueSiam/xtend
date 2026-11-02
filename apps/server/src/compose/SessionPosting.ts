@@ -21,6 +21,10 @@ const SESSION_POSTING_OFF =
 const PACE_GAP_MS = 8_000;
 const PACE_PER_HOUR = 30;
 
+/** True when the session never pressed anything (off, paced, no desktop), so another lane cannot double-post. */
+export const notAttempted = (e: ComposeError | DesktopUnavailableError) =>
+  e._tag === "ComposeError" || e.reason === "no_desktop" || e.reason === "not_attempted";
+
 /**
  * Posting through the desktop's x.com session view: the free lane for what the user clicks, poll
  * and reply setting included, and the only path for media until treg uploads it, and for a GIF

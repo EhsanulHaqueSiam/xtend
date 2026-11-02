@@ -175,6 +175,40 @@ describe("Library", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
+  it.effect(
+    "lists what the session saw clearing the picks bar for free; the keyword stays due",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse("2026-10-29T12:00:00.000Z"));
+        yield* (yield* SettingsStore.SettingsStore).update({ keywords: ["effect"] });
+        const seen = (postId: string, likes: number, createdAt: string) => ({
+          postId,
+          author: { userId: "11", handle: "ann", name: "Ann", followers: 100, verified: false },
+          text: "Effect schema in one page",
+          createdAt,
+          isReply: false,
+          isRepost: false,
+          isPromoted: false,
+          hasMedia: false,
+          hasLink: false,
+          metrics: { views: 10, likes, reposts: 0, replies: 0, quotes: 0, bookmarks: 0 },
+        });
+        yield* (yield* ObservationStore.ObservationStore).record({
+          viewerHandle: "me",
+          source: "home",
+          observedAt: "2026-10-29T11:00:00.000Z",
+          posts: [
+            seen("201", 500, "2026-10-28T09:00:00.000Z"),
+            seen("202", 20, "2026-10-28T09:00:00.000Z"),
+            seen("203", 900, "2026-10-01T09:00:00.000Z"),
+          ],
+        });
+        const state = yield* (yield* Library.Library).picksGet;
+        expect(state.picks.map((p) => p.post.postId)).toEqual(["201"]);
+        expect(state.pending).toEqual(["effect"]);
+      }).pipe(Effect.provide(layerTest)),
+  );
+
   it.effect("keeps the format a post's own flags give unless the model says thread", () =>
     Effect.gen(function* () {
       const store = yield* LibraryStore.LibraryStore;
@@ -250,6 +284,39 @@ describe("Library", () => {
       expect(missingAuthors(done)).toEqual([]);
     }).pipe(Effect.provide(search.layer));
   });
+
+  it.effect("fills a Staff pick the session saw, free", () =>
+    Effect.gen(function* () {
+      const [first] = staffPicksJson;
+      yield* (yield* ObservationStore.ObservationStore).record({
+        viewerHandle: "me",
+        source: "detail",
+        observedAt: "2026-10-29T11:00:00.000Z",
+        posts: [
+          {
+            postId: first!.postId,
+            author: {
+              userId: "12",
+              handle: first!.handle,
+              name: "P",
+              followers: 1,
+              verified: true,
+            },
+            text: "Seen in the session",
+            createdAt: "2026-10-28T09:00:00.000Z",
+            isReply: false,
+            isRepost: false,
+            isPromoted: false,
+            hasMedia: false,
+            hasLink: false,
+            metrics: { views: 10, likes: 1, reposts: 0, replies: 0, quotes: 0, bookmarks: 0 },
+          },
+        ],
+      });
+      const picks = yield* (yield* Library.Library).staffPicks;
+      expect(picks.find((p) => p.postId === first!.postId)?.post?.text).toBe("Seen in the session");
+    }).pipe(Effect.provide(layerTest)),
+  );
 
   it.effect("caches why a pick worked, and drafts options in the picked tone every time", () =>
     Effect.gen(function* () {

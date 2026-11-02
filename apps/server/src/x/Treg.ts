@@ -41,6 +41,8 @@ export interface TregCall {
   readonly purpose: string;
   /** Serve from x_cache when a copy younger than this exists. Reads only. */
   readonly cacheFor?: Duration.Duration;
+  /** A free read: a cache miss answers an empty body instead of calling X. */
+  readonly cacheOnly?: boolean;
   /** Price treg quoted in the catalog; checked against the budget before the call. */
   readonly expectedCostUsd?: number;
 }
@@ -204,6 +206,7 @@ const make = Effect.gen(function* () {
           return { status: 200, body: cached, costUsd: 0, cached: true };
         }
       }
+      if (input.cacheOnly === true) return { status: 204, body: null, costUsd: 0, cached: true };
 
       if (auth === null) {
         return yield* new XApiError({

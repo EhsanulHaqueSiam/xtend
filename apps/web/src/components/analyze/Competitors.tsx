@@ -215,7 +215,11 @@ export function Competitors({ data }: { readonly data: AnalyzeData }) {
                           {fmt(report?.profile?.posts ?? null)}
                         </td>
                         <td className={cn(table.td, table.num)}>
-                          {report === undefined ? "–" : fmt(report.avgViews)}
+                          {report === undefined ? (
+                            <SeenViews handle={w.handle} />
+                          ) : (
+                            fmt(report.avgViews)
+                          )}
                         </td>
                         <td
                           className={cn(
@@ -225,7 +229,13 @@ export function Competitors({ data }: { readonly data: AnalyzeData }) {
                             ratio !== null && ratio < 1 && "text-error-foreground",
                           )}
                         >
-                          {ratio === null ? "–" : `${(ratio * 100).toFixed(0)}%`}
+                          {ratio !== null ? (
+                            `${(ratio * 100).toFixed(0)}%`
+                          ) : report === undefined ? (
+                            <SeenViews handle={w.handle} mine={mine} />
+                          ) : (
+                            "–"
+                          )}
                         </td>
                         <td
                           className={cn(
@@ -297,6 +307,35 @@ function SeenFollowers({ handle }: { readonly handle: string }) {
         {fmt(followers)} <span className="text-muted-foreground">seen</span>
       </TooltipTrigger>
       <TooltipPopup>From a post your session saw; Fetch reads the profile</TooltipPopup>
+    </Tooltip>
+  );
+}
+
+/**
+ * Average views of the handle's posts the session saw, free, until a fetch brings the report;
+ * with `mine`, the user's average as a share of it. Marked "seen" like SeenFollowers.
+ */
+function SeenViews({ handle, mine }: { readonly handle: string; readonly mine?: number }) {
+  const seen = useAtomValue(seenByAtom(handle));
+  const views = AsyncResult.getOrElse(
+    AsyncResult.map(seen, ({ posts }) =>
+      posts
+        .filter((p) => !p.isRepost)
+        .flatMap((p) => (p.metrics.views === null ? [] : [p.metrics.views])),
+    ),
+    (): ReadonlyArray<number> => [],
+  );
+  const avg = views.length === 0 ? 0 : views.reduce((a, b) => a + b, 0) / views.length;
+  if (avg === 0) return "–";
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<span />}>
+        {mine === undefined ? fmt(Math.round(avg)) : `${((mine / avg) * 100).toFixed(0)}%`}{" "}
+        <span className="text-muted-foreground">seen</span>
+      </TooltipTrigger>
+      <TooltipPopup>
+        From {views.length} of their posts your session saw; Fetch reads their latest
+      </TooltipPopup>
     </Tooltip>
   );
 }

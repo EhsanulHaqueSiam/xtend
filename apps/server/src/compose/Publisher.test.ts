@@ -298,19 +298,21 @@ describe("Publisher", () => {
           return d;
         });
 
+        // Plan's Post now: a media post goes out only on a click, with the scheduler's retries.
+        const clicked = { ...scheduled, clicked: true };
         const d = yield* mediaDraft;
         desktop.answer = "no_desktop";
-        const asleep = yield* publisher.post(d.id, scheduled);
+        const asleep = yield* publisher.post(d.id, clicked);
         expect(asleep.status).toBe("queued");
         // Session posting off on the desktop, or its time ran out in the desktop's queue.
         desktop.answer = "not_attempted";
-        const refused = yield* publisher.post(d.id, scheduled);
+        const refused = yield* publisher.post(d.id, clicked);
         expect([refused.status, refused.attempts]).toEqual(["queued", 2]);
         expect(refused.error).not.toContain("may already be on X");
 
         for (const answer of ["timeout", "failed"] as const) {
           desktop.answer = answer;
-          const touched = yield* publisher.post((yield* mediaDraft).id, scheduled);
+          const touched = yield* publisher.post((yield* mediaDraft).id, clicked);
           expect([touched.status, touched.attempts]).toEqual(["failed", 1]);
           expect(touched.error).toContain("Post 1 may already be on X");
         }
@@ -484,6 +486,8 @@ describe("Publisher", () => {
       reset();
       const drafts = yield* DraftStore.DraftStore;
       const publisher = yield* Publisher.Publisher;
+      // Compose's Post now is a click; only a click may drive the session.
+      const click = { ...postNow, clicked: true };
       const settings = yield* SettingsStore.SettingsStore;
       const d = yield* drafts.create({
         blocks: [{ text: "look" }, { text: "plain" }],
@@ -498,25 +502,26 @@ describe("Publisher", () => {
       });
 
       yield* settings.update({ sessionPostingEnabled: false });
-      const off = yield* publisher.post(d.id, postNow);
+      const off = yield* publisher.post(d.id, click);
       expect(off.status).toBe("failed");
       expect(off.error).toContain("Session actions are off");
       expect(desktopCalls).toHaveLength(0);
       expect(calls).toHaveLength(0);
 
       yield* settings.update({ sessionPostingEnabled: true });
-      const on = yield* publisher.post(d.id, postNow);
+      const on = yield* publisher.post(d.id, click);
       expect(on.status).toBe("posted");
-      // The quote link rides on the first post; the second is a plain API reply to the session post.
+      // The quote link rides on the first post; the clicked thread's second post replies to it, free.
       expect(desktopCalls).toEqual([
         {
           type: "sessionPost",
           text: "look\nhttps://x.com/levelsio/status/7",
           mediaPaths: ["/m/a.png"],
         },
+        { type: "sessionPost", text: "plain", mediaPaths: [], replyToPostId: "10" },
       ]);
-      expect(calls).toEqual([{ text: "plain", replyToPostId: "10" }]);
-      expect(on.postIds).toEqual(["10", "1"]);
+      expect(calls).toEqual([]);
+      expect(on.postIds).toEqual(["10", "20"]);
 
       // A post may be only its image, and X's composer limits who replies to it.
       const photo = yield* drafts.create({ blocks: [{ text: "" }], replySettings: "verified" });
@@ -527,7 +532,7 @@ describe("Publisher", () => {
         kind: "image",
         alt: "",
       });
-      expect((yield* publisher.post(photo.id, postNow)).status).toBe("posted");
+      expect((yield* publisher.post(photo.id, click)).status).toBe("posted");
       expect(desktopCalls.at(-1)).toEqual({
         type: "sessionPost",
         text: "",
