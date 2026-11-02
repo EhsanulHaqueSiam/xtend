@@ -541,4 +541,42 @@ describe("Publisher", () => {
       });
     }).pipe(Effect.provide(layerTest)),
   );
+
+  it.effect(
+    "a clicked GIF goes only through the x.com session, may be the whole post, and never joins a poll",
+    () =>
+      Effect.gen(function* () {
+        reset();
+        const drafts = yield* DraftStore.DraftStore;
+        const publisher = yield* Publisher.Publisher;
+        const settings = yield* SettingsStore.SettingsStore;
+        const gif = { query: "cat", id: "giphy_g1" };
+        const clicked = { ...postNow, clicked: true, gif };
+
+        const only = yield* drafts.create({ blocks: [{ text: "" }] });
+        expect((yield* publisher.post(only.id, clicked)).status).toBe("posted");
+        expect(desktopCalls).toEqual([{ type: "sessionPost", text: "", mediaPaths: [], gif }]);
+
+        // X takes a GIF or a poll on a post, not both: refused before X sees either.
+        const poll = yield* drafts.create({
+          blocks: [{ text: "which?" }],
+          poll: { options: ["a", "b"], durationMinutes: 60 },
+        });
+        const refused = yield* publisher.post(poll.id, clicked);
+        expect([refused.status, refused.error]).toEqual([
+          "failed",
+          "A poll cannot share the first post with media",
+        ]);
+
+        // The API cannot post X's GIF: with the session lane off, the click fails unpaid.
+        yield* settings.update({ sessionPostingEnabled: false });
+        const off = yield* drafts.create({ blocks: [{ text: "look" }] });
+        const failed = yield* publisher.post(off.id, clicked);
+        expect([failed.status, calls, desktopCalls]).toEqual([
+          "failed",
+          [],
+          [{ type: "sessionPost", text: "", mediaPaths: [], gif }],
+        ]);
+      }).pipe(Effect.provide(layerTest)),
+  );
 });

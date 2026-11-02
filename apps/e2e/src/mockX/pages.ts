@@ -1,6 +1,7 @@
 import type {
   EngineBatch,
   EngineCommunity,
+  EngineGif,
   EngineList,
   EngineModule,
   EngineNotification,
@@ -210,7 +211,10 @@ const COMMUNITY_TABS = [
   { path: "/about", label: "About" },
 ] as const;
 
-/** A page's list body: its posts in X's order, with what the capture lists around them. */
+/**
+ * A page's list body: its posts in X's order, with what the capture lists around them, or the
+ * tiles of X's GIF search.
+ */
 export const postsOf = (b: EngineBatch | null, state: MockState) =>
   b === null
     ? ""
@@ -223,7 +227,13 @@ export const postsOf = (b: EngineBatch | null, state: MockState) =>
           if (m?.userIds.length === 0) return [`<h2>${esc(m.title)}</h2>`];
           return m === undefined ? [] : [whoToFollow(m, b)];
         })
-        .join("");
+        .join("") + (b.gifs ?? []).map(gifTile).join("");
+/** X's GIF tile: named by its alt text (X's own ends in "GIF"), its picture a CSS background, no id of its own. */
+const gifTile = (g: EngineGif) =>
+  `<button><div data-testid="gifSearchGifImage" aria-label="${esc(g.altText ?? "GIF")}" style="display:inline-block;width:180px;height:240px;background-image:url(&quot;${esc(g.url)}&quot;)"></div></button>`;
+/** X's composer toolbar: its GIF button opens X's GIF search, then `post` (Post or Reply). */
+const toolBar = (post: string) =>
+  `<div data-testid="toolBar"><button data-testid="gifSearchButton" aria-label="Add a GIF">GIF</button>${post}</div>`;
 /** X's Who to follow among a timeline's posts: header, people with Follow, Show more. */
 const whoToFollow = (m: EngineModule, b: EngineBatch) =>
   `<aside aria-label="${esc(m.title)}"><h2>${esc(m.title)}</h2>${m.userIds
@@ -337,7 +347,7 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
           "Home timeline",
           all.map((t) => ({ ...t, on: t.tab === homeTab })),
         )}
-        <div class="composer"><div data-testid="tweetTextarea_0" contenteditable="true" role="textbox" aria-label="Post text" data-placeholder="What's happening?"></div><div data-testid="toolBar"><button data-testid="tweetButtonInline" disabled>Post</button></div></div>
+        <div class="composer"><div data-testid="tweetTextarea_0" contenteditable="true" role="textbox" aria-label="Post text" data-placeholder="What's happening?"></div>${toolBar('<button data-testid="tweetButtonInline" disabled>Post</button>')}</div>
         <section data-list>${postsOf(b ?? null, state)}</section>`,
     };
   }
@@ -675,6 +685,18 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
           render: () =>
             `${header("Chat", false)}<div class="empty"><h3>Welcome to your inbox!</h3></div>`,
         };
+  // X's GIF search, opened by the composer's GIF button; typing searches in place. At the engine's
+  // width X draws it in its compact layout, as the page itself with its only Back, not a dialog.
+  if (lower === "i" && second === "foundmedia" && third === "search") {
+    const query = q.get("q") ?? "";
+    return {
+      title: "Search for GIFs / X",
+      requests: [r("GifSearch", { query })],
+      paged: 0,
+      render: ([b]) =>
+        `<div class="bar"><button data-testid="app-bar-back" aria-label="Back">←</button><input placeholder="Search for GIFs" value="${esc(query)}"></div><label>Auto-play GIFs <input type="checkbox" role="switch" checked></label><section data-list>${postsOf(b ?? null, state)}</section>`,
+    };
+  }
   if (lower === "compose")
     return {
       title: "Compose new post / X",
@@ -682,7 +704,7 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
       render: () =>
         routeDialog(
           "",
-          `<div data-testid="tweetTextarea_0" contenteditable="true" role="textbox" aria-label="Post text" data-placeholder="What's happening?"></div><div data-testid="toolBar"><button data-testid="tweetButton">Post</button></div>`,
+          `<div data-testid="tweetTextarea_0" contenteditable="true" role="textbox" aria-label="Post text" data-placeholder="What's happening?"></div>${toolBar('<button data-testid="tweetButton">Post</button>')}`,
         ),
     };
 

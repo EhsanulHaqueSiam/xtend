@@ -764,6 +764,30 @@ export function encodeBody(
     case "HomeTimeline":
     case "HomeLatestTimeline":
       return { data: { home: { home_timeline_urt: timeline() } } };
+    case "GifSearch":
+      return {
+        data: {
+          gif_search_slice: {
+            items: (batch.gifs ?? []).map((g) => {
+              const image = {
+                url: g.url,
+                still_image_url: g.stillUrl,
+                width: g.width,
+                height: g.height,
+              };
+              return {
+                id: g.id,
+                alt_text: g.altText,
+                provider: { id: "giphy", display_name: g.provider },
+                preview_image: image,
+                full_image: image,
+                thumbnail_images: [image],
+              };
+            }),
+            slice_info: batch.bottom === null ? {} : { next_cursor: batch.bottom },
+          },
+        },
+      };
     case "TweetDetail":
       return { data: { threaded_conversation_with_injections_v2: timeline() } };
     case "UserByScreenName": {

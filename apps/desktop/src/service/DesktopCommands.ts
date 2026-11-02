@@ -6,6 +6,7 @@ import {
   Engage_METHODS,
   Library_METHODS,
   type MarkSubject,
+  type PickedGif,
   type ReplyTone,
   Marks_METHODS,
   WS_METHODS,
@@ -382,19 +383,86 @@ const PICK = `function (value) {
   return this.value === value;
 }`;
 
-/** Picks `value` in a select; false when it has no such option. */
-async function pick(cdp: Cdp, nodeId: number, value: string): Promise<boolean> {
-  const { object } = (await cdp("DOM.resolveNode", { nodeId })) as {
-    object: { objectId: string };
-  };
+// React keeps an input's value too: the native setter plus an input event is what typing does.
+const FILL = `function (value) {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(this, value);
+  this.dispatchEvent(new Event("input", { bubbles: true }));
+  return this.value === value;
+}`;
+const BACKGROUND = `function () { return getComputedStyle(this).backgroundImage; }`;
+
+const objectOf = async (cdp: Cdp, nodeId: number) =>
+  ((await cdp("DOM.resolveNode", { nodeId })) as { object: { objectId: string } }).object.objectId;
+
+/** What `declaration` returns, run on the node with `value`. */
+async function callOn(cdp: Cdp, nodeId: number, declaration: string, value?: string) {
   const { result } = (await cdp("Runtime.callFunctionOn", {
-    objectId: object.objectId,
-    functionDeclaration: PICK,
+    objectId: await objectOf(cdp, nodeId),
+    functionDeclaration: declaration,
     arguments: [{ value }],
     returnByValue: true,
   })) as { result: { value: unknown } };
-  return result.value === true;
+  return result.value;
 }
+
+const NEAREST_BACK = `function () {
+  for (let n = this.parentElement; n !== null; n = n.parentElement) {
+    const back = n.querySelector(${JSON.stringify(X_COMPOSER.gifBack)});
+    if (back !== null) return back;
+  }
+  return null;
+}`;
+
+// Where X's GIF search is: its URL and query while X is on its route, else null.
+const GIF_WHERE = `location.pathname === ${JSON.stringify(X_COMPOSER.gifRoute)} ? location.href + "\\n" + (document.querySelector(${JSON.stringify(X_COMPOSER.gifSearch)})?.value ?? "") : null`;
+// Enough Backs for the queries X's search holds, each a history entry of its own.
+const GIF_BACKS = 20;
+
+const gifWhere = async (cdp: Cdp) => {
+  const { result } = (await cdp("Runtime.evaluate", {
+    expression: GIF_WHERE,
+    returnByValue: true,
+  })) as { result: { value: unknown } };
+  return typeof result.value === "string" ? result.value : null;
+};
+
+/**
+ * Leaves X's GIF search with its own Back, one history entry at a time: only while X is on the
+ * search's route, and each press only once X took the one before (its URL or query moved).
+ */
+async function leaveGifSearch(cdp: Cdp): Promise<void> {
+  for (let press = 0; press < GIF_BACKS; press++) {
+    const at = await gifWhere(cdp);
+    if (at === null) return;
+    const [field] = (await query(cdp, X_COMPOSER.gifSearch)).toReversed();
+    if (field === undefined) throw new Error("x.com's GIF search has no field");
+    await click(cdp, await gifBack(cdp, field));
+    const deadline = Date.now() + CONTROL_TIMEOUT_MS;
+    while ((await gifWhere(cdp)) === at) {
+      if (Date.now() >= deadline) throw new Error("x.com did not take its GIF search's Back");
+      await sleep(POLL_MS);
+    }
+  }
+  if ((await gifWhere(cdp)) !== null) throw new Error("x.com's GIF search stayed open");
+}
+
+/** X's Back for its GIF search, found from the search's field (see `X_COMPOSER.gifBack`). */
+async function gifBack(cdp: Cdp, field: number): Promise<number> {
+  const { result } = (await cdp("Runtime.callFunctionOn", {
+    objectId: await objectOf(cdp, field),
+    functionDeclaration: NEAREST_BACK,
+    returnByValue: false,
+  })) as { result: { objectId?: string } };
+  if (result.objectId === undefined) throw new Error("x.com's GIF search has no Back");
+  const { nodeId } = (await cdp("DOM.requestNode", { objectId: result.objectId })) as {
+    nodeId: number;
+  };
+  return nodeId;
+}
+
+/** Picks `value` in a select; false when it has no such option. */
+const pick = async (cdp: Cdp, nodeId: number, value: string) =>
+  (await callOn(cdp, nodeId, PICK, value)) === true;
 
 const TEXTBOX = 'div[data-testid="tweetTextarea_0"]';
 
@@ -469,6 +537,54 @@ async function fillPoll(
       throw missing(`${value} poll ${unit}`);
 }
 
+/** X's GIF tile whose picture's URL holds `path`; scrolling X's list on makes X load its next page. */
+async function findTile(cdp: Cdp, path: string, deadline: number): Promise<number> {
+  if (Date.now() >= deadline) throw new Error(`no GIF tile ${path}`);
+  const tiles = await query(cdp, X_COMPOSER.gifTile);
+  for (const tile of tiles)
+    if (String(await callOn(cdp, tile, BACKGROUND)).includes(path)) return tile;
+  const last = tiles.at(-1);
+  if (last !== undefined) await cdp("DOM.scrollIntoViewIfNeeded", { nodeId: last });
+  await sleep(POLL_MS);
+  return findTile(cdp, path, deadline);
+}
+
+/**
+ * Attaches the GIF the user picked as X's own picker does: X's GIF search opened from the
+ * composer, the query typed, the tile with the same id pressed, and X back in the composer with it.
+ */
+async function pickGif(
+  cdp: Cdp,
+  gif: PickedGif,
+  deadline: number,
+  picked: () => void,
+): Promise<void> {
+  await click(cdp, await control(cdp, X_COMPOSER.gifButton, "Add a GIF", deadline));
+  const field = await control(cdp, X_COMPOSER.gifSearch, "GIF search", deadline);
+  if ((await callOn(cdp, field, FILL, gif.query)) !== true) throw missing("GIF search field");
+  // X's id is the provider's behind X's prefix (giphy_<id>), and the preview's URL holds it.
+  const path = `/${gif.id.replace(/^[a-z]+_/, "")}/`;
+  const tile = await findTile(
+    cdp,
+    path,
+    Math.min(Date.now() + COMPOSER_TIMEOUT_MS, deadline),
+  ).catch(() => {
+    throw missing(`GIF "${gif.id}" in its search for "${gif.query}"`);
+  });
+  await cdp("DOM.scrollIntoViewIfNeeded", { nodeId: tile });
+  picked();
+  await click(cdp, tile);
+  // Without the GIF in the composer, Post would send the text alone.
+  await control(cdp, X_COMPOSER.removeMedia, "picked GIF", deadline);
+  await waitForGone(
+    cdp,
+    X_COMPOSER.gifSearch,
+    Math.min(Date.now() + CONTROL_TIMEOUT_MS, deadline),
+  ).catch(() => {
+    throw new NotAttempted("x.com's GIF search stayed open; nothing was posted");
+  });
+}
+
 /** What the driver put in X's composer, so a refusal before Post can take it back out. */
 interface Touched {
   reply: boolean;
@@ -478,8 +594,8 @@ interface Touched {
 }
 
 /**
- * Takes back out of X's composer what the driver put in, after a failure before Post: the
- * reply setting back to Everyone, the poll and media removed, the text cleared. Never presses
+ * Takes back out of X's composer what the driver put in, after a failure before Post: X's GIF
+ * search left, the reply setting back to Everyone, the poll and media removed, the text cleared. Never presses
  * Post or a draft dialog. The refusal names what may still be there.
  */
 async function takeBack(cdp: Cdp, touched: Touched, error: unknown): Promise<NotAttempted> {
@@ -493,6 +609,8 @@ async function takeBack(cdp: Cdp, touched: Touched, error: unknown): Promise<Not
     await click(cdp, await control(cdp, TEXTBOX, "text box"));
     await waitForGone(cdp, X_COMPOSER.replyPopover, soon());
   });
+  // So would X's GIF search, open over the composer.
+  await undo("X's GIF search", () => leaveGifSearch(cdp));
   if (touched.reply)
     await undo("the reply setting", () =>
       pickReply(
@@ -554,7 +672,8 @@ async function takeBack(cdp: Cdp, touched: Touched, error: unknown): Promise<Not
 }
 
 /**
- * Uses x.com's own composer as a user would: who can reply, the poll, the text, the files, Post.
+ * Uses x.com's own composer as a user would: who can reply, the poll or the GIF, the text, the
+ * files, Post.
  * The id comes from the CreateTweet response the capture sees. Every step ends by `deadline`;
  * the upload may take what is left. A failure before Post takes back out what was put in.
  */
@@ -590,6 +709,8 @@ export async function postThroughComposer(
     // Who can reply first: a control X no longer draws then refuses before anything is filled.
     if (reply !== null) await pickReply(cdp, reply, deadline, () => (touched.reply = true));
     if (poll !== undefined) await fillPoll(cdp, poll, deadline, () => (touched.poll = true));
+    if (command.gif !== undefined)
+      await pickGif(cdp, command.gif, deadline, () => (touched.media = true));
     // Found again: adding a poll redraws the composer around its text box.
     await click(cdp, await waitForNode(cdp, TEXTBOX, step(COMPOSER_TIMEOUT_MS)));
     touched.text = command.text !== "";

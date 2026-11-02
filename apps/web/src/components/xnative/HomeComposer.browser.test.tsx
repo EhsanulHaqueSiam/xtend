@@ -1,4 +1,4 @@
-import { ComposeError, type DraftPatch, type EngineUser } from "@xtend/contracts";
+import { ComposeError, type DraftPatch, type EngineGif, type EngineUser } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import { expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
@@ -13,6 +13,7 @@ const { draft, settings } = await import("../../../test/fixtures");
 const { render } = await import("../../../test/render");
 const { EngineSync } = await import("./EngineSync");
 const { HomeComposer } = await import("./HomeComposer");
+const { markXReady, registerXWebview } = await import("../../state/x");
 
 const person = (handle: string, followers: number, youFollow: boolean) =>
   ({
@@ -82,7 +83,8 @@ const setup = ({
     "compose.postNow": (input) =>
       Effect.promise(() => posted).pipe(
         Effect.map(() => {
-          log.push(`post ${input.id} sessionOnly=${String(input.sessionOnly)}`);
+          const gif = input.gif === undefined ? "" : ` gif=${input.gif.query}:${input.gif.id}`;
+          log.push(`post ${input.id} sessionOnly=${String(input.sessionOnly)}${gif}`);
           return draft(input.id, "posted", { postIds: ["99"] });
         }),
       ),
@@ -254,4 +256,87 @@ it("frees picked files when the box goes away with them", async () => {
   using revoke = vi.spyOn(URL, "revokeObjectURL");
   await screen.unmount();
   expect(revoke).toHaveBeenCalledWith(url);
+});
+
+it("picks a GIF from X's own search in the engine and posts it free, leaving X's search on close", async () => {
+  const { log, creates, service } = setup();
+  // The engine: each script X's page would run, answered as X's search showing. X's Back, which
+  // leaves the search, finishes when the test says.
+  const scripts: Array<string> = [];
+  let leave = () => {};
+  const left = new Promise<boolean>((resolve) => (leave = () => resolve(true)));
+  registerXWebview({
+    executeJavaScript: (code: string) => (
+      scripts.push(code),
+      code.includes("app-bar-back") ? left : Promise.resolve(true)
+    ),
+  } as unknown as Parameters<typeof registerXWebview>[0]);
+  markXReady();
+  try {
+    await using screen = await render(
+      <>
+        <EngineSync />
+        <HomeComposer />
+      </>,
+      { service },
+    );
+    await userEvent.click(screen.getByRole("button", { name: "GIF" }));
+    const picker = page.getByRole("dialog", { name: "Choose a GIF" });
+    await expect.poll(() => scripts.some((s) => s.includes("gifSearchButton"))).toBe(true);
+    await userEvent.fill(picker.getByPlaceholder("Search for GIFs"), "cat");
+    await expect.element(picker.getByText("Loading from X")).toBeVisible();
+    expect(scripts.at(-1)).toContain('"cat"');
+
+    const gif = (id: string, altText: string | null): EngineGif => ({
+      id,
+      altText,
+      url: `data:image/gif;base64,R0lGODlhAQABAAAAACw=`,
+      stillUrl: null,
+      width: 200,
+      height: 150,
+      provider: "GIPHY",
+    });
+    bridge.emitEngine({
+      ...people,
+      op: "GifSearch",
+      key: "gifs:cat",
+      bottom: "go50c50",
+      gifs: [
+        gif("giphy_g1", "Cat Jump GIF"),
+        ...Array.from({ length: 49 }, (_, i) => gif(`giphy_m${i}`, null)),
+      ],
+    });
+    // Scrolled to the end of X's first page, the engine scrolls X's list on for its next.
+    const grid = () => document.querySelector("[data-virtuoso-scroller]");
+    await expect
+      .poll(() => {
+        grid()?.scrollTo(0, grid()!.scrollHeight);
+        return scripts.some((s) => s.includes("scrollIntoView"));
+      })
+      .toBe(true);
+    grid()?.scrollTo(0, 0);
+    // Tests load no CSS, so Base UI's inert layer covers the picker: the click goes to the tile.
+    const tile = picker.getByRole("button", { name: "Cat Jump GIF" });
+    await expect.element(tile).toBeVisible();
+    (tile.element() as HTMLElement).click();
+    await expect.element(picker).not.toBeInTheDocument();
+    // Closed, the engine leaves X's search with its own Back.
+    await expect.poll(() => scripts.at(-1)).toContain("app-bar-back");
+
+    // As on X: a GIF stands alone on the post.
+    await expect.element(screen.getByRole("img", { name: "Cat Jump GIF" })).toBeVisible();
+    for (const name of ["Media", "GIF", "Poll"])
+      await expect.element(screen.getByRole("button", { name })).toBeDisabled();
+    // Post waits for X's search to be left: the desktop opens X's composer in the same page.
+    await userEvent.click(screen.getByRole("button", { name: "Post", exact: true }));
+    expect(creates).toEqual([]);
+    leave();
+    await expect.poll(() => log).toEqual(["post h1 sessionOnly=true gif=cat:giphy_g1"]);
+    expect(creates).toEqual([{ blocks: [{ text: "" }], quoteUrl: null }]);
+    await expect
+      .element(screen.getByRole("button", { name: "Remove GIF" }))
+      .not.toBeInTheDocument();
+  } finally {
+    registerXWebview(null);
+  }
 });

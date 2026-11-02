@@ -1,6 +1,7 @@
 import type {
   EngineBatch,
   EngineCommunity,
+  EngineGif,
   EngineNotification,
   EnginePost,
   EngineUser,
@@ -17,6 +18,8 @@ import {
   communitySearchSurface,
   communitySurface,
   emptyEngine,
+  type EngineState,
+  gifSurface,
   hideTrend,
   inspirationSurface,
   mergeBatch,
@@ -715,6 +718,37 @@ it("keeps dismissed trends hidden across stale captures of their tab, reconciles
   state = hideTrend(state, "explore:news", trend, false, 0);
   expect(at(state.trends, "explore:news")).toEqual([trend]);
   expect(at(state.trends, "explore:trending")).toEqual([]);
+});
+
+it("lists X's GIF search per query in X's order, joins its next page, and starts a query over on its first", () => {
+  const gif = (id: string): EngineGif => ({
+    id,
+    altText: null,
+    url: `https://media1.giphy.com/media/${id}/200_d.gif`,
+    stillUrl: null,
+    width: 200,
+    height: 150,
+    provider: "GIPHY",
+  });
+  const search = (
+    query: string,
+    gifs: ReadonlyArray<EngineGif>,
+    extra: Partial<EngineBatch> = {},
+  ) => batch("GifSearch", [], { key: `gifs:${query}`, gifs, ...extra });
+  const ids = (state: EngineState, query: string) =>
+    at(state.gifs, gifSurface(query)).map((g) => g.id);
+  let state = mergeBatch(emptyEngine, search("cat", [gif("1"), gif("2")], { bottom: "go50c50" }));
+  state = mergeBatch(state, search("dog", [gif("9")]));
+  state = mergeBatch(state, search("cat", [gif("2"), gif("3")], { cursor: "go50c50" }));
+  expect([ids(state, "cat"), ids(state, "dog")]).toEqual([["1", "2", "3"], ["9"]]);
+  state = mergeBatch(state, search("cat", [gif("4")]));
+  expect(ids(state, "cat")).toEqual(["4"]);
+  // X found nothing: the query is answered, with nothing listed.
+  state = mergeBatch(state, search("zzz", []));
+  expect([ids(state, "zzz"), state.cursors[gifSurface("zzz")]]).toEqual([
+    [],
+    { top: null, bottom: null },
+  ]);
 });
 
 it("keeps an Article's body when a timeline sends its post again with the card only", () => {

@@ -1563,6 +1563,66 @@ describe("renderEngineBatch entry order, badges and labels", () => {
   });
 });
 
+describe("renderEngineBatch GIF search", () => {
+  // X's GifSearch item, as read live on 2026-11-02 (gif_search_slice), with made-up values.
+  const image = (n: number) => ({
+    url: `https://media1.giphy.com/media/g${n}/200_d.gif`,
+    still_image_url: `https://media1.giphy.com/media/g${n}/200_d_s.gif`,
+    width: 200,
+    height: 150,
+  });
+  const gif = (n: number, alt?: string) => ({
+    id: `giphy_g${n}`,
+    provider: { id: "giphy", display_name: "GIPHY" },
+    preview_image: image(n),
+    full_image: image(n),
+    thumbnail_images: [image(n)],
+    ...(alt === undefined ? {} : { alt_text: alt }),
+  });
+  const slice = (items: ReadonlyArray<unknown>, next?: string) => ({
+    data: {
+      gif_search_slice: { items, slice_info: next === undefined ? {} : { next_cursor: next } },
+    },
+  });
+
+  it("lists X's tiles in X's order under the query, with the cursor of X's next page", () => {
+    const first = renderEngineBatch(
+      "GifSearch",
+      { query: "cat" },
+      slice([gif(1, "Cat Jump"), { id: "giphy_none" }, gif(2)], "go50c50"),
+    );
+    expect([first.key, first.cursor, first.bottom]).toEqual(["gifs:cat", null, "go50c50"]);
+    expect(first.gifs).toEqual([
+      {
+        id: "giphy_g1",
+        altText: "Cat Jump",
+        url: "https://media1.giphy.com/media/g1/200_d.gif",
+        stillUrl: "https://media1.giphy.com/media/g1/200_d_s.gif",
+        width: 200,
+        height: 150,
+        provider: "GIPHY",
+      },
+      expect.objectContaining({ id: "giphy_g2", altText: null }),
+    ]);
+    const next = renderEngineBatch(
+      "GifSearch",
+      { query: "cat", cursor: "go50c50" },
+      slice([gif(3)]),
+    );
+    expect([next.cursor, next.bottom, next.gifs?.map((g) => g.id)]).toEqual([
+      "go50c50",
+      null,
+      ["giphy_g3"],
+    ]);
+  });
+
+  it("passes on a search X found nothing for, and no GIFs on any other call", () => {
+    const none = renderEngineBatch("GifSearch", {}, slice([]));
+    expect([none.key, none.gifs, hasEngineContent(none)]).toEqual(["gifs:", [], true]);
+    expect(renderEngineBatch("HomeTimeline", {}, {}).gifs).toBeUndefined();
+  });
+});
+
 describe("renderEngineBatch for a profile's Subs", () => {
   it("names a creator who offers Subscriptions, and reads X's subscribe prompt in place of posts", () => {
     const header = (eligible?: boolean) =>
