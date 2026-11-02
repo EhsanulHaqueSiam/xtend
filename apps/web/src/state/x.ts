@@ -204,6 +204,41 @@ export const xPickCommunitySearchTab = async (
   );
 };
 
+/** X's Inspiration (Creator Studio's top posts by engagement), free without Premium. */
+export const INSPIRATION_URL = "https://x.com/i/jf/creators/inspiration/top_posts";
+
+/**
+ * Presses X's Inspiration filter `label` (Last 7d, Most Replies) once `loaded` settles and X has
+ * drawn it, while the engine shows that page, the screen has not let it go (`signal`) and this is
+ * the user's latest press. X's Creator Studio buttons answer a pointer's whole press, not click().
+ */
+export const xPickInspiration = async (
+  label: string,
+  loaded: Promise<unknown>,
+  signal: AbortSignal,
+) => {
+  await loaded;
+  if (signal.aborted) return false;
+  const run = await nextRun();
+  return (
+    (await xRun(`(async () => {
+    for (let i = 0; i < 40 && ${stillMine(run)}; i++) {
+      const button = location.pathname === ${JSON.stringify(new URL(INSPIRATION_URL).pathname)}
+        ? [...document.querySelectorAll('button[type="button"]')].find((b) => b.textContent.trim() === ${JSON.stringify(label)})
+        : undefined;
+      if (button !== undefined) {
+        for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup"])
+          button.dispatchEvent(new PointerEvent(type, { bubbles: true, isPrimary: true, pointerType: "mouse" }));
+        button.click();
+        return true;
+      }
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    return false;
+  })()`)) === true
+  );
+};
+
 /**
  * X's own buttons on a post, by test id, for the user's click on Xtend's copy of it: what each
  * turns into once pressed, and the confirm X asks for first.

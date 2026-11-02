@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "vite-plus/test";
 
+import { inspirationTimelineId } from "../mockX/state.ts";
 import { type Engine, startEngine } from "./harness.ts";
 
 /**
@@ -576,6 +577,37 @@ test("Search in a Community lists what X finds there, Top and Latest by X's own 
   await e.app.getByRole("tab", { name: "Top", exact: true }).click();
   await expect.poll(xTab).toBe("Top");
   await expect.poll(nativeIds).toEqual(found);
+});
+
+test("Library's Inspiration lists X's top posts, and a pick presses X's own filter on X's page", async () => {
+  const order = (engagement: string, period: string) =>
+    e.mock.state.batchFor("GenericTimelineById", {
+      timelineId: inspirationTimelineId(engagement, period),
+    })!.order;
+  const libraryIds = () =>
+    e.app
+      .locator('main article a[href*="/status/"]')
+      .evaluateAll((as) => as.map((a) => a.getAttribute("href")!.split("/status/")[1]));
+  const [daily, weekly, replies] = [
+    order("Likes", "Daily"),
+    order("Likes", "Weekly"),
+    order("Replies", "Weekly"),
+  ];
+  // Each set of filters is its own list on X, so a list drawn from the wrong answer shows.
+  expect(new Set([daily, weekly, replies].map(String)).size).toBe(3);
+  await go("/library?tab=inspiration");
+  await expect.poll(enginePath).toBe("/i/jf/creators/inspiration/top_posts");
+  await expect.poll(libraryIds).toEqual(daily);
+  // X's buttons there take only a pointer's whole press; each pick fetches X's list for it.
+  await e.app.getByRole("tab", { name: "Last 7d", exact: true }).click();
+  await expect.poll(libraryIds).toEqual(weekly);
+  await e.app.getByRole("button", { name: "Most Likes", exact: true }).click();
+  await e.app.getByRole("menuitem", { name: "Most Replies", exact: true }).click();
+  await expect.poll(libraryIds).toEqual(replies);
+  expect(presses().filter((p) => p.startsWith("press jf:"))).toEqual([
+    "press jf:Last 7d",
+    "press jf:Most Replies",
+  ]);
 });
 
 test("Search reads X's Top and People tabs for the query", async () => {

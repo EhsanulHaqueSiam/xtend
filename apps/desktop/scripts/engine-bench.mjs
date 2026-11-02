@@ -812,6 +812,46 @@ const benchmarks = [
     },
   ],
   [
+    "Library Inspiration draws X's answer for X's filters, and a period pick presses X's own button (reads only)",
+    async () => {
+      // The section moves the engine to X's Creator Studio page and draws what X answered for the
+      // filters X shows. A pick presses X's own button there, so X answers for that period.
+      const path = "/i/jf/creators/inspiration/top_posts";
+      const drawn = (period) =>
+        until(async () => {
+          if ((await enginePath()) !== path) return false;
+          const x = await store(`$.inspiration`);
+          if (!x || (period !== undefined && x.period !== period)) return false;
+          const list = await store(
+            `at($.lists, "inspiration:" + $.inspiration.engagement + ":" + $.inspiration.period + ":" + $.inspiration.language)`,
+          );
+          const ours = await app(
+            `[...document.querySelectorAll('main article a[href*="/status/"]')].map((a) => a.getAttribute("href").split("/status/")[1]).slice(0, 3)`,
+          );
+          return (
+            list?.length >= 3 &&
+            JSON.stringify(ours) === JSON.stringify(list.slice(0, 3)) && {
+              ...x,
+              posts: list.length,
+            }
+          );
+        }, 30_000);
+      await go("#/library?tab=inspiration");
+      const first = await drawn();
+      if (!first) return false;
+      const other = first.period === "Daily" ? "Weekly" : "Daily";
+      const label = other === "Daily" ? "Last 24h" : "Last 7d";
+      await app(
+        `[...document.querySelectorAll('main [role="tab"]')].find((t) => t.textContent.trim() === ${JSON.stringify(label)})?.click(), true`,
+      );
+      const picked = await drawn(other);
+      return (
+        picked &&
+        `${first.engagement} ${first.period} ${first.language}: ${first.posts}; ${other}: ${picked.posts}`
+      );
+    },
+  ],
+  [
     "Profile bell: shows X's own state for someone you follow (dry)",
     async () => {
       // Following holds people the account follows (and what they reposted), so X draws their bell.

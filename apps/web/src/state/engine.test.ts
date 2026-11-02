@@ -18,6 +18,7 @@ import {
   communitySurface,
   emptyEngine,
   hideTrend,
+  inspirationSurface,
   mergeBatch,
   postOn,
   postSurface,
@@ -296,6 +297,21 @@ it("files pinned Home tabs, Lists, Communities and Explore tabs under their own 
       key: "communitySearch:14:Recency:ship it",
     }),
   ).toEqual([communitySearchSurface("14", "Recency", "ship it")]);
+
+  // X's Inspiration lists each set of filters on its own, and its latest answer is what X shows.
+  const weekly = { engagement: "Replies", period: "Weekly", language: "en" };
+  const inspired = mergeBatch(
+    state,
+    batch("GenericTimelineById", [post("2", "2026-10-01T00:00:00Z")], {
+      key: "inspiration:Replies:Weekly:en",
+    }),
+  );
+  expect([
+    at(inspired.lists, inspirationSurface(weekly)),
+    inspired.inspiration,
+    mergeBatch(inspired, batch("GenericTimelineById", [], { key: "VTR" })).inspiration,
+    state.inspiration,
+  ]).toEqual([["2"], weekly, weekly, null]);
 });
 
 it("lists the user's Communities in X's order, and keeps what each response said of one", () => {

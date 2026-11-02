@@ -9,7 +9,13 @@ import type {
   EngineUser,
 } from "@xtend/contracts";
 
-import { type GraphqlRequest, type MockState, quotesQuery } from "./state.ts";
+import {
+  type GraphqlRequest,
+  INSPIRATION_FILTERS,
+  inspirationTimelineId,
+  type MockState,
+  quotesQuery,
+} from "./state.ts";
 
 /**
  * Mock X's pages: per x.com route, the GraphQL calls X's page makes and the markup it draws from
@@ -460,6 +466,28 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
             : `<div data-testid="listHeader"><img alt="" src="${esc(l.bannerUrl ?? "")}" class="banner-img"><h2>${esc(l.name)}</h2><div>${esc(l.description)}</div>${l.owner === null ? "" : `<div><a href="/${esc(l.owner.handle)}">${esc(l.owner.name)}</a> @${esc(l.owner.handle)}</div>`}<div><a href="/i/lists/${l.listId}/members"><b>${compact(l.members)}</b> Members</a> <a href="/i/lists/${l.listId}/followers"><b>${compact(l.followers)}</b> Followers</a></div><button data-testid="listFollow">Follow</button></div>`
         }<section data-list>${postsOf(b ?? null, state)}</section>`;
       },
+    };
+  }
+  if (url.pathname === "/i/jf/creators/inspiration/top_posts") {
+    // X's Creator Studio page: its filters are plain buttons that switch the list in place.
+    const [engagement = "Likes", period = "Daily"] = homeTab.split(":");
+    const button = (filter: string, id: string, label: string, on: boolean) =>
+      `<button type="button" class="jf-element" data-jf="${filter}:${id}"${on ? ' style="font-weight:700"' : ""}>${esc(label)}</button>`;
+    return {
+      title: "Inspiration / X",
+      requests: [
+        r("GenericTimelineById", {
+          timelineId: inspirationTimelineId(engagement, period),
+          count: 20,
+          withQuickPromoteEligibilityTweetFields: true,
+        }),
+      ],
+      render: ([b]) =>
+        `${header("Inspiration")}<div class="jf-element">${button("language", "en", "💬 EN", true)}${INSPIRATION_FILTERS.period
+          .map((f) => button("period", f.id, f.label, f.id === period))
+          .join("")}${INSPIRATION_FILTERS.engagement
+          .map((f) => button("engagement", f.id, f.label, f.id === engagement))
+          .join("")}</div><section data-list>${postsOf(b ?? null, state)}</section>`,
     };
   }
   if (lower === "i" && second === "communities" && third !== undefined && fourth === "search") {

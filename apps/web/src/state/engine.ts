@@ -81,6 +81,7 @@ type KeyedSurface =
   | `communityMedia:${string}`
   | `communityAbout:${string}`
   | `communitySearch:${string}`
+  | `inspiration:${string}`
   | `profile:${ProfileTab}:${string}`;
 /** X's Follow page's tabs (Who to follow, Creators for you), as the capture keys them. */
 export type ConnectTab = "connect:who" | "connect:creators";
@@ -132,6 +133,21 @@ export const communitySearchSurface = (id: string, mode: CommunitySearchMode, qu
 /** @public */
 export const profileSurface = (tab: ProfileTab, userId: string) =>
   `profile:${tab}:${userId}` as const;
+/** X's Inspiration filters, as its timelineId names them: Likes, Daily, en. */
+export interface Inspiration {
+  readonly engagement: string;
+  readonly period: string;
+  readonly language: string;
+}
+/** X's Inspiration posts for one set of filters, as the capture keys them. */
+export const inspirationSurface = (f: Inspiration) =>
+  `inspiration:${f.engagement}:${f.period}:${f.language}` as const;
+const inspirationOf = ({ op, key }: Pick<EngineBatch, "op" | "key">): Inspiration | null => {
+  const m = /^inspiration:([^:]+):([^:]+):([^:]+)$/.exec(key ?? "");
+  return op !== "GenericTimelineById" || m === null
+    ? null
+    : { engagement: m[1]!, period: m[2]!, language: m[3]! };
+};
 
 const PROFILE_OPS: Readonly<Record<string, ProfileTab>> = {
   // X has used each pair of names for a profile's tabs.
@@ -207,6 +223,8 @@ export function surfacesOf(batch: Pick<EngineBatch, "op" | "key">): ReadonlyArra
   }
   if (op === "ConnectTabTimeline" && (key === "connect:who" || key === "connect:creators"))
     return [key];
+  const inspiration = inspirationOf(batch);
+  if (inspiration !== null) return [inspirationSurface(inspiration)];
   // The capture keys every List call `list:<id>`.
   const listId = tabKey(key, "list")?.slice("list:".length);
   if (listId !== undefined && op === "ListMembers")
@@ -323,6 +341,8 @@ export interface EngineState {
   /** Home's pinned tabs after For you and Following, as X named them. */
   readonly homeTabs: ReadonlyArray<EngineHomeTab>;
   readonly exploreTabs: ReadonlyArray<EngineExploreTab>;
+  /** X's Inspiration filters as its latest answer had them: what X's page shows now. */
+  readonly inspiration: Inspiration | null;
   /** The signed-in account (the composer's avatar), once X's page has loaded. */
   readonly viewer: EngineViewer | null;
   /** The page cursors X last answered per surface, to tell a fetch of newer posts from the next page. */
@@ -353,6 +373,7 @@ export const emptyEngine: EngineState = {
   communityIds: NONE,
   homeTabs: [],
   exploreTabs: [],
+  inspiration: null,
   viewer: null,
   cursors: {},
 };
@@ -470,6 +491,7 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
     communities,
     homeTabs: batch.homeTabs ?? state.homeTabs,
     exploreTabs: batch.exploreTabs ?? state.exploreTabs,
+    inspiration: inspirationOf(batch) ?? state.inspiration,
     // X's nav names no user id; keep the one X's Viewer call gave for the same account.
     viewer:
       batch.viewer === null

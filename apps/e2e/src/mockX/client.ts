@@ -63,10 +63,12 @@ const SCRIPT = String.raw`
   // Pages that switch tabs in place, on one URL: Home's timelines, a Community search's orders.
   const inPage = (path) => {
     const p = path.split("?")[0];
+    if (p === "/i/jf/creators/inspiration/top_posts") return "inspiration";
     return p === "/home" ? "home" : /^\/i\/communities\/\d+\/search$/.test(p) ? "communitySearch" : null;
   };
   const pageTab = (path) => {
     const kind = inPage(path);
+    if (kind === "inspiration") return localStorage.getItem("mockx:tab:inspiration") || "Likes:Daily";
     return kind === null ? "" : localStorage.getItem("mockx:tab:" + kind) || (kind === "home" ? "forYou" : "Likes");
   };
   const cacheKey = (path) => (inPage(path) === null ? path : path + "|" + pageTab(path));
@@ -456,6 +458,26 @@ const SCRIPT = String.raw`
       event.preventDefault();
       go(href, false);
     }
+  });
+
+  // X's Creator Studio (Jetfuel) buttons act on a pointer's whole press, as on x.com: a bare
+  // click() does nothing. Each filter change asks X afresh, even for filters it showed before.
+  const jfPress = { down: null, up: null };
+  const jfAt = (event) => (event.isPrimary && event.pointerType === "mouse" && event.target instanceof Element ? event.target.closest("[data-jf]") : null);
+  addEventListener("pointerdown", (event) => { jfPress.down = jfAt(event); }, true);
+  addEventListener("pointerup", (event) => { jfPress.up = jfAt(event); }, true);
+  document.addEventListener("click", (event) => {
+    const el = event.target instanceof Element ? event.target.closest("[data-jf]") : null;
+    const pressed = el !== null && jfPress.down === el && jfPress.up === el;
+    jfPress.down = jfPress.up = null;
+    if (!pressed) return;
+    const [filter, id] = el.dataset.jf.split(":");
+    if (filter === "language") return;
+    log("jf:" + el.textContent.trim());
+    const [engagement, period] = pageTab(here()).split(":");
+    localStorage.setItem("mockx:tab:inspiration", filter === "period" ? engagement + ":" + id : id + ":" + period);
+    cache.delete(cacheKey(here()));
+    void show();
   });
 
   void show();

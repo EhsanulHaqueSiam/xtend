@@ -41,6 +41,44 @@ interface Press {
 export const quotesQuery = (postId: string) =>
   `quoted_tweet_id:${postId} OR url:"status/${postId}/video" OR url:"status/${postId}/photo"`;
 
+/** X's Inspiration filters, in X's order: the label X's button draws, the value it asks with. */
+export const INSPIRATION_FILTERS = {
+  period: [
+    { id: "Daily", label: "Last 24h" },
+    { id: "Weekly", label: "Last 7d" },
+    { id: "Monthly", label: "Last 30d" },
+  ],
+  engagement: [
+    { id: "Likes", label: "Most Likes", metric: "likes" },
+    { id: "Replies", label: "Most Replies", metric: "replies" },
+    { id: "Quotes", label: "Most Quotes", metric: "quotes" },
+    { id: "Bookmarks", label: "Most Bookmarks", metric: "bookmarks" },
+    { id: "Shares", label: "Most Shares", metric: "reposts" },
+    { id: "VideoQualityViews", label: "Most Video Views", metric: "views" },
+  ],
+} as const;
+
+/**
+ * The timelineId X's Inspiration asks GenericTimelineById for: base64 of "Timeline:" and a thrift
+ * struct (field 202) of the engagement (1), language (2) and period (6), as on x.com.
+ */
+export const inspirationTimelineId = (engagement: string, period: string, language = "en") => {
+  const field = (id: number, value: string) => {
+    const head = Buffer.alloc(7);
+    head[0] = 11;
+    head.writeUInt16BE(id, 1);
+    head.writeUInt32BE(value.length, 3);
+    return [head, Buffer.from(value, "latin1")];
+  };
+  return Buffer.concat([
+    Buffer.from("Timeline:\x0c\x00\xca", "latin1"),
+    ...field(1, engagement),
+    ...field(2, language),
+    ...field(6, period),
+    Buffer.from([0, 0]),
+  ]).toString("base64");
+};
+
 const MORE_TEXT = [
   "Your first hundred users come from conversations, not campaigns.",
   "Wrote the docs before the code this time. Shipping felt calmer.",
@@ -339,6 +377,25 @@ export function createMockState() {
     return page("SearchTimeline", k, found);
   };
 
+  /**
+   * X's Inspiration for the filters a timelineId names: the period's share of the newest posts (a
+   * day a third, a week two thirds, a month all), by the engagement's count; null for another id.
+   */
+  const inspiration = (timelineId: string): EngineBatch | null => {
+    const { period, engagement } = INSPIRATION_FILTERS;
+    const [p, e] =
+      period
+        .flatMap((p, i) => engagement.map((e) => [{ ...p, share: (i + 1) / 3 }, e] as const))
+        .find(([p, e]) => inspirationTimelineId(e.id, p.id) === timelineId) ?? [];
+    if (p === undefined || e === undefined) return null;
+    const newest = allPosts().toSorted((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+    const top = newest
+      .slice(0, Math.ceil(newest.length * p.share))
+      .toSorted((a, b) => (b.metrics[e.metric] ?? 0) - (a.metrics[e.metric] ?? 0))
+      .slice(0, 20);
+    return page("GenericTimelineById", `inspiration:${e.id}:${p.id}:en`, top);
+  };
+
   const explore = fixture("ExplorePage", "explore-for-you")!;
   const exploreTabs = explore.exploreTabs!;
   const trendRows = (prefix: string, group: string | null): ReadonlyArray<EngineTrend> =>
@@ -454,6 +511,8 @@ export function createMockState() {
         };
       case "GenericTimelineById": {
         const id = s(variables, "timelineId") ?? "";
+        const inspired = inspiration(id);
+        if (inspired !== null) return inspired;
         const tab = exploreTabs.find((t) => t.timelineId === id);
         if (tab === undefined) return null;
         return page(op, id, [], {

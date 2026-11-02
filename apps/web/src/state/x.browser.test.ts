@@ -14,6 +14,7 @@ import {
   xPostMenu,
   xOverEnded,
   xPickCommunitySearchTab,
+  xPickInspiration,
   xPostFollowPress,
   xPostMenuPress,
   xProfileMenu,
@@ -1292,6 +1293,40 @@ it("picks X's search tab only on the Community search it was asked for, and give
     draw();
     await vi.runAllTimersAsync();
     expect([await starting, clicked]).toEqual([true, ["Latest"]]);
+  } finally {
+    history.replaceState(null, "", start);
+  }
+});
+
+it("presses X's Inspiration filter as a pointer's whole press, only that filter, only on X's Inspiration", async () => {
+  using _clock = fakeTimers();
+  const pressed: Array<string> = [];
+  // X's Creator Studio buttons act on a pointer's press: a bare click() does nothing.
+  const draw = () => {
+    document.body.innerHTML = ["💬 EN", "Last 24h", "Last 7d", "Most Likes"]
+      .map((label) => `<button type="button">${label}</button>`)
+      .join("");
+    for (const button of document.querySelectorAll("button")) {
+      let down = false;
+      button.addEventListener(
+        "pointerdown",
+        (e) => (down = e.isPrimary && e.pointerType === "mouse"),
+      );
+      button.addEventListener("click", () => down && pressed.push(button.textContent!));
+    }
+  };
+  inThisPage(() => `https://x.com${location.pathname}`);
+  const start = location.href;
+  try {
+    draw();
+    history.replaceState(null, "", "/i/jf/creators/studio");
+    const away = xPickInspiration("Last 7d", Promise.resolve(), new AbortController().signal);
+    await vi.runAllTimersAsync();
+    expect([await away, pressed]).toEqual([false, []]);
+    history.replaceState(null, "", "/i/jf/creators/inspiration/top_posts");
+    const picked = xPickInspiration("Last 7d", Promise.resolve(), new AbortController().signal);
+    await vi.runAllTimersAsync();
+    expect([await picked, pressed]).toEqual([true, ["Last 7d"]]);
   } finally {
     history.replaceState(null, "", start);
   }
