@@ -559,7 +559,7 @@ export function createMockState() {
           const id = `m${from + i}${query.replace(/[^A-Za-z0-9]/g, "")}`;
           return {
             id: `giphy_${id}`,
-            altText: `${query || "Trending"} ${from + i + 1}`,
+            altText: `${query || "Trending"} ${from + i + 1} GIF`,
             // Never fetched from GIPHY: the mock's own path, holding the id as GIPHY's URLs do.
             url: `/media/${id}/200_d.gif`,
             stillUrl: `/media/${id}/200_d_s.gif`,

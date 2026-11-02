@@ -302,7 +302,7 @@ it("picks a GIF from X's own search in the engine and posts it free, leaving X's
       key: "gifs:cat",
       bottom: "go50c50",
       gifs: [
-        gif("giphy_g1", "Cat Jump"),
+        gif("giphy_g1", "Cat Jump GIF"),
         ...Array.from({ length: 49 }, (_, i) => gif(`giphy_m${i}`, null)),
       ],
     });
@@ -324,7 +324,7 @@ it("picks a GIF from X's own search in the engine and posts it free, leaving X's
     await expect.poll(() => scripts.at(-1)).toContain("app-bar-back");
 
     // As on X: a GIF stands alone on the post.
-    await expect.element(screen.getByRole("img", { name: "Cat Jump" })).toBeVisible();
+    await expect.element(screen.getByRole("img", { name: "Cat Jump GIF" })).toBeVisible();
     for (const name of ["Media", "GIF", "Poll"])
       await expect.element(screen.getByRole("button", { name })).toBeDisabled();
     // Post waits for X's search to be left: the desktop opens X's composer in the same page.

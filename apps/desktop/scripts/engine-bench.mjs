@@ -1179,9 +1179,7 @@ const benchmarks = [
       const xTiles = await engine(
         `[...document.querySelectorAll('[data-testid="gifSearchGifImage"]')].slice(0, 6).map((t) => t.getAttribute("aria-label"))`,
       );
-      const ours = await store(
-        `at($.gifs, ${surface}).slice(0, 6).map((g) => ((g.altText ?? "") + " GIF").trim())`,
-      );
+      const ours = await store(`at($.gifs, ${surface}).slice(0, 6).map((g) => g.altText ?? "GIF")`);
       // At the end of Xtend's grid, X's list scrolls on and its next page joins the store.
       const more = await until(async () => {
         await app(

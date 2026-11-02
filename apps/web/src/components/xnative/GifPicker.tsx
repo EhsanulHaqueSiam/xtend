@@ -94,7 +94,7 @@ export function GifPicker({
               itemContent={(_, g) => (
                 <button
                   type="button"
-                  aria-label={`${g.altText ?? ""} GIF`.trim()}
+                  aria-label={g.altText ?? "GIF"}
                   className="block h-[140px] w-full cursor-pointer bg-white/7"
                   onClick={() => onPick(g, query)}
                 >

@@ -874,7 +874,7 @@ test("Home's GIF picker searches X's own GIF search on the engine, pages it, and
   await picker.getByRole("button", { name: "cat 2 GIF", exact: true }).click();
   await expect.poll(enginePath).toBe("/home");
   expect(presses()).toContain("press app-bar-back");
-  await e.app.getByRole("img", { name: "cat 2", exact: true }).waitFor();
+  await e.app.getByRole("img", { name: "cat 2 GIF", exact: true }).waitFor();
   await e.app.getByRole("button", { name: "Remove GIF", exact: true }).click();
   expect(writes()).toBe(before);
 });

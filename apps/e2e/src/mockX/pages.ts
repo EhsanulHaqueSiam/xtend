@@ -220,9 +220,9 @@ export const postsOf = (b: EngineBatch | null, state: MockState) =>
           return m === undefined ? [] : [whoToFollow(m, b)];
         })
         .join("") + (b.gifs ?? []).map(gifTile).join("");
-/** X's GIF tile: named "<alt> GIF", its picture a CSS background, no id of its own. */
+/** X's GIF tile: named by its alt text (X's own ends in "GIF"), its picture a CSS background, no id of its own. */
 const gifTile = (g: EngineGif) =>
-  `<button><div data-testid="gifSearchGifImage" aria-label="${esc(`${g.altText ?? ""} GIF`)}" style="display:inline-block;width:180px;height:240px;background-image:url(&quot;${esc(g.url)}&quot;)"></div></button>`;
+  `<button><div data-testid="gifSearchGifImage" aria-label="${esc(g.altText ?? "GIF")}" style="display:inline-block;width:180px;height:240px;background-image:url(&quot;${esc(g.url)}&quot;)"></div></button>`;
 /** X's composer toolbar: its GIF button opens X's GIF search, then `post` (Post or Reply). */
 const toolBar = (post: string) =>
   `<div data-testid="toolBar"><button data-testid="gifSearchButton" aria-label="Add a GIF">GIF</button>${post}</div>`;
