@@ -412,6 +412,8 @@ export interface EngineState {
   readonly analytics: ReadonlyMap<string, Readonly<Record<string, number>>>;
   /** How many people the viewer follows follow each user, by user id (see `EngineBatch.knownFollowers`). */
   readonly knownFollowers: ReadonlyMap<string, number>;
+  /** The features X's subscription grants the account, as X last said (`EngineBatch.claims`); null until it has. */
+  readonly claims: ReadonlySet<string> | null;
   /** The page cursors X last answered per surface, to tell a fetch of newer posts from the next page. */
   readonly cursors: Readonly<
     Partial<Record<AnySurface, { readonly top: string | null; readonly bottom: string | null }>>
@@ -450,6 +452,7 @@ export const emptyEngine: EngineState = {
   viewer: null,
   analytics: new Map(),
   knownFollowers: new Map(),
+  claims: null,
   cursors: {},
 };
 
@@ -594,6 +597,7 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
       batch.knownFollowers === undefined || batch.key === null
         ? state.knownFollowers
         : new Map(state.knownFollowers).set(batch.key, batch.knownFollowers),
+    claims: batch.claims === undefined ? state.claims : new Set(batch.claims),
   };
   const listed = surfacesOf(batch).reduce(
     (state, surface) =>
@@ -1052,6 +1056,11 @@ export const engineAtom = Atom.make(emptyEngine).pipe(Atom.keepAlive);
 
 /** The account X's page is signed in as, once it has said; a screen re-renders only when it changes. */
 export const viewerHandleAtom = Atom.make((get) => get(engineAtom).viewer?.handle ?? null);
+
+/** Whether X lets the account bold and italicize in its composer (`subscriptions_feature_1014`); null until X has said. */
+export const canFormatAtom = Atom.make(
+  (get) => get(engineAtom).claims?.has("subscriptions_feature_1014") ?? null,
+);
 
 /** Engine fixtures dev replayed into the store, in a browser with no desktop (DevEngineReplay). */
 export const engineReplayAtom = Atom.make<ReadonlyArray<string>>([]).pipe(Atom.keepAlive);

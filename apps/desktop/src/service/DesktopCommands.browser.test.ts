@@ -53,6 +53,8 @@ interface FakeOptions {
   readonly lingerMs?: number;
   /** History entries X pushes for each query searched (X's own count is one), the rest by URL. */
   readonly entriesPerQuery?: number;
+  /** X lets the account format (its claim for Premium): X's ⌘B and ⌘I style what is typed next. */
+  readonly formatting?: boolean;
 }
 
 /** X's composer page and its GIF search route, on this document's URL. */
@@ -90,6 +92,28 @@ function fakeX(markup: string, log: Array<string>, options: FakeOptions = {}) {
       );
   };
   history.replaceState(null, "", COMPOSE_PATH);
+  // X's editor (Draft.js): its command key per its user agent toggles the style of what is typed
+  // next, drawn as a styled leaf; for an account X does not let format, the keys do nothing.
+  const box = document.querySelector<HTMLElement>('[data-testid="tweetTextarea_0"]');
+  const typing = { Bold: false, Italic: false };
+  box?.addEventListener("keydown", (event) => {
+    const command = /Mac OS X/.test(navigator.userAgent) ? event.metaKey : event.ctrlKey;
+    const style = command ? ({ b: "Bold", i: "Italic" } as const)[event.key] : undefined;
+    if (style === undefined || options.formatting !== true) return;
+    event.preventDefault();
+    typing[style] = !typing[style];
+    log.push(`${style} ${typing[style] ? "on" : "off"}`);
+  });
+  box?.addEventListener("beforeinput", (event) => {
+    if (!typing.Bold && !typing.Italic) return;
+    event.preventDefault();
+    const leaf = document.createElement("span");
+    leaf.dataset.offsetKey = "leaf";
+    leaf.style.fontWeight = typing.Bold ? "700" : "400";
+    leaf.style.fontStyle = typing.Italic ? "italic" : "normal";
+    leaf.textContent = event.data;
+    box.append(leaf);
+  });
   document.body.addEventListener("click", (event) => {
     // An earlier test's X, still listening on body, is gone.
     if (root?.isConnected !== true) return;
@@ -198,14 +222,21 @@ const EMPTY = {
 
 /** Chromium's DevTools protocol over this page's DOM: the subset the driver sends. */
 function domCdp(log: Array<string>) {
-  const nodes: Array<Element> = [];
+  // Chromium's node ids: new ones only, and DOM.getDocument drops every one handed out before.
+  let ids = new Map<Element, number>();
+  let last = 0;
   // What a select-all command selected, for the Backspace after it.
   let selected: Element | null = null;
-  const idOf = (el: Element) => (nodes.includes(el) ? nodes.indexOf(el) : nodes.push(el) - 1);
-  const at = (params: Record<string, unknown>) => nodes[Number(params.nodeId ?? params.objectId)]!;
+  const idOf = (el: Element) => ids.get(el) ?? (ids.set(el, ++last), last);
+  const at = (params: Record<string, unknown>) => {
+    const id = Number(params.nodeId ?? params.objectId);
+    for (const [el, known] of ids) if (known === id) return el;
+    throw new Error("Could not find node with given id");
+  };
   return async (method: string, params: Record<string, unknown> = {}): Promise<unknown> => {
     switch (method) {
       case "DOM.getDocument":
+        ids = new Map();
         return { root: { nodeId: idOf(document.documentElement) } };
       case "DOM.querySelectorAll":
         return {
@@ -270,6 +301,18 @@ function domCdp(log: Array<string>) {
         return {};
       case "Input.dispatchKeyEvent": {
         const el = document.activeElement as HTMLElement;
+        const modifiers = Number(params.modifiers ?? 0);
+        if (params.type === "rawKeyDown" && modifiers > 0)
+          el.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              key: String(params.key),
+              code: String(params.code),
+              metaKey: (modifiers & 4) !== 0,
+              ctrlKey: (modifiers & 2) !== 0,
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
         if ((params.commands as Array<string> | undefined)?.includes("selectAll")) selected = el;
         if (params.type === "rawKeyDown" && params.key === "Backspace" && selected === el) {
           if (el instanceof HTMLInputElement) el.value = "";
@@ -279,9 +322,17 @@ function domCdp(log: Array<string>) {
       }
       case "Input.insertText": {
         const el = document.activeElement as HTMLElement;
-        if (el instanceof HTMLInputElement) el.value += String(params.text);
-        else el.textContent += String(params.text);
         log.push(`type ${String(params.text)}`);
+        // The page may type it itself, as X's editor does.
+        const typed = new InputEvent("beforeinput", {
+          data: String(params.text),
+          inputType: "insertText",
+          bubbles: true,
+          cancelable: true,
+        });
+        if (!el.dispatchEvent(typed)) return {};
+        if (el instanceof HTMLInputElement) el.value += String(params.text);
+        else el.append(String(params.text));
         return {};
       }
       default:
@@ -473,4 +524,43 @@ it("takes as many Backs as X's search holds entries, up to the last one it may p
     message: 'x.com\'s composer has no GIF "giphy_g9" in its search for "cat"; nothing was posted',
   });
   expect([log.filter((l) => l === "gif search back").length, path]).toEqual([20, COMPOSE_PATH]);
+});
+
+it("types bold and italic with X's own command keys where each run starts and ends, then presses Post", async () => {
+  const { log, result } = await run(
+    COMPOSER,
+    post({
+      text: "go big now",
+      styles: [
+        { start: 3, end: 6, style: "Bold" },
+        { start: 7, end: 10, style: "Italic" },
+      ],
+    }),
+    { formatting: true },
+  );
+  expect(result).toBe("777");
+  expect(log).toEqual([
+    "type go ",
+    "Bold on",
+    "type big",
+    "Bold off",
+    "type  ",
+    "Italic on",
+    "type now",
+    "press Post, Everyone can reply",
+  ]);
+});
+
+it("refuses before Post, and takes the text back, when X does not apply the formatting", async () => {
+  // An account X does not let format: X's keys do nothing, and Post would send the text plain.
+  const { log, result } = await run(
+    COMPOSER,
+    post({ text: "go big", styles: [{ start: 3, end: 6, style: "Bold" }] }),
+  );
+  expect(result).toMatchObject({
+    message: "x.com's composer has no bold text; nothing was posted",
+    notAttempted: true,
+  });
+  expect(log.some((l) => l.startsWith("press Post"))).toBe(false);
+  expect(composer()).toEqual(EMPTY);
 });

@@ -23,6 +23,7 @@ import type {
   EngineTrend,
   EngineUser,
   EngineViewer,
+  TextStyle,
 } from "@xtend/contracts";
 
 import {
@@ -387,7 +388,9 @@ function readEnginePost(
     ].filter((u) => u !== undefined),
   );
   const text = shownText(post.text, replyingTo, hidden);
+  const styles = readStyles(tweet, post.text, text);
   return {
+    ...(styles.length === 0 ? {} : { styles }),
     translation: readTranslation(tweet, replyingTo, hidden),
     ...post,
     text,
@@ -414,6 +417,25 @@ function readEnginePost(
       record(record(tweet.content_disclosure).ai_generated_disclosure).has_ai_generated_media ===
       true,
   };
+}
+
+/**
+ * A long post's bold and italic (X's `richtext_tags`), moved onto the shown text: X counts them in
+ * UTF-16 units of the whole text, which the shown text may start into ("Replying to" handles).
+ */
+function readStyles(tweet: Json, full: string, shown: string): ReadonlyArray<TextStyle> {
+  const lead = Math.max(0, full.indexOf(shown));
+  return arr(
+    record(result(record(tweet.note_tweet).note_tweet_results).richtext).richtext_tags,
+  ).flatMap((tag) => {
+    const from = asNumber(record(tag).from_index) - lead;
+    const to = Math.min(asNumber(record(tag).to_index) - lead, shown.length);
+    return arr(record(tag).richtext_types).flatMap((style) =>
+      (style === "Bold" || style === "Italic") && Math.max(0, from) < to
+        ? [{ start: Math.max(0, from), end: to, style }]
+        : [],
+    );
+  });
 }
 
 /** X's Grok translation of a post, trimmed the way the original's text is. */
@@ -1083,9 +1105,28 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     viewer: op === "Viewer" ? readViewer(result(record(data.viewer).user_results)) : null,
     ...(games.size === 0 ? {} : { games: [...games.values()] }),
     ...(gifSlice === null ? {} : { gifs: arr(gifSlice.items).flatMap(readGif) }),
+    ...readClaims(op, data),
     ...(prompt === undefined ? {} : { prompt }),
     ...readAnalytics(op, data),
   };
+}
+
+/**
+ * The features X's GetUserClaims grants the account: each claim lists resources named
+ * `client_feature_switch/<feature>/<value>`, and X's page takes a feature as on when one says "true".
+ */
+function readClaims(op: string, data: Json): Pick<EngineBatch, "claims"> {
+  const claims = record(data.viewer_v2).claims;
+  if (op !== "GetUserClaims" || !Array.isArray(claims)) return {};
+  const on = claims.flatMap((c) =>
+    arr(record(c).resources).flatMap((r) => {
+      const [kind, feature, value] = (asString(record(r).rest_id) ?? "").split("/");
+      return kind === "client_feature_switch" && feature !== undefined && value === "true"
+        ? [feature]
+        : [];
+    }),
+  );
+  return { claims: [...new Set(on)] };
 }
 
 /** X's Post Analytics numbers (TweetActivityQuery), by X's metric name. */
@@ -1195,6 +1236,7 @@ export const hasEngineContent = (b: EngineBatch) =>
   b.viewer !== null ||
   (b.games?.length ?? 0) > 0 ||
   b.gifs !== undefined ||
+  b.claims !== undefined ||
   b.prompt !== undefined ||
   b.analytics !== undefined ||
   b.knownFollowers !== undefined;

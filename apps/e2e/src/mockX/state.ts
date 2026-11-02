@@ -113,8 +113,15 @@ export interface MockOptions {
   readonly pageSize?: number;
   /** Every nth made-up post carries a photo, so a page is as tall as X's. */
   readonly photoEvery?: number;
+  /**
+   * The account holds X's claim for bold and italic (Premium): GetUserClaims grants it and the
+   * composer's ⌘B and ⌘I apply. Without it X grants nothing and the keys do nothing, as on X.
+   */
+  readonly premium?: boolean;
 }
 const PINNED_TAG = "1540000000000000001";
+/** X's claim for bold and italic in its composer. */
+const FORMAT_CLAIM = "subscriptions_feature_1014";
 
 const key = (op: string, k: string | null) => `${op}|${k ?? ""}`;
 const s = (variables: Json, name: string) =>
@@ -147,7 +154,8 @@ export function createMockState(options: MockOptions = {}) {
   const photo = [...basePosts.values()].find((p) => p.media.length > 0)!.media.slice(0, 1);
   const make = (minutesAgo: number, extra: Partial<EnginePost> = {}): EnginePost => {
     const n = made++;
-    const base = forYou.posts[n % forYou.posts.length]!;
+    // Its own text: a base post's bold and italic would land on the wrong words.
+    const { styles: _, ...base } = forYou.posts[n % forYou.posts.length]!;
     const author = people[(n * 3) % people.length]!;
     const views = 2_000 + ((n * 7_717) % 60_000);
     const post: EnginePost = {
@@ -531,6 +539,11 @@ export function createMockState(options: MockOptions = {}) {
     switch (op) {
       case "Viewer":
         return fixture("Viewer", null)!;
+      case "GetUserClaims":
+        return page(op, null, [], {
+          top: null,
+          claims: options.premium === true ? [FORMAT_CLAIM] : [],
+        });
       case "PinnedTimelines":
         return page("PinnedTimelines", null, [], { top: null, homeTabs: pinnedTabs() });
       case "HomeTimeline":
@@ -873,9 +886,21 @@ export function createMockState(options: MockOptions = {}) {
         );
         return { card: { voted: choice } };
       }
+      // X's composer sends a post with bold or italic as a long post, its runs as richtext_tags.
+      case "CreateNoteTweet":
       case "CreateTweet": {
         const text = s(input, "tweet_text") ?? "";
+        const tags = (input.richtext_options as { richtext_tags?: ReadonlyArray<Json> } | undefined)
+          ?.richtext_tags;
+        const styles = (tags ?? []).flatMap((t) =>
+          (t.richtext_types as ReadonlyArray<"Bold" | "Italic">).map((style) => ({
+            start: t.from_index as number,
+            end: t.to_index as number,
+            style,
+          })),
+        );
         const created = make(0, {
+          ...(styles.length === 0 ? {} : { styles }),
           text,
           createdAt: new Date().toISOString(),
           author: {
@@ -889,7 +914,9 @@ export function createMockState(options: MockOptions = {}) {
           metrics: { views: 0, likes: 0, reposts: 0, replies: 0, quotes: 0, bookmarks: 0 },
         });
         const { __typename: _, ...result } = encodeTweet(created, liveUsers());
-        return { data: { create_tweet: { tweet_results: { result } } } };
+        return name === "CreateNoteTweet"
+          ? { data: { notetweet_create: { tweet_results: { result } } } }
+          : { data: { create_tweet: { tweet_results: { result } } } };
       }
       case "JoinCommunity":
         changeCommunity(id ?? "", (c) => ({ role: "Member", members: (c.members ?? 0) + 1 }));
@@ -921,6 +948,8 @@ export function createMockState(options: MockOptions = {}) {
   return {
     viewer,
     viewerUser,
+    /** X's claim for bold and italic: its composer applies them only then. */
+    premium: options.premium === true,
     people,
     /** Home's pinned tabs as X's PinnedTimelines lists them now. */
     get pinnedTabs() {

@@ -340,3 +340,82 @@ it("picks a GIF from X's own search in the engine and posts it free, leaving X's
     registerXWebview(null);
   }
 });
+
+// X's own command key for bold and italic, as the box reads it.
+const COMMAND = navigator.userAgent.includes("Mac") ? "Meta" : "Control";
+
+it("formats the selection with Bold and X's shortcut for an account X lets format, and posts the runs", async () => {
+  const { log, creates, service } = setup();
+  await using screen = await render(
+    <>
+      <EngineSync />
+      <HomeComposer />
+    </>,
+    { service },
+  );
+  bridge.emitEngine({ ...people, op: "GetUserClaims", claims: ["subscriptions_feature_1014"] });
+  const box = screen.getByLabelText("Post text");
+  await userEvent.click(box);
+  await userEvent.keyboard("  go big now");
+  const area = box.element() as HTMLTextAreaElement;
+  area.setSelectionRange(5, 8);
+  const bold = screen.getByRole("button", { name: "Bold" });
+  await userEvent.click(bold);
+  await expect.element(bold).toHaveAttribute("aria-pressed", "true");
+  area.setSelectionRange(9, 12);
+  await userEvent.keyboard(`{${COMMAND}>}i{/${COMMAND}}`);
+  await expect
+    .element(screen.getByRole("button", { name: "Italic" }))
+    .toHaveAttribute("aria-pressed", "true");
+  // Typed at a run's end, it joins the run.
+  area.setSelectionRange(12, 12);
+  await userEvent.keyboard("!");
+
+  await userEvent.click(screen.getByRole("button", { name: "Post", exact: true }));
+  await expect.poll(() => log).toEqual(["post h1 sessionOnly=true"]);
+  // Trimmed as posted, the runs move with the text.
+  expect(creates).toEqual([
+    {
+      blocks: [
+        {
+          text: "go big now!",
+          styles: [
+            { start: 3, end: 6, style: "Bold" },
+            { start: 7, end: 11, style: "Italic" },
+          ],
+        },
+      ],
+      quoteUrl: null,
+    },
+  ]);
+});
+
+it("shows X's own upsell on Bold for an account X does not let format, and posts the text plain", async () => {
+  const { log, creates, service } = setup();
+  await using screen = await render(
+    <>
+      <EngineSync />
+      <HomeComposer />
+    </>,
+    { service },
+  );
+  bridge.emitEngine({ ...people, op: "GetUserClaims", claims: [] });
+  const box = screen.getByLabelText("Post text");
+  await userEvent.click(box);
+  await userEvent.keyboard("hi");
+  (box.element() as HTMLTextAreaElement).setSelectionRange(0, 2);
+  await userEvent.keyboard(`{${COMMAND}>}b{/${COMMAND}}`);
+  await userEvent.click(screen.getByRole("button", { name: "Bold" }));
+  await expect
+    .element(
+      page.getByText("Write longer posts and apply text formatting such as bold and italic."),
+    )
+    .toBeVisible();
+  await expect
+    .element(page.getByRole("link", { name: "Subscribe" }))
+    .toHaveAttribute("href", "https://x.com/i/premium_sign_up?referring_page=sidebar_longform");
+  // Tests load no CSS, so Base UI's layer covers the box: Post is pressed in place.
+  (screen.getByRole("button", { name: "Post", exact: true }).element() as HTMLElement).click();
+  await expect.poll(() => log).toEqual(["post h1 sessionOnly=true"]);
+  expect(creates).toEqual([{ blocks: [{ text: "hi" }], quoteUrl: null }]);
+});

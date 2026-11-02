@@ -11,6 +11,7 @@ import {
   type PickedGif,
   POST_LIMIT,
   type ReplySettings,
+  type TextStyle,
 } from "@xtend/contracts";
 import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
@@ -38,12 +39,14 @@ import {
   mediaAddAtom,
   sessionPostNowAtom,
 } from "../../state/compose";
-import { engineAtom, youFollow } from "../../state/engine";
+import { canFormatAtom, engineAtom, youFollow } from "../../state/engine";
 import { settingsAtom, useSessionLane } from "../../state/settings";
 import { xGifIdle } from "../../state/x";
 import { failText } from "../compose/AssistPanel";
+import { FormatTools, StyledArea, styleKey } from "../compose/FormatTools";
 import { NEW_POLL, PollEditor } from "../compose/PollEditor";
 import { REPLY_OPTIONS } from "../compose/ThreadEditor";
+import { shiftStyles, sliceStyles, toggleStyle } from "../compose/textStyles";
 import { GifPicker } from "./GifPicker";
 import { Popover } from "../ui/popover";
 import { toastAtom } from "../ui/toast";
@@ -78,6 +81,8 @@ interface BoxPost {
   readonly files?: ReadonlyArray<Attached>;
   /** Only the session posts one: X's composer picks it from X's own GIF search. */
   readonly gif?: PickedGif | undefined;
+  /** Bold and italic, which only X's composer applies. */
+  readonly styles?: ReadonlyArray<TextStyle>;
 }
 
 /**
@@ -94,9 +99,10 @@ const useBoxDraft = () => {
     replySettings = "everyone",
     poll = null,
     files = [],
+    styles = [],
   }: BoxPost) => {
     let draft = await create({
-      blocks: [{ text }],
+      blocks: [{ text, ...(styles.length === 0 ? {} : { styles }) }],
       quoteUrl,
       ...(replySettings === "everyone" ? {} : { replySettings }),
       ...(poll === null ? {} : { poll }),
@@ -215,6 +221,8 @@ export function HomeComposer() {
   const boxDraft = useBoxDraft();
   const setToast = useAtomSet(toastAtom);
   const [text, setText] = useState("");
+  const [styles, setStyles] = useState<ReadonlyArray<TextStyle>>([]);
+  const canFormat = useAtomValue(canFormatAtom) === true;
   const [files, setFiles] = useState<ReadonlyArray<Attached>>([]);
   const [poll, setPoll] = useState<DraftPoll | null>(null);
   // Picked in X's GIF search for `query`, which Post searches again in X's composer.
@@ -246,7 +254,12 @@ export function HomeComposer() {
   const video = files.some((f) => f.kind === "video");
   const blank = text.trim() === "" && files.length === 0 && gif === null;
   const pollBlank = poll !== null && poll.options.some((o) => o.trim() === "");
-  const plain = files.length === 0 && poll === null && gif === null && reply === "everyone";
+  const plain =
+    files.length === 0 &&
+    poll === null &&
+    gif === null &&
+    reply === "everyone" &&
+    styles.length === 0;
 
   const mention = opened && !busy ? mentionAt(text, caret.start, caret.end) : null;
   const self = settings?.handle ?? engine.viewer?.handle ?? null;
@@ -264,6 +277,7 @@ export function HomeComposer() {
   const clear = () => {
     for (const f of files) free(f.url);
     setText("");
+    setStyles([]);
     setFiles([]);
     setPoll(null);
     setGif(null);
@@ -302,15 +316,20 @@ export function HomeComposer() {
     if (mention === null) return;
     const inserted = `@${handle} `;
     const at = mention.start + inserted.length;
+    const next = text.slice(0, mention.start) + inserted + text.slice(mention.end);
     flushSync(() => {
-      setText(text.slice(0, mention.start) + inserted + text.slice(mention.end));
+      setText(next);
+      setStyles(shiftStyles(styles, text, next, at));
       setCaret({ start: at, end: at });
     });
     box.current?.setSelectionRange(at, at);
   };
 
+  // Trimmed as posted, so the runs move with the text's start.
+  const lead = text.length - text.trimStart().length;
   const post = {
     text: text.trim(),
+    styles: sliceStyles(styles, lead, lead + text.trim().length),
     replySettings: reply,
     poll,
     files,
@@ -354,18 +373,21 @@ export function HomeComposer() {
       <Avatar url={avatarUrl} size={40} />
       {/* Frozen while Post or a handoff sends, so nothing added meanwhile is lost to clear(). */}
       <fieldset disabled={busy} className="relative m-0 min-w-0 border-0 p-0">
-        <textarea
+        <StyledArea
           ref={box}
+          styles={styles}
+          font="py-2 text-[20px] leading-6"
           aria-label="Post text"
           aria-autocomplete="list"
           aria-controls={people.length > 0 ? "home-mentions" : undefined}
           placeholder={poll === null ? "What's happening?" : "Ask a question"}
           rows={text === "" ? 1 : 3}
-          className="block w-full resize-none bg-transparent py-2 text-[20px] leading-6 outline-hidden placeholder:text-[#71767b]"
+          className="block w-full resize-none bg-transparent outline-hidden placeholder:text-[#71767b]"
           value={text}
           onFocus={() => setOpened(true)}
           onChange={(e) => {
             setText(e.target.value);
+            setStyles(shiftStyles(styles, text, e.target.value, e.target.selectionEnd));
             setCaret({ start: e.target.selectionStart, end: e.target.selectionEnd });
             setPick(0);
           }}
@@ -373,6 +395,11 @@ export function HomeComposer() {
             setCaret({ start: e.currentTarget.selectionStart, end: e.currentTarget.selectionEnd })
           }
           onKeyDown={(e) => {
+            const style = session && canFormat ? styleKey(e) : null;
+            if (style !== null) {
+              e.preventDefault();
+              return setStyles(toggleStyle(styles, caret.start, caret.end, style));
+            }
             if (people.length > 0) {
               const step = { ArrowDown: 1, ArrowUp: -1 }[e.key];
               if (step !== undefined) {
@@ -576,6 +603,10 @@ export function HomeComposer() {
             >
               <Smile className="size-[18px]" />
             </Tool>
+          ) : null}
+          {/* Only X's composer applies them, so only where the session posts. */}
+          {session ? (
+            <FormatTools styles={styles} selection={caret} onChange={setStyles} className={tool} />
           ) : null}
           <Tool label="Schedule in Compose" onClick={() => void handOff()}>
             <CalendarClock className="size-[18px]" />

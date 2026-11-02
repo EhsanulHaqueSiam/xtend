@@ -597,11 +597,17 @@ it("keeps X's Subs prompt per profile across X's next page, until X lists posts 
   expect(state.prompts.has(subs)).toBe(false);
 });
 
-it("keeps the signed-in account's id when X's nav names it again without one", () => {
+it("keeps the signed-in account's id when X's nav names it again without one, and X's last word on its features", () => {
   let state = mergeBatch(
     emptyEngine,
     batch("Viewer", [], { viewer: { userId: "7", handle: "siam", name: "Siam", avatarUrl: null } }),
   );
+  expect(state.claims).toBeNull();
+  state = mergeBatch(state, batch("GetUserClaims", [], { claims: ["subscriptions_feature_1014"] }));
+  state = mergeBatch(state, batch("HomeLatestTimeline", []));
+  expect([...state.claims!]).toEqual(["subscriptions_feature_1014"]);
+  // The subscription ended: X grants nothing now.
+  expect(mergeBatch(state, batch("GetUserClaims", [], { claims: [] })).claims?.size).toBe(0);
   state = mergeBatch(
     state,
     batch("ViewerFromNav", [], {

@@ -1,3 +1,4 @@
+import { useAtomValue } from "@effect/atom-react";
 import {
   charCount,
   type DraftBlock,
@@ -5,16 +6,20 @@ import {
   MEDIA_MAX_IMAGES,
   POST_LIMIT,
   type ReplySettings,
+  type TextStyle,
 } from "@xtend/contracts";
 import { ArrowDown, ArrowUp, Film, Globe, Image, Plus, X } from "lucide-react";
 import type { ClipboardEvent, DragEvent, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 
 import { cn } from "../../lib/utils";
+import { canFormatAtom } from "../../state/engine";
 import { Button } from "../ui/button";
 import { compactInputClass } from "../ui/field";
+import { FormatTools, StyledArea, styleKey } from "./FormatTools";
 import { quotedPostId } from "./PostPreview";
 import { Select } from "../ui/select";
+import { shiftStyles, toggleStyle } from "./textStyles";
 
 /** The text X receives for post i; the service appends the quote link to the first post. */
 export const postText = (text: string, i: number, quoteUrl: string | null) =>
@@ -46,6 +51,14 @@ export const REPLY_OPTIONS: ReadonlyArray<readonly [ReplySettings, string]> = [
 ];
 
 const fileName = (path: string) => path.split("/").pop() ?? path;
+
+/** A block with these runs; none leaves the key out, so an unformatted draft saves as before. */
+const withStyles = ({ styles: _, ...block }: DraftBlock, styles: ReadonlyArray<TextStyle>) =>
+  styles.length === 0 ? block : { ...block, styles };
+
+/** A block with new text, its runs moved as the edit moved the text. */
+const withText = (block: DraftBlock, text: string, caret?: number) =>
+  withStyles({ ...block, text }, shiftStyles(block.styles ?? [], block.text, text, caret));
 
 /** Positions follow list order; blocks of later posts shift by `delta` after `from`. */
 const renumber = (media: ReadonlyArray<DraftMedia>) => {
@@ -172,6 +185,7 @@ export function ThreadEditor({
   onAddFiles,
   onMediaChange,
   onRemoveMedia,
+  formatting = false,
 }: {
   readonly blocks: ReadonlyArray<DraftBlock>;
   readonly media: ReadonlyArray<DraftMedia>;
@@ -190,7 +204,12 @@ export function ThreadEditor({
   readonly onAddFiles: (index: number, files: ReadonlyArray<File>) => void;
   readonly onMediaChange: (media: ReadonlyArray<DraftMedia>) => void;
   readonly onRemoveMedia: (id: string) => void;
+  /** X's Bold and Italic: only X's composer applies them, so only while the session posts. */
+  readonly formatting?: boolean;
 }) {
+  const canFormat = useAtomValue(canFormatAtom) === true;
+  // The active post's selection, which Bold and Italic format.
+  const [selection, setSelection] = useState({ start: 0, end: 0 });
   const picker = useRef<HTMLInputElement>(null);
   const pickFor = useRef(0);
   const areas = useRef<Array<HTMLTextAreaElement | null>>([]);
@@ -202,8 +221,10 @@ export function ThreadEditor({
     areas.current[focusNext.current]?.focus();
     focusNext.current = null;
   });
-  const set = (i: number, text: string) =>
-    onChange(blocks.map((b, j) => (j === i ? { ...b, text } : b)));
+  const set = (i: number, text: string, caret: number) =>
+    onChange(blocks.map((b, j) => (j === i ? withText(b, text, caret) : b)));
+  const restyle = (i: number, styles: ReadonlyArray<TextStyle>) =>
+    onChange(blocks.map((b, j) => (j === i ? withStyles(b, styles) : b)));
   const paste = (i: number, e: ClipboardEvent<HTMLTextAreaElement>) => {
     const pasted = e.clipboardData.getData("text/plain");
     const { value, selectionStart, selectionEnd } = e.currentTarget;
@@ -231,7 +252,7 @@ export function ThreadEditor({
     );
     onChange([
       ...blocks.slice(0, i),
-      { ...blocks[i], text: texts[0] ?? "" },
+      withText(blocks[i]!, texts[0] ?? ""),
       ...texts.slice(1).map((text) => ({ text })),
       ...blocks.slice(i + 1),
     ]);
@@ -266,7 +287,7 @@ export function ThreadEditor({
           e.target.value = "";
         }}
       />
-      {blocks.map(({ text, replySettings }, i) => {
+      {blocks.map(({ text, replySettings, styles }, i) => {
         const count = charCount(postText(text, i, quoteUrl));
         const on = i === active;
         const here = media.filter((m) => m.blockIndex === i);
@@ -288,19 +309,39 @@ export function ThreadEditor({
               {avatar}
             </div>
             <div className="min-w-0 flex-1">
-              <textarea
+              <StyledArea
                 ref={(el) => {
                   areas.current[i] = el;
                 }}
+                styles={styles ?? []}
+                font="pt-1 text-[15px] leading-normal text-foreground"
                 aria-label={`Post ${i + 1}`}
                 className={cn(
-                  "block w-full resize-none bg-transparent pt-1 text-[15px] leading-normal text-foreground outline-hidden field-sizing-content placeholder:text-placeholder",
+                  "block w-full resize-none bg-transparent outline-hidden field-sizing-content placeholder:text-placeholder",
                   blocks.length === 1 ? "min-h-[3lh]" : "min-h-[1lh]",
                 )}
                 placeholder={i === 0 ? "What's happening?" : "Add another post"}
                 value={text}
-                onFocus={() => onFocus(i)}
-                onChange={(e) => set(i, e.target.value)}
+                onFocus={(e) => {
+                  onFocus(i);
+                  setSelection({
+                    start: e.currentTarget.selectionStart,
+                    end: e.currentTarget.selectionEnd,
+                  });
+                }}
+                onChange={(e) => set(i, e.target.value, e.target.selectionEnd)}
+                onSelect={(e) =>
+                  setSelection({
+                    start: e.currentTarget.selectionStart,
+                    end: e.currentTarget.selectionEnd,
+                  })
+                }
+                onKeyDown={(e) => {
+                  const style = formatting && canFormat ? styleKey(e) : null;
+                  if (style === null) return;
+                  e.preventDefault();
+                  restyle(i, toggleStyle(styles ?? [], selection.start, selection.end, style));
+                }}
                 onPaste={(e) => paste(i, e)}
               />
               <MediaList
@@ -326,6 +367,14 @@ export function ThreadEditor({
                     >
                       <Image />
                     </button>
+                    {formatting ? (
+                      <FormatTools
+                        styles={styles ?? []}
+                        selection={selection}
+                        onChange={(next) => restyle(i, next)}
+                        className={tool}
+                      />
+                    ) : null}
                     <label className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-xs text-muted-foreground transition-colors duration-150 hover:bg-white/[0.05] hover:text-foreground">
                       <Globe className="size-3.5" />
                       <Select
@@ -338,7 +387,7 @@ export function ThreadEditor({
                             blocks.map((b, j) =>
                               j === i
                                 ? next === undefined
-                                  ? { text: b.text }
+                                  ? withStyles({ text: b.text }, b.styles ?? [])
                                   : { ...b, replySettings: next }
                                 : b,
                             ),

@@ -29,6 +29,7 @@ const WRITES = new Set([
   "CreateBookmark",
   "DeleteBookmark",
   "CreateTweet",
+  "CreateNoteTweet",
   "DeleteTweet",
   "PinTweet",
   "MuteConversation",
@@ -157,7 +158,14 @@ export async function startMockX(
           });
         }
         const batches = r.requests.map((q) => state.batchFor(q.op, q.variables));
-        const boot = url.searchParams.get("boot") === "1" ? [{ op: "Viewer", variables: {} }] : [];
+        // X's page names the account and asks what its subscription grants as it loads.
+        const boot =
+          url.searchParams.get("boot") === "1"
+            ? [
+                { op: "Viewer", variables: {} },
+                { op: "GetUserClaims", variables: {} },
+              ]
+            : [];
         return json({
           graphql: [
             ...[...boot, ...r.requests].map(httpRequest),

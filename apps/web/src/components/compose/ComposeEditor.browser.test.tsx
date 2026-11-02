@@ -588,3 +588,28 @@ it("puts a rewrite of the second post in the second post", async () => {
   await expect.element(screen.getByLabelText("Post 2")).toHaveValue("two, sharper");
   await expect.element(screen.getByLabelText("Post 1")).toHaveValue("one");
 });
+
+it("keeps a formatted post's bold where its text moves, and says it posts through the session, free", async () => {
+  const updates: Array<DraftPatch> = [];
+  const formatted = draft("f1", "draft", {
+    blocks: [{ text: "ship it", styles: [{ start: 5, end: 7, style: "Bold" }] }],
+  });
+  await using screen = await render(editor("f1"), {
+    service: {
+      ...editorService(() => [formatted]),
+      "compose.draftUpdate": ({ id, patch }) => {
+        updates.push(patch);
+        return Effect.succeed(saved(id, patch, { updatedAt: "2026-10-23T00:01:00.000Z" }));
+      },
+    },
+  });
+  const box = screen.getByLabelText("Post 1");
+  await expect.element(box).toHaveValue("ship it");
+  await expect.element(screen.getByText("formatting, through your session, free")).toBeVisible();
+  await userEvent.click(box);
+  (box.element() as HTMLTextAreaElement).setSelectionRange(0, 0);
+  await userEvent.keyboard("we ");
+  await expect
+    .poll(() => updates.at(-1)?.blocks)
+    .toEqual([{ text: "we ship it", styles: [{ start: 8, end: 10, style: "Bold" }] }]);
+});

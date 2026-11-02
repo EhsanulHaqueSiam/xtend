@@ -8,6 +8,7 @@ import {
   type MarkSubject,
   type PickedGif,
   type ReplyTone,
+  type TextStyle,
   Marks_METHODS,
   WS_METHODS,
   WS_PATH,
@@ -585,6 +586,60 @@ async function pickGif(
   });
 }
 
+// X's composer (Draft.js) reads ⌘ as the command key when its user agent says Mac, Ctrl elsewhere.
+const ON_MAC = "/Mac OS X/.test(navigator.userAgent)";
+const STYLE_KEYS = { Bold: ["b", "KeyB", 66], Italic: ["i", "KeyI", 73] } as const;
+// The styles X's editor draws on its text, read from each text's own leaf (X's styled span).
+const SHOWN_STYLES = `function () {
+  const shown = new Set();
+  const walk = document.createTreeWalker(this, NodeFilter.SHOW_TEXT);
+  for (let n = walk.nextNode(); n !== null; n = walk.nextNode()) {
+    if (n.textContent.trim() === "") continue;
+    const style = getComputedStyle(n.parentElement.closest("[data-offset-key]") ?? n.parentElement);
+    if (Number(style.fontWeight) >= 600) shown.add("Bold");
+    if (style.fontStyle === "italic") shown.add("Italic");
+  }
+  return [...shown].join(",");
+}`;
+
+/**
+ * Types the text into X's text box `box` as its user formats it: X's own ⌘B and ⌘I pressed where
+ * a run of bold or italic starts and ends. X applies them only for an account it lets format, so
+ * the post is refused unless X's editor shows each style asked for.
+ */
+async function typeText(
+  cdp: Cdp,
+  box: number,
+  text: string,
+  styles: ReadonlyArray<TextStyle>,
+): Promise<void> {
+  if (styles.length === 0) return void (await cdp("Input.insertText", { text }));
+  const { result } = (await cdp("Runtime.evaluate", {
+    expression: ON_MAC,
+    returnByValue: true,
+  })) as { result: { value: unknown } };
+  const modifiers = result.value === true ? 4 : 2;
+  const cuts = [...new Set([0, text.length, ...styles.flatMap((s) => [s.start, s.end])])]
+    .filter((i) => i <= text.length)
+    .toSorted((a, b) => a - b);
+  const on = { Bold: false, Italic: false };
+  for (const [k, end] of cuts.slice(1).entries()) {
+    const start = cuts[k]!;
+    for (const style of ["Bold", "Italic"] as const) {
+      const wanted = styles.some((s) => s.style === style && s.start <= start && s.end >= end);
+      if (wanted === on[style]) continue;
+      on[style] = wanted;
+      const [key, code, windowsVirtualKeyCode] = STYLE_KEYS[style];
+      for (const type of ["rawKeyDown", "keyUp"] as const)
+        await cdp("Input.dispatchKeyEvent", { type, key, code, windowsVirtualKeyCode, modifiers });
+    }
+    await cdp("Input.insertText", { text: text.slice(start, end) });
+  }
+  const shown = String(await callOn(cdp, box, SHOWN_STYLES)).split(",");
+  for (const style of new Set(styles.map((s) => s.style)))
+    if (!shown.includes(style)) throw missing(`${style.toLowerCase()} text`);
+}
+
 /** What the driver put in X's composer, so a refusal before Post can take it back out. */
 interface Touched {
   reply: boolean;
@@ -672,10 +727,10 @@ async function takeBack(cdp: Cdp, touched: Touched, error: unknown): Promise<Not
 }
 
 /**
- * Uses x.com's own composer as a user would: who can reply, the poll or the GIF, the text, the
- * files, Post.
- * The id comes from the CreateTweet response the capture sees. Every step ends by `deadline`;
- * the upload may take what is left. A failure before Post takes back out what was put in.
+ * Uses x.com's own composer as a user would: who can reply, the poll or the GIF, the text with
+ * its bold and italic, the files, Post. The id comes from X's create response the capture sees.
+ * Every step ends by `deadline`; the upload may take what is left. A failure before Post takes
+ * back out what was put in.
  */
 export async function postThroughComposer(
   contents: Pick<Electron.WebContents, "loadURL">,
@@ -712,9 +767,10 @@ export async function postThroughComposer(
     if (command.gif !== undefined)
       await pickGif(cdp, command.gif, deadline, () => (touched.media = true));
     // Found again: adding a poll redraws the composer around its text box.
-    await click(cdp, await waitForNode(cdp, TEXTBOX, step(COMPOSER_TIMEOUT_MS)));
+    const box = await waitForNode(cdp, TEXTBOX, step(COMPOSER_TIMEOUT_MS));
+    await click(cdp, box);
     touched.text = command.text !== "";
-    await cdp("Input.insertText", { text: command.text });
+    await typeText(cdp, box, command.text, command.styles ?? []);
     if (command.mediaPaths.length > 0) {
       const input = await waitForNode(
         cdp,
@@ -726,14 +782,16 @@ export async function postThroughComposer(
     }
     // Listening before Post; the button stays disabled while uploads run.
     const created = nextCreatedPost();
-    const button = await waitForNode(cdp, 'button[data-testid="tweetButton"]', deadline, enabled);
+    const post = 'button[data-testid="tweetButton"]';
+    await waitForNode(cdp, post, deadline, enabled);
     // Checked again at the press: still closed, and X still names the user's setting.
     await waitForGone(cdp, X_COMPOSER.replyPopover, Date.now()).catch(() => {
       throw new NotAttempted("x.com's reply settings opened again; nothing was posted");
     });
     if (reply !== null)
       await control(cdp, X_COMPOSER.replyButtonFor(reply.label), `"${reply.label}"`, deadline);
-    return { button, created };
+    // Found last: each lookup above drops the node ids Chromium handed out before it.
+    return { button: await waitForNode(cdp, post, deadline, enabled), created };
   };
   const { button, created } = await ready().catch(async (error: unknown) => {
     throw await takeBack(cdp, touched, error);

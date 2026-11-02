@@ -1598,6 +1598,41 @@ const benchmarks = [
     },
   ],
   [
+    "Bold and italic follow X's own claim: Premium formats in Home's box, anyone else gets X's upsell (dry)",
+    async () => {
+      await home("following");
+      // X's GetUserClaims, which its page asks at load and every 4 minutes; a reload asks again.
+      const claims = `$.claims && [...$.claims]`;
+      if ((await store(claims)) === null) await engine(`location.reload(), true`);
+      const granted = await until(() => store(claims), 20_000);
+      if (!Array.isArray(granted)) return false;
+      const premium = granted.includes("subscriptions_feature_1014");
+      // Xtend's own box only: nothing is typed into X's composer or sent.
+      const fill = (text) =>
+        app(
+          `(() => { const t = document.querySelector('main textarea[aria-label="Post text"]'); t.focus(); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(t, ${JSON.stringify(text)}); t.dispatchEvent(new Event("input", { bubbles: true })); t.setSelectionRange(0, ${text.length}); return true; })()`,
+        );
+      const bold = `document.querySelector('main button[aria-label="Bold"]')`;
+      await fill("bench");
+      if (!(await until(() => app(`!!${bold}`), 5_000))) return false;
+      await app(`${bold}.click(), true`);
+      const ok = premium
+        ? await until(() => app(`${bold}.getAttribute("aria-pressed") === "true"`), 5_000)
+        : await until(
+            () =>
+              app(
+                `[...document.querySelectorAll("a")].some((a) => a.textContent === "Subscribe" && a.href === "https://x.com/i/premium_sign_up?referring_page=sidebar_longform") && document.body.textContent.includes("apply text formatting such as bold and italic")`,
+              ),
+            5_000,
+          );
+      if (!premium) await app(`${bold}.click(), true`);
+      await fill("");
+      return (
+        ok && (premium ? "Premium: Bold formats" : "not Premium: X's upsell, X's sign-up page")
+      );
+    },
+  ],
+  [
     "⌘R reloads Home and a post from X: lists refill in X's order, the post stays",
     async () => {
       // `__xtendRefresh` is what main's ⌘R and F5 call: DevTools keys skip before-input-event.

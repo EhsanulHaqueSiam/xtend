@@ -20,7 +20,8 @@ export const draftTitle = (d: Draft) =>
 
 /**
  * What each post of a thread costs at treg's rates. A quoted link rides on the first post at
- * the link price; a post with media goes through the x.com session, which treg does not bill.
+ * the link price; a post with media or formatting goes through the x.com session, which treg does
+ * not bill.
  */
 export const postCosts = (
   rates: RateCard,
@@ -31,7 +32,7 @@ export const postCosts = (
   sessionClick = false,
 ) =>
   blocks.map((b, i) =>
-    sessionClick || media.some((m) => m.blockIndex === i)
+    sessionClick || media.some((m) => m.blockIndex === i) || (b.styles?.length ?? 0) > 0
       ? 0
       : postCostUsd(rates, i === 0 && quoteUrl !== null ? `${b.text} ${quoteUrl}` : b.text),
   );

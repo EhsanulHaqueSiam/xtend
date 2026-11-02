@@ -254,6 +254,29 @@ export function encodeTweet(
     ...when(p.aiGenerated, () => ({
       content_disclosure: { ai_generated_disclosure: { has_ai_generated_media: true } },
     })),
+    // Bold and italic ride a long post (X's note_tweet), counted in UTF-16 units of its whole text.
+    ...when((p.styles?.length ?? 0) > 0, () => ({
+      note_tweet: {
+        is_expandable: false,
+        note_tweet_results: {
+          result: {
+            id: `note-${p.postId}`,
+            text: raw,
+            entity_set: {
+              ...entities,
+              user_mentions: [...leadMentions, ...(entities.user_mentions as Array<unknown>)],
+            },
+            richtext: {
+              richtext_tags: p.styles!.map((s) => ({
+                from_index: lead.length + s.start,
+                to_index: lead.length + s.end,
+                richtext_types: [s.style],
+              })),
+            },
+          },
+        },
+      },
+    })),
     ...when(p.edits.length > 0 || p.editsRemaining !== null || p.editableUntil !== null, () => ({
       edit_control: {
         edit_tweet_ids: p.edits,
@@ -803,6 +826,26 @@ export function encodeBody(
   switch (batch.op) {
     case "Viewer":
       return batch.viewer === null ? { data: {} } : viewerBody(batch.viewer);
+    // X's shape from its code (viewer_v2.claims[].resources[].rest_id); one paid claim or none.
+    case "GetUserClaims":
+      return {
+        data: {
+          viewer_v2: {
+            claims:
+              (batch.claims ?? []).length === 0
+                ? []
+                : [
+                    {
+                      rest_id: "premium-basic",
+                      origin: "Commerce",
+                      resources: batch.claims!.map((f) => ({
+                        rest_id: `client_feature_switch/${f}/true`,
+                      })),
+                    },
+                  ],
+          },
+        },
+      };
     case "HomeTimeline":
     case "HomeLatestTimeline":
       return { data: { home: { home_timeline_urt: timeline() } } };
