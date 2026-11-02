@@ -11,8 +11,8 @@ import {
   xCommunityPin,
   xActInPlace,
   xFollow,
-  xGifClose,
-  xGifSearch,
+  xGifIdle,
+  xGifPicker,
   xPostMenu,
   xOverEnded,
   xPickCommunitySearchTab,
@@ -1323,16 +1323,73 @@ it("opens X's GIF search once from X's own button, types each query as X sees ty
   });
   inThisPage(() => "https://x.com/home");
 
-  const searches = [xGifSearch(""), xGifSearch("ca"), xGifSearch("cat")];
+  const picker = xGifPicker();
+  const searches = [picker.search(""), picker.search("ca"), picker.search("cat")];
   await vi.runAllTimersAsync();
   expect([await Promise.all(searches), opened, seen]).toEqual([
     [true, true, true],
     1,
     ["ca", "cat"],
   ]);
-  expect(await xGifClose()).toBe(true);
+  const closing = picker.close();
+  await vi.runAllTimersAsync();
+  expect(await closing).toBe(true);
   expect(document.querySelector('[role="dialog"]')).toBeNull();
   // The page's own Back is not X's picker's: with the picker gone, nothing is pressed.
-  expect(await xGifClose()).toBe(false);
+  const again = picker.close();
+  await vi.runAllTimersAsync();
+  expect(await again).toBe(false);
   expect(document.querySelector("header button")).not.toBeNull();
+});
+
+it("a GIF picker closed while X's next page is still coming stops at once, so Post goes next, and never closes a search it did not open", async () => {
+  using _clock = fakeTimers();
+  const backs: Array<string> = [];
+  // X's page, loaded afresh: its composer's GIF button opens X's search, its Back closes it.
+  const xPage = (who: string) => {
+    for (const key of ["__xtendGif", "__xtendGifLive"]) Reflect.deleteProperty(window, key);
+    document.body.innerHTML = `<div data-testid="toolBar"><button data-testid="gifSearchButton"></button></div>`;
+    document.querySelector("button")!.addEventListener("click", () => {
+      document.body.insertAdjacentHTML(
+        "beforeend",
+        `<div role="dialog" data-who="${who}"><button data-testid="app-bar-back"></button><input placeholder="Search for GIFs"><div data-testid="gifSearchGifImage" style="background-image:url(/media/g1/200_d.gif)"></div></div>`,
+      );
+      const dialog = document.querySelector(`[data-who="${who}"]`)!;
+      dialog.querySelector("button")!.addEventListener("click", () => {
+        backs.push(who);
+        dialog.remove();
+      });
+    });
+  };
+  xPage("picker");
+  inThisPage(() => "https://x.com/home");
+  const picker = xGifPicker();
+  const opened = picker.search("cat");
+  await vi.advanceTimersByTimeAsync(300);
+  expect(await opened).toBe(true);
+  // At the grid's end; X has not sent its next page yet.
+  void picker.more();
+  await vi.advanceTimersByTimeAsync(400);
+
+  // The user picks a GIF, which closes the picker, and presses Post at once.
+  void picker.close();
+  let postMayStart = false;
+  void xGifIdle().then(() => (postMayStart = true));
+  await vi.advanceTimersByTimeAsync(500);
+  expect([postMayStart, backs]).toEqual([true, ["picker"]]);
+
+  // Another picker's search is open when the desktop's Post loads X's page afresh and opens X's
+  // search in its composer: that picker closing afterwards leaves the desktop's search alone.
+  xPage("other");
+  const other = xGifPicker();
+  void other.search("");
+  await vi.advanceTimersByTimeAsync(300);
+  xPage("desktop");
+  (document.querySelector('[data-testid="gifSearchButton"]') as HTMLElement).click();
+  void other.close();
+  await vi.runAllTimersAsync();
+  expect([backs, document.querySelector('[data-who="desktop"]') !== null]).toEqual([
+    ["picker"],
+    true,
+  ]);
 });

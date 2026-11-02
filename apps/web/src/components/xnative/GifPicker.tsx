@@ -2,11 +2,11 @@ import { Dialog } from "@base-ui/react/dialog";
 import { useAtomValue } from "@effect/atom-react";
 import type { EngineGif } from "@xtend/contracts";
 import { ArrowLeft, Search } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { VirtuosoGrid } from "react-virtuoso";
 
 import { at, engineAtom, gifSurface } from "../../state/engine";
-import { xGifClose, xGifMore, xGifSearch } from "../../state/x";
+import { type XGifPicker, xGifPicker } from "../../state/x";
 import { Switch } from "../ui/switch";
 
 /**
@@ -26,10 +26,14 @@ export function GifPicker({
   // Null until X's search shows: false when it never did.
   const [shown, setShown] = useState<boolean | null>(null);
   const [autoplay, setAutoplay] = useState(true);
+  // X's search for this mount: a remount (StrictMode's too) opens its own.
+  const x = useRef<XGifPicker | null>(null);
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- holds X's GIF search open in the engine while the picker is mounted.
   useEffect(() => {
-    void xGifSearch("").then(setShown);
-    return () => void xGifClose();
+    const mine = xGifPicker();
+    x.current = mine;
+    void mine.search("").then(setShown);
+    return () => void mine.close();
   }, []);
 
   const surface = gifSurface(query);
@@ -70,7 +74,7 @@ export function GifPicker({
                 value={query}
                 onChange={(e) => {
                   setQuery(e.target.value);
-                  void xGifSearch(e.target.value);
+                  void x.current?.search(e.target.value);
                 }}
               />
             </label>
@@ -85,7 +89,7 @@ export function GifPicker({
               listClassName="grid grid-cols-3 gap-0.5"
               // The grid's endReached never fires here; its last tile in view is the end of X's list.
               rangeChanged={({ endIndex }) => {
-                if (more && endIndex === gifs.length - 1) void xGifMore();
+                if (more && endIndex === gifs.length - 1) void x.current?.more();
               }}
               itemContent={(_, g) => (
                 <button

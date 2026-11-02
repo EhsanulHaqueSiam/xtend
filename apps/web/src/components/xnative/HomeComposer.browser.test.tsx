@@ -260,10 +260,16 @@ it("frees picked files when the box goes away with them", async () => {
 
 it("picks a GIF from X's own search in the engine and posts it free, leaving X's search on close", async () => {
   const { log, creates, service } = setup();
-  // The engine: each script X's page would run, answered as X's search showing.
+  // The engine: each script X's page would run, answered as X's search showing. X's Back, which
+  // leaves the search, finishes when the test says.
   const scripts: Array<string> = [];
+  let leave = () => {};
+  const left = new Promise<boolean>((resolve) => (leave = () => resolve(true)));
   registerXWebview({
-    executeJavaScript: (code: string) => (scripts.push(code), Promise.resolve(true)),
+    executeJavaScript: (code: string) => (
+      scripts.push(code),
+      code.includes("app-bar-back") ? left : Promise.resolve(true)
+    ),
   } as unknown as Parameters<typeof registerXWebview>[0]);
   markXReady();
   try {
@@ -321,7 +327,10 @@ it("picks a GIF from X's own search in the engine and posts it free, leaving X's
     await expect.element(screen.getByRole("img", { name: "Cat Jump" })).toBeVisible();
     for (const name of ["Media", "GIF", "Poll"])
       await expect.element(screen.getByRole("button", { name })).toBeDisabled();
+    // Post waits for X's search to be left: the desktop opens X's composer in the same page.
     await userEvent.click(screen.getByRole("button", { name: "Post", exact: true }));
+    expect(creates).toEqual([]);
+    leave();
     await expect.poll(() => log).toEqual(["post h1 sessionOnly=true gif=cat:giphy_g1"]);
     expect(creates).toEqual([{ blocks: [{ text: "" }], quoteUrl: null }]);
     await expect

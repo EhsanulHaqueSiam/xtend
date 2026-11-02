@@ -40,6 +40,7 @@ import {
 } from "../../state/compose";
 import { engineAtom, youFollow } from "../../state/engine";
 import { settingsAtom, useSessionLane } from "../../state/settings";
+import { xGifIdle } from "../../state/x";
 import { failText } from "../compose/AssistPanel";
 import { NEW_POLL, PollEditor } from "../compose/PollEditor";
 import { REPLY_OPTIONS } from "../compose/ThreadEditor";
@@ -129,6 +130,8 @@ export const useSessionPost = () => {
   const postNow = useAtomSet(sessionPostNowAtom, { mode: "promiseExit" });
   const setToast = useAtomSet(toastAtom);
   return async (post: BoxPost) => {
+    // X's composer opens in the same page: a GIF picker's Back must be done before it does.
+    await xGifIdle();
     const draft = await boxDraft(post);
     const exit = Exit.isSuccess(draft)
       ? await postNow({ id: draft.value.id, gif: post.gif })

@@ -1071,59 +1071,86 @@ export const xAct = async (
 // X's GIF search, as read live on x.com on 2026-11-02: its own route, its field, its tiles.
 const GIF_FIELD = 'input[placeholder="Search for GIFs"]';
 const GIF_TILE = '[data-testid="gifSearchGifImage"]';
-// Steps go one after another: a search typed while X still opens its picker waits for it.
+const GIF_BACK = `[role="dialog"]:has(${GIF_FIELD}) [data-testid="app-bar-back"]`;
+// Every picker's steps go one after another: a search typed while X still opens its picker waits.
 let gifStep: Promise<unknown> = Promise.resolve();
-const gifRun = (code: string) => (gifStep = gifStep.then(() => xRun(code)));
+let gifPickers = 0;
 
 /**
- * Searches X's own GIF search for Xtend's GIF picker, so X sends GifSearch for `query`: opened
- * from X's GIF button in the composer on X's page (Home's), the field set as typing sets it.
- * Opening it writes nothing; a tile is pressed only by the desktop, for the user's Post. True
- * while X's search shows.
+ * X's own GIF search, driven for one open GIF picker so X sends GifSearch: opened from X's GIF
+ * button in the composer on X's page (Home's), the field set as typing sets it, X's list scrolled
+ * on, and left with X's Back. Nothing here writes; a tile is pressed only by the desktop, for Post.
+ * X's page marks the search the picker opened, so a full load (the desktop's Post) forgets it.
  */
-export const xGifSearch = (query: string) =>
-  gifRun(`(async () => {
-    const field = () => document.querySelector(${JSON.stringify(GIF_FIELD)});
-    if (!field() && location.pathname !== "/i/foundmedia/search")
-      document.querySelector('[data-testid="gifSearchButton"]')?.click();
-    for (let i = 0; i < 40 && !field(); i++) await new Promise((r) => setTimeout(r, 150));
-    const input = field();
-    if (!input) return false;
-    // React keeps the field's value itself: its native setter and an input event are a keystroke.
-    if (input.value !== ${JSON.stringify(query)}) {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, ${JSON.stringify(query)});
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    }
-    return true;
-  })()`).then((shown) => shown === true);
+export const xGifPicker = () => {
+  const id = ++gifPickers;
+  let open = true;
+  // Dropped once the picker closed; in X's page, `live` stops a step already running.
+  const run = (code: string) => (gifStep = gifStep.then(() => (open ? xRun(code) : null)));
+  const live = `(window.__xtendGifLive === ${id})`;
+  const wait = `await new Promise((r) => setTimeout(r, 150))`;
+  return {
+    /** Types `query` into X's search, opened first; true while it shows. */
+    search: (query: string) =>
+      run(`(async () => {
+        window.__xtendGifLive = ${id};
+        const field = () => document.querySelector(${JSON.stringify(GIF_FIELD)});
+        if (window.__xtendGif !== ${id}) {
+          // Only a search this picker opens is its own, never one already up.
+          if (field() || location.pathname === "/i/foundmedia/search") return false;
+          document.querySelector('[data-testid="gifSearchButton"]')?.click();
+          window.__xtendGif = ${id};
+        }
+        for (let i = 0; i < 40 && !field() && ${live}; i++) ${wait};
+        const input = field();
+        if (!input || !${live}) return false;
+        // React keeps the field's value itself: its native setter and an input event are a keystroke.
+        if (input.value !== ${JSON.stringify(query)}) {
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, ${JSON.stringify(query)});
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+        return true;
+      })()`).then((shown) => shown === true),
+    /** Scrolls X's list to its end so X fetches its next page; true once X's last tile changed. */
+    more: () =>
+      run(`(async () => {
+        const last = () => [...document.querySelectorAll(${JSON.stringify(GIF_TILE)})].at(-1);
+        const seen = (el) => el && getComputedStyle(el).backgroundImage;
+        const before = seen(last());
+        for (let attempt = 0; attempt < 3 && before && ${live}; attempt++) {
+          last()?.scrollIntoView({ block: "end" });
+          for (let i = 0; i < 10 && ${live}; i++) {
+            await new Promise((r) => setTimeout(r, 200));
+            if (seen(last()) !== before) return true;
+          }
+          // A step back, so the next scroll reaches X's end again.
+          last()?.scrollIntoView({ block: "start" });
+        }
+        return false;
+      })()`).then((more) => more === true),
+    /** Leaves the search this picker opened with X's Back, once X has closed it; true when it did. */
+    close: () => {
+      open = false;
+      // Not behind the queue: a step running in X's page (paging) stops now.
+      void xRun(`${live} && (window.__xtendGifLive = 0), true`);
+      return (gifStep = gifStep.then(() =>
+        xRun(`(async () => {
+          if (window.__xtendGif !== ${id}) return false;
+          window.__xtendGif = 0;
+          const back = document.querySelector(${JSON.stringify(GIF_BACK)});
+          if (back) back.click();
+          else if (location.pathname === "/i/foundmedia/search") history.back();
+          for (let i = 0; i < 20 && document.querySelector(${JSON.stringify(GIF_FIELD)}); i++) ${wait};
+          return true;
+        })()`),
+      )).then((closed) => closed === true);
+    },
+  };
+};
+export type XGifPicker = ReturnType<typeof xGifPicker>;
 
-/** Scrolls X's GIF list to its end, so X fetches its next page. True once X's last tile changed. */
-export const xGifMore = () =>
-  gifRun(`(async () => {
-    const last = () => [...document.querySelectorAll(${JSON.stringify(GIF_TILE)})].at(-1);
-    const seen = (el) => el && getComputedStyle(el).backgroundImage;
-    const before = seen(last());
-    for (let attempt = 0; attempt < 3 && before; attempt++) {
-      last()?.scrollIntoView({ block: "end" });
-      for (let i = 0; i < 10; i++) {
-        await new Promise((r) => setTimeout(r, 200));
-        if (seen(last()) !== before) return true;
-      }
-      // A step back, so the next scroll reaches X's end again.
-      last()?.scrollIntoView({ block: "start" });
-    }
-    return false;
-  })()`).then((more) => more === true);
-
-/** Leaves X's GIF search with its own Back, so the engine is on X's page again; never elsewhere. */
-export const xGifClose = () =>
-  gifRun(`(() => {
-    if (!document.querySelector(${JSON.stringify(GIF_FIELD)})) return false;
-    const back = document.querySelector(${JSON.stringify(`[role="dialog"]:has(${GIF_FIELD}) [data-testid="app-bar-back"]`)});
-    if (back) back.click();
-    else if (location.pathname === "/i/foundmedia/search") history.back();
-    return true;
-  })()`);
+/** Resolves once every GIF picker's steps in X's page are done, closes included; Post waits for it. */
+export const xGifIdle = () => gifStep.then(() => undefined);
 
 export const xBack = () => (ready ? element?.goBack() : undefined);
 export const xForward = () => (ready ? element?.goForward() : undefined);
