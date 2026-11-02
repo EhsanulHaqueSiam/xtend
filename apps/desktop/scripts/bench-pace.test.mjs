@@ -3,7 +3,7 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import { expect, it } from "vite-plus/test";
 
-import { accountKey, estimate, pace, readSpent } from "./bench-pace.mjs";
+import { accountKey, estimate, locked, pace, readSpent } from "./bench-pace.mjs";
 
 const MIN = 60_000;
 const NOW = Date.parse("2026-11-01T15:00:00Z");
@@ -79,7 +79,13 @@ it("counts a round by its calls, or what it planned while it runs, and estimates
   write("a.json", {
     startedAt: "2026-11-01T14:00:00Z",
     runs: [
-      { startedAt: "2026-11-01T14:00:00Z", planned: 320, calls: 200, checks: checks(40) },
+      {
+        startedAt: "2026-11-01T14:00:00Z",
+        endedAt: "2026-11-01T14:05:00Z",
+        planned: 320,
+        calls: 200,
+        checks: checks(40),
+      },
       { startedAt: "2026-11-01T14:06:00Z", planned: 160, calls: null, checks: checks(3) },
     ],
   });
@@ -90,4 +96,19 @@ it("counts a round by its calls, or what it planned while it runs, and estimates
       .toSorted((x, y) => x - y),
   ).toEqual([42, 160, 200]);
   expect(estimate(dir, mine, 3)).toBe(15);
+});
+
+it("lets one checkout at a time check the budget and book", async () => {
+  const dir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "xtend-bench-"));
+  let inside = 0;
+  let most = 0;
+  const step = () =>
+    locked(dir, async () => {
+      most = Math.max(most, ++inside);
+      await Promise.resolve();
+      inside--;
+    });
+  await Promise.all([step(), step(), step()]);
+  expect(most).toBe(1);
+  expect(NodeFS.existsSync(NodePath.join(dir, ".pace-lock"))).toBe(false);
 });

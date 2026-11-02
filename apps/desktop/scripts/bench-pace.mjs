@@ -62,15 +62,19 @@ function reports(dir, account) {
 }
 
 /**
- * Every round's start and X calls in the results under `dir`, for `account` (any account when it
- * is undefined: the bench could not tell, so it paces against all of them). A round still going
- * counts what it planned; a run that died before its first round still loaded X.
+ * Every round's X calls and when they last ran, in the results under `dir`, for `account` (any
+ * account when it is undefined: the bench could not tell, so it paces against all of them). A
+ * round still going counts what it planned from its start; a run that died before its first round
+ * still loaded X.
  */
 export function readSpent(dir, account) {
   return reports(dir, account).flatMap((report) => {
     const rounds = Array.isArray(report.runs) && report.runs.length > 0 ? report.runs : [report];
     return rounds
-      .map((r) => ({ at: Date.parse(r.startedAt), calls: r.calls ?? r.planned ?? UNCOUNTED }))
+      .map((r) => ({
+        at: Date.parse(r.endedAt ?? r.startedAt),
+        calls: r.endedAt === undefined ? Math.max(r.planned ?? UNCOUNTED, r.calls ?? 0) : r.calls,
+      }))
       .filter((s) => !Number.isNaN(s.at));
   });
 }
@@ -83,6 +87,32 @@ export function estimate(dir, account, checks) {
   const calls = counted.reduce((sum, r) => sum + r.calls, 0);
   const done = counted.reduce((sum, r) => sum + r.checks.length, 0);
   return Math.ceil(checks * (done === 0 ? PER_CHECK : calls / done));
+}
+
+/**
+ * Runs `fn` holding the pacing lock in `dir`, shared by every checkout, so checking the budget and
+ * booking a round are one step. A lock left by a run that died expires after 30 seconds.
+ */
+export async function locked(dir, fn) {
+  const lock = NodePath.join(dir, ".pace-lock");
+  NodeFS.mkdirSync(dir, { recursive: true });
+  for (;;) {
+    try {
+      NodeFS.mkdirSync(lock);
+      break;
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+      try {
+        if (Date.now() - NodeFS.statSync(lock).mtimeMs > 30_000) NodeFS.rmdirSync(lock);
+      } catch {}
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  }
+  try {
+    return await fn();
+  } finally {
+    NodeFS.rmSync(lock, { recursive: true, force: true });
+  }
 }
 
 /** Many checks failing with the engine's lists empty: what X answering nothing looks like. */

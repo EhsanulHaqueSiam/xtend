@@ -6,7 +6,15 @@ import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
-import { accountKey, BUDGET, estimate, looksRateLimited, pace, readSpent } from "./bench-pace.mjs";
+import {
+  accountKey,
+  BUDGET,
+  estimate,
+  locked,
+  looksRateLimited,
+  pace,
+  readSpent,
+} from "./bench-pace.mjs";
 
 const USAGE = `node scripts/engine-bench.mjs [flags]
   (none)           every check once
@@ -76,7 +84,15 @@ async function session(match) {
   sessions.set(match, made);
   // shortcut: calls a new engine page makes before this attaches go uncounted (its first load's
   // dozen or so); the budget leaves room for them. Upgrade to Target auto-attach if it ever matters.
-  if (match === "x.com") await call("Network.enable", {});
+  if (match === "x.com") {
+    await call("Network.enable", {});
+    // What this page already called before the session attached (a fresh load's startup calls).
+    const { result } = await call("Runtime.evaluate", {
+      expression: `performance.getEntriesByType("resource").filter((e) => ${X_API}.test(e.name)).length`,
+      returnByValue: true,
+    });
+    xCalls += result?.result?.value ?? 0;
+  }
   return made;
 }
 
@@ -1728,12 +1744,17 @@ async function round(n, planned) {
   const failed = [];
   let emptyFailures = 0;
   const checks = [];
-  // The first round's count includes the start: the reloads and the bookmark read.
-  const callsBefore = n === 1 ? 0 : xCalls;
   const record = { n, startedAt: new Date().toISOString(), planned, calls: null, checks };
-  report.runs.push(record);
-  // Before the first check loads X, so a run that dies mid-round still counts for pacing.
-  saveReport();
+  // Written before it loads X, so a run that dies mid-round still counts; the first round takes
+  // over the run's own booking, the others book their turn.
+  const book = () => {
+    record.startedAt = new Date().toISOString();
+    report.runs.push(record);
+  };
+  if (n === 1) {
+    book();
+    saveReport();
+  } else await reserve(planned, book);
   for (const [index, [name, run]] of chosen.entries()) {
     await sameAppPage();
     primed = true;
@@ -1799,7 +1820,7 @@ async function round(n, planned) {
   }
   touched.clear();
   if (cleaned) await go("#/home?feed=following");
-  record.calls = xCalls - callsBefore;
+  settle();
   console.log(`${chosen.length - failed.length}/${chosen.length} passed, ${record.calls} X calls`);
   if (looksRateLimited(emptyFailures))
     console.log(
@@ -1848,15 +1869,38 @@ report.account = typeof userId === "string" ? accountKey(userId) : null;
 // The start reloads X's page and may read Bookmarks: about two checks' worth on top of a round.
 const planned = estimate(RESULTS, report.account ?? undefined, chosen.length + 2);
 
-/** Waits until this account's X budget has room for about `calls` more, unless told not to. */
-async function waitTurn(calls) {
+/**
+ * Every X call so far, charged to the latest round: the start's to the first, the calls between
+ * rounds to the next, the final bookmark check to the last. A round's end is when its calls expire.
+ */
+let charged = 0;
+function settle() {
+  const last = report.runs.at(-1);
+  if (last === undefined) return;
+  last.calls = (last.calls ?? 0) + xCalls - charged;
+  last.endedAt = new Date().toISOString();
+  charged = xCalls;
+}
+
+/**
+ * Waits until this account's X budget has room for about `calls` more, unless told not to, then
+ * records the reservation with `book` in the same locked step, so two checkouts never both fit.
+ */
+async function reserve(calls, book) {
   for (;;) {
-    const paced = pace(readSpent(RESULTS, report.account ?? undefined), Date.now(), calls);
+    const paced = await locked(RESULTS, () => {
+      const verdict = pace(readSpent(RESULTS, report.account ?? undefined), Date.now(), calls);
+      if (verdict.ok || process.argv.includes("--force")) {
+        book();
+        saveReport();
+      }
+      return verdict;
+    });
     if (paced.ok) return;
     const at = new Date(paced.until).toTimeString().slice(0, 5);
     const why = `${paced.used} of ${BUDGET} X calls spent on this account in the last 15 minutes, and this round needs about ${calls}`;
     if (process.argv.includes("--force"))
-      return console.log(`  WARNING: --force: ${why}; X may answer with rate limits.`);
+      return void console.log(`  WARNING: --force: ${why}; X may answer with rate limits.`);
     if (process.argv.includes("--no-wait")) {
       console.error(`Not running: ${why}. Run again after ${at}.`);
       process.exit(1);
@@ -1865,10 +1909,11 @@ async function waitTurn(calls) {
     await sleep(Math.max(paced.until - Date.now(), 1_000));
   }
 }
-await waitTurn(planned);
-// Written now, with what it plans to spend, so other runs pace against it before it counts.
-report.planned = planned;
-saveReport();
+// Booked when admitted, with what it plans to spend, so other runs pace against it before it counts.
+await reserve(planned, () => {
+  report.startedAt = new Date().toISOString();
+  report.planned = planned;
+});
 
 await startFresh();
 
@@ -1938,7 +1983,6 @@ for (let n = 1; n <= RUNS; n++) {
   if (n > 1 && PAUSE_MS > 0) await sleep(PAUSE_MS);
   const roundPlan =
     n === 1 ? planned : estimate(RESULTS, report.account ?? undefined, chosen.length);
-  if (n > 1) await waitTurn(roundPlan);
   if (RUNS > 1) console.log(`-- run ${n} at ${new Date().toTimeString().slice(0, 8)}`);
   streak = (await round(n, roundPlan)).length === 0 ? streak + 1 : 0;
 }
@@ -1955,6 +1999,7 @@ if (writes) {
   report.bookmarks = { before: bookmarkBefore, after };
   await go("#/home?feed=following");
 }
+settle();
 report.streak = streak;
 saveReport();
 console.log(`results -> ${reportFile}`);
