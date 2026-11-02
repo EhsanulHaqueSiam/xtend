@@ -21,6 +21,7 @@ function BookmarksScreen() {
   return (
     <Timeline
       surface="bookmarks"
+      keepPlace
       header={<XTitle title="Bookmarks" detail={handle === null ? undefined : `@${handle}`} />}
       empty="Loading your bookmarks from X."
       onReopen={reload}

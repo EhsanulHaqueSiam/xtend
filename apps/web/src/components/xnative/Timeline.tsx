@@ -1,7 +1,14 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import type { EngineModule, EnginePost } from "@xtend/contracts";
-import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import {
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { type StateSnapshot, Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 
 import {
@@ -12,6 +19,7 @@ import {
   showWaiting,
   updateEngine,
 } from "../../state/engine";
+import { loadNewPosts } from "../../state/x";
 import { PostRail } from "./PostRail";
 import { useXScrollParent, XColumn } from "./XColumn";
 import { Avatar, postUrl, XPostView } from "./XPostView";
@@ -93,6 +101,13 @@ function PostList({
 }) {
   const scroller = useXScrollParent();
   const more = useMore();
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- saves where the list was left as it unmounts, before its handle detaches, even mid-scroll.
+  useLayoutEffect(
+    () => () => {
+      if (keepPlace) list.current?.getState((state) => places.set(surface, state));
+    },
+    [keepPlace, list, surface],
+  );
   if (scroller === null) return null;
   return (
     <Virtuoso
@@ -100,9 +115,6 @@ function PostList({
       customScrollParent={scroller}
       data={items}
       {...(keepPlace && places.has(surface) ? { restoreStateFrom: places.get(surface)! } : {})}
-      isScrolling={(moving) => {
-        if (!moving && keepPlace) list.current?.getState((state) => places.set(surface, state));
-      }}
       computeItemKey={(_, item) => (isPost(item) ? item.postId : item.id)}
       increaseViewportBy={800}
       endReached={more}
@@ -134,7 +146,7 @@ function PostList({
  * A native X list in X's own column: the surface's posts in X's order, virtualized. Reaching the
  * end asks X's own page for more; newer posts wait behind a pill. The rail shows the post under
  * the pointer or the keyboard. J/K move, Enter opens, L like, T repost, B bookmark, S save,
- * O opens on x.com.
+ * O opens on x.com, "." loads newer posts as on X.
  */
 export function Timeline({
   surface,
@@ -190,6 +202,10 @@ export function Timeline({
           (event.key === "Enter" && event.target.closest("button, a")))
       )
         return;
+      if (event.key === ".") {
+        event.preventDefault();
+        return loadNewPosts();
+      }
       const step = event.key === "j" ? 1 : event.key === "k" ? -1 : 0;
       const label = KEY_BUTTONS[event.key];
       if (step !== 0) {
@@ -217,28 +233,32 @@ export function Timeline({
     return () => window.removeEventListener("keydown", onKey);
   }, [current, open, items, selected]);
 
+  const emptied = items.length === 0;
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- forgets the place the list saved as it emptied, so a refreshed list starts at X's top.
+  useEffect(() => {
+    if (emptied) places.delete(surface);
+  }, [emptied, surface]);
+  const showNew = () => {
+    setEngine(updateEngine((s) => showWaiting(s, surface)));
+    setSelected(0);
+    list.current?.scrollToIndex({ index: 0 });
+  };
   return (
     <XColumn
       header={header}
       refresh={{
         surfaces: [surface],
         load: () => {
-          // A refreshed list starts at X's top, not where the old one was left.
-          places.delete(surface);
           setSelected(0);
           onRefresh();
         },
+        showNew: () => {
+          if (waiting.length === 0) return false;
+          showNew();
+          return true;
+        },
       }}
-      float={
-        <NewPostsPill
-          waiting={waiting}
-          onShow={() => {
-            setEngine(updateEngine((s) => showWaiting(s, surface)));
-            setSelected(0);
-            list.current?.scrollToIndex({ index: 0 });
-          }}
-        />
-      }
+      float={<NewPostsPill waiting={waiting} onShow={showNew} />}
       rail={<PostRail post={current} seen={engine.posts.values()} onReply={open} />}
     >
       {top}
@@ -248,6 +268,8 @@ export function Timeline({
         )
       ) : (
         <PostList
+          // One list per surface: a tab or query opened again restores its own place on mount.
+          key={surface}
           surface={surface}
           keepPlace={keepPlace}
           items={items}

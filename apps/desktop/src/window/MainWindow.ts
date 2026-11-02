@@ -10,6 +10,7 @@ import {
   Menu,
   session,
   shell,
+  systemPreferences,
   type MenuItemConstructorOptions,
 } from "electron";
 import * as Schema from "effect/Schema";
@@ -80,7 +81,10 @@ export interface MainWindowOptions {
   /** Which account's x.com session the webview opens; one cookie partition per account. */
   readonly accountId: number;
   /** What the app page learns about its service through the preload. */
-  readonly bridgeInfo: Omit<BridgeInfo, "xPartition" | "xStartUrl" | "initialRoute">;
+  readonly bridgeInfo: Omit<
+    BridgeInfo,
+    "xPartition" | "xStartUrl" | "initialRoute" | "swipeNavigation"
+  >;
   /** Where unacknowledged observation batches wait for the service. */
   readonly queueDir: string;
   /** The last x.com URL, restored on launch. */
@@ -226,6 +230,11 @@ export function createMainWindow(options: MainWindowOptions) {
     event.preventDefault();
     toApp(SHORTCUT_CHANNEL, "refresh");
   });
+  // Swipe between pages set to three fingers arrives here, not as wheel events; left is back.
+  window.on("swipe", (_event, direction) => {
+    if (direction === "left") toApp(SHORTCUT_CHANNEL, "back");
+    if (direction === "right") toApp(SHORTCUT_CHANNEL, "forward");
+  });
 
   let startUrl = X_HOME;
   try {
@@ -245,6 +254,10 @@ export function createMainWindow(options: MainWindowOptions) {
       xPartition: partition,
       xStartUrl: startUrl,
       initialRoute: recovering ? null : pendingRoute,
+      // Unset is on, as on a new Mac; "0" is the user turning two-finger swipes off.
+      swipeNavigation:
+        process.platform !== "darwin" ||
+        systemPreferences.getUserDefault("AppleEnableSwipeNavigateWithScrolls", "string") !== "0",
     } satisfies BridgeInfo;
     if (!recovering) {
       bridgeServed = true;

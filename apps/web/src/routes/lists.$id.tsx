@@ -29,6 +29,7 @@ function ListScreen() {
   return (
     <Timeline
       surface={`list:${id}`}
+      keepPlace
       header={
         <XTitle
           title={list?.name ?? "List"}

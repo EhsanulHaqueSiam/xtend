@@ -6,7 +6,10 @@ import { HomeComposer } from "../components/xnative/HomeComposer";
 import { Timeline } from "../components/xnative/Timeline";
 import { XTabs } from "../components/xnative/XColumn";
 import { type AnySurface, at, engineAtom } from "../state/engine";
-import { xGo, xNavigate, xPickHomeTab, xShows } from "../state/x";
+import { loadNewPosts, xGo, xNavigate, xPickHomeTab, xShows } from "../state/x";
+
+// Away this long, Home asks X again on return. Bluesky checks after 30 s; X's own web does not.
+const STALE_MS = 10 * 60_000;
 
 const FEEDS = [
   { id: "forYou", label: "For you" },
@@ -44,7 +47,27 @@ function HomeScreen() {
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- moves the engine (the session view) to this screen's X page while it is open.
   useEffect(open, [open]);
   // ⌘R: X's Home in full, as reloading x.com does, then this tab again.
-  const reload = () => void xNavigate("https://x.com/home").then(() => xPickHomeTab(tab.label));
+  const reload = useCallback(
+    () => void xNavigate("https://x.com/home").then(() => xPickHomeTab(tab.label)),
+    [tab.label],
+  );
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- listens for the window losing and regaining focus while Home shows.
+  useEffect(() => {
+    // Back after a long while, X loads Home again under the open list, so its newer posts wait
+    // behind the pill and the place stays: nothing jumps under the reader.
+    let left = 0;
+    const leave = () => void (left ||= Date.now());
+    const back = () => {
+      if (left !== 0 && Date.now() - left >= STALE_MS) reload();
+      left = 0;
+    };
+    window.addEventListener("blur", leave);
+    window.addEventListener("focus", back);
+    return () => {
+      window.removeEventListener("blur", leave);
+      window.removeEventListener("focus", back);
+    };
+  }, [reload]);
   return (
     <Timeline
       surface={surface}
@@ -53,7 +76,12 @@ function HomeScreen() {
           label="Feed"
           tabs={tabs}
           value={tab.id}
-          onChange={(next) => void navigate({ to: "/home", search: { feed: next } })}
+          // The open tab clicked again loads it fresh, as on X.
+          onChange={(next) =>
+            next === tab.id
+              ? loadNewPosts()
+              : void navigate({ to: "/home", search: { feed: next } })
+          }
         />
       }
       top={<HomeComposer />}

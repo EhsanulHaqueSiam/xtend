@@ -26,6 +26,7 @@ export function installFakeBridge(overrides: Partial<DesktopBridge> = {}) {
     xPartition: "persist:x-session",
     xStartUrl: "https://x.com/home",
     initialRoute: null,
+    swipeNavigation: true,
     checkRemote: () => Promise.resolve({ health: false, version: null, auth: false, error: null }),
     setRemote: () => {},
     selectAccount: () => {},
