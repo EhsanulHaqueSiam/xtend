@@ -669,6 +669,26 @@ describe("renderEngineBatch around posts", () => {
       },
     );
     expect([found.order, found.top, found.bottom]).toEqual([["61", "60"], "c-Top", "c-Bottom"]);
+    // X's Inspiration names its filters inside the timelineId. An Explore tab's id, one without a
+    // language, and a cut-off one are no Inspiration: they keep the id.
+    const generic = (timelineId: string) =>
+      renderEngineBatch("GenericTimelineById", { timelineId, count: 20 }, {}).key;
+    const others = [
+      "VGltZWxpbmU6DAC2CwABAAAACHRyZW5kaW5nAAA=",
+      "VGltZWxpbmU6DADKCwABAAAAB1JlcGxpZXMLAAYAAAAGV2Vla2x5AAA=",
+      "VGltZWxpbmU6DADKCwABAAAABUxpa2VzCwACAAAAAmVuCwA=",
+    ];
+    expect([
+      generic("VGltZWxpbmU6DADKCwABAAAABUxpa2VzCwACAAAAAmVuCwAGAAAABURhaWx5AAA="),
+      generic(
+        "VGltZWxpbmU6DADKCwABAAAAEVZpZGVvUXVhbGl0eVZpZXdzCwACAAAAAmVuCwAGAAAAB01vbnRobHkAAA==",
+      ),
+      ...others.map(generic),
+    ]).toEqual([
+      "inspiration:Likes:Daily:en",
+      "inspiration:VideoQualityViews:Monthly:en",
+      ...others,
+    ]);
   });
 
   it("reads Communities in X's shapes: a carousel's tiles, a card, and none from a post's reference", () => {

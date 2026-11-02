@@ -626,6 +626,40 @@ export function requestVariables(url: string, postData: string | undefined): Jso
   }
 }
 
+const INSPIRATION_ID = "Timeline:\x0c\x00\xca";
+const FILTER_WORD = /^[A-Za-z-]{1,40}$/;
+
+/**
+ * X's Inspiration (Creator Studio's top posts) names its filters inside the timelineId it asks
+ * GenericTimelineById for: base64 of "Timeline:" and a thrift struct (field 202) of strings, the
+ * engagement (1), language (2) and period (6). Keyed `inspiration:Likes:Daily:en`; an Explore
+ * tab's id (field 182) or any shape this does not know is null.
+ */
+function inspirationKey(timelineId: string | undefined): string | null {
+  let raw: string;
+  try {
+    raw = atob(timelineId ?? "");
+  } catch {
+    return null;
+  }
+  if (!raw.startsWith(INSPIRATION_ID)) return null;
+  const bytes = Uint8Array.from(raw, (c) => c.charCodeAt(0));
+  const view = new DataView(bytes.buffer);
+  const fields = new Map<number, string>();
+  let at = INSPIRATION_ID.length;
+  // Each string field is its type (11), id and length, then its bytes; a stop byte ends the struct.
+  while (bytes[at] === 11 && at + 7 <= bytes.length) {
+    const length = view.getUint32(at + 3);
+    fields.set(view.getUint16(at + 1), raw.slice(at + 7, at + 7 + length));
+    at += 7 + length;
+  }
+  const [engagement, language, period] = [fields.get(1), fields.get(2), fields.get(6)];
+  return bytes[at] === 0 &&
+    [engagement, period, language].every((v) => v !== undefined && FILTER_WORD.test(v))
+    ? `inspiration:${engagement}:${period}:${language}`
+    : null;
+}
+
 /** X's two post tabs of a search of Communities: Top, and Latest. */
 const HUB_SEARCH_POSTS = /^GlobalCommunities(Latest)?PostSearchTimeline$/;
 
@@ -650,6 +684,8 @@ function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExp
   }
   if (op.startsWith("List") && s("listId") !== undefined) return `list:${s("listId")}`;
   if (op === "NotificationsTimeline") return s("timeline_type") ?? null;
+  const inspiration = op === "GenericTimelineById" ? inspirationKey(s("timelineId")) : null;
+  if (inspiration !== null) return inspiration;
   if (op === "GenericTimelineById") return s("timelineId") ?? null;
   // Explore's first page is its "for_you" tab, fetched by another name.
   if (op === "ExplorePage") return exploreTabs?.find((t) => t.id === "for_you")?.timelineId ?? null;

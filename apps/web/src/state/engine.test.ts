@@ -18,6 +18,7 @@ import {
   communitySurface,
   emptyEngine,
   hideTrend,
+  inspirationSurface,
   mergeBatch,
   postOn,
   postSurface,
@@ -332,6 +333,29 @@ it("files pinned Home tabs, Lists, Communities and Explore tabs under their own 
       key: "communitySearch:14:Recency:ship it",
     }),
   ).toEqual([communitySearchSurface("14", "Recency", "ship it")]);
+
+  // X's Inspiration lists each set of filters on its own, and its latest answer is what X shows.
+  const weekly = { engagement: "Replies", period: "Weekly", language: "en" };
+  const answer = (...ids: ReadonlyArray<string>) =>
+    batch(
+      "GenericTimelineById",
+      ids.map((id) => post(id, "2026-10-01T00:00:00Z")),
+      { key: "inspiration:Replies:Weekly:en" },
+    );
+  const inspired = mergeBatch(state, answer("1", "2"));
+  expect([
+    at(inspired.lists, inspirationSurface(weekly)),
+    inspired.inspiration,
+    mergeBatch(inspired, batch("GenericTimelineById", [], { key: "VTR" })).inspiration,
+    state.inspiration,
+  ]).toEqual([["1", "2"], weekly, weekly, null]);
+  // X's next first page is its ranking again: it replaces the list, and nothing waits on a pill.
+  const again = mergeBatch(inspired, answer("3", "2"));
+  expect([
+    at(again.lists, inspirationSurface(weekly)),
+    at(again.waiting, inspirationSurface(weekly)),
+  ]).toEqual([["3", "2"], []]);
+
   // X's search of Communities from the hub, keyed by its query: one list per tab.
   expect([
     surfacesOf({ op: "CommunitiesSearchQuery", key: "ship it" }),
