@@ -54,6 +54,9 @@ export const markXReady = () => {
       .then(done);
 };
 
+/** Engine moves screens asked for, so a screen being left can tell whether the next one moved it. */
+let moves = 0;
+
 /**
  * Loads an x.com URL; other hosts are ignored. Resolves once the page has loaded, so an engine
  * step (picking Home's tab) can follow it. Before the guest is ready the last call wins and every
@@ -61,6 +64,7 @@ export const markXReady = () => {
  */
 export const xNavigate = (url: string): Promise<void> => {
   if (!isXUrl(url)) return Promise.resolve();
+  moves++;
   if (element !== null && ready) return element.loadURL(url).catch(() => {});
   return new Promise((resolve) => {
     pending = { url, waiters: [...(pending?.waiters ?? []), resolve] };
@@ -74,6 +78,7 @@ export const xNavigate = (url: string): Promise<void> => {
  */
 export const xGo = (url: string): Promise<boolean> => {
   if (!isXUrl(url)) return Promise.resolve(false);
+  moves++;
   const load = () => xNavigate(url).then(() => true);
   if (element === null || !ready) return load();
   const el = element;
@@ -92,6 +97,19 @@ export const xGo = (url: string): Promise<boolean> => {
       `history.pushState(null, "", ${JSON.stringify(path)}); dispatchEvent(new PopStateEvent("popstate", { state: null })); true`,
     )
     .then(() => true, load);
+};
+
+/**
+ * Takes the engine off X's page at `path` (a live game X keeps polling) once the screen that
+ * showed it is gone, back to X's Home: only when the next screen moved the engine nowhere (a
+ * tool, Settings) and X's page is not in view (`inView`). Called as that screen unmounts.
+ */
+export const xLeave = (path: string, inView: () => boolean) => {
+  const asked = moves;
+  // After the next screen's mount effects, which move the engine as they run.
+  queueMicrotask(() => {
+    if (moves === asked && !inView() && xShows(path)) void xGo("https://x.com/home");
+  });
 };
 
 /** Whether the webview already shows this x.com path, so a screen can skip reloading it. */
@@ -204,10 +222,19 @@ export const xPickCommunitySearchTab = async (
   );
 };
 
+/** X's calls for one game's page, keyed by the game: an answer means X is drawing that game. */
+const GAME_CALLS: ReadonlySet<string> = new Set([
+  "NBAGameHydrate",
+  "NBALiveGame",
+  "SportsGameTopTimeline",
+  "SportsGameLatestTimeline",
+]);
+const GAME_ANSWER_MS = 10_000;
+
 /**
- * Picks X's tab `label` (Top, Latest) on NBA game `gameId`'s page, the way
- * `xPickCommunitySearchTab` picks a search's: after `loaded`, only on that game's page, only while
- * the screen holds it (`signal`), and only as the user's latest press.
+ * Picks X's tab `label` (Top, Latest) on NBA game `gameId`'s page, as `xPickCommunitySearchTab`
+ * does. After a move (`loaded` not false) X's path names the new game while the last game's tabs
+ * still show, so it presses once X has answered a call for this game, and never if X stays quiet.
  */
 export const xPickGameTab = async (
   gameId: string,
@@ -217,7 +244,18 @@ export const xPickGameTab = async (
 ) => {
   // It goes into a script run in X's page: digits only.
   if (!/^\d{1,25}$/.test(gameId)) return false;
-  await loaded;
+  let heard = (_answered: boolean) => {};
+  const answered = new Promise<boolean>((resolve) => (heard = resolve));
+  const stop = window.desktopBridge?.onEngine((b) => {
+    if (b.key === gameId && GAME_CALLS.has(b.op)) heard(true);
+  });
+  const quiet = setTimeout(() => heard(false), GAME_ANSWER_MS);
+  try {
+    if ((await loaded) !== false && !(await answered)) return false;
+  } finally {
+    stop?.();
+    clearTimeout(quiet);
+  }
   if (signal.aborted) return false;
   const run = await nextRun();
   return (

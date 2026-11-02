@@ -1,3 +1,4 @@
+import type { EngineBatch } from "@xtend/contracts";
 import { expect, it, vi } from "vite-plus/test";
 
 import { fakeTimers, stubGlobal } from "../../test/render";
@@ -14,6 +15,7 @@ import {
   xPostMenu,
   xOverEnded,
   xPickCommunitySearchTab,
+  xPickGameTab,
   xPostFollowPress,
   xPostMenuPress,
   xProfileMenu,
@@ -1292,6 +1294,48 @@ it("picks X's search tab only on the Community search it was asked for, and give
     draw();
     await vi.runAllTimersAsync();
     expect([await starting, clicked]).toEqual([true, ["Latest"]]);
+  } finally {
+    history.replaceState(null, "", start);
+  }
+});
+
+it("picks a game's tab after a move only once X has answered for that game, and at once in place", async () => {
+  using _clock = fakeTimers();
+  const listeners = new Set<(batch: EngineBatch) => void>();
+  using _bridge = stubGlobal("desktopBridge", {
+    onEngine: (cb: (batch: EngineBatch) => void) => (
+      listeners.add(cb),
+      () => void listeners.delete(cb)
+    ),
+  });
+  const answer = (op: string, key: string) =>
+    listeners.forEach((cb) => cb({ op, key } as unknown as EngineBatch));
+  const open = () => new AbortController().signal;
+  const clicked: Array<string> = [];
+  // The last game's tabs, still drawn while X's path already names the next game.
+  document.body.innerHTML = `<nav><div role="tab" aria-selected="true">Top</div><div role="tab" aria-selected="false">Latest</div></nav>`;
+  for (const tab of document.querySelectorAll('[role="tab"]'))
+    tab.addEventListener("click", () => clicked.push(tab.textContent!));
+  inThisPage(() => `https://x.com${location.pathname}`);
+  const start = location.href;
+  try {
+    history.replaceState(null, "", "/i/nba/game/42");
+    const moved = xPickGameTab("42", "Latest", Promise.resolve(true), open());
+    await vi.advanceTimersByTimeAsync(1_000);
+    answer("NBAGameHydrate", "41");
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(clicked).toEqual([]);
+    answer("NBAGameHydrate", "42");
+    await vi.runAllTimersAsync();
+    expect([await moved, clicked]).toEqual([true, ["Latest"]]);
+    // In place: the engine already showed this game, so the tabs drawn are its own.
+    const inPlace = xPickGameTab("42", "Latest", Promise.resolve(false), open());
+    await vi.runAllTimersAsync();
+    expect([await inPlace, clicked]).toEqual([true, ["Latest", "Latest"]]);
+    // X stays quiet after a move: nothing is pressed.
+    const quiet = xPickGameTab("42", "Latest", Promise.resolve(true), open());
+    await vi.runAllTimersAsync();
+    expect([await quiet, clicked]).toEqual([false, ["Latest", "Latest"]]);
   } finally {
     history.replaceState(null, "", start);
   }

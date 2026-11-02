@@ -1,4 +1,4 @@
-import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useAtom, useAtomValue } from "@effect/atom-react";
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef } from "react";
 
@@ -7,7 +7,7 @@ import { Timeline } from "../components/xnative/Timeline";
 import { XTabs, XTitle } from "../components/xnative/XColumn";
 import { isElectron } from "../env";
 import { engineAtom, gameSurface } from "../state/engine";
-import { xGo, xNavigate, xPanelOpenAtom, xPickGameTab } from "../state/x";
+import { isXRoute, xGo, xLeave, xNavigate, xPanelOpenAtom, xPickGameTab } from "../state/x";
 
 // X's tabs, switched in place on one URL. Xtend draws Top and Latest; the rest open X's page.
 const TABS = [
@@ -30,7 +30,7 @@ function GameScreen() {
   const navigate = useNavigate();
   const router = useRouter();
   const engine = useAtomValue(engineAtom);
-  const setPanel = useAtomSet(xPanelOpenAtom);
+  const [panelOpen, setPanel] = useAtom(xPanelOpenAtom);
   const game = engine.games.get(id);
   const url = `https://x.com/i/nba/game/${id}`;
   const tab = latest ? "Latest" : "Top";
@@ -47,6 +47,19 @@ function GameScreen() {
     const mine = live.current;
     return () => mine.abort();
   }, [url, pick]);
+  // Leaving for a screen that moves the engine nowhere (Analyze, Settings) takes it off the game,
+  // so X stops re-polling a live game nobody sees; X's own page in view (the panel, /x) keeps it.
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- parks the engine (the session view) when the user leaves this game's screen.
+  useEffect(
+    () => () => {
+      const where = () => router.state.location.pathname;
+      xLeave(
+        `/i/nba/game/${id}`,
+        () => panelOpen || isXRoute(where()) || where() === `/nba/game/${id}`,
+      );
+    },
+    [id, panelOpen, router],
+  );
   // ⌘R and "Load again": X's page in full, since X's router does nothing on the page it shows.
   const reload = () => pick(xNavigate(url));
   // X's own page with its tabs, beside the tool; a browser opens it in a tab.

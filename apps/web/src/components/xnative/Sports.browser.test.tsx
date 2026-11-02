@@ -6,12 +6,13 @@ import {
   RouterProvider,
 } from "@tanstack/react-router";
 import type { EngineBatch, EngineGame, EnginePost } from "@xtend/contracts";
+import { useEffect } from "react";
 import { expect, it } from "vite-plus/test";
 
 import { installFakeBridge } from "../../../test/fakeBridge";
 import { render } from "../../../test/render";
 import { Route as GameRoute } from "../../routes/nba.game.$id";
-import { markXReady, registerXWebview, type XWebview } from "../../state/x";
+import { markXReady, registerXWebview, xGo, type XWebview } from "../../state/x";
 import { EngineSync } from "./EngineSync";
 import { TeamSchedule } from "./Sports";
 
@@ -138,9 +139,10 @@ it("draws a team's schedule in X's card forms, and nothing for an account X give
 it("opens a game with the day's strip and X's header, and Latest presses X's own tab for its own list", async () => {
   const bridge = installFakeBridge();
   const scripts: Array<string> = [];
+  // The engine already shows this game, so X's tabs are pressed in place.
   registerXWebview({
     executeJavaScript: (code: string) => (scripts.push(code), Promise.resolve(true)),
-    getURL: () => "https://x.com/home",
+    getURL: () => "https://x.com/i/nba/game/52",
     loadURL: () => Promise.resolve(),
   } as unknown as XWebview);
   markXReady();
@@ -199,5 +201,59 @@ it("opens a game with the day's strip and X's header, and Latest presses X's own
     expect(screen.getByText("Top take").elements()).toHaveLength(0);
   } finally {
     registerXWebview(null);
+  }
+});
+
+it("takes the engine off a game the user left for a screen that moves it nowhere, and leaves it to one that does", async () => {
+  installFakeBridge();
+  const scripts: Array<string> = [];
+  registerXWebview({
+    executeJavaScript: (code: string) => (scripts.push(code), Promise.resolve(true)),
+    getURL: () => "https://x.com/i/nba/game/52",
+    loadURL: () => Promise.resolve(),
+  } as unknown as XWebview);
+  markXReady();
+  const panel = localStorage.getItem("xtend:x-panel-open");
+  localStorage.setItem("xtend:x-panel-open", "false");
+  // A screen that moves the engine itself, as Xtend's X screens do, and one that does not.
+  function Explore() {
+    useEffect(() => void xGo("https://x.com/explore"), []);
+    return null;
+  }
+  const root = createRootRoute();
+  const route = (path: string, component: () => null) =>
+    createRoute({ getParentRoute: () => root, path, component });
+  const router = createRouter({
+    routeTree: root.addChildren([
+      createRoute({
+        getParentRoute: () => root,
+        path: "/nba/game/$id",
+        validateSearch: GameRoute.options.validateSearch,
+        component: GameRoute.options.component!,
+      }),
+      route("/explore", Explore),
+      route("/settings", () => null),
+    ]),
+    history: createMemoryHistory({ initialEntries: ["/nba/game/52"] }),
+  });
+  const parked = () => scripts.some((s) => s.includes('pushState(null, "", "/home")'));
+  try {
+    await using screen = await render(<RouterProvider router={router} />, {
+      router: false,
+      service: {},
+    });
+    const game = screen.getByRole("heading", { name: "Game" });
+    await expect.element(game).toBeVisible();
+    router.history.push("/explore");
+    await expect.poll(() => scripts.some((s) => s.includes('"/explore"'))).toBe(true);
+    expect(parked()).toBe(false);
+    await router.navigate({ to: "/nba/game/$id", params: { id: "52" } });
+    await expect.element(game).toBeVisible();
+    router.history.push("/settings");
+    await expect.poll(parked).toBe(true);
+  } finally {
+    registerXWebview(null);
+    if (panel === null) localStorage.removeItem("xtend:x-panel-open");
+    else localStorage.setItem("xtend:x-panel-open", panel);
   }
 });
