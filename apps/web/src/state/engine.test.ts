@@ -864,8 +864,10 @@ it("keeps what each response said of a game, a team's schedule, each game's day,
 
 it("keeps X's bookmark folders in X's order as X's dialogs and rows change them, each folder's posts under it", () => {
   const folder = (folderId: string, name: string) => ({ folderId, name, imageUrl: null });
-  const change = (bookmarkFolders: EngineBatch["bookmarkFolders"], cursor: string | null = null) =>
-    batch("Folders", [], { bookmarkFolders, cursor });
+  const change = (
+    bookmarkFolders: NonNullable<EngineBatch["bookmarkFolders"]>,
+    cursor: string | null = null,
+  ) => batch("Folders", [], { bookmarkFolders, cursor });
   // A change before X listed the folders says nothing of the rest: still unknown.
   expect(
     mergeBatch(emptyEngine, change({ kind: "saved", folder: folder("803", "Recipes") }))

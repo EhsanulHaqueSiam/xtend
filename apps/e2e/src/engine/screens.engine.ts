@@ -1147,3 +1147,121 @@ test("An Article's card opens Xtend's reader with the engine on X's reader page,
   ).toBe(true);
   expect(presses()).toHaveLength(pressed);
 });
+
+/** The Bookmarks title, which opens X's folder menu (or, without X's claim, X's upsell). */
+const folderTitle = () => e.app.locator("main").getByRole("button", { name: /bookmark folders$/ });
+/** Picks `name` in X's folder menu as Xtend draws it. */
+const pickFolderRow = async (name: string) => {
+  await folderTitle().click();
+  await e.app.getByRole("menuitem", { name, exact: true }).click();
+};
+
+test("Bookmarks lists X's folders and opens one on X's page; X's own Create and Delete show over the main area", async () => {
+  const [reading, ideas] = e.mock.state.folders();
+  await go("/bookmarks");
+  await expect.poll(enginePath).toBe("/i/bookmarks");
+  await folderTitle().click();
+  await expect
+    .poll(appMenuRows)
+    .toEqual(["All Bookmarks", reading!.name, ideas!.name, "Create Folder"]);
+  await e.app.getByRole("menuitem", { name: reading!.name, exact: true }).click();
+  await expect.poll(enginePath).toBe(`/i/bookmarks/${reading!.folderId}`);
+  await expect.poll(nativeIds).toEqual(e.mock.state.folderPosts(reading!.folderId));
+
+  // X's Create Folder over the main area: the user names it there and presses X's Create.
+  await pickFolderRow("Create Folder");
+  await expect.poll(pane).toBe("main");
+  expect(await enginePath()).toBe("/i/bookmarks/create_folder");
+  await e.engine(
+    `(() => { document.querySelector('[role="dialog"] input[name="name"]').value = "Recipes"; document.querySelector('[data-folder="create"]').click(); return true; })()`,
+  );
+  await expect.poll(pane).toBe("hidden");
+  expect(presses()).toContain("write createBookmarkFolder");
+  const recipes = e.mock.state.folders()[0]!;
+  await folderTitle().click();
+  // X lists the folder it just created first.
+  await expect
+    .poll(appMenuRows)
+    .toEqual([
+      "All Bookmarks",
+      "Recipes",
+      reading!.name,
+      ideas!.name,
+      "Create Folder",
+      "Edit Folder",
+      "Delete Folder",
+    ]);
+  await e.app.getByRole("menuitem", { name: "Recipes", exact: true }).click();
+  await expect.poll(enginePath).toBe(`/i/bookmarks/${recipes.folderId}`);
+
+  // Delete presses X's own Delete Folder row, and X asks to confirm over the main area.
+  await pickFolderRow("Delete Folder");
+  const confirm = `document.querySelector('#layers [data-testid="confirmationSheetConfirm"]')`;
+  await expect.poll(() => e.engine(`!!${confirm}`)).toBe(true);
+  await expect.poll(pane).toBe("main");
+  expect(await enginePath()).toBe(`/i/bookmarks/${recipes.folderId}/edit`);
+  expect(presses()).not.toContain(`write DeleteBookmarkFolder ${recipes.folderId}`);
+  await e.engine(`${confirm}.click()`);
+  await expect.poll(pane).toBe("hidden");
+  expect(presses()).toContain(`write DeleteBookmarkFolder ${recipes.folderId}`);
+  await expect.poll(enginePath).toBe("/i/bookmarks");
+  await expect
+    .poll(() => folderTitle().getAttribute("aria-label"))
+    .toBe("Bookmarks, bookmark folders");
+});
+
+test("A post goes into a folder through X's own Bookmark to Folder and out with X's Remove from Folder; without X's claim, X's upsell", async () => {
+  const ideas = e.mock.state.folders().find((f) => f.name === "Launch ideas")!;
+  await go("/bookmarks");
+  await expect.poll(enginePath).toBe("/i/bookmarks");
+  await expect.poll(async () => (await nativeIds()).length).toBeGreaterThan(0);
+  const [id] = await nativeIds();
+  const share = () =>
+    e.app.locator(`main [data-post="${id}"] button[aria-label="Share post"]`).click();
+
+  await share();
+  await expect.poll(appMenuRows).toEqual(expect.arrayContaining(["Bookmark to Folder"]));
+  await e.app.getByRole("menuitem", { name: "Bookmark to Folder", exact: true }).click();
+  await expect.poll(pane).toBe("main");
+  expect(await enginePath()).toBe(`/i/bookmarks/add?tweet_id=${id}`);
+  // The user picks the folder in X's Add to Folder.
+  await e.engine(`document.querySelector('[data-folder="put:${ideas.folderId}:${id}"]').click()`);
+  await expect.poll(pane).toBe("hidden");
+  expect(presses()).toEqual(
+    expect.arrayContaining([`write CreateBookmark ${id}`, `write bookmarkTweetToFolder ${id}`]),
+  );
+  await pickFolderRow(ideas.name);
+  await expect.poll(enginePath).toBe(`/i/bookmarks/${ideas.folderId}`);
+  await expect.poll(nativeIds).toEqual([id]);
+
+  // On the folder's page X's share menu offers Remove from Folder; the folder is empty again.
+  await share();
+  await expect.poll(appMenuRows).toEqual(expect.arrayContaining(["Remove from Folder"]));
+  await e.app.getByRole("menuitem", { name: "Remove from Folder", exact: true }).click();
+  await expect.poll(presses).toContain(`write RemoveTweetFromBookmarkFolder ${id}`);
+  await e.app.locator("main").getByText("Save posts for later").waitFor();
+
+  // An account X's claims give no folders (never Premium, or a plan that lapsed): X's next load
+  // says so, the folder closes, and the title offers X's upsell with X's own Upgrade.
+  e.mock.state.setPremium(false);
+  try {
+    await e.engine("location.reload(), true");
+    await expect
+      .poll(() => folderTitle().getAttribute("aria-label"))
+      .toBe("Bookmarks, bookmark folders");
+    await expect.poll(enginePath).toBe("/i/bookmarks");
+    await folderTitle().click();
+    await e.app.getByText("Unlock bookmark folders with Plus").waitFor();
+    expect(await e.app.getByRole("link", { name: "Upgrade" }).getAttribute("href")).toBe(
+      "https://x.com/i/premium_sign_up?referring_page=bookmark_folders",
+    );
+    await e.app.keyboard.press("Escape");
+    await share();
+    await expect.poll(appMenuRows).toEqual(expect.arrayContaining(["Send via Chat"]));
+    expect(await appMenuRows()).not.toContain("Bookmark to Folder");
+    await e.app.keyboard.press("Escape");
+  } finally {
+    e.mock.state.setPremium(true);
+    await e.engine("location.reload(), true");
+  }
+});

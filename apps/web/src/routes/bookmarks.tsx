@@ -126,9 +126,14 @@ function BookmarksScreen() {
   const { blocked, setToast } = useXPress();
   const folders = engine.bookmarkFolders;
   const listed = folders?.find((f) => f.folderId === folder);
-  // A folder X no longer lists (deleted here or on x.com) leaves All Bookmarks open, as on X.
+  // X keeps folders to accounts its claims give them; until X says, its own page decides.
+  const premium = engine.claims === null ? null : engine.claims.has(FOLDERS_CLAIM);
+  // A folder X no longer lists (deleted here or on x.com), or no folders at all, leaves All
+  // Bookmarks open, as on X.
   const open =
-    folder !== undefined && (folders === null || listed !== undefined) ? folder : undefined;
+    folder !== undefined && premium !== false && (folders === null || listed !== undefined)
+      ? folder
+      : undefined;
   const url =
     open === undefined ? "https://x.com/i/bookmarks" : `https://x.com/i/bookmarks/${open}`;
   const surface = open === undefined ? "bookmarks" : bookmarkFolderSurface(open);
@@ -164,11 +169,10 @@ function BookmarksScreen() {
       keepPlace
       header={
         <XTitle
-          // X keeps folders to accounts its claims say have them; until X says, the plain title.
           title={
-            engine.claims === null ? (
+            premium === null ? (
               name
-            ) : engine.claims.has(FOLDERS_CLAIM) ? (
+            ) : premium ? (
               <FolderMenu
                 name={name}
                 open={open}

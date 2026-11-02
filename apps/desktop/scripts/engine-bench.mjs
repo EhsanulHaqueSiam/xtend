@@ -1192,6 +1192,76 @@ const benchmarks = [
     },
   ],
   [
+    "Bookmark folders: Premium lists X's folders and opens one on X's page; without X's claim, X's upsell (dry)",
+    async () => {
+      await go("#/bookmarks");
+      // X's claims (GetUserClaims) come with each full load of x.com; none yet loads X's page again.
+      const claimed = () => store(`$.claims && [...$.claims]`);
+      let claims = await until(claimed, 8_000);
+      if (!claims) {
+        await engine(`location.reload(), true`).catch(() => {});
+        claims = await until(claimed, 20_000);
+      }
+      if (!claims) return false;
+      const title = `document.querySelector('main button[aria-label$="bookmark folders"]')`;
+      await until(() => app(`!!${title}`), 10_000);
+      if (!claims.includes("subscriptions_feature_1002")) {
+        // Not Premium: X sent no folders, and the title offers X's upsell with X's Upgrade.
+        await app(`${title}?.click(), true`);
+        const upgrade = await until(
+          () =>
+            app(
+              `[...document.querySelectorAll("a")].find((a) => a.textContent === "Upgrade")?.getAttribute("href")`,
+            ),
+          5_000,
+        );
+        await app(`${title}?.click(), true`);
+        const folders = await store(`$.bookmarkFolders`);
+        if (
+          upgrade !== "https://x.com/i/premium_sign_up?referring_page=bookmark_folders" ||
+          folders
+        )
+          return (console.log(`      ${JSON.stringify({ upgrade, folders })}`), false);
+        return "not Premium: no folders from X, X's upsell shown";
+      }
+      // Premium: Xtend's menu lists X's folders in X's order, and the first opens on X's page.
+      const folders = await until(() => store(`$.bookmarkFolders`), 15_000);
+      if (!folders) return false;
+      if (folders.length === 0) return "Premium, no folders on X";
+      const rowsJs = `[...document.querySelectorAll('[role="menu"] [role="menuitem"]')].map((m) => m.textContent)`;
+      await app(`${title}?.click(), true`);
+      const rows = await until(async () => {
+        const r = await app(rowsJs);
+        return r?.length > 0 && r;
+      }, 5_000);
+      if (
+        JSON.stringify(rows?.slice(1, folders.length + 1)) !==
+        JSON.stringify(folders.map((f) => f.name))
+      )
+        return (console.log(`      ${JSON.stringify({ rows, folders })}`), false);
+      const [first] = folders;
+      await app(
+        `[...document.querySelectorAll('[role="menu"] [role="menuitem"]')].find((m) => m.textContent === ${JSON.stringify(first.name)})?.click(), true`,
+      );
+      const opened = await until(
+        async () => (await enginePath()).endsWith(`/bookmarks/${first.folderId}`),
+        15_000,
+      );
+      const surface = JSON.stringify(`bookmarkFolder:${first.folderId}`);
+      const listed = await until(async () => {
+        const [ids, list, answered] = [
+          await nativeIds(),
+          await store(`at($.lists, ${surface})`),
+          await store(`$.cursors[${surface}] !== undefined`),
+        ];
+        // X's own posts in X's order, or X's answer of an empty folder.
+        return ids.length > 0 ? list?.[0] === ids[0] && `${ids.length} posts` : answered && "empty";
+      }, 20_000);
+      await go("#/bookmarks");
+      return opened && listed && `${folders.length} folders, the first ${listed}`;
+    },
+  ],
+  [
     "A profile renders its posts and X's header",
     async () => {
       await go("#/u/theo");
