@@ -83,7 +83,7 @@ const batch = (op: string, posts: ReadonlyArray<EnginePost>) => ({
   viewer: null,
 });
 
-it("draws what the engine received: the post, its video in Xtend's player, and the post it quotes", async () => {
+it("draws what the engine received: the post, its video playing muted until a click, and the post it quotes", async () => {
   const bridge = installFakeBridge();
   await using screen = await render(
     <div style={{ height: 800, display: "flex" }}>
@@ -117,6 +117,11 @@ it("draws what the engine received: the post, its video in Xtend's player, and t
   await expect.element(first.getByText("Day 30/ panels")).toBeVisible();
   const video = first.element().querySelector("video")!;
   expect(video.getAttribute("src")).toBe("https://video.twimg.com/high.mp4");
+  // As on X: it plays muted on its own while in view, and one click turns the sound on.
+  expect(video.muted).toBe(true);
+  expect(video.controls).toBe(false);
+  await first.getByRole("button", { name: "Unmute" }).click();
+  expect(video.muted).toBe(false);
   expect(video.controls).toBe(true);
   // The quoted post is inside the first, not a row of its own.
   expect(screen.getByRole("article").elements()).toHaveLength(1);
