@@ -453,6 +453,30 @@ export interface EngineGif {
   readonly provider: string;
 }
 
+/** A bookmark folder (Premium) as X's folder menu and its Add to Folder dialog list it. */
+export interface EngineBookmarkFolder {
+  readonly folderId: string;
+  readonly name: string;
+  /** The picture X shows beside it; null where X draws its folder icon. */
+  readonly imageUrl: string | null;
+}
+
+/**
+ * What one response says of the user's bookmark folders: X's list of them (a page of
+ * BookmarkFoldersSlice), one X created or renamed, one X deleted, or a post X put in or took out
+ * of one, each for the user's own click in X's dialog or row.
+ */
+export type EngineFolderChange =
+  | { readonly kind: "list"; readonly folders: ReadonlyArray<EngineBookmarkFolder> }
+  | { readonly kind: "saved"; readonly folder: EngineBookmarkFolder }
+  | { readonly kind: "deleted"; readonly folderId: string }
+  | {
+      readonly kind: "post";
+      readonly folderId: string;
+      readonly postId: string;
+      readonly added: boolean;
+    };
+
 /**
  * One GraphQL response the engine received, by operation (HomeTimeline, TweetDetail, ...). `key`
  * names what the request asked for when one operation serves many pages (a Home tab's tag, a
@@ -508,4 +532,11 @@ export interface EngineBatch {
    * you know only when it is above 0.
    */
   readonly knownFollowers?: number;
+  /** The user's bookmark folders as this response changes them (see `EngineFolderChange`). */
+  readonly bookmarkFolders?: EngineFolderChange;
+  /**
+   * The features X's GetUserClaims says the account holds (X calls it on each load of x.com and
+   * every few minutes): `subscriptions_feature_1002` is bookmark folders.
+   */
+  readonly claims?: ReadonlyArray<string>;
 }

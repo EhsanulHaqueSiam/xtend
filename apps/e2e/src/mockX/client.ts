@@ -108,6 +108,11 @@ const SCRIPT = String.raw`
     if (!entry) {
       const view = await load(path);
       if (mine !== token) return;
+      // X's Redirect: the path it sends this one to replaces it.
+      if (view.redirect) {
+        history.replaceState(null, "", view.redirect);
+        return void show();
+      }
       entry = { el: fragment(view.html), next: view.next, title: view.title, path, scroll: 0 };
       cache.set(key, entry);
     }
@@ -516,6 +521,46 @@ const SCRIPT = String.raw`
     const [engagement, period] = pageTab(here()).split(":");
     localStorage.setItem("mockx:tab:inspiration", filter === "period" ? engagement + ":" + id : id + ":" + period);
     void show();
+  });
+
+  // X's bookmark folder dialogs on their own routes (Create, Edit, Add to Folder): each button
+  // sends X's call as X's page does, then X leaves the route. Delete Folder asks first.
+  document.addEventListener("click", (event) => {
+    const el = event.target instanceof Element ? event.target.closest("[data-folder]") : null;
+    if (!el) return;
+    const [action, folderId, tweetId] = el.dataset.folder.split(":");
+    const name = document.querySelector('[role="dialog"] input[name="name"]')?.value.trim() ?? "";
+    const send = (op, variables) => post("/i/api/graphql/" + window.__mockHash[op] + "/" + op, { variables });
+    log("folder:" + action, folderId ?? null);
+    if (action === "create" && name) void send("createBookmarkFolder", { name }).then(() => history.back());
+    if (action === "save" && name)
+      void send("EditBookmarkFolder", { bookmark_collection_id: folderId, name }).then(() => history.back());
+    if (action === "put" || action === "pull")
+      void send(action === "put" ? "bookmarkTweetToFolder" : "RemoveTweetFromBookmarkFolder", {
+        bookmark_collection_id: folderId,
+        tweet_id: tweetId,
+      }).then(() => {
+        toast({ text: (action === "put" ? "Saved to " : "Removed from ") + el.dataset.folderName });
+        history.back();
+      });
+    if (action === "delete")
+      dialog({
+        title: "Delete Folder?",
+        body: 'Your posts will still be saved in the "All Bookmarks" folder',
+        sheet: true,
+        buttons: [
+          {
+            label: "Delete",
+            testid: "confirmationSheetConfirm",
+            step: {
+              write: { path: "/i/api/graphql/" + window.__mockHash.DeleteBookmarkFolder + "/DeleteBookmarkFolder", body: { variables: { bookmark_collection_id: folderId } } },
+              toast: { text: "Folder has been deleted" },
+              replace: "/i/bookmarks",
+            },
+          },
+          { label: "Cancel", testid: "confirmationSheetCancel" },
+        ],
+      });
   });
 
   void show();

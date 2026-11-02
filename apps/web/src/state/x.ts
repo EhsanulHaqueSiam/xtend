@@ -1195,6 +1195,51 @@ export const xToastUndo = () =>
   ).then((done) => done === true);
 
 /**
+ * Opens X's own folder dialog for the user's click on X's route for it: Create (`folderId` null) or
+ * Edit, whose Delete Folder row `remove` presses so X asks its own confirm; over the main area until
+ * X leaves the route. True once it came and went; false when X showed none (X sends an account
+ * without folders back to Bookmarks); null when the user moved on.
+ */
+export const xFolderDialog = async (
+  folderId: string | null,
+  remove: boolean,
+  over: (shown: boolean) => void,
+): Promise<boolean | null> => {
+  // No engine (a browser): no X. The id goes into a script: digits only.
+  if (element === null || !ready || (folderId !== null && !/^\d{1,25}$/.test(folderId)))
+    return false;
+  const run = await nextRun();
+  const path = folderId === null ? "/i/bookmarks/create_folder" : `/i/bookmarks/${folderId}/edit`;
+  await xGo(`https://x.com${path}`);
+  const shown = await xRun(`(async () => {
+    for (let i = 0; i < 50; i++) {
+      if (!${stillMine(run)} || location.pathname !== ${JSON.stringify(path)}) return false;
+      // A dialog on a wide window; the engine's narrow one gets X's compact layout, a page.
+      const scope = document.querySelector('[role="dialog"]') ?? document;
+      // X's red row is a plain cell: its words are the only way to tell it.
+      const row = ${remove} ? [...scope.querySelectorAll("span, div, button")].find((el) => el.children.length === 0 && el.textContent.trim() === "Delete Folder") : null;
+      // X sends an account without folders off the route at once; one it keeps is X's form.
+      if (${remove} ? row : i >= 10) {
+        row?.click();
+        return true;
+      }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return false;
+  })()`);
+  if (shown !== true) return false;
+  over(true);
+  for (;;) {
+    await new Promise((r) => setTimeout(r, 500));
+    // The user moved on: AppShell already ended the engine's place over the main area.
+    if (run !== overRun) return null;
+    if ((await xRun(`location.pathname === ${JSON.stringify(path)}`)) !== true) break;
+  }
+  over(false);
+  return true;
+};
+
+/**
  * Follows or unfollows for the user's click through X's own button: in place when the engine page
  * shows one for this person (a profile, a people list), otherwise on their profile, reached
  * through X's router and left with Back. X asks to confirm an unfollow. True when X took it.

@@ -267,6 +267,8 @@ interface Route {
   /** X's REST reads the page makes beside its GraphQL ones, by URL. */
   readonly rest?: ReadonlyArray<string>;
   readonly render: (batches: ReadonlyArray<EngineBatch | null>) => string;
+  /** Where X's router sends the path instead, replacing it, as X's Redirect does. */
+  readonly redirect?: string;
 }
 
 const RESERVED = new Set([
@@ -378,16 +380,93 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
   if (url.pathname === "/i/bookmarks")
     return {
       title: "Bookmarks / X",
-      requests: [r("Bookmarks", { count: 20, includePromotedContent: true })],
-      render: ([b]) => {
+      requests: [
+        r("Bookmarks", { count: 20, includePromotedContent: true }),
+        // X lists folders above the posts only for an account its claims give them (Premium).
+        ...(state.premium ? [r("BookmarkFoldersSlice", {})] : []),
+      ],
+      render: ([b, f]) => {
         const list = postsOf(b ?? null, state);
-        return `${header("All Bookmarks")}<input aria-label="Search Bookmarks" placeholder="Search Bookmarks"><section data-list>${
+        const folders =
+          f?.bookmarkFolders?.kind === "list"
+            ? f.bookmarkFolders.folders
+                .map((x) => `<a href="/i/bookmarks/${x.folderId}">${esc(x.name)} ›</a>`)
+                .join("")
+            : "";
+        return `${header("All Bookmarks")}<input aria-label="Search Bookmarks" placeholder="Search Bookmarks"><nav aria-label="Bookmark folders">${folders}</nav><section data-list>${
           list === ""
             ? `<div class="empty"><h3>Bookmark posts to save them for later</h3><button>New folder</button></div>`
             : list
         }</section>`;
       },
     };
+  // X's bookmark folders (bundle.BookmarkFolders): a folder's posts, and X's dialogs on their own
+  // routes, X's words on each. X sends an account without folders, or a folder gone, to Bookmarks.
+  if (lower === "i" && second === "bookmarks" && third !== undefined) {
+    const away: Route = {
+      title: "Bookmarks / X",
+      requests: [],
+      redirect: "/i/bookmarks",
+      render: () => "",
+    };
+    if (!state.premium) return away;
+    if (third === "create_folder")
+      return {
+        title: "Create Folder / X",
+        requests: [],
+        render: () =>
+          routeDialog(
+            "Create Folder",
+            `<input aria-label="Name" name="name" maxlength="25"><button data-folder="create">Create</button>`,
+          ),
+      };
+    if (third === "add") {
+      // X carries the post in its router's state; the mock, in the query.
+      const tweetId = q.get("tweet_id") ?? "";
+      return {
+        title: "Add to Folder / X",
+        requests: [r("BookmarkFoldersSlice", { tweet_id: tweetId })],
+        render: () =>
+          routeDialog(
+            "Add to Folder",
+            `<a href="/i/bookmarks/create_folder">Create a new Bookmark Folder</a><div>All Bookmarks ✓</div>${state
+              .folders()
+              .map((f) => {
+                const has = state.folderPosts(f.folderId).includes(tweetId);
+                return `<div role="button" tabindex="0" data-folder="${has ? "pull" : "put"}:${f.folderId}:${esc(tweetId)}" data-folder-name="${esc(f.name)}">${esc(f.name)}${has ? " ✓" : ""}</div>`;
+              })
+              .join("")}`,
+          ),
+      };
+    }
+    const folder = state.folders().find((f) => f.folderId === third);
+    if (folder === undefined) return away;
+    if (fourth === "edit")
+      return {
+        title: "Edit Folder / X",
+        requests: [],
+        render: () =>
+          routeDialog(
+            "Edit Folder",
+            `<input aria-label="Name" name="name" maxlength="25" value="${esc(folder.name)}"><button data-folder="save:${folder.folderId}">Save</button><div role="button" tabindex="0" data-folder="delete:${folder.folderId}"><span>Delete Folder</span></div>`,
+          ),
+      };
+    return {
+      title: "Bookmarks / X",
+      requests: [
+        r("BookmarkFolderTimeline", {
+          bookmark_collection_id: folder.folderId,
+          includePromotedContent: true,
+        }),
+      ],
+      // A post's share menu here knows its folder, as X's does: it offers Remove from Folder.
+      render: ([b]) =>
+        `${header(folder.name)}<section data-list>${postsOf(b ?? null, state).replace(
+          /data-menu="share:(\d+)"/g,
+          `data-menu="share:$1:${folder.folderId}"`,
+        )}</section>`,
+    };
+  }
   if (lower === "notifications") {
     const mentions = second === "mentions";
     return {
