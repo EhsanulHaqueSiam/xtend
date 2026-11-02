@@ -679,15 +679,34 @@ export function synth(): Readonly<Record<string, Fixture>> {
     title: "Who to follow",
     userIds: suggest.map((u) => u.userId),
   };
+  // X serves ads in Following too, from accounts the user does not follow. Built apart from `say`
+  // so every other fixture keeps its ids.
+  const ad: EnginePost = {
+    ...forYou[1]!,
+    postId: "700000000990",
+    author: {
+      userId: suggest[0]!.userId,
+      handle: suggest[0]!.handle,
+      name: suggest[0]!.name,
+      followers: suggest[0]!.followers,
+      verified: suggest[0]!.verified,
+    },
+    avatarUrl: suggest[0]!.avatarUrl,
+    text: "One dashboard for every deploy. Try it free for 14 days.",
+    createdAt: ago(50),
+    isPromoted: true,
+  };
   const home: Fixture = {
     meta: meta(
       "home",
-      "Home: Following (text, photo, a thread, a poll, a link card, a quote, a repost, a note) and For you with Who to follow",
+      "Home: Following (text, photo, a thread, an ad, a poll, a link card, a quote, a repost, a note) and For you with Who to follow",
       ["/home?feed=following", "/home?feed=forYou"],
     ),
     batches: [
       batch("Viewer", null, [], { viewer: VIEWER }),
-      batch("HomeLatestTimeline", null, following, { users: PEOPLE }),
+      batch("HomeLatestTimeline", null, following.toSpliced(4, 0, ad), {
+        users: [...PEOPLE, suggest[0]!],
+      }),
       batch("HomeTimeline", null, forYou, {
         users: [...PEOPLE, ...suggest],
         people: suggest.map((u) => u.userId),

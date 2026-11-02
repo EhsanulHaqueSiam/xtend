@@ -825,16 +825,26 @@ export function XPostView({
         <div className="flex min-w-0 items-center gap-1 text-[15px] leading-5">
           {name}
           <span className={cn("min-w-0 truncate", X_GRAY)}>@{post.author.handle}</span>
-          <span className={cn("shrink-0", X_GRAY)}>
-            ·{" "}
-            <Tooltip>
-              <TooltipTrigger render={<time dateTime={post.createdAt} />}>
-                {xAge(post.createdAt)}
-              </TooltipTrigger>
-              <TooltipPopup>{xStamp(post.createdAt)}</TooltipPopup>
-            </Tooltip>
-          </span>
-          {menu}
+          {post.isPromoted ? (
+            // As on X: an ad shows no age, and "Ad" beside its "...".
+            <span className="ml-auto flex shrink-0 items-center gap-3">
+              <span className={X_GRAY}>Ad</span>
+              {menu}
+            </span>
+          ) : (
+            <>
+              <span className={cn("shrink-0", X_GRAY)}>
+                ·{" "}
+                <Tooltip>
+                  <TooltipTrigger render={<time dateTime={post.createdAt} />}>
+                    {xAge(post.createdAt)}
+                  </TooltipTrigger>
+                  <TooltipPopup>{xStamp(post.createdAt)}</TooltipPopup>
+                </Tooltip>
+              </span>
+              {menu}
+            </>
+          )}
         </div>
         <ReplyingTo handles={post.replyingTo} />
         {translated}
