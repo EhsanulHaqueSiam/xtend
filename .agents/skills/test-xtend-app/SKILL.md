@@ -98,7 +98,7 @@ XTEND_REMOTE_DEBUG=<port> node apps/desktop/scripts/engine-bench.mjs --runs 3 --
 
 - The bench counts the X calls each round makes and waits, saying until when, while the
   account's rounds in the last 15 minutes (from its results files, any branch, any checkout) plus
-  its own would pass 600 calls. Prefer `--only` while iterating: a one-check round costs a few
+  its own would pass 2,800 calls (about two full rounds). Prefer `--only` while iterating: a one-check round costs a few dozen
   calls and rarely waits. Don't `--force` it to retry a failure: when many checks fail at once with empty
   lists it prints a rate-limit hint, and the cure is waiting 15 to 30 minutes.
 - Three clean runs in a row, five minutes apart, are the proof an engine PR names. Each run's

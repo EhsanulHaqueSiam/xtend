@@ -207,7 +207,7 @@ Both need `pnpm build` first.
   detail, the commit and flags) for comparing runs and citing in a PR.
 - The bench paces itself across invocations from those files (any branch, matched by a hash of
   the signed-in user id): each round records the X calls it made, and a round waits, saying until
-  when, while the account's rounds in the last 15 minutes plus its own estimate would pass 600
+  when, while the account's rounds in the last 15 minutes plus its own estimate would pass 2,800
   calls (about two full rounds). A one-check `--only` round fits almost always. `--no-wait` exits
   instead; `--force` runs anyway with a warning. When five or more checks fail with the engine's lists
   empty, X is likely rate-limiting the account: wait 15 to 30 minutes before the next run.

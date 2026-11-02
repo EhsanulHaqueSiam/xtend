@@ -11,18 +11,18 @@ const spent = (...rounds) =>
   rounds.map(([minutesAgo, calls]) => ({ at: NOW - minutesAgo * MIN, calls }));
 
 it("keeps the last fifteen minutes' X calls and the next round's within the budget", () => {
-  expect(pace([], NOW, 300)).toEqual({ ok: true, used: 0 });
+  expect(pace([], NOW, 1400)).toEqual({ ok: true, used: 0 });
   // A one-check round fits beside two full ones; a third full one waits for the first to leave.
-  expect(pace(spent([2, 280], [8, 290]), NOW, 20)).toEqual({ ok: true, used: 570 });
-  expect(pace(spent([2, 280], [8, 290]), NOW, 300)).toEqual({
+  expect(pace(spent([2, 1300], [8, 1400]), NOW, 60)).toEqual({ ok: true, used: 2700 });
+  expect(pace(spent([2, 1300], [8, 1400]), NOW, 1400)).toEqual({
     ok: false,
-    used: 570,
+    used: 2700,
     until: NOW + 7 * MIN,
   });
   // Rounds older than the window cost nothing.
-  expect(pace(spent([16, 600], [40, 600]), NOW, 300)).toMatchObject({ ok: true });
+  expect(pace(spent([16, 2800], [40, 2800]), NOW, 1400)).toMatchObject({ ok: true });
   // A round bigger than the whole budget never fits on its own.
-  expect(pace([], NOW, 900)).toEqual({ ok: false, used: 0, until: null });
+  expect(pace([], NOW, 3000)).toEqual({ ok: false, used: 0, until: null });
 });
 
 it("reads every branch's rounds for one account, counting a run that died before its first round", () => {
@@ -47,9 +47,9 @@ it("reads every branch's rounds for one account, counting a run that died before
   const at = (iso) => Date.parse(iso);
   // Uncounted rounds (recorded before rounds counted) cost a full round each.
   expect(readSpent(dir, mine).toSorted((x, y) => x.at - y.at)).toEqual([
-    { at: at("2026-11-01T14:01:00Z"), calls: 300 },
-    { at: at("2026-11-01T14:07:00Z"), calls: 300 },
-    { at: at("2026-11-01T14:30:00Z"), calls: 300 },
+    { at: at("2026-11-01T14:01:00Z"), calls: 1400 },
+    { at: at("2026-11-01T14:07:00Z"), calls: 1400 },
+    { at: at("2026-11-01T14:30:00Z"), calls: 1400 },
   ]);
   // An account the bench could not tell paces against every run.
   expect(readSpent(dir, undefined)).toHaveLength(4);
@@ -69,8 +69,8 @@ it("counts a round by its calls, or what it planned while it runs, and estimates
       NodePath.join(dir, "main", name),
       JSON.stringify({ account: mine, ...report }),
     );
-  // Before any counted round, a check is taken as eight calls.
-  expect(estimate(dir, mine, 10)).toBe(80);
+  // Before any counted round, a check is taken as 33 calls.
+  expect(estimate(dir, mine, 10)).toBe(330);
   write("a.json", {
     startedAt: "2026-11-01T14:00:00Z",
     runs: [

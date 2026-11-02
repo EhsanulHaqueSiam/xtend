@@ -8,12 +8,15 @@ import * as NodePath from "node:path";
 
 const MINUTE = 60_000;
 const WINDOW_MS = 15 * MINUTE;
-/** X calls per window: about two full rounds, the most the account has run at without a 429. */
-export const BUDGET = 600;
-/** A round with no count (recorded before rounds counted, or cut short) is taken as a full one. */
-const UNCOUNTED = 300;
+/**
+ * X calls per window: two full rounds (one counted 1,340 calls on 41 checks), what the old pacing
+ * allowed (four runs in thirty minutes) without the account seeing a 429.
+ */
+export const BUDGET = 2_800;
+/** A round with no count (recorded before rounds counted) is taken as a full one. */
+const UNCOUNTED = 1_400;
 /** What a check costs before any round on the account has counted its calls. */
-const PER_CHECK = 8;
+const PER_CHECK = 33;
 
 /** The account's key in results files: never its handle or raw id. */
 export const accountKey = (userId) =>
