@@ -19,6 +19,8 @@ import {
   xPickCommunitySearchTab,
   xPickHomeTab,
   xPickInspiration,
+  xRadarCreate,
+  xRadarDelete,
   xPostFollowPress,
   xPostMenuPress,
   xProfileMenu,
@@ -1718,6 +1720,65 @@ it("picks a game's tab once X answered for that game since the engine's last mov
     hero("Raptors", "Lakers");
     await vi.runAllTimersAsync();
     expect([await stale, clicked]).toEqual([true, ["Latest"]]);
+  } finally {
+    history.replaceState(null, "", start);
+  }
+});
+
+it("creates a Radar query through X's own form: the query typed into X's field, then X's own Submit once X turns it on", async () => {
+  using _clock = fakeTimers();
+  inThisPage(() => `https://x.com${location.pathname}`);
+  const start = location.href;
+  // X's form: Submit (its arrow) is off until X's field has text, and X opens the query's page.
+  document.body.innerHTML = `<main><input placeholder="$NVDA (sell OR buy)"><button disabled><svg data-icon="icon-arrow-up"></svg></button></main>`;
+  const input = document.querySelector("input")!;
+  const submit = document.querySelector("button")!;
+  input.addEventListener("input", () =>
+    setTimeout(() => (submit.disabled = input.value === ""), 100),
+  );
+  const sent: Array<string> = [];
+  submit.addEventListener("click", () => {
+    sent.push(input.value);
+    history.pushState(null, "", "/i/radar/1803");
+  });
+  try {
+    const created = xRadarCreate("$NVDA (sell OR buy)");
+    await vi.runAllTimersAsync();
+    expect([await created, sent]).toEqual(["1803", ["$NVDA (sell OR buy)"]]);
+  } finally {
+    history.replaceState(null, "", start);
+  }
+});
+
+it("presses X's Delete only on the row that names the query, and shows X's dialog until the user closes it", async () => {
+  using _clock = fakeTimers();
+  inThisPage(() => `https://x.com${location.pathname}`);
+  const start = location.href;
+  const row = (text: string) =>
+    `<div class="group">${text}<button><svg data-icon="icon-trashcan"></svg></button></div>`;
+  // X draws an older query's tags one by one.
+  document.body.innerHTML = `<main>${row("Bitcoin bitcoin")}${row("Untitled query $GOOGL $AAPL")}</main>`;
+  const pressed: Array<number> = [];
+  document.querySelectorAll("main button").forEach((b, i) =>
+    b.addEventListener("click", () => {
+      pressed.push(i);
+      document.body.insertAdjacentHTML("beforeend", `<div role="dialog"></div>`);
+    }),
+  );
+  const over: Array<boolean> = [];
+  try {
+    // X's list changed under the screen: its second row is no longer the query asked for.
+    const stale = xRadarDelete("bitcoin", 1, (shown) => over.push(shown));
+    await vi.runAllTimersAsync();
+    expect([await stale, pressed]).toEqual([false, []]);
+
+    const done = xRadarDelete("$GOOGL OR $AAPL", 1, (shown) => over.push(shown));
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect([pressed, over]).toEqual([[1], [true]]);
+    // The user answers X's dialog in X.
+    document.querySelector('[role="dialog"]')!.remove();
+    await vi.runAllTimersAsync();
+    expect([await done, over]).toEqual([true, [true, false]]);
   } finally {
     history.replaceState(null, "", start);
   }

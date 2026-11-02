@@ -104,6 +104,8 @@ const SCRIPT = String.raw`
     const key = cacheKey(path);
     const mine = ++token;
     closeLayers();
+    // X's Radar asks afresh each time its page shows (network-only), so it is never cached.
+    if (path.startsWith("/i/radar")) cache.delete(key);
     let entry = cache.get(key);
     if (!entry) {
       const view = await load(path);
@@ -299,6 +301,7 @@ const SCRIPT = String.raw`
       }
     }
     if (step.write) await post(step.write.path, step.write.body);
+    if (step.remove) document.querySelector(step.remove)?.remove();
     if (step.follow) turnFollow(step.follow.userId, step.follow.on);
     if (step.community) turnJoin(step.community.id, step.community.label);
     if (step.toast) toast(step.toast);
@@ -517,6 +520,36 @@ const SCRIPT = String.raw`
     localStorage.setItem("mockx:tab:inspiration", filter === "period" ? engagement + ":" + id : id + ":" + period);
     void show();
   });
+
+  // X's Radar: its form's Submit turns on once its field has text, sends X's create call and opens
+  // the query's page; a row opens its query, and its Delete asks in X's dialog, after which X takes
+  // the row off its list without asking for the list again.
+  document.addEventListener("input", (event) => {
+    const form = event.target instanceof HTMLInputElement ? event.target.closest("[data-radar-form]") : null;
+    if (form) form.querySelector("[data-radar-submit]").disabled = event.target.value.trim() === "";
+  });
+  document.addEventListener("click", (event) => {
+    const el = event.target instanceof Element ? event.target.closest("[data-radar-submit], [data-radar-delete], [data-radar-row]") : null;
+    if (!el) return;
+    event.stopPropagation();
+    if (el.dataset.radarSubmit !== undefined) {
+      const query = el.closest("[data-radar-form]").querySelector("input").value.trim();
+      log("radar:Submit");
+      void post("/i/api/graphql/" + window.__mockHash.createInsightInputMutation + "/createInsightInputMutation", { variables: { advanced_query: query, notifications_enabled: false, title: "" } })
+        .then((r) => go("/i/radar/" + r.data.create_insight_rule_v2.result.rest_id, false));
+    } else if (el.dataset.radarDelete !== undefined) {
+      const id = el.dataset.radarDelete;
+      log("radar:Delete", id);
+      dialog({
+        title: "Delete '" + el.closest("[data-radar-row]").dataset.radarName + "'",
+        body: "Are you sure you want to delete this query?",
+        buttons: [
+          { label: "Cancel" },
+          { label: "Delete", step: { write: { path: "/i/api/graphql/" + window.__mockHash.deleteInsightButtonMutation + "/deleteInsightButtonMutation", body: { variables: { id } } }, remove: '[data-radar-row="' + id + '"]' } },
+        ],
+      });
+    } else go("/i/radar/" + el.dataset.radarRow, false);
+  }, true);
 
   void show();
 })();

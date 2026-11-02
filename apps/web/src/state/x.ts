@@ -395,6 +395,92 @@ export const xPickInspiration = (
   return press;
 };
 
+/** X's Radar (Premium): the user's saved queries; a query's page is `/<id>`, X's form `/new`. */
+export const RADAR_URL = "https://x.com/i/radar";
+
+/**
+ * Whether X's Radar page shows X's Premium upsell (its "Subscribe to Premium" link) instead of
+ * Radar, once `loaded` settles: X's answer for an account without Premium. False while X shows
+ * Radar there, or the engine is elsewhere.
+ */
+export const xRadarUpsell = async (loaded: Promise<unknown>) => {
+  await loaded;
+  return (
+    (await xRun(`(async () => {
+    for (let i = 0; i < 40 && location.pathname === "/i/radar"; i++) {
+      if (document.querySelector('main a[href^="/i/premium_sign_up"]')) return true;
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    return false;
+  })()`)) === true
+  );
+};
+
+/**
+ * Creates a Radar query for the user's click through X's own form on its new-query page: the field
+ * set as typing sets it, then X's own Submit (its arrow), so X sends its own request. Resolves to
+ * the query whose page X opens, or null when X showed no form (the account is at X's limit) or
+ * opened none.
+ */
+export const xRadarCreate = async (query: string) => {
+  await xGo(`${RADAR_URL}/new`);
+  const run = await nextRun();
+  const id = await xRun(`(async () => {
+    const wait = () => new Promise((r) => setTimeout(r, 150));
+    const here = () => location.pathname === "/i/radar/new";
+    const fields = () => (here() ? [...document.querySelectorAll("main input")].filter((i) => i.type === "text") : []);
+    const submit = () => (here() ? document.querySelector('main button:has(svg[data-icon="icon-arrow-up"])') : null);
+    for (let i = 0; i < 40 && fields().length === 0 && ${stillMine(run)}; i++) await wait();
+    const input = fields()[0];
+    if (fields().length !== 1 || !${stillMine(run)}) return null;
+    // React keeps the field's value itself: its native setter and an input event are a keystroke.
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, ${JSON.stringify(query)});
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    for (let i = 0; i < 20 && submit()?.disabled !== false && ${stillMine(run)}; i++) await wait();
+    if (submit()?.disabled !== false || !${stillMine(run)}) return null;
+    submit().click();
+    for (let i = 0; i < 70; i++) {
+      const opened = /^\\/i\\/radar\\/(\\d+)$/.exec(location.pathname);
+      if (opened) return opened[1];
+      await wait();
+    }
+    return null;
+  })()`);
+  return typeof id === "string" ? id : null;
+};
+
+/**
+ * Deletes a Radar query for the user's click: presses its own Delete on X's list, X's `index`th
+ * row there once that row names `query`, and X's confirm dialog shows over the main area (see
+ * `holdOver`) for the user to confirm in X. False when X's list showed no such row.
+ */
+export const xRadarDelete = async (
+  query: string,
+  index: number,
+  over: (shown: boolean) => void,
+) => {
+  await xGo(RADAR_URL);
+  const run = await nextRun();
+  const path = await xRun(`(async () => {
+    const wait = () => new Promise((r) => setTimeout(r, 150));
+    const rows = () => (location.pathname === "/i/radar" ? [...document.querySelectorAll('main button:has(svg[data-icon="icon-trashcan"])')] : []);
+    for (let i = 0; i < 40 && rows().length <= ${index} && ${stillMine(run)}; i++) await wait();
+    const button = rows()[${index}];
+    // X draws an older query's tags one by one, without its OR.
+    const named = ${JSON.stringify(query.split(" OR "))}.every((part) => button?.closest(".group")?.textContent.includes(part));
+    if (!button || !named || !${stillMine(run)}) return null;
+    button.click();
+    for (let i = 0; i < 20; i++) {
+      if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return location.pathname + location.search;
+      await wait();
+    }
+    return null;
+  })()`);
+  if (typeof path !== "string") return false;
+  await holdOver(run, path, over);
+  return true;
+};
+
 /**
  * X's own buttons on a post, by test id, for the user's click on Xtend's copy of it: what each
  * turns into once pressed, and the confirm X asks for first.

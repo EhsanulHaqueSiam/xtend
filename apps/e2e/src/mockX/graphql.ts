@@ -9,6 +9,7 @@ import type {
   EngineNotification,
   EnginePost,
   EnginePrompt,
+  EngineRadarQuery,
   EngineTrend,
   EngineUser,
   EngineViewer,
@@ -621,6 +622,67 @@ function encodeGame(g: EngineGame): Json {
  * notifications and Lists, each module under its header, between the page's cursors. Every post
  * is an entry, a quote inside the post that quotes it, or a notification's target.
  */
+/** X's Radar answers (Relay, ondemand.Insights) sit under the viewer's own user. */
+const radarViewer = (fields: Json) => ({
+  data: {
+    viewer_v2: {
+      user_results: { result: { __typename: "User", ...fields, id: "VXNlcjox" }, id: "VXNlcjox" },
+    },
+  },
+});
+
+/**
+ * A Radar query in X's shape (`ApiInsightRule`). X's list is newest change first, so the `index`th
+ * row changed a minute before the one above it.
+ */
+const radarRule = (q: EngineRadarQuery, index: number): Json => ({
+  rest_id: q.id,
+  core: {
+    title: q.title,
+    tags: null,
+    advanced_query: q.query,
+    created_at: q.createdAt,
+    updated_at: new Date(Date.UTC(2026, 10, 2) - index * 60_000).toISOString(),
+    notifications_enabled: false,
+  },
+  ...when(q.preview.length > 0, () => ({
+    preview: {
+      counts: q.preview.map((d) => ({ start_time: Date.parse(d.at) / 1000, count: d.count })),
+    },
+  })),
+  id: btoa(`InsightRule:${q.id}`),
+});
+
+/** A post in X's Radar list: X's newer shape, text and time in `details`, counts in `counts`. */
+const radarTweet = (p: EnginePost, users: ReadonlyMap<string, EngineUser>): Json => {
+  const raw = encodeEntities(p.entities, 0);
+  return {
+    __typename: "Tweet",
+    rest_id: p.postId,
+    core: { user_results: { result: encodeUser(authorOf(p, users)) } },
+    details: {
+      display_text_range: [0, codePoints(p.text)],
+      full_text: escapeText(p.text),
+      created_at_ms: Date.parse(p.createdAt),
+      hashtag_entities: raw.hashtags,
+      cashtag_entities: raw.symbols,
+      smarttags: [],
+    },
+    legacy: { entities: { timestamps: [] } },
+    url_entities: raw.urls,
+    mention_entities: raw.user_mentions,
+    counts: {
+      reply_count: p.metrics.replies,
+      favorite_count: p.metrics.likes,
+      quote_count: p.metrics.quotes,
+      retweet_count: p.metrics.reposts,
+      bookmark_count: p.metrics.bookmarks,
+    },
+    views: { count: String(p.metrics.views ?? 0) },
+    id: btoa(`Tweet:${p.postId}`),
+  };
+};
+
 function timelineEntries(batch: EngineBatch, users: ReadonlyMap<string, EngineUser>) {
   const posts = new Map(batch.posts.map((p) => [p.postId, p]));
   const x: Encoder = { users, posts };
@@ -1079,6 +1141,69 @@ export function encodeBody(
                       list: { id_str: t.id.slice(5), name: t.label },
                     },
             ),
+          },
+        },
+      };
+    case "insightsConfigQuery":
+      return radarViewer({
+        insights_config: {
+          __typename: "InsightsConfigSuccess",
+          allow_build_query: false,
+          allow_granularity: ["Day"],
+          allow_impressions: false,
+          allow_post_counts: true,
+          allow_unique_users: false,
+          saved_query_limit: batch.radarLimit ?? 0,
+          subscription_type: "PremiumPlus",
+          time_range_limit_days: 7,
+          allow_alert_notifications: false,
+          alerts_enabled_by_default: false,
+        },
+      });
+    case "insightsListContextQuery":
+      return radarViewer({ insight_rules: { items: (batch.radarQueries ?? []).map(radarRule) } });
+    case "insightProviderGetQuery": {
+      const q = batch.radarQueries?.[0];
+      return radarViewer({ insight_rule_by_id: q === undefined ? null : radarRule(q, 0) });
+    }
+    case "usePostCountQuery": {
+      const days = batch.radarCounts ?? [];
+      return radarViewer({
+        insight_rule_by_id: {
+          matched_post_counts: {
+            __typename: "InsightsMatchedPostCountsSuccess",
+            counts: days.map((d) => ({ count: d.count, start_time: Date.parse(d.at) / 1000 })),
+            has_incomplete_counts: false,
+            oldest_complete_count: null,
+            total: days.reduce((n, d) => n + (d.count ?? 0), 0),
+          },
+          id: btoa(`InsightRule:${batch.key ?? ""}`),
+        },
+      });
+    }
+    case "postListQuery":
+      return {
+        data: {
+          search_by_raw_query: {
+            search_timeline: {
+              timeline: {
+                instructions: [
+                  {
+                    __typename: "TimelineAddEntries",
+                    entries: batch.posts.map((p) => ({
+                      content: {
+                        __typename: "TimelineTimelineItem",
+                        content: {
+                          __typename: "TimelineTweet",
+                          tweet_results: { rest_id: p.postId, result: radarTweet(p, users) },
+                        },
+                      },
+                    })),
+                  },
+                ],
+              },
+            },
+            id: "U2VhcmNoUXVlcnk6",
           },
         },
       };

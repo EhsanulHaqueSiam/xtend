@@ -1142,6 +1142,39 @@ const benchmarks = [
     },
   ],
   [
+    "Library Radar: X's upsell without Premium, else X's queries as X lists them (dry)",
+    async () => {
+      // Radar is Premium on X. Without it X's page is its upsell, and the section X's intro with
+      // X's own link; with it the section draws X's queries, or X's one query for a plan X allows
+      // one. Nothing is pressed.
+      await go("#/library?tab=radar");
+      return until(async () => {
+        if ((await enginePath()) !== "/i/radar") return false;
+        if (await engine(`!!document.querySelector('main a[href^="/i/premium_sign_up"]')`)) {
+          const intro = await app(
+            `[...document.querySelectorAll("main a")].some((a) => a.textContent.trim() === "Subscribe to Premium" && a.getAttribute("href") === "https://x.com/i/premium_sign_up")`,
+          );
+          return intro && "no Premium: X's upsell, and the section's intro links X's own page";
+        }
+        const radar = await store(`({ list: $.radar.list, limit: $.radar.limit })`);
+        if (!radar?.list) return false;
+        if (radar.list.length === 0)
+          return (
+            (await app(
+              `document.querySelector("main")?.textContent.includes("Create a query and let Radar track real-time updates")`,
+            )) && "Premium, no queries yet: X's form"
+          );
+        if (radar.limit !== null && radar.limit <= 1)
+          return (
+            (await app(`!!document.querySelector("main h1")`)) &&
+            `Premium, X's one query: ${radar.list[0]}`
+          );
+        const rows = await app(`document.querySelectorAll("main li").length`);
+        return rows === radar.list.length && `Premium: ${rows} queries, as X lists them`;
+      }, 30_000);
+    },
+  ],
+  [
     "Profile bell: shows X's own state for someone you follow (dry)",
     async () => {
       // Following holds people the account follows (and what they reposted), so X draws their bell.

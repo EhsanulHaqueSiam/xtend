@@ -1,7 +1,7 @@
 # Library
 
 The Library is posts worth learning from: today's picks for your keywords, X's own top posts,
-X search, an archive of everything the two have seen, trends, and what you saved. Every list is cards in a
+X's Radar, X search, an archive of everything the two have seen, trends, and what you saved. Every list is cards in a
 masonry; a click opens the post in the detail column with its full text and every number.
 Hover a card for **Remix** (Compose, with this post beside the editor) and **Save**. The arrow
 opens the post on X beside the tool. A card also drags like a post on X: onto a sidebar row
@@ -34,6 +34,16 @@ by (**Most Likes** and the rest) as X offers them; each pick asks X's own page. 
 showed before keeps its last list until X answers again. The header shows X's language. To
 change the language or country, change it on X's Inspiration page itself; the Library follows
 what X shows.
+
+## Radar
+
+X's Radar, a Premium feature on X: searches X watches for you. The section reads X's own Radar
+page through your X session in the desktop app, so it costs nothing here beyond X's Premium. It
+lists your queries as X does, with X's Posts count; open one for its posts by day and X's Top
+posts for it, which save and remix like any Library post. **New query** types into X's own form
+and submits it there. A query's delete presses X's own Delete, and X asks you to confirm in its
+dialog. Without Premium the section shows X's intro, and **Subscribe to Premium** opens X's
+page. Latest, the time range, renaming and alerts stay on X's Radar page.
 
 ## Search
 

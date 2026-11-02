@@ -38,6 +38,8 @@ const WRITES = new Set([
   "LeaveCommunity",
   "PinTimeline",
   "UnpinTimeline",
+  "createInsightInputMutation",
+  "deleteInsightButtonMutation",
 ]);
 /** X sends Home's timelines as POSTs, its other reads as GETs. */
 const POSTED = new Set(["HomeTimeline", "HomeLatestTimeline"]);
