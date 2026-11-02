@@ -1336,6 +1336,20 @@ it("picks a game's tab after a move only once X has answered for that game, and 
     const quiet = xPickGameTab("42", "Latest", Promise.resolve(true), open());
     await vi.runAllTimersAsync();
     expect([await quiet, clicked]).toEqual([false, ["Latest", "Latest"]]);
+    // Latest clicked after the move to 43, before X answers for it: the URL already names 43, but
+    // the tabs drawn are still 42's. The pick joins 43's wait and presses once X answers for 43.
+    clicked.length = 0;
+    history.replaceState(null, "", "/i/nba/game/43");
+    const top = new AbortController();
+    const opening = xPickGameTab("43", "Top", Promise.resolve(true), top.signal);
+    await vi.advanceTimersByTimeAsync(500);
+    top.abort();
+    const latest = xPickGameTab("43", "Latest", Promise.resolve(false), open());
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(clicked).toEqual([]);
+    answer("SportsGameTopTimeline", "43");
+    await vi.runAllTimersAsync();
+    expect([await opening, await latest, clicked]).toEqual([false, true, ["Latest"]]);
   } finally {
     history.replaceState(null, "", start);
   }

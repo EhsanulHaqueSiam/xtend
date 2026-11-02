@@ -1,4 +1,9 @@
-import { isXSkinToggle, X_SKIN_DEFAULTS, type XSkinToggle } from "@xtend/contracts";
+import {
+  type EngineBatch,
+  isXSkinToggle,
+  X_SKIN_DEFAULTS,
+  type XSkinToggle,
+} from "@xtend/contracts";
 import * as Atom from "effect/reactivity/Atom";
 
 /**
@@ -54,7 +59,7 @@ export const markXReady = () => {
       .then(done);
 };
 
-/** Engine moves screens asked for, so a screen being left can tell whether the next one moved it. */
+/** Engine moves screens made, so a screen being left can tell whether the next one moved it. */
 let moves = 0;
 
 /**
@@ -78,7 +83,6 @@ export const xNavigate = (url: string): Promise<void> => {
  */
 export const xGo = (url: string): Promise<boolean> => {
   if (!isXUrl(url)) return Promise.resolve(false);
-  moves++;
   const load = () => xNavigate(url).then(() => true);
   if (element === null || !ready) return load();
   const el = element;
@@ -92,6 +96,7 @@ export const xGo = (url: string): Promise<boolean> => {
   const target = new URL(url);
   const path = target.pathname + target.search;
   if (here.pathname + here.search === path) return Promise.resolve(false);
+  moves++;
   return el
     .executeJavaScript(
       `history.pushState(null, "", ${JSON.stringify(path)}); dispatchEvent(new PopStateEvent("popstate", { state: null })); true`,
@@ -230,11 +235,35 @@ const GAME_CALLS: ReadonlySet<string> = new Set([
   "SportsGameLatestTimeline",
 ]);
 const GAME_ANSWER_MS = 10_000;
+const answers = (b: EngineBatch, gameId: string) => b.key === gameId && GAME_CALLS.has(b.op);
+
+/**
+ * Per game, whether X is drawing its page since the engine's last move: X's first answer for the
+ * game settles it, X's silence fails it, and every pick of that game's tabs shares it.
+ */
+const drawn = new Map<string, { readonly moves: number; readonly ready: Promise<boolean> }>();
+
+function waitForGame(gameId: string, heard: boolean) {
+  let settle = (_answered: boolean) => {};
+  const ready = new Promise<boolean>((resolve) => (settle = resolve));
+  const stop = window.desktopBridge?.onEngine((b) => answers(b, gameId) && settle(true));
+  const quiet = setTimeout(() => settle(false), GAME_ANSWER_MS);
+  if (heard) settle(true);
+  const entry = { moves, ready };
+  drawn.set(gameId, entry);
+  void ready.then((answered) => {
+    stop?.();
+    clearTimeout(quiet);
+    // X stayed quiet: the next pick waits afresh.
+    if (!answered && drawn.get(gameId) === entry) drawn.delete(gameId);
+  });
+  return ready;
+}
 
 /**
  * Picks X's tab `label` (Top, Latest) on NBA game `gameId`'s page, as `xPickCommunitySearchTab`
- * does. After a move (`loaded` not false) X's path names the new game while the last game's tabs
- * still show, so it presses once X has answered a call for this game, and never if X stays quiet.
+ * does, once X has answered for this game since the engine's last move (`drawn`), never by X's
+ * path alone: that names a new game while the last one's tabs still show.
  */
 export const xPickGameTab = async (
   gameId: string,
@@ -244,19 +273,22 @@ export const xPickGameTab = async (
 ) => {
   // It goes into a script run in X's page: digits only.
   if (!/^\d{1,25}$/.test(gameId)) return false;
-  let heard = (_answered: boolean) => {};
-  const answered = new Promise<boolean>((resolve) => (heard = resolve));
-  const stop = window.desktopBridge?.onEngine((b) => {
-    if (b.key === gameId && GAME_CALLS.has(b.op)) heard(true);
-  });
-  const quiet = setTimeout(() => heard(false), GAME_ANSWER_MS);
+  // X may answer while the move settles.
+  let heard = false;
+  const stop = window.desktopBridge?.onEngine((b) => void (heard ||= answers(b, gameId)));
+  let moved: boolean;
   try {
-    if ((await loaded) !== false && !(await answered)) return false;
+    moved = (await loaded) !== false;
   } finally {
     stop?.();
-    clearTimeout(quiet);
   }
-  if (signal.aborted) return false;
+  // A pick with no move of its own joins the wait since the last one, while it still stands.
+  const known = drawn.get(gameId);
+  const ready =
+    !moved && known !== undefined && known.moves === moves
+      ? known.ready
+      : waitForGame(gameId, heard);
+  if (!(await ready) || signal.aborted) return false;
   const run = await nextRun();
   return (
     (await xRun(`(async () => {

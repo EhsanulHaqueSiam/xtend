@@ -139,10 +139,16 @@ it("draws a team's schedule in X's card forms, and nothing for an account X give
 it("opens a game with the day's strip and X's header, and Latest presses X's own tab for its own list", async () => {
   const bridge = installFakeBridge();
   const scripts: Array<string> = [];
-  // The engine already shows this game, so X's tabs are pressed in place.
+  // X's page follows X's router, as the engine's moves drive it.
+  let url = "https://x.com/home";
   registerXWebview({
-    executeJavaScript: (code: string) => (scripts.push(code), Promise.resolve(true)),
-    getURL: () => "https://x.com/i/nba/game/52",
+    executeJavaScript: (code: string) => {
+      scripts.push(code);
+      const to = /pushState\(null, "", "([^"]+)"\)/.exec(code)?.[1];
+      if (to !== undefined) url = `https://x.com${to}`;
+      return Promise.resolve(true);
+    },
+    getURL: () => url,
     loadURL: () => Promise.resolve(),
   } as unknown as XWebview);
   markXReady();
@@ -167,6 +173,8 @@ it("opens a game with the day's strip and X's header, and Latest presses X's own
       </div>,
       { router: false, service: {} },
     );
+    // X answers for the game once the screen has moved the engine there.
+    await expect.poll(() => url).toBe("https://x.com/i/nba/game/52");
     bridge.emitEngine(batch("NBASchedule", { games: [game("51"), live] }));
     bridge.emitEngine(batch("NBAGameHydrate", { key: "52", games: [live] }));
     bridge.emitEngine(
