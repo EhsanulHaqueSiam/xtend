@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { fmt } from "../components/analyze/ui";
 import { RichText } from "../components/xnative/RichText";
+import { TeamSchedule } from "../components/xnative/Sports";
 import { Timeline } from "../components/xnative/Timeline";
 import { XTabs, XTitle } from "../components/xnative/XColumn";
 import { FollowButton, SubscribeButton } from "../components/xnative/FollowButton";
@@ -372,6 +373,7 @@ function ProfileScreen() {
               </p>
             )}
           </div>
+          <TeamSchedule userId={userId} />
           <div className="border-b border-border">
             <XTabs
               label="Profile"

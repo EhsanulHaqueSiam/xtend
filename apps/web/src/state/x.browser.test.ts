@@ -1,5 +1,6 @@
 import { expect, it, vi } from "vite-plus/test";
 
+import type { EngineBatch } from "@xtend/contracts";
 import { fakeTimers, stubGlobal } from "../../test/render";
 
 import {
@@ -29,6 +30,9 @@ import {
   xTrendMenu,
   xTrendMenuPress,
   type XWebview,
+  xPickGameTab,
+  xHeard,
+  xNavigate,
 } from "./x";
 
 // X's page as the engine holds it: a post quoting 42, then 42 itself, edited, so its timestamp
@@ -1634,6 +1638,86 @@ it("picks a tab only on the page it was asked on, or under it, never another pag
     draw(["For You", "News"]);
     await vi.runAllTimersAsync();
     expect([await explore, clicked]).toEqual([true, ["/explore/tabs/for_you News"]]);
+  } finally {
+    history.replaceState(null, "", start);
+  }
+});
+
+it("picks a game's tab once X answered for that game since the engine's last move, whoever picks it", async () => {
+  using _clock = fakeTimers();
+  const answer = (op: string, key: string) => xHeard({ op, key } as unknown as EngineBatch);
+  const open = () => new AbortController().signal;
+  const clicked: Array<string> = [];
+  // The last game's tabs, still drawn while X's path already names the next game.
+  document.body.innerHTML = `<nav><div role="tab" aria-selected="true">Top</div><div role="tab" aria-selected="false">Latest</div></nav>`;
+  for (const tab of document.querySelectorAll('[role="tab"]'))
+    tab.addEventListener("click", () => clicked.push(tab.textContent!));
+  inThisPage(() => `https://x.com${location.pathname}`);
+  // The engine moves to game `id`, as a game screen's load does.
+  const move = (id: string) => {
+    history.replaceState(null, "", `/i/nba/game/${id}`);
+    return xNavigate(`https://x.com/i/nba/game/${id}`);
+  };
+  const start = location.href;
+  try {
+    const moved = xPickGameTab("42", "Latest", move("42"), open());
+    await vi.advanceTimersByTimeAsync(1_000);
+    answer("NBAGameHydrate", "41");
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(clicked).toEqual([]);
+    answer("NBAGameHydrate", "42");
+    await vi.runAllTimersAsync();
+    expect([await moved, clicked]).toEqual([true, ["Latest"]]);
+    // In place: X answered for this game since the engine moved there.
+    const inPlace = xPickGameTab("42", "Latest", Promise.resolve(false), open());
+    await vi.runAllTimersAsync();
+    expect([await inPlace, clicked]).toEqual([true, ["Latest", "Latest"]]);
+    // X stays quiet after a move: nothing is pressed.
+    const quiet = xPickGameTab("42", "Latest", move("42"), open());
+    await vi.runAllTimersAsync();
+    expect([await quiet, clicked]).toEqual([false, ["Latest", "Latest"]]);
+    // Latest clicked after the move to 43, before X answers for it: the URL already names 43, but
+    // the tabs drawn are still 42's. Every pick waits for X's answer for 43, then presses.
+    clicked.length = 0;
+    const top = new AbortController();
+    const opening = xPickGameTab("43", "Top", move("43"), top.signal);
+    await vi.advanceTimersByTimeAsync(500);
+    top.abort();
+    const latest = xPickGameTab("43", "Latest", Promise.resolve(false), open());
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(clicked).toEqual([]);
+    answer("SportsGameTopTimeline", "43");
+    await vi.runAllTimersAsync();
+    expect([await opening, await latest, clicked]).toEqual([false, true, ["Latest"]]);
+    // A finished game X answered once, before any pick: Latest in place is pressed at once.
+    clicked.length = 0;
+    void move("44");
+    answer("NBAGameHydrate", "44");
+    const finished = xPickGameTab("44", "Latest", Promise.resolve(false), open());
+    await vi.advanceTimersByTimeAsync(0);
+    expect([await finished, clicked]).toEqual([true, ["Latest"]]);
+    // Back to game 44 after a move away: X's router serves it from its cache with no new answer,
+    // and its score hero names 44's teams, so Latest is pressed. A hero naming another game's
+    // teams (X still drawing the last one) is not 44's.
+    const teams = {
+      away: { name: "Toronto Raptors", abbreviation: "TOR" },
+      home: { name: "Los Angeles Lakers", abbreviation: "LAL" },
+    };
+    const hero = (away: string, home: string) =>
+      document.body.insertAdjacentHTML(
+        "afterbegin",
+        `<div data-testid="nflGameScoreHero"><div data-testid="nflGameScoreHeroAwayTeam">${away}</div><div data-testid="nflGameScoreHeroScore">82 - 104</div><div data-testid="nflGameScoreHeroHomeTeam">${home}</div></div>`,
+      );
+    clicked.length = 0;
+    void xNavigate("https://x.com/lakers");
+    hero("Boston Celtics", "Orlando Magic");
+    const stale = xPickGameTab("44", "Latest", move("44"), open(), teams);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(clicked).toEqual([]);
+    document.querySelector('[data-testid="nflGameScoreHero"]')!.remove();
+    hero("Raptors", "Lakers");
+    await vi.runAllTimersAsync();
+    expect([await stale, clicked]).toEqual([true, ["Latest"]]);
   } finally {
     history.replaceState(null, "", start);
   }

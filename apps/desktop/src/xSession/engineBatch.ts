@@ -7,6 +7,8 @@ import type {
   EngineEntities,
   EngineRange,
   EngineExploreTab,
+  EngineGame,
+  EngineGameTeam,
   EngineGif,
   EngineHomeTab,
   EngineLink,
@@ -645,6 +647,53 @@ function readSection(entry: Json): EnginePeopleSection | undefined {
   };
 }
 
+const flag = (value: unknown) => (typeof value === "boolean" ? value : null);
+
+/**
+ * An NBA game in any of X's shapes for it: a card in a team's schedule, a game on the day's
+ * scoreboard, or the game's own hydrate and live calls, whose re-polls carry only the score and
+ * the plays since the last one.
+ */
+function readGame(game: Json): EngineGame | undefined {
+  const gameId = asString(game.rest_id);
+  if (gameId === undefined || !X_ID.test(gameId)) return undefined;
+  const live = record(game.live);
+  const summary = record(game.summary);
+  const side = (at: "away" | "home"): EngineGameTeam => {
+    const team = record(summary[at]);
+    return {
+      abbreviation: asString(team.abbreviation) ?? null,
+      name: asString(team.name) ?? null,
+      points: asCount(live[`${at}_points`]) ?? asCount(team.points),
+      timeouts: asCount(live[`${at}_timeouts`]),
+      bonus: flag(live[`${at}_bonus`]),
+    };
+  };
+  // The newest play by X's sequence, a millisecond count sent as a string.
+  const last = arr(record(game.plays).periods)
+    .flatMap((p) => arr(record(p).plays))
+    .filter(isRecord)
+    .reduce<Json | undefined>(
+      (newest, play) =>
+        newest === undefined || Number(play.sequence) >= Number(newest.sequence) ? play : newest,
+      undefined,
+    );
+  const description = asString(last?.description);
+  const ms = asString(summary.scheduled_ms);
+  return {
+    gameId,
+    status: asString(live.status) ?? asString(summary.status) ?? null,
+    startsAt: ms !== undefined && /^\d+$/.test(ms) ? new Date(Number(ms)).toISOString() : null,
+    away: side("away"),
+    home: side("home"),
+    period: asCount(live.quarter) ?? asCount(summary.quarter),
+    periodType: asString(live.period_type) ?? asString(summary.period_type) ?? null,
+    clock: asString(live.clock) ?? asString(summary.clock) ?? null,
+    halftime: flag(live.halftime),
+    lastPlay: description === undefined ? null : { kind: asString(last?.kind) ?? "", description },
+  };
+}
+
 /** X's prompt in a timeline (the Subs tab's subscribe prompt): its words and its button. */
 function readPrompt(item: Json): EnginePrompt | undefined {
   const content = record(item.content);
@@ -845,6 +894,11 @@ function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExp
         ? "connect:creators"
         : null;
   }
+  // A team's schedule and a game's own calls name it by id; a game's posts by its gameId.
+  if (op === "UserSportsProfile" || op === "NBAGameHydrate" || op === "NBALiveGame")
+    return s("rest_id") ?? null;
+  if (op === "SportsGameTopTimeline" || op === "SportsGameLatestTimeline")
+    return s("gameId") ?? null;
   return s("userId") ?? null;
 }
 
@@ -865,6 +919,7 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
   const notifications: Array<EngineNotification> = [];
   const lists: Array<EngineList> = [];
   const communities = new Map<string, EngineCommunity>();
+  const games = new Map<string, EngineGame>();
   let prompt: EnginePrompt | undefined;
   let top: string | null = null;
   let bottom: string | null = null;
@@ -952,6 +1007,15 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
       const community = readCommunity(node);
       if (community !== undefined && !communities.has(community.communityId))
         communities.set(community.communityId, community);
+    } else if (
+      isRecord(record(node.summary).away) &&
+      isRecord(record(node.summary).home) &&
+      typeof node.rest_id === "string" &&
+      !games.has(node.rest_id)
+    ) {
+      // A game: X's summary names its two sides, whichever call sent it.
+      const game = readGame(node);
+      if (game !== undefined) games.set(game.gameId, game);
     } else if (type === "TimelineMessagePrompt") {
       prompt ??= readPrompt(node);
     } else if (node.cursorType === "Top" || node.cursorType === "Bottom") {
@@ -1017,6 +1081,7 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     homeTabs: readHomeTabs(record(body)),
     exploreTabs,
     viewer: op === "Viewer" ? readViewer(result(record(data.viewer).user_results)) : null,
+    ...(games.size === 0 ? {} : { games: [...games.values()] }),
     ...(gifSlice === null ? {} : { gifs: arr(gifSlice.items).flatMap(readGif) }),
     ...(prompt === undefined ? {} : { prompt }),
     ...readAnalytics(op, data),
@@ -1128,6 +1193,7 @@ export const hasEngineContent = (b: EngineBatch) =>
   b.homeTabs !== null ||
   b.exploreTabs !== null ||
   b.viewer !== null ||
+  (b.games?.length ?? 0) > 0 ||
   b.gifs !== undefined ||
   b.prompt !== undefined ||
   b.analytics !== undefined ||

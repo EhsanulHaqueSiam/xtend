@@ -39,6 +39,9 @@ const PAGES: ReadonlyArray<readonly [path: string, tab?: string]> = [
   ["/i/communities/latest?q=founders"],
   ["/you"],
   ["/you/status/700000000027/analytics"],
+  ["/yuki_mensah20"],
+  ["/i/nba/game/900000500004", "Top"],
+  ["/i/nba/game/900000500004", "Latest"],
 ];
 
 it("answers every request X's pages make with the batch the made-up fixtures hold, as the capture reads it", () => {

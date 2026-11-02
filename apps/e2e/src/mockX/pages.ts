@@ -1,6 +1,7 @@
 import type {
   EngineBatch,
   EngineCommunity,
+  EngineGame,
   EngineGif,
   EngineList,
   EngineModule,
@@ -303,6 +304,20 @@ const PEOPLE_TABS = [
 ] as const;
 const SORTS = { relevance: "Relevant", recency: "Recent", likes: "Likes" } as const;
 const MODES = { relevance: "Relevance", recency: "Recency", likes: "Likes" } as const;
+
+/** A game's state in a line, as X's cards and strip say it: "Final", "LIVE Q3 04:12", the day. */
+const gameState = (g: EngineGame) =>
+  g.status === "COMPLETED"
+    ? "Final"
+    : g.status === "IN_PROGRESS"
+      ? `LIVE Q${g.period ?? 1} ${g.clock ?? ""}`
+      : shortDate(g.startsAt ?? "");
+const gameSides = (g: EngineGame) =>
+  [g.away, g.home]
+    .map((t) => `<span>${esc(t.abbreviation ?? "")} ${t.points ?? ""}</span>`)
+    .join("");
+/** X's tabs on a game's page, switched in place on its one URL. */
+const GAME_TABS = ["Top", "Latest", "Highlights", "Stats", "Plays", "Chat"] as const;
 
 /** A full-page dialog X opens as its own route (Report, Send via Chat, the composer). */
 const routeDialog = (title: string, body: string) =>
@@ -654,6 +669,59 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
       },
     };
   }
+  if (lower === "i" && second === "nba" && third === "game" && fourth !== undefined) {
+    const id = fourth;
+    const tab = GAME_TABS.find((t) => t === homeTab) ?? "Top";
+    const posts =
+      tab === "Top" || tab === "Latest"
+        ? [
+            r(tab === "Top" ? "SportsGameTopTimeline" : "SportsGameLatestTimeline", {
+              gameId: id,
+              count: 20,
+            }),
+          ]
+        : [];
+    const day = Date.parse(state.game(id)?.startsAt ?? "") || 0;
+    return {
+      title: "Game / X",
+      requests: [
+        r("NBATeams", {}),
+        r("NBAGameHydrate", { rest_id: id }),
+        r("NBASchedule", {
+          start_ms: String(day - 43_200_000),
+          end_ms: String(day + 43_200_000),
+          limit: 500,
+        }),
+        r("NBALiveGame", { rest_id: id }),
+        ...posts,
+      ],
+      render: ([, hydrate, schedule, , b]) => {
+        const g = hydrate?.games?.[0];
+        if (g === undefined)
+          return `${header("Game")}<div class="empty"><h3>Hmm...this page doesn't exist.</h3></div>`;
+        // X's day pills are buttons named by both teams, not by the game: none says which is open.
+        const strip = (schedule?.games ?? [])
+          .map(
+            (d) =>
+              `<button data-testid="nflGameCarouselPill-${d.gameId}" aria-label="${esc(`${d.away.name ?? ""} @ ${d.home.name ?? ""}`)}" data-href="/i/nba/game/${d.gameId}">${esc(d.away.abbreviation ?? "")} ${esc(gameState(d))} ${esc(d.home.abbreviation ?? "")}</button>`,
+          )
+          .join(" ");
+        const notes = (t: EngineGame["away"]) =>
+          `<div class="muted">${t.timeouts === null ? "" : `${t.timeouts} of 7 timeouts remaining`}${t.bonus === true ? " Bonus" : ""}</div>`;
+        // As X draws it live: its score hero names the teams, and nothing carries the game's id.
+        const hero = `<div data-testid="nflGameScoreHero"><div data-testid="nflGameScoreHeroAwayTeam">${esc(g.away.name ?? "")}</div><div data-testid="nflGameScoreHeroScore">${g.away.points ?? ""} - ${g.home.points ?? ""}</div><div data-testid="nflGameScoreHeroHomeTeam">${esc(g.home.name ?? "")}</div><div data-testid="nflGameScoreHeroStatus">${esc(gameState(g))}</div></div>`;
+        const gameTabs = `<nav role="tablist" aria-label="Game" class="tabs">${GAME_TABS.map(
+          (t) =>
+            `<div role="tab" data-testid="nflGameTab-${t.toLowerCase()}" data-home-tab="${t}" aria-selected="${t === tab}" tabindex="0"><span>${t}</span></div>`,
+        ).join("")}</nav>`;
+        return `${header("Game")}<div data-testid="nbaGameRoot"><div data-testid="scoreStrip">${strip}</div><div data-testid="nbaGameHeader">${hero}${notes(g.away)}${notes(g.home)}${
+          g.lastPlay === null
+            ? ""
+            : `<div><b>${esc(g.lastPlay.kind)}</b> ${esc(g.lastPlay.description)}</div>`
+        }</div>${gameTabs}<section data-list>${postsOf(b ?? null, state)}</section></div>`;
+      },
+    };
+  }
   if (lower === "i" && second === "safety")
     return {
       title: "Report / X",
@@ -939,6 +1007,12 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
       requests: [
         r("UserByScreenName", { screen_name: u.handle }),
         r(tab.op, { userId: u.userId, count: 20, includePromotedContent: true }),
+        // X asks every profile for a schedule over the weeks around now.
+        r("UserSportsProfile", {
+          rest_id: u.userId,
+          start_time: String(Date.now() - 14 * 86_400_000),
+          end_time: String(Date.now() + 14 * 86_400_000),
+        }),
       ],
       // Who of the people the viewer follows follow them ("Followed by"), for others' profiles.
       ...(own
@@ -948,7 +1022,7 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
               `/i/api/1.1/friends/following/list.json?include_profile_interstitial_type=1&skip_status=1&user_id=${u.userId}&count=3&with_total_count=true`,
             ],
           }),
-      render: ([head, b]) => {
+      render: ([head, b, sports]) => {
         const live = head?.users[0] ?? state.user(u.userId) ?? u;
         const bell = state.bellOn(live.userId);
         const buttons = own
@@ -965,7 +1039,17 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
           <div data-testid="UserDescription">${esc(live.bio)}</div>
           <div class="muted">${live.joinedAt === null ? "" : `Joined ${esc(new Date(live.joinedAt).toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" }))}`}</div>
           <div><a href="/${esc(live.handle)}/following"><b>${compact(live.following)}</b> Following</a> <a href="/${esc(live.handle)}/verified_followers"><b>${compact(live.followers)}</b> Followers</a></div>
-        </div>${tabs(
+        </div>${
+          (sports?.games ?? []).length === 0
+            ? ""
+            : `<div data-testid="nflProfileScheduleCarousel"><button aria-label="Previous">‹</button>${sports!
+                .games!.map(
+                  // Buttons named "<away> at <home>. <status>", with no link to the game.
+                  (g) =>
+                    `<button data-testid="nflProfileScheduleGameCard" aria-label="${esc(`${g.away.name ?? ""} at ${g.home.name ?? ""}. ${gameState(g)}`)}" data-href="/i/nba/game/${g.gameId}"><div>${esc(gameState(g))}</div>${gameSides(g)}</button>`,
+                )
+                .join("")}<button aria-label="Next">›</button></div>`
+        }${tabs(
           "Profile timelines",
           PROFILE_TABS.filter((t) => t.label !== "Subs" || state.isCreator(live.userId)).map(
             (t) => ({

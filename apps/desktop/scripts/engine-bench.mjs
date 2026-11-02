@@ -1062,6 +1062,86 @@ const benchmarks = [
     },
   ],
   [
+    "Sports: a team's schedule is X's, and a game's header, Top and Latest are X's (dry)",
+    async () => {
+      // An NBA team, whose profile X draws its schedule on. Only X's tabs are pressed.
+      const handle = "Lakers";
+      const xFirst = `[...document.querySelectorAll("article")].map((a) => a.querySelector('a[href*="/status/"] time')?.parentElement.getAttribute("href")?.split("/status/")[1]?.split("/")[0]).filter(Boolean).slice(0, 3)`;
+      const same = () =>
+        until(async () => {
+          const [xs, ours] = [await engine(xFirst), await nativeIds()];
+          const at = ours?.indexOf(xs?.[0]) ?? -1;
+          return (
+            xs?.length === 3 &&
+            at !== -1 &&
+            JSON.stringify(ours.slice(at, at + 3)) === JSON.stringify(xs) &&
+            xs.join(",")
+          );
+        });
+      const xTab = (label) =>
+        until(() =>
+          engine(
+            `document.querySelector('[role="tab"][aria-selected="true"]')?.textContent.trim() === ${JSON.stringify(label)}`,
+          ),
+        );
+      await go(`#/u/${handle}`);
+      // X's carousel cards are buttons with no game id: their text, in order, against Xtend's.
+      const cards = (sel) =>
+        `(() => { const t = [...document.querySelectorAll(${JSON.stringify(sel)})].map((c) => c.innerText.replace(/\\s+/g, " ").trim()); return t.length > 0 && t; })()`;
+      const xs = await until(() =>
+        engine(
+          cards(
+            '[data-testid="nflProfileScheduleCarousel"] [data-testid="nflProfileScheduleGameCard"]',
+          ),
+        ),
+      );
+      const texts = await until(() => app(cards('main [data-x="game-card"]')));
+      const ours = await app(
+        `[...document.querySelectorAll('main [data-x="game-card"]')].map((a) => a.getAttribute("href").split("/nba/game/")[1])`,
+      );
+      const at = texts?.indexOf(xs?.[0]) ?? -1;
+      if (
+        !xs ||
+        at === -1 ||
+        JSON.stringify(texts.slice(at, at + xs.length)) !== JSON.stringify(xs)
+      )
+        return false;
+      // A live game if there is one, else the latest final.
+      const id = await store(
+        `(() => { const ids = ${JSON.stringify(ours)}; const of = (s) => ids.filter((i) => $.games.get(i)?.status === s); return of("IN_PROGRESS")[0] ?? of("COMPLETED").at(-1); })()`,
+      );
+      if (!id) return false;
+      await reset(`sportsGame:Top:${id}`, `sportsGame:Latest:${id}`);
+      await go(`#/nba/game/${id}`);
+      const top = (await xTab("Top")) && (await same());
+      // Xtend's header shows the score X's own page shows.
+      const score = await until(async () => {
+        const ourScore = await app(
+          `[...document.querySelectorAll('main [data-x="game"] [data-x="points"]')].map((p) => p.textContent).join("-")`,
+        );
+        const onX = await engine(
+          `document.querySelector('[data-testid="primaryColumn"]')?.innerText ?? ""`,
+        );
+        return (
+          /^\d+-\d+$/.test(ourScore ?? "") &&
+          ourScore.split("-").every((n) => new RegExp(`\\b${n}\\b`).test(onX)) &&
+          ourScore
+        );
+      });
+      await app(
+        `[...document.querySelectorAll('main [role="tab"]')].find((t) => t.textContent.trim() === "Latest")?.click(), true`,
+      );
+      const latest = (await xTab("Latest")) && (await same());
+      const day = await store(`$.gameDays.get(${JSON.stringify(id)})?.length ?? 0`);
+      return (
+        top &&
+        score &&
+        latest &&
+        `@${handle}: ${xs.length} of X's cards; ${id} ${score}: top ${top}, latest ${latest}, ${day} on the strip`
+      );
+    },
+  ],
+  [
     "Profile bell: shows X's own state for someone you follow (dry)",
     async () => {
       // Following holds people the account follows (and what they reposted), so X draws their bell.

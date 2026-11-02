@@ -1788,3 +1788,235 @@ describe("renderEngineBatch for a profile's Subs", () => {
     expect(hasEngineContent(subs)).toBe(true);
   });
 });
+
+describe("renderEngineBatch for X's sports pages", () => {
+  // X's game shapes, as a live read of x.com showed them; the values are made up.
+  const side = (abbreviation: string, points: number) => ({
+    abbreviation,
+    name: `${abbreviation} name`,
+    points,
+    team: { id: "VGVhbTox", rest_id: "706000000000000001" },
+  });
+  const card = (id: string, status: string, away: [string, number], home: [string, number]) => ({
+    game: {
+      __typename: "SportsProfileNbaGame",
+      nba_game: {
+        id: "R2FtZTox",
+        rest_id: id,
+        live: {
+          away_points: away[1],
+          home_points: home[1],
+          clock_running: false,
+          halftime: false,
+          period_type: "NBA_PERIOD_TYPE_UNSPECIFIED",
+          status,
+        },
+        summary: {
+          away: side(...away),
+          home: side(...home),
+          period_type: "NBA_PERIOD_TYPE_UNSPECIFIED",
+          scheduled_ms: "1792962000000",
+          status,
+          went_to_overtime: false,
+        },
+      },
+    },
+    start_time: "1792962000000",
+  });
+  const play = (sequence: string, kind: string, description: string) => ({
+    away_points: 82,
+    home_points: 104,
+    clock: "00:00",
+    description,
+    id: "UGxheTox",
+    kind,
+    participants: [],
+    scoring: false,
+    sequence,
+    team: { id: "VGVhbTox", rest_id: "706000000000000001" },
+  });
+
+  it("reads a team's schedule from its profile, and nothing for an account X gives none", () => {
+    const schedule = renderEngineBatch(
+      "UserSportsProfile",
+      { rest_id: "20000001", start_time: "1792900200000", end_time: "1794801300000" },
+      {
+        data: {
+          user_results: {
+            id: "VXNlcjox",
+            rest_id: "20000001",
+            result: {
+              __typename: "User",
+              rest_id: "20000001",
+              sports_profile: {
+                league: "NBA",
+                season_schedule: {
+                  start_time: "1792900200000",
+                  end_time: "1794801300000",
+                  games: [
+                    card("31", "COMPLETED", ["LAL", 132], ["UTA", 123]),
+                    card("32", "SCHEDULED", ["MIA", 0], ["LAL", 0]),
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+    );
+    expect(schedule.key).toBe("20000001");
+    expect(hasEngineContent(schedule)).toBe(true);
+    expect(schedule.games).toEqual([
+      {
+        gameId: "31",
+        status: "COMPLETED",
+        startsAt: "2026-10-25T21:00:00.000Z",
+        away: { abbreviation: "LAL", name: "LAL name", points: 132, timeouts: null, bonus: null },
+        home: { abbreviation: "UTA", name: "UTA name", points: 123, timeouts: null, bonus: null },
+        period: null,
+        periodType: "NBA_PERIOD_TYPE_UNSPECIFIED",
+        clock: null,
+        halftime: false,
+        lastPlay: null,
+      },
+      expect.objectContaining({ gameId: "32", status: "SCHEDULED" }),
+    ]);
+    // A football club: X answers with the user alone.
+    const none = renderEngineBatch(
+      "UserSportsProfile",
+      { rest_id: "20000002" },
+      { data: { user_results: { result: { __typename: "User", rest_id: "20000002" } } } },
+    );
+    expect(none.games).toBeUndefined();
+    expect(hasEngineContent(none)).toBe(false);
+  });
+
+  it("reads a game's clock, timeouts, bonus and newest play, and the day's scoreboard in X's order", () => {
+    const game = {
+      id: "R2FtZTox",
+      rest_id: "41",
+      live: {
+        away_bonus: true,
+        away_points: 82,
+        away_timeouts: 3,
+        clock: "00:00",
+        clock_observed_ms: "1793591485728",
+        clock_running: false,
+        halftime: false,
+        home_bonus: false,
+        home_points: 104,
+        home_timeouts: 5,
+        period_type: "QUARTER",
+        quarter: 3,
+        status: "IN_PROGRESS",
+      },
+      plays: {
+        latest_sequence: "1793587254024",
+        periods: [
+          { period: 3, period_type: "QUARTER", plays: [play("1793585521371", "SHOT", "Older")] },
+          {
+            period: 3,
+            period_type: "QUARTER",
+            plays: [
+              play("1793587254024", "REBOUND", "Raptors offensive rebound"),
+              play("1793587254023", "SHOT", "Missed three"),
+            ],
+          },
+        ],
+      },
+      summary: {
+        away: side("TOR", 82),
+        home: side("LAL", 104),
+        period_type: "QUARTER",
+        quarter: 3,
+        scheduled_ms: "1793584800000",
+        status: "IN_PROGRESS",
+      },
+    };
+    const hydrate = renderEngineBatch(
+      "NBAGameHydrate",
+      { rest_id: "41" },
+      { data: { nba_game: game } },
+    );
+    expect(hydrate.key).toBe("41");
+    expect(hydrate.games).toEqual([
+      {
+        gameId: "41",
+        status: "IN_PROGRESS",
+        startsAt: "2026-11-02T02:00:00.000Z",
+        away: { abbreviation: "TOR", name: "TOR name", points: 82, timeouts: 3, bonus: true },
+        home: { abbreviation: "LAL", name: "LAL name", points: 104, timeouts: 5, bonus: false },
+        period: 3,
+        periodType: "QUARTER",
+        clock: "00:00",
+        halftime: false,
+        lastPlay: { kind: "REBOUND", description: "Raptors offensive rebound" },
+      },
+    ]);
+    // X's re-poll while live: the score alone, no new plays.
+    const poll = renderEngineBatch(
+      "NBALiveGame",
+      { rest_id: "41", since_sequence: "1793587254024" },
+      {
+        data: {
+          nba_game: {
+            rest_id: "41",
+            summary: { away: { points: 84 }, home: { points: 104 }, status: "IN_PROGRESS" },
+          },
+        },
+      },
+    );
+    expect(poll.games).toEqual([
+      expect.objectContaining({
+        away: { abbreviation: null, name: null, points: 84, timeouts: null, bonus: null },
+        lastPlay: null,
+      }),
+    ]);
+    const day = renderEngineBatch(
+      "NBASchedule",
+      { start_ms: "1793520000000", end_ms: "1793606400000", limit: 500 },
+      {
+        data: {
+          nba_schedule: {
+            games: [
+              { ...game, rest_id: "42", summary: { ...game.summary, away: side("BOS", 108) } },
+              game,
+            ],
+          },
+        },
+      },
+    );
+    expect(day.games?.map((g) => [g.gameId, g.away.abbreviation])).toEqual([
+      ["42", "BOS"],
+      ["41", "TOR"],
+    ]);
+  });
+
+  it("keys a game's Top and Latest posts by the game", () => {
+    const entry = (id: string) => ({
+      entryId: `tweet-${id}`,
+      content: {
+        entryType: "TimelineTimelineItem",
+        itemContent: { itemType: "TimelineTweet", tweet_results: { result: tweet(id) } },
+      },
+    });
+    const latest = renderEngineBatch(
+      "SportsGameLatestTimeline",
+      { gameId: "41", count: 20 },
+      {
+        data: {
+          sports_timelines: {
+            latest: {
+              id: "U3BvcnRzOjE=",
+              timeline: {
+                instructions: [{ type: "TimelineAddEntries", entries: [entry("62"), entry("61")] }],
+              },
+            },
+          },
+        },
+      },
+    );
+    expect([latest.key, latest.order]).toEqual(["41", ["62", "61"]]);
+    expect(renderEngineBatch("SportsGameTopTimeline", { gameId: "41" }, {}).key).toBe("41");
+  });
+});

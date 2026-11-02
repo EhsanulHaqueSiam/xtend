@@ -38,6 +38,7 @@ import { Route as ArticleIdRouteImport } from './routes/article.$id'
 import { Route as UHandlePeopleRouteImport } from './routes/u.$handle_.people'
 import { Route as PostIdAnalyticsRouteImport } from './routes/post.$id_.analytics'
 import { Route as PostIdActivityRouteImport } from './routes/post.$id_.activity'
+import { Route as NbaGameIdRouteImport } from './routes/nba.game.$id'
 import { Route as ListsIdPeopleRouteImport } from './routes/lists.$id_.people'
 
 const XRoute = XRouteImport.update({
@@ -185,6 +186,11 @@ const PostIdActivityRoute = PostIdActivityRouteImport.update({
   path: '/post/$id/activity',
   getParentRoute: () => rootRouteImport,
 } as any)
+const NbaGameIdRoute = NbaGameIdRouteImport.update({
+  id: '/nba/game/$id',
+  path: '/nba/game/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ListsIdPeopleRoute = ListsIdPeopleRouteImport.update({
   id: '/lists/$id_/people',
   path: '/lists/$id/people',
@@ -219,6 +225,7 @@ export interface FileRoutesByFullPath {
   '/communities/': typeof CommunitiesIndexRoute
   '/lists/': typeof ListsIndexRoute
   '/lists/$id/people': typeof ListsIdPeopleRoute
+  '/nba/game/$id': typeof NbaGameIdRoute
   '/post/$id/activity': typeof PostIdActivityRoute
   '/post/$id/analytics': typeof PostIdAnalyticsRoute
   '/u/$handle/people': typeof UHandlePeopleRoute
@@ -251,6 +258,7 @@ export interface FileRoutesByTo {
   '/communities': typeof CommunitiesIndexRoute
   '/lists': typeof ListsIndexRoute
   '/lists/$id/people': typeof ListsIdPeopleRoute
+  '/nba/game/$id': typeof NbaGameIdRoute
   '/post/$id/activity': typeof PostIdActivityRoute
   '/post/$id/analytics': typeof PostIdAnalyticsRoute
   '/u/$handle/people': typeof UHandlePeopleRoute
@@ -284,6 +292,7 @@ export interface FileRoutesById {
   '/communities/': typeof CommunitiesIndexRoute
   '/lists/': typeof ListsIndexRoute
   '/lists/$id_/people': typeof ListsIdPeopleRoute
+  '/nba/game/$id': typeof NbaGameIdRoute
   '/post/$id_/activity': typeof PostIdActivityRoute
   '/post/$id_/analytics': typeof PostIdAnalyticsRoute
   '/u/$handle_/people': typeof UHandlePeopleRoute
@@ -318,6 +327,7 @@ export interface FileRouteTypes {
     | '/communities/'
     | '/lists/'
     | '/lists/$id/people'
+    | '/nba/game/$id'
     | '/post/$id/activity'
     | '/post/$id/analytics'
     | '/u/$handle/people'
@@ -350,6 +360,7 @@ export interface FileRouteTypes {
     | '/communities'
     | '/lists'
     | '/lists/$id/people'
+    | '/nba/game/$id'
     | '/post/$id/activity'
     | '/post/$id/analytics'
     | '/u/$handle/people'
@@ -382,6 +393,7 @@ export interface FileRouteTypes {
     | '/communities/'
     | '/lists/'
     | '/lists/$id_/people'
+    | '/nba/game/$id'
     | '/post/$id_/activity'
     | '/post/$id_/analytics'
     | '/u/$handle_/people'
@@ -415,6 +427,7 @@ export interface RootRouteChildren {
   CommunitiesIndexRoute: typeof CommunitiesIndexRoute
   ListsIndexRoute: typeof ListsIndexRoute
   ListsIdPeopleRoute: typeof ListsIdPeopleRoute
+  NbaGameIdRoute: typeof NbaGameIdRoute
   PostIdActivityRoute: typeof PostIdActivityRoute
   PostIdAnalyticsRoute: typeof PostIdAnalyticsRoute
   UHandlePeopleRoute: typeof UHandlePeopleRoute
@@ -625,6 +638,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PostIdActivityRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/nba/game/$id': {
+      id: '/nba/game/$id'
+      path: '/nba/game/$id'
+      fullPath: '/nba/game/$id'
+      preLoaderRoute: typeof NbaGameIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/lists/$id_/people': {
       id: '/lists/$id_/people'
       path: '/lists/$id/people'
@@ -663,6 +683,7 @@ const rootRouteChildren: RootRouteChildren = {
   CommunitiesIndexRoute: CommunitiesIndexRoute,
   ListsIndexRoute: ListsIndexRoute,
   ListsIdPeopleRoute: ListsIdPeopleRoute,
+  NbaGameIdRoute: NbaGameIdRoute,
   PostIdActivityRoute: PostIdActivityRoute,
   PostIdAnalyticsRoute: PostIdAnalyticsRoute,
   UHandlePeopleRoute: UHandlePeopleRoute,

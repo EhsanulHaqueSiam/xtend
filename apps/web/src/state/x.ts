@@ -1,4 +1,10 @@
-import { isXSkinToggle, X_SKIN_DEFAULTS, type XSkinToggle } from "@xtend/contracts";
+import {
+  type EngineBatch,
+  type EngineGameTeam,
+  isXSkinToggle,
+  X_SKIN_DEFAULTS,
+  type XSkinToggle,
+} from "@xtend/contracts";
 import * as Atom from "effect/reactivity/Atom";
 
 /**
@@ -57,6 +63,9 @@ export const markXReady = () => {
       .then(done);
 };
 
+/** Engine moves screens made, so a screen being left can tell whether the next one moved it. */
+let moves = 0;
+
 /**
  * Loads an x.com URL; other hosts are ignored. Resolves once the page has loaded, so an engine
  * step (picking Home's tab) can follow it. Before the guest is ready the last call wins and every
@@ -64,6 +73,7 @@ export const markXReady = () => {
  */
 export const xNavigate = (url: string): Promise<void> => {
   if (!isXUrl(url)) return Promise.resolve();
+  moves++;
   if (element !== null && ready) return element.loadURL(url).catch(() => {});
   return new Promise((resolve) => {
     pending = { url, waiters: [...(pending?.waiters ?? []), resolve] };
@@ -90,11 +100,25 @@ export const xGo = (url: string): Promise<boolean> => {
   const target = new URL(url);
   const path = target.pathname + target.search;
   if (here.pathname + here.search === path) return Promise.resolve(false);
+  moves++;
   return el
     .executeJavaScript(
       `history.pushState(null, "", ${JSON.stringify(path)}); dispatchEvent(new PopStateEvent("popstate", { state: null })); true`,
     )
     .then(() => true, load);
+};
+
+/**
+ * Takes the engine off X's page at `path` (a live game X keeps polling) once the screen that
+ * showed it is gone, back to X's Home: only when the next screen moved the engine nowhere (a
+ * tool, Settings) and X's page is not in view (`inView`). Called as that screen unmounts.
+ */
+export const xLeave = (path: string, inView: () => boolean) => {
+  const asked = moves;
+  // After the next screen's mount effects, which move the engine as they run.
+  queueMicrotask(() => {
+    if (moves === asked && !inView() && xShows(path)) void xGo("https://x.com/home");
+  });
 };
 
 /** Whether the webview already shows this x.com path, so a screen can skip reloading it. */
@@ -202,6 +226,106 @@ export const xPickCommunitySearchTab = async (
       new URLSearchParams(location.search).get("q") === ${JSON.stringify(query)};
     for (let i = 0; i < 40 && ${stillMine(run)}; i++) {
       const tab = here() ? [...document.querySelectorAll('[role="tab"]')].find((t) => t.textContent.trim() === ${JSON.stringify(label)}) : undefined;
+      if (tab !== undefined) {
+        if (tab.getAttribute("aria-selected") !== "true") tab.click();
+        return true;
+      }
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    return false;
+  })()`)) === true
+  );
+};
+
+/** X's calls for one game's page, keyed by the game: an answer means X is drawing that game. */
+const GAME_CALLS: ReadonlySet<string> = new Set([
+  "NBAGameHydrate",
+  "NBALiveGame",
+  "SportsGameTopTimeline",
+  "SportsGameLatestTimeline",
+]);
+const GAME_ANSWER_MS = 10_000;
+
+/** Per game, the engine move X last answered it after (see `moves`), and who waits for it. */
+const answeredAfter = new Map<string, number>();
+const hearing = new Set<() => void>();
+
+/** Notes X's answer for a game's page; EngineSync hands it every batch the engine receives. */
+export const xHeard = (batch: EngineBatch) => {
+  if (batch.key === null || !GAME_CALLS.has(batch.op)) return;
+  answeredAfter.set(batch.key, moves);
+  for (const wake of hearing) wake();
+};
+
+/** A game's two sides, as Xtend has them from X: each named by its name and abbreviation. */
+export type GameTeams = Readonly<
+  Record<"away" | "home", Pick<EngineGameTeam, "name" | "abbreviation">>
+>;
+
+/**
+ * Whether X's score hero names `teams`' away and home sides, waiting for X to draw it: each side
+ * by its nickname (a name's last word) or its abbreviation, in any of the forms X writes them.
+ */
+const heroShows = (teams: GameTeams) => {
+  const keys = (t: GameTeams["away"]) =>
+    [t.name?.split(/\s+/).at(-1), t.abbreviation].flatMap((k) => (k ? [k.toLowerCase()] : []));
+  return xRun(`(async () => {
+    const side = (testid, keys) => {
+      const words = (document.querySelector('[data-testid="' + testid + '"]')?.textContent ?? "").toLowerCase().split(/[^a-z0-9]+/);
+      return keys.some((k) => words.includes(k));
+    };
+    for (let i = 0; i < ${GAME_ANSWER_MS / 250}; i++) {
+      if (side("nflGameScoreHeroAwayTeam", ${JSON.stringify(keys(teams.away))}) && side("nflGameScoreHeroHomeTeam", ${JSON.stringify(keys(teams.home))})) return true;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    return false;
+  })()`).then((shown) => shown === true);
+};
+
+/**
+ * Whether X shows game `gameId`, waiting for it a while: X has answered for it since the engine's
+ * last move, or (a game X serves from its router cache, with no answer) its score hero names the
+ * game's `teams`. A finished game X answered once is drawn; another game's page is not.
+ */
+const gameDrawn = (gameId: string, teams: GameTeams | undefined) =>
+  new Promise<boolean>((resolve) => {
+    const drawn = () => answeredAfter.get(gameId) === moves;
+    if (drawn()) return resolve(true);
+    let over = false;
+    const done = (shown: boolean) => {
+      if (over) return;
+      over = true;
+      hearing.delete(wake);
+      clearTimeout(quiet);
+      resolve(shown);
+    };
+    const wake = () => void (drawn() && done(true));
+    const quiet = setTimeout(() => done(false), GAME_ANSWER_MS);
+    hearing.add(wake);
+    if (teams !== undefined) void heroShows(teams).then((shown) => shown && done(true));
+  });
+
+/**
+ * Picks X's tab `label` (Top, Latest) on NBA game `gameId`'s page, as `xPickCommunitySearchTab`
+ * does, once X shows this game (`gameDrawn`, by the `teams` Xtend knows), never by X's path
+ * alone: that names a new game while the last one's tabs still show.
+ */
+export const xPickGameTab = async (
+  gameId: string,
+  label: string,
+  loaded: Promise<unknown>,
+  signal: AbortSignal,
+  teams?: GameTeams,
+) => {
+  // It goes into a script run in X's page: digits only.
+  if (!/^\d{1,25}$/.test(gameId)) return false;
+  await loaded;
+  if (!(await gameDrawn(gameId, teams)) || signal.aborted) return false;
+  const run = await nextRun();
+  return (
+    (await xRun(`(async () => {
+    for (let i = 0; i < 40 && ${stillMine(run)}; i++) {
+      const tab = location.pathname === "/i/nba/game/${gameId}" ? [...document.querySelectorAll('[role="tab"]')].find((t) => t.textContent.trim() === ${JSON.stringify(label)}) : undefined;
       if (tab !== undefined) {
         if (tab.getAttribute("aria-selected") !== "true") tab.click();
         return true;

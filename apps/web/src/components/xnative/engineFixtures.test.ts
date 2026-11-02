@@ -224,6 +224,7 @@ it("draws every native screen from the made-up fixtures, through the store's own
   expect(at(state.trends, "explore:explore-for-you").length).toBeGreaterThan(2);
   expect(state.xLists.size).toBe(2);
   expect(state.viewer?.handle).toBe("you");
+  expect([...state.schedules.values()].map((ids) => ids.length)).toEqual([6]);
   for (const fixture of Object.values(all)) expect(fixture.meta.open.length).toBeGreaterThan(0);
 });
 

@@ -27,6 +27,15 @@ from a post by swiping right with two fingers (as set in System Settings > Track
 between pages), the mouse's back button, or ⌘[ (Alt+← on Windows and Linux); you land on the
 same post.
 
+An NBA team's profile shows its schedule as X does. A game opens with the day's scores, the
+score, clock and last play, and X's Top and Latest posts; Highlights, Stats, Plays and Chat open
+X's own game page in the panel.
+
+The box at the top of Home is X's composer: images or a video, a poll, who can reply, emoji
+(the system picker, on macOS and Windows) and @mentions suggested from people Xtend has already
+seen on X. Post goes through your session, free, and X's own composer sets the poll and who can
+reply. With session actions off, in a browser without the desktop app, or over 280 characters,
+the box moves to Compose as a draft, where the price is shown.
 The box at the top of Home is X's composer: images or a video, a GIF, a poll, who can reply,
 emoji (the system picker, on macOS and Windows) and @mentions suggested from people Xtend has
 already seen on X. Post goes through your session, free, and X's own composer sets the GIF, the

@@ -3,6 +3,8 @@ import type {
   EngineBatch,
   EngineCommunity,
   EngineEntities,
+  EngineGame,
+  EngineGameTeam,
   EngineList,
   EngineNotification,
   EnginePost,
@@ -575,6 +577,46 @@ function encodeCommunity(c: EngineCommunity): Json {
 }
 
 /**
+ * An NBA game as X's sports calls send it: the score, timeouts and bonus under `live`, the teams
+ * under `summary`, the newest play under `plays`. A field the batch does not know is left out.
+ */
+function encodeGame(g: EngineGame): Json {
+  const side = (t: EngineGameTeam) => ({
+    ...when(t.abbreviation !== null, () => ({ abbreviation: t.abbreviation })),
+    ...when(t.name !== null, () => ({ name: t.name })),
+    ...when(t.points !== null, () => ({ points: t.points })),
+    team: { id: "VGVhbTox", rest_id: "706000000000000001" },
+  });
+  const live = (at: "away" | "home", t: EngineGameTeam) => ({
+    ...when(t.points !== null, () => ({ [`${at}_points`]: t.points })),
+    ...when(t.timeouts !== null, () => ({ [`${at}_timeouts`]: t.timeouts })),
+    ...when(t.bonus !== null, () => ({ [`${at}_bonus`]: t.bonus })),
+  });
+  return {
+    id: "R2FtZTox",
+    rest_id: g.gameId,
+    live: {
+      ...live("away", g.away),
+      ...live("home", g.home),
+      ...when(g.clock !== null, () => ({ clock: g.clock })),
+      ...when(g.halftime !== null, () => ({ halftime: g.halftime })),
+      ...when(g.period !== null, () => ({ quarter: g.period })),
+      ...when(g.periodType !== null, () => ({ period_type: g.periodType })),
+      ...when(g.status !== null, () => ({ status: g.status })),
+    },
+    summary: {
+      away: side(g.away),
+      home: side(g.home),
+      ...when(g.startsAt !== null, () => ({ scheduled_ms: String(Date.parse(g.startsAt!)) })),
+      ...when(g.status !== null, () => ({ status: g.status })),
+    },
+    ...when(g.lastPlay !== null, () => ({
+      plays: { periods: [{ plays: [{ ...g.lastPlay, sequence: "1", participants: [] }] }] },
+    })),
+  };
+}
+
+/**
  * A batch's timeline as X's entries: its posts (threads as conversation modules), people, trends,
  * notifications and Lists, each module under its header, between the page's cursors. Every post
  * is an entry, a quote inside the post that quotes it, or a notification's target.
@@ -932,6 +974,44 @@ export function encodeBody(
             },
           },
         },
+      };
+    case "UserSportsProfile": {
+      const games = batch.games ?? [];
+      return {
+        data: {
+          user_results: {
+            rest_id: batch.key,
+            result: {
+              __typename: "User",
+              rest_id: batch.key,
+              // Only a team's profile carries a schedule.
+              ...when(games.length > 0, () => ({
+                sports_profile: {
+                  league: "NBA",
+                  season_schedule: {
+                    games: games.map((g) => ({
+                      game: { __typename: "SportsProfileNbaGame", nba_game: encodeGame(g) },
+                    })),
+                  },
+                },
+              })),
+            },
+          },
+        },
+      };
+    }
+    case "NBASchedule":
+      return { data: { nba_schedule: { games: (batch.games ?? []).map(encodeGame) } } };
+    case "NBAGameHydrate":
+    case "NBALiveGame": {
+      const g = batch.games?.[0];
+      return { data: { nba_game: g === undefined ? {} : encodeGame(g) } };
+    }
+    case "SportsGameTopTimeline":
+      return { data: { sports_timelines: { top: { id: "U3BvcnRzOjE=", timeline: timeline() } } } };
+    case "SportsGameLatestTimeline":
+      return {
+        data: { sports_timelines: { latest: { id: "U3BvcnRzOjI=", timeline: timeline() } } },
       };
     case "GenericTimelineById":
       return { data: { timeline: { timeline: timeline() } } };
