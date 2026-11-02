@@ -1,7 +1,14 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import type { EngineModule, EnginePost } from "@xtend/contracts";
-import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import {
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { type StateSnapshot, Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 
 import {
@@ -94,6 +101,13 @@ function PostList({
 }) {
   const scroller = useXScrollParent();
   const more = useMore();
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- saves where the list was left as it unmounts, before its handle detaches, even mid-scroll.
+  useLayoutEffect(
+    () => () => {
+      if (keepPlace) list.current?.getState((state) => places.set(surface, state));
+    },
+    [keepPlace, list, surface],
+  );
   if (scroller === null) return null;
   return (
     <Virtuoso
@@ -101,9 +115,6 @@ function PostList({
       customScrollParent={scroller}
       data={items}
       {...(keepPlace && places.has(surface) ? { restoreStateFrom: places.get(surface)! } : {})}
-      isScrolling={(moving) => {
-        if (!moving && keepPlace) list.current?.getState((state) => places.set(surface, state));
-      }}
       computeItemKey={(_, item) => (isPost(item) ? item.postId : item.id)}
       increaseViewportBy={800}
       endReached={more}
@@ -222,6 +233,11 @@ export function Timeline({
     return () => window.removeEventListener("keydown", onKey);
   }, [current, open, items, selected]);
 
+  const emptied = items.length === 0;
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- forgets the place the list saved as it emptied, so a refreshed list starts at X's top.
+  useEffect(() => {
+    if (emptied) places.delete(surface);
+  }, [emptied, surface]);
   const showNew = () => {
     setEngine(updateEngine((s) => showWaiting(s, surface)));
     setSelected(0);
@@ -233,8 +249,6 @@ export function Timeline({
       refresh={{
         surfaces: [surface],
         load: () => {
-          // A refreshed list starts at X's top, not where the old one was left.
-          places.delete(surface);
           setSelected(0);
           onRefresh();
         },

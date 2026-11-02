@@ -670,12 +670,7 @@ it("lands where it was left on a list opened again in the same screen, as Back t
   const scroller = document.querySelector<HTMLElement>("[data-virtuoso-scroller]")!;
   // This file loads no stylesheet; the column's scroller needs its own two rules to scroll.
   Object.assign(scroller.style, { height: "600px", overflowY: "auto" });
-  {
-    using _clock = fakeTimers();
-    scroller.scrollTo({ top: 1500, behavior: "instant" });
-    // The list keeps its place once scrolling settles.
-    await vi.advanceTimersByTimeAsync(1_000);
-  }
+  scroller.scrollTo({ top: 1500, behavior: "instant" });
   await expect.element(screen.getByText("f post 3", { exact: true })).toBeInTheDocument();
   const left = scroller.scrollTop;
 
