@@ -612,6 +612,9 @@ export function requestVariables(url: string, postData: string | undefined): Jso
   }
 }
 
+/** X's two post tabs of a search of Communities: Top, and Latest. */
+const HUB_SEARCH_POSTS = /^GlobalCommunities(Latest)?PostSearchTimeline$/;
+
 /** What one operation's request asked for, when the operation serves many pages. */
 function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExploreTab> | null) {
   const s = (k: string) => asString(variables[k]);
@@ -621,6 +624,9 @@ function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExp
     return s("communityId") === undefined || s("query") === undefined
       ? null
       : `communitySearch:${s("communityId")}:${s("timelineRankingMode") ?? "Likes"}:${s("query")}`;
+  // X's search of Communities, by its query: the operation is the tab (Communities, Top, Latest).
+  if (op === "CommunitiesSearchQuery") return s("query") || null;
+  if (HUB_SEARCH_POSTS.test(op)) return s("rawQuery") || null;
   // Every Community call names it; a Community's Latest is its posts by Recency, its own list.
   if (op.startsWith("Communit") && s("communityId") !== undefined) {
     const mode = s("rankingMode");
@@ -883,6 +889,9 @@ export const hasEngineContent = (b: EngineBatch) =>
   b.lists.length > 0 ||
   b.communities.length > 0 ||
   b.key === "communities:mine" ||
+  // A search of Communities X found nothing for still reaches its screen, which says so.
+  // shortcut: an error answer reads the same; tell them apart by the body if X errs there.
+  (b.key !== null && (b.op === "CommunitiesSearchQuery" || HUB_SEARCH_POSTS.test(b.op))) ||
   b.homeTabs !== null ||
   b.exploreTabs !== null ||
   b.viewer !== null;
