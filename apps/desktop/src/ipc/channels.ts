@@ -73,10 +73,12 @@ export interface BridgeInfo {
   readonly xStartUrl: string;
   /** A route asked for before the page loaded (a deep link at launch); null otherwise. */
   readonly initialRoute: string | null;
+  /** Two-finger swipes go back and forward: macOS's "Swipe between pages", always elsewhere. */
+  readonly swipeNavigation: boolean;
 }
 
 /** Keys main catches for the app: ⌘K palette, ⌘\ X panel, ⌘F find, ⌘R or F5 refresh. */
-export type ShortcutKey = "palette" | "xPanel" | "find" | "refresh";
+export type ShortcutKey = "palette" | "xPanel" | "find" | "refresh" | "back" | "forward";
 
 /** What the overlay strip needs per post; the capture already normalized all of it. */
 export interface OverlayPost {

@@ -6,7 +6,13 @@ import { page, userEvent } from "vite-plus/test/browser";
 import { installFakeBridge } from "../../../test/fakeBridge";
 import { draft, settings } from "../../../test/fixtures";
 import { fakeTimers, render } from "../../../test/render";
-import { markXReady, refreshScreen, registerXWebview, type XWebview } from "../../state/x";
+import {
+  loadNewPosts,
+  markXReady,
+  refreshScreen,
+  registerXWebview,
+  type XWebview,
+} from "../../state/x";
 import { CommunityHeader } from "./CommunityHeader";
 import { EngineSync } from "./EngineSync";
 import { HomeComposer } from "./HomeComposer";
@@ -15,6 +21,7 @@ import { Poll } from "./PostParts";
 import { ReplyComposer } from "./ReplyComposer";
 import { ReplySort } from "./ReplySort";
 import { Timeline } from "./Timeline";
+import { resetSurface, updateEngine } from "../../state/engine";
 import { Suspense } from "react";
 import { Route as ListsRoute } from "../../routes/lists.index";
 
@@ -607,4 +614,69 @@ it("in the browser alone, says free posting needs the desktop and carries a poll
       poll: { options: ["yes", "no"], durationMinutes: 1440 },
     },
   ]);
+});
+
+it("loads new posts as X does: waiting ones show at once, and X loads again only when none wait", async () => {
+  // Past any clock an earlier test refreshed at, so its refresh floor does not hold this one.
+  const later = Date.parse("2099-01-01T00:00:00.000Z");
+  using _clock = fakeTimers({ now: later, shouldAdvanceTime: true });
+  const bridge = installFakeBridge();
+  // The store outlives each test; earlier ones left their own posts on Following.
+  updateEngine((s) => resetSurface(s, "following"));
+  let loads = 0;
+  await using screen = await render(
+    <div style={{ height: 800, display: "flex" }}>
+      <EngineSync />
+      <Timeline surface="following" header={null} empty="Loading" onReopen={() => loads++} />
+    </div>,
+    { service: {} },
+  );
+  bridge.emitEngine({ ...batch("HomeLatestTimeline", [post("1", "Older")]), top: "t1" });
+  await expect.element(screen.getByText("Older")).toBeVisible();
+  bridge.emitEngine({
+    ...batch("HomeLatestTimeline", [post("2", "Newer")]),
+    cursor: "t1",
+    top: "t2",
+  });
+  await expect.element(screen.getByRole("button", { name: "Show 1 post" })).toBeVisible();
+
+  // ".", X's own key: the waiting post shows, nothing is fetched.
+  await userEvent.keyboard(".");
+  await expect.element(screen.getByText("Newer")).toBeVisible();
+  await expect.element(screen.getByRole("button", { name: "Show 1 post" })).not.toBeInTheDocument();
+  expect(loads).toBe(0);
+
+  // With none waiting, X loads the page again.
+  vi.setSystemTime(later + 5_000);
+  loadNewPosts();
+  expect(loads).toBe(1);
+});
+
+it("lands where it was left on a list opened again in the same screen, as Back to a query or tab does", async () => {
+  const bridge = installFakeBridge();
+  updateEngine((s) => resetSurface(resetSurface(s, "following"), "forYou"));
+  const many = (prefix: string) =>
+    Array.from({ length: 30 }, (_, i) => post(`${prefix}${i}`, `${prefix} post ${i}`));
+  const list = (surface: "following" | "forYou") => (
+    <div style={{ height: 600, display: "flex" }}>
+      <EngineSync />
+      <Timeline surface={surface} header={null} empty="Loading" keepPlace onReopen={() => {}} />
+    </div>
+  );
+  await using screen = await render(list("following"), { service: {} });
+  bridge.emitEngine(batch("HomeLatestTimeline", many("f")));
+  bridge.emitEngine(batch("HomeTimeline", many("y")));
+  await expect.element(screen.getByText("f post 0", { exact: true })).toBeVisible();
+  const scroller = document.querySelector<HTMLElement>("[data-virtuoso-scroller]")!;
+  // This file loads no stylesheet; the column's scroller needs its own two rules to scroll.
+  Object.assign(scroller.style, { height: "600px", overflowY: "auto" });
+  scroller.scrollTo({ top: 1500, behavior: "instant" });
+  await expect.element(screen.getByText("f post 3", { exact: true })).toBeInTheDocument();
+  const left = scroller.scrollTop;
+
+  await screen.rerender(list("forYou"));
+  scroller.scrollTo({ top: 0, behavior: "instant" });
+  await expect.element(screen.getByText("y post 0", { exact: true })).toBeVisible();
+  await screen.rerender(list("following"));
+  await expect.poll(() => scroller.scrollTop).toBe(left);
 });

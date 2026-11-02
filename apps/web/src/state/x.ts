@@ -1220,16 +1220,29 @@ export const xSkinAtom = stored<ReadonlyArray<XSkinToggle>>(
   X_SKIN_DEFAULTS,
 );
 
-let screenRefresh: (() => void) | null = null;
+/**
+ * How the open X screen loads again: "reload" is ⌘R's full load from X; "new" brings X's newer
+ * posts to the top, shown at once when some already wait behind the pill.
+ */
+export type ScreenRefresh = (mode: "reload" | "new") => void;
+
+let screenRefresh: ScreenRefresh | null = null;
 let lastRefresh = 0;
 const REFRESH_FLOOR_MS = 2_000;
 
 /** The open X screen's refresh, set by its column while it shows; returns the unset. */
-export const setScreenRefresh = (refresh: () => void) => {
+export const setScreenRefresh = (refresh: ScreenRefresh) => {
   screenRefresh = refresh;
   return () => {
     if (screenRefresh === refresh) screenRefresh = null;
   };
+};
+
+// A full load costs X's Viewer call, which X rate-limits: a hammered key loads once.
+const floored = () => {
+  if (Date.now() - lastRefresh < REFRESH_FLOOR_MS) return false;
+  lastRefresh = Date.now();
+  return true;
 };
 
 /**
@@ -1238,10 +1251,15 @@ export const setScreenRefresh = (refresh: () => void) => {
  */
 export const refreshScreen = () => {
   if (screenRefresh === null) return window.location.reload();
-  // A full load costs X's Viewer call, which X rate-limits: a hammered key loads once.
-  if (Date.now() - lastRefresh < REFRESH_FLOOR_MS) return;
-  lastRefresh = Date.now();
-  screenRefresh();
+  if (floored()) screenRefresh("reload");
+};
+
+/**
+ * Home or the open tab clicked again, ".", or a pull at the top: X's newer posts, from the top,
+ * as on X. A screen without a list ignores it.
+ */
+export const loadNewPosts = () => {
+  if (screenRefresh !== null && floored()) screenRefresh("new");
 };
 
 // DevTools keys skip main's before-input-event, so the engine benchmark presses ⌘R through this.
