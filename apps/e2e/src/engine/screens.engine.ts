@@ -796,3 +796,47 @@ test("Explore finds virtualized trends above and below X's scroll for menu reads
   await e.app.getByRole("button", { name: "Undo", exact: true }).click();
   await row.waitFor();
 });
+
+test("Home's GIF picker searches X's own GIF search on the engine, pages it, and leaves it with X's Back", async () => {
+  await go("/home?feed=following");
+  await expect.poll(enginePath).toBe("/home");
+  const writes = () => e.mock.state.presses.filter((p) => p.kind === "write").length;
+  const before = writes();
+  await e.app.getByRole("button", { name: "GIF", exact: true }).click();
+  // X's own GIF button on its Home composer opened X's search, which lists X's trending GIFs.
+  await expect.poll(enginePath).toBe("/i/foundmedia/search");
+  expect(presses()).toContain("press gifSearchButton");
+  const picker = e.app.getByRole("dialog", { name: "Choose a GIF" });
+  const scroller = picker.locator("[data-virtuoso-scroller]");
+  const labels = () =>
+    picker
+      .locator('button[aria-label$=" GIF"]')
+      .evaluateAll((bs) => bs.map((b) => b.getAttribute("aria-label")));
+  await expect.poll(async () => (await labels())[0]).toBe("Trending 1 GIF");
+
+  // Typed into X's field, X runs the search and sends its first page.
+  await picker.getByPlaceholder("Search for GIFs").fill("cat");
+  await expect
+    .poll(() => e.engine(`document.querySelector('input[placeholder="Search for GIFs"]').value`))
+    .toBe("cat");
+  await expect.poll(async () => (await labels())[0]).toBe("cat 1 GIF");
+  // At the list's end, X's list scrolls on and X sends its next page, with X's cursor.
+  await expect
+    .poll(async () => {
+      await scroller.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+      return (await labels()).at(-1);
+    })
+    .toBe("cat 60 GIF");
+  expect(e.mock.reads.filter((r) => r.op === "GifSearch").map((r) => r.variables)).toEqual(
+    expect.arrayContaining([{ query: "cat" }, { query: "cat", cursor: "go50c50" }]),
+  );
+
+  // A pick fills Xtend's box only; the engine goes Back to X's Home, and nothing went to X.
+  await scroller.evaluate((el) => el.scrollTo(0, 0));
+  await picker.getByRole("button", { name: "cat 2 GIF", exact: true }).click();
+  await expect.poll(enginePath).toBe("/home");
+  expect(presses()).toContain("press app-bar-back");
+  await e.app.getByRole("img", { name: "cat 2", exact: true }).waitFor();
+  await e.app.getByRole("button", { name: "Remove GIF", exact: true }).click();
+  expect(writes()).toBe(before);
+});

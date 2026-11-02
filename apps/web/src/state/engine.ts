@@ -2,6 +2,7 @@ import type {
   EngineBatch,
   EngineCommunity,
   EngineExploreTab,
+  EngineGif,
   EngineHomeTab,
   EngineList,
   EngineModule,
@@ -81,7 +82,8 @@ type KeyedSurface =
   | `communityMedia:${string}`
   | `communityAbout:${string}`
   | `communitySearch:${string}`
-  | `profile:${ProfileTab}:${string}`;
+  | `profile:${ProfileTab}:${string}`
+  | `gifs:${string}`;
 /** X's Follow page's tabs (Who to follow, Creators for you), as the capture keys them. */
 export type ConnectTab = "connect:who" | "connect:creators";
 export type AnySurface = Surface | KeyedSurface;
@@ -129,6 +131,8 @@ export type CommunitySearchMode = "Likes" | "Recency";
 /** A search inside a Community, as X's search page there lists it for the order and query. */
 export const communitySearchSurface = (id: string, mode: CommunitySearchMode, query: string) =>
   `communitySearch:${id}:${mode}:${query}` as const;
+/** What X's GIF search lists for a query; X's picker opens on the empty one. */
+export const gifSurface = (query: string) => `gifs:${query}` as const;
 /** @public */
 export const profileSurface = (tab: ProfileTab, userId: string) =>
   `profile:${tab}:${userId}` as const;
@@ -205,6 +209,8 @@ export function surfacesOf(batch: Pick<EngineBatch, "op" | "key">): ReadonlyArra
     const search = tabKey(key, "communitySearch");
     return search === undefined ? [] : [search];
   }
+  if (op === "GifSearch" && key?.startsWith("gifs:") === true)
+    return [gifSurface(key.slice("gifs:".length))];
   if (op === "ConnectTabTimeline" && (key === "connect:who" || key === "connect:creators"))
     return [key];
   // The capture keys every List call `list:<id>`.
@@ -312,6 +318,8 @@ export interface EngineState {
    */
   readonly hiddenTrends: PerSurface<string>;
   readonly notifications: PerSurface<EngineNotification>;
+  /** X's GIF search per query (`gifSurface`), in X's order, pages joined. */
+  readonly gifs: PerSurface<EngineGif>;
   /** X Lists by id: the Lists page's rows and each List's own header. */
   readonly xLists: ReadonlyMap<string, EngineList>;
   /** List ids per surface, in X's order (the Lists page's sections follow it). */
@@ -347,6 +355,7 @@ export const emptyEngine: EngineState = {
   trends: NONE,
   hiddenTrends: NONE,
   notifications: NONE,
+  gifs: NONE,
   xLists: new Map(),
   listIds: NONE,
   communities: new Map(),
@@ -653,6 +662,15 @@ function mergeInto(state: EngineState, batch: EngineBatch, surface: AnySurface):
               ),
         );
 
+  const gifs =
+    batch.gifs === undefined
+      ? state.gifs
+      : set(
+          state.gifs,
+          surface,
+          page === "first" ? batch.gifs : join(at(state.gifs, surface), batch.gifs, (g) => g.id),
+        );
+
   const entries = new Map(state.entries[surface] ?? []);
   const byId = new Map(batch.posts.map((p) => [p.postId, p]));
   for (const id of order) {
@@ -686,6 +704,7 @@ function mergeInto(state: EngineState, batch: EngineBatch, surface: AnySurface):
           )
         : state.hiddenTrends,
     notifications,
+    gifs,
     lists: newer
       ? state.lists
       : set(
@@ -759,6 +778,7 @@ export const resetSurface = (state: EngineState, surface: AnySurface): EngineSta
   communityIds: set(state.communityIds, surface, []),
   trends: set(state.trends, surface, []),
   notifications: set(state.notifications, surface, []),
+  gifs: set(state.gifs, surface, []),
   cursors: { ...state.cursors, [surface]: undefined },
   entries: { ...state.entries, [surface]: undefined },
 });

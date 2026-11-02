@@ -147,6 +147,25 @@ const SCRIPT = String.raw`
     }
   }
   addEventListener("scroll", () => { drawTrends(); void more(); }, { passive: true });
+
+  // X's GIF search runs what is typed in place, on the same URL: its list starts over per query.
+  let gifQuery = 0;
+  document.addEventListener("input", (event) => {
+    const field = event.target;
+    const entry = shown;
+    if (!(field instanceof HTMLInputElement) || field.placeholder !== "Search for GIFs" || !entry) return;
+    const mine = ++gifQuery;
+    setTimeout(async () => {
+      if (mine !== gifQuery) return;
+      const path = "/i/foundmedia/search?q=" + encodeURIComponent(field.value);
+      const view = await load(path);
+      if (mine !== gifQuery) return;
+      const list = fragment(view.html).querySelector("[data-list]");
+      entry.el.querySelector("[data-list]")?.replaceChildren(...(list ? [...list.childNodes] : []));
+      entry.path = path;
+      entry.next = view.next;
+    }, 300);
+  });
   addEventListener("popstate", () => void show());
 
   const go = (path, replace) => {
@@ -432,6 +451,11 @@ const SCRIPT = String.raw`
     if (el.dataset.toggleTranslation !== undefined) {
       el.textContent = el.textContent === "Show original" ? "Show translation" : "Show original";
       el.setAttribute("aria-label", el.textContent);
+      return;
+    }
+    if (testid === "gifSearchButton") {
+      log(testid);
+      go("/i/foundmedia/search", false);
       return;
     }
     if (testid === "app-bar-back" || testid === "app-bar-close") {

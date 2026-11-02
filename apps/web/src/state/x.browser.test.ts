@@ -11,6 +11,8 @@ import {
   xCommunityPin,
   xActInPlace,
   xFollow,
+  xGifClose,
+  xGifSearch,
   xPostMenu,
   xOverEnded,
   xPickCommunitySearchTab,
@@ -1295,4 +1297,42 @@ it("picks X's search tab only on the Community search it was asked for, and give
   } finally {
     history.replaceState(null, "", start);
   }
+});
+
+it("opens X's GIF search once from X's own button, types each query as X sees typing, and leaves only with its Back", async () => {
+  using _clock = fakeTimers();
+  // X's Home composer; its GIF button opens X's picker over the page, which has a Back of its own.
+  document.body.innerHTML = `<header><button data-testid="app-bar-back">page back</button></header>
+    <div data-testid="toolBar"><button data-testid="gifSearchButton" aria-label="Add a GIF"></button></div>`;
+  const seen: Array<string> = [];
+  let opened = 0;
+  document.querySelector('[data-testid="gifSearchButton"]')!.addEventListener("click", () => {
+    opened++;
+    // X draws its picker a moment after the press.
+    setTimeout(() => {
+      document.body.insertAdjacentHTML(
+        "beforeend",
+        `<div role="dialog"><button data-testid="app-bar-back">back</button><input placeholder="Search for GIFs"></div>`,
+      );
+      const field = document.querySelector("input")!;
+      field.addEventListener("input", () => seen.push(field.value));
+      document
+        .querySelector('[role="dialog"] [data-testid="app-bar-back"]')!
+        .addEventListener("click", () => document.querySelector('[role="dialog"]')!.remove());
+    }, 300);
+  });
+  inThisPage(() => "https://x.com/home");
+
+  const searches = [xGifSearch(""), xGifSearch("ca"), xGifSearch("cat")];
+  await vi.runAllTimersAsync();
+  expect([await Promise.all(searches), opened, seen]).toEqual([
+    [true, true, true],
+    1,
+    ["ca", "cat"],
+  ]);
+  expect(await xGifClose()).toBe(true);
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  // The page's own Back is not X's picker's: with the picker gone, nothing is pressed.
+  expect(await xGifClose()).toBe(false);
+  expect(document.querySelector("header button")).not.toBeNull();
 });

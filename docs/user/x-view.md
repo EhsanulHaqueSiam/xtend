@@ -17,11 +17,13 @@ Xtend's player, with fullscreen and picture in picture. Search takes X's operato
 search box (or **Advanced search** in the command palette) opens X's advanced search form,
 filled from the search you have open.
 
-The box at the top of Home is X's composer: images or a video, a poll, who can reply, emoji
-(the system picker, on macOS and Windows) and @mentions suggested from people Xtend has already
-seen on X. Post goes through your session, free, and X's own composer sets the poll and who can
-reply. With session actions off, in a browser without the desktop app, or over 280 characters,
-the box moves to Compose as a draft, where the price is shown.
+The box at the top of Home is X's composer: images or a video, a GIF, a poll, who can reply,
+emoji (the system picker, on macOS and Windows) and @mentions suggested from people Xtend has
+already seen on X. Post goes through your session, free, and X's own composer sets the GIF, the
+poll and who can reply. GIFs come from X's own GIF search, so the GIF button shows only while
+session actions are on in the desktop app, and Compose cannot take a GIF. With session actions
+off, in a browser without the desktop app, or over 280 characters, the box moves to Compose as a
+draft, where the price is shown.
 
 Replying starts by reading the post: its text, its images and the thread above it. Xtend says
 what it thinks the post is ("Playful hot take") and why; if that is wrong, say what it is

@@ -5,6 +5,7 @@ import type {
   EngineEntities,
   EngineRange,
   EngineExploreTab,
+  EngineGif,
   EngineHomeTab,
   EngineLink,
   EngineList,
@@ -598,6 +599,26 @@ function readExploreTabs(body: Json): ReadonlyArray<EngineExploreTab> | null {
   });
 }
 
+/** One tile of X's GIF search; none without an id or a picture. */
+function readGif(item: unknown): ReadonlyArray<EngineGif> {
+  if (!isRecord(item)) return [];
+  const id = asString(item.id);
+  const preview = record(item.preview_image);
+  const url = asString(preview.url);
+  if (id === undefined || url === undefined) return [];
+  return [
+    {
+      id,
+      altText: asString(item.alt_text) ?? null,
+      url,
+      stillUrl: asString(preview.still_image_url) ?? null,
+      width: asNumber(preview.width),
+      height: asNumber(preview.height),
+      provider: asString(record(item.provider).display_name) ?? "",
+    },
+  ];
+}
+
 /**
  * The request's variables, from the URL of a GET or the body of a POST (X sends HomeTimeline as
  * a POST). Unknown or unreadable variables are empty.
@@ -615,6 +636,8 @@ export function requestVariables(url: string, postData: string | undefined): Jso
 /** What one operation's request asked for, when the operation serves many pages. */
 function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExploreTab> | null) {
   const s = (k: string) => asString(variables[k]);
+  // One list per query; X's picker opens on its empty query.
+  if (op === "GifSearch") return `gifs:${s("query") ?? ""}`;
   if (op === "HomeTimeline") return s("tag") === undefined ? null : `tag:${s("tag")}`;
   // A search inside a Community, one list per order and query; Top is X's default, by likes.
   if (op === "CommunityTweetSearchModuleQuery")
@@ -782,6 +805,9 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     if (list !== undefined) lists.push(list);
   }
   const exploreTabs = readExploreTabs(record(body));
+  // X's GIF search is no timeline: its tiles and its next page's cursor sit in one slice.
+  const gifSlice = op === "GifSearch" ? record(data.gif_search_slice) : null;
+  if (gifSlice !== null) bottom = asString(record(gifSlice.slice_info).next_cursor) ?? null;
   return {
     op,
     // The user's Communities, once X answered with the list (empty, when they left the last one).
@@ -817,6 +843,7 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     homeTabs: readHomeTabs(record(body)),
     exploreTabs,
     viewer: op === "Viewer" ? readViewer(result(record(data.viewer).user_results)) : null,
+    ...(gifSlice === null ? {} : { gifs: arr(gifSlice.items).flatMap(readGif) }),
   };
 }
 
@@ -885,4 +912,5 @@ export const hasEngineContent = (b: EngineBatch) =>
   b.key === "communities:mine" ||
   b.homeTabs !== null ||
   b.exploreTabs !== null ||
-  b.viewer !== null;
+  b.viewer !== null ||
+  b.gifs !== undefined;

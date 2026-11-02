@@ -1,6 +1,7 @@
 import type {
   EngineBatch,
   EngineCommunity,
+  EngineGif,
   EngineHomeTab,
   EngineList,
   EnginePost,
@@ -406,6 +407,9 @@ export function createMockState() {
     }),
   ];
 
+  /** X's cursor for its GIF search's second page, as read live. */
+  const GIF_NEXT = "go50c50";
+
   /** The batch X answers `op` with, or null for a call no screen reads. */
   function batchFor(op: string, variables: Json): EngineBatch | null {
     const cursor = s(variables, "cursor");
@@ -545,6 +549,31 @@ export function createMockState() {
               : b.metrics.likes - a.metrics.likes,
           );
         return page(op, `communitySearch:${id}:${mode}:${query}`, found);
+      }
+      case "GifSearch": {
+        // 50 a page, then a last page of 10, as X pages its GIF search; tiles named after the query.
+        const query = s(variables, "query") ?? "";
+        const from = cursor === undefined || cursor === "" ? 0 : cursor === GIF_NEXT ? 50 : null;
+        if (from === null) return null;
+        const gifs = Array.from({ length: from === 0 ? 50 : 10 }, (_, i): EngineGif => {
+          const id = `m${from + i}${query.replace(/[^A-Za-z0-9]/g, "")}`;
+          return {
+            id: `giphy_${id}`,
+            altText: `${query || "Trending"} ${from + i + 1}`,
+            // Never fetched from GIPHY: the mock's own path, holding the id as GIPHY's URLs do.
+            url: `/media/${id}/200_d.gif`,
+            stillUrl: `/media/${id}/200_d_s.gif`,
+            width: 200,
+            height: 150,
+            provider: "GIPHY",
+          };
+        });
+        return page(op, `gifs:${query}`, [], {
+          top: null,
+          cursor: cursor || null,
+          bottom: from === 0 ? GIF_NEXT : null,
+          gifs,
+        });
       }
       case "ConnectTabTimeline": {
         const creators = (s(variables, "context") ?? "").includes("isCreatorOnlyConnectTab");

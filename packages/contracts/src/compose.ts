@@ -102,6 +102,13 @@ export const DraftPoll = Schema.Struct({
 });
 export type DraftPoll = typeof DraftPoll.Type;
 
+/**
+ * A GIF picked from X's own GIF search (`EngineGif`): the search the desktop runs again in X's
+ * composer, and X's id for the tile it presses there. It rides on the click that posts it.
+ */
+export const PickedGif = Schema.Struct({ query: Schema.String, id: Schema.String });
+export type PickedGif = typeof PickedGif.Type;
+
 /** What the editor can change. Everything else on a Draft is owned by the service. */
 export const DraftPatch = Schema.Struct({
   kind: Schema.optional(DraftKind),
@@ -271,6 +278,8 @@ export const ComposeRpcGroup = RpcGroup.make(
       ...DraftId.fields,
       /** Only through the user's session: refused, never sent through the paid API. */
       sessionOnly: Schema.optional(Schema.Boolean),
+      /** On the first post, picked in X's own composer: only the session can post one. */
+      gif: Schema.optional(PickedGif),
     }),
     success: Draft,
     error: ComposeError,

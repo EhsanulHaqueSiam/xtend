@@ -3,7 +3,7 @@ import * as Rpc from "effect/rpc/Rpc";
 import * as RpcGroup from "effect/rpc/RpcGroup";
 
 import { XId } from "./baseSchemas.ts";
-import { DraftPoll, ReplySettings } from "./compose.ts";
+import { DraftPoll, PickedGif, ReplySettings } from "./compose.ts";
 import type { ObservedPost } from "./observation.ts";
 
 /**
@@ -23,6 +23,8 @@ export const DesktopCommand = Schema.Union([
     /** Set in X's own composer before Post; absent means X's default, everyone. */
     replySettings: Schema.optional(ReplySettings),
     poll: Schema.optional(DraftPoll),
+    /** Picked in X's own GIF search from the composer, before the text. */
+    gif: Schema.optional(PickedGif),
   }),
   Schema.Struct({ type: Schema.Literal("sessionNavigate"), url: Schema.String }),
   /** Clicks X's own like on the post's page in the session view; same setting as sessionPost. */
@@ -354,6 +356,21 @@ export interface EngineModule {
   readonly userIds: ReadonlyArray<string>;
 }
 
+/** A GIF X's GIF search lists, as its picker draws the tile. */
+export interface EngineGif {
+  /** X's id for it, the provider's own behind its prefix (`giphy_<id>`). */
+  readonly id: string;
+  /** What X names the tile (`<alt> GIF`); null when X sends none. */
+  readonly altText: string | null;
+  /** The animated preview X's tile shows, and its first frame. */
+  readonly url: string;
+  readonly stillUrl: string | null;
+  readonly width: number;
+  readonly height: number;
+  /** Who serves it, as X names them ("GIPHY"). */
+  readonly provider: string;
+}
+
 /**
  * One GraphQL response the engine received, by operation (HomeTimeline, TweetDetail, ...). `key`
  * names what the request asked for when one operation serves many pages (a Home tab's tag, a
@@ -389,4 +406,6 @@ export interface EngineBatch {
   readonly exploreTabs: ReadonlyArray<EngineExploreTab> | null;
   /** The signed-in account, from X's own Viewer call or X's nav. */
   readonly viewer: EngineViewer | null;
+  /** X's GIF search results, in X's order: only on GifSearch, empty when X found none. */
+  readonly gifs?: ReadonlyArray<EngineGif>;
 }

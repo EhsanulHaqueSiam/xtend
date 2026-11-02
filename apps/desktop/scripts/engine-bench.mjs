@@ -1088,6 +1088,59 @@ const benchmarks = [
     },
   ],
   [
+    "Home's GIF picker lists X's GIF search in X's order, pages it, and leaves X's search (dry)",
+    async () => {
+      await home("following");
+      const q = "cat";
+      const surface = JSON.stringify(`gifs:${q}`);
+      await reset("gifs:", `gifs:${q}`);
+      // Xtend's GIF button as the user clicks it: the engine opens X's own GIF search.
+      await app(`document.querySelector('main button[aria-label="GIF"]')?.click(), true`);
+      if (!(await until(async () => (await enginePath()) === "/i/foundmedia/search", 10_000)))
+        return false;
+      // Whether X sends GifSearch for its empty query (trending) or serves that from its cache.
+      await sleep(3_000);
+      const trending = await store(`at($.gifs, "gifs:").length`);
+      // Typed as the user types into Xtend's field: React's own setter and an input event.
+      await app(
+        `(() => { const f = document.querySelector('[role="dialog"] input[placeholder="Search for GIFs"]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(f, ${JSON.stringify(q)}); f.dispatchEvent(new Event("input", { bubbles: true })); return true; })()`,
+      );
+      const first = await until(
+        () => store(`at($.gifs, ${surface}).length >= 20 && at($.gifs, ${surface}).length`),
+        20_000,
+      );
+      if (!first) return false;
+      // X's first tiles, as X names them, are the ones Xtend lists, in X's order.
+      const xTiles = await engine(
+        `[...document.querySelectorAll('[data-testid="gifSearchGifImage"]')].slice(0, 6).map((t) => t.getAttribute("aria-label"))`,
+      );
+      const ours = await store(
+        `at($.gifs, ${surface}).slice(0, 6).map((g) => ((g.altText ?? "") + " GIF").trim())`,
+      );
+      // At the end of Xtend's grid, X's list scrolls on and its next page joins the store.
+      const more = await until(async () => {
+        await app(
+          `(() => { const s = document.querySelector('[role="dialog"] [data-virtuoso-scroller]'); s?.scrollTo(0, s.scrollHeight); return true; })()`,
+        );
+        const n = await store(`at($.gifs, ${surface}).length`);
+        return n > first && n;
+      }, 20_000);
+      // Back closes Xtend's picker and X's search with it.
+      await app(
+        `document.querySelector('[role="dialog"] button[aria-label="Back"]')?.click(), true`,
+      );
+      const back = await until(async () => (await enginePath()) === "/home", 10_000);
+      if (JSON.stringify(xTiles) !== JSON.stringify(ours))
+        console.log(`  X's tiles ${JSON.stringify(xTiles)}, Xtend's ${JSON.stringify(ours)}`);
+      return (
+        JSON.stringify(xTiles) === JSON.stringify(ours) &&
+        more &&
+        back &&
+        `trending ${trending}, "${q}" ${first} then ${more} GIFs, X's tiles in X's order`
+      );
+    },
+  ],
+  [
     "⌘R reloads Home and a post from X: lists refill in X's order, the post stays",
     async () => {
       // `__xtendRefresh` is what main's ⌘R and F5 call: DevTools keys skip before-input-event.

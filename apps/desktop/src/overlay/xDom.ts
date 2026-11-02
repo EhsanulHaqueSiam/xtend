@@ -90,9 +90,9 @@ export function viewerFromNav(
 export const isDmPath = (pathname: string): boolean => /^\/(messages|i\/chat)(\/|$)/.test(pathname);
 
 /**
- * X's composer controls the desktop presses for a post the user clicked (DesktopCommands), as
- * read live on x.com/compose/post on 2026-11-02. Who can reply is no menu: the button opens a
- * HoverCard in #layers whose radiogroup holds one <label> per row, matched by its text.
+ * X's composer controls the desktop presses for a post the user clicked, read live on 2026-11-02.
+ * Who can reply opens a HoverCard in #layers, one <label> per row, matched by its text. X's GIF
+ * search tiles name no id: a tile's picture, a CSS background, is the GIF's preview URL.
  */
 export const X_COMPOSER = {
   replyButton: 'button[aria-label="Everyone can reply"]',
@@ -108,8 +108,13 @@ export const X_COMPOSER = {
   pollHours: 'select[data-testid="selectPollHours"]',
   pollMinutes: 'select[data-testid="selectPollMinutes"]',
   removePoll: '[data-testid="removePollButton"]',
-  /** Unconfirmed: the × on an attached image or video. */
+  /** Unconfirmed: the × on an attached image, video or GIF. */
   removeMedia: '[aria-label="Remove media"]',
+  gifButton: 'button[data-testid="gifSearchButton"]',
+  gifSearch: 'input[placeholder="Search for GIFs"]',
+  gifTile: 'div[data-testid="gifSearchGifImage"]',
+  /** Unconfirmed: X's GIF search is a dialog holding its own Back. */
+  gifBack: '[role="dialog"]:has(input[placeholder="Search for GIFs"]) [data-testid="app-bar-back"]',
 } as const;
 
 /**

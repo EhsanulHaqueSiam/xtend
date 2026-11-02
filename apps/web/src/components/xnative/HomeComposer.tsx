@@ -4,9 +4,11 @@ import {
   charCount,
   ComposeError,
   type DraftPoll,
+  type EngineGif,
   MEDIA_MAX_BYTES,
   MEDIA_MAX_IMAGES,
   type MediaKind,
+  type PickedGif,
   POST_LIMIT,
   type ReplySettings,
 } from "@xtend/contracts";
@@ -18,6 +20,7 @@ import {
   CalendarClock,
   Earth,
   Image,
+  ImagePlay,
   ListChecks,
   ListPlus,
   Smile,
@@ -40,6 +43,7 @@ import { settingsAtom, useSessionLane } from "../../state/settings";
 import { failText } from "../compose/AssistPanel";
 import { NEW_POLL, PollEditor } from "../compose/PollEditor";
 import { REPLY_OPTIONS } from "../compose/ThreadEditor";
+import { GifPicker } from "./GifPicker";
 import { Popover } from "../ui/popover";
 import { toastAtom } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -71,6 +75,8 @@ interface BoxPost {
   readonly replySettings?: ReplySettings;
   readonly poll?: DraftPoll | null;
   readonly files?: ReadonlyArray<Attached>;
+  /** Only the session posts one: X's composer picks it from X's own GIF search. */
+  readonly gif?: PickedGif | undefined;
 }
 
 /**
@@ -113,8 +119,8 @@ const useBoxDraft = () => {
 };
 
 /**
- * One post through the user's own session, free, for their click on Post: its media, poll and
- * who-can-reply set in X's own composer, and `quoteUrl` under the text, where X makes it a quote.
+ * One post through the user's own session, free, for their click on Post: its media or GIF, poll
+ * and who-can-reply set in X's own composer, and `quoteUrl` under the text, where X makes it a quote.
  * Resolves true once X has it, otherwise says why and resolves false. The service refuses it
  * rather than take the paid API lane when the session cannot post.
  */
@@ -124,7 +130,9 @@ export const useSessionPost = () => {
   const setToast = useAtomSet(toastAtom);
   return async (post: BoxPost) => {
     const draft = await boxDraft(post);
-    const exit = Exit.isSuccess(draft) ? await postNow(draft.value.id) : draft;
+    const exit = Exit.isSuccess(draft)
+      ? await postNow({ id: draft.value.id, gif: post.gif })
+      : draft;
     if (Exit.isFailure(exit))
       return (setToast({ text: `Not posted: ${failText(exit.cause)}` }), false);
     // The publisher answers with the draft: only "posted" means X has it; the text stays otherwise.
@@ -190,8 +198,8 @@ function Tool({
 
 /**
  * X's "What's happening?" at the top of Home. Post is one click through the user's own session,
- * free, X's own composer setting the poll and reply limit; mentions come from people the engine
- * already saw. With session actions off, on the web alone, or over 280 characters, the box moves
+ * free, X's own composer setting the poll, the GIF and the reply limit; mentions come from people
+ * the engine already saw. With session actions off, on the web alone, or over 280 characters, the box moves
  * to Compose as a draft, where the lane and its price are shown.
  */
 export function HomeComposer() {
@@ -206,6 +214,9 @@ export function HomeComposer() {
   const [text, setText] = useState("");
   const [files, setFiles] = useState<ReadonlyArray<Attached>>([]);
   const [poll, setPoll] = useState<DraftPoll | null>(null);
+  // Picked in X's GIF search for `query`, which Post searches again in X's composer.
+  const [gif, setGif] = useState<{ readonly gif: EngineGif; readonly query: string } | null>(null);
+  const [gifOpen, setGifOpen] = useState(false);
   const [reply, setReply] = useState<ReplySettings>("everyone");
   const [opened, setOpened] = useState(false);
   const [replyOpen, setReplyOpen] = useState(false);
@@ -230,9 +241,9 @@ export function HomeComposer() {
   const length = charCount(text);
   const tooLong = length > POST_LIMIT;
   const video = files.some((f) => f.kind === "video");
-  const blank = text.trim() === "" && files.length === 0;
+  const blank = text.trim() === "" && files.length === 0 && gif === null;
   const pollBlank = poll !== null && poll.options.some((o) => o.trim() === "");
-  const plain = files.length === 0 && poll === null && reply === "everyone";
+  const plain = files.length === 0 && poll === null && gif === null && reply === "everyone";
 
   const mention = opened && !busy ? mentionAt(text, caret.start, caret.end) : null;
   const self = settings?.handle ?? engine.viewer?.handle ?? null;
@@ -252,6 +263,7 @@ export function HomeComposer() {
     setText("");
     setFiles([]);
     setPoll(null);
+    setGif(null);
     setReply("everyone");
   };
 
@@ -294,9 +306,18 @@ export function HomeComposer() {
     box.current?.setSelectionRange(at, at);
   };
 
-  const post = { text: text.trim(), replySettings: reply, poll, files };
+  const post = {
+    text: text.trim(),
+    replySettings: reply,
+    poll,
+    files,
+    gif: gif === null ? undefined : { query: gif.query, id: gif.gif.id },
+  };
   const handOff = async () => {
     if (plain) return void navigate({ href: `/compose?text=${encodeURIComponent(text)}` });
+    // X's GIF search is in X's composer only: a draft cannot keep one.
+    if (gif !== null)
+      return setToast({ text: "Compose takes no GIF: remove it to continue there" });
     // Media, a poll or a reply limit ride along as a draft, which Compose opens.
     setReplyOpen(false);
     setBusy(true);
@@ -423,6 +444,34 @@ export function HomeComposer() {
             ))}
           </ul>
         ) : null}
+        {gif === null ? null : (
+          <div className="relative my-2 overflow-hidden rounded-2xl bg-white/7">
+            {/* Across the box at X's own shape, as X draws an attached GIF. */}
+            <img
+              src={gif.gif.url}
+              alt={gif.gif.altText ?? ""}
+              style={{ aspectRatio: `${gif.gif.width} / ${gif.gif.height}` }}
+              className="block max-h-[510px] w-full object-cover"
+            />
+            <button
+              type="button"
+              aria-label="Remove GIF"
+              className="absolute top-1 left-1 grid size-8 cursor-pointer place-items-center rounded-full bg-black/75 hover:bg-black/60"
+              onClick={() => setGif(null)}
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+        )}
+        {gifOpen ? (
+          <GifPicker
+            onClose={() => setGifOpen(false)}
+            onPick={(picked, query) => {
+              setGif({ gif: picked, query });
+              setGifOpen(false);
+            }}
+          />
+        ) : null}
         {poll === null ? null : (
           <div className="my-2">
             <PollEditor poll={poll} onChange={setPoll} />
@@ -492,14 +541,24 @@ export function HomeComposer() {
           />
           <Tool
             label="Media"
-            disabled={poll !== null || video || files.length >= MEDIA_MAX_IMAGES}
+            disabled={poll !== null || gif !== null || video || files.length >= MEDIA_MAX_IMAGES}
             onClick={() => picker.current?.click()}
           >
             <Image className="size-[18px]" />
           </Tool>
+          {/* X's GIF search runs in the engine, and only the session posts what it picks. */}
+          {session ? (
+            <Tool
+              label="GIF"
+              disabled={poll !== null || gif !== null || files.length > 0}
+              onClick={() => setGifOpen(true)}
+            >
+              <ImagePlay className="size-[18px]" />
+            </Tool>
+          ) : null}
           <Tool
             label="Poll"
-            disabled={poll !== null || files.length > 0}
+            disabled={poll !== null || gif !== null || files.length > 0}
             onClick={() => setPoll(NEW_POLL)}
           >
             <ListChecks className="size-[18px]" />
