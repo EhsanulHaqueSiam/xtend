@@ -39,8 +39,11 @@ export const registerXWebview = (el: XWebview | null) => {
   element = el;
   ready = false;
 };
+/** Called on each full load of X's page: a script still waiting on the page before never settles. */
+const onPageLoad = new Set<() => void>();
 export const markXReady = () => {
   ready = true;
+  for (const loadedAnew of onPageLoad) loadedAnew();
   const asked = pending;
   pending = null;
   if (asked === null || element === null) return;
@@ -229,8 +232,19 @@ export const xPickInspiration = (
     await loaded;
     if (signal.aborted || inspirationLatest.get(group) !== mine) return false;
     const run = await nextRun();
-    return (
-      (await xRun(`(async () => {
+    // A full load of X's page under the script leaves it pending for good: leaving the screen or
+    // X's next page load ends the wait, as a press not done, so the queue goes on.
+    return new Promise<boolean>((settle) => {
+      const done = (pressed: boolean) => {
+        onPageLoad.delete(abandon);
+        signal.removeEventListener("abort", abandon);
+        settle(pressed);
+      };
+      const abandon = () => done(false);
+      onPageLoad.add(abandon);
+      signal.addEventListener("abort", abandon);
+      if (signal.aborted) abandon();
+      void xRun(`(async () => {
     for (let i = 0; i < 40 && ${stillMine(run)}; i++) {
       const button = location.pathname === ${JSON.stringify(new URL(INSPIRATION_URL).pathname)}
         ? [...document.querySelectorAll('button[type="button"]')].find((b) => b.textContent.trim() === ${JSON.stringify(label)})
@@ -244,8 +258,8 @@ export const xPickInspiration = (
       await new Promise((r) => setTimeout(r, 150));
     }
     return false;
-  })()`)) === true
-    );
+  })()`).then((pressed) => done(pressed === true));
+    });
   });
   inspirationPresses = press.catch(() => false);
   return press;

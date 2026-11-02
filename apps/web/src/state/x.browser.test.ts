@@ -1348,3 +1348,47 @@ it("presses X's Inspiration filter as a pointer's whole press, only that filter,
     history.replaceState(null, "", start);
   }
 });
+
+it("lets later Inspiration picks run once the screen or X's next page load lets a stuck press go", async () => {
+  using _clock = fakeTimers();
+  // A full load of X's page under a waiting press script: the webview never settles that script.
+  const pressed: Array<string> = [];
+  registerXWebview({
+    getURL: () => "https://x.com/i/jf/creators/inspiration/top_posts",
+    loadURL: () => Promise.resolve(),
+    executeJavaScript: (code: string) => {
+      const label = /"(Last 7d|Last 30d|Most Likes|Most Quotes)"/.exec(code)?.[1];
+      if (label === undefined) return Promise.resolve(true);
+      pressed.push(label);
+      return label.startsWith("Last") ? new Promise(() => {}) : Promise.resolve(true);
+    },
+  } as unknown as XWebview);
+  markXReady();
+  const outcome = (press: Promise<boolean>) => {
+    const seen: { value?: boolean } = {};
+    void press.then((value) => (seen.value = value));
+    return seen;
+  };
+  const screen = new AbortController();
+  const left = outcome(xPickInspiration("period", "Last 7d", Promise.resolve(), screen.signal));
+  await vi.runAllTimersAsync();
+  screen.abort();
+  const after = outcome(
+    xPickInspiration("engagement", "Most Likes", Promise.resolve(), new AbortController().signal),
+  );
+  await vi.runAllTimersAsync();
+  expect([left.value, after.value]).toEqual([false, true]);
+
+  const open = new AbortController().signal;
+  const reloaded = outcome(xPickInspiration("period", "Last 30d", Promise.resolve(), open));
+  await vi.runAllTimersAsync();
+  markXReady();
+  const next = outcome(xPickInspiration("engagement", "Most Quotes", Promise.resolve(), open));
+  await vi.runAllTimersAsync();
+  expect([reloaded.value, next.value, pressed]).toEqual([
+    false,
+    true,
+    ["Last 7d", "Most Likes", "Last 30d", "Most Quotes"],
+  ]);
+  registerXWebview(null);
+});
