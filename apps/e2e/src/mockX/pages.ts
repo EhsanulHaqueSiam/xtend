@@ -253,6 +253,8 @@ interface Route {
   readonly requests: ReadonlyArray<GraphqlRequest>;
   /** Which request pages on scroll, by its index; none for a page that is one answer. */
   readonly paged?: number | undefined;
+  /** X's REST reads the page makes beside its GraphQL ones, by URL. */
+  readonly rest?: ReadonlyArray<string>;
   readonly render: (batches: ReadonlyArray<EngineBatch | null>) => string;
 }
 
@@ -886,7 +888,11 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
           const live = head?.users[0] ?? state.user(u.userId) ?? u;
           return `${header(live.name)}${tabs(
             "People",
-            PEOPLE_TABS.filter((t) => !own || t.op !== "FollowersYouKnow").map((t) => ({
+            PEOPLE_TABS.filter(
+              (t) =>
+                t.op !== "FollowersYouKnow" ||
+                (!own && state.knownFollowers(u.userId).total_count > 0),
+            ).map((t) => ({
               label: t.label,
               href: `/${live.handle}/${t.path}`,
               on: t === people,
@@ -912,6 +918,14 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
         r("UserByScreenName", { screen_name: u.handle }),
         r(tab.op, { userId: u.userId, count: 20, includePromotedContent: true }),
       ],
+      // Who of the people the viewer follows follow them ("Followed by"), for others' profiles.
+      ...(own
+        ? {}
+        : {
+            rest: [
+              `/i/api/1.1/friends/following/list.json?include_profile_interstitial_type=1&skip_status=1&user_id=${u.userId}&count=3&with_total_count=true`,
+            ],
+          }),
       render: ([head, b]) => {
         const live = head?.users[0] ?? state.user(u.userId) ?? u;
         const bell = state.bellOn(live.userId);

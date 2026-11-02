@@ -1,6 +1,11 @@
 import { describe, expect, it } from "@effect/vitest";
 
-import { hasEngineContent, renderEngineBatch, requestVariables } from "./engineBatch.ts";
+import {
+  hasEngineContent,
+  renderEngineBatch,
+  renderKnownFollowers,
+  requestVariables,
+} from "./engineBatch.ts";
 import { normalizeGraphqlResponse } from "./normalizeGraphql.ts";
 
 // X's 2026 user: no `legacy` block, counts and bio in their own fields.
@@ -1202,6 +1207,20 @@ describe("renderEngineBatch around posts", () => {
       { errors: [{ code: 88, message: "Rate limit exceeded" }] },
     );
     expect([limited.key, hasEngineContent(limited)]).toEqual([null, false]);
+  });
+
+  it("reads X's count of followers you know by the profile it asked about, and nothing from an error", () => {
+    const url = (id: string) =>
+      `https://x.com/i/api/1.1/friends/following/list.json?include_profile_interstitial_type=1&user_id=${id}&count=3`;
+    const known = renderKnownFollowers(url("5"), {
+      users: [{ id_str: "11", screen_name: "amy" }],
+      next_cursor: 0,
+      previous_cursor: 0,
+      total_count: 75,
+    })!;
+    expect([known.key, known.knownFollowers, hasEngineContent(known)]).toEqual(["5", 75, true]);
+    expect(renderKnownFollowers(url("6"), { users: [], total_count: 0 })?.knownFollowers).toBe(0);
+    expect(renderKnownFollowers(url("5"), { errors: [{ code: 88 }] })).toBeNull();
   });
 });
 

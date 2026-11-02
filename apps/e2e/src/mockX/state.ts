@@ -450,6 +450,26 @@ export function createMockState() {
       { length: 5 },
       (_, i) => people[(Number(id.slice(-1)) + offset + i) % people.length]!,
     );
+  /** The people the viewer follows who follow `id`: none for noor_lind and kofi_haddad. */
+  const followersYouKnow = (id: string) =>
+    id.endsWith("002") || id.endsWith("007") ? [] : listPeople(id, 3);
+  /** X's REST friends/following/list.json for `id`: the first three of them, and how many. */
+  const knownFollowers = (id: string) => {
+    const known = followersYouKnow(id);
+    return {
+      users: known.slice(0, 3).map((u) => ({
+        id_str: u.userId,
+        screen_name: u.handle,
+        name: u.name,
+        profile_image_url_https: u.avatarUrl,
+      })),
+      next_cursor: 0,
+      next_cursor_str: "0",
+      previous_cursor: 0,
+      previous_cursor_str: "0",
+      total_count: known.length,
+    };
+  };
 
   // Every Community the fixtures describe, by X's card for it, with what the user's joins changed.
   const communityCards = new Map(
@@ -598,7 +618,11 @@ export function createMockState() {
         const id = s(variables, "userId") ?? "";
         if (user(id) === undefined) return null;
         const pages = ["Following", "Followers", "FollowersYouKnow", "BlueVerifiedFollowers"];
-        return ofPeople(op, id, listPeople(id, pages.indexOf(op) + 1));
+        return ofPeople(
+          op,
+          id,
+          op === "FollowersYouKnow" ? followersYouKnow(id) : listPeople(id, pages.indexOf(op) + 1),
+        );
       }
       case "Retweeters":
       case "Favoriters": {
@@ -847,6 +871,7 @@ export function createMockState() {
     xLists,
     batchFor,
     respond,
+    knownFollowers,
     write,
     post,
     user,

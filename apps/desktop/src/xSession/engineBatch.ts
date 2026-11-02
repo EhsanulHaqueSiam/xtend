@@ -1042,6 +1042,26 @@ function readViewer(value: unknown): EngineViewer | null {
     : { userId: user.userId, handle: user.handle, name: user.name, avatarUrl: user.avatarUrl };
 }
 
+/** X's REST call, on each profile load, for the people the viewer follows who follow that profile. */
+export const isKnownFollowersUrl = (url: string) =>
+  url.includes("/i/api/1.1/friends/following/list.json");
+
+/**
+ * How many people the viewer follows follow the profile X asked about (`user_id`), from X's
+ * friends/following/list.json; null for any other answer (an error alone, no such user).
+ */
+export function renderKnownFollowers(url: string, body: unknown): EngineBatch | null {
+  const userId = URL.canParse(url) ? new URL(url).searchParams.get("user_id") : null;
+  const count = record(body).total_count;
+  if (userId === null || !X_ID.test(userId) || !Number.isSafeInteger(count) || Number(count) < 0)
+    return null;
+  return {
+    ...renderEngineBatch("FriendsFollowingList", {}, {}),
+    key: userId,
+    knownFollowers: Number(count),
+  };
+}
+
 /** A batch that only names the signed-in account, as X's nav shows it. */
 export const viewerBatch = (viewer: EngineViewer): EngineBatch => ({
   op: "ViewerFromNav",
@@ -1082,4 +1102,5 @@ export const hasEngineContent = (b: EngineBatch) =>
   b.exploreTabs !== null ||
   b.viewer !== null ||
   b.prompt !== undefined ||
-  b.analytics !== undefined;
+  b.analytics !== undefined ||
+  b.knownFollowers !== undefined;

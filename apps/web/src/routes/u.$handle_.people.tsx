@@ -31,9 +31,11 @@ function PeopleScreen() {
   const router = useRouter();
   const engine = useAtomValue(engineAtom);
   const current = TABS.find((t) => t.id === tab)!;
-  // X lists no Followers you know on the user's own profile.
+  const user = userByHandle(engine, handle);
+  // X shows Followers you know only once it counted at least one, never on the user's own profile.
   const own = engine.viewer?.handle.toLowerCase() === handle.toLowerCase();
-  const tabs = own ? TABS.filter((t) => t.id !== "followers_you_follow") : TABS;
+  const known = !own && (engine.knownFollowers.get(user?.userId ?? "") ?? 0) > 0;
+  const tabs = known ? TABS : TABS.filter((t) => t.id !== "followers_you_follow");
   const url = `https://x.com/${handle}/${tab}`;
   const open = useCallback(() => void xGo(url), [url]);
   // "Load again": a full load of the same page, since X's router does nothing on the page it shows.
@@ -41,7 +43,6 @@ function PeopleScreen() {
 
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- moves the engine to X's page for the open tab
   useEffect(open, [open]);
-  const user = userByHandle(engine, handle);
   // Until X names the person the list stays empty (keyed by the handle, which nothing fills).
   const surface = followersSurface(tab, user?.userId ?? `@${handle.toLowerCase()}`);
   const people = at(engine.people, surface).flatMap((id) => engine.users.get(id) ?? []);

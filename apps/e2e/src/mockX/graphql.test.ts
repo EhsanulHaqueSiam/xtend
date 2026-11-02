@@ -1,7 +1,10 @@
 import type { EngineBatch } from "@xtend/contracts";
 import { expect, it } from "vite-plus/test";
 
-import { renderEngineBatch } from "../../../desktop/src/xSession/engineBatch.ts";
+import {
+  renderEngineBatch,
+  renderKnownFollowers,
+} from "../../../desktop/src/xSession/engineBatch.ts";
 import { route } from "./pages.ts";
 import { createMockState } from "./state.ts";
 
@@ -99,4 +102,13 @@ it("answers every request X's pages make with the batch the made-up fixtures hol
   expect(roundTrip("UserSuperFollowTweets", subs).prompt).toEqual(
     state.batchFor("UserSuperFollowTweets", subs)!.prompt,
   );
+
+  // X's REST count of followers you know, for someone with them and someone with none.
+  const known = (handle: string) => {
+    const id = state.people.find((u) => u.handle === handle)!.userId;
+    const url = `https://x.com/i/api/1.1/friends/following/list.json?user_id=${id}&count=3`;
+    return renderKnownFollowers(url, JSON.parse(JSON.stringify(state.knownFollowers(id))))
+      ?.knownFollowers;
+  };
+  expect([known("sam_sato"), known("noor_lind")]).toEqual([5, 0]);
 });

@@ -387,6 +387,8 @@ export interface EngineState {
   readonly viewer: EngineViewer | null;
   /** X's Post Analytics per post id, as X last counted them (see `EngineBatch.analytics`). */
   readonly analytics: ReadonlyMap<string, Readonly<Record<string, number>>>;
+  /** How many people the viewer follows follow each user, by user id (see `EngineBatch.knownFollowers`). */
+  readonly knownFollowers: ReadonlyMap<string, number>;
   /** The page cursors X last answered per surface, to tell a fetch of newer posts from the next page. */
   readonly cursors: Readonly<
     Partial<Record<AnySurface, { readonly top: string | null; readonly bottom: string | null }>>
@@ -420,6 +422,7 @@ export const emptyEngine: EngineState = {
   inspiration: null,
   viewer: null,
   analytics: new Map(),
+  knownFollowers: new Map(),
   cursors: {},
 };
 
@@ -560,6 +563,10 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
       batch.analytics === undefined || batch.key === null
         ? state.analytics
         : new Map(state.analytics).set(batch.key, batch.analytics),
+    knownFollowers:
+      batch.knownFollowers === undefined || batch.key === null
+        ? state.knownFollowers
+        : new Map(state.knownFollowers).set(batch.key, batch.knownFollowers),
   };
   const listed = surfacesOf(batch).reduce(
     (state, surface) =>

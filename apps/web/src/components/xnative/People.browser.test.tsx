@@ -85,6 +85,23 @@ it("lists X's people for this person's open tab, opens X's page for it, and says
     await expect.element(screen.getByRole("button", { name: "@zed" })).toBeVisible();
     await expect.element(screen.getByRole("button", { name: "@amy" })).toBeVisible();
     expect(screen.getByRole("button", { name: "@bob" }).elements()).toHaveLength(0);
+    // Followers you know shows only once X counted one for this person (its REST call on the
+    // profile), and goes again when X counts none.
+    const tabs = () =>
+      screen
+        .getByRole("tab")
+        .elements()
+        .map((t) => t.textContent);
+    const known = (count: number) =>
+      bridge.emitEngine({ ...people("FriendsFollowingList", "5", []), knownFollowers: count });
+    const all = ["Verified Followers", "Followers you know", "Followers", "Following"];
+    const none = ["Verified Followers", "Followers", "Following"];
+    expect(tabs()).toEqual(none);
+    known(2);
+    await expect.poll(tabs).toEqual(all);
+    known(0);
+    await expect.poll(tabs).toEqual(none);
+    known(2);
 
     search.mockReturnValue({ tab: "followers_you_follow" });
     await screen.rerender(ui());
@@ -93,19 +110,13 @@ it("lists X's people for this person's open tab, opens X's page for it, and says
     await expect.element(screen.getByText("No one you follow follows them.")).toBeVisible();
 
     // On the user's own profile X has no Followers you know.
+    await expect.poll(tabs).toEqual(all);
     bridge.emitEngine({
       ...people("Viewer", "", []),
       key: null,
       viewer: { userId: "5", handle: "ann", name: "Ann", avatarUrl: null },
     });
-    await expect
-      .poll(() =>
-        screen
-          .getByRole("tab")
-          .elements()
-          .map((t) => t.textContent),
-      )
-      .toEqual(["Verified Followers", "Followers", "Following"]);
+    await expect.poll(tabs).toEqual(none);
   } finally {
     registerXWebview(null);
   }

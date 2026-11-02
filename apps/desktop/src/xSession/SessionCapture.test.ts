@@ -3,7 +3,7 @@ import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
-import type { ObservationBatch } from "@xtend/contracts";
+import type { EngineBatch, ObservationBatch } from "@xtend/contracts";
 import type * as Electron from "electron";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 
@@ -242,4 +242,27 @@ it("reattaches after DevTools takes the debugger, retrying while DevTools holds 
   vi.advanceTimersByTime(2_000);
   expect(debug.attached).toBe(true);
   expect(debug.commands.filter((c) => c === "Network.enable")).toHaveLength(2);
+});
+
+it("passes X's REST count of followers you know to the X screens, and nothing to the service", async () => {
+  const contents = { debugger: debug } as unknown as Electron.WebContents;
+  const rendered = new Promise<EngineBatch>((onRender) => {
+    detach = attachSessionCapture(contents, {
+      serviceUrl: "http://127.0.0.1:4820",
+      serviceToken: "tok",
+      accountId: 1,
+      queueDir,
+      log: () => {},
+      onRender,
+    });
+  });
+  debug.received("known", "https://x.com/i/api/1.1/friends/following/list.json?user_id=5&count=3", {
+    users: [],
+    next_cursor: 0,
+    previous_cursor: 0,
+    total_count: 75,
+  });
+  debug.finished("known");
+  const batch = await rendered;
+  expect([batch.key, batch.knownFollowers, sent]).toEqual(["5", 75, []]);
 });

@@ -13,7 +13,13 @@ import {
   readViewerHandle,
   sourceFromOperation,
 } from "./normalizeGraphql.ts";
-import { hasEngineContent, renderEngineBatch, requestVariables } from "./engineBatch.ts";
+import {
+  hasEngineContent,
+  isKnownFollowersUrl,
+  renderEngineBatch,
+  renderKnownFollowers,
+  requestVariables,
+} from "./engineBatch.ts";
 
 const REATTACH_MS = 2_000;
 const DRAIN_MS = 30_000;
@@ -73,7 +79,8 @@ export function attachSessionCapture(
       const response = isRecord(params.response) ? params.response : undefined;
       const url = typeof response?.url === "string" ? response.url : "";
       const mime = typeof response?.mimeType === "string" ? response.mimeType : "";
-      if (!isGraphqlUrl(url) || !mime.includes("json")) return;
+      // GraphQL, and the one REST read the screens use: X's count of followers you know.
+      if (!(isGraphqlUrl(url) || isKnownFollowersUrl(url)) || !mime.includes("json")) return;
       pending.set(params.requestId, url);
       // Maps iterate in insertion order, so the first key is the oldest request.
       if (pending.size > MAX_PENDING) pending.delete(pending.keys().next().value!);
@@ -107,6 +114,11 @@ export function attachSessionCapture(
     } catch (error) {
       // Bodies for aborted or evicted requests are gone; nothing to record.
       options.log("response body unavailable", { url, error: String(error) });
+      return;
+    }
+    if (isKnownFollowersUrl(url)) {
+      const batch = renderKnownFollowers(url, body);
+      if (batch !== null) options.onRender?.(batch);
       return;
     }
     if (options.onRender !== undefined) {
