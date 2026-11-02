@@ -573,14 +573,14 @@ function readSection(entry: Json): EnginePeopleSection | undefined {
 /** X's prompt in a timeline (the Subs tab's subscribe prompt): its words and its button. */
 function readPrompt(item: Json): EnginePrompt | undefined {
   const content = record(item.content);
-  const header = asString(content.headerText);
+  const header = asString(content.headerText)?.trim();
   if (header === undefined) return undefined;
   const action = record(content.primaryButtonAction);
   const text = asString(action.text);
   const url = asString(record(action.action).url);
   return {
     header,
-    body: asString(content.bodyText) ?? "",
+    body: asString(content.bodyText)?.trim() ?? "",
     // X links there on twitter.com; the engine lives on x.com.
     button:
       text === undefined || url === undefined

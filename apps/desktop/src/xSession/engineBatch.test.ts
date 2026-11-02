@@ -1453,7 +1453,8 @@ describe("renderEngineBatch for a profile's Subs", () => {
                                 contentType: "TimelineInlinePrompt",
                                 headerText: "Unlock more with Subscriptions",
                                 bodyText:
-                                  "@maker has shared 12 Subscriber-only posts. Subscribe to see their exclusive posts and bonus content.",
+                                  // X ends its body with a tab, which drawn text drops.
+                                  "@maker has shared 12 Subscriber-only posts. Subscribe to see their exclusive posts and bonus content.\t",
                                 primaryButtonAction: {
                                   text: "Subscribe",
                                   action: {
