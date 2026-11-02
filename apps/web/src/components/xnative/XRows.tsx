@@ -25,34 +25,35 @@ const MORE_AHEAD_PX = 4000;
 const QUIET_MS = 12_000;
 
 /**
- * Asks X's own page for a list's next page when the reader, scrolling `scroller`, nears its end, or
- * its last row is drawn (`endReached`), as x.com does: one ask at a time per list (`key`) and
- * length, at X's pace. A call inside the pause runs at its end, rechecked; leaving the list drops it.
+ * Asks X's own page for a list's next page: on Virtuoso's `endReached` (the returned function), as
+ * always, and earlier, once per list (`key`) and length while X works on it, when the reader scrolls
+ * `scroller` down within MORE_AHEAD_PX of the end. At X's pace; leaving the list drops a pending ask.
  */
 export function useMore(scroller: HTMLElement | null, key: string, length: number) {
   const id = `${key}\n${length}`;
   const asked = useRef("");
   const last = useRef(0);
   const trailing = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const ask = () => {
+  const ask = (atEnd = false) => {
+    if (scroller === null) return;
     if (
-      scroller === null ||
-      asked.current === id ||
-      scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight > MORE_AHEAD_PX
+      !atEnd &&
+      (asked.current === id ||
+        scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight > MORE_AHEAD_PX)
     )
       return;
     const wait = last.current + MORE_EVERY_MS - Date.now();
     if (wait > 0) {
       trailing.current ??= setTimeout(() => {
         trailing.current = null;
-        latest.current();
+        latest.current(atEnd);
       }, wait);
       return;
     }
     asked.current = id;
     last.current = Date.now();
-    // Held only while X's page works on it: an ask made before X's page settled fetches nothing,
-    // and the reader's next scroll (or Virtuoso's next endReached) must be able to ask again.
+    // An early ask made before X's page settled fetches nothing; once X's page is done with it,
+    // the reader's next scroll may ask again.
     void xScrollMore().finally(() => {
       if (asked.current === id) asked.current = "";
     });
@@ -73,11 +74,18 @@ export function useMore(scroller: HTMLElement | null, key: string, length: numbe
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- listens to the reader's own scroll on the X column.
   useEffect(() => {
     if (scroller === null) return;
-    const onScroll = () => latest.current();
+    // Only moving down asks: a tab switch or Back resetting the column to its top is not the
+    // reader heading for the end.
+    let top = scroller.scrollTop;
+    const onScroll = () => {
+      const down = scroller.scrollTop > top;
+      top = scroller.scrollTop;
+      if (down) latest.current();
+    };
     scroller.addEventListener("scroll", onScroll, { passive: true });
     return () => scroller.removeEventListener("scroll", onScroll);
   }, [scroller]);
-  return ask;
+  return () => ask(true);
 }
 
 /**
