@@ -82,6 +82,8 @@ type KeyedSurface =
   | `communityMedia:${string}`
   | `communityAbout:${string}`
   | `communitySearch:${string}`
+  | `communitiesSearch:${string}`
+  | `communityPostsSearch:${"Top" | "Latest"}:${string}`
   | `profile:${ProfileTab}:${string}`
   | `gifs:${string}`;
 /** X's Follow page's tabs (Who to follow, Creators for you), as the capture keys them. */
@@ -133,6 +135,11 @@ export const communitySearchSurface = (id: string, mode: CommunitySearchMode, qu
   `communitySearch:${id}:${mode}:${query}` as const;
 /** What X's GIF search lists for a query; X's picker opens on the empty one. */
 export const gifSurface = (query: string) => `gifs:${query}` as const;
+/** X's search of Communities, from the hub: the Communities it finds for the query. */
+export const communitiesSearchSurface = (query: string) => `communitiesSearch:${query}` as const;
+/** The same search's posts from Communities, in X's Top or Latest order (each its own tab). */
+export const communityPostsSearchSurface = (order: "Top" | "Latest", query: string) =>
+  `communityPostsSearch:${order}:${query}` as const;
 /** @public */
 export const profileSurface = (tab: ProfileTab, userId: string) =>
   `profile:${tab}:${userId}` as const;
@@ -211,6 +218,12 @@ export function surfacesOf(batch: Pick<EngineBatch, "op" | "key">): ReadonlyArra
   }
   if (op === "GifSearch" && key?.startsWith("gifs:") === true)
     return [gifSurface(key.slice("gifs:".length))];
+  // The capture keys a search of Communities by its query; the operation is the tab.
+  if (key !== null && op === "CommunitiesSearchQuery") return [communitiesSearchSurface(key)];
+  if (key !== null && op === "GlobalCommunitiesPostSearchTimeline")
+    return [communityPostsSearchSurface("Top", key)];
+  if (key !== null && op === "GlobalCommunitiesLatestPostSearchTimeline")
+    return [communityPostsSearchSurface("Latest", key)];
   if (op === "ConnectTabTimeline" && (key === "connect:who" || key === "connect:creators"))
     return [key];
   // The capture keys every List call `list:<id>`.
