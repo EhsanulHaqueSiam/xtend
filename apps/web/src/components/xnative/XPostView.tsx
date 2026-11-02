@@ -248,7 +248,8 @@ function AutoVideo({
     if (video === null) return;
     const seen = new IntersectionObserver(
       ([entry]) => {
-        if (entry?.isIntersecting) void video.play().catch(() => {});
+        if (entry !== undefined && entry.intersectionRatio >= 0.5)
+          void video.play().catch(() => {});
         else video.pause();
       },
       { threshold: 0.5 },
