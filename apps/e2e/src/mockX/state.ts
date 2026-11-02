@@ -105,6 +105,14 @@ export type Feed = (typeof FEEDS)[number];
 /** How many pages each Home feed has before X runs out; the rest of the mock's lists have one. */
 const FEED_PAGES: Readonly<Record<Feed, number>> = { forYou: 3, following: 2 };
 const PAGE_SIZE = 6;
+
+/** A longer For you than the screens need, as the scroll bench reads one: X's page is about 20 posts. */
+export interface MockOptions {
+  readonly forYouPages?: number;
+  readonly pageSize?: number;
+  /** Every nth made-up post carries a photo, so a page is as tall as X's. */
+  readonly photoEvery?: number;
+}
 const PINNED_TAG = "1540000000000000001";
 
 const key = (op: string, k: string | null) => `${op}|${k ?? ""}`;
@@ -112,7 +120,9 @@ const s = (variables: Json, name: string) =>
   typeof variables[name] === "string" ? (variables[name] as string) : undefined;
 
 /** One mock X: its state, and the answers and pages read from it. */
-export function createMockState() {
+export function createMockState(options: MockOptions = {}) {
+  const pages = { ...FEED_PAGES, forYou: options.forYouPages ?? FEED_PAGES.forYou };
+  const pageSize = options.pageSize ?? PAGE_SIZE;
   const fixtures = synth();
   const batches = Object.values(fixtures).flatMap((f) => f.batches);
   const snapshot = new Map(batches.map((b) => [key(b.op, b.key), b]));
@@ -133,6 +143,7 @@ export function createMockState() {
 
   // Made-up posts past the fixtures' first pages, by the same people.
   let made = 0;
+  const photo = [...basePosts.values()].find((p) => p.media.length > 0)!.media.slice(0, 1);
   const make = (minutesAgo: number, extra: Partial<EnginePost> = {}): EnginePost => {
     const n = made++;
     const base = forYou.posts[n % forYou.posts.length]!;
@@ -159,8 +170,9 @@ export function createMockState() {
         quotes: Math.round(views / 1_500),
         bookmarks: Math.round(views / 200),
       },
-      media: [],
-      hasMedia: false,
+      ...(options.photoEvery !== undefined && n % options.photoEvery === 0
+        ? { media: photo, hasMedia: true }
+        : { media: [], hasMedia: false }),
       hasLink: false,
       card: null,
       poll: null,
@@ -178,11 +190,11 @@ export function createMockState() {
   };
   /** Each feed's pages after its first, made once so a page reads the same every time. */
   const morePages: Record<Feed, ReadonlyArray<ReadonlyArray<EnginePost>>> = {
-    forYou: Array.from({ length: FEED_PAGES.forYou - 1 }, (_, page) =>
-      Array.from({ length: PAGE_SIZE }, (_, i) => make(400 + page * 600 + i * 40)),
+    forYou: Array.from({ length: pages.forYou - 1 }, (_, page) =>
+      Array.from({ length: pageSize }, (_, i) => make(400 + page * 600 + i * 40)),
     ),
-    following: Array.from({ length: FEED_PAGES.following - 1 }, (_, page) =>
-      Array.from({ length: PAGE_SIZE }, (_, i) => make(500 + page * 600 + i * 45)),
+    following: Array.from({ length: pages.following - 1 }, (_, page) =>
+      Array.from({ length: pageSize }, (_, i) => make(500 + page * 600 + i * 45)),
     ),
   };
   const pinnedTopic = Array.from({ length: 4 }, (_, i) => make(30 + i * 20));
@@ -279,7 +291,7 @@ export function createMockState() {
     return {
       ...page(first.op, first.key, posts),
       top: first.top,
-      bottom: n < FEED_PAGES[feed] ? `${first.bottom}#p${n + 1}` : null,
+      bottom: n < pages[feed] ? `${first.bottom}#p${n + 1}` : null,
     };
   };
   /** Which page of a feed a cursor asks for: the fixture's bottom is page 2. */

@@ -15,32 +15,79 @@ import { Affiliate, Avatar, Verified } from "./XPostView";
 /** How often a list may ask X for its next page; X's own scrolling pace, not faster. */
 const MORE_EVERY_MS = 1500;
 
+/**
+ * How far above a list's end it asks X for the next page: X takes a second or two to answer, so
+ * asking at the last row leaves the reader stuck at the bottom while it does.
+ */
+const MORE_AHEAD_PX = 4000;
+
 /** How long a screen waits for X's first answer before it says so and offers x.com itself. */
 const QUIET_MS = 12_000;
 
 /**
- * Asks X's own page for its next page, at X's pace. Virtuoso fires endReached once per list
- * length, so a call inside the pause runs at its end instead of being dropped; a dropped one
- * would stall the list at its last row.
+ * Asks X's own page for a list's next page: on Virtuoso's `endReached` (the returned function), as
+ * always, and earlier, once per list (`key`) and length while X works on it, when the reader scrolls
+ * `scroller` down within MORE_AHEAD_PX of the end. At X's pace; leaving the list drops a pending ask.
  */
-export function useMore() {
+export function useMore(scroller: HTMLElement | null, key: string, length: number) {
+  const id = `${key}\n${length}`;
+  const asked = useRef("");
+  const run = useRef(0);
   const last = useRef(0);
   const trailing = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- clears the trailing load-more timer on unmount.
-  useEffect(() => () => clearTimeout(trailing.current ?? undefined), []);
-  const more = () => {
+  const ask = (atEnd = false) => {
+    if (scroller === null) return;
+    if (
+      !atEnd &&
+      (asked.current === id ||
+        scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight > MORE_AHEAD_PX)
+    )
+      return;
     const wait = last.current + MORE_EVERY_MS - Date.now();
     if (wait > 0) {
       trailing.current ??= setTimeout(() => {
         trailing.current = null;
-        more();
+        latest.current(atEnd);
       }, wait);
       return;
     }
+    asked.current = id;
+    const mine = ++run.current;
     last.current = Date.now();
-    void xScrollMore();
+    // An early ask made before X's page settled fetches nothing; once X's page is done with it,
+    // the reader's next scroll may ask again, unless a later ask took over (and owns the guard).
+    void xScrollMore().finally(() => {
+      if (run.current === mine) asked.current = "";
+    });
   };
-  return more;
+  const latest = useRef(ask);
+  const shown = useRef(key);
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- the scroll listener and a pending ask use the list on screen now; a pending ask made on another list is dropped.
+  useEffect(() => {
+    latest.current = ask;
+    if (shown.current !== key) {
+      clearTimeout(trailing.current ?? undefined);
+      trailing.current = null;
+    }
+    shown.current = key;
+  });
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- drops a pending ask on unmount.
+  useEffect(() => () => clearTimeout(trailing.current ?? undefined), []);
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- listens to the reader's own scroll on the X column.
+  useEffect(() => {
+    if (scroller === null) return;
+    // Only moving down asks: a tab switch or Back resetting the column to its top is not the
+    // reader heading for the end.
+    let top = scroller.scrollTop;
+    const onScroll = () => {
+      const down = scroller.scrollTop > top;
+      top = scroller.scrollTop;
+      if (down) latest.current();
+    };
+    scroller.addEventListener("scroll", onScroll, { passive: true });
+    return () => scroller.removeEventListener("scroll", onScroll);
+  }, [scroller]);
+  return () => ask(true);
 }
 
 /**
@@ -119,7 +166,7 @@ export function XRows<A>({
   readonly paged?: boolean;
 }) {
   const scroller = useXScrollParent();
-  const more = useMore();
+  const more = useMore(paged ? scroller : null, waitKey, items.length);
   if (items.length === 0) return <XEmpty key={waitKey} empty={empty} onReopen={onReopen} />;
   if (scroller === null) return null;
   return (

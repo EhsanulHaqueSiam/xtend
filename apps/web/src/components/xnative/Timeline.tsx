@@ -100,7 +100,7 @@ function PostList({
   readonly onOpen: (p: EnginePost) => void;
 }) {
   const scroller = useXScrollParent();
-  const more = useMore();
+  const more = useMore(scroller, surface, items.length);
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- saves where the list was left as it unmounts, before its handle detaches, even mid-scroll.
   useLayoutEffect(
     () => () => {

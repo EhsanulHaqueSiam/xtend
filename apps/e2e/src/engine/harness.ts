@@ -15,10 +15,10 @@ const DESKTOP = NodeURL.fileURLToPath(new URL("../../../desktop/", import.meta.u
  * Electron with `XTEND_MOCK_X` (main gives it a fresh profile) and no X account. `app` is the window's app
  * page; `engine(code)` runs a script in the x.com webview, as Xtend's engine scripts do.
  */
-export const startEngine = () =>
+export const startEngine = (mockOptions?: Parameters<typeof startMockX>[0]) =>
   withTempDir("xtend-engine-", async (dir, undo) => {
     const service = await startService(dir, undo);
-    const mock = await startMockX();
+    const mock = await startMockX(mockOptions);
     undo.push(mock.close);
     const env: Record<string, string> = {};
     // None of the caller's XTEND_* reach this desktop (a cookie import, a dev URL, a debug port):
