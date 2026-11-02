@@ -252,6 +252,103 @@ describe("renderEngineBatch posts", () => {
       final: false,
       voted: 2,
     });
+    // A timeline carries the Article's preview, not its body.
+    expect(batch.articles).toBeUndefined();
+  });
+
+  it("reads an Article's body on its reader page: styles, links, images by media id and Markdown", () => {
+    const block = (key: string, type: string, text: string, extra = {}) => ({
+      key,
+      type,
+      text,
+      inlineStyleRanges: [],
+      entityRanges: [],
+      data: {},
+      ...extra,
+    });
+    const entity = (key: string, type: string, data: unknown) => ({
+      key,
+      value: { type, mutability: "Mutable", data },
+    });
+    const article = {
+      rest_id: "55",
+      title: "Brand factory",
+      media_entities: [
+        {
+          media_id: "91",
+          media_info: {
+            original_img_url: "https://pbs.twimg.com/media/p.jpg",
+            original_img_width: 1200,
+            original_img_height: 800,
+          },
+        },
+      ],
+      content_state: {
+        blocks: [
+          block("a", "header-two", "Why brands"),
+          block("b", "unstyled", "Read 🙂 the guide now", {
+            inlineStyleRanges: [{ offset: 5, length: 3, style: "Bold" }],
+            entityRanges: [{ offset: 9, length: 5, key: 0 }],
+          }),
+          block("c", "atomic", " ", { entityRanges: [{ offset: 0, length: 1, key: 1 }] }),
+          block("d", "atomic", " ", { entityRanges: [{ offset: 0, length: 1, key: 2 }] }),
+          // An embedded post keeps its text; a link that is not the web's is no link.
+          block("e", "unstyled", "See this post", {
+            entityRanges: [
+              { offset: 0, length: 3, key: 3 },
+              { offset: 4, length: 4, key: 4 },
+            ],
+          }),
+        ],
+        entityMap: [
+          entity("0", "LINK", { url: "https://example.com/guide" }),
+          entity("1", "MEDIA", {
+            mediaItems: [{ mediaId: "91", localMediaId: "5", mediaCategory: "DraftTweetImage" }],
+          }),
+          entity("2", "MARKDOWN", { markdown: "```ts\nconst a = 1;\n```" }),
+          entity("3", "TWEET", { tweetId: "77" }),
+          entity("4", "LINK", { url: "javascript:alert(1)" }),
+        ],
+      },
+    };
+    const batch = renderEngineBatch(
+      "TweetResultByRestId",
+      { tweetId: "2" },
+      {
+        data: {
+          tweetResult: {
+            result: tweet("2", {}, { article: { article_results: { result: article } } }),
+          },
+        },
+      },
+    );
+    expect(batch.posts[0]?.card?.url).toBe("https://x.com/i/article/55");
+    const none = { styles: [], links: [], images: [], markdown: null };
+    expect(batch.articles).toEqual([
+      {
+        postId: "2",
+        blocks: [
+          { ...none, key: "a", type: "header-two", text: "Why brands" },
+          {
+            ...none,
+            key: "b",
+            type: "unstyled",
+            text: "Read 🙂 the guide now",
+            styles: [{ offset: 5, length: 3, style: "Bold" }],
+            links: [{ offset: 9, length: 5, url: "https://example.com/guide" }],
+          },
+          {
+            ...none,
+            key: "c",
+            type: "atomic",
+            text: " ",
+            images: [{ url: "https://pbs.twimg.com/media/p.jpg", width: 1200, height: 800 }],
+          },
+          { ...none, key: "d", type: "atomic", text: " ", markdown: "```ts\nconst a = 1;\n```" },
+          { ...none, key: "e", type: "unstyled", text: "See this post" },
+        ],
+      },
+    ]);
   });
 
   it("carries X's social context to the post below it, not to the post it quotes", () => {
@@ -669,6 +766,26 @@ describe("renderEngineBatch around posts", () => {
       },
     );
     expect([found.order, found.top, found.bottom]).toEqual([["61", "60"], "c-Top", "c-Bottom"]);
+    // X's Inspiration names its filters inside the timelineId. An Explore tab's id, one without a
+    // language, and a cut-off one are no Inspiration: they keep the id.
+    const generic = (timelineId: string) =>
+      renderEngineBatch("GenericTimelineById", { timelineId, count: 20 }, {}).key;
+    const others = [
+      "VGltZWxpbmU6DAC2CwABAAAACHRyZW5kaW5nAAA=",
+      "VGltZWxpbmU6DADKCwABAAAAB1JlcGxpZXMLAAYAAAAGV2Vla2x5AAA=",
+      "VGltZWxpbmU6DADKCwABAAAABUxpa2VzCwACAAAAAmVuCwA=",
+    ];
+    expect([
+      generic("VGltZWxpbmU6DADKCwABAAAABUxpa2VzCwACAAAAAmVuCwAGAAAABURhaWx5AAA="),
+      generic(
+        "VGltZWxpbmU6DADKCwABAAAAEVZpZGVvUXVhbGl0eVZpZXdzCwACAAAAAmVuCwAGAAAAB01vbnRobHkAAA==",
+      ),
+      ...others.map(generic),
+    ]).toEqual([
+      "inspiration:Likes:Daily:en",
+      "inspiration:VideoQualityViews:Monthly:en",
+      ...others,
+    ]);
   });
 
   it("reads Communities in X's shapes: a carousel's tiles, a card, and none from a post's reference", () => {
@@ -868,6 +985,53 @@ describe("renderEngineBatch around posts", () => {
     ]);
     const unknown = carousel({});
     expect([unknown.key, hasEngineContent(unknown)]).toEqual([null, false]);
+  });
+
+  it("reads X's Post Analytics for the post asked about, a metric X sent without a value as 0", () => {
+    const activity = renderEngineBatch(
+      "TweetActivityQuery",
+      {
+        restId: "42",
+        from_time: "2026-10-30T08:00:00.000Z",
+        requested_organic_metrics: ["DetailExpands", "Engagements", "Follows", "Impressions"],
+      },
+      {
+        data: {
+          tweet_result_by_rest_id: {
+            id: "VHdlZXQ6NDI=",
+            result: {
+              __typename: "Tweet",
+              id: "VHdlZXQ6NDI=",
+              datapoints_grid: [
+                { metric_type: "DetailExpands", metric_value: 31 },
+                { metric_type: "Engagements", metric_value: 118 },
+                { metric_type: "Follows" },
+                { metric_type: "Impressions", metric_value: 4020 },
+                { metric_type: "LinkClicks", metric_value: 3 },
+                { metric_type: "ProfileVisits", metric_value: 9 },
+              ],
+              promotion_info: [{ metric_type: "Impressions", metric_value: 0 }],
+              video: [],
+            },
+          },
+        },
+      },
+    );
+    expect([activity.key, activity.analytics, hasEngineContent(activity)]).toEqual([
+      "42",
+      {
+        DetailExpands: 31,
+        Engagements: 118,
+        Follows: 0,
+        Impressions: 4020,
+        LinkClicks: 3,
+        ProfileVisits: 9,
+      },
+      true,
+    ]);
+    // X answered without the numbers (a post that is not the user's): nothing to pass on.
+    const none = renderEngineBatch("TweetActivityQuery", { restId: "42" }, { data: {} });
+    expect([none.analytics, hasEngineContent(none)]).toEqual([undefined, false]);
   });
 
   it("reads a search of Communities by its query: X's Communities, then its Top and Latest posts", () => {
@@ -1396,6 +1560,104 @@ describe("renderEngineBatch entry order, badges and labels", () => {
       },
     });
     expect(plain!.translation).toBeNull();
+  });
+});
+
+describe("renderEngineBatch for a profile's Subs", () => {
+  it("names a creator who offers Subscriptions, and reads X's subscribe prompt in place of posts", () => {
+    const header = (eligible?: boolean) =>
+      renderEngineBatch(
+        "UserByScreenName",
+        { screen_name: "maker" },
+        {
+          data: {
+            user: {
+              result: user(
+                "50",
+                "maker",
+                eligible === undefined ? {} : { super_follow_eligible: eligible },
+              ),
+            },
+          },
+        },
+      ).users[0]!;
+    expect([
+      header(true).offersSubscriptions,
+      header(false).offersSubscriptions,
+      "offersSubscriptions" in header(),
+    ]).toEqual([true, false, false]);
+
+    // X's answer for someone who does not subscribe, in the shape a live read showed.
+    const subs = renderEngineBatch(
+      "UserSuperFollowTweets",
+      { userId: "50", count: 20, includePromotedContent: true, withVoice: true },
+      {
+        data: {
+          user: {
+            result: {
+              __typename: "User",
+              timeline: {
+                timeline: {
+                  instructions: [
+                    { type: "TimelineClearCache" },
+                    {
+                      type: "TimelineAddEntries",
+                      entries: [
+                        {
+                          entryId: "messageprompt-50",
+                          sortIndex: "50",
+                          content: {
+                            __typename: "TimelineTimelineItem",
+                            entryType: "TimelineTimelineItem",
+                            clientEventInfo: { component: "subscribe_prompt", element: "message" },
+                            itemContent: {
+                              __typename: "TimelineMessagePrompt",
+                              itemType: "TimelineMessagePrompt",
+                              content: {
+                                contentType: "TimelineInlinePrompt",
+                                headerText: "Unlock more with Subscriptions",
+                                bodyText:
+                                  // X ends its body with a tab, which drawn text drops.
+                                  "@maker has shared 12 Subscriber-only posts. Subscribe to see their exclusive posts and bonus content.\t",
+                                primaryButtonAction: {
+                                  text: "Subscribe",
+                                  action: {
+                                    dismissOnClick: false,
+                                    url: "https://twitter.com/maker/superfollows/subscribe",
+                                  },
+                                },
+                              },
+                            },
+                          },
+                        },
+                        {
+                          entryId: "cursor-top-50",
+                          sortIndex: "50",
+                          content: {
+                            entryType: "TimelineTimelineCursor",
+                            __typename: "TimelineTimelineCursor",
+                            cursorType: "Top",
+                            value: "c-Top",
+                          },
+                        },
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+    );
+    expect([subs.key, subs.order, subs.top]).toEqual(["50", [], "c-Top"]);
+    expect(subs.prompt).toEqual({
+      header: "Unlock more with Subscriptions",
+      body: "@maker has shared 12 Subscriber-only posts. Subscribe to see their exclusive posts and bonus content.",
+      button: { text: "Subscribe", url: "https://x.com/maker/superfollows/subscribe" },
+    });
+    // A prompt alone is something to draw.
+    expect(hasEngineContent(subs)).toBe(true);
   });
 });
 

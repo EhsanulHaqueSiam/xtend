@@ -1,5 +1,6 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
+import type { EnginePrompt, EngineUser } from "@xtend/contracts";
 import { BellPlus, BellRing, CalendarDays, Link2, MapPin, MoreHorizontal } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
@@ -8,7 +9,7 @@ import { RichText } from "../components/xnative/RichText";
 import { TeamSchedule } from "../components/xnative/Sports";
 import { Timeline } from "../components/xnative/Timeline";
 import { XTabs, XTitle } from "../components/xnative/XColumn";
-import { FollowButton } from "../components/xnative/FollowButton";
+import { FollowButton, SubscribeButton } from "../components/xnative/FollowButton";
 import { useXPress } from "../components/xnative/useXPress";
 import { Menu, MenuItem } from "../components/ui/menu";
 import { Affiliate, Avatar, Verified } from "../components/xnative/XPostView";
@@ -27,6 +28,9 @@ import {
 const TABS = [
   { id: "posts", label: "Posts", path: "" },
   { id: "replies", label: "Replies", path: "/with_replies" },
+  { id: "reposts", label: "Reposts", path: "/reposts" },
+  // X shows Subs for creators who offer Subscriptions.
+  { id: "subs", label: "Subs", path: "/subs" },
   { id: "highlights", label: "Highlights", path: "/highlights" },
   { id: "articles", label: "Articles", path: "/articles" },
   { id: "media", label: "Media", path: "/media" },
@@ -159,6 +163,33 @@ function ProfileBell({
   );
 }
 
+/**
+ * X's Subs tab heading, and X's prompt where a non-subscriber's posts would be, in X's words. Its
+ * Subscribe is #83's: X's own button, and X's subscribe dialog over the main area.
+ */
+function SubsPrompt({
+  name,
+  user,
+  prompt,
+}: {
+  readonly name: string;
+  readonly user: EngineUser | undefined;
+  readonly prompt: EnginePrompt | undefined;
+}) {
+  return (
+    <section data-x="subs" className="border-b border-border px-4 py-3">
+      <h2 className="text-[20px] font-extrabold">{name}'s Subscription posts</h2>
+      {prompt === undefined ? null : (
+        <div className="mt-3 flex flex-col items-start gap-2">
+          <p className="text-[17px] font-bold">{prompt.header}</p>
+          <p className="text-[15px] leading-5 text-[#71767b]">{prompt.body}</p>
+          {prompt.button === null || user === undefined ? null : <SubscribeButton user={user} />}
+        </div>
+      )}
+    </section>
+  );
+}
+
 const JOINED = new Intl.DateTimeFormat("en", { month: "long", year: "numeric" });
 
 /**
@@ -202,8 +233,11 @@ function ProfileScreen() {
     user.youFollow === followed.following
   )
     setFollowed(undefined);
-  const tabs = own ? TABS : TABS.filter((t) => t.id !== "likes");
+  const tabs = TABS.filter(
+    (t) => (t.id !== "likes" || own) && (t.id !== "subs" || user?.offersSubscriptions === true),
+  );
   const surface = current.id === "likes" ? "likes" : profileSurface(current.id, userId);
+  const prompt = current.id === "subs" ? engine.prompts.get(surface) : undefined;
   const name = user?.name ?? seen?.author.name ?? handle;
 
   const pill =
@@ -338,9 +372,10 @@ function ProfileScreen() {
               }
             />
           </div>
+          {current.id === "subs" ? <SubsPrompt name={name} user={user} prompt={prompt} /> : null}
         </div>
       }
-      empty={`Loading @${handle} from X.`}
+      empty={prompt === undefined ? `Loading @${handle} from X.` : null}
       onReopen={reload}
     />
   );

@@ -20,9 +20,11 @@ import {
   emptyEngine,
   gameSurface,
   hideTrend,
+  inspirationSurface,
   mergeBatch,
   postOn,
   postSurface,
+  profileSurface,
   resetSurface,
   showWaiting,
   surfacesOf,
@@ -334,6 +336,29 @@ it("files pinned Home tabs, Lists, Communities and Explore tabs under their own 
       key: "communitySearch:14:Recency:ship it",
     }),
   ).toEqual([communitySearchSurface("14", "Recency", "ship it")]);
+
+  // X's Inspiration lists each set of filters on its own, and its latest answer is what X shows.
+  const weekly = { engagement: "Replies", period: "Weekly", language: "en" };
+  const answer = (...ids: ReadonlyArray<string>) =>
+    batch(
+      "GenericTimelineById",
+      ids.map((id) => post(id, "2026-10-01T00:00:00Z")),
+      { key: "inspiration:Replies:Weekly:en" },
+    );
+  const inspired = mergeBatch(state, answer("1", "2"));
+  expect([
+    at(inspired.lists, inspirationSurface(weekly)),
+    inspired.inspiration,
+    mergeBatch(inspired, batch("GenericTimelineById", [], { key: "VTR" })).inspiration,
+    state.inspiration,
+  ]).toEqual([["1", "2"], weekly, weekly, null]);
+  // X's next first page is its ranking again: it replaces the list, and nothing waits on a pill.
+  const again = mergeBatch(inspired, answer("3", "2"));
+  expect([
+    at(again.lists, inspirationSurface(weekly)),
+    at(again.waiting, inspirationSurface(weekly)),
+  ]).toEqual([["3", "2"], []]);
+
   // X's search of Communities from the hub, keyed by its query: one list per tab.
   expect([
     surfacesOf({ op: "CommunitiesSearchQuery", key: "ship it" }),
@@ -522,6 +547,36 @@ it("keeps notifications in X's order, newer on top, people by surface, and follo
   );
   expect([...state.asked]).toEqual([["5", false]]);
   expect(askFollow(state, "5", null).asked.size).toBe(0);
+
+  // A creator's Subscriptions hold when a later response names them without saying.
+  state = mergeBatch(
+    state,
+    batch("UserByScreenName", [], { users: [{ ...user("5", "theo"), offersSubscriptions: true }] }),
+  );
+  state = mergeBatch(state, batch("Other", [], { users: [user("5", "theo")] }));
+  expect(state.users.get("5")?.offersSubscriptions).toBe(true);
+});
+
+it("keeps X's Subs prompt per profile across X's next page, until X lists posts there", () => {
+  const subs = profileSurface("subs", "50");
+  const prompt = {
+    header: "Unlock more with Subscriptions",
+    body: "@maker has shared 12 Subscriber-only posts.",
+    button: { text: "Subscribe", url: "https://x.com/maker/superfollows/subscribe" },
+  };
+  let state = mergeBatch(emptyEngine, batch("UserSuperFollowTweets", [], { key: "50", prompt }));
+  // X's next page, asked with a cursor, lists nothing more.
+  state = mergeBatch(state, batch("UserSuperFollowTweets", [], { key: "50", cursor: "c-Bottom" }));
+  expect([state.prompts.get(subs), state.prompts.has(profileSurface("subs", "51"))]).toEqual([
+    prompt,
+    false,
+  ]);
+  // Once subscribed, X's first page lists their posts instead.
+  state = mergeBatch(
+    state,
+    batch("UserSuperFollowTweets", [post("9", "2026-11-02T00:00:00.000Z")], { key: "50" }),
+  );
+  expect(state.prompts.has(subs)).toBe(false);
 });
 
 it("keeps the signed-in account's id when X's nav names it again without one", () => {
@@ -546,6 +601,22 @@ it("keeps the signed-in account's id when X's nav names it again without one", (
     name: "Siam H",
     avatarUrl: "https://pbs.twimg.com/a_normal.jpg",
   });
+});
+
+it("keeps X's Post Analytics per post, as X last counted them", () => {
+  const activity = (id: string, impressions: number) => ({
+    ...batch("TweetActivityQuery", []),
+    key: id,
+    analytics: { Impressions: impressions, Engagements: 2 },
+  });
+  let state = mergeBatch(emptyEngine, activity("42", 90));
+  state = mergeBatch(state, activity("43", 7));
+  state = mergeBatch(state, activity("42", 120));
+  state = mergeBatch(state, batch("HomeLatestTimeline", []));
+  expect([...state.analytics]).toEqual([
+    ["42", { Impressions: 120, Engagements: 2 }],
+    ["43", { Impressions: 7, Engagements: 2 }],
+  ]);
 });
 
 it("keeps a post's context and ad mark per page, and lets a thread's newer replies in at once", () => {
@@ -646,6 +717,29 @@ it("keeps dismissed trends hidden across stale captures of their tab, reconciles
   state = hideTrend(state, "explore:news", trend, false, 0);
   expect(at(state.trends, "explore:news")).toEqual([trend]);
   expect(at(state.trends, "explore:trending")).toEqual([]);
+});
+
+it("keeps an Article's body when a timeline sends its post again with the card only", () => {
+  const body = {
+    postId: "5",
+    blocks: [
+      {
+        key: "a",
+        type: "unstyled",
+        text: "Hello",
+        styles: [],
+        links: [],
+        images: [],
+        markdown: null,
+      },
+    ],
+  };
+  const reader = mergeBatch(
+    emptyEngine,
+    batch("TweetResultByRestId", [post("5", "2026-10-31T01:00:00Z")], { articles: [body] }),
+  );
+  const after = mergeBatch(reader, batch("HomeTimeline", [post("5", "2026-10-31T01:00:00Z")]));
+  expect(after.articles.get("5")).toEqual(body);
 });
 
 it("keeps what each response said of a game, a team's schedule, each game's day, and a game's tabs apart", () => {

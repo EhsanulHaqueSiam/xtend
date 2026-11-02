@@ -44,8 +44,11 @@ export const registerXWebview = (el: XWebview | null) => {
   element = el;
   ready = false;
 };
+/** Called on each full load of X's page: a script still waiting on the page before never settles. */
+const onPageLoad = new Set<() => void>();
 export const markXReady = () => {
   ready = true;
+  for (const loadedAnew of onPageLoad) loadedAnew();
   const asked = pending;
   pending = null;
   if (asked === null || element === null) return;
@@ -294,6 +297,64 @@ export const xPickGameTab = async (
     return false;
   })()`)) === true
   );
+};
+
+/** X's Inspiration (Creator Studio's top posts by engagement), free without Premium. */
+export const INSPIRATION_URL = "https://x.com/i/jf/creators/inspiration/top_posts";
+
+/** Inspiration presses in the order asked, and per filter group the latest one asked. */
+let inspirationPresses: Promise<unknown> = Promise.resolve();
+const inspirationLatest = new Map<"period" | "engagement", object>();
+
+/**
+ * Presses X's Inspiration filter `label` (Last 7d, Most Replies) once `loaded` settles and X has
+ * drawn it, while the engine shows that page and the screen has not let it go (`signal`). Presses
+ * run one at a time; only a later pick in the same `group` drops one still waiting its turn.
+ * X's Creator Studio buttons answer a pointer's whole press, not click().
+ */
+export const xPickInspiration = (
+  group: "period" | "engagement",
+  label: string,
+  loaded: Promise<unknown>,
+  signal: AbortSignal,
+) => {
+  const mine = {};
+  inspirationLatest.set(group, mine);
+  const press = inspirationPresses.then(async () => {
+    await loaded;
+    if (signal.aborted || inspirationLatest.get(group) !== mine) return false;
+    const run = await nextRun();
+    // A full load of X's page under the script leaves it pending for good: leaving the screen or
+    // X's next page load ends the wait, as a press not done, so the queue goes on.
+    return new Promise<boolean>((settle) => {
+      const done = (pressed: boolean) => {
+        onPageLoad.delete(abandon);
+        signal.removeEventListener("abort", abandon);
+        settle(pressed);
+      };
+      const abandon = () => done(false);
+      onPageLoad.add(abandon);
+      signal.addEventListener("abort", abandon);
+      if (signal.aborted) abandon();
+      void xRun(`(async () => {
+    for (let i = 0; i < 40 && ${stillMine(run)}; i++) {
+      const button = location.pathname === ${JSON.stringify(new URL(INSPIRATION_URL).pathname)}
+        ? [...document.querySelectorAll('button[type="button"]')].find((b) => b.textContent.trim() === ${JSON.stringify(label)})
+        : undefined;
+      if (button !== undefined) {
+        for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup"])
+          button.dispatchEvent(new PointerEvent(type, { bubbles: true, isPrimary: true, pointerType: "mouse" }));
+        button.click();
+        return true;
+      }
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    return false;
+  })()`).then((pressed) => done(pressed === true));
+    });
+  });
+  inspirationPresses = press.catch(() => false);
+  return press;
 };
 
 /**

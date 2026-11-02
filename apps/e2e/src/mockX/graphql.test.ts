@@ -13,6 +13,7 @@ const PAGES: ReadonlyArray<readonly [path: string, tab?: string]> = [
   ["/home", "following"],
   ["/home", "forYou"],
   ["/noor_lind/status/700000000016"],
+  ["/theo_varga/article/700000000980"],
   ["/mira_brandt"],
   ["/notifications"],
   ["/notifications/mentions"],
@@ -33,6 +34,8 @@ const PAGES: ReadonlyArray<readonly [path: string, tab?: string]> = [
   ["/i/communities/suggested?q=founders"],
   ["/i/communities/top?q=founders"],
   ["/i/communities/latest?q=founders"],
+  ["/you"],
+  ["/you/status/700000000027/analytics"],
   ["/yuki_mensah20"],
   ["/i/nba/game/900000500004", "Top"],
   ["/i/nba/game/900000500004", "Latest"],
@@ -86,4 +89,17 @@ it("answers every request X's pages make with the batch the made-up fixtures hol
     state.exploreNextIds(),
     [],
   ]);
+
+  // A creator's header says they offer Subscriptions, and their Subs is X's prompt to a
+  // non-subscriber; both read back as mock X holds them.
+  const creator = state.user(state.fixture("ConnectTabTimeline", "connect:creators")!.people[0]!)!;
+  const roundTrip = (op: string, variables: Record<string, unknown>) =>
+    renderEngineBatch(op, variables, JSON.parse(JSON.stringify(state.respond(op, variables))));
+  expect(
+    roundTrip("UserByScreenName", { screen_name: creator.handle }).users[0]!.offersSubscriptions,
+  ).toBe(true);
+  const subs = { userId: creator.userId, count: 20 };
+  expect(roundTrip("UserSuperFollowTweets", subs).prompt).toEqual(
+    state.batchFor("UserSuperFollowTweets", subs)!.prompt,
+  );
 });

@@ -34,6 +34,8 @@ import { Route as UHandleRouteImport } from './routes/u.$handle'
 import { Route as PostIdRouteImport } from './routes/post.$id'
 import { Route as ListsIdRouteImport } from './routes/lists.$id'
 import { Route as CommunitiesIdRouteImport } from './routes/communities.$id'
+import { Route as ArticleIdRouteImport } from './routes/article.$id'
+import { Route as PostIdAnalyticsRouteImport } from './routes/post.$id_.analytics'
 import { Route as PostIdActivityRouteImport } from './routes/post.$id_.activity'
 import { Route as NbaGameIdRouteImport } from './routes/nba.game.$id'
 import { Route as ListsIdPeopleRouteImport } from './routes/lists.$id_.people'
@@ -163,6 +165,16 @@ const CommunitiesIdRoute = CommunitiesIdRouteImport.update({
   path: '/communities/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ArticleIdRoute = ArticleIdRouteImport.update({
+  id: '/article/$id',
+  path: '/article/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PostIdAnalyticsRoute = PostIdAnalyticsRouteImport.update({
+  id: '/post/$id_/analytics',
+  path: '/post/$id/analytics',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PostIdActivityRoute = PostIdActivityRouteImport.update({
   id: '/post/$id_/activity',
   path: '/post/$id/activity',
@@ -199,6 +211,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRoute
   '/today': typeof TodayRoute
   '/x': typeof XRoute
+  '/article/$id': typeof ArticleIdRoute
   '/communities/$id': typeof CommunitiesIdRoute
   '/lists/$id': typeof ListsIdRoute
   '/post/$id': typeof PostIdRoute
@@ -208,6 +221,7 @@ export interface FileRoutesByFullPath {
   '/lists/$id/people': typeof ListsIdPeopleRoute
   '/nba/game/$id': typeof NbaGameIdRoute
   '/post/$id/activity': typeof PostIdActivityRoute
+  '/post/$id/analytics': typeof PostIdAnalyticsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -229,6 +243,7 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsRoute
   '/today': typeof TodayRoute
   '/x': typeof XRoute
+  '/article/$id': typeof ArticleIdRoute
   '/communities/$id': typeof CommunitiesIdRoute
   '/lists/$id': typeof ListsIdRoute
   '/post/$id': typeof PostIdRoute
@@ -238,6 +253,7 @@ export interface FileRoutesByTo {
   '/lists/$id/people': typeof ListsIdPeopleRoute
   '/nba/game/$id': typeof NbaGameIdRoute
   '/post/$id/activity': typeof PostIdActivityRoute
+  '/post/$id/analytics': typeof PostIdAnalyticsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -260,6 +276,7 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRoute
   '/today': typeof TodayRoute
   '/x': typeof XRoute
+  '/article/$id': typeof ArticleIdRoute
   '/communities/$id': typeof CommunitiesIdRoute
   '/lists/$id': typeof ListsIdRoute
   '/post/$id': typeof PostIdRoute
@@ -269,6 +286,7 @@ export interface FileRoutesById {
   '/lists/$id_/people': typeof ListsIdPeopleRoute
   '/nba/game/$id': typeof NbaGameIdRoute
   '/post/$id_/activity': typeof PostIdActivityRoute
+  '/post/$id_/analytics': typeof PostIdAnalyticsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -292,6 +310,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/today'
     | '/x'
+    | '/article/$id'
     | '/communities/$id'
     | '/lists/$id'
     | '/post/$id'
@@ -301,6 +320,7 @@ export interface FileRouteTypes {
     | '/lists/$id/people'
     | '/nba/game/$id'
     | '/post/$id/activity'
+    | '/post/$id/analytics'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -322,6 +342,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/today'
     | '/x'
+    | '/article/$id'
     | '/communities/$id'
     | '/lists/$id'
     | '/post/$id'
@@ -331,6 +352,7 @@ export interface FileRouteTypes {
     | '/lists/$id/people'
     | '/nba/game/$id'
     | '/post/$id/activity'
+    | '/post/$id/analytics'
   id:
     | '__root__'
     | '/'
@@ -352,6 +374,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/today'
     | '/x'
+    | '/article/$id'
     | '/communities/$id'
     | '/lists/$id'
     | '/post/$id'
@@ -361,6 +384,7 @@ export interface FileRouteTypes {
     | '/lists/$id_/people'
     | '/nba/game/$id'
     | '/post/$id_/activity'
+    | '/post/$id_/analytics'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -383,6 +407,7 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRoute
   TodayRoute: typeof TodayRoute
   XRoute: typeof XRoute
+  ArticleIdRoute: typeof ArticleIdRoute
   CommunitiesIdRoute: typeof CommunitiesIdRoute
   ListsIdRoute: typeof ListsIdRoute
   PostIdRoute: typeof PostIdRoute
@@ -392,6 +417,7 @@ export interface RootRouteChildren {
   ListsIdPeopleRoute: typeof ListsIdPeopleRoute
   NbaGameIdRoute: typeof NbaGameIdRoute
   PostIdActivityRoute: typeof PostIdActivityRoute
+  PostIdAnalyticsRoute: typeof PostIdAnalyticsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -571,6 +597,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CommunitiesIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/article/$id': {
+      id: '/article/$id'
+      path: '/article/$id'
+      fullPath: '/article/$id'
+      preLoaderRoute: typeof ArticleIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/post/$id_/analytics': {
+      id: '/post/$id_/analytics'
+      path: '/post/$id/analytics'
+      fullPath: '/post/$id/analytics'
+      preLoaderRoute: typeof PostIdAnalyticsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/post/$id_/activity': {
       id: '/post/$id_/activity'
       path: '/post/$id/activity'
@@ -615,6 +655,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRoute,
   TodayRoute: TodayRoute,
   XRoute: XRoute,
+  ArticleIdRoute: ArticleIdRoute,
   CommunitiesIdRoute: CommunitiesIdRoute,
   ListsIdRoute: ListsIdRoute,
   PostIdRoute: PostIdRoute,
@@ -624,6 +665,7 @@ const rootRouteChildren: RootRouteChildren = {
   ListsIdPeopleRoute: ListsIdPeopleRoute,
   NbaGameIdRoute: NbaGameIdRoute,
   PostIdActivityRoute: PostIdActivityRoute,
+  PostIdAnalyticsRoute: PostIdAnalyticsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
