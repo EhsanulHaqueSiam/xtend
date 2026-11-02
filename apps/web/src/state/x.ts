@@ -1141,6 +1141,12 @@ const GIF_BACK = `(() => {
   }
   return null;
 })()`;
+// X's own route for its search, in either layout; each query searched there is a history entry.
+const GIF_ROUTE = "/i/foundmedia/search";
+// Where X's search is: its URL and query while X is on its route, else null.
+const GIF_WHERE = `(location.pathname === ${JSON.stringify(GIF_ROUTE)} ? location.href + "\\n" + (document.querySelector(${JSON.stringify(GIF_FIELD)})?.value ?? "") : null)`;
+// Enough Backs for every query a picker searches in practice, each one a history entry.
+const GIF_BACKS = 20;
 // Every picker's steps go one after another: a search typed while X still opens its picker waits.
 let gifStep: Promise<unknown> = Promise.resolve();
 let gifPickers = 0;
@@ -1166,7 +1172,7 @@ export const xGifPicker = () => {
         const field = () => document.querySelector(${JSON.stringify(GIF_FIELD)});
         if (window.__xtendGif !== ${id}) {
           // Only a search this picker opens is its own, never one already up.
-          if (field() || location.pathname === "/i/foundmedia/search") return false;
+          if (field() || location.pathname === ${JSON.stringify(GIF_ROUTE)}) return false;
           document.querySelector('[data-testid="gifSearchButton"]')?.click();
           window.__xtendGif = ${id};
         }
@@ -1197,7 +1203,10 @@ export const xGifPicker = () => {
         }
         return false;
       })()`).then((more) => more === true),
-    /** Leaves the search this picker opened with X's Back, once X has closed it; true when it did. */
+    /**
+     * Leaves the search this picker opened with X's Back, one history entry at a time and only
+     * while X is on its route; true once X left it. False keeps the search this picker's.
+     */
     close: () => {
       open = false;
       // Not behind the queue: a step running in X's page (paging) stops now.
@@ -1205,16 +1214,18 @@ export const xGifPicker = () => {
       return (gifStep = gifStep.then(() =>
         xRun(`(async () => {
           if (window.__xtendGif !== ${id}) return false;
-          window.__xtendGif = 0;
-          // Each query X searched is a history entry of its own: Back until X's search is gone.
-          for (let i = 0; i < 40 && document.querySelector(${JSON.stringify(GIF_FIELD)}); i++) {
-            if (i % 5 === 0) {
-              const back = ${GIF_BACK};
-              if (back) back.click();
-              else if (location.pathname === "/i/foundmedia/search") history.back();
-            }
-            ${wait};
+          for (let press = 0; press < ${GIF_BACKS}; press++) {
+            const at = ${GIF_WHERE};
+            if (at === null) break;
+            const back = ${GIF_BACK};
+            if (back) back.click();
+            else history.back();
+            // X has taken the Back once its URL or query moved; one that did not stops here.
+            for (let i = 0; i < 33 && ${GIF_WHERE} === at; i++) ${wait};
+            if (${GIF_WHERE} === at) return false;
           }
+          if (${GIF_WHERE} !== null) return false;
+          window.__xtendGif = 0;
           return true;
         })()`),
       )).then((closed) => closed === true);

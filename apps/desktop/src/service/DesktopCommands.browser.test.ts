@@ -48,7 +48,16 @@ interface FakeOptions {
   readonly postDisabled?: boolean;
   /** X's compact layout (the engine's width): the GIF search is a page with the only Back. */
   readonly compact?: boolean;
+  /** How long X takes to take a Back in its GIF search, and to remove the search after leaving. */
+  readonly backMs?: number;
+  readonly lingerMs?: number;
+  /** History entries X pushes for each query searched (X's own count is one), the rest by URL. */
+  readonly entriesPerQuery?: number;
 }
+
+/** X's composer page and its GIF search route, on this document's URL. */
+const COMPOSE_PATH = "/compose/post";
+const GIF_PATH = "/i/foundmedia/search";
 
 /** X's GIF search for "cat", page by page: X adds the next as its list scrolls to the end. */
 const CAT_PAGES = [["g1", "g2"], ["g3"]];
@@ -80,7 +89,10 @@ function fakeX(markup: string, log: Array<string>, options: FakeOptions = {}) {
         `<label><span>Choice ${choices}</span><input name="Choice${choices}" /></label>`,
       );
   };
+  history.replaceState(null, "", COMPOSE_PATH);
   document.body.addEventListener("click", (event) => {
+    // An earlier test's X, still listening on body, is gone.
+    if (root?.isConnected !== true) return;
     const target = event.target as HTMLElement;
     const popover = layers?.querySelector('[data-testid="HoverCard"]') ?? null;
     const row = target.closest<HTMLElement>('[role="radiogroup"] label');
@@ -112,7 +124,9 @@ function fakeX(markup: string, log: Array<string>, options: FakeOptions = {}) {
     } else if (target.closest('[aria-label="Remove media"]') !== null)
       target.closest("[data-x=attachment]")?.remove();
     else if (target.closest('[data-testid="gifSearchButton"]') !== null) {
-      // X's GIF search over the composer: the tiles for what is typed, the next page on scroll.
+      // X's GIF search on its own route over the composer: the tiles for what is typed, the next
+      // page on scroll, and a history entry for each query searched, which one Back steps out of.
+      history.replaceState(null, "", GIF_PATH);
       const search = `<div class="bar"><button data-testid="app-bar-back">Back</button></div><div><input placeholder="Search for GIFs" /></div><div data-x="tiles"></div>`;
       const page = document.createElement(options.compact === true ? "main" : "div");
       page.dataset.x = "gif-search";
@@ -122,11 +136,12 @@ function fakeX(markup: string, log: Array<string>, options: FakeOptions = {}) {
       const field = page.querySelector("input")!;
       const tiles = page.querySelector<HTMLElement>("[data-x=tiles]")!;
       let pages = 0;
+      // The entries after the one the search opened on, each with the query it shows.
+      const entries: Array<{ readonly url: string; readonly value: string }> = [];
       field.addEventListener("input", () => {
         log.push(`search ${field.value}`);
-        // As a page, each query X searched is a history entry: Back first returns to the last.
-        if (options.compact === true)
-          page.dataset.entries = String(Number(page.dataset.entries ?? 0) + 1);
+        for (let i = 0; i < (options.entriesPerQuery ?? 1); i++)
+          entries.push({ url: i === 0 ? GIF_PATH : `${GIF_PATH}?n=${i}`, value: field.value });
         pages = field.value === "cat" ? 1 : 0;
         tiles.innerHTML = pages === 0 ? "" : CAT_PAGES[0]!.map(tile).join("");
       });
@@ -134,19 +149,27 @@ function fakeX(markup: string, log: Array<string>, options: FakeOptions = {}) {
         if (pages === 0 || pages >= CAT_PAGES.length) return;
         tiles.insertAdjacentHTML("beforeend", CAT_PAGES[pages++]!.map(tile).join(""));
       });
+      page.querySelector("button")!.addEventListener("click", () => {
+        log.push("gif search back");
+        setTimeout(() => {
+          if (entries.pop() !== undefined) {
+            const now = entries.at(-1) ?? { url: GIF_PATH, value: "" };
+            history.replaceState(null, "", now.url);
+            field.value = now.value;
+          } else {
+            history.replaceState(null, "", COMPOSE_PATH);
+            setTimeout(() => page.remove(), options.lingerMs ?? 0);
+          }
+        }, options.backMs ?? 100);
+      });
     } else if (target.dataset.testid === "gifSearchGifImage") {
       log.push(`gif ${/\/media\/(\w+)\//.exec(target.getAttribute("style") ?? "")?.[1]}`);
+      history.replaceState(null, "", COMPOSE_PATH);
       target.closest("[data-x=gif-search]")?.remove();
       mediaBox?.insertAdjacentHTML(
         "beforeend",
         '<div data-x="attachment"><button aria-label="Remove media">x</button></div>',
       );
-    } else if (target.closest('[data-x=gif-search] [data-testid="app-bar-back"]') !== null) {
-      log.push("gif search back");
-      const page = target.closest<HTMLElement>("[data-x=gif-search]")!;
-      const entries = Number(page.dataset.entries ?? 0);
-      if (entries > 0) page.dataset.entries = String(entries - 1);
-      else page.remove();
     } else if (target.dataset.testid === "tweetButton") {
       if (layers?.querySelector('[data-testid="HoverCard"]') !== null) log.push("popover open");
       log.push(`press Post, ${reply?.getAttribute("aria-label")}`);
@@ -224,6 +247,9 @@ function domCdp(log: Array<string>) {
           ? { result: value instanceof Element ? { objectId: String(idOf(value)) } : {} }
           : { result: { value } };
       }
+      case "Runtime.evaluate":
+        // oxlint-disable-next-line no-eval -- runs the expression the driver sends, as Chromium would.
+        return { result: { value: (0, eval)(String(params.expression)) as unknown } };
       case "DOM.requestNode":
         return { nodeId: Number(params.objectId) };
       case "Input.dispatchMouseEvent": {
@@ -273,6 +299,7 @@ const run = async (
   options?: FakeOptions,
 ) => {
   using _timers = fakeTimers({ now: T0 });
+  const start = location.href;
   const log: Array<string> = [];
   fakeX(markup, log, options);
   const posting = postThroughComposer(
@@ -283,7 +310,9 @@ const run = async (
     T0 + 60_000,
   ).catch((error: unknown) => error);
   await vi.runAllTimersAsync();
-  return { log, result: await posting };
+  const path = location.pathname;
+  history.replaceState(null, "", start);
+  return { log, result: await posting, path };
 };
 
 it("fills X's poll and picks who can reply in X's own composer before typing and pressing Post", async () => {
@@ -416,17 +445,32 @@ it("picks the GIF in X's own search, paging X's list to reach it, before typing 
   expect(composer()).toEqual({ ...EMPTY, text: "meow", media: 1 });
 });
 
-it("leaves X's GIF search with its own Back and refuses before Post when the picked GIF is not in it", async () => {
-  // As at the engine's width, where X's GIF search is a page, not a dialog.
-  const { log, result } = await run(
+it("leaves X's GIF search a query at a time, only while X is on it, and refuses before Post when the picked GIF is not in it", async () => {
+  // As at the engine's width, where X's GIF search is a page: X takes a while to take each Back,
+  // and draws its search a while longer once it has left it.
+  const { log, result, path } = await run(
     COMPOSER,
     post({ replySettings: "following", gif: { query: "cat", id: "giphy_g9" } }),
-    { compact: true },
+    { compact: true, backMs: 400, lingerMs: 2_000 },
   );
   expect(result).toMatchObject({
     message: 'x.com\'s composer has no GIF "giphy_g9" in its search for "cat"; nothing was posted',
     notAttempted: true,
   });
-  expect(log).toEqual(["search cat", "gif search back", "gif search back"]);
+  // "cat", then the search X opened on: never a Back once X is back in its composer.
+  expect([log, path]).toEqual([["search cat", "gif search back", "gif search back"], COMPOSE_PATH]);
   expect(composer()).toEqual(EMPTY);
+});
+
+it("takes as many Backs as X's search holds entries, up to the last one it may press", async () => {
+  // X kept 19 entries for the query: 20 Backs in all, the most the driver presses.
+  const { log, result, path } = await run(
+    COMPOSER,
+    post({ gif: { query: "cat", id: "giphy_g9" } }),
+    { compact: true, entriesPerQuery: 19 },
+  );
+  expect(result).toMatchObject({
+    message: 'x.com\'s composer has no GIF "giphy_g9" in its search for "cat"; nothing was posted',
+  });
+  expect([log.filter((l) => l === "gif search back").length, path]).toEqual([20, COMPOSE_PATH]);
 });

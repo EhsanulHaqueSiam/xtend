@@ -413,6 +413,39 @@ const NEAREST_BACK = `function () {
   return null;
 }`;
 
+// Where X's GIF search is: its URL and query while X is on its route, else null.
+const GIF_WHERE = `location.pathname === ${JSON.stringify(X_COMPOSER.gifRoute)} ? location.href + "\\n" + (document.querySelector(${JSON.stringify(X_COMPOSER.gifSearch)})?.value ?? "") : null`;
+// Enough Backs for the queries X's search holds, each a history entry of its own.
+const GIF_BACKS = 20;
+
+const gifWhere = async (cdp: Cdp) => {
+  const { result } = (await cdp("Runtime.evaluate", {
+    expression: GIF_WHERE,
+    returnByValue: true,
+  })) as { result: { value: unknown } };
+  return typeof result.value === "string" ? result.value : null;
+};
+
+/**
+ * Leaves X's GIF search with its own Back, one history entry at a time: only while X is on the
+ * search's route, and each press only once X took the one before (its URL or query moved).
+ */
+async function leaveGifSearch(cdp: Cdp): Promise<void> {
+  for (let press = 0; press < GIF_BACKS; press++) {
+    const at = await gifWhere(cdp);
+    if (at === null) return;
+    const [field] = (await query(cdp, X_COMPOSER.gifSearch)).toReversed();
+    if (field === undefined) throw new Error("x.com's GIF search has no field");
+    await click(cdp, await gifBack(cdp, field));
+    const deadline = Date.now() + CONTROL_TIMEOUT_MS;
+    while ((await gifWhere(cdp)) === at) {
+      if (Date.now() >= deadline) throw new Error("x.com did not take its GIF search's Back");
+      await sleep(POLL_MS);
+    }
+  }
+  if ((await gifWhere(cdp)) !== null) throw new Error("x.com's GIF search stayed open");
+}
+
 /** X's Back for its GIF search, found from the search's field (see `X_COMPOSER.gifBack`). */
 async function gifBack(cdp: Cdp, field: number): Promise<number> {
   const { result } = (await cdp("Runtime.callFunctionOn", {
@@ -577,16 +610,7 @@ async function takeBack(cdp: Cdp, touched: Touched, error: unknown): Promise<Not
     await waitForGone(cdp, X_COMPOSER.replyPopover, soon());
   });
   // So would X's GIF search, open over the composer.
-  await undo("X's GIF search", async () => {
-    // Each query X searched is a history entry of its own: Back until X's search is gone.
-    for (let i = 0; i < 6; i++) {
-      const [field] = (await query(cdp, X_COMPOSER.gifSearch)).toReversed();
-      if (field === undefined) return;
-      await click(cdp, await gifBack(cdp, field));
-      await waitForGone(cdp, X_COMPOSER.gifSearch, Date.now() + 750).catch(() => undefined);
-    }
-    throw new Error("X's GIF search stayed open");
-  });
+  await undo("X's GIF search", () => leaveGifSearch(cdp));
   if (touched.reply)
     await undo("the reply setting", () =>
       pickReply(

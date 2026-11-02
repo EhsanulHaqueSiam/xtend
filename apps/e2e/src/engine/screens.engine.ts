@@ -994,7 +994,9 @@ test("Home's GIF picker searches X's own GIF search on the engine, pages it, and
   await go("/home?feed=following");
   await expect.poll(enginePath).toBe("/home");
   const writes = () => e.mock.state.presses.filter((p) => p.kind === "write").length;
+  const backs = () => presses().filter((p) => p === "press app-bar-back").length;
   const before = writes();
+  const backsBefore = backs();
   await e.app.getByRole("button", { name: "GIF", exact: true }).click();
   // X's own GIF button on its Home composer opened X's search, which lists X's trending GIFs.
   await expect.poll(enginePath).toBe("/i/foundmedia/search");
@@ -1028,7 +1030,8 @@ test("Home's GIF picker searches X's own GIF search on the engine, pages it, and
   await scroller.evaluate((el) => el.scrollTo(0, 0));
   await picker.getByRole("button", { name: "cat 2 GIF", exact: true }).click();
   await expect.poll(enginePath).toBe("/home");
-  expect(presses()).toContain("press app-bar-back");
+  // One Back for the query X searched and one for the search it opened on, none from Home.
+  expect(backs() - backsBefore).toBe(2);
   await e.app.getByRole("img", { name: "cat 2 GIF", exact: true }).waitFor();
   await e.app.getByRole("button", { name: "Remove GIF", exact: true }).click();
   expect(writes()).toBe(before);

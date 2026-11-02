@@ -111,6 +111,8 @@ export const X_COMPOSER = {
   /** Unconfirmed: the × on an attached image, video or GIF. */
   removeMedia: '[aria-label="Remove media"]',
   gifButton: 'button[data-testid="gifSearchButton"]',
+  /** X's GIF search's own route, in either layout; each query searched there is a history entry. */
+  gifRoute: "/i/foundmedia/search",
   gifSearch: 'input[placeholder="Search for GIFs"]',
   gifTile: 'div[data-testid="gifSearchGifImage"]',
   /**
