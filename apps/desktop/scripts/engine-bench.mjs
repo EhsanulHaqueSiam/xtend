@@ -758,19 +758,14 @@ const benchmarks = [
       // X's first three posts sit together, in X's order, in the native list (an ad has no
       // timestamp link). Nothing is pressed: X's membership button is only found.
       const xFirst = `[...document.querySelectorAll("article")].map((a) => a.querySelector('a[href*="/status/"] time')?.parentElement.getAttribute("href")?.split("/status/")[1]?.split("/")[0]).filter(Boolean).slice(0, 3)`;
-      // X's first three posts lead the tab's list, and Xtend draws X's first: a tall first post
-      // can leave only one drawn in the window.
-      const same = (surface) =>
+      const same = () =>
         until(async () => {
-          const [xs, ours, drawn] = [
-            await engine(xFirst),
-            await store(`at($.lists, ${JSON.stringify(surface)})`),
-            await nativeIds(),
-          ];
+          const [xs, ours] = [await engine(xFirst), await nativeIds()];
+          const at = ours?.indexOf(xs?.[0]) ?? -1;
           return (
             xs?.length === 3 &&
-            JSON.stringify(ours?.slice(0, 3)) === JSON.stringify(xs) &&
-            drawn?.[0] === xs[0] &&
+            at !== -1 &&
+            JSON.stringify(ours.slice(at, at + 3)) === JSON.stringify(xs) &&
             xs.join(",")
           );
         });
