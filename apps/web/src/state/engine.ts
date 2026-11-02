@@ -13,6 +13,8 @@ import type {
   EnginePeopleSection,
   EnginePost,
   EnginePrompt,
+  EngineRadarCount,
+  EngineRadarQuery,
   EngineTrend,
   EngineUser,
   EngineViewer,
@@ -92,7 +94,8 @@ type KeyedSurface =
   | `communityPostsSearch:${"Top" | "Latest"}:${string}`
   | `profile:${ProfileTab}:${string}`
   | `sportsGame:${GameTab}:${string}`
-  | `gifs:${string}`;
+  | `gifs:${string}`
+  | `radar:${string}`;
 /** X's Follow page's tabs (Who to follow, Creators for you), as the capture keys them. */
 export type ConnectTab = "connect:who" | "connect:creators";
 export type AnySurface = Surface | KeyedSurface;
@@ -217,6 +220,9 @@ const tabKey = <P extends "tag" | "community" | "communitySearch" | "list">(
   prefix: P,
 ) => (key?.startsWith(`${prefix}:`) === true ? (key as `${P}:${string}`) : undefined);
 
+/** A Radar query's posts on X's Top tab, X's default, as the capture keys them. */
+export const radarSurface = (query: string) => `radar:Top:${query}` as const;
+
 /**
  * Which surfaces a response feeds, its own first; none for the many X calls no screen lists.
  */
@@ -258,6 +264,8 @@ export function surfacesOf(batch: Pick<EngineBatch, "op" | "key">): ReadonlyArra
     const search = tabKey(key, "communitySearch");
     return search === undefined ? [] : [search];
   }
+  if (op === "postListQuery" && key?.startsWith("radar:") === true)
+    return [key as `radar:${string}`];
   if (op === "GifSearch" && key?.startsWith("gifs:") === true)
     return [gifSurface(key.slice("gifs:".length))];
   // The capture keys a search of Communities by its query; the operation is the tab.
@@ -412,6 +420,7 @@ export interface EngineState {
   readonly analytics: ReadonlyMap<string, Readonly<Record<string, number>>>;
   /** How many people the viewer follows follow each user, by user id (see `EngineBatch.knownFollowers`). */
   readonly knownFollowers: ReadonlyMap<string, number>;
+  readonly radar: Radar;
   /** The page cursors X last answered per surface, to tell a fetch of newer posts from the next page. */
   readonly cursors: Readonly<
     Partial<Record<AnySurface, { readonly top: string | null; readonly bottom: string | null }>>
@@ -450,6 +459,7 @@ export const emptyEngine: EngineState = {
   viewer: null,
   analytics: new Map(),
   knownFollowers: new Map(),
+  radar: { list: null, queries: new Map(), limit: null, counts: new Map() },
   cursors: {},
 };
 
@@ -486,7 +496,9 @@ function join<A>(
  */
 export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState {
   const posts = new Map(state.posts);
-  for (const post of batch.posts) posts.set(post.postId, post);
+  for (const post of batch.posts)
+    // X's Radar sends a post without its media, quote or the viewer's own state: a fuller copy stays.
+    if (batch.op !== "postListQuery" || !posts.has(post.postId)) posts.set(post.postId, post);
   let users = state.users;
   let asked = state.asked;
   if (batch.users.length > 0) {
@@ -594,13 +606,16 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
       batch.knownFollowers === undefined || batch.key === null
         ? state.knownFollowers
         : new Map(state.knownFollowers).set(batch.key, batch.knownFollowers),
+    radar: mergeRadar(state.radar, batch),
   };
   const listed = surfacesOf(batch).reduce(
     (state, surface) =>
       mergeInto(
-        // Explore's and Inspiration's first page is X's whole list again, so it replaces ours;
-        // Home's waits behind a pill, which neither draws.
-        (surface.startsWith("explore:") || surface.startsWith("inspiration:")) &&
+        // Explore's, Inspiration's and Radar's first page is X's whole list again, so it replaces
+        // ours; Home's waits behind a pill, which none of them draws.
+        (surface.startsWith("explore:") ||
+          surface.startsWith("inspiration:") ||
+          surface.startsWith("radar:")) &&
           batch.cursor === null
           ? resetSurface(state, surface)
           : state,
@@ -613,6 +628,57 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
   // The response also carries the post it quotes, which stays where it was.
   const created = batch.posts.filter((p) => !batch.posts.some((q) => q.quotedId === p.postId));
   return created.reduce(placeCreated, listed);
+}
+
+/** X's Radar as the engine read it (see `EngineBatch.radarQueries`). */
+interface Radar {
+  /** The queries' ids in X's order, once X listed them. */
+  readonly list: ReadonlyArray<string> | null;
+  readonly queries: ReadonlyMap<string, EngineRadarQuery>;
+  /** How many queries X lets the account keep, once X said. */
+  readonly limit: number | null;
+  /** Per query, X's daily post counts, oldest first. */
+  readonly counts: ReadonlyMap<string, ReadonlyArray<EngineRadarCount>>;
+}
+
+/**
+ * A response's Radar into the store. A query's days join what X sent before, as X asks again for
+ * days it was still counting; an answer that names a newer day starts the days afresh.
+ */
+function mergeRadar(radar: Radar, batch: EngineBatch): Radar {
+  const { key, radarQueries, radarCounts } = batch;
+  if (
+    radarQueries === undefined &&
+    radarCounts === undefined &&
+    batch.radarLimit === undefined &&
+    batch.radarDeleted === undefined
+  )
+    return radar;
+  const queries =
+    radarQueries === undefined
+      ? radar.queries
+      : new Map([...radar.queries, ...radarQueries.map((q) => [q.id, q] as const)]);
+  let counts = radar.counts;
+  if (radarCounts !== undefined && key !== null) {
+    const known = radar.counts.get(key) ?? [];
+    const last = known.at(-1)?.at ?? "";
+    const days = new Map(radarCounts.some((d) => d.at > last) ? [] : known.map((d) => [d.at, d]));
+    for (const d of radarCounts) if (d.count !== null || !days.has(d.at)) days.set(d.at, d);
+    counts = new Map(counts).set(
+      key,
+      [...days.values()].toSorted((a, b) => a.at.localeCompare(b.at)),
+    );
+  }
+  return {
+    // X takes a deleted query off its list without asking for the list again.
+    list:
+      key === "radar" && radarQueries !== undefined
+        ? radarQueries.map((q) => q.id)
+        : (radar.list?.filter((id) => id !== batch.radarDeleted) ?? null),
+    queries,
+    limit: batch.radarLimit ?? radar.limit,
+    counts,
+  };
 }
 
 const keepTeam = (known: EngineGameTeam, fresh: EngineGameTeam): EngineGameTeam => ({

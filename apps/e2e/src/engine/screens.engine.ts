@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "vite-plus/test";
 
-import { inspirationTimelineId } from "../mockX/state.ts";
+import { inspirationTimelineId, radarRange } from "../mockX/state.ts";
 import { type Engine, startEngine } from "./harness.ts";
 
 /**
@@ -788,6 +788,90 @@ test("A team's profile shows X's schedule, a card opens its game, and Latest is 
       .slice(reads)
       .filter((r) => r.op.startsWith("NBA") || r.op.startsWith("SportsGame")),
   ).toEqual([]);
+});
+
+test("Library's Radar is X's: its intro without Premium, then X's queries, a query's days and posts, and a new query and a delete through X's own form and dialog", async () => {
+  const radar = e.mock.state.radar;
+  const earlier = presses().length;
+  const rows = () => e.app.locator("main li").allTextContents();
+  const cards = () =>
+    e.app
+      .locator('main article a[href*="/status/"]')
+      .evaluateAll((as) => [
+        ...new Set(as.map((a) => a.getAttribute("href")!.split("/status/")[1])),
+      ]);
+  const { from, to, since } = radarRange();
+  const total = (id: string) =>
+    e.mock.state
+      .batchFor("usePostCountQuery", { id, from_time: from, to_time: to })!
+      .radarCounts!.reduce((n, d) => n + (d.count ?? 0), 0)
+      .toLocaleString("en");
+
+  // Without Premium X's page is its upsell and makes no Radar call; the section shows X's intro.
+  await go("/library?tab=radar");
+  await expect.poll(enginePath).toBe("/i/radar");
+  await e.app.getByRole("link", { name: "Subscribe to Premium" }).waitFor();
+  expect(e.mock.reads.filter((r) => /^(insight|usePostCount|postList)/.test(r.op))).toEqual([]);
+
+  radar.premium = true;
+  await go("/home");
+  await expect.poll(enginePath).toBe("/home");
+  await go("/library?tab=radar");
+  await expect
+    .poll(rows)
+    .toEqual([
+      expect.stringMatching(new RegExp(`^Untitled query.*design systemPosts${total("1802")}$`)),
+      expect.stringMatching(new RegExp(`^Growth.*growth OR adsPosts${total("1801")}$`)),
+    ]);
+
+  // A query's page: X's Posts count and X's Top posts for its query, in X's order.
+  await e.app.getByRole("button", { name: /^Growth/ }).click();
+  await expect.poll(enginePath).toBe("/i/radar/1801");
+  const top = e.mock.state.batchFor("postListQuery", {
+    cursor: null,
+    product: "Top",
+    query: `growth OR ads -is:retweet since:${since}`,
+  })!.order;
+  await expect.poll(cards).toEqual(top);
+  await e.app.getByText(total("1801"), { exact: true }).waitFor();
+
+  // A new query goes into X's own form and X's own Submit; X opens its page, and so does Xtend.
+  await e.app.getByRole("button", { name: "All queries" }).click();
+  await e.app.getByRole("button", { name: "New query" }).click();
+  await e.app.getByRole("textbox", { name: "Query" }).fill("pricing");
+  await e.app.getByRole("button", { name: "Create" }).click();
+  await expect.poll(enginePath).toBe("/i/radar/1803");
+  await e.app.getByRole("heading", { name: "Untitled query" }).waitFor();
+  await e.app.getByText("pricing", { exact: true }).waitFor();
+
+  // Delete presses X's own Delete on X's row; X's dialog asks over the main area, and X's answer
+  // takes the row off.
+  await e.app.getByRole("button", { name: "All queries" }).click();
+  await expect.poll(async () => (await rows()).length).toBe(3);
+  await e.app.getByRole("button", { name: "Delete Growth" }).click();
+  await expect.poll(() => engineHas('#layers [role="dialog"]')).toBe(true);
+  await expect.poll(pane).toBe("main");
+  await e.engine(
+    `[...document.querySelectorAll('#layers [role="dialog"] button')].find((b) => b.textContent === "Delete").click()`,
+  );
+  await expect.poll(pane).toBe("hidden");
+  await expect
+    .poll(rows)
+    .toEqual([
+      expect.stringMatching(/^Untitled query.*pricing/),
+      expect.stringMatching(/^Untitled query.*design system/),
+    ]);
+  expect(
+    presses()
+      .slice(earlier)
+      .filter((p) => /radar|Insight|dialog:/.test(p)),
+  ).toEqual([
+    "press radar:Submit",
+    "write createInsightInputMutation",
+    "press radar:Delete 1801",
+    "press dialog:Delete",
+    "write deleteInsightButtonMutation 1801",
+  ]);
 });
 
 test("Search reads X's Top and People tabs for the query", async () => {

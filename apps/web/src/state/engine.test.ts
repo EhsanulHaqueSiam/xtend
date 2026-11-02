@@ -28,6 +28,7 @@ import {
   postOn,
   postSurface,
   profileSurface,
+  radarSurface,
   resetSurface,
   showWaiting,
   surfacesOf,
@@ -860,4 +861,66 @@ it("keeps what each response said of a game, a team's schedule, each game's day,
     at(state.lists, gameSurface("41", "Top")),
     at(state.lists, gameSurface("41", "Latest")),
   ]).toEqual([["7"], ["8"]]);
+});
+
+it("keeps X's Radar: its list in X's order, a query's days as X finishes counting them, and its posts as X ranks them now", () => {
+  const query = (id: string) => ({
+    id,
+    title: "",
+    query: `q${id}`,
+    createdAt: "2026-10-28T09:00:00.000Z",
+    preview: [],
+  });
+  const day = (d: string, count: number | null) => ({ at: `2026-11-0${d}T00:00:00.000Z`, count });
+  const listed = mergeBatch(
+    emptyEngine,
+    batch("insightsListContextQuery", [], { key: "radar", radarQueries: [query("2"), query("1")] }),
+  );
+  // X still counted the oldest day; its next answer for those days fills it in.
+  const counted = [
+    batch("insightsConfigQuery", [], { radarLimit: 3 }),
+    batch("usePostCountQuery", [], { key: "1", radarCounts: [day("1", null), day("2", 7)] }),
+    batch("usePostCountQuery", [], { key: "1", radarCounts: [day("1", 9), day("2", null)] }),
+  ].reduce(mergeBatch, listed);
+  // A day later X's answer starts from a newer day.
+  const nextDay = mergeBatch(
+    counted,
+    batch("usePostCountQuery", [], { key: "1", radarCounts: [day("2", 8), day("3", 2)] }),
+  );
+  const deleted = mergeBatch(
+    counted,
+    batch("deleteInsightButtonMutation", [], { radarDeleted: "2" }),
+  );
+  expect([
+    deleted.radar.list,
+    counted.radar.list,
+    counted.radar.limit,
+    counted.radar.counts.get("1"),
+    nextDay.radar.counts.get("1"),
+  ]).toEqual([["1"], ["2", "1"], 3, [day("1", 9), day("2", 7)], [day("2", 8), day("3", 2)]]);
+
+  // A new visit's first page is X's ranking now, not one behind a pill.
+  const surface = radarSurface("q1");
+  const first = mergeBatch(
+    emptyEngine,
+    batch("postListQuery", [post("5", "2026-11-01T00:00:00Z")], { key: "radar:Top:q1" }),
+  );
+  const again = mergeBatch(
+    first,
+    batch("postListQuery", [post("6", "2026-11-02T00:00:00Z"), post("5", "2026-11-01T00:00:00Z")], {
+      key: "radar:Top:q1",
+    }),
+  );
+  const liked = { ...post("7", "2026-11-01T00:00:00Z"), liked: true };
+  const home = mergeBatch(emptyEngine, batch("HomeTimeline", [liked]));
+  const radar = mergeBatch(
+    home,
+    batch("postListQuery", [post("7", "2026-11-01T00:00:00Z")], { key: "radar:Top:q1" }),
+  );
+  expect([
+    at(first.lists, surface),
+    at(again.lists, surface),
+    radar.posts.get("7")?.liked,
+    at(radar.lists, surface),
+  ]).toEqual([["5"], ["6", "5"], true, ["7"]]);
 });

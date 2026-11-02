@@ -19,6 +19,8 @@ import {
   xPickCommunitySearchTab,
   xPickHomeTab,
   xPickInspiration,
+  xRadarCreate,
+  xRadarDelete,
   xPostFollowPress,
   xPostMenuPress,
   xProfileMenu,
@@ -1718,6 +1720,84 @@ it("picks a game's tab once X answered for that game since the engine's last mov
     hero("Raptors", "Lakers");
     await vi.runAllTimersAsync();
     expect([await stale, clicked]).toEqual([true, ["Latest"]]);
+  } finally {
+    history.replaceState(null, "", start);
+  }
+});
+
+it("creates a Radar query through X's own form: the query typed into X's field, then X's own Submit once X turns it on", async () => {
+  using _clock = fakeTimers();
+  inThisPage(() => `https://x.com${location.pathname}`);
+  const start = location.href;
+  // X's form: Submit (its arrow) is off until X's field has text, and X opens the query's page.
+  document.body.innerHTML = `<main><input placeholder="$NVDA (sell OR buy)"><button disabled><svg data-icon="icon-arrow-up"></svg></button></main>`;
+  const input = document.querySelector("input")!;
+  const submit = document.querySelector("button")!;
+  input.addEventListener("input", () =>
+    setTimeout(() => (submit.disabled = input.value === ""), 100),
+  );
+  const sent: Array<string> = [];
+  submit.addEventListener("click", () => {
+    sent.push(input.value);
+    history.pushState(null, "", "/i/radar/1803");
+  });
+  try {
+    const created = xRadarCreate("$NVDA (sell OR buy)");
+    await vi.runAllTimersAsync();
+    expect([await created, sent]).toEqual(["1803", ["$NVDA (sell OR buy)"]]);
+  } finally {
+    history.replaceState(null, "", start);
+  }
+});
+
+it("presses X's Delete only on the one row whose query field is exactly the query, and shows X's dialog until the user closes it", async () => {
+  using _clock = fakeTimers();
+  inThisPage(() => `https://x.com${location.pathname}`);
+  const start = location.href;
+  // X's row: a column of its title and date, its query field (the query, or tags one by one), and
+  // its actions with Delete's label.
+  const row = (title: string, ...query: Array<string>) =>
+    `<div class="group"><div><div><div>${title}</div><span>Oct 28</span></div><div>${query.map((q) => `<div><span>${q}</span></div>`).join("")}</div><div><button><svg data-icon="icon-trashcan"></svg><div>Delete</div></button></div></div><div>Posts 12</div></div>`;
+  const pressed: Array<number> = [];
+  const list = (...rows: Array<string>) => {
+    document.body.innerHTML = `<main>${rows.join("")}</main>`;
+    document.querySelectorAll("main button").forEach((b, i) =>
+      b.addEventListener("click", () => {
+        pressed.push(i);
+        document.body.insertAdjacentHTML("beforeend", `<div role="dialog"></div>`);
+      }),
+    );
+  };
+  const over: Array<boolean> = [];
+  const show = (shown: boolean) => over.push(shown);
+  const none = async (query: string, ...rows: Array<string>) => {
+    list(...rows);
+    const deleted = xRadarDelete({ title: "", query }, show);
+    await vi.runAllTimersAsync();
+    return deleted;
+  };
+  try {
+    // Delete's own label, a title, part of a query, more tags than asked, and two rows alike.
+    expect([
+      await none("Delete", row("Untitled query", "bitcoin")),
+      await none("bitcoin", row("bitcoin", "bitcoin min_faves:100")),
+      await none("$GOOGL OR $AAPL", row("Untitled query", "$GOOGL", "$AAPL", "$TSLA")),
+      await none("eth", row("Untitled query", "eth"), row("Untitled query", "eth")),
+      await none("$AAPL OR $AAPL", row("Untitled query", "$AAPL", "$TSLA")),
+      pressed,
+    ]).toEqual([false, false, false, false, false, []]);
+
+    list(
+      row("Untitled query", "$GOOGL", "$AAPL", "$TSLA"),
+      row("Untitled query", "$AAPL", "$GOOGL"),
+    );
+    const done = xRadarDelete({ title: "", query: "$GOOGL OR $AAPL" }, show);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect([pressed, over]).toEqual([[1], [true]]);
+    // The user answers X's dialog in X.
+    document.querySelector('[role="dialog"]')!.remove();
+    await vi.runAllTimersAsync();
+    expect([await done, over]).toEqual([true, [true, false]]);
   } finally {
     history.replaceState(null, "", start);
   }
