@@ -1118,11 +1118,29 @@ export function synth(): Readonly<Record<string, Fixture>> {
     }),
     say(1, "What is everyone using for invoicing these days?", 140),
   ];
+  // X's search of Communities: what it finds names each one's banner, members and topic only.
+  const searched = (c: EngineCommunity): EngineCommunity => ({
+    ...c,
+    description: null,
+    rules: null,
+    joinPolicy: null,
+    role: null,
+  });
+  const fromCommunities = [
+    ...labelled(open, inOpen.slice(0, 2)),
+    ...labelled(asks, following.slice(0, 1)),
+  ];
   const communities: Fixture = {
     meta: meta(
       "communities",
-      "Communities: the hub's Home and Explore, a Community's tabs, Join and Ask to join",
-      ["/communities", "/communities?tab=explore", `/communities/${open.communityId}`],
+      "Communities: the hub's Home, Explore and search, a Community's tabs, Join and Ask to join",
+      [
+        "/communities",
+        "/communities?tab=explore",
+        "/communities?q=founders",
+        "/communities?q=founders&tab=top",
+        `/communities/${open.communityId}`,
+      ],
     ),
     batches: [
       batch("CarouselQuery", "communities:mine", [], { communities: joined.map(tile) }),
@@ -1170,6 +1188,24 @@ export function synth(): Readonly<Record<string, Fixture>> {
           link: `https://x.com/i/communities/${open.communityId}/${s.page}`,
         })),
       }),
+      // The hub's search for "founders": X's Communities tab names no page cursors.
+      batch("CommunitiesSearchQuery", "founders", [], {
+        top: null,
+        bottom: null,
+        communities: [asks, open, joined[0]!].map(searched),
+      }),
+      batch(
+        "GlobalCommunitiesPostSearchTimeline",
+        "founders",
+        fromCommunities.toSorted((a, b) => b.metrics.likes - a.metrics.likes),
+        { users: PEOPLE },
+      ),
+      batch(
+        "GlobalCommunitiesLatestPostSearchTimeline",
+        "founders",
+        fromCommunities.toSorted((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)),
+        { users: PEOPLE },
+      ),
     ],
   };
 

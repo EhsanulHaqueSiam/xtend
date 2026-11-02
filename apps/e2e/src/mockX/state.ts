@@ -552,6 +552,19 @@ export function createMockState() {
           );
         return page(op, `communitySearch:${id}:${mode}:${query}`, found);
       }
+      // X's search of Communities, each tab its own operation; X finds nothing for a query the
+      // fixtures hold no answer for.
+      case "CommunitiesSearchQuery":
+      case "GlobalCommunitiesPostSearchTimeline":
+      case "GlobalCommunitiesLatestPostSearchTimeline": {
+        const query = s(variables, op === "CommunitiesSearchQuery" ? "query" : "rawQuery") ?? "";
+        const own = fixture(op, query);
+        return query === ""
+          ? null
+          : own === undefined
+            ? page(op, query, [], { top: null })
+            : live(own);
+      }
       case "ConnectTabTimeline": {
         const creators = (s(variables, "context") ?? "").includes("isCreatorOnlyConnectTab");
         return live(fixture(op, creators ? "connect:creators" : "connect:who")!);
