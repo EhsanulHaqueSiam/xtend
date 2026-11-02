@@ -32,6 +32,7 @@ const QUIET_MS = 12_000;
 export function useMore(scroller: HTMLElement | null, key: string, length: number) {
   const id = `${key}\n${length}`;
   const asked = useRef("");
+  const run = useRef(0);
   const last = useRef(0);
   const trailing = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ask = (atEnd = false) => {
@@ -51,11 +52,12 @@ export function useMore(scroller: HTMLElement | null, key: string, length: numbe
       return;
     }
     asked.current = id;
+    const mine = ++run.current;
     last.current = Date.now();
     // An early ask made before X's page settled fetches nothing; once X's page is done with it,
-    // the reader's next scroll may ask again.
+    // the reader's next scroll may ask again, unless a later ask took over (and owns the guard).
     void xScrollMore().finally(() => {
-      if (asked.current === id) asked.current = "";
+      if (run.current === mine) asked.current = "";
     });
   };
   const latest = useRef(ask);
