@@ -228,8 +228,8 @@ function MediaItem({
 }
 
 /**
- * A video as X plays it in a list: muted on its own while half of it is in view, paused once
- * scrolled away. One click turns the sound on and gives the player's controls.
+ * A video as X plays it in a list: muted and looping on its own while half of it is in view,
+ * paused once scrolled away. One click turns the sound on and gives the player's controls.
  */
 function AutoVideo({
   url,
@@ -269,6 +269,8 @@ function AutoVideo({
         poster={poster}
         controls={!muted}
         muted={muted}
+        // The muted preview loops, as a GIF does, rather than freezing on its last frame.
+        loop={muted}
         playsInline
         preload="metadata"
         className={cn("block w-full bg-black object-cover", fill && "h-full")}
