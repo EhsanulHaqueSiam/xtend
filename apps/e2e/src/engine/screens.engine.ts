@@ -773,6 +773,21 @@ test("A team's profile shows X's schedule, a card opens its game, and Latest is 
     .toEqual(e.mock.state.batchFor("SportsGameLatestTimeline", { gameId: game.gameId })!.order);
   await e.app.getByRole("tab", { name: "Top", exact: true }).click();
   await expect.poll(xTab).toBe("Top");
+
+  // Back to the game after the profile: X serves it from its router cache, with no request, and
+  // its score hero naming the game's teams says it is drawn, so Latest is X's tab again.
+  const reads = e.mock.reads.length;
+  await go(`/u/${team.handle}`);
+  await expect.poll(enginePath).toBe(`/${team.handle}`);
+  await e.app.locator(`main [data-x="game-card"][href$="/nba/game/${game.gameId}"]`).click();
+  await expect.poll(enginePath).toBe(`/i/nba/game/${game.gameId}`);
+  await e.app.getByRole("tab", { name: "Latest", exact: true }).click();
+  await expect.poll(xTab).toBe("Latest");
+  expect(
+    e.mock.reads
+      .slice(reads)
+      .filter((r) => r.op.startsWith("NBA") || r.op.startsWith("SportsGame")),
+  ).toEqual([]);
 });
 
 test("Search reads X's Top and People tabs for the query", async () => {

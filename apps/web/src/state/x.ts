@@ -1,5 +1,6 @@
 import {
   type EngineBatch,
+  type EngineGameTeam,
   isXSkinToggle,
   X_SKIN_DEFAULTS,
   type XSkinToggle,
@@ -250,39 +251,70 @@ export const xHeard = (batch: EngineBatch) => {
   for (const wake of hearing) wake();
 };
 
+/** A game's two sides, as Xtend has them from X: each named by its name and abbreviation. */
+export type GameTeams = Readonly<
+  Record<"away" | "home", Pick<EngineGameTeam, "name" | "abbreviation">>
+>;
+
 /**
- * Whether X has answered for game `gameId` since the engine's last move, waiting for it a while:
- * a finished game X answered once is drawn, and a move to another game starts the wait again.
+ * Whether X's score hero names `teams`' away and home sides, waiting for X to draw it: each side
+ * by its nickname (a name's last word) or its abbreviation, in any of the forms X writes them.
  */
-const gameDrawn = (gameId: string) =>
+const heroShows = (teams: GameTeams) => {
+  const keys = (t: GameTeams["away"]) =>
+    [t.name?.split(/\s+/).at(-1), t.abbreviation].flatMap((k) => (k ? [k.toLowerCase()] : []));
+  return xRun(`(async () => {
+    const side = (testid, keys) => {
+      const words = (document.querySelector('[data-testid="' + testid + '"]')?.textContent ?? "").toLowerCase().split(/[^a-z0-9]+/);
+      return keys.some((k) => words.includes(k));
+    };
+    for (let i = 0; i < ${GAME_ANSWER_MS / 250}; i++) {
+      if (side("nflGameScoreHeroAwayTeam", ${JSON.stringify(keys(teams.away))}) && side("nflGameScoreHeroHomeTeam", ${JSON.stringify(keys(teams.home))})) return true;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    return false;
+  })()`).then((shown) => shown === true);
+};
+
+/**
+ * Whether X shows game `gameId`, waiting for it a while: X has answered for it since the engine's
+ * last move, or (a game X serves from its router cache, with no answer) its score hero names the
+ * game's `teams`. A finished game X answered once is drawn; another game's page is not.
+ */
+const gameDrawn = (gameId: string, teams: GameTeams | undefined) =>
   new Promise<boolean>((resolve) => {
     const drawn = () => answeredAfter.get(gameId) === moves;
     if (drawn()) return resolve(true);
-    const done = (answered: boolean) => {
+    let over = false;
+    const done = (shown: boolean) => {
+      if (over) return;
+      over = true;
       hearing.delete(wake);
       clearTimeout(quiet);
-      resolve(answered);
+      resolve(shown);
     };
     const wake = () => void (drawn() && done(true));
     const quiet = setTimeout(() => done(false), GAME_ANSWER_MS);
     hearing.add(wake);
+    if (teams !== undefined) void heroShows(teams).then((shown) => shown && done(true));
   });
 
 /**
  * Picks X's tab `label` (Top, Latest) on NBA game `gameId`'s page, as `xPickCommunitySearchTab`
- * does, once X has answered for this game since the engine's last move (`gameDrawn`), never by
- * X's path alone: that names a new game while the last one's tabs still show.
+ * does, once X shows this game (`gameDrawn`, by the `teams` Xtend knows), never by X's path
+ * alone: that names a new game while the last one's tabs still show.
  */
 export const xPickGameTab = async (
   gameId: string,
   label: string,
   loaded: Promise<unknown>,
   signal: AbortSignal,
+  teams?: GameTeams,
 ) => {
   // It goes into a script run in X's page: digits only.
   if (!/^\d{1,25}$/.test(gameId)) return false;
   await loaded;
-  if (!(await gameDrawn(gameId)) || signal.aborted) return false;
+  if (!(await gameDrawn(gameId, teams)) || signal.aborted) return false;
   const run = await nextRun();
   return (
     (await xRun(`(async () => {

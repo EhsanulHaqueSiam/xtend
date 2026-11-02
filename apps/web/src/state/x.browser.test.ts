@@ -1471,6 +1471,28 @@ it("picks a game's tab once X answered for that game since the engine's last mov
     const finished = xPickGameTab("44", "Latest", Promise.resolve(false), open());
     await vi.advanceTimersByTimeAsync(0);
     expect([await finished, clicked]).toEqual([true, ["Latest"]]);
+    // Back to game 44 after a move away: X's router serves it from its cache with no new answer,
+    // and its score hero names 44's teams, so Latest is pressed. A hero naming another game's
+    // teams (X still drawing the last one) is not 44's.
+    const teams = {
+      away: { name: "Toronto Raptors", abbreviation: "TOR" },
+      home: { name: "Los Angeles Lakers", abbreviation: "LAL" },
+    };
+    const hero = (away: string, home: string) =>
+      document.body.insertAdjacentHTML(
+        "afterbegin",
+        `<div data-testid="nflGameScoreHero"><div data-testid="nflGameScoreHeroAwayTeam">${away}</div><div data-testid="nflGameScoreHeroScore">82 - 104</div><div data-testid="nflGameScoreHeroHomeTeam">${home}</div></div>`,
+      );
+    clicked.length = 0;
+    void xNavigate("https://x.com/lakers");
+    hero("Boston Celtics", "Orlando Magic");
+    const stale = xPickGameTab("44", "Latest", move("44"), open(), teams);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(clicked).toEqual([]);
+    document.querySelector('[data-testid="nflGameScoreHero"]')!.remove();
+    hero("Raptors", "Lakers");
+    await vi.runAllTimersAsync();
+    expect([await stale, clicked]).toEqual([true, ["Latest"]]);
   } finally {
     history.replaceState(null, "", start);
   }

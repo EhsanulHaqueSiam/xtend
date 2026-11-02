@@ -1,6 +1,6 @@
 import { useAtom, useAtomValue } from "@effect/atom-react";
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { GameHeader, ScoreStrip } from "../components/xnative/Sports";
 import { Timeline } from "../components/xnative/Timeline";
@@ -34,11 +34,29 @@ function GameScreen() {
   const game = engine.games.get(id);
   const url = `https://x.com/i/nba/game/${id}`;
   const tab = latest ? "Latest" : "Top";
+  // The teams X's score hero names when X serves this game from its cache; by value, so a new
+  // score does not pick the tab again.
+  const [awayName, awayAbbr, homeName, homeAbbr] = [
+    game?.away.name ?? null,
+    game?.away.abbreviation ?? null,
+    game?.home.name ?? null,
+    game?.home.abbreviation ?? null,
+  ];
+  const sides = useMemo(
+    () =>
+      awayName === null && awayAbbr === null
+        ? undefined
+        : {
+            away: { name: awayName, abbreviation: awayAbbr },
+            home: { name: homeName, abbreviation: homeAbbr },
+          },
+    [awayName, awayAbbr, homeName, homeAbbr],
+  );
   // Leaving the game or its tab ends a tab pick still waiting on X's load.
   const live = useRef(new AbortController());
   const pick = useCallback(
-    (loaded: Promise<unknown>) => void xPickGameTab(id, tab, loaded, live.current.signal),
-    [id, tab],
+    (loaded: Promise<unknown>) => void xPickGameTab(id, tab, loaded, live.current.signal, sides),
+    [id, tab, sides],
   );
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- moves the engine (the session view) to this game's X page and picks X's tab there while it is open.
   useEffect(() => {

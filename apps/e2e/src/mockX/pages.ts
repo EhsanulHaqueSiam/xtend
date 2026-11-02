@@ -680,22 +680,26 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
         const g = hydrate?.games?.[0];
         if (g === undefined)
           return `${header("Game")}<div class="empty"><h3>Hmm...this page doesn't exist.</h3></div>`;
+        // X's day pills are buttons named by both teams, not by the game: none says which is open.
         const strip = (schedule?.games ?? [])
           .map(
             (d) =>
-              `<a href="/i/nba/game/${d.gameId}">${esc(d.away.abbreviation ?? "")} ${esc(gameState(d))} ${esc(d.home.abbreviation ?? "")}</a>`,
+              `<button data-testid="nflGameCarouselPill-${d.gameId}" aria-label="${esc(`${d.away.name ?? ""} @ ${d.home.name ?? ""}`)}" data-href="/i/nba/game/${d.gameId}">${esc(d.away.abbreviation ?? "")} ${esc(gameState(d))} ${esc(d.home.abbreviation ?? "")}</button>`,
           )
           .join(" ");
         const notes = (t: EngineGame["away"]) =>
           `<div class="muted">${t.timeouts === null ? "" : `${t.timeouts} of 7 timeouts remaining`}${t.bonus === true ? " Bonus" : ""}</div>`;
-        return `${header("Game")}<div data-testid="scoreStrip">${strip}</div><div data-testid="gameHeader"><div>${gameSides(g)}</div><div>${esc(gameState(g))}</div>${notes(g.away)}${notes(g.home)}${
+        // As X draws it live: its score hero names the teams, and nothing carries the game's id.
+        const hero = `<div data-testid="nflGameScoreHero"><div data-testid="nflGameScoreHeroAwayTeam">${esc(g.away.name ?? "")}</div><div data-testid="nflGameScoreHeroScore">${g.away.points ?? ""} - ${g.home.points ?? ""}</div><div data-testid="nflGameScoreHeroHomeTeam">${esc(g.home.name ?? "")}</div><div data-testid="nflGameScoreHeroStatus">${esc(gameState(g))}</div></div>`;
+        const gameTabs = `<nav role="tablist" aria-label="Game" class="tabs">${GAME_TABS.map(
+          (t) =>
+            `<div role="tab" data-testid="nflGameTab-${t.toLowerCase()}" data-home-tab="${t}" aria-selected="${t === tab}" tabindex="0"><span>${t}</span></div>`,
+        ).join("")}</nav>`;
+        return `${header("Game")}<div data-testid="nbaGameRoot"><div data-testid="scoreStrip">${strip}</div><div data-testid="nbaGameHeader">${hero}${notes(g.away)}${notes(g.home)}${
           g.lastPlay === null
             ? ""
             : `<div><b>${esc(g.lastPlay.kind)}</b> ${esc(g.lastPlay.description)}</div>`
-        }</div>${tabs(
-          "Game",
-          GAME_TABS.map((t) => ({ label: t, tab: t, on: t === tab })),
-        )}<section data-list>${postsOf(b ?? null, state)}</section>`;
+        }</div>${gameTabs}<section data-list>${postsOf(b ?? null, state)}</section></div>`;
       },
     };
   }
@@ -970,8 +974,9 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
             ? ""
             : `<div data-testid="nflProfileScheduleCarousel"><button aria-label="Previous">‹</button>${sports!
                 .games!.map(
+                  // Buttons named "<away> at <home>. <status>", with no link to the game.
                   (g) =>
-                    `<a href="/i/nba/game/${g.gameId}" data-testid="nflProfileScheduleGameCard"><div>${esc(gameState(g))}</div>${gameSides(g)}</a>`,
+                    `<button data-testid="nflProfileScheduleGameCard" aria-label="${esc(`${g.away.name ?? ""} at ${g.home.name ?? ""}. ${gameState(g)}`)}" data-href="/i/nba/game/${g.gameId}"><div>${esc(gameState(g))}</div>${gameSides(g)}</button>`,
                 )
                 .join("")}<button aria-label="Next">›</button></div>`
         }${tabs(
