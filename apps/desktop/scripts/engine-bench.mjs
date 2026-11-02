@@ -6,19 +6,22 @@ import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
-import { accountKey, looksRateLimited, pace, readStarts } from "./bench-pace.mjs";
+import { accountKey, BUDGET, estimate, looksRateLimited, pace, readSpent } from "./bench-pace.mjs";
 
 const USAGE = `node scripts/engine-bench.mjs [flags]
   (none)           every check once
   --runs 3         until three passes in a row, at most 3 rounds
-  --pause 300      seconds between runs: X rate-limits an account per 15 minutes,
-                   and a run is a few hundred calls
+  --pause 300      seconds between runs
   --only video     checks whose name contains "video"
   --shots DIR      a screenshot of the app after each check
   --parity DIR     per screen, Xtend's screen and x.com on the same page:
                    DIR/<screen>-xtend.png and DIR/<screen>-x.png
-  --force          start even when this account ran the bench too recently
-                   (under 5 minutes ago, or more than 4 runs in 30 minutes)`;
+  --no-wait        exit instead of waiting when this account's X budget is spent
+  --force          start even when it is spent
+
+X rate-limits an account per 15 minutes. Each round counts the X calls it makes, and a round
+waits until every checkout's rounds on the account in the last 15 minutes plus its own stay
+within ${BUDGET} calls.`;
 if (process.argv.includes("--help")) {
   console.log(USAGE);
   process.exit(0);
@@ -37,6 +40,9 @@ const PARITY = flag("--parity");
 
 /** One DevTools session per page, kept open across checks. */
 const sessions = new Map();
+/** X's API calls the engine page made while the bench watched it, for pacing. */
+let xCalls = 0;
+const X_API = /^https:\/\/(x\.com\/i\/api\/|api\.x\.com\/)/;
 async function session(match) {
   const all = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
   const target = all.find(
@@ -54,6 +60,8 @@ async function session(match) {
   const waiting = new Map();
   socket.addEventListener("message", (e) => {
     const message = JSON.parse(String(e.data));
+    if (message.method === "Network.requestWillBeSent" && X_API.test(message.params.request.url))
+      xCalls++;
     waiting.get(message.id)?.(message);
     waiting.delete(message.id);
   });
@@ -66,6 +74,9 @@ async function session(match) {
     });
   const made = { id: target.id, socket, call };
   sessions.set(match, made);
+  // shortcut: calls a new engine page makes before this attaches go uncounted (its first load's
+  // dozen or so); the budget leaves room for them. Upgrade to Target auto-attach if it ever matters.
+  if (match === "x.com") await call("Network.enable", {});
   return made;
 }
 
@@ -1713,11 +1724,14 @@ const saveReport = () => {
 };
 
 /** One pass over the chosen checks; the names that failed. */
-async function round(n) {
+async function round(n, planned) {
   const failed = [];
   let emptyFailures = 0;
   const checks = [];
-  report.runs.push({ n, startedAt: new Date().toISOString(), checks });
+  // The first round's count includes the start: the reloads and the bookmark read.
+  const callsBefore = n === 1 ? 0 : xCalls;
+  const record = { n, startedAt: new Date().toISOString(), planned, calls: null, checks };
+  report.runs.push(record);
   // Before the first check loads X, so a run that dies mid-round still counts for pacing.
   saveReport();
   for (const [index, [name, run]] of chosen.entries()) {
@@ -1785,7 +1799,8 @@ async function round(n) {
   }
   touched.clear();
   if (cleaned) await go("#/home?feed=following");
-  console.log(`${chosen.length - failed.length}/${chosen.length} passed`);
+  record.calls = xCalls - callsBefore;
+  console.log(`${chosen.length - failed.length}/${chosen.length} passed, ${record.calls} X calls`);
   if (looksRateLimited(emptyFailures))
     console.log(
       `  ${emptyFailures} checks failed with the engine's lists empty: X may be rate-limiting this account. Wait 15 to 30 minutes before the next run.`,
@@ -1816,6 +1831,7 @@ if (sessionActions !== true) {
 async function startFresh() {
   await app(`location.reload(), true`).catch(() => {});
   await sleep(2_000);
+  for (const { socket } of sessions.values()) socket.close();
   sessions.clear();
   await until(() => app(`typeof window.__xtendEngine === "function"`), 30_000);
   await until(async () => (await engine(`document.readyState`)) === "complete", 30_000);
@@ -1829,20 +1845,29 @@ const userId =
     () => null,
   ));
 report.account = typeof userId === "string" ? accountKey(userId) : null;
-const paced = pace(readStarts(RESULTS, report.account ?? undefined), Date.now());
-if (!paced.ok) {
-  const at = new Date(paced.until).toTimeString().slice(0, 5);
-  if (!process.argv.includes("--force")) {
-    console.error(
-      `Not running: ${paced.why}, and X rate-limits the account. Run again after ${at}, or pass --force.`,
-    );
-    process.exit(1);
+// The start reloads X's page and may read Bookmarks: about two checks' worth on top of a round.
+const planned = estimate(RESULTS, report.account ?? undefined, chosen.length + 2);
+
+/** Waits until this account's X budget has room for about `calls` more, unless told not to. */
+async function waitTurn(calls) {
+  for (;;) {
+    const paced = pace(readSpent(RESULTS, report.account ?? undefined), Date.now(), calls);
+    if (paced.ok) return;
+    const at = new Date(paced.until).toTimeString().slice(0, 5);
+    const why = `${paced.used} of ${BUDGET} X calls spent on this account in the last 15 minutes, and this round needs about ${calls}`;
+    if (process.argv.includes("--force"))
+      return console.log(`  WARNING: --force: ${why}; X may answer with rate limits.`);
+    if (process.argv.includes("--no-wait")) {
+      console.error(`Not running: ${why}. Run again after ${at}.`);
+      process.exit(1);
+    }
+    console.log(`  waiting until ${at}: ${why}`);
+    await sleep(Math.max(paced.until - Date.now(), 1_000));
   }
-  console.log(
-    `  WARNING: --force: ${paced.why}; X may answer with rate limits (wait until ${at}).`,
-  );
 }
-// Written now, so a run that dies before its first round still counts for the next one's pacing.
+await waitTurn(planned);
+// Written now, with what it plans to spend, so other runs pace against it before it counts.
+report.planned = planned;
 saveReport();
 
 await startFresh();
@@ -1911,8 +1936,11 @@ if (!writes && chosen.some(([name]) => WRITES.test(name)))
 let streak = 0;
 for (let n = 1; n <= RUNS; n++) {
   if (n > 1 && PAUSE_MS > 0) await sleep(PAUSE_MS);
+  const roundPlan =
+    n === 1 ? planned : estimate(RESULTS, report.account ?? undefined, chosen.length);
+  if (n > 1) await waitTurn(roundPlan);
   if (RUNS > 1) console.log(`-- run ${n} at ${new Date().toTimeString().slice(0, 8)}`);
-  streak = (await round(n)).length === 0 ? streak + 1 : 0;
+  streak = (await round(n, roundPlan)).length === 0 ? streak + 1 : 0;
 }
 if (writes) {
   // The bench's one write must leave the account as it found it.

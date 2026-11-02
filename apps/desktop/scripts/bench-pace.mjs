@@ -1,44 +1,42 @@
-// How often the engine bench may load X on one account: each run is a few hundred calls, and X
-// rate-limits an account per 15 minutes. engine-bench.mjs asks before it starts, from the
-// results files every earlier run wrote (any branch), matched by a hash of the account's user id.
+// How much the engine bench may load X on one account. X rate-limits an account per 15 minutes,
+// so the bench counts the X calls each round makes and keeps every checkout's rounds on the
+// account under one budget per window. engine-bench.mjs asks before each round, from the results
+// files every earlier run wrote (any branch), matched by a hash of the account's user id.
 import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
 const MINUTE = 60_000;
-const GAP_MS = 5 * MINUTE;
-const WINDOW_MS = 30 * MINUTE;
-const MAX_IN_WINDOW = 4;
+const WINDOW_MS = 15 * MINUTE;
+/** X calls per window: about two full rounds, the most the account has run at without a 429. */
+export const BUDGET = 600;
+/** A round with no count (recorded before rounds counted, or cut short) is taken as a full one. */
+const UNCOUNTED = 300;
+/** What a check costs before any round on the account has counted its calls. */
+const PER_CHECK = 8;
 
 /** The account's key in results files: never its handle or raw id. */
 export const accountKey = (userId) =>
   NodeCrypto.createHash("sha256").update(`xtend-bench:${userId}`).digest("hex").slice(0, 16);
 
 /**
- * Whether a run may start at `now` given earlier runs' start times (ms): not within GAP_MS of the
- * last, and not while more than MAX_IN_WINDOW started in the last WINDOW_MS. `until` is when it may.
+ * Whether a round of about `planned` calls may start at `now`, given what earlier rounds spent
+ * (`{ at, calls }`): it may while the window's calls plus `planned` stay within BUDGET, or once the
+ * window is empty. Otherwise `until` is when enough of the oldest have left it.
  */
-export function pace(starts, now) {
-  const recent = starts.filter((t) => t > now - WINDOW_MS && t <= now).toSorted((a, b) => a - b);
-  const waits = [];
-  if (recent.length > 0 && now - recent.at(-1) < GAP_MS)
-    waits.push({ until: recent.at(-1) + GAP_MS, why: "the last run started under 5 minutes ago" });
-  if (recent.length > MAX_IN_WINDOW)
-    waits.push({
-      // Once enough of the oldest leave the window that MAX_IN_WINDOW remain.
-      until: recent[recent.length - MAX_IN_WINDOW - 1] + WINDOW_MS,
-      why: `${recent.length} runs started in the last 30 minutes`,
-    });
-  if (waits.length === 0) return { ok: true };
-  const latest = waits.reduce((a, b) => (b.until > a.until ? b : a));
-  return { ok: false, until: latest.until, why: waits.map((w) => w.why).join(" and ") };
+export function pace(spent, now, planned) {
+  const recent = spent
+    .filter((s) => s.at > now - WINDOW_MS && s.at <= now)
+    .toSorted((a, b) => a.at - b.at);
+  const used = recent.reduce((sum, s) => sum + s.calls, 0);
+  if (recent.length === 0 || used + planned <= BUDGET) return { ok: true, used };
+  let left = used;
+  const fits = recent.find((s) => ((left -= s.calls), left + planned <= BUDGET || left === 0));
+  return { ok: false, used, until: fits.at + WINDOW_MS };
 }
 
-/**
- * Every round's start time in the results under `dir`, for `account` (any account when it is
- * undefined: the bench could not tell, so it paces against all of them).
- */
-export function readStarts(dir, account) {
+/** The results under `dir`, for `account` (every account when it is undefined). */
+function reports(dir, account) {
   let branches = [];
   try {
     branches = NodeFS.readdirSync(dir);
@@ -55,17 +53,36 @@ export function readStarts(dir, account) {
     return files.flatMap((file) => {
       try {
         const report = JSON.parse(NodeFS.readFileSync(NodePath.join(dir, branch, file), "utf8"));
-        if (account !== undefined && report.account !== account) return [];
-        const rounds = Array.isArray(report.runs) ? report.runs.map((r) => r.startedAt) : [];
-        // A run that died before its first round still loaded X.
-        return (rounds.length > 0 ? rounds : [report.startedAt])
-          .map((at) => Date.parse(at))
-          .filter((t) => !Number.isNaN(t));
+        return account === undefined || report.account === account ? [report] : [];
       } catch {
         return [];
       }
     });
   });
+}
+
+/**
+ * Every round's start and X calls in the results under `dir`, for `account` (any account when it
+ * is undefined: the bench could not tell, so it paces against all of them). A round still going
+ * counts what it planned; a run that died before its first round still loaded X.
+ */
+export function readSpent(dir, account) {
+  return reports(dir, account).flatMap((report) => {
+    const rounds = Array.isArray(report.runs) && report.runs.length > 0 ? report.runs : [report];
+    return rounds
+      .map((r) => ({ at: Date.parse(r.startedAt), calls: r.calls ?? r.planned ?? UNCOUNTED }))
+      .filter((s) => !Number.isNaN(s.at));
+  });
+}
+
+/** About how many X calls `checks` checks make, from the account's counted rounds. */
+export function estimate(dir, account, checks) {
+  const counted = reports(dir, account)
+    .flatMap((report) => report.runs ?? [])
+    .filter((r) => typeof r.calls === "number" && r.checks?.length > 0);
+  const calls = counted.reduce((sum, r) => sum + r.calls, 0);
+  const done = counted.reduce((sum, r) => sum + r.checks.length, 0);
+  return Math.ceil(checks * (done === 0 ? PER_CHECK : calls / done));
 }
 
 /** Many checks failing with the engine's lists empty: what X answering nothing looks like. */
