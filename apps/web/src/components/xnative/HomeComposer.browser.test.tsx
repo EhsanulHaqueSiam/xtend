@@ -201,6 +201,25 @@ it("deletes the draft a failed upload left, so a retry starts clean", async () =
   await expect.element(screen.getByRole("button", { name: "Remove b.png" })).toBeVisible();
 });
 
+it("deletes the draft and frees the box when a picked file can no longer be read", async () => {
+  const { log, service } = setup();
+  await using screen = await render(<HomeComposer />, { service });
+  await userEvent.upload(screen.getByLabelText("Media files"), [png("a.png"), png("b.png")]);
+  // The second file changed on disk after it was picked.
+  const read = FileReader.prototype.readAsDataURL;
+  using _read = vi.spyOn(FileReader.prototype, "readAsDataURL").mockImplementation(function (
+    this: FileReader,
+    file: Blob,
+  ) {
+    if (file instanceof File && file.name === "b.png")
+      queueMicrotask(() => this.dispatchEvent(new ProgressEvent("error")));
+    else read.call(this, file);
+  });
+  await userEvent.click(screen.getByRole("button", { name: "Post", exact: true }));
+  await expect.poll(() => log).toEqual(["media h1 image a.png", "delete h1"]);
+  await expect.element(screen.getByLabelText("Post text")).toBeEnabled();
+});
+
 it("freezes the box while Post sends, so nothing added or handed off meanwhile is lost", async () => {
   let release = () => {};
   const posted = new Promise<void>((resolve) => (release = resolve));

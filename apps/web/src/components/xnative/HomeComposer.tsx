@@ -2,6 +2,7 @@ import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import {
   charCount,
+  ComposeError,
   type DraftPoll,
   MEDIA_MAX_BYTES,
   MEDIA_MAX_IMAGES,
@@ -97,13 +98,14 @@ const useBoxDraft = () => {
     for (const { file, kind } of files) {
       if (Exit.isFailure(draft)) return draft;
       const id = draft.value.id;
-      draft = await mediaAdd({
-        draftId: id,
-        blockIndex: 0,
-        kind,
-        name: file.name,
-        base64: await toBase64(file),
-      });
+      // A file that changed or went away since it was picked fails like an upload.
+      const base64 = await toBase64(file).catch(() => null);
+      draft =
+        base64 === null
+          ? Exit.fail(
+              new ComposeError({ operation: "mediaAdd", detail: `Could not read ${file.name}` }),
+            )
+          : await mediaAdd({ draftId: id, blockIndex: 0, kind, name: file.name, base64 });
       if (Exit.isFailure(draft)) await remove(id);
     }
     return draft;
@@ -298,8 +300,7 @@ export function HomeComposer() {
     // Media, a poll or a reply limit ride along as a draft, which Compose opens.
     setReplyOpen(false);
     setBusy(true);
-    const draft = await boxDraft(post);
-    setBusy(false);
+    const draft = await boxDraft(post).finally(() => setBusy(false));
     if (Exit.isFailure(draft)) return setToast({ text: `Not moved: ${failText(draft.cause)}` });
     clear();
     void navigate({ href: `/compose?draft=${draft.value.id}` });
@@ -310,8 +311,7 @@ export function HomeComposer() {
     if (!session || tooLong) return handOff();
     setReplyOpen(false);
     setBusy(true);
-    const posted = await sessionPost(post);
-    setBusy(false);
+    const posted = await sessionPost(post).finally(() => setBusy(false));
     if (posted) clear();
   };
 
