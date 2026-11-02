@@ -8,7 +8,7 @@ import type {
 } from "@xtend/contracts";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { TableVirtuoso } from "react-virtuoso";
+import { type TableComponents, TableVirtuoso } from "react-virtuoso";
 
 import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
@@ -400,6 +400,12 @@ const COLUMNS = [
 ] as const;
 type Sort = "date" | (typeof COLUMNS)[number][0];
 
+/** Virtuoso's table, as wide as the page like every other table. */
+const ContentTable: NonNullable<TableComponents<EngineAnalyticsPost>["Table"]> = ({
+  context: _,
+  ...props
+}) => <table {...props} className={table.root} />;
+
 const ofType = (p: EngineAnalyticsPost, type: (typeof TYPES)[number][0]) =>
   type === "all" ||
   (type === "replies" && p.reply) ||
@@ -458,6 +464,7 @@ function ContentSection() {
         <TableVirtuoso
           className="min-h-0 flex-1 [--row-inset:24px]"
           data={rows}
+          components={{ Table: ContentTable }}
           computeItemKey={(_, p) => p.postId}
           fixedHeaderContent={() => (
             <tr>
