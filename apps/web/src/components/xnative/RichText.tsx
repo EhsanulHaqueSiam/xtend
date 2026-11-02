@@ -8,7 +8,7 @@ const TOKEN =
   /(https:\/\/t\.co\/\w+)|(^|[^\w@])(@\w{1,15})|(^|[^\w&])(#[\p{L}\p{N}_]*\p{L}[\p{L}\p{N}_]*|\$[A-Za-z]{1,6}(?![\w]))/gu;
 
 /**
- * Where an x.com link opens inside Xtend: a post, a profile, a search or a Community get Xtend's own screen;
+ * Where an x.com link opens inside Xtend: a post, an Article, a profile, a search or a Community get Xtend's own screen;
  * anything else on x.com, or off it, is null and opens in the browser.
  */
 export function xtendRoute(href: string): string | null {
@@ -38,6 +38,9 @@ export function xtendRoute(href: string): string | null {
   if (first === undefined || first === "i" || first === "home") return null;
   if (second === "status" && third !== undefined && /^\d+$/.test(third))
     return `/post/${third}?h=${first}`;
+  // An X Article's reader, by the post that carries it.
+  if (second === "article" && third !== undefined && /^\d+$/.test(third))
+    return `/article/${third}?h=${first}`;
   return second === undefined && /^\w{1,15}$/.test(first) ? `/u/${first}` : null;
 }
 

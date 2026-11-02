@@ -1,5 +1,6 @@
-import type { EngineCard, EngineContext, EnginePoll } from "@xtend/contracts";
+import type { EngineCard, EngineContext, EnginePoll, EnginePost } from "@xtend/contracts";
 import { useAtom } from "@effect/atom-react";
+import { useNavigate } from "@tanstack/react-router";
 import * as Atom from "effect/reactivity/Atom";
 import { useState, type MouseEvent } from "react";
 import { Heart, Pin, Repeat2, Users } from "lucide-react";
@@ -29,11 +30,27 @@ export function ContextLine({ context }: { readonly context: EngineContext }) {
   );
 }
 
-/** X's link preview: a large image with the domain over it, or a small one beside the title. */
-export function LinkCard({ card }: { readonly card: EngineCard }) {
+/**
+ * X's link preview: a large image with the domain over it, or a small one beside the title. An X
+ * Article opens in Xtend's reader for `post`, the post that carries it.
+ */
+export function LinkCard({
+  card,
+  post,
+}: {
+  readonly card: EngineCard;
+  readonly post: Pick<EnginePost, "postId" | "author">;
+}) {
+  const navigate = useNavigate();
   const open = (e: MouseEvent) => {
     e.stopPropagation();
-    window.desktopBridge?.openExternal(card.url);
+    if (card.kind === "article")
+      void navigate({
+        to: "/article/$id",
+        params: { id: post.postId },
+        search: { h: post.author.handle },
+      });
+    else window.desktopBridge?.openExternal(card.url);
   };
   if (card.imageUrl !== null && card.kind === "link")
     return (

@@ -2,6 +2,8 @@
 // native X screens render in a plain browser. Type imports only: scripts/engine-fixture.ts runs
 // this file under Node as is.
 import type {
+  EngineArticle,
+  EngineArticleBlock,
   EngineBatch,
   EngineCard,
   EngineCommunity,
@@ -522,6 +524,7 @@ const UNPAGED = new Set([
   "CommunitiesFetchOneQuery",
   // X's About ends its timeline after the moderators, with no cursors.
   "CommunityAboutTimeline",
+  "TweetResultByRestId",
 ]);
 /** A batch with the parts every response shares empty. */
 const batch = (
@@ -744,6 +747,87 @@ export function synth(): Readonly<Record<string, Fixture>> {
       `/post/${focal.postId}?h=${focal.author.handle}`,
     ]),
     batches: [batch("TweetDetail", focal.postId, [focal, ...replies], { users: PEOPLE })],
+  };
+
+  // An X Article: its post carries the card, X's reader page the body. Built apart from `say` so
+  // every other fixture keeps its ids.
+  const writer = PEOPLE[3]!;
+  const essay: EnginePost = {
+    ...following[0]!,
+    postId: "700000000980",
+    author: {
+      userId: writer.userId,
+      handle: writer.handle,
+      name: writer.name,
+      followers: writer.followers,
+      verified: writer.verified,
+    },
+    avatarUrl: writer.avatarUrl,
+    text: "",
+    createdAt: ago(400),
+    card: {
+      kind: "article",
+      url: "https://x.com/i/article/600000000201",
+      title: "How we priced our first plan",
+      domain: null,
+      description: "Three experiments, one spreadsheet, and the number we landed on.",
+      imageUrl: placeholder("article-cover", 1500, 600),
+    },
+  };
+  const para = (key: string, type: string, text: string, extra: Partial<EngineArticleBlock> = {}) =>
+    ({
+      key,
+      type,
+      text,
+      styles: [],
+      links: [],
+      images: [],
+      markdown: null,
+      ...extra,
+    }) satisfies EngineArticleBlock;
+  const body: EngineArticle = {
+    postId: essay.postId,
+    blocks: [
+      para(
+        "a",
+        "unstyled",
+        "We changed our price four times in a year. Each change taught us one thing.",
+        {
+          styles: [{ offset: 48, length: 6, style: "Italic" }],
+        },
+      ),
+      para("b", "header-two", "What we tried"),
+      para("c", "unordered-list-item", "A free plan with a usage cap", {
+        styles: [{ offset: 2, length: 9, style: "Bold" }],
+      }),
+      para("d", "unordered-list-item", "One paid plan at $19"),
+      para("e", "unordered-list-item", "Annual billing with two months off"),
+      para("f", "atomic", " ", {
+        images: [{ url: placeholder("article-chart", 1200, 675), width: 1200, height: 675 }],
+      }),
+      para("g", "blockquote", "Charge from day one. The users who pay tell you what matters."),
+      para("h", "header-two", "The numbers"),
+      para("i", "atomic", " ", {
+        markdown:
+          "| Plan | Price | Signups |\n| --- | --- | --- |\n| Free | $0 | 412 |\n| Pro | $19 | 97 |",
+      }),
+      para("j", "ordered-list-item", "Price for the user you want"),
+      para("k", "ordered-list-item", "Raise it before it feels comfortable"),
+      para("l", "atomic", " ", { markdown: "```ts\nconst price = 19;\n```" }),
+      para("m", "unstyled", "The full spreadsheet is on our blog.", {
+        links: [{ offset: 27, length: 8, url: "https://example.com/pricing" }],
+      }),
+    ],
+  };
+  const article: Fixture = {
+    meta: meta(
+      "article",
+      "An X Article: cover, title, the author row, and a body with every kind of block",
+      [`/article/${essay.postId}?h=${essay.author.handle}`],
+    ),
+    batches: [
+      batch("TweetResultByRestId", null, [essay], { users: PEOPLE, order: [], articles: [body] }),
+    ],
   };
 
   const profileUser = PEOPLE[0]!;
@@ -1092,6 +1176,7 @@ export function synth(): Readonly<Record<string, Fixture>> {
   return {
     home,
     post,
+    article,
     profile,
     notifications,
     search,

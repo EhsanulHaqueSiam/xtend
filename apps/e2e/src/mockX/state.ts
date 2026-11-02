@@ -425,6 +425,12 @@ export function createMockState() {
       }
       case "TweetDetail":
         return threadOf(s(variables, "focalTweetId") ?? "", s(variables, "rankingMode"));
+      case "TweetResultByRestId": {
+        // Only the fixtures' Articles have a reader page.
+        const id = s(variables, "tweetId");
+        const own = batches.find((b) => b.op === op && b.posts[0]?.postId === id);
+        return own === undefined ? null : live(own);
+      }
       case "UserByScreenName": {
         const u = byHandle(s(variables, "screen_name") ?? "");
         if (u === undefined) return null;

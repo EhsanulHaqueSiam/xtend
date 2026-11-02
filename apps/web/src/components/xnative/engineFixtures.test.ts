@@ -144,6 +144,22 @@ const recorded: ReadonlyArray<EngineBatch> = [
     homeTabs: null,
     exploreTabs: null,
     viewer: { userId: "1450099999999", handle: "siamships", name: "Ehsanul Siam", avatarUrl: null },
+    articles: [
+      {
+        postId: "1888000000000000001",
+        blocks: [
+          {
+            key: "a",
+            type: "unstyled",
+            text: "Secretive lunch at Hushlabs",
+            styles: [],
+            links: [{ offset: 19, length: 8, url: "https://hushlabs.io/launch" }],
+            images: [{ url: "https://pbs.twimg.com/media/whiteboard.jpg", width: 1, height: 1 }],
+            markdown: null,
+          },
+        ],
+      },
+    ],
   },
 ];
 

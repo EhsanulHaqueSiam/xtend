@@ -607,6 +607,29 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
 
   if (first !== "" && !RESERVED.has(lower)) {
     const u = state.byHandle(first);
+    // An X Article's reader: cover, title, the author with Follow, the post's buttons, the body.
+    if (second === "article" && third !== undefined)
+      return {
+        title: "Article / X",
+        requests: [
+          r("TweetResultByRestId", {
+            tweetId: third,
+            includePromotedContent: true,
+            withBirdwatchNotes: true,
+            withVoice: true,
+            withCommunity: true,
+          }),
+        ],
+        render: ([b]) => {
+          const p = b?.posts[0];
+          const body = b?.articles?.[0];
+          if (p === undefined || body === undefined || p.card === null)
+            return `${header("Article")}<div class="empty"><h3>Hmm...this page doesn't exist.</h3></div>`;
+          return `${header("Article")}${p.card.imageUrl === null ? "" : `<img alt="" src="${esc(p.card.imageUrl)}">`}<h1>${esc(p.card.title)}</h1><div data-testid="User-Name">${avatar(p.avatarUrl, p.author.handle)}<span>${esc(p.author.name)}</span> <span>@${esc(p.author.handle)}</span> · <time datetime="${p.createdAt}">${shortDate(p.createdAt)}</time></div>${u === undefined ? "" : followButton(u)}${actions(p)}<div class="article-body">${body.blocks
+            .map((k) => `<p>${esc(k.text)}</p>`)
+            .join("")}</div>`;
+        },
+      };
     if (second === "status" && third !== undefined) {
       const id = third;
       if (fourth === "quotes" || fourth === "retweets" || fourth === "likes") {

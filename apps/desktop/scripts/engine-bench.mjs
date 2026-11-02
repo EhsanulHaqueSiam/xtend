@@ -228,6 +228,8 @@ const heldByEngine = (testid) =>
   });
 
 const SEARCH = "filter:native_video min_faves:500";
+/** Posts that carry an X Article link to it under x.com/i/article. */
+const ARTICLE_SEARCH = "url:x.com/i/article min_faves:100";
 let theoId = "";
 
 const benchmarks = [
@@ -1321,6 +1323,52 @@ const benchmarks = [
       }
       console.log("      no open poll in reach");
       return false;
+    },
+  ],
+  [
+    "An X Article opens in the native reader, its body read from X's reader page (dry)",
+    async () => {
+      // An Article this run has seen, else one from a search for posts that carry one.
+      const find = () =>
+        store(
+          `(() => { const p = [...$.posts.values()].find((p) => p.card?.kind === "article"); return p && { id: p.postId, handle: p.author.handle, title: p.card.title }; })()`,
+        );
+      let found = await find();
+      if (!found) {
+        await go(`#/search?q=${encodeURIComponent(ARTICLE_SEARCH)}&f=top`);
+        found = await until(find, 20_000);
+      }
+      if (!found) {
+        console.log("      no Article in reach");
+        return false;
+      }
+      const id = JSON.stringify(found.id);
+      await go(`#/article/${found.id}?h=${found.handle}`);
+      const path = `/${found.handle}/article/${found.id}`;
+      const blocks = await until(
+        async () => (await enginePath()) === path && store(`$.articles.get(${id})?.blocks.length`),
+        20_000,
+      );
+      if (!blocks) return false;
+      const drawn = await until(
+        () =>
+          app(
+            `document.querySelector('main [data-x="column"] h1')?.textContent === ${JSON.stringify(found.title)} && !!document.querySelector('main [data-x="article-body"]')`,
+          ),
+        10_000,
+      );
+      // X's page shows the words the store read; nothing on it is pressed.
+      const words = await store(
+        `$.articles.get(${id}).blocks.find((b) => b.text.trim().length >= 20)?.text.trim().slice(0, 40)`,
+      );
+      const onX =
+        words === undefined ||
+        (await until(
+          () => engine(`document.body.innerText.includes(${JSON.stringify(words)})`),
+          10_000,
+        ));
+      if (!drawn || !onX) console.log(`      ${JSON.stringify({ drawn, onX, words })}`);
+      return drawn && onX && `${blocks} blocks`;
     },
   ],
   [

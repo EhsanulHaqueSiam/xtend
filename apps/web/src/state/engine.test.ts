@@ -597,3 +597,26 @@ it("keeps dismissed trends hidden across stale captures of their tab, reconciles
   expect(at(state.trends, "explore:news")).toEqual([trend]);
   expect(at(state.trends, "explore:trending")).toEqual([]);
 });
+
+it("keeps an Article's body when a timeline sends its post again with the card only", () => {
+  const body = {
+    postId: "5",
+    blocks: [
+      {
+        key: "a",
+        type: "unstyled",
+        text: "Hello",
+        styles: [],
+        links: [],
+        images: [],
+        markdown: null,
+      },
+    ],
+  };
+  const reader = mergeBatch(
+    emptyEngine,
+    batch("TweetResultByRestId", [post("5", "2026-10-31T01:00:00Z")], { articles: [body] }),
+  );
+  const after = mergeBatch(reader, batch("HomeTimeline", [post("5", "2026-10-31T01:00:00Z")]));
+  expect(after.articles.get("5")).toEqual(body);
+});

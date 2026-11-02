@@ -60,8 +60,9 @@ const FIRST = "mira|sam|noor|theo|ines|ravi|lena|kofi|yuki|omar|ada|jonas";
 const LAST = "okafor|lind|haddad|brandt|silva|mehta|varga|mensah|sato|farouk|quinn|berg";
 const FAKE_HANDLE = new RegExp(`^(you|(${FIRST})_(${LAST})\\d*)$`);
 const FAKE_NAME = new RegExp(`^(You|(${FIRST}) (${LAST}))$`, "i");
+// A made-up Article's card names its x.com page by a made-up id.
 const FAKE_URL =
-  /^(data:|https:\/\/example\.com(\/|$)|https:\/\/t\.co\/s\d+$|https:\/\/x\.com\/search\?)/;
+  /^(data:|https:\/\/example\.com(\/|$)|https:\/\/t\.co\/s\d+$|https:\/\/x\.com\/search\?|https:\/\/x\.com\/i\/article\/[6-9]00000\d{6}$)/;
 
 // Fields holding X ids as arrays; any other *Id or *Ids field holds one or more too.
 const ID_ARRAYS = new Set(["people", "order", "edits"]);
