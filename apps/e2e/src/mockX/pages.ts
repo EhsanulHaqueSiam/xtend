@@ -286,7 +286,9 @@ const SEARCH_TABS = [
 const PROFILE_TABS = [
   { path: "", op: "UserTweets", label: "Posts" },
   { path: "/with_replies", op: "UserTweetsAndReplies", label: "Replies" },
-  { path: "/superfollows", op: "UserSuperFollowTweets", label: "Subs" },
+  { path: "/reposts", op: "UserRepostsTimeline", label: "Reposts" },
+  // Only for a creator who offers Subscriptions.
+  { path: "/subs", op: "UserSuperFollowTweets", label: "Subs" },
   { path: "/highlights", op: "UserHighlightsTweets", label: "Highlights" },
   { path: "/media", op: "UserMedia", label: "Media" },
 ] as const;
@@ -917,13 +919,19 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
           <div><a href="/${esc(live.handle)}/following"><b>${compact(live.following)}</b> Following</a> <a href="/${esc(live.handle)}/verified_followers"><b>${compact(live.followers)}</b> Followers</a></div>
         </div>${tabs(
           "Profile timelines",
-          PROFILE_TABS.map((t) => ({
-            label: t.label,
-            href: `/${live.handle}${t.path}`,
-            on: t === tab,
-          })),
+          PROFILE_TABS.filter((t) => t.label !== "Subs" || state.isCreator(live.userId)).map(
+            (t) => ({
+              label: t.label,
+              href: `/${live.handle}${t.path}`,
+              on: t === tab,
+            }),
+          ),
         )}
-        <section data-list>${postsOf(b ?? null, state)}</section>`;
+        ${tab.label === "Subs" ? `<h2>${esc(live.name)}'s Subscription posts</h2>` : ""}${
+          b?.prompt === undefined
+            ? ""
+            : `<div data-testid="subscribePrompt"><h3>${esc(b.prompt.header)}</h3><div>${esc(b.prompt.body)}</div>${b.prompt.button === null ? "" : `<button data-subscribe="${live.userId}">${esc(b.prompt.button.text)}</button>`}</div>`
+        }<section data-list>${postsOf(b ?? null, state)}</section>`;
       },
     };
   }

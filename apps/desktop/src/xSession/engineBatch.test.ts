@@ -1622,3 +1622,101 @@ describe("renderEngineBatch GIF search", () => {
     expect(renderEngineBatch("HomeTimeline", {}, {}).gifs).toBeUndefined();
   });
 });
+
+describe("renderEngineBatch for a profile's Subs", () => {
+  it("names a creator who offers Subscriptions, and reads X's subscribe prompt in place of posts", () => {
+    const header = (eligible?: boolean) =>
+      renderEngineBatch(
+        "UserByScreenName",
+        { screen_name: "maker" },
+        {
+          data: {
+            user: {
+              result: user(
+                "50",
+                "maker",
+                eligible === undefined ? {} : { super_follow_eligible: eligible },
+              ),
+            },
+          },
+        },
+      ).users[0]!;
+    expect([
+      header(true).offersSubscriptions,
+      header(false).offersSubscriptions,
+      "offersSubscriptions" in header(),
+    ]).toEqual([true, false, false]);
+
+    // X's answer for someone who does not subscribe, in the shape a live read showed.
+    const subs = renderEngineBatch(
+      "UserSuperFollowTweets",
+      { userId: "50", count: 20, includePromotedContent: true, withVoice: true },
+      {
+        data: {
+          user: {
+            result: {
+              __typename: "User",
+              timeline: {
+                timeline: {
+                  instructions: [
+                    { type: "TimelineClearCache" },
+                    {
+                      type: "TimelineAddEntries",
+                      entries: [
+                        {
+                          entryId: "messageprompt-50",
+                          sortIndex: "50",
+                          content: {
+                            __typename: "TimelineTimelineItem",
+                            entryType: "TimelineTimelineItem",
+                            clientEventInfo: { component: "subscribe_prompt", element: "message" },
+                            itemContent: {
+                              __typename: "TimelineMessagePrompt",
+                              itemType: "TimelineMessagePrompt",
+                              content: {
+                                contentType: "TimelineInlinePrompt",
+                                headerText: "Unlock more with Subscriptions",
+                                bodyText:
+                                  // X ends its body with a tab, which drawn text drops.
+                                  "@maker has shared 12 Subscriber-only posts. Subscribe to see their exclusive posts and bonus content.\t",
+                                primaryButtonAction: {
+                                  text: "Subscribe",
+                                  action: {
+                                    dismissOnClick: false,
+                                    url: "https://twitter.com/maker/superfollows/subscribe",
+                                  },
+                                },
+                              },
+                            },
+                          },
+                        },
+                        {
+                          entryId: "cursor-top-50",
+                          sortIndex: "50",
+                          content: {
+                            entryType: "TimelineTimelineCursor",
+                            __typename: "TimelineTimelineCursor",
+                            cursorType: "Top",
+                            value: "c-Top",
+                          },
+                        },
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+    );
+    expect([subs.key, subs.order, subs.top]).toEqual(["50", [], "c-Top"]);
+    expect(subs.prompt).toEqual({
+      header: "Unlock more with Subscriptions",
+      body: "@maker has shared 12 Subscriber-only posts. Subscribe to see their exclusive posts and bonus content.",
+      button: { text: "Subscribe", url: "https://x.com/maker/superfollows/subscribe" },
+    });
+    // A prompt alone is something to draw.
+    expect(hasEngineContent(subs)).toBe(true);
+  });
+});

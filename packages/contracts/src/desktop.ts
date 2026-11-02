@@ -281,6 +281,8 @@ export interface EngineUser {
     readonly badgeUrl: string | null;
     readonly url: string | null;
   } | null;
+  /** A creator who offers Subscriptions (X's Subs tab); absent when the response did not say. */
+  readonly offersSubscriptions?: boolean;
 }
 
 /** A trend on Explore; `url` is the x.com page it opens (a search, or X's trend page). */
@@ -381,6 +383,17 @@ export interface EngineViewer {
 }
 
 /**
+ * A prompt X lists in a timeline where posts would be: the Subs tab's "Unlock more with
+ * Subscriptions" for someone who does not subscribe.
+ */
+export interface EnginePrompt {
+  readonly header: string;
+  readonly body: string;
+  /** X's button and the x.com page it opens. */
+  readonly button: { readonly text: string; readonly url: string } | null;
+}
+
+/**
  * A module X lists among a timeline's posts: a people module (Who to follow) with its header and
  * people, or on Explore a titled box of posts (Posts For You), whose posts follow it in `order`.
  */
@@ -446,6 +459,8 @@ export interface EngineBatch {
   readonly viewer: EngineViewer | null;
   /** X's GIF search results, in X's order: only on GifSearch, empty when X found none. */
   readonly gifs?: ReadonlyArray<EngineGif>;
+  /** X's prompt in this timeline, when it lists one (see `EnginePrompt`). */
+  readonly prompt?: EnginePrompt;
   /**
    * X's Post Analytics for the post `key` names (TweetActivityQuery, only ever the user's own), by
    * X's metric name: `Impressions`, `Engagements`, `DetailExpands`, `ProfileVisits`, `LinkClicks`,
