@@ -1754,12 +1754,7 @@ async function round(n, planned) {
   if (n === 1) {
     book();
     saveReport();
-  } else {
-    // What the pause between rounds called counts before this round's turn is checked.
-    settle();
-    saveReport();
-    await reserve(planned, book);
-  }
+  } else await reserve(planned, book);
   for (const [index, [name, run]] of chosen.entries()) {
     await sameAppPage();
     primed = true;
@@ -1894,6 +1889,11 @@ function settle() {
 async function reserve(calls, book) {
   for (;;) {
     const paced = await locked(RESULTS, () => {
+      // What X was called since the last round's count (a pause, this wait) counts before the check.
+      if (report.runs.length > 0) {
+        settle();
+        saveReport();
+      }
       const verdict = pace(readSpent(RESULTS, report.account ?? undefined), Date.now(), calls);
       if (verdict.ok || process.argv.includes("--force")) {
         book();
