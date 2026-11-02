@@ -812,6 +812,66 @@ const benchmarks = [
     },
   ],
   [
+    "Communities search: the Communities X finds, then its Top and Latest, are X's own (dry)",
+    async () => {
+      // A word from a Community the account has seen, so X finds something; nothing is pressed.
+      const name = await store(`[...$.communities.values()].map((c) => c.name).join(" ")`);
+      const q =
+        name
+          ?.split(/\W+/)
+          .find((w) => w.length > 3)
+          ?.toLowerCase() ?? "founders";
+      const query = encodeURIComponent(q);
+      const xTab = (label) =>
+        until(() =>
+          engine(
+            `document.querySelector('[role="tab"][aria-selected="true"]')?.textContent.trim() === ${JSON.stringify(label)}`,
+          ),
+        );
+      // The first three Communities in X's results and in Xtend's rows, by the ids they link to.
+      const ids = (rows) =>
+        `[...new Set([...document.querySelectorAll(${JSON.stringify(rows)})].map((a) => a.getAttribute("href")?.match(/communities\\/(\\d+)/)?.[1]).filter(Boolean))].slice(0, 3)`;
+      await reset(
+        `communitiesSearch:${q}`,
+        `communityPostsSearch:Top:${q}`,
+        `communityPostsSearch:Latest:${q}`,
+      );
+      await go(`#/communities?q=${query}`);
+      if (!(await until(async () => (await enginePath()).startsWith("/i/communities/suggested"))))
+        return false;
+      const found = await until(async () => {
+        const [xs, ours] = [
+          await engine(ids('[data-testid="primaryColumn"] a[href*="/i/communities/"]')),
+          await app(ids('main [data-x="community-row"]')),
+        ];
+        return xs?.length > 0 && JSON.stringify(xs) === JSON.stringify(ours) && xs.join(",");
+      });
+      // Each post tab is X's own page: its first three posts, in X's order, in the native list.
+      const xFirst = `[...document.querySelectorAll("article")].map((a) => a.querySelector('a[href*="/status/"] time')?.parentElement.getAttribute("href")?.split("/status/")[1]?.split("/")[0]).filter(Boolean).slice(0, 3)`;
+      const posts = async (tab, label, page) => {
+        await go(`#/communities?q=${query}&tab=${tab}`);
+        if (!(await until(async () => (await enginePath()).startsWith(`/i/communities/${page}`))))
+          return false;
+        return (
+          (await xTab(label)) &&
+          until(async () => {
+            const [xs, ours] = [await engine(xFirst), await nativeIds()];
+            const at = ours?.indexOf(xs?.[0]) ?? -1;
+            return (
+              xs?.length > 0 &&
+              at !== -1 &&
+              JSON.stringify(ours.slice(at, at + xs.length)) === JSON.stringify(xs) &&
+              xs.join(",")
+            );
+          })
+        );
+      };
+      const top = found && (await posts("top", "Top", "top"));
+      const latest = top && (await posts("latest", "Latest", "latest"));
+      return latest && `"${q}": Communities ${found}; Top ${top}; Latest ${latest}`;
+    },
+  ],
+  [
     "Profile bell: shows X's own state for someone you follow (dry)",
     async () => {
       // Following holds people the account follows (and what they reposted), so X draws their bell.
