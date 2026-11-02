@@ -21,13 +21,8 @@ it("keeps the last fifteen minutes' X calls and the next round's within the budg
   });
   // Rounds older than the window cost nothing.
   expect(pace(spent([16, 600], [40, 600]), NOW, 300)).toMatchObject({ ok: true });
-  // A round bigger than the whole budget waits for an empty window, then runs.
-  expect(pace(spent([5, 10], [1, 10]), NOW, 900)).toEqual({
-    ok: false,
-    used: 20,
-    until: NOW + 14 * MIN,
-  });
-  expect(pace([], NOW, 900)).toMatchObject({ ok: true });
+  // A round bigger than the whole budget never fits on its own.
+  expect(pace([], NOW, 900)).toEqual({ ok: false, used: 0, until: null });
 });
 
 it("reads every branch's rounds for one account, counting a run that died before its first round", () => {

@@ -1754,7 +1754,12 @@ async function round(n, planned) {
   if (n === 1) {
     book();
     saveReport();
-  } else await reserve(planned, book);
+  } else {
+    // What the pause between rounds called counts before this round's turn is checked.
+    settle();
+    saveReport();
+    await reserve(planned, book);
+  }
   for (const [index, [name, run]] of chosen.entries()) {
     await sameAppPage();
     primed = true;
@@ -1897,7 +1902,13 @@ async function reserve(calls, book) {
       return verdict;
     });
     if (paced.ok) return;
-    const at = new Date(paced.until).toTimeString().slice(0, 5);
+    if (paced.until === null && !process.argv.includes("--force")) {
+      console.error(
+        `Not running: this round needs about ${calls} X calls, over the account's ${BUDGET} per 15 minutes. Narrow it with --only, or pass --force.`,
+      );
+      process.exit(1);
+    }
+    const at = paced.until === null ? "-" : new Date(paced.until).toTimeString().slice(0, 5);
     const why = `${paced.used} of ${BUDGET} X calls spent on this account in the last 15 minutes, and this round needs about ${calls}`;
     if (process.argv.includes("--force"))
       return void console.log(`  WARNING: --force: ${why}; X may answer with rate limits.`);

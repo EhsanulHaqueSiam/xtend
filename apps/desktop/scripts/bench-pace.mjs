@@ -21,17 +21,19 @@ export const accountKey = (userId) =>
 
 /**
  * Whether a round of about `planned` calls may start at `now`, given what earlier rounds spent
- * (`{ at, calls }`): it may while the window's calls plus `planned` stay within BUDGET, or once the
- * window is empty. Otherwise `until` is when enough of the oldest have left it.
+ * (`{ at, calls }`): it may while the window's calls plus `planned` stay within BUDGET. Otherwise
+ * `until` is when enough of the oldest have left it, or null when `planned` alone is over BUDGET.
  */
 export function pace(spent, now, planned) {
   const recent = spent
     .filter((s) => s.at > now - WINDOW_MS && s.at <= now)
     .toSorted((a, b) => a.at - b.at);
   const used = recent.reduce((sum, s) => sum + s.calls, 0);
-  if (recent.length === 0 || used + planned <= BUDGET) return { ok: true, used };
+  // A round bigger than the whole budget never fits: narrow it or force it.
+  if (planned > BUDGET) return { ok: false, used, until: null };
+  if (used + planned <= BUDGET) return { ok: true, used };
   let left = used;
-  const fits = recent.find((s) => ((left -= s.calls), left + planned <= BUDGET || left === 0));
+  const fits = recent.find((s) => ((left -= s.calls), left + planned <= BUDGET));
   return { ok: false, used, until: fits.at + WINDOW_MS };
 }
 
