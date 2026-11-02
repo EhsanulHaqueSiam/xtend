@@ -970,19 +970,26 @@ const benchmarks = [
           ),
         );
       await go(`#/u/${handle}`);
-      // X's carousel, by the game page each card opens, against Xtend's cards in order.
+      // X's carousel cards are buttons with no game id: their text, in order, against Xtend's.
+      const cards = (sel) =>
+        `(() => { const t = [...document.querySelectorAll(${JSON.stringify(sel)})].map((c) => c.innerText.replace(/\\s+/g, " ").trim()); return t.length > 0 && t; })()`;
       const xs = await until(() =>
         engine(
-          `(() => { const box = document.querySelector('[data-testid="nflProfileScheduleCarousel"]'); const ids = box ? [...box.querySelectorAll('a[href*="/i/nba/game/"]')].map((a) => a.getAttribute("href").split("/i/nba/game/")[1].split(/[/?#]/)[0]) : []; return ids.length > 0 && [...new Set(ids)]; })()`,
+          cards(
+            '[data-testid="nflProfileScheduleCarousel"] [data-testid="nflProfileScheduleGameCard"]',
+          ),
         ),
       );
-      const ours = await until(() =>
-        app(
-          `(() => { const ids = [...document.querySelectorAll('main [data-x="game-card"]')].map((a) => a.getAttribute("href").split("/nba/game/")[1]); return ids.length > 0 && ids; })()`,
-        ),
+      const texts = await until(() => app(cards('main [data-x="game-card"]')));
+      const ours = await app(
+        `[...document.querySelectorAll('main [data-x="game-card"]')].map((a) => a.getAttribute("href").split("/nba/game/")[1])`,
       );
-      const at = ours?.indexOf(xs?.[0]) ?? -1;
-      if (!xs || at === -1 || JSON.stringify(ours.slice(at, at + xs.length)) !== JSON.stringify(xs))
+      const at = texts?.indexOf(xs?.[0]) ?? -1;
+      if (
+        !xs ||
+        at === -1 ||
+        JSON.stringify(texts.slice(at, at + xs.length)) !== JSON.stringify(xs)
+      )
         return false;
       // A live game if there is one, else the latest final.
       const id = await store(
