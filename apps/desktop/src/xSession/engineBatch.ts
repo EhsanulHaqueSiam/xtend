@@ -1139,9 +1139,14 @@ function readFolderChange(op: string, variables: Json, data: Json): EngineFolder
     }
     case "createBookmarkFolder":
     case "EditBookmarkFolder": {
-      const made = record(data.bookmark_collection_create ?? data.bookmark_collection_update);
-      // X's own reducer names a renamed folder by the name it asked for.
-      const [folder] = readFolder({ name: variables.name, ...made });
+      const update = data.bookmark_collection_update;
+      // X files a new folder as its answer has it, and a renamed one under the name it asked for.
+      const [folder] =
+        op === "createBookmarkFolder"
+          ? readFolder(record(data.bookmark_collection_create))
+          : isRecord(update)
+            ? readFolder({ ...update, name: variables.name })
+            : [];
       return folder === undefined ? undefined : { kind: "saved", folder };
     }
     case "DeleteBookmarkFolder":

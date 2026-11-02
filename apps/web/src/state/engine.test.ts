@@ -876,7 +876,10 @@ it("keeps X's bookmark folders in X's order as X's dialogs and rows change them,
 
   const ids = (s: EngineState) => s.bookmarkFolders?.map((f) => `${f.folderId} ${f.name}`);
   let state = [
-    change({ kind: "list", folders: [folder("801", "Reading"), folder("802", "Ideas")] }),
+    change({
+      kind: "list",
+      folders: [folder("801", "Reading"), { ...folder("802", "Ideas"), imageUrl: "pic" }],
+    }),
     change({ kind: "list", folders: [folder("804", "Later")] }, "next"),
     batch("GetUserClaims", [], { claims: ["subscriptions_feature_1002"] }),
   ].reduce(mergeBatch, emptyEngine);
@@ -891,6 +894,8 @@ it("keeps X's bookmark folders in X's order as X's dialogs and rows change them,
     change({ kind: "deleted", folderId: "804" }),
   ].reduce(mergeBatch, state);
   expect(ids(state)).toEqual(["802 Ideas 2", "803 Recipes", "801 Reading"]);
+  // A rename keeps the picture X's answer did not repeat.
+  expect(state.bookmarkFolders?.[0]?.imageUrl).toBe("pic");
 
   const [a, b, c] = ["1", "2", "3"].map((id) => post(id, `2026-10-2${id}T10:00:00.000Z`));
   expect(surfacesOf({ op: "BookmarkFolderTimeline", key: "801" })).toEqual(["bookmarkFolder:801"]);

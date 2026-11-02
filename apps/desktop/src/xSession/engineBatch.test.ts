@@ -2083,16 +2083,19 @@ describe("renderEngineBatch for bookmark folders", () => {
         },
       ),
     ).toEqual({ kind: "saved", folder: { folderId: "803", name: "Recipes", imageUrl: null } });
-    // X's answer to a rename names the folder; its new name is the one X asked for.
+    // X files a renamed folder under the name it asked for, and a failed rename changes nothing.
     expect(
       did(
         "EditBookmarkFolder",
         { bookmark_collection_id: "801", name: "To read" },
         {
-          bookmark_collection_update: { id: "801" },
+          bookmark_collection_update: { id: "801", name: "Reading" },
         },
       ),
     ).toEqual({ kind: "saved", folder: { folderId: "801", name: "To read", imageUrl: null } });
+    expect(
+      did("EditBookmarkFolder", { bookmark_collection_id: "801", name: "To read" }, {}),
+    ).toBeUndefined();
     expect(
       did(
         "DeleteBookmarkFolder",

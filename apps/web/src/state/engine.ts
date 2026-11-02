@@ -649,8 +649,13 @@ function foldersOf(
       : join(folders ?? [], change.folders, (f) => f.folderId);
   if (folders === null) return null;
   if (change.kind === "deleted") return folders.filter((f) => f.folderId !== change.folderId);
+  const id = change.kind === "saved" ? change.folder.folderId : change.folderId;
+  const known = folders.find((f) => f.folderId === id);
+  // A rename keeps the folder's picture, which X's answer need not repeat.
   const first =
-    change.kind === "saved" ? change.folder : folders.find((f) => f.folderId === change.folderId);
+    change.kind === "saved"
+      ? { ...change.folder, imageUrl: change.folder.imageUrl ?? known?.imageUrl ?? null }
+      : known;
   return first === undefined
     ? folders
     : [first, ...folders.filter((f) => f.folderId !== first.folderId)];
