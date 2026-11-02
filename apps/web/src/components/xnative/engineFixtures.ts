@@ -2,6 +2,8 @@
 // native X screens render in a plain browser. Type imports only: scripts/engine-fixture.ts runs
 // this file under Node as is.
 import type {
+  EngineArticle,
+  EngineArticleBlock,
   EngineBatch,
   EngineCard,
   EngineCommunity,
@@ -522,6 +524,7 @@ const UNPAGED = new Set([
   "CommunitiesFetchOneQuery",
   // X's About ends its timeline after the moderators, with no cursors.
   "CommunityAboutTimeline",
+  "TweetResultByRestId",
 ]);
 /** A batch with the parts every response shares empty. */
 const batch = (
@@ -746,6 +749,87 @@ export function synth(): Readonly<Record<string, Fixture>> {
     batches: [batch("TweetDetail", focal.postId, [focal, ...replies], { users: PEOPLE })],
   };
 
+  // An X Article: its post carries the card, X's reader page the body. Built apart from `say` so
+  // every other fixture keeps its ids.
+  const writer = PEOPLE[3]!;
+  const essay: EnginePost = {
+    ...following[0]!,
+    postId: "700000000980",
+    author: {
+      userId: writer.userId,
+      handle: writer.handle,
+      name: writer.name,
+      followers: writer.followers,
+      verified: writer.verified,
+    },
+    avatarUrl: writer.avatarUrl,
+    text: "",
+    createdAt: ago(400),
+    card: {
+      kind: "article",
+      url: "https://x.com/i/article/600000000201",
+      title: "How we priced our first plan",
+      domain: null,
+      description: "Three experiments, one spreadsheet, and the number we landed on.",
+      imageUrl: placeholder("article-cover", 1500, 600),
+    },
+  };
+  const para = (key: string, type: string, text: string, extra: Partial<EngineArticleBlock> = {}) =>
+    ({
+      key,
+      type,
+      text,
+      styles: [],
+      links: [],
+      images: [],
+      markdown: null,
+      ...extra,
+    }) satisfies EngineArticleBlock;
+  const body: EngineArticle = {
+    postId: essay.postId,
+    blocks: [
+      para(
+        "a",
+        "unstyled",
+        "We changed our price four times in a year. Each change taught us one thing.",
+        {
+          styles: [{ offset: 48, length: 6, style: "Italic" }],
+        },
+      ),
+      para("b", "header-two", "What we tried"),
+      para("c", "unordered-list-item", "A free plan with a usage cap", {
+        styles: [{ offset: 2, length: 9, style: "Bold" }],
+      }),
+      para("d", "unordered-list-item", "One paid plan at $19"),
+      para("e", "unordered-list-item", "Annual billing with two months off"),
+      para("f", "atomic", " ", {
+        images: [{ url: placeholder("article-chart", 1200, 675), width: 1200, height: 675 }],
+      }),
+      para("g", "blockquote", "Charge from day one. The users who pay tell you what matters."),
+      para("h", "header-two", "The numbers"),
+      para("i", "atomic", " ", {
+        markdown:
+          "| Plan | Price | Signups |\n| --- | --- | --- |\n| Free | $0 | 412 |\n| Pro | $19 | 97 |",
+      }),
+      para("j", "ordered-list-item", "Price for the user you want"),
+      para("k", "ordered-list-item", "Raise it before it feels comfortable"),
+      para("l", "atomic", " ", { markdown: "```ts\nconst price = 19;\n```" }),
+      para("m", "unstyled", "The full spreadsheet is on our blog.", {
+        links: [{ offset: 27, length: 8, url: "https://example.com/pricing" }],
+      }),
+    ],
+  };
+  const article: Fixture = {
+    meta: meta(
+      "article",
+      "An X Article: cover, title, the author row, and a body with every kind of block",
+      [`/article/${essay.postId}?h=${essay.author.handle}`],
+    ),
+    batches: [
+      batch("TweetResultByRestId", null, [essay], { users: PEOPLE, order: [], articles: [body] }),
+    ],
+  };
+
   const profileUser = PEOPLE[0]!;
   const pinned = say(
     0,
@@ -881,21 +965,8 @@ export function synth(): Readonly<Record<string, Fixture>> {
     { id: "trending", label: "Trending", timelineId: "explore-trending" },
     { id: "news", label: "News", timelineId: "explore-news" },
   ];
+  // X's For you opens with Today's News, then trends on their own.
   const trends: ReadonlyArray<EngineTrend> = [
-    {
-      name: "#BuildInPublic",
-      context: "Trending in Technology",
-      url: "https://x.com/search?q=%23BuildInPublic",
-      images: [],
-      group: null,
-    },
-    {
-      name: "Design systems",
-      context: "Technology · 12.4K posts",
-      url: "https://x.com/search?q=Design%20systems",
-      images: [],
-      group: null,
-    },
     {
       name: "A new open source license for AI models",
       context: "2 hours ago · News · 3.1K posts",
@@ -910,17 +981,41 @@ export function synth(): Readonly<Record<string, Fixture>> {
       images: [PEOPLE[0]!.avatarUrl!],
       group: "Today's News",
     },
+    {
+      name: "#BuildInPublic",
+      context: "Trending in Technology",
+      url: "https://x.com/search?q=%23BuildInPublic",
+      images: [],
+      group: null,
+    },
+    {
+      name: "Design systems",
+      context: "Technology · 12.4K posts",
+      url: "https://x.com/search?q=Design%20systems",
+      images: [],
+      group: null,
+    },
+  ];
+  // Then Who to follow, and Posts For You: the start of the feed X pages in as it scrolls.
+  const recommended = [forYou[1]!, following[0]!, following[1]!, forYou[3]!];
+  const exploreModules = [
+    { id: "who-to-follow-700000000901", title: "Who to follow", userIds: whoToFollow.userIds },
+    { id: `tweet-${recommended[0]!.postId}`, title: "Posts For You", userIds: [] },
   ];
   const explore: Fixture = {
-    meta: meta("explore", "Explore: For you tab with trends, today's news and Who to follow", [
-      "/explore",
-    ]),
+    meta: meta(
+      "explore",
+      "Explore: For you with Today's News, trends, Who to follow and Posts For You",
+      ["/explore"],
+    ),
     batches: [
-      batch("ExplorePage", "explore-for-you", [], {
+      batch("ExplorePage", "explore-for-you", recommended, {
         trends,
         exploreTabs: tabs,
-        users: PEOPLE,
-        people: [PEOPLE[3]!.userId, PEOPLE[5]!.userId],
+        users: [...PEOPLE, ...suggest],
+        people: whoToFollow.userIds,
+        order: [...exploreModules.map((m) => m.id), ...recommended.map((p) => p.postId)],
+        modules: exploreModules,
       }),
     ],
   };
@@ -1125,9 +1220,44 @@ export function synth(): Readonly<Record<string, Fixture>> {
     ],
   };
 
+  // One of the user's own posts, on their profile, and X's Post Analytics for it.
+  const you = person(99, { handle: VIEWER.handle, name: VIEWER.name! });
+  const yours = say(0, "Rewrote our pricing page in one afternoon. Three plans became one.", 180, {
+    author: {
+      userId: you.userId,
+      handle: you.handle,
+      name: you.name,
+      followers: you.followers,
+      verified: you.verified,
+    },
+    avatarUrl: you.avatarUrl,
+  });
+  const analytics: Fixture = {
+    meta: meta("analytics", "Post Analytics: X's numbers for one of your own posts", [
+      `/post/${yours.postId}/analytics?h=${you.handle}`,
+    ]),
+    batches: [
+      batch("UserTweets", you.userId, [yours], { users: [you] }),
+      batch("TweetActivityQuery", yours.postId, [], {
+        top: null,
+        bottom: null,
+        // X sends a zero without its value, and counts Follows, which its page does not draw.
+        analytics: {
+          DetailExpands: 214,
+          Engagements: 1_380,
+          Follows: 0,
+          Impressions: 48_210,
+          LinkClicks: 0,
+          ProfileVisits: 96,
+        },
+      }),
+    ],
+  };
+
   return {
     home,
     post,
+    article,
     profile,
     notifications,
     search,
@@ -1136,5 +1266,6 @@ export function synth(): Readonly<Record<string, Fixture>> {
     lists,
     follow,
     communities,
+    analytics,
   };
 }

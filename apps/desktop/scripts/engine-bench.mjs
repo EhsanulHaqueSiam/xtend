@@ -228,6 +228,8 @@ const heldByEngine = (testid) =>
   });
 
 const SEARCH = "filter:native_video min_faves:500";
+/** Posts that carry an X Article link to it under x.com/i/article. */
+const ARTICLE_SEARCH = "url:x.com/i/article min_faves:100";
 let theoId = "";
 
 const benchmarks = [
@@ -669,6 +671,34 @@ const benchmarks = [
     },
   ],
   [
+    "Post Analytics: your own post's numbers are the ones X's analytics page draws",
+    async () => {
+      const handle = await until(() => store(`$.viewer?.handle`));
+      if (!handle) return false;
+      await go(`#/u/${handle}`);
+      // The user's own post, not a repost, on their profile.
+      const id = await until(() =>
+        store(
+          `(() => { const me = [...$.users.values()].find((u) => u.handle === ${JSON.stringify(handle)}); return me && at($.lists, "profile:posts:" + me.userId).find((id) => $.posts.get(id)?.author.userId === me.userId); })()`,
+        ),
+      );
+      if (!id) return false;
+      await go(`#/post/${id}/analytics?h=${handle}`);
+      // Xtend's labels and numbers in order, then the number X's page draws beside each label.
+      const ours = `[...document.querySelectorAll('main [data-x="analytics"] > div')].map((d) => [d.querySelector("dt").textContent, d.querySelector("dd").textContent])`;
+      const xs = (labels) =>
+        `${JSON.stringify(labels)}.map((label) => { let box = [...document.querySelectorAll("*")].find((e) => e.children.length === 0 && e.textContent.trim() === label); while (box && !/\\d/.test(box.textContent.replace(label, ""))) box = box.parentElement; return [label, box?.textContent.replace(label, "").match(/[\\d.,]+[KM]?/)?.[0] ?? null]; })`;
+      const drawn = await until(async () => {
+        if (!(await enginePath()).endsWith(`/status/${id}/analytics`)) return false;
+        const native = await app(ours);
+        if (native?.length !== 5) return false;
+        const onX = await engine(xs(native.map(([label]) => label)));
+        return JSON.stringify(native) === JSON.stringify(onX) && native;
+      });
+      return drawn && `${id}: ${drawn.map(([label, n]) => `${label} ${n}`).join(", ")}`;
+    },
+  ],
+  [
     "List: X's header, and members and followers as X's pages list them",
     async () => {
       await go("#/lists");
@@ -870,6 +900,46 @@ const benchmarks = [
     },
   ],
   [
+    "Library Inspiration draws X's answer for X's filters, and a period pick presses X's own button (reads only)",
+    async () => {
+      // The section moves the engine to X's Creator Studio page and draws what X answered for the
+      // filters X shows. A pick presses X's own button there, so X answers for that period.
+      const path = "/i/jf/creators/inspiration/top_posts";
+      const drawn = (period) =>
+        until(async () => {
+          if ((await enginePath()) !== path) return false;
+          const x = await store(`$.inspiration`);
+          if (!x || (period !== undefined && x.period !== period)) return false;
+          const list = await store(
+            `at($.lists, "inspiration:" + $.inspiration.engagement + ":" + $.inspiration.period + ":" + $.inspiration.language)`,
+          );
+          const ours = await app(
+            `[...document.querySelectorAll('main article a[href*="/status/"]')].map((a) => a.getAttribute("href").split("/status/")[1]).slice(0, 3)`,
+          );
+          return (
+            list?.length >= 3 &&
+            JSON.stringify(ours) === JSON.stringify(list.slice(0, 3)) && {
+              ...x,
+              posts: list.length,
+            }
+          );
+        }, 30_000);
+      await go("#/library?tab=inspiration");
+      const first = await drawn();
+      if (!first) return false;
+      const other = first.period === "Daily" ? "Weekly" : "Daily";
+      const label = other === "Daily" ? "Last 24h" : "Last 7d";
+      await app(
+        `[...document.querySelectorAll('main [role="tab"]')].find((t) => t.textContent.trim() === ${JSON.stringify(label)})?.click(), true`,
+      );
+      const picked = await drawn(other);
+      return (
+        picked &&
+        `${first.engagement} ${first.period} ${first.language}: ${first.posts}; ${other}: ${picked.posts}`
+      );
+    },
+  ],
+  [
     "Communities search: the Communities X finds, then its Top and Latest, are X's own (dry)",
     async () => {
       // A word from a Community the account has seen, so X finds something; nothing is pressed.
@@ -1024,6 +1094,85 @@ const benchmarks = [
     },
   ],
   [
+    "A creator's Reposts and Subs: X's tabs in X's order, Reposts' posts and X's Subs prompt or posts (dry)",
+    async () => {
+      // A creator who offers Subscriptions today. Nothing is pressed but X's own tabs.
+      const handle = "levelsio";
+      const xFirst = `[...document.querySelectorAll("article")].map((a) => a.querySelector('a[href*="/status/"] time')?.parentElement.getAttribute("href")?.split("/status/")[1]?.split("/")[0]).filter(Boolean).slice(0, 3)`;
+      // X's first three posts lead the tab's list, and Xtend draws X's first: a tall first post
+      // can leave only one drawn in the window.
+      const same = (surface) =>
+        until(async () => {
+          const [xs, ours, drawn] = [
+            await engine(xFirst),
+            await store(`at($.lists, ${JSON.stringify(surface)})`),
+            await nativeIds(),
+          ];
+          return (
+            xs?.length === 3 &&
+            JSON.stringify(ours?.slice(0, 3)) === JSON.stringify(xs) &&
+            drawn?.[0] === xs[0] &&
+            xs.join(",")
+          );
+        });
+      const xTab = (label) =>
+        until(() =>
+          engine(
+            `document.querySelector('[role="tab"][aria-selected="true"]')?.textContent.trim() === ${JSON.stringify(label)}`,
+          ),
+        );
+      await go(`#/u/${handle}`);
+      const id = await until(() =>
+        store(
+          `[...$.users.values()].find((u) => u.handle === ${JSON.stringify(handle)} && u.offersSubscriptions === true)?.userId`,
+        ),
+      );
+      if (!id) return false;
+      // The tabs both rows draw stand in the same order, and both have Reposts and Subs.
+      const order = await until(async () => {
+        const xs = await engine(
+          `[...document.querySelectorAll('[role="tab"]')].map((t) => t.textContent.trim())`,
+        );
+        const ours = await app(
+          `[...document.querySelectorAll('main [role="tablist"][aria-label="Profile"] [role="tab"]')].map((t) => t.textContent.trim())`,
+        );
+        const shared = (a, b) => a.filter((l) => b.includes(l)).join(",");
+        return (
+          ["Reposts", "Subs"].every((l) => xs?.includes(l) && ours?.includes(l)) &&
+          shared(xs, ours) === shared(ours, xs) &&
+          shared(ours, xs)
+        );
+      });
+      if (!order) return false;
+      await reset(`profile:reposts:${id}`, `profile:subs:${id}`);
+      await go(`#/u/${handle}?tab=reposts`);
+      const reposts =
+        (await until(async () => (await enginePath()) === `/${handle}/reposts`)) &&
+        (await xTab("Reposts")) &&
+        (await same(`profile:reposts:${id}`));
+      if (!reposts) return false;
+      await go(`#/u/${handle}?tab=subs`);
+      if (!(await until(async () => (await enginePath()) === `/${handle}/subs`))) return false;
+      // A non-subscriber gets X's prompt, drawn in X's words; a subscriber gets the posts.
+      const subs = await until(async () => {
+        const prompt = await store(`$.prompts.get("profile:subs:${id}")`);
+        if (prompt === undefined)
+          return (await nativeIds()).length > 0 && (await same(`profile:subs:${id}`));
+        const onX = await engine(
+          `document.querySelector('[data-testid="primaryColumn"]')?.innerText ?? ""`,
+        );
+        const ours = await app(`document.querySelector('main [data-x="subs"]')?.innerText ?? ""`);
+        return (
+          onX.includes(prompt.body) &&
+          ours.includes(prompt.header) &&
+          ours.includes(prompt.body) &&
+          `prompt "${prompt.header}"`
+        );
+      });
+      return subs && `tabs ${order}; reposts ${reposts}; subs ${subs}`;
+    },
+  ],
+  [
     "X's follow button is reachable on a profile (dry)",
     async () => (
       await engineGo("/theo"),
@@ -1111,6 +1260,56 @@ const benchmarks = [
         ),
       );
       return forYou && n && `${tabs.length} tabs, ${forYou} + ${n} trends`;
+    },
+  ],
+  [
+    "Explore For you is X's feed: trends, Who to follow, Posts For You, then paged posts",
+    async () => {
+      await go("#/explore");
+      const id = await until(
+        () => store(`$.exploreTabs.find((t) => t.id === "for_you")?.timelineId`),
+        15_000,
+      );
+      if (!id) return false;
+      const s = JSON.stringify(`explore:${id}`);
+      await reset(`explore:${id}`);
+      // X's first page anew: trends, then its modules and posts in X's order.
+      const loaded = await visit("/explore", () =>
+        store(`at($.trends, ${s}).length >= 3 && at($.lists, ${s}).length >= 5`),
+      );
+      if (!loaded) return false;
+      const shape = await store(`(() => {
+        const list = at($.lists, ${s});
+        const who = list.findIndex((x) => $.modules.get(x)?.userIds.length > 0);
+        const box = list.findIndex((x) => $.modules.get(x)?.userIds.length === 0);
+        const post = list.findIndex((x) => $.posts.has(x));
+        return who !== -1 && who < box && box < post && { box: $.modules.get(list[box]).title, trends: at($.trends, ${s}).length };
+      })()`);
+      if (!shape) return false;
+      // Drawn in that order: a trend, Who to follow, X's header for the posts, the first post.
+      const drawn = await until(() =>
+        app(`(() => {
+          const main = document.querySelector("main");
+          const heading = [...main.querySelectorAll("h2")].find((h) => h.textContent === ${JSON.stringify(shape.box)});
+          const els = [main.querySelector('[data-x="trend"]'), main.querySelector('section[data-x="module"]'), heading, main.querySelector("article[data-post]")];
+          return els.every(Boolean) && els.every((el, i) => i === 0 || !!(els[i - 1].compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING));
+        })()`),
+      );
+      if (!drawn) return false;
+      // Reaching the list's end asks X's page for For you's next page, which goes under the list.
+      const before = await store(`at($.lists, ${s})`);
+      const grew = await until(async () => {
+        await app(
+          `(() => { const s = document.querySelector("main [data-virtuoso-scroller]"); if (s) s.scrollTop = s.scrollHeight; return true; })()`,
+        );
+        const now = await store(`at($.lists, ${s})`);
+        return (
+          now.length > before.length + 3 &&
+          now.slice(0, before.length).join() === before.join() &&
+          now.length
+        );
+      }, 30_000);
+      return grew && `${shape.trends} trends, "${shape.box}", ${before.length} → ${grew} entries`;
     },
   ],
   [
@@ -1444,6 +1643,52 @@ const benchmarks = [
       }
       console.log("      no open poll in reach");
       return false;
+    },
+  ],
+  [
+    "An X Article opens in the native reader, its body read from X's reader page (dry)",
+    async () => {
+      // An Article this run has seen, else one from a search for posts that carry one.
+      const find = () =>
+        store(
+          `(() => { const p = [...$.posts.values()].find((p) => p.card?.kind === "article"); return p && { id: p.postId, handle: p.author.handle, title: p.card.title }; })()`,
+        );
+      let found = await find();
+      if (!found) {
+        await go(`#/search?q=${encodeURIComponent(ARTICLE_SEARCH)}&f=top`);
+        found = await until(find, 20_000);
+      }
+      if (!found) {
+        console.log("      no Article in reach");
+        return false;
+      }
+      const id = JSON.stringify(found.id);
+      await go(`#/article/${found.id}?h=${found.handle}`);
+      const path = `/${found.handle}/article/${found.id}`;
+      const blocks = await until(
+        async () => (await enginePath()) === path && store(`$.articles.get(${id})?.blocks.length`),
+        20_000,
+      );
+      if (!blocks) return false;
+      const drawn = await until(
+        () =>
+          app(
+            `document.querySelector('main [data-x="article-title"]')?.textContent === ${JSON.stringify(found.title)} && !!document.querySelector('main [data-x="article-body"]')`,
+          ),
+        10_000,
+      );
+      // X's page shows the words the store read; nothing on it is pressed.
+      const words = await store(
+        `$.articles.get(${id}).blocks.find((b) => b.text.trim().length >= 20)?.text.trim().slice(0, 40)`,
+      );
+      const onX =
+        words === undefined ||
+        (await until(
+          () => engine(`document.body.innerText.includes(${JSON.stringify(words)})`),
+          10_000,
+        ));
+      if (!drawn || !onX) console.log(`      ${JSON.stringify({ drawn, onX, words })}`);
+      return drawn && onX && `${blocks} blocks`;
     },
   ],
   [

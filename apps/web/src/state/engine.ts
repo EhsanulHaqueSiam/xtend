@@ -1,4 +1,5 @@
 import type {
+  EngineArticle,
   EngineBatch,
   EngineCommunity,
   EngineExploreTab,
@@ -8,6 +9,7 @@ import type {
   EngineNotification,
   EnginePeopleSection,
   EnginePost,
+  EnginePrompt,
   EngineTrend,
   EngineUser,
   EngineViewer,
@@ -82,6 +84,7 @@ type KeyedSurface =
   | `communityMedia:${string}`
   | `communityAbout:${string}`
   | `communitySearch:${string}`
+  | `inspiration:${string}`
   | `communitiesSearch:${string}`
   | `communityPostsSearch:${"Top" | "Latest"}:${string}`
   | `profile:${ProfileTab}:${string}`;
@@ -154,6 +157,21 @@ export const communityPostsSearchSurface = (order: "Top" | "Latest", query: stri
 /** @public */
 export const profileSurface = (tab: ProfileTab, userId: string) =>
   `profile:${tab}:${userId}` as const;
+/** X's Inspiration filters, as its timelineId names them: Likes, Daily, en. */
+export interface Inspiration {
+  readonly engagement: string;
+  readonly period: string;
+  readonly language: string;
+}
+/** X's Inspiration posts for one set of filters, as the capture keys them. */
+export const inspirationSurface = (f: Inspiration) =>
+  `inspiration:${f.engagement}:${f.period}:${f.language}` as const;
+const inspirationOf = ({ op, key }: Pick<EngineBatch, "op" | "key">): Inspiration | null => {
+  const m = /^inspiration:([^:]+):([^:]+):([^:]+)$/.exec(key ?? "");
+  return op !== "GenericTimelineById" || m === null
+    ? null
+    : { engagement: m[1]!, period: m[2]!, language: m[3]! };
+};
 
 const PROFILE_OPS: Readonly<Record<string, ProfileTab>> = {
   // X has used each pair of names for a profile's tabs.
@@ -238,6 +256,8 @@ export function surfacesOf(batch: Pick<EngineBatch, "op" | "key">): ReadonlyArra
     return [communityPostsSearchSurface("Latest", key)];
   if (op === "ConnectTabTimeline" && (key === "connect:who" || key === "connect:creators"))
     return [key];
+  const inspiration = inspirationOf(batch);
+  if (inspiration !== null) return [inspirationSurface(inspiration)];
   // The capture keys every List call `list:<id>`.
   const listId = tabKey(key, "list")?.slice("list:".length);
   if (listId !== undefined && op === "ListMembers")
@@ -351,11 +371,22 @@ export interface EngineState {
   readonly communities: ReadonlyMap<string, EngineCommunity>;
   /** Community ids per surface, in X's order (the user's Communities). */
   readonly communityIds: PerSurface<string>;
+  /** X's prompt per surface, listed where posts would be: the Subs tab's subscribe prompt. */
+  readonly prompts: ReadonlyMap<AnySurface, EnginePrompt>;
+  /**
+   * Article bodies by the post that carries them. Apart from `posts`: a timeline sends the same
+   * post again with its card only, and X's cached reader page sends nothing.
+   */
+  readonly articles: ReadonlyMap<string, EngineArticle>;
   /** Home's pinned tabs after For you and Following, as X named them. */
   readonly homeTabs: ReadonlyArray<EngineHomeTab>;
   readonly exploreTabs: ReadonlyArray<EngineExploreTab>;
+  /** X's Inspiration filters as its latest answer had them: what X's page shows now. */
+  readonly inspiration: Inspiration | null;
   /** The signed-in account (the composer's avatar), once X's page has loaded. */
   readonly viewer: EngineViewer | null;
+  /** X's Post Analytics per post id, as X last counted them (see `EngineBatch.analytics`). */
+  readonly analytics: ReadonlyMap<string, Readonly<Record<string, number>>>;
   /** The page cursors X last answered per surface, to tell a fetch of newer posts from the next page. */
   readonly cursors: Readonly<
     Partial<Record<AnySurface, { readonly top: string | null; readonly bottom: string | null }>>
@@ -382,9 +413,13 @@ export const emptyEngine: EngineState = {
   listIds: NONE,
   communities: new Map(),
   communityIds: NONE,
+  prompts: new Map(),
+  articles: new Map(),
   homeTabs: [],
   exploreTabs: [],
+  inspiration: null,
   viewer: null,
+  analytics: new Map(),
   cursors: {},
 };
 
@@ -426,7 +461,11 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
   let asked = state.asked;
   if (batch.users.length > 0) {
     const next = new Map(users);
-    for (const user of batch.users) next.set(user.userId, user);
+    for (const user of batch.users) {
+      // A response that does not say whether they offer Subscriptions keeps an earlier one's word.
+      const offers = user.offersSubscriptions ?? next.get(user.userId)?.offersSubscriptions;
+      next.set(user.userId, offers === undefined ? user : { ...user, offersSubscriptions: offers });
+    }
     users = next;
     const agreed = batch.users.filter((u) => asked.get(u.userId) === u.youFollow);
     if (agreed.length > 0) {
@@ -499,8 +538,14 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
     pinned,
     xLists,
     communities,
+    prompts: promptsOf(state, batch),
     homeTabs: batch.homeTabs ?? state.homeTabs,
     exploreTabs: batch.exploreTabs ?? state.exploreTabs,
+    articles:
+      batch.articles === undefined
+        ? state.articles
+        : new Map([...state.articles, ...batch.articles.map((a) => [a.postId, a] as const)]),
+    inspiration: inspirationOf(batch) ?? state.inspiration,
     // X's nav names no user id; keep the one X's Viewer call gave for the same account.
     viewer:
       batch.viewer === null
@@ -511,15 +556,46 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
               batch.viewer.userId ??
               (state.viewer?.handle === batch.viewer.handle ? state.viewer.userId : null),
           },
+    analytics:
+      batch.analytics === undefined || batch.key === null
+        ? state.analytics
+        : new Map(state.analytics).set(batch.key, batch.analytics),
   };
   const listed = surfacesOf(batch).reduce(
-    (state, surface) => mergeInto(state, batch, surface),
+    (state, surface) =>
+      mergeInto(
+        // Explore's and Inspiration's first page is X's whole list again, so it replaces ours;
+        // Home's waits behind a pill, which neither draws.
+        (surface.startsWith("explore:") || surface.startsWith("inspiration:")) &&
+          batch.cursor === null
+          ? resetSurface(state, surface)
+          : state,
+        batch,
+        surface,
+      ),
     merged,
   );
   if (!/^Create(Note)?Tweet$/.test(batch.op)) return listed;
   // The response also carries the post it quotes, which stays where it was.
   const created = batch.posts.filter((p) => !batch.posts.some((q) => q.quotedId === p.postId));
   return created.reduce(placeCreated, listed);
+}
+
+/**
+ * X's prompt on each surface a response feeds: its first page sets it, or clears it once X lists
+ * posts instead (the user subscribed). Later pages leave it.
+ */
+function promptsOf(state: EngineState, batch: EngineBatch): EngineState["prompts"] {
+  if (batch.cursor !== null) return state.prompts;
+  const surfaces = surfacesOf(batch).filter(
+    (s) => batch.prompt !== undefined || state.prompts.has(s),
+  );
+  if (surfaces.length === 0) return state.prompts;
+  const prompts = new Map(state.prompts);
+  for (const s of surfaces)
+    if (batch.prompt === undefined) prompts.delete(s);
+    else prompts.set(s, batch.prompt);
+  return prompts;
 }
 
 /**

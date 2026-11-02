@@ -128,6 +128,13 @@ it("passes the committed engine fixtures and fails one that was not scrubbed", (
     [fake.replace('"postId":"900000000001"', '"postId":1985123456789012345'), /numeric id/],
     [fake.replace('"name":"Mira Brandt"', '"name":"Elon Musk"'), /name "Elon Musk"/],
     [fake.replace('"text":"https://t.co/s12"', '"url":"https://x.com/elonmusk"'), /real link/],
+    [
+      fake.replace(
+        '"text":"https://t.co/s12"',
+        '"url":"https://x.com/i/article/1985123456789012345"',
+      ),
+      /real link/,
+    ],
     [`{"open":["/u/elonmusk"]}`, /@elonmusk/],
     ["not json", /not JSON/],
   ] as const)
@@ -149,10 +156,12 @@ it("passes the committed engine fixtures and fails one that was not scrubbed", (
     ["people", ["44196397"]],
     ["order", ["1985123456789012345"]],
     ["order", ["who-to-follow-1985123456789012345"]],
+    ["order", ["tweet-1985123456789012345"]],
     ["edits", ["1234"]],
     ["postIds", ["1985123456789012345"]],
     ["id", "1985123456789012345"],
     ["id", "who-to-follow-1985123456789012345"],
+    ["id", "tweet-1985123456789012345"],
     ["timelineId", "1985123456789012345"],
     ["key", "list:1234"],
     ["top", "top-ListByRestId-list:1985123456789012345"],

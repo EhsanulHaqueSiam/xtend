@@ -9,7 +9,13 @@ import type {
   EngineUser,
 } from "@xtend/contracts";
 
-import { type GraphqlRequest, type MockState, quotesQuery } from "./state.ts";
+import {
+  type GraphqlRequest,
+  INSPIRATION_FILTERS,
+  inspirationTimelineId,
+  type MockState,
+  quotesQuery,
+} from "./state.ts";
 
 /**
  * Mock X's pages: per x.com route, the GraphQL calls X's page makes and the markup it draws from
@@ -213,6 +219,8 @@ export const postsOf = (b: EngineBatch | null, state: MockState) =>
           const p = b.posts.find((post) => post.postId === id);
           if (p !== undefined) return [article(p, state)];
           const m = b.modules.find((module) => module.id === id);
+          // A titled box of posts (Explore's Posts For You) is its header over the posts after it.
+          if (m?.userIds.length === 0) return [`<h2>${esc(m.title)}</h2>`];
           return m === undefined ? [] : [whoToFollow(m, b)];
         })
         .join("");
@@ -268,7 +276,9 @@ const SEARCH_TABS = [
 const PROFILE_TABS = [
   { path: "", op: "UserTweets", label: "Posts" },
   { path: "/with_replies", op: "UserTweetsAndReplies", label: "Replies" },
-  { path: "/superfollows", op: "UserSuperFollowTweets", label: "Subs" },
+  { path: "/reposts", op: "UserRepostsTimeline", label: "Reposts" },
+  // Only for a creator who offers Subscriptions.
+  { path: "/subs", op: "UserSuperFollowTweets", label: "Subs" },
   { path: "/highlights", op: "UserHighlightsTweets", label: "Highlights" },
   { path: "/media", op: "UserMedia", label: "Media" },
 ] as const;
@@ -378,6 +388,7 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
           ? r("ExplorePage", { cursor: "" })
           : r("GenericTimelineById", { timelineId: tab.timelineId, count: 20 }),
       ],
+      paged: tab.id === "for_you" ? 0 : undefined,
       render: ([b]) =>
         `<div class="bar"><input aria-label="Search query" placeholder="Search"><a href="/settings/explore" aria-label="Settings">⚙</a></div>${tabs(
           "Explore",
@@ -390,9 +401,7 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
           b?.trends ?? []
         )
           .map((t, i) => `<div data-trend-slot style="height:120px">${trendRow(t, i)}</div>`)
-          .join(
-            "",
-          )}${b != null && b.people.length > 0 ? `<h3>Who to follow</h3>${peopleOf(b)}` : ""}</section>`,
+          .join("")}${postsOf(b ?? null, state)}</section>`,
     };
   }
   if (lower === "search") {
@@ -474,6 +483,28 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
             : `<div data-testid="listHeader"><img alt="" src="${esc(l.bannerUrl ?? "")}" class="banner-img"><h2>${esc(l.name)}</h2><div>${esc(l.description)}</div>${l.owner === null ? "" : `<div><a href="/${esc(l.owner.handle)}">${esc(l.owner.name)}</a> @${esc(l.owner.handle)}</div>`}<div><a href="/i/lists/${l.listId}/members"><b>${compact(l.members)}</b> Members</a> <a href="/i/lists/${l.listId}/followers"><b>${compact(l.followers)}</b> Followers</a></div><button data-testid="listFollow">Follow</button></div>`
         }<section data-list>${postsOf(b ?? null, state)}</section>`;
       },
+    };
+  }
+  if (url.pathname === "/i/jf/creators/inspiration/top_posts") {
+    // X's Creator Studio page: its filters are plain buttons that switch the list in place.
+    const [engagement = "Likes", period = "Daily"] = homeTab.split(":");
+    const button = (filter: string, id: string, label: string, on: boolean) =>
+      `<button type="button" class="jf-element" data-jf="${filter}:${id}"${on ? ' style="font-weight:700"' : ""}>${esc(label)}</button>`;
+    return {
+      title: "Inspiration / X",
+      requests: [
+        r("GenericTimelineById", {
+          timelineId: inspirationTimelineId(engagement, period),
+          count: 20,
+          withQuickPromoteEligibilityTweetFields: true,
+        }),
+      ],
+      render: ([b]) =>
+        `${header("Inspiration")}<div class="jf-element">${button("language", "en", "💬 EN", true)}${INSPIRATION_FILTERS.period
+          .map((f) => button("period", f.id, f.label, f.id === period))
+          .join("")}${INSPIRATION_FILTERS.engagement
+          .map((f) => button("engagement", f.id, f.label, f.id === engagement))
+          .join("")}</div><section data-list>${postsOf(b ?? null, state)}</section>`,
     };
   }
   const searchTab = COMMUNITIES_SEARCH_TABS.find((t) => t.page === third);
@@ -664,8 +695,72 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
 
   if (first !== "" && !RESERVED.has(lower)) {
     const u = state.byHandle(first);
+    // An X Article's reader: cover, title, the author with Follow, the post's buttons, the body.
+    if (second === "article" && third !== undefined)
+      return {
+        title: "Article / X",
+        requests: [
+          r("TweetResultByRestId", {
+            tweetId: third,
+            includePromotedContent: true,
+            withBirdwatchNotes: true,
+            withVoice: true,
+            withCommunity: true,
+          }),
+        ],
+        render: ([b]) => {
+          const p = b?.posts[0];
+          const body = b?.articles?.[0];
+          if (p === undefined || body === undefined || p.card === null)
+            return `${header("Article")}<div class="empty"><h3>Hmm...this page doesn't exist.</h3></div>`;
+          return `${header("Article")}${p.card.imageUrl === null ? "" : `<img alt="" src="${esc(p.card.imageUrl)}">`}<h1>${esc(p.card.title)}</h1><div data-testid="User-Name">${avatar(p.avatarUrl, p.author.handle)}<span>${esc(p.author.name)}</span> <span>@${esc(p.author.handle)}</span> · <time datetime="${p.createdAt}">${shortDate(p.createdAt)}</time></div>${u === undefined ? "" : followButton(u)}${actions(p)}<div class="article-body">${body.blocks
+            .map((k) => `<p>${esc(k.text)}</p>`)
+            .join("")}</div>`;
+        },
+      };
     if (second === "status" && third !== undefined) {
       const id = third;
+      if (fourth === "analytics") {
+        const p = state.post(id);
+        const created = p === undefined ? Date.now() : Date.parse(p.createdAt);
+        const organic = [
+          "DetailExpands",
+          "Engagements",
+          "Follows",
+          "Impressions",
+          "LinkClicks",
+          "ProfileVisits",
+        ];
+        return {
+          title: "Post Analytics / X",
+          requests: [
+            r("TweetActivityQuery", {
+              restId: id,
+              from_time: new Date(created).toISOString(),
+              to_time: new Date().toISOString(),
+              first_48_hours_time: new Date(created + 48 * 3_600_000).toISOString(),
+              requested_organic_metrics: organic,
+              requested_promoted_metrics: [...organic, "CostPerFollower"],
+            }),
+          ],
+          // X's labels in X's order; it counts Follows but does not draw them.
+          render: ([b]) =>
+            `${header("Post Analytics")}${p === undefined ? "" : article(p, state)}<div data-testid="analytics">${(
+              [
+                ["Impressions", "Impressions"],
+                ["Engagements", "Engagements"],
+                ["DetailExpands", "Detail expands"],
+                ["ProfileVisits", "Profile visits"],
+                ["LinkClicks", "Link clicks"],
+              ] as const
+            )
+              .map(
+                ([metric, label]) =>
+                  `<div><span>${label}</span> <span>${(b?.analytics?.[metric] ?? 0).toLocaleString("en")}</span></div>`,
+              )
+              .join("")}</div>`,
+        };
+      }
       if (fourth === "quotes" || fourth === "retweets" || fourth === "likes") {
         const tab = fourth;
         return {
@@ -836,13 +931,19 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
           <div><a href="/${esc(live.handle)}/following"><b>${compact(live.following)}</b> Following</a> <a href="/${esc(live.handle)}/verified_followers"><b>${compact(live.followers)}</b> Followers</a></div>
         </div>${tabs(
           "Profile timelines",
-          PROFILE_TABS.map((t) => ({
-            label: t.label,
-            href: `/${live.handle}${t.path}`,
-            on: t === tab,
-          })),
+          PROFILE_TABS.filter((t) => t.label !== "Subs" || state.isCreator(live.userId)).map(
+            (t) => ({
+              label: t.label,
+              href: `/${live.handle}${t.path}`,
+              on: t === tab,
+            }),
+          ),
         )}
-        <section data-list>${postsOf(b ?? null, state)}</section>`;
+        ${tab.label === "Subs" ? `<h2>${esc(live.name)}'s Subscription posts</h2>` : ""}${
+          b?.prompt === undefined
+            ? ""
+            : `<div data-testid="subscribePrompt"><h3>${esc(b.prompt.header)}</h3><div>${esc(b.prompt.body)}</div>${b.prompt.button === null ? "" : `<button data-subscribe="${live.userId}">${esc(b.prompt.button.text)}</button>`}</div>`
+        }<section data-list>${postsOf(b ?? null, state)}</section>`;
       },
     };
   }
