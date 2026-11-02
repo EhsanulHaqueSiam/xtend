@@ -968,7 +968,8 @@ const benchmarks = [
       // A non-subscriber gets X's prompt, drawn in X's words; a subscriber gets the posts.
       const subs = await until(async () => {
         const prompt = await store(`$.prompts.get("profile:subs:${id}")`);
-        if (prompt === undefined) return (await nativeIds()).length > 0 && (await same(`profile:subs:${id}`));
+        if (prompt === undefined)
+          return (await nativeIds()).length > 0 && (await same(`profile:subs:${id}`));
         const onX = await engine(
           `document.querySelector('[data-testid="primaryColumn"]')?.innerText ?? ""`,
         );
