@@ -1890,7 +1890,8 @@ async function reserve(calls, book) {
   for (;;) {
     const paced = await locked(RESULTS, () => {
       // What X was called since the last round's count (a pause, this wait) counts before the check.
-      if (report.runs.length > 0) {
+      // Only new calls move the round's end: an idle wait must not keep pushing its expiry.
+      if (report.runs.length > 0 && xCalls > charged) {
         settle();
         saveReport();
       }
