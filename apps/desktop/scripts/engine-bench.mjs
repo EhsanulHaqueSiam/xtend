@@ -1353,7 +1353,7 @@ const benchmarks = [
       const drawn = await until(
         () =>
           app(
-            `document.querySelector('main [data-x="column"] h1')?.textContent === ${JSON.stringify(found.title)} && !!document.querySelector('main [data-x="article-body"]')`,
+            `document.querySelector('main [data-x="article-title"]')?.textContent === ${JSON.stringify(found.title)} && !!document.querySelector('main [data-x="article-body"]')`,
           ),
         10_000,
       );

@@ -805,7 +805,9 @@ test("An Article's card opens Xtend's reader with the engine on X's reader page,
   await e.app.locator(`main article[data-post="${post.postId}"] [data-x="card"]`).click();
   await expect.poll(enginePath).toBe(`/${post.author.handle}/article/${post.postId}`);
   const column = e.app.locator('main [data-x="column"]');
-  await expect.poll(() => column.locator("h1").textContent()).toBe(post.card!.title);
+  await expect
+    .poll(() => column.locator('[data-x="article-title"]').textContent())
+    .toBe(post.card!.title);
   const body = column.locator('[data-x="article-body"]');
   await expect.poll(() => body.locator("h3").first().textContent()).toBe("What we tried");
   // X's own page drew the same Article, and nothing was pressed to read it.

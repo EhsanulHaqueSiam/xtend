@@ -45,7 +45,10 @@ function ArticleScreen() {
           {card?.imageUrl == null ? null : (
             <img src={card.imageUrl} alt="" className="aspect-[5/2] w-full object-cover" />
           )}
-          <h1 className="px-4 pt-4 text-[31px] leading-9 font-extrabold break-words">
+          <h1
+            data-x="article-title"
+            className="px-4 pt-4 text-[31px] leading-9 font-extrabold break-words"
+          >
             {card?.title}
           </h1>
           {/* X's reader draws the post's row without its text and card: the Article is both. */}
