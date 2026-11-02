@@ -1874,11 +1874,11 @@ const planned = estimate(RESULTS, report.account ?? undefined, chosen.length + 2
  * rounds to the next, the final bookmark check to the last. A round's end is when its calls expire.
  */
 let charged = 0;
-function settle() {
+function settle({ end = true } = {}) {
   const last = report.runs.at(-1);
   if (last === undefined) return;
   last.calls = (last.calls ?? 0) + xCalls - charged;
-  last.endedAt = new Date().toISOString();
+  if (end || last.endedAt === undefined) last.endedAt = new Date().toISOString();
   charged = xCalls;
 }
 
@@ -1890,9 +1890,10 @@ async function reserve(calls, book) {
   for (;;) {
     const paced = await locked(RESULTS, () => {
       // What X was called since the last round's count (a pause, this wait) counts before the check.
-      // Only new calls move the round's end: an idle wait must not keep pushing its expiry.
+      // A wait's calls (X's page polls while idle) count without moving the round's end, or the
+      // run's own polling would keep its last round in the window forever.
       if (report.runs.length > 0 && xCalls > charged) {
-        settle();
+        settle({ end: false });
         saveReport();
       }
       const verdict = pace(readSpent(RESULTS, report.account ?? undefined), Date.now(), calls);
