@@ -1342,11 +1342,17 @@ it.each(["dialog", "page"] as const)(
           document.body.insertAdjacentHTML("beforeend", `<div role="dialog">${search}</div>`);
         else document.querySelector("header")!.parentElement!.innerHTML = `<main>${search}</main>`;
         const field = document.querySelector("input")!;
-        field.addEventListener("input", () => seen.push(field.value));
+        // As a page, each query X searched is a history entry: Back first returns to the last.
+        let entries = 0;
+        field.addEventListener("input", () => {
+          seen.push(field.value);
+          if (layout === "page") entries++;
+        });
         const back = field.closest(layout === "dialog" ? '[role="dialog"]' : "main")!;
         back.querySelector("button")!.addEventListener("click", () => {
           backs.push("search");
-          if (layout === "dialog") back.remove();
+          if (entries > 0) entries--;
+          else if (layout === "dialog") back.remove();
           else document.body.innerHTML = home;
         });
       }, 300);
@@ -1364,12 +1370,13 @@ it.each(["dialog", "page"] as const)(
     ]);
     const closing = picker.close();
     await vi.runAllTimersAsync();
-    expect([await closing, backs]).toEqual([true, ["search"]]);
+    const pressed = layout === "page" ? ["search", "search", "search"] : ["search"];
+    expect([await closing, backs]).toEqual([true, pressed]);
     expect(document.querySelector('input[placeholder="Search for GIFs"]')).toBeNull();
     // With X's search gone, closing again presses nothing, the page's own Back included.
     const again = picker.close();
     await vi.runAllTimersAsync();
-    expect([await again, backs]).toEqual([false, ["search"]]);
+    expect([await again, backs]).toEqual([false, pressed]);
   },
 );
 

@@ -1206,10 +1206,15 @@ export const xGifPicker = () => {
         xRun(`(async () => {
           if (window.__xtendGif !== ${id}) return false;
           window.__xtendGif = 0;
-          const back = ${GIF_BACK};
-          if (back) back.click();
-          else if (location.pathname === "/i/foundmedia/search") history.back();
-          for (let i = 0; i < 20 && document.querySelector(${JSON.stringify(GIF_FIELD)}); i++) ${wait};
+          // Each query X searched is a history entry of its own: Back until X's search is gone.
+          for (let i = 0; i < 40 && document.querySelector(${JSON.stringify(GIF_FIELD)}); i++) {
+            if (i % 5 === 0) {
+              const back = ${GIF_BACK};
+              if (back) back.click();
+              else if (location.pathname === "/i/foundmedia/search") history.back();
+            }
+            ${wait};
+          }
           return true;
         })()`),
       )).then((closed) => closed === true);

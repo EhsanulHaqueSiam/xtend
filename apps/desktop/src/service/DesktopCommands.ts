@@ -578,10 +578,14 @@ async function takeBack(cdp: Cdp, touched: Touched, error: unknown): Promise<Not
   });
   // So would X's GIF search, open over the composer.
   await undo("X's GIF search", async () => {
-    const [field] = (await query(cdp, X_COMPOSER.gifSearch)).toReversed();
-    if (field === undefined) return;
-    await click(cdp, await gifBack(cdp, field));
-    await waitForGone(cdp, X_COMPOSER.gifSearch, soon());
+    // Each query X searched is a history entry of its own: Back until X's search is gone.
+    for (let i = 0; i < 6; i++) {
+      const [field] = (await query(cdp, X_COMPOSER.gifSearch)).toReversed();
+      if (field === undefined) return;
+      await click(cdp, await gifBack(cdp, field));
+      await waitForGone(cdp, X_COMPOSER.gifSearch, Date.now() + 750).catch(() => undefined);
+    }
+    throw new Error("X's GIF search stayed open");
   });
   if (touched.reply)
     await undo("the reply setting", () =>

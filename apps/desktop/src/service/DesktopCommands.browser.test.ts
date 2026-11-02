@@ -124,6 +124,9 @@ function fakeX(markup: string, log: Array<string>, options: FakeOptions = {}) {
       let pages = 0;
       field.addEventListener("input", () => {
         log.push(`search ${field.value}`);
+        // As a page, each query X searched is a history entry: Back first returns to the last.
+        if (options.compact === true)
+          page.dataset.entries = String(Number(page.dataset.entries ?? 0) + 1);
         pages = field.value === "cat" ? 1 : 0;
         tiles.innerHTML = pages === 0 ? "" : CAT_PAGES[0]!.map(tile).join("");
       });
@@ -140,7 +143,10 @@ function fakeX(markup: string, log: Array<string>, options: FakeOptions = {}) {
       );
     } else if (target.closest('[data-x=gif-search] [data-testid="app-bar-back"]') !== null) {
       log.push("gif search back");
-      target.closest("[data-x=gif-search]")?.remove();
+      const page = target.closest<HTMLElement>("[data-x=gif-search]")!;
+      const entries = Number(page.dataset.entries ?? 0);
+      if (entries > 0) page.dataset.entries = String(entries - 1);
+      else page.remove();
     } else if (target.dataset.testid === "tweetButton") {
       if (layers?.querySelector('[data-testid="HoverCard"]') !== null) log.push("popover open");
       log.push(`press Post, ${reply?.getAttribute("aria-label")}`);
@@ -421,6 +427,6 @@ it("leaves X's GIF search with its own Back and refuses before Post when the pic
     message: 'x.com\'s composer has no GIF "giphy_g9" in its search for "cat"; nothing was posted',
     notAttempted: true,
   });
-  expect(log).toEqual(["search cat", "gif search back"]);
+  expect(log).toEqual(["search cat", "gif search back", "gif search back"]);
   expect(composer()).toEqual(EMPTY);
 });
