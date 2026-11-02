@@ -846,21 +846,26 @@ const benchmarks = [
         ];
         return xs?.length > 0 && JSON.stringify(xs) === JSON.stringify(ours) && xs.join(",");
       });
-      // Each post tab is X's own page: its first three posts, in X's order, in the native list.
+      // Each post tab is X's own page: its first three posts, in X's order, in the tab's list, and
+      // the native list draws X's first. Media can leave fewer than three drawn in the window.
       const xFirst = `[...document.querySelectorAll("article")].map((a) => a.querySelector('a[href*="/status/"] time')?.parentElement.getAttribute("href")?.split("/status/")[1]?.split("/")[0]).filter(Boolean).slice(0, 3)`;
       const posts = async (tab, label, page) => {
         await go(`#/communities?q=${query}&tab=${tab}`);
         if (!(await until(async () => (await enginePath()).startsWith(`/i/communities/${page}`))))
           return false;
+        const surface = JSON.stringify(`communityPostsSearch:${label}:${q}`);
         return (
           (await xTab(label)) &&
           until(async () => {
-            const [xs, ours] = [await engine(xFirst), await nativeIds()];
-            const at = ours?.indexOf(xs?.[0]) ?? -1;
+            const [xs, ours, drawn] = [
+              await engine(xFirst),
+              await store(`at($.lists, ${surface})`),
+              await nativeIds(),
+            ];
             return (
               xs?.length > 0 &&
-              at !== -1 &&
-              JSON.stringify(ours.slice(at, at + xs.length)) === JSON.stringify(xs) &&
+              JSON.stringify(ours?.slice(0, xs.length)) === JSON.stringify(xs) &&
+              drawn?.[0] === xs[0] &&
               xs.join(",")
             );
           })
