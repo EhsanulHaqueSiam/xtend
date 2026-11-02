@@ -614,6 +614,20 @@ function readGame(game: Json): EngineGame | undefined {
   };
 }
 
+/** X's titled box of posts on Explore (For you's "Posts For You"): its header, with no people. */
+function readPostsModule(entry: Json): EngineModule | undefined {
+  const content = record(entry.content);
+  const title = asString(record(content.header).text);
+  const items = arr(content.items).map((i) => record(record(record(i).item).itemContent));
+  return typeof entry.entryId === "string" &&
+    title !== undefined &&
+    content.displayType === "Vertical" &&
+    items.length > 0 &&
+    items.every((i) => i.itemType === "TimelineTweet")
+    ? { id: entry.entryId, title, userIds: [] }
+    : undefined;
+}
+
 function readHomeTabs(body: Json): ReadonlyArray<EngineHomeTab> | null {
   const pinned = record(record(body.data).pinned_timelines).pinned_timelines;
   if (!Array.isArray(pinned)) return null;
@@ -661,6 +675,9 @@ export function requestVariables(url: string, postData: string | undefined): Jso
   }
 }
 
+/** X's two post tabs of a search of Communities: Top, and Latest. */
+const HUB_SEARCH_POSTS = /^GlobalCommunities(Latest)?PostSearchTimeline$/;
+
 /** What one operation's request asked for, when the operation serves many pages. */
 function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExploreTab> | null) {
   const s = (k: string) => asString(variables[k]);
@@ -670,6 +687,9 @@ function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExp
     return s("communityId") === undefined || s("query") === undefined
       ? null
       : `communitySearch:${s("communityId")}:${s("timelineRankingMode") ?? "Likes"}:${s("query")}`;
+  // X's search of Communities, by its query: the operation is the tab (Communities, Top, Latest).
+  if (op === "CommunitiesSearchQuery") return s("query") || null;
+  if (HUB_SEARCH_POSTS.test(op)) return s("rawQuery") || null;
   // Every Community call names it; a Community's Latest is its posts by Recency, its own list.
   if (op.startsWith("Communit") && s("communityId") !== undefined) {
     const mode = s("rankingMode");
@@ -741,6 +761,7 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
   const games = new Map<string, EngineGame>();
   let top: string | null = null;
   let bottom: string | null = null;
+  const explore = op === "ExplorePage" || op === "GenericTimelineById";
   // Depth first in document order, each node with the header of the module it sits in.
   const stack: Array<{ node: unknown; group: string | null }> = [{ node: body, group: null }];
   while (stack.length > 0) {
@@ -763,6 +784,12 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     // A Who to follow among the posts is a module, not one of a page's titled boxes of people.
     const section = amongPosts ? undefined : readSection(node);
     if (section !== undefined) sections.push(section);
+    // Listed before its posts, which the walk reaches next, so the header draws where X put it.
+    const titled = explore ? readPostsModule(node) : undefined;
+    if (titled !== undefined && !order.includes(titled.id)) {
+      order.push(titled.id);
+      modules.push(titled);
+    }
     if (type === "TimelineUser") {
       const user = readUser(record(node.user_results).result);
       if (user !== undefined && !people.includes(user.userId)) people.push(user.userId);
@@ -948,6 +975,9 @@ export const hasEngineContent = (b: EngineBatch) =>
   b.lists.length > 0 ||
   b.communities.length > 0 ||
   b.key === "communities:mine" ||
+  // A search of Communities X found nothing for still reaches its screen, which says so.
+  // shortcut: an error answer reads the same; tell them apart by the body if X errs there.
+  (b.key !== null && (b.op === "CommunitiesSearchQuery" || HUB_SEARCH_POSTS.test(b.op))) ||
   b.homeTabs !== null ||
   b.exploreTabs !== null ||
   b.viewer !== null ||

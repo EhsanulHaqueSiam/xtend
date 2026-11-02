@@ -559,10 +559,37 @@ function timelineEntries(batch: EngineBatch, users: ReadonlyMap<string, EngineUs
   if (batch.top !== null) entries.push(cursorEntry("Top", batch.top));
 
   const modules = new Map(batch.modules.map((m) => [m.id, m]));
-  const listed = batch.order.flatMap((id) => posts.get(id) ?? modules.get(id) ?? []);
+  // A titled box of posts (Explore's Posts For You) holds the posts after it, up to the next module.
+  const boxed = new Map<string, Array<EnginePost>>();
+  let box: Array<EnginePost> | undefined;
+  for (const id of batch.order) {
+    const m = modules.get(id);
+    if (m === undefined) {
+      if (posts.has(id)) box?.push(posts.get(id)!);
+      continue;
+    }
+    box = m.userIds.length === 0 ? [] : undefined;
+    if (box !== undefined) boxed.set(id, box);
+  }
+  const inBox = new Set([...boxed.values()].flat().map((p) => p.postId));
+  const listed = batch.order.flatMap((id) =>
+    inBox.has(id) ? [] : (posts.get(id) ?? modules.get(id) ?? []),
+  );
   for (const run of runs(listed, (e) => ("postId" in e ? (e.conversation?.id ?? null) : null))) {
     const first = run.items[0]!;
-    if (!("postId" in first))
+    if (!("postId" in first) && first.userIds.length === 0)
+      entries.push(
+        moduleEntry(
+          first.id,
+          boxed.get(first.id)!.map((p) => ({ id: `tweet-${p.postId}`, content: tweetItem(p, x) })),
+          {
+            displayType: "Vertical",
+            header: { displayType: "Classic", text: first.title, sticky: false },
+            clientEventInfo: { component: "tweets_for_you", element: "module" },
+          },
+        ),
+      );
+    else if (!("postId" in first))
       // X's Who to follow among the posts: its header, its people, Show more to the Follow page.
       entries.push(
         moduleEntry(
@@ -796,6 +823,34 @@ export function encodeBody(
                     ...instructions(timelineEntries(batch, users)).instructions,
                   ],
                 },
+              },
+            },
+          },
+        },
+      };
+    case "CommunitiesSearchQuery":
+      return {
+        data: {
+          communities_search_slice: {
+            // X names each Community it finds by `rest_id`.
+            items_results: batch.communities.map((c) => {
+              const { id_str: _, ...found } = encodeCommunity(c);
+              return { id: found.id, result: { ...found, rest_id: c.communityId } };
+            }),
+            slice_info: batch.bottom === null ? {} : { next_cursor: batch.bottom },
+          },
+        },
+      };
+    case "GlobalCommunitiesPostSearchTimeline":
+    case "GlobalCommunitiesLatestPostSearchTimeline":
+      return {
+        data: {
+          search_by_raw_query: {
+            [batch.op === "GlobalCommunitiesPostSearchTimeline"
+              ? "communities_posts_search_page"
+              : "communities_latest_posts_search_page"]: {
+              timeline: {
+                instructions: [{ type: "TimelineClearCache" }, ...timeline().instructions],
               },
             },
           },

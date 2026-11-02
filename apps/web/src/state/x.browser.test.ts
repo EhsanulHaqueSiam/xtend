@@ -737,6 +737,27 @@ it("keeps paging while a post menu read waits for X's rows", async () => {
   await reading;
 });
 
+it("sees X's next page of Community search results land and stops scrolling", async () => {
+  using _clock = fakeTimers();
+  const cell = (id: string) =>
+    `<div data-testid="cellInnerDiv"><a href="/i/communities/${id}">Community ${id}</a></div>`;
+  document.body.innerHTML = cell("1");
+  inThisPage();
+  let bottoms = 0;
+  using _scroll = vi.spyOn(window, "scrollTo").mockImplementation(() => {
+    if (++bottoms === 2) document.body.insertAdjacentHTML("beforeend", cell("2"));
+  });
+  using _back = vi.spyOn(window, "scrollBy").mockImplementation(() => {});
+  try {
+    const paging = xScrollMore();
+    await vi.runAllTimersAsync();
+    expect(await paging).toBe(true);
+    expect(bottoms).toBe(2);
+  } finally {
+    registerXWebview(null);
+  }
+});
+
 it("stops searching for a missing trend at the end of X's trend cells before the endless posts", async () => {
   using _clock = fakeTimers();
   const path = location.pathname + location.search;

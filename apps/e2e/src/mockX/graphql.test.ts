@@ -30,6 +30,9 @@ const PAGES: ReadonlyArray<readonly [path: string, tab?: string]> = [
   ["/i/communities/600000000103/latest"],
   ["/i/communities/600000000103/media"],
   ["/i/communities/600000000103/about"],
+  ["/i/communities/suggested?q=founders"],
+  ["/i/communities/top?q=founders"],
+  ["/i/communities/latest?q=founders"],
   ["/yuki_mensah20"],
   ["/i/nba/game/900000500004", "Top"],
   ["/i/nba/game/900000500004", "Latest"],
@@ -68,5 +71,19 @@ it("answers every request X's pages make with the batch the made-up fixtures hol
   const forYou = read.find((b) => b.op === "HomeTimeline" && b.key === null)!;
   expect(forYou.modules.map((m) => [m.title, forYou.order.indexOf(m.id)])).toEqual([
     ["Who to follow", 2],
+  ]);
+  // Explore's For you pages on with plain posts, keyed to its tab like its first page.
+  const explore = read.find((b) => b.op === "ExplorePage")!;
+  const variables = { cursor: explore.bottom };
+  const next = renderEngineBatch(
+    "ExplorePage",
+    variables,
+    JSON.parse(JSON.stringify(state.respond("ExplorePage", variables))),
+  );
+  expect([next.key, next.cursor, next.order, next.modules]).toEqual([
+    explore.key,
+    explore.bottom,
+    state.exploreNextIds(),
+    [],
   ]);
 });

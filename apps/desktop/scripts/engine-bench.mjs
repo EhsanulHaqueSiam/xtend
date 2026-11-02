@@ -812,6 +812,71 @@ const benchmarks = [
     },
   ],
   [
+    "Communities search: the Communities X finds, then its Top and Latest, are X's own (dry)",
+    async () => {
+      // A word from a Community the account has seen, so X finds something; nothing is pressed.
+      const name = await store(`[...$.communities.values()].map((c) => c.name).join(" ")`);
+      const q =
+        name
+          ?.split(/\W+/)
+          .find((w) => w.length > 3)
+          ?.toLowerCase() ?? "founders";
+      const query = encodeURIComponent(q);
+      const xTab = (label) =>
+        until(() =>
+          engine(
+            `document.querySelector('[role="tab"][aria-selected="true"]')?.textContent.trim() === ${JSON.stringify(label)}`,
+          ),
+        );
+      // The first three Communities in X's results and in Xtend's rows, by the ids they link to.
+      const ids = (rows) =>
+        `[...new Set([...document.querySelectorAll(${JSON.stringify(rows)})].map((a) => a.getAttribute("href")?.match(/communities\\/(\\d+)/)?.[1]).filter(Boolean))].slice(0, 3)`;
+      await reset(
+        `communitiesSearch:${q}`,
+        `communityPostsSearch:Top:${q}`,
+        `communityPostsSearch:Latest:${q}`,
+      );
+      await go(`#/communities?q=${query}`);
+      if (!(await until(async () => (await enginePath()).startsWith("/i/communities/suggested"))))
+        return false;
+      const found = await until(async () => {
+        const [xs, ours] = [
+          await engine(ids('[data-testid="primaryColumn"] a[href*="/i/communities/"]')),
+          await app(ids('main [data-x="community-row"]')),
+        ];
+        return xs?.length > 0 && JSON.stringify(xs) === JSON.stringify(ours) && xs.join(",");
+      });
+      // Each post tab is X's own page: its first three posts, in X's order, in the tab's list, and
+      // the native list draws X's first. Media can leave fewer than three drawn in the window.
+      const xFirst = `[...document.querySelectorAll("article")].map((a) => a.querySelector('a[href*="/status/"] time')?.parentElement.getAttribute("href")?.split("/status/")[1]?.split("/")[0]).filter(Boolean).slice(0, 3)`;
+      const posts = async (tab, label, page) => {
+        await go(`#/communities?q=${query}&tab=${tab}`);
+        if (!(await until(async () => (await enginePath()).startsWith(`/i/communities/${page}`))))
+          return false;
+        const surface = JSON.stringify(`communityPostsSearch:${label}:${q}`);
+        return (
+          (await xTab(label)) &&
+          until(async () => {
+            const [xs, ours, drawn] = [
+              await engine(xFirst),
+              await store(`at($.lists, ${surface})`),
+              await nativeIds(),
+            ];
+            return (
+              xs?.length > 0 &&
+              JSON.stringify(ours?.slice(0, xs.length)) === JSON.stringify(xs) &&
+              drawn?.[0] === xs[0] &&
+              xs.join(",")
+            );
+          })
+        );
+      };
+      const top = found && (await posts("top", "Top", "top"));
+      const latest = top && (await posts("latest", "Latest", "latest"));
+      return latest && `"${q}": Communities ${found}; Top ${top}; Latest ${latest}`;
+    },
+  ],
+  [
     "Sports: a team's schedule is X's, and a game's header, Top and Latest are X's (dry)",
     async () => {
       // An NBA team, whose profile X draws its schedule on. Only X's tabs are pressed.
@@ -1061,6 +1126,56 @@ const benchmarks = [
         ),
       );
       return forYou && n && `${tabs.length} tabs, ${forYou} + ${n} trends`;
+    },
+  ],
+  [
+    "Explore For you is X's feed: trends, Who to follow, Posts For You, then paged posts",
+    async () => {
+      await go("#/explore");
+      const id = await until(
+        () => store(`$.exploreTabs.find((t) => t.id === "for_you")?.timelineId`),
+        15_000,
+      );
+      if (!id) return false;
+      const s = JSON.stringify(`explore:${id}`);
+      await reset(`explore:${id}`);
+      // X's first page anew: trends, then its modules and posts in X's order.
+      const loaded = await visit("/explore", () =>
+        store(`at($.trends, ${s}).length >= 3 && at($.lists, ${s}).length >= 5`),
+      );
+      if (!loaded) return false;
+      const shape = await store(`(() => {
+        const list = at($.lists, ${s});
+        const who = list.findIndex((x) => $.modules.get(x)?.userIds.length > 0);
+        const box = list.findIndex((x) => $.modules.get(x)?.userIds.length === 0);
+        const post = list.findIndex((x) => $.posts.has(x));
+        return who !== -1 && who < box && box < post && { box: $.modules.get(list[box]).title, trends: at($.trends, ${s}).length };
+      })()`);
+      if (!shape) return false;
+      // Drawn in that order: a trend, Who to follow, X's header for the posts, the first post.
+      const drawn = await until(() =>
+        app(`(() => {
+          const main = document.querySelector("main");
+          const heading = [...main.querySelectorAll("h2")].find((h) => h.textContent === ${JSON.stringify(shape.box)});
+          const els = [main.querySelector('[data-x="trend"]'), main.querySelector('section[data-x="module"]'), heading, main.querySelector("article[data-post]")];
+          return els.every(Boolean) && els.every((el, i) => i === 0 || !!(els[i - 1].compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING));
+        })()`),
+      );
+      if (!drawn) return false;
+      // Reaching the list's end asks X's page for For you's next page, which goes under the list.
+      const before = await store(`at($.lists, ${s})`);
+      const grew = await until(async () => {
+        await app(
+          `(() => { const s = document.querySelector("main [data-virtuoso-scroller]"); if (s) s.scrollTop = s.scrollHeight; return true; })()`,
+        );
+        const now = await store(`at($.lists, ${s})`);
+        return (
+          now.length > before.length + 3 &&
+          now.slice(0, before.length).join() === before.join() &&
+          now.length
+        );
+      }, 30_000);
+      return grew && `${shape.trends} trends, "${shape.box}", ${before.length} → ${grew} entries`;
     },
   ],
   [

@@ -147,11 +147,12 @@ export function XTitle({
 }
 
 /**
- * X's search bar atop a search page: Back, the rounded box (`label` names it), and the page's own
- * buttons after it. Enter runs `onSubmit` with what was typed.
+ * X's search bar atop a search page: Back, the rounded box (`label` names it, `placeholder` is
+ * X's hint in it), and the page's own buttons after it. Enter runs `onSubmit` with what was typed.
  */
 export function XSearchBar({
   label,
+  placeholder = "Search",
   value,
   onChange,
   onSubmit,
@@ -159,6 +160,7 @@ export function XSearchBar({
   children,
 }: {
   readonly label: string;
+  readonly placeholder?: string;
   readonly value: string;
   readonly onChange: (value: string) => void;
   readonly onSubmit: () => void;
@@ -194,7 +196,7 @@ export function XSearchBar({
         <input
           autoFocus={value === ""}
           aria-label={label}
-          placeholder="Search"
+          placeholder={placeholder}
           className="min-w-0 flex-1 bg-transparent text-[15px] outline-hidden placeholder:text-[#71767b]"
           value={value}
           onChange={(e) => onChange(e.target.value)}
