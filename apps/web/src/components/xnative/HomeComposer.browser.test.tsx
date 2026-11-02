@@ -412,7 +412,7 @@ it("shows X's own upsell on Bold for an account X does not let format, and posts
     )
     .toBeVisible();
   await expect
-    .element(page.getByRole("link", { name: "Subscribe" }))
+    .element(page.getByRole("link", { name: "Subscribe on X" }))
     .toHaveAttribute("href", "https://x.com/i/premium_sign_up?referring_page=sidebar_longform");
   // Tests load no CSS, so Base UI's layer covers the box: Post is pressed in place.
   (screen.getByRole("button", { name: "Post", exact: true }).element() as HTMLElement).click();

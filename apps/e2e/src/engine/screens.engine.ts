@@ -1136,7 +1136,7 @@ test("Bold in Home's box opens X's own upsell for an account X does not let form
     "Write longer posts and apply text formatting such as bold and italic.",
   );
   await upsell.waitFor();
-  expect(await e.app.getByRole("link", { name: "Subscribe" }).getAttribute("href")).toBe(
+  expect(await e.app.getByRole("link", { name: "Subscribe on X" }).getAttribute("href")).toBe(
     "https://x.com/i/premium_sign_up?referring_page=sidebar_longform",
   );
   await bold.click();
