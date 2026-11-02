@@ -1750,36 +1750,46 @@ it("creates a Radar query through X's own form: the query typed into X's field, 
   }
 });
 
-it("presses X's Delete only on the one row showing exactly the query, and shows X's dialog until the user closes it", async () => {
+it("presses X's Delete only on the one row whose query field is exactly the query, and shows X's dialog until the user closes it", async () => {
   using _clock = fakeTimers();
   inThisPage(() => `https://x.com${location.pathname}`);
   const start = location.href;
-  // X's row: its title, its date, then its query, or an older query's tags one by one.
+  // X's row: a column of its title and date, its query field (the query, or tags one by one), and
+  // its actions with Delete's label.
   const row = (title: string, ...query: Array<string>) =>
-    `<div class="group"><div>${title}</div><span>Oct 28</span>${query.map((q) => `<span>${q}</span>`).join("")}<button><svg data-icon="icon-trashcan"></svg></button></div>`;
-  document.body.innerHTML = `<main>${[
-    row("bitcoin", "bitcoin min_faves:100"),
-    row("Untitled query", "$GOOGL", "$AAPL"),
-    row("Untitled query", "eth"),
-    row("Untitled query", "eth"),
-  ].join("")}</main>`;
+    `<div class="group"><div><div><div>${title}</div><span>Oct 28</span></div><div>${query.map((q) => `<div><span>${q}</span></div>`).join("")}</div><div><button><svg data-icon="icon-trashcan"></svg><div>Delete</div></button></div></div><div>Posts 12</div></div>`;
   const pressed: Array<number> = [];
-  document.querySelectorAll("main button").forEach((b, i) =>
-    b.addEventListener("click", () => {
-      pressed.push(i);
-      document.body.insertAdjacentHTML("beforeend", `<div role="dialog"></div>`);
-    }),
-  );
+  const list = (...rows: Array<string>) => {
+    document.body.innerHTML = `<main>${rows.join("")}</main>`;
+    document.querySelectorAll("main button").forEach((b, i) =>
+      b.addEventListener("click", () => {
+        pressed.push(i);
+        document.body.insertAdjacentHTML("beforeend", `<div role="dialog"></div>`);
+      }),
+    );
+  };
   const over: Array<boolean> = [];
   const show = (shown: boolean) => over.push(shown);
+  const none = async (query: string, ...rows: Array<string>) => {
+    list(...rows);
+    const deleted = xRadarDelete({ title: "", query }, show);
+    await vi.runAllTimersAsync();
+    return deleted;
+  };
   try {
-    // "bitcoin" is only part of a query, and only a title; "eth" is two rows.
-    const partial = xRadarDelete({ title: "", query: "bitcoin" }, show);
-    await vi.runAllTimersAsync();
-    const twice = xRadarDelete({ title: "", query: "eth" }, show);
-    await vi.runAllTimersAsync();
-    expect([await partial, await twice, pressed]).toEqual([false, false, []]);
+    // Delete's own label, a title, part of a query, more tags than asked, and two rows alike.
+    expect([
+      await none("Delete", row("Untitled query", "bitcoin")),
+      await none("bitcoin", row("bitcoin", "bitcoin min_faves:100")),
+      await none("$GOOGL OR $AAPL", row("Untitled query", "$GOOGL", "$AAPL", "$TSLA")),
+      await none("eth", row("Untitled query", "eth"), row("Untitled query", "eth")),
+      pressed,
+    ]).toEqual([false, false, false, false, []]);
 
+    list(
+      row("Untitled query", "$GOOGL", "$AAPL", "$TSLA"),
+      row("Untitled query", "$AAPL", "$GOOGL"),
+    );
     const done = xRadarDelete({ title: "", query: "$GOOGL OR $AAPL" }, show);
     await vi.advanceTimersByTimeAsync(2_000);
     expect([pressed, over]).toEqual([[1], [true]]);

@@ -415,7 +415,8 @@ function radarPage(state: MockState, page: string | undefined): Route {
       `${bar}${radar.queries
         .map(
           (q, i) =>
-            `<div class="group" data-radar-row="${q.id}" data-radar-name="${title(q)}"><b>${title(q)}</b> <span>${shortDate(q.createdAt)}</span><div>${esc(q.query)}</div><div>Posts <span>${total(days[i])}</span></div><button type="button" data-radar-delete="${q.id}"><svg data-icon="icon-trashcan"></svg>Delete</button></div>`,
+            // X's row: a column of its title and date, its query field and its Delete, then Posts.
+            `<div class="group" data-radar-row="${q.id}" data-radar-name="${title(q)}"><div><div><b>${title(q)}</b> <span>${shortDate(q.createdAt)}</span></div><div><span>${esc(q.query)}</span></div><div><button type="button" data-radar-delete="${q.id}"><svg data-icon="icon-trashcan"></svg><div>Delete</div></button></div></div><div>Posts <span>${total(days[i])}</span></div></div>`,
         )
         .join("")}`,
   };

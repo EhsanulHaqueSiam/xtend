@@ -451,10 +451,9 @@ export const xRadarCreate = async (query: string) => {
 };
 
 /**
- * Deletes a Radar query for the user's click: presses its own Delete on X's list, on the one row
- * that shows exactly this query (and its title, when it has one), and X's confirm dialog shows
- * over the main area (see `holdOver`) for the user to confirm in X. False when X's list showed no
- * such row, or more than one.
+ * Deletes a Radar query for the user's click: presses X's own Delete on the one row whose query
+ * field shows exactly this query or its tags (and its title, if it has one); X's confirm shows over
+ * the main area (see `holdOver`) for the user to confirm in X. False for no such row, or several.
  */
 export const xRadarDelete = async (
   query: Pick<EngineRadarQuery, "query" | "title">,
@@ -467,13 +466,19 @@ export const xRadarDelete = async (
     const wait = () => new Promise((r) => setTimeout(r, 150));
     const want = ${JSON.stringify(want)};
     const buttons = () => (location.pathname === "/i/radar" ? [...document.querySelectorAll('main button:has(svg[data-icon="icon-trashcan"])')] : []);
-    // X's row draws its title first, then its date and its query, or an older query's tags one by one.
+    // X's row: its first column holds its title (and date), then its query field: the query, or an
+    // older query's tags one by one. Only that field is read, so no other text in the row matches.
+    const texts = (el) => (el ? [el, ...el.querySelectorAll("*")] : [])
+      .filter((e) => e.children.length === 0)
+      .map((e) => e.textContent.trim())
+      .filter((text) => text !== "");
     const names = (button) => {
-      const [title, ...rest] = [...(button.closest(".group")?.querySelectorAll("*") ?? [])]
-        .filter((el) => el.children.length === 0)
-        .map((el) => el.textContent.trim())
-        .filter((text) => text !== "");
-      return (want.title === "" || title === want.title) && (rest.includes(want.query) || want.parts.every((part) => rest.includes(part)));
+      const [head, field] = button.closest(".group")?.firstElementChild?.children ?? [];
+      const shown = texts(field);
+      const tags = new Set(shown);
+      return (want.title === "" || texts(head)[0] === want.title) &&
+        ((shown.length === 1 && shown[0] === want.query) ||
+          (tags.size === shown.length && tags.size === want.parts.length && want.parts.every((part) => tags.has(part))));
     };
     for (let i = 0; i < 40 && buttons().length === 0 && ${stillMine(run)}; i++) await wait();
     const named = buttons().filter(names);
