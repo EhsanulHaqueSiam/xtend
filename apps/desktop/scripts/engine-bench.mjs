@@ -1870,8 +1870,9 @@ report.account = typeof userId === "string" ? accountKey(userId) : null;
 const planned = estimate(RESULTS, report.account ?? undefined, chosen.length + 2);
 
 /**
- * Every X call so far, charged to the latest round: the start's to the first, the calls between
- * rounds to the next, the final bookmark check to the last. A round's end is when its calls expire.
+ * Every X call so far, charged to the latest round: the start's to the first, a pause's or a wait's
+ * to the round before it, the final bookmark check to the last. A round's end is when its calls
+ * expire; a wait's calls leave it where it was.
  */
 let charged = 0;
 function settle({ end = true } = {}) {
