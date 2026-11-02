@@ -424,7 +424,7 @@ export interface EngineState {
   readonly cursors: Readonly<
     Partial<Record<AnySurface, { readonly top: string | null; readonly bottom: string | null }>>
   >;
-  /** What X's latest GetUserClaims says the account holds (see `FOLDERS_CLAIM`); null until it said. */
+  /** What X's latest GetUserClaims says the account holds (see `FOLDERS_CLAIM`); null until (if) it says. */
   readonly claims: ReadonlySet<string> | null;
   /** The user's bookmark folders in X's order; null until X listed them, which it does for Premium. */
   readonly bookmarkFolders: ReadonlyArray<EngineBookmarkFolder> | null;

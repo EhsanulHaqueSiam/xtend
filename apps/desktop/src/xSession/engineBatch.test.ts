@@ -2122,6 +2122,17 @@ describe("renderEngineBatch for bookmark folders", () => {
     expect(did("DeleteBookmarkFolder", { bookmark_collection_id: "802" }, {})).toBeUndefined();
   });
 
+  it("passes on Bookmarks X answered, even with no posts, and nothing from an error alone", () => {
+    const none = renderEngineBatch(
+      "Bookmarks",
+      { count: 20, includePromotedContent: true },
+      { data: { bookmark_timeline_v2: { timeline: { instructions: [] } } } },
+    );
+    expect([none.key, hasEngineContent(none)]).toEqual(["bookmarks", true]);
+    const limited = renderEngineBatch("Bookmarks", { count: 20 }, { errors: [{ code: 88 }] });
+    expect([limited.key, hasEngineContent(limited)]).toEqual([null, false]);
+  });
+
   it("reads the features X's claims say the account holds, and nothing from an answer without them", () => {
     const claims = renderEngineBatch(
       "GetUserClaims",

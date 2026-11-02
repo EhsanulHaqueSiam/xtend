@@ -961,7 +961,7 @@ export function synth(): Readonly<Record<string, Fixture>> {
       `/bookmarks?folder=${folders[0]!.folderId}`,
     ]),
     batches: [
-      batch("Bookmarks", null, saved, { users: PEOPLE }),
+      batch("Bookmarks", "bookmarks", saved, { users: PEOPLE }),
       batch("GetUserClaims", null, [], { claims: ["subscriptions_feature_1002"] }),
       batch("BookmarkFoldersSlice", null, [], { bookmarkFolders: { kind: "list", folders } }),
       batch("BookmarkFolderTimeline", folders[0]!.folderId, [saved[0]!, saved[2]!], {

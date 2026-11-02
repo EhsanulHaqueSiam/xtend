@@ -129,8 +129,16 @@ function BookmarksScreen() {
   const { blocked, setToast } = useXPress();
   const folders = engine.bookmarkFolders;
   const listed = folders?.find((f) => f.folderId === folder);
-  // X keeps folders to accounts its claims give them; until X says, its own page decides.
-  const premium = engine.claims === null ? null : engine.claims.has(FOLDERS_CLAIM);
+  // X keeps folders to Premium. Its claims say so when X sends them, which it may never do; else
+  // its answers do: X lists folders only for Premium, and answers Bookmarks without them otherwise.
+  const premium =
+    engine.claims !== null
+      ? engine.claims.has(FOLDERS_CLAIM)
+      : folders !== null
+        ? true
+        : engine.cursors.bookmarks === undefined
+          ? null
+          : false;
   // A folder X no longer lists (deleted here or on x.com), or no folders at all, leaves All
   // Bookmarks open, as on X.
   const open =
@@ -161,11 +169,8 @@ function BookmarksScreen() {
     else if (shown) latest.current();
   };
   const name = listed?.name ?? "Bookmarks";
-  // X answered with no posts in the folder: its cursors are in, its posts are not.
-  const none =
-    open !== undefined &&
-    at(engine.lists, surface).length === 0 &&
-    engine.cursors[surface] !== undefined;
+  // X answered the folder, or Bookmarks, with no posts: its cursors are in, its posts are not.
+  const none = at(engine.lists, surface).length === 0 && engine.cursors[surface] !== undefined;
   return (
     <Timeline
       surface={surface}

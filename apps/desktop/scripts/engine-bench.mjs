@@ -1192,20 +1192,31 @@ const benchmarks = [
     },
   ],
   [
-    "Bookmark folders: Premium lists X's folders and opens one on X's page; without X's claim, X's upsell (dry)",
+    "Bookmark folders: Premium lists X's folders and opens one on X's page; without Premium, X's upsell (dry)",
     async () => {
       await go("#/bookmarks");
-      // X's claims (GetUserClaims) come with each full load of x.com; none yet loads X's page again.
-      const claimed = () => store(`$.claims && [...$.claims]`);
-      let claims = await until(claimed, 8_000);
-      if (!claims) {
+      // X's claims say Premium or not when X sends them, which it may never do; else X's answers
+      // do: a folder list means Premium, Bookmarks answered without one means not.
+      const decided = () =>
+        store(
+          `$.claims ? ($.claims.has("subscriptions_feature_1002") ? "premium" : "not") : $.bookmarkFolders ? "premium" : $.cursors.bookmarks ? "not" : null`,
+        );
+      let kind = await until(decided, 20_000);
+      // X answered nothing (it held its page from its cache): one full load, not a wait on claims.
+      if (!kind) {
         await engine(`location.reload(), true`).catch(() => {});
-        claims = await until(claimed, 20_000);
+        kind = await until(decided, 20_000);
       }
-      if (!claims) return false;
+      if (!kind) return false;
+      // X sends Bookmarks and its folders together: a moment for the folders before saying not.
+      if (kind === "not") {
+        await sleep(3_000);
+        kind = await decided();
+      }
+      const by = (await store(`$.claims ? "X's claims" : "X's answers"`)) ?? "";
       const title = `document.querySelector('main button[aria-label$="bookmark folders"]')`;
       await until(() => app(`!!${title}`), 10_000);
-      if (!claims.includes("subscriptions_feature_1002")) {
+      if (kind === "not") {
         // Not Premium: X sent no folders, and the title offers X's upsell with X's Upgrade.
         await app(`${title}?.click(), true`);
         const upgrade = await until(
@@ -1222,7 +1233,7 @@ const benchmarks = [
           folders
         )
           return (console.log(`      ${JSON.stringify({ upgrade, folders })}`), false);
-        return "not Premium: no folders from X, X's upsell shown";
+        return `not Premium (by ${by}): no folders from X, X's upsell shown`;
       }
       // Premium: Xtend's menu lists X's folders in X's order, and the first opens on X's page.
       const folders = await until(() => store(`$.bookmarkFolders`), 15_000);

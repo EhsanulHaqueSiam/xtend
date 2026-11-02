@@ -212,7 +212,7 @@ export function createMockState(options: MockOptions = {}) {
   const userChanges = new Map<string, Partial<EngineUser>>();
   const bell = new Set<string>();
   const arrived: Record<Feed, Array<EnginePost>> = { forYou: [], following: [] };
-  const bookmarks = fixture("Bookmarks", null)!.posts.map((p) => p.postId);
+  const bookmarks = fixture("Bookmarks", "bookmarks")!.posts.map((p) => p.postId);
   const presses: Array<Press> = [];
   const hiddenTrends = new Map<string, Set<string>>();
 
@@ -597,7 +597,7 @@ export function createMockState(options: MockOptions = {}) {
       case "SearchTimeline":
         return search(s(variables, "product") ?? "Top", s(variables, "rawQuery") ?? "");
       case "Bookmarks": {
-        const b = fixture("Bookmarks", null)!;
+        const b = fixture("Bookmarks", "bookmarks")!;
         const posts = bookmarks.flatMap((id) => {
           const p = b.posts.find((q) => q.postId === id) ?? basePosts.get(id);
           return p === undefined ? [] : [livePost({ ...p, bookmarked: true })];

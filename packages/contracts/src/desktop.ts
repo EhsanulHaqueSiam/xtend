@@ -535,8 +535,8 @@ export interface EngineBatch {
   /** The user's bookmark folders as this response changes them (see `EngineFolderChange`). */
   readonly bookmarkFolders?: EngineFolderChange;
   /**
-   * The features X's GetUserClaims says the account holds (X calls it on each load of x.com and
-   * every few minutes): `subscriptions_feature_1002` is bookmark folders.
+   * The features X's GetUserClaims says the account holds, when X sends it (some accounts' pages
+   * never do): `subscriptions_feature_1002` is bookmark folders.
    */
   readonly claims?: ReadonlyArray<string>;
 }

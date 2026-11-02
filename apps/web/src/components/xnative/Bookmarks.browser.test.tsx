@@ -116,14 +116,15 @@ async function open() {
   return { bridge, scripts, screen, url: () => url };
 }
 
-it("shows an account without folders X's own upsell for them, with X's Upgrade", async () => {
+it("tells an account without folders from X's answers when X never sends its claims: X's upsell", async () => {
   const { bridge, screen } = await open();
   try {
-    bridge.emitEngine(batch("Bookmarks", { posts: [post("71", "Saved take")], order: ["71"] }));
-    await expect.element(screen.getByText("Saved take")).toBeVisible();
-    // Until X's claims say, the plain title.
+    // Before X answers, the plain title.
+    await expect.element(screen.getByText("Loading your bookmarks from X.")).toBeVisible();
     expect(screen.getByRole("button", { name: /bookmark folders/ }).elements()).toHaveLength(0);
-    bridge.emitEngine(batch("GetUserClaims", { claims: [] }));
+    // X answers Bookmarks (none saved) with no folder list beside it, and never its claims.
+    bridge.emitEngine(batch("Bookmarks", { key: "bookmarks", top: "t" }));
+    await expect.element(screen.getByText("Save posts for later")).toBeVisible();
     await screen.getByRole("button", { name: "Bookmarks, bookmark folders" }).click();
     await expect.element(page.getByText("Unlock bookmark folders with Plus")).toBeVisible();
     await expect
@@ -138,7 +139,7 @@ it("shows an account without folders X's own upsell for them, with X's Upgrade",
 it("lists X's folders, opens one on X's folder page, and opens X's own folder dialogs", async () => {
   const { bridge, scripts, screen, url } = await open();
   try {
-    bridge.emitEngine(batch("GetUserClaims", { claims: ["subscriptions_feature_1002"] }));
+    // X's folder list says Premium, its claims or not.
     bridge.emitEngine(
       batch("BookmarkFoldersSlice", {
         bookmarkFolders: {

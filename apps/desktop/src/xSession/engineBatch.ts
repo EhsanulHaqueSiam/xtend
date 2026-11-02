@@ -1067,7 +1067,12 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
                 record(record(data.bookmark_collection_timeline).timeline).instructions,
               ))
           ? null
-          : keyOf(op, variables, exploreTabs),
+          : // Bookmarks X answered, posts or none: with no folder list beside it, no Premium.
+            op === "Bookmarks"
+            ? Array.isArray(record(record(data.bookmark_timeline_v2).timeline).instructions)
+              ? "bookmarks"
+              : null
+            : keyOf(op, variables, exploreTabs),
     // Explore asks with an empty cursor for its first page.
     cursor: asString(variables.cursor) || null,
     top,
@@ -1288,5 +1293,5 @@ export const hasEngineContent = (b: EngineBatch) =>
   b.knownFollowers !== undefined ||
   b.bookmarkFolders !== undefined ||
   b.claims !== undefined ||
-  // A folder X answered with no posts: the screen says it is empty.
-  (b.key !== null && b.op === "BookmarkFolderTimeline");
+  // A folder, or Bookmarks, X answered with no posts: the screen says it is empty.
+  (b.key !== null && (b.op === "BookmarkFolderTimeline" || b.op === "Bookmarks"));

@@ -56,9 +56,10 @@ Traps that shaped this:
   x.com on its splash, on every device of that account). Moving the engine with `xGo` instead
   of `xNavigate` is also what keeps a user clear of that; the benchmark spaces its runs
   (`--pause`) for the same reason.
-- Premium features: X's page learns the plan from GetUserClaims on each full load and every
-  four minutes, and the capture passes its features on (`claims`). A screen offers a Premium flow
-  only once X's claims hold it, and X's own offer otherwise; until X says, it waits as X's page does.
+- Premium features: X's code fetches the plan's features (GetUserClaims) on load and every four
+  minutes, and the capture passes them on (`claims`), but some accounts' pages never send it. So
+  a Premium gate takes X's claims when they come, else what X's page shows: the feature's own
+  answers (a folder list) or X's answer without them. It never waits on claims alone.
 - video.twimg.com answers 403 to a Referer that is not X's and `<video>` takes no
   `referrerpolicy`, so the app page sends no Referer at all (`index.html`).
 
