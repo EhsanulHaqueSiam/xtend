@@ -158,13 +158,19 @@ export const xScrollMore = () =>
     return false;
   })()`);
 
-/** Picks a tab on X's page (Home's "Following", a Community's "Latest") once X has drawn it. */
+/**
+ * Picks a tab on X's page (Home's "Following", a Community's "Latest") once X has drawn it, only
+ * while the engine is still on the page it was asked on or under it (Explore's /explore/tabs/...):
+ * a profile's people pages have a Following tab of their own.
+ */
 export const xPickHomeTab = (label: string) =>
   xRun(`new Promise((done) => {
+    const page = location.pathname;
     let tries = 0;
     const timer = setInterval(() => {
-      const tab = [...document.querySelectorAll('[role="tab"]')].find((t) => t.textContent.trim() === ${JSON.stringify(label)});
-      if (tab !== undefined || ++tries > 40) {
+      const here = location.pathname === page || location.pathname.startsWith(page + "/");
+      const tab = here ? [...document.querySelectorAll('[role="tab"]')].find((t) => t.textContent.trim() === ${JSON.stringify(label)}) : undefined;
+      if (tab !== undefined || !here || ++tries > 40) {
         clearInterval(timer);
         if (tab !== undefined && tab.getAttribute("aria-selected") !== "true") tab.click();
         done(tab !== undefined);

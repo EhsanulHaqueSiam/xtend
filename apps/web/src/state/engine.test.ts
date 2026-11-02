@@ -301,6 +301,12 @@ it("files pinned Home tabs, Lists, Communities and Explore tabs under their own 
   expect(surfacesOf({ op: "Favoriters", key: "42" })).toEqual(["likers:42"]);
   expect(surfacesOf({ op: "ListMembers", key: "list:12" })).toEqual(["listMembers:12"]);
   expect(surfacesOf({ op: "ListSubscribers", key: "list:12" })).toEqual(["listFollowers:12"]);
+  // A profile's people pages, each its own list per person.
+  expect(
+    ["BlueVerifiedFollowers", "FollowersYouKnow", "Followers", "Following"].map(
+      (op) => surfacesOf({ op, key: "5" })[0],
+    ),
+  ).toEqual(["verified_followers:5", "followers_you_follow:5", "followers:5", "following:5"]);
   expect(surfacesOf({ op: "ConnectTabTimeline", key: "connect:creators" })).toEqual([
     "connect:creators",
   ]);
@@ -462,6 +468,15 @@ it("holds a pin or unpin X took until X's pinned tabs agree", () => {
   const unpinned = mergeBatch(askPin(agreed, "21", false), tabs("21", "20"));
   expect(communityPinned(unpinned, "21")).toBe(false);
   expect(mergeBatch(unpinned, tabs("20")).pinned.size).toBe(0);
+});
+
+it("replaces a profile's people page with X's first page even when X now lists nobody", () => {
+  const followers = (cursor: string | null, people: ReadonlyArray<string>) =>
+    batch("Followers", [], { key: "5", cursor, bottom: "next", people });
+  const listed = mergeBatch(emptyEngine, followers(null, ["11", "12"]));
+  // A later page with nobody on it keeps the rows; a fresh first page with nobody empties them.
+  expect(at(mergeBatch(listed, followers("next", [])).people, "followers:5")).toEqual(["11", "12"]);
+  expect(at(mergeBatch(listed, followers(null, [])).people, "followers:5")).toEqual([]);
 });
 
 it("keeps notifications in X's order, newer on top, people by surface, and follows until X agrees", () => {

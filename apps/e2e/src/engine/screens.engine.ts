@@ -834,6 +834,41 @@ test("Lists, a List's posts and its members read X's pages", async () => {
   expect(await enginePath()).toBe(`/i/lists/${list!.listId}/members`);
 });
 
+test("A profile's Followers and Following open X's people pages, in X's tabs and X's order", async () => {
+  const user = e.mock.state.people[1]!;
+  const listed = (op: string) => {
+    const b = e.mock.state.batchFor(op, { userId: user.userId })!;
+    return b.people.map((id) => b.users.find((u) => u.userId === id)!.handle);
+  };
+  await go(`/u/${user.handle}`);
+  const profile = e.app.locator('main [data-x="profile"]');
+  // As X's own link does, Followers opens Verified Followers.
+  await profile.getByRole("link", { name: /Followers$/ }).click();
+  await expect.poll(nativeHandles).toEqual(listed("BlueVerifiedFollowers"));
+  expect(await enginePath()).toBe(`/${user.handle}/verified_followers`);
+  // X's tabs, as its page draws them: Followers you know only for someone with any.
+  const tabs = () => e.app.locator("main").getByRole("tab").allTextContents();
+  const xTabs = () =>
+    e.engine<ReadonlyArray<string>>(
+      `[...document.querySelectorAll('[role="tab"]')].map((t) => t.textContent.trim())`,
+    );
+  const all = ["Verified Followers", "Followers you know", "Followers", "Following"];
+  await expect.poll(tabs).toEqual(all);
+  expect(await xTabs()).toEqual(all);
+  await e.app.locator("main").getByRole("tab", { name: "Following", exact: true }).click();
+  await expect.poll(nativeHandles).toEqual(listed("Following"));
+  await expect.poll(enginePath).toBe(`/${user.handle}/following`);
+
+  // Someone none of the people the account follows follow: X draws no Followers you know.
+  const stranger = e.mock.state.people.find((u) => u.handle === "noor_lind")!;
+  await go(`/u/${stranger.handle}`);
+  await profile.getByRole("link", { name: /Followers$/ }).click();
+  await expect.poll(enginePath).toBe(`/${stranger.handle}/verified_followers`);
+  const none = ["Verified Followers", "Followers", "Following"];
+  await expect.poll(xTabs).toEqual(none);
+  await expect.poll(tabs).toEqual(none);
+});
+
 test("Explore, Notifications and Bookmarks render what X sends", async () => {
   await go("/explore");
   const explore = e.mock.state.batchFor("ExplorePage", {})!;

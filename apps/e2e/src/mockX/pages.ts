@@ -263,6 +263,8 @@ interface Route {
   readonly requests: ReadonlyArray<GraphqlRequest>;
   /** Which request pages on scroll, by its index; none for a page that is one answer. */
   readonly paged?: number | undefined;
+  /** X's REST reads the page makes beside its GraphQL ones, by URL. */
+  readonly rest?: ReadonlyArray<string>;
   readonly render: (batches: ReadonlyArray<EngineBatch | null>) => string;
 }
 
@@ -291,6 +293,13 @@ const PROFILE_TABS = [
   { path: "/subs", op: "UserSuperFollowTweets", label: "Subs" },
   { path: "/highlights", op: "UserHighlightsTweets", label: "Highlights" },
   { path: "/media", op: "UserMedia", label: "Media" },
+] as const;
+/** A profile's people pages, as X's tabs list them; the user's own has no Followers you know. */
+const PEOPLE_TABS = [
+  { path: "verified_followers", op: "BlueVerifiedFollowers", label: "Verified Followers" },
+  { path: "followers_you_follow", op: "FollowersYouKnow", label: "Followers you know" },
+  { path: "followers", op: "Followers", label: "Followers" },
+  { path: "following", op: "Following", label: "Following" },
 ] as const;
 const SORTS = { relevance: "Relevant", recency: "Recent", likes: "Likes" } as const;
 const MODES = { relevance: "Relevance", recency: "Recency", likes: "Likes" } as const;
@@ -883,6 +892,37 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
         render: () =>
           `${header("About this account")}<div><h2>${esc(u.name)}</h2><div>@${esc(u.handle)}</div>${u.joinedAt === null ? "" : `<div>Date joined ${esc(new Date(u.joinedAt).toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" }))}</div>`}<div>Account based in ${esc(u.location ?? "Unknown")}</div></div>`,
       };
+    const people = PEOPLE_TABS.find((t) => t.path === second);
+    if (people !== undefined && u !== undefined) {
+      const own = u.userId === state.viewer.userId;
+      return {
+        title: `${u.name} (@${u.handle}) / X`,
+        requests: [
+          r("UserByScreenName", { screen_name: u.handle }),
+          r(people.op, {
+            userId: u.userId,
+            count: 20,
+            includePromotedContent: false,
+            withGrokTranslatedBio: true,
+          }),
+        ],
+        render: ([head, b]) => {
+          const live = head?.users[0] ?? state.user(u.userId) ?? u;
+          return `${header(live.name)}${tabs(
+            "People",
+            PEOPLE_TABS.filter(
+              (t) =>
+                t.op !== "FollowersYouKnow" ||
+                (!own && state.knownFollowers(u.userId).total_count > 0),
+            ).map((t) => ({
+              label: t.label,
+              href: `/${live.handle}/${t.path}`,
+              on: t === people,
+            })),
+          )}<section data-list>${peopleOf(b ?? null)}</section>`;
+        },
+      };
+    }
     const tab =
       PROFILE_TABS.find((t) => t.path === (second === undefined ? "" : `/${second}`)) ??
       PROFILE_TABS[0];
@@ -900,6 +940,14 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
         r("UserByScreenName", { screen_name: u.handle }),
         r(tab.op, { userId: u.userId, count: 20, includePromotedContent: true }),
       ],
+      // Who of the people the viewer follows follow them ("Followed by"), for others' profiles.
+      ...(own
+        ? {}
+        : {
+            rest: [
+              `/i/api/1.1/friends/following/list.json?include_profile_interstitial_type=1&skip_status=1&user_id=${u.userId}&count=3&with_total_count=true`,
+            ],
+          }),
       render: ([head, b]) => {
         const live = head?.users[0] ?? state.user(u.userId) ?? u;
         const bell = state.bellOn(live.userId);

@@ -771,6 +771,94 @@ const benchmarks = [
     },
   ],
   [
+    "Profile people: X's tabs (Followers you know only with mutuals), each listing what X's page lists",
+    async () => {
+      const seen = await until(() =>
+        store(
+          `(() => { const me = $.viewer?.handle; const us = [...$.users.values()].filter((u) => u.handle !== me && (u.followers ?? 0) >= 1000 && (u.following ?? 0) >= 3); return us.length > 0 && us.slice(0, 8).map((u) => ({ id: u.userId, handle: u.handle })); })()`,
+        ),
+      );
+      if (!seen) return false;
+      // Profiles opened as the user would, so X counts each one's followers the account knows,
+      // until there is one with any and one with none.
+      const picked = new Map();
+      for (const who of seen) {
+        if (picked.size === 2) break;
+        await go(`#/u/${who.handle}`);
+        const known = await until(
+          () =>
+            store(
+              `$.knownFollowers.has(${JSON.stringify(who.id)}) && { n: $.knownFollowers.get(${JSON.stringify(who.id)}) }`,
+            ),
+          15_000,
+        );
+        const kind = known && (known.n > 0 ? "mutuals" : "none");
+        if (kind && !picked.has(kind)) picked.set(kind, { ...who, known: known.n });
+      }
+      if (picked.size < 2) return false;
+      // As for List people: X's first rows sit together, in X's order, in the native list. A
+      // tab X answered with nobody shows no rows on either side and no loading line natively.
+      const rows = async (who, path) => {
+        const surface = JSON.stringify(`${path}:${who.id}`);
+        await go(`#/u/${who.handle}/people?tab=${path}`);
+        return until(async () => {
+          if ((await enginePath()) !== `/${who.handle}/${path}`) return false;
+          if (!(await store(`$.cursors[${surface}] !== undefined`))) return false;
+          const ours = await store(`at($.people, ${surface}).map((id) => $.users.get(id)?.handle)`);
+          const xs = await engine(
+            `[...document.querySelectorAll('[data-testid="UserCell"]')].slice(0, 3).map((u) => u.querySelector('a[href^="/"]')?.getAttribute("href").slice(1).toLowerCase())`,
+          );
+          if (ours.length === 0)
+            return (
+              xs.length === 0 &&
+              (await app(
+                `!document.querySelector('main [data-x="user"]') && !document.querySelector("main").innerText.includes("from X.")`,
+              )) &&
+              "nobody"
+            );
+          const n = Math.min(3, ours.length);
+          const drawn = await app(`document.querySelectorAll('main [data-x="user"]').length`);
+          const at = ours.indexOf(xs[0]);
+          return (
+            drawn >= n &&
+            xs.length === n &&
+            at !== -1 &&
+            JSON.stringify(ours.slice(at, at + n)) === JSON.stringify(xs) &&
+            xs.join(",")
+          );
+        });
+      };
+      // X's tabs, labels and order, as the native screen draws them.
+      const tabs = (page) =>
+        page(
+          `[...document.querySelectorAll('main [role="tab"], [data-testid="primaryColumn"] [role="tab"]')].map((t) => t.textContent.trim())`,
+        );
+      const PATHS = {
+        "Verified Followers": "verified_followers",
+        "Followers you know": "followers_you_follow",
+        Followers: "followers",
+        Following: "following",
+      };
+      const results = [];
+      for (const [kind, who] of picked) {
+        if (!(await rows(who, "verified_followers"))) return false;
+        const ours = await until(async () => {
+          const [a, b] = [await tabs(app), await tabs(engine)];
+          return a.length > 0 && JSON.stringify(a) === JSON.stringify(b) && a;
+        });
+        if (!ours || ours.includes("Followers you know") !== (kind === "mutuals")) return false;
+        const lists = [];
+        for (const label of ours) {
+          const listed = await rows(who, PATHS[label]);
+          if (!listed) return false;
+          lists.push(`${label} ${listed}`);
+        }
+        results.push(`@${who.handle} (${who.known} you know): ${lists.join("; ")}`);
+      }
+      return results.join(" | ");
+    },
+  ],
+  [
     "Follow page: Who to follow and Creators list what X lists, with X's own buttons (dry)",
     async () => {
       // Each tab: X's first three people are drawn together, in X's order, on the native screen,

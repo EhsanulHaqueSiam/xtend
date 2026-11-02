@@ -1,6 +1,11 @@
 import { describe, expect, it } from "@effect/vitest";
 
-import { hasEngineContent, renderEngineBatch, requestVariables } from "./engineBatch.ts";
+import {
+  hasEngineContent,
+  renderEngineBatch,
+  renderKnownFollowers,
+  requestVariables,
+} from "./engineBatch.ts";
 import { normalizeGraphqlResponse } from "./normalizeGraphql.ts";
 
 // X's 2026 user: no `legacy` block, counts and bio in their own fields.
@@ -1153,6 +1158,69 @@ describe("renderEngineBatch around posts", () => {
     expect(hasEngineContent(renderEngineBatch("GlobalCommunitiesPostSearchTimeline", {}, {}))).toBe(
       false,
     );
+  });
+
+  it("lists a profile's followers under the person's id in X's order, and passes on X's answer of nobody", () => {
+    const page = (entries: ReadonlyArray<unknown>) => ({
+      data: {
+        user: {
+          result: {
+            __typename: "User",
+            timeline: { timeline: { instructions: [{ type: "TimelineAddEntries", entries }] } },
+          },
+        },
+      },
+    });
+    const follower = (id: string, handle: string) => ({
+      entryId: `user-${id}`,
+      content: {
+        entryType: "TimelineTimelineItem",
+        itemContent: {
+          itemType: "TimelineUser",
+          user_results: {
+            result: user(id, handle, { relationship_perspectives: { followed_by: true } }),
+          },
+        },
+      },
+    });
+    const followers = renderEngineBatch(
+      "Followers",
+      { userId: "5", count: 20 },
+      page([
+        follower("12", "zed"),
+        follower("11", "amy"),
+        { entryId: "cursor-bottom-1", content: { cursorType: "Bottom", value: "1369|2117" } },
+      ]),
+    );
+    expect([followers.key, followers.people, followers.bottom]).toEqual([
+      "5",
+      ["12", "11"],
+      "1369|2117",
+    ]);
+    expect(followers.users.map((u) => u.followsYou)).toEqual([true, true]);
+    const none = renderEngineBatch("FollowersYouKnow", { userId: "5", count: 20 }, page([]));
+    expect([none.key, none.people, hasEngineContent(none)]).toEqual(["5", [], true]);
+    // X's rate limit answers with an error alone: no list, so no answer of nobody.
+    const limited = renderEngineBatch(
+      "Followers",
+      { userId: "5", count: 20 },
+      { errors: [{ code: 88, message: "Rate limit exceeded" }] },
+    );
+    expect([limited.key, hasEngineContent(limited)]).toEqual([null, false]);
+  });
+
+  it("reads X's count of followers you know by the profile it asked about, and nothing from an error", () => {
+    const url = (id: string) =>
+      `https://x.com/i/api/1.1/friends/following/list.json?include_profile_interstitial_type=1&user_id=${id}&count=3`;
+    const known = renderKnownFollowers(url("5"), {
+      users: [{ id_str: "11", screen_name: "amy" }],
+      next_cursor: 0,
+      previous_cursor: 0,
+      total_count: 75,
+    })!;
+    expect([known.key, known.knownFollowers, hasEngineContent(known)]).toEqual(["5", 75, true]);
+    expect(renderKnownFollowers(url("6"), { users: [], total_count: 0 })?.knownFollowers).toBe(0);
+    expect(renderKnownFollowers(url("5"), { errors: [{ code: 88 }] })).toBeNull();
   });
 });
 

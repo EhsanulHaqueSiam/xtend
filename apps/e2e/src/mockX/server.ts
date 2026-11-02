@@ -127,6 +127,11 @@ export async function startMockX(
       await latency();
       return json(state.respond(op, variables));
     }
+    if (url.pathname === "/i/api/1.1/friends/following/list.json" && req.method === "GET") {
+      const userId = url.searchParams.get("user_id") ?? "";
+      reads.push({ op: "friends/following/list", variables: { user_id: userId } });
+      return json(state.knownFollowers(userId));
+    }
     const restWrite = /^\/i\/api\/1\.1\/(.+)\.json$/.exec(url.pathname);
     if (restWrite !== null && req.method === "POST")
       return json(state.write(restWrite[1]!, await readBody(req), from));
@@ -154,7 +159,10 @@ export async function startMockX(
         const batches = r.requests.map((q) => state.batchFor(q.op, q.variables));
         const boot = url.searchParams.get("boot") === "1" ? [{ op: "Viewer", variables: {} }] : [];
         return json({
-          graphql: [...boot, ...r.requests].map(httpRequest),
+          graphql: [
+            ...[...boot, ...r.requests].map(httpRequest),
+            ...(r.rest ?? []).map((url) => ({ url })),
+          ],
           html: r.render(batches),
           next: r.paged === undefined ? null : (batches[r.paged]?.bottom ?? null),
           title: r.title,

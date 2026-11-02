@@ -16,6 +16,7 @@ import {
   xPostMenu,
   xOverEnded,
   xPickCommunitySearchTab,
+  xPickHomeTab,
   xPickInspiration,
   xPostFollowPress,
   xPostMenuPress,
@@ -1602,4 +1603,38 @@ it("lets later Inspiration picks run once the screen or X's next page load lets 
     ["Last 7d", "Most Likes", "Last 30d", "Most Quotes"],
   ]);
   registerXWebview(null);
+});
+
+it("picks a tab only on the page it was asked on, or under it, never another page's tab of that name", async () => {
+  using _clock = fakeTimers();
+  const clicked: Array<string> = [];
+  const draw = (labels: ReadonlyArray<string>) => {
+    document.body.innerHTML = `<nav>${labels.map((l) => `<a role="tab" aria-selected="false">${l}</a>`).join("")}</nav>`;
+    for (const tab of document.querySelectorAll('[role="tab"]'))
+      tab.addEventListener("click", () => clicked.push(`${location.pathname} ${tab.textContent}`));
+  };
+  inThisPage(() => `https://x.com${location.pathname}`);
+  const start = location.href;
+  try {
+    // Home's Following, asked before X drew Home: the engine moves on to a profile's people pages,
+    // whose Following tab is not Home's.
+    history.replaceState(null, "", "/home");
+    document.body.innerHTML = "";
+    const home = xPickHomeTab("Following");
+    await vi.advanceTimersByTimeAsync(300);
+    history.replaceState(null, "", "/ann/verified_followers");
+    draw(["Verified Followers", "Followers", "Following"]);
+    await vi.runAllTimersAsync();
+    expect([await home, clicked]).toEqual([false, []]);
+    // A page X moves under once it loads (Explore's own tabs) is still that page.
+    history.replaceState(null, "", "/explore");
+    document.body.innerHTML = "";
+    const explore = xPickHomeTab("News");
+    history.replaceState(null, "", "/explore/tabs/for_you");
+    draw(["For You", "News"]);
+    await vi.runAllTimersAsync();
+    expect([await explore, clicked]).toEqual([true, ["/explore/tabs/for_you News"]]);
+  } finally {
+    history.replaceState(null, "", start);
+  }
 });

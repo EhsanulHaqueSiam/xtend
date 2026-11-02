@@ -953,6 +953,13 @@ export function encodeBody(
       return { data: { favoriters_timeline: { timeline: timeline() } } };
     case "ConnectTabTimeline":
       return { data: { connect_tab_timeline: { timeline: timeline() } } };
+    case "BlueVerifiedFollowers":
+    case "FollowersYouKnow":
+    case "Followers":
+    case "Following":
+      return {
+        data: { user: { result: { __typename: "User", timeline: { timeline: timeline() } } } },
+      };
     case "TweetActivityQuery": {
       // X's own shape: a grid of metrics, a zero's value left out, beside the promoted numbers.
       const id = btoa(`Tweet:${batch.key ?? ""}`);

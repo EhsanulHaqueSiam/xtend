@@ -467,4 +467,10 @@ export interface EngineBatch {
    * `Follows`. X leaves a zero's value out; it reads 0 here.
    */
   readonly analytics?: Readonly<Record<string, number>>;
+  /**
+   * How many people the viewer follows follow the user `key` names (`total_count` of X's REST
+   * friends/following/list.json, which X calls on each profile load). X shows a profile's Followers
+   * you know only when it is above 0.
+   */
+  readonly knownFollowers?: number;
 }

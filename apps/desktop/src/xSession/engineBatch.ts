@@ -848,6 +848,9 @@ function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExp
   return s("userId") ?? null;
 }
 
+/** A profile's people pages (X's Followers, Following, Followers you know, Verified Followers). */
+const PEOPLE_PAGES = /^(Followers|Following|FollowersYouKnow|BlueVerifiedFollowers)$/;
+
 /**
  * Everything in one response for the engine's screens. People are the ones X lists (search
  * People, Who to follow, a profile's own header), not every post's author.
@@ -985,7 +988,11 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
           )
           ? "communities:mine"
           : null
-        : keyOf(op, variables, exploreTabs),
+        : // An error alone (X's rate limit) carries no list, so it is no answer of nobody.
+          PEOPLE_PAGES.test(op) &&
+            !Array.isArray(record(record(result(data.user).timeline).timeline).instructions)
+          ? null
+          : keyOf(op, variables, exploreTabs),
     // Explore asks with an empty cursor for its first page.
     cursor: asString(variables.cursor) || null,
     top,
@@ -1062,6 +1069,26 @@ function readViewer(value: unknown): EngineViewer | null {
     : { userId: user.userId, handle: user.handle, name: user.name, avatarUrl: user.avatarUrl };
 }
 
+/** X's REST call, on each profile load, for the people the viewer follows who follow that profile. */
+export const isKnownFollowersUrl = (url: string) =>
+  url.includes("/i/api/1.1/friends/following/list.json");
+
+/**
+ * How many people the viewer follows follow the profile X asked about (`user_id`), from X's
+ * friends/following/list.json; null for any other answer (an error alone, no such user).
+ */
+export function renderKnownFollowers(url: string, body: unknown): EngineBatch | null {
+  const userId = URL.canParse(url) ? new URL(url).searchParams.get("user_id") : null;
+  const count = record(body).total_count;
+  if (userId === null || !X_ID.test(userId) || !Number.isSafeInteger(count) || Number(count) < 0)
+    return null;
+  return {
+    ...renderEngineBatch("FriendsFollowingList", {}, {}),
+    key: userId,
+    knownFollowers: Number(count),
+  };
+}
+
 /** A batch that only names the signed-in account, as X's nav shows it. */
 export const viewerBatch = (viewer: EngineViewer): EngineBatch => ({
   op: "ViewerFromNav",
@@ -1096,9 +1123,12 @@ export const hasEngineContent = (b: EngineBatch) =>
   // A search of Communities X found nothing for still reaches its screen, which says so.
   // shortcut: an error answer reads the same; tell them apart by the body if X errs there.
   (b.key !== null && (b.op === "CommunitiesSearchQuery" || HUB_SEARCH_POSTS.test(b.op))) ||
+  // A profile's people page X answered with nobody (no verified followers): the screen says so.
+  (b.key !== null && PEOPLE_PAGES.test(b.op)) ||
   b.homeTabs !== null ||
   b.exploreTabs !== null ||
   b.viewer !== null ||
   b.gifs !== undefined ||
   b.prompt !== undefined ||
-  b.analytics !== undefined;
+  b.analytics !== undefined ||
+  b.knownFollowers !== undefined;
