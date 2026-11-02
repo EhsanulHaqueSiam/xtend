@@ -1036,6 +1036,85 @@ const benchmarks = [
     },
   ],
   [
+    "A creator's Reposts and Subs: X's tabs in X's order, Reposts' posts and X's Subs prompt or posts (dry)",
+    async () => {
+      // A creator who offers Subscriptions today. Nothing is pressed but X's own tabs.
+      const handle = "levelsio";
+      const xFirst = `[...document.querySelectorAll("article")].map((a) => a.querySelector('a[href*="/status/"] time')?.parentElement.getAttribute("href")?.split("/status/")[1]?.split("/")[0]).filter(Boolean).slice(0, 3)`;
+      // X's first three posts lead the tab's list, and Xtend draws X's first: a tall first post
+      // can leave only one drawn in the window.
+      const same = (surface) =>
+        until(async () => {
+          const [xs, ours, drawn] = [
+            await engine(xFirst),
+            await store(`at($.lists, ${JSON.stringify(surface)})`),
+            await nativeIds(),
+          ];
+          return (
+            xs?.length === 3 &&
+            JSON.stringify(ours?.slice(0, 3)) === JSON.stringify(xs) &&
+            drawn?.[0] === xs[0] &&
+            xs.join(",")
+          );
+        });
+      const xTab = (label) =>
+        until(() =>
+          engine(
+            `document.querySelector('[role="tab"][aria-selected="true"]')?.textContent.trim() === ${JSON.stringify(label)}`,
+          ),
+        );
+      await go(`#/u/${handle}`);
+      const id = await until(() =>
+        store(
+          `[...$.users.values()].find((u) => u.handle === ${JSON.stringify(handle)} && u.offersSubscriptions === true)?.userId`,
+        ),
+      );
+      if (!id) return false;
+      // The tabs both rows draw stand in the same order, and both have Reposts and Subs.
+      const order = await until(async () => {
+        const xs = await engine(
+          `[...document.querySelectorAll('[role="tab"]')].map((t) => t.textContent.trim())`,
+        );
+        const ours = await app(
+          `[...document.querySelectorAll('main [role="tablist"][aria-label="Profile"] [role="tab"]')].map((t) => t.textContent.trim())`,
+        );
+        const shared = (a, b) => a.filter((l) => b.includes(l)).join(",");
+        return (
+          ["Reposts", "Subs"].every((l) => xs?.includes(l) && ours?.includes(l)) &&
+          shared(xs, ours) === shared(ours, xs) &&
+          shared(ours, xs)
+        );
+      });
+      if (!order) return false;
+      await reset(`profile:reposts:${id}`, `profile:subs:${id}`);
+      await go(`#/u/${handle}?tab=reposts`);
+      const reposts =
+        (await until(async () => (await enginePath()) === `/${handle}/reposts`)) &&
+        (await xTab("Reposts")) &&
+        (await same(`profile:reposts:${id}`));
+      if (!reposts) return false;
+      await go(`#/u/${handle}?tab=subs`);
+      if (!(await until(async () => (await enginePath()) === `/${handle}/subs`))) return false;
+      // A non-subscriber gets X's prompt, drawn in X's words; a subscriber gets the posts.
+      const subs = await until(async () => {
+        const prompt = await store(`$.prompts.get("profile:subs:${id}")`);
+        if (prompt === undefined)
+          return (await nativeIds()).length > 0 && (await same(`profile:subs:${id}`));
+        const onX = await engine(
+          `document.querySelector('[data-testid="primaryColumn"]')?.innerText ?? ""`,
+        );
+        const ours = await app(`document.querySelector('main [data-x="subs"]')?.innerText ?? ""`);
+        return (
+          onX.includes(prompt.body) &&
+          ours.includes(prompt.header) &&
+          ours.includes(prompt.body) &&
+          `prompt "${prompt.header}"`
+        );
+      });
+      return subs && `tabs ${order}; reposts ${reposts}; subs ${subs}`;
+    },
+  ],
+  [
     "X's follow button is reachable on a profile (dry)",
     async () => (
       await engineGo("/theo"),

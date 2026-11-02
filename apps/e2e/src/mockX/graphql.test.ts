@@ -86,4 +86,17 @@ it("answers every request X's pages make with the batch the made-up fixtures hol
     state.exploreNextIds(),
     [],
   ]);
+
+  // A creator's header says they offer Subscriptions, and their Subs is X's prompt to a
+  // non-subscriber; both read back as mock X holds them.
+  const creator = state.user(state.fixture("ConnectTabTimeline", "connect:creators")!.people[0]!)!;
+  const roundTrip = (op: string, variables: Record<string, unknown>) =>
+    renderEngineBatch(op, variables, JSON.parse(JSON.stringify(state.respond(op, variables))));
+  expect(
+    roundTrip("UserByScreenName", { screen_name: creator.handle }).users[0]!.offersSubscriptions,
+  ).toBe(true);
+  const subs = { userId: creator.userId, count: 20 };
+  expect(roundTrip("UserSuperFollowTweets", subs).prompt).toEqual(
+    state.batchFor("UserSuperFollowTweets", subs)!.prompt,
+  );
 });

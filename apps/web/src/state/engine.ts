@@ -9,6 +9,7 @@ import type {
   EngineNotification,
   EnginePeopleSection,
   EnginePost,
+  EnginePrompt,
   EngineTrend,
   EngineUser,
   EngineViewer,
@@ -352,6 +353,8 @@ export interface EngineState {
   readonly communities: ReadonlyMap<string, EngineCommunity>;
   /** Community ids per surface, in X's order (the user's Communities). */
   readonly communityIds: PerSurface<string>;
+  /** X's prompt per surface, listed where posts would be: the Subs tab's subscribe prompt. */
+  readonly prompts: ReadonlyMap<AnySurface, EnginePrompt>;
   /**
    * Article bodies by the post that carries them. Apart from `posts`: a timeline sends the same
    * post again with its card only, and X's cached reader page sends nothing.
@@ -392,6 +395,7 @@ export const emptyEngine: EngineState = {
   listIds: NONE,
   communities: new Map(),
   communityIds: NONE,
+  prompts: new Map(),
   articles: new Map(),
   homeTabs: [],
   exploreTabs: [],
@@ -439,7 +443,11 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
   let asked = state.asked;
   if (batch.users.length > 0) {
     const next = new Map(users);
-    for (const user of batch.users) next.set(user.userId, user);
+    for (const user of batch.users) {
+      // A response that does not say whether they offer Subscriptions keeps an earlier one's word.
+      const offers = user.offersSubscriptions ?? next.get(user.userId)?.offersSubscriptions;
+      next.set(user.userId, offers === undefined ? user : { ...user, offersSubscriptions: offers });
+    }
     users = next;
     const agreed = batch.users.filter((u) => asked.get(u.userId) === u.youFollow);
     if (agreed.length > 0) {
@@ -512,6 +520,7 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
     pinned,
     xLists,
     communities,
+    prompts: promptsOf(state, batch),
     homeTabs: batch.homeTabs ?? state.homeTabs,
     exploreTabs: batch.exploreTabs ?? state.exploreTabs,
     articles:
@@ -552,6 +561,23 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
   // The response also carries the post it quotes, which stays where it was.
   const created = batch.posts.filter((p) => !batch.posts.some((q) => q.quotedId === p.postId));
   return created.reduce(placeCreated, listed);
+}
+
+/**
+ * X's prompt on each surface a response feeds: its first page sets it, or clears it once X lists
+ * posts instead (the user subscribed). Later pages leave it.
+ */
+function promptsOf(state: EngineState, batch: EngineBatch): EngineState["prompts"] {
+  if (batch.cursor !== null) return state.prompts;
+  const surfaces = surfacesOf(batch).filter(
+    (s) => batch.prompt !== undefined || state.prompts.has(s),
+  );
+  if (surfaces.length === 0) return state.prompts;
+  const prompts = new Map(state.prompts);
+  for (const s of surfaces)
+    if (batch.prompt === undefined) prompts.delete(s);
+    else prompts.set(s, batch.prompt);
+  return prompts;
 }
 
 /**

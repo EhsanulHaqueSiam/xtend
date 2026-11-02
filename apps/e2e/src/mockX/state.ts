@@ -322,6 +322,28 @@ export function createMockState() {
   const profileTab = (op: string, u: EngineUser): EngineBatch => {
     const own = fixture(op, u.userId);
     if (own !== undefined) return live(own);
+    // Others' posts in the person's repost wrappers, as X's Reposts tab lists them.
+    if (op === "UserRepostsTimeline")
+      return page(
+        op,
+        u.userId,
+        allPosts()
+          .filter((p) => p.author.userId !== u.userId && p.quotedId === null && p.context === null)
+          .slice(0, 3)
+          .map((p) => ({
+            ...p,
+            context: { type: "Retweet", text: `${u.name} reposted`, handle: u.handle },
+          })),
+      );
+    // A creator's Subs to someone who does not subscribe: X's prompt in place of posts.
+    if (op === "UserSuperFollowTweets")
+      return page(op, u.userId, [], {
+        prompt: {
+          header: "Unlock more with Subscriptions",
+          body: `@${u.handle} has shared 12 Subscriber-only posts. Subscribe to see their exclusive posts and bonus content.`,
+          button: { text: "Subscribe", url: `https://x.com/${u.handle}/superfollows/subscribe` },
+        },
+      });
     const theirs = allPosts().filter((p) => p.author.userId === u.userId);
     const picked =
       op === "UserMedia"
@@ -494,7 +516,19 @@ export function createMockState() {
         if (u === undefined) return null;
         return (
           (u.userId === people[0]!.userId ? live(fixture("UserByScreenName", u.handle)!) : null) ??
-          page(op, u.handle, [], { top: null, users: [liveUser(u)] })
+          page(op, u.handle, [], {
+            top: null,
+            // X says whether they offer Subscriptions: the creators X's Follow page lists do.
+            users: [
+              {
+                ...liveUser(u),
+                offersSubscriptions: fixture(
+                  "ConnectTabTimeline",
+                  "connect:creators",
+                )!.people.includes(u.userId),
+              },
+            ],
+          })
         );
       }
       case "SearchTimeline":
@@ -645,7 +679,11 @@ export function createMockState() {
       case "TweetActivityQuery":
         return fixture(op, s(variables, "restId") ?? "") ?? null;
       default:
-        if (/^User(Tweets|TweetsAndReplies|Media|HighlightsTweets|SuperFollowTweets)$/.test(op)) {
+        if (
+          /^User(Tweets|TweetsAndReplies|Media|HighlightsTweets|SuperFollowTweets|RepostsTimeline)$/.test(
+            op,
+          )
+        ) {
           const u = user(s(variables, "userId") ?? "");
           return u === undefined ? null : profileTab(op, u);
         }
