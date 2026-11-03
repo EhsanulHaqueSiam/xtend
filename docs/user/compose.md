@@ -37,6 +37,9 @@ can reply, move up or down, remove, add below.
   on the first post and counts against its 280.
 - **Options** holds the rest: a poll on the first post, who can reply to every post, seconds
   between thread posts.
+- **Bold** and **Italic** (⌘B, ⌘I) format the selection when your X account has Premium and
+  session actions are on. Like media, a formatted post goes only through your session, on your
+  click: queued, it waits for **Post now**.
 
 The preview beside the editor shows the thread as X will render it, with your avatar and name.
 

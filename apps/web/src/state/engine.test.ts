@@ -602,11 +602,15 @@ it("keeps X's Subs prompt per profile across X's next page, until X lists posts 
   expect(state.prompts.has(subs)).toBe(false);
 });
 
-it("keeps the signed-in account's id when X's nav names it again without one", () => {
+it("keeps the signed-in account's id when X's nav names it again without one, and what X's composer draws", () => {
   let state = mergeBatch(
     emptyEngine,
     batch("Viewer", [], { viewer: { userId: "7", handle: "siam", name: "Siam", avatarUrl: null } }),
   );
+  // What X's composer draws stands until it draws otherwise; a page without one says nothing.
+  state = mergeBatch(state, batch("ViewerFromNav", [], { formatting: false }));
+  state = mergeBatch(state, batch("ViewerFromNav", []));
+  expect(state.formatting).toBe(false);
   state = mergeBatch(
     state,
     batch("ViewerFromNav", [], {

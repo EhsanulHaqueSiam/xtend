@@ -1,6 +1,8 @@
 import { useNavigate } from "@tanstack/react-router";
-import type { EngineEntities } from "@xtend/contracts";
+import type { EngineEntities, TextStyle } from "@xtend/contracts";
 import type { MouseEvent } from "react";
+
+import { styledRuns } from "../compose/textStyles";
 
 /** t.co links, @mentions, #hashtags and $cashtags, for text that comes without X's entities. */
 // A hashtag needs a letter (a bare year is not one); a cashtag is letters only ($5,000 is not one).
@@ -45,7 +47,7 @@ export function xtendRoute(href: string): string | null {
 }
 
 type Piece =
-  | { readonly kind: "text"; readonly text: string }
+  | { readonly kind: "text"; readonly text: string; readonly at: number }
   | { readonly kind: "link"; readonly text: string; readonly href: string; readonly at: number };
 
 const xSearch = (q: string) => `https://x.com/search?q=${encodeURIComponent(q)}`;
@@ -79,11 +81,11 @@ function byEntities(text: string, entities: EngineEntities): ReadonlyArray<Piece
   let last = 0;
   for (const e of spans) {
     if (e.at[0] < last) continue;
-    out.push({ kind: "text", text: text.slice(last, e.at[0]) });
+    out.push({ kind: "text", text: text.slice(last, e.at[0]), at: last });
     out.push({ kind: "link", text: e.text, href: e.href, at: e.at[0] });
     last = e.at[1];
   }
-  out.push({ kind: "text", text: text.slice(last) });
+  out.push({ kind: "text", text: text.slice(last), at: last });
   return out;
 }
 
@@ -94,7 +96,7 @@ function byPattern(text: string): ReadonlyArray<Piece> {
   for (const m of text.matchAll(TOKEN)) {
     const [whole, tco, lead1 = "", mention, lead2 = "", tag] = m;
     const start = m.index + lead1.length + lead2.length;
-    out.push({ kind: "text", text: text.slice(last, start) });
+    out.push({ kind: "text", text: text.slice(last, start), at: last });
     last = m.index + whole.length;
     const token = tco ?? mention ?? tag ?? "";
     out.push({
@@ -104,21 +106,45 @@ function byPattern(text: string): ReadonlyArray<Piece> {
       href: tco ?? (mention !== undefined ? `https://x.com/${mention.slice(1)}` : xSearch(token)),
     });
   }
-  out.push({ kind: "text", text: text.slice(last) });
+  out.push({ kind: "text", text: text.slice(last), at: last });
   return out;
+}
+
+/** Text in X's bold and italic where `styles` say; `at` is where it starts in the post. */
+export function StyledText({
+  text,
+  at = 0,
+  styles,
+}: {
+  readonly text: string;
+  readonly at?: number;
+  readonly styles: ReadonlyArray<TextStyle>;
+}) {
+  return styledRuns(text, at, styles).map((r) =>
+    r.bold ? (
+      <b key={r.start}>{r.italic ? <i>{r.text}</i> : r.text}</b>
+    ) : r.italic ? (
+      <i key={r.start}>{r.text}</i>
+    ) : (
+      r.text
+    ),
+  );
 }
 
 /**
  * Text as X draws it: links show X's short form and open where they point (x.com ones in Xtend's
  * own screens), mentions open the profile, hashtags and cashtags a search. A post passes X's
- * entities; text without them (a bio) is read by pattern.
+ * entities; text without them (a bio) is read by pattern. A long post's bold and italic are
+ * drawn on its text, never on a link, as X does.
  */
 export function RichText({
   text,
   entities,
+  styles = [],
 }: {
   readonly text: string;
   readonly entities?: EngineEntities | undefined;
+  readonly styles?: ReadonlyArray<TextStyle> | undefined;
 }) {
   const navigate = useNavigate();
   const go = (href: string) => (e: MouseEvent) => {
@@ -133,7 +159,11 @@ export function RichText({
     <>
       {pieces.map((p) =>
         p.kind === "text" ? (
-          p.text
+          styles.length === 0 ? (
+            p.text
+          ) : (
+            <StyledText key={`t${p.at}`} text={p.text} at={p.at} styles={styles} />
+          )
         ) : (
           <a
             key={p.at}

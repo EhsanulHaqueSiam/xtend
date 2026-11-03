@@ -1535,6 +1535,41 @@ describe("renderEngineBatch for live text, edits, threads and people", () => {
     expect(batch.users.map((u) => u.handle).sort()).toEqual(["dhh", "theo"]);
     expect(batch.people).toEqual(["9"]);
   });
+
+  it("draws a long post's bold and italic where X's richtext_tags put them in the shown text", () => {
+    // X counts in the whole text, "Replying to" handle included; a tag X sent empty is nothing.
+    const full = "@theo Ship it today. Then rest.";
+    const note = {
+      text: full,
+      entity_set: { user_mentions: [{ screen_name: "theo", indices: [0, 5] }] },
+      richtext: {
+        richtext_tags: [
+          { from_index: 6, to_index: 13, richtext_types: ["Bold"] },
+          { from_index: 11, to_index: 19, richtext_types: ["Italic", "Bold"] },
+          { from_index: 21, to_index: 21, richtext_types: ["Bold"] },
+        ],
+      },
+    };
+    const reply = tweet(
+      "5",
+      {
+        full_text: full,
+        display_text_range: [6, 31],
+        entities: { user_mentions: [{ screen_name: "theo", indices: [0, 5] }], urls: [] },
+      },
+      { note_tweet: { note_tweet_results: { result: note } } },
+    );
+    const [post] = renderEngineBatch("TweetDetail", {}, { data: [reply] }).posts;
+    expect(post!.text).toBe("Ship it today. Then rest.");
+    expect(post!.styles!.map((s) => [s.style, post!.text.slice(s.start, s.end)])).toEqual([
+      ["Bold", "Ship it"],
+      ["Italic", "it today"],
+      ["Bold", "it today"],
+    ]);
+    expect(renderEngineBatch("TweetDetail", {}, { data: [tweet("6")] }).posts[0]!.styles).toBe(
+      undefined,
+    );
+  });
 });
 
 describe("renderEngineBatch media and the viewer", () => {

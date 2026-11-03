@@ -579,4 +579,38 @@ describe("Publisher", () => {
         ]);
       }).pipe(Effect.provide(layerTest)),
   );
+
+  it.effect(
+    "bold and italic go only through the x.com session, on a click, never through the API",
+    () =>
+      Effect.gen(function* () {
+        reset();
+        const drafts = yield* DraftStore.DraftStore;
+        const publisher = yield* Publisher.Publisher;
+        const settings = yield* SettingsStore.SettingsStore;
+        const styles = [{ start: 0, end: 4, style: "Bold" }] as const;
+        const create = () => drafts.create({ blocks: [{ text: "bold move", styles }] });
+
+        // Unattended, nothing can apply them: refused, with nothing sent anywhere.
+        const unattended = yield* publisher.post((yield* create()).id, postNow);
+        expect([unattended.error, calls, desktopCalls]).toEqual([
+          "Compose post failed: Posts with formatting need your click: press Post now",
+          [],
+          [],
+        ]);
+
+        // A click with the session lane off fails unpaid rather than post them plain.
+        yield* settings.update({ sessionPostingEnabled: false });
+        const off = yield* publisher.post((yield* create()).id, { ...postNow, clicked: true });
+        expect([off.status, calls, desktopCalls]).toEqual(["failed", [], []]);
+
+        yield* settings.update({ sessionPostingEnabled: true });
+        const on = yield* publisher.post((yield* create()).id, { ...postNow, clicked: true });
+        expect([on.status, calls, desktopCalls]).toEqual([
+          "posted",
+          [],
+          [{ type: "sessionPost", text: "bold move", mediaPaths: [], styles }],
+        ]);
+      }).pipe(Effect.provide(layerTest)),
+  );
 });

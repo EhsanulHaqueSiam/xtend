@@ -5,6 +5,7 @@ import {
   isComposeError,
   type PickedGif,
   type ReplySettings,
+  type TextStyle,
 } from "@xtend/contracts";
 import * as Context from "effect/Context";
 import * as Clock from "effect/Clock";
@@ -47,6 +48,8 @@ export class SessionPosting extends Context.Service<
       readonly poll?: DraftPoll;
       /** Picked from X's own GIF search in its composer, before the text. */
       readonly gif?: PickedGif;
+      /** Bold and italic, applied with X's own composer controls as the text goes in. */
+      readonly styles?: ReadonlyArray<TextStyle>;
       readonly paced?: boolean;
     }) => Effect.Effect<{ readonly postId: string }, ComposeError | DesktopUnavailableError>;
     /** Presses X's own like on the post in the session view, at human pace. */
@@ -93,6 +96,7 @@ const make = Effect.gen(function* () {
     readonly replySettings?: ReplySettings;
     readonly poll?: DraftPoll;
     readonly gif?: PickedGif;
+    readonly styles?: ReadonlyArray<TextStyle>;
     readonly paced?: boolean;
   }) {
     yield* requireEnabled.pipe(Effect.mapError(fail("sessionPost")));
@@ -111,6 +115,7 @@ const make = Effect.gen(function* () {
         : { replySettings: input.replySettings }),
       ...(input.poll === undefined ? {} : { poll: input.poll }),
       ...(input.gif === undefined ? {} : { gif: input.gif }),
+      ...(input.styles === undefined ? {} : { styles: input.styles }),
     });
     return { postId: result.postId };
   });

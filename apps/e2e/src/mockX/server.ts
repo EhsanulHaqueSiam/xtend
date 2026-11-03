@@ -29,6 +29,7 @@ const WRITES = new Set([
   "CreateBookmark",
   "DeleteBookmark",
   "CreateTweet",
+  "CreateNoteTweet",
   "DeleteTweet",
   "PinTweet",
   "MuteConversation",

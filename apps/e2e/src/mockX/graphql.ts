@@ -258,6 +258,29 @@ export function encodeTweet(
     ...when(p.aiGenerated, () => ({
       content_disclosure: { ai_generated_disclosure: { has_ai_generated_media: true } },
     })),
+    // Bold and italic ride a long post (X's note_tweet), counted in UTF-16 units of its whole text.
+    ...when((p.styles?.length ?? 0) > 0, () => ({
+      note_tweet: {
+        is_expandable: false,
+        note_tweet_results: {
+          result: {
+            id: `note-${p.postId}`,
+            text: raw,
+            entity_set: {
+              ...entities,
+              user_mentions: [...leadMentions, ...(entities.user_mentions as Array<unknown>)],
+            },
+            richtext: {
+              richtext_tags: p.styles!.map((s) => ({
+                from_index: lead.length + s.start,
+                to_index: lead.length + s.end,
+                richtext_types: [s.style],
+              })),
+            },
+          },
+        },
+      },
+    })),
     ...when(p.edits.length > 0 || p.editsRemaining !== null || p.editableUntil !== null, () => ({
       edit_control: {
         edit_tweet_ids: p.edits,

@@ -8,6 +8,7 @@ import {
   type MarkSubject,
   type PickedGif,
   type ReplyTone,
+  type TextStyle,
   Marks_METHODS,
   WS_METHODS,
   WS_PATH,
@@ -585,6 +586,80 @@ async function pickGif(
   });
 }
 
+// X's composer (Draft.js) reads ⌘ as the command key when its user agent says Mac, Ctrl elsewhere.
+const ON_MAC = "/Mac OS X/.test(navigator.userAgent)";
+const STYLE_KEYS = { Bold: ["b", "KeyB", 66], Italic: ["i", "KeyI", 73] } as const;
+// X's editor as drawn: its text without line breaks and, per character, "1" where X draws it
+// bold (or italic), read from each text's own leaf (X's styled span).
+const EDITOR_TEXT = `function () {
+  let text = "", Bold = "", Italic = "";
+  const walk = document.createTreeWalker(this, NodeFilter.SHOW_TEXT);
+  for (let n = walk.nextNode(); n !== null; n = walk.nextNode()) {
+    // An editable page keeps a typed space before a run as a no-break space; it reads the same.
+    const t = n.textContent.replace(/[\\r\\n]/g, "").replace(/\\u00a0/g, " ");
+    const style = getComputedStyle(n.parentElement.closest("[data-offset-key]") ?? n.parentElement);
+    text += t;
+    Bold += (Number(style.fontWeight) >= 600 ? "1" : "0").repeat(t.length);
+    Italic += (style.fontStyle === "italic" ? "1" : "0").repeat(t.length);
+  }
+  return JSON.stringify({ text, Bold, Italic });
+}`;
+/**
+ * What X's editor must show for `text`: its text without line breaks, a no-break space read as a
+ * space as the editor's side is, and each style's marks. Every requested character counts.
+ */
+function expectedEditor(text: string, styles: ReadonlyArray<TextStyle>) {
+  const want = { text: "", Bold: "", Italic: "" };
+  // UTF-16 units, as the runs and X's editor count them.
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === "\n" || text[i] === "\r") continue;
+    want.text += text[i] === "\u00a0" ? " " : text[i];
+    for (const style of ["Bold", "Italic"] as const)
+      want[style] += styles.some((s) => s.style === style && s.start <= i && i < s.end) ? "1" : "0";
+  }
+  return want;
+}
+
+/**
+ * Types the text into X's text box `box` as its user formats it: X's own ⌘B and ⌘I pressed where
+ * a run of bold or italic starts and ends. X applies them only for an account it lets format, so
+ * the post is refused unless X's editor shows the text styled exactly as asked.
+ */
+async function typeText(
+  cdp: Cdp,
+  box: number,
+  text: string,
+  styles: ReadonlyArray<TextStyle>,
+): Promise<void> {
+  if (styles.length === 0) return void (await cdp("Input.insertText", { text }));
+  const { result } = (await cdp("Runtime.evaluate", {
+    expression: ON_MAC,
+    returnByValue: true,
+  })) as { result: { value: unknown } };
+  const modifiers = result.value === true ? 4 : 2;
+  const cuts = [...new Set([0, text.length, ...styles.flatMap((s) => [s.start, s.end])])]
+    .filter((i) => i <= text.length)
+    .toSorted((a, b) => a - b);
+  const on = { Bold: false, Italic: false };
+  for (const [k, end] of cuts.slice(1).entries()) {
+    const start = cuts[k]!;
+    for (const style of ["Bold", "Italic"] as const) {
+      const wanted = styles.some((s) => s.style === style && s.start <= start && s.end >= end);
+      if (wanted === on[style]) continue;
+      on[style] = wanted;
+      const [key, code, windowsVirtualKeyCode] = STYLE_KEYS[style];
+      for (const type of ["rawKeyDown", "keyUp"] as const)
+        await cdp("Input.dispatchKeyEvent", { type, key, code, windowsVirtualKeyCode, modifiers });
+    }
+    await cdp("Input.insertText", { text: text.slice(start, end) });
+  }
+  // Every run and every plain gap, as asked: a toggle X missed would post the wrong words styled.
+  const shown = JSON.parse(String(await callOn(cdp, box, EDITOR_TEXT))) as Record<string, string>;
+  const want = expectedEditor(text, styles);
+  if (shown.text !== want.text || shown.Bold !== want.Bold || shown.Italic !== want.Italic)
+    throw new Error("x.com's composer did not format the text as asked");
+}
+
 /** What the driver put in X's composer, so a refusal before Post can take it back out. */
 interface Touched {
   reply: boolean;
@@ -672,10 +747,10 @@ async function takeBack(cdp: Cdp, touched: Touched, error: unknown): Promise<Not
 }
 
 /**
- * Uses x.com's own composer as a user would: who can reply, the poll or the GIF, the text, the
- * files, Post.
- * The id comes from the CreateTweet response the capture sees. Every step ends by `deadline`;
- * the upload may take what is left. A failure before Post takes back out what was put in.
+ * Uses x.com's own composer as a user would: who can reply, the poll or the GIF, the text with
+ * its bold and italic, the files, Post. The id comes from X's create response the capture sees.
+ * Every step ends by `deadline`; the upload may take what is left. A failure before Post takes
+ * back out what was put in.
  */
 export async function postThroughComposer(
   contents: Pick<Electron.WebContents, "loadURL">,
@@ -712,9 +787,10 @@ export async function postThroughComposer(
     if (command.gif !== undefined)
       await pickGif(cdp, command.gif, deadline, () => (touched.media = true));
     // Found again: adding a poll redraws the composer around its text box.
-    await click(cdp, await waitForNode(cdp, TEXTBOX, step(COMPOSER_TIMEOUT_MS)));
+    const box = await waitForNode(cdp, TEXTBOX, step(COMPOSER_TIMEOUT_MS));
+    await click(cdp, box);
     touched.text = command.text !== "";
-    await cdp("Input.insertText", { text: command.text });
+    await typeText(cdp, box, command.text, command.styles ?? []);
     if (command.mediaPaths.length > 0) {
       const input = await waitForNode(
         cdp,

@@ -5,6 +5,7 @@ import {
   articleAuthorHandle,
   articleHoverTargets,
   articlePostId,
+  composerFormats,
   composerText,
   composerToolbars,
   findArticles,
@@ -69,6 +70,21 @@ it("finds the composer text from its toolbar", () => {
   const toolbars = composerToolbars(document);
   expect(toolbars).toHaveLength(1);
   expect(composerText(toolbars[0]!)?.textContent).toBe("hello x");
+});
+
+it("reads whether X's composer formats from its editor's height, as X's own gate draws it", () => {
+  // X caps the editor (max height, scrolling) unless the account may format; no composer, no word.
+  const editor = (style: string) =>
+    CHROME.replace(
+      'data-testid="tweetTextarea_0RichTextInputContainer"',
+      `data-testid="tweetTextarea_0RichTextInputContainer" style="${style}"`,
+    );
+  document.body.innerHTML = editor("max-height: 720px; overflow-y: auto");
+  expect(composerFormats(document)).toBe(false);
+  document.body.innerHTML = editor("height: 100%");
+  expect(composerFormats(document)).toBe(true);
+  document.body.innerHTML = FIXTURE;
+  expect(composerFormats(document)).toBeNull();
 });
 
 it("yields null rather than a guess when the landmarks are gone", () => {

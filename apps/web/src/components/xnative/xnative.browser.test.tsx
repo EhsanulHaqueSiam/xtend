@@ -283,6 +283,7 @@ it("draws what X draws around a post: its context line, live text, card, poll, n
         note: "The bench measures one task set.",
         liked: true,
         aiGenerated: true,
+        styles: [{ start: 0, end: span("@rauchg")[1], style: "Bold" }],
       }),
     ]),
   );
@@ -293,6 +294,10 @@ it("draws what X draws around a post: its context line, live text, card, poll, n
   await expect.element(row.getByRole("link", { name: "x.com/rauchg/st…" })).toBeVisible();
   expect(row.element().textContent).not.toContain("t.co");
   await expect.element(row.getByRole("link", { name: "@rauchg" })).toBeVisible();
+  // X's bold on the text, never on a link or mention inside it.
+  const weight = (el: Element) => getComputedStyle(el).fontWeight;
+  expect(weight(row.getByText("same here", { exact: true }).element())).toBe("700");
+  expect(weight(row.getByRole("link", { name: "@rauchg" }).element())).toBe("400");
   await expect.element(row.getByRole("link", { name: "#buildinpublic" })).toBeVisible();
   // A price is not a cashtag.
   expect(row.getByRole("link", { name: "$5" }).elements()).toHaveLength(0);

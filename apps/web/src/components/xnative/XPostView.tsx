@@ -372,7 +372,7 @@ export function QuoteBox({
         </span>
       </div>
       <p className="line-clamp-6 px-3 pt-0.5 pb-3 text-[15px] leading-5 break-words whitespace-pre-wrap">
-        <RichText text={quoted.text} entities={quoted.entities} />
+        <RichText text={quoted.text} entities={quoted.entities} styles={quoted.styles} />
       </p>
       {quoted.media.length === 0 ? null : (
         // X insets a quote's media inside the box and centres a tall shot.
@@ -584,8 +584,8 @@ export function XPostView({
   const [original, setOriginal] = useState(false);
   const shown =
     post.translation === null || original
-      ? { text: post.text, entities: post.entities }
-      : post.translation;
+      ? { text: post.text, entities: post.entities, styles: post.styles }
+      : { ...post.translation, styles: undefined };
   const translated =
     post.translation === null ? null : (
       <p className={cn("text-[13px] leading-4", X_GRAY)}>
@@ -861,7 +861,7 @@ export function XPostView({
         </div>
         {translated === null ? null : <div className="mt-3">{translated}</div>}
         <p className="mt-3 text-[17px] leading-6 break-words whitespace-pre-wrap">
-          <RichText text={shown.text} entities={shown.entities} />
+          <RichText text={shown.text} entities={shown.entities} styles={shown.styles} />
         </p>
         <div className="mt-3 flex flex-col gap-3 empty:hidden">
           {post.media.length === 0 ? null : <Media media={post.media} />}
@@ -956,7 +956,11 @@ export function XPostView({
         {translated}
         {shown.text === "" ? null : (
           <p className="-mt-1.5 text-[15px] leading-5 break-words whitespace-pre-wrap">
-            <RichText text={clampText(shown.text) ?? shown.text} entities={shown.entities} />
+            <RichText
+              text={clampText(shown.text) ?? shown.text}
+              entities={shown.entities}
+              styles={shown.styles}
+            />
             {clampText(shown.text) === null ? null : (
               <button
                 type="button"

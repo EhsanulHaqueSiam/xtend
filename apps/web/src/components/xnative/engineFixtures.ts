@@ -672,8 +672,13 @@ export function synth(): Readonly<Record<string, Fixture>> {
         hasMedia: true,
       },
     ),
+    // A Premium author's long post: bold and italic as X's richtext_tags carry them.
     say(6, "Reminder: your landing page headline is doing 80% of the work.", 140, {
       bookmarked: true,
+      styles: [
+        { start: 15, end: 36, style: "Bold" },
+        { start: 46, end: 61, style: "Italic" },
+      ],
     }),
     say(4, "লঞ্চের আগে তিনটি জিনিস পরীক্ষা করুন।", 200, {
       translation: { text: "Test three things before launch.", entities: NO_ENTITIES, from: "bn" },

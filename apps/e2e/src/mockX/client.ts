@@ -499,7 +499,18 @@ const SCRIPT = String.raw`
       const box = document.querySelector('[role="dialog"] [data-testid="tweetTextarea_0"]');
       const text = box?.textContent ?? "";
       log("tweetButton");
-      if (text.trim() !== "") void post("/i/api/graphql/" + window.__mockHash.CreateTweet + "/CreateTweet", { variables: { tweet_text: text } }).then(() => history.back());
+      // X sends a post with bold or italic as a long post, its runs as richtext_tags.
+      const tags = [];
+      let at = 0;
+      for (const node of box?.childNodes ?? []) {
+        const types = node instanceof HTMLElement ? [node.style.fontWeight === "700" && "Bold", node.style.fontStyle === "italic" && "Italic"].filter(Boolean) : [];
+        const length = node.textContent.length;
+        if (types.length > 0) tags.push({ from_index: at, to_index: at + length, richtext_types: types });
+        at += length;
+      }
+      const op = tags.length > 0 ? "CreateNoteTweet" : "CreateTweet";
+      const variables = tags.length > 0 ? { tweet_text: text, richtext_options: { richtext_tags: tags } } : { tweet_text: text };
+      if (text.trim() !== "") void post("/i/api/graphql/" + window.__mockHash[op] + "/" + op, { variables }).then(() => history.back());
       return;
     }
     const href = el.getAttribute("href") ?? el.dataset.href;
@@ -507,6 +518,34 @@ const SCRIPT = String.raw`
       event.preventDefault();
       go(href, false);
     }
+  });
+
+  // X's composer (Draft.js): for an account X lets format, its command key (⌘ on a Mac, Ctrl
+  // elsewhere) with B or I toggles the style of what is typed next, drawn as a styled leaf; for
+  // any other the keys do nothing. Once it styles, it types at the end itself.
+  const typing = { Bold: false, Italic: false };
+  const textBox = (event) => (event.target instanceof Element ? event.target.closest('[data-testid="tweetTextarea_0"]') : null);
+  document.addEventListener("keydown", (event) => {
+    const command = /Mac OS X/.test(navigator.userAgent) ? event.metaKey : event.ctrlKey;
+    const style = command ? { b: "Bold", i: "Italic" }[event.key] : undefined;
+    if (!textBox(event) || !style || !window.__mockFormats) return;
+    event.preventDefault();
+    typing[style] = !typing[style];
+    log("composer:" + style + (typing[style] ? " on" : " off"));
+  });
+  document.addEventListener("beforeinput", (event) => {
+    const box = textBox(event);
+    if (!box || typeof event.data !== "string" || event.data === "") return;
+    const plain = !typing.Bold && !typing.Italic;
+    if (plain && box.querySelector("[data-offset-key]") === null) return;
+    event.preventDefault();
+    if (plain) return void box.append(event.data);
+    const leaf = document.createElement("span");
+    leaf.dataset.offsetKey = "leaf";
+    if (typing.Bold) leaf.style.fontWeight = "700";
+    if (typing.Italic) leaf.style.fontStyle = "italic";
+    leaf.textContent = event.data;
+    box.append(leaf);
   });
 
   // X's Creator Studio (Jetfuel) buttons act on a pointer's whole press, as on x.com: a bare
@@ -632,7 +671,7 @@ export function shell(state: MockState, hashes: Readonly<Record<string, string>>
 <main role="main"><div data-testid="primaryColumn"></div></main>
 <div id="layers"></div>
 </div>
-<script>window.__mockHash = ${JSON.stringify(hashes)};</script>
+<script>window.__mockHash = ${JSON.stringify(hashes)}; window.__mockFormats = ${String(state.formats)};</script>
 <script src="/__mock/client.js"></script>
 </body></html>`;
 }

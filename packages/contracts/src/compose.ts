@@ -29,10 +29,22 @@ export const ReplySettings = Schema.Literals([
 ]);
 export type ReplySettings = typeof ReplySettings.Type;
 
-/** A block's own reply control wins over the draft's. */
+/**
+ * X's text formatting (Premium only): bold or italic on a run of a post's text, as X's own
+ * composer applies it and X's `richtext_tags` carry it. UTF-16 offsets into the text, end exclusive.
+ */
+export const TextStyle = Schema.Struct({
+  start: NonNegativeInt,
+  end: NonNegativeInt,
+  style: Schema.Literals(["Bold", "Italic"]),
+});
+export type TextStyle = typeof TextStyle.Type;
+
+/** A block's own reply control wins over the draft's. Formatting only X's composer applies, so only the session posts it. */
 export const DraftBlock = Schema.Struct({
   text: Schema.String,
   replySettings: Schema.optional(ReplySettings),
+  styles: Schema.optional(Schema.Array(TextStyle)),
 });
 export type DraftBlock = typeof DraftBlock.Type;
 

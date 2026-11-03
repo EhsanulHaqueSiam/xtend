@@ -124,7 +124,8 @@ const make = Effect.gen(function* () {
   ) {
     const ids = [...draft.postIds];
     // A click goes through the user's own composer, poll and who-can-reply included; unattended
-    // posts keep the API. Media and a GIF only the session can add, so media waits for a click.
+    // posts keep the API. Media, a GIF and bold or italic only the session can add, so they wait
+    // for a click.
     const sessionClick =
       clicked &&
       (yield* settings.get.pipe(
@@ -143,14 +144,15 @@ const make = Effect.gen(function* () {
         Effect.fail(mayHavePosted(e) ? new Unconfirmed({ post: i + 1, detail: e.message }) : e);
       const poll = i === 0 && draft.poll !== null ? { poll: draft.poll } : {};
       const picked = i === 0 && gif !== undefined ? { gif } : {};
-      // Media rides only the session, and the session only acts on a click.
-      if (media.length > 0 && !clicked)
+      const styles = draft.blocks[i]?.styles ?? [];
+      // Media and formatting ride only the session, and the session only acts on a click.
+      if ((media.length > 0 || styles.length > 0) && !clicked)
         return yield* new ComposeError({
           operation: "post",
-          detail: "Posts with media need your click: press Post now",
+          detail: `Posts with ${media.length > 0 ? "media" : "formatting"} need your click: press Post now`,
         });
       const { postId } =
-        media.length > 0 || "gif" in picked || sessionClick
+        media.length > 0 || "gif" in picked || styles.length > 0 || sessionClick
           ? yield* session
               .post({
                 text,
@@ -158,6 +160,7 @@ const make = Effect.gen(function* () {
                 replySettings,
                 ...poll,
                 ...picked,
+                ...(styles.length === 0 ? {} : { styles }),
                 ...(previous === undefined ? {} : { replyToPostId: previous }),
               })
               .pipe(Effect.catch(unsure))
