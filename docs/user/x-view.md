@@ -54,6 +54,12 @@ session actions are on in the desktop app, and Compose cannot take a GIF. With s
 off, in a browser without the desktop app, or over 280 characters, the box moves to Compose as a
 draft, where the price is shown.
 
+**Bold** and **Italic** format the text you select (⌘B and ⌘I, Ctrl on Windows and Linux) when
+your X account has Premium, as on X. Only X's own composer applies them, so they show only while
+session actions are on, and a formatted post goes through your session, free. On an account
+without Premium they show X's own offer, which opens X's Subscribe page. Posts written in bold or
+italic on X show that way in Xtend.
+
 Replying starts by reading the post: its text, its images and the thread above it. Xtend says
 what it thinks the post is ("Playful hot take") and why; if that is wrong, say what it is
 instead. **Angles** are replies written for that post, **With help** reworks your own words

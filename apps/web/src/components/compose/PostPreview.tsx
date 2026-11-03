@@ -6,6 +6,7 @@ import { useState } from "react";
 import { cn } from "../../lib/utils";
 import { savedPostAtom } from "../../state/library";
 import { XCard } from "../x";
+import { StyledText } from "../xnative/RichText";
 
 /** The post id in an x.com status link, or null when the text is not one. */
 export const quotedPostId = (url: string) =>
@@ -89,7 +90,7 @@ export function PostPreview({
             "mx-auto max-w-[300px] rounded-[28px] border border-white/13 px-1 pt-4 pb-2",
         )}
       >
-        {blocks.map(({ text }, i) => (
+        {blocks.map(({ text, styles = [] }, i) => (
           // eslint-disable-next-line react/no-array-index-key -- blocks are plain strings; position is their identity.
           <div key={i} className="flex gap-2.5 px-1 pt-1">
             <div className="flex flex-col items-center">
@@ -108,7 +109,11 @@ export function PostPreview({
                 <span className="truncate text-muted-foreground">@{handle ?? "you"} · now</span>
               </div>
               <p className="mt-0.5 whitespace-pre-wrap break-words text-[13.5px] leading-[1.4]">
-                {text === "" ? <span className="text-placeholder">Your post</span> : text}
+                {text === "" ? (
+                  <span className="text-placeholder">Your post</span>
+                ) : (
+                  <StyledText text={text} styles={styles} />
+                )}
               </p>
               {media.some((m) => m.blockIndex === i) ? (
                 <div className="mt-2 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border">

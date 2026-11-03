@@ -1,13 +1,12 @@
 import {
   ComposeError,
   type Draft,
-  type DraftBlock,
+  DraftBlock,
   type DraftMedia,
   type DraftPatch,
   type DraftPoll,
   type DraftStatus,
   type QueueRun,
-  ReplySettings,
   isComposeError,
 } from "@xtend/contracts";
 import * as Context from "effect/Context";
@@ -22,11 +21,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 import { CURRENT_ACCOUNT } from "../persistence/account.ts";
 import * as Events from "../events/Events.ts";
 
-const BlocksJson = Schema.fromJsonString(
-  Schema.Array(
-    Schema.Struct({ text: Schema.String, replySettings: Schema.optional(ReplySettings) }),
-  ),
-);
+const BlocksJson = Schema.fromJsonString(Schema.Array(DraftBlock));
 const decodeBlocks = Schema.decodeUnknownSync(BlocksJson);
 const encodeBlocks = Schema.encodeSync(BlocksJson);
 const PollJson = Schema.fromJsonString(

@@ -620,6 +620,8 @@ export function ComposeEditor({
   const media = editor.media;
   const hasMedia = media.length > 0;
   const hasMediaAt = (i: number) => media.some((m) => m.blockIndex === i);
+  // Bold and italic only X's composer applies: like media, such a post goes through the session.
+  const styledAt = (i: number) => (blocks[i]?.styles?.length ?? 0) > 0;
   const quoteUrl = editor.quoteUrl.trim() === "" ? null : editor.quoteUrl.trim();
   const quoteBad = quoteUrl !== null && quotedPostId(quoteUrl) === null;
   const isArticle = editor.kind === "article";
@@ -654,7 +656,9 @@ export function ComposeEditor({
   const total = sumUsd(costs);
   const scheduledTotal = sumUsd(priced(false));
   const linkCount = rates === null ? 0 : costs.filter((c) => c === rates.postWithLink).length;
-  const sessionCount = blocks.filter((_, i) => i >= skipped && (hasMediaAt(i) || laneText)).length;
+  const sessionCount = blocks.filter(
+    (_, i) => i >= skipped && (hasMediaAt(i) || styledAt(i) || laneText),
+  ).length;
   const toPost = blocks.length - skipped;
   const cover = media.find((m) => m.blockIndex === 0 && m.kind === "image");
   // What the publisher would refuse (Publisher.refusal), caught before a thread stops halfway.
@@ -699,7 +703,9 @@ export function ComposeEditor({
     busy === null;
   // Fields stay put while the service owns the draft or a post is going out.
   const frozen = locked || busy === "post";
-  const sessionBlocked = hasMedia && (!sessionPosting || context?.desktopConnected === false);
+  const sessionBlocked =
+    (hasMedia || blocks.some((_, i) => styledAt(i))) &&
+    (!sessionPosting || context?.desktopConnected === false);
   // Queue and Schedule: what the slot will charge.
   const price =
     scheduledUsd === null ? (
@@ -791,7 +797,8 @@ export function ComposeEditor({
                         <div className="flex justify-between py-0.5 text-muted-foreground">
                           <dt>
                             {sessionCount}
-                            {laneText ? "" : " with media,"} through your x.com session
+                            {laneText ? "" : " with media or formatting,"} through your x.com
+                            session
                           </dt>
                           <dd>free</dd>
                         </div>
@@ -958,8 +965,8 @@ export function ComposeEditor({
             {sessionBlocked ? (
               <p className="mb-3 text-xs text-warning-foreground">
                 {sessionPosting
-                  ? "Media posts go through your x.com session, and no desktop is connected."
-                  : "Media posts go through your x.com session. Turn on Session posting in Settings."}
+                  ? "Media and formatting go through your x.com session, and no desktop is connected."
+                  : "Media and formatting go through your x.com session. Turn on Session posting in Settings."}
               </p>
             ) : null}
             {waiting ? (
@@ -1068,6 +1075,7 @@ export function ComposeEditor({
             ) : (
               <fieldset disabled={frozen} className="min-w-0">
                 <ThreadEditor
+                  formatting={laneText}
                   blocks={blocks}
                   media={media}
                   previews={previews}
@@ -1079,6 +1087,8 @@ export function ComposeEditor({
                       "already on X, free"
                     ) : hasMediaAt(i) ? (
                       "media, through your session, free"
+                    ) : styledAt(i) ? (
+                      "formatting, through your session, free"
                     ) : c === rates.postWithLink ? (
                       <>
                         link

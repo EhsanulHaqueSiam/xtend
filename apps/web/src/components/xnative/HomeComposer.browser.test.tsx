@@ -14,6 +14,7 @@ const { render } = await import("../../../test/render");
 const { EngineSync } = await import("./EngineSync");
 const { HomeComposer } = await import("./HomeComposer");
 const { markXReady, registerXWebview } = await import("../../state/x");
+const { emptyEngine, updateEngine } = await import("../../state/engine");
 
 const person = (handle: string, followers: number, youFollow: boolean) =>
   ({
@@ -339,4 +340,155 @@ it("picks a GIF from X's own search in the engine and posts it free, leaving X's
   } finally {
     registerXWebview(null);
   }
+});
+
+// X's own command key for bold and italic, as the box reads it.
+const COMMAND = navigator.userAgent.includes("Mac") ? "Meta" : "Control";
+
+it("formats the selection with Bold and X's shortcut for an account X lets format, and posts the runs", async () => {
+  const { log, creates, service } = setup();
+  await using screen = await render(
+    <>
+      <EngineSync />
+      <HomeComposer />
+    </>,
+    { service },
+  );
+  bridge.emitEngine({ ...people, op: "GetUserClaims", claims: ["subscriptions_feature_1014"] });
+  const box = screen.getByLabelText("Post text");
+  await userEvent.click(box);
+  await userEvent.keyboard("  go big now");
+  const area = box.element() as HTMLTextAreaElement;
+  area.setSelectionRange(5, 8);
+  const bold = screen.getByRole("button", { name: "Bold" });
+  await userEvent.click(bold);
+  await expect.element(bold).toHaveAttribute("aria-pressed", "true");
+  area.setSelectionRange(9, 12);
+  await userEvent.keyboard(`{${COMMAND}>}i{/${COMMAND}}`);
+  await expect
+    .element(screen.getByRole("button", { name: "Italic" }))
+    .toHaveAttribute("aria-pressed", "true");
+  // Typed at a run's end, it joins the run.
+  area.setSelectionRange(12, 12);
+  await userEvent.keyboard("!");
+
+  await userEvent.click(screen.getByRole("button", { name: "Post", exact: true }));
+  await expect.poll(() => log).toEqual(["post h1 sessionOnly=true"]);
+  // Trimmed as posted, the runs move with the text.
+  expect(creates).toEqual([
+    {
+      blocks: [
+        {
+          text: "go big now!",
+          styles: [
+            { start: 3, end: 6, style: "Bold" },
+            { start: 7, end: 11, style: "Italic" },
+          ],
+        },
+      ],
+      quoteUrl: null,
+    },
+  ]);
+});
+
+it("shows X's own upsell on Bold for an account X does not let format, and posts the text plain", async () => {
+  const { log, creates, service } = setup();
+  await using screen = await render(
+    <>
+      <EngineSync />
+      <HomeComposer />
+    </>,
+    { service },
+  );
+  bridge.emitEngine({ ...people, op: "GetUserClaims", claims: [] });
+  const box = screen.getByLabelText("Post text");
+  await userEvent.click(box);
+  await userEvent.keyboard("hi");
+  (box.element() as HTMLTextAreaElement).setSelectionRange(0, 2);
+  await userEvent.keyboard(`{${COMMAND}>}b{/${COMMAND}}`);
+  await userEvent.click(screen.getByRole("button", { name: "Bold" }));
+  await expect
+    .element(
+      page.getByText("Write longer posts and apply text formatting such as bold and italic."),
+    )
+    .toBeVisible();
+  await expect
+    .element(page.getByRole("link", { name: "Subscribe on X" }))
+    .toHaveAttribute("href", "https://x.com/i/premium_sign_up?referring_page=sidebar_longform");
+  // Tests load no CSS, so Base UI's layer covers the box: Post is pressed in place.
+  (screen.getByRole("button", { name: "Post", exact: true }).element() as HTMLElement).click();
+  await expect.poll(() => log).toEqual(["post h1 sessionOnly=true"]);
+  expect(creates).toEqual([{ blocks: [{ text: "hi" }], quoteUrl: null }]);
+});
+
+it("goes by X's composer when X never sends GetUserClaims, and offers X's upsell until X shows formatting", async () => {
+  // As on a live account where X's page never asked for claims: nothing said either way.
+  updateEngine(() => emptyEngine);
+  const { service } = setup();
+  await using screen = await render(
+    <>
+      <EngineSync />
+      <HomeComposer />
+    </>,
+    { service },
+  );
+  const box = screen.getByLabelText("Post text");
+  await userEvent.click(box);
+  await userEvent.keyboard("hi");
+  const area = box.element() as HTMLTextAreaElement;
+  area.setSelectionRange(0, 2);
+  const bold = screen.getByRole("button", { name: "Bold" });
+  await userEvent.click(bold);
+  const upsell = page.getByText(
+    "Write longer posts and apply text formatting such as bold and italic.",
+  );
+  await expect.element(upsell).toBeVisible();
+  await userEvent.click(bold);
+  await expect.element(upsell).not.toBeInTheDocument();
+
+  // X's composer draws formatting for the account (no claims still): Bold formats.
+  bridge.emitEngine({
+    ...people,
+    op: "ViewerFromNav",
+    viewer: { userId: null, handle: "you", name: null, avatarUrl: null },
+    formatting: true,
+  });
+  area.setSelectionRange(0, 2);
+  await userEvent.click(bold);
+  await expect.element(bold).toHaveAttribute("aria-pressed", "true");
+});
+
+it("leaves a mention plain in a bold sentence, as X's composer does, and as Compose keeps it", async () => {
+  const { creates, service } = setup();
+  await using screen = await render(
+    <>
+      <EngineSync />
+      <HomeComposer />
+    </>,
+    { service },
+  );
+  bridge.emitEngine({ ...people, op: "GetUserClaims", claims: ["subscriptions_feature_1014"] });
+  const box = screen.getByLabelText("Post text");
+  await userEvent.click(box);
+  await userEvent.keyboard("go @alice now");
+  (box.element() as HTMLTextAreaElement).setSelectionRange(0, 13);
+  await userEvent.click(screen.getByRole("button", { name: "Bold" }));
+  // The box draws what will post: "@alice" not in bold.
+  const drawn = () =>
+    Array.from(screen.container.querySelectorAll("[aria-hidden] span"), (s) => s.textContent);
+  await expect.poll(drawn).toEqual(["go ", " now"]);
+  // Typed over the plain mention, the word stays plain, as it does in Compose.
+  (box.element() as HTMLTextAreaElement).setSelectionRange(3, 9);
+  await userEvent.keyboard("there");
+  await userEvent.click(screen.getByRole("button", { name: "Post", exact: true }));
+  await expect.poll(() => creates.length).toBe(1);
+  expect(creates[0]?.blocks).toEqual([
+    {
+      text: "go there now",
+      styles: [
+        { start: 0, end: 3, style: "Bold" },
+        { start: 8, end: 12, style: "Bold" },
+      ],
+    },
+  ]);
 });

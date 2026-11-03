@@ -1244,6 +1244,22 @@ test("Home's GIF picker searches X's own GIF search on the engine, pages it, and
   expect(writes()).toBe(before);
 });
 
+test("Bold in Home's box opens X's own upsell for an account X does not let format", async () => {
+  await go("/home?feed=following");
+  await e.app.getByLabel("Post text").click();
+  const bold = e.app.getByRole("button", { name: "Bold", exact: true });
+  await bold.click();
+  const upsell = e.app.getByText(
+    "Write longer posts and apply text formatting such as bold and italic.",
+  );
+  await upsell.waitFor();
+  expect(await e.app.getByRole("link", { name: "Subscribe on X" }).getAttribute("href")).toBe(
+    "https://x.com/i/premium_sign_up?referring_page=sidebar_longform",
+  );
+  await bold.click();
+  await upsell.waitFor({ state: "detached" });
+});
+
 test("An Article's card opens Xtend's reader with the engine on X's reader page, the body from X's answer", async () => {
   const reader = e.mock.state.fixtures().article!.batches[0]!;
   const post = reader.posts[0]!;

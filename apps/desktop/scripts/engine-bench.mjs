@@ -1772,6 +1772,58 @@ const benchmarks = [
     },
   ],
   [
+    "Bold and italic follow X's own gate: Premium formats in Home's box, anyone else gets X's upsell (dry)",
+    async () => {
+      await home("following");
+      // X's own gate as its Home composer draws it: its editor uncapped only when X lets the
+      // account format. Claims count when X sent them; some accounts never get GetUserClaims.
+      const drawn = await until(
+        () =>
+          engine(
+            `(() => { const b = document.querySelector('[data-testid="tweetTextarea_0RichTextInputContainer"]'); return b && (getComputedStyle(b).maxHeight === "none" ? "formats" : "capped"); })()`,
+          ),
+        10_000,
+      );
+      if (!drawn) return false;
+      const claims = await store(`$.claims && [...$.claims]`);
+      const premium =
+        (Array.isArray(claims) && claims.includes("subscriptions_feature_1014")) ||
+        drawn === "formats";
+      // The store has X's composer's word too, from the session view's own reading of it.
+      const stored = await until(
+        async () => (await store(`$.formatting`)) === (drawn === "formats"),
+        10_000,
+      );
+      // Xtend's own box only: nothing is typed into X's composer or sent.
+      const fill = (text) =>
+        app(
+          `(() => { const t = document.querySelector('main textarea[aria-label="Post text"]'); t.focus(); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(t, ${JSON.stringify(text)}); t.dispatchEvent(new Event("input", { bubbles: true })); t.setSelectionRange(0, ${text.length}); return true; })()`,
+        );
+      const bold = `document.querySelector('main button[aria-label="Bold"]')`;
+      await fill("bench");
+      if (!(await until(() => app(`!!${bold}`), 5_000))) return false;
+      await app(`${bold}.click(), true`);
+      const ok = premium
+        ? await until(() => app(`${bold}.getAttribute("aria-pressed") === "true"`), 5_000)
+        : await until(
+            () =>
+              app(
+                `[...document.querySelectorAll("a")].some((a) => a.textContent === "Subscribe" && a.href === "https://x.com/i/premium_sign_up?referring_page=sidebar_longform") && document.body.textContent.includes("apply text formatting such as bold and italic")`,
+              ),
+            5_000,
+          );
+      if (!premium) await app(`${bold}.click(), true`);
+      await fill("");
+      const said = `X's composer ${drawn}, claims ${claims === null ? "never sent" : JSON.stringify(claims)}`;
+      if (!stored) console.log(`  the store missed what X's composer draws (${said})`);
+      return (
+        ok &&
+        stored &&
+        `${premium ? "Premium: Bold formats" : "not Premium: X's upsell, X's sign-up page"} (${said})`
+      );
+    },
+  ],
+  [
     "⌘R reloads Home and a post from X: lists refill in X's order, the post stays",
     async () => {
       // `__xtendRefresh` is what main's ⌘R and F5 call: DevTools keys skip before-input-event.

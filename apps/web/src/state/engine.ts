@@ -166,6 +166,8 @@ export const communitySearchSurface = (id: string, mode: CommunitySearchMode, qu
 export const bookmarkFolderSurface = (folderId: string) => `bookmarkFolder:${folderId}` as const;
 /** X's claim (GetUserClaims) that the account has bookmark folders, which X keeps to Premium. */
 export const FOLDERS_CLAIM = "subscriptions_feature_1002";
+/** X's claim for bold and italic in its composer (GetUserClaims). */
+const FORMAT_CLAIM = "subscriptions_feature_1014";
 /** What X's GIF search lists for a query; X's picker opens on the empty one. */
 export const gifSurface = (query: string) => `gifs:${query}` as const;
 /** X's search of Communities, from the hub: the Communities it finds for the query. */
@@ -438,12 +440,14 @@ export interface EngineState {
   readonly leaders: ReadonlyArray<EngineLeaders>;
   /** The games of the day X's NBA schedule last showed, in X's order. */
   readonly nbaDay: ReadonlyArray<string>;
+  /** Whether X's composer lets the account format, as X's page last drew it; null until it has. */
+  readonly formatting: boolean | null;
   readonly radar: Radar;
   /** The page cursors X last answered per surface, to tell a fetch of newer posts from the next page. */
   readonly cursors: Readonly<
     Partial<Record<AnySurface, { readonly top: string | null; readonly bottom: string | null }>>
   >;
-  /** What X's latest GetUserClaims says the account holds (see `FOLDERS_CLAIM`); null until (if) it says. */
+  /** What X's latest GetUserClaims says the account holds (`FOLDERS_CLAIM`, `FORMAT_CLAIM`); null until (if) it says. */
   readonly claims: ReadonlySet<string> | null;
   /** The user's bookmark folders in X's order; null until X listed them, which it does for Premium. */
   readonly bookmarkFolders: ReadonlyArray<EngineBookmarkFolder> | null;
@@ -485,6 +489,7 @@ export const emptyEngine: EngineState = {
   standings: [],
   leaders: [],
   nbaDay: [],
+  formatting: null,
   radar: { list: null, queries: new Map(), limit: null, counts: new Map() },
   cursors: {},
   claims: null,
@@ -641,6 +646,7 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
     standings: batch.standings ?? state.standings,
     leaders: batch.leaders ?? state.leaders,
     claims: batch.claims === undefined ? state.claims : new Set(batch.claims),
+    formatting: batch.formatting ?? state.formatting,
     bookmarkFolders: foldersOf(state.bookmarkFolders, batch),
     ...folderPost(state, batch),
     radar: mergeRadar(state.radar, batch),
@@ -1214,6 +1220,16 @@ export const engineAtom = Atom.make(emptyEngine).pipe(Atom.keepAlive);
 
 /** The account X's page is signed in as, once it has said; a screen re-renders only when it changes. */
 export const viewerHandleAtom = Atom.make((get) => get(engineAtom).viewer?.handle ?? null);
+
+/**
+ * Whether X lets the account bold and italicize: X's claim for it (`FORMAT_CLAIM`) or X's composer
+ * drawing it. Some accounts never get GetUserClaims, so neither yet means not;
+ * a wrong yes still posts nothing, as the desktop refuses unless X's editor took the formatting.
+ */
+export const canFormatAtom = Atom.make((get) => {
+  const { claims, formatting } = get(engineAtom);
+  return claims?.has(FORMAT_CLAIM) === true || formatting === true;
+});
 
 /** Engine fixtures dev replayed into the store, in a browser with no desktop (DevEngineReplay). */
 export const engineReplayAtom = Atom.make<ReadonlyArray<string>>([]).pipe(Atom.keepAlive);
