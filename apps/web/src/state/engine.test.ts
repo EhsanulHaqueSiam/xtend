@@ -642,6 +642,55 @@ it("keeps X's Post Analytics per post, as X last counted them", () => {
   ]);
 });
 
+it("knows the day X's NBA schedule shows, an empty one too, and that X has not answered yet", () => {
+  const game = {
+    gameId: "51",
+    status: "Final",
+    startsAt: null,
+    away: { abbreviation: "LAL", name: null, points: 1, timeouts: null, bonus: null },
+    home: { abbreviation: "UTA", name: null, points: 0, timeouts: null, bonus: null },
+    period: null,
+    periodType: null,
+    clock: null,
+    halftime: false,
+    lastPlay: null,
+  };
+  expect(emptyEngine.nbaDay).toBe(null);
+  let state = mergeBatch(emptyEngine, { ...batch("NBASchedule", []), games: [game] });
+  expect(state.nbaDay).toEqual(["51"]);
+  state = mergeBatch(state, { ...batch("NBASchedule", []), games: [] });
+  expect(state.nbaDay).toEqual([]);
+});
+
+it("keeps X's news stories per trend, and X's latest NBA standings and leaders", () => {
+  const story = (id: string, title: string) => ({
+    ...batch("AiTrendByRestId", []),
+    key: id,
+    story: { title, summary: "", updatedAt: null, disclaimer: null, timelines: [] },
+  });
+  let state = mergeBatch(emptyEngine, story("1", "First"));
+  state = mergeBatch(state, story("2", "Second"));
+  state = mergeBatch(state, story("1", "First, updated"));
+  state = mergeBatch(state, {
+    ...batch("NBAStandings", []),
+    standings: [{ name: "East", divisions: [] }],
+  });
+  state = mergeBatch(state, { ...batch("NBALeaders", []), leaders: [] });
+  state = mergeBatch(state, batch("HomeLatestTimeline", []));
+  expect([
+    [...state.stories].map(([id, s]) => [id, s.title]),
+    state.standings,
+    state.leaders,
+  ]).toEqual([
+    [
+      ["1", "First, updated"],
+      ["2", "Second"],
+    ],
+    [{ name: "East", divisions: [] }],
+    [],
+  ]);
+});
+
 it("keeps a post's context and ad mark per page, and lets a thread's newer replies in at once", () => {
   const reposted = {
     ...post("2", "2026-10-31T00:00:00Z"),

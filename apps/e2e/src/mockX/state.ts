@@ -682,6 +682,9 @@ export function createMockState(options: MockOptions = {}) {
         const id = s(variables, "timelineId") ?? "";
         const inspired = inspiration(id);
         if (inspired !== null) return inspired;
+        // A news story's tabs are timelines of their own.
+        const story = fixture(op, id);
+        if (story !== undefined) return live(story);
         const tab = exploreTabs.find((t) => t.timelineId === id);
         if (tab === undefined) return null;
         return page(op, id, [], {
@@ -795,7 +798,11 @@ export function createMockState(options: MockOptions = {}) {
       case "UserSportsProfile":
         return fixture(op, s(variables, "rest_id") ?? "") ?? null;
       case "NBASchedule":
+      case "NBAStandings":
+      case "NBALeaders":
         return fixture(op, null) ?? null;
+      case "AiTrendByRestId":
+        return fixture(op, s(variables, "trendId") ?? "") ?? null;
       case "NBAGameHydrate":
       case "NBALiveGame": {
         const g = games.get(s(variables, "rest_id") ?? "");

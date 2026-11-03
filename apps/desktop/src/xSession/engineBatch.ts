@@ -1,6 +1,7 @@
 import type {
   EngineArticle,
   EngineArticleBlock,
+  EngineRecord,
   EngineBatch,
   EngineBookmarkFolder,
   EngineCard,
@@ -1056,6 +1057,8 @@ function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExp
   // A post's reposters and likers (X's Post activity).
   if (op === "Retweeters" || op === "Favoriters") return s("tweetId") ?? null;
   if (op === "TweetActivityQuery") return s("restId") ?? null;
+  // A news story's page asks for it by its trend id.
+  if (op === "AiTrendByRestId") return s("trendId") ?? null;
   // X's Follow page asks with a JSON context: empty for Who to follow, only the creators flag
   // for its other tab. Any other context (people like someone) is no tab of that page.
   if (op === "ConnectTabTimeline") {
@@ -1289,14 +1292,132 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     homeTabs: readHomeTabs(record(body)),
     exploreTabs,
     viewer: op === "Viewer" ? readViewer(result(record(data.viewer).user_results)) : null,
-    ...(games.size === 0 ? {} : { games: [...games.values()] }),
+    ...(games.size > 0
+      ? { games: [...games.values()] }
+      : // X's schedule answered with no games that day: the day is empty, not unknown.
+        op === "NBASchedule" && Array.isArray(record(data.nba_schedule).games)
+        ? { games: [] }
+        : {}),
     ...(gifSlice === null ? {} : { gifs: arr(gifSlice.items).flatMap(readGif) }),
     ...(prompt === undefined ? {} : { prompt }),
     ...readAnalytics(op, data),
+    ...readStoryAndLeague(op, data),
     ...(folders === undefined ? {} : { bookmarkFolders: folders }),
     ...(claims === undefined ? {} : { claims }),
     ...readRadar(op, data),
   };
+}
+
+const recordOf = (value: unknown): EngineRecord | null => {
+  const r = record(value);
+  return typeof r.wins === "number" && typeof r.losses === "number"
+    ? { wins: r.wins, losses: r.losses }
+    : null;
+};
+const numberOr = (value: unknown) => (typeof value === "number" ? value : null);
+/** X's name for a conference or division, its alias when the name is empty. */
+const groupName = (value: unknown) =>
+  asString(record(value).name) || asString(record(value).alias) || "";
+
+/**
+ * X's news story (AiTrendByRestId) and its NBA league page's standings and stat leaders
+ * (NBAStandings, NBALeaders), as X's pages read them: standings in each division by X's rank,
+ * then by games over .500 and wins; leaders by rank.
+ */
+function readStoryAndLeague(
+  op: string,
+  data: Json,
+): Pick<EngineBatch, "story" | "standings" | "leaders"> {
+  if (op === "AiTrendByRestId") {
+    const page = record(result(data.ai_trend_by_rest_id).page);
+    const article = record(page.article);
+    const title = asString(article.title);
+    if (title === undefined) return {};
+    const updated = Number(page.last_updated_at_ms);
+    return {
+      story: {
+        title,
+        summary: asString(record(article.article_text).text) ?? "",
+        updatedAt: updated > 0 ? new Date(updated).toISOString() : null,
+        disclaimer: asString(page.disclaimer) ?? null,
+        timelines: arr(page.post_timelines).flatMap((t) => {
+          const timelineId = asString(record(record(t).post_timeline).id);
+          return timelineId === undefined
+            ? []
+            : [{ label: asString(record(t).label) ?? "", timelineId }];
+        }),
+      },
+    };
+  }
+  if (op === "NBAStandings") {
+    const conferences = record(data.nba_standings).conferences;
+    if (!Array.isArray(conferences)) return {};
+    const rank = (t: Json) => numberOr(t.division_rank) ?? Number.MAX_SAFE_INTEGER;
+    return {
+      standings: conferences.map((c) => ({
+        name: groupName(record(c).conference),
+        divisions: arr(record(c).divisions).map((d) => ({
+          name: groupName(record(d).division),
+          teams: arr(record(d).teams)
+            .map(record)
+            .toSorted(
+              (a, b) =>
+                rank(a) - rank(b) ||
+                asNumber(b.wins) - asNumber(b.losses) - (asNumber(a.wins) - asNumber(a.losses)) ||
+                asNumber(b.wins) - asNumber(a.wins),
+            )
+            .map((t) => ({
+              teamId: asString(record(t.team).rest_id) ?? "",
+              abbreviation: asString(t.abbreviation) ?? "",
+              name: asString(t.name) ?? "",
+              wins: asNumber(t.wins),
+              losses: asNumber(t.losses),
+              gamesBack: numberOr(t.games_behind_division),
+              home: recordOf(t.home),
+              road: recordOf(t.road),
+              division: recordOf(t.vs_division),
+              conference: recordOf(t.vs_conference),
+              pointsFor: numberOr(t.points_for),
+              pointsAgainst: numberOr(t.points_against),
+              pointDiff: numberOr(t.point_diff),
+              streak: asString(t.streak) || null,
+              lastTen: recordOf(t.last_10),
+            })),
+        })),
+      })),
+    };
+  }
+  if (op === "NBALeaders") {
+    const categories = record(data.nba_leaders).categories;
+    if (!Array.isArray(categories)) return {};
+    return {
+      leaders: categories.flatMap((c) => {
+        const leaders = arr(record(c).leaders)
+          .map(record)
+          .toSorted((a, b) => asNumber(a.rank) - asNumber(b.rank))
+          .map((l) => {
+            const info = record(record(l.player).info);
+            return {
+              rank: asNumber(l.rank),
+              name: asString(info.full_name) ?? asString(l.name) ?? "",
+              position: asString(info.position) ?? asString(l.position) ?? null,
+              value: asString(l.display_value) ?? String(asNumber(l.value)),
+              headshotUrl: asString(record(info.headshot).url) ?? null,
+            };
+          });
+        return leaders.length === 0
+          ? []
+          : [
+              {
+                key: asString(record(c).key) ?? "",
+                title: asString(record(c).name) ?? "",
+                leaders,
+              },
+            ];
+      }),
+    };
+  }
+  return {};
 }
 
 /** X's Post Analytics numbers (TweetActivityQuery), by X's metric name. */
@@ -1480,10 +1601,14 @@ export const hasEngineContent = (b: EngineBatch) =>
   b.exploreTabs !== null ||
   b.viewer !== null ||
   (b.games?.length ?? 0) > 0 ||
+  (b.op === "NBASchedule" && b.games !== undefined) ||
   b.gifs !== undefined ||
   b.prompt !== undefined ||
   b.analytics !== undefined ||
   b.knownFollowers !== undefined ||
+  b.story !== undefined ||
+  b.standings !== undefined ||
+  b.leaders !== undefined ||
   b.bookmarkFolders !== undefined ||
   b.claims !== undefined ||
   // A folder, or Bookmarks, X answered with no posts: the screen says it is empty.

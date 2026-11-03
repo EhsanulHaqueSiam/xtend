@@ -135,6 +135,13 @@ it("passes the committed engine fixtures and fails one that was not scrubbed", (
       ),
       /real link/,
     ],
+    [
+      fake.replace(
+        '"text":"https://t.co/s12"',
+        '"url":"https://x.com/i/trending/1985123456789012345"',
+      ),
+      /real link/,
+    ],
     [`{"open":["/u/elonmusk"]}`, /@elonmusk/],
     ["not json", /not JSON/],
   ] as const)
