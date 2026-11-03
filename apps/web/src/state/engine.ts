@@ -381,6 +381,17 @@ export interface EngineState {
    * them only when its Home loads, and Home's tab row draws only what X sent.
    */
   readonly pinned: ReadonlyMap<string, boolean>;
+  /**
+   * Follows and pins X took for the user's click, per List, until an answer of X's for that List
+   * agrees: X's page shows its own state from its cache and fetches nothing to say so.
+   */
+  readonly listFollows: ReadonlyMap<string, boolean>;
+  readonly listPins: ReadonlyMap<string, boolean>;
+  /**
+   * The Lists pinned to Home as X's own store keeps them: Home's pinned tabs from an answer naming
+   * each one, then X's pin, unpin, unfollow and delete answers since; null until such an answer.
+   */
+  readonly pinnedLists: ReadonlySet<string> | null;
   /** X's people modules (Who to follow) by id; a list names one where X put it among the posts. */
   readonly modules: ReadonlyMap<string, EngineModule>;
   /** Post and module ids per surface, in X's order. */
@@ -539,6 +550,9 @@ export const emptyEngine: EngineState = {
   asked: new Map(),
   membership: new Map(),
   pinned: new Map(),
+  listFollows: new Map(),
+  listPins: new Map(),
+  pinnedLists: null,
   modules: new Map(),
   lists: NONE,
   waiting: NONE,
@@ -633,9 +647,28 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
   let xLists = state.xLists;
   if (batch.lists.length > 0) {
     const next = new Map(xLists);
-    for (const list of batch.lists) next.set(list.listId, list);
+    for (const list of batch.lists) {
+      // A List's own page and X's writes name no section or row button: an earlier answer's stay.
+      const known = next.get(list.listId);
+      next.set(
+        list.listId,
+        known === undefined ? list : { ...known, ...list, group: list.group ?? known.group },
+      );
+    }
     xLists = next;
   }
+  // X's own pinned Lists, as its store keeps them (see `pinnedLists`).
+  const toggled =
+    batch.op === "PinTimeline" || batch.op === "UnpinTimeline" ? batch.lists[0] : undefined;
+  const pinnedLists =
+    batch.pinnedLists !== undefined
+      ? new Set(batch.pinnedLists)
+      : state.pinnedLists === null || toggled?.pinned === undefined
+        ? state.pinnedLists
+        : toggled.pinned
+          ? new Set(state.pinnedLists).add(toggled.listId)
+          : new Set([...state.pinnedLists].filter((id) => id !== toggled.listId));
+  const said = (id: string) => batch.lists.find((l) => l.listId === id);
   let communities = state.communities;
   if (batch.communities.length > 0) {
     const next = new Map(communities);
@@ -692,10 +725,15 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
     asked,
     membership,
     pinned,
+    listFollows: stillAsked(state.listFollows, (id) => said(id)?.following),
+    listPins: stillAsked(state.listPins, (id) =>
+      xPinned({ pinnedLists, homeTabs: homeTabs ?? state.homeTabs }, id, xLists.get(id)),
+    ),
+    pinnedLists,
     xLists,
     communities,
     prompts: promptsOf(state, batch),
-    homeTabs: batch.homeTabs ?? state.homeTabs,
+    homeTabs: batch.homeTabs ?? pinTabs(state.homeTabs, toggled),
     exploreTabs: batch.exploreTabs ?? state.exploreTabs,
     articles:
       batch.articles === undefined
@@ -747,12 +785,89 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
         batch,
         surface,
       ),
-    mergeGames(merged, batch),
+    mergeGames(listWrite(merged, batch), batch),
   );
   if (!/^Create(Note)?Tweet$/.test(batch.op)) return listed;
   // The response also carries the post it quotes, which stays where it was.
   const created = batch.posts.filter((p) => !batch.posts.some((q) => q.quotedId === p.postId));
   return created.reduce(placeCreated, listed);
+}
+
+/** What the user asked X for, per List, less what X's answer (`said`) now agrees with. */
+function stillAsked(
+  asked: ReadonlyMap<string, boolean>,
+  said: (listId: string) => boolean | undefined,
+): ReadonlyMap<string, boolean> {
+  const left = [...asked].filter(([id, on]) => said(id) !== on);
+  return left.length === asked.size ? asked : new Map(left);
+}
+
+/**
+ * What the user's List writes change, which X's page shows from its own store and fetches nothing
+ * for: a List made or followed goes first under Your Lists with its Pin; one unfollowed leaves Your
+ * Lists, one deleted the Lists page, and either leaves Home's tabs, a pin still held with it.
+ */
+function listWrite(state: EngineState, batch: EngineBatch): EngineState {
+  const written = batch.lists[0];
+  if ((batch.op === "CreateList" || batch.op === "ListSubscribe") && written !== undefined) {
+    const mine = {
+      ...(state.xLists.get(written.listId) ?? written),
+      group: "Your Lists",
+      button: "pin" as const,
+    };
+    const ids = at(state.listIds, "lists").filter((id) => id !== mine.listId);
+    const first = ids.findIndex((id) => state.xLists.get(id)?.group === "Your Lists");
+    return {
+      ...state,
+      xLists: new Map(state.xLists).set(mine.listId, mine),
+      listIds: set(
+        state.listIds,
+        "lists",
+        ids.toSpliced(first === -1 ? ids.length : first, 0, mine.listId),
+      ),
+    };
+  }
+  const gone = batch.listDeleted ?? (batch.op === "ListUnsubscribe" ? written?.listId : undefined);
+  if (gone === undefined) return state;
+  const deleted = batch.listDeleted !== undefined;
+  const xLists = new Map(state.xLists);
+  if (deleted) xLists.delete(gone);
+  // X keeps a List it suggests under Discover new Lists there.
+  const off = deleted || state.xLists.get(gone)?.group === "Your Lists";
+  const others = (held: ReadonlyMap<string, boolean>) =>
+    new Map([...held].filter(([id]) => id !== gone));
+  return {
+    ...state,
+    homeTabs: state.homeTabs.filter((t) => t.id !== `list:${gone}`),
+    pinnedLists:
+      state.pinnedLists === null
+        ? null
+        : new Set([...state.pinnedLists].filter((id) => id !== gone)),
+    listPins: others(state.listPins),
+    listFollows: deleted ? others(state.listFollows) : state.listFollows,
+    xLists,
+    listIds: off
+      ? set(
+          state.listIds,
+          "lists",
+          at(state.listIds, "lists").filter((id) => id !== gone),
+        )
+      : state.listIds,
+  };
+}
+
+/**
+ * Home's tabs after X's answer to a List pin or unpin: X adds a pinned List's tab last and drops an
+ * unpinned one's, so a Home X serves from its cache shows the change before X sends its tabs again.
+ */
+function pinTabs(
+  tabs: EngineState["homeTabs"],
+  toggled: EngineList | undefined,
+): EngineState["homeTabs"] {
+  if (toggled?.pinned === undefined) return tabs;
+  const id = `list:${toggled.listId}` as const;
+  const rest = tabs.filter((t) => t.id !== id);
+  return toggled.pinned ? [...rest, { id, label: toggled.name }] : rest;
 }
 
 /**
@@ -1306,6 +1421,35 @@ export const askPin = (state: EngineState, communityId: string, on: boolean): En
   ...state,
   pinned: new Map(state.pinned).set(communityId, on),
 });
+
+/** Whether the user follows a List: what X took for their click, until X's answer agrees. */
+export const listFollowing = (state: EngineState, list: EngineList) =>
+  state.listFollows.get(list.listId) ?? list.following ?? false;
+
+/**
+ * Whether X has a List pinned, as its answers say: its own pinned Lists once known, else what X
+ * said of the List, else whether Home's tabs list it.
+ */
+const xPinned = (
+  s: Pick<EngineState, "pinnedLists" | "homeTabs">,
+  listId: string,
+  list: EngineList | undefined,
+) =>
+  s.pinnedLists?.has(listId) ?? list?.pinned ?? s.homeTabs.some((t) => t.id === `list:${listId}`);
+
+/** Whether a List is pinned to Home: what X took for the user's click, until X's answer agrees. */
+export const listPinned = (state: EngineState, list: EngineList) =>
+  state.listPins.get(list.listId) ?? xPinned(state, list.listId, list);
+
+/** Keeps a List follow or pin X took for the user's click (see `listFollows`). */
+export const askList = (
+  state: EngineState,
+  listId: string,
+  change: { readonly following: boolean } | { readonly pinned: boolean },
+): EngineState =>
+  "following" in change
+    ? { ...state, listFollows: new Map(state.listFollows).set(listId, change.following) }
+    : { ...state, listPins: new Map(state.listPins).set(listId, change.pinned) };
 
 /** Whether the user follows someone: what they asked X for, until X's capture agrees. */
 export const youFollow = (state: EngineState, user: EngineUser) =>

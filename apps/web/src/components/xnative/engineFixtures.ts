@@ -299,6 +299,9 @@ export function scrub(batches: ReadonlyArray<EngineBatch>): ReadonlyArray<Engine
     bannerUrl: l.bannerUrl === null ? null : placeholder(`list-${id(l.listId)}`, 1500, 500),
     owner: l.owner === null ? null : person(l.owner),
     group: l.group,
+    ...(l.following === undefined ? {} : { following: l.following }),
+    ...(l.pinned === undefined ? {} : { pinned: l.pinned }),
+    ...(l.button === undefined ? {} : { button: l.button }),
   });
   const community = (c: EngineCommunity): EngineCommunity => ({
     communityId: id(c.communityId),
@@ -1082,6 +1085,9 @@ export function synth(): Readonly<Record<string, Fixture>> {
       avatarUrl: VIEWER.avatarUrl,
     },
     group: "Your Lists",
+    // Pinned to Home, as Home's tabs list it.
+    following: false,
+    pinned: true,
   };
   const discover: EngineList = {
     ...owned,
@@ -1097,6 +1103,8 @@ export function synth(): Readonly<Record<string, Fixture>> {
       avatarUrl: PEOPLE[2]!.avatarUrl,
     },
     group: "Discover new Lists",
+    pinned: false,
+    button: "follow",
   };
   const lists: Fixture = {
     meta: meta("lists", "Lists: your List and one to discover, and the List's own timeline", [
@@ -1104,7 +1112,9 @@ export function synth(): Readonly<Record<string, Fixture>> {
       `/lists/${owned.listId}`,
     ]),
     batches: [
-      batch("ListsManagementPageTimeline", null, [], { lists: [discover, owned] }),
+      batch("ListsManagementPageTimeline", null, [], {
+        lists: [discover, { ...owned, button: "pin" }],
+      }),
       // A List's own page names no section it sits in.
       batch("ListByRestId", `list:${owned.listId}`, [], { lists: [{ ...owned, group: null }] }),
       batch("ListLatestTweetsTimeline", `list:${owned.listId}`, forYou.slice(0, 3), {

@@ -1,14 +1,16 @@
 import { useAtomValue } from "@effect/atom-react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import type { EngineList } from "@xtend/contracts";
-import { Lock } from "lucide-react";
+import { ListPlus, Lock } from "lucide-react";
 import { useCallback, useEffect } from "react";
 
 import { fmt } from "../components/analyze/ui";
+import { ICON_BUTTON } from "../components/xnative/CommunityHeader";
+import { ListPinButton, useListDialog } from "../components/xnative/ListButtons";
 import { XColumn, XTitle } from "../components/xnative/XColumn";
 import { XRows } from "../components/xnative/XRows";
 import { Avatar } from "../components/xnative/XPostView";
-import { engineAtom } from "../state/engine";
+import { at, engineAtom } from "../state/engine";
 import { xGo, xNavigate } from "../state/x";
 
 type Row =
@@ -16,46 +18,51 @@ type Row =
   | { readonly kind: "list"; readonly list: EngineList }
   | { readonly kind: "none" };
 
-/** One List as X's Lists page shows it: banner, name, owner, members. */
-function ListRow({ list }: { readonly list: EngineList }) {
+/** One List as X's Lists page shows it: banner, name, owner, members, and on Your Lists X's Pin. */
+function ListRow({ list, handle }: { readonly list: EngineList; readonly handle: string | null }) {
   const navigate = useNavigate();
   return (
-    <button
-      type="button"
-      data-x="list-row"
-      className="flex w-full cursor-pointer items-center gap-3 px-4 py-3 text-left transition-colors duration-150 hover:bg-white/[0.03]"
-      onClick={() => void navigate({ to: "/lists/$id", params: { id: list.listId } })}
-    >
-      {list.bannerUrl === null ? (
-        <span className="size-12 shrink-0 rounded-xl bg-[#333639]" />
-      ) : (
-        <img
-          src={list.bannerUrl}
-          alt=""
-          loading="lazy"
-          className="size-12 shrink-0 rounded-xl object-cover"
-        />
-      )}
-      <span className="min-w-0 flex-1 text-[15px] leading-5">
-        <span className="flex items-center gap-1">
-          <b className="truncate font-bold">{list.name}</b>
-          {list.isPrivate ? <Lock className="size-3.5 shrink-0" /> : null}
-          {list.members === null ? null : (
-            <span className="shrink-0 text-[13px] text-[#71767b]">
-              · {fmt(list.members)} members
+    <div className="flex items-center transition-colors duration-150 hover:bg-white/[0.03]">
+      <button
+        type="button"
+        data-x="list-row"
+        className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 px-4 py-3 text-left"
+        onClick={() => void navigate({ to: "/lists/$id", params: { id: list.listId } })}
+      >
+        {list.bannerUrl === null ? (
+          <span className="size-12 shrink-0 rounded-xl bg-[#333639]" />
+        ) : (
+          <img
+            src={list.bannerUrl}
+            alt=""
+            loading="lazy"
+            className="size-12 shrink-0 rounded-xl object-cover"
+          />
+        )}
+        <span className="min-w-0 flex-1 text-[15px] leading-5">
+          <span className="flex items-center gap-1">
+            <b className="truncate font-bold">{list.name}</b>
+            {list.isPrivate ? <Lock className="size-3.5 shrink-0" /> : null}
+            {list.members === null ? null : (
+              <span className="shrink-0 text-[13px] text-[#71767b]">
+                · {fmt(list.members)} members
+              </span>
+            )}
+          </span>
+          <span className="flex items-center gap-1.5 text-[13px] text-[#71767b]">
+            {list.owner === null ? null : <Avatar url={list.owner.avatarUrl} size={16} />}
+            <span className="truncate">
+              {list.followers === null
+                ? (list.owner?.name ?? "")
+                : `${fmt(list.followers)} followers${list.owner === null ? "" : ` · by ${list.owner.name}`}`}
             </span>
-          )}
-        </span>
-        <span className="flex items-center gap-1.5 text-[13px] text-[#71767b]">
-          {list.owner === null ? null : <Avatar url={list.owner.avatarUrl} size={16} />}
-          <span className="truncate">
-            {list.followers === null
-              ? (list.owner?.name ?? "")
-              : `${fmt(list.followers)} followers${list.owner === null ? "" : ` · by ${list.owner.name}`}`}
           </span>
         </span>
-      </span>
-    </button>
+      </button>
+      {list.button === "pin" && handle !== null ? (
+        <ListPinButton list={list} handle={handle} />
+      ) : null}
+    </div>
   );
 }
 
@@ -76,9 +83,14 @@ function ListsScreen() {
 
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- moves the engine (the session view) to this screen's X page while it is open.
   useEffect(open, [open]);
+  const create = useListDialog();
   const rows: Array<Row> = [];
   let group: string | null = null;
-  for (const list of engine.xLists.values()) {
+  // X's own order on its Lists page, and only the Lists it listed there.
+  const listed = [...new Set(at(engine.listIds, "lists"))].flatMap(
+    (id) => engine.xLists.get(id) ?? [],
+  );
+  for (const list of listed) {
     if (list.group !== null && list.group !== group) rows.push({ kind: "group", name: list.group });
     group = list.group;
     rows.push({ kind: "list", list });
@@ -87,7 +99,24 @@ function ListsScreen() {
   if (rows.length > 0 && !rows.some((r) => r.kind === "group" && r.name === "Your Lists"))
     rows.push({ kind: "group", name: "Your Lists" }, { kind: "none" });
   return (
-    <XColumn header={<XTitle title="Lists" />} refresh={{ surfaces: ["lists"], load: reload }}>
+    <XColumn
+      header={
+        <XTitle
+          title="Lists"
+          actions={
+            <button
+              type="button"
+              aria-label="Create a new List"
+              className={ICON_BUTTON}
+              onClick={() => void create(null)}
+            >
+              <ListPlus className="size-5" />
+            </button>
+          }
+        />
+      }
+      refresh={{ surfaces: ["lists"], load: reload }}
+    >
       <XRows
         waitKey="lists"
         onReopen={reload}
@@ -101,7 +130,7 @@ function ListsScreen() {
           r.kind === "group" ? (
             <h2 className="px-4 pt-3 pb-1 text-[20px] font-extrabold">{r.name}</h2>
           ) : r.kind === "list" ? (
-            <ListRow list={r.list} />
+            <ListRow list={r.list} handle={handle} />
           ) : (
             <p className="px-4 py-6 text-center text-[15px] text-[#71767b]">
               You have not made or followed a List. When you do, it shows here.

@@ -5,11 +5,15 @@ import { fakeTimers, stubGlobal } from "../../test/render";
 
 import {
   communityButton,
+  listButton,
   markXReady,
   xAct,
   registerXWebview,
   xCommunityJoin,
   xCommunityPin,
+  xListDialog,
+  xListFollow,
+  xListPin,
   xEditProfile,
   xActInPlace,
   xFolderDialog,
@@ -1268,6 +1272,202 @@ it("keeps what X's Pin says after the press, even once a later press has started
     expect(await pinning).toEqual({ refused: false, label: "Unpin", toast: null });
   } finally {
     history.replaceState(null, "", start);
+  }
+});
+
+// X's List header (bundle.UserLists' ListDetail): counts linking its people, then its Follow,
+// which X gives no test id; and a row of X's Lists page with its Pin, drawn anchorless.
+const listHeader = (id: string, label: string) =>
+  `<div><h2>L${id}</h2><a href="/i/lists/${id}/members"><b>3</b> Members</a><a href="/i/lists/${id}/followers"><b>9</b> Followers</a><button role="button"><span>${label}</span></button></div>`;
+const listRow = (name: string, pin: string) =>
+  `<div data-testid="listCell" role="link"><div><span>${name}</span></div><div>3 members</div><button data-testid="list-icon-button" aria-label="${pin}"></button></div>`;
+/**
+ * X's rows under `root`, each given its List as React holds it: the cell's element, then the
+ * cell's component with its `link`, then the element holding the cell.
+ */
+const linked = <R extends ParentNode>(root: R, ...ids: ReadonlyArray<string>) => {
+  root.querySelectorAll('[data-testid="listCell"]').forEach((cell, i) =>
+    Reflect.set(cell, "__reactFiber$test", {
+      stateNode: cell,
+      memoizedProps: { className: "cell" },
+      return: {
+        memoizedProps: { link: { pathname: `/i/lists/${ids[i]}`, anchorless: true } },
+        return: { stateNode: cell.parentElement, memoizedProps: {}, return: null },
+      },
+    }),
+  );
+  return root;
+};
+const makers = { listId: "12", name: "Makers" };
+
+it("finds a List's Follow only in its own header on its page, and its Pin only in the row X rendered for it", () => {
+  const follow = (root: ParentNode, path: string) =>
+    listButton(root, path, makers, "follow")?.textContent ?? null;
+  const pin = (root: ParentNode, path: string, list = makers) =>
+    listButton(root, path, list, "pin")?.getAttribute("aria-label") ?? null;
+  const twelve = page(listHeader("12", "Following"));
+  expect(follow(twelve, "/i/lists/12")).toBe("Following");
+  // X moved to the List's members, or to List 120, with 12's header still drawn: not its page.
+  expect([follow(twelve, "/i/lists/12/members"), follow(twelve, "/i/lists/120")]).toEqual([
+    null,
+    null,
+  ]);
+  // A person's Follow (X's test id) beside the List's counts is never the List's.
+  expect(
+    follow(
+      page(
+        `<a href="/i/lists/12/members">3</a><div><button data-testid="7-follow">Follow</button></div>`,
+      ),
+      "/i/lists/12",
+    ),
+  ).toBeNull();
+  const rows = linked(
+    page(listRow("Other", "Unpin List") + listRow("Makers", "Pin List")),
+    "13",
+    "12",
+  );
+  expect([pin(rows, "/you/lists"), pin(rows, "/you/lists/"), pin(rows, "/i/lists/12")]).toEqual([
+    "Pin List",
+    "Pin List",
+    null,
+  ]);
+  // X draws only the rows near its scroll. With 12's row not drawn, no other row is its: not one of
+  // the same name, nor one whose member count reads as 12's name, nor a row React gave no List.
+  expect(pin(linked(page(listRow("Makers", "Unpin List")), "13"), "/you/lists")).toBeNull();
+  expect(
+    pin(linked(page(listRow("Other", "Pin List")), "13"), "/you/lists", {
+      listId: "12",
+      name: "3 members",
+    }),
+  ).toBeNull();
+  expect(pin(page(listRow("Makers", "Pin List")), "/you/lists")).toBeNull();
+  // A link above the element holding the cell is some other component's, not the cell's.
+  const loose = page(listRow("Makers", "Pin List"));
+  const cell = loose.querySelector('[data-testid="listCell"]')!;
+  Reflect.set(cell, "__reactFiber$test", {
+    stateNode: cell,
+    memoizedProps: {},
+    return: {
+      stateNode: cell.parentElement,
+      memoizedProps: {},
+      return: { memoizedProps: { link: { pathname: "/i/lists/12" } }, return: null },
+    },
+  });
+  expect(pin(loose, "/you/lists")).toBeNull();
+  // A cell drawn inside another: the inner cell's Pin is its own List's, never the outer's.
+  const nested = linked(
+    page(`<div data-testid="listCell" role="link">${listRow("Inner", "Pin List")}</div>`),
+    "12",
+    "13",
+  );
+  expect([
+    pin(nested, "/you/lists"),
+    pin(nested, "/you/lists", { listId: "13", name: "Inner" }),
+  ]).toEqual([null, "Pin List"]);
+});
+
+it("follows and pins a List only as the user clicked, on X's own buttons, and passes on X's toast", async () => {
+  document.body.innerHTML = listHeader("12", "Follow");
+  const pressed: Array<string> = [];
+  const follow = document.querySelector<HTMLElement>("button")!;
+  follow.addEventListener("click", () => {
+    pressed.push(follow.textContent!);
+    follow.querySelector("span")!.textContent = "Following";
+  });
+  inThisPage(() => `https://x.com${location.pathname}`);
+  const start = location.href;
+  try {
+    history.replaceState(null, "", "/i/lists/12");
+    // Xtend still says Following (the user unfollowed on x.com since): nothing is pressed.
+    expect(await xListFollow(makers, false, () => {})).toEqual({
+      refused: true,
+      label: "Follow",
+      toast: null,
+    });
+    expect(await xListFollow(makers, true, () => {})).toEqual({
+      refused: false,
+      label: "Following",
+      toast: null,
+    });
+    // X's Pin at its limit of pinned Timelines: X keeps the List unpinned and says why.
+    document.body.innerHTML = listRow("Makers", "Pin List");
+    linked(document.body, "12");
+    document.querySelector("[data-testid=list-icon-button]")!.addEventListener("click", () => {
+      pressed.push("Pin List");
+      document.body.insertAdjacentHTML(
+        "beforeend",
+        `<div data-testid="toast">You’ll need to remove one pinned Timeline before adding another</div>`,
+      );
+    });
+    history.replaceState(null, "", "/you/lists");
+    expect(await xListPin(makers, "you", true, () => {})).toEqual({
+      refused: false,
+      label: "Pin List",
+      toast: "You’ll need to remove one pinned Timeline before adding another",
+    });
+    expect(pressed).toEqual(["Follow", "Pin List"]);
+  } finally {
+    history.replaceState(null, "", start);
+  }
+});
+
+it("keeps X's List dialog over the main area through each of its steps, and says where X settled", async () => {
+  using _clock = fakeTimers();
+  document.body.innerHTML = "";
+  const start = location.pathname + location.search;
+  const shown: Array<boolean> = [];
+  inThisPage(() => `https://x.com${location.pathname}`);
+  try {
+    const dialog = xListDialog(null, (on) => shown.push(on));
+    await vi.advanceTimersByTimeAsync(1000);
+    expect([location.pathname, shown]).toEqual(["/i/lists/create", [true]]);
+    // Next: X's Add to your List, a page of its own in the engine's narrow window.
+    history.replaceState(null, "", "/i/lists/77/members/suggested");
+    await vi.advanceTimersByTimeAsync(600);
+    expect(shown).toEqual([true]);
+    // Done: X opens the new List.
+    history.replaceState(null, "", "/i/lists/77");
+    await vi.advanceTimersByTimeAsync(600);
+    expect([await dialog, shown]).toEqual(["/i/lists/77", [true, false]]);
+    // Edit List finished at once (Delete List, then X's Lists page): still X's dialog come and gone.
+    const edit = xListDialog("77", (on) => shown.push(on));
+    await vi.advanceTimersByTimeAsync(0);
+    history.replaceState(null, "", "/you/lists/");
+    await vi.advanceTimersByTimeAsync(600);
+    expect([await edit, shown]).toEqual(["/you/lists/", [true, false, true, false]]);
+  } finally {
+    history.replaceState(null, "", start);
+  }
+});
+
+it("shows X's List dialog over no other screen when the user leaves while X's route is still coming", async () => {
+  document.body.innerHTML = "";
+  const start = location.pathname + location.search;
+  const shown: Array<boolean> = [];
+  // X's router takes its time: the move to X's route waits until the test lets it through.
+  let asked: () => void = () => {};
+  const moving = new Promise<void>((resolve) => (asked = resolve));
+  let release: () => void = () => {};
+  registerXWebview({
+    loadURL: async () => {},
+    getURL: () => `https://x.com${location.pathname}`,
+    executeJavaScript: (code: string) =>
+      code.includes("pushState")
+        ? (asked(),
+          new Promise((resolve) => (release = () => resolve(new Function(`return ${code}`)()))))
+        : Promise.resolve(new Function(`return ${code}`)()),
+  } as unknown as XWebview);
+  markXReady();
+  try {
+    const dialog = xListDialog(null, (on) => shown.push(on));
+    await moving;
+    // The user opens another screen (AppShell ends X's place over the main area), then X moves.
+    xOverEnded();
+    release();
+    expect([await dialog, shown]).toEqual([null, []]);
+  } finally {
+    history.replaceState(null, "", start);
+    registerXWebview(null);
   }
 });
 
