@@ -36,7 +36,7 @@ export type RateCard = typeof RateCard.Type;
  * Only domains X actually turns into t.co links count. The old `\w+\.\w{2,}`
  * rule priced "Node.js" as a link.
  */
-const LINK_TLDS =
+export const LINK_TLDS =
   "com|net|org|io|dev|app|ai|co|me|sh|so|to|gg|xyz|info|biz|tv|fm|ly|us|uk|de|fr|ca|au|in|jp|eu|edu|gov";
 export const LINK_PATTERN = new RegExp(
   `https?:\\/\\/\\S+|\\bwww\\.\\S+|\\b[a-z0-9-]+\\.(?:${LINK_TLDS})(?:\\/\\S*)?(?=$|[\\s),.!?;:])`,

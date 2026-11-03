@@ -458,7 +458,7 @@ it("goes by X's composer when X never sends GetUserClaims, and offers X's upsell
   await expect.element(bold).toHaveAttribute("aria-pressed", "true");
 });
 
-it("leaves a mention plain in a bold sentence, as X's composer does, in the box and the post", async () => {
+it("leaves a mention plain in a bold sentence, as X's composer does, and as Compose keeps it", async () => {
   const { creates, service } = setup();
   await using screen = await render(
     <>
@@ -477,14 +477,17 @@ it("leaves a mention plain in a bold sentence, as X's composer does, in the box 
   const drawn = () =>
     Array.from(screen.container.querySelectorAll("[aria-hidden] span"), (s) => s.textContent);
   await expect.poll(drawn).toEqual(["go ", " now"]);
+  // Typed over the plain mention, the word stays plain, as it does in Compose.
+  (box.element() as HTMLTextAreaElement).setSelectionRange(3, 9);
+  await userEvent.keyboard("there");
   await userEvent.click(screen.getByRole("button", { name: "Post", exact: true }));
   await expect.poll(() => creates.length).toBe(1);
   expect(creates[0]?.blocks).toEqual([
     {
-      text: "go @alice now",
+      text: "go there now",
       styles: [
         { start: 0, end: 3, style: "Bold" },
-        { start: 9, end: 13, style: "Bold" },
+        { start: 8, end: 12, style: "Bold" },
       ],
     },
   ]);

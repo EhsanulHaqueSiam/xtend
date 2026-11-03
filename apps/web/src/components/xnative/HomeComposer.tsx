@@ -221,9 +221,10 @@ export function HomeComposer() {
   const boxDraft = useBoxDraft();
   const setToast = useAtomSet(toastAtom);
   const [text, setText] = useState("");
-  const [styles, setStyles] = useState<ReadonlyArray<TextStyle>>([]);
-  // What the box shows and posts: X leaves mentions and links plain, so the box does too.
-  const runs = plainEntities(text, styles);
+  // The runs as the box shows and posts them: X leaves mentions and links plain, so they never hold one.
+  const [styles, setRuns] = useState<ReadonlyArray<TextStyle>>([]);
+  const setStyles = (next: ReadonlyArray<TextStyle>, under = text) =>
+    setRuns(plainEntities(under, next));
   const canFormat = useAtomValue(canFormatAtom);
   const [files, setFiles] = useState<ReadonlyArray<Attached>>([]);
   const [poll, setPoll] = useState<DraftPoll | null>(null);
@@ -261,7 +262,7 @@ export function HomeComposer() {
     poll === null &&
     gif === null &&
     reply === "everyone" &&
-    runs.length === 0;
+    styles.length === 0;
 
   const mention = opened && !busy ? mentionAt(text, caret.start, caret.end) : null;
   const self = settings?.handle ?? engine.viewer?.handle ?? null;
@@ -321,7 +322,7 @@ export function HomeComposer() {
     const next = text.slice(0, mention.start) + inserted + text.slice(mention.end);
     flushSync(() => {
       setText(next);
-      setStyles(shiftStyles(styles, text, next, at));
+      setStyles(shiftStyles(styles, text, next, at), next);
       setCaret({ start: at, end: at });
     });
     box.current?.setSelectionRange(at, at);
@@ -331,7 +332,7 @@ export function HomeComposer() {
   const lead = text.length - text.trimStart().length;
   const post = {
     text: text.trim(),
-    styles: sliceStyles(runs, lead, lead + text.trim().length),
+    styles: sliceStyles(styles, lead, lead + text.trim().length),
     replySettings: reply,
     poll,
     files,
@@ -377,7 +378,7 @@ export function HomeComposer() {
       <fieldset disabled={busy} className="relative m-0 min-w-0 border-0 p-0">
         <StyledArea
           ref={box}
-          styles={runs}
+          styles={styles}
           font="py-2 text-[20px] leading-6"
           aria-label="Post text"
           aria-autocomplete="list"
@@ -389,7 +390,10 @@ export function HomeComposer() {
           onFocus={() => setOpened(true)}
           onChange={(e) => {
             setText(e.target.value);
-            setStyles(shiftStyles(styles, text, e.target.value, e.target.selectionEnd));
+            setStyles(
+              shiftStyles(styles, text, e.target.value, e.target.selectionEnd),
+              e.target.value,
+            );
             setCaret({ start: e.target.selectionStart, end: e.target.selectionEnd });
             setPick(0);
           }}
@@ -400,7 +404,7 @@ export function HomeComposer() {
             const style = session && canFormat ? styleKey(e) : null;
             if (style !== null) {
               e.preventDefault();
-              return setStyles(toggleStyle(runs, caret.start, caret.end, style));
+              return setStyles(toggleStyle(styles, caret.start, caret.end, style));
             }
             if (people.length > 0) {
               const step = { ArrowDown: 1, ArrowUp: -1 }[e.key];
@@ -608,7 +612,12 @@ export function HomeComposer() {
           ) : null}
           {/* Only X's composer applies them, so only where the session posts. */}
           {session ? (
-            <FormatTools styles={runs} selection={caret} onChange={setStyles} className={tool} />
+            <FormatTools
+              styles={styles}
+              selection={caret}
+              onChange={(next) => setStyles(next)}
+              className={tool}
+            />
           ) : null}
           <Tool label="Schedule in Compose" onClick={() => void handOff()}>
             <CalendarClock className="size-[18px]" />

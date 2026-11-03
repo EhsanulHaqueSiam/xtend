@@ -41,6 +41,9 @@ it("leaves mentions, hashtags, cashtags and links plain, as X's composer does", 
     bold(28, 30),
     bold(36, 37),
   ]);
+  // Not X's entities: a price (a cashtag starts with a letter), code, a #1, an email's @.
+  const plain = "Pay $100 today: Object.keys(x) is #1, mail a@b";
+  expect(plainEntities(plain, [bold(0, plain.length)])).toEqual([bold(0, plain.length)]);
 });
 
 it("cuts text where its runs start and end, counting from where it sits in the post", () => {

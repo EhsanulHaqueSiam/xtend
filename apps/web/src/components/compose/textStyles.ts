@@ -1,4 +1,4 @@
-import type { TextStyle } from "@xtend/contracts";
+import { LINK_TLDS, type TextStyle } from "@xtend/contracts";
 
 type Style = TextStyle["style"];
 
@@ -61,10 +61,19 @@ export const toggleStyle = (
     : normalize([...styles, { start, end, style }]);
 };
 
-// What X takes for a mention, hashtag, cashtag or link; read widely, as a run kept off a word X
-// would style only costs that word its style, while a run on one X keeps plain refuses the post.
-const ENTITY =
-  /[@#$][\p{L}\p{N}_]+|https?:\/\/\S*[^\s.,;:!?'")\]]|\b[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}(?:\/\S*[^\s.,;:!?'")\]])?/giu;
+// X's entities as its extractor (twitter-text) finds them: a mention, a hashtag with a letter, a
+// cashtag of up to 6 letters, and a link with a scheme or a TLD X links, short of trailing punctuation.
+const END = `[^\\s.,;:!?'")\\]]`;
+const ENTITY = new RegExp(
+  [
+    "(?<![\\w@])@\\w{1,15}",
+    "(?<![\\w&])#[\\p{L}\\p{N}_]*\\p{L}[\\p{L}\\p{N}_]*",
+    "(?<![\\w&])\\$[A-Za-z]{1,6}(?!\\w)",
+    `(?:https?:\\/\\/|\\bwww\\.)\\S*${END}`,
+    `\\b[a-z0-9-]+(?:\\.[a-z0-9-]+)*\\.(?:${LINK_TLDS})\\b(?:\\/\\S*${END})?`,
+  ].join("|"),
+  "giu",
+);
 
 /** The runs with `text`'s mentions, hashtags, cashtags and links left plain, as X's composer leaves them. */
 export const plainEntities = (text: string, styles: ReadonlyArray<TextStyle>) =>
