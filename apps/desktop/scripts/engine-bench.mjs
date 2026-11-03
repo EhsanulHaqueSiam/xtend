@@ -781,23 +781,22 @@ const benchmarks = [
       await go("#/lists");
       const listed = await until(() =>
         store(
-          `(() => { const ls = at($.listIds, "lists").map((id) => $.xLists.get(id)).filter(Boolean); return ls.length > 0 && ls.map((l) => ({ id: l.listId, name: l.name, button: l.button ?? null })); })()`,
+          `(() => { const ls = at($.listIds, "lists").map((id) => $.xLists.get(id)).filter(Boolean); return ls.length > 0 && ls.map((l) => ({ id: l.listId, button: l.button ?? null })); })()`,
         ),
       );
       if (!listed) return false;
-      // X's rows carry no link: its Pin is the one in the only row of that name.
-      const mine = listed.find(
-        (l) => l.button === "pin" && listed.filter((o) => o.name === l.name).length === 1,
-      );
+      // X draws its rows anchorless: a row's List is the link in its cell's React props.
+      const mine = listed.find((l) => l.button === "pin");
       let pin = "no List of yours";
       if (mine) {
         const xs = await until(() =>
           engine(
-            `(() => { const name = ${JSON.stringify(mine.name)}; const pins = [...document.querySelectorAll('[data-testid="listCell"]')].flatMap((cell) => { const pin = cell.querySelector('[data-testid="list-icon-button"]'); const named = [...cell.querySelectorAll("span, div")].some((el) => el.textContent.trim() === name); return named && pin && /^(Pin|Unpin) List$/.test(pin.getAttribute("aria-label") ?? "") ? [pin.getAttribute("aria-label")] : []; }); return pins.length === 1 ? pins[0] : undefined; })()`,
+            `(() => { const id = ${JSON.stringify(mine.id)}; const pins = [...document.querySelectorAll('[data-testid="listCell"]')].flatMap((cell) => { const key = Object.keys(cell).find((k) => k.startsWith("__reactFiber$")); let f = key && cell[key]; while (f && f.memoizedProps?.link === undefined) f = f.return; const pin = cell.querySelector('[data-testid="list-icon-button"]'); return f?.memoizedProps?.link?.pathname === "/i/lists/" + id && pin && /^(Pin|Unpin) List$/.test(pin.getAttribute("aria-label") ?? "") ? [pin.getAttribute("aria-label")] : []; }); return pins.length === 1 ? pins[0] : undefined; })()`,
           ),
         );
-        const ours = await app(
-          `[...document.querySelectorAll('main [data-x="list-row"]')].find((r) => r.querySelector("b")?.textContent === ${JSON.stringify(mine.name)})?.parentElement.querySelector('button[aria-label$=" List"]')?.getAttribute("aria-label")`,
+        // What Xtend's Pin shows: a press X took, else X's answer for the List, else Home's tabs.
+        const ours = await store(
+          `(() => { const id = ${JSON.stringify(mine.id)}; const on = $.listPins.get(id) ?? $.xLists.get(id)?.pinned ?? $.homeTabs.some((t) => t.id === "list:" + id); return on ? "Unpin List" : "Pin List"; })()`,
         );
         if (xs === undefined || ours !== xs) return false;
         pin = `${mine.id}: X's "${xs}"`;

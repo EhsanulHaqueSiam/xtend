@@ -1245,16 +1245,22 @@ const pressCommunity = async (
   return label === null ? null : { refused: false, label, toast: pressed.toast ?? null };
 };
 
+/** A React fiber in X's page, as far as a row's own link goes. */
+interface Fiber {
+  readonly memoizedProps?: { readonly link?: { readonly pathname?: unknown } } | null;
+  readonly return?: Fiber | null;
+}
+
 /**
- * X's own button of `kind` for a List in X's page at `path`. Follow: in the List's own header on
- * its page (no test id or label), the one box that links its Members. Pin: on X's Lists page, in
- * the one drawn row named `name` exactly, since X's rows carry no link (callers refuse a name another
- * List shares: a row X has not drawn may carry it). Runs in X's page as its own source.
+ * X's own button of `kind` for a List in X's page at `path`. Follow: in the List's own
+ * header on its page (no test id or label), the one box that links its Members. Pin: on X's Lists
+ * page, in the row X rendered for this List: X draws it anchorless, so the List is the `link` in
+ * the cell's React props. Runs in X's page as its own source.
  */
 export function listButton(
   root: ParentNode,
   path: string,
-  list: { readonly listId: string; readonly name: string },
+  list: { readonly listId: string },
   kind: "follow" | "pin",
 ): HTMLElement | null {
   const segment = path.split("/");
@@ -1263,16 +1269,12 @@ export function listButton(
       segment.length <= 4 && segment[1] !== "i" && segment[2] === "lists" && !segment[3];
     if (!listsPage) return null;
     const pins = [...root.querySelectorAll('[data-testid="listCell"]')].flatMap((cell) => {
+      // The cell's own component is the first one up from its element that X gave a link.
+      const key = Object.keys(cell).find((k) => k.startsWith("__reactFiber$"));
+      let fiber: Fiber | null | undefined = key === undefined ? null : Reflect.get(cell, key);
+      while (fiber && fiber.memoizedProps?.link === undefined) fiber = fiber.return;
       const pin = cell.querySelector<HTMLElement>('[data-testid="list-icon-button"]');
-      const named = [...cell.querySelectorAll("span, div")].some(
-        (el) => el.textContent?.trim() === list.name,
-      );
-      // X draws its row anchorless; one that links another List is that List's.
-      const other = [...cell.querySelectorAll('a[href*="/i/lists/"]')].some(
-        (a) => a.getAttribute("href")?.split("/i/lists/")[1]?.split(/[/?#]/)[0] !== list.listId,
-      );
-      return named &&
-        !other &&
+      return fiber?.memoizedProps?.link?.pathname === `/i/lists/${list.listId}` &&
         pin !== null &&
         /^(Pin|Unpin) List$/.test(pin.getAttribute("aria-label") ?? "")
         ? [pin]
@@ -1310,7 +1312,7 @@ export function listButton(
  * when X drew none first.
  */
 const pressList = async (
-  list: { readonly listId: string; readonly name: string },
+  list: { readonly listId: string },
   kind: "follow" | "pin",
   page: string,
   offers: RegExp,
@@ -1320,10 +1322,10 @@ const pressList = async (
   readonly label: string;
   readonly toast: string | null;
 } | null> => {
-  // The id goes into scripts run in X's page: digits only; the name only as a JSON string.
+  // The id goes into scripts run in X's page: digits only.
   if (!/^\d{1,25}$/.test(list.listId)) return null;
   const run = await nextRun();
-  const find = `(() => (${listButton.toString()})(document, location.pathname, ${JSON.stringify(list)}, ${JSON.stringify(kind)}))`;
+  const find = `(() => (${listButton.toString()})(document, location.pathname, ${JSON.stringify({ listId: list.listId })}, ${JSON.stringify(kind)}))`;
   const says = kind === "pin" ? `?.getAttribute("aria-label")` : `?.textContent.trim()`;
   const live = () => run === overRun;
   let tries = 10;
@@ -1380,7 +1382,7 @@ const pressList = async (
  * since is refused with X's words.
  */
 export const xListFollow = (
-  list: { readonly listId: string; readonly name: string },
+  list: { readonly listId: string },
   on: boolean,
   over: (shown: boolean) => void,
 ) =>
@@ -1398,7 +1400,7 @@ export const xListFollow = (
  * X's limit of pinned Timelines X keeps it unpinned and says so in its toast.
  */
 export const xListPin = (
-  list: { readonly listId: string; readonly name: string },
+  list: { readonly listId: string },
   handle: string,
   on: boolean,
   over: (shown: boolean) => void,

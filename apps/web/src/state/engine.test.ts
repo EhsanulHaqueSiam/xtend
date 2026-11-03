@@ -571,6 +571,16 @@ it("holds a List follow or pin X took until X's answer for that List agrees", ()
   const pinned = askList(agreed, "5", { pinned: true });
   expect(listPinned(mergeBatch(pinned, batch("HomeTimeline", [])), list("5", null))).toBe(true);
   expect(mergeBatch(pinned, tabs("5")).listPins.size).toBe(0);
+  // X's Lists page answers from before the pin, then Home lists the tab: Home's word stands.
+  const listsPage = (on: boolean) =>
+    batch("ListsManagementPageTimeline", [], {
+      lists: [list("5", "Your Lists", { pinned: on, button: "pin" })],
+    });
+  const confirmed = mergeBatch(mergeBatch(pinned, listsPage(false)), tabs("5"));
+  expect([confirmed.listPins.size, listPinned(confirmed, confirmed.xLists.get("5")!)]).toEqual([
+    0,
+    true,
+  ]);
   // Unfollowed while that pin is still held: X unpins it, and the hold goes with it.
   const dropped = mergeBatch(
     pinned,

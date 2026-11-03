@@ -1275,18 +1275,31 @@ it("keeps what X's Pin says after the press, even once a later press has started
 });
 
 // X's List header (bundle.UserLists' ListDetail): counts linking its people, then its Follow,
-// which X gives no test id; and a row of X's Lists page with its Pin.
+// which X gives no test id; and a row of X's Lists page with its Pin, drawn anchorless.
 const listHeader = (id: string, label: string) =>
   `<div><h2>L${id}</h2><a href="/i/lists/${id}/members"><b>3</b> Members</a><a href="/i/lists/${id}/followers"><b>9</b> Followers</a><button role="button"><span>${label}</span></button></div>`;
 const listRow = (name: string, pin: string) =>
   `<div data-testid="listCell" role="link"><div><span>${name}</span></div><div>3 members</div><button data-testid="list-icon-button" aria-label="${pin}"></button></div>`;
+/** X's rows under `root`, each given its List as React holds it: the cell's `link`, in props. */
+const linked = <R extends ParentNode>(root: R, ...ids: ReadonlyArray<string>) => {
+  root.querySelectorAll('[data-testid="listCell"]').forEach((cell, i) =>
+    Reflect.set(cell, "__reactFiber$test", {
+      memoizedProps: { className: "cell" },
+      return: {
+        memoizedProps: { link: { pathname: `/i/lists/${ids[i]}`, anchorless: true } },
+        return: null,
+      },
+    }),
+  );
+  return root;
+};
 const makers = { listId: "12", name: "Makers" };
 
-it("finds a List's Follow only in its own header on its page, and its Pin only in the one row of its name", () => {
+it("finds a List's Follow only in its own header on its page, and its Pin only in the row X rendered for it", () => {
   const follow = (root: ParentNode, path: string) =>
     listButton(root, path, makers, "follow")?.textContent ?? null;
-  const pin = (root: ParentNode, path: string) =>
-    listButton(root, path, makers, "pin")?.getAttribute("aria-label") ?? null;
+  const pin = (root: ParentNode, path: string, list = makers) =>
+    listButton(root, path, list, "pin")?.getAttribute("aria-label") ?? null;
   const twelve = page(listHeader("12", "Following"));
   expect(follow(twelve, "/i/lists/12")).toBe("Following");
   // X moved to the List's members, or to List 120, with 12's header still drawn: not its page.
@@ -1303,24 +1316,26 @@ it("finds a List's Follow only in its own header on its page, and its Pin only i
       "/i/lists/12",
     ),
   ).toBeNull();
-  const rows = page(listRow("Other", "Unpin List") + listRow("Makers", "Pin List"));
+  const rows = linked(
+    page(listRow("Other", "Unpin List") + listRow("Makers", "Pin List")),
+    "13",
+    "12",
+  );
   expect([pin(rows, "/you/lists"), pin(rows, "/you/lists/"), pin(rows, "/i/lists/12")]).toEqual([
     "Pin List",
     "Pin List",
     null,
   ]);
-  // X's rows carry no link: two of one name are no one's, and one linking another List is that one's.
+  // X draws only the rows near its scroll. With 12's row not drawn, no other row is its: not one of
+  // the same name, nor one whose member count reads as 12's name, nor a row React gave no List.
+  expect(pin(linked(page(listRow("Makers", "Unpin List")), "13"), "/you/lists")).toBeNull();
   expect(
-    pin(page(listRow("Makers", "Pin List") + listRow("Makers", "Unpin List")), "/you/lists"),
+    pin(linked(page(listRow("Other", "Pin List")), "13"), "/you/lists", {
+      listId: "12",
+      name: "3 members",
+    }),
   ).toBeNull();
-  expect(
-    pin(
-      page(
-        listRow("Makers", "Pin List").replace("</div>", `<a href="/i/lists/13">Makers</a></div>`),
-      ),
-      "/you/lists",
-    ),
-  ).toBeNull();
+  expect(pin(page(listRow("Makers", "Pin List")), "/you/lists")).toBeNull();
 });
 
 it("follows and pins a List only as the user clicked, on X's own buttons, and passes on X's toast", async () => {
@@ -1348,6 +1363,7 @@ it("follows and pins a List only as the user clicked, on X's own buttons, and pa
     });
     // X's Pin at its limit of pinned Timelines: X keeps the List unpinned and says why.
     document.body.innerHTML = listRow("Makers", "Pin List");
+    linked(document.body, "12");
     document.querySelector("[data-testid=list-icon-button]")!.addEventListener("click", () => {
       pressed.push("Pin List");
       document.body.insertAdjacentHTML(

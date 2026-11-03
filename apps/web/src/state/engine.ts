@@ -649,6 +649,19 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
     }
     xLists = next;
   }
+  // Home's pinned tabs say which Lists are pinned now, over an older answer for each List.
+  const tabs = batch.homeTabs === null ? null : new Set(batch.homeTabs.map((t) => t.id));
+  const stale =
+    tabs === null
+      ? []
+      : [...xLists.values()].filter(
+          (l) => l.pinned !== undefined && l.pinned !== tabs.has(`list:${l.listId}`),
+        );
+  if (stale.length > 0)
+    xLists = new Map([
+      ...xLists,
+      ...stale.map((l) => [l.listId, { ...l, pinned: !l.pinned }] as const),
+    ]);
   const said = (id: string) => batch.lists.find((l) => l.listId === id);
   let communities = state.communities;
   if (batch.communities.length > 0) {
@@ -1344,15 +1357,6 @@ export const listPinned = (state: EngineState, list: EngineList) =>
   state.listPins.get(list.listId) ??
   list.pinned ??
   state.homeTabs.some((t) => t.id === `list:${list.listId}`);
-
-/**
- * Whether another List of this one's name may have a row with X's Pin on X's Lists page: X's rows
- * carry no link, so the row is told by its name alone. X draws no Pin under Discover new Lists.
- */
-export const listNameShared = (state: EngineState, list: EngineList) =>
-  [...state.xLists.values()].some(
-    (l) => l.listId !== list.listId && l.name === list.name && l.button !== "follow",
-  );
 
 /** Keeps a List follow or pin X took for the user's click (see `listFollows`). */
 export const askList = (
