@@ -117,10 +117,14 @@ it("passes the committed engine fixtures and fails one that was not scrubbed", (
   const fake = `{"postId":"900000000001","author":{"userId":"900000000002","handle":"mira_brandt","name":"Mira Brandt","avatarUrl":"data:image/svg+xml,x"},"replyingTo":["theo_varga51"],"text":"https://t.co/s12"}`;
   expect(problem(recorded, text(line(fake)))).toBeUndefined();
   // X's account analytics answers are keyed by their range in days; any other number is an id.
-  const ranged = (key: string) =>
-    `{"op":"accountOverviewDailyQuery","key":"${key}","accountAnalytics":{"kind":"overview","days":7}}`;
+  const ranged = (key: string, kind = "overview", days = 7) =>
+    `{"op":"accountOverviewDailyQuery","key":"${key}","accountAnalytics":{"kind":"${kind}","days":${days}}}`;
   expect(problem(recorded, text(ranged("overview:7")))).toBeUndefined();
   expect(problem(recorded, text(ranged("overview:44196397")))).toMatch(/id 44196397/);
+  // Only X's own kinds and ranges, even when the answer names the same.
+  expect(problem(recorded, text(ranged("overview:44196397", "overview", 44196397)))).toMatch(/id/);
+  const big = "1999999999999999999";
+  expect(problem(recorded, text(ranged(`${big}:7`, big, 7)))).toMatch(/id/);
   for (const [real, why] of [
     [fake.replace("900000000001", "1985123456789012345"), /id "1985123456789012345"/],
     [fake.replace("900000000002", "44196397"), /id "44196397"/],
