@@ -42,8 +42,8 @@ const drawX = (markup: string) => {
 };
 
 /**
- * The engine: reads run in X's page, here this document; every other step (X's router) is only
- * recorded, as the URL it would move X's page to.
+ * The engine: reads and X's search run in X's page, here this document; every other step (X's
+ * router) is only recorded, as the URL it would move X's page to.
  */
 const moves: Array<string> = [];
 /** Each query typed into X's own search, "" for X's close. */
@@ -52,8 +52,11 @@ registerXWebview({
   loadURL: async () => {},
   getURL: () => `https://x.com${moves.at(-1) ?? "/home"}`,
   executeJavaScript: (code: string) => {
+    const query = /const query = (".*?");/.exec(code)?.[1];
+    if (code.includes("dm-search-close") && query !== undefined)
+      searches.push(JSON.parse(query) as string);
     // X's path is where the engine last moved it; this document's own is the test runner's.
-    if (code.includes("MutationObserver"))
+    if (code.includes("MutationObserver") || code.includes("dm-search-close"))
       return Promise.resolve(
         new Function(
           `return ${code.replaceAll("location.pathname", JSON.stringify(moves.at(-1) ?? "/home"))}`,
@@ -61,9 +64,6 @@ registerXWebview({
       );
     const to = /history\.pushState\(null, "", "([^"]+)"\)/.exec(code)?.[1];
     if (to !== undefined) moves.push(to);
-    const query = /const query = (".*?");/.exec(code)?.[1];
-    if (code.includes("dm-search-close") && query !== undefined)
-      searches.push(JSON.parse(query) as string);
     return Promise.resolve(true);
   },
 } as unknown as XWebview);
@@ -174,4 +174,27 @@ it("leaves the search for the inbox once a result opens, since X's conversation 
   await expect.element(screen.getByText("Yes, after work")).toBeVisible();
   await expect.element(screen.getByRole("button", { name: /Cy/ })).toBeVisible();
   await expect.element(screen.getByRole("textbox", { name: "Search" })).toHaveValue("");
+});
+
+it("searches from an open conversation in X's inbox, where X draws its search, and says so when X draws none", async () => {
+  moves.length = 0;
+  drawX(INBOX);
+  await using screen = await render(ui(), { router: "/chat", service: {} });
+  await userEvent.click(screen.getByRole("button", { name: /Ann/ }));
+  await expect.poll(() => moves.at(-1)).toBe("/i/chat/11-22");
+  // X's conversation page draws no search field.
+  drawX(CONVERSATION);
+  await expect.element(screen.getByText("Yes, after work")).toBeVisible();
+  const box = screen.getByRole("textbox", { name: "Search" });
+  await userEvent.fill(box, "Cy");
+  await expect.poll(() => moves.at(-1)).toBe("/i/chat");
+  drawX(INBOX);
+  await expect
+    .poll(() => root?.querySelector<HTMLInputElement>('[data-testid="dm-search-input"]')?.value)
+    .toBe("Cy");
+
+  // X draws no search at all: a plain line, not a wait.
+  drawX("<div></div>");
+  await userEvent.fill(box, "Dee");
+  await expect.element(screen.getByText("X shows no chat search right now.")).toBeVisible();
 });

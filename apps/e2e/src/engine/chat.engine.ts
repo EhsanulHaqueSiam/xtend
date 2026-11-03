@@ -61,6 +61,12 @@ test("Chat lists X's inbox from X's page and opens a conversation only for the u
   await expect.poll(() => rows().count()).toBe(conversations.length);
   expect(await e.app.getByRole("textbox", { name: "Search" }).inputValue()).toBe("");
   expect(e.mock.state.chat.opened).toEqual([link(first!.id), link(conversations[2]!.id)]);
+  // From the open conversation, whose page has no search in X, X's inbox searches.
+  await e.app.getByRole("textbox", { name: "Search" }).fill(conversations[1]!.name);
+  await expect.poll(enginePath).toBe("/i/chat");
+  await expect
+    .poll(() => rows().allTextContents())
+    .toEqual([expect.stringContaining(conversations[1]!.name)]);
 });
 
 test("a reload that brings a conversation back opens nothing in X: X shows its inbox", async () => {

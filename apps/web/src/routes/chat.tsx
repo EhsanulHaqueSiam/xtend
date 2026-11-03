@@ -155,6 +155,8 @@ function ChatScreen() {
   const [chat, setChat] = useAtom(chatAtom);
   const setOver = useAtomSet(xOverAtom);
   const [query, setQuery] = useState("");
+  // X drew no search to type the query into, even on its inbox.
+  const [noSearch, setNoSearch] = useState(false);
   const open = c !== undefined && isChatPath(c) ? c : null;
   // The conversation the user's click opened in X. X marks a conversation read once open, so one
   // the route brings back (a reload, Back, Forward) is never opened: X shows its list instead.
@@ -193,11 +195,21 @@ function ChatScreen() {
   useEffect(() => {
     const q = query.trim();
     if (q === "" && !typed.current) return;
+    let gone = false;
     const timer = setTimeout(() => {
       typed.current = q !== "";
-      void xChatSearch(q);
+      setNoSearch(false);
+      void xChatSearch(q).then(async (done) => {
+        if (done || q === "" || gone) return;
+        // X's conversation and requests pages draw no search; its inbox does.
+        await xGo("https://x.com/i/chat");
+        if (!gone && !(await xChatSearch(q, true)) && !gone) setNoSearch(true);
+      });
     }, 250);
-    return () => clearTimeout(timer);
+    return () => {
+      gone = true;
+      clearTimeout(timer);
+    };
   }, [query]);
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- closes the query Xtend typed into X's chat search when the screen goes.
   useEffect(
@@ -305,7 +317,9 @@ function ChatScreen() {
           </button>
         ) : null}
         <div className="min-h-0 flex-1">
-          {rows === null ? (
+          {searching && noSearch ? (
+            <Empty>X shows no chat search right now.</Empty>
+          ) : rows === null ? (
             <XEmpty
               key={`${tab}:${searching}`}
               empty={searching ? "Searching your chats in X." : "Loading your chats from X."}
