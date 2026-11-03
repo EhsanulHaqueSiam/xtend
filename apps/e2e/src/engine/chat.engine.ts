@@ -55,6 +55,16 @@ test("Chat lists X's inbox from X's page and opens a conversation only for the u
   expect(e.mock.state.chat.opened).toEqual([link(first!.id)]);
 });
 
+test("a reload that brings a conversation back opens nothing in X: X shows its inbox", async () => {
+  const { conversations, opened } = e.mock.state.chat;
+  const before = [...opened];
+  await go(`/chat?c=${encodeURIComponent(link(conversations[1]!.id))}`);
+  await e.app.reload();
+  await expect.poll(() => rows().count()).toBe(conversations.length);
+  await e.app.getByRole("heading", { name: "Select a message" }).waitFor();
+  expect([await enginePath(), opened]).toEqual(["/i/chat", before]);
+});
+
 test("Requests lists X's message requests, and Other the ones X files away", async () => {
   await go("/chat?tab=requests");
   await expect.poll(enginePath).toBe("/i/chat/requests");

@@ -5,7 +5,7 @@ import { expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
 import { installFakeBridge } from "../../../test/fakeBridge";
-import { render } from "../../../test/render";
+import { fakeTimers, render } from "../../../test/render";
 import type { XWebview } from "../../state/x";
 
 // The screen reads the bridge at module load (env.ts), so it is imported after the bridge exists.
@@ -44,6 +44,8 @@ const drawX = (markup: string) => {
  * recorded, as the URL it would move X's page to.
  */
 const moves: Array<string> = [];
+/** Each query typed into X's own search, "" for X's close. */
+const searches: Array<string> = [];
 registerXWebview({
   loadURL: async () => {},
   getURL: () => `https://x.com${moves.at(-1) ?? "/home"}`,
@@ -57,6 +59,9 @@ registerXWebview({
       );
     const to = /history\.pushState\(null, "", "([^"]+)"\)/.exec(code)?.[1];
     if (to !== undefined) moves.push(to);
+    const query = /if \((".*?") === ""\)/.exec(code)?.[1];
+    if (code.includes("dm-search-close") && query !== undefined)
+      searches.push(JSON.parse(query) as string);
     return Promise.resolve(true);
   },
 } as unknown as XWebview);
@@ -108,4 +113,47 @@ it("shows X's passcode screen over the main area until X opens its chats", async
   drawX(INBOX);
   await expect.element(screen.getByTestId("over")).toHaveTextContent("false");
   await expect.element(screen.getByRole("button", { name: /Ann/ })).toBeVisible();
+});
+
+it("opens no conversation the route brings back (a reload, Back or Forward), only the one clicked", async () => {
+  moves.length = 0;
+  drawX(INBOX);
+  await using screen = await render(ui(), { router: "/chat?c=%2Fi%2Fchat%2F11-22", service: {} });
+  await expect.element(screen.getByRole("button", { name: /Ann/ })).toBeVisible();
+  await expect.element(screen.getByRole("heading", { name: "Select a message" })).toBeVisible();
+  expect(moves).toEqual(["/i/chat"]);
+
+  await userEvent.click(screen.getByRole("button", { name: /Cy/ }));
+  await expect.poll(() => moves.at(-1)).toBe("/i/chat/11-33");
+  screen.router!.history.back();
+  await expect.poll(() => moves.at(-1)).toBe("/i/chat");
+  drawX(INBOX);
+  screen.router!.history.forward();
+  await expect
+    .poll(() => screen.router!.state.location.search)
+    .toMatchObject({ c: "/i/chat/11-33" });
+  await expect.element(screen.getByRole("heading", { name: "Select a message" })).toBeVisible();
+  expect(moves.filter((m) => m.startsWith("/i/chat/"))).toEqual(["/i/chat/11-33"]);
+});
+
+it("presses nothing in X's search without a query, and undoes only a query it typed", async () => {
+  searches.length = 0;
+  drawX(INBOX);
+  using _timers = fakeTimers();
+  await using idle = await render(ui(), { router: "/chat", service: {} });
+  await vi.advanceTimersByTimeAsync(1_000);
+  await idle.unmount();
+  expect(searches).toEqual([]);
+
+  await using screen = await render(ui(), { router: "/chat", service: {} });
+  const box = screen.getByRole("textbox", { name: "Search" });
+  await userEvent.fill(box, "Ann");
+  await vi.advanceTimersByTimeAsync(300);
+  // Cleared in Xtend, X's search closes; leaving Chat with a query open closes it too.
+  await userEvent.fill(box, "");
+  await vi.advanceTimersByTimeAsync(300);
+  await userEvent.fill(box, "Cy");
+  await vi.advanceTimersByTimeAsync(300);
+  await screen.unmount();
+  expect(searches).toEqual(["Ann", "", "Cy", ""]);
 });

@@ -156,12 +156,18 @@ function ChatScreen() {
   const setOver = useAtomSet(xOverAtom);
   const [query, setQuery] = useState("");
   const open = c !== undefined && isChatPath(c) ? c : null;
-  const target = open ?? LIST_PATH[tab];
+  // The conversation the user's click opened in X. X marks a conversation read once open, so one
+  // the route brings back (a reload, Back, Forward) is never opened: X shows its list instead.
+  const opened = useRef<string | null>(null);
+  // Whether X's search holds a query Xtend typed, the only one Xtend may close.
+  const typed = useRef(false);
 
-  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- moves the engine (the session view) to the X page this screen shows.
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- moves the engine (the session view) to the X list this screen shows.
   useEffect(() => {
-    void xGo(`https://x.com${target}`);
-  }, [target]);
+    if (open !== null && open === opened.current) return;
+    opened.current = null;
+    void xGo(`https://x.com${LIST_PATH[tab]}`);
+  }, [open, tab]);
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- reads X's chat roots while this screen is open, and only then.
   useEffect(() => {
     if (!isElectron) return;
@@ -185,11 +191,21 @@ function ChatScreen() {
   }, [chat.locked, setOver]);
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- types the search into X's own chat search, a moment after the last key.
   useEffect(() => {
-    const timer = setTimeout(() => void xChatSearch(query.trim()), 250);
+    const q = query.trim();
+    if (q === "" && !typed.current) return;
+    const timer = setTimeout(() => {
+      typed.current = q !== "";
+      void xChatSearch(q);
+    }, 250);
     return () => clearTimeout(timer);
   }, [query]);
-  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- closes X's chat search when the screen goes.
-  useEffect(() => () => void xChatSearch(""), []);
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- closes the query Xtend typed into X's chat search when the screen goes.
+  useEffect(
+    () => () => {
+      if (typed.current) void xChatSearch("");
+    },
+    [],
+  );
 
   const inboxAsked = useRef(-1);
   const olderAsked = useRef(-1);
@@ -202,12 +218,19 @@ function ChatScreen() {
     );
 
   const openRow = (row: ChatRow) => {
-    if (isChatPath(row.href)) void navigate({ to: "/chat", search: { tab, c: row.href } });
+    if (!isChatPath(row.href)) return;
+    opened.current = row.href;
+    void xGo(`https://x.com${row.href}`);
+    // X is on its way there: the screen shows it opening until X's next read says where X is.
+    setChat((s) => ({ ...s, path: row.href }));
+    void navigate({ to: "/chat", search: { tab, c: row.href } });
   };
   const searching = query.trim() !== "";
   const requests = chat.requests?.path === LIST_PATH[tab] ? chat.requests.rows : null;
   const rows = searching ? chat.search : tab === "all" ? chat.inbox : requests;
+  // What Xtend read of it, or X opening it now; a conversation the route brought back shows no more.
   const conversation = chat.conversation?.path === open ? chat.conversation : null;
+  const shown = open !== null && (conversation !== null || chat.path === open);
   const head = chat.inbox?.find((r) => r.href === open) ?? requests?.find((r) => r.href === open);
   const group = head?.group ?? open?.split("/").at(-1)?.startsWith("g") ?? false;
 
@@ -311,7 +334,7 @@ function ChatScreen() {
         </div>
       </section>
       <section aria-label="Conversation" className="flex min-w-0 flex-1 flex-col">
-        {open === null ? (
+        {open === null || !shown ? (
           <div className="m-auto max-w-[340px] px-6">
             <h2 className="text-[31px] leading-9 font-extrabold">Select a message</h2>
             <p className="mt-2 text-[15px] text-[#71767b]">
