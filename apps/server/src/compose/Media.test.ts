@@ -26,6 +26,7 @@ const layerTest = Media.layer.pipe(
         staticDir: undefined,
         devUrl: undefined,
         supervisor: "none",
+        allowedOrigins: [],
       }),
     ),
   ),

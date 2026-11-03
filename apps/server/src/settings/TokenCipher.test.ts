@@ -28,6 +28,7 @@ const start = TokenCipher.TokenCipher.pipe(
           staticDir: undefined,
           devUrl: undefined,
           supervisor: "none",
+          allowedOrigins: [],
         }),
       ),
       Layer.provide(NodeServices.layer),

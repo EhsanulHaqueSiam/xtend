@@ -44,6 +44,28 @@ Open `http://<host>:4820/?token=<token>` once. The web app keeps the token for t
 strips it from the address bar. The browser has no X session, so Home shows what the desktop
 observed and there is no x.com panel; every tool works otherwise.
 
+## Use the hosted web app
+
+A hosted copy of the web app, such as `https://app.xtend.dev`, works with your own service: the
+page is only the app, and your data stays on your machine.
+
+1. Let that page use the service and give the service an https address. An https page cannot talk
+   to a plain http service on another machine, so with Tailscale:
+
+   ```sh
+   xtend --allow-origin https://app.xtend.dev
+   tailscale serve --bg 4820
+   ```
+
+   `xtend service install --allow-origin https://app.xtend.dev` keeps the flag across restarts.
+
+2. Open the page and enter the service's address (`https://<machine>.<tailnet>.ts.net`) and either
+   a pairing link from Settings, Service, **Add a device** or the token from `auth-token`.
+
+The browser remembers the address. A pairing link gives the browser a token of its own, which
+**Sign out** in the Devices list revokes; the service's own token is kept only until the tab
+closes. Settings, Service, **Disconnect** forgets the service.
+
 If the service is unreachable at launch, the desktop offers Retry and connection settings;
 if it disconnects later, Service settings stays available from the connection notice.
 

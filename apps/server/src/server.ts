@@ -52,6 +52,7 @@ const layerHttpServer = Layer.unwrap(
 );
 
 const layerRoutes = Layer.mergeAll(
+  ServerHttp.layerCors,
   ServerHttp.layerHealthRoute,
   ServerHttp.layerDevTokenRoute,
   ServerHttp.layerObservationsRoute,

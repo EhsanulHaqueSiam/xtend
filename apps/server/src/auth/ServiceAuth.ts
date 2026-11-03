@@ -15,8 +15,8 @@ const TOKEN_FILE = "auth-token";
 /**
  * Bearer auth for every mutating surface. The token lives in the base dir, so only whoever can
  * read that directory talks to the service; a paired device presents its own token instead,
- * granted here by hash so one can be revoked alone. Origin is checked too: a page from anywhere
- * but the dev server or the service itself is refused even with a leaked token.
+ * granted here by hash so one can be revoked alone. A page from anywhere but the dev server, the
+ * service itself or an `--allow-origin` is refused even with a leaked token.
  */
 export class ServiceAuth extends Context.Service<
   ServiceAuth,
@@ -100,6 +100,7 @@ export const layer = Layer.effect(
       ...own,
       `http://localhost:${config.port}`,
       ...(config.devUrl === undefined ? [] : [config.devUrl.origin]),
+      ...config.allowedOrigins,
     ]);
     return make({ token, allowedOrigins });
   }),

@@ -18,3 +18,13 @@ export const ServerInfo = Schema.Struct({
   supervisor: ServiceSupervisor,
 });
 export type ServerInfo = typeof ServerInfo.Type;
+
+export const HEALTH_PATH = "/api/health";
+
+/** `GET HEALTH_PATH`: answered without a token and readable from any origin. */
+export const ServiceHealth = Schema.Struct({
+  name: Schema.Literal("xtend"),
+  version: Schema.String,
+  supervisor: ServiceSupervisor,
+});
+export type ServiceHealth = typeof ServiceHealth.Type;

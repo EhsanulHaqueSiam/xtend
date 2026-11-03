@@ -76,6 +76,7 @@ const layerTest = Assist.layer.pipe(
         staticDir: undefined,
         devUrl: undefined,
         supervisor: "none",
+        allowedOrigins: [],
       }),
     ),
   ),
