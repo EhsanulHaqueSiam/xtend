@@ -380,12 +380,15 @@ export const xChatScroll = (list: "inbox" | "messages") =>
 export const xChatSearch = (query: string, wait = false) =>
   xRun(`(async () => {
     const query = ${JSON.stringify(query)};
+    // Each call is the latest: a later one (the screen's own close when it goes) ends this wait.
+    const run = (window.__xtendChatSearchRun = (window.__xtendChatSearchRun ?? 0) + 1);
     const field = () => {
       const onChat = location.pathname === "/i/chat" || location.pathname.startsWith("/i/chat/");
       const input = onChat ? document.querySelector('[data-testid="xchatEmbedRoute"]')?.shadowRoot?.querySelector('[data-testid="dm-search-input"]') : null;
       return input instanceof HTMLInputElement ? input : null;
     };
     for (let i = 0; i < ${wait ? 20 : 0} && field() === null; i++) await new Promise((r) => setTimeout(r, 150));
+    if (window.__xtendChatSearchRun !== run) return false;
     const input = field();
     if (input === null) return false;
     const root = input.getRootNode();

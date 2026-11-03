@@ -206,4 +206,13 @@ it("types only into X's own Chat page, never its drawer, and closes only the que
   await xChatSearch("Cy");
   await xChatSearch("");
   expect(closes).toBe(1);
+  // Waiting for X to draw its field when the user leaves Chat: the screen's close ends the wait,
+  // so the field X draws later is never typed into.
+  const input = field(x.root);
+  input.value = "";
+  input.remove();
+  const waiting = xChatSearch("Dee", true);
+  await xChatSearch("");
+  x.root.querySelector('[data-testid="dm-search-bar"]')!.prepend(input);
+  expect([await waiting, input.value]).toEqual([false, ""]);
 });
