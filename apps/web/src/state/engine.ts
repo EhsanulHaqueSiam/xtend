@@ -4,11 +4,13 @@ import type {
   EngineBatch,
   EngineBookmarkFolder,
   EngineCommunity,
+  EngineConference,
   EngineExploreTab,
   EngineGame,
   EngineGameTeam,
   EngineGif,
   EngineHomeTab,
+  EngineLeaders,
   EngineList,
   EngineModule,
   EngineNotification,
@@ -17,6 +19,7 @@ import type {
   EnginePrompt,
   EngineRadarCount,
   EngineRadarQuery,
+  EngineStory,
   EngineTrend,
   EngineUser,
   EngineViewer,
@@ -432,6 +435,13 @@ export interface EngineState {
   /** How many people the viewer follows follow each user, by user id (see `EngineBatch.knownFollowers`). */
   readonly knownFollowers: ReadonlyMap<string, number>;
   readonly accountAnalytics: AccountAnalytics;
+  /** X's news stories by trend id (see `EngineBatch.story`). */
+  readonly stories: ReadonlyMap<string, EngineStory>;
+  /** X's NBA standings and stat leaders, as X last sent them. */
+  readonly standings: ReadonlyArray<EngineConference>;
+  readonly leaders: ReadonlyArray<EngineLeaders>;
+  /** The games of the day X's NBA schedule last showed, in X's order; null until X has answered. */
+  readonly nbaDay: ReadonlyArray<string> | null;
   /** Whether X's composer lets the account format, as X's page last drew it; null until it has. */
   readonly formatting: boolean | null;
   readonly radar: Radar;
@@ -541,6 +551,10 @@ export const emptyEngine: EngineState = {
   analytics: new Map(),
   knownFollowers: new Map(),
   accountAnalytics: { access: null, answers: new Map(), shown: {}, picking: {} },
+  stories: new Map(),
+  standings: [],
+  leaders: [],
+  nbaDay: null,
   formatting: null,
   radar: { list: null, queries: new Map(), limit: null, counts: new Map() },
   cursors: {},
@@ -692,6 +706,12 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
         ? state.knownFollowers
         : new Map(state.knownFollowers).set(batch.key, batch.knownFollowers),
     accountAnalytics: mergeAccountAnalytics(state.accountAnalytics, batch),
+    stories:
+      batch.story === undefined || batch.key === null
+        ? state.stories
+        : new Map(state.stories).set(batch.key, batch.story),
+    standings: batch.standings ?? state.standings,
+    leaders: batch.leaders ?? state.leaders,
     claims: batch.claims === undefined ? state.claims : new Set(batch.claims),
     formatting: batch.formatting ?? state.formatting,
     bookmarkFolders: foldersOf(state.bookmarkFolders, batch),
@@ -844,7 +864,11 @@ const keepTeam = (known: EngineGameTeam, fresh: EngineGameTeam): EngineGameTeam 
  */
 function mergeGames(state: EngineState, batch: EngineBatch): EngineState {
   const fresh = batch.games ?? [];
-  if (fresh.length === 0) return state;
+  // X's schedule for a day without games: the day X shows is empty.
+  if (fresh.length === 0)
+    return batch.op === "NBASchedule" && batch.games !== undefined
+      ? { ...state, nbaDay: [] }
+      : state;
   const games = new Map(state.games);
   for (const g of fresh) {
     const known = games.get(g.gameId);
@@ -878,6 +902,7 @@ function mergeGames(state: EngineState, batch: EngineBatch): EngineState {
       batch.op === "NBASchedule"
         ? new Map([...state.gameDays, ...ids.map((id) => [id, ids] as const)])
         : state.gameDays,
+    nbaDay: batch.op === "NBASchedule" ? ids : state.nbaDay,
   };
 }
 

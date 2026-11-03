@@ -379,6 +379,39 @@ test("Without Premium X sends no claims: Analyze reads X's upsell on X's page an
   }
 });
 
+test("A news row in Explore opens X's story natively, its Latest tab is X's own page, and the NBA league page reads X's tabs", async () => {
+  const id = "900000600001";
+  const story = e.mock.state.batchFor("AiTrendByRestId", { trendId: id })!.story!;
+  const posts = (timelineId: string) =>
+    e.mock.state.batchFor("GenericTimelineById", { timelineId })!.order;
+  await go("/explore");
+  await e.app.locator('main [data-x="trend"] button').getByText(story.title).click();
+  await expect.poll(enginePath).toBe(`/i/trending/${id}`);
+  await expect
+    .poll(() => e.app.locator('main [data-x="story"] h2').textContent())
+    .toBe(story.title);
+  await expect.poll(nativeIds).toEqual(posts("story-top"));
+  await e.app.getByRole("tab", { name: "Latest", exact: true }).click();
+  await expect.poll(enginePath).toBe(`/i/trending/${id}?timeline=story-latest`);
+  await expect.poll(nativeIds).toEqual(posts("story-latest"));
+
+  // The league page: each tab is X's own page, its answer drawn as X's page has it.
+  const standings = e.mock.state.batchFor("NBAStandings", {})!.standings!;
+  await go("/nba?tab=standings");
+  await expect.poll(enginePath).toBe("/i/nba/standings");
+  await expect
+    .poll(() =>
+      e.app.locator('main [data-x="standings"] tbody tr td:first-child').allTextContents(),
+    )
+    .toEqual(standings[0]!.divisions[0]!.teams.map((t, i) => `${i + 1}${t.abbreviation}`));
+  await e.app.getByRole("tab", { name: "Stats", exact: true }).click();
+  await expect.poll(enginePath).toBe("/i/nba/players");
+  const leader = e.mock.state.batchFor("NBALeaders", {})!.leaders![0]!.leaders[0]!;
+  await expect
+    .poll(() => e.app.locator('main [data-x="leaders"]').innerText())
+    .toContain(leader.name);
+});
+
 test("A profile renders X's header and posts; its ... rows come from X, its bell is X's, and About opens X's page", async () => {
   const user = e.mock.state.people[0]!;
   await go(`/u/${user.handle}`);

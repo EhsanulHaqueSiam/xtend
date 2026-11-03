@@ -560,6 +560,12 @@ export interface EngineBatch {
    * query its page made; `key` is `<kind>:<days>` (`videos` for the video list).
    */
   readonly accountAnalytics?: EngineAccountAnalytics;
+  /** X's news story the trend `key` names (AiTrendByRestId, x.com/i/trending/<id>). */
+  readonly story?: EngineStory;
+  /** X's NBA standings (NBAStandings), by conference, as X's league page reads them. */
+  readonly standings?: ReadonlyArray<EngineConference>;
+  /** X's NBA stat leaders (NBALeaders), one list per stat in X's order. */
+  readonly leaders?: ReadonlyArray<EngineLeaders>;
   /** The user's bookmark folders as this response changes them (see `EngineFolderChange`). */
   readonly bookmarkFolders?: EngineFolderChange;
   /**
@@ -643,3 +649,61 @@ export type EngineAccountAnalytics =
       readonly days: number;
       readonly rows: ReadonlyArray<EngineAudienceRow>;
     };
+/** A news story X lists in Explore: Grok's summary of it, and X's tabs of posts about it. */
+export interface EngineStory {
+  readonly title: string;
+  readonly summary: string;
+  /** When X last updated it; null when X sends no time. */
+  readonly updatedAt: string | null;
+  /** X's caveat under the summary, when X sends its own. */
+  readonly disclaimer: string | null;
+  /** X's tabs in X's order: each one's label, and the timeline X lists its posts in. */
+  readonly timelines: ReadonlyArray<{ readonly label: string; readonly timelineId: string }>;
+}
+
+/** Wins and losses, as X's standings write a record. */
+export interface EngineRecord {
+  readonly wins: number;
+  readonly losses: number;
+}
+
+/** One team's row in X's NBA standings. */
+export interface EngineStanding {
+  readonly teamId: string;
+  readonly abbreviation: string;
+  readonly name: string;
+  readonly wins: number;
+  readonly losses: number;
+  readonly gamesBack: number | null;
+  readonly home: EngineRecord | null;
+  readonly road: EngineRecord | null;
+  readonly division: EngineRecord | null;
+  readonly conference: EngineRecord | null;
+  readonly pointsFor: number | null;
+  readonly pointsAgainst: number | null;
+  readonly pointDiff: number | null;
+  readonly streak: string | null;
+  readonly lastTen: EngineRecord | null;
+}
+
+/** A conference of X's NBA standings: its divisions, each one's teams in X's order. */
+export interface EngineConference {
+  readonly name: string;
+  readonly divisions: ReadonlyArray<{
+    readonly name: string;
+    readonly teams: ReadonlyArray<EngineStanding>;
+  }>;
+}
+
+/** One stat's leaders on X's NBA league page, by rank. */
+export interface EngineLeaders {
+  readonly key: string;
+  readonly title: string;
+  readonly leaders: ReadonlyArray<{
+    readonly rank: number;
+    readonly name: string;
+    readonly position: string | null;
+    readonly value: string;
+    readonly headshotUrl: string | null;
+  }>;
+}

@@ -992,6 +992,164 @@ describe("renderEngineBatch around posts", () => {
     expect([unknown.key, hasEngineContent(unknown)]).toEqual([null, false]);
   });
 
+  it("reads X's news story: its headline, Grok's summary, when X updated it, and its tabs", () => {
+    const story = renderEngineBatch(
+      "AiTrendByRestId",
+      { trendId: "1985000000000000001" },
+      {
+        data: {
+          ai_trend_by_rest_id: {
+            result: {
+              rest_id: "1985000000000000001",
+              page: {
+                article: {
+                  title: "Rays win in overtime",
+                  article_text: { text: "The Rays beat..." },
+                },
+                last_updated_at_ms: "1793612400000",
+                disclaimer: "This story is a summary of posts on X and may evolve over time.",
+                post_timelines: [
+                  { label: "Top", post_timeline: { id: "VGltZWxpbmU6Top" } },
+                  { label: "Latest", post_timeline: { id: "VGltZWxpbmU6Latest" } },
+                  { label: "Broken" },
+                ],
+              },
+            },
+          },
+        },
+      },
+    );
+    expect([story.key, story.story, hasEngineContent(story)]).toEqual([
+      "1985000000000000001",
+      {
+        title: "Rays win in overtime",
+        summary: "The Rays beat...",
+        updatedAt: "2026-11-02T09:40:00.000Z",
+        disclaimer: "This story is a summary of posts on X and may evolve over time.",
+        timelines: [
+          { label: "Top", timelineId: "VGltZWxpbmU6Top" },
+          { label: "Latest", timelineId: "VGltZWxpbmU6Latest" },
+        ],
+      },
+      true,
+    ]);
+    // X found no story (removed, or not one X shows this account): nothing to pass on.
+    const none = renderEngineBatch("AiTrendByRestId", { trendId: "1" }, { data: {} });
+    expect([none.story, hasEngineContent(none)]).toEqual([undefined, false]);
+  });
+
+  it("reads a day X's NBA schedule answered with no games as empty, and an error alone as nothing", () => {
+    const empty = renderEngineBatch(
+      "NBASchedule",
+      { limit: 500 },
+      { data: { nba_schedule: { games: [] } } },
+    );
+    expect([empty.games, hasEngineContent(empty)]).toEqual([[], true]);
+    const failed = renderEngineBatch("NBASchedule", { limit: 500 }, { errors: [{}] });
+    expect([failed.games, hasEngineContent(failed)]).toEqual([undefined, false]);
+  });
+
+  it("reads X's NBA standings in X's order within each division, and stat leaders by rank", () => {
+    const team = (id: string, wins: number, losses: number, rank: number | null) => ({
+      team: { rest_id: id },
+      abbreviation: `T${id}`,
+      name: `Team ${id}`,
+      wins,
+      losses,
+      division_rank: rank,
+      games_behind_division: rank === 1 ? 0 : 2.5,
+      home: { wins: 10, losses: 3 },
+      last_10: { wins: 7, losses: 3 },
+      points_for: 116.2,
+      streak: "W3",
+    });
+    const standings = renderEngineBatch(
+      "NBAStandings",
+      {},
+      {
+        data: {
+          nba_standings: {
+            conferences: [
+              {
+                conference: { rest_id: "1", name: "", alias: "East" },
+                divisions: [
+                  {
+                    division: { rest_id: "11", name: "Atlantic" },
+                    // X's rank first; without one, games over .500, then wins.
+                    teams: [
+                      team("3", 20, 10, null),
+                      team("2", 22, 8, 2),
+                      team("1", 25, 5, 1),
+                      team("4", 21, 12, null),
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      },
+    );
+    const east = standings.standings![0]!;
+    expect([east.name, east.divisions[0]!.name]).toEqual(["East", "Atlantic"]);
+    expect(east.divisions[0]!.teams.map((t) => t.abbreviation)).toEqual(["T1", "T2", "T3", "T4"]);
+    expect(east.divisions[0]!.teams[0]).toEqual({
+      teamId: "1",
+      abbreviation: "T1",
+      name: "Team 1",
+      wins: 25,
+      losses: 5,
+      gamesBack: 0,
+      home: { wins: 10, losses: 3 },
+      road: null,
+      division: null,
+      conference: null,
+      pointsFor: 116.2,
+      pointsAgainst: null,
+      pointDiff: null,
+      streak: "W3",
+      lastTen: { wins: 7, losses: 3 },
+    });
+    const leaders = renderEngineBatch(
+      "NBALeaders",
+      { limit: 25 },
+      {
+        data: {
+          nba_leaders: {
+            categories: [
+              {
+                key: "points",
+                name: "Points Per Game",
+                leaders: [
+                  {
+                    rank: 2,
+                    display_value: "31.8",
+                    player: { info: { full_name: "S. Alexander", position: "G" } },
+                  },
+                  { rank: 1, display_value: "32.5", name: "L. Doncic", position: "G" },
+                ],
+              },
+              { key: "empty", name: "Blocks", leaders: [] },
+            ],
+          },
+        },
+      },
+    );
+    expect([leaders.leaders, hasEngineContent(leaders)]).toEqual([
+      [
+        {
+          key: "points",
+          title: "Points Per Game",
+          leaders: [
+            { rank: 1, name: "L. Doncic", position: "G", value: "32.5", headshotUrl: null },
+            { rank: 2, name: "S. Alexander", position: "G", value: "31.8", headshotUrl: null },
+          ],
+        },
+      ],
+      true,
+    ]);
+  });
+
   it("reads X's Post Analytics for the post asked about, a metric X sent without a value as 0", () => {
     const activity = renderEngineBatch(
       "TweetActivityQuery",
