@@ -11,6 +11,8 @@ export const RECOVERY_RETRY_CHANNEL = "xtend:recovery-retry";
 export const REMOTE_SET_CHANNEL = "xtend:remote-set";
 /** invoke: checks a remote service's health and token from the main process (no CORS, no leaked token). */
 export const REMOTE_CHECK_CHANNEL = "xtend:remote-check";
+/** invoke: joins the service a pairing link names, then relaunches on it; resolves an error otherwise. */
+export const REMOTE_JOIN_CHANNEL = "xtend:remote-join";
 /** sendSync from the app preload: bridge info (incl. the service token) must not ride in argv, which `ps` shows. */
 export const BRIDGE_INFO_CHANNEL = "xtend:bridge-info";
 /** The app's summary for the composer chip; main forwards it to the overlay preload. */
@@ -67,6 +69,8 @@ export interface BridgeInfo {
   readonly serviceMode: "child" | "launchd" | "remote" | "none";
   readonly remote: { readonly url: string; readonly token: string } | null;
   readonly accountId: number;
+  /** This desktop as the service's device list knows it. */
+  readonly device: { readonly id: string; readonly name: string };
   /** The cookie partition of the current account; main refuses an x.com webview on any other. */
   readonly xPartition: string;
   /** Where x.com was when the app last closed. */

@@ -15,6 +15,7 @@ import * as AutomateHandlers from "./automate/AutomateHandlers.ts";
 import * as DesktopHandlers from "./desktop/DesktopHandlers.ts";
 import * as EventsHandlers from "./events/EventsHandlers.ts";
 import * as AccountsHandlers from "./accounts/AccountsHandlers.ts";
+import * as DevicesHandlers from "./devices/DevicesHandlers.ts";
 import * as MarksHandlers from "./marks/MarksHandlers.ts";
 import * as PoolHandlers from "./pool/PoolHandlers.ts";
 import * as TriageHandlers from "./triage/TriageHandlers.ts";
@@ -69,6 +70,7 @@ export const layerHandlers = Layer.mergeAll(
   DesktopHandlers.layerHandlers,
   EventsHandlers.layerHandlers,
   AccountsHandlers.layerHandlers,
+  DevicesHandlers.layerHandlers,
   MarksHandlers.layerHandlers,
   PoolHandlers.layerHandlers,
   TriageHandlers.layerHandlers,

@@ -85,11 +85,13 @@ it("lets only the app view repoint the service, and only at a URL it can start w
   ipcMain.sendFrom(new FakeContents(), REMOTE_SET_CHANNEL, remote);
   await expect(ipcMain.invokeFrom(x, REMOTE_CHECK_CHANNEL, remote)).rejects.toThrow();
   ipcMain.sendFrom(first!.appContents, REMOTE_SET_CHANNEL, { url: "mini:4820", token: "theirs" });
-  expect(NodeFS.existsSync(configFile)).toBe(false);
+  // The file holds this desktop's id from the first launch; no remote landed in it.
+  const saved = () => JSON.parse(NodeFS.readFileSync(configFile, "utf8")) as unknown;
+  expect(saved()).toEqual({ remote: null, deviceId: expect.any(String) });
   expect(app.relaunched).toBe(0);
 
   ipcMain.sendFrom(first!.appContents, REMOTE_SET_CHANNEL, remote);
-  expect(JSON.parse(NodeFS.readFileSync(configFile, "utf8"))).toEqual({ remote });
+  expect(saved()).toEqual({ remote, deviceId: expect.any(String) });
   expect([app.relaunched, app.quits]).toEqual([1, 1]);
 });
 

@@ -1,4 +1,4 @@
-import type { EngineBatch, XSkinToggle } from "@xtend/contracts";
+import type { DevicePrefs, EngineBatch, XSkinToggle } from "@xtend/contracts";
 
 /**
  * What the Electron preload exposes to the web app. Kept here rather than in
@@ -58,6 +58,8 @@ export interface DesktopBridge {
   readonly remote: RemoteConfig | null;
   /** The account whose x.com session the window opened. */
   readonly accountId: number;
+  /** This desktop in the service's device list: an id kept in its config, and its host name. */
+  readonly device: { readonly id: string; readonly name: string };
   /** Two-finger swipes go back and forward: macOS's "Swipe between pages", always elsewhere. */
   readonly swipeNavigation: boolean;
   /** The cookie partition the x.com webview must use; main refuses any other. */
@@ -69,6 +71,11 @@ export interface DesktopBridge {
   readonly checkRemote: (config: RemoteConfig) => Promise<Reachability>;
   /** Saves the remote (null returns to the local service) and relaunches the app. */
   readonly setRemote: (config: RemoteConfig | null) => void;
+  /**
+   * Joins the service a pairing link names, bringing this desktop's prefs, and relaunches on it;
+   * resolves why not otherwise.
+   */
+  readonly joinService: (link: string, prefs: DevicePrefs) => Promise<string | null>;
   /** Rebuilds the window on the account's own session partition. */
   readonly selectAccount: (id: number) => void;
   /** Hands main the summary the x.com composer chip draws. */

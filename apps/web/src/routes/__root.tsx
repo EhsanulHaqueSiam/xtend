@@ -4,6 +4,7 @@ import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { lazy, Suspense, useEffect, useRef } from "react";
 
 import { AccountSync } from "../components/shell/AccountSync";
+import { DeviceSync } from "../components/shell/DeviceSync";
 import { AppShell } from "../components/shell/AppShell";
 import { ShellHotkeys } from "../components/shell/ShellHotkeys";
 import { ShellNotifications } from "../components/shell/ShellNotifications";
@@ -111,6 +112,7 @@ export const Route = createRootRoute({
         </Suspense>
       )}
       <AccountSync />
+      <DeviceSync />
       <ShellHotkeys />
       <ShellNotifications />
       <AppShell>

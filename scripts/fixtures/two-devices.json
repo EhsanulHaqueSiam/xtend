@@ -1,0 +1,10 @@
+{
+  "description": "Two desktops on one service: Settings for in the header, the Devices list with a paired laptop, and Clean X per device.",
+  "seed": "demo",
+  "frozen": true,
+  "sql": [
+    "INSERT INTO devices (id, name, token_hash, prefs, created_at, last_seen_at) VALUES ('mini-0001', 'Mac mini', NULL, '{\"cleanX\":[\"ads\",\"grok\",\"upsells\",\"chrome\"],\"updateChannel\":\"stable\"}', '2026-10-28T08:00:00.000Z', '2026-10-28T08:55:00.000Z')",
+    "INSERT INTO devices (id, name, token_hash, prefs, created_at, last_seen_at) VALUES ('laptop-001', 'MacBook Air', 'fixture-hash-not-a-token', '{\"cleanX\":[\"ads\",\"views\"],\"updateChannel\":\"nightly\"}', '2026-10-28T08:10:00.000Z', '2026-10-28T08:58:00.000Z')"
+  ],
+  "open": "/settings?tab=service"
+}
