@@ -380,6 +380,13 @@ export interface EngineExploreTab {
   readonly timelineId: string;
 }
 
+/**
+ * The user's profile as one of X's own saves left it (X's REST account/update_profile, or its
+ * picture and banner calls): whose, and only the fields that call saved.
+ */
+export type EngineProfileSave = Pick<EngineUser, "userId" | "handle"> &
+  Partial<Pick<EngineUser, "name" | "bio" | "location" | "website" | "avatarUrl" | "bannerUrl">>;
+
 /** The signed-in account. X's nav names no user id; X's Viewer call, when X makes it, does. */
 export interface EngineViewer {
   readonly userId: string | null;
@@ -557,6 +564,8 @@ export interface EngineBatch {
    * you know only when it is above 0.
    */
   readonly knownFollowers?: number;
+  /** What one of X's own Edit profile saves just changed on the user's profile. */
+  readonly profileSaved?: EngineProfileSave;
   /**
    * One answer of X's own account analytics (x.com/i/account_analytics), read off the Relay
    * query its page made; `key` is `<kind>:<days>` (`videos` for the video list).

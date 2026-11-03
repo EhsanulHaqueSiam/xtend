@@ -14,6 +14,7 @@ import { settings } from "../../../test/fixtures";
 import { render } from "../../../test/render";
 import { Route as ProfileRoute } from "../../routes/u.$handle";
 import { markXReady, registerXWebview, type XWebview } from "../../state/x";
+import { Toasts } from "../ui/toast";
 import { EngineSync } from "./EngineSync";
 
 const batch = (op: string, extra: Partial<EngineBatch>): EngineBatch => ({
@@ -96,12 +97,15 @@ const repost = (postId: string, text: string): EnginePost => ({
   translation: null,
 });
 
-/** The real profile screen at `path`, under a router that holds its route, with X's page faked. */
-async function profile(path: string) {
+/**
+ * The real profile screen at `path`, under a router that holds its route, with X's page faked:
+ * every script answers `answer`'s word for it, true by default.
+ */
+async function profile(path: string, answer: (code: string) => unknown = () => true) {
   const bridge = installFakeBridge();
   const scripts: Array<string> = [];
   registerXWebview({
-    executeJavaScript: (code: string) => (scripts.push(code), Promise.resolve(true)),
+    executeJavaScript: (code: string) => (scripts.push(code), Promise.resolve(answer(code))),
     getURL: () => "https://x.com/home",
     loadURL: () => Promise.resolve(),
   } as unknown as XWebview);
@@ -122,6 +126,7 @@ async function profile(path: string) {
     <div style={{ height: 800, display: "flex" }}>
       <EngineSync />
       <RouterProvider router={router} />
+      <Toasts />
     </div>,
     {
       router: false,
@@ -160,6 +165,37 @@ it("lists X's profile tabs in X's order, Subs only for a creator, and Reposts re
     await expect
       .poll(() => tabs().map((t) => t.textContent))
       .toEqual(["Posts", "Replies", "Reposts", "Highlights", "Articles", "Media"]);
+  } finally {
+    await screen[Symbol.asyncDispose]();
+    registerXWebview(null);
+  }
+});
+
+it("on the user's own profile presses X's own Edit profile, in X's words, and alone in a browser says where it is", async () => {
+  // X leaves its Edit profile's route at once: saved, or closed.
+  const { screen, bridge, scripts } = await profile(
+    "/u/siam",
+    (code) => !code.startsWith('(location.pathname === "/settings/profile"'),
+  );
+  try {
+    const me = person("7", "siam", {
+      avatarUrl: "https://abs.twimg.com/sticky/default_profile_images/default_profile_normal.png",
+    });
+    const viewer = { userId: "7", handle: "siam", name: "Siam", avatarUrl: me.avatarUrl };
+    bridge.emitEngine(batch("Viewer", { viewer, users: [me] }));
+    // X's words for a profile with no picture, bio or banner.
+    await expect.element(screen.getByRole("button", { name: "Set up profile" })).toBeVisible();
+    bridge.emitEngine(batch("UserByScreenName", { users: [{ ...me, bio: "Builds Xtend" }] }));
+    await screen.getByRole("button", { name: "Edit profile" }).click();
+    await expect
+      .poll(() => scripts.some((s) => s.includes('[data-testid="editProfileButton"]')))
+      .toBe(true);
+
+    delete window.desktopBridge;
+    await screen.getByRole("button", { name: "Edit profile" }).click();
+    await expect
+      .element(screen.getByText("Edit profile opens X's own dialog, in the desktop app."))
+      .toBeVisible();
   } finally {
     await screen[Symbol.asyncDispose]();
     registerXWebview(null);

@@ -1393,6 +1393,57 @@ export const xBellPress = async (handle: string, on: boolean) =>
   })()`).then((done) => (typeof done === "boolean" ? done : null)),
   )) === true;
 
+// X's own routes for editing the user's profile (bundle.Routes, bundle.UserProfile): its Edit
+// profile, and Set up profile, X's flow for a profile with no picture, bio or banner.
+const EDITING_PROFILE = `(location.pathname === "/settings/profile" || location.pathname.startsWith("/i/flow/setup_profile"))`;
+
+/**
+ * Opens X's own Edit profile (or Set up profile) for the user's click, pressing X's button in the
+ * header of their own profile. X draws it as a dialog on a wide window and as a page in its compact
+ * layout, on its own route either way; the engine shows over the main area until X leaves it, saved
+ * or closed. True once it came and went; false when X showed none; null when the user moved on.
+ */
+export const xEditProfile = async (
+  handle: string,
+  over: (shown: boolean) => void,
+): Promise<boolean | null> => {
+  if (!validHandle(handle)) return false;
+  const run = await nextRun();
+  // Briefly where the engine is, longer on a profile X is still drawing.
+  let tries = 10;
+  const press = () =>
+    xRun(`(async () => {
+    const own = () => location.pathname.split("/")[1]?.toLowerCase() === ${JSON.stringify(handle.toLowerCase())} ? document.querySelector('[data-testid="editProfileButton"]') : null;
+    for (let i = 0; i < ${tries} && !own(); i++) await new Promise((r) => setTimeout(r, 100));
+    const button = own();
+    if (!button || !${stillMine(run)}) return null;
+    button.click();
+    for (let i = 0; i < 30 && !${EDITING_PROFILE}; i++) await new Promise((r) => setTimeout(r, 100));
+    return ${EDITING_PROFILE};
+  })()`).then((shown) => {
+      tries = 50;
+      return typeof shown === "boolean" ? shown : null;
+    });
+  const live = () => run === overRun;
+  const shown = await onPage(
+    profilePage(handle),
+    press,
+    async (opened) => {
+      if (!opened) return;
+      over(true);
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 500));
+        // The user moved on: AppShell already ended the engine's place over the main area.
+        if (!live()) return;
+        if ((await xRun(EDITING_PROFILE)) !== true) break;
+      }
+      over(false);
+    },
+    live,
+  );
+  return live() ? shown === true : null;
+};
+
 /**
  * X's reply sort ("Relevant ⌄") in the post's own article, once X has drawn it. `postId` must be
  * digits; `labels` are X's names for the orders.

@@ -106,6 +106,37 @@ function encodeUser(u: EngineUser, typed = true): Json {
   };
 }
 
+/** A person as X's v1.1 REST calls answer (account/update_profile and its picture calls). */
+export const encodeRestUser = (u: EngineUser): Json => ({
+  id_str: u.userId,
+  screen_name: u.handle,
+  name: u.name,
+  description: u.bio,
+  location: u.location ?? "",
+  url: u.website === null ? null : "https://t.co/site",
+  entities: {
+    description: { urls: [] },
+    ...when(u.website !== null, () => ({
+      url: {
+        urls: [
+          {
+            url: "https://t.co/site",
+            expanded_url: u.website!.url,
+            display_url: u.website!.display,
+          },
+        ],
+      },
+    })),
+  },
+  protected: u.isProtected,
+  followers_count: u.followers ?? 0,
+  friends_count: u.following ?? 0,
+  statuses_count: u.posts ?? 0,
+  ...when(u.joinedAt !== null, () => ({ created_at: xDate(u.joinedAt!) })),
+  profile_image_url_https: u.avatarUrl,
+  ...when(u.bannerUrl !== null, () => ({ profile_banner_url: u.bannerUrl })),
+});
+
 type Mini = Pick<EngineUser, "userId" | "handle" | "name" | "avatarUrl">;
 const encodeMini = (u: Mini): Json => ({
   rest_id: u.userId,
