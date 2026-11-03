@@ -102,7 +102,14 @@ export interface MainWindowOptions {
  */
 const chatList = (url: string) => {
   const at = new URL(url);
-  const [, i, chat, ...rest] = at.pathname.split("/");
+  // Read as X's router reads it, decoded; a path that does not decode is no page to restore.
+  let path: string;
+  try {
+    path = decodeURIComponent(at.pathname).toLowerCase();
+  } catch {
+    return `${at.origin}/i/chat`;
+  }
+  const [i, chat, ...rest] = path.split("/").filter(Boolean);
   if (i !== "i" || chat !== "chat") return url;
   const list = rest[0] !== "requests" ? "" : rest[1] === "other" ? "/requests/other" : "/requests";
   return `${at.origin}/i/chat${list}`;

@@ -243,6 +243,10 @@ it("restores a saved X conversation as its Chat list, since X marks a conversati
         "https://x.com/i/chat/requests/other/123-456",
         "https://x.com/i/chat/requests",
         "https://x.com/jack/status/1",
+        // X's router decodes the path: these open a conversation too.
+        "https://x.com/i/chat%2Frequests%2F123-456",
+        "https://x.com/i/%63hat/123-456",
+        "https://x.com/i/chat/%E0%A4%A",
       ].map(startsAt),
     ).toEqual([
       "https://x.com/i/chat",
@@ -251,6 +255,9 @@ it("restores a saved X conversation as its Chat list, since X marks a conversati
       "https://x.com/i/chat/requests/other",
       "https://x.com/i/chat/requests",
       "https://x.com/jack/status/1",
+      "https://x.com/i/chat/requests",
+      "https://x.com/i/chat",
+      "https://x.com/i/chat",
     ]);
   } finally {
     NodeFS.rmSync(sessionUrlFile, { force: true });
