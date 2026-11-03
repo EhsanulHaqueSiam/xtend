@@ -71,7 +71,8 @@ store in its page. Its embed draws into open shadow roots on X's host divs
 (`[data-testid^="xchatEmbed"]`), and `state/chat.ts` reads those by X's test ids while the Chat
 screen is open, into an atom of its own: never an engine batch, the service, a log or the bench,
 which counts rows only. Opening a conversation marks it read in X, so the engine opens one only
-for the user's click (a reload, Back or Forward opens nothing) and leaves it when the screen goes. X's passcode screen shows over the main
+for the user's click (a reload, Back, Forward or relaunch opens nothing: a saved conversation URL
+comes back as its Chat list) and leaves it when the screen goes. X's passcode screen shows over the main
 area for the user to type, as X's own dialogs do. In the side panel's width X draws the inbox or
 a conversation, never both, so the screen keeps the last inbox it read.
 

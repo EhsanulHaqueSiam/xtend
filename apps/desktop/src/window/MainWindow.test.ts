@@ -224,3 +224,35 @@ it("on mock X, opens nothing in the system browser and imports no X cookies", as
   expect(NodeFS.existsSync(cookieFile)).toBe(true);
   expect(session.fromPartition("x-mock").cookies).toHaveLength(0);
 });
+
+it("restores a saved X conversation as its Chat list, since X marks a conversation read once it opens", () => {
+  const sessionUrlFile = NodePath.join(NodeOS.tmpdir(), `xtend-test-session-url-${process.pid}`);
+  const startsAt = (saved: string) => {
+    NodeFS.writeFileSync(sessionUrlFile, saved);
+    const { main, app } = open({ sessionUrlFile });
+    const info = ipcMain.sendSyncFrom(app, BRIDGE_INFO_CHANNEL) as { xStartUrl: string };
+    main.window.close();
+    return info.xStartUrl;
+  };
+  try {
+    expect(
+      [
+        "https://x.com/i/chat/123-456",
+        "https://x.com/i/chat/g1720000000000000001/info",
+        "https://x.com/i/chat/requests/123-456",
+        "https://x.com/i/chat/requests/other/123-456",
+        "https://x.com/i/chat/requests",
+        "https://x.com/jack/status/1",
+      ].map(startsAt),
+    ).toEqual([
+      "https://x.com/i/chat",
+      "https://x.com/i/chat",
+      "https://x.com/i/chat/requests",
+      "https://x.com/i/chat/requests/other",
+      "https://x.com/i/chat/requests",
+      "https://x.com/jack/status/1",
+    ]);
+  } finally {
+    NodeFS.rmSync(sessionUrlFile, { force: true });
+  }
+});
