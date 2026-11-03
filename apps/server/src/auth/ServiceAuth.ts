@@ -14,8 +14,9 @@ const TOKEN_FILE = "auth-token";
 
 /**
  * Bearer auth for every mutating surface. The token lives in the base dir, so only whoever can
- * read that directory talks to the service. Origin is checked too: a page from anywhere but the
- * dev server or the service itself is refused even with a leaked token.
+ * read that directory talks to the service; a paired device presents its own token instead,
+ * granted here by hash so one can be revoked alone. Origin is checked too: a page from anywhere
+ * but the dev server or the service itself is refused even with a leaked token.
  */
 export class ServiceAuth extends Context.Service<
   ServiceAuth,
@@ -23,8 +24,15 @@ export class ServiceAuth extends Context.Service<
     readonly token: string;
     readonly allows: (request: HttpServerRequest.HttpServerRequest) => boolean;
     readonly isAllowedOrigin: (origin: string | undefined) => boolean;
+    /** Accept or stop accepting a device token, by `hashToken` of it. */
+    readonly grant: (hash: string) => void;
+    readonly revoke: (hash: string) => void;
   }
 >()("xtend/auth/ServiceAuth") {}
+
+/** How a device token is kept: the service stores and compares only this. */
+export const hashToken = (token: string) =>
+  NodeCrypto.createHash("sha256").update(token).digest("hex");
 
 export const make = (options: {
   readonly token: string;
@@ -39,19 +47,25 @@ export const make = (options: {
     return new URL(request.url, "http://x").searchParams.get("token") ?? undefined;
   };
   const expected = Buffer.from(options.token);
+  const devices = new Set<string>();
   // Bytes, not characters, are compared: a same-length token with a non-ASCII character would
   // make timingSafeEqual throw, turning a wrong token into a 500 instead of a 401.
   const allows = (request: HttpServerRequest.HttpServerRequest) => {
     const token = presented(request);
     if (token === undefined) return false;
     const given = Buffer.from(token);
-    return (
-      given.length === expected.length &&
-      NodeCrypto.timingSafeEqual(given, expected) &&
-      isAllowedOrigin(request.headers["origin"])
-    );
+    const known =
+      (given.length === expected.length && NodeCrypto.timingSafeEqual(given, expected)) ||
+      devices.has(hashToken(token));
+    return known && isAllowedOrigin(request.headers["origin"]);
   };
-  return { token: options.token, allows, isAllowedOrigin };
+  return {
+    token: options.token,
+    allows,
+    isAllowedOrigin,
+    grant: (hash) => void devices.add(hash),
+    revoke: (hash) => void devices.delete(hash),
+  };
 };
 
 /** Refuses the request with 401 unless it carries the token from an allowed origin. */

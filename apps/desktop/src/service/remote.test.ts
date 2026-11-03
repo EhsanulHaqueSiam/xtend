@@ -4,7 +4,7 @@ import * as NodePath from "node:path";
 
 import { expect, it } from "vite-plus/test";
 
-import { checkRemote, readRemote, writeRemote } from "./remote.ts";
+import { checkRemote, readDeviceId, readRemote, redeemPairing, writeRemote } from "./remote.ts";
 
 const fetchOk = (name: string) => async () => ({
   ok: true,
@@ -80,4 +80,58 @@ it("keeps the saved remote across launches, and ignores one whose URL would stop
   } finally {
     NodeFS.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+it("keeps this desktop's id across launches and remote changes", () => {
+  const dir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "xtend-device-"));
+  // userData does not exist yet on a first launch.
+  const file = NodePath.join(dir, "user-data", "config.json");
+  try {
+    const id = readDeviceId(file);
+    writeRemote(file, { url: "http://mini:4820", token: "abc" });
+    writeRemote(file, null);
+    expect(readDeviceId(file)).toBe(id);
+  } finally {
+    NodeFS.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+const PREFS = { cleanX: ["ads" as const], updateChannel: null };
+
+it("joins with a pairing link's code and keeps the token the service hands back", async () => {
+  const sent: Array<[string, unknown]> = [];
+  const joined = await redeemPairing(
+    "http://100.64.0.1:4820/pair#k7Qm2xVa",
+    { id: "dev-0001", name: "MacBook", prefs: PREFS },
+    async (url, body) => {
+      sent.push([url, JSON.parse(body)]);
+      return { ok: true, json: async () => ({ token: "t0k" }) };
+    },
+  );
+  expect(joined).toEqual({ remote: { url: "http://100.64.0.1:4820", token: "t0k" } });
+  expect(sent).toEqual([
+    [
+      "http://100.64.0.1:4820/api/pair",
+      { code: "k7Qm2xVa", id: "dev-0001", name: "MacBook", prefs: PREFS },
+    ],
+  ]);
+  const refused = await redeemPairing(
+    "http://mini:4820/pair#used",
+    { id: "d", name: "n", prefs: PREFS },
+    async () => ({
+      ok: false,
+      json: async () => ({
+        error: "DevicesError",
+        message: "this pairing link was used or has expired",
+      }),
+    }),
+  );
+  expect(refused).toEqual({ error: "this pairing link was used or has expired" });
+  for (const link of ["http://mini:4820/", "http://mini:4820/pair", "mini:4820/pair#x"])
+    expect(
+      await redeemPairing(link, { id: "d", name: "n", prefs: PREFS }, async () => ({
+        ok: true,
+        json: async () => ({}),
+      })),
+    ).toHaveProperty("error");
 });

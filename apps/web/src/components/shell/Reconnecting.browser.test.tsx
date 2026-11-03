@@ -53,13 +53,9 @@ it("keeps the real service configuration usable when service reads fail", async 
   // A poll is itself a regression here; rejecting avoids navigating away on the broken version.
   using health = vi.spyOn(window, "fetch").mockRejectedValue(new Error("unexpected health poll"));
   const setRemote = vi.fn();
-  const checkRemote = vi
-    .fn()
-    .mockResolvedValue({ health: true, auth: true, version: "1", error: null });
   installFakeBridge({
     remote: { url: "http://mini:4820", token: "old-token" },
     setRemote,
-    checkRemote,
   });
   await using screen = await render(
     <RegistryProvider
@@ -79,16 +75,13 @@ it("keeps the real service configuration usable when service reads fail", async 
     { router: "/settings?tab=service" },
   );
   await expect.element(screen.getByText("Could not load settings.")).toBeVisible();
-  const inputs = screen.container.querySelectorAll("input");
-  const token = Array.from(inputs).find((input) => input.type === "password");
-  expect(token).toBeDefined();
-  await userEvent.fill(page.elementLocator(token!), "new-token");
+  const link = screen.getByPlaceholder("http://mac-mini:4820/pair#…");
+  await userEvent.fill(link, "http://mini:4820/pair#abc");
   await vi.advanceTimersByTimeAsync(10_000);
   expect(health).not.toHaveBeenCalled();
-  await expect.element(page.elementLocator(token!)).toHaveValue("new-token");
-  await userEvent.click(screen.getByRole("button", { name: "Check", exact: true }));
-  await userEvent.click(screen.getByRole("button", { name: "Connect and relaunch" }));
-  expect(setRemote).toHaveBeenCalledWith({ url: "http://mini:4820", token: "new-token" });
+  await expect.element(link).toHaveValue("http://mini:4820/pair#abc");
+  await userEvent.click(screen.getByRole("button", { name: "Use local service" }));
+  expect(setRemote).toHaveBeenCalledWith(null);
   await expect
     .element(screen.getByRole("status").filter({ hasText: "Service unreachable" }))
     .toBeVisible();

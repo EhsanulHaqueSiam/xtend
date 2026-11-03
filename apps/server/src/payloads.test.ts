@@ -46,6 +46,7 @@ const UNBUDGETED: Readonly<Record<string, string>> = {
   ...Object.fromEntries(
     [
       "accounts.list",
+      "devices.list",
       "automate.rulesList",
       "leads.agentsList",
       "leads.listsList",

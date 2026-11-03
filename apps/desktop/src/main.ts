@@ -8,6 +8,7 @@ import { autoUpdater } from "electron-updater";
 import {
   ACCOUNT_SELECT_CHANNEL,
   REMOTE_CHECK_CHANNEL,
+  REMOTE_JOIN_CHANNEL,
   REMOTE_SET_CHANNEL,
   UPDATE_CHANNEL_SET_CHANNEL,
   UPDATE_CHECK_CHANNEL,
@@ -16,7 +17,14 @@ import {
   UPDATE_STATE_CHANNEL,
   type UpdateState,
 } from "./ipc/channels.ts";
-import { checkRemote, readRemote, RemoteConfig, writeRemote } from "./service/remote.ts";
+import {
+  checkRemote,
+  readDeviceId,
+  readRemote,
+  redeemPairing,
+  RemoteConfig,
+  writeRemote,
+} from "./service/remote.ts";
 import { superviseService } from "./service/ServiceSupervisor.ts";
 import { deepLinkToRoute, type ServiceMode } from "./service/supervision.ts";
 import { logLoadsAndCrashes, makeDesktopLog } from "./desktopLog.ts";
@@ -24,6 +32,7 @@ import { createTray } from "./tray.ts";
 import { defaultChannel, devUpdateFeed, startUpdates } from "./updates.ts";
 import { createMainWindow } from "./window/MainWindow.ts";
 import { mockXOrigin } from "./window/mockX.ts";
+import { DevicePrefs } from "@xtend/contracts";
 import * as Schema from "effect/Schema";
 
 /** The service's data directory: `--base-dir`, then XTEND_HOME, then ~/.xtend, same order as the service. */
@@ -60,6 +69,8 @@ const configFile = NodePath.join(app.getPath("userData"), "config.json");
 const remote = process.env.XTEND_SERVICE_URL === undefined ? readRemote(configFile) : null;
 const serviceUrl = process.env.XTEND_SERVICE_URL ?? remote?.url ?? "http://127.0.0.1:4820";
 const appUrl = process.env.XTEND_DEV_URL ?? serviceUrl;
+// "Siams-Mac-mini.local" reads as "Siams-Mac-mini"; the user can rename it from any device.
+const device = { id: readDeviceId(configFile), name: NodeOS.hostname().replace(/\.local$/, "") };
 
 // The service writes auth-token on first start; sharing its base dir is how the desktop is trusted.
 const readServiceToken = (): string => {
@@ -102,6 +113,7 @@ if (remoteDebugPort !== undefined && !app.isPackaged) {
 }
 
 const decodeRemote = Schema.decodeUnknownResult(Schema.NullOr(RemoteConfig));
+const decodePrefs = Schema.decodeUnknownResult(DevicePrefs);
 
 const openSocket = (url: string) =>
   new Promise<boolean>((resolve) => {
@@ -135,7 +147,7 @@ const openWindow = () => {
     serviceUrl,
     serviceToken,
     accountId,
-    bridgeInfo: { serviceToken, serviceMode, remote, accountId },
+    bridgeInfo: { serviceToken, serviceMode, remote, accountId, device },
     queueDir: NodePath.join(baseDir, "observation-queue"),
     sessionUrlFile: NodePath.join(baseDir, "session-url"),
     importCookiesPath: process.env.XTEND_IMPORT_COOKIES,
@@ -239,6 +251,24 @@ void app.whenReady().then(async () => {
     writeRemote(configFile, decoded.success);
     app.relaunch();
     app.quit();
+  });
+  ipcMain.handle(REMOTE_JOIN_CHANNEL, async (event, link: unknown, prefs: unknown) => {
+    if (!fromApp(event)) throw new Error("joining a service is only for the app view");
+    const decoded = decodePrefs(prefs);
+    if (typeof link !== "string" || decoded._tag === "Failure") return "not a pairing link";
+    const joined = await redeemPairing(link, { ...device, prefs: decoded.success }, (url, body) =>
+      fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body,
+        signal: AbortSignal.timeout(5_000),
+      }),
+    );
+    if ("error" in joined) return joined.error;
+    writeRemote(configFile, joined.remote);
+    app.relaunch();
+    app.quit();
+    return null;
   });
   // The session partition is fixed at view creation, so a switch rebuilds the window on the new one.
   ipcMain.on(ACCOUNT_SELECT_CHANNEL, (event, id: unknown) => {

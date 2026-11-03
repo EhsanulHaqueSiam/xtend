@@ -10,7 +10,6 @@ import * as Effect from "effect/Effect";
 import { expect, it, onTestFinished, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
-import type { Reachability } from "../desktopBridge";
 import { installFakeBridge } from "../../test/fakeBridge";
 import type { FakeService } from "../../test/fakeService";
 import { paid, quoting, settings } from "../../test/fixtures";
@@ -280,29 +279,6 @@ it("locks the fields while a save is out, so nothing typed meanwhile is dropped"
   await expect.element(handle).toBeDisabled();
   release();
   await expect.element(handle).toBeEnabled();
-});
-
-it("a Check speaks only for the URL and token it tested", async () => {
-  let answer: (reachability: Reachability) => void = () => {};
-  installFakeBridge({ checkRemote: () => new Promise((resolve) => (answer = resolve)) });
-  onTestFinished(() => {
-    delete window.desktopBridge;
-  });
-  await using screen = await render(<SettingsScreen />, {
-    service: service([]),
-    router: "/settings?tab=service",
-  });
-  const url = screen.getByPlaceholder("http://mac-mini:4820");
-  const connect = screen.getByRole("button", { name: "Connect and relaunch" });
-  await userEvent.fill(url, "http://mac-mini:4820");
-  await userEvent.click(screen.getByRole("button", { name: "Check", exact: true }));
-  // Edited while the check is out: its answer is about the old URL.
-  await userEvent.fill(url, "http://other:4820");
-  answer({ health: true, version: "0.1.0", auth: true, error: null });
-  await expect.element(screen.getByRole("button", { name: "Check", exact: true })).toBeEnabled();
-  await expect.element(connect).toBeDisabled();
-  await userEvent.fill(url, "http://mac-mini:4820");
-  await expect.element(connect).toBeEnabled();
 });
 
 it("switches account only after the service selected it, and says when it refused", async () => {
