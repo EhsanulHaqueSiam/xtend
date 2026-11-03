@@ -16,6 +16,7 @@
     "dist:desktop:dmg:arm64": "pnpm dist:desktop:dmg dmg zip --arm64",
     "dist:desktop:dmg:x64": "pnpm dist:desktop:dmg dmg zip --x64",
     "dist:desktop:appimage": "pnpm build && pnpm --filter @xtend/desktop verify:bundles && pnpm --filter @xtend/desktop dist:linux",
+    "dist:desktop:win": "pnpm build && pnpm --filter @xtend/desktop verify:bundles && pnpm --filter @xtend/desktop dist:win",
     "release:smoke": "node scripts/release-smoke.ts",
     "cli:pack": "node scripts/pack-cli.ts",
     "typecheck": "vp run -r --cache --concurrency-limit 4 typecheck && pnpm typecheck:scripts",
