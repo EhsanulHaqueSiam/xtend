@@ -285,12 +285,17 @@ patch past the newest `vX.Y.Z` tag, published as a GitHub prerelease. Merges in 
 older run, so only the newest builds. A `vX.Y.Z` tag is **stable**, published as the latest
 release; to promote a nightly, tag its commit. CI runs on the commit being shipped (`ci.yml` as a
 reusable workflow) beside the builds, not before them, so a release takes about four minutes and
-the publish job warns past ten. A stable tag must point at a commit already on `main`. A version job picks the version once; a macOS job
-builds the dmgs and zips with `pnpm dist:desktop:dmg`, a Linux job the AppImage with
-`pnpm dist:desktop:appimage` and the CLI tarball with `pnpm cli:pack --check`, both stamping the
-version and running `pnpm release:smoke`. Only when both and CI pass does a third job publish the
-release with every file. electron-builder names the updater files after the channel in the
-version: `latest-*.yml` for stable, `nightly-*.yml` for nightlies. A manual run builds the same
+the publish job warns past ten. A stable tag must point at a commit already on `main`. Preflight picks the version once. Build JS bundle runs `pnpm build` once,
+so every target ships the same JavaScript, and packs and checks the CLI tarball. Then
+`.github/workflows/desktop.yml` runs once per target (macOS, Linux and Windows, each arm64 and
+x64), on a runner of that OS and arch: Build packages the bundle with electron-builder, and
+Verify starts the packaged service on a fresh runner of the same kind from the unpacked app
+alone (`release-smoke.ts --boot`, which fails if nothing for that machine started). Only when
+every target and CI pass does Publish GitHub Release upload the files. Both arches of macOS and
+of Windows write one updater feed (`latest-mac.yml`, `latest.yml`); Publish joins their file
+lists, and electron-updater picks the file whose name holds the machine's arch, which is why
+Windows installers carry it. electron-builder names the feeds after the channel in the version:
+`latest-*.yml` for stable, `nightly-*.yml` for nightlies. A manual run builds the same
 files as workflow artifacts and publishes nothing.
 
 The app (`apps/desktop/src/updates.ts`) follows the channel it was built on until the user picks
