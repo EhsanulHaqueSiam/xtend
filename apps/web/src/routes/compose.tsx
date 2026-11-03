@@ -591,7 +591,7 @@ export function ComposeEditor({
             ? await schedule({ id: saved.id, at: scheduleAt!.toISOString() })
             : what === "unschedule"
               ? await unschedule(saved.id)
-              : audience !== null
+              : audience !== null && saved.status !== "queued"
                 ? await sessionPostNow({ id: saved.id, community: audience })
                 : await postNow(saved.id);
       setConfirm(null);
@@ -1082,7 +1082,12 @@ export function ComposeEditor({
               </fieldset>
             ) : (
               <fieldset disabled={frozen} className="min-w-0">
-                {laneText && editor.replyToPostId === null ? (
+                {/* A queued draft posts at its slot through the API, which cannot reach a Community. */}
+                {laneText && editor.replyToPostId === null && queued ? (
+                  <p className="mb-3 text-xs text-muted-foreground">
+                    Unschedule to post it to a Community.
+                  </p>
+                ) : laneText && editor.replyToPostId === null ? (
                   <div className="mb-3">
                     <AudiencePicker value={audience} onChange={setAudience} />
                     {audience === null ? null : (

@@ -347,13 +347,11 @@ async function query(cdp: Cdp, selector: string): Promise<Array<number>> {
   return nodeIds;
 }
 
-const textOf = async (cdp: Cdp, nodeId: number) => {
-  const { outerHTML } = (await cdp("DOM.getOuterHTML", { nodeId })) as { outerHTML: string };
-  return outerHTML
-    .replace(/<[^>]*>/g, "")
-    .replace(/[\s\u200b]+/g, " ")
-    .trim();
-};
+/** Text with its whitespace runs as one space: how the page's text and what it must say compare. */
+const normal = (text: string) => text.replace(/[\s\u200b]+/g, " ").trim();
+/** A node's text as the page reads it, entities decoded ("&", not "&amp;"). */
+const textOf = async (cdp: Cdp, nodeId: number) =>
+  normal(String(await callOn(cdp, nodeId, "function () { return this.textContent; }")));
 
 /**
  * Like `waitForNode`, for rows X marks only by their text: the last match whose text is `text`, or
@@ -669,7 +667,7 @@ async function typeText(
 async function audienceShows(cdp: Cdp, name: string, deadline: number): Promise<boolean> {
   for (;;) {
     const [button] = (await query(cdp, X_COMPOSER.audienceButton)).toReversed();
-    if (button !== undefined && (await textOf(cdp, button)) === name) return true;
+    if (button !== undefined && (await textOf(cdp, button)) === normal(name)) return true;
     if (Date.now() >= deadline) return false;
     await sleep(POLL_MS);
   }
@@ -697,17 +695,33 @@ async function pickAudience(
 ): Promise<void> {
   const soon = () => Math.min(Date.now() + CONTROL_TIMEOUT_MS, deadline);
   await click(cdp, await control(cdp, X_COMPOSER.audienceButton, "Choose audience", deadline));
-  const row = await waitForText(
-    cdp,
-    X_COMPOSER.audienceRow,
-    (shown) =>
-      shown === community.name ||
-      (shown.startsWith(community.name) &&
-        /^ ?[\d.,]+[KMB]? Members?$/.test(shown.slice(community.name.length))),
-    soon(),
-  ).catch(() => {
-    throw missing(`"${community.name}" in its audiences`);
-  });
+  const name = normal(community.name);
+  const isNamed = (shown: string) =>
+    shown === name ||
+    (shown.startsWith(name) && /^ ?[\d.,]+[KMB]? Members?$/.test(shown.slice(name.length)));
+  const rowsBy = soon();
+  let named: Array<number> = [];
+  while (named.length === 0 && Date.now() < rowsBy) {
+    for (const id of await query(cdp, X_COMPOSER.audienceRow))
+      if (isNamed(await textOf(cdp, id))) named.push(id);
+    if (named.length === 0) await sleep(POLL_MS);
+  }
+  if (named.length === 0) throw missing(`"${community.name}" in its audiences`);
+  // Two of the user's Communities may share a name: then only the row holding this one's id
+  // (its banner's path, a link, its data) is it, and with none that does, nothing is guessed.
+  const own: Array<number> = [];
+  if (named.length > 1)
+    for (const id of named) {
+      const { outerHTML } = (await cdp("DOM.getOuterHTML", { nodeId: id })) as {
+        outerHTML: string;
+      };
+      if (outerHTML.includes(community.id)) own.push(id);
+    }
+  const row = named.length === 1 ? named[0] : own.length === 1 ? own[0] : undefined;
+  if (row === undefined)
+    throw new NotAttempted(
+      `x.com's card lists more than one "${community.name}" and does not tell which; nothing was posted`,
+    );
   picked();
   await click(cdp, row);
   if (!(await audienceShows(cdp, community.name, soon())))
@@ -719,10 +733,16 @@ async function pickAudience(
       throw new NotAttempted("x.com's audience card stayed open; nothing was posted");
     });
   }
+  // X's toggle must show its state either way: unseen, whether followers see the post is unknown.
   const want = String(community.shareWithFollowers);
-  const now = await shareState(cdp);
-  if (now === want || (now === null && !community.shareWithFollowers)) return;
+  const toggleBy = soon();
+  let now = await shareState(cdp);
+  while (now === null && Date.now() < toggleBy) {
+    await sleep(POLL_MS);
+    now = await shareState(cdp);
+  }
   if (now === null) throw missing(`"${X_COMPOSER.shareLabel}"`);
+  if (now === want) return;
   await click(cdp, await waitForText(cdp, "label", X_COMPOSER.shareLabel, soon()));
   const deadlineShare = soon();
   while ((await shareState(cdp)) !== want)

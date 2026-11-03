@@ -13,6 +13,7 @@ import {
   xActInPlace,
   xFolderDialog,
   xFollow,
+  xAudienceCard,
   xGifIdle,
   xGifPicker,
   xPostMenu,
@@ -1830,4 +1831,22 @@ it("presses X's Delete only on the one row whose query field is exactly the quer
   } finally {
     history.replaceState(null, "", start);
   }
+});
+
+it("brings X's Home, where its composer is, before opening X's audience card", async () => {
+  // Compose leaves the engine on the user's profile, which has no composer.
+  const steps: Array<string> = [];
+  registerXWebview({
+    loadURL: async () => {},
+    getURL: () => "https://x.com/theo",
+    executeJavaScript: (code: string) => {
+      steps.push(
+        code.includes("Choose audience") ? "card" : code.includes('"/home"') ? "home" : "?",
+      );
+      return Promise.resolve(true);
+    },
+  } as unknown as XWebview);
+  markXReady();
+  await xAudienceCard();
+  expect(steps).toEqual(["home", "card"]);
 });

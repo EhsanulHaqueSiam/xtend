@@ -1517,19 +1517,25 @@ export type XGifPicker = ReturnType<typeof xGifPicker>;
 export const xGifIdle = () => gifStep.then(() => undefined);
 
 /**
- * Opens X's own "Choose audience" card in the composer on X's page (Home's) and closes it again
- * with Escape, picking nothing, so X sends the user's Communities (CommunitiesMembershipsSlice) for
- * Xtend's picker. In the GIF picker's queue, which Post waits for. True once X showed its rows.
+ * Opens X's own "Choose audience" card in the composer on X's Home and closes it again with
+ * Escape, picking nothing, so X sends the user's Communities (CommunitiesMembershipsSlice) for
+ * Xtend's picker. X's Home first: a tool like Compose leaves the engine on a page with no composer.
+ * In the GIF picker's queue, which Post waits for. True once X showed its rows.
  */
 export const xAudienceCard = () =>
-  (gifStep = gifStep.then(() =>
-    xRun(`(async () => {
+  (gifStep = gifStep.then(async () => {
+    // No engine (a browser, before X loads): nothing to open, and nothing for Post to wait on.
+    if (!ready || element === null) return null;
+    await xGo("https://x.com/home");
+    return xRun(`(async () => {
       const wait = () => new Promise((r) => setTimeout(r, 150));
       const button = () => document.querySelector('button[aria-label="Choose audience"]');
       const card = () => document.querySelector('[data-testid="HoverCard"]:has([role="menuitem"])');
-      // X draws its audience button once its composer has focus.
-      if (!button()) document.querySelector('[data-testid="tweetTextarea_0"]')?.focus();
-      for (let i = 0; i < 20 && !button(); i++) await wait();
+      // X draws its Home's composer as it lands, and its audience button once the composer has focus.
+      for (let i = 0; i < 40 && !button(); i++) {
+        document.querySelector('[data-testid="tweetTextarea_0"]')?.focus();
+        await wait();
+      }
       if (!button() || card()) return false;
       button().click();
       for (let i = 0; i < 40 && !card(); i++) await wait();
@@ -1539,8 +1545,8 @@ export const xAudienceCard = () =>
       // A card Escape left open closes on its own button, still picking nothing.
       if (card()) button()?.click();
       return shown;
-    })()`),
-  )).then((shown) => shown === true);
+    })()`);
+  })).then((shown) => shown === true);
 
 export const xBack = () => (ready ? element?.goBack() : undefined);
 export const xForward = () => (ready ? element?.goForward() : undefined);

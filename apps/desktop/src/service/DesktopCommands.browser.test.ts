@@ -60,6 +60,9 @@ interface FakeOptions {
   readonly missedKey?: number;
   /** X draws no "Also share with followers" once a Community is picked. */
   readonly noShare?: boolean;
+  /** A second Community the user is in is also "Indie Hackers"; with `noBanners`, rows hold no id. */
+  readonly twins?: boolean;
+  readonly noBanners?: boolean;
 }
 
 /** X's composer page and its GIF search route, on this document's URL. */
@@ -131,15 +134,23 @@ function fakeX(markup: string, log: Array<string>, options: FakeOptions = {}) {
     const audience = document.querySelector<HTMLElement>('button[aria-label="Choose audience"]');
     const pick = target.closest<HTMLElement>('[data-testid="HoverCard"] [role="menuitem"]');
     if (target.closest("button") === audience && audience !== null && popover === null) {
+      const row = (id: string, name: string, members: string) =>
+        `<div role="menuitem">${options.noBanners === true ? "" : `<img src="https://pbs.twimg.com/community_banner_img/${id}/b.jpg">`}<span>${name}</span><span>${members} Members</span></div>`;
       layers?.insertAdjacentHTML(
         "beforeend",
-        `<div data-testid="HoverCard"><div role="group"><h2>Choose audience</h2><div role="menuitem">Everyone</div><h3>My Communities</h3><div role="menuitem"><span>Indie Hackers Club</span><span>88 Members</span></div><div role="menuitem"><span>Indie Hackers</span><span>1,204 Members</span></div></div></div>`,
+        `<div data-testid="HoverCard"><div role="group"><h2>Choose audience</h2><div role="menuitem">Everyone</div><h3>My Communities</h3>${[
+          row("1500000000000000003", "Indie Hackers Club", "88"),
+          row("1500000000000000001", "Indie Hackers", "1,204"),
+          row("1500000000000000004", "Design &amp; Code", "1.2K"),
+          ...(options.twins === true ? [row("1500000000000000009", "Indie Hackers", "12")] : []),
+        ].join("")}</div></div>`,
       );
       return;
     }
     if (pick !== null && audience !== null) {
-      const name = pick.firstElementChild?.textContent ?? pick.textContent ?? "";
+      const name = pick.querySelector("span")?.textContent ?? pick.textContent ?? "";
       audience.textContent = name;
+      audience.dataset.id = /community_banner_img\/(\d+)/.exec(pick.innerHTML)?.[1] ?? "";
       log.push(`audience ${name}`);
       pick.closest('[data-testid="HoverCard"]')?.remove();
       root?.querySelector("[data-x=share]")?.remove();
@@ -661,14 +672,48 @@ it("sets the audience in X's own card first: the Community's own row, X naming i
   expect(composer().audience).toBe("Indie Hackers");
 });
 
-it("puts the audience back to Everyone, and refuses before Post, when X has no share toggle to set", async () => {
-  const { log, result } = await run(COMPOSER, post({ text: "hello", community: INDIE }), {
-    noShare: true,
+it("puts the audience back to Everyone, and refuses before Post, when X shows no share toggle either way", async () => {
+  // Unseen, X's toggle could be on: sharing off is not taken for granted.
+  for (const shareWithFollowers of [true, false]) {
+    const { log, result } = await run(
+      COMPOSER,
+      post({ text: "hello", community: { ...INDIE, shareWithFollowers } }),
+      { noShare: true },
+    );
+    expect(result).toMatchObject({
+      message: 'x.com\'s composer has no "Also share with followers"; nothing was posted',
+      notAttempted: true,
+    });
+    expect(log).toEqual(["audience Indie Hackers", "audience Everyone"]);
+    expect(composer()).toEqual(EMPTY);
+  }
+});
+
+const pickedId = () =>
+  document.querySelector<HTMLElement>('button[aria-label="Choose audience"]')?.dataset.id;
+
+it("tells two Communities of one name apart by the id in X's row, and refuses when the rows do not say", async () => {
+  const twins = await run(COMPOSER, post({ text: "hello", community: INDIE }), { twins: true });
+  expect([twins.result, pickedId()]).toEqual(["777", INDIE.id]);
+  const blind = await run(COMPOSER, post({ text: "hello", community: INDIE }), {
+    twins: true,
+    noBanners: true,
   });
-  expect(result).toMatchObject({
-    message: 'x.com\'s composer has no "Also share with followers"; nothing was posted',
+  expect(blind.result).toMatchObject({
+    message:
+      'x.com\'s card lists more than one "Indie Hackers" and does not tell which; nothing was posted',
     notAttempted: true,
   });
-  expect(log).toEqual(["audience Indie Hackers", "audience Everyone"]);
-  expect(composer()).toEqual(EMPTY);
+  expect(blind.log.some((l) => l.startsWith("press Post"))).toBe(false);
+});
+
+it("reads a Community's name as X's page shows it, so an & in it matches", async () => {
+  const { result } = await run(
+    COMPOSER,
+    post({
+      text: "hello",
+      community: { id: "1500000000000000004", name: "Design & Code", shareWithFollowers: true },
+    }),
+  );
+  expect([result, composer().audience]).toEqual(["777", "Design & Code"]);
 });
