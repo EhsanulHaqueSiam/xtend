@@ -2640,7 +2640,7 @@ if (PARITY !== undefined) {
     ["profile", () => go("#/u/theo")],
     ["explore", () => sidebar("Explore")],
     ["notifications", () => sidebar("Notifications")],
-    ["messages", () => sidebar("Messages")],
+    // No Chat: a capture of it would hold the account's own messages.
   ];
   for (const [name, open] of screens) {
     await open();
