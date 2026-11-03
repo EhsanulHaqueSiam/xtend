@@ -256,7 +256,7 @@ function MessageActions({
 }) {
   const setOver = useAtomSet(xOverAtom);
   const { press, setToast } = usePress();
-  const { draft, setDraft, send } = useDraft(path);
+  const { draft, setDraft, send, setWrite } = useDraft(path);
   const reply = () => setDraft({ text: draft.text, mode: { kind: "reply", item } });
   const drafting = (icon: string) => icon === "icon-reply-arrow" || icon === "icon-pencil-stroke";
   const [menu, setMenu] = useState<ChatMenu | null | undefined>(undefined);
@@ -269,8 +269,22 @@ function MessageActions({
     if (loaded === "draft") return setToast({ text: DRAFT_HELD });
     // X's editor could not be read: the edit is X's to take, on its own page over the main area.
     if (loaded === "unread") return void press(() => xChatMenuPress(path, item.id, label, setOver));
-    if (loaded !== null)
-      setDraft({ text: loaded.text, mode: { kind: "edit", item, old: loaded.text } });
+    if (loaded === null) return;
+    // Text the user typed while X loaded its editor is theirs: the edit waits for another click.
+    let kept = false;
+    setWrite((w) => {
+      kept = (w.drafts.get(path) ?? emptyDraft) !== draft;
+      return kept
+        ? w
+        : {
+            ...w,
+            drafts: new Map(w.drafts).set(path, {
+              text: loaded.text,
+              mode: { kind: "edit", item, old: loaded.text },
+            }),
+          };
+    });
+    if (kept) setToast({ text: "Your text was kept. Pick Edit again to edit the message." });
   };
   const pick = ({ label, icon }: ChatMenu["rows"][number]) => {
     if (icon === "icon-reply-arrow") return reply();

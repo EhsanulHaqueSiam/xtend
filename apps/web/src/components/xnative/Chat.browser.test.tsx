@@ -356,6 +356,9 @@ it("starts an edit from the text X loads into its own editor, not from what X di
   await expect.poll(() => moves.at(-1)).toBe("/i/chat/11-22");
   // X displays "Yes, after work"; its editor holds the whole message, markdown X hides included.
   const full = "Yes, after work **today**";
+  // X slow to load its editor, the second time.
+  let slow = false;
+  let loaded = false;
   drawX(
     `<div data-testid="dm-conversation-panel"><span data-testid="dm-conversation-username">Ann</span><div data-testid="dm-message-list"><div class="justify-end" data-testid="message-m1" data-send-status="sent"><span hidden id=":r1:-sender">You</span><div role="article"><div data-testid="message-text-m1"><span>Yes, after work</span></div></div></div></div><div data-testid="dm-composer-container"><textarea data-testid="dm-composer-textarea"></textarea><button data-testid="dm-composer-send-button">Send</button></div></div>`,
   );
@@ -384,11 +387,16 @@ it("starts an edit from the text X loads into its own editor, not from what X di
       );
     if (el.closest('[role="menuitem"]')) {
       root!.querySelector('[role="menu"]')!.remove();
-      field.insertAdjacentHTML(
-        "beforebegin",
-        '<div data-testid="dm-composer-edit-mode"><button data-testid="dm-composer-discard-edit-button"></button></div>',
-      );
-      field.value = full;
+      const load = () => {
+        field.insertAdjacentHTML(
+          "beforebegin",
+          '<div data-testid="dm-composer-edit-mode"><button data-testid="dm-composer-discard-edit-button"></button></div>',
+        );
+        field.value = full;
+        loaded = slow;
+      };
+      if (slow) setTimeout(load, 800);
+      else load();
     }
     if (el.matches('[data-testid="dm-composer-discard-edit-button"]')) {
       el.parentElement!.remove();
@@ -412,4 +420,20 @@ it("starts an edit from the text X loads into its own editor, not from what X di
     null,
     "",
   ]);
+  // The user types while X loads its editor: their text stays, the edit waits for another click.
+  await userEvent.click(screen.getByRole("button", { name: "Discard edit" }));
+  slow = true;
+  await userEvent.hover(message);
+  await userEvent.click(screen.getByRole("button", { name: "More", exact: true }).last());
+  await userEvent.click(
+    page
+      .getByRole("menu", { name: "Message actions" })
+      .getByRole("menuitem", { name: "Edit message" }),
+  );
+  await userEvent.type(screen.getByRole("textbox", { name: "Message" }), "Hi");
+  // X loaded its editor and Xtend put X's composer back: the user's text is what stays.
+  await expect
+    .poll(() => loaded && root!.querySelector('[data-testid="dm-composer-edit-mode"]'))
+    .toBeNull();
+  await expect.element(screen.getByRole("textbox", { name: "Message" })).toHaveValue("Hi");
 });
