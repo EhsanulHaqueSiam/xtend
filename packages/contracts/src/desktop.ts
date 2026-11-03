@@ -476,6 +476,23 @@ export type EngineFolderChange =
       readonly postId: string;
       readonly added: boolean;
     };
+/** One day of X's Radar post counts; `count` is null for a day X has not finished counting. */
+export interface EngineRadarCount {
+  readonly at: string;
+  readonly count: number | null;
+}
+
+/** A query saved in X's Radar (Premium), as its list and its own page name it. */
+export interface EngineRadarQuery {
+  readonly id: string;
+  /** "" when the user left it untitled; X shows "Untitled query". */
+  readonly title: string;
+  /** What X searches: its raw query, or an older query's tags joined by OR, as X's page does. */
+  readonly query: string;
+  readonly createdAt: string;
+  /** X's daily counts its list draws as the row's sparkline, oldest first; empty when X sent none. */
+  readonly preview: ReadonlyArray<EngineRadarCount>;
+}
 
 /**
  * One GraphQL response the engine received, by operation (HomeTimeline, TweetDetail, ...). `key`
@@ -539,4 +556,15 @@ export interface EngineBatch {
    * never do): `subscriptions_feature_1002` is bookmark folders.
    */
   readonly claims?: ReadonlyArray<string>;
+  /**
+   * X's Radar queries: all of them in X's order (insightsListContextQuery, keyed `radar`), or the
+   * one whose page X opened (insightProviderGetQuery, keyed by its id).
+   */
+  readonly radarQueries?: ReadonlyArray<EngineRadarQuery>;
+  /** How many Radar queries X lets this account keep (insightsConfigQuery's saved_query_limit). */
+  readonly radarLimit?: number;
+  /** X's daily post counts for the Radar query `key` names (usePostCountQuery), oldest first. */
+  readonly radarCounts?: ReadonlyArray<EngineRadarCount>;
+  /** The Radar query X deleted for the user's confirm in X's dialog (deleteInsightButtonMutation). */
+  readonly radarDeleted?: string;
 }

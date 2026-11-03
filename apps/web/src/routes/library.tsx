@@ -5,6 +5,7 @@ import { ArchiveTab } from "../components/library/ArchiveTab";
 import { CollectionsTab } from "../components/library/CollectionsTab";
 import { InspirationTab } from "../components/library/InspirationTab";
 import { PicksTab } from "../components/library/PicksTab";
+import { RadarTab } from "../components/library/RadarTab";
 import { SearchTab } from "../components/library/SearchTab";
 import { SwipeTab } from "../components/library/SwipeTab";
 import { TrendsTab } from "../components/library/TrendsTab";
@@ -57,6 +58,8 @@ function LibraryScreen() {
         <PicksTab />
       ) : section === "inspiration" ? (
         <InspirationTab />
+      ) : section === "radar" ? (
+        <RadarTab />
       ) : section === "search" ? (
         // A new `?q=` is a new search: remount so the query and results start from it.
         <SearchTab key={q ?? ""} initialQuery={q ?? ""} />

@@ -6,6 +6,8 @@ import type {
   EngineHomeTab,
   EngineList,
   EnginePost,
+  EngineRadarCount,
+  EngineRadarQuery,
   EngineTrend,
   EngineUser,
 } from "@xtend/contracts";
@@ -101,6 +103,13 @@ const MORE_TEXT = [
   "Cut the free trial to seven days. Activation went up.",
   "Hiring note: the portfolio beats the resume, every time.",
 ] as const;
+
+/** The range X's Radar page asks a query's days and posts for: the last 7 days, by UTC day. */
+export const radarRange = (now = Date.now()) => {
+  const to = Math.floor(now / 86_400_000 + 1) * 86_400;
+  const from = to - 7 * 86_400;
+  return { from, to, since: new Date(from * 1000).toISOString().slice(0, 10) };
+};
 
 const FEEDS = ["forYou", "following"] as const;
 export type Feed = (typeof FEEDS)[number];
@@ -433,6 +442,44 @@ export function createMockState(options: MockOptions = {}) {
       .toSorted((a, b) => (b.metrics[e.metric] ?? 0) - (a.metrics[e.metric] ?? 0))
       .slice(0, 20);
     return page("GenericTimelineById", `inspiration:${e.id}:${p.id}:en`, top);
+  };
+
+  // X's Radar (Premium): off for the account until a test turns it on, as for most accounts. Its
+  // queries newest change first, as X's list sorts them.
+  const radar = {
+    premium: false,
+    limit: 3,
+    next: 1803,
+    queries: [
+      { id: "1802", title: "", query: "design system", createdAt: "2026-10-30T09:00:00.000Z" },
+      {
+        id: "1801",
+        title: "Growth",
+        query: "growth OR ads",
+        createdAt: "2026-10-28T09:00:00.000Z",
+      },
+    ] as Array<Omit<EngineRadarQuery, "preview">>,
+  };
+  const radarHits = (query: string) => {
+    const words = query
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w) => w.length > 2);
+    return allPosts().filter((p) => words.some((w) => p.text.toLowerCase().includes(w)));
+  };
+  /** A query's posts per UTC day in `[from, to)` (seconds), plus a steady made-up base. */
+  const radarDays = (id: string, from: number, to: number): ReadonlyArray<EngineRadarCount> => {
+    const query = radar.queries.find((q) => q.id === id)?.query ?? "";
+    const hits = radarHits(query).map((p) => Date.parse(p.createdAt) / 1000);
+    return Array.from({ length: Math.max(0, Math.round((to - from) / 86_400)) }, (_, i) => {
+      const start = from + i * 86_400;
+      const own = hits.filter((t) => t >= start && t < start + 86_400).length;
+      return { at: new Date(start * 1000).toISOString(), count: ((Number(id) + i * 7) % 23) + own };
+    });
+  };
+  const radarQuery = (q: (typeof radar.queries)[number], preview: boolean): EngineRadarQuery => {
+    const { from, to } = radarRange();
+    return { ...q, preview: preview ? radarDays(q.id, from, to) : [] };
   };
 
   const explore = fixture("ExplorePage", "explore-for-you")!;
@@ -816,6 +863,41 @@ export function createMockState(options: MockOptions = {}) {
         });
         return { ...(own === undefined ? page(op, id, []) : live(own)), posts, order: ids };
       }
+      // X's Radar, only for an account with Premium.
+      case "insightsConfigQuery":
+        return radar.premium ? page(op, null, [], { top: null, radarLimit: radar.limit }) : null;
+      case "insightsListContextQuery":
+        return radar.premium
+          ? page(op, "radar", [], {
+              top: null,
+              radarQueries: radar.queries.map((q) =>
+                radarQuery(q, variables.previewsEnabled === true),
+              ),
+            })
+          : null;
+      case "insightProviderGetQuery":
+      case "usePostCountQuery": {
+        const q = radar.queries.find((r) => r.id === s(variables, "id"));
+        if (!radar.premium || q === undefined) return null;
+        return op === "insightProviderGetQuery"
+          ? page(op, q.id, [], { top: null, radarQueries: [radarQuery(q, false)] })
+          : page(op, q.id, [], {
+              top: null,
+              radarCounts: radarDays(q.id, Number(variables.from_time), Number(variables.to_time)),
+            });
+      }
+      case "postListQuery": {
+        const [, query = ""] = /^(.+) -is:retweet since:/.exec(s(variables, "query") ?? "") ?? [];
+        const product = s(variables, "product") ?? "Top";
+        const hits = radarHits(query).toSorted((a, b) =>
+          product === "Latest"
+            ? Date.parse(b.createdAt) - Date.parse(a.createdAt)
+            : b.metrics.likes - a.metrics.likes,
+        );
+        return radar.premium && query !== ""
+          ? page(op, `radar:${product}:${query}`, hits, { top: null })
+          : null;
+      }
       default:
         if (
           /^User(Tweets|TweetsAndReplies|Media|HighlightsTweets|SuperFollowTweets|RepostsTimeline)$/.test(
@@ -999,6 +1081,39 @@ export function createMockState(options: MockOptions = {}) {
             : "bookmark_collection_tweet_delete",
         );
       }
+      // X's Radar: a query made from X's form, and one deleted from X's list.
+      case "createInsightInputMutation": {
+        const made = String(radar.next++);
+        radar.queries.unshift({
+          id: made,
+          title: s(input, "title") ?? "",
+          query: s(input, "advanced_query") ?? "",
+          createdAt: new Date().toISOString(),
+        });
+        return {
+          data: {
+            create_insight_rule_v2: {
+              __typename: "InsightRuleMutationSuccess",
+              result: { rest_id: made, id: btoa(`InsightRule:${made}`) },
+            },
+          },
+        };
+      }
+      case "deleteInsightButtonMutation": {
+        const at = radar.queries.findIndex((q) => q.id === id);
+        if (at !== -1) radar.queries.splice(at, 1);
+        return {
+          data: {
+            delete_insight_rule_v2:
+              at === -1
+                ? { __typename: "InsightRuleFailure", error_code: 404, error_message: "Not found" }
+                : {
+                    __typename: "InsightRuleMutationSuccess",
+                    result: { rest_id: id, id: btoa(`InsightRule:${id}`) },
+                  },
+          },
+        };
+      }
       default:
         // Mutes, blocks and the rest are only logged: no screen reads them back.
         return { data: {} };
@@ -1029,6 +1144,8 @@ export function createMockState(options: MockOptions = {}) {
       fixture("ConnectTabTimeline", "connect:creators")!.people.includes(userId),
     /** Everything pressed and written, in order. */
     presses,
+    /** X's Radar: whether the account has Premium, X's query limit, and its queries. */
+    radar,
     setTrendHidden: (path: string, name: string, hidden: boolean) => {
       const names = hiddenTrends.get(path) ?? new Set<string>();
       if (hidden) names.add(name);

@@ -22,6 +22,8 @@ import type {
   EnginePoll,
   EnginePost,
   EnginePrompt,
+  EngineRadarCount,
+  EngineRadarQuery,
   EngineTrend,
   EngineUser,
   EngineViewer,
@@ -830,6 +832,159 @@ function inspirationKey(timelineId: string | undefined): string | null {
     : null;
 }
 
+/** The search X's Radar page runs for a query's posts: the query, then its own range. */
+const RADAR_POSTS = /^([^]+) -is:retweet since:\d{4}-\d{2}-\d{2}(?: until:\d{4}-\d{2}-\d{2})?$/;
+
+const isoOf = (value: unknown) => {
+  const date = typeof value === "number" || typeof value === "string" ? new Date(value) : null;
+  return date === null || Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+};
+
+/** X's daily counts (`InsightsPostsCount`, seconds); a day before `complete` is still counting. */
+const radarCounts = (counts: unknown, complete?: number): ReadonlyArray<EngineRadarCount> =>
+  arr(counts).flatMap((c) => {
+    const start = record(c).start_time;
+    const count = asCount(record(c).count);
+    if (typeof start !== "number") return [];
+    return [
+      {
+        at: new Date(start * 1000).toISOString(),
+        count: complete !== undefined && start < complete ? null : count,
+      },
+    ];
+  });
+
+/**
+ * A Radar query in X's shape (`ApiInsightRule`) and when it last changed, which X's list sorts
+ * by. Its query is what X's page searches: its tags joined by OR, else its raw query.
+ */
+function radarRule(item: unknown) {
+  const rule = record(item);
+  const core = record(rule.core);
+  const id = asString(rule.rest_id);
+  const createdAt = isoOf(core.created_at);
+  let tags: unknown = null;
+  try {
+    tags = JSON.parse(asString(core.tags) ?? "null");
+  } catch {}
+  const query =
+    (Array.isArray(tags) && tags.every((t) => typeof t === "string") ? tags.join(" OR ") : "") ||
+    (asString(core.advanced_query) ?? "");
+  if (id === undefined || !X_ID.test(id) || createdAt === undefined) return [];
+  const radar: EngineRadarQuery = {
+    id,
+    title: asString(core.title) ?? "",
+    query,
+    createdAt,
+    preview: radarCounts(record(rule.preview).counts),
+  };
+  return [{ radar, updated: Date.parse(isoOf(core.updated_at) ?? createdAt) }];
+}
+
+/** X's Radar (Relay, Premium): its queries, how many it allows, and a query's daily counts. */
+function readRadar(
+  op: string,
+  data: Json,
+): Pick<EngineBatch, "radarQueries" | "radarLimit" | "radarCounts" | "radarDeleted"> {
+  const deleted = record(data.delete_insight_rule_v2);
+  const gone = asString(record(deleted.result).rest_id);
+  if (op === "deleteInsightButtonMutation" && deleted.__typename === "InsightRuleMutationSuccess")
+    return gone === undefined ? {} : { radarDeleted: gone };
+  const user = result(record(data.viewer_v2).user_results);
+  const rules = record(user.insight_rules).items;
+  if (op === "insightsListContextQuery" && Array.isArray(rules))
+    return {
+      radarQueries: rules
+        .flatMap(radarRule)
+        .toSorted((a, b) => b.updated - a.updated)
+        .map((r) => r.radar),
+    };
+  if (op === "insightProviderGetQuery") {
+    const rule = radarRule(user.insight_rule_by_id)[0];
+    return rule === undefined ? {} : { radarQueries: [rule.radar] };
+  }
+  const limit = record(user.insights_config).saved_query_limit;
+  if (op === "insightsConfigQuery" && typeof limit === "number") return { radarLimit: limit };
+  const counts = record(record(user.insight_rule_by_id).matched_post_counts);
+  if (op === "usePostCountQuery" && Array.isArray(counts.counts)) {
+    const complete = counts.oldest_complete_count;
+    return {
+      radarCounts: radarCounts(counts.counts, typeof complete === "number" ? complete : undefined),
+    };
+  }
+  return {};
+}
+
+/**
+ * A post in X's Radar list (postListQuery), in X's newer shape: text, time and entities under
+ * `details`, counts under `counts`, no media.
+ */
+function readRadarPost(tweet: Json): EnginePost | undefined {
+  const postId = asString(tweet.rest_id);
+  const user = readUser(result(record(tweet.core).user_results));
+  const details = record(tweet.details);
+  const createdAt = isoOf(Number(details.created_at_ms));
+  const counts = record(tweet.counts);
+  if (postId === undefined || !X_ID.test(postId) || user === undefined || createdAt === undefined)
+    return undefined;
+  const text = (asString(details.full_text) ?? "")
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&amp;", "&");
+  // The legacy entity names, so the shared readers place them.
+  const source = {
+    urls: tweet.url_entities,
+    user_mentions: tweet.mention_entities,
+    hashtags: details.hashtag_entities,
+    symbols: details.cashtag_entities,
+  };
+  const links = readLinks(source);
+  return {
+    postId,
+    author: {
+      userId: user.userId,
+      handle: user.handle,
+      name: user.name,
+      followers: user.followers,
+      verified: user.verified,
+    },
+    text,
+    createdAt,
+    isReply: false,
+    isRepost: false,
+    isPromoted: false,
+    hasMedia: false,
+    hasLink: links.length > 0,
+    metrics: {
+      views: asCount(record(tweet.views).count),
+      likes: asCount(counts.favorite_count) ?? 0,
+      reposts: asCount(counts.retweet_count) ?? 0,
+      replies: asCount(counts.reply_count) ?? 0,
+      quotes: asCount(counts.quote_count) ?? 0,
+      bookmarks: asCount(counts.bookmark_count) ?? 0,
+    },
+    avatarUrl: user.avatarUrl,
+    media: [],
+    quotedId: null,
+    replyToId: null,
+    replyingTo: [],
+    entities: readEntities(source, links, text),
+    card: null,
+    poll: null,
+    note: null,
+    context: null,
+    liked: false,
+    reposted: false,
+    bookmarked: false,
+    conversation: null,
+    edits: [],
+    editsRemaining: null,
+    editableUntil: null,
+    aiGenerated: false,
+    translation: null,
+  };
+}
+
 /** X's two post tabs of a search of Communities: Top, and Latest. */
 const HUB_SEARCH_POSTS = /^GlobalCommunities(Latest)?PostSearchTimeline$/;
 
@@ -903,6 +1058,15 @@ function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExp
     return s("gameId") ?? null;
   // A bookmark folder's posts, by the folder.
   if (op === "BookmarkFolderTimeline") return s("bookmark_collection_id") ?? null;
+  // X's Radar: its one list, a query's own page and counts by its id, and a query's posts per tab.
+  if (op === "insightsListContextQuery") return "radar";
+  if (op === "insightProviderGetQuery" || op === "usePostCountQuery") return s("id") ?? null;
+  if (op === "postListQuery") {
+    const query = RADAR_POSTS.exec(s("query") ?? "")?.[1];
+    return query === undefined || s("product") === undefined
+      ? null
+      : `radar:${s("product")}:${query}`;
+  }
   return s("userId") ?? null;
 }
 
@@ -1078,12 +1242,15 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     top,
     bottom,
     // X's own composer answers with the post it created, outside any timeline.
-    posts: renderPostsFromGraphql(
-      /^Create(Note)?Tweet$/.test(op) ? (readCreatedTweet(body) ?? body) : body,
-    ).map((p) => {
-      const conversation = conversations.get(p.postId);
-      return conversation === undefined ? p : { ...p, conversation };
-    }),
+    posts:
+      op === "postListQuery"
+        ? walkTweets(body, readRadarPost)
+        : renderPostsFromGraphql(
+            /^Create(Note)?Tweet$/.test(op) ? (readCreatedTweet(body) ?? body) : body,
+          ).map((p) => {
+            const conversation = conversations.get(p.postId);
+            return conversation === undefined ? p : { ...p, conversation };
+          }),
     users: readUsers(body),
     people,
     sections,
@@ -1103,6 +1270,7 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     ...readAnalytics(op, data),
     ...(folders === undefined ? {} : { bookmarkFolders: folders }),
     ...(claims === undefined ? {} : { claims }),
+    ...readRadar(op, data),
   };
 }
 
@@ -1294,4 +1462,10 @@ export const hasEngineContent = (b: EngineBatch) =>
   b.bookmarkFolders !== undefined ||
   b.claims !== undefined ||
   // A folder, or Bookmarks, X answered with no posts: the screen says it is empty.
-  (b.key !== null && (b.op === "BookmarkFolderTimeline" || b.op === "Bookmarks"));
+  (b.key !== null && (b.op === "BookmarkFolderTimeline" || b.op === "Bookmarks")) ||
+  // X's Radar: an empty list or a query X found no posts for still reaches its screen.
+  b.radarQueries !== undefined ||
+  b.radarLimit !== undefined ||
+  b.radarCounts !== undefined ||
+  b.radarDeleted !== undefined ||
+  (b.op === "postListQuery" && b.key !== null);

@@ -17,6 +17,7 @@ import {
   inspirationTimelineId,
   type MockState,
   quotesQuery,
+  radarRange,
 } from "./state.ts";
 
 /**
@@ -325,6 +326,104 @@ const GAME_TABS = ["Top", "Latest", "Highlights", "Stats", "Plays", "Chat"] as c
 const routeDialog = (title: string, body: string) =>
   `<div role="dialog" aria-modal="true" aria-labelledby="dialog-title" class="dialog route"><div class="bar"><button data-testid="app-bar-close" aria-label="Close">✕</button><h2 id="dialog-title">${esc(title)}</h2></div>${body}</div>`;
 
+/**
+ * X's Radar pages (ondemand.Insights): without Premium, X's upsell and no call, as on x.com. With
+ * it, the list (or, for an account X allows one query, that query's page), a query's page with
+ * its Posts count and Top posts, and the new-query form, whose Delete and Submit client.ts drives.
+ */
+function radarPage(state: MockState, page: string | undefined): Route {
+  const radar = state.radar;
+  if (!radar.premium)
+    return {
+      title: "Radar / X",
+      requests: [],
+      render: () =>
+        `${header("Radar")}<div class="empty"><h1>Be the very first to spot trends with Radar</h1><p>Introducing the most powerful search tool on X.</p><p>Monitor keywords, visualize trend activity, and filter conversations. In real-time.</p><a href="/i/premium_sign_up">Subscribe to Premium</a>${[
+          ["Monitor keywords", "Focus on any topic using advanced search capability."],
+          [
+            "Visualize trends",
+            "Track conversations with daily activity graphs from the past 3 days.",
+          ],
+          ["Real-time metrics", "Get immediate stats on post counts from your queries."],
+        ]
+          .map(([t, d]) => `<div><b>${t}</b><p>${d}</p></div>`)
+          .join("")}</div>`,
+    };
+  const r = (op: string, variables: Record<string, unknown>): GraphqlRequest => ({ op, variables });
+  const { from, to, since } = radarRange();
+  const counts = (id: string) =>
+    r("usePostCountQuery", {
+      from_time: from,
+      granularity: "Day",
+      id,
+      timezone_offset: 0,
+      to_time: to,
+      include_unique_users: false,
+      include_impressions: false,
+      include_total_posts: false,
+    });
+  const config = r("insightsConfigQuery", {});
+  const list = r("insightsListContextQuery", { previewsEnabled: radar.limit > 1 });
+  const total = (b: EngineBatch | null | undefined) =>
+    (b?.radarCounts ?? []).reduce((n, d) => n + (d.count ?? 0), 0).toLocaleString("en");
+  const title = (q: { readonly title: string }) => esc(q.title || "Untitled query");
+  const bar = `${header("Radar")}${radar.limit > 1 ? `<a href="/i/radar">All queries</a> <a href="/i/radar/new">New query</a>` : ""}`;
+  const queryPage = (id: string): Route => {
+    const q = radar.queries.find((x) => x.id === id);
+    return {
+      title: "Radar / X",
+      requests: [
+        config,
+        r("insightProviderGetQuery", { id }),
+        counts(id),
+        ...(q === undefined
+          ? []
+          : [
+              r("postListQuery", {
+                cursor: null,
+                product: "Top",
+                query: `${q.query} -is:retweet since:${since}`,
+              }),
+            ]),
+      ],
+      render: ([, , c, posts]) =>
+        q === undefined
+          ? `${bar}<div class="empty">Insight rule not found</div>`
+          : `${bar}<h2>${title(q)}</h2><div>${esc(q.query)}</div><div data-radar-count>Posts <span>${total(c)}</span></div><button type="button">Top</button><button type="button">Latest</button><section data-list>${postsOf(posts ?? null, state)}</section>`,
+    };
+  };
+  const form = (count: number) =>
+    count >= radar.limit
+      ? `<div class="empty"><b>You have reached the maximum number of queries</b> <a href="/i/radar">All queries</a></div>`
+      : `<div class="empty" data-radar-form><h2>Create a query and let Radar track real-time updates</h2><input placeholder="$NVDA (sell OR buy)"><button type="button" aria-label="Submit" disabled data-radar-submit><svg data-icon="icon-arrow-up"></svg></button></div>`;
+  if (page === "new")
+    return {
+      title: "Radar / X",
+      requests: [config, r("insightsListContextQuery", { previewsEnabled: false })],
+      render: () => `${bar}${form(radar.queries.length)}`,
+    };
+  if (page !== undefined) return queryPage(page);
+  if (radar.queries.length === 0)
+    return { title: "Radar / X", requests: [config, list], render: () => `${bar}${form(0)}` };
+  if (radar.limit <= 1) {
+    const only = queryPage(radar.queries[0]!.id);
+    // After the page's own calls, so its render reads them where it expects.
+    return { ...only, requests: [...only.requests, list] };
+  }
+  return {
+    title: "Radar / X",
+    requests: [config, list, ...radar.queries.map((q) => counts(q.id))],
+    render: ([, , ...days]) =>
+      `${bar}${radar.queries
+        .map(
+          (q, i) =>
+            // X's row: a column of its title and date, its query field and its Delete, then Posts.
+            `<div class="group" data-radar-row="${q.id}" data-radar-name="${title(q)}"><div><div><b>${title(q)}</b> <span>${shortDate(q.createdAt)}</span></div><div><span>${esc(q.query)}</span></div><div><button type="button" data-radar-delete="${q.id}"><svg data-icon="icon-trashcan"></svg><div>Delete</div></button></div></div><div>Posts <span>${total(days[i])}</span></div></div>`,
+        )
+        .join("")}`,
+  };
+}
+
 /** The route for an x.com path (with its query), and Home's picked tab. */
 export function route(state: MockState, pathWithQuery: string, homeTab: string): Route {
   const url = new URL(pathWithQuery, "https://x.com");
@@ -334,6 +433,7 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
   const r = (op: string, variables: Record<string, unknown>): GraphqlRequest => ({ op, variables });
   const lower = first.toLowerCase();
 
+  if (lower === "i" && second === "radar" && fourth === undefined) return radarPage(state, third);
   if (url.pathname === "/home") {
     const feed =
       homeTab === "following"

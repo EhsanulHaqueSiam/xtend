@@ -63,6 +63,12 @@ export const SECTIONS = {
       about: "X's top posts by engagement, free through your session.",
     },
     {
+      id: "radar",
+      label: "Radar",
+      about:
+        "Queries X's Radar watches, with their daily posts. Needs X Premium; free through your session.",
+    },
+    {
       id: "trends",
       label: "Trends",
       about: "Topics for you and the shared pool, free; X trends by country through treg.",
