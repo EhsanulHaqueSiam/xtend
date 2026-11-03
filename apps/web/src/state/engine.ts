@@ -460,14 +460,20 @@ interface AccountAnalytics {
   readonly access: boolean | null;
   /** X's answers by `<kind>:<days>` (see `EngineBatch.accountAnalytics`). */
   readonly answers: ReadonlyMap<string, EngineAccountAnalytics>;
-  /** Per kind, the range in days X's page shows: X's latest answer, or the user's pick since. */
-  readonly range: Readonly<Partial<Record<AnalyticsRanged, number>>>;
-  /** Per kind, a pick X has not answered; until it does, an answer for another range is late. */
-  readonly asked: Readonly<Partial<Record<AnalyticsRanged, number>>>;
+  /** Per kind, the last range X answered for as the one its page shows. */
+  readonly confirmed: Readonly<Partial<Record<AnalyticsRanged, number>>>;
+  /** Per kind, the user's latest pick: it shows over `confirmed` until a pick never reaches X. */
+  readonly selected: Readonly<Partial<Record<AnalyticsRanged, number>>>;
+  /** Per kind, picks X has not answered yet: their answers, when they come late, show nothing. */
+  readonly pending: Readonly<Partial<Record<AnalyticsRanged, ReadonlyArray<number>>>>;
 }
 
 const without = <K extends string, A>(record: Readonly<Partial<Record<K, A>>>, key: K) =>
   Object.fromEntries(Object.entries(record).filter(([k]) => k !== key)) as Partial<Record<K, A>>;
+
+/** The range X's page shows for `kind`: the latest pick, else the last one X confirmed. */
+export const analyticsRange = (a: AccountAnalytics, kind: AnalyticsRanged) =>
+  a.selected[kind] ?? a.confirmed[kind];
 
 const mergeAccountAnalytics = (a: AccountAnalytics, b: EngineBatch): AccountAnalytics => {
   // X's claims, when X sends them, say it outright.
@@ -476,14 +482,27 @@ const mergeAccountAnalytics = (a: AccountAnalytics, b: EngineBatch): AccountAnal
   if (answer === undefined || b.key === null) return access === a.access ? a : { ...a, access };
   const answers = new Map(a.answers).set(b.key, answer);
   if (answer.kind === "videos") return { ...a, access, answers };
-  const asked = a.asked[answer.kind];
-  // Asked for before the pick X has not answered yet: X's page shows the pick, not this.
-  if (asked !== undefined && asked !== answer.days) return { ...a, access, answers };
+  const { kind, days } = answer;
+  const pending = a.pending[kind] ?? [];
+  if (pending.includes(days)) {
+    // A pick's own answer: X confirms it only while it is still the latest pick.
+    const rest = pending.filter((d) => d !== days);
+    return {
+      ...a,
+      access,
+      answers,
+      confirmed: a.selected[kind] === days ? { ...a.confirmed, [kind]: days } : a.confirmed,
+      pending: { ...a.pending, [kind]: rest },
+    };
+  }
+  // X's page moved by itself (a reload, a click on x.com): followed only while nothing waits.
+  if (pending.length > 0) return { ...a, access, answers };
   return {
+    ...a,
     access,
     answers,
-    range: { ...a.range, [answer.kind]: answer.days },
-    asked: without(a.asked, answer.kind),
+    confirmed: { ...a.confirmed, [kind]: days },
+    selected: without(a.selected, kind),
   };
 };
 
@@ -495,26 +514,28 @@ const withAnalytics = (s: EngineState, change: Partial<AccountAnalytics>): Engin
 /** The user picked `days` for `kind`, pressed on X's page: it shows from now on. */
 export const pickAnalyticsRange = (s: EngineState, kind: AnalyticsRanged, days: number) =>
   withAnalytics(s, {
-    range: { ...s.accountAnalytics.range, [kind]: days },
-    asked: { ...s.accountAnalytics.asked, [kind]: days },
+    selected: { ...s.accountAnalytics.selected, [kind]: days },
+    pending: {
+      ...s.accountAnalytics.pending,
+      [kind]: [...(s.accountAnalytics.pending[kind] ?? []).filter((d) => d !== days), days],
+    },
   });
 
-/** A pick that never reached X's page (no button, another page, the section left): undone. */
-export const dropAnalyticsPick = (
-  s: EngineState,
-  kind: AnalyticsRanged,
-  days: number,
-  before: number | undefined,
-) =>
-  s.accountAnalytics.asked[kind] !== days
-    ? s
-    : withAnalytics(s, {
-        range:
-          before === undefined
-            ? without(s.accountAnalytics.range, kind)
-            : { ...s.accountAnalytics.range, [kind]: before },
-        asked: without(s.accountAnalytics.asked, kind),
-      });
+/**
+ * A pick that never reached X's page (no button, another page, the section left): it waits on
+ * nothing, and when it was the latest pick the range is the last one X confirmed again.
+ */
+export const dropAnalyticsPick = (s: EngineState, kind: AnalyticsRanged, days: number) =>
+  withAnalytics(s, {
+    pending: {
+      ...s.accountAnalytics.pending,
+      [kind]: (s.accountAnalytics.pending[kind] ?? []).filter((d) => d !== days),
+    },
+    selected:
+      s.accountAnalytics.selected[kind] === days
+        ? without(s.accountAnalytics.selected, kind)
+        : s.accountAnalytics.selected,
+  });
 
 /**
  * What X's analytics page showed when X sent no claims: its upsell (no access) or its analytics.
@@ -555,7 +576,7 @@ export const emptyEngine: EngineState = {
   viewer: null,
   analytics: new Map(),
   knownFollowers: new Map(),
-  accountAnalytics: { access: null, answers: new Map(), range: {}, asked: {} },
+  accountAnalytics: { access: null, answers: new Map(), confirmed: {}, selected: {}, pending: {} },
   formatting: null,
   radar: { list: null, queries: new Map(), limit: null, counts: new Map() },
   cursors: {},

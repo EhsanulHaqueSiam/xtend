@@ -18,6 +18,7 @@ import {
   communityPinned,
   communityRole,
   communitySearchSurface,
+  analyticsRange,
   communitySurface,
   dropAnalyticsPick,
   emptyEngine,
@@ -665,16 +666,16 @@ it("keeps X's account analytics per range, the range X's page shows now, and X's
   state = mergeBatch(state, overviewAnswer(7, 10));
   state = mergeBatch(state, overviewAnswer(28, 90));
   state = mergeBatch(state, batch("HomeLatestTimeline", []));
-  expect([state.accountAnalytics.access, state.accountAnalytics.range]).toEqual([
-    true,
-    { overview: 28 },
-  ]);
+  expect([
+    state.accountAnalytics.access,
+    analyticsRange(state.accountAnalytics, "overview"),
+  ]).toEqual([true, 28]);
   // X's page moved back to 7D itself (a click on x.com): its answer moves the range back.
   state = mergeBatch(state, overviewAnswer(7, 12));
-  expect([state.accountAnalytics.range, [...state.accountAnalytics.answers.keys()]]).toEqual([
-    { overview: 7 },
-    ["overview:7", "overview:28"],
-  ]);
+  expect([
+    analyticsRange(state.accountAnalytics, "overview"),
+    [...state.accountAnalytics.answers.keys()],
+  ]).toEqual([7, ["overview:7", "overview:28"]]);
   // X's claims every few minutes say the same, or that the account lost it.
   state = mergeBatch(state, { ...batch("GetUserClaims", []), claims: [] });
   expect(state.accountAnalytics.access).toBe(false);
@@ -686,21 +687,43 @@ it("keeps the range picked on X's page until X answers for it, so a late answer 
   state = pickAnalyticsRange(state, "overview", 28);
   state = mergeBatch(state, overviewAnswer(28, 90));
   state = pickAnalyticsRange(state, "overview", 7);
-  expect(state.accountAnalytics.range.overview).toBe(7);
+  expect(analyticsRange(state.accountAnalytics, "overview")).toBe(7);
   // 3M picked while X still fetches 1Y: 1Y's answer comes late and leaves 3M, X's own pick.
   state = pickAnalyticsRange(state, "overview", 365);
   state = pickAnalyticsRange(state, "overview", 90);
   state = mergeBatch(state, overviewAnswer(365, 4000));
-  expect(state.accountAnalytics.range.overview).toBe(90);
+  expect(analyticsRange(state.accountAnalytics, "overview")).toBe(90);
   state = mergeBatch(state, overviewAnswer(90, 900));
+  // While a pick still waits on X (7D, from X's cache), an answer nobody picked moves nothing.
   state = mergeBatch(state, overviewAnswer(28, 95));
-  expect(state.accountAnalytics.range.overview).toBe(28);
-  // A pick that never reached X's page goes back to the range X showed; a newer one stays.
+  expect(analyticsRange(state.accountAnalytics, "overview")).toBe(90);
+  // A pick that never reached X's page goes back to the range X confirmed; a newer one stays.
   state = pickAnalyticsRange(state, "overview", 14);
-  state = dropAnalyticsPick(state, "overview", 14, 28);
-  expect(state.accountAnalytics.range.overview).toBe(28);
+  state = dropAnalyticsPick(state, "overview", 14);
+  expect(analyticsRange(state.accountAnalytics, "overview")).toBe(90);
   state = pickAnalyticsRange(state, "overview", 7);
-  expect(dropAnalyticsPick(state, "overview", 14, 28).accountAnalytics.range.overview).toBe(7);
+  expect(
+    analyticsRange(dropAnalyticsPick(state, "overview", 14).accountAnalytics, "overview"),
+  ).toBe(7);
+});
+
+it("never lets an older pick's late answer, or an unpressed pick's undo, move off the range X shows", () => {
+  const shown = (state: typeof emptyEngine) => analyticsRange(state.accountAnalytics, "overview");
+  // 1Y, then 3M: 3M's answer comes first, 1Y's late one after it.
+  let state = mergeBatch(emptyEngine, overviewAnswer(7, 10));
+  state = pickAnalyticsRange(state, "overview", 365);
+  state = pickAnalyticsRange(state, "overview", 90);
+  state = mergeBatch(state, overviewAnswer(90, 900));
+  state = mergeBatch(state, overviewAnswer(365, 4000));
+  expect(shown(state)).toBe(90);
+  // 4W, then 3M, neither reaching X's page: back to the 7D X confirmed, not the unpressed 4W.
+  state = mergeBatch(emptyEngine, overviewAnswer(7, 10));
+  state = pickAnalyticsRange(state, "overview", 28);
+  state = pickAnalyticsRange(state, "overview", 90);
+  state = dropAnalyticsPick(state, "overview", 28);
+  expect(shown(state)).toBe(90);
+  state = dropAnalyticsPick(state, "overview", 90);
+  expect(shown(state)).toBe(7);
 });
 
 it("reads access from X's page when X sends no claims, and lets claims say it when they come", () => {

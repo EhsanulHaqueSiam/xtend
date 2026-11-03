@@ -13,6 +13,7 @@ import { type TableComponents, TableVirtuoso } from "react-virtuoso";
 import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
 import {
+  analyticsRange,
   dropAnalyticsPick,
   engineAtom,
   pickAnalyticsRange,
@@ -79,9 +80,10 @@ const isKind = <K extends Kind>(
 function useXAnalytics(section: XSection) {
   const page = PAGES[section];
   const url = `https://x.com${page.path}`;
-  const { access, answers, range } = useAtomValue(engineAtom).accountAnalytics;
+  const analytics = useAtomValue(engineAtom).accountAnalytics;
+  const { access, answers } = analytics;
   const setEngine = useAtomSet(engineAtom);
-  const days = range[page.kind];
+  const days = analyticsRange(analytics, page.kind);
   const answer = days === undefined ? undefined : answers.get(`${page.kind}:${days}`);
   const loaded = useRef<Promise<unknown>>(Promise.resolve());
   const live = useRef(new AbortController());
@@ -117,7 +119,7 @@ function useXAnalytics(section: XSection) {
           void xPickAnalyticsRange(page.path, picked, loaded.current, live.current.signal).then(
             (pressed) => {
               if (!pressed)
-                setEngine(updateEngine((s) => dropAnalyticsPick(s, kind, DAYS[picked], days)));
+                setEngine(updateEngine((s) => dropAnalyticsPick(s, kind, DAYS[picked])));
             },
           );
         }}
