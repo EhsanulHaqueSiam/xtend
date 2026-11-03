@@ -608,6 +608,10 @@ it("keeps the signed-in account's id when X's nav names it again without one, an
   expect([...state.claims!]).toEqual(["subscriptions_feature_1014"]);
   // The subscription ended: X grants nothing now.
   expect(mergeBatch(state, batch("GetUserClaims", [], { claims: [] })).claims?.size).toBe(0);
+  // What X's composer draws stands until it draws otherwise; a page without one says nothing.
+  state = mergeBatch(state, batch("ViewerFromNav", [], { formatting: false }));
+  state = mergeBatch(state, batch("ViewerFromNav", []));
+  expect(state.formatting).toBe(false);
   state = mergeBatch(
     state,
     batch("ViewerFromNav", [], {

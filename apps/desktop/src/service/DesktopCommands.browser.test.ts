@@ -55,6 +55,8 @@ interface FakeOptions {
   readonly entriesPerQuery?: number;
   /** X lets the account format (its claim for Premium): X's ⌘B and ⌘I style what is typed next. */
   readonly formatting?: boolean;
+  /** The nth command key (from 1) X misses, as when its editor is busy. */
+  readonly missedKey?: number;
 }
 
 /** X's composer page and its GIF search route, on this document's URL. */
@@ -96,10 +98,11 @@ function fakeX(markup: string, log: Array<string>, options: FakeOptions = {}) {
   // next, drawn as a styled leaf; for an account X does not let format, the keys do nothing.
   const box = document.querySelector<HTMLElement>('[data-testid="tweetTextarea_0"]');
   const typing = { Bold: false, Italic: false };
+  let keys = 0;
   box?.addEventListener("keydown", (event) => {
     const command = /Mac OS X/.test(navigator.userAgent) ? event.metaKey : event.ctrlKey;
     const style = command ? ({ b: "Bold", i: "Italic" } as const)[event.key] : undefined;
-    if (style === undefined || options.formatting !== true) return;
+    if (style === undefined || options.formatting !== true || ++keys === options.missedKey) return;
     event.preventDefault();
     typing[style] = !typing[style];
     log.push(`${style} ${typing[style] ? "on" : "off"}`);
@@ -558,9 +561,33 @@ it("refuses before Post, and takes the text back, when X does not apply the form
     post({ text: "go big", styles: [{ start: 3, end: 6, style: "Bold" }] }),
   );
   expect(result).toMatchObject({
-    message: "x.com's composer has no bold text; nothing was posted",
+    message: "x.com's composer did not format the text as asked; nothing was posted",
     notAttempted: true,
   });
   expect(log.some((l) => l.startsWith("press Post"))).toBe(false);
   expect(composer()).toEqual(EMPTY);
+});
+
+it("refuses before Post when X styled other words than asked: a plain gap left bold, a run dropped", async () => {
+  // "go" and "now" bold: X's keys are Bold on, off, on. A missed off leaves " big " bold; a missed
+  // second on leaves "now" plain. Either way some text is bold, but not the text asked for.
+  for (const missedKey of [2, 3]) {
+    const { log, result } = await run(
+      COMPOSER,
+      post({
+        text: "go big now",
+        styles: [
+          { start: 0, end: 2, style: "Bold" },
+          { start: 7, end: 10, style: "Bold" },
+        ],
+      }),
+      { formatting: true, missedKey },
+    );
+    expect(result).toMatchObject({
+      message: "x.com's composer did not format the text as asked; nothing was posted",
+      notAttempted: true,
+    });
+    expect(log.some((l) => l.startsWith("press Post"))).toBe(false);
+    expect(composer()).toEqual(EMPTY);
+  }
 });

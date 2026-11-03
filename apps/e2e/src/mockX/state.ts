@@ -114,8 +114,8 @@ export interface MockOptions {
   /** Every nth made-up post carries a photo, so a page is as tall as X's. */
   readonly photoEvery?: number;
   /**
-   * The account holds X's claim for bold and italic (Premium): GetUserClaims grants it and the
-   * composer's ⌘B and ⌘I apply. Without it X grants nothing and the keys do nothing, as on X.
+   * The account holds X's claim for bold and italic (Premium): X's composer draws its editor
+   * uncapped, its ⌘B and ⌘I apply, and GetUserClaims grants it when asked. Without it none of that.
    */
   readonly premium?: boolean;
 }

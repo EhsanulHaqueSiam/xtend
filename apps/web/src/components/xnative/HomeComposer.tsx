@@ -222,7 +222,7 @@ export function HomeComposer() {
   const setToast = useAtomSet(toastAtom);
   const [text, setText] = useState("");
   const [styles, setStyles] = useState<ReadonlyArray<TextStyle>>([]);
-  const canFormat = useAtomValue(canFormatAtom) === true;
+  const canFormat = useAtomValue(canFormatAtom);
   const [files, setFiles] = useState<ReadonlyArray<Attached>>([]);
   const [poll, setPoll] = useState<DraftPoll | null>(null);
   // Picked in X's GIF search for `query`, which Post searches again in X's composer.

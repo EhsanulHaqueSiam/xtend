@@ -207,7 +207,7 @@ export function ThreadEditor({
   /** X's Bold and Italic: only X's composer applies them, so only while the session posts. */
   readonly formatting?: boolean;
 }) {
-  const canFormat = useAtomValue(canFormatAtom) === true;
+  const canFormat = useAtomValue(canFormatAtom);
   // The active post's selection, which Bold and Italic format.
   const [selection, setSelection] = useState({ start: 0, end: 0 });
   const picker = useRef<HTMLInputElement>(null);

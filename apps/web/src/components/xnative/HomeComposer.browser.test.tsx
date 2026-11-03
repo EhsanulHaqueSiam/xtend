@@ -14,6 +14,7 @@ const { render } = await import("../../../test/render");
 const { EngineSync } = await import("./EngineSync");
 const { HomeComposer } = await import("./HomeComposer");
 const { markXReady, registerXWebview } = await import("../../state/x");
+const { emptyEngine, updateEngine } = await import("../../state/engine");
 
 const person = (handle: string, followers: number, youFollow: boolean) =>
   ({
@@ -418,4 +419,41 @@ it("shows X's own upsell on Bold for an account X does not let format, and posts
   (screen.getByRole("button", { name: "Post", exact: true }).element() as HTMLElement).click();
   await expect.poll(() => log).toEqual(["post h1 sessionOnly=true"]);
   expect(creates).toEqual([{ blocks: [{ text: "hi" }], quoteUrl: null }]);
+});
+
+it("goes by X's composer when X never sends GetUserClaims, and offers X's upsell until X shows formatting", async () => {
+  // As on a live account where X's page never asked for claims: nothing said either way.
+  updateEngine(() => emptyEngine);
+  const { service } = setup();
+  await using screen = await render(
+    <>
+      <EngineSync />
+      <HomeComposer />
+    </>,
+    { service },
+  );
+  const box = screen.getByLabelText("Post text");
+  await userEvent.click(box);
+  await userEvent.keyboard("hi");
+  const area = box.element() as HTMLTextAreaElement;
+  area.setSelectionRange(0, 2);
+  const bold = screen.getByRole("button", { name: "Bold" });
+  await userEvent.click(bold);
+  const upsell = page.getByText(
+    "Write longer posts and apply text formatting such as bold and italic.",
+  );
+  await expect.element(upsell).toBeVisible();
+  await userEvent.click(bold);
+  await expect.element(upsell).not.toBeInTheDocument();
+
+  // X's composer draws formatting for the account (no claims still): Bold formats.
+  bridge.emitEngine({
+    ...people,
+    op: "ViewerFromNav",
+    viewer: { userId: null, handle: "you", name: null, avatarUrl: null },
+    formatting: true,
+  });
+  area.setSelectionRange(0, 2);
+  await userEvent.click(bold);
+  await expect.element(bold).toHaveAttribute("aria-pressed", "true");
 });

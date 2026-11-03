@@ -499,10 +499,13 @@ export interface EngineBatch {
   /** X's GIF search results, in X's order: only on GifSearch, empty when X found none. */
   readonly gifs?: ReadonlyArray<EngineGif>;
   /**
-   * The features X's subscription grants the signed-in account (GetUserClaims, which X's page asks
-   * at load and every 4 minutes): `subscriptions_feature_1014` is bold and italic in the composer.
+   * The features X's subscription grants the signed-in account (GetUserClaims, which X's code asks
+   * at load and every 4 minutes, though some accounts never see it): `subscriptions_feature_1014`
+   * is bold and italic in the composer.
    */
   readonly claims?: ReadonlyArray<string>;
+  /** Whether X's composer on the page lets the account format, as X draws it (`composerFormats`). */
+  readonly formatting?: boolean;
   /** X's prompt in this timeline, when it lists one (see `EnginePrompt`). */
   readonly prompt?: EnginePrompt;
   /**

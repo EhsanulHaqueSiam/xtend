@@ -414,6 +414,8 @@ export interface EngineState {
   readonly knownFollowers: ReadonlyMap<string, number>;
   /** The features X's subscription grants the account, as X last said (`EngineBatch.claims`); null until it has. */
   readonly claims: ReadonlySet<string> | null;
+  /** Whether X's composer lets the account format, as X's page last drew it; null until it has. */
+  readonly formatting: boolean | null;
   /** The page cursors X last answered per surface, to tell a fetch of newer posts from the next page. */
   readonly cursors: Readonly<
     Partial<Record<AnySurface, { readonly top: string | null; readonly bottom: string | null }>>
@@ -453,6 +455,7 @@ export const emptyEngine: EngineState = {
   analytics: new Map(),
   knownFollowers: new Map(),
   claims: null,
+  formatting: null,
   cursors: {},
 };
 
@@ -598,6 +601,7 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
         ? state.knownFollowers
         : new Map(state.knownFollowers).set(batch.key, batch.knownFollowers),
     claims: batch.claims === undefined ? state.claims : new Set(batch.claims),
+    formatting: batch.formatting ?? state.formatting,
   };
   const listed = surfacesOf(batch).reduce(
     (state, surface) =>
@@ -1057,10 +1061,15 @@ export const engineAtom = Atom.make(emptyEngine).pipe(Atom.keepAlive);
 /** The account X's page is signed in as, once it has said; a screen re-renders only when it changes. */
 export const viewerHandleAtom = Atom.make((get) => get(engineAtom).viewer?.handle ?? null);
 
-/** Whether X lets the account bold and italicize in its composer (`subscriptions_feature_1014`); null until X has said. */
-export const canFormatAtom = Atom.make(
-  (get) => get(engineAtom).claims?.has("subscriptions_feature_1014") ?? null,
-);
+/**
+ * Whether X lets the account bold and italicize: X's claim for it (`subscriptions_feature_1014`)
+ * or X's composer drawing it. Some accounts never get GetUserClaims, so neither yet means not;
+ * a wrong yes still posts nothing, as the desktop refuses unless X's editor took the formatting.
+ */
+export const canFormatAtom = Atom.make((get) => {
+  const { claims, formatting } = get(engineAtom);
+  return claims?.has("subscriptions_feature_1014") === true || formatting === true;
+});
 
 /** Engine fixtures dev replayed into the store, in a browser with no desktop (DevEngineReplay). */
 export const engineReplayAtom = Atom.make<ReadonlyArray<string>>([]).pipe(Atom.keepAlive);

@@ -30,6 +30,7 @@ import {
   findArticles,
   isDmPath,
   viewerFromNav,
+  composerFormats,
 } from "./xDom.ts";
 import { emptyPanel, panelHtml, type ReplyPanel } from "./replyPanel.ts";
 
@@ -325,10 +326,12 @@ const renderGlance = () => {
   for (const chip of state.chips) chip.body.innerHTML = chipsHtml();
 };
 
-// Who is signed in, for observations, the service's handle and the composer; sent once per change.
+// Who is signed in, for observations, the service's handle and the composer, with whether X's
+// composer lets them format; sent once per change.
 let viewer = "";
 const reportViewer = () => {
-  const found = viewerFromNav(document);
+  const nav = viewerFromNav(document);
+  const found = nav === null ? null : { ...nav, formats: composerFormats(document) };
   const key = JSON.stringify(found);
   if (found === null || key === viewer) return;
   viewer = key;

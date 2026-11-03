@@ -30,7 +30,6 @@ export const styleKey = (e: KeyboardEvent): Style | null => {
 /**
  * X's Bold and Italic for the selection. Only X's composer applies them, so they show only where
  * the session posts; for an account X does not let format, each opens X's own upsell instead.
- * Nothing shows until X has said which account this is (GetUserClaims).
  */
 export function FormatTools({
   styles,
@@ -44,7 +43,6 @@ export function FormatTools({
   readonly className: string;
 }) {
   const can = useAtomValue(canFormatAtom);
-  if (can === null) return null;
   return (["Bold", "Italic"] as const).map((style) => (
     <FormatButton
       key={style}
@@ -110,8 +108,7 @@ function FormatButton({
 
 /**
  * A textarea that shows its text's bold and italic: a textarea cannot style a run, so its own text
- * goes clear while it has any, and a layer under it draws the text. Bold is a stroke and italic a
- * slant of each word, so no glyph moves from where the textarea's caret and selection put it.
+ * goes clear while it has any, and a layer under it draws the text where the caret expects it.
  * `font` is the classes the layer shares with the textarea: font, color, padding.
  */
 export function StyledArea({
@@ -130,7 +127,11 @@ export function StyledArea({
     <div className="relative">
       {styled ? (
         <StyledLayer
-          ref={layer}
+          ref={(el) => {
+            layer.current = el;
+            // Drawn under a textarea already scrolled, it starts where the textarea is.
+            if (el !== null) el.scrollTop = el.nextElementSibling?.scrollTop ?? 0;
+          }}
           text={String(props.value ?? "")}
           styles={styles}
           className={font}
@@ -168,32 +169,23 @@ function StyledLayer({
         className,
       )}
     >
-      {styledRuns(text, 0, styles).map((r) => {
-        const stroke = r.bold ? "[-webkit-text-stroke:0.04em_currentColor]" : undefined;
-        if (!r.italic)
-          return r.bold ? (
-            <span key={r.start} className={stroke}>
-              {r.text}
-            </span>
-          ) : (
-            r.text
-          );
-        // Slanted word by word: one box for the run would not wrap where the textarea's text does.
-        return (
-          <span key={r.start} className={stroke}>
-            {r.text.split(/(\s+)/).map((w, i) =>
-              /\S/.test(w) ? (
-                // eslint-disable-next-line react/no-array-index-key -- the words of one run, in order.
-                <span key={i} className="inline-block -skew-x-12">
-                  {w}
-                </span>
-              ) : (
-                w
-              ),
+      {/* Bold is a stroke, so its glyphs keep their width; italic is the font's own, in plain
+          inline runs that wrap where the textarea does, about a pixel wider over a run. */}
+      {styledRuns(text, 0, styles).map((r) =>
+        r.bold || r.italic ? (
+          <span
+            key={r.start}
+            className={cn(
+              r.bold && "[-webkit-text-stroke:0.04em_currentColor]",
+              r.italic && "italic",
             )}
+          >
+            {r.text}
           </span>
-        );
-      })}
+        ) : (
+          r.text
+        ),
+      )}
       {/* The line the textarea gives a trailing newline; a div gives it none. */}
       <br />
     </div>

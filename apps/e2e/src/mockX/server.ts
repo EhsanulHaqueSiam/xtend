@@ -158,14 +158,9 @@ export async function startMockX(
           });
         }
         const batches = r.requests.map((q) => state.batchFor(q.op, q.variables));
-        // X's page names the account and asks what its subscription grants as it loads.
-        const boot =
-          url.searchParams.get("boot") === "1"
-            ? [
-                { op: "Viewer", variables: {} },
-                { op: "GetUserClaims", variables: {} },
-              ]
-            : [];
+        // X's page names the account as it loads. X's code asks GetUserClaims too, but live X has
+        // been seen never to, so mock X does not either: its composer shows what it grants.
+        const boot = url.searchParams.get("boot") === "1" ? [{ op: "Viewer", variables: {} }] : [];
         return json({
           graphql: [
             ...[...boot, ...r.requests].map(httpRequest),

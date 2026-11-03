@@ -1598,15 +1598,28 @@ const benchmarks = [
     },
   ],
   [
-    "Bold and italic follow X's own claim: Premium formats in Home's box, anyone else gets X's upsell (dry)",
+    "Bold and italic follow X's own gate: Premium formats in Home's box, anyone else gets X's upsell (dry)",
     async () => {
       await home("following");
-      // X's GetUserClaims, which its page asks at load and every 4 minutes; a reload asks again.
-      const claims = `$.claims && [...$.claims]`;
-      if ((await store(claims)) === null) await engine(`location.reload(), true`);
-      const granted = await until(() => store(claims), 20_000);
-      if (!Array.isArray(granted)) return false;
-      const premium = granted.includes("subscriptions_feature_1014");
+      // X's own gate as its Home composer draws it: its editor uncapped only when X lets the
+      // account format. Claims count when X sent them; some accounts never get GetUserClaims.
+      const drawn = await until(
+        () =>
+          engine(
+            `(() => { const b = document.querySelector('[data-testid="tweetTextarea_0RichTextInputContainer"]'); return b && (getComputedStyle(b).maxHeight === "none" ? "formats" : "capped"); })()`,
+          ),
+        10_000,
+      );
+      if (!drawn) return false;
+      const claims = await store(`$.claims && [...$.claims]`);
+      const premium =
+        (Array.isArray(claims) && claims.includes("subscriptions_feature_1014")) ||
+        drawn === "formats";
+      // The store has X's composer's word too, from the session view's own reading of it.
+      const stored = await until(
+        async () => (await store(`$.formatting`)) === (drawn === "formats"),
+        10_000,
+      );
       // Xtend's own box only: nothing is typed into X's composer or sent.
       const fill = (text) =>
         app(
@@ -1627,8 +1640,12 @@ const benchmarks = [
           );
       if (!premium) await app(`${bold}.click(), true`);
       await fill("");
+      const said = `X's composer ${drawn}, claims ${claims === null ? "never sent" : JSON.stringify(claims)}`;
+      if (!stored) console.log(`  the store missed what X's composer draws (${said})`);
       return (
-        ok && (premium ? "Premium: Bold formats" : "not Premium: X's upsell, X's sign-up page")
+        ok &&
+        stored &&
+        `${premium ? "Premium: Bold formats" : "not Premium: X's upsell, X's sign-up page"} (${said})`
       );
     },
   ],

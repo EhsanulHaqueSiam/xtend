@@ -59,8 +59,8 @@ export const toggleStyle = (
 /**
  * The runs once the text changed from `before` to `after` with the caret at `caret`, as typing in
  * X's composer moves them: what is typed at a run's end joins it, at its start does not, and what
- * replaces part of a run takes its style. The caret places an edit the texts alone leave open
- * ("l" typed before "ll").
+ * replaces a selection takes the style of its first character. The caret places an edit the texts
+ * alone leave open ("l" typed before "ll").
  */
 export function shiftStyles(
   styles: ReadonlyArray<TextStyle>,
@@ -82,7 +82,12 @@ export function shiftStyles(
   return normalize(
     styles.map((s) => ({
       ...s,
-      start: s.start < p ? s.start : s.start >= gone ? s.start + delta : p + typed,
+      start:
+        s.start < p || (s.start === p && gone > p)
+          ? s.start
+          : s.start >= gone
+            ? s.start + delta
+            : p + typed,
       end:
         s.end < p ? s.end : s.end > gone ? s.end + delta : s.end === p && gone > p ? p : p + typed,
     })),

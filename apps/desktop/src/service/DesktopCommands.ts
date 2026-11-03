@@ -589,23 +589,46 @@ async function pickGif(
 // X's composer (Draft.js) reads ⌘ as the command key when its user agent says Mac, Ctrl elsewhere.
 const ON_MAC = "/Mac OS X/.test(navigator.userAgent)";
 const STYLE_KEYS = { Bold: ["b", "KeyB", 66], Italic: ["i", "KeyI", 73] } as const;
-// The styles X's editor draws on its text, read from each text's own leaf (X's styled span).
-const SHOWN_STYLES = `function () {
-  const shown = new Set();
+// X's editor as drawn: its text without line breaks and, per character, "1" where X draws it
+// bold (or italic), read from each text's own leaf (X's styled span).
+const EDITOR_TEXT = `function () {
+  let text = "", Bold = "", Italic = "";
   const walk = document.createTreeWalker(this, NodeFilter.SHOW_TEXT);
   for (let n = walk.nextNode(); n !== null; n = walk.nextNode()) {
-    if (n.textContent.trim() === "") continue;
+    // An editable page keeps a typed space before a run as a no-break space; it reads the same.
+    const t = n.textContent.replace(/[\\r\\n]/g, "").replace(/\\u00a0/g, " ");
     const style = getComputedStyle(n.parentElement.closest("[data-offset-key]") ?? n.parentElement);
-    if (Number(style.fontWeight) >= 600) shown.add("Bold");
-    if (style.fontStyle === "italic") shown.add("Italic");
+    text += t;
+    Bold += (Number(style.fontWeight) >= 600 ? "1" : "0").repeat(t.length);
+    Italic += (style.fontStyle === "italic" ? "1" : "0").repeat(t.length);
   }
-  return [...shown].join(",");
+  return JSON.stringify({ text, Bold, Italic });
 }`;
+// X never styles a mention, hashtag, cashtag or link, so their characters are X's to draw.
+const ENTITY = /[@#$][\p{L}\p{N}_]+|https?:\/\/\S+|\b[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}(?:\/\S*)?/giu;
+
+/** What X's editor must show for `text`: its text without line breaks and each style's marks. */
+function expectedEditor(text: string, styles: ReadonlyArray<TextStyle>) {
+  const free = new Set<number>();
+  for (const m of text.matchAll(ENTITY))
+    for (let i = m.index; i < m.index + m[0].length; i++) free.add(i);
+  const want = { text: "", Bold: "", Italic: "" };
+  // UTF-16 units, as the runs and X's editor count them.
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === "\n" || text[i] === "\r") continue;
+    want.text += text[i];
+    for (const style of ["Bold", "Italic"] as const) {
+      const on = styles.some((s) => s.style === style && s.start <= i && i < s.end);
+      want[style] += free.has(i) ? "?" : on ? "1" : "0";
+    }
+  }
+  return want;
+}
 
 /**
  * Types the text into X's text box `box` as its user formats it: X's own ⌘B and ⌘I pressed where
  * a run of bold or italic starts and ends. X applies them only for an account it lets format, so
- * the post is refused unless X's editor shows each style asked for.
+ * the post is refused unless X's editor shows the text styled exactly as asked.
  */
 async function typeText(
   cdp: Cdp,
@@ -635,9 +658,14 @@ async function typeText(
     }
     await cdp("Input.insertText", { text: text.slice(start, end) });
   }
-  const shown = String(await callOn(cdp, box, SHOWN_STYLES)).split(",");
-  for (const style of new Set(styles.map((s) => s.style)))
-    if (!shown.includes(style)) throw missing(`${style.toLowerCase()} text`);
+  // Every run and every plain gap, as asked: a toggle X missed would post the wrong words styled.
+  const shown = JSON.parse(String(await callOn(cdp, box, EDITOR_TEXT))) as Record<string, string>;
+  const want = expectedEditor(text, styles);
+  const same = (style: "Bold" | "Italic") =>
+    shown[style]?.length === want[style].length &&
+    [...want[style]].every((c, i) => c === "?" || c === shown[style]![i]);
+  if (shown.text !== want.text || !same("Bold") || !same("Italic"))
+    throw new Error("x.com's composer did not format the text as asked");
 }
 
 /** What the driver put in X's composer, so a refusal before Post can take it back out. */

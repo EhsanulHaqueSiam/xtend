@@ -27,6 +27,8 @@ it("moves runs with the text as typing in X's composer does", () => {
   // What replaces a run's part takes its style; a replacement starting at its end does not.
   expect(shiftStyles([bold(0, 2)], "abcd", "aXd", 2)).toEqual([bold(0, 2)]);
   expect(shiftStyles([bold(0, 2)], "abcd", "abX", 3)).toEqual([bold(0, 2)]);
+  // A whole bold word typed over stays bold.
+  expect(shiftStyles([bold(3, 6)], "go big now", "go huge now", 7)).toEqual([bold(3, 7)]);
   // Deleted whole, it is gone.
   expect(shiftStyles([italic(1, 3)], "abcd", "ad", 1)).toEqual([]);
 });
