@@ -110,6 +110,12 @@ export const X_COMPOSER = {
   replyButtonFor: (label: string) => `button[aria-label="${label}"]`,
   replyPopover: '[data-testid="HoverCard"]:has([role="radiogroup"])',
   replyRow: '[data-testid="HoverCard"] [role="radiogroup"] label',
+  /** Read live 2026-11-02: the button names the audience ("Everyone"); its card lists the rows. */
+  audienceButton: 'button[aria-label="Choose audience"]',
+  audienceCard: '[data-testid="HoverCard"]:has([role="menuitem"])',
+  audienceRow: '[data-testid="HoverCard"] [role="menuitem"]',
+  /** X's toggle once a Community is picked: a label of X's string around its checkbox. */
+  shareLabel: "Also share with followers",
   addPoll: '[data-testid="createPollButton"]',
   choice: (n: number) => `input[name="Choice${n}"]`,
   addChoice: '[data-testid="addPollChoice"]',

@@ -1,0 +1,128 @@
+import type { Draft, XtendEvent } from "@xtend/contracts";
+import * as Effect from "effect/Effect";
+import * as Stream from "effect/Stream";
+import { expect, it } from "vite-plus/test";
+import { page, userEvent } from "vite-plus/test/browser";
+
+import { installFakeBridge } from "../../../test/fakeBridge";
+import type { FakeService } from "../../../test/fakeService";
+
+// Inside the desktop app with session actions on: Compose offers X's audience.
+const bridge = installFakeBridge();
+const { draft, paid, rates, settings } = await import("../../../test/fixtures");
+const { render } = await import("../../../test/render");
+const { ComposeEditor } = await import("../../routes/compose");
+const { EngineSync } = await import("../xnative/EngineSync");
+
+const service = (drafts: ReadonlyArray<Draft>): FakeService => ({
+  "settings.get": () => Effect.succeed({ ...settings, sessionPostingEnabled: true }),
+  "compose.draftsList": () => Effect.succeed({ drafts }),
+  "compose.quote": () => Effect.succeed({ articleUsd: 0.02, coverUsd: 0.04, coverModel: "flux" }),
+  "compose.context": () =>
+    Effect.succeed({ nextSlot: null, bestHours: [], desktopConnected: true }),
+  "costs.quote": ({ actions }) =>
+    Effect.succeed({ rates, quotes: actions.map(() => paid(0.00075)) }),
+});
+
+const editor = (id: string) => (
+  <ComposeEditor
+    draftParam={id}
+    inspire={undefined}
+    reply={undefined}
+    text={undefined}
+    onBack={() => {}}
+    onSection={() => {}}
+  />
+);
+
+it("offers no Community for a queued draft until it is unscheduled: its slot posts through the API", async () => {
+  const blocks = [{ text: "ship it" }];
+  const queued = draft("q1", "queued", { blocks, scheduledAt: "2030-01-07T09:30:00.000Z" });
+  await using screen = await render(editor("q1"), { service: service([queued]) });
+  await expect.element(screen.getByText("Unschedule to post it to a Community.")).toBeVisible();
+  expect(screen.getByRole("button", { name: "Choose audience" }).elements()).toHaveLength(0);
+
+  await using open = await render(editor("d1"), {
+    service: service([draft("d1", "draft", { blocks })]),
+  });
+  await expect.element(open.getByRole("button", { name: "Choose audience" })).toBeVisible();
+});
+
+it("posts no Community once another window queued the draft, though this one saved it before", async () => {
+  let row = draft("d2", "draft", { blocks: [{ text: "ship it" }] });
+  let queue = () => {};
+  const queued = new Promise<void>((resolve) => (queue = resolve));
+  const event: XtendEvent = {
+    type: "draft_status_changed",
+    at: "2026-10-23T09:30:00.000Z",
+    payload: { draftId: "d2", status: "queued" },
+  };
+  const posted: Array<string> = [];
+  await using screen = await render(
+    <>
+      <EngineSync />
+      {editor("d2")}
+    </>,
+    {
+      service: {
+        ...service([]),
+        "compose.draftsList": () => Effect.sync(() => ({ drafts: [row] })),
+        "events.subscribe": () =>
+          Stream.fromEffect(Effect.promise(() => queued).pipe(Effect.as(event))).pipe(
+            Stream.concat(Stream.never),
+          ),
+        "compose.postNow": (input) =>
+          Effect.sync(() => {
+            posted.push(input.community?.id ?? "everyone");
+            return draft("d2", "posted");
+          }),
+      },
+    },
+  );
+  bridge.emitEngine({
+    op: "CarouselQuery",
+    key: "communities:mine",
+    cursor: null,
+    top: null,
+    bottom: null,
+    posts: [],
+    users: [],
+    people: [],
+    sections: [],
+    order: [],
+    modules: [],
+    trends: [],
+    notifications: [],
+    lists: [],
+    homeTabs: null,
+    exploreTabs: null,
+    viewer: null,
+    communities: [
+      {
+        communityId: "1500000000000000001",
+        name: "Indie Hackers",
+        members: 1204,
+        description: null,
+        bannerUrl: null,
+        topic: null,
+        rules: null,
+        joinPolicy: null,
+        role: "Member",
+      },
+    ],
+  });
+  await userEvent.click(screen.getByRole("button", { name: "Choose audience" }));
+  await userEvent.click(page.getByRole("menuitemradio", { name: /^Indie Hackers/ }));
+  // Queued elsewhere: this window's draft is the one it saved, still a draft.
+  row = { ...row, status: "queued", updatedAt: "2026-10-23T09:30:00.000Z" };
+  queue();
+  await expect.element(screen.getByText("Unschedule to post it to a Community.")).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: /^Post now/ }));
+  await userEvent.click(page.getByRole("button", { name: "Confirm and post" }));
+  await expect
+    .element(
+      screen.getByText("Failed: queued in another window; unschedule it to post it to a Community"),
+    )
+    .toBeVisible();
+  expect(posted).toEqual([]);
+});

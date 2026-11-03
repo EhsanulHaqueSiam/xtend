@@ -13,6 +13,7 @@ import {
   xActInPlace,
   xFolderDialog,
   xFollow,
+  xAudienceCard,
   xGifIdle,
   xGifPicker,
   xPostMenu,
@@ -39,6 +40,7 @@ import {
   xPickGameTab,
   xHeard,
   xNavigate,
+  xGo,
 } from "./x";
 
 // X's page as the engine holds it: a post quoting 42, then 42 itself, edited, so its timestamp
@@ -1901,4 +1903,32 @@ it("presses X's Delete only on the one row whose query field is exactly the quer
   } finally {
     history.replaceState(null, "", start);
   }
+});
+
+it("reads X's audience card on /compose/post, then brings back X's page, unless X was moved meanwhile", async () => {
+  // X draws the card only on its compose page; Compose leaves the engine on the user's profile.
+  const run = async (meanwhile?: string, inPage?: string) => {
+    let path = "/theo";
+    const steps: Array<string> = [];
+    registerXWebview({
+      loadURL: async () => {},
+      getURL: () => `https://x.com${path}`,
+      executeJavaScript: (code: string) => {
+        const to = /history\.pushState\(null, "", "([^"]+)"\)/.exec(code)?.[1];
+        if (to !== undefined) path = to;
+        steps.push(to ?? (code.includes("Choose audience") ? "card" : "?"));
+        // Another screen moves X while X's card is open, or X's own page does (a link, Back).
+        if (to === undefined && meanwhile !== undefined) void xGo(`https://x.com${meanwhile}`);
+        if (to === undefined && inPage !== undefined) path = inPage;
+        return Promise.resolve(true);
+      },
+    } as unknown as XWebview);
+    markXReady();
+    await xAudienceCard();
+    await xGifIdle();
+    return steps;
+  };
+  expect(await run()).toEqual(["/compose/post", "card", "/theo"]);
+  expect(await run("/explore")).toEqual(["/compose/post", "card", "/explore"]);
+  expect(await run(undefined, "/jack")).toEqual(["/compose/post", "card"]);
 });

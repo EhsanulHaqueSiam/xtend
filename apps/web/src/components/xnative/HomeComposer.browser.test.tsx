@@ -85,7 +85,11 @@ const setup = ({
       Effect.promise(() => posted).pipe(
         Effect.map(() => {
           const gif = input.gif === undefined ? "" : ` gif=${input.gif.query}:${input.gif.id}`;
-          log.push(`post ${input.id} sessionOnly=${String(input.sessionOnly)}${gif}`);
+          const to =
+            input.community === undefined
+              ? ""
+              : ` community=${input.community.id} share=${String(input.community.shareWithFollowers)}`;
+          log.push(`post ${input.id} sessionOnly=${String(input.sessionOnly)}${gif}${to}`);
           return draft(input.id, "posted", { postIds: ["99"] });
         }),
       ),
@@ -491,4 +495,56 @@ it("leaves a mention plain in a bold sentence, as X's composer does, and as Comp
       ],
     },
   ]);
+});
+
+it("posts to one of the user's Communities, picked from X's list in X's order, through the session", async () => {
+  const { log, creates, service } = setup();
+  await using screen = await render(
+    <>
+      <EngineSync />
+      <HomeComposer />
+    </>,
+    { service },
+  );
+  const community = (communityId: string, name: string, members: number) => ({
+    communityId,
+    name,
+    members,
+    description: null,
+    bannerUrl: null,
+    topic: null,
+    rules: null,
+    joinPolicy: null,
+    role: "Member",
+  });
+  bridge.emitEngine({
+    ...people,
+    op: "CarouselQuery",
+    key: "communities:mine",
+    communities: [
+      community("1500000000000000002", "Design Systems", 88),
+      community("1500000000000000001", "Indie Hackers", 1204),
+    ],
+  });
+  await userEvent.click(screen.getByLabelText("Post text"));
+  await userEvent.keyboard("hello");
+  await userEvent.click(screen.getByRole("button", { name: "Choose audience" }));
+  const rows = page.getByRole("menuitemradio");
+  await expect
+    .poll(() => rows.elements().map((r) => r.textContent))
+    .toEqual(["Everyone", "Design Systems88 Members", "Indie Hackers1.2K Members"]);
+  await userEvent.click(page.getByRole("menuitemradio", { name: /^Indie Hackers/ }));
+  // A Community decides who replies, so the reply setting goes; X's share toggle comes.
+  await expect
+    .element(screen.getByRole("button", { name: "Choose audience" }))
+    .toHaveTextContent("Indie Hackers");
+  await expect
+    .element(screen.getByRole("button", { name: "Everyone can reply" }))
+    .not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole("switch"));
+  await userEvent.click(screen.getByRole("button", { name: "Post", exact: true }));
+  await expect
+    .poll(() => log)
+    .toEqual(["post h1 sessionOnly=true community=1500000000000000001 share=true"]);
+  expect(creates).toEqual([{ blocks: [{ text: "hello" }], quoteUrl: null }]);
 });

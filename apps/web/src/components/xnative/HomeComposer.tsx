@@ -10,6 +10,7 @@ import {
   type MediaKind,
   type PickedGif,
   POST_LIMIT,
+  type PostCommunity,
   type ReplySettings,
   type TextStyle,
 } from "@xtend/contracts";
@@ -43,6 +44,7 @@ import { canFormatAtom, engineAtom, youFollow } from "../../state/engine";
 import { settingsAtom, useSessionLane } from "../../state/settings";
 import { xGifIdle } from "../../state/x";
 import { failText } from "../compose/AssistPanel";
+import { AudiencePicker } from "../compose/AudiencePicker";
 import { FormatTools, StyledArea, styleKey } from "../compose/FormatTools";
 import { NEW_POLL, PollEditor } from "../compose/PollEditor";
 import { REPLY_OPTIONS } from "../compose/ThreadEditor";
@@ -83,6 +85,8 @@ interface BoxPost {
   readonly gif?: PickedGif | undefined;
   /** Bold and italic, which only X's composer applies. */
   readonly styles?: ReadonlyArray<TextStyle>;
+  /** The audience, picked in X's own composer: only the session posts to a Community. */
+  readonly community?: PostCommunity | undefined;
 }
 
 /**
@@ -140,7 +144,7 @@ export const useSessionPost = () => {
     await xGifIdle();
     const draft = await boxDraft(post);
     const exit = Exit.isSuccess(draft)
-      ? await postNow({ id: draft.value.id, gif: post.gif })
+      ? await postNow({ id: draft.value.id, gif: post.gif, community: post.community })
       : draft;
     if (Exit.isFailure(exit))
       return (setToast({ text: `Not posted: ${failText(exit.cause)}` }), false);
@@ -232,6 +236,7 @@ export function HomeComposer() {
   const [gif, setGif] = useState<{ readonly gif: EngineGif; readonly query: string } | null>(null);
   const [gifOpen, setGifOpen] = useState(false);
   const [reply, setReply] = useState<ReplySettings>("everyone");
+  const [community, setCommunity] = useState<PostCommunity | null>(null);
   const [opened, setOpened] = useState(false);
   const [replyOpen, setReplyOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -262,7 +267,8 @@ export function HomeComposer() {
     poll === null &&
     gif === null &&
     reply === "everyone" &&
-    styles.length === 0;
+    styles.length === 0 &&
+    community === null;
 
   const mention = opened && !busy ? mentionAt(text, caret.start, caret.end) : null;
   const self = settings?.handle ?? engine.viewer?.handle ?? null;
@@ -285,6 +291,7 @@ export function HomeComposer() {
     setPoll(null);
     setGif(null);
     setReply("everyone");
+    setCommunity(null);
   };
 
   const addFiles = (picked: ReadonlyArray<File>) => {
@@ -337,12 +344,15 @@ export function HomeComposer() {
     poll,
     files,
     gif: gif === null ? undefined : { query: gif.query, id: gif.gif.id },
+    community: community ?? undefined,
   };
   const handOff = async () => {
     if (plain) return void navigate({ href: `/compose?text=${encodeURIComponent(text)}` });
     // X's GIF search is in X's composer only: a draft cannot keep one.
     if (gif !== null)
       return setToast({ text: "Compose takes no GIF: remove it to continue there" });
+    if (community !== null)
+      return setToast({ text: "Pick the Community in Compose: set Everyone here to continue" });
     // Media, a poll or a reply limit ride along as a draft, which Compose opens.
     setReplyOpen(false);
     setBusy(true);
@@ -376,6 +386,19 @@ export function HomeComposer() {
       <Avatar url={avatarUrl} size={40} />
       {/* Frozen while Post or a handoff sends, so nothing added meanwhile is lost to clear(). */}
       <fieldset disabled={busy} className="relative m-0 min-w-0 border-0 p-0">
+        {/* X's audience above the text once the box is open; only X's composer posts to one. */}
+        {opened && session ? (
+          <div className="pt-2">
+            <AudiencePicker
+              value={community}
+              onChange={(next) => {
+                setCommunity(next);
+                // A Community decides who replies to its posts.
+                if (next !== null) setReply("everyone");
+              }}
+            />
+          </div>
+        ) : null}
         <StyledArea
           ref={box}
           styles={styles}
@@ -513,7 +536,7 @@ export function HomeComposer() {
             <PollEditor poll={poll} onChange={setPoll} />
           </div>
         )}
-        {opened ? (
+        {opened && community === null ? (
           <div className="border-b border-border pb-3">
             <Popover
               open={replyOpen}

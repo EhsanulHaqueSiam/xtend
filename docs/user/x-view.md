@@ -54,6 +54,11 @@ session actions are on in the desktop app, and Compose cannot take a GIF. With s
 off, in a browser without the desktop app, or over 280 characters, the box moves to Compose as a
 draft, where the price is shown.
 
+**Choose audience** (it reads "Everyone") posts to one of your Communities instead, as on X: the
+list is X's own, in X's order, and once you pick one, "Also share with followers" shares it beyond
+the Community too. It goes through your session, free, as only X's composer posts to a Community,
+so it shows only while session actions are on. A Community decides who can reply to its posts.
+
 **Bold** and **Italic** format the text you select (⌘B and ⌘I, Ctrl on Windows and Linux) when
 your X account has Premium, as on X. Only X's own composer applies them, so they show only while
 session actions are on, and a formatted post goes through your session, free. On an account

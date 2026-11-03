@@ -216,6 +216,7 @@ const COMMUNITIES_OPS: Readonly<Record<string, CommunitiesTab>> = {
   CommunitiesRankedTimeline: "communities:home",
   CommunitiesExploreTimeline: "communities:explore",
   CarouselQuery: "communities:mine",
+  CommunitiesMembershipsSlice: "communities:mine",
 };
 
 const SEARCH_PRODUCTS: ReadonlyArray<string> = [

@@ -8,6 +8,7 @@ import {
   type DraftPoll,
   MEDIA_MAX_BYTES,
   POST_LIMIT,
+  type PostCommunity,
   type ReplySettings,
 } from "@xtend/contracts";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
@@ -29,6 +30,7 @@ import {
   splitBlocks,
   ThreadEditor,
 } from "../components/compose/ThreadEditor";
+import { AudiencePicker } from "../components/compose/AudiencePicker";
 import { HeaderTabs, PageHeader } from "../components/PageHeader";
 import { Companion } from "../components/shell/Companion";
 import { sectionLabel, useSection } from "../components/shell/sections";
@@ -49,6 +51,7 @@ import {
   mediaAddAtom,
   mediaRemoveAtom,
   postNowAtom,
+  sessionPostNowAtom,
   updateDraftAtom,
 } from "../state/compose";
 import { useRates } from "../state/costs";
@@ -416,6 +419,9 @@ export function ComposeEditor({
   };
   const [selected, setSelected] = useState<Draft | null>(null);
   const [editor, setEditor] = useState<Editor>(initial);
+  // The first post's audience, set in X's own composer on the click, so never saved or queued.
+  const [audience, setAudience] = useState<PostCommunity | null>(null);
+  const sessionPostNow = useAtomSet(sessionPostNowAtom, { mode: "promiseExit" });
   // Free first: on the desktop with the lane on, every clicked post goes through the session,
   // its poll and who-can-reply set in X's own composer.
   const laneText = useSessionLane();
@@ -578,6 +584,17 @@ export function ComposeEditor({
         setNotice("Failed: that time has passed");
         return;
       }
+      // The newest word on the draft: another window may have queued it since this one saved,
+      // and its slot would post through the API, which cannot reach a Community.
+      const newest = AsyncResult.getOrElse(drafts, (): ReadonlyArray<Draft> => []).find(
+        (d) => d.id === saved.id,
+      );
+      const status = (newest !== undefined && newest.updatedAt > saved.updatedAt ? newest : saved)
+        .status;
+      if (what === "post" && audience !== null && status === "queued") {
+        setNotice("Failed: queued in another window; unschedule it to post it to a Community");
+        return;
+      }
       const exit =
         what === "queue"
           ? await queue(saved.id)
@@ -585,7 +602,9 @@ export function ComposeEditor({
             ? await schedule({ id: saved.id, at: scheduleAt!.toISOString() })
             : what === "unschedule"
               ? await unschedule(saved.id)
-              : await postNow(saved.id);
+              : audience !== null
+                ? await sessionPostNow({ id: saved.id, community: audience })
+                : await postNow(saved.id);
       setConfirm(null);
       refreshContext();
       if (Exit.isFailure(exit)) {
@@ -838,7 +857,7 @@ export function ComposeEditor({
                   <Button
                     variant="outline"
                     size="sm"
-                    disabled={!canSend}
+                    disabled={!canSend || audience !== null}
                     aria-label={slot === null ? "Schedule" : `Schedule, ${slot}`}
                   >
                     <CalendarClock />
@@ -899,7 +918,7 @@ export function ComposeEditor({
               <Button
                 size="sm"
                 variant={queued ? "outline" : "default"}
-                disabled={!canSend || queued}
+                disabled={!canSend || queued || audience !== null}
                 onClick={() => act("queue")}
               >
                 <TextMorph duration={250}>{queued ? "Queued" : "Queue"}</TextMorph>
@@ -1074,6 +1093,21 @@ export function ComposeEditor({
               </fieldset>
             ) : (
               <fieldset disabled={frozen} className="min-w-0">
+                {/* A queued draft posts at its slot through the API, which cannot reach a Community. */}
+                {laneText && editor.replyToPostId === null && queued ? (
+                  <p className="mb-3 text-xs text-muted-foreground">
+                    Unschedule to post it to a Community.
+                  </p>
+                ) : laneText && editor.replyToPostId === null ? (
+                  <div className="mb-3">
+                    <AudiencePicker value={audience} onChange={setAudience} />
+                    {audience === null ? null : (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        A Community post goes on your click: Post now, through your session, free.
+                      </p>
+                    )}
+                  </div>
+                ) : null}
                 <ThreadEditor
                   formatting={laneText}
                   blocks={blocks}

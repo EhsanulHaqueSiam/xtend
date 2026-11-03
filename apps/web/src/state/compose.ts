@@ -3,6 +3,7 @@ import {
   type DraftPatch,
   type MediaKind,
   type PickedGif,
+  type PostCommunity,
   type ReplyTone,
 } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
@@ -54,13 +55,15 @@ export const postNowAtom = clientRuntime.fn<string>()(
 export const sessionPostNowAtom = clientRuntime.fn<{
   readonly id: string;
   readonly gif?: PickedGif | undefined;
+  readonly community?: PostCommunity | undefined;
 }>()(
-  Effect.fnUntraced(function* ({ id, gif }) {
+  Effect.fnUntraced(function* ({ id, gif, community }) {
     const client = yield* XtendClient;
     return yield* client[Compose_METHODS.postNow]({
       id,
       sessionOnly: true,
       ...(gif === undefined ? {} : { gif }),
+      ...(community === undefined ? {} : { community }),
     });
   }),
 );

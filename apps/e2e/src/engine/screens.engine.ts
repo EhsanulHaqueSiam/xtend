@@ -1302,6 +1302,43 @@ test("Home's GIF picker searches X's own GIF search on the engine, pages it, and
   expect(writes()).toBe(before);
 });
 
+test("Home's box posts to one of the user's Communities, listed by X's own audience card and set in X's composer", async () => {
+  await go("/home?feed=following");
+  await expect.poll(enginePath).toBe("/home");
+  const mine = e.mock.state.batchFor("CommunitiesMembershipsSlice", {})!.communities;
+  const box = e.app.getByLabel("Post text");
+  await box.click();
+  await box.pressSequentially("hello members");
+  await e.app.getByRole("button", { name: "Choose audience", exact: true }).click();
+  // The engine opened X's own card on X's compose page, so X sent the list, closed it with
+  // nothing picked, and brought X's Home back.
+  await expect
+    .poll(() => e.mock.reads.some((r) => r.op === "CommunitiesMembershipsSlice"))
+    .toBe(true);
+  await expect.poll(enginePath).toBe("/home");
+  await expect.poll(() => engineHas('[data-testid="HoverCard"]')).toBe(false);
+  const rows = e.app.getByRole("menuitemradio");
+  await expect
+    .poll(() =>
+      rows.evaluateAll((rs) =>
+        rs.map((r) => r.querySelector("span.font-bold, .font-bold")?.textContent),
+      ),
+    )
+    .toEqual(["Everyone", ...mine.map((c) => c.name)]);
+  expect(presses().filter((p) => p.startsWith("press audience:"))).toEqual([]);
+  await rows.nth(1).click();
+  await e.app.getByRole("switch").click();
+  await e.app.getByRole("button", { name: "Post", exact: true }).click();
+  await e.app.getByText("Posted on X").waitFor({ timeout: 30_000 });
+  // X's own row, picked in X's composer for the click, then X's create naming the Community.
+  expect(presses()).toEqual(
+    expect.arrayContaining([
+      `press audience:${mine[0]!.name}`,
+      `write CreateTweet ${mine[0]!.communityId}`,
+    ]),
+  );
+});
+
 test("Bold in Home's box opens X's own upsell for an account X does not let format", async () => {
   await go("/home?feed=following");
   await e.app.getByLabel("Post text").click();

@@ -5,6 +5,7 @@ import {
   type Draft,
   hasLink,
   type PickedGif,
+  type PostCommunity,
   POST_LIMIT,
   type XApiError,
   XId,
@@ -60,9 +61,9 @@ const mayHavePosted = (e: ComposeError | XApiError | DesktopUnavailableError) =>
 
 /**
  * Why X would refuse the draft, found before the first post goes out so a thread never stops
- * halfway. `gif`: the click picked one for the first post.
+ * halfway. `gif`: the click picked one for the first post; `community`, the first post's audience.
  */
-const refusal = (draft: Draft, gif: boolean): string | null => {
+const refusal = (draft: Draft, gif: boolean, community: boolean): string | null => {
   if (draft.kind === "article")
     return draft.title.trim() === "" || draft.body.trim() === ""
       ? "Article needs a title and a body"
@@ -77,6 +78,11 @@ const refusal = (draft: Draft, gif: boolean): string | null => {
   if (long !== -1) return `Post ${long + 1} is over ${POST_LIMIT} characters`;
   if (gif && draft.media.some((m) => m.blockIndex === 0))
     return "A GIF cannot share the first post with media";
+  // X's composer offers no audience on a reply, and a Community decides who replies to its posts.
+  if (community && draft.replyToPostId !== null)
+    return "A reply goes where its post is, not to a Community";
+  if (community && (draft.blocks[0]?.replySettings ?? draft.replySettings) !== "everyone")
+    return "A Community post's replies are the Community's: keep Everyone can reply";
   if (draft.poll === null) return null;
   if (draft.poll.options.some((o) => o.trim() === "")) return "Poll has a blank option";
   // X takes a poll or media on a post, not both.
@@ -103,6 +109,8 @@ export class Publisher extends Context.Service<
         readonly sessionOnly?: boolean;
         /** Picked in X's GIF search for the first post; only the session can post it. */
         readonly gif?: PickedGif;
+        /** The first post's audience, set in X's own composer; only the session can post to one. */
+        readonly community?: PostCommunity;
       },
     ) => Effect.Effect<Draft, ComposeError>;
   }
@@ -121,6 +129,7 @@ const make = Effect.gen(function* () {
     clicked: boolean,
     sessionOnly: boolean,
     gif: PickedGif | undefined,
+    community: PostCommunity | undefined,
   ) {
     const ids = [...draft.postIds];
     // A click goes through the user's own composer, poll and who-can-reply included; unattended
@@ -143,7 +152,13 @@ const make = Effect.gen(function* () {
       const unsure = <E extends ComposeError | XApiError | DesktopUnavailableError>(e: E) =>
         Effect.fail(mayHavePosted(e) ? new Unconfirmed({ post: i + 1, detail: e.message }) : e);
       const poll = i === 0 && draft.poll !== null ? { poll: draft.poll } : {};
-      const picked = i === 0 && gif !== undefined ? { gif } : {};
+      const picked =
+        i === 0
+          ? {
+              ...(gif === undefined ? {} : { gif }),
+              ...(community === undefined ? {} : { community }),
+            }
+          : {};
       const styles = draft.blocks[i]?.styles ?? [];
       // Media and formatting ride only the session, and the session only acts on a click.
       if ((media.length > 0 || styles.length > 0) && !clicked)
@@ -152,7 +167,7 @@ const make = Effect.gen(function* () {
           detail: `Posts with ${media.length > 0 ? "media" : "formatting"} need your click: press Post now`,
         });
       const { postId } =
-        media.length > 0 || "gif" in picked || styles.length > 0 || sessionClick
+        media.length > 0 || Object.keys(picked).length > 0 || styles.length > 0 || sessionClick
           ? yield* session
               .post({
                 text,
@@ -222,12 +237,13 @@ const make = Effect.gen(function* () {
       readonly clicked?: boolean;
       readonly sessionOnly?: boolean;
       readonly gif?: PickedGif;
+      readonly community?: PostCommunity;
     },
   ) {
     // Read after the claim so the editor's last autosave is what goes out.
     const draft = yield* drafts.get(id);
     const attempt = draft.attempts + 1;
-    const failure = refusal(draft, options.gif !== undefined);
+    const failure = refusal(draft, options.gif !== undefined, options.community !== undefined);
     const result =
       failure !== null
         ? { error: failure, ids: [] as ReadonlyArray<string>, retryable: false }
@@ -240,6 +256,7 @@ const make = Effect.gen(function* () {
                   options.clicked === true,
                   options.sessionOnly === true,
                   options.gif,
+                  options.community,
                 )
           ).pipe(
             Effect.map((ids) => ({ error: null, ids, retryable: false })),
@@ -284,6 +301,7 @@ const make = Effect.gen(function* () {
       readonly clicked?: boolean;
       readonly sessionOnly?: boolean;
       readonly gif?: PickedGif;
+      readonly community?: PostCommunity;
     },
   ) {
     if (!(yield* drafts.claim(id, options.due)))

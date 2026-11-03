@@ -1682,6 +1682,50 @@ export type XGifPicker = ReturnType<typeof xGifPicker>;
 /** Resolves once every GIF picker's steps in X's page are done, closes included; Post waits for it. */
 export const xGifIdle = () => gifStep.then(() => undefined);
 
+/**
+ * Opens X's own "Choose audience" card and closes it with Escape, picking nothing, so X sends the
+ * user's Communities. X draws it only on /compose/post, where nothing is typed (X asks to discard
+ * a draft only then); X's page before comes back after, unless X was moved meanwhile.
+ * In the GIF picker's queue, which Post waits for. True once X showed its rows.
+ */
+export const xAudienceCard = () =>
+  (gifStep = gifStep.then(async () => {
+    // No engine (a browser, before X loads): nothing to open, and nothing for Post to wait on.
+    if (!ready || element === null) return null;
+    let from = "";
+    try {
+      from = element.getURL();
+    } catch {}
+    const moved = await xGo("https://x.com/compose/post");
+    const asked = moves;
+    const shown = await xRun(`(async () => {
+      const wait = () => new Promise((r) => setTimeout(r, 150));
+      const button = () => document.querySelector('button[aria-label="Choose audience"]');
+      const card = () => document.querySelector('[data-testid="HoverCard"]:has([role="menuitem"])');
+      for (let i = 0; i < 40 && !button(); i++) await wait();
+      if (!button() || card()) return false;
+      button().click();
+      for (let i = 0; i < 40 && !card(); i++) await wait();
+      const count = () => card()?.querySelectorAll('[role="menuitem"]').length ?? 0;
+      // X draws its rows (and asks for them) over about a second: Escape once some are drawn and their count holds.
+      for (let i = 0, n = -1, same = 0; i < 60 && same < 7; i++, await wait()) [n, same] = count() === n && n > 0 ? [n, same + 1] : [count(), 0];
+      const shown = !!card();
+      document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      for (let i = 0; i < 20 && card(); i++) await wait();
+      // A card Escape left open closes on its own button, still picking nothing.
+      if (card()) button()?.click();
+      return shown;
+    })()`);
+    // The page the user had beside them, unless a screen or the user moved X since: X's own
+    // links and the panel's Back count no moves, so X must still be on its compose page.
+    let still = false;
+    try {
+      still = new URL(element?.getURL() ?? "").pathname === "/compose/post";
+    } catch {}
+    if (moved && moves === asked && still) await xGo(from);
+    return shown;
+  })).then((shown) => shown === true);
+
 export const xBack = () => (ready ? element?.goBack() : undefined);
 export const xForward = () => (ready ? element?.goForward() : undefined);
 export const xReload = () => (ready ? element?.reload() : undefined);

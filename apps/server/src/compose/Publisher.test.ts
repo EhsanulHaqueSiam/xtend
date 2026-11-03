@@ -613,4 +613,48 @@ describe("Publisher", () => {
         ]);
       }).pipe(Effect.provide(layerTest)),
   );
+
+  it.effect(
+    "a picked Community goes with the first post only through the x.com session, never to a reply",
+    () =>
+      Effect.gen(function* () {
+        reset();
+        const drafts = yield* DraftStore.DraftStore;
+        const publisher = yield* Publisher.Publisher;
+        const settings = yield* SettingsStore.SettingsStore;
+        const community = {
+          id: "1500000000000000001",
+          name: "Indie Hackers",
+          shareWithFollowers: true,
+        };
+        const clicked = { ...postNow, clicked: true, community };
+
+        const thread = yield* drafts.create({ blocks: [{ text: "hello" }, { text: "more" }] });
+        expect((yield* publisher.post(thread.id, clicked)).status).toBe("posted");
+        // The thread's next post replies to the first, which is in the Community already.
+        expect(desktopCalls).toEqual([
+          { type: "sessionPost", text: "hello", mediaPaths: [], community },
+          { type: "sessionPost", text: "more", mediaPaths: [], replyToPostId: "10" },
+        ]);
+
+        // X's composer has no audience on a reply, and a Community decides who replies.
+        const reply = yield* drafts.create({ blocks: [{ text: "yes" }], replyToPostId: "77" });
+        const limited = yield* drafts.create({
+          blocks: [{ text: "hi" }],
+          replySettings: "following",
+        });
+        expect([
+          (yield* publisher.post(reply.id, clicked)).error,
+          (yield* publisher.post(limited.id, clicked)).error,
+        ]).toEqual([
+          "A reply goes where its post is, not to a Community",
+          "A Community post's replies are the Community's: keep Everyone can reply",
+        ]);
+
+        // The API cannot post to a Community: with the session lane off, the click fails unpaid.
+        yield* settings.update({ sessionPostingEnabled: false });
+        const off = yield* drafts.create({ blocks: [{ text: "look" }] });
+        expect([(yield* publisher.post(off.id, clicked)).status, calls]).toEqual(["failed", []]);
+      }).pipe(Effect.provide(layerTest)),
+  );
 });

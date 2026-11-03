@@ -1241,12 +1241,15 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
   const articles = walkTweets(body, readArticle);
   return {
     op,
-    // The user's Communities, once X answered with the list (empty, when they left the last one).
+    // The user's Communities, once X answered with the list (empty, when they left the last one):
+    // the hub's carousel, and the composer's audience card (CommunitiesMembershipsSlice, whose
+    // slice sits under X's older viewer).
     key:
-      op === "CarouselQuery"
-        ? Array.isArray(
-            record(result(record(data.viewer_v2).user_results).community_memberships_slice)
-              .items_results,
+      op === "CarouselQuery" || op === "CommunitiesMembershipsSlice"
+        ? [data.viewer_v2, data.viewer].some((v) =>
+            Array.isArray(
+              record(result(record(v).user_results).community_memberships_slice).items_results,
+            ),
           )
           ? "communities:mine"
           : null

@@ -1101,6 +1101,22 @@ export function encodeBody(
           },
         },
       };
+    // The audience card's list: CarouselQuery's slice under X's older viewer.
+    case "CommunitiesMembershipsSlice":
+      return {
+        data: {
+          viewer: {
+            user_results: {
+              result: {
+                __typename: "User",
+                community_memberships_slice: {
+                  items_results: batch.communities.map((c) => ({ result: encodeCommunity(c) })),
+                },
+              },
+            },
+          },
+        },
+      };
     case "CarouselQuery":
       return {
         data: {

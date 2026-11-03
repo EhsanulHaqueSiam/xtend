@@ -990,6 +990,21 @@ describe("renderEngineBatch around posts", () => {
     ]);
     const unknown = carousel({});
     expect([unknown.key, hasEngineContent(unknown)]).toEqual([null, false]);
+    // X's composer's audience card asks the same list under its older viewer.
+    const audience = renderEngineBatch(
+      "CommunitiesMembershipsSlice",
+      {},
+      {
+        data: {
+          viewer: {
+            user_results: {
+              result: { __typename: "User", community_memberships_slice: { items_results: [] } },
+            },
+          },
+        },
+      },
+    );
+    expect([audience.key, hasEngineContent(audience)]).toEqual(["communities:mine", true]);
   });
 
   it("reads X's news story: its headline, Grok's summary, when X updated it, and its tabs", () => {

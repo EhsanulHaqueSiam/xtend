@@ -750,6 +750,9 @@ export function createMockState(options: MockOptions = {}) {
       }
       case "CarouselQuery":
         return live(fixture(op, "communities:mine")!);
+      // X's composer's audience card: the same list, as its own call.
+      case "CommunitiesMembershipsSlice":
+        return { ...live(fixture("CarouselQuery", "communities:mine")!), op };
       case "CommunitiesRankedTimeline":
       case "CommunitiesExploreTimeline":
         return live(fixture(op, null)!);
@@ -979,6 +982,11 @@ export function createMockState(options: MockOptions = {}) {
       s(input, "user_id") ??
       s(input, "id") ??
       s(input, "communityId") ??
+      // A post to a Community names it as X's composer sends it.
+      s(
+        (input.semantic_annotation_ids as ReadonlyArray<Json> | undefined)?.[0] ?? {},
+        "entity_id",
+      ) ??
       s(input, "bookmark_collection_id") ??
       null;
     presses.push({ kind: "write", name, target: id, path });

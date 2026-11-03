@@ -1884,6 +1884,62 @@ const benchmarks = [
     },
   ],
   [
+    "Choose audience lists X's own card: Everyone, then the user's Communities in X's order, picking nothing (dry)",
+    async () => {
+      await home("following");
+      // X draws its card only on /compose/post: opened there, read, closed with Escape, nothing
+      // picked and nothing typed (X asks to discard a draft on leaving only then).
+      await engineGo("/compose/post");
+      // Short steps from here, each its own call: one long script outlived the evaluate's limit.
+      const fail = (step) => (console.log(`  failed at: ${step}`), false);
+      const B = `document.querySelector('button[aria-label="Choose audience"]')`;
+      const CARD = `document.querySelector('[data-testid="HoverCard"]:has([role="menuitem"])')`;
+      if (!(await until(() => engine(`!!${B} && !${CARD}`), 6_000)))
+        return fail("X's audience button");
+      const before = await engine(`${B}.textContent`);
+      await engine(`${B}.click(), true`);
+      // X draws its rows over about a second: read them once a count above zero holds that long.
+      let n = 0;
+      let since = Date.now();
+      const settled = await until(async () => {
+        const now = await engine(`${CARD}?.querySelectorAll('[role="menuitem"]').length ?? 0`);
+        if (now !== n) [n, since] = [now, Date.now()];
+        return n > 0 && Date.now() - since >= 1_000;
+      }, 10_000);
+      const rows = settled
+        ? await engine(
+            `[...${CARD}.querySelectorAll('[role="menuitem"]')].map((r) => r.innerText.split("\\n")[0].trim())`,
+          )
+        : null;
+      await engine(
+        `document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`,
+      );
+      const after = await engine(`${B}?.textContent`);
+      await engine(`history.back(), true`);
+      await until(async () => !(await enginePath()).startsWith("/compose"), 5_000);
+      // X's card stays open over its compose page until X leaves that page; then it must be gone.
+      const closed = await until(() => engine(`!${CARD}`), 3_000);
+      if (!settled) return fail(`X's rows (count ${n})`);
+      if (!closed) return fail("X's card gone once X left /compose/post");
+      const x = { rows, before, after, closed };
+      // Xtend's picker lists the store's Communities, which X's card just sent.
+      // Xtend's own list as the store has it once X's answer landed, mismatched or not.
+      const list = `at($.communityIds, "communities:mine").map((id) => $.communities.get(id)?.name)`;
+      await until(async () => (await store(list))?.length > 0, 10_000);
+      const ours = await store(list);
+      const same = JSON.stringify(["Everyone", ...(ours || [])]) === JSON.stringify(x.rows);
+      if (!same)
+        console.log(`  X's rows ${JSON.stringify(x.rows)}, Xtend's ${JSON.stringify(ours)}`);
+      return (
+        same &&
+        x.closed &&
+        x.before === "Everyone" &&
+        x.after === "Everyone" &&
+        `${x.rows.length - 1} Communities in X's order, nothing picked`
+      );
+    },
+  ],
+  [
     "⌘R reloads Home and a post from X: lists refill in X's order, the post stays",
     async () => {
       // `__xtendRefresh` is what main's ⌘R and F5 call: DevTools keys skip before-input-event.
