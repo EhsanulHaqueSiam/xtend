@@ -220,7 +220,8 @@ function ChatScreen() {
   );
 
   const inboxAsked = useRef(-1);
-  const olderAsked = useRef(-1);
+  // Per conversation: each one's list starts at the same index.
+  const olderAsked = useRef("");
   if (!isElectron)
     return (
       <Empty>
@@ -391,8 +392,9 @@ function ChatScreen() {
                   followOutput={(atBottom) => (atBottom ? "auto" : false)}
                   computeItemKey={(_, item) => item.id}
                   startReached={() => {
-                    if (olderAsked.current === conversation.first) return;
-                    olderAsked.current = conversation.first;
+                    const asked = `${open}:${conversation.first}`;
+                    if (olderAsked.current === asked) return;
+                    olderAsked.current = asked;
                     void xChatScroll("messages");
                   }}
                   itemContent={(_, item) => <Item item={item} group={group} />}

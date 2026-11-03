@@ -48,11 +48,14 @@ const drawX = (markup: string) => {
 const moves: Array<string> = [];
 /** Each query typed into X's own search, "" for X's close. */
 const searches: Array<string> = [];
+/** Each time X's conversation was scrolled up for older messages. */
+let olderScrolls = 0;
 registerXWebview({
   loadURL: async () => {},
   getURL: () => `https://x.com${moves.at(-1) ?? "/home"}`,
   executeJavaScript: (code: string) => {
     const query = /const query = (".*?");/.exec(code)?.[1];
+    if (code.includes("scrollBy") && code.includes('"dm-message-list"')) olderScrolls++;
     if (code.includes("dm-search-close") && query !== undefined)
       searches.push(JSON.parse(query) as string);
     // X's path is where the engine last moved it; this document's own is the test runner's.
@@ -106,6 +109,13 @@ it("draws X's inbox from X's page, opens a conversation only for the user's clic
   expect(moves.filter((m) => m.startsWith("/i/chat/"))).toEqual(["/i/chat/11-22"]);
   await userEvent.click(screen.getByRole("tab", { name: "All" }));
   await expect.poll(() => moves.at(-1)).toBe("/i/chat");
+  // Another conversation, at its top as well: X is asked for its older messages too.
+  await expect.poll(() => olderScrolls).toBe(1);
+  await userEvent.click(screen.getByRole("button", { name: /Cy/ }));
+  await expect.poll(() => moves.at(-1)).toBe("/i/chat/11-33");
+  drawX(CONVERSATION.replaceAll("m1", "m4").replace("Yes, after work", "Tomorrow then"));
+  await expect.element(screen.getByText("Tomorrow then")).toBeVisible();
+  await expect.poll(() => olderScrolls).toBe(2);
 });
 
 it("shows X's passcode screen over the main area until X opens its chats", async () => {
