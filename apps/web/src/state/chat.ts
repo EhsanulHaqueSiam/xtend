@@ -435,7 +435,7 @@ export const isChatPath = (path: string) =>
 /**
  * Script steps in X's page: X's chat roots, a lookup in them, a short wait for a check, an
  * element's words as X shows them, and whether X now asks the user something of its own (a
- * dialog, or a menu X keeps open on a choice). A popup X is closing does not ask anything.
+ * dialog, a menu X keeps open on a choice, its editor on an edit). A closing popup asks nothing.
  */
 const IN_CHAT = `
     const roots = () => [...document.querySelectorAll('[data-testid^="xchatEmbed"]')].flatMap((h) => (h.shadowRoot ? [h.shadowRoot] : []));
@@ -455,7 +455,7 @@ const IN_CHAT = `
     };
     const asks = () => {
       const up = ':is([role="dialog"], [role="alertdialog"]):not([data-ending-style])';
-      return !!document.querySelector(up) || roots().some((r) => r.querySelector(up + ', [role="menu"]:not([data-ending-style])'));
+      return !!document.querySelector(up) || roots().some((r) => r.querySelector(up + ', [role="menu"]:not([data-ending-style]), [data-testid="dm-composer-edit-mode"]'));
     };`;
 
 /** X still asks the user something in its chat (or, with `under`, shows its page there). */
@@ -609,7 +609,11 @@ export const xChatReact = async (path: string, id: string, emoji: string) =>
 /** What the user writes in a conversation: a new message, a reply to one, or an edit of their own. */
 export interface ChatDraft {
   readonly text: string;
-  readonly mode: { readonly kind: "reply" | "edit"; readonly item: ChatMessage } | null;
+  readonly mode:
+    | { readonly kind: "reply"; readonly item: ChatMessage }
+    /** `old`: the text X loaded into its own editor for it, all of it, not what X displays. */
+    | { readonly kind: "edit"; readonly item: ChatMessage; readonly old: string }
+    | null;
 }
 export const emptyDraft: ChatDraft = { text: "", mode: null };
 
@@ -665,26 +669,15 @@ const Sent = Schema.Struct({
 const decodeSent = Schema.decodeUnknownOption(Sent);
 
 /**
- * Sends `text` in X's conversation `path`, whose messages Xtend knows by `known`, for the user's
- * click: through X's own composer and Send (Save, for `edit`), after X's own Reply or Edit there.
- * X's mark on the message it pins answers: "sent", "failed", or "pending" while X still sends;
- * "draft" when X's composer already holds something of the user's. Null when nothing was sent.
+ * Script steps in X's page on X's composer for conversation `path`, whose messages Xtend knows by
+ * `known`, about message `target`: the checks every press needs, and `back`, which takes back what
+ * the click put there. Starts by answering null, or "draft", when X's composer is not plainly free.
  */
-export const xChatSend = async (
-  path: string,
-  text: string,
-  known: ReadonlyArray<string>,
-  to: { readonly reply?: string; readonly edit?: string } = {},
-) =>
-  Option.getOrNull(
-    decodeSent(
-      await xPressOver(
-        (mine) => `(async () => {
+const inComposer = (path: string, known: ReadonlyArray<string>, target: string, mine: string) => `
     ${IN_CHAT}
-    ${onMessage(to.reply ?? to.edit ?? "")}
+    ${onMessage(target)}
     const read = ${readChat.toString()};
     const path = ${JSON.stringify(path)};
-    const text = ${JSON.stringify(text)};
     const same = (a, b) => a.replace(/\\s+/g, " ").trim() === b.replace(/\\s+/g, " ").trim();
     const route = () => document.querySelector('[data-testid="xchatEmbedRoute"]')?.shadowRoot ?? null;
     const inRoute = (s) => route()?.querySelector(s) ?? null;
@@ -727,6 +720,60 @@ export const xChatSend = async (
       row.click();
       return wait(() => inRoute(shows));
     };
+    // X's own Edit on the target, and the text X loads into its editor for it: all of the message.
+    const openEdit = async () => {
+      mode = "edit";
+      if (!(await pick("icon-pencil-stroke", editMode))) return null;
+      await wait(() => field.value !== "");
+      left = field.value;
+      return left === "" ? null : left;
+    };`;
+
+const decodeEdit = Schema.decodeUnknownOption(Schema.Struct({ text: Schema.String }));
+
+/**
+ * The text X loads into its own editor when the user edits message `id`, read through X's Edit and
+ * then taken back with X's Discard edit, so X's composer is as it was. What the display clips (past
+ * X's length, its hidden markdown) is in it. "draft" when X's composer holds the user's; "unread"
+ * when X showed no editor text.
+ */
+export const xChatEditText = async (path: string, id: string, known: ReadonlyArray<string>) => {
+  const answer = await xPressOver(
+    (mine) => `(async () => {
+    ${inComposer(path, known, id, mine)}
+    const text = await openEdit();
+    back();
+    return text === null ? null : { text };
+  })()`,
+    asking(),
+    () => {},
+  );
+  const text = decodeEdit(answer);
+  if (Option.isSome(text)) return text.value;
+  return Option.getOrNull(decodeSent(answer))?.status === "draft" ? "draft" : "unread";
+};
+
+/**
+ * Sends `text` in X's conversation `path` (its read messages: `known`) for the user's click, through
+ * X's own composer and Send, after X's own Reply, or Edit, which types only over its `old` text.
+ * X's mark on the message it pins answers "sent", "failed", or "pending" while X still sends;
+ * "draft" when X's composer already holds something of the user's. Null when nothing was sent.
+ */
+export const xChatSend = async (
+  path: string,
+  text: string,
+  known: ReadonlyArray<string>,
+  to: {
+    readonly reply?: string;
+    readonly edit?: { readonly id: string; readonly old: string };
+  } = {},
+) =>
+  Option.getOrNull(
+    decodeSent(
+      await xPressOver(
+        (mine) => `(async () => {
+    ${inComposer(path, known, to.reply ?? to.edit?.id ?? "", mine)}
+    const text = ${JSON.stringify(text)};
     if (${to.reply !== undefined}) {
       const reply = (await hover()) && find(testid("message-reply-button-"));
       if (!ours()) return back();
@@ -734,12 +781,10 @@ export const xChatSend = async (
       reply?.click();
       if (!(reply ? await wait(() => inRoute(replyBar)) : await pick("icon-reply-arrow", replyBar))) return back();
     }
-    const old = messages().find((m) => m.id === ${JSON.stringify(to.edit ?? null)})?.text ?? null;
-    if (${to.edit !== undefined}) {
-      mode = "edit";
-      if (!(await pick("icon-pencil-stroke", editMode))) return back();
-      left = field.value;
-    }
+    const edited = ${JSON.stringify(to.edit?.id ?? null)};
+    const was = messages().find((m) => m.id === edited)?.text ?? null;
+    // Never over unseen text: X's editor must hold just what the user's edit began from.
+    if (edited !== null && (await openEdit()) !== ${JSON.stringify(to.edit?.old ?? null)}) return back();
     const before = new Set(messages().map((m) => m.id));
     if (!ours()) return back();
     type(text);
@@ -751,12 +796,12 @@ export const xChatSend = async (
     if (!send || !ours()) return back();
     send.click();
     // X's answer, pinned once: the edited message, or the first new one of the user's with this text.
-    const id = ${JSON.stringify(to.edit ?? null)} ?? (await wait(() => messages().find((m) => m.mine && !before.has(m.id) && same(m.text, text))?.id, 100));
+    const id = edited ?? (await wait(() => messages().find((m) => m.mine && !before.has(m.id) && same(m.text, text))?.id, 100));
     if (!id) return { status: "pending", id: null };
     const mark = () => {
       const m = messages().find((x) => x.id === id);
       if (m?.status === "failed") return "failed";
-      return m?.status === "sent" && same(m.text, text) && !(old !== null && same(m.text, old)) ? "sent" : null;
+      return m?.status === "sent" && same(m.text, text) && !(was !== null && same(m.text, was)) ? "sent" : null;
     };
     return { status: (await wait(mark, 150)) ?? "pending", id };
   })()`,

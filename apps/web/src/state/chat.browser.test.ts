@@ -6,6 +6,7 @@ import {
   type ChatRead,
   readChat,
   watchChat,
+  xChatEditText,
   xChatFirst,
   xChatInfo,
   xChatSearch,
@@ -285,6 +286,54 @@ const conversationIn = (root: ShadowRoot, ids: ReadonlyArray<string>, greyed = f
   };
 };
 
+/**
+ * X's Edit on message `id` in `root`: X's hover bar shows its "...", whose Edit row puts X's
+ * composer (`field`) in edit mode holding `loads()`, the message's text as X keeps it; X's
+ * Discard edit ends it, empty.
+ */
+const editableIn = (
+  root: ShadowRoot,
+  field: HTMLTextAreaElement,
+  id: string,
+  loads: () => string,
+) => {
+  root.addEventListener("mouseover", () => {
+    if (!root.querySelector(`[data-testid="message-overflow-button-${id}"]`))
+      root
+        .querySelector(`[data-testid="message-${id}"] [role="article"]`)!
+        .insertAdjacentHTML(
+          "beforeend",
+          `<button data-testid="message-overflow-button-${id}"></button>`,
+        );
+  });
+  root.addEventListener("click", (event) => {
+    const el = event.target as Element;
+    // X's "..." opens its menu, and closes it pressed again.
+    const open = root.querySelector('[role="menu"]');
+    if (el.matches(`[data-testid="message-overflow-button-${id}"]`) && open) open.remove();
+    else if (el.matches(`[data-testid="message-overflow-button-${id}"]`))
+      root.append(
+        Object.assign(document.createElement("div"), {
+          role: "menu",
+          innerHTML:
+            '<div role="menuitem"><svg data-icon="icon-pencil-stroke"></svg>Edit message</div>',
+        }),
+      );
+    if (el.closest('[role="menuitem"]')) {
+      root.querySelector('[role="menu"]')!.remove();
+      field.insertAdjacentHTML(
+        "beforebegin",
+        '<div data-testid="dm-composer-edit-mode"><button data-testid="dm-composer-discard-edit-button"></button></div>',
+      );
+      field.value = loads();
+    }
+    if (el.matches('[data-testid="dm-composer-discard-edit-button"]')) {
+      el.parentElement!.remove();
+      field.value = "";
+    }
+  });
+};
+
 it("presses nothing once X shows another conversation than the one the user wrote in", async () => {
   using x = drawX("");
   engineAt("/i/chat/11-22");
@@ -353,35 +402,8 @@ it("pins its own message: not an older one X mounts meanwhile, and an edit only 
   await vi.advanceTimersByTimeAsync(20_000);
   expect(await sending).toEqual({ status: "pending", id: "n1" });
 
-  // X's Edit on m1: its hover bar, its "..." and its Edit row put X's composer in edit mode.
-  const editMode =
-    '<div data-testid="dm-composer-edit-mode"><button data-testid="dm-composer-discard-edit-button"></button></div>';
-  x.root.addEventListener("mouseover", () => {
-    if (!x.root.querySelector('[data-testid="message-overflow-button-m1"]'))
-      x.root
-        .querySelector('[data-testid="message-m1"] [role="article"]')!
-        .insertAdjacentHTML(
-          "beforeend",
-          '<button data-testid="message-overflow-button-m1"></button>',
-        );
-  });
-  x.root.addEventListener("click", (event) => {
-    const el = event.target as Element;
-    if (el.matches('[data-testid="message-overflow-button-m1"]'))
-      x.root.append(
-        Object.assign(document.createElement("div"), {
-          role: "menu",
-          innerHTML:
-            '<div role="menuitem"><svg data-icon="icon-pencil-stroke"></svg>Edit message</div>',
-        }),
-      );
-    if (el.closest('[role="menuitem"]')) {
-      x.root.querySelector('[role="menu"]')!.remove();
-      ann.field.insertAdjacentHTML("beforebegin", editMode);
-      ann.field.value = "Text m1";
-    }
-  });
   const text = () => x.root.querySelector('[data-testid="message-text-m1"] span span')!;
+  editableIn(x.root, ann.field, "m1", () => text().textContent ?? "");
   // X's Save leaves edit mode at once, before X shows the new text: that is no answer yet.
   const save = (shows: boolean) =>
     ann.send.addEventListener(
@@ -393,7 +415,9 @@ it("pins its own message: not an older one X mounts meanwhile, and an edit only 
       { once: true },
     );
   save(false);
-  const unanswered = xChatSend("/i/chat/11-22", "Yes, after six", ["m1"], { edit: "m1" });
+  const unanswered = xChatSend("/i/chat/11-22", "Yes, after six", ["m1"], {
+    edit: { id: "m1", old: "Text m1" },
+  });
   await vi.advanceTimersByTimeAsync(20_000);
   expect([await unanswered, text().textContent]).toEqual([
     { status: "pending", id: "m1" },
@@ -403,14 +427,43 @@ it("pins its own message: not an older one X mounts meanwhile, and an edit only 
   ann.field.value = "";
   text().textContent = "Meetat6";
   save(false);
-  const spaced = xChatSend("/i/chat/11-22", "Meet at 6", ["m1"], { edit: "m1" });
+  const spaced = xChatSend("/i/chat/11-22", "Meet at 6", ["m1"], {
+    edit: { id: "m1", old: "Meetat6" },
+  });
   await vi.advanceTimersByTimeAsync(20_000);
   expect(await spaced).toEqual({ status: "pending", id: "m1" });
   ann.field.value = "";
   save(true);
-  const edited = xChatSend("/i/chat/11-22", "Yes, after six", ["m1"], { edit: "m1" });
+  const edited = xChatSend("/i/chat/11-22", "Yes, after six", ["m1"], {
+    edit: { id: "m1", old: "Meetat6" },
+  });
   await vi.advanceTimersByTimeAsync(20_000);
   expect(await edited).toEqual({ status: "sent", id: "m1" });
+});
+
+it("edits from the text X loads into its own editor, all of it, and saves only over that same text", async () => {
+  using x = drawX("");
+  using _timers = fakeTimers();
+  engineAt("/i/chat/11-22");
+  const ann = conversationIn(x.root, ["m1"]);
+  // X displays less than its message holds: past X's length, or markdown X hides.
+  let full = "Text m1 and **what X does not display**";
+  editableIn(x.root, ann.field, "m1", () => full);
+  const editMode = () => x.root.querySelector('[data-testid="dm-composer-edit-mode"]');
+  const loading = xChatEditText("/i/chat/11-22", "m1", ["m1"]);
+  await vi.advanceTimersByTimeAsync(3_000);
+  expect(await loading).toEqual({ text: full });
+  // X's composer is back as it was: no edit, no text.
+  expect([editMode(), ann.field.value]).toEqual([null, ""]);
+
+  // The message changed since: X's editor holds other text, so nothing is typed over it.
+  const old = full;
+  full = "Changed in X meanwhile";
+  const saving = xChatSend("/i/chat/11-22", "Text m1, shorter", ["m1"], {
+    edit: { id: "m1", old },
+  });
+  await vi.advanceTimersByTimeAsync(3_000);
+  expect([await saving, editMode(), ann.field.value]).toEqual([null, null, ""]);
 });
 
 it("takes back its own typing even once another press took over, but never what the user changed in X", async () => {

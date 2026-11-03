@@ -39,6 +39,7 @@ import {
   sameWords,
   sendMark,
   watchChat,
+  xChatEditText,
   xChatFirst,
   xChatInfo,
   xChatMenu,
@@ -229,23 +230,29 @@ function usePress() {
   return { press, setToast };
 }
 
+const DRAFT_HELD = "X's composer holds a draft; finish it in X.";
+
 const ROUND =
   "grid size-8 shrink-0 cursor-pointer place-items-center rounded-full text-[#71767b] hover:bg-white/[0.08] hover:text-foreground";
 
 /**
  * X's hover bar on a message, drawn by Xtend: React (X's own quick reactions), Reply and X's "..."
- * rows, each read from X's page when opened. Reply, Copy and Edit work in Xtend's composer; every
- * other row is X's own, pressed for the click, with what X asks next over the main area.
+ * rows, each read from X's page when opened. Reply, Copy and Edit work in Xtend's composer (an
+ * edit from the text X loads into its own editor); every other row is X's own, pressed for the
+ * click, with what X asks next over the main area.
  */
 function MessageActions({
   path,
   item,
   composer,
+  known,
 }: {
   readonly path: string;
   readonly item: ChatMessage;
   /** X draws its composer here, so the user can react and reply. */
   readonly composer: boolean;
+  /** X's ids of the conversation's messages Xtend read. */
+  readonly known: ReadonlyArray<string>;
 }) {
   const setOver = useAtomSet(xOverAtom);
   const { press, setToast } = usePress();
@@ -257,10 +264,17 @@ function MessageActions({
   const [quick, setQuick] = useState<Awaited<ReturnType<typeof xChatReactions>> | undefined>(
     undefined,
   );
+  const edit = async (label: string) => {
+    const loaded = await press(() => xChatEditText(path, item.id, known));
+    if (loaded === "draft") return setToast({ text: DRAFT_HELD });
+    // X's editor could not be read: the edit is X's to take, on its own page over the main area.
+    if (loaded === "unread") return void press(() => xChatMenuPress(path, item.id, label, setOver));
+    if (loaded !== null)
+      setDraft({ text: loaded.text, mode: { kind: "edit", item, old: loaded.text } });
+  };
   const pick = ({ label, icon }: ChatMenu["rows"][number]) => {
     if (icon === "icon-reply-arrow") return reply();
-    if (icon === "icon-pencil-stroke")
-      return setDraft({ text: item.text, mode: { kind: "edit", item } });
+    if (icon === "icon-pencil-stroke") return void edit(label);
     // X's own Copy writes the clipboard from the engine, off screen, which is not reliable.
     if (icon === "icon-clone" || icon === "icon-link")
       return void navigator.clipboard
@@ -365,15 +379,15 @@ function MessageActions({
 }
 
 /**
- * Xtend's composer on X's conversation `path`, whose messages are `items`: the text goes to X's own
- * composer and Send only on the user's Send, and stays until X marks the message it sent.
+ * Xtend's composer on X's conversation `path`, whose messages Xtend read are `known`: the text goes
+ * to X's own composer and Send only on the user's Send, and stays until X marks the message it sent.
  */
 function Composer({
   path,
-  items,
+  known,
 }: {
   readonly path: string;
-  readonly items: ReadonlyArray<ChatItem>;
+  readonly known: ReadonlyArray<string>;
 }) {
   const { press, setToast } = usePress();
   const { draft, setDraft, send, setWrite } = useDraft(path);
@@ -381,12 +395,15 @@ function Composer({
   const submit = async () => {
     if (text.trim() === "" || send !== null) return;
     // An edit to the same words has nothing for X to save.
-    if (mode?.kind === "edit" && sameWords(text, mode.item.text)) return setDraft(emptyDraft);
-    const old = mode?.kind === "edit" ? mode.item.text : null;
+    if (mode?.kind === "edit" && sameWords(text, mode.old)) return setDraft(emptyDraft);
+    const old = mode?.kind === "edit" ? mode.old : null;
     setWrite((w) => ({ ...w, send: { path, text, old, id: null } }));
     const to =
-      mode === null ? {} : mode.kind === "reply" ? { reply: mode.item.id } : { edit: mode.item.id };
-    const known = items.flatMap((i) => (i.kind === "message" ? [i.id] : []));
+      mode === null
+        ? {}
+        : mode.kind === "reply"
+          ? { reply: mode.item.id }
+          : { edit: { id: mode.item.id, old: mode.old } };
     const sent = await press(() => xChatSend(path, text, known, to));
     // X still sends the message it pinned: the chat's reads settle it (`sendMark`).
     if (sent?.status === "pending" && sent.id !== null) {
@@ -400,7 +417,7 @@ function Composer({
         sent.status === "failed"
           ? "Message failed to send"
           : sent.status === "draft"
-            ? "X's composer holds a draft; finish it in X."
+            ? DRAFT_HELD
             : "X has not shown it yet. Check the chat before sending again.",
     });
   };
@@ -481,7 +498,8 @@ function Conversation({
   const { press } = usePress();
   const olderAsked = useRef(-1);
   // Its own messages are how Xtend knows X shows this conversation: with none, X's page writes.
-  const drawn = conversation?.items.some((i) => i.kind === "message") ?? false;
+  const known = (conversation?.items ?? []).flatMap((i) => (i.kind === "message" ? [i.id] : []));
+  const drawn = known.length > 0;
   const answer = async (request: "accept" | "delete") => {
     const answered = await press(() => xChatRequest(path, request, setOver));
     // A confirm the user left unanswered for another screen moves nothing.
@@ -538,7 +556,12 @@ function Conversation({
                 group={group}
                 actions={
                   item.kind === "message" ? (
-                    <MessageActions path={path} item={item} composer={conversation.composer} />
+                    <MessageActions
+                      path={path}
+                      item={item}
+                      composer={conversation.composer}
+                      known={known}
+                    />
                   ) : null
                 }
               />
@@ -567,7 +590,7 @@ function Conversation({
           </div>
         </div>
       ) : conversation?.composer !== true ? null : drawn ? (
-        <Composer path={path} items={conversation.items} />
+        <Composer path={path} known={known} />
       ) : (
         <div className="border-t border-border p-4 text-center">
           <button
