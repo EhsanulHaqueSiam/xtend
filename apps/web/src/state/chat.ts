@@ -623,6 +623,8 @@ export interface ChatWrite {
   readonly send: {
     readonly path: string;
     readonly text: string;
+    /** An edit's message as it read before. */
+    readonly old: string | null;
     readonly id: string | null;
   } | null;
 }
@@ -637,18 +639,22 @@ export const endSend = (write: ChatWrite, sent: boolean): ChatWrite => {
   return { drafts, send: null };
 };
 
-const squash = (s: string) => s.replace(/\s+/g, "");
+/** Whether X shows `a` as `b`: the same words, however X lays out their spaces and lines. */
+export const sameWords = (a: string, b: string) =>
+  a.replace(/\s+/g, " ").trim() === b.replace(/\s+/g, " ").trim();
 
 /**
  * X's mark, in `read`, on the message the send in flight pinned: "sent" once X marks it so with the
- * sent text (an edit shows its new text), "failed", or null while X has neither.
+ * sent text (an edit's new text, no longer its old), "failed", or null while X has neither.
  */
 export const sendMark = ({ send }: ChatWrite, read: ChatRead) => {
   if (send?.id == null || read.path !== send.path) return null;
   const message = read.items?.find((i) => i.id === send.id);
   if (message?.kind !== "message") return null;
   if (message.status === "failed") return "failed";
-  return message.status === "sent" && squash(message.text) === squash(send.text) ? "sent" : null;
+  const shows =
+    sameWords(message.text, send.text) && !(send.old !== null && sameWords(message.text, send.old));
+  return message.status === "sent" && shows ? "sent" : null;
 };
 
 const Sent = Schema.Struct({
@@ -679,21 +685,20 @@ export const xChatSend = async (
     const read = ${readChat.toString()};
     const path = ${JSON.stringify(path)};
     const text = ${JSON.stringify(text)};
-    const squash = (s) => s.replace(/\\s+/g, "");
+    const same = (a, b) => a.replace(/\\s+/g, " ").trim() === b.replace(/\\s+/g, " ").trim();
     const route = () => document.querySelector('[data-testid="xchatEmbedRoute"]')?.shadowRoot ?? null;
     const inRoute = (s) => route()?.querySelector(s) ?? null;
     const messages = () => (read(document, path).items ?? []).filter((i) => i.kind === "message");
     // X's markup names no conversation, but each message id is one conversation's own.
     const known = new Set(${JSON.stringify(known)});
-    const showsIt = () => {
-      const ids = messages().map((m) => m.id);
-      return known.size === 0 ? ids.length === 0 : ids.some((id) => known.has(id));
-    };
+    const showsIt = () => messages().some((m) => known.has(m.id));
     const field = inRoute('[data-testid="dm-composer-textarea"]');
     if (location.pathname !== path || !${mine} || !field || !showsIt()) return null;
     const box = field.closest('[data-testid="dm-composer-container"]') ?? route();
-    // Every press is for this composer, still in X's route, on the conversation the user wrote in.
-    const ours = () => location.pathname === path && ${mine} && field.isConnected && !!route()?.contains(field) && showsIt();
+    // This composer, still in X's route, on the conversation the user wrote in; a press also needs
+    // the click to be the user's latest.
+    const pinned = () => location.pathname === path && field.isConnected && !!route()?.contains(field) && showsIt();
+    const ours = () => pinned() && ${mine};
     const replyBar = '[data-testid="dm-composer-reply-bar"]';
     const editMode = '[data-testid="dm-composer-edit-mode"]';
     // Whatever X's composer holds already (text, a reply, an edit) is the user's own, in X.
@@ -703,11 +708,14 @@ export const xChatSend = async (
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(field, value);
       field.dispatchEvent(new Event("input", { bubbles: true }));
     };
-    // Stopping short, the click takes back what it did to X's composer, while it is still this one.
+    // Stopping short, even superseded, the click takes back what it put into its own composer (the
+    // text it left there, its reply or edit), while X's composer still holds exactly that.
+    let left = "";
+    let mode = null;
     const back = () => {
-      if (!ours()) return null;
-      inRoute('[data-testid="dm-composer-discard-edit-button"]')?.click();
-      [...(inRoute(replyBar)?.querySelectorAll("button") ?? [])].at(-1)?.click();
+      if (!pinned() || field.value !== left) return null;
+      if (mode === "edit") inRoute('[data-testid="dm-composer-discard-edit-button"]')?.click();
+      if (mode === "reply") [...(inRoute(replyBar)?.querySelectorAll("button") ?? [])].at(-1)?.click();
       if (field.value !== "") type("");
       return null;
     };
@@ -721,14 +729,21 @@ export const xChatSend = async (
     };
     if (${to.reply !== undefined}) {
       const reply = (await hover()) && find(testid("message-reply-button-"));
-      if (!ours()) return null;
+      if (!ours()) return back();
+      mode = "reply";
       reply?.click();
       if (!(reply ? await wait(() => inRoute(replyBar)) : await pick("icon-reply-arrow", replyBar))) return back();
     }
-    if (${to.edit !== undefined} && !(await pick("icon-pencil-stroke", editMode))) return back();
+    const old = messages().find((m) => m.id === ${JSON.stringify(to.edit ?? null)})?.text ?? null;
+    if (${to.edit !== undefined}) {
+      mode = "edit";
+      if (!(await pick("icon-pencil-stroke", editMode))) return back();
+      left = field.value;
+    }
     const before = new Set(messages().map((m) => m.id));
     if (!ours()) return back();
     type(text);
+    left = text;
     const send = await wait(() => {
       const button = box.querySelector('[data-testid="dm-composer-send-button"]');
       return button && !button.disabled ? button : null;
@@ -736,11 +751,12 @@ export const xChatSend = async (
     if (!send || !ours()) return back();
     send.click();
     // X's answer, pinned once: the edited message, or the first new one of the user's with this text.
-    const id = ${JSON.stringify(to.edit ?? null)} ?? (await wait(() => messages().find((m) => m.mine && !before.has(m.id) && squash(m.text) === squash(text))?.id, 100));
+    const id = ${JSON.stringify(to.edit ?? null)} ?? (await wait(() => messages().find((m) => m.mine && !before.has(m.id) && same(m.text, text))?.id, 100));
     if (!id) return { status: "pending", id: null };
     const mark = () => {
       const m = messages().find((x) => x.id === id);
-      return m?.status === "failed" ? "failed" : m?.status === "sent" && squash(m.text) === squash(text) ? "sent" : null;
+      if (m?.status === "failed") return "failed";
+      return m?.status === "sent" && same(m.text, text) && !(old !== null && same(m.text, old)) ? "sent" : null;
     };
     return { status: (await wait(mark, 150)) ?? "pending", id };
   })()`,
@@ -749,6 +765,18 @@ export const xChatSend = async (
       ),
     ),
   );
+
+/**
+ * X's own conversation `path` over the main area, for the user to write its first message in X's
+ * composer: Xtend writes only where X already draws a message it read, the conversation's sign.
+ * True once X draws one (or the user leaves it in X), false when they move on first.
+ */
+export const xChatFirst = (path: string, over: (shown: boolean) => void) =>
+  xPressOver(
+    (mine) => `location.pathname === ${JSON.stringify(path)} && ${mine} ? "over" : null`,
+    `(() => { ${IN_CHAT} return asks() || (location.pathname === ${JSON.stringify(path)} && !roots().some((r) => r.querySelector('[data-testid^="message-"][data-send-status]'))); })()`,
+    over,
+  ).then((answer) => (answer === "over" ? true : answer === "cancelled" ? false : null));
 
 /**
  * Answers X's message request on conversation `path` for the user's click with X's own Accept, or

@@ -36,8 +36,10 @@ import {
   endSend,
   isChatPath,
   mergeChat,
+  sameWords,
   sendMark,
   watchChat,
+  xChatFirst,
   xChatInfo,
   xChatMenu,
   xChatMenuPress,
@@ -378,7 +380,10 @@ function Composer({
   const { text, mode } = draft;
   const submit = async () => {
     if (text.trim() === "" || send !== null) return;
-    setWrite((w) => ({ ...w, send: { path, text, id: null } }));
+    // An edit to the same words has nothing for X to save.
+    if (mode?.kind === "edit" && sameWords(text, mode.item.text)) return setDraft(emptyDraft);
+    const old = mode?.kind === "edit" ? mode.item.text : null;
+    setWrite((w) => ({ ...w, send: { path, text, old, id: null } }));
     const to =
       mode === null ? {} : mode.kind === "reply" ? { reply: mode.item.id } : { edit: mode.item.id };
     const known = items.flatMap((i) => (i.kind === "message" ? [i.id] : []));
@@ -475,6 +480,8 @@ function Conversation({
   const setOver = useAtomSet(xOverAtom);
   const { press } = usePress();
   const olderAsked = useRef(-1);
+  // Its own messages are how Xtend knows X shows this conversation: with none, X's page writes.
+  const drawn = conversation?.items.some((i) => i.kind === "message") ?? false;
   const answer = async (request: "accept" | "delete") => {
     const answered = await press(() => xChatRequest(path, request, setOver));
     // A confirm the user left unanswered for another screen moves nothing.
@@ -559,9 +566,19 @@ function Conversation({
             </button>
           </div>
         </div>
-      ) : conversation?.composer === true ? (
+      ) : conversation?.composer !== true ? null : drawn ? (
         <Composer path={path} items={conversation.items} />
-      ) : null}
+      ) : (
+        <div className="border-t border-border p-4 text-center">
+          <button
+            type="button"
+            className="h-9 cursor-pointer rounded-full bg-foreground px-4 text-[15px] font-bold text-background"
+            onClick={() => void press(() => xChatFirst(path, setOver))}
+          >
+            Write the first message in X
+          </button>
+        </div>
+      )}
     </>
   );
 }

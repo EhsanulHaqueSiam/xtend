@@ -333,3 +333,17 @@ it("holds what the user sent until X marks it, across another conversation, with
   await expect.element(box).toHaveValue("");
   await expect.element(box).toBeEnabled();
 });
+
+it("offers no composer of its own on a conversation without a message X drew, only X's page to write the first", async () => {
+  drawX(INBOX);
+  await using screen = await render(ui(), { router: "/chat", service: {} });
+  await userEvent.click(screen.getByRole("button", { name: /Ann/ }));
+  await expect.poll(() => moves.at(-1)).toBe("/i/chat/11-22");
+  drawX(
+    `<div data-testid="dm-conversation-panel"><span data-testid="dm-conversation-username">Ann</span><div data-testid="dm-message-list"></div><div data-testid="dm-composer-container"><textarea data-testid="dm-composer-textarea"></textarea></div></div>`,
+  );
+  await expect
+    .element(screen.getByRole("button", { name: "Write the first message in X" }))
+    .toBeVisible();
+  expect(screen.getByRole("textbox", { name: "Message" }).elements()).toHaveLength(0);
+});

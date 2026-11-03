@@ -7,6 +7,7 @@ import {
   emptyChat,
   mergeChat,
   mergeWindow,
+  sendMark,
 } from "./chat";
 
 const ids = (list: ReadonlyArray<{ readonly id: string }>) => list.map((x) => x.id).join(" ");
@@ -91,4 +92,37 @@ it("keeps a conversation's place as X draws older messages, and the inbox while 
     next.conversation!.first,
     next.conversation!.title,
   ]).toEqual(["n1", first, null]);
+});
+
+it("settles a send X was still finishing only on its own message, with its words as X lays them out", () => {
+  const shows = (text: string, status: "sent" | "pending" | "failed" = "sent") =>
+    read({
+      path: "/i/chat/1-2",
+      items: [
+        {
+          kind: "message",
+          id: "n1",
+          mine: true,
+          sender: "You",
+          text,
+          time: null,
+          media: null,
+          reactions: [],
+          status,
+        },
+        message("m9"),
+      ],
+    });
+  const send = (text: string, old: string | null = null) => ({
+    drafts: new Map(),
+    send: { path: "/i/chat/1-2", text, old, id: "n1" },
+  });
+  expect(sendMark(send("See you\nat 6"), shows("See you at 6 "))).toBe("sent");
+  expect(sendMark(send("See you at 6"), shows("See you at 6", "pending"))).toBeNull();
+  expect(sendMark(send("See you at 6"), shows("Anything", "failed"))).toBe("failed");
+  // An edit from "Meetat6" to "Meet at 6": spaces count, and the old words are no answer.
+  expect(sendMark(send("Meet at 6", "Meetat6"), shows("Meetat6"))).toBeNull();
+  expect(sendMark(send("Meet at 6", "Meetat6"), shows("Meet  at 6"))).toBe("sent");
+  // Another conversation's read says nothing of it.
+  expect(sendMark(send("Hi"), { ...shows("Hi"), path: "/i/chat/1-3" })).toBeNull();
 });

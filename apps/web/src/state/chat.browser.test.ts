@@ -2,7 +2,15 @@ import { expect, it, vi } from "vite-plus/test";
 
 import { fakeTimers } from "../../test/render";
 
-import { type ChatRead, readChat, watchChat, xChatInfo, xChatSearch, xChatSend } from "./chat";
+import {
+  type ChatRead,
+  readChat,
+  watchChat,
+  xChatFirst,
+  xChatInfo,
+  xChatSearch,
+  xChatSend,
+} from "./chat";
 import { markXReady, registerXWebview, xOverEnded, type XWebview } from "./x";
 
 // X's chat embed as it draws (abs.twimg.com/x-web/xchat/embed, pin-page-rweb): a row's link
@@ -391,11 +399,56 @@ it("pins its own message: not an older one X mounts meanwhile, and an edit only 
     { status: "pending", id: "m1" },
     "Text m1",
   ]);
+  // Spaces count: "Meetat6" made "Meet at 6" is no answer while X still shows "Meetat6".
+  ann.field.value = "";
+  text().textContent = "Meetat6";
+  save(false);
+  const spaced = xChatSend("/i/chat/11-22", "Meet at 6", ["m1"], { edit: "m1" });
+  await vi.advanceTimersByTimeAsync(20_000);
+  expect(await spaced).toEqual({ status: "pending", id: "m1" });
   ann.field.value = "";
   save(true);
   const edited = xChatSend("/i/chat/11-22", "Yes, after six", ["m1"], { edit: "m1" });
   await vi.advanceTimersByTimeAsync(20_000);
   expect(await edited).toEqual({ status: "sent", id: "m1" });
+});
+
+it("takes back its own typing even once another press took over, but never what the user changed in X", async () => {
+  using x = drawX("");
+  using _timers = fakeTimers();
+  engineAt("/i/chat/11-22");
+  const ann = conversationIn(x.root, ["m1"], true);
+  const superseded = xChatSend("/i/chat/11-22", "On my way", ["m1"]);
+  await vi.advanceTimersByTimeAsync(200);
+  expect(ann.field.value).toBe("On my way");
+  // Another press (a reaction, a menu row) is the user's latest now, while X's Send stays greyed.
+  xOverEnded();
+  await vi.advanceTimersByTimeAsync(3_000);
+  expect([await superseded, ann.field.value]).toEqual([null, ""]);
+
+  const changed = xChatSend("/i/chat/11-22", "On my way", ["m1"]);
+  await vi.advanceTimersByTimeAsync(200);
+  ann.field.value = "On my way, and more";
+  await vi.advanceTimersByTimeAsync(3_000);
+  expect([await changed, ann.field.value]).toEqual([null, "On my way, and more"]);
+});
+
+it("writes no message where X draws none it read, and shows X's page for the first one until X draws it", async () => {
+  using x = drawX("");
+  engineAt("/i/chat/11-22");
+  // A new chat, or one X is still loading: no message tells Xtend which conversation X shows.
+  const empty = conversationIn(x.root, []);
+  expect(await xChatSend("/i/chat/11-22", "Hi", [])).toBeNull();
+  expect(await xChatSend("/i/chat/11-22", "Hi", ["m1"])).toBeNull();
+  expect(empty.field.value).toBe("");
+
+  const shown: Array<boolean> = [];
+  const first = xChatFirst("/i/chat/11-22", (s) => shown.push(s));
+  await vi.waitFor(() => expect(shown).toEqual([true]));
+  // The user writes it in X's own composer, and X draws it.
+  empty.add("n1", "Hi");
+  expect(await first).toBe(true);
+  expect(shown).toEqual([true, false]);
 });
 
 it("lets X's page about a conversation go when the user moves on, and says they finished there only once X is back", async () => {

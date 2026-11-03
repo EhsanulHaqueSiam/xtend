@@ -83,7 +83,8 @@ chat presses pass their own (`xPressOver`). Text reaches X's composer as a keyst
 only X's own mark (`data-send-status`) on the message it adds says it was sent. X's markup names
 no conversation and X keeps its conversation screen mounted across them, so a send pins X's
 composer node and the message ids X draws (each one conversation's own), checked before every
-press, then pins the one new message with its text. One send at a time (`chatWriteAtom`).
+press, then pins the one new message with its text; with no message drawn there is no identity,
+so a conversation's first message is written in X's page. One send at a time (`chatWriteAtom`).
 
 The read-only benchmark (`apps/desktop/scripts/engine-bench.mjs`) checks every surface against a
 dev desktop on the real account; its only write is a bookmark it removes again.
