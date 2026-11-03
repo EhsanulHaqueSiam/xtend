@@ -73,10 +73,10 @@ it builds. The app checks every hour and downloads in the background; when the s
 `update … · restart`, click it, or **Restart to update** here. On macOS the app is not signed
 yet, so it links to the download instead and you install it by hand.
 
-**Remote service** points the desktop at a service on another machine: a URL such as
-`http://mac-mini:4820` and that machine's service token. **Check** tests both; **Connect and
-relaunch** switches to it, and **Use local service** switches back. See
-[Remote service](./remote-service.md).
+**Devices** lists the desktops on this service; **Add a device** makes a pairing link for
+another one, and **Join a service** takes such a link to use another machine's service instead
+of this one's. With several desktops, **Settings for** in the header picks whose Clean X and
+update channel this page edits. See [Remote service](./remote-service.md).
 
 ## Diagnostics
 

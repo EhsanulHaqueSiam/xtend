@@ -1,4 +1,10 @@
-import { Events_METHODS, Marks_METHODS, WS_METHODS, WsRpcGroup } from "@xtend/contracts";
+import {
+  Devices_METHODS,
+  Events_METHODS,
+  Marks_METHODS,
+  WS_METHODS,
+  WsRpcGroup,
+} from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Atom from "effect/reactivity/Atom";
@@ -19,12 +25,13 @@ export type FakeService = Partial<Handlers>;
 
 /**
  * The real rpc client and server, in memory, with `handlers` behind them. Live events,
- * marks and observed posts default to none and settings to the fixture; any other rpc dies with its name, so a test that forgot one says which.
+ * marks, devices and observed posts default to none and settings to the fixture; any other rpc dies with its name, so a test that forgot one says which.
  */
 const layerFakeClient = (handlers: FakeService) => {
   const answered: FakeService = {
     [Events_METHODS.subscribe]: () => Stream.never,
     [Marks_METHODS.forPosts]: () => Effect.succeed({}),
+    [Devices_METHODS.list]: () => Effect.succeed([]),
     [WS_METHODS.observationsListRecent]: () => Effect.succeed({ posts: [], hasOlder: false }),
     // Most screens read settings for a lane or a zone; the fixture row answers unless a test overrides it.
     [WS_METHODS.settingsGet]: () => Effect.succeed(settings),

@@ -17,12 +17,26 @@ xtend service install   # macOS: keep it running across logins
 The service makes a token on first start at `~/.xtend/auth-token`. Whoever has it can drive
 the service, so share it only with your own devices.
 
-## Point the desktop at it
+## Join it from another desktop
 
-Settings, Service page, **Remote service**: the URL (`http://<tailnet ip or host>:4820`) and
-that machine's token. **Check** tests both; **Connect and relaunch** relaunches the app against
-it, and **Use local service** goes back. The x.com session stays in the desktop; the service
-never holds it. Observations the desktop captures are posted to the remote service.
+One service holds your drafts, rules, spend and scores. A second desktop that starts its own
+service starts empty, even signed into the same X account, so join the first one instead.
+
+1. On the machine running the service: Settings, Service, **Add a device**. It makes a
+   single-use pairing link that works for ten minutes.
+2. On the other desktop: Settings, Service, **Join a service**, paste the link, **Join and
+   relaunch**.
+
+Each joined desktop gets a token of its own; **Sign out** in the Devices list on any device
+revokes it. The x.com session stays in each desktop; the service never holds it. What the
+joining desktop's own service held stays on it; **Use local service** gets back to it.
+
+## Change another device's settings
+
+With more than one desktop, the X session and Service pages of Settings show **Settings for**
+in the header. Clean X and the update channel belong to the device picked there and apply on it
+at once; everything else (budget, treg token, voice, rules, session actions) is shared by every
+device.
 
 ## Use it from a browser
 

@@ -1,5 +1,8 @@
+import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
+import * as NodePath from "node:path";
 
+import { type DevicePrefs, PAIR_PATH, PairRedeemed } from "@xtend/contracts";
 import * as Schema from "effect/Schema";
 
 /**
@@ -18,11 +21,17 @@ export const RemoteConfig = Schema.Struct({
 });
 export type RemoteConfig = typeof RemoteConfig.Type;
 
-const ConfigFile = Schema.fromJsonString(Schema.Struct({ remote: Schema.NullOr(RemoteConfig) }));
+const ConfigFile = Schema.fromJsonString(
+  Schema.Struct({
+    remote: Schema.NullOr(RemoteConfig),
+    /** This desktop on every service it joins, so its preferences follow it. */
+    deviceId: Schema.optional(Schema.String),
+  }),
+);
 const decodeConfigFile = Schema.decodeUnknownResult(ConfigFile);
 const encodeConfigFile = Schema.encodeSync(ConfigFile);
 
-export const readRemote = (file: string): RemoteConfig | null => {
+const readConfig = (file: string): typeof ConfigFile.Type | null => {
   let text: string;
   try {
     text = NodeFS.readFileSync(file, "utf8");
@@ -30,12 +39,73 @@ export const readRemote = (file: string): RemoteConfig | null => {
     return null;
   }
   const decoded = decodeConfigFile(text);
-  return decoded._tag === "Success" ? decoded.success.remote : null;
+  return decoded._tag === "Success" ? decoded.success : null;
 };
 
-export const writeRemote = (file: string, remote: RemoteConfig | null): void => {
-  NodeFS.writeFileSync(file, encodeConfigFile({ remote }), { mode: 0o600 });
+const writeConfig = (file: string, config: typeof ConfigFile.Type): void => {
+  // The device id is written at startup, before Electron has made the userData directory.
+  NodeFS.mkdirSync(NodePath.dirname(file), { recursive: true });
+  NodeFS.writeFileSync(file, encodeConfigFile(config), { mode: 0o600 });
 };
+
+export const readRemote = (file: string): RemoteConfig | null => readConfig(file)?.remote ?? null;
+
+export const writeRemote = (file: string, remote: RemoteConfig | null): void => {
+  const deviceId = readConfig(file)?.deviceId;
+  writeConfig(file, deviceId === undefined ? { remote } : { remote, deviceId });
+};
+
+/** This desktop's id, made on first use and kept in the config from then on. */
+export const readDeviceId = (file: string): string => {
+  const config = readConfig(file);
+  if (config?.deviceId !== undefined) return config.deviceId;
+  const deviceId = NodeCrypto.randomUUID();
+  writeConfig(file, { remote: config?.remote ?? null, deviceId });
+  return deviceId;
+};
+
+/** `http://host:4820/pair#<code>` as the service URL and the code; anything else is not a link. */
+const parsePairingLink = (link: string): { readonly url: string; readonly code: string } | null => {
+  if (!URL.canParse(link.trim())) return null;
+  const parsed = new URL(link.trim());
+  const code = parsed.hash.slice(1);
+  if (!/^https?:$/.test(parsed.protocol) || parsed.pathname !== "/pair" || code === "") return null;
+  return { url: parsed.origin, code };
+};
+
+const Refused = Schema.Struct({ message: Schema.String });
+const decodeRedeemed = Schema.decodeUnknownResult(PairRedeemed);
+const decodeRefused = Schema.decodeUnknownResult(Refused);
+
+/** Trades a pairing link's code for this device's own token on that service. */
+export async function redeemPairing(
+  link: string,
+  device: { readonly id: string; readonly name: string; readonly prefs: DevicePrefs },
+  post: (
+    url: string,
+    body: string,
+  ) => Promise<{ readonly ok: boolean; readonly json: () => Promise<unknown> }>,
+): Promise<{ readonly remote: RemoteConfig } | { readonly error: string }> {
+  const pairing = parsePairingLink(link);
+  if (pairing === null)
+    return { error: "not a pairing link; copy it from Settings, Service on the other device" };
+  try {
+    const response = await post(
+      new URL(PAIR_PATH, pairing.url).toString(),
+      JSON.stringify({ code: pairing.code, ...device }),
+    );
+    const body = await response.json().catch(() => null);
+    const redeemed = decodeRedeemed(body);
+    if (response.ok && redeemed._tag === "Success")
+      return { remote: { url: pairing.url, token: redeemed.success.token } };
+    const refused = decodeRefused(body);
+    return {
+      error: refused._tag === "Success" ? refused.success.message : "the service refused the link",
+    };
+  } catch (error) {
+    return { error: `could not reach ${pairing.url}: ${String(error)}` };
+  }
+}
 
 export interface Reachability {
   /** GET /api/health answered with the service's name. */

@@ -18,6 +18,8 @@ export const XtendEventType = Schema.Literals([
   "service_state",
   /** The current account changed; payload `accountId`. Every client reloads onto it. */
   "account_switched",
+  /** A device was paired, renamed, signed out or had its preferences changed; payload `id`. */
+  "devices_changed",
 ]);
 export type XtendEventType = typeof XtendEventType.Type;
 

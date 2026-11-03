@@ -78,7 +78,19 @@ desktop reached the service (child, launchd, remote, none).
 
 The desktop keeps its own `config.json` in userData with the remote service URL and token, so
 a window can point at a Mac mini or VPS without the local DB knowing. Changing it relaunches
-the app.
+the app. The same file holds the desktop's device id, which it keeps across services.
+
+## Devices
+
+Two services never share data: each runs its own scheduler, so syncing their databases would
+post every queued draft twice. A second desktop joins the first one's service instead. The
+service hands out a single-use pairing code (in memory, ten minutes); the joining desktop
+trades it at `POST /api/pair` for a token of its own, which `ServiceAuth` accepts by its
+SHA-256 hash next to the base-dir token, so signing one device out revokes only it. A device's
+own preferences (Clean X, update channel) live in the `devices` table so any client can edit
+them; the desktop applies them on `devices_changed`. Session actions stay a shared setting:
+`DesktopChannel` sends every session command to the newest connected desktop, not to the one
+whose window was clicked.
 
 ## Accounts
 

@@ -21,6 +21,7 @@ import { AutomateRpcGroup } from "./automate.ts";
 import { DesktopRpcGroup } from "./desktop.ts";
 import { EventsRpcGroup } from "./events.ts";
 import { AccountsRpcGroup } from "./accounts.ts";
+import { DevicesRpcGroup } from "./devices.ts";
 import { MarksRpcGroup } from "./marks.ts";
 import { PoolRpcGroup } from "./pool.ts";
 import { TriageRpcGroup } from "./triage.ts";
@@ -108,6 +109,7 @@ export const WsRpcGroup = CoreRpcGroup.merge(
   DesktopRpcGroup,
   EventsRpcGroup,
   AccountsRpcGroup,
+  DevicesRpcGroup,
   MarksRpcGroup,
   PoolRpcGroup,
   TriageRpcGroup,

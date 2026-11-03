@@ -16,6 +16,7 @@ export * from "./automate.ts";
 export * from "./desktop.ts";
 export * from "./events.ts";
 export * from "./accounts.ts";
+export * from "./devices.ts";
 export * from "./marks.ts";
 export * from "./pool.ts";
 export * from "./redact.ts";
