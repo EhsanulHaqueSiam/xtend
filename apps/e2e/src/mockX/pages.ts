@@ -550,7 +550,7 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
         on: id === page,
       })),
     );
-    // X's own paywall, in the words its Creator Studio shows an account without Premium.
+    // Without Premium, X's upsell over the page, as live X showed it (2026-11-03), and no queries.
     if (!state.premium || labels === undefined)
       return {
         title: "Analytics / X",
@@ -558,7 +558,7 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
         render: () =>
           state.premium
             ? `${header("Analytics")}${nav}`
-            : `${header("Analytics")}<div role="dialog" data-testid="analytics-paywall"><h2>Analytics</h2><p>Advanced analytics with X Premium</p><p>See your profile analytics, understand your audience and more. Upgrade to continue.</p><a href="/i/premium_sign_up">Upgrade</a></div>`,
+            : `${header("Analytics")}<div role="dialog" data-testid="analytics-paywall"><h2>Advanced analytics with Plus</h2><p>See your profile analytics, understand your audience and more. Upgrade to continue.</p><a href="/i/premium_sign_up">Upgrade</a><button type="button">Maybe later</button></div>`,
       };
     const range = labels.includes(homeTab) ? homeTab : "7D";
     const days = ANALYTICS_DAYS[range]!;
@@ -622,7 +622,11 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
         ],
         render: ([b]) => {
           const a = b?.accountAnalytics;
-          return `${top("Content")}<table>${(a?.kind === "content" ? a.posts : [])
+          return `${top("Content")}<table><tr><th>Date</th><th>Impressions</th><th>Likes</th></tr>${(a?.kind ===
+          "content"
+            ? a.posts
+            : []
+          )
             .map(
               (p) =>
                 `<tr data-testid="analytics-post"><td><a href="/you/status/${p.postId}">${esc(p.text)}</a></td><td>${p.metrics.Impressions ?? 0}</td><td>${p.metrics.Likes ?? 0}</td></tr>`,

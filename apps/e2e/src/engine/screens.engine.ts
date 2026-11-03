@@ -358,6 +358,27 @@ test("Analyze draws X's own analytics for the range X's page shows, a range pres
   await expect.poll(enginePath).toBe("/you/status/700000000902/analytics");
 });
 
+test("Without Premium X sends no claims: Analyze reads X's upsell on X's page and shows X's paywall", async () => {
+  const lone = await startEngine({ premium: false });
+  try {
+    await lone.app.evaluate((hash) => void (location.hash = hash), "#/analyze?tab=x-overview");
+    await expect.poll(() => lone.engine<string>("location.pathname")).toBe("/i/account_analytics");
+    await expect
+      .poll(() => lone.app.locator("main").innerText())
+      .toContain("Advanced analytics with Plus");
+    await expect
+      .poll(() => lone.app.getByRole("link", { name: "Upgrade" }).getAttribute("href"))
+      .toBe("https://x.com/i/premium_sign_up");
+    const ops = lone.mock.reads.map((r) => r.op);
+    expect([ops.includes("GetUserClaims"), ops.includes("accountOverviewDailyQuery")]).toEqual([
+      false,
+      false,
+    ]);
+  } finally {
+    await lone.close();
+  }
+});
+
 test("A profile renders X's header and posts; its ... rows come from X, its bell is X's, and About opens X's page", async () => {
   const user = e.mock.state.people[0]!;
   await go(`/u/${user.handle}`);

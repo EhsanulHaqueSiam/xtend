@@ -1,4 +1,4 @@
-import { useAtomValue } from "@effect/atom-react";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import type {
   EngineAccountAnalytics,
@@ -12,8 +12,15 @@ import { type TableComponents, TableVirtuoso } from "react-virtuoso";
 
 import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
-import { engineAtom, viewerHandleAtom } from "../../state/engine";
-import { xGo, xNavigate, xOverEnded, xPickAnalyticsRange } from "../../state/x";
+import {
+  dropAnalyticsPick,
+  engineAtom,
+  pickAnalyticsRange,
+  sawAnalyticsPage,
+  updateEngine,
+  viewerHandleAtom,
+} from "../../state/engine";
+import { xAnalyticsUpsell, xGo, xNavigate, xOverEnded, xPickAnalyticsRange } from "../../state/x";
 import { HeaderTabs, PageHeader } from "../PageHeader";
 import { sectionLabel } from "../shell/sections";
 import { Empty, PageBody, Section, table } from "../ui/layout";
@@ -65,34 +72,32 @@ const isKind = <K extends Kind>(
 
 /**
  * Opens X's analytics page for `section` in the engine while the section is open, and reads X's
- * answer for the range X's page shows. A range pick presses X's own button there and shows as
- * picked until X answers.
+ * answer for the range X's page shows. A range pick presses X's own button there; the store keeps
+ * it as X's range until X's page answers otherwise. Without X's claims, what X's page shows (its
+ * upsell or its analytics) says whether the account has them.
  */
 function useXAnalytics(section: XSection) {
   const page = PAGES[section];
   const url = `https://x.com${page.path}`;
-  const { access, answers, shown } = useAtomValue(engineAtom).accountAnalytics;
-  const latest = shown[page.kind];
-  const [asked, setAsked] = useState<{
-    readonly since: string | undefined;
-    readonly days: number;
-  } | null>(null);
-  const days =
-    (asked !== null && asked.since === latest ? asked.days : undefined) ??
-    (latest === undefined ? undefined : Number(latest.split(":")[1]));
+  const { access, answers, range } = useAtomValue(engineAtom).accountAnalytics;
+  const setEngine = useAtomSet(engineAtom);
+  const days = range[page.kind];
   const answer = days === undefined ? undefined : answers.get(`${page.kind}:${days}`);
   const loaded = useRef<Promise<unknown>>(Promise.resolve());
   const live = useRef(new AbortController());
-  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- moves the engine (the session view) to X's analytics page while this section is open, and ends a pick still waiting there after.
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- moves the engine (the session view) to X's analytics page while this section is open, reads whether X shows it or its upsell, and ends a pick still waiting there after.
   useEffect(() => {
     const mine = new AbortController();
     live.current = mine;
     loaded.current = xGo(url);
+    void xAnalyticsUpsell(page.path, loaded.current, mine.signal).then((upsell) => {
+      if (upsell !== null) setEngine(updateEngine((s) => sawAnalyticsPage(s, upsell)));
+    });
     return () => {
       mine.abort();
       xOverEnded();
     };
-  }, [url]);
+  }, [url, page.path, setEngine]);
   return {
     url,
     answer,
@@ -105,10 +110,16 @@ function useXAnalytics(section: XSection) {
         tabs={page.ranges.map((r) => ({ id: r, label: r }))}
         value={page.ranges.find((r) => DAYS[r] === days) ?? ""}
         onChange={(id) => {
-          const range = page.ranges.find((r) => r === id);
-          if (range === undefined || DAYS[range] === days) return;
-          setAsked({ since: latest, days: DAYS[range] });
-          void xPickAnalyticsRange(page.path, range, loaded.current, live.current.signal);
+          const picked = page.ranges.find((r) => r === id);
+          if (picked === undefined || DAYS[picked] === days) return;
+          const kind = page.kind;
+          setEngine(updateEngine((s) => pickAnalyticsRange(s, kind, DAYS[picked])));
+          void xPickAnalyticsRange(page.path, picked, loaded.current, live.current.signal).then(
+            (pressed) => {
+              if (!pressed)
+                setEngine(updateEngine((s) => dropAnalyticsPick(s, kind, DAYS[picked], days)));
+            },
+          );
         }}
       />
     ),
@@ -118,11 +129,11 @@ function useXAnalytics(section: XSection) {
   };
 }
 
-/** X's own paywall for its analytics, as X's Creator Studio shows it to an account without Premium. */
+/** X's own paywall for its analytics, as X's analytics page shows it to an account without Premium. */
 function Paywall() {
   return (
     <div className="flex flex-col items-center gap-2 px-6 py-12 text-center">
-      <p className="text-[15px] font-semibold">Advanced analytics with X Premium</p>
+      <p className="text-[15px] font-semibold">Advanced analytics with Plus</p>
       <p className="max-w-sm text-[13px] text-muted-foreground">
         See your profile analytics, understand your audience and more. Upgrade to continue.
       </p>

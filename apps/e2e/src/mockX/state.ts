@@ -113,7 +113,10 @@ export interface MockOptions {
   readonly pageSize?: number;
   /** Every nth made-up post carries a photo, so a page is as tall as X's. */
   readonly photoEvery?: number;
-  /** Whether X's claims give @you X's account analytics; false draws X's paywall. Default true. */
+  /**
+   * Whether @you has Premium: X's claims and account analytics. False sends no claims, as live X
+   * did not, and X's analytics pages draw X's upsell. Default true.
+   */
   readonly premium?: boolean;
 }
 

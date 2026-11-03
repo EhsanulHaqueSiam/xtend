@@ -997,41 +997,39 @@ const benchmarks = [
     },
   ],
   [
-    "Analyze X overview: X's own numbers and a range X's page answers, or without Premium X's paywall as X gates it (reads only)",
+    "Analyze X overview: X's own numbers and a range X's page answers, or without Premium X's paywall as X's page shows it (reads only)",
     async () => {
-      // X's claims, read at its every boot, say whether the account has X's analytics (Premium).
+      // X may send no claims at all: what X's page shows (its upsell or its analytics) decides,
+      // and the section shows it either way. Nothing waits on claims or reloads for them.
       await go("#/analyze?tab=x-overview");
-      const access = await until(async () => {
-        const at = await enginePath();
-        const said = await store(`$.accountAnalytics.access`);
-        return (
-          /^\/i\/(account_analytics|premium_sign_up)/.test(at ?? "") &&
-          said !== null &&
-          said !== undefined &&
-          String(said)
-        );
-      }, 30_000);
-      if (!access) return false;
-      // Xtend's Impressions, and the number X's page draws right under its own "Impressions".
       const ours = `document.querySelector('main [data-x-tile="Impressions"] .font-mono')?.textContent`;
-      const xs = `[...document.querySelectorAll("main *")].map((e) => /^Impressions\\s*\\n\\s*([\\d,.]+[KM]?)/.exec(e.innerText)?.[1]).filter(Boolean).at(-1)`;
-      if (access === "false") {
-        // Xtend shows X's paywall and X's Upgrade page; X's own page shows its gate, not the numbers.
-        const shown = await until(() =>
+      const shown = await until(
+        () =>
           app(
-            `(() => { const up = [...document.querySelectorAll("main a")].find((a) => a.textContent.trim() === "Upgrade"); return document.querySelector("main").innerText.includes("Advanced analytics with X Premium") && up?.getAttribute("href") === "https://x.com/i/premium_sign_up"; })()`,
+            `(() => { if (document.querySelector("main")?.innerText.includes("Advanced analytics with Plus")) return "paywall"; return ${ours} ? "numbers" : undefined; })()`,
+          ),
+        30_000,
+      );
+      if (!shown) return false;
+      const claims = await store(`String($.accountAnalytics.access)`);
+      if (shown === "paywall") {
+        // Xtend's Upgrade is X's page, and X's own page shows its upsell, not the numbers.
+        const upgrade = await app(
+          `[...document.querySelectorAll("main a")].find((a) => a.textContent.trim() === "Upgrade")?.getAttribute("href")`,
+        );
+        const gated = await until(() =>
+          engine(
+            `!document.body.innerText.includes("Account overview") && (location.pathname.startsWith("/i/premium_sign_up") || document.body.innerText.includes("Upgrade to continue"))`,
           ),
         );
-        if (!shown) return false;
-        await sleep(5_000);
-        const gated = await engine(
-          `!document.body.innerText.includes("Account overview") && (location.pathname.startsWith("/i/premium_sign_up") || /Premium/.test(document.body.innerText))`,
-        );
         return (
+          upgrade === "https://x.com/i/premium_sign_up" &&
           gated &&
-          `no Premium: X's claims leave analytics out; X's page at ${await enginePath()} gates it`
+          `no Premium (access ${claims}): X's page at ${await enginePath()} shows its upsell`
         );
       }
+      // Xtend's Impressions, and the number X's page draws right under its own "Impressions".
+      const xs = `[...document.querySelectorAll("main *")].map((e) => /^Impressions\\s*\\n\\s*([\\d,.]+[KM]?)/.exec(e.innerText)?.[1]).filter(Boolean).at(-1)`;
       const same = () =>
         until(async () => {
           const [a, b] = [await app(ours), await engine(xs)];
@@ -1039,9 +1037,9 @@ const benchmarks = [
         }, 30_000);
       const first = await same();
       if (!first) return false;
-      // Another of X's ranges: Xtend presses X's own button, and X's answer for it is drawn.
-      const shown = await store(`$.accountAnalytics.shown.overview`);
-      const [label, key] = shown === "overview:28" ? ["7D", "overview:7"] : ["4W", "overview:28"];
+      // Another of X's ranges: Xtend presses X's own button, and both draw that range.
+      const was = await store(`$.accountAnalytics.range.overview`);
+      const label = was === 28 ? "7D" : "4W";
       await app(
         `[...document.querySelectorAll('main [role="tab"]')].find((t) => t.textContent.trim() === ${JSON.stringify(label)})?.click(), true`,
       );
@@ -1053,7 +1051,7 @@ const benchmarks = [
         ),
       );
       const then = picked && (await same());
-      return then && `${shown}: Impressions ${first}; ${key}: Impressions ${then}`;
+      return then && `${was} days: Impressions ${first}; ${label}: Impressions ${then}`;
     },
   ],
   [

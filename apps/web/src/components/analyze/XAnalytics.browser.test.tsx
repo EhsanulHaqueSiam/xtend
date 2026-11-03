@@ -19,8 +19,11 @@ const claims = (analyticsAccess: boolean): EngineBatch => ({
   analyticsAccess,
 });
 
-/** One section on a fresh store, the engine a fake webview whose scripts the test reads. */
-async function open(section: XSection) {
+/**
+ * One section on a fresh store, the engine a fake webview whose scripts the test reads. `upsell`
+ * is what X's page shows: its upsell (true), its analytics (false), or neither yet (null).
+ */
+async function open(section: XSection, upsell: boolean | null = null) {
   updateEngine(() => emptyEngine);
   const bridge = installFakeBridge();
   const scripts: Array<string> = [];
@@ -29,7 +32,7 @@ async function open(section: XSection) {
     loadURL: () => Promise.resolve(),
     executeJavaScript: (code: string) => {
       scripts.push(code);
-      return Promise.resolve(true);
+      return Promise.resolve(code.includes("Upgrade to continue") ? upsell : true);
     },
   } as unknown as XWebview);
   markXReady();
@@ -63,7 +66,7 @@ it("shows X's paywall and its Upgrade page to an account X's claims leave out", 
   expect(x.scripts.some((s) => s.includes('"/i/account_analytics"'))).toBe(true);
 
   x.bridge.emitEngine(claims(false));
-  await expect.element(x.screen.getByText("Advanced analytics with X Premium")).toBeVisible();
+  await expect.element(x.screen.getByText("Advanced analytics with Plus")).toBeVisible();
   await expect
     .element(x.screen.getByRole("link", { name: "Upgrade" }))
     .toHaveAttribute("href", "https://x.com/i/premium_sign_up");
@@ -71,9 +74,7 @@ it("shows X's paywall and its Upgrade page to an account X's claims leave out", 
 
   // X's own page let the account in after all (a verified organisation): X's numbers win.
   x.bridge.emitEngine(answer("overview:7"));
-  await expect
-    .element(x.screen.getByText("Advanced analytics with X Premium"))
-    .not.toBeInTheDocument();
+  await expect.element(x.screen.getByText("Advanced analytics with Plus")).not.toBeInTheDocument();
   await expect.element(x.screen.getByRole("tab", { name: "7D" })).toBeVisible();
 });
 
@@ -105,6 +106,25 @@ it("draws X's overview for the range X's page shows, and a pick presses X's own 
   expect(tile("Impressions")).toBe(undefined);
   x.bridge.emitEngine(answer("overview:28"));
   await expect.poll(() => tile("Impressions")).toBe("Impressions11,385↑171%");
+
+  // Back to 7D, which X shows from its own store and asks nothing for. Leaving the section and
+  // coming back still shows 7D, as X's page does.
+  await userEvent.click(x.screen.getByRole("tab", { name: "7D" }));
+  await expect.poll(() => tile("Impressions")).toBe("Impressions3,150↑200%");
+  await x.screen.rerender(<XAnalyticsSection key="away" section="x-content" />);
+  await x.screen.rerender(<XAnalyticsSection key="back" section="x-overview" />);
+  await expect
+    .element(x.screen.getByRole("tab", { name: "7D" }))
+    .toHaveAttribute("aria-selected", "true");
+  expect(tile("Impressions")).toBe("Impressions3,150↑200%");
+});
+
+it("shows X's paywall when X sends no claims and X's own page shows its upsell", async () => {
+  await using x = await open("x-overview", true);
+  await expect.element(x.screen.getByText("Advanced analytics with Plus")).toBeVisible();
+  await expect
+    .element(x.screen.getByRole("link", { name: "Upgrade" }))
+    .toHaveAttribute("href", "https://x.com/i/premium_sign_up");
 });
 
 it("lists X's content of a type, and a post opens its own Post Analytics", async () => {

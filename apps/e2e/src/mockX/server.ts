@@ -157,12 +157,13 @@ export async function startMockX(
           });
         }
         const batches = r.requests.map((q) => state.batchFor(q.op, q.variables));
-        // X asks for the account and its claims (what Premium unlocks) as its app boots.
+        // X asks for the account, and in its code its claims (what Premium unlocks), as its app
+        // boots. Live X sent no claims to an account without Premium (2026-11-03): nor does this.
         const boot =
           url.searchParams.get("boot") === "1"
             ? [
                 { op: "Viewer", variables: {} },
-                { op: "GetUserClaims", variables: {} },
+                ...(state.premium ? [{ op: "GetUserClaims", variables: {} }] : []),
               ]
             : [];
         return json({

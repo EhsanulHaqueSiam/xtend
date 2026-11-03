@@ -420,26 +420,80 @@ export interface EngineState {
   >;
 }
 
+/** The kinds of X's account analytics answers that X's page ranges. */
+export type AnalyticsRanged = Exclude<EngineAccountAnalytics["kind"], "videos">;
+
 /** X's own account analytics (x.com/i/account_analytics), as the engine read it. */
 interface AccountAnalytics {
-  /** Whether X's claims unlock it for this account (Premium); null until X's page has said. */
+  /**
+   * Whether this account has X's analytics (Premium): X's claims when X sends them, else what X's
+   * page showed (its upsell, or its analytics); null until either says.
+   */
   readonly access: boolean | null;
   /** X's answers by `<kind>:<days>` (see `EngineBatch.accountAnalytics`). */
   readonly answers: ReadonlyMap<string, EngineAccountAnalytics>;
-  /** Per kind, the key of X's latest answer: the range X's page shows now. */
-  readonly shown: Readonly<Partial<Record<EngineAccountAnalytics["kind"], string>>>;
+  /** Per kind, the range in days X's page shows: X's latest answer, or the user's pick since. */
+  readonly range: Readonly<Partial<Record<AnalyticsRanged, number>>>;
+  /** Per kind, a pick X has not answered; until it does, an answer for another range is late. */
+  readonly asked: Readonly<Partial<Record<AnalyticsRanged, number>>>;
 }
 
+const without = <K extends string, A>(record: Readonly<Partial<Record<K, A>>>, key: K) =>
+  Object.fromEntries(Object.entries(record).filter(([k]) => k !== key)) as Partial<Record<K, A>>;
+
 const mergeAccountAnalytics = (a: AccountAnalytics, b: EngineBatch): AccountAnalytics => {
+  // X's claims, when X sends them, say it outright.
   const access = b.analyticsAccess ?? a.access;
   const answer = b.accountAnalytics;
   if (answer === undefined || b.key === null) return access === a.access ? a : { ...a, access };
+  const answers = new Map(a.answers).set(b.key, answer);
+  if (answer.kind === "videos") return { ...a, access, answers };
+  const asked = a.asked[answer.kind];
+  // Asked for before the pick X has not answered yet: X's page shows the pick, not this.
+  if (asked !== undefined && asked !== answer.days) return { ...a, access, answers };
   return {
     access,
-    answers: new Map(a.answers).set(b.key, answer),
-    shown: { ...a.shown, [answer.kind]: b.key },
+    answers,
+    range: { ...a.range, [answer.kind]: answer.days },
+    asked: without(a.asked, answer.kind),
   };
 };
+
+const withAnalytics = (s: EngineState, change: Partial<AccountAnalytics>): EngineState => ({
+  ...s,
+  accountAnalytics: { ...s.accountAnalytics, ...change },
+});
+
+/** The user picked `days` for `kind`, pressed on X's page: it shows from now on. */
+export const pickAnalyticsRange = (s: EngineState, kind: AnalyticsRanged, days: number) =>
+  withAnalytics(s, {
+    range: { ...s.accountAnalytics.range, [kind]: days },
+    asked: { ...s.accountAnalytics.asked, [kind]: days },
+  });
+
+/** A pick that never reached X's page (no button, another page, the section left): undone. */
+export const dropAnalyticsPick = (
+  s: EngineState,
+  kind: AnalyticsRanged,
+  days: number,
+  before: number | undefined,
+) =>
+  s.accountAnalytics.asked[kind] !== days
+    ? s
+    : withAnalytics(s, {
+        range:
+          before === undefined
+            ? without(s.accountAnalytics.range, kind)
+            : { ...s.accountAnalytics.range, [kind]: before },
+        asked: without(s.accountAnalytics.asked, kind),
+      });
+
+/**
+ * What X's analytics page showed when X sent no claims: its upsell (no access) or its analytics.
+ * Claims, when they come, still say it outright.
+ */
+export const sawAnalyticsPage = (s: EngineState, upsell: boolean) =>
+  s.accountAnalytics.access !== null ? s : withAnalytics(s, { access: !upsell });
 
 export const emptyEngine: EngineState = {
   posts: new Map(),
@@ -473,7 +527,7 @@ export const emptyEngine: EngineState = {
   viewer: null,
   analytics: new Map(),
   knownFollowers: new Map(),
-  accountAnalytics: { access: null, answers: new Map(), shown: {} },
+  accountAnalytics: { access: null, answers: new Map(), range: {}, asked: {} },
   cursors: {},
 };
 

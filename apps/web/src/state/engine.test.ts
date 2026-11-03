@@ -18,6 +18,7 @@ import {
   communityRole,
   communitySearchSurface,
   communitySurface,
+  dropAnalyticsPick,
   emptyEngine,
   gameSurface,
   type EngineState,
@@ -25,10 +26,12 @@ import {
   hideTrend,
   inspirationSurface,
   mergeBatch,
+  pickAnalyticsRange,
   postOn,
   postSurface,
   profileSurface,
   resetSurface,
+  sawAnalyticsPage,
   showWaiting,
   surfacesOf,
   userByHandle,
@@ -637,37 +640,69 @@ it("keeps X's Post Analytics per post, as X last counted them", () => {
   ]);
 });
 
+const overviewAnswer = (days: number, impressions: number) => ({
+  ...batch("accountOverviewDailyQuery", []),
+  key: `overview:${days}`,
+  accountAnalytics: {
+    kind: "overview" as const,
+    days,
+    from: "2026-10-27T00:00:00.000Z",
+    daily: [{ Impressions: impressions }],
+    previous: {},
+    followers: 80,
+    verifiedFollowers: null,
+  },
+});
+
 it("keeps X's account analytics per range, the range X's page shows now, and X's claim", () => {
-  const overview = (days: number, impressions: number) => ({
-    ...batch("accountOverviewDailyQuery", []),
-    key: `overview:${days}`,
-    accountAnalytics: {
-      kind: "overview" as const,
-      days,
-      from: "2026-10-27T00:00:00.000Z",
-      daily: [{ Impressions: impressions }],
-      previous: {},
-      followers: 80,
-      verifiedFollowers: null,
-    },
-  });
   let state = mergeBatch(emptyEngine, { ...batch("GetUserClaims", []), analyticsAccess: true });
-  state = mergeBatch(state, overview(7, 10));
-  state = mergeBatch(state, overview(28, 90));
+  state = mergeBatch(state, overviewAnswer(7, 10));
+  state = mergeBatch(state, overviewAnswer(28, 90));
   state = mergeBatch(state, batch("HomeLatestTimeline", []));
-  expect([state.accountAnalytics.access, state.accountAnalytics.shown]).toEqual([
+  expect([state.accountAnalytics.access, state.accountAnalytics.range]).toEqual([
     true,
-    { overview: "overview:28" },
+    { overview: 28 },
   ]);
-  // Back to 7D from X's own cache: X's next answer for it moves the page back.
-  state = mergeBatch(state, overview(7, 12));
-  expect([
-    state.accountAnalytics.shown.overview,
-    [...state.accountAnalytics.answers.keys()],
-  ]).toEqual(["overview:7", ["overview:7", "overview:28"]]);
+  // X's page moved back to 7D itself (a click on x.com): its answer moves the range back.
+  state = mergeBatch(state, overviewAnswer(7, 12));
+  expect([state.accountAnalytics.range, [...state.accountAnalytics.answers.keys()]]).toEqual([
+    { overview: 7 },
+    ["overview:7", "overview:28"],
+  ]);
   // X's claims every few minutes say the same, or that the account lost it.
   state = mergeBatch(state, { ...batch("GetUserClaims", []), analyticsAccess: false });
   expect(state.accountAnalytics.access).toBe(false);
+});
+
+it("keeps the range picked on X's page until X answers for it, so a late answer or X's cache cannot undo it", () => {
+  let state = mergeBatch(emptyEngine, overviewAnswer(7, 10));
+  // 4W, then back to 7D, which X shows from its own store and asks nothing for.
+  state = pickAnalyticsRange(state, "overview", 28);
+  state = mergeBatch(state, overviewAnswer(28, 90));
+  state = pickAnalyticsRange(state, "overview", 7);
+  expect(state.accountAnalytics.range.overview).toBe(7);
+  // 3M picked while X still fetches 1Y: 1Y's answer comes late and leaves 3M, X's own pick.
+  state = pickAnalyticsRange(state, "overview", 365);
+  state = pickAnalyticsRange(state, "overview", 90);
+  state = mergeBatch(state, overviewAnswer(365, 4000));
+  expect(state.accountAnalytics.range.overview).toBe(90);
+  state = mergeBatch(state, overviewAnswer(90, 900));
+  state = mergeBatch(state, overviewAnswer(28, 95));
+  expect(state.accountAnalytics.range.overview).toBe(28);
+  // A pick that never reached X's page goes back to the range X showed; a newer one stays.
+  state = pickAnalyticsRange(state, "overview", 14);
+  state = dropAnalyticsPick(state, "overview", 14, 28);
+  expect(state.accountAnalytics.range.overview).toBe(28);
+  state = pickAnalyticsRange(state, "overview", 7);
+  expect(dropAnalyticsPick(state, "overview", 14, 28).accountAnalytics.range.overview).toBe(7);
+});
+
+it("reads access from X's page when X sends no claims, and lets claims say it when they come", () => {
+  let state = sawAnalyticsPage(emptyEngine, true);
+  expect(state.accountAnalytics.access).toBe(false);
+  state = mergeBatch(state, { ...batch("GetUserClaims", []), analyticsAccess: true });
+  expect(sawAnalyticsPage(state, true).accountAnalytics.access).toBe(true);
+  expect(sawAnalyticsPage(emptyEngine, false).accountAnalytics.access).toBe(true);
 });
 
 it("keeps a post's context and ad mark per page, and lets a thread's newer replies in at once", () => {

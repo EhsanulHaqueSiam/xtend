@@ -399,9 +399,37 @@ let analyticsPresses: Promise<unknown> = Promise.resolve();
 let analyticsLatest: object | null = null;
 
 /**
+ * The heading each of X's analytics pages draws. X's URL changes before its router redraws, so a
+ * page is X's own only once its heading is on screen too.
+ */
+const ANALYTICS_HEADINGS: Readonly<Record<string, string>> = {
+  "/i/account_analytics": "Account overview",
+  "/i/account_analytics/content": "Date",
+  "/i/account_analytics/video": "Video overview",
+  "/i/account_analytics/audience": "Gender",
+};
+const analyticsDrawn = (path: string, heading: string) =>
+  `(location.pathname === ${JSON.stringify(path)} && [...document.querySelectorAll("*")].some((e) => e.childElementCount === 0 && e.textContent.trim() === ${JSON.stringify(heading)}))`;
+
+/** Runs `code` in X's page; a full load under it, or `signal`, ends it as null, since it never settles then. */
+const xRunHeld = (code: string, signal: AbortSignal) =>
+  new Promise<unknown>((settle) => {
+    const done = (value: unknown) => {
+      onPageLoad.delete(abandon);
+      signal.removeEventListener("abort", abandon);
+      settle(value);
+    };
+    const abandon = () => done(null);
+    onPageLoad.add(abandon);
+    signal.addEventListener("abort", abandon);
+    if (signal.aborted) abandon();
+    void xRun(code).then(done);
+  });
+
+/**
  * Presses X's range button `label` (7D, 4W, 3M) on X's analytics page `path` once `loaded` settles
- * and X has drawn it, while the engine shows that page and the screen has not let it go
- * (`signal`). Presses run one at a time; a later pick drops one still waiting its turn.
+ * and X has drawn that page, while the screen has not let it go (`signal`). Another of X's pages
+ * under the same URL gets no press. Presses run one at a time; a later pick drops one waiting.
  */
 export const xPickAnalyticsRange = (
   path: string,
@@ -413,22 +441,13 @@ export const xPickAnalyticsRange = (
   analyticsLatest = mine;
   const press = analyticsPresses.then(async () => {
     await loaded;
-    if (signal.aborted || analyticsLatest !== mine) return false;
+    const heading = ANALYTICS_HEADINGS[path];
+    if (signal.aborted || analyticsLatest !== mine || heading === undefined) return false;
     const run = await nextRun();
-    // As with Inspiration: a full load under the script, or leaving the screen, ends the wait.
-    return new Promise<boolean>((settle) => {
-      const done = (pressed: boolean) => {
-        onPageLoad.delete(abandon);
-        signal.removeEventListener("abort", abandon);
-        settle(pressed);
-      };
-      const abandon = () => done(false);
-      onPageLoad.add(abandon);
-      signal.addEventListener("abort", abandon);
-      if (signal.aborted) abandon();
-      void xRun(`(async () => {
+    const pressed = await xRunHeld(
+      `(async () => {
     for (let i = 0; i < 40 && ${stillMine(run)}; i++) {
-      const button = location.pathname === ${JSON.stringify(path)}
+      const button = ${analyticsDrawn(path, heading)}
         ? [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === ${JSON.stringify(label)})
         : undefined;
       if (button !== undefined) {
@@ -438,11 +457,59 @@ export const xPickAnalyticsRange = (
       await new Promise((r) => setTimeout(r, 150));
     }
     return false;
-  })()`).then((pressed) => done(pressed === true));
-    });
+  })()`,
+      signal,
+    );
+    return pressed === true;
   });
   analyticsPresses = press.catch(() => false);
   return press;
+};
+
+/** X's page loading anew, or `ms` passing, whichever comes first. */
+const loadedAnewOr = (ms: number) =>
+  new Promise<void>((resolve) => {
+    const done = () => {
+      onPageLoad.delete(done);
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    onPageLoad.add(done);
+  });
+
+/**
+ * What X's analytics page `path` shows the account once X has drawn it: true for X's upsell (its
+ * dialog's "Upgrade to continue", or the Premium sign-up X sends to), false for its analytics,
+ * null when X shows neither in time. Reads only. A script that could not run (X's page still
+ * loading) runs again once X's page has loaded.
+ */
+export const xAnalyticsUpsell = async (
+  path: string,
+  loaded: Promise<unknown>,
+  signal: AbortSignal,
+): Promise<boolean | null> => {
+  await loaded;
+  const heading = ANALYTICS_HEADINGS[path];
+  if (heading === undefined) return null;
+  for (let attempt = 0; attempt < 5 && !signal.aborted; attempt++) {
+    const seen = await xRunHeld(
+      `(async () => {
+    for (let i = 0; i < 100; i++) {
+      if (location.pathname.startsWith("/i/premium_sign_up")) return true;
+      if (document.body.innerText.includes("Upgrade to continue")) return true;
+      if (${analyticsDrawn(path, heading)}) return false;
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    return "unseen";
+  })()`,
+      signal,
+    );
+    if (typeof seen === "boolean") return seen;
+    if (seen === "unseen") return null;
+    await loadedAnewOr(1_500);
+  }
+  return null;
 };
 
 /**

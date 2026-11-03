@@ -19,6 +19,8 @@ import {
   xPickCommunitySearchTab,
   xPickHomeTab,
   xPickInspiration,
+  xPickAnalyticsRange,
+  xAnalyticsUpsell,
   xPostFollowPress,
   xPostMenuPress,
   xProfileMenu,
@@ -1718,6 +1720,49 @@ it("picks a game's tab once X answered for that game since the engine's last mov
     hero("Raptors", "Lakers");
     await vi.runAllTimersAsync();
     expect([await stale, clicked]).toEqual([true, ["Latest"]]);
+  } finally {
+    history.replaceState(null, "", start);
+  }
+});
+
+it("presses X's analytics range only on the page asked for once X draws it, and reads X's upsell", async () => {
+  using _clock = fakeTimers();
+  const pressed: Array<string> = [];
+  const draw = (heading: string) => {
+    document.body.innerHTML = `<h2>${heading}</h2>${["7D", "4W"]
+      .map((label) => `<button type="button">${label}</button>`)
+      .join("")}`;
+    for (const b of document.querySelectorAll("button"))
+      b.addEventListener("click", () => pressed.push(`${heading} ${b.textContent}`));
+  };
+  inThisPage(() => `https://x.com${location.pathname}`);
+  const start = location.href;
+  try {
+    const open = new AbortController().signal;
+    // X's URL already names Content while its router still draws Overview's buttons.
+    history.replaceState(null, "", "/i/account_analytics/content");
+    draw("Account overview");
+    const early = xPickAnalyticsRange(
+      "/i/account_analytics/content",
+      "4W",
+      Promise.resolve(),
+      open,
+    );
+    await vi.runAllTimersAsync();
+    expect([await early, pressed]).toEqual([false, []]);
+    // Once X draws Content, its own button.
+    const late = xPickAnalyticsRange("/i/account_analytics/content", "4W", Promise.resolve(), open);
+    await vi.advanceTimersByTimeAsync(300);
+    draw("Date");
+    await vi.runAllTimersAsync();
+    expect([await late, pressed]).toEqual([true, ["Date 4W"]]);
+
+    // X's page shows its analytics, or its upsell over the page.
+    history.replaceState(null, "", "/i/account_analytics");
+    draw("Account overview");
+    expect(await xAnalyticsUpsell("/i/account_analytics", Promise.resolve(), open)).toBe(false);
+    document.body.innerHTML = `<div role="dialog"><h2>Advanced analytics with Plus</h2><p>See your profile analytics, understand your audience and more. Upgrade to continue.</p><button>Maybe later</button></div>`;
+    expect(await xAnalyticsUpsell("/i/account_analytics", Promise.resolve(), open)).toBe(true);
   } finally {
     history.replaceState(null, "", start);
   }
