@@ -233,6 +233,13 @@ export const postsOf = (b: EngineBatch | null, state: MockState) =>
 /** X's GIF tile: named by its alt text (X's own ends in "GIF"), its picture a CSS background, no id of its own. */
 const gifTile = (g: EngineGif) =>
   `<button><div data-testid="gifSearchGifImage" aria-label="${esc(g.altText ?? "GIF")}" style="display:inline-block;width:180px;height:240px;background-image:url(&quot;${esc(g.url)}&quot;)"></div></button>`;
+/**
+ * X's editor in its box: X caps the box's height (scrolling past it) unless its own gate lets the
+ * account bold and italicize, which is how Xtend tells, as live X may never send GetUserClaims.
+ */
+const editor = (state: MockState, placeholder: string) =>
+  `<div data-testid="tweetTextarea_0RichTextInputContainer" style="${state.formats ? "min-height: 24px" : "max-height: 720px; overflow-y: auto"}"><div data-testid="tweetTextarea_0" contenteditable="true" role="textbox" aria-label="Post text" data-placeholder="${placeholder}"></div></div>`;
+
 /** X's composer toolbar: its GIF button opens X's GIF search, then `post` (Post or Reply). */
 const toolBar = (post: string) =>
   `<div data-testid="toolBar"><button data-testid="gifSearchButton" aria-label="Add a GIF">GIF</button>${post}</div>`;
@@ -473,7 +480,7 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
           "Home timeline",
           all.map((t) => ({ ...t, on: t.tab === homeTab })),
         )}
-        <div class="composer"><div data-testid="tweetTextarea_0" contenteditable="true" role="textbox" aria-label="Post text" data-placeholder="What's happening?"></div>${toolBar('<button data-testid="tweetButtonInline" disabled>Post</button>')}</div>
+        <div class="composer">${editor(state, "What's happening?")}${toolBar('<button data-testid="tweetButtonInline" disabled>Post</button>')}</div>
         <section data-list>${postsOf(b ?? null, state)}</section>`,
     };
   }
@@ -960,7 +967,7 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
       render: () =>
         routeDialog(
           "",
-          `<div data-testid="tweetTextarea_0" contenteditable="true" role="textbox" aria-label="Post text" data-placeholder="What's happening?"></div>${toolBar('<button data-testid="tweetButton">Post</button>')}`,
+          `${editor(state, "What's happening?")}${toolBar('<button data-testid="tweetButton">Post</button>')}`,
         ),
     };
 
@@ -1078,7 +1085,7 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
             )
             .join(
               "",
-            )}</section><div data-testid="inline_reply_offscreen"><div data-testid="tweetTextarea_0" contenteditable="true" role="textbox" aria-label="Post text" data-placeholder="Post your reply"></div><button data-testid="tweetButtonInline" disabled>Reply</button></div>`;
+            )}</section><div data-testid="inline_reply_offscreen">${editor(state, "Post your reply")}<button data-testid="tweetButtonInline" disabled>Reply</button></div>`;
         },
       };
     }

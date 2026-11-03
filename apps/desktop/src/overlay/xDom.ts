@@ -86,6 +86,15 @@ export function viewerFromNav(
   };
 }
 
+/**
+ * Whether X's composer lets the account bold and italicize, as X draws it: X's own gate (its
+ * rich-text write check) drops the editor's max height only then. Null with no composer on the page.
+ */
+export function composerFormats(root: ParentNode): boolean | null {
+  const editor = root.querySelector('[data-testid="tweetTextarea_0RichTextInputContainer"]');
+  return editor === null ? null : getComputedStyle(editor).maxHeight === "none";
+}
+
 /** Direct messages never get a strip: the classic inbox and X's Chat, which replaced it in 2025. */
 export const isDmPath = (pathname: string): boolean => /^\/(messages|i\/chat)(\/|$)/.test(pathname);
 

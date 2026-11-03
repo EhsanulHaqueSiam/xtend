@@ -123,6 +123,11 @@ export interface MockOptions {
   readonly pageSize?: number;
   /** Every nth made-up post carries a photo, so a page is as tall as X's. */
   readonly photoEvery?: number;
+  /**
+   * X's composer lets the account bold and italicize (Premium's write gate): its editor drawn
+   * uncapped and its ⌘B and ⌘I applied. It adds no claim: live X may never send GetUserClaims.
+   */
+  readonly formatting?: boolean;
 }
 const PINNED_TAG = "1540000000000000001";
 /** X's claim for bookmark folders (GetUserClaims), as `FOLDERS_CLAIM` in apps/web/src/state/engine.ts. */
@@ -159,7 +164,8 @@ export function createMockState(options: MockOptions = {}) {
   const photo = [...basePosts.values()].find((p) => p.media.length > 0)!.media.slice(0, 1);
   const make = (minutesAgo: number, extra: Partial<EnginePost> = {}): EnginePost => {
     const n = made++;
-    const base = forYou.posts[n % forYou.posts.length]!;
+    // Its own text: a base post's bold and italic would land on the wrong words.
+    const { styles: _, ...base } = forYou.posts[n % forYou.posts.length]!;
     const author = people[(n * 3) % people.length]!;
     const views = 2_000 + ((n * 7_717) % 60_000);
     const post: EnginePost = {
@@ -1001,9 +1007,21 @@ export function createMockState(options: MockOptions = {}) {
         );
         return { card: { voted: choice } };
       }
+      // X's composer sends a post with bold or italic as a long post, its runs as richtext_tags.
+      case "CreateNoteTweet":
       case "CreateTweet": {
         const text = s(input, "tweet_text") ?? "";
+        const tags = (input.richtext_options as { richtext_tags?: ReadonlyArray<Json> } | undefined)
+          ?.richtext_tags;
+        const styles = (tags ?? []).flatMap((t) =>
+          (t.richtext_types as ReadonlyArray<"Bold" | "Italic">).map((style) => ({
+            start: t.from_index as number,
+            end: t.to_index as number,
+            style,
+          })),
+        );
         const created = make(0, {
+          ...(styles.length === 0 ? {} : { styles }),
           text,
           createdAt: new Date().toISOString(),
           author: {
@@ -1017,7 +1035,9 @@ export function createMockState(options: MockOptions = {}) {
           metrics: { views: 0, likes: 0, reposts: 0, replies: 0, quotes: 0, bookmarks: 0 },
         });
         const { __typename: _, ...result } = encodeTweet(created, liveUsers());
-        return { data: { create_tweet: { tweet_results: { result } } } };
+        return name === "CreateNoteTweet"
+          ? { data: { notetweet_create: { tweet_results: { result } } } }
+          : { data: { create_tweet: { tweet_results: { result } } } };
       }
       case "JoinCommunity":
         changeCommunity(id ?? "", (c) => ({ role: "Member", members: (c.members ?? 0) + 1 }));
@@ -1123,6 +1143,8 @@ export function createMockState(options: MockOptions = {}) {
   return {
     viewer,
     viewerUser,
+    /** Whether X's composer lets the account bold and italicize (`MockOptions.formatting`). */
+    formats: options.formatting === true,
     people,
     /** Home's pinned tabs as X's PinnedTimelines lists them now. */
     get pinnedTabs() {

@@ -27,6 +27,7 @@ import type {
   EngineTrend,
   EngineUser,
   EngineViewer,
+  TextStyle,
 } from "@xtend/contracts";
 
 import {
@@ -391,7 +392,9 @@ function readEnginePost(
     ].filter((u) => u !== undefined),
   );
   const text = shownText(post.text, replyingTo, hidden);
+  const styles = readStyles(tweet, post.text, text);
   return {
+    ...(styles.length === 0 ? {} : { styles }),
     translation: readTranslation(tweet, replyingTo, hidden),
     ...post,
     text,
@@ -418,6 +421,25 @@ function readEnginePost(
       record(record(tweet.content_disclosure).ai_generated_disclosure).has_ai_generated_media ===
       true,
   };
+}
+
+/**
+ * A long post's bold and italic (X's `richtext_tags`), moved onto the shown text: X counts them in
+ * UTF-16 units of the whole text, which the shown text may start into ("Replying to" handles).
+ */
+function readStyles(tweet: Json, full: string, shown: string): ReadonlyArray<TextStyle> {
+  const lead = Math.max(0, full.indexOf(shown));
+  return arr(
+    record(result(record(tweet.note_tweet).note_tweet_results).richtext).richtext_tags,
+  ).flatMap((tag) => {
+    const from = asNumber(record(tag).from_index) - lead;
+    const to = Math.min(asNumber(record(tag).to_index) - lead, shown.length);
+    return arr(record(tag).richtext_types).flatMap((style) =>
+      (style === "Bold" || style === "Italic") && Math.max(0, from) < to
+        ? [{ start: Math.max(0, from), end: to, style }]
+        : [],
+    );
+  });
 }
 
 /** X's Grok translation of a post, trimmed the way the original's text is. */

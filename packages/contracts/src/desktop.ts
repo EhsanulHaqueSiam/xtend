@@ -3,7 +3,7 @@ import * as Rpc from "effect/rpc/Rpc";
 import * as RpcGroup from "effect/rpc/RpcGroup";
 
 import { XId } from "./baseSchemas.ts";
-import { DraftPoll, PickedGif, ReplySettings } from "./compose.ts";
+import { DraftPoll, PickedGif, ReplySettings, TextStyle } from "./compose.ts";
 import type { ObservedPost } from "./observation.ts";
 
 /**
@@ -25,6 +25,8 @@ export const DesktopCommand = Schema.Union([
     poll: Schema.optional(DraftPoll),
     /** Picked in X's own GIF search from the composer, before the text. */
     gif: Schema.optional(PickedGif),
+    /** Bold and italic, typed with X's own ⌘B and ⌘I as the text goes in. */
+    styles: Schema.optional(Schema.Array(TextStyle)),
   }),
   Schema.Struct({ type: Schema.Literal("sessionNavigate"), url: Schema.String }),
   /** Clicks X's own like on the post's page in the session view; same setting as sessionPost. */
@@ -241,6 +243,8 @@ export interface EnginePost extends ObservedPost {
   readonly editableUntil: string | null;
   /** X's "Made with AI" label: the media was declared or detected as AI-generated. */
   readonly aiGenerated: boolean;
+  /** The bold and italic X draws on the shown `text` (a long post's `richtext_tags`); absent when none. */
+  readonly styles?: ReadonlyArray<TextStyle>;
   /**
    * X's own translation into the viewer's language, which X draws in place of the text with
    * "Translated from <language>" and "Show original". `from` is the source language's code.
@@ -535,6 +539,8 @@ export interface EngineBatch {
   readonly games?: ReadonlyArray<EngineGame>;
   /** X's GIF search results, in X's order: only on GifSearch, empty when X found none. */
   readonly gifs?: ReadonlyArray<EngineGif>;
+  /** Whether X's composer on the page lets the account format, as X draws it (`composerFormats`). */
+  readonly formatting?: boolean;
   /** X's prompt in this timeline, when it lists one (see `EnginePrompt`). */
   readonly prompt?: EnginePrompt;
   /**
@@ -553,7 +559,8 @@ export interface EngineBatch {
   readonly bookmarkFolders?: EngineFolderChange;
   /**
    * The features X's GetUserClaims says the account holds, when X sends it (some accounts' pages
-   * never do): `subscriptions_feature_1002` is bookmark folders.
+   * never do): `subscriptions_feature_1002` is bookmark folders, `subscriptions_feature_1014` bold
+   * and italic in the composer.
    */
   readonly claims?: ReadonlyArray<string>;
   /**

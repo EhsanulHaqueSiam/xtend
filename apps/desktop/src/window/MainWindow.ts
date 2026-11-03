@@ -468,11 +468,11 @@ export function createMainWindow(options: MainWindowOptions) {
       const handle: unknown = Reflect.get(found, "handle");
       const name: unknown = Reflect.get(found, "name");
       const avatarUrl: unknown = Reflect.get(found, "avatarUrl");
+      const formats: unknown = Reflect.get(found, "formats");
       if (typeof handle !== "string" || !/^[a-z0-9_]{1,15}$/.test(handle)) return;
       navViewer = handle;
-      toApp(
-        ENGINE_CHANNEL,
-        viewerBatch({
+      toApp(ENGINE_CHANNEL, {
+        ...viewerBatch({
           userId: null,
           handle,
           name: typeof name === "string" ? name.slice(0, 50) : null,
@@ -481,7 +481,8 @@ export function createMainWindow(options: MainWindowOptions) {
               ? avatarUrl
               : null,
         }),
-      );
+        ...(typeof formats === "boolean" ? { formatting: formats } : {}),
+      });
     };
     ipcMain.on(OVERLAY_VIEWER_CHANNEL, onViewer);
 
