@@ -27,16 +27,22 @@ async function open(section: XSection, upsell: boolean | null = null) {
   updateEngine(() => emptyEngine);
   const bridge = installFakeBridge();
   const scripts: Array<string> = [];
-  // X's page opens on 7D; a test can make reading its selected range fail.
+  // X's page opens on 7D; a test can make reading its selected range fail, or hold the next read.
   let shown: string | null = "7D";
   let readFails = false;
+  let held: ((label: string) => void) | null = null;
+  let holdNext = false;
   registerXWebview({
     getURL: () => "https://x.com/home",
     loadURL: () => Promise.resolve(),
     executeJavaScript: (code: string) => {
       scripts.push(code);
       // X's page shows the range last pressed, by its primary style; none before a press.
-      if (code.includes("bg-btn-primary")) return Promise.resolve(readFails ? null : shown);
+      if (code.includes("bg-btn-primary")) {
+        if (!holdNext) return Promise.resolve(readFails ? null : shown);
+        holdNext = false;
+        return new Promise((resolve) => (held = resolve));
+      }
       const pressed = /b\.textContent\.trim\(\) === ("[^"]+")\)/.exec(code)?.[1];
       if (pressed !== undefined) shown = JSON.parse(pressed) as string;
       return Promise.resolve(code.includes("Upgrade to continue") ? upsell : true);
@@ -59,6 +65,15 @@ async function open(section: XSection, upsell: boolean | null = null) {
     screen,
     failReads: () => {
       readFails = true;
+    },
+    holdRead: () => {
+      holdNext = true;
+    },
+    /** Answers the held read with `label`, once it is held. */
+    release: (label: string) => held?.(label),
+    held: () => held !== null,
+    show: (label: string) => {
+      shown = label;
     },
     async [Symbol.asyncDispose]() {
       await screen[Symbol.asyncDispose]();
@@ -120,15 +135,52 @@ it("draws X's overview for the range X's page shows, and a pick presses X's own 
   // Back to 7D, which X shows from its own store and asks nothing for, and reading X's selected
   // range then fails: the press landed, so it is 7D, never the 4W before. Leaving the section and
   // coming back still shows 7D, as X's page does.
+  const reads = () => x.scripts.filter((s) => s.includes("bg-btn-primary")).length;
+  const before = reads();
   x.failReads();
   await userEvent.click(x.screen.getByRole("tab", { name: "7D" }));
-  await expect.poll(() => tile("Impressions")).toBe("Impressions3,150↑200%");
+  // Each of the read's three tries waits for X's page to load anew before the next.
+  for (const tried of [1, 2, 3]) {
+    await expect.poll(reads).toBe(before + tried);
+    markXReady();
+  }
+  await expect.poll(() => updateEngine((s) => s).accountAnalytics.picking).toEqual({});
+  expect(tile("Impressions")).toBe("Impressions3,150↑200%");
   await x.screen.rerender(<XAnalyticsSection key="away" section="x-content" />);
   await x.screen.rerender(<XAnalyticsSection key="back" section="x-overview" />);
   await expect
     .element(x.screen.getByRole("tab", { name: "7D" }))
     .toHaveAttribute("aria-selected", "true");
   expect(tile("Impressions")).toBe("Impressions3,150↑200%");
+});
+
+it("lets a pick go with its section: back on X's 4W, the old 7D read changes nothing", async () => {
+  await using x = await open("x-overview");
+  x.show("4W");
+  x.bridge.emitEngine(claims(true));
+  x.bridge.emitEngine(answer("overview:28"));
+  const fourWeeks = x.screen.getByRole("tab", { name: "4W" });
+  await expect.element(fourWeeks).toHaveAttribute("aria-selected", "true");
+
+  // 7D's press lands; the section is left while its read of X's page waits.
+  x.holdRead();
+  await userEvent.click(x.screen.getByRole("tab", { name: "7D" }));
+  await expect.poll(x.held).toBe(true);
+  await x.screen.rerender(<XAnalyticsSection key="away" section="x-content" />);
+  // Back on the overview, X's page shows 4W.
+  x.show("4W");
+  await x.screen.rerender(<XAnalyticsSection key="back" section="x-overview" />);
+  await expect.element(fourWeeks).toHaveAttribute("aria-selected", "true");
+  expect(updateEngine((s) => s).accountAnalytics.picking).toEqual({});
+
+  // The old read answers 7D and X's page loads anew, which ends its wait and has the open section
+  // read X's page again (a script): by then the old read has settled, and 4W still shows.
+  x.release("7D");
+  const ran = x.scripts.length;
+  markXReady();
+  await expect.poll(() => x.scripts.length).toBeGreaterThan(ran);
+  expect(updateEngine((s) => s).accountAnalytics.shown.overview).toBe(28);
+  await expect.element(fourWeeks).toHaveAttribute("aria-selected", "true");
 });
 
 it("shows X's paywall when X sends no claims and X's own page shows its upsell", async () => {

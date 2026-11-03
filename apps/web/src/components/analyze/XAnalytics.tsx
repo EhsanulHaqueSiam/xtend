@@ -100,7 +100,7 @@ function useXAnalytics(section: XSection) {
     (signal: AbortSignal) =>
       void xAnalyticsSelected(page.path, page.ranges, loaded.current, signal).then((label) => {
         const read = page.ranges.find((r) => r === label);
-        if (read !== undefined)
+        if (read !== undefined && !signal.aborted)
           setEngine(updateEngine((s) => sawAnalyticsRange(s, page.kind, DAYS[read])));
       }),
     [page, setEngine],
@@ -121,6 +121,13 @@ function useXAnalytics(section: XSection) {
     return () => {
       mine.abort();
       xOverEnded();
+      // A pick still on its way goes with the section; on return X's page says the range.
+      setEngine(
+        updateEngine((s) => {
+          const picked = s.accountAnalytics.picking[page.kind];
+          return picked === undefined ? s : endAnalyticsPick(s, page.kind, picked);
+        }),
+      );
     };
   }, [url, page, setEngine, readShown]);
   return {
@@ -153,6 +160,8 @@ function useXAnalytics(section: XSection) {
                     picked,
                   )) ?? picked)
                 : null;
+              // The section let the pick go: its read says nothing, and its cleanup ended the pick.
+              if (signal.aborted) return;
               const read = page.ranges.find((r) => r === label);
               setEngine(
                 updateEngine((s) =>
