@@ -1247,9 +1247,9 @@ const pressCommunity = async (
 
 /**
  * X's own button of `kind` for a List in X's page at `path`. Follow: in the List's own header on
- * its page (Follow, Following; X gives it no test id or label), the one box that links its Members.
- * Pin: on X's Lists page (x.com/<handle>/lists), in the one row whose name is `name` exactly, since
- * X's rows carry no link; two rows of that name are no one's. Runs in X's page as its own source.
+ * its page (no test id or label), the one box that links its Members. Pin: on X's Lists page, in
+ * the one drawn row named `name` exactly, since X's rows carry no link (callers refuse a name another
+ * List shares: a row X has not drawn may carry it). Runs in X's page as its own source.
  */
 export function listButton(
   root: ParentNode,
@@ -1267,7 +1267,12 @@ export function listButton(
       const named = [...cell.querySelectorAll("span, div")].some(
         (el) => el.textContent?.trim() === list.name,
       );
+      // X draws its row anchorless; one that links another List is that List's.
+      const other = [...cell.querySelectorAll('a[href*="/i/lists/"]')].some(
+        (a) => a.getAttribute("href")?.split("/i/lists/")[1]?.split(/[/?#]/)[0] !== list.listId,
+      );
       return named &&
+        !other &&
         pin !== null &&
         /^(Pin|Unpin) List$/.test(pin.getAttribute("aria-label") ?? "")
         ? [pin]
@@ -1417,17 +1422,20 @@ export const xListDialog = async (
   const path = listId === null ? "/i/lists/create" : `/i/lists/${listId}/info`;
   await xGo(`https://x.com${path}`);
   // On its route X draws its form; wherever X takes the user from there, the loop follows.
-  if ((await xRun(`location.pathname === ${JSON.stringify(path)}`)) !== true) return false;
+  const onRoute = (await xRun(`location.pathname === ${JSON.stringify(path)}`)) === true;
+  // The user moved on meanwhile: AppShell ended the engine's place over the main area, for good.
+  if (run !== overRun) return null;
+  if (!onRoute) return false;
   over(true);
   let settled: unknown = null;
   while (typeof settled !== "string") {
     await new Promise((r) => setTimeout(r, 500));
-    // The user moved on: AppShell already ended the engine's place over the main area.
     if (run !== overRun) return null;
     settled = await xRun(
       `/^\\/i\\/lists\\/(?!\\d+$)/.test(location.pathname) || document.querySelector('[role="dialog"], [role="alertdialog"]') ? null : location.pathname`,
     );
   }
+  if (run !== overRun) return null;
   over(false);
   return settled;
 };

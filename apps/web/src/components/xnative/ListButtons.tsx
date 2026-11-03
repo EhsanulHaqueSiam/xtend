@@ -4,7 +4,14 @@ import type { EngineList } from "@xtend/contracts";
 import * as Atom from "effect/reactivity/Atom";
 import { Pin } from "lucide-react";
 
-import { askList, engineAtom, listFollowing, listPinned, updateEngine } from "../../state/engine";
+import {
+  askList,
+  engineAtom,
+  listFollowing,
+  listNameShared,
+  listPinned,
+  updateEngine,
+} from "../../state/engine";
 import { xListDialog, xListFollow, xListPin, xOverAtom } from "../../state/x";
 import { useXPress } from "./useXPress";
 
@@ -125,6 +132,10 @@ export function ListPinButton({
   const press = async () => {
     const why = blocked();
     if (why !== null) return setToast({ text: why });
+    if (listNameShared(engine, list))
+      return setToast({
+        text: "Another List has this name, so X's Lists page cannot tell its row apart. Pin it on x.com.",
+      });
     const after = await xListPin(list, handle, !pinned, setOver);
     if (after === null) return setToast({ text: "X did not take that. Try again in a moment." });
     // Only X's button says whether it took the pin.

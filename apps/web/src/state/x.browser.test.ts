@@ -1309,9 +1309,17 @@ it("finds a List's Follow only in its own header on its page, and its Pin only i
     "Pin List",
     null,
   ]);
-  // X's rows carry no link: two of one name are no one's.
+  // X's rows carry no link: two of one name are no one's, and one linking another List is that one's.
   expect(
     pin(page(listRow("Makers", "Pin List") + listRow("Makers", "Unpin List")), "/you/lists"),
+  ).toBeNull();
+  expect(
+    pin(
+      page(
+        listRow("Makers", "Pin List").replace("</div>", `<a href="/i/lists/13">Makers</a></div>`),
+      ),
+      "/you/lists",
+    ),
   ).toBeNull();
 });
 
@@ -1385,6 +1393,37 @@ it("keeps X's List dialog over the main area through each of its steps, and says
     expect([await edit, shown]).toEqual(["/you/lists/", [true, false, true, false]]);
   } finally {
     history.replaceState(null, "", start);
+  }
+});
+
+it("shows X's List dialog over no other screen when the user leaves while X's route is still coming", async () => {
+  document.body.innerHTML = "";
+  const start = location.pathname + location.search;
+  const shown: Array<boolean> = [];
+  // X's router takes its time: the move to X's route waits until the test lets it through.
+  let asked: () => void = () => {};
+  const moving = new Promise<void>((resolve) => (asked = resolve));
+  let release: () => void = () => {};
+  registerXWebview({
+    loadURL: async () => {},
+    getURL: () => `https://x.com${location.pathname}`,
+    executeJavaScript: (code: string) =>
+      code.includes("pushState")
+        ? (asked(),
+          new Promise((resolve) => (release = () => resolve(new Function(`return ${code}`)()))))
+        : Promise.resolve(new Function(`return ${code}`)()),
+  } as unknown as XWebview);
+  markXReady();
+  try {
+    const dialog = xListDialog(null, (on) => shown.push(on));
+    await moving;
+    // The user opens another screen (AppShell ends X's place over the main area), then X moves.
+    xOverEnded();
+    release();
+    expect([await dialog, shown]).toEqual([null, []]);
+  } finally {
+    history.replaceState(null, "", start);
+    registerXWebview(null);
   }
 });
 

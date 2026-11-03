@@ -21,6 +21,7 @@ import { Poll } from "./PostParts";
 import { ReplyComposer } from "./ReplyComposer";
 import { ReplySort } from "./ReplySort";
 import { Timeline } from "./Timeline";
+import { Toasts } from "../ui/toast";
 import { resetSurface, updateEngine } from "../../state/engine";
 import { Suspense } from "react";
 import { Route as ListsRoute } from "../../routes/lists.index";
@@ -556,13 +557,16 @@ it("opens X's Lists page of the account X is signed in to, not the one Settings 
 
 it("draws X's Lists page in X's order with X's Pin on Your Lists, and keeps a pin X took over a stale answer", async () => {
   const bridge = installFakeBridge();
+  let presses = 0;
   // X's page takes the Pin press and turns its button.
   registerXWebview({
     getURL: () => "https://x.com/me/lists",
     loadURL: () => Promise.resolve(),
     executeJavaScript: (code: string) =>
       Promise.resolve(
-        code.includes("button.click()") ? { over: null, toast: null, label: "Unpin List" } : true,
+        code.includes("button.click()")
+          ? (presses++, { over: null, toast: null, label: "Unpin List" })
+          : true,
       ),
   } as unknown as XWebview);
   markXReady();
@@ -592,6 +596,7 @@ it("draws X's Lists page in X's order with X's Pin on Your Lists, and keeps a pi
         <Suspense>
           <Lists />
         </Suspense>
+        <Toasts />
       </>,
       {
         service: {
@@ -618,6 +623,15 @@ it("draws X's Lists page in X's order with X's Pin on Your Lists, and keeps a pi
     // X's Lists page answered again from before the press: X's Pin's word holds.
     bridge.emitEngine(listsPage(false));
     await expect.element(screen.getByRole("button", { name: "Unpin List" })).toBeVisible();
+    // Another List of that name, one whose row X has not drawn: X's rows are told by name alone,
+    // so nothing is pressed.
+    bridge.emitEngine({ ...batch("ListByRestId", []), lists: [list("94", "Mine", null)] });
+    await expect.poll(() => updateEngine((s) => s).xLists.has("94")).toBe(true);
+    await screen.getByRole("button", { name: "Unpin List" }).click();
+    await expect
+      .poll(() => screen.container.querySelector('[role="status"]')?.textContent)
+      .toContain("Another List has this name, so X's Lists page cannot tell its row apart.");
+    expect(presses).toBe(1);
   } finally {
     registerXWebview(null);
   }

@@ -784,14 +784,18 @@ function stillAsked(
 }
 
 /**
- * What the user's List writes in X's dialogs change, which X's page shows from its own store and
- * fetches nothing for: a List just created goes first under Your Lists with its Pin; one deleted
- * leaves the Lists page; one deleted or unfollowed leaves Home's pinned tabs, as X drops it there.
+ * What the user's List writes change, which X's page shows from its own store and fetches nothing
+ * for: a List made or followed goes first under Your Lists with its Pin; one unfollowed leaves Your
+ * Lists, one deleted the Lists page, and either leaves Home's tabs, a pin still held with it.
  */
 function listWrite(state: EngineState, batch: EngineBatch): EngineState {
-  const created = batch.op === "CreateList" ? batch.lists[0] : undefined;
-  if (created !== undefined) {
-    const mine = { ...created, group: "Your Lists", button: "pin" as const };
+  const written = batch.lists[0];
+  if ((batch.op === "CreateList" || batch.op === "ListSubscribe") && written !== undefined) {
+    const mine = {
+      ...(state.xLists.get(written.listId) ?? written),
+      group: "Your Lists",
+      button: "pin" as const,
+    };
     const ids = at(state.listIds, "lists").filter((id) => id !== mine.listId);
     const first = ids.findIndex((id) => state.xLists.get(id)?.group === "Your Lists");
     return {
@@ -804,22 +808,28 @@ function listWrite(state: EngineState, batch: EngineBatch): EngineState {
       ),
     };
   }
-  const gone =
-    batch.listDeleted ?? (batch.op === "ListUnsubscribe" ? batch.lists[0]?.listId : undefined);
+  const gone = batch.listDeleted ?? (batch.op === "ListUnsubscribe" ? written?.listId : undefined);
   if (gone === undefined) return state;
-  const homeTabs = state.homeTabs.filter((t) => t.id !== `list:${gone}`);
-  if (batch.listDeleted === undefined) return { ...state, homeTabs };
+  const deleted = batch.listDeleted !== undefined;
   const xLists = new Map(state.xLists);
-  xLists.delete(gone);
+  if (deleted) xLists.delete(gone);
+  // X keeps a List it suggests under Discover new Lists there.
+  const off = deleted || state.xLists.get(gone)?.group === "Your Lists";
+  const others = (held: ReadonlyMap<string, boolean>) =>
+    new Map([...held].filter(([id]) => id !== gone));
   return {
     ...state,
-    homeTabs,
+    homeTabs: state.homeTabs.filter((t) => t.id !== `list:${gone}`),
+    listPins: others(state.listPins),
+    listFollows: deleted ? others(state.listFollows) : state.listFollows,
     xLists,
-    listIds: set(
-      state.listIds,
-      "lists",
-      at(state.listIds, "lists").filter((id) => id !== gone),
-    ),
+    listIds: off
+      ? set(
+          state.listIds,
+          "lists",
+          at(state.listIds, "lists").filter((id) => id !== gone),
+        )
+      : state.listIds,
   };
 }
 
@@ -1334,6 +1344,15 @@ export const listPinned = (state: EngineState, list: EngineList) =>
   state.listPins.get(list.listId) ??
   list.pinned ??
   state.homeTabs.some((t) => t.id === `list:${list.listId}`);
+
+/**
+ * Whether another List of this one's name may have a row with X's Pin on X's Lists page: X's rows
+ * carry no link, so the row is told by its name alone. X draws no Pin under Discover new Lists.
+ */
+export const listNameShared = (state: EngineState, list: EngineList) =>
+  [...state.xLists.values()].some(
+    (l) => l.listId !== list.listId && l.name === list.name && l.button !== "follow",
+  );
 
 /** Keeps a List follow or pin X took for the user's click (see `listFollows`). */
 export const askList = (

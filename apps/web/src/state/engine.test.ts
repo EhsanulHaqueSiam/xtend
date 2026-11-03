@@ -536,6 +536,20 @@ it("keeps a List's section and row button across its own page, and files one X j
     false,
     [],
   ]);
+  // Followed: X files it first under Your Lists with its Pin; unfollowed, it leaves Your Lists.
+  const unsubscribe = (id: string) =>
+    batch("ListUnsubscribe", [], { lists: [list(id, null, { following: false, pinned: false })] });
+  const followed = mergeBatch(
+    page,
+    batch("ListSubscribe", [], { lists: [list("4", null, { following: true })] }),
+  );
+  expect([at(followed.listIds, "lists"), followed.xLists.get("4")?.button]).toEqual([
+    ["1", "4", "2"],
+    "pin",
+  ]);
+  expect(at(mergeBatch(followed, unsubscribe("4")).listIds, "lists")).toEqual(["1", "2"]);
+  // X keeps a List it suggests under Discover new Lists there.
+  expect(at(mergeBatch(page, unsubscribe("1")).listIds, "lists")).toEqual(["1", "2"]);
 });
 
 it("holds a List follow or pin X took until X's answer for that List agrees", () => {
@@ -557,6 +571,14 @@ it("holds a List follow or pin X took until X's answer for that List agrees", ()
   const pinned = askList(agreed, "5", { pinned: true });
   expect(listPinned(mergeBatch(pinned, batch("HomeTimeline", [])), list("5", null))).toBe(true);
   expect(mergeBatch(pinned, tabs("5")).listPins.size).toBe(0);
+  // Unfollowed while that pin is still held: X unpins it, and the hold goes with it.
+  const dropped = mergeBatch(
+    pinned,
+    batch("ListUnsubscribe", [], { lists: [list("5", null, { following: false, pinned: false })] }),
+  );
+  expect([dropped.listPins.size, listPinned(mergeBatch(dropped, tabs()), list("5", null))]).toEqual(
+    [0, false],
+  );
   // Unfollowed: X takes it off Home's pinned tabs too.
   const unfollowed = mergeBatch(
     mergeBatch(agreed, tabs("5")),
