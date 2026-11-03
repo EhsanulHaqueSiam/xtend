@@ -414,6 +414,33 @@ const handleFor = (n: number) =>
 
 // Made-up fixtures, so every native X screen has something to draw before anyone records.
 const SYNTH_AT = "2026-11-01T12:00:00.000Z";
+/** The made-up news story the first Today's News row opens. */
+const STORY_ID = "900000600001";
+/** One team's made-up standing, the rest of X's columns filled in from its record. */
+const standing = (
+  n: string,
+  abbreviation: string,
+  name: string,
+  wins: number,
+  losses: number,
+  gamesBack: number,
+) => ({
+  teamId: String(900_000_700_000 + Number(n)),
+  abbreviation,
+  name,
+  wins,
+  losses,
+  gamesBack,
+  home: { wins: Math.ceil(wins / 2), losses: Math.floor(losses / 2) },
+  road: { wins: Math.floor(wins / 2), losses: Math.ceil(losses / 2) },
+  division: { wins: 6, losses: 2 },
+  conference: { wins: 18, losses: 9 },
+  pointsFor: 112.4,
+  pointsAgainst: 108.9,
+  pointDiff: 3.5,
+  streak: "W2",
+  lastTen: { wins: 7, losses: 3 },
+});
 const ago = (minutes: number) => new Date(Date.parse(SYNTH_AT) - minutes * 60_000).toISOString();
 const NO_ENTITIES: EngineEntities = { urls: [], mentions: [], hashtags: [], cashtags: [] };
 
@@ -986,7 +1013,8 @@ export function synth(): Readonly<Record<string, Fixture>> {
     {
       name: "A new open source license for AI models",
       context: "2 hours ago · News · 3.1K posts",
-      url: "https://x.com/search?q=license",
+      // A news story opens X's story page.
+      url: `https://x.com/i/trending/${STORY_ID}`,
       images: [PEOPLE[2]!.avatarUrl!, PEOPLE[4]!.avatarUrl!],
       group: "Today's News",
     },
@@ -1342,9 +1370,92 @@ export function synth(): Readonly<Record<string, Fixture>> {
       batch("UserByScreenName", team.handle, [], { users: [team] }),
       batch("UserSportsProfile", team.userId, [], { top: null, bottom: null, games: season }),
       batch("NBASchedule", null, [], { top: null, bottom: null, games: day }),
+      // X's league page: standings by conference and division, and its stat leaders.
+      batch("NBAStandings", null, [], {
+        top: null,
+        bottom: null,
+        standings: [
+          {
+            name: "East",
+            divisions: [
+              {
+                name: "Atlantic",
+                teams: [
+                  standing("1", "HBH", "Hawks", 30, 12, 0),
+                  standing("2", "BAY", "Gulls", 26, 16, 4),
+                ],
+              },
+            ],
+          },
+          {
+            name: "West",
+            divisions: [
+              {
+                name: "Pacific",
+                teams: [
+                  standing("3", "RVR", "Rays", 28, 14, 0),
+                  standing("4", "DES", "Dunes", 19, 23, 9),
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+      batch("NBALeaders", null, [], {
+        top: null,
+        bottom: null,
+        leaders: [
+          {
+            key: "points",
+            title: "Points Per Game",
+            leaders: [
+              { rank: 1, name: "M. Okafor", position: "G", value: "31.4", headshotUrl: null },
+              { rank: 2, name: "T. Varga", position: "F", value: "29.8", headshotUrl: null },
+            ],
+          },
+          {
+            key: "rebounds",
+            title: "Rebounds Per Game",
+            leaders: [
+              { rank: 1, name: "K. Mensah", position: "C", value: "12.9", headshotUrl: null },
+            ],
+          },
+        ],
+      }),
       batch("NBAGameHydrate", liveGame.gameId, [], { top: null, bottom: null, games: [liveGame] }),
       batch("SportsGameTopTimeline", liveGame.gameId, fans, { users: PEOPLE }),
       batch("SportsGameLatestTimeline", liveGame.gameId, fans.toReversed(), { users: PEOPLE }),
+    ],
+  };
+
+  // X's news story behind the first Today's News row: Grok's summary, then its Top and Latest.
+  const storyPosts = [
+    say(1, "The license allows commercial use but asks for attribution in model cards.", 30),
+    say(3, "Read the whole thing. The patent clause is the interesting part.", 55),
+    say(5, "We switched our weights to it this morning.", 12),
+  ];
+  const news: Fixture = {
+    meta: meta("news", "A news story from Explore: X's summary, its Top and Latest posts", [
+      `/trending/${STORY_ID}`,
+    ]),
+    batches: [
+      batch("AiTrendByRestId", STORY_ID, [], {
+        top: null,
+        bottom: null,
+        story: {
+          title: "A new open source license for AI models",
+          summary:
+            "A group of labs published a license for model weights that allows commercial use with attribution. Developers are comparing it with existing open source licenses.",
+          updatedAt: ago(20),
+          disclaimer: "This story is a summary of posts on X and may evolve over time.",
+          timelines: [
+            { label: "Top", timelineId: "story-top" },
+            { label: "Latest", timelineId: "story-latest" },
+          ],
+        },
+      }),
+      batch("GenericTimelineById", "story-top", storyPosts.slice(0, 2), { users: PEOPLE }),
+      batch("GenericTimelineById", "story-latest", [storyPosts[2]!], { users: PEOPLE }),
     ],
   };
 
@@ -1361,6 +1472,7 @@ export function synth(): Readonly<Record<string, Fixture>> {
     follow,
     communities,
     analytics,
+    news,
     sports,
   };
 }

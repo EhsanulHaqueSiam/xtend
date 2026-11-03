@@ -1,5 +1,5 @@
 import { useAtom, useAtomValue } from "@effect/atom-react";
-import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { GameHeader, ScoreStrip } from "../components/xnative/Sports";
@@ -91,7 +91,22 @@ function GameScreen() {
   return (
     <Timeline
       surface={gameSurface(id, tab)}
-      header={<XTitle title={teams} onBack={() => router.history.back()} />}
+      header={
+        <XTitle
+          title={teams}
+          onBack={() => router.history.back()}
+          // X's league page: its schedule, standings and stat leaders.
+          actions={
+            <Link
+              to="/nba"
+              search={{ tab: "games" }}
+              className="rounded-full px-3 py-1 text-[15px] font-bold transition-colors duration-150 hover:bg-white/10"
+            >
+              NBA
+            </Link>
+          }
+        />
+      }
       top={
         <div data-x="game-page">
           <ScoreStrip gameId={id} />

@@ -41,7 +41,7 @@ const statusLines = (g: EngineGame): readonly [string, string] => {
 const abbr = (t: EngineGameTeam) => t.abbreviation ?? "";
 
 /** One game in X's schedule card form: status lines, then away and home with their scores. */
-function GameCard({ game }: { readonly game: EngineGame }) {
+export function GameCard({ game }: { readonly game: EngineGame }) {
   const [first, second] = statusLines(game);
   const scored = phase(game) !== "upcoming";
   return (
