@@ -1326,9 +1326,13 @@ const benchmarks = [
       const button = `[...(${header}?.querySelectorAll("button") ?? [])].find((b) => /^(Edit|Set up) profile$/.test(b.textContent))`;
       const label = await until(() => app(`${button}?.textContent`), 20_000);
       if (!label) return false;
-      const before = await store(
-        `(() => { const u = [...$.users.values()].find((u) => u.handle === ${JSON.stringify(handle)}); return u && [u.name, u.bio, u.avatarUrl, u.bannerUrl]; })()`,
-      );
+      const own = `(() => { const u = [...$.users.values()].find((u) => u.handle === ${JSON.stringify(handle)}); return u && [u.name, u.bio, u.avatarUrl, u.bannerUrl]; })()`;
+      // A cold profile is still filling in from X's later answers: compare from once it settled.
+      let seen = "";
+      const before = await until(async () => {
+        const now = JSON.stringify(await store(own));
+        return now === seen ? JSON.parse(now) : ((seen = now), undefined);
+      }, 10_000);
       const mode = `document.querySelector('section[aria-label="x.com"]')?.dataset.mode`;
       await app(`${button}?.click(), true`);
       // X's Edit profile on its own route with X's Save; Set up profile is X's flow for a bare one.
@@ -1355,12 +1359,14 @@ const benchmarks = [
           (await enginePath()).toLowerCase() === `/${handle.toLowerCase()}`,
         10_000,
       );
-      const after = await store(
-        `(() => { const u = [...$.users.values()].find((u) => u.handle === ${JSON.stringify(handle)}); return u && [u.name, u.bio, u.avatarUrl, u.bannerUrl]; })()`,
-      );
+      const after = await store(own);
       const same = JSON.stringify(before) === JSON.stringify(after);
+      // Which of name, bio, avatar, banner moved, never their values.
+      const moved = ["name", "bio", "avatar", "banner"].filter(
+        (_, i) => before?.[i] !== after?.[i],
+      );
       if (!route || !back || !same)
-        return (console.log(`      ${JSON.stringify({ label, route, back, same })}`), false);
+        return (console.log(`      ${JSON.stringify({ label, route, back, same, moved })}`), false);
       return `${label}: X's ${route} opened and closed, header unchanged`;
     },
   ],
