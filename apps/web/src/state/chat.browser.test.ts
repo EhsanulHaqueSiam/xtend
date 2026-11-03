@@ -2,8 +2,8 @@ import { expect, it, vi } from "vite-plus/test";
 
 import { fakeTimers } from "../../test/render";
 
-import { type ChatRead, readChat, watchChat, xChatSearch } from "./chat";
-import { markXReady, registerXWebview, type XWebview } from "./x";
+import { type ChatRead, readChat, watchChat, xChatInfo, xChatSearch, xChatSend } from "./chat";
+import { markXReady, registerXWebview, xOverEnded, type XWebview } from "./x";
 
 // X's chat embed as it draws (abs.twimg.com/x-web/xchat/embed, pin-page-rweb): a row's link
 // holds its face, then name and time over the preview, then its muted and unread marks.
@@ -245,4 +245,91 @@ it("types only into X's own Chat page, never its drawer, and closes only the que
   await xChatSearch("");
   x.root.querySelector('[data-testid="dm-search-bar"]')!.prepend(input);
   expect([await waiting, input.value]).toEqual([false, ""]);
+});
+
+/** The engine on X's page in this document, at a path the test moves as X's router would. */
+const engineAt = (path: string) => {
+  Reflect.set(window, "__xPath", path);
+  registerXWebview({
+    loadURL: async () => {},
+    getURL: () => `https://x.com${String(Reflect.get(window, "__xPath"))}`,
+    executeJavaScript: (code: string) =>
+      Promise.resolve(
+        new Function(`return ${code.replaceAll("location.pathname", "window.__xPath")}`)(),
+      ),
+  } as unknown as XWebview);
+  markXReady();
+};
+/** X's open conversation with `name`, its message list and its composer, Send as `send` draws it. */
+const composing = (name: string, send: string) =>
+  `<div data-testid="dm-container"><div data-testid="dm-conversation-panel"><span data-testid="dm-conversation-username">${name}</span><div data-testid="dm-message-list"></div><textarea data-testid="dm-composer-textarea"></textarea>${send}</div></div>`;
+
+it("presses nothing in another conversation the user opened while a send still waited on X", async () => {
+  using x = drawX(
+    composing("Ann", '<button data-testid="dm-composer-send-button" disabled>Send</button>'),
+  );
+  engineAt("/i/chat/11-22");
+  const sending = xChatSend("/i/chat/11-22", "On my way");
+  // X takes the keystrokes but keeps its Send greyed a moment; meanwhile the user opens Bo's chat.
+  await vi.waitFor(() => expect(x.root.querySelector("textarea")?.value).toBe("On my way"));
+  Reflect.set(window, "__xPath", "/i/chat/11-33");
+  x.root.innerHTML = composing("Bo", '<button data-testid="dm-composer-send-button">Send</button>');
+  const presses: Array<string> = [];
+  x.root.querySelector("button")!.addEventListener("click", () => presses.push("send"));
+  expect(await sending).toBeNull();
+  expect(presses).toEqual([]);
+});
+
+it("leaves a draft the user wrote in X's own composer alone, and types over only what Xtend typed", async () => {
+  using x = drawX(
+    composing("Ann", '<button data-testid="dm-composer-send-button" disabled>Send</button>'),
+  );
+  using _timers = fakeTimers();
+  engineAt("/i/chat/11-22");
+  const field = x.root.querySelector("textarea")!;
+  const send = x.root.querySelector("button")!;
+  field.value = "Half a thought";
+  expect(await xChatSend("/i/chat/11-22", "On my way")).toEqual({ status: "draft", id: null });
+  expect(field.value).toBe("Half a thought");
+
+  // What Xtend typed, and X never sent (its Send stayed greyed), is Xtend's own to type over.
+  field.value = "";
+  const greyed = xChatSend("/i/chat/11-22", "On my way");
+  await vi.advanceTimersByTimeAsync(3_000);
+  expect([await greyed, field.value]).toEqual([null, "On my way"]);
+  send.disabled = false;
+  send.addEventListener("click", () =>
+    x.root
+      .querySelector('[data-testid="dm-message-list"]')!
+      .insertAdjacentHTML(
+        "beforeend",
+        `<div class="justify-end" data-testid="message-n1" data-send-status="sent"></div>`,
+      ),
+  );
+  expect(await xChatSend("/i/chat/11-22", "Running late")).toEqual({ status: "sent", id: "n1" });
+});
+
+it("lets X's page about a conversation go when the user moves on, and says they finished there only once X is back", async () => {
+  using x = drawX(
+    `<div data-testid="dm-container"><button data-testid="dm-conversation-more-button">More</button></div>`,
+  );
+  engineAt("/i/chat/11-22");
+  // X's More opens X's page about the conversation.
+  x.root
+    .querySelector("button")!
+    .addEventListener("click", () => Reflect.set(window, "__xPath", "/i/chat/11-22/info"));
+  const shown: Array<boolean> = [];
+  const left = xChatInfo("/i/chat/11-22", (s) => shown.push(s));
+  await vi.waitFor(() => expect(shown).toEqual([true]));
+  // The user goes to another screen while X's page is up.
+  xOverEnded();
+  expect(await left).toBe(false);
+
+  Reflect.set(window, "__xPath", "/i/chat/11-22");
+  const finished = xChatInfo("/i/chat/11-22", (s) => shown.push(s));
+  await vi.waitFor(() => expect(shown).toEqual([true, true]));
+  // X's Back, in X's page.
+  Reflect.set(window, "__xPath", "/i/chat/11-22");
+  expect(await finished).toBe(true);
+  expect(shown).toEqual([true, true, false]);
 });

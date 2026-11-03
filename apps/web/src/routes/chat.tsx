@@ -348,29 +348,44 @@ function MessageActions({
 
 /**
  * Xtend's composer on X's conversation `path`: the text goes to X's own composer and Send only on
- * the user's Send, and X's own answer confirms it. A failure keeps the text.
+ * the user's Send, and X's own answer confirms it. A failure keeps the text; so does a message X
+ * still sends (`onPending`, its id), held here (`waiting`) until X marks it.
  */
 function Composer({
   path,
   draft,
   onDraft,
+  waiting,
+  onPending,
 }: {
   readonly path: string;
   readonly draft: Draft;
   readonly onDraft: (draft: Draft) => void;
+  readonly waiting: boolean;
+  readonly onPending: (id: string) => void;
 }) {
   const { press, setToast } = usePress();
   const [sending, setSending] = useState(false);
   const { text, mode } = draft;
+  const busy = sending || waiting;
   const send = async () => {
-    if (text.trim() === "" || sending) return;
+    if (text.trim() === "" || busy) return;
     setSending(true);
     const to =
       mode === null ? {} : mode.kind === "reply" ? { reply: mode.item.id } : { edit: mode.item.id };
     const sent = await press(() => xChatSend(path, text, to));
     setSending(false);
-    if (sent === "sent" || sent === "pending") onDraft({ text: "", mode: null });
-    else if (sent === "failed") setToast({ text: "Message failed to send" });
+    if (sent === null) return;
+    if (sent.status === "sent") return onDraft({ text: "", mode: null });
+    if (sent.status === "pending" && sent.id !== null) return onPending(sent.id);
+    setToast({
+      text:
+        sent.status === "failed"
+          ? "Message failed to send"
+          : sent.status === "draft"
+            ? "X's composer holds a draft; finish it in X."
+            : "X has not shown it yet. Check the chat before sending again.",
+    });
   };
   return (
     <div className="border-t border-border px-4 py-3">
@@ -402,7 +417,7 @@ function Composer({
           placeholder="Message"
           rows={1}
           value={text}
-          disabled={sending}
+          disabled={busy}
           className="max-h-40 min-h-8 flex-1 resize-none bg-transparent py-1 text-[15px] leading-6 outline-hidden [field-sizing:content] placeholder:text-[#71767b]"
           onChange={(e) => onDraft({ text: e.target.value, mode })}
           onKeyDown={(e) => {
@@ -414,11 +429,11 @@ function Composer({
         />
         <button
           type="button"
-          disabled={text.trim() === "" || sending}
+          disabled={text.trim() === "" || busy}
           className="h-8 shrink-0 cursor-pointer rounded-full bg-[#1d9bf0] px-4 text-[14px] font-bold text-white disabled:cursor-default disabled:opacity-50"
           onClick={() => void send()}
         >
-          {mode?.kind === "edit" ? "Save" : "Send"}
+          {waiting ? "Sending…" : mode?.kind === "edit" ? "Save" : "Send"}
         </button>
       </div>
     </div>
@@ -447,9 +462,20 @@ function Conversation({
   const setOver = useAtomSet(xOverAtom);
   const { press } = usePress();
   const [draft, setDraft] = useState<Draft>({ text: "", mode: null });
+  // X's id for a message X still sent when Xtend stopped waiting: the draft stays until X marks it.
+  const [waiting, setWaiting] = useState<string | null>(null);
+  const held = waiting === null ? undefined : conversation?.items.find((i) => i.id === waiting);
+  // Once X marks it, a sent message takes the draft with it; a failed one, marked in the list,
+  // leaves the draft for the user to send again.
+  if (held?.kind === "message" && held.status !== "pending") {
+    setWaiting(null);
+    if (held.status === "sent") setDraft({ text: "", mode: null });
+  }
   const olderAsked = useRef(-1);
   const answer = async (request: "accept" | "delete") => {
-    if ((await press(() => xChatRequest(path, request, setOver))) !== null) onMoved();
+    const answered = await press(() => xChatRequest(path, request, setOver));
+    // A confirm the user left unanswered for another screen moves nothing.
+    if (answered === "done" || answered === "over") onMoved();
   };
   return (
     <>
@@ -536,7 +562,13 @@ function Conversation({
           </div>
         </div>
       ) : conversation?.composer === true ? (
-        <Composer path={path} draft={draft} onDraft={setDraft} />
+        <Composer
+          path={path}
+          draft={draft}
+          onDraft={setDraft}
+          waiting={waiting !== null}
+          onPending={setWaiting}
+        />
       ) : null}
     </>
   );
@@ -657,7 +689,7 @@ function ChatScreen() {
       void navigate({ to: "/chat", search: { tab: "all" } });
       return xChatNew(setOver);
     });
-    if (shown !== null) await follow(null);
+    if (shown === true) await follow(null);
   };
   const searching = query.trim() !== "";
   const requests = chat.requests?.path === LIST_PATH[tab] ? chat.requests.rows : null;

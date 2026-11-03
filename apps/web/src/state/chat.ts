@@ -328,7 +328,8 @@ const nextRead = async (last: string, token: number, signal: AbortSignal) => {
       const finish = () => { end(); done(look()); };
       const watch = () => {
         for (const host of document.querySelectorAll('[data-testid^="xchatEmbed"]'))
-          if (host.shadowRoot) observer.observe(host.shadowRoot, { childList: true, subtree: true, characterData: true });
+          // X marks a message sent or failed by its attribute alone.
+          if (host.shadowRoot) observer.observe(host.shadowRoot, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["data-send-status"] });
       };
       // X draws a burst of changes at once: one look once it settles.
       const observer = new MutationObserver(() => {
@@ -549,6 +550,7 @@ export const xChatMenuPress = async (
     if (location.pathname !== ${JSON.stringify(path)} || !${mine}) return null;
     const shown = await menu();
     const row = shown?.rows.find((r) => words(r) === ${JSON.stringify(label)});
+    if (location.pathname !== ${JSON.stringify(path)}) return null;
     if (!row || !${mine}) return (shown?.more.click(), null);
     row.click();
     await new Promise((r) => setTimeout(r, 300));
@@ -557,7 +559,7 @@ export const xChatMenuPress = async (
     asking(),
     over,
   );
-  return answer === "over" || answer === "done" ? answer : null;
+  return answer === "over" || answer === "done" || answer === "cancelled" ? answer : null;
 };
 
 const Reactions = Schema.Array(Schema.Struct({ emoji: Schema.String, selected: Schema.Boolean }));
@@ -595,6 +597,7 @@ export const xChatReact = async (path: string, id: string, emoji: string) =>
     if (location.pathname !== ${JSON.stringify(path)} || !${mine}) return null;
     const picker = await reactions();
     const button = picker?.buttons.find((b) => b.getAttribute("aria-label") === ${JSON.stringify(emoji)});
+    if (location.pathname !== ${JSON.stringify(path)}) return null;
     if (!button || !${mine}) return (picker?.react.click(), null);
     button.click();
     return "done";
@@ -603,66 +606,97 @@ export const xChatReact = async (path: string, id: string, emoji: string) =>
     () => {},
   )) === "done" || null;
 
+const Sent = Schema.Struct({
+  status: Schema.Literals(["sent", "pending", "failed", "draft"]),
+  /** X's id for the message, to watch one X still sends; null when X has not drawn it. */
+  id: Schema.NullOr(Schema.String),
+});
+const decodeSent = Schema.decodeUnknownOption(Sent);
+
 /**
- * Sends `text` in X's conversation `path` for the user's click through X's own composer: typed as
- * a keystroke types, then X's own Send (Save, for `edit`), after X's own Reply or Edit on that
- * message. X's answer says how it went: the message X adds as the user's is "sent" once X marks it
- * so, "failed" when X could not send it, "pending" while X still sends. Null when nothing was sent.
+ * Sends `text` in X's conversation `path` for the user's click through X's own composer and Send
+ * (Save, for `edit`), after X's own Reply or Edit there. X's mark on the message it adds answers:
+ * "sent", "failed", or "pending" while X still sends; "draft" when X's composer holds the user's
+ * own text from X, never overwritten. Null when nothing was sent.
  */
 export const xChatSend = async (
   path: string,
   text: string,
   to: { readonly reply?: string; readonly edit?: string } = {},
-) => {
-  const answer = await xPressOver(
-    (mine) => `(async () => {
+) =>
+  Option.getOrNull(
+    decodeSent(
+      await xPressOver(
+        (mine) => `(async () => {
     ${IN_CHAT}
     ${onMessage(to.reply ?? to.edit ?? "")}
-    const field = () => find('[data-testid="dm-composer-textarea"]');
+    // X's own route draws the conversation at its path; a drawer elsewhere has a composer of its own.
+    const route = () => document.querySelector('[data-testid="xchatEmbedRoute"]')?.shadowRoot ?? null;
+    const inRoute = (s) => route()?.querySelector(s) ?? null;
+    const field = () => inRoute('[data-testid="dm-composer-textarea"]');
+    const title = () => inRoute('[data-testid="dm-conversation-username"]')?.textContent.trim() ?? "";
     if (location.pathname !== ${JSON.stringify(path)} || !${mine} || !field()) return null;
+    // Every press is for the conversation the user wrote in: X shows it still, at its own path.
+    const named = title();
+    const ours = () => location.pathname === ${JSON.stringify(path)} && ${mine} && !!field() && title() === named;
+    // Text in X's composer that Xtend did not type there is the user's own draft in X.
+    const held = field().value;
+    if (held !== "" && held !== window.__xtendChatTyped) return { status: "draft", id: null };
     // X's composer does only what this click asks: a reply or edit it still holds from before ends.
-    [...(find('[data-testid="dm-composer-reply-bar"]')?.querySelectorAll("button") ?? [])].at(-1)?.click();
-    find('[data-testid="dm-composer-discard-edit-button"]')?.click();
-    const plain = () => !find('[data-testid="dm-composer-reply-bar"], [data-testid="dm-composer-edit-mode"]');
+    const cancel = [...(inRoute('[data-testid="dm-composer-reply-bar"]')?.querySelectorAll("button") ?? [])].at(-1);
+    if (cancel && !ours()) return null;
+    cancel?.click();
+    const discard = inRoute('[data-testid="dm-composer-discard-edit-button"]');
+    if (discard && !ours()) return null;
+    discard?.click();
+    const plain = () => !inRoute('[data-testid="dm-composer-reply-bar"], [data-testid="dm-composer-edit-mode"]');
     if (!(await wait(plain))) return null;
     const pick = async (icon, mode) => {
       const shown = await menu();
       const row = shown?.rows.find((r) => r.querySelector('svg[data-icon="' + icon + '"]'));
+      if (!ours()) return null;
       if (!row) return (shown?.more.click(), null);
       row.click();
-      return wait(() => find(mode));
+      return wait(() => inRoute(mode));
     };
     if (${to.reply !== undefined}) {
       const reply = (await hover()) && find(testid("message-reply-button-"));
+      if (reply && !ours()) return null;
       reply?.click();
-      const replying = reply ? await wait(() => find('[data-testid="dm-composer-reply-bar"]')) : await pick("icon-reply-arrow", '[data-testid="dm-composer-reply-bar"]');
+      const replying = reply ? await wait(() => inRoute('[data-testid="dm-composer-reply-bar"]')) : await pick("icon-reply-arrow", '[data-testid="dm-composer-reply-bar"]');
       if (!replying) return null;
     }
-    if (${to.edit !== undefined} && !(await pick("icon-pencil-stroke", '[data-testid="dm-composer-edit-mode"]'))) return null;
-    const messages = () => roots().flatMap((r) => [...r.querySelectorAll('[data-testid="dm-message-list"] [data-testid^="message-"][data-send-status]')]);
+    if (${to.edit !== undefined}) {
+      if (!(await pick("icon-pencil-stroke", '[data-testid="dm-composer-edit-mode"]'))) return null;
+      // X's Edit put the message's own text there for this click: Xtend's, not a draft of the user's.
+      window.__xtendChatTyped = field()?.value ?? "";
+    }
+    const messages = () => [...(route()?.querySelectorAll('[data-testid="dm-message-list"] [data-testid^="message-"][data-send-status]') ?? [])];
     const before = new Set(messages().map((m) => m.dataset.testid));
     const input = field();
-    if (!input || !${mine}) return null;
+    if (!input || !ours()) return null;
     // React keeps the field's value itself: its native setter and an input event are a keystroke.
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(input, ${JSON.stringify(text)});
+    window.__xtendChatTyped = input.value;
     input.dispatchEvent(new Event("input", { bubbles: true }));
     const send = await wait(() => {
-      const button = find('[data-testid="dm-composer-send-button"]');
+      const button = inRoute('[data-testid="dm-composer-send-button"]');
       return button && !button.disabled ? button : null;
     });
-    if (!send || !${mine}) return null;
+    if (!send || !ours()) return null;
     send.click();
-    if (${to.edit !== undefined}) return (await wait(() => !find('[data-testid="dm-composer-edit-mode"]'), 50)) ? "sent" : null;
+    if (${to.edit !== undefined}) return (await wait(() => !inRoute('[data-testid="dm-composer-edit-mode"]'), 50)) ? { status: "sent", id: ${JSON.stringify(to.edit ?? null)} } : null;
     const added = () => messages().find((m) => !before.has(m.dataset.testid) && m.classList.contains("justify-end"));
-    if (!(await wait(added, 100))) return field()?.value === "" ? "pending" : null;
+    if (!(await wait(added, 100))) return field()?.value === "" ? { status: "pending", id: null } : null;
     await wait(() => added()?.dataset.sendStatus !== "pending", 150);
-    return added()?.dataset.sendStatus ?? "pending";
+    const message = added();
+    return { status: message?.dataset.sendStatus ?? "pending", id: message ? message.dataset.testid.slice("message-".length) : null };
   })()`,
-    asking(),
-    () => {},
+        asking(),
+        () => {},
+      ),
+    ),
   );
-  return answer === "sent" || answer === "failed" || answer === "pending" ? answer : null;
-};
 
 /**
  * Answers X's message request on conversation `path` for the user's click with X's own Accept, or
@@ -686,12 +720,13 @@ export const xChatRequest = async (
     asking(),
     over,
   );
-  return done === "over" || done === "done" ? done : null;
+  return done === "over" || done === "done" || done === "cancelled" ? done : null;
 };
 
 /**
  * X's own New message on its inbox, for the user's click: X's dialog to start a chat or a group
- * shows over the main area until the user is done with it. Null when X drew none.
+ * shows over the main area until the user is done with it (true), or moves on first (false).
+ * Null when X drew none.
  */
 export const xChatNew = (over: (shown: boolean) => void) =>
   xPressOver(
@@ -704,12 +739,13 @@ export const xChatNew = (over: (shown: boolean) => void) =>
   })()`,
     asking(),
     over,
-  ).then((answer) => answer === "over" || null);
+  ).then((answer) => (answer === "over" ? true : answer === "cancelled" ? false : null));
 
 /**
  * X's own page about conversation `path`, opened as X's More (or its title) opens it for the
  * user's click: its people, nickname, disappearing messages, calls, safety number, block and
- * delete are X's to answer, over the main area while X shows it. Null when X drew none.
+ * delete are X's to answer, over the main area while X shows it. True once the user is done
+ * there, false when they moved on first, null when X drew none.
  */
 export const xChatInfo = (path: string, over: (shown: boolean) => void) =>
   xPressOver(
@@ -722,4 +758,4 @@ export const xChatInfo = (path: string, over: (shown: boolean) => void) =>
   })()`,
     asking(`${path}/info`),
     over,
-  ).then((answer) => answer === "over" || null);
+  ).then((answer) => (answer === "over" ? true : answer === "cancelled" ? false : null));

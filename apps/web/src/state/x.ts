@@ -1063,7 +1063,7 @@ const pressMenu = async (
 /**
  * Shows the engine over the main area while X's own dialog or page, opened by a press at `path`,
  * is up: until X is back on `path` with no dialog (or `asking`, a check in X's page, no longer
- * holds), or press `run` is no longer the latest.
+ * holds), or press `run` is no longer the latest, when it resolves to false.
  */
 const holdOver = async (
   run: number,
@@ -1071,22 +1071,25 @@ const holdOver = async (
   over: (shown: boolean) => void,
   asking = `location.pathname + location.search !== ${JSON.stringify(path)} || !!document.querySelector('[role="dialog"], [role="alertdialog"]')`,
 ) => {
-  if (run !== overRun) return;
+  if (run !== overRun) return false;
   over(true);
   for (;;) {
     await new Promise((r) => setTimeout(r, 500));
-    if (run !== overRun) return;
+    if (run !== overRun) return false;
     const open = await xRun(asking);
     if (open !== true) break;
   }
   // The user may have moved on during the read: a newer press owns the overlay then.
-  if (run === overRun) over(false);
+  if (run !== overRun) return false;
+  over(false);
+  return true;
 };
 
 /**
  * Runs `press`, a script for X's page, for the user's click: it gets `mine`, a check in X's page
  * that this press is still the user's latest. When it answers "over", X drew its own dialog or page
- * for the user to answer, shown over the main area while `asking` holds. Resolves to its answer.
+ * for the user to answer, shown over the main area while `asking` holds. Resolves to its answer, or
+ * "cancelled" when the user moved on (another screen, another press) before X was done.
  */
 export const xPressOver = async (
   press: (mine: string) => string,
@@ -1095,7 +1098,7 @@ export const xPressOver = async (
 ) => {
   const run = await nextRun();
   const answer = await xRun(press(stillMine(run)));
-  if (answer === "over") await holdOver(run, "", over, asking);
+  if (answer === "over" && !(await holdOver(run, "", over, asking))) return "cancelled";
   return answer;
 };
 

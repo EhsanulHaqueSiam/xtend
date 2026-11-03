@@ -267,3 +267,63 @@ it("sends through X's own composer and Send, and keeps the user's text when X co
     [...root!.querySelectorAll('[data-testid^="message-text-n"]')].map((m) => m.textContent),
   ).toEqual(["Running late", "Running late"]);
 });
+
+it("holds what the user sent while X still sends it, and gives it back only if X marks it failed", async () => {
+  drawX(INBOX);
+  await using screen = await render(
+    <>
+      {ui()}
+      <Toasts />
+    </>,
+    {
+      router: "/chat",
+      service: {
+        "settings.get": () => Effect.succeed({ ...settings, sessionPostingEnabled: true }),
+      },
+    },
+  );
+  await userEvent.click(screen.getByRole("button", { name: /Ann/ }));
+  await expect.poll(() => moves.at(-1)).toBe("/i/chat/11-22");
+  // X's composer: its Send adds the message as the user's, still sending, until X marks it.
+  drawX(
+    CONVERSATION.replace(
+      /<\/div><\/div>$/,
+      `</div><div data-testid="dm-composer-container"><textarea data-testid="dm-composer-textarea"></textarea><button data-testid="dm-composer-send-button">Send</button></div></div>`,
+    ),
+  );
+  const field = root!.querySelector("textarea")!;
+  root!.querySelector('[data-testid="dm-composer-send-button"]')!.addEventListener("click", () => {
+    const id = `n${root!.querySelectorAll('[data-testid^="message-n"]').length}`;
+    root!
+      .querySelector('[data-testid="dm-message-list"]')!
+      .insertAdjacentHTML(
+        "beforeend",
+        `<div class="justify-end" data-testid="message-${id}" data-send-status="pending"><div data-testid="message-text-${id}"><span>${field.value}</span></div></div>`,
+      );
+    field.value = "";
+  });
+  const box = screen.getByRole("textbox", { name: "Message" });
+  await expect.element(box).toBeVisible();
+  // From here, how long Xtend waits for X's mark passes at once.
+  using _timers = fakeTimers();
+  const value = () => (box.element() as HTMLTextAreaElement).value;
+  const mark = async (id: string, status: string) => {
+    root!.querySelector(`[data-testid="message-${id}"]`)!.setAttribute("data-send-status", status);
+    await vi.advanceTimersByTimeAsync(1_000);
+  };
+  const send = async (text: string) => {
+    await userEvent.fill(box, text);
+    await userEvent.click(screen.getByRole("button", { name: "Send", exact: true }));
+    await vi.advanceTimersByTimeAsync(20_000);
+  };
+  await send("Running late");
+  expect([box.element().hasAttribute("disabled"), value()]).toEqual([true, "Running late"]);
+  await mark("n0", "sent");
+  expect(value()).toBe("");
+
+  await send("Ten minutes");
+  expect(value()).toBe("Ten minutes");
+  await mark("n1", "failed");
+  expect([box.element().hasAttribute("disabled"), value()]).toEqual([false, "Ten minutes"]);
+  expect(screen.getByText("Failed to send").elements()).toHaveLength(1);
+});
