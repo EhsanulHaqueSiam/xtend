@@ -1171,7 +1171,7 @@ export function SettingsScreen() {
                   <Updates />
                 </Section>
               ) : null}
-              {isElectron ? (
+              {window.desktopBridge !== undefined ? (
                 <Section
                   title="Join a service"
                   description="use another machine's service, so this one shows the same data"

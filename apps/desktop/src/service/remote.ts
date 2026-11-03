@@ -1,5 +1,6 @@
 import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
+import * as NodePath from "node:path";
 
 import { type DevicePrefs, PAIR_PATH, PairRedeemed } from "@xtend/contracts";
 import * as Schema from "effect/Schema";
@@ -42,6 +43,8 @@ const readConfig = (file: string): typeof ConfigFile.Type | null => {
 };
 
 const writeConfig = (file: string, config: typeof ConfigFile.Type): void => {
+  // The device id is written at startup, before Electron has made the userData directory.
+  NodeFS.mkdirSync(NodePath.dirname(file), { recursive: true });
   NodeFS.writeFileSync(file, encodeConfigFile(config), { mode: 0o600 });
 };
 

@@ -84,7 +84,8 @@ it("keeps the saved remote across launches, and ignores one whose URL would stop
 
 it("keeps this desktop's id across launches and remote changes", () => {
   const dir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "xtend-device-"));
-  const file = NodePath.join(dir, "config.json");
+  // userData does not exist yet on a first launch.
+  const file = NodePath.join(dir, "user-data", "config.json");
   try {
     const id = readDeviceId(file);
     writeRemote(file, { url: "http://mini:4820", token: "abc" });

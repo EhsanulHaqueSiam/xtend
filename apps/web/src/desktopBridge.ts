@@ -41,7 +41,7 @@ interface RemoteConfig {
   readonly token: string;
 }
 
-export interface Reachability {
+interface Reachability {
   readonly health: boolean;
   readonly version: string | null;
   readonly auth: boolean;
