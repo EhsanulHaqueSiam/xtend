@@ -3,11 +3,13 @@ import type {
   EngineArticleBlock,
   EngineRecord,
   EngineBatch,
+  EngineBookmarkFolder,
   EngineCard,
   EngineCommunity,
   EngineEntities,
   EngineRange,
   EngineExploreTab,
+  EngineFolderChange,
   EngineGame,
   EngineGameTeam,
   EngineGif,
@@ -1057,6 +1059,8 @@ function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExp
     return s("rest_id") ?? null;
   if (op === "SportsGameTopTimeline" || op === "SportsGameLatestTimeline")
     return s("gameId") ?? null;
+  // A bookmark folder's posts, by the folder.
+  if (op === "BookmarkFolderTimeline") return s("bookmark_collection_id") ?? null;
   // X's Radar: its one list, a query's own page and counts by its id, and a query's posts per tab.
   if (op === "insightsListContextQuery") return "radar";
   if (op === "insightProviderGetQuery" || op === "usePostCountQuery") return s("id") ?? null;
@@ -1207,6 +1211,8 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
   // X's GIF search is no timeline: its tiles and its next page's cursor sit in one slice.
   const gifSlice = op === "GifSearch" ? record(data.gif_search_slice) : null;
   if (gifSlice !== null) bottom = asString(record(gifSlice.slice_info).next_cursor) ?? null;
+  const folders = readFolderChange(op, variables, data);
+  const claims = readClaims(op, data);
   const articles = walkTweets(body, readArticle);
   return {
     op,
@@ -1219,11 +1225,21 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
           )
           ? "communities:mine"
           : null
-        : // An error alone (X's rate limit) carries no list, so it is no answer of nobody.
-          PEOPLE_PAGES.test(op) &&
-            !Array.isArray(record(record(result(data.user).timeline).timeline).instructions)
+        : // An error alone (X's rate limit) carries no list, so it is no answer of nobody, nor
+          // of an empty folder.
+          (PEOPLE_PAGES.test(op) &&
+              !Array.isArray(record(record(result(data.user).timeline).timeline).instructions)) ||
+            (op === "BookmarkFolderTimeline" &&
+              !Array.isArray(
+                record(record(data.bookmark_collection_timeline).timeline).instructions,
+              ))
           ? null
-          : keyOf(op, variables, exploreTabs),
+          : // Bookmarks X answered, posts or none: with no folder list beside it, no Premium.
+            op === "Bookmarks"
+            ? Array.isArray(record(record(data.bookmark_timeline_v2).timeline).instructions)
+              ? "bookmarks"
+              : null
+            : keyOf(op, variables, exploreTabs),
     // Explore asks with an empty cursor for its first page.
     cursor: asString(variables.cursor) || null,
     top,
@@ -1256,6 +1272,8 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     ...(prompt === undefined ? {} : { prompt }),
     ...readAnalytics(op, data),
     ...readStoryAndLeague(op, data),
+    ...(folders === undefined ? {} : { bookmarkFolders: folders }),
+    ...(claims === undefined ? {} : { claims }),
     ...readRadar(op, data),
   };
 }
@@ -1386,6 +1404,81 @@ function readAnalytics(op: string, data: Json): Pick<EngineBatch, "analytics"> {
   };
 }
 
+/** A bookmark folder in X's BookmarkCollection shape; none without an id or a name. */
+function readFolder(value: Json): ReadonlyArray<EngineBookmarkFolder> {
+  const folderId = asString(value.id);
+  const name = asString(value.name);
+  if (folderId === undefined || !X_ID.test(folderId) || name === undefined) return [];
+  const imageUrl = asString(record(record(value.media).media_info).original_img_url) ?? null;
+  return [{ folderId, name, imageUrl }];
+}
+
+/**
+ * What X's folder calls say of the user's bookmark folders (bundle.BookmarkFolders' operations):
+ * the list, or what X's own dialog or row just did, which X's writes answer with "Done".
+ */
+function readFolderChange(op: string, variables: Json, data: Json): EngineFolderChange | undefined {
+  const id = (k: string) => {
+    const value = asString(variables[k]);
+    return value !== undefined && X_ID.test(value) ? value : undefined;
+  };
+  const folderId = id("bookmark_collection_id");
+  const postId = id("tweet_id");
+  switch (op) {
+    case "BookmarkFoldersSlice": {
+      const slice = record(result(record(data.viewer).user_results).bookmark_collections_slice);
+      return Array.isArray(slice.items)
+        ? { kind: "list", folders: slice.items.flatMap((i) => readFolder(record(i))) }
+        : undefined;
+    }
+    case "createBookmarkFolder":
+    case "EditBookmarkFolder": {
+      const update = data.bookmark_collection_update;
+      // X files a new folder as its answer has it, and a renamed one under the name it asked for.
+      const [folder] =
+        op === "createBookmarkFolder"
+          ? readFolder(record(data.bookmark_collection_create))
+          : isRecord(update)
+            ? readFolder({ ...update, name: variables.name })
+            : [];
+      return folder === undefined ? undefined : { kind: "saved", folder };
+    }
+    case "DeleteBookmarkFolder":
+      return data.bookmark_collection_delete === "Done" && folderId !== undefined
+        ? { kind: "deleted", folderId }
+        : undefined;
+    case "bookmarkTweetToFolder":
+    case "RemoveTweetFromBookmarkFolder": {
+      const added = op === "bookmarkTweetToFolder";
+      const answer = added
+        ? data.bookmark_collection_tweet_put
+        : data.bookmark_collection_tweet_delete;
+      return answer === "Done" && folderId !== undefined && postId !== undefined
+        ? { kind: "post", folderId, postId, added }
+        : undefined;
+    }
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * The features X's GetUserClaims says the account holds: each claim's resources are
+ * `client_feature_switch/<feature>/<value>`, and X counts a feature held when its value is "true".
+ */
+function readClaims(op: string, data: Json): ReadonlyArray<string> | undefined {
+  const claims = record(data.viewer_v2).claims;
+  if (op !== "GetUserClaims" || !Array.isArray(claims)) return undefined;
+  return claims.flatMap((c) =>
+    arr(record(c).resources).flatMap((r) => {
+      const [kind, feature, value] = (asString(record(r).rest_id) ?? "").split("/");
+      return kind === "client_feature_switch" && feature !== undefined && value === "true"
+        ? [feature]
+        : [];
+    }),
+  );
+}
+
 /** Everyone a response names, in either user shape, first sighting per id. */
 function readUsers(body: unknown): ReadonlyArray<EngineUser> {
   const found = new Map<string, EngineUser>();
@@ -1485,6 +1578,10 @@ export const hasEngineContent = (b: EngineBatch) =>
   b.story !== undefined ||
   b.standings !== undefined ||
   b.leaders !== undefined ||
+  b.bookmarkFolders !== undefined ||
+  b.claims !== undefined ||
+  // A folder, or Bookmarks, X answered with no posts: the screen says it is empty.
+  (b.key !== null && (b.op === "BookmarkFolderTimeline" || b.op === "Bookmarks")) ||
   // X's Radar: an empty list or a query X found no posts for still reaches its screen.
   b.radarQueries !== undefined ||
   b.radarLimit !== undefined ||

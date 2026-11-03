@@ -1,6 +1,7 @@
 import type {
   EngineArticle,
   EngineBatch,
+  EngineBookmarkFolder,
   EngineCommunity,
   EngineEntities,
   EngineGame,
@@ -851,6 +852,14 @@ const viewerBody = (v: EngineViewer) => ({
   },
 });
 
+/** A bookmark folder in X's BookmarkCollection shape, its picture under `media` when it has one. */
+export const encodeFolder = (f: EngineBookmarkFolder): Json => ({
+  __typename: "BookmarkCollection",
+  id: f.folderId,
+  name: f.name,
+  ...when(f.imageUrl !== null, () => ({ media: { media_info: { original_img_url: f.imageUrl } } })),
+});
+
 /**
  * The body X answers `batch.op` with, each operation under its own path in `data` as x.com sends
  * it; `everyone` names the authors the batch does not. Calls no screen lists answer `{ data: {} }`.
@@ -1226,6 +1235,47 @@ export function encodeBody(
           },
         },
       };
+    // X's claims for the account (main's GetUserClaims): one per plan, its features as resources.
+    case "GetUserClaims":
+      return {
+        data: {
+          viewer_v2: {
+            claims:
+              (batch.claims ?? []).length === 0
+                ? []
+                : [
+                    {
+                      rest_id: "premium-basic",
+                      origin: "Commerce",
+                      resources: (batch.claims ?? []).map((f) => ({
+                        rest_id: `client_feature_switch/${f}/true`,
+                      })),
+                    },
+                  ],
+          },
+        },
+      };
+    case "BookmarkFoldersSlice":
+      return {
+        data: {
+          viewer: {
+            user_results: {
+              result: {
+                __typename: "User",
+                bookmark_collections_slice: {
+                  items:
+                    batch.bookmarkFolders?.kind === "list"
+                      ? batch.bookmarkFolders.folders.map(encodeFolder)
+                      : [],
+                  slice_info: {},
+                },
+              },
+            },
+          },
+        },
+      };
+    case "BookmarkFolderTimeline":
+      return { data: { bookmark_collection_timeline: { timeline: timeline() } } };
     case "insightsConfigQuery":
       return radarViewer({
         insights_config: {

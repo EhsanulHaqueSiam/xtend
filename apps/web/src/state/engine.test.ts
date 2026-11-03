@@ -892,6 +892,64 @@ it("keeps what each response said of a game, a team's schedule, each game's day,
   ]).toEqual([["7"], ["8"]]);
 });
 
+it("keeps X's bookmark folders in X's order as X's dialogs and rows change them, each folder's posts under it", () => {
+  const folder = (folderId: string, name: string) => ({ folderId, name, imageUrl: null });
+  const change = (
+    bookmarkFolders: NonNullable<EngineBatch["bookmarkFolders"]>,
+    cursor: string | null = null,
+  ) => batch("Folders", [], { bookmarkFolders, cursor });
+  // A change before X listed the folders says nothing of the rest: still unknown.
+  expect(
+    mergeBatch(emptyEngine, change({ kind: "saved", folder: folder("803", "Recipes") }))
+      .bookmarkFolders,
+  ).toBeNull();
+
+  const ids = (s: EngineState) => s.bookmarkFolders?.map((f) => `${f.folderId} ${f.name}`);
+  let state = [
+    change({
+      kind: "list",
+      folders: [folder("801", "Reading"), { ...folder("802", "Ideas"), imageUrl: "pic" }],
+    }),
+    change({ kind: "list", folders: [folder("804", "Later")] }, "next"),
+    batch("GetUserClaims", [], { claims: ["subscriptions_feature_1002"] }),
+  ].reduce(mergeBatch, emptyEngine);
+  expect([ids(state), [...(state.claims ?? [])]]).toEqual([
+    ["801 Reading", "802 Ideas", "804 Later"],
+    ["subscriptions_feature_1002"],
+  ]);
+  // X lists a folder it created, renamed, or put a post in first; a deleted one goes.
+  state = [
+    change({ kind: "saved", folder: folder("803", "Recipes") }),
+    change({ kind: "saved", folder: folder("802", "Ideas 2") }),
+    change({ kind: "deleted", folderId: "804" }),
+  ].reduce(mergeBatch, state);
+  expect(ids(state)).toEqual(["802 Ideas 2", "803 Recipes", "801 Reading"]);
+  // A rename keeps the picture X's answer did not repeat.
+  expect(state.bookmarkFolders?.[0]?.imageUrl).toBe("pic");
+
+  const [a, b, c] = ["1", "2", "3"].map((id) => post(id, `2026-10-2${id}T10:00:00.000Z`));
+  expect(surfacesOf({ op: "BookmarkFolderTimeline", key: "801" })).toEqual(["bookmarkFolder:801"]);
+  state = [
+    batch("BookmarkFolderTimeline", [a!, b!], { key: "801", order: ["1", "2"] }),
+    batch("HomeTimeline", [c!], { order: ["3"] }),
+    change({ kind: "post", folderId: "801", postId: "3", added: true }),
+    change({ kind: "post", folderId: "801", postId: "1", added: false }),
+    // A folder never opened here waits for X's own first page of it; one X answered as empty
+    // takes the post, as X's page does without fetching.
+    change({ kind: "post", folderId: "803", postId: "3", added: true }),
+    batch("BookmarkFolderTimeline", [], { key: "802", top: "t" }),
+    change({ kind: "post", folderId: "802", postId: "3", added: true }),
+  ].reduce(mergeBatch, state);
+  expect(["801", "803", "802"].map((id) => at(state.lists, `bookmarkFolder:${id}`))).toEqual([
+    ["3", "2"],
+    [],
+    ["3"],
+  ]);
+  expect(ids(state)?.slice(0, 3)).toEqual(["802 Ideas 2", "803 Recipes", "801 Reading"]);
+  // X's next claims, after the plan lapsed, hold no folders.
+  expect(mergeBatch(state, batch("GetUserClaims", [], { claims: [] })).claims?.size).toBe(0);
+});
+
 it("keeps X's Radar: its list in X's order, a query's days as X finishes counting them, and its posts as X ranks them now", () => {
   const query = (id: string) => ({
     id,

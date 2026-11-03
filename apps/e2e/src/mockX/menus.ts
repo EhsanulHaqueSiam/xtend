@@ -259,8 +259,11 @@ export function menuRows(state: MockState, spec: string): ReadonlyArray<Row> {
     ];
   }
   if (kind === "share") {
-    const p = state.post(arg);
+    // `share:<id>`, or `share:<id>:<folderId>` on a bookmark folder's page.
+    const [postId = "", folderId] = parts;
+    const p = state.post(postId);
     if (p === undefined) return [];
+    const folder = state.folders().find((f) => f.folderId === folderId);
     return [
       { label: "Copy link", ...copied },
       { label: "Share post via …" },
@@ -268,14 +271,29 @@ export function menuRows(state: MockState, spec: string): ReadonlyArray<Row> {
         label: "Send via Chat",
         go: `/messages/compose?text=${encodeURIComponent(`https://x.com/${p.author.handle}/status/${p.postId}`)}`,
       },
-      {
-        label: "Bookmark to Folder",
-        dialog: {
-          title: "Add to Folder",
-          body: "Organize your Bookmarks into folders.",
-          buttons: [{ label: "Done" }],
-        },
-      },
+      // X's folder rows, for an account its claims give folders: Bookmark to Folder bookmarks the
+      // post and opens X's Add to Folder; on a folder's page, Remove from Folder takes it out.
+      ...(state.premium
+        ? [
+            {
+              label: "Bookmark to Folder",
+              write: graphql("CreateBookmark", { tweet_id: p.postId }),
+              go: `/i/bookmarks/add?tweet_id=${p.postId}`,
+            },
+          ]
+        : []),
+      ...(state.premium && folder !== undefined && p.bookmarked
+        ? [
+            {
+              label: "Remove from Folder",
+              write: graphql("RemoveTweetFromBookmarkFolder", {
+                bookmark_collection_id: folder.folderId,
+                tweet_id: p.postId,
+              }),
+              toast: { text: `Removed from ${folder.name}` },
+            },
+          ]
+        : []),
     ];
   }
   if (kind === "profile") {

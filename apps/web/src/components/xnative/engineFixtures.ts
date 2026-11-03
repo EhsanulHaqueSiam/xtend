@@ -545,6 +545,8 @@ const photo = (seed: string): EngineMedia => ({
 /** Calls that answer one thing, not a timeline: X sends them without page cursors. */
 const UNPAGED = new Set([
   "Viewer",
+  "GetUserClaims",
+  "BookmarkFoldersSlice",
   "UserByScreenName",
   "ListByRestId",
   "CarouselQuery",
@@ -974,17 +976,25 @@ export function synth(): Readonly<Record<string, Fixture>> {
     ],
   };
 
+  const saved = [forYou[3]!, following[4]!, focal].map((p) => ({ ...p, bookmarked: true }));
+  // A Premium account's folders (X's claim for them first): one with two posts, one empty.
+  const folders = [
+    { folderId: "800000000001", name: "Reading list", imageUrl: placeholder("reading", 96, 96) },
+    { folderId: "800000000002", name: "Launch ideas", imageUrl: null },
+  ];
   const bookmarks: Fixture = {
-    meta: meta("bookmarks", "Bookmarks: three saved posts", ["/bookmarks"]),
+    meta: meta("bookmarks", "Bookmarks: three saved posts, and two folders (Premium)", [
+      "/bookmarks",
+      `/bookmarks?folder=${folders[0]!.folderId}`,
+    ]),
     batches: [
-      batch(
-        "Bookmarks",
-        null,
-        [forYou[3]!, following[4]!, focal].map((p) => ({ ...p, bookmarked: true })),
-        {
-          users: PEOPLE,
-        },
-      ),
+      batch("Bookmarks", "bookmarks", saved, { users: PEOPLE }),
+      batch("GetUserClaims", null, [], { claims: ["subscriptions_feature_1002"] }),
+      batch("BookmarkFoldersSlice", null, [], { bookmarkFolders: { kind: "list", folders } }),
+      batch("BookmarkFolderTimeline", folders[0]!.folderId, [saved[0]!, saved[2]!], {
+        users: PEOPLE,
+      }),
+      batch("BookmarkFolderTimeline", folders[1]!.folderId, []),
     ],
   };
 

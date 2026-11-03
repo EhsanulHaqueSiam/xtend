@@ -453,6 +453,29 @@ export interface EngineGif {
   readonly provider: string;
 }
 
+/** A bookmark folder (Premium) as X's folder menu and its Add to Folder dialog list it. */
+export interface EngineBookmarkFolder {
+  readonly folderId: string;
+  readonly name: string;
+  /** The picture X shows beside it; null where X draws its folder icon. */
+  readonly imageUrl: string | null;
+}
+
+/**
+ * What one response says of the user's bookmark folders: X's list of them (a page of
+ * BookmarkFoldersSlice), one X created or renamed, one X deleted, or a post X put in or took out
+ * of one, each for the user's own click in X's dialog or row.
+ */
+export type EngineFolderChange =
+  | { readonly kind: "list"; readonly folders: ReadonlyArray<EngineBookmarkFolder> }
+  | { readonly kind: "saved"; readonly folder: EngineBookmarkFolder }
+  | { readonly kind: "deleted"; readonly folderId: string }
+  | {
+      readonly kind: "post";
+      readonly folderId: string;
+      readonly postId: string;
+      readonly added: boolean;
+    };
 /** One day of X's Radar post counts; `count` is null for a day X has not finished counting. */
 export interface EngineRadarCount {
   readonly at: string;
@@ -532,6 +555,13 @@ export interface EngineBatch {
   readonly standings?: ReadonlyArray<EngineConference>;
   /** X's NBA stat leaders (NBALeaders), one list per stat in X's order. */
   readonly leaders?: ReadonlyArray<EngineLeaders>;
+  /** The user's bookmark folders as this response changes them (see `EngineFolderChange`). */
+  readonly bookmarkFolders?: EngineFolderChange;
+  /**
+   * The features X's GetUserClaims says the account holds, when X sends it (some accounts' pages
+   * never do): `subscriptions_feature_1002` is bookmark folders.
+   */
+  readonly claims?: ReadonlyArray<string>;
   /**
    * X's Radar queries: all of them in X's order (insightsListContextQuery, keyed `radar`), or the
    * one whose page X opened (insightProviderGetQuery, keyed by its id).

@@ -23,6 +23,8 @@ const PAGES: ReadonlyArray<readonly [path: string, tab?: string]> = [
   ["/search?q=design%20system&src=typed_query"],
   ["/search?q=design%20system&src=typed_query&f=user"],
   ["/i/bookmarks"],
+  ["/i/bookmarks/800000000001"],
+  ["/i/bookmarks/800000000002"],
   ["/explore"],
   ["/you/lists"],
   ["/i/lists/600000000001"],
@@ -54,6 +56,7 @@ it("answers every request X's pages make with the batch the made-up fixtures hol
   for (const [path, tab = "forYou"] of PAGES)
     for (const { op, variables } of [
       { op: "Viewer", variables: {} },
+      { op: "GetUserClaims", variables: {} },
       ...route(state, path, tab).requests,
     ])
       // A response round-trips through JSON on its way to the capture.

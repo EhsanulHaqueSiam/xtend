@@ -1,6 +1,7 @@
 import type {
   EngineArticle,
   EngineBatch,
+  EngineBookmarkFolder,
   EngineCommunity,
   EngineConference,
   EngineExploreTab,
@@ -98,6 +99,7 @@ type KeyedSurface =
   | `profile:${ProfileTab}:${string}`
   | `sportsGame:${GameTab}:${string}`
   | `gifs:${string}`
+  | `bookmarkFolder:${string}`
   | `radar:${string}`;
 /** X's Follow page's tabs (Who to follow, Creators for you), as the capture keys them. */
 export type ConnectTab = "connect:who" | "connect:creators";
@@ -160,6 +162,10 @@ export type CommunitySearchMode = "Likes" | "Recency";
 /** A search inside a Community, as X's search page there lists it for the order and query. */
 export const communitySearchSurface = (id: string, mode: CommunitySearchMode, query: string) =>
   `communitySearch:${id}:${mode}:${query}` as const;
+/** A bookmark folder's posts, as X's folder page lists them. */
+export const bookmarkFolderSurface = (folderId: string) => `bookmarkFolder:${folderId}` as const;
+/** X's claim (GetUserClaims) that the account has bookmark folders, which X keeps to Premium. */
+export const FOLDERS_CLAIM = "subscriptions_feature_1002";
 /** What X's GIF search lists for a query; X's picker opens on the empty one. */
 export const gifSurface = (query: string) => `gifs:${query}` as const;
 /** X's search of Communities, from the hub: the Communities it finds for the query. */
@@ -282,6 +288,8 @@ export function surfacesOf(batch: Pick<EngineBatch, "op" | "key">): ReadonlyArra
   // The capture keys a game's posts by the game.
   if (key !== null && op === "SportsGameTopTimeline") return [gameSurface(key, "Top")];
   if (key !== null && op === "SportsGameLatestTimeline") return [gameSurface(key, "Latest")];
+  // The capture keys a folder's posts by the folder.
+  if (key !== null && op === "BookmarkFolderTimeline") return [bookmarkFolderSurface(key)];
   const inspiration = inspirationOf(batch);
   if (inspiration !== null) return [inspirationSurface(inspiration)];
   // The capture keys every List call `list:<id>`.
@@ -435,6 +443,10 @@ export interface EngineState {
   readonly cursors: Readonly<
     Partial<Record<AnySurface, { readonly top: string | null; readonly bottom: string | null }>>
   >;
+  /** What X's latest GetUserClaims says the account holds (see `FOLDERS_CLAIM`); null until (if) it says. */
+  readonly claims: ReadonlySet<string> | null;
+  /** The user's bookmark folders in X's order; null until X listed them, which it does for Premium. */
+  readonly bookmarkFolders: ReadonlyArray<EngineBookmarkFolder> | null;
 }
 
 export const emptyEngine: EngineState = {
@@ -475,6 +487,8 @@ export const emptyEngine: EngineState = {
   nbaDay: [],
   radar: { list: null, queries: new Map(), limit: null, counts: new Map() },
   cursors: {},
+  claims: null,
+  bookmarkFolders: null,
 };
 
 /** A surface's entries; a tab X has not sent yet has none. */
@@ -626,6 +640,9 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
         : new Map(state.stories).set(batch.key, batch.story),
     standings: batch.standings ?? state.standings,
     leaders: batch.leaders ?? state.leaders,
+    claims: batch.claims === undefined ? state.claims : new Set(batch.claims),
+    bookmarkFolders: foldersOf(state.bookmarkFolders, batch),
+    ...folderPost(state, batch),
     radar: mergeRadar(state.radar, batch),
   };
   const listed = surfacesOf(batch).reduce(
@@ -648,6 +665,64 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
   // The response also carries the post it quotes, which stays where it was.
   const created = batch.posts.filter((p) => !batch.posts.some((q) => q.quotedId === p.postId));
   return created.reduce(placeCreated, listed);
+}
+
+/**
+ * The user's bookmark folders after what a response says of them. X's slice lists a folder it
+ * just created, renamed, or put a post in or took one out of first; its first page is its whole
+ * list again. Unknown stays unknown: a change alone never makes a partial list.
+ */
+function foldersOf(
+  folders: EngineState["bookmarkFolders"],
+  batch: EngineBatch,
+): EngineState["bookmarkFolders"] {
+  const change = batch.bookmarkFolders;
+  if (change === undefined) return folders;
+  if (change.kind === "list")
+    return batch.cursor === null
+      ? change.folders
+      : join(folders ?? [], change.folders, (f) => f.folderId);
+  if (folders === null) return null;
+  if (change.kind === "deleted") return folders.filter((f) => f.folderId !== change.folderId);
+  const id = change.kind === "saved" ? change.folder.folderId : change.folderId;
+  const known = folders.find((f) => f.folderId === id);
+  // A rename keeps the folder's picture, which X's answer need not repeat.
+  const first =
+    change.kind === "saved"
+      ? { ...change.folder, imageUrl: change.folder.imageUrl ?? known?.imageUrl ?? null }
+      : known;
+  return first === undefined
+    ? folders
+    : [first, ...folders.filter((f) => f.folderId !== first.folderId)];
+}
+
+/**
+ * A post X put in or took out of a folder: off that folder's list, or on top of it once X answered
+ * for the folder (X adds it to the page it holds and fetches nothing). A folder X never answered
+ * for waits for X's own first page of it.
+ */
+function folderPost(
+  state: EngineState,
+  batch: EngineBatch,
+): Partial<Pick<EngineState, "lists" | "waiting">> {
+  const change = batch.bookmarkFolders;
+  if (change?.kind !== "post") return {};
+  const surface = bookmarkFolderSurface(change.folderId);
+  const list = at(state.lists, surface).filter((id) => id !== change.postId);
+  return {
+    lists: set(
+      state.lists,
+      surface,
+      change.added && state.cursors[surface] !== undefined && state.posts.has(change.postId)
+        ? [change.postId, ...list]
+        : list,
+    ),
+    waiting: set(
+      state.waiting,
+      surface,
+      at(state.waiting, surface).filter((id) => id !== change.postId),
+    ),
+  };
 }
 
 /** X's Radar as the engine read it (see `EngineBatch.radarQueries`). */

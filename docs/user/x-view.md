@@ -27,6 +27,11 @@ from a post by swiping right with two fingers (as set in System Settings > Track
 between pages), the mouse's back button, or ⌘[ (Alt+← on Windows and Linux); you land on the
 same post.
 
+Bookmark folders are X Premium's. With Premium, click the Bookmarks title for your folders;
+Create Folder, Edit Folder and Delete Folder open X's own dialogs, and a post's share menu has
+Bookmark to Folder (and, inside a folder, Remove from Folder). Without Premium the title shows
+X's offer, and Upgrade opens X's own page.
+
 An NBA team's profile shows its schedule as X does. A game opens with the day's scores, the
 score, clock and last play, and X's Top and Latest posts; Highlights, Stats, Plays and Chat open
 X's own game page in the panel. **NBA** on a game opens the league page: the day's games, the

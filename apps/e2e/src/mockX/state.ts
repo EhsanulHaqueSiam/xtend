@@ -1,5 +1,6 @@
 import type {
   EngineBatch,
+  EngineBookmarkFolder,
   EngineCommunity,
   EngineGif,
   EngineHomeTab,
@@ -12,7 +13,7 @@ import type {
 } from "@xtend/contracts";
 
 import { synth } from "../../../web/src/components/xnative/engineFixtures.ts";
-import { encodeBody, encodeTweet } from "./graphql.ts";
+import { encodeBody, encodeFolder, encodeTweet } from "./graphql.ts";
 
 /**
  * What mock X knows: the people and posts of the made-up engine fixtures (`synth()`), the pages
@@ -124,6 +125,8 @@ export interface MockOptions {
   readonly photoEvery?: number;
 }
 const PINNED_TAG = "1540000000000000001";
+/** X's claim for bookmark folders (GetUserClaims), as `FOLDERS_CLAIM` in apps/web/src/state/engine.ts. */
+const FOLDERS_CLAIM = "subscriptions_feature_1002";
 
 const key = (op: string, k: string | null) => `${op}|${k ?? ""}`;
 const s = (variables: Json, name: string) =>
@@ -218,7 +221,7 @@ export function createMockState(options: MockOptions = {}) {
   const userChanges = new Map<string, Partial<EngineUser>>();
   const bell = new Set<string>();
   const arrived: Record<Feed, Array<EnginePost>> = { forYou: [], following: [] };
-  const bookmarks = fixture("Bookmarks", null)!.posts.map((p) => p.postId);
+  const bookmarks = fixture("Bookmarks", "bookmarks")!.posts.map((p) => p.postId);
   const presses: Array<Press> = [];
   const hiddenTrends = new Map<string, Set<string>>();
 
@@ -572,6 +575,27 @@ export function createMockState(options: MockOptions = {}) {
   /** X's cursor for its GIF search's second page, as read live. */
   const GIF_NEXT = "go50c50";
 
+  // Bookmark folders, which X keeps to Premium: the fixtures' account has X's claim for them, and
+  // a test can take it away. Each folder's posts newest first, with what X's dialogs did since.
+  let premium = fixture("GetUserClaims", null)?.claims?.includes(FOLDERS_CLAIM) === true;
+  const listed = fixture("BookmarkFoldersSlice", null)?.bookmarkFolders;
+  const folders: Array<EngineBookmarkFolder> = listed?.kind === "list" ? [...listed.folders] : [];
+  const folderPosts = new Map(
+    folders.map((f) => [
+      f.folderId,
+      [...(fixture("BookmarkFolderTimeline", f.folderId)?.order ?? [])],
+    ]),
+  );
+  let madeFolders = 0;
+  /** X lists a folder it just created, renamed or put a post in or took one out of first. */
+  const toTop = (folder: EngineBookmarkFolder) =>
+    folders.splice(
+      0,
+      folders.length,
+      folder,
+      ...folders.filter((f) => f.folderId !== folder.folderId),
+    );
+
   /** The batch X answers `op` with, or null for a call no screen reads. */
   function batchFor(op: string, variables: Json): EngineBatch | null {
     const cursor = s(variables, "cursor");
@@ -620,7 +644,7 @@ export function createMockState(options: MockOptions = {}) {
       case "SearchTimeline":
         return search(s(variables, "product") ?? "Top", s(variables, "rawQuery") ?? "");
       case "Bookmarks": {
-        const b = fixture("Bookmarks", null)!;
+        const b = fixture("Bookmarks", "bookmarks")!;
         const posts = bookmarks.flatMap((id) => {
           const p = b.posts.find((q) => q.postId === id) ?? basePosts.get(id);
           return p === undefined ? [] : [livePost({ ...p, bookmarked: true })];
@@ -825,6 +849,27 @@ export function createMockState(options: MockOptions = {}) {
       // X's Post Analytics, for the user's own post the fixtures count.
       case "TweetActivityQuery":
         return fixture(op, s(variables, "restId") ?? "") ?? null;
+      case "GetUserClaims":
+        return page(op, null, [], { top: null, claims: premium ? [FOLDERS_CLAIM] : [] });
+      // X asks for folders only for an account its claims give them.
+      case "BookmarkFoldersSlice":
+        return premium
+          ? page(op, null, [], {
+              top: null,
+              bookmarkFolders: { kind: "list", folders: [...folders] },
+            })
+          : null;
+      case "BookmarkFolderTimeline": {
+        const id = s(variables, "bookmark_collection_id") ?? "";
+        const ids = folderPosts.get(id);
+        if (!premium || ids === undefined) return null;
+        const own = fixture(op, id);
+        const posts = ids.flatMap((pid) => {
+          const p = own?.posts.find((q) => q.postId === pid) ?? basePosts.get(pid);
+          return p === undefined ? [] : [livePost({ ...p, bookmarked: true })];
+        });
+        return { ...(own === undefined ? page(op, id, []) : live(own)), posts, order: ids };
+      }
       // X's Radar, only for an account with Premium.
       case "insightsConfigQuery":
         return radar.premium ? page(op, null, [], { top: null, radarLimit: radar.limit }) : null;
@@ -904,6 +949,7 @@ export function createMockState(options: MockOptions = {}) {
       s(input, "user_id") ??
       s(input, "id") ??
       s(input, "communityId") ??
+      s(input, "bookmark_collection_id") ??
       null;
     presses.push({ kind: "write", name, target: id, path });
     const tweet = s(input, "tweet_id") ?? s(input, "source_tweet_id") ?? "";
@@ -1001,6 +1047,47 @@ export function createMockState(options: MockOptions = {}) {
           members: Math.max(0, (c.members ?? 1) - 1),
         }));
         return { data: { community_leave: "Done" } };
+      // X's folder dialogs and rows (bundle.BookmarkFolders), each answered as X does.
+      case "createBookmarkFolder": {
+        const folder = {
+          folderId: String(800_000_000_101 + madeFolders++),
+          name: s(input, "name") ?? "",
+          imageUrl: null,
+        };
+        folderPosts.set(folder.folderId, []);
+        toTop(folder);
+        return { data: { bookmark_collection_create: encodeFolder(folder) } };
+      }
+      case "EditBookmarkFolder": {
+        const known = folders.find((f) => f.folderId === s(input, "bookmark_collection_id"));
+        if (known === undefined) return { data: {} };
+        const folder = { ...known, name: s(input, "name") ?? known.name };
+        toTop(folder);
+        return { data: { bookmark_collection_update: encodeFolder(folder) } };
+      }
+      case "DeleteBookmarkFolder": {
+        const folderId = s(input, "bookmark_collection_id") ?? "";
+        folders.splice(0, folders.length, ...folders.filter((f) => f.folderId !== folderId));
+        folderPosts.delete(folderId);
+        return done("bookmark_collection_delete");
+      }
+      case "bookmarkTweetToFolder":
+      case "RemoveTweetFromBookmarkFolder": {
+        const folder = folders.find((f) => f.folderId === s(input, "bookmark_collection_id"));
+        const ids = folderPosts.get(folder?.folderId ?? "");
+        if (folder === undefined || ids === undefined) return { data: {} };
+        const rest = ids.filter((pid) => pid !== tweet);
+        folderPosts.set(
+          folder.folderId,
+          name === "bookmarkTweetToFolder" ? [tweet, ...rest] : rest,
+        );
+        toTop(folder);
+        return done(
+          name === "bookmarkTweetToFolder"
+            ? "bookmark_collection_tweet_put"
+            : "bookmark_collection_tweet_delete",
+        );
+      }
       // X's Radar: a query made from X's form, and one deleted from X's list.
       case "createInsightInputMutation": {
         const made = String(radar.next++);
@@ -1108,6 +1195,16 @@ export function createMockState(options: MockOptions = {}) {
     game: (id: string) => games.get(id),
     /** Whether the user pinned a Community to Home (X's Pin in its header). */
     communityPinned: (id: string) => pinnedCommunities.has(id),
+    /** Whether X's claims give the account bookmark folders (Premium). */
+    get premium() {
+      return premium;
+    },
+    setPremium: (on: boolean) => {
+      premium = on;
+    },
+    /** The account's bookmark folders in X's order, and each one's posts, newest first. */
+    folders: (): ReadonlyArray<EngineBookmarkFolder> => [...folders],
+    folderPosts: (folderId: string): ReadonlyArray<string> => folderPosts.get(folderId) ?? [],
     /** Whether the user asked to join a Community that asks first, and waits for its moderators. */
     communityRequested: (id: string) => requested.has(id),
     /** The Communities a hub tab's posts are from, in X's order: X fetches a card for each. */
