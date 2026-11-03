@@ -60,9 +60,8 @@ interface FakeOptions {
   readonly missedKey?: number;
   /** X draws no "Also share with followers" once a Community is picked. */
   readonly noShare?: boolean;
-  /** A second Community the user is in is also "Indie Hackers"; with `noBanners`, rows hold no id. */
-  readonly twins?: boolean;
-  readonly noBanners?: boolean;
+  /** A second Community the user is in is also "Indie Hackers", its banner's media id `twin`. */
+  readonly twin?: string;
 }
 
 /** X's composer page and its GIF search route, on this document's URL. */
@@ -134,15 +133,16 @@ function fakeX(markup: string, log: Array<string>, options: FakeOptions = {}) {
     const audience = document.querySelector<HTMLElement>('button[aria-label="Choose audience"]');
     const pick = target.closest<HTMLElement>('[data-testid="HoverCard"] [role="menuitem"]');
     if (target.closest("button") === audience && audience !== null && popover === null) {
-      const row = (id: string, name: string, members: string) =>
-        `<div role="menuitem">${options.noBanners === true ? "" : `<img src="https://pbs.twimg.com/community_banner_img/${id}/b.jpg">`}<span>${name}</span><span>${members} Members</span></div>`;
+      // As live: a banner by its media id, the name, "<N> Members"; no Community id or link.
+      const row = (media: string, name: string, members: string) =>
+        `<div role="menuitem"><img src="https://pbs.twimg.com/community_banner_img/${media}/b.jpg"><span>${name}</span><span>${members} Members</span></div>`;
       layers?.insertAdjacentHTML(
         "beforeend",
         `<div data-testid="HoverCard"><div role="group"><h2>Choose audience</h2><div role="menuitem">Everyone</div><h3>My Communities</h3>${[
-          row("1500000000000000003", "Indie Hackers Club", "88"),
-          row("1500000000000000001", "Indie Hackers", "1,204"),
-          row("1500000000000000004", "Design &amp; Code", "1.2K"),
-          ...(options.twins === true ? [row("1500000000000000009", "Indie Hackers", "12")] : []),
+          row("1790000000000000003", "Indie Hackers Club", "88"),
+          row("1790000000000000001", "Indie Hackers", "1,204"),
+          row("1790000000000000004", "Design &amp; Code", "1.2K"),
+          ...(options.twin === undefined ? [] : [row(options.twin, "Indie Hackers", "12")]),
         ].join("")}</div></div>`,
       );
       return;
@@ -150,7 +150,6 @@ function fakeX(markup: string, log: Array<string>, options: FakeOptions = {}) {
     if (pick !== null && audience !== null) {
       const name = pick.querySelector("span")?.textContent ?? pick.textContent ?? "";
       audience.textContent = name;
-      audience.dataset.id = /community_banner_img\/(\d+)/.exec(pick.innerHTML)?.[1] ?? "";
       log.push(`audience ${name}`);
       pick.closest('[data-testid="HoverCard"]')?.remove();
       root?.querySelector("[data-x=share]")?.remove();
@@ -689,15 +688,10 @@ it("puts the audience back to Everyone, and refuses before Post, when X shows no
   }
 });
 
-const pickedId = () =>
-  document.querySelector<HTMLElement>('button[aria-label="Choose audience"]')?.dataset.id;
-
-it("tells two Communities of one name apart by the id in X's row, and refuses when the rows do not say", async () => {
-  const twins = await run(COMPOSER, post({ text: "hello", community: INDIE }), { twins: true });
-  expect([twins.result, pickedId()]).toEqual(["777", INDIE.id]);
+it("refuses, guessing nothing, when two of the user's Communities share the name", async () => {
+  // Even when a banner's media id happens to hold the Community's id: X's rows carry none.
   const blind = await run(COMPOSER, post({ text: "hello", community: INDIE }), {
-    twins: true,
-    noBanners: true,
+    twin: `${INDIE.id}0`,
   });
   expect(blind.result).toMatchObject({
     message:

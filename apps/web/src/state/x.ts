@@ -1517,17 +1517,21 @@ export type XGifPicker = ReturnType<typeof xGifPicker>;
 export const xGifIdle = () => gifStep.then(() => undefined);
 
 /**
- * Opens X's own "Choose audience" card in the composer on X's Home and closes it again with
- * Escape, picking nothing, so X sends the user's Communities (CommunitiesMembershipsSlice) for
- * Xtend's picker. X's Home first: a tool like Compose leaves the engine on a page with no composer.
+ * Opens X's own "Choose audience" card on X's Home and closes it with Escape, picking nothing, so
+ * X sends the user's Communities. X's page before comes back after, unless X was moved meanwhile.
  * In the GIF picker's queue, which Post waits for. True once X showed its rows.
  */
 export const xAudienceCard = () =>
   (gifStep = gifStep.then(async () => {
     // No engine (a browser, before X loads): nothing to open, and nothing for Post to wait on.
     if (!ready || element === null) return null;
-    await xGo("https://x.com/home");
-    return xRun(`(async () => {
+    let from = "";
+    try {
+      from = element.getURL();
+    } catch {}
+    const moved = await xGo("https://x.com/home");
+    const asked = moves;
+    const shown = await xRun(`(async () => {
       const wait = () => new Promise((r) => setTimeout(r, 150));
       const button = () => document.querySelector('button[aria-label="Choose audience"]');
       const card = () => document.querySelector('[data-testid="HoverCard"]:has([role="menuitem"])');
@@ -1546,6 +1550,9 @@ export const xAudienceCard = () =>
       if (card()) button()?.click();
       return shown;
     })()`);
+    // The page the user had beside them, unless a screen or the user moved X since.
+    if (moved && moves === asked) await xGo(from);
+    return shown;
   })).then((shown) => shown === true);
 
 export const xBack = () => (ready ? element?.goBack() : undefined);

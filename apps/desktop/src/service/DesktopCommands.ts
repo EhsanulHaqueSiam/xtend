@@ -707,18 +707,10 @@ async function pickAudience(
     if (named.length === 0) await sleep(POLL_MS);
   }
   if (named.length === 0) throw missing(`"${community.name}" in its audiences`);
-  // Two of the user's Communities may share a name: then only the row holding this one's id
-  // (its banner's path, a link, its data) is it, and with none that does, nothing is guessed.
-  const own: Array<number> = [];
-  if (named.length > 1)
-    for (const id of named) {
-      const { outerHTML } = (await cdp("DOM.getOuterHTML", { nodeId: id })) as {
-        outerHTML: string;
-      };
-      if (outerHTML.includes(community.id)) own.push(id);
-    }
-  const row = named.length === 1 ? named[0] : own.length === 1 ? own[0] : undefined;
-  if (row === undefined)
+  // X's rows name no Community id (a banner, the name, "<N> Members"): two of one name are not
+  // told apart, so neither is guessed.
+  const [row] = named;
+  if (row === undefined || named.length > 1)
     throw new NotAttempted(
       `x.com's card lists more than one "${community.name}" and does not tell which; nothing was posted`,
     );

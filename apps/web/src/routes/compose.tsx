@@ -584,6 +584,17 @@ export function ComposeEditor({
         setNotice("Failed: that time has passed");
         return;
       }
+      // The newest word on the draft: another window may have queued it since this one saved,
+      // and its slot would post through the API, which cannot reach a Community.
+      const newest = AsyncResult.getOrElse(drafts, (): ReadonlyArray<Draft> => []).find(
+        (d) => d.id === saved.id,
+      );
+      const status = (newest !== undefined && newest.updatedAt > saved.updatedAt ? newest : saved)
+        .status;
+      if (what === "post" && audience !== null && status === "queued") {
+        setNotice("Failed: queued in another window; unschedule it to post it to a Community");
+        return;
+      }
       const exit =
         what === "queue"
           ? await queue(saved.id)
@@ -591,7 +602,7 @@ export function ComposeEditor({
             ? await schedule({ id: saved.id, at: scheduleAt!.toISOString() })
             : what === "unschedule"
               ? await unschedule(saved.id)
-              : audience !== null && saved.status !== "queued"
+              : audience !== null
                 ? await sessionPostNow({ id: saved.id, community: audience })
                 : await postNow(saved.id);
       setConfirm(null);

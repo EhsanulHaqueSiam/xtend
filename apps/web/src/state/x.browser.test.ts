@@ -37,6 +37,7 @@ import {
   xPickGameTab,
   xHeard,
   xNavigate,
+  xGo,
 } from "./x";
 
 // X's page as the engine holds it: a post quoting 42, then 42 itself, edited, so its timestamp
@@ -1833,20 +1834,28 @@ it("presses X's Delete only on the one row whose query field is exactly the quer
   }
 });
 
-it("brings X's Home, where its composer is, before opening X's audience card", async () => {
+it("reads X's audience card on X's Home, then brings back X's page, unless X was moved meanwhile", async () => {
   // Compose leaves the engine on the user's profile, which has no composer.
-  const steps: Array<string> = [];
-  registerXWebview({
-    loadURL: async () => {},
-    getURL: () => "https://x.com/theo",
-    executeJavaScript: (code: string) => {
-      steps.push(
-        code.includes("Choose audience") ? "card" : code.includes('"/home"') ? "home" : "?",
-      );
-      return Promise.resolve(true);
-    },
-  } as unknown as XWebview);
-  markXReady();
-  await xAudienceCard();
-  expect(steps).toEqual(["home", "card"]);
+  const run = async (meanwhile?: string) => {
+    let path = "/theo";
+    const steps: Array<string> = [];
+    registerXWebview({
+      loadURL: async () => {},
+      getURL: () => `https://x.com${path}`,
+      executeJavaScript: (code: string) => {
+        const to = /history\.pushState\(null, "", "([^"]+)"\)/.exec(code)?.[1];
+        if (to !== undefined) path = to;
+        steps.push(to ?? (code.includes("Choose audience") ? "card" : "?"));
+        // Another screen moves X while X's card is open.
+        if (to === undefined && meanwhile !== undefined) void xGo(`https://x.com${meanwhile}`);
+        return Promise.resolve(true);
+      },
+    } as unknown as XWebview);
+    markXReady();
+    await xAudienceCard();
+    await xGifIdle();
+    return steps;
+  };
+  expect(await run()).toEqual(["/home", "card", "/theo"]);
+  expect(await run("/explore")).toEqual(["/home", "card", "/explore"]);
 });
