@@ -1516,6 +1516,32 @@ export type XGifPicker = ReturnType<typeof xGifPicker>;
 /** Resolves once every GIF picker's steps in X's page are done, closes included; Post waits for it. */
 export const xGifIdle = () => gifStep.then(() => undefined);
 
+/**
+ * Opens X's own "Choose audience" card in the composer on X's page (Home's) and closes it again
+ * with Escape, picking nothing, so X sends the user's Communities (CommunitiesMembershipsSlice) for
+ * Xtend's picker. In the GIF picker's queue, which Post waits for. True once X showed its rows.
+ */
+export const xAudienceCard = () =>
+  (gifStep = gifStep.then(() =>
+    xRun(`(async () => {
+      const wait = () => new Promise((r) => setTimeout(r, 150));
+      const button = () => document.querySelector('button[aria-label="Choose audience"]');
+      const card = () => document.querySelector('[data-testid="HoverCard"]:has([role="menuitem"])');
+      // X draws its audience button once its composer has focus.
+      if (!button()) document.querySelector('[data-testid="tweetTextarea_0"]')?.focus();
+      for (let i = 0; i < 20 && !button(); i++) await wait();
+      if (!button() || card()) return false;
+      button().click();
+      for (let i = 0; i < 40 && !card(); i++) await wait();
+      const shown = !!card();
+      document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      for (let i = 0; i < 20 && card(); i++) await wait();
+      // A card Escape left open closes on its own button, still picking nothing.
+      if (card()) button()?.click();
+      return shown;
+    })()`),
+  )).then((shown) => shown === true);
+
 export const xBack = () => (ready ? element?.goBack() : undefined);
 export const xForward = () => (ready ? element?.goForward() : undefined);
 export const xReload = () => (ready ? element?.reload() : undefined);

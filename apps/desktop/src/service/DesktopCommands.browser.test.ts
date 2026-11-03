@@ -15,6 +15,7 @@ const COMPOSER = `
   <div data-x="poll"></div>
   <div data-x="media"></div>
   <button role="button" aria-label="Everyone can reply"><span>Everyone can reply</span></button>
+  <button aria-label="Choose audience"><span>Everyone</span></button>
   <div data-testid="toolBar">
     <input data-testid="fileInput" type="file" />
     <button data-testid="createPollButton" aria-label="Add poll">Poll</button>
@@ -57,6 +58,8 @@ interface FakeOptions {
   readonly formatting?: boolean;
   /** The nth command key (from 1) X misses, as when its editor is busy. */
   readonly missedKey?: number;
+  /** X draws no "Also share with followers" once a Community is picked. */
+  readonly noShare?: boolean;
 }
 
 /** X's composer page and its GIF search route, on this document's URL. */
@@ -124,6 +127,32 @@ function fakeX(markup: string, log: Array<string>, options: FakeOptions = {}) {
     const popover = layers?.querySelector('[data-testid="HoverCard"]') ?? null;
     const row = target.closest<HTMLElement>('[role="radiogroup"] label');
     if (popover !== null && !popover.contains(target) && options.sticky !== true) popover.remove();
+    // X's audience card: Everyone, then the user's Communities, a row each "<name> <N> Members".
+    const audience = document.querySelector<HTMLElement>('button[aria-label="Choose audience"]');
+    const pick = target.closest<HTMLElement>('[data-testid="HoverCard"] [role="menuitem"]');
+    if (target.closest("button") === audience && audience !== null && popover === null) {
+      layers?.insertAdjacentHTML(
+        "beforeend",
+        `<div data-testid="HoverCard"><div role="group"><h2>Choose audience</h2><div role="menuitem">Everyone</div><h3>My Communities</h3><div role="menuitem"><span>Indie Hackers Club</span><span>88 Members</span></div><div role="menuitem"><span>Indie Hackers</span><span>1,204 Members</span></div></div></div>`,
+      );
+      return;
+    }
+    if (pick !== null && audience !== null) {
+      const name = pick.firstElementChild?.textContent ?? pick.textContent ?? "";
+      audience.textContent = name;
+      log.push(`audience ${name}`);
+      pick.closest('[data-testid="HoverCard"]')?.remove();
+      root?.querySelector("[data-x=share]")?.remove();
+      if (name !== "Everyone" && options.noShare !== true) {
+        audience.insertAdjacentHTML(
+          "afterend",
+          '<label data-x="share" style="display:block"><input type="checkbox" />Also share with followers</label>',
+        );
+        const box = root?.querySelector<HTMLInputElement>("[data-x=share] input");
+        box?.addEventListener("change", () => log.push(`share ${box.checked ? "on" : "off"}`));
+      }
+      return;
+    }
     if (target.closest("button") === reply && reply !== null && popover === null) {
       const current = reply.getAttribute("aria-label");
       layers?.insertAdjacentHTML(
@@ -206,6 +235,7 @@ function fakeX(markup: string, log: Array<string>, options: FakeOptions = {}) {
 
 /** What X's composer holds now: what a refusal must have taken back out. */
 const composer = () => ({
+  audience: document.querySelector('button[aria-label="Choose audience"]')?.textContent,
   text: document.querySelector('[data-testid="tweetTextarea_0"]')?.textContent,
   reply: document.querySelector('button[aria-label$="can reply"]')?.getAttribute("aria-label"),
   popover: document.querySelector('[data-testid="HoverCard"]') !== null,
@@ -215,6 +245,7 @@ const composer = () => ({
 });
 
 const EMPTY = {
+  audience: "Everyone",
   text: "",
   reply: "Everyone can reply",
   popover: false,
@@ -613,4 +644,31 @@ it("reads a no-break space as a space on both sides, so pasted text X formatted 
   );
   expect(result).toBe("777");
   expect(log.at(-1)).toBe("press Post, Everyone can reply");
+});
+
+const INDIE = { id: "1500000000000000001", name: "Indie Hackers", shareWithFollowers: true };
+
+it("sets the audience in X's own card first: the Community's own row, X naming it, its share toggle as asked", async () => {
+  const { log, result } = await run(COMPOSER, post({ text: "hello", community: INDIE }));
+  expect(result).toBe("777");
+  // "Indie Hackers Club" starts the same: the row is the one whose name is exactly the Community's.
+  expect(log).toEqual([
+    "audience Indie Hackers",
+    "share on",
+    "type hello",
+    "press Post, Everyone can reply",
+  ]);
+  expect(composer().audience).toBe("Indie Hackers");
+});
+
+it("puts the audience back to Everyone, and refuses before Post, when X has no share toggle to set", async () => {
+  const { log, result } = await run(COMPOSER, post({ text: "hello", community: INDIE }), {
+    noShare: true,
+  });
+  expect(result).toMatchObject({
+    message: 'x.com\'s composer has no "Also share with followers"; nothing was posted',
+    notAttempted: true,
+  });
+  expect(log).toEqual(["audience Indie Hackers", "audience Everyone"]);
+  expect(composer()).toEqual(EMPTY);
 });

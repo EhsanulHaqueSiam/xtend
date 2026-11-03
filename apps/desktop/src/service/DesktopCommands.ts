@@ -7,6 +7,7 @@ import {
   Library_METHODS,
   type MarkSubject,
   type PickedGif,
+  type PostCommunity,
   type ReplyTone,
   type TextStyle,
   Marks_METHODS,
@@ -354,17 +355,21 @@ const textOf = async (cdp: Cdp, nodeId: number) => {
     .trim();
 };
 
-/** Like `waitForNode`, for rows X marks only by their text: the last match whose text is `text`. */
+/**
+ * Like `waitForNode`, for rows X marks only by their text: the last match whose text is `text`, or
+ * that `text` accepts.
+ */
 async function waitForText(
   cdp: Cdp,
   selector: string,
-  text: string,
+  text: string | ((shown: string) => boolean),
   deadline: number,
 ): Promise<number> {
-  if (Date.now() >= deadline) throw new Error(`composer element not ready: ${selector} ${text}`);
+  if (Date.now() >= deadline) throw new Error(`composer element not ready: ${selector}`);
   // Exact: "Accounts you follow" is also the start of another row.
+  const matches = typeof text === "string" ? (shown: string) => shown === text : text;
   for (const nodeId of (await query(cdp, selector)).toReversed())
-    if ((await textOf(cdp, nodeId)) === text) return nodeId;
+    if (matches(await textOf(cdp, nodeId))) return nodeId;
   await sleep(POLL_MS);
   return waitForText(cdp, selector, text, deadline);
 }
@@ -660,8 +665,74 @@ async function typeText(
     throw new Error("x.com's composer did not format the text as asked");
 }
 
+/** X's audience button's own text, once it says `name`; false when it never did by the deadline. */
+async function audienceShows(cdp: Cdp, name: string, deadline: number): Promise<boolean> {
+  for (;;) {
+    const [button] = (await query(cdp, X_COMPOSER.audienceButton)).toReversed();
+    if (button !== undefined && (await textOf(cdp, button)) === name) return true;
+    if (Date.now() >= deadline) return false;
+    await sleep(POLL_MS);
+  }
+}
+
+// Whether X's "Also share with followers" is on: "true", "false", or null while X draws none.
+const SHARE_STATE = `(() => { const label = [...document.querySelectorAll("label")].find((l) => l.textContent.trim() === ${JSON.stringify(X_COMPOSER.shareLabel)}); const box = label?.querySelector('input[type="checkbox"], [role="checkbox"]'); return box ? String(box.checked ?? box.getAttribute("aria-checked") === "true") : null; })()`;
+const shareState = async (cdp: Cdp) =>
+  (
+    (await cdp("Runtime.evaluate", { expression: SHARE_STATE, returnByValue: true })) as {
+      result: { value: unknown };
+    }
+  ).result.value;
+
+/**
+ * Picks the post's audience in X's own "Choose audience" card, as the user would: the card, the
+ * row of their Community by its name (a row reads "<name><N> Members"), X's button then naming
+ * it, and X's "Also share with followers" set as asked. Picking is a composer setting, not a write.
+ */
+async function pickAudience(
+  cdp: Cdp,
+  community: PostCommunity,
+  deadline: number,
+  picked: () => void,
+): Promise<void> {
+  const soon = () => Math.min(Date.now() + CONTROL_TIMEOUT_MS, deadline);
+  await click(cdp, await control(cdp, X_COMPOSER.audienceButton, "Choose audience", deadline));
+  const row = await waitForText(
+    cdp,
+    X_COMPOSER.audienceRow,
+    (shown) =>
+      shown === community.name ||
+      (shown.startsWith(community.name) &&
+        /^ ?[\d.,]+[KMB]? Members?$/.test(shown.slice(community.name.length))),
+    soon(),
+  ).catch(() => {
+    throw missing(`"${community.name}" in its audiences`);
+  });
+  picked();
+  await click(cdp, row);
+  if (!(await audienceShows(cdp, community.name, soon())))
+    throw missing(`"${community.name}" as the audience`);
+  // A card X leaves open would take the presses that follow.
+  if ((await query(cdp, X_COMPOSER.audienceCard)).length > 0) {
+    await click(cdp, await control(cdp, TEXTBOX, "text box", deadline));
+    await waitForGone(cdp, X_COMPOSER.audienceCard, soon()).catch(() => {
+      throw new NotAttempted("x.com's audience card stayed open; nothing was posted");
+    });
+  }
+  const want = String(community.shareWithFollowers);
+  const now = await shareState(cdp);
+  if (now === want || (now === null && !community.shareWithFollowers)) return;
+  if (now === null) throw missing(`"${X_COMPOSER.shareLabel}"`);
+  await click(cdp, await waitForText(cdp, "label", X_COMPOSER.shareLabel, soon()));
+  const deadlineShare = soon();
+  while ((await shareState(cdp)) !== want)
+    if (Date.now() >= deadlineShare) throw missing(`"${X_COMPOSER.shareLabel}" as asked`);
+    else await sleep(POLL_MS);
+}
+
 /** What the driver put in X's composer, so a refusal before Post can take it back out. */
 interface Touched {
+  audience: boolean;
   reply: boolean;
   poll: boolean;
   media: boolean;
@@ -684,8 +755,19 @@ async function takeBack(cdp: Cdp, touched: Touched, error: unknown): Promise<Not
     await click(cdp, await control(cdp, TEXTBOX, "text box"));
     await waitForGone(cdp, X_COMPOSER.replyPopover, soon());
   });
-  // So would X's GIF search, open over the composer.
+  // So would X's GIF search, open over the composer, and X's audience card.
   await undo("X's GIF search", () => leaveGifSearch(cdp));
+  await undo("an open audience card", async () => {
+    if ((await query(cdp, X_COMPOSER.audienceCard)).length === 0) return;
+    await click(cdp, await control(cdp, TEXTBOX, "text box"));
+    await waitForGone(cdp, X_COMPOSER.audienceCard, soon());
+  });
+  if (touched.audience)
+    await undo("the audience", async () => {
+      await click(cdp, await control(cdp, X_COMPOSER.audienceButton, "Choose audience"));
+      await click(cdp, await waitForText(cdp, X_COMPOSER.audienceRow, "Everyone", soon()));
+      if (!(await audienceShows(cdp, "Everyone", soon()))) throw new Error("audience left");
+    });
   if (touched.reply)
     await undo("the reply setting", () =>
       pickReply(
@@ -774,13 +856,22 @@ export async function postThroughComposer(
     .catch((error: unknown) => {
       throw untouched(error);
     });
-  const touched: Touched = { reply: false, poll: false, media: false, text: false };
+  const touched: Touched = {
+    audience: false,
+    reply: false,
+    poll: false,
+    media: false,
+    text: false,
+  };
   const { replySettings, poll } = command;
   const reply =
     replySettings === undefined || replySettings === "everyone"
       ? null
       : { button: X_COMPOSER.replyButton, ...X_REPLY_ROWS[replySettings] };
   const ready = async () => {
+    // The audience before anything else: X's Community post has no who-can-reply of its own.
+    if (command.community !== undefined)
+      await pickAudience(cdp, command.community, deadline, () => (touched.audience = true));
     // Who can reply first: a control X no longer draws then refuses before anything is filled.
     if (reply !== null) await pickReply(cdp, reply, deadline, () => (touched.reply = true));
     if (poll !== undefined) await fillPoll(cdp, poll, deadline, () => (touched.poll = true));

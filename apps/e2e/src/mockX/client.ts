@@ -507,7 +507,14 @@ const SCRIPT = String.raw`
         at += length;
       }
       const op = tags.length > 0 ? "CreateNoteTweet" : "CreateTweet";
-      const variables = tags.length > 0 ? { tweet_text: text, richtext_options: { richtext_tags: tags } } : { tweet_text: text };
+      // A Community audience rides the post as X's composer sends it, with its share toggle.
+      const to = audience === null ? {} : {
+        conversation_control: { mode: "Community" },
+        semantic_annotation_ids: [{ entity_id: audience.id, group_id: "8", domain_id: "31" }],
+        broadcast: document.querySelector("[data-share] input")?.checked === true,
+      };
+      audience = null;
+      const variables = { tweet_text: text, ...to, ...(tags.length > 0 ? { richtext_options: { richtext_tags: tags } } : {}) };
       if (text.trim() !== "") void post("/i/api/graphql/" + window.__mockHash[op] + "/" + op, { variables }).then(() => history.back());
       return;
     }
@@ -516,6 +523,53 @@ const SCRIPT = String.raw`
       event.preventDefault();
       go(href, false);
     }
+  });
+
+  // X's audience card in its composer: opening it asks X for the user's Communities, and a row
+  // sets the audience (a composer setting; Post sends it). Escape closes it, picking nothing.
+  let audience = null;
+  const setAudience = (button, community) => {
+    audience = community === null ? null : { id: community.id_str, name: community.name };
+    button.querySelector("span").textContent = community === null ? "Everyone" : community.name;
+    document.querySelector("[data-share]")?.remove();
+    log("audience:" + (community === null ? "Everyone" : community.name));
+    if (community === null) return;
+    const share = document.createElement("label");
+    share.dataset.share = "";
+    share.style.display = "block";
+    share.innerHTML = '<input type="checkbox">';
+    share.append("Also share with followers");
+    button.after(share);
+  };
+  document.addEventListener("click", async (event) => {
+    const button = event.target instanceof Element ? event.target.closest('button[aria-label="Choose audience"]') : null;
+    if (!button) return;
+    log("audience");
+    const body = await fetch("/i/api/graphql/" + window.__mockHash.CommunitiesMembershipsSlice + "/CommunitiesMembershipsSlice?variables=%7B%7D").then(json);
+    const mine = (body.data?.viewer?.user_results?.result?.community_memberships_slice?.items_results ?? []).map((r) => r.result);
+    closeLayers();
+    const card = document.createElement("div");
+    card.dataset.testid = "HoverCard";
+    card.setAttribute("role", "group");
+    // Over the composer, as X draws its cards in its layers.
+    card.style.cssText = "position: fixed; top: 15%; left: 30%; z-index: 10; background: #000; border: 1px solid #333; padding: 8px";
+    const heading = (text, tag) => { const h = document.createElement(tag); h.textContent = text; card.append(h); };
+    const row = (parts, community) => {
+      const item = document.createElement("div");
+      item.setAttribute("role", "menuitem");
+      item.tabIndex = 0;
+      for (const part of parts) { const span = document.createElement("span"); span.textContent = part; item.append(span); }
+      item.addEventListener("click", () => { closeLayers(); setAudience(button, community); });
+      card.append(item);
+    };
+    heading("Choose audience", "h2");
+    row(["Everyone"], null);
+    if (mine.length > 0) heading("My Communities", "h3");
+    for (const c of mine) row([c.name, ...(c.member_count === undefined ? [] : [c.member_count + " Members"])], c);
+    layers.append(card);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && layers.querySelector('[data-testid="HoverCard"]')) closeLayers();
   });
 
   // X's composer (Draft.js): for an account X lets format, its command key (⌘ on a Mac, Ctrl

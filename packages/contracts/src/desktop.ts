@@ -3,7 +3,7 @@ import * as Rpc from "effect/rpc/Rpc";
 import * as RpcGroup from "effect/rpc/RpcGroup";
 
 import { XId } from "./baseSchemas.ts";
-import { DraftPoll, PickedGif, ReplySettings, TextStyle } from "./compose.ts";
+import { DraftPoll, PickedGif, PostCommunity, ReplySettings, TextStyle } from "./compose.ts";
 import type { ObservedPost } from "./observation.ts";
 
 /**
@@ -27,6 +27,8 @@ export const DesktopCommand = Schema.Union([
     gif: Schema.optional(PickedGif),
     /** Bold and italic, typed with X's own ⌘B and ⌘I as the text goes in. */
     styles: Schema.optional(Schema.Array(TextStyle)),
+    /** Picked in X's own "Choose audience" card, before anything else. */
+    community: Schema.optional(PostCommunity),
   }),
   Schema.Struct({ type: Schema.Literal("sessionNavigate"), url: Schema.String }),
   /** Clicks X's own like on the post's page in the session view; same setting as sessionPost. */

@@ -94,7 +94,8 @@ export async function startMockX(
     options.latencyMs ? new Promise((r) => setTimeout(r, options.latencyMs)) : undefined;
   /** Every GraphQL read the page made, with its variables, in order. */
   const reads: Array<GraphqlRequest> = [];
-  const ops = [...WRITES, ...POSTED];
+  // X's composer asks its audience card's list itself, as a GET read.
+  const ops = [...WRITES, ...POSTED, "CommunitiesMembershipsSlice"];
   const hashes = Object.fromEntries(ops.map((op) => [op, opHash(op)]));
 
   const handle = async (req: NodeHttp.IncomingMessage, res: NodeHttp.ServerResponse) => {

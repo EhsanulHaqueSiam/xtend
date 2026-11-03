@@ -4,6 +4,7 @@ import {
   type DraftPoll,
   isComposeError,
   type PickedGif,
+  type PostCommunity,
   type ReplySettings,
   type TextStyle,
 } from "@xtend/contracts";
@@ -48,6 +49,8 @@ export class SessionPosting extends Context.Service<
       readonly poll?: DraftPoll;
       /** Picked from X's own GIF search in its composer, before the text. */
       readonly gif?: PickedGif;
+      /** The audience picked in X's own composer, first of all. */
+      readonly community?: PostCommunity;
       /** Bold and italic, applied with X's own composer controls as the text goes in. */
       readonly styles?: ReadonlyArray<TextStyle>;
       readonly paced?: boolean;
@@ -96,6 +99,7 @@ const make = Effect.gen(function* () {
     readonly replySettings?: ReplySettings;
     readonly poll?: DraftPoll;
     readonly gif?: PickedGif;
+    readonly community?: PostCommunity;
     readonly styles?: ReadonlyArray<TextStyle>;
     readonly paced?: boolean;
   }) {
@@ -115,6 +119,7 @@ const make = Effect.gen(function* () {
         : { replySettings: input.replySettings }),
       ...(input.poll === undefined ? {} : { poll: input.poll }),
       ...(input.gif === undefined ? {} : { gif: input.gif }),
+      ...(input.community === undefined ? {} : { community: input.community }),
       ...(input.styles === undefined ? {} : { styles: input.styles }),
     });
     return { postId: result.postId };

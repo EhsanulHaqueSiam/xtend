@@ -121,6 +121,17 @@ export type DraftPoll = typeof DraftPoll.Type;
 export const PickedGif = Schema.Struct({ query: Schema.String, id: Schema.String });
 export type PickedGif = typeof PickedGif.Type;
 
+/**
+ * A Community of the user's picked as the post's audience in X's own composer (its "Choose
+ * audience" card names it), and whether X's "Also share with followers" is on. Rides on the click.
+ */
+export const PostCommunity = Schema.Struct({
+  id: XId,
+  name: Schema.String,
+  shareWithFollowers: Schema.Boolean,
+});
+export type PostCommunity = typeof PostCommunity.Type;
+
 /** What the editor can change. Everything else on a Draft is owned by the service. */
 export const DraftPatch = Schema.Struct({
   kind: Schema.optional(DraftKind),
@@ -292,6 +303,8 @@ export const ComposeRpcGroup = RpcGroup.make(
       sessionOnly: Schema.optional(Schema.Boolean),
       /** On the first post, picked in X's own composer: only the session can post one. */
       gif: Schema.optional(PickedGif),
+      /** The first post's audience, set in X's own composer: only the session can post to one. */
+      community: Schema.optional(PostCommunity),
     }),
     success: Draft,
     error: ComposeError,

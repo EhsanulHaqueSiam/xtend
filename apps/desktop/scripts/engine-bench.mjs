@@ -1764,6 +1764,49 @@ const benchmarks = [
     },
   ],
   [
+    "Choose audience lists X's own card: Everyone, then the user's Communities in X's order, picking nothing (dry)",
+    async () => {
+      await home("following");
+      // X's own card on X's Home composer: opened, read, closed with Escape, nothing picked.
+      const read = await engine(`(async () => {
+        const wait = () => new Promise((r) => setTimeout(r, 150));
+        const button = () => document.querySelector('button[aria-label="Choose audience"]');
+        const card = () => document.querySelector('[data-testid="HoverCard"]:has([role="menuitem"])');
+        if (!button()) document.querySelector('[data-testid="tweetTextarea_0"]')?.focus();
+        for (let i = 0; i < 20 && !button(); i++) await wait();
+        if (!button() || card()) return null;
+        const before = button().textContent;
+        button().click();
+        for (let i = 0; i < 40 && (card()?.querySelectorAll('[role="menuitem"]').length ?? 0) < 2; i++) await wait();
+        const rows = [...(card()?.querySelectorAll('[role="menuitem"]') ?? [])].map((r) => r.innerText.split("\\n")[0].trim());
+        document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        for (let i = 0; i < 20 && card(); i++) await wait();
+        if (card()) button()?.click();
+        await wait();
+        return JSON.stringify({ rows, before, after: button()?.textContent, closed: !card() });
+      })()`);
+      if (typeof read !== "string") return false;
+      const x = JSON.parse(read);
+      // Xtend's picker lists the store's Communities, which X's card just sent.
+      const ours = await until(async () => {
+        const names = await store(
+          `at($.communityIds, "communities:mine").map((id) => $.communities.get(id)?.name)`,
+        );
+        return names?.length === x.rows.length - 1 && names;
+      }, 10_000);
+      const same = JSON.stringify(["Everyone", ...(ours || [])]) === JSON.stringify(x.rows);
+      if (!same)
+        console.log(`  X's rows ${JSON.stringify(x.rows)}, Xtend's ${JSON.stringify(ours)}`);
+      return (
+        same &&
+        x.closed &&
+        x.before === "Everyone" &&
+        x.after === "Everyone" &&
+        `${x.rows.length - 1} Communities in X's order, nothing picked`
+      );
+    },
+  ],
+  [
     "⌘R reloads Home and a post from X: lists refill in X's order, the post stays",
     async () => {
       // `__xtendRefresh` is what main's ⌘R and F5 call: DevTools keys skip before-input-event.
