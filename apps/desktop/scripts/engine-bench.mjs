@@ -1317,6 +1317,60 @@ const benchmarks = [
     },
   ],
   [
+    "Edit profile on your own profile opens X's own dialog over the main area and closes with X's ✕, saving nothing (dry)",
+    async () => {
+      const handle = await until(() => store(`$.viewer?.handle`));
+      if (!handle) return false;
+      await go(`#/u/${handle}`);
+      const header = `document.querySelector('main [data-x="profile"]')`;
+      const button = `[...(${header}?.querySelectorAll("button") ?? [])].find((b) => /^(Edit|Set up) profile$/.test(b.textContent))`;
+      const label = await until(() => app(`${button}?.textContent`), 20_000);
+      if (!label) return false;
+      const own = `(() => { const u = [...$.users.values()].find((u) => u.handle === ${JSON.stringify(handle)}); return u && [u.name, u.bio, u.avatarUrl, u.bannerUrl]; })()`;
+      // A cold profile is still filling in from X's later answers: compare from once it settled.
+      let seen = "";
+      const before = await until(async () => {
+        const now = JSON.stringify(await store(own));
+        return now === seen ? JSON.parse(now) : ((seen = now), undefined);
+      }, 10_000);
+      const mode = `document.querySelector('section[aria-label="x.com"]')?.dataset.mode`;
+      await app(`${button}?.click(), true`);
+      // X's Edit profile on its own route with X's Save; Set up profile is X's flow for a bare one.
+      const route = await until(async () => {
+        const path = await enginePath();
+        if ((await app(mode)) !== "main") return undefined;
+        if (path.startsWith("/i/flow/setup_profile")) return path;
+        return (
+          path === "/settings/profile" &&
+          (await engine(
+            `!!document.querySelector('[data-testid="Profile_Save_Button"]') && !!document.querySelector('input[name="displayName"]')`,
+          )) &&
+          path
+        );
+      }, 15_000);
+      // Out of it with X's own ✕ (its back arrow in X's compact layout): nothing was typed, so X
+      // asks nothing and saves nothing.
+      await engine(
+        `(document.querySelector('[role="dialog"] [data-testid="app-bar-close"]') ?? document.querySelector('[data-testid="app-bar-back"]'))?.click(), true`,
+      );
+      const back = await until(
+        async () =>
+          (await app(mode)) === "hidden" &&
+          (await enginePath()).toLowerCase() === `/${handle.toLowerCase()}`,
+        10_000,
+      );
+      const after = await store(own);
+      const same = JSON.stringify(before) === JSON.stringify(after);
+      // Which of name, bio, avatar, banner moved, never their values.
+      const moved = ["name", "bio", "avatar", "banner"].filter(
+        (_, i) => before?.[i] !== after?.[i],
+      );
+      if (!route || !back || !same)
+        return (console.log(`      ${JSON.stringify({ label, route, back, same, moved })}`), false);
+      return `${label}: X's ${route} opened and closed, header unchanged`;
+    },
+  ],
+  [
     "X's reply, repost, quote and like are reachable on the post (dry)",
     async () => {
       const post = await until(() =>

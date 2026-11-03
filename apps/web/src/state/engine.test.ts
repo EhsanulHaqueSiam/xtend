@@ -5,6 +5,7 @@ import type {
   EngineGif,
   EngineNotification,
   EnginePost,
+  EngineProfileSave,
   EngineUser,
 } from "@xtend/contracts";
 import { expect, it } from "vite-plus/test";
@@ -631,6 +632,70 @@ it("keeps the signed-in account's id when X's nav names it again without one, an
     name: "Siam H",
     avatarUrl: "https://pbs.twimg.com/a_normal.jpg",
   });
+});
+
+it("shows what X's Edit profile saved on the user's header, their account and their posts, and nothing else", () => {
+  const me: EngineUser = {
+    userId: "1",
+    handle: "ann",
+    name: "Ann",
+    avatarUrl: "https://pbs.twimg.com/old_normal.jpg",
+    bannerUrl: "https://pbs.twimg.com/profile_banners/1/1",
+    bio: "Old bio",
+    location: "Dhaka",
+    website: null,
+    joinedAt: null,
+    followers: 10,
+    following: 1,
+    posts: 1,
+    verified: true,
+    isProtected: false,
+    youFollow: false,
+    followsYou: false,
+    pinnedPostId: null,
+    verifiedType: null,
+    avatarShape: "Circle",
+    affiliate: null,
+  };
+  const viewer = { userId: null, handle: "ann", name: "Ann", avatarUrl: me.avatarUrl };
+  let state = mergeBatch(
+    emptyEngine,
+    batch("UserByScreenName", [post("2", "2026-11-01T00:00:00Z")], { users: [me], viewer }),
+  );
+  const list = {
+    listId: "9",
+    name: "Builders",
+    description: "",
+    members: 1,
+    followers: 0,
+    isPrivate: false,
+    bannerUrl: null,
+    owner: { userId: "1", handle: "ann", name: "Ann", avatarUrl: me.avatarUrl },
+    group: "Your Lists",
+  };
+  state = mergeBatch(state, batch("ListsManagementPageTimeline", [], { lists: [list] }));
+  const save = (saved: Omit<EngineProfileSave, "userId" | "handle">) =>
+    batch("UpdateProfile", [], { profileSaved: { userId: "1", handle: "ann", ...saved } });
+  const site = { url: "https://ann.dev", display: "ann.dev" };
+  const face = "https://pbs.twimg.com/new_normal.jpg";
+  state = mergeBatch(state, save({ name: "Ann B", bio: "New bio", location: "", website: site }));
+  state = mergeBatch(state, save({ avatarUrl: face }));
+  state = mergeBatch(state, save({ bannerUrl: null }));
+  expect(state.users.get("1")).toEqual({
+    ...me,
+    name: "Ann B",
+    bio: "New bio",
+    location: "",
+    website: site,
+    avatarUrl: face,
+    bannerUrl: null,
+  });
+  expect(state.viewer).toEqual({ ...viewer, name: "Ann B", avatarUrl: face });
+  expect([state.posts.get("2")?.avatarUrl, state.posts.get("2")?.author.name]).toEqual([
+    face,
+    "Ann B",
+  ]);
+  expect(state.xLists.get("9")?.owner).toEqual({ ...list.owner, name: "Ann B", avatarUrl: face });
 });
 
 it("keeps X's Post Analytics per post, as X last counted them", () => {

@@ -13,7 +13,7 @@ import type {
 } from "@xtend/contracts";
 
 import { synth } from "../../../web/src/components/xnative/engineFixtures.ts";
-import { encodeBody, encodeFolder, encodeTweet } from "./graphql.ts";
+import { encodeBody, encodeFolder, encodeRestUser, encodeTweet } from "./graphql.ts";
 
 /**
  * What mock X knows: the people and posts of the made-up engine fixtures (`synth()`), the pages
@@ -1045,6 +1045,35 @@ export function createMockState(options: MockOptions = {}) {
               },
         );
         return { card: { voted: choice } };
+      }
+      // X's Edit profile: the text fields, and each picture by its upload's media id. X answers
+      // each with the user (the picture calls ask with `return_user`).
+      case "account/update_profile":
+      case "account/update_profile_image":
+      case "account/update_profile_banner":
+      case "account/remove_profile_banner": {
+        const me = viewer.userId!;
+        const media = s(input, "media_id") ?? "";
+        const site = s(input, "url") ?? "";
+        changeUser(me, () =>
+          name === "account/update_profile"
+            ? {
+                name: s(input, "name") ?? "",
+                bio: s(input, "description") ?? "",
+                location: s(input, "location") ?? "",
+                website:
+                  site === "" ? null : { url: site, display: site.replace(/^https?:\/\//, "") },
+              }
+            : name === "account/update_profile_image"
+              ? { avatarUrl: `https://pbs.twimg.com/profile_images/${media}/picked_normal.jpg` }
+              : {
+                  bannerUrl:
+                    name === "account/update_profile_banner"
+                      ? `https://pbs.twimg.com/profile_banners/${me}/${media}`
+                      : null,
+                },
+        );
+        return encodeRestUser(user(me)!);
       }
       // X's composer sends a post with bold or italic as a long post, its runs as richtext_tags.
       case "CreateNoteTweet":

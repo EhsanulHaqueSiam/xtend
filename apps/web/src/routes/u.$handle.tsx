@@ -17,6 +17,7 @@ import { engineAtom, type ProfileTab, profileSurface, userByHandle } from "../st
 import {
   xBell,
   xBellPress,
+  xEditProfile,
   xGo,
   xNavigate,
   xOverAtom,
@@ -239,6 +240,19 @@ function ProfileScreen() {
   const surface = current.id === "likes" ? "likes" : profileSurface(current.id, userId);
   const prompt = current.id === "subs" ? engine.prompts.get(surface) : undefined;
   const name = user?.name ?? seen?.author.name ?? handle;
+  const { blocked, setToast } = useXPress();
+  const setOver = useAtomSet(xOverAtom);
+  // X's own Edit profile over the main area; what X saves shows here from X's answer. X may end its
+  // Set up profile on another page, so the engine comes back to this one after.
+  const editProfile = async () => {
+    if (window.desktopBridge === undefined)
+      return setToast({ text: "Edit profile opens X's own dialog, in the desktop app." });
+    const why = blocked();
+    if (why !== null) return setToast({ text: why });
+    const shown = await xEditProfile(handle, setOver);
+    if (shown === false) setToast({ text: "X did not open Edit profile. Try again in a moment." });
+    else if (shown) open();
+  };
 
   const pill =
     "h-9 cursor-pointer rounded-full px-4 text-[15px] font-bold transition-colors duration-150";
@@ -297,6 +311,20 @@ function ProfileScreen() {
                   user={user}
                   onFollowed={(userId, following) => setFollowed({ userId, following })}
                 />
+                {own ? (
+                  <button
+                    type="button"
+                    className={`${pill} border border-white/[0.35] hover:bg-white/[0.06]`}
+                    onClick={() => void editProfile()}
+                  >
+                    {/* X's words for a profile with no picture, bio or banner. */}
+                    {user?.avatarUrl?.includes("/default_profile_images/") === true &&
+                    user.bio === "" &&
+                    user.bannerUrl === null
+                      ? "Set up profile"
+                      : "Edit profile"}
+                  </button>
+                ) : null}
               </div>
             </div>
             <p className="mt-3 flex items-center gap-1 text-[20px] leading-6 font-extrabold">
