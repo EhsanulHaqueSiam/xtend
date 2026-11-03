@@ -457,6 +457,47 @@ export interface EngineGif {
   readonly provider: string;
 }
 
+/** A bookmark folder (Premium) as X's folder menu and its Add to Folder dialog list it. */
+export interface EngineBookmarkFolder {
+  readonly folderId: string;
+  readonly name: string;
+  /** The picture X shows beside it; null where X draws its folder icon. */
+  readonly imageUrl: string | null;
+}
+
+/**
+ * What one response says of the user's bookmark folders: X's list of them (a page of
+ * BookmarkFoldersSlice), one X created or renamed, one X deleted, or a post X put in or took out
+ * of one, each for the user's own click in X's dialog or row.
+ */
+export type EngineFolderChange =
+  | { readonly kind: "list"; readonly folders: ReadonlyArray<EngineBookmarkFolder> }
+  | { readonly kind: "saved"; readonly folder: EngineBookmarkFolder }
+  | { readonly kind: "deleted"; readonly folderId: string }
+  | {
+      readonly kind: "post";
+      readonly folderId: string;
+      readonly postId: string;
+      readonly added: boolean;
+    };
+/** One day of X's Radar post counts; `count` is null for a day X has not finished counting. */
+export interface EngineRadarCount {
+  readonly at: string;
+  readonly count: number | null;
+}
+
+/** A query saved in X's Radar (Premium), as its list and its own page name it. */
+export interface EngineRadarQuery {
+  readonly id: string;
+  /** "" when the user left it untitled; X shows "Untitled query". */
+  readonly title: string;
+  /** What X searches: its raw query, or an older query's tags joined by OR, as X's page does. */
+  readonly query: string;
+  readonly createdAt: string;
+  /** X's daily counts its list draws as the row's sparkline, oldest first; empty when X sent none. */
+  readonly preview: ReadonlyArray<EngineRadarCount>;
+}
+
 /**
  * One GraphQL response the engine received, by operation (HomeTimeline, TweetDetail, ...). `key`
  * names what the request asked for when one operation serves many pages (a Home tab's tag, a
@@ -498,12 +539,6 @@ export interface EngineBatch {
   readonly games?: ReadonlyArray<EngineGame>;
   /** X's GIF search results, in X's order: only on GifSearch, empty when X found none. */
   readonly gifs?: ReadonlyArray<EngineGif>;
-  /**
-   * The features X's subscription grants the signed-in account (GetUserClaims, which X's code asks
-   * at load and every 4 minutes, though some accounts never see it): `subscriptions_feature_1014`
-   * is bold and italic in the composer.
-   */
-  readonly claims?: ReadonlyArray<string>;
   /** Whether X's composer on the page lets the account format, as X draws it (`composerFormats`). */
   readonly formatting?: boolean;
   /** X's prompt in this timeline, when it lists one (see `EnginePrompt`). */
@@ -520,4 +555,23 @@ export interface EngineBatch {
    * you know only when it is above 0.
    */
   readonly knownFollowers?: number;
+  /** The user's bookmark folders as this response changes them (see `EngineFolderChange`). */
+  readonly bookmarkFolders?: EngineFolderChange;
+  /**
+   * The features X's GetUserClaims says the account holds, when X sends it (some accounts' pages
+   * never do): `subscriptions_feature_1002` is bookmark folders, `subscriptions_feature_1014` bold
+   * and italic in the composer.
+   */
+  readonly claims?: ReadonlyArray<string>;
+  /**
+   * X's Radar queries: all of them in X's order (insightsListContextQuery, keyed `radar`), or the
+   * one whose page X opened (insightProviderGetQuery, keyed by its id).
+   */
+  readonly radarQueries?: ReadonlyArray<EngineRadarQuery>;
+  /** How many Radar queries X lets this account keep (insightsConfigQuery's saved_query_limit). */
+  readonly radarLimit?: number;
+  /** X's daily post counts for the Radar query `key` names (usePostCountQuery), oldest first. */
+  readonly radarCounts?: ReadonlyArray<EngineRadarCount>;
+  /** The Radar query X deleted for the user's confirm in X's dialog (deleteInsightButtonMutation). */
+  readonly radarDeleted?: string;
 }

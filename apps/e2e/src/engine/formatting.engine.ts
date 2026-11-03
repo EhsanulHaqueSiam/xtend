@@ -3,14 +3,14 @@ import { afterAll, beforeAll, expect, test } from "vite-plus/test";
 import { type Engine, startEngine } from "./harness.ts";
 
 /**
- * X's bold and italic for an account X lets format (mock X's GetUserClaims grants Premium's claim):
- * posts draw X's formatting, and Home's box applies it through X's own composer, with X's own
- * command keys, on the click that posts.
+ * X's bold and italic for an account X lets format, told by X's composer alone (mock X sends no
+ * claim for it): posts draw X's formatting, and Home's box applies it through X's own composer,
+ * with X's own command keys, on the click that posts.
  */
 
 let e: Engine;
 beforeAll(async () => {
-  e = await startEngine({ premium: true });
+  e = await startEngine({ formatting: true });
 });
 afterAll(() => e?.close());
 

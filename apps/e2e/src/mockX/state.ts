@@ -1,16 +1,19 @@
 import type {
   EngineBatch,
+  EngineBookmarkFolder,
   EngineCommunity,
   EngineGif,
   EngineHomeTab,
   EngineList,
   EnginePost,
+  EngineRadarCount,
+  EngineRadarQuery,
   EngineTrend,
   EngineUser,
 } from "@xtend/contracts";
 
 import { synth } from "../../../web/src/components/xnative/engineFixtures.ts";
-import { encodeBody, encodeTweet } from "./graphql.ts";
+import { encodeBody, encodeFolder, encodeTweet } from "./graphql.ts";
 
 /**
  * What mock X knows: the people and posts of the made-up engine fixtures (`synth()`), the pages
@@ -101,6 +104,13 @@ const MORE_TEXT = [
   "Hiring note: the portfolio beats the resume, every time.",
 ] as const;
 
+/** The range X's Radar page asks a query's days and posts for: the last 7 days, by UTC day. */
+export const radarRange = (now = Date.now()) => {
+  const to = Math.floor(now / 86_400_000 + 1) * 86_400;
+  const from = to - 7 * 86_400;
+  return { from, to, since: new Date(from * 1000).toISOString().slice(0, 10) };
+};
+
 const FEEDS = ["forYou", "following"] as const;
 export type Feed = (typeof FEEDS)[number];
 /** How many pages each Home feed has before X runs out; the rest of the mock's lists have one. */
@@ -114,14 +124,14 @@ export interface MockOptions {
   /** Every nth made-up post carries a photo, so a page is as tall as X's. */
   readonly photoEvery?: number;
   /**
-   * The account holds X's claim for bold and italic (Premium): X's composer draws its editor
-   * uncapped, its ⌘B and ⌘I apply, and GetUserClaims grants it when asked. Without it none of that.
+   * X's composer lets the account bold and italicize (Premium's write gate): its editor drawn
+   * uncapped and its ⌘B and ⌘I applied. It adds no claim: live X may never send GetUserClaims.
    */
-  readonly premium?: boolean;
+  readonly formatting?: boolean;
 }
 const PINNED_TAG = "1540000000000000001";
-/** X's claim for bold and italic in its composer. */
-const FORMAT_CLAIM = "subscriptions_feature_1014";
+/** X's claim for bookmark folders (GetUserClaims), as `FOLDERS_CLAIM` in apps/web/src/state/engine.ts. */
+const FOLDERS_CLAIM = "subscriptions_feature_1002";
 
 const key = (op: string, k: string | null) => `${op}|${k ?? ""}`;
 const s = (variables: Json, name: string) =>
@@ -217,7 +227,7 @@ export function createMockState(options: MockOptions = {}) {
   const userChanges = new Map<string, Partial<EngineUser>>();
   const bell = new Set<string>();
   const arrived: Record<Feed, Array<EnginePost>> = { forYou: [], following: [] };
-  const bookmarks = fixture("Bookmarks", null)!.posts.map((p) => p.postId);
+  const bookmarks = fixture("Bookmarks", "bookmarks")!.posts.map((p) => p.postId);
   const presses: Array<Press> = [];
   const hiddenTrends = new Map<string, Set<string>>();
 
@@ -440,6 +450,44 @@ export function createMockState(options: MockOptions = {}) {
     return page("GenericTimelineById", `inspiration:${e.id}:${p.id}:en`, top);
   };
 
+  // X's Radar (Premium): off for the account until a test turns it on, as for most accounts. Its
+  // queries newest change first, as X's list sorts them.
+  const radar = {
+    premium: false,
+    limit: 3,
+    next: 1803,
+    queries: [
+      { id: "1802", title: "", query: "design system", createdAt: "2026-10-30T09:00:00.000Z" },
+      {
+        id: "1801",
+        title: "Growth",
+        query: "growth OR ads",
+        createdAt: "2026-10-28T09:00:00.000Z",
+      },
+    ] as Array<Omit<EngineRadarQuery, "preview">>,
+  };
+  const radarHits = (query: string) => {
+    const words = query
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w) => w.length > 2);
+    return allPosts().filter((p) => words.some((w) => p.text.toLowerCase().includes(w)));
+  };
+  /** A query's posts per UTC day in `[from, to)` (seconds), plus a steady made-up base. */
+  const radarDays = (id: string, from: number, to: number): ReadonlyArray<EngineRadarCount> => {
+    const query = radar.queries.find((q) => q.id === id)?.query ?? "";
+    const hits = radarHits(query).map((p) => Date.parse(p.createdAt) / 1000);
+    return Array.from({ length: Math.max(0, Math.round((to - from) / 86_400)) }, (_, i) => {
+      const start = from + i * 86_400;
+      const own = hits.filter((t) => t >= start && t < start + 86_400).length;
+      return { at: new Date(start * 1000).toISOString(), count: ((Number(id) + i * 7) % 23) + own };
+    });
+  };
+  const radarQuery = (q: (typeof radar.queries)[number], preview: boolean): EngineRadarQuery => {
+    const { from, to } = radarRange();
+    return { ...q, preview: preview ? radarDays(q.id, from, to) : [] };
+  };
+
   const explore = fixture("ExplorePage", "explore-for-you")!;
   const exploreTabs = explore.exploreTabs!;
   const trendRows = (prefix: string, group: string | null): ReadonlyArray<EngineTrend> =>
@@ -533,17 +581,33 @@ export function createMockState(options: MockOptions = {}) {
   /** X's cursor for its GIF search's second page, as read live. */
   const GIF_NEXT = "go50c50";
 
+  // Bookmark folders, which X keeps to Premium: the fixtures' account has X's claim for them, and
+  // a test can take it away. Each folder's posts newest first, with what X's dialogs did since.
+  let premium = fixture("GetUserClaims", null)?.claims?.includes(FOLDERS_CLAIM) === true;
+  const listed = fixture("BookmarkFoldersSlice", null)?.bookmarkFolders;
+  const folders: Array<EngineBookmarkFolder> = listed?.kind === "list" ? [...listed.folders] : [];
+  const folderPosts = new Map(
+    folders.map((f) => [
+      f.folderId,
+      [...(fixture("BookmarkFolderTimeline", f.folderId)?.order ?? [])],
+    ]),
+  );
+  let madeFolders = 0;
+  /** X lists a folder it just created, renamed or put a post in or took one out of first. */
+  const toTop = (folder: EngineBookmarkFolder) =>
+    folders.splice(
+      0,
+      folders.length,
+      folder,
+      ...folders.filter((f) => f.folderId !== folder.folderId),
+    );
+
   /** The batch X answers `op` with, or null for a call no screen reads. */
   function batchFor(op: string, variables: Json): EngineBatch | null {
     const cursor = s(variables, "cursor");
     switch (op) {
       case "Viewer":
         return fixture("Viewer", null)!;
-      case "GetUserClaims":
-        return page(op, null, [], {
-          top: null,
-          claims: options.premium === true ? [FORMAT_CLAIM] : [],
-        });
       case "PinnedTimelines":
         return page("PinnedTimelines", null, [], { top: null, homeTabs: pinnedTabs() });
       case "HomeTimeline":
@@ -586,7 +650,7 @@ export function createMockState(options: MockOptions = {}) {
       case "SearchTimeline":
         return search(s(variables, "product") ?? "Top", s(variables, "rawQuery") ?? "");
       case "Bookmarks": {
-        const b = fixture("Bookmarks", null)!;
+        const b = fixture("Bookmarks", "bookmarks")!;
         const posts = bookmarks.flatMap((id) => {
           const p = b.posts.find((q) => q.postId === id) ?? basePosts.get(id);
           return p === undefined ? [] : [livePost({ ...p, bookmarked: true })];
@@ -784,6 +848,62 @@ export function createMockState(options: MockOptions = {}) {
       // X's Post Analytics, for the user's own post the fixtures count.
       case "TweetActivityQuery":
         return fixture(op, s(variables, "restId") ?? "") ?? null;
+      case "GetUserClaims":
+        return page(op, null, [], { top: null, claims: premium ? [FOLDERS_CLAIM] : [] });
+      // X asks for folders only for an account its claims give them.
+      case "BookmarkFoldersSlice":
+        return premium
+          ? page(op, null, [], {
+              top: null,
+              bookmarkFolders: { kind: "list", folders: [...folders] },
+            })
+          : null;
+      case "BookmarkFolderTimeline": {
+        const id = s(variables, "bookmark_collection_id") ?? "";
+        const ids = folderPosts.get(id);
+        if (!premium || ids === undefined) return null;
+        const own = fixture(op, id);
+        const posts = ids.flatMap((pid) => {
+          const p = own?.posts.find((q) => q.postId === pid) ?? basePosts.get(pid);
+          return p === undefined ? [] : [livePost({ ...p, bookmarked: true })];
+        });
+        return { ...(own === undefined ? page(op, id, []) : live(own)), posts, order: ids };
+      }
+      // X's Radar, only for an account with Premium.
+      case "insightsConfigQuery":
+        return radar.premium ? page(op, null, [], { top: null, radarLimit: radar.limit }) : null;
+      case "insightsListContextQuery":
+        return radar.premium
+          ? page(op, "radar", [], {
+              top: null,
+              radarQueries: radar.queries.map((q) =>
+                radarQuery(q, variables.previewsEnabled === true),
+              ),
+            })
+          : null;
+      case "insightProviderGetQuery":
+      case "usePostCountQuery": {
+        const q = radar.queries.find((r) => r.id === s(variables, "id"));
+        if (!radar.premium || q === undefined) return null;
+        return op === "insightProviderGetQuery"
+          ? page(op, q.id, [], { top: null, radarQueries: [radarQuery(q, false)] })
+          : page(op, q.id, [], {
+              top: null,
+              radarCounts: radarDays(q.id, Number(variables.from_time), Number(variables.to_time)),
+            });
+      }
+      case "postListQuery": {
+        const [, query = ""] = /^(.+) -is:retweet since:/.exec(s(variables, "query") ?? "") ?? [];
+        const product = s(variables, "product") ?? "Top";
+        const hits = radarHits(query).toSorted((a, b) =>
+          product === "Latest"
+            ? Date.parse(b.createdAt) - Date.parse(a.createdAt)
+            : b.metrics.likes - a.metrics.likes,
+        );
+        return radar.premium && query !== ""
+          ? page(op, `radar:${product}:${query}`, hits, { top: null })
+          : null;
+      }
       default:
         if (
           /^User(Tweets|TweetsAndReplies|Media|HighlightsTweets|SuperFollowTweets|RepostsTimeline)$/.test(
@@ -828,6 +948,7 @@ export function createMockState(options: MockOptions = {}) {
       s(input, "user_id") ??
       s(input, "id") ??
       s(input, "communityId") ??
+      s(input, "bookmark_collection_id") ??
       null;
     presses.push({ kind: "write", name, target: id, path });
     const tweet = s(input, "tweet_id") ?? s(input, "source_tweet_id") ?? "";
@@ -939,6 +1060,80 @@ export function createMockState(options: MockOptions = {}) {
           members: Math.max(0, (c.members ?? 1) - 1),
         }));
         return { data: { community_leave: "Done" } };
+      // X's folder dialogs and rows (bundle.BookmarkFolders), each answered as X does.
+      case "createBookmarkFolder": {
+        const folder = {
+          folderId: String(800_000_000_101 + madeFolders++),
+          name: s(input, "name") ?? "",
+          imageUrl: null,
+        };
+        folderPosts.set(folder.folderId, []);
+        toTop(folder);
+        return { data: { bookmark_collection_create: encodeFolder(folder) } };
+      }
+      case "EditBookmarkFolder": {
+        const known = folders.find((f) => f.folderId === s(input, "bookmark_collection_id"));
+        if (known === undefined) return { data: {} };
+        const folder = { ...known, name: s(input, "name") ?? known.name };
+        toTop(folder);
+        return { data: { bookmark_collection_update: encodeFolder(folder) } };
+      }
+      case "DeleteBookmarkFolder": {
+        const folderId = s(input, "bookmark_collection_id") ?? "";
+        folders.splice(0, folders.length, ...folders.filter((f) => f.folderId !== folderId));
+        folderPosts.delete(folderId);
+        return done("bookmark_collection_delete");
+      }
+      case "bookmarkTweetToFolder":
+      case "RemoveTweetFromBookmarkFolder": {
+        const folder = folders.find((f) => f.folderId === s(input, "bookmark_collection_id"));
+        const ids = folderPosts.get(folder?.folderId ?? "");
+        if (folder === undefined || ids === undefined) return { data: {} };
+        const rest = ids.filter((pid) => pid !== tweet);
+        folderPosts.set(
+          folder.folderId,
+          name === "bookmarkTweetToFolder" ? [tweet, ...rest] : rest,
+        );
+        toTop(folder);
+        return done(
+          name === "bookmarkTweetToFolder"
+            ? "bookmark_collection_tweet_put"
+            : "bookmark_collection_tweet_delete",
+        );
+      }
+      // X's Radar: a query made from X's form, and one deleted from X's list.
+      case "createInsightInputMutation": {
+        const made = String(radar.next++);
+        radar.queries.unshift({
+          id: made,
+          title: s(input, "title") ?? "",
+          query: s(input, "advanced_query") ?? "",
+          createdAt: new Date().toISOString(),
+        });
+        return {
+          data: {
+            create_insight_rule_v2: {
+              __typename: "InsightRuleMutationSuccess",
+              result: { rest_id: made, id: btoa(`InsightRule:${made}`) },
+            },
+          },
+        };
+      }
+      case "deleteInsightButtonMutation": {
+        const at = radar.queries.findIndex((q) => q.id === id);
+        if (at !== -1) radar.queries.splice(at, 1);
+        return {
+          data: {
+            delete_insight_rule_v2:
+              at === -1
+                ? { __typename: "InsightRuleFailure", error_code: 404, error_message: "Not found" }
+                : {
+                    __typename: "InsightRuleMutationSuccess",
+                    result: { rest_id: id, id: btoa(`InsightRule:${id}`) },
+                  },
+          },
+        };
+      }
       default:
         // Mutes, blocks and the rest are only logged: no screen reads them back.
         return { data: {} };
@@ -948,8 +1143,8 @@ export function createMockState(options: MockOptions = {}) {
   return {
     viewer,
     viewerUser,
-    /** X's claim for bold and italic: its composer applies them only then. */
-    premium: options.premium === true,
+    /** Whether X's composer lets the account bold and italicize (`MockOptions.formatting`). */
+    formats: options.formatting === true,
     people,
     /** Home's pinned tabs as X's PinnedTimelines lists them now. */
     get pinnedTabs() {
@@ -971,6 +1166,8 @@ export function createMockState(options: MockOptions = {}) {
       fixture("ConnectTabTimeline", "connect:creators")!.people.includes(userId),
     /** Everything pressed and written, in order. */
     presses,
+    /** X's Radar: whether the account has Premium, X's query limit, and its queries. */
+    radar,
     setTrendHidden: (path: string, name: string, hidden: boolean) => {
       const names = hiddenTrends.get(path) ?? new Set<string>();
       if (hidden) names.add(name);
@@ -1013,6 +1210,16 @@ export function createMockState(options: MockOptions = {}) {
     game: (id: string) => games.get(id),
     /** Whether the user pinned a Community to Home (X's Pin in its header). */
     communityPinned: (id: string) => pinnedCommunities.has(id),
+    /** Whether X's claims give the account bookmark folders (Premium). */
+    get premium() {
+      return premium;
+    },
+    setPremium: (on: boolean) => {
+      premium = on;
+    },
+    /** The account's bookmark folders in X's order, and each one's posts, newest first. */
+    folders: (): ReadonlyArray<EngineBookmarkFolder> => [...folders],
+    folderPosts: (folderId: string): ReadonlyArray<string> => folderPosts.get(folderId) ?? [],
     /** Whether the user asked to join a Community that asks first, and waits for its moderators. */
     communityRequested: (id: string) => requested.has(id),
     /** The Communities a hub tab's posts are from, in X's order: X fetches a card for each. */

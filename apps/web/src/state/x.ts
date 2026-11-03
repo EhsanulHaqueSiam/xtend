@@ -1,6 +1,7 @@
 import {
   type EngineBatch,
   type EngineGameTeam,
+  type EngineRadarQuery,
   isXSkinToggle,
   X_SKIN_DEFAULTS,
   type XSkinToggle,
@@ -393,6 +394,105 @@ export const xPickInspiration = (
   });
   inspirationPresses = press.catch(() => false);
   return press;
+};
+
+/** X's Radar (Premium): the user's saved queries; a query's page is `/<id>`, X's form `/new`. */
+export const RADAR_URL = "https://x.com/i/radar";
+
+/**
+ * Whether X's Radar page shows X's Premium upsell (its "Subscribe to Premium" link) instead of
+ * Radar, once `loaded` settles: X's answer for an account without Premium. False while X shows
+ * Radar there, or the engine is elsewhere.
+ */
+export const xRadarUpsell = async (loaded: Promise<unknown>) => {
+  await loaded;
+  return (
+    (await xRun(`(async () => {
+    for (let i = 0; i < 40 && location.pathname === "/i/radar"; i++) {
+      if (document.querySelector('main a[href^="/i/premium_sign_up"]')) return true;
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    return false;
+  })()`)) === true
+  );
+};
+
+/**
+ * Creates a Radar query for the user's click through X's own form on its new-query page: the field
+ * set as typing sets it, then X's own Submit (its arrow), so X sends its own request. Resolves to
+ * the query whose page X opens, or null when X showed no form (the account is at X's limit) or
+ * opened none.
+ */
+export const xRadarCreate = async (query: string) => {
+  await xGo(`${RADAR_URL}/new`);
+  const run = await nextRun();
+  const id = await xRun(`(async () => {
+    const wait = () => new Promise((r) => setTimeout(r, 150));
+    const here = () => location.pathname === "/i/radar/new";
+    const fields = () => (here() ? [...document.querySelectorAll("main input")].filter((i) => i.type === "text") : []);
+    const submit = () => (here() ? document.querySelector('main button:has(svg[data-icon="icon-arrow-up"])') : null);
+    for (let i = 0; i < 40 && fields().length === 0 && ${stillMine(run)}; i++) await wait();
+    const input = fields()[0];
+    if (fields().length !== 1 || !${stillMine(run)}) return null;
+    // React keeps the field's value itself: its native setter and an input event are a keystroke.
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, ${JSON.stringify(query)});
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    for (let i = 0; i < 20 && submit()?.disabled !== false && ${stillMine(run)}; i++) await wait();
+    if (submit()?.disabled !== false || !${stillMine(run)}) return null;
+    submit().click();
+    for (let i = 0; i < 70; i++) {
+      const opened = /^\\/i\\/radar\\/(\\d+)$/.exec(location.pathname);
+      if (opened) return opened[1];
+      await wait();
+    }
+    return null;
+  })()`);
+  return typeof id === "string" ? id : null;
+};
+
+/**
+ * Deletes a Radar query for the user's click: presses X's own Delete on the one row whose query
+ * field shows exactly this query or its tags (and its title, if it has one); X's confirm shows over
+ * the main area (see `holdOver`) for the user to confirm in X. False for no such row, or several.
+ */
+export const xRadarDelete = async (
+  query: Pick<EngineRadarQuery, "query" | "title">,
+  over: (shown: boolean) => void,
+) => {
+  await xGo(RADAR_URL);
+  const run = await nextRun();
+  const want = { title: query.title, query: query.query, parts: query.query.split(" OR ") };
+  const path = await xRun(`(async () => {
+    const wait = () => new Promise((r) => setTimeout(r, 150));
+    const want = ${JSON.stringify(want)};
+    const buttons = () => (location.pathname === "/i/radar" ? [...document.querySelectorAll('main button:has(svg[data-icon="icon-trashcan"])')] : []);
+    // X's row: its first column holds its title (and date), then its query field: the query, or an
+    // older query's tags one by one. Only that field is read, so no other text in the row matches.
+    const texts = (el) => (el ? [el, ...el.querySelectorAll("*")] : [])
+      .filter((e) => e.children.length === 0)
+      .map((e) => e.textContent.trim())
+      .filter((text) => text !== "");
+    const names = (button) => {
+      const [head, field] = button.closest(".group")?.firstElementChild?.children ?? [];
+      const shown = texts(field);
+      const tags = new Set(shown);
+      return (want.title === "" || texts(head)[0] === want.title) &&
+        ((shown.length === 1 && shown[0] === want.query) ||
+          (tags.size === shown.length && tags.size === new Set(want.parts).size && want.parts.every((part) => tags.has(part))));
+    };
+    for (let i = 0; i < 40 && buttons().length === 0 && ${stillMine(run)}; i++) await wait();
+    const named = buttons().filter(names);
+    if (named.length !== 1 || !${stillMine(run)}) return null;
+    named[0].click();
+    for (let i = 0; i < 20; i++) {
+      if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return location.pathname + location.search;
+      await wait();
+    }
+    return null;
+  })()`);
+  if (typeof path !== "string") return false;
+  await holdOver(run, path, over);
+  return true;
 };
 
 /**
@@ -1193,6 +1293,55 @@ export const xToastUndo = () =>
   xRun(
     `(() => { const undo = [...document.querySelectorAll('[data-testid="toast"] button, [data-testid="toast"] [role="button"]')].find((b) => b.textContent.trim() === "Undo"); undo?.click(); return !!undo; })()`,
   ).then((done) => done === true);
+
+/**
+ * Opens X's own folder dialog for the user's click on X's route for it: Create (`folder` null) or
+ * Edit, whose Delete Folder row `remove` presses so X asks its own confirm; over the main area until
+ * X leaves the route. True once it came and went; false when X showed none (X sends an account
+ * without folders back to Bookmarks); null when the user moved on.
+ */
+export const xFolderDialog = async (
+  folder: { readonly folderId: string; readonly name: string } | null,
+  remove: boolean,
+  over: (shown: boolean) => void,
+): Promise<boolean | null> => {
+  // No engine (a browser): no X. The id goes into a script: digits only.
+  if (element === null || !ready || (folder !== null && !/^\d{1,25}$/.test(folder.folderId)))
+    return false;
+  const run = await nextRun();
+  const path =
+    folder === null ? "/i/bookmarks/create_folder" : `/i/bookmarks/${folder.folderId}/edit`;
+  await xGo(`https://x.com${path}`);
+  const shown = await xRun(`(async () => {
+    for (let i = 0; i < 50; i++) {
+      if (!${stillMine(run)} || location.pathname !== ${JSON.stringify(path)}) return false;
+      // A dialog on a wide window; the engine's narrow one gets X's compact layout, a page.
+      const scope = document.querySelector('[role="dialog"]') ?? document;
+      // X's red row is a plain cell: its words are the only way to tell it. Only in the editor
+      // whose name field holds this folder's name (X allows no two alike), never another
+      // folder's editor X still draws under this route.
+      const mine = [...scope.querySelectorAll("input")].some((f) => f.value === ${JSON.stringify(folder?.name ?? null)});
+      const row = ${remove} && mine ? [...scope.querySelectorAll("span, div, button")].find((el) => el.children.length === 0 && el.textContent.trim() === "Delete Folder") : null;
+      // X sends an account without folders off the route at once; one it keeps is X's form.
+      if (${remove} ? row : i >= 10) {
+        row?.click();
+        return true;
+      }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return false;
+  })()`);
+  if (shown !== true) return false;
+  over(true);
+  for (;;) {
+    await new Promise((r) => setTimeout(r, 500));
+    // The user moved on: AppShell already ended the engine's place over the main area.
+    if (run !== overRun) return null;
+    if ((await xRun(`location.pathname === ${JSON.stringify(path)}`)) !== true) break;
+  }
+  over(false);
+  return true;
+};
 
 /**
  * Follows or unfollows for the user's click through X's own button: in place when the engine page

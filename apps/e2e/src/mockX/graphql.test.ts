@@ -23,6 +23,8 @@ const PAGES: ReadonlyArray<readonly [path: string, tab?: string]> = [
   ["/search?q=design%20system&src=typed_query"],
   ["/search?q=design%20system&src=typed_query&f=user"],
   ["/i/bookmarks"],
+  ["/i/bookmarks/800000000001"],
+  ["/i/bookmarks/800000000002"],
   ["/explore"],
   ["/you/lists"],
   ["/i/lists/600000000001"],
@@ -50,6 +52,7 @@ it("answers every request X's pages make with the batch the made-up fixtures hol
   for (const [path, tab = "forYou"] of PAGES)
     for (const { op, variables } of [
       { op: "Viewer", variables: {} },
+      { op: "GetUserClaims", variables: {} },
       ...route(state, path, tab).requests,
     ])
       // A response round-trips through JSON on its way to the capture.
@@ -132,4 +135,46 @@ it("answers X's GIF search page by page, read back as the batch mock X draws its
       want.gifs,
     ]);
   }
+});
+
+it("answers X's Radar only with Premium, in X's Relay shapes, as the capture reads them back", () => {
+  const state = createMockState();
+  // X's upsell for an account without Premium makes no Radar call.
+  expect(route(state, "/i/radar", "forYou").requests).toEqual([]);
+  state.radar.premium = true;
+  const ops = new Set<string>();
+  const posts = (path: string) =>
+    route(state, path, "forYou").requests.flatMap(
+      (q) => state.batchFor(q.op, q.variables)?.posts ?? [],
+    );
+  // Each query finds posts, so the round trip reads some.
+  expect([posts("/i/radar/1801").length > 0, posts("/i/radar/1802").length > 0]).toEqual([
+    true,
+    true,
+  ]);
+  for (const path of ["/i/radar", "/i/radar/1801", "/i/radar/new"])
+    for (const { op, variables } of route(state, path, "forYou").requests) {
+      ops.add(op);
+      const want = state.batchFor(op, variables)!;
+      const got = renderEngineBatch(
+        op,
+        variables,
+        JSON.parse(JSON.stringify(state.respond(op, variables))),
+      );
+      const read = (b: EngineBatch) => [
+        b.key,
+        b.radarQueries,
+        b.radarLimit,
+        b.radarCounts,
+        b.posts.map((p) => [p.postId, p.text, p.author.handle, p.metrics]),
+      ];
+      expect(read(got), `${path} ${op}`).toEqual(read(want));
+    }
+  expect([...ops].toSorted()).toEqual([
+    "insightProviderGetQuery",
+    "insightsConfigQuery",
+    "insightsListContextQuery",
+    "postListQuery",
+    "usePostCountQuery",
+  ]);
 });

@@ -17,6 +17,7 @@ import {
   inspirationTimelineId,
   type MockState,
   quotesQuery,
+  radarRange,
 } from "./state.ts";
 
 /**
@@ -232,14 +233,14 @@ export const postsOf = (b: EngineBatch | null, state: MockState) =>
 /** X's GIF tile: named by its alt text (X's own ends in "GIF"), its picture a CSS background, no id of its own. */
 const gifTile = (g: EngineGif) =>
   `<button><div data-testid="gifSearchGifImage" aria-label="${esc(g.altText ?? "GIF")}" style="display:inline-block;width:180px;height:240px;background-image:url(&quot;${esc(g.url)}&quot;)"></div></button>`;
-/** X's composer toolbar: its GIF button opens X's GIF search, then `post` (Post or Reply). */
 /**
  * X's editor in its box: X caps the box's height (scrolling past it) unless its own gate lets the
  * account bold and italicize, which is how Xtend tells, as live X may never send GetUserClaims.
  */
 const editor = (state: MockState, placeholder: string) =>
-  `<div data-testid="tweetTextarea_0RichTextInputContainer" style="${state.premium ? "min-height: 24px" : "max-height: 720px; overflow-y: auto"}"><div data-testid="tweetTextarea_0" contenteditable="true" role="textbox" aria-label="Post text" data-placeholder="${placeholder}"></div></div>`;
+  `<div data-testid="tweetTextarea_0RichTextInputContainer" style="${state.formats ? "min-height: 24px" : "max-height: 720px; overflow-y: auto"}"><div data-testid="tweetTextarea_0" contenteditable="true" role="textbox" aria-label="Post text" data-placeholder="${placeholder}"></div></div>`;
 
+/** X's composer toolbar: its GIF button opens X's GIF search, then `post` (Post or Reply). */
 const toolBar = (post: string) =>
   `<div data-testid="toolBar"><button data-testid="gifSearchButton" aria-label="Add a GIF">GIF</button>${post}</div>`;
 /** X's Who to follow among a timeline's posts: header, people with Follow, Show more. */
@@ -274,6 +275,8 @@ interface Route {
   /** X's REST reads the page makes beside its GraphQL ones, by URL. */
   readonly rest?: ReadonlyArray<string>;
   readonly render: (batches: ReadonlyArray<EngineBatch | null>) => string;
+  /** Where X's router sends the path instead, replacing it, as X's Redirect does. */
+  readonly redirect?: string;
 }
 
 const RESERVED = new Set([
@@ -330,6 +333,104 @@ const GAME_TABS = ["Top", "Latest", "Highlights", "Stats", "Plays", "Chat"] as c
 const routeDialog = (title: string, body: string) =>
   `<div role="dialog" aria-modal="true" aria-labelledby="dialog-title" class="dialog route"><div class="bar"><button data-testid="app-bar-close" aria-label="Close">✕</button><h2 id="dialog-title">${esc(title)}</h2></div>${body}</div>`;
 
+/**
+ * X's Radar pages (ondemand.Insights): without Premium, X's upsell and no call, as on x.com. With
+ * it, the list (or, for an account X allows one query, that query's page), a query's page with
+ * its Posts count and Top posts, and the new-query form, whose Delete and Submit client.ts drives.
+ */
+function radarPage(state: MockState, page: string | undefined): Route {
+  const radar = state.radar;
+  if (!radar.premium)
+    return {
+      title: "Radar / X",
+      requests: [],
+      render: () =>
+        `${header("Radar")}<div class="empty"><h1>Be the very first to spot trends with Radar</h1><p>Introducing the most powerful search tool on X.</p><p>Monitor keywords, visualize trend activity, and filter conversations. In real-time.</p><a href="/i/premium_sign_up">Subscribe to Premium</a>${[
+          ["Monitor keywords", "Focus on any topic using advanced search capability."],
+          [
+            "Visualize trends",
+            "Track conversations with daily activity graphs from the past 3 days.",
+          ],
+          ["Real-time metrics", "Get immediate stats on post counts from your queries."],
+        ]
+          .map(([t, d]) => `<div><b>${t}</b><p>${d}</p></div>`)
+          .join("")}</div>`,
+    };
+  const r = (op: string, variables: Record<string, unknown>): GraphqlRequest => ({ op, variables });
+  const { from, to, since } = radarRange();
+  const counts = (id: string) =>
+    r("usePostCountQuery", {
+      from_time: from,
+      granularity: "Day",
+      id,
+      timezone_offset: 0,
+      to_time: to,
+      include_unique_users: false,
+      include_impressions: false,
+      include_total_posts: false,
+    });
+  const config = r("insightsConfigQuery", {});
+  const list = r("insightsListContextQuery", { previewsEnabled: radar.limit > 1 });
+  const total = (b: EngineBatch | null | undefined) =>
+    (b?.radarCounts ?? []).reduce((n, d) => n + (d.count ?? 0), 0).toLocaleString("en");
+  const title = (q: { readonly title: string }) => esc(q.title || "Untitled query");
+  const bar = `${header("Radar")}${radar.limit > 1 ? `<a href="/i/radar">All queries</a> <a href="/i/radar/new">New query</a>` : ""}`;
+  const queryPage = (id: string): Route => {
+    const q = radar.queries.find((x) => x.id === id);
+    return {
+      title: "Radar / X",
+      requests: [
+        config,
+        r("insightProviderGetQuery", { id }),
+        counts(id),
+        ...(q === undefined
+          ? []
+          : [
+              r("postListQuery", {
+                cursor: null,
+                product: "Top",
+                query: `${q.query} -is:retweet since:${since}`,
+              }),
+            ]),
+      ],
+      render: ([, , c, posts]) =>
+        q === undefined
+          ? `${bar}<div class="empty">Insight rule not found</div>`
+          : `${bar}<h2>${title(q)}</h2><div>${esc(q.query)}</div><div data-radar-count>Posts <span>${total(c)}</span></div><button type="button">Top</button><button type="button">Latest</button><section data-list>${postsOf(posts ?? null, state)}</section>`,
+    };
+  };
+  const form = (count: number) =>
+    count >= radar.limit
+      ? `<div class="empty"><b>You have reached the maximum number of queries</b> <a href="/i/radar">All queries</a></div>`
+      : `<div class="empty" data-radar-form><h2>Create a query and let Radar track real-time updates</h2><input placeholder="$NVDA (sell OR buy)"><button type="button" aria-label="Submit" disabled data-radar-submit><svg data-icon="icon-arrow-up"></svg></button></div>`;
+  if (page === "new")
+    return {
+      title: "Radar / X",
+      requests: [config, r("insightsListContextQuery", { previewsEnabled: false })],
+      render: () => `${bar}${form(radar.queries.length)}`,
+    };
+  if (page !== undefined) return queryPage(page);
+  if (radar.queries.length === 0)
+    return { title: "Radar / X", requests: [config, list], render: () => `${bar}${form(0)}` };
+  if (radar.limit <= 1) {
+    const only = queryPage(radar.queries[0]!.id);
+    // After the page's own calls, so its render reads them where it expects.
+    return { ...only, requests: [...only.requests, list] };
+  }
+  return {
+    title: "Radar / X",
+    requests: [config, list, ...radar.queries.map((q) => counts(q.id))],
+    render: ([, , ...days]) =>
+      `${bar}${radar.queries
+        .map(
+          (q, i) =>
+            // X's row: a column of its title and date, its query field and its Delete, then Posts.
+            `<div class="group" data-radar-row="${q.id}" data-radar-name="${title(q)}"><div><div><b>${title(q)}</b> <span>${shortDate(q.createdAt)}</span></div><div><span>${esc(q.query)}</span></div><div><button type="button" data-radar-delete="${q.id}"><svg data-icon="icon-trashcan"></svg><div>Delete</div></button></div></div><div>Posts <span>${total(days[i])}</span></div></div>`,
+        )
+        .join("")}`,
+  };
+}
+
 /** The route for an x.com path (with its query), and Home's picked tab. */
 export function route(state: MockState, pathWithQuery: string, homeTab: string): Route {
   const url = new URL(pathWithQuery, "https://x.com");
@@ -339,6 +440,7 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
   const r = (op: string, variables: Record<string, unknown>): GraphqlRequest => ({ op, variables });
   const lower = first.toLowerCase();
 
+  if (lower === "i" && second === "radar" && fourth === undefined) return radarPage(state, third);
   if (url.pathname === "/home") {
     const feed =
       homeTab === "following"
@@ -385,16 +487,93 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
   if (url.pathname === "/i/bookmarks")
     return {
       title: "Bookmarks / X",
-      requests: [r("Bookmarks", { count: 20, includePromotedContent: true })],
-      render: ([b]) => {
+      requests: [
+        r("Bookmarks", { count: 20, includePromotedContent: true }),
+        // X lists folders above the posts only for an account its claims give them (Premium).
+        ...(state.premium ? [r("BookmarkFoldersSlice", {})] : []),
+      ],
+      render: ([b, f]) => {
         const list = postsOf(b ?? null, state);
-        return `${header("All Bookmarks")}<input aria-label="Search Bookmarks" placeholder="Search Bookmarks"><section data-list>${
+        const folders =
+          f?.bookmarkFolders?.kind === "list"
+            ? f.bookmarkFolders.folders
+                .map((x) => `<a href="/i/bookmarks/${x.folderId}">${esc(x.name)} ›</a>`)
+                .join("")
+            : "";
+        return `${header("All Bookmarks")}<input aria-label="Search Bookmarks" placeholder="Search Bookmarks"><nav aria-label="Bookmark folders">${folders}</nav><section data-list>${
           list === ""
             ? `<div class="empty"><h3>Bookmark posts to save them for later</h3><button>New folder</button></div>`
             : list
         }</section>`;
       },
     };
+  // X's bookmark folders (bundle.BookmarkFolders): a folder's posts, and X's dialogs on their own
+  // routes, X's words on each. X sends an account without folders, or a folder gone, to Bookmarks.
+  if (lower === "i" && second === "bookmarks" && third !== undefined) {
+    const away: Route = {
+      title: "Bookmarks / X",
+      requests: [],
+      redirect: "/i/bookmarks",
+      render: () => "",
+    };
+    if (!state.premium) return away;
+    if (third === "create_folder")
+      return {
+        title: "Create Folder / X",
+        requests: [],
+        render: () =>
+          routeDialog(
+            "Create Folder",
+            `<input aria-label="Name" name="name" maxlength="25"><button data-folder="create">Create</button>`,
+          ),
+      };
+    if (third === "add") {
+      // X carries the post in its router's state; the mock, in the query.
+      const tweetId = q.get("tweet_id") ?? "";
+      return {
+        title: "Add to Folder / X",
+        requests: [r("BookmarkFoldersSlice", { tweet_id: tweetId })],
+        render: () =>
+          routeDialog(
+            "Add to Folder",
+            `<a href="/i/bookmarks/create_folder">Create a new Bookmark Folder</a><div>All Bookmarks ✓</div>${state
+              .folders()
+              .map((f) => {
+                const has = state.folderPosts(f.folderId).includes(tweetId);
+                return `<div role="button" tabindex="0" data-folder="${has ? "pull" : "put"}:${f.folderId}:${esc(tweetId)}" data-folder-name="${esc(f.name)}">${esc(f.name)}${has ? " ✓" : ""}</div>`;
+              })
+              .join("")}`,
+          ),
+      };
+    }
+    const folder = state.folders().find((f) => f.folderId === third);
+    if (folder === undefined) return away;
+    if (fourth === "edit")
+      return {
+        title: "Edit Folder / X",
+        requests: [],
+        render: () =>
+          routeDialog(
+            "Edit Folder",
+            `<input aria-label="Name" name="name" maxlength="25" value="${esc(folder.name)}"><button data-folder="save:${folder.folderId}">Save</button><div role="button" tabindex="0" data-folder="delete:${folder.folderId}"><span>Delete Folder</span></div>`,
+          ),
+      };
+    return {
+      title: "Bookmarks / X",
+      requests: [
+        r("BookmarkFolderTimeline", {
+          bookmark_collection_id: folder.folderId,
+          includePromotedContent: true,
+        }),
+      ],
+      // A post's share menu here knows its folder, as X's does: it offers Remove from Folder.
+      render: ([b]) =>
+        `${header(folder.name)}<section data-list>${postsOf(b ?? null, state).replace(
+          /data-menu="share:(\d+)"/g,
+          `data-menu="share:$1:${folder.folderId}"`,
+        )}</section>`,
+    };
+  }
   if (lower === "notifications") {
     const mentions = second === "mentions";
     return {

@@ -1,6 +1,7 @@
 import type {
   EngineArticle,
   EngineBatch,
+  EngineBookmarkFolder,
   EngineCommunity,
   EngineExploreTab,
   EngineGame,
@@ -13,6 +14,8 @@ import type {
   EnginePeopleSection,
   EnginePost,
   EnginePrompt,
+  EngineRadarCount,
+  EngineRadarQuery,
   EngineTrend,
   EngineUser,
   EngineViewer,
@@ -92,7 +95,9 @@ type KeyedSurface =
   | `communityPostsSearch:${"Top" | "Latest"}:${string}`
   | `profile:${ProfileTab}:${string}`
   | `sportsGame:${GameTab}:${string}`
-  | `gifs:${string}`;
+  | `gifs:${string}`
+  | `bookmarkFolder:${string}`
+  | `radar:${string}`;
 /** X's Follow page's tabs (Who to follow, Creators for you), as the capture keys them. */
 export type ConnectTab = "connect:who" | "connect:creators";
 export type AnySurface = Surface | KeyedSurface;
@@ -154,6 +159,12 @@ export type CommunitySearchMode = "Likes" | "Recency";
 /** A search inside a Community, as X's search page there lists it for the order and query. */
 export const communitySearchSurface = (id: string, mode: CommunitySearchMode, query: string) =>
   `communitySearch:${id}:${mode}:${query}` as const;
+/** A bookmark folder's posts, as X's folder page lists them. */
+export const bookmarkFolderSurface = (folderId: string) => `bookmarkFolder:${folderId}` as const;
+/** X's claim (GetUserClaims) that the account has bookmark folders, which X keeps to Premium. */
+export const FOLDERS_CLAIM = "subscriptions_feature_1002";
+/** X's claim for bold and italic in its composer (GetUserClaims). */
+const FORMAT_CLAIM = "subscriptions_feature_1014";
 /** What X's GIF search lists for a query; X's picker opens on the empty one. */
 export const gifSurface = (query: string) => `gifs:${query}` as const;
 /** X's search of Communities, from the hub: the Communities it finds for the query. */
@@ -217,6 +228,9 @@ const tabKey = <P extends "tag" | "community" | "communitySearch" | "list">(
   prefix: P,
 ) => (key?.startsWith(`${prefix}:`) === true ? (key as `${P}:${string}`) : undefined);
 
+/** A Radar query's posts on X's Top tab, X's default, as the capture keys them. */
+export const radarSurface = (query: string) => `radar:Top:${query}` as const;
+
 /**
  * Which surfaces a response feeds, its own first; none for the many X calls no screen lists.
  */
@@ -258,6 +272,8 @@ export function surfacesOf(batch: Pick<EngineBatch, "op" | "key">): ReadonlyArra
     const search = tabKey(key, "communitySearch");
     return search === undefined ? [] : [search];
   }
+  if (op === "postListQuery" && key?.startsWith("radar:") === true)
+    return [key as `radar:${string}`];
   if (op === "GifSearch" && key?.startsWith("gifs:") === true)
     return [gifSurface(key.slice("gifs:".length))];
   // The capture keys a search of Communities by its query; the operation is the tab.
@@ -271,6 +287,8 @@ export function surfacesOf(batch: Pick<EngineBatch, "op" | "key">): ReadonlyArra
   // The capture keys a game's posts by the game.
   if (key !== null && op === "SportsGameTopTimeline") return [gameSurface(key, "Top")];
   if (key !== null && op === "SportsGameLatestTimeline") return [gameSurface(key, "Latest")];
+  // The capture keys a folder's posts by the folder.
+  if (key !== null && op === "BookmarkFolderTimeline") return [bookmarkFolderSurface(key)];
   const inspiration = inspirationOf(batch);
   if (inspiration !== null) return [inspirationSurface(inspiration)];
   // The capture keys every List call `list:<id>`.
@@ -412,14 +430,17 @@ export interface EngineState {
   readonly analytics: ReadonlyMap<string, Readonly<Record<string, number>>>;
   /** How many people the viewer follows follow each user, by user id (see `EngineBatch.knownFollowers`). */
   readonly knownFollowers: ReadonlyMap<string, number>;
-  /** The features X's subscription grants the account, as X last said (`EngineBatch.claims`); null until it has. */
-  readonly claims: ReadonlySet<string> | null;
   /** Whether X's composer lets the account format, as X's page last drew it; null until it has. */
   readonly formatting: boolean | null;
+  readonly radar: Radar;
   /** The page cursors X last answered per surface, to tell a fetch of newer posts from the next page. */
   readonly cursors: Readonly<
     Partial<Record<AnySurface, { readonly top: string | null; readonly bottom: string | null }>>
   >;
+  /** What X's latest GetUserClaims says the account holds (`FOLDERS_CLAIM`, `FORMAT_CLAIM`); null until (if) it says. */
+  readonly claims: ReadonlySet<string> | null;
+  /** The user's bookmark folders in X's order; null until X listed them, which it does for Premium. */
+  readonly bookmarkFolders: ReadonlyArray<EngineBookmarkFolder> | null;
 }
 
 export const emptyEngine: EngineState = {
@@ -454,9 +475,11 @@ export const emptyEngine: EngineState = {
   viewer: null,
   analytics: new Map(),
   knownFollowers: new Map(),
-  claims: null,
   formatting: null,
+  radar: { list: null, queries: new Map(), limit: null, counts: new Map() },
   cursors: {},
+  claims: null,
+  bookmarkFolders: null,
 };
 
 /** A surface's entries; a tab X has not sent yet has none. */
@@ -492,7 +515,9 @@ function join<A>(
  */
 export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState {
   const posts = new Map(state.posts);
-  for (const post of batch.posts) posts.set(post.postId, post);
+  for (const post of batch.posts)
+    // X's Radar sends a post without its media, quote or the viewer's own state: a fuller copy stays.
+    if (batch.op !== "postListQuery" || !posts.has(post.postId)) posts.set(post.postId, post);
   let users = state.users;
   let asked = state.asked;
   if (batch.users.length > 0) {
@@ -602,13 +627,18 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
         : new Map(state.knownFollowers).set(batch.key, batch.knownFollowers),
     claims: batch.claims === undefined ? state.claims : new Set(batch.claims),
     formatting: batch.formatting ?? state.formatting,
+    bookmarkFolders: foldersOf(state.bookmarkFolders, batch),
+    ...folderPost(state, batch),
+    radar: mergeRadar(state.radar, batch),
   };
   const listed = surfacesOf(batch).reduce(
     (state, surface) =>
       mergeInto(
-        // Explore's and Inspiration's first page is X's whole list again, so it replaces ours;
-        // Home's waits behind a pill, which neither draws.
-        (surface.startsWith("explore:") || surface.startsWith("inspiration:")) &&
+        // Explore's, Inspiration's and Radar's first page is X's whole list again, so it replaces
+        // ours; Home's waits behind a pill, which none of them draws.
+        (surface.startsWith("explore:") ||
+          surface.startsWith("inspiration:") ||
+          surface.startsWith("radar:")) &&
           batch.cursor === null
           ? resetSurface(state, surface)
           : state,
@@ -621,6 +651,115 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
   // The response also carries the post it quotes, which stays where it was.
   const created = batch.posts.filter((p) => !batch.posts.some((q) => q.quotedId === p.postId));
   return created.reduce(placeCreated, listed);
+}
+
+/**
+ * The user's bookmark folders after what a response says of them. X's slice lists a folder it
+ * just created, renamed, or put a post in or took one out of first; its first page is its whole
+ * list again. Unknown stays unknown: a change alone never makes a partial list.
+ */
+function foldersOf(
+  folders: EngineState["bookmarkFolders"],
+  batch: EngineBatch,
+): EngineState["bookmarkFolders"] {
+  const change = batch.bookmarkFolders;
+  if (change === undefined) return folders;
+  if (change.kind === "list")
+    return batch.cursor === null
+      ? change.folders
+      : join(folders ?? [], change.folders, (f) => f.folderId);
+  if (folders === null) return null;
+  if (change.kind === "deleted") return folders.filter((f) => f.folderId !== change.folderId);
+  const id = change.kind === "saved" ? change.folder.folderId : change.folderId;
+  const known = folders.find((f) => f.folderId === id);
+  // A rename keeps the folder's picture, which X's answer need not repeat.
+  const first =
+    change.kind === "saved"
+      ? { ...change.folder, imageUrl: change.folder.imageUrl ?? known?.imageUrl ?? null }
+      : known;
+  return first === undefined
+    ? folders
+    : [first, ...folders.filter((f) => f.folderId !== first.folderId)];
+}
+
+/**
+ * A post X put in or took out of a folder: off that folder's list, or on top of it once X answered
+ * for the folder (X adds it to the page it holds and fetches nothing). A folder X never answered
+ * for waits for X's own first page of it.
+ */
+function folderPost(
+  state: EngineState,
+  batch: EngineBatch,
+): Partial<Pick<EngineState, "lists" | "waiting">> {
+  const change = batch.bookmarkFolders;
+  if (change?.kind !== "post") return {};
+  const surface = bookmarkFolderSurface(change.folderId);
+  const list = at(state.lists, surface).filter((id) => id !== change.postId);
+  return {
+    lists: set(
+      state.lists,
+      surface,
+      change.added && state.cursors[surface] !== undefined && state.posts.has(change.postId)
+        ? [change.postId, ...list]
+        : list,
+    ),
+    waiting: set(
+      state.waiting,
+      surface,
+      at(state.waiting, surface).filter((id) => id !== change.postId),
+    ),
+  };
+}
+
+/** X's Radar as the engine read it (see `EngineBatch.radarQueries`). */
+interface Radar {
+  /** The queries' ids in X's order, once X listed them. */
+  readonly list: ReadonlyArray<string> | null;
+  readonly queries: ReadonlyMap<string, EngineRadarQuery>;
+  /** How many queries X lets the account keep, once X said. */
+  readonly limit: number | null;
+  /** Per query, X's daily post counts, oldest first. */
+  readonly counts: ReadonlyMap<string, ReadonlyArray<EngineRadarCount>>;
+}
+
+/**
+ * A response's Radar into the store. A query's days join what X sent before, as X asks again for
+ * days it was still counting; an answer that names a newer day starts the days afresh.
+ */
+function mergeRadar(radar: Radar, batch: EngineBatch): Radar {
+  const { key, radarQueries, radarCounts } = batch;
+  if (
+    radarQueries === undefined &&
+    radarCounts === undefined &&
+    batch.radarLimit === undefined &&
+    batch.radarDeleted === undefined
+  )
+    return radar;
+  const queries =
+    radarQueries === undefined
+      ? radar.queries
+      : new Map([...radar.queries, ...radarQueries.map((q) => [q.id, q] as const)]);
+  let counts = radar.counts;
+  if (radarCounts !== undefined && key !== null) {
+    const known = radar.counts.get(key) ?? [];
+    const last = known.at(-1)?.at ?? "";
+    const days = new Map(radarCounts.some((d) => d.at > last) ? [] : known.map((d) => [d.at, d]));
+    for (const d of radarCounts) if (d.count !== null || !days.has(d.at)) days.set(d.at, d);
+    counts = new Map(counts).set(
+      key,
+      [...days.values()].toSorted((a, b) => a.at.localeCompare(b.at)),
+    );
+  }
+  return {
+    // X takes a deleted query off its list without asking for the list again.
+    list:
+      key === "radar" && radarQueries !== undefined
+        ? radarQueries.map((q) => q.id)
+        : (radar.list?.filter((id) => id !== batch.radarDeleted) ?? null),
+    queries,
+    limit: batch.radarLimit ?? radar.limit,
+    counts,
+  };
 }
 
 const keepTeam = (known: EngineGameTeam, fresh: EngineGameTeam): EngineGameTeam => ({
@@ -1062,13 +1201,13 @@ export const engineAtom = Atom.make(emptyEngine).pipe(Atom.keepAlive);
 export const viewerHandleAtom = Atom.make((get) => get(engineAtom).viewer?.handle ?? null);
 
 /**
- * Whether X lets the account bold and italicize: X's claim for it (`subscriptions_feature_1014`)
- * or X's composer drawing it. Some accounts never get GetUserClaims, so neither yet means not;
+ * Whether X lets the account bold and italicize: X's claim for it (`FORMAT_CLAIM`) or X's composer
+ * drawing it. Some accounts never get GetUserClaims, so neither yet means not;
  * a wrong yes still posts nothing, as the desktop refuses unless X's editor took the formatting.
  */
 export const canFormatAtom = Atom.make((get) => {
   const { claims, formatting } = get(engineAtom);
-  return claims?.has("subscriptions_feature_1014") === true || formatting === true;
+  return claims?.has(FORMAT_CLAIM) === true || formatting === true;
 });
 
 /** Engine fixtures dev replayed into the store, in a browser with no desktop (DevEngineReplay). */
