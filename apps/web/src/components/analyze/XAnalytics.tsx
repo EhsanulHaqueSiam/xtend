@@ -302,7 +302,12 @@ function Picker<T extends string>({
       align="end"
       label={label}
       trigger={
-        <button type="button" aria-label={label} className={pickerClass}>
+        <button
+          type="button"
+          // The visible pick is part of the name, so voice control finds it by what it says.
+          aria-label={`${label}: ${options.find(([id]) => id === value)?.[1] ?? ""}`}
+          className={pickerClass}
+        >
           {options.find(([id]) => id === value)?.[1]}
           <ChevronDown className="size-3.5" />
         </button>

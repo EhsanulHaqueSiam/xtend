@@ -137,7 +137,7 @@ it("lists X's content of a type, and a post opens its own Post Analytics", async
   await expect
     .element(x.screen.getByText("Happy to share the template", { exact: false }))
     .not.toBeInTheDocument();
-  await userEvent.click(x.screen.getByRole("button", { name: "Type" }));
+  await userEvent.click(x.screen.getByRole("button", { name: "Type: Posts" }));
   await userEvent.click(page.getByRole("menuitem", { name: "Replies" }));
   await userEvent.click(x.screen.getByText("Happy to share the template", { exact: false }));
   expect(x.screen.router!.state.location.href).toBe("/post/700000000901/analytics?h=i");
@@ -159,7 +159,7 @@ it("breaks X's audience down by the engagement picked, rounded as X's page round
     .toEqual(["Male36.6%", "Female50.1%", "Not specified13.3%"]);
   expect(shares("Country")).toEqual(["Bangladesh68.4%", "United States31.6%"]);
   expect(shares("Device")).toEqual(["iOS50.1%", "Android36.6%", "Web13.3%", "Other0.0%"]);
-  await userEvent.click(x.screen.getByRole("button", { name: "Metric" }));
+  await userEvent.click(x.screen.getByRole("button", { name: "Metric: Likes" }));
   await userEvent.click(page.getByRole("menuitem", { name: "Impressions" }));
   await expect
     .poll(() => shares("Gender"))
