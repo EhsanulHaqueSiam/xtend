@@ -329,6 +329,12 @@ export interface EngineList {
   readonly owner: Pick<EngineUser, "userId" | "handle" | "name" | "avatarUrl"> | null;
   /** "Your Lists", "Discover new Lists". */
   readonly group: string | null;
+  /** Whether the viewer follows it (X's `following`); absent where X's answer did not say. */
+  readonly following?: boolean;
+  /** Whether it is pinned to Home (X's `pinning`); absent where X's answer did not say. */
+  readonly pinned?: boolean;
+  /** The button X draws on its row: Pin on Your Lists, a round Follow on Discover new Lists. */
+  readonly button?: "pin" | "follow";
 }
 
 /**
@@ -604,6 +610,13 @@ export interface EngineBatch {
   readonly radarCounts?: ReadonlyArray<EngineRadarCount>;
   /** The Radar query X deleted for the user's confirm in X's dialog (deleteInsightButtonMutation). */
   readonly radarDeleted?: string;
+  /** The List X deleted for the user's confirm in X's Edit List (DeleteList). */
+  readonly listDeleted?: string;
+  /**
+   * Every List pinned to Home, when X's pinned tabs answer names each one: no errors, every List
+   * tab read. A partial answer has none, so what it leaves out says nothing.
+   */
+  readonly pinnedLists?: ReadonlyArray<string>;
 }
 
 /** Counts by X's metric name (`Impressions`, `Likes`, `Retweets`, `Bookmark`, `Share`...). */

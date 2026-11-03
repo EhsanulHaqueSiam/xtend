@@ -5,6 +5,7 @@ import { Lock } from "lucide-react";
 import { useCallback, useEffect } from "react";
 
 import { fmt } from "../components/analyze/ui";
+import { ListEditButton, ListFollowButton } from "../components/xnative/ListButtons";
 import { Timeline } from "../components/xnative/Timeline";
 import { XTitle } from "../components/xnative/XColumn";
 import { Avatar } from "../components/xnative/XPostView";
@@ -45,6 +46,15 @@ function ListScreen() {
 }
 
 function ListHeader({ id, list }: { readonly id: string; readonly list: EngineList }) {
+  // X offers its owner Edit List and everyone else Follow. X's nav names the account by handle
+  // alone until X's Viewer call (if X makes one) gives its id.
+  const viewer = useAtomValue(engineAtom).viewer;
+  const own =
+    viewer !== null &&
+    list.owner !== null &&
+    (viewer.userId === null
+      ? viewer.handle.toLowerCase() === list.owner.handle.toLowerCase()
+      : viewer.userId === list.owner.userId);
   const count = (n: number | null, label: string, of: "members" | "followers") =>
     n === null ? null : (
       <Link to="/lists/$id/people" params={{ id }} search={{ of }} className="hover:underline">
@@ -81,6 +91,11 @@ function ListHeader({ id, list }: { readonly id: string; readonly list: EngineLi
           {count(list.members, "Members", "members")}
           {count(list.followers, "Followers", "followers")}
         </p>
+        {list.owner === null || viewer === null ? null : (
+          <div className="mt-4 mb-1">
+            {own ? <ListEditButton list={list} /> : <ListFollowButton list={list} />}
+          </div>
+        )}
       </div>
     </div>
   );

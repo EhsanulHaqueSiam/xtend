@@ -3,6 +3,7 @@ import type {
   EngineCommunity,
   EngineGame,
   EngineGif,
+  EngineList,
   EngineNotification,
   EnginePost,
   EngineProfileSave,
@@ -14,6 +15,7 @@ import { synth } from "../components/xnative/engineFixtures";
 import {
   ANALYTICS_CLAIM,
   askFollow,
+  askList,
   askMembership,
   askPin,
   at,
@@ -29,6 +31,8 @@ import {
   gifSurface,
   hideTrend,
   inspirationSurface,
+  listFollowing,
+  listPinned,
   mergeBatch,
   pickAnalyticsRange,
   postOn,
@@ -479,6 +483,137 @@ it("holds a pin or unpin X took until X's pinned tabs agree", () => {
   const unpinned = mergeBatch(askPin(agreed, "21", false), tabs("21", "20"));
   expect(communityPinned(unpinned, "21")).toBe(false);
   expect(mergeBatch(unpinned, tabs("20")).pinned.size).toBe(0);
+});
+
+const list = (
+  listId: string,
+  group: string | null,
+  extra: Partial<EngineList> = {},
+): EngineList => ({
+  listId,
+  name: `L${listId}`,
+  description: "",
+  members: 1,
+  followers: 0,
+  isPrivate: false,
+  bannerUrl: null,
+  owner: null,
+  group,
+  ...extra,
+});
+
+it("keeps a List's section and row button across its own page, and files one X just created first under Your Lists", () => {
+  const page = mergeBatch(
+    emptyEngine,
+    batch("ListsManagementPageTimeline", [], {
+      lists: [
+        list("1", "Discover new Lists", { button: "follow" }),
+        list("2", "Your Lists", { button: "pin" }),
+      ],
+    }),
+  );
+  // A List's own page names no section or row button: the Lists page's stay.
+  const opened = mergeBatch(
+    page,
+    batch("ListByRestId", [], { key: "list:2", lists: [list("2", null, { name: "Renamed" })] }),
+  );
+  expect(opened.xLists.get("2")).toMatchObject({
+    name: "Renamed",
+    group: "Your Lists",
+    button: "pin",
+  });
+  // X fetches nothing after its Create a new List: the List it answered with goes first.
+  const made = mergeBatch(opened, batch("CreateList", [], { lists: [list("3", null)] }));
+  expect(at(made.listIds, "lists")).toEqual(["1", "3", "2"]);
+  expect(made.xLists.get("3")).toMatchObject({ group: "Your Lists", button: "pin" });
+  // Deleted in X's Edit List: off the Lists page and Home's pinned tabs.
+  const pinned = mergeBatch(
+    made,
+    batch("PinnedTimelines", [], { homeTabs: [{ id: "list:3", label: "L3" }] }),
+  );
+  const deleted = mergeBatch(pinned, batch("DeleteList", [], { listDeleted: "3" }));
+  expect([at(deleted.listIds, "lists"), deleted.xLists.has("3"), deleted.homeTabs]).toEqual([
+    ["1", "2"],
+    false,
+    [],
+  ]);
+  // Followed: X files it first under Your Lists with its Pin; unfollowed, it leaves Your Lists.
+  const unsubscribe = (id: string) =>
+    batch("ListUnsubscribe", [], { lists: [list(id, null, { following: false, pinned: false })] });
+  const followed = mergeBatch(
+    page,
+    batch("ListSubscribe", [], { lists: [list("4", null, { following: true })] }),
+  );
+  expect([at(followed.listIds, "lists"), followed.xLists.get("4")?.button]).toEqual([
+    ["1", "4", "2"],
+    "pin",
+  ]);
+  expect(at(mergeBatch(followed, unsubscribe("4")).listIds, "lists")).toEqual(["1", "2"]);
+  // X keeps a List it suggests under Discover new Lists there.
+  expect(at(mergeBatch(page, unsubscribe("1")).listIds, "lists")).toEqual(["1", "2"]);
+});
+
+it("holds a List follow or pin X took until X's answer for that List agrees", () => {
+  const header = (extra: Partial<EngineList>) =>
+    batch("ListByRestId", [], { key: "list:5", lists: [list("5", null, extra)] });
+  const followed = askList(mergeBatch(emptyEngine, header({ following: false })), "5", {
+    following: true,
+  });
+  // X's page answered before the click: it still says not following.
+  const stale = mergeBatch(followed, header({ following: false }));
+  expect(listFollowing(stale, stale.xLists.get("5")!)).toBe(true);
+  const agreed = mergeBatch(stale, header({ following: true }));
+  expect(agreed.listFollows.size).toBe(0);
+  // A pin holds until the List, or Home's pinned tabs, say so; a call saying neither leaves it.
+  // `tabs` is a whole Home answer, naming every List pinned; `partial` one that names some.
+  const partial = (...ids: ReadonlyArray<string>) =>
+    batch("PinnedTimelines", [], {
+      homeTabs: ids.map((id) => ({ id: `list:${id}` as const, label: id })),
+    });
+  const tabs = (...ids: ReadonlyArray<string>) => ({ ...partial(...ids), pinnedLists: ids });
+  const pinned = askList(agreed, "5", { pinned: true });
+  expect(listPinned(mergeBatch(pinned, batch("HomeTimeline", [])), list("5", null))).toBe(true);
+  expect(mergeBatch(pinned, tabs("5")).listPins.size).toBe(0);
+  // X's Lists page answers from before the pin, then Home lists the tab: Home's word stands.
+  const listsPage = (on: boolean) =>
+    batch("ListsManagementPageTimeline", [], {
+      lists: [list("5", "Your Lists", { pinned: on, button: "pin" })],
+    });
+  const confirmed = mergeBatch(mergeBatch(pinned, listsPage(false)), tabs("5"));
+  expect([confirmed.listPins.size, listPinned(confirmed, confirmed.xLists.get("5")!)]).toEqual([
+    0,
+    true,
+  ]);
+  // Home confirms the pin, then X's Lists page answers from before it: Home's word stands.
+  const later = mergeBatch(mergeBatch(pinned, tabs("5")), listsPage(false));
+  expect([later.listPins.size, listPinned(later, later.xLists.get("5")!)]).toEqual([0, true]);
+  // A partial Home answer leaving a pinned List out unpins nothing.
+  const shown = mergeBatch(agreed, listsPage(true));
+  const missing = mergeBatch(shown, partial());
+  expect(listPinned(missing, missing.xLists.get("5")!)).toBe(true);
+  // Unfollowed while that pin is still held: X unpins it, and the hold goes with it.
+  const dropped = mergeBatch(
+    pinned,
+    batch("ListUnsubscribe", [], { lists: [list("5", null, { following: false, pinned: false })] }),
+  );
+  expect([dropped.listPins.size, listPinned(mergeBatch(dropped, tabs()), list("5", null))]).toEqual(
+    [0, false],
+  );
+  // Unfollowed: X takes it off Home's pinned tabs too.
+  const unfollowed = mergeBatch(
+    mergeBatch(agreed, tabs("5")),
+    batch("ListUnsubscribe", [], { lists: [list("5", null, { following: false, pinned: false })] }),
+  );
+  expect([unfollowed.homeTabs, listPinned(unfollowed, unfollowed.xLists.get("5")!)]).toEqual([
+    [],
+    false,
+  ]);
+  // X's pin and unpin answers move Home's tab too, for a Home X then serves from its cache.
+  const answer = (on: boolean) =>
+    batch(on ? "PinTimeline" : "UnpinTimeline", [], { lists: [list("5", null, { pinned: on })] });
+  const onHome = mergeBatch(mergeBatch(agreed, tabs("3")), answer(true));
+  expect(onHome.homeTabs.map((t) => t.id)).toEqual(["list:3", "list:5"]);
+  expect(mergeBatch(onHome, answer(false)).homeTabs.map((t) => t.id)).toEqual(["list:3"]);
 });
 
 it("replaces a profile's people page with X's first page even when X now lists nobody", () => {

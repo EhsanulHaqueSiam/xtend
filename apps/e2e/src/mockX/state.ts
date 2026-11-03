@@ -14,7 +14,7 @@ import type {
 
 import { synth } from "../../../web/src/components/xnative/engineFixtures.ts";
 import { createMockChat } from "./chat.ts";
-import { encodeBody, encodeFolder, encodeRestUser, encodeTweet } from "./graphql.ts";
+import { encodeBody, encodeFolder, encodeList, encodeRestUser, encodeTweet } from "./graphql.ts";
 
 /**
  * What mock X knows: the people and posts of the made-up engine fixtures (`synth()`), the pages
@@ -526,10 +526,15 @@ export function createMockState(options: MockOptions = {}) {
     });
 
   const listsPage = fixture("ListsManagementPageTimeline", null)!;
+  // The fixtures' Lists in X's order on its Lists page, with what the user's writes changed.
   const xLists = new Map(listsPage.lists.map((l) => [l.listId, l]));
+  let madeLists = 0;
+  const changeList = (id: string, change: (l: EngineList) => Partial<EngineList>) => {
+    const l = xLists.get(id);
+    if (l !== undefined) xLists.set(id, { ...l, ...change(l) });
+    return xLists.get(id);
+  };
   const listHeader = (id: string): EngineBatch | null => {
-    const own = fixture("ListByRestId", `list:${id}`);
-    if (own !== undefined) return own;
     const l = xLists.get(id);
     return l === undefined
       ? null
@@ -585,14 +590,14 @@ export function createMockState(options: MockOptions = {}) {
   // The NBA games the fixtures name, by id: a team's schedule, the day's scoreboard, one game.
   const games = new Map(batches.flatMap((b) => b.games ?? []).map((g) => [g.gameId, g]));
 
-  const fixedTabs: ReadonlyArray<EngineHomeTab> = [
-    { id: `tag:${PINNED_TAG}`, label: "Design" },
-    { id: "list:600000000001", label: "Indie founders" },
-  ];
+  const fixedTabs: ReadonlyArray<EngineHomeTab> = [{ id: `tag:${PINNED_TAG}`, label: "Design" }];
   /** Communities the user pinned to Home, after X's other pinned tabs. */
   const pinnedCommunities = new Set<string>();
   const pinnedTabs = (): ReadonlyArray<EngineHomeTab> => [
     ...fixedTabs,
+    ...[...xLists.values()].flatMap((l) =>
+      l.pinned === true ? [{ id: `list:${l.listId}` as const, label: l.name }] : [],
+    ),
     ...[...pinnedCommunities].flatMap((id) => {
       const c = community(id);
       return c === undefined ? [] : [{ id: `community:${id}` as const, label: c.name }];
@@ -630,8 +635,14 @@ export function createMockState(options: MockOptions = {}) {
     switch (op) {
       case "Viewer":
         return fixture("Viewer", null)!;
-      case "PinnedTimelines":
-        return page("PinnedTimelines", null, [], { top: null, homeTabs: pinnedTabs() });
+      case "PinnedTimelines": {
+        const homeTabs = pinnedTabs();
+        // Mock X names every tab, so its answer is a whole one.
+        const pinnedLists = homeTabs.flatMap((t) =>
+          t.id.startsWith("list:") ? [t.id.slice(5)] : [],
+        );
+        return page("PinnedTimelines", null, [], { top: null, homeTabs, pinnedLists });
+      }
       case "HomeTimeline":
       case "HomeLatestTimeline": {
         const tag = s(variables, "tag");
@@ -716,7 +727,7 @@ export function createMockState(options: MockOptions = {}) {
         });
       }
       case "ListsManagementPageTimeline":
-        return live(listsPage);
+        return { ...live(listsPage), lists: [...xLists.values()] };
       case "ListByRestId":
         return listHeader(s(variables, "listId") ?? "");
       case "ListLatestTweetsTimeline": {
@@ -974,6 +985,88 @@ export function createMockState(options: MockOptions = {}) {
     metrics: { ...p.metrics, [metric]: Math.max(0, (p.metrics[metric] ?? 0) + by) },
   });
 
+  /** X's List writes (bundle.UserLists' calls), answered as X's code reads them: the List. */
+  function writeList(name: string, input: Json, id: string | null): Json | undefined {
+    switch (name) {
+      case "CreateList": {
+        const made: EngineList = {
+          listId: String(600_000_000_101 + madeLists++),
+          name: s(input, "name") ?? "",
+          description: s(input, "description") ?? "",
+          members: 0,
+          followers: 0,
+          isPrivate: input.isPrivate === true,
+          bannerUrl: null,
+          owner: {
+            userId: viewer.userId!,
+            handle: viewer.handle,
+            name: viewer.name ?? viewer.handle,
+            avatarUrl: viewer.avatarUrl,
+          },
+          group: "Your Lists",
+          following: false,
+          pinned: false,
+          button: "pin",
+        };
+        // X lists it first under Your Lists.
+        const all = [...xLists.values()];
+        const mine = all.findIndex((l) => l.group === "Your Lists");
+        xLists.clear();
+        for (const l of all.toSpliced(mine === -1 ? all.length : mine, 0, made))
+          xLists.set(l.listId, l);
+        return { data: { list: encodeList(made) } };
+      }
+      case "UpdateList": {
+        const l = changeList(id ?? "", () => ({
+          name: s(input, "name") ?? "",
+          description: s(input, "description") ?? "",
+          isPrivate: input.isPrivate === true,
+        }));
+        return { data: l === undefined ? {} : { list: encodeList(l) } };
+      }
+      // Synthetic: X's code reads nothing of DeleteList's answer.
+      case "DeleteList":
+        xLists.delete(id ?? "");
+        return { data: { list_delete: "Done" } };
+      case "ListSubscribe": {
+        const l = changeList(id ?? "", (l) => ({
+          following: true,
+          followers: (l.followers ?? 0) + 1,
+        }));
+        return { data: l === undefined ? {} : { list_subscribe_v3: encodeList(l) } };
+      }
+      case "ListUnsubscribe": {
+        const l = changeList(id ?? "", (l) => ({
+          following: false,
+          pinned: false,
+          followers: Math.max(0, (l.followers ?? 1) - 1),
+        }));
+        return { data: l === undefined ? {} : { list: encodeList(l) } };
+      }
+      case "PinTimeline":
+      case "UnpinTimeline": {
+        // A List's pin, as X's togglePinTimeline sends it and reads its answer.
+        if (
+          s((input.pinnedTimelineItem as Json | undefined) ?? {}, "pinned_timeline_type") !== "List"
+        )
+          return undefined;
+        const pin = name === "PinTimeline";
+        const l = changeList(id ?? "", () => ({ pinned: pin }));
+        return {
+          data: {
+            [pin ? "pin_timeline" : "unpin_timeline"]: {
+              __typename: pin ? "PinTimelineSuccessResult" : "UnpinTimelineSuccessResult",
+              updated_pinned_timeline:
+                l === undefined ? null : { __typename: "ListPinnedTimeline", list: encodeList(l) },
+            },
+          },
+        };
+      }
+      default:
+        return undefined;
+    }
+  }
+
   /**
    * A write X's page sent (GraphQL or X's older REST calls): changes the state, logs it, and
    * answers as X does. Nothing leaves the mock.
@@ -984,6 +1077,8 @@ export function createMockState(options: MockOptions = {}) {
       s(input, "source_tweet_id") ??
       s(input, "user_id") ??
       s(input, "id") ??
+      s(input, "listId") ??
+      s((input.pinnedTimelineItem as Json | undefined) ?? {}, "id") ??
       s(input, "communityId") ??
       // A post to a Community names it as X's composer sends it.
       s(
@@ -995,6 +1090,8 @@ export function createMockState(options: MockOptions = {}) {
     presses.push({ kind: "write", name, target: id, path });
     const tweet = s(input, "tweet_id") ?? s(input, "source_tweet_id") ?? "";
     const done = (field: string) => ({ data: { [field]: "Done" } });
+    const list = writeList(name, input, id);
+    if (list !== undefined) return list;
     switch (name) {
       case "FavoriteTweet":
         changePost(tweet, (p) => ({ liked: true, ...count(p, "likes", 1) }));
@@ -1295,6 +1392,10 @@ export function createMockState(options: MockOptions = {}) {
     /** The account's bookmark folders in X's order, and each one's posts, newest first. */
     folders: (): ReadonlyArray<EngineBookmarkFolder> => [...folders],
     folderPosts: (folderId: string): ReadonlyArray<string> => folderPosts.get(folderId) ?? [],
+    /** Makes the user a Community's moderator, or takes it back, as its admins would on X. */
+    setCommunityRole: (id: string, role: EngineCommunity["role"]) => {
+      changeCommunity(id, () => ({ role }));
+    },
     /** Whether the user asked to join a Community that asks first, and waits for its moderators. */
     communityRequested: (id: string) => requested.has(id),
     /** The Communities a hub tab's posts are from, in X's order: X fetches a card for each. */

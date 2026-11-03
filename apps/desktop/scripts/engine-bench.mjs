@@ -771,6 +771,59 @@ const benchmarks = [
     },
   ],
   [
+    "Lists: X's Pin on Your Lists and a List's Follow are found where Xtend presses them, saying what Xtend shows (dry)",
+    async () => {
+      // Nothing is pressed: X's buttons are only found, as listButton in apps/web/src/state/x.ts
+      // finds them, and each says what Xtend's own button says.
+      const handle = await until(() => store(`$.viewer?.handle`));
+      if (!handle) return false;
+      await reset("lists");
+      await go("#/lists");
+      const listed = await until(() =>
+        store(
+          `(() => { const ls = at($.listIds, "lists").map((id) => $.xLists.get(id)).filter(Boolean); return ls.length > 0 && ls.map((l) => ({ id: l.listId, button: l.button ?? null })); })()`,
+        ),
+      );
+      if (!listed) return false;
+      // X draws its rows anchorless: a row's List is the link in its cell's React props.
+      const mine = listed.find((l) => l.button === "pin");
+      let pin = "no List of yours";
+      if (mine) {
+        const xs = await until(() =>
+          engine(
+            `(() => { const id = ${JSON.stringify(mine.id)}; const pins = [...document.querySelectorAll('[data-testid="listCell"]')].flatMap((cell) => { const key = Object.keys(cell).find((k) => k.startsWith("__reactFiber$")); let f = key && cell[key]; while (f && f.memoizedProps?.link === undefined) f = f.return?.stateNode instanceof Element ? null : f.return; const pin = cell.querySelector('[data-testid="list-icon-button"]'); return f?.memoizedProps?.link?.pathname === "/i/lists/" + id && pin?.closest('[data-testid="listCell"]') === cell && /^(Pin|Unpin) List$/.test(pin.getAttribute("aria-label") ?? "") ? [pin.getAttribute("aria-label")] : []; }); return pins.length === 1 ? pins[0] : undefined; })()`,
+          ),
+        );
+        // What Xtend's Pin shows: a press X took, else X's answer for the List, else Home's tabs.
+        const ours = await store(
+          `(() => { const id = ${JSON.stringify(mine.id)}; const on = $.listPins.get(id) ?? $.xLists.get(id)?.pinned ?? $.homeTabs.some((t) => t.id === "list:" + id); return on ? "Unpin List" : "Pin List"; })()`,
+        );
+        if (xs === undefined || ours !== xs) return false;
+        pin = `${mine.id}: X's "${xs}"`;
+      }
+      // A List X offers to follow (Discover new Lists): X's Follow in its header on its page.
+      const other = listed.find((l) => l.button === "follow");
+      if (!other) return `pin ${pin}; no List to follow listed`;
+      await go(`#/lists/${other.id}`);
+      const xs = await until(async () => {
+        if ((await enginePath()) !== `/i/lists/${other.id}`) return false;
+        return engine(
+          `(() => { const id = ${JSON.stringify(other.id)}; const buttons = [...document.querySelectorAll('button, [role="button"]')].filter((b) => !b.hasAttribute("data-testid") && /^(Follow|Following|Unfollow)$/.test(b.textContent.trim())); const mine = buttons.filter((b) => { for (let box = b.parentElement; box; box = box.parentElement) { if (!box.querySelector('a[href="/i/lists/' + id + '/members"]')) continue; return buttons.every((o) => o === b || !box.contains(o)); } return false; }); return mine.length === 1 ? mine[0].textContent.trim() : undefined; })()`,
+        );
+      });
+      const ours = await until(() =>
+        app(
+          `document.querySelector('main [data-x="list"] button[aria-label^="Follow"], main [data-x="list"] button[aria-label^="Following"]')?.textContent`,
+        ),
+      );
+      return (
+        xs !== undefined &&
+        ours === (xs === "Unfollow" ? "Following" : xs) &&
+        `pin ${pin}; ${other.id}: X's "${xs}"`
+      );
+    },
+  ],
+  [
     "Profile people: X's tabs (Followers you know only with mutuals), each listing what X's page lists",
     async () => {
       const seen = await until(() =>

@@ -184,8 +184,9 @@ const notificationRow = (n: EngineNotification, state: MockState) =>
         .map((p) => (p === undefined ? "" : `<div class="muted">${esc(p.text)}</div>`))
         .join("")}</article>`;
 
+/** A row of X's Lists page; on Your Lists X's Pin (ListWithPin), which X gives a test id. */
 const listRow = (l: EngineList) =>
-  `<div data-testid="listCell" role="link" tabindex="0" data-href="/i/lists/${l.listId}"><div>${esc(l.name)}${l.isPrivate ? " 🔒" : ""}</div><div class="muted">${compact(l.members)} members · ${compact(l.followers)} followers${l.owner === null ? "" : ` including @${esc(l.owner.handle)}`}</div></div>`;
+  `<div data-testid="listCell" role="link" tabindex="0" data-href="/i/lists/${l.listId}"><div><span>${esc(l.name)}</span>${l.isPrivate ? `<span aria-label="Private List">🔒</span>` : ""}</div><div class="muted">${compact(l.members)} members · ${compact(l.followers)} followers${l.owner === null ? "" : ` including @${esc(l.owner.handle)}`}</div>${l.button === "pin" ? `<button data-testid="list-icon-button" aria-label="${l.pinned === true ? "Unpin List" : "Pin List"}" data-list-pin="${l.listId}">📌</button>` : ""}</div>`;
 
 /** X's membership button in a Community's header, labelled with what pressing it does. */
 const joinButton = (c: EngineCommunity, requested: boolean) => {
@@ -698,6 +699,47 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
         ])}${creators ? "" : "<h3>Suggested for you</h3>"}<section data-list>${peopleOf(b ?? null, creators ? "subscribe" : "follow", ROWS_NEAR_SCROLL)}</section>`,
     };
   }
+  // X's List dialogs on their own routes (bundle.UserLists), X's words on each: Create a new List,
+  // then Add to your List; Edit List with Manage members and Delete List. Each sends X's call.
+  if (lower === "i" && second === "lists" && third === "create")
+    return {
+      title: "Create a new List / X",
+      requests: [],
+      render: () =>
+        routeDialog(
+          "Create a new List",
+          `<input aria-label="Name" name="name" maxlength="25"><textarea aria-label="Description" name="description" maxlength="100"></textarea><label><input type="checkbox" name="isPrivate"> Make private</label><div class="muted">When you make a List private, only you can see it.</div><button data-list-form="create">Next</button>`,
+        ),
+    };
+  if (lower === "i" && second === "lists" && third !== undefined && parts[4] === "suggested")
+    return {
+      title: "Add to your List / X",
+      requests: [],
+      render: () =>
+        routeDialog(
+          "Add to your List",
+          `<input aria-label="Search people" placeholder="Search people"><button data-list-form="done:${esc(third)}">Done</button>`,
+        ),
+    };
+  if (lower === "i" && second === "lists" && third !== undefined && fourth === "info") {
+    const l = state.lists().find((x) => x.listId === third);
+    if (l === undefined)
+      return {
+        title: "Lists / X",
+        requests: [],
+        redirect: `/${state.viewer.handle}/lists`,
+        render: () => "",
+      };
+    return {
+      title: "Edit List / X",
+      requests: [r("ListByRestId", { listId: third })],
+      render: () =>
+        routeDialog(
+          "Edit List",
+          `<input aria-label="Name" name="name" maxlength="25" value="${esc(l.name)}"><textarea aria-label="Description" name="description" maxlength="100">${esc(l.description)}</textarea><label><input type="checkbox" name="isPrivate"${l.isPrivate ? " checked" : ""}> Make private</label><button data-list-form="save:${l.listId}">Done</button><a href="/i/lists/${l.listId}/members">Manage members</a><div role="button" tabindex="0" data-list-form="delete:${l.listId}"><span>Delete List</span></div>`,
+        ),
+    };
+  }
   if (lower === "i" && second === "lists" && third !== undefined) {
     const of =
       fourth === "members" ? "ListMembers" : fourth === "followers" ? "ListSubscribers" : null;
@@ -729,7 +771,12 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
         return `${header(l?.name ?? "List")}${
           l === undefined
             ? `<div class="empty"><h3>This List doesn't exist</h3></div>`
-            : `<div data-testid="listHeader"><img alt="" src="${esc(l.bannerUrl ?? "")}" class="banner-img"><h2>${esc(l.name)}</h2><div>${esc(l.description)}</div>${l.owner === null ? "" : `<div><a href="/${esc(l.owner.handle)}">${esc(l.owner.name)}</a> @${esc(l.owner.handle)}</div>`}<div><a href="/i/lists/${l.listId}/members"><b>${compact(l.members)}</b> Members</a> <a href="/i/lists/${l.listId}/followers"><b>${compact(l.followers)}</b> Followers</a></div><button data-testid="listFollow">Follow</button></div>`
+            : `<div data-testid="listHeader"><img alt="" src="${esc(l.bannerUrl ?? "")}" class="banner-img"><h2>${esc(l.name)}</h2><div>${esc(l.description)}</div>${l.owner === null ? "" : `<div><a href="/${esc(l.owner.handle)}">${esc(l.owner.name)}</a> @${esc(l.owner.handle)}</div>`}<div><a href="/i/lists/${l.listId}/members"><b>${compact(l.members)}</b> Members</a> <a href="/i/lists/${l.listId}/followers"><b>${compact(l.followers)}</b> Followers</a></div>${
+                // X's owner gets Edit List, a link; everyone else X's Follow, with no test id.
+                l.owner?.userId === state.viewer.userId
+                  ? `<a href="/i/lists/${l.listId}/info" role="link">Edit List</a>`
+                  : `<button data-list-follow="${l.listId}">${l.following === true ? "Following" : "Follow"}</button>`
+              }</div>`
         }<section data-list>${postsOf(b ?? null, state)}</section>`;
       },
     };
@@ -1023,8 +1070,40 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
             href: `/i/communities/${id}${t.path}`,
             on: t === tab,
           })),
-        )}<section data-list>${tab.label === "About" ? about : postsOf(b ?? null, state)}</section>`;
+        )}<section data-list>${
+          tab.label === "About"
+            ? about
+            : // X gives a Community's moderators their own rows on its posts' "...".
+              c.role === "Moderator" || c.role === "Admin"
+              ? postsOf(b ?? null, state).replace(
+                  /data-menu="post:(\d+)"/g,
+                  `data-menu="post:$1:community:${id}"`,
+                )
+              : postsOf(b ?? null, state)
+        }</section>`;
       },
+    };
+  }
+  // X's Hide post (bundle.Report's hidetweet flow): the moderator picks the rule it broke, and X
+  // hides the post and goes back to where it was. It sends no GraphQL call.
+  if (lower === "i" && second === "report" && third === "hidetweet" && fourth !== undefined) {
+    const p = state.post(fourth);
+    return {
+      title: "Hide post / X",
+      requests: [],
+      render: () =>
+        routeDialog(
+          "Hide post",
+          `<h3>Help @${esc(p?.author.handle ?? "")} understand what went wrong</h3><div class="muted">We’ll share this feedback, but not who it came from.</div>${[
+            "Keep posts on topic.",
+            "Be kind and respectful.",
+          ]
+            .map(
+              (rule) =>
+                `<div role="button" tabindex="0" data-hide-rule="${esc(rule)}">${esc(rule)}</div>`,
+            )
+            .join("")}`,
+        ),
     };
   }
   // X's news story: its summary, then the posts of the tab `?timeline=` names (the first, without).

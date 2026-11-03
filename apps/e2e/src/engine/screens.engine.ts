@@ -1113,6 +1113,127 @@ test("Lists, a List's posts and its members read X's pages", async () => {
   expect(await enginePath()).toBe(`/i/lists/${list!.listId}/members`);
 });
 
+test("A List's Follow presses X's own button in its header, and Pin presses X's own in its row of X's Lists", async () => {
+  const viewer = e.mock.state.viewer;
+  const list = (id: string) => e.mock.state.lists().find((l) => l.listId === id)!;
+  const others = e.mock.state.lists().find((l) => l.owner?.userId !== viewer.userId)!;
+  const header = e.app.locator('main [data-x="list"]');
+  const follow = (label: string) => header.getByRole("button", { name: `${label} ${others.name}` });
+  await go(`/lists/${others.listId}`);
+  await expect.poll(enginePath).toBe(`/i/lists/${others.listId}`);
+  await follow("Follow").click();
+  await expect
+    .poll(presses)
+    .toEqual(
+      expect.arrayContaining([
+        `press listFollow:Follow ${others.listId}`,
+        `write ListSubscribe ${others.listId}`,
+      ]),
+    );
+  await follow("Following").waitFor();
+  expect(list(others.listId).following).toBe(true);
+  await follow("Following").click();
+  await expect.poll(presses).toContain(`write ListUnsubscribe ${others.listId}`);
+  await follow("Follow").waitFor();
+
+  // X's Pin is on its Lists page, in the List's row of Your Lists; the fixtures' List is pinned.
+  const mine = e.mock.state.lists().find((l) => l.owner?.userId === viewer.userId)!;
+  const pin = (label: string) => e.app.locator("main").getByRole("button", { name: label });
+  await go("/lists");
+  await expect.poll(enginePath).toBe(`/${viewer.handle}/lists`);
+  await pin("Unpin List").click();
+  await expect.poll(presses).toContain(`write UnpinTimeline ${mine.listId}`);
+  await pin("Pin List").waitFor();
+  expect(e.mock.state.pinnedTabs.map((t) => t.id)).not.toContain(`list:${mine.listId}`);
+  await pin("Pin List").click();
+  await expect.poll(presses).toContain(`write PinTimeline ${mine.listId}`);
+  await pin("Unpin List").waitFor();
+  expect(list(mine.listId).pinned).toBe(true);
+});
+
+test("X's own Create a new List and Edit List show over the main area, and Xtend shows the List X saved", async () => {
+  const header = e.app.locator('main [data-x="list"]');
+  const fill = (name: string, button: string) =>
+    e.engine(
+      `(() => { document.querySelector('[role="dialog"] [name="name"]').value = ${JSON.stringify(name)}; document.querySelector('[data-list-form^="${button}"]').click(); return true; })()`,
+    );
+  await go("/lists");
+  await expect.poll(enginePath).toBe(`/${e.mock.state.viewer.handle}/lists`);
+  await e.app.getByRole("button", { name: "Create a new List" }).click();
+  await expect.poll(pane).toBe("main");
+  await expect.poll(enginePath).toBe("/i/lists/create");
+  await fill("Shipping", "create");
+  // X's Add to your List is still X's dialog.
+  await expect.poll(enginePath).toMatch(/^\/i\/lists\/\d+\/members\/suggested$/);
+  expect(await pane()).toBe("main");
+  const made = e.mock.state.lists().find((l) => l.name === "Shipping")!;
+  await e.engine(`document.querySelector('[data-list-form^="done:"]').click(), true`);
+  await expect.poll(pane).toBe("hidden");
+  // Xtend follows X to the List it made, drawn from X's answer, with X's Edit List.
+  await header.getByText("Shipping").waitFor();
+  await header.getByRole("button", { name: "Edit List" }).waitFor();
+  expect(presses()).toContain(`write CreateList`);
+
+  // Renamed in X's Edit List: X goes back to the List, and Xtend's header says the new name.
+  await header.getByRole("button", { name: "Edit List" }).click();
+  await expect.poll(enginePath).toBe(`/i/lists/${made.listId}/info`);
+  await expect.poll(pane).toBe("main");
+  await fill("Shipped", "save:");
+  await expect.poll(pane).toBe("hidden");
+  await header.getByText("Shipped").waitFor();
+  await go("/lists");
+  const rows = () => e.app.locator('main [data-x="list-row"] b').allTextContents();
+  // First under Your Lists, as X lists a List it just made.
+  await expect.poll(rows).toEqual(expect.arrayContaining(["Shipped"]));
+  const shown = await rows();
+  expect(shown.indexOf("Shipped")).toBeLessThan(
+    shown.indexOf(e.mock.state.lists().find((l) => l.name === "Indie founders")!.name),
+  );
+
+  // Delete List asks in X's own confirm; X then opens its Lists page, and so does Xtend.
+  await go(`/lists/${made.listId}`);
+  await header.getByRole("button", { name: "Edit List" }).click();
+  await expect.poll(enginePath).toBe(`/i/lists/${made.listId}/info`);
+  await expect.poll(pane).toBe("main");
+  await e.engine(`document.querySelector('[data-list-form^="delete:"]').click(), true`);
+  const confirm = `document.querySelector('#layers [data-testid="confirmationSheetConfirm"]')`;
+  await expect.poll(() => e.engine(`!!${confirm}`)).toBe(true);
+  await e.engine(`${confirm}.click()`);
+  await expect.poll(pane).toBe("hidden");
+  expect(presses()).toContain(`write DeleteList ${made.listId}`);
+  await expect.poll(() => e.app.evaluate(() => location.hash)).toBe("#/lists");
+  await expect.poll(rows).not.toContain("Shipped");
+});
+
+test("Hide post is X's own row on a Community's posts for its moderators, and opens X's flow over the main area", async () => {
+  const community = e.mock.state
+    .fixtures()
+    .communities!.batches.find((b) => b.op === "CommunityQuery")!.communities[0]!;
+  const id = community.communityId;
+  e.mock.state.setCommunityRole(id, "Moderator");
+  try {
+    await go(`/communities/${id}`);
+    await expect.poll(enginePath).toBe(`/i/communities/${id}`);
+    // X's page as a moderator sees it, afresh.
+    await e.engine("setTimeout(() => location.reload()), true");
+    await expect.poll(async () => (await nativeIds()).length).toBeGreaterThan(0);
+    const [postId] = await nativeIds();
+    await expect.poll(() => engineHas(`[data-menu="post:${postId}:community:${id}"]`)).toBe(true);
+    await e.app.locator(`main [data-post="${postId}"] button[aria-label="More"]`).click();
+    await expect.poll(appMenuRows).toContain("Hide post");
+    await e.app.getByRole("menuitem", { name: "Hide post", exact: true }).click();
+    await expect.poll(pane).toBe("main");
+    expect(await enginePath()).toBe(`/i/report/hidetweet/${postId}`);
+    // The moderator picks the rule in X's flow; X goes back to the Community.
+    await e.engine(`document.querySelector('[data-hide-rule]').click(), true`);
+    await expect.poll(pane).toBe("hidden");
+    expect(await enginePath()).toBe(`/i/communities/${id}`);
+    await expect.poll(presses).toContain(`press hide:Keep posts on topic. ${postId}`);
+  } finally {
+    e.mock.state.setCommunityRole(id, community.role);
+  }
+});
+
 test("A profile's Followers and Following open X's people pages, in X's tabs and X's order", async () => {
   const user = e.mock.state.people[1]!;
   const listed = (op: string) => {
