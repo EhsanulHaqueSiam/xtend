@@ -1836,7 +1836,7 @@ it("presses X's Delete only on the one row whose query field is exactly the quer
 
 it("reads X's audience card on /compose/post, then brings back X's page, unless X was moved meanwhile", async () => {
   // X draws the card only on its compose page; Compose leaves the engine on the user's profile.
-  const run = async (meanwhile?: string) => {
+  const run = async (meanwhile?: string, inPage?: string) => {
     let path = "/theo";
     const steps: Array<string> = [];
     registerXWebview({
@@ -1846,8 +1846,9 @@ it("reads X's audience card on /compose/post, then brings back X's page, unless 
         const to = /history\.pushState\(null, "", "([^"]+)"\)/.exec(code)?.[1];
         if (to !== undefined) path = to;
         steps.push(to ?? (code.includes("Choose audience") ? "card" : "?"));
-        // Another screen moves X while X's card is open.
+        // Another screen moves X while X's card is open, or X's own page does (a link, Back).
         if (to === undefined && meanwhile !== undefined) void xGo(`https://x.com${meanwhile}`);
+        if (to === undefined && inPage !== undefined) path = inPage;
         return Promise.resolve(true);
       },
     } as unknown as XWebview);
@@ -1858,4 +1859,5 @@ it("reads X's audience card on /compose/post, then brings back X's page, unless 
   };
   expect(await run()).toEqual(["/compose/post", "card", "/theo"]);
   expect(await run("/explore")).toEqual(["/compose/post", "card", "/explore"]);
+  expect(await run(undefined, "/jack")).toEqual(["/compose/post", "card"]);
 });

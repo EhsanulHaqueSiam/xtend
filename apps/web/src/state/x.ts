@@ -1547,8 +1547,13 @@ export const xAudienceCard = () =>
       if (card()) button()?.click();
       return shown;
     })()`);
-    // The page the user had beside them, unless a screen or the user moved X since.
-    if (moved && moves === asked) await xGo(from);
+    // The page the user had beside them, unless a screen or the user moved X since: X's own
+    // links and the panel's Back count no moves, so X must still be on its compose page.
+    let still = false;
+    try {
+      still = new URL(element?.getURL() ?? "").pathname === "/compose/post";
+    } catch {}
+    if (moved && moves === asked && still) await xGo(from);
     return shown;
   })).then((shown) => shown === true);
 
