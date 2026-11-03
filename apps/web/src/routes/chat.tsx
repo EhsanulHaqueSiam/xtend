@@ -1,25 +1,50 @@
 import { useAtom, useAtomSet } from "@effect/atom-react";
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
-import { BellOff, ImageIcon, Mail, Pin, Search } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import {
+  BellOff,
+  ImageIcon,
+  Mail,
+  MoreHorizontal,
+  Pin,
+  Reply,
+  Search,
+  SmilePlus,
+  SquarePen,
+  X,
+} from "lucide-react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Virtuoso } from "react-virtuoso";
 
 import { Empty } from "../components/ui/layout";
+import { Menu, MenuItem } from "../components/ui/menu";
+import { Popover } from "../components/ui/popover";
+import { useXPress } from "../components/xnative/useXPress";
 import { XEmpty } from "../components/xnative/XRows";
 import { Avatar } from "../components/xnative/XPostView";
 import { isElectron } from "../env";
 import { cn } from "../lib/utils";
 import {
   type ChatItem,
+  type ChatMenu,
+  type ChatMessage,
   type ChatRow,
+  type ChatState,
   chatAtom,
   isChatPath,
   mergeChat,
   watchChat,
+  xChatInfo,
+  xChatMenu,
+  xChatMenuPress,
+  xChatNew,
+  xChatReact,
+  xChatReactions,
+  xChatRequest,
   xChatScroll,
   xChatSearch,
+  xChatSend,
 } from "../state/chat";
-import { isXRoute, xGo, xLeave, xNavigate, xOverAtom } from "../state/x";
+import { isXRoute, xGo, xLeave, xNavigate, xOverAtom, xRun } from "../state/x";
 
 type Tab = "all" | "requests" | "other";
 /** X's page for each list: the inbox, its message requests, and the requests X files as Other. */
@@ -93,38 +118,65 @@ function Row({
   );
 }
 
-/** A message as X draws it: yours on the right in blue, theirs on the left, reactions under it. */
-function Item({ item, group }: { readonly item: ChatItem; readonly group: boolean }) {
+/**
+ * A message as X draws it: yours on the right in blue, theirs on the left, reactions under it, and
+ * X's hover bar (`actions`) beside it while the pointer is over it.
+ */
+function Item({
+  item,
+  group,
+  actions,
+}: {
+  readonly item: ChatItem;
+  readonly group: boolean;
+  readonly actions?: ReactNode;
+}) {
   if (item.kind === "info")
     return <p className="px-4 py-2 text-center text-[13px] text-[#71767b]">{item.text}</p>;
+  const footer =
+    item.status === "pending"
+      ? "Sending…"
+      : item.status === "failed"
+        ? "Failed to send"
+        : item.time;
   return (
     <div
       data-x="chat-message"
-      className={cn("flex flex-col px-4 py-0.5", item.mine ? "items-end" : "items-start")}
+      className={cn("group flex flex-col px-4 py-0.5", item.mine ? "items-end" : "items-start")}
     >
       {group && !item.mine ? (
         <span className="px-3 pt-2 text-[13px] text-[#71767b]">{item.sender}</span>
       ) : null}
-      <div
-        className={cn(
-          "flex max-w-[75%] flex-col gap-1 rounded-3xl px-4 py-2.5 text-[15px] leading-5 break-words whitespace-pre-wrap",
-          item.mine ? "bg-[#1d9bf0] text-white" : "bg-[#2f3336]",
-        )}
-      >
-        {item.media === null ? null : (
-          <span className="flex items-center gap-1.5 opacity-80">
-            <ImageIcon className="size-4" />
-            {item.media}
-          </span>
-        )}
-        {item.text === "" ? null : <span>{item.text}</span>}
-        {item.time === null ? null : (
-          <span
-            className={cn("self-end text-[11px]", item.mine ? "text-white/70" : "text-[#71767b]")}
-          >
-            {item.time}
-          </span>
-        )}
+      <div className={cn("flex max-w-[75%] items-center gap-1", item.mine && "flex-row-reverse")}>
+        <div
+          className={cn(
+            "flex min-w-0 flex-col gap-1 rounded-3xl px-4 py-2.5 text-[15px] leading-5 break-words whitespace-pre-wrap",
+            item.mine ? "bg-[#1d9bf0] text-white" : "bg-[#2f3336]",
+          )}
+        >
+          {item.media === null ? null : (
+            <span className="flex items-center gap-1.5 opacity-80">
+              <ImageIcon className="size-4" />
+              {item.media}
+            </span>
+          )}
+          {item.text === "" ? null : <span>{item.text}</span>}
+          {footer === null ? null : (
+            <span
+              className={cn(
+                "self-end text-[11px]",
+                item.status === "failed"
+                  ? "font-bold text-[#f4212e]"
+                  : item.mine
+                    ? "text-white/70"
+                    : "text-[#71767b]",
+              )}
+            >
+              {footer}
+            </span>
+          )}
+        </div>
+        {actions}
       </div>
       {item.reactions.length === 0 ? null : (
         <span className="-mt-1 flex gap-1">
@@ -143,10 +195,357 @@ function Item({ item, group }: { readonly item: ChatItem; readonly group: boolea
   );
 }
 
+/** What the user writes in a conversation: a new message, a reply to one, or an edit of their own. */
+interface Draft {
+  readonly text: string;
+  readonly mode: { readonly kind: "reply" | "edit"; readonly item: ChatMessage } | null;
+}
+
+/**
+ * The user's click on one of X's own controls: only while Settings lets the session act, and X's
+ * refusal (null) said as a toast. Resolves to X's answer, or null.
+ */
+function usePress() {
+  const { blocked, setToast } = useXPress();
+  const press = async <A,>(run: () => Promise<A | null>) => {
+    const why = blocked();
+    if (why !== null) return (setToast({ text: why }), null);
+    const answer = await run();
+    if (answer === null) setToast({ text: "X did not take that. Try again in a moment." });
+    return answer;
+  };
+  return { press, setToast };
+}
+
+const ROUND =
+  "grid size-8 shrink-0 cursor-pointer place-items-center rounded-full text-[#71767b] hover:bg-white/[0.08] hover:text-foreground";
+
+/**
+ * X's hover bar on a message, drawn by Xtend: React (X's own quick reactions), Reply and X's "..."
+ * rows, each read from X's page when opened. Reply, Copy and Edit work in Xtend's composer; every
+ * other row is X's own, pressed for the click, with what X asks next over the main area.
+ */
+function MessageActions({
+  path,
+  item,
+  composer,
+  onDraft,
+}: {
+  readonly path: string;
+  readonly item: ChatMessage;
+  /** X draws its composer here, so the user can react and reply. */
+  readonly composer: boolean;
+  readonly onDraft: (draft: Draft) => void;
+}) {
+  const setOver = useAtomSet(xOverAtom);
+  const { press, setToast } = usePress();
+  const [menu, setMenu] = useState<ChatMenu | null | undefined>(undefined);
+  const [picking, setPicking] = useState(false);
+  const [quick, setQuick] = useState<Awaited<ReturnType<typeof xChatReactions>> | undefined>(
+    undefined,
+  );
+  const pick = ({ label, icon }: ChatMenu["rows"][number]) => {
+    if (icon === "icon-reply-arrow") return onDraft({ text: "", mode: { kind: "reply", item } });
+    if (icon === "icon-pencil-stroke")
+      return onDraft({ text: item.text, mode: { kind: "edit", item } });
+    // X's own Copy writes the clipboard from the engine, off screen, which is not reliable.
+    if (icon === "icon-clone" || icon === "icon-link")
+      return void navigator.clipboard
+        .writeText(item.text)
+        .then(() => setToast({ text: "Copied to clipboard" }));
+    void press(() => xChatMenuPress(path, item.id, label, setOver));
+  };
+  return (
+    <span className="flex shrink-0 items-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 has-aria-expanded:opacity-100">
+      {composer && item.status === "sent" ? (
+        <>
+          <Popover
+            open={picking}
+            onOpenChange={(open) => {
+              setPicking(open);
+              if (!open) return;
+              setQuick(undefined);
+              void xChatReactions(path, item.id).then(setQuick);
+            }}
+            align="center"
+            className="w-auto p-1.5"
+            trigger={
+              <button type="button" aria-label="React" className={ROUND}>
+                <SmilePlus className="size-4" />
+              </button>
+            }
+          >
+            {quick === undefined || quick === null ? (
+              <p className="px-2 py-1 text-[#71767b]">
+                {quick === undefined ? "Loading from X" : "X offers no reactions here."}
+              </p>
+            ) : (
+              <span className="flex gap-1">
+                {quick.map((r) => (
+                  <button
+                    key={r.emoji}
+                    type="button"
+                    aria-label={r.emoji}
+                    aria-pressed={r.selected}
+                    className="grid size-9 cursor-pointer place-items-center rounded-md text-[20px] hover:bg-white/[0.12] aria-pressed:bg-white/[0.2]"
+                    onClick={() => {
+                      setPicking(false);
+                      void press(() => xChatReact(path, item.id, r.emoji));
+                    }}
+                  >
+                    {r.emoji}
+                  </button>
+                ))}
+              </span>
+            )}
+          </Popover>
+          <button
+            type="button"
+            aria-label="Reply"
+            className={ROUND}
+            onClick={() => onDraft({ text: "", mode: { kind: "reply", item } })}
+          >
+            <Reply className="size-4" />
+          </button>
+        </>
+      ) : null}
+      <Menu
+        label="Message actions"
+        align="end"
+        onOpenChange={(open) => {
+          if (!open) return;
+          setMenu(undefined);
+          void xChatMenu(path, item.id).then(setMenu);
+        }}
+        trigger={
+          <button type="button" aria-label="More" className={ROUND}>
+            <MoreHorizontal className="size-4" />
+          </button>
+        }
+      >
+        {menu === undefined || menu === null ? (
+          <MenuItem disabled onClick={() => {}}>
+            {menu === undefined ? "Loading from X" : "X offers nothing on this message now."}
+          </MenuItem>
+        ) : (
+          <>
+            {menu.rows.map((row) => (
+              <MenuItem key={row.label} onClick={() => pick(row)}>
+                {row.label}
+              </MenuItem>
+            ))}
+            {menu.info.map((line) => (
+              <MenuItem key={line} disabled onClick={() => {}}>
+                {line}
+              </MenuItem>
+            ))}
+          </>
+        )}
+      </Menu>
+    </span>
+  );
+}
+
+/**
+ * Xtend's composer on X's conversation `path`: the text goes to X's own composer and Send only on
+ * the user's Send, and X's own answer confirms it. A failure keeps the text.
+ */
+function Composer({
+  path,
+  draft,
+  onDraft,
+}: {
+  readonly path: string;
+  readonly draft: Draft;
+  readonly onDraft: (draft: Draft) => void;
+}) {
+  const { press, setToast } = usePress();
+  const [sending, setSending] = useState(false);
+  const { text, mode } = draft;
+  const send = async () => {
+    if (text.trim() === "" || sending) return;
+    setSending(true);
+    const to =
+      mode === null ? {} : mode.kind === "reply" ? { reply: mode.item.id } : { edit: mode.item.id };
+    const sent = await press(() => xChatSend(path, text, to));
+    setSending(false);
+    if (sent === "sent" || sent === "pending") onDraft({ text: "", mode: null });
+    else if (sent === "failed") setToast({ text: "Message failed to send" });
+  };
+  return (
+    <div className="border-t border-border px-4 py-3">
+      {mode === null ? null : (
+        <div className="mb-2 flex items-center gap-3 px-1 text-[13px]">
+          <span className="min-w-0 flex-1">
+            <b className="block truncate">
+              {mode.kind === "reply" ? mode.item.sender : "Edit message"}
+            </b>
+            {mode.kind === "reply" ? (
+              <span className="block truncate text-[#71767b]">
+                {mode.item.text || mode.item.media}
+              </span>
+            ) : null}
+          </span>
+          <button
+            type="button"
+            aria-label={mode.kind === "reply" ? "Cancel reply" : "Discard edit"}
+            className={ROUND}
+            onClick={() => onDraft({ text: mode.kind === "edit" ? "" : text, mode: null })}
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+      )}
+      <div className="flex items-end gap-2 rounded-3xl bg-[#202327] py-1.5 pr-1.5 pl-4 focus-within:ring-1 focus-within:ring-[#1d9bf0] focus-within:ring-inset">
+        <textarea
+          aria-label="Message"
+          placeholder="Message"
+          rows={1}
+          value={text}
+          disabled={sending}
+          className="max-h-40 min-h-8 flex-1 resize-none bg-transparent py-1 text-[15px] leading-6 outline-hidden [field-sizing:content] placeholder:text-[#71767b]"
+          onChange={(e) => onDraft({ text: e.target.value, mode })}
+          onKeyDown={(e) => {
+            // X's Enter sends and Shift+Enter starts a line.
+            if (e.key !== "Enter" || e.shiftKey || e.altKey || e.nativeEvent.isComposing) return;
+            e.preventDefault();
+            void send();
+          }}
+        />
+        <button
+          type="button"
+          disabled={text.trim() === "" || sending}
+          className="h-8 shrink-0 cursor-pointer rounded-full bg-[#1d9bf0] px-4 text-[14px] font-bold text-white disabled:cursor-default disabled:opacity-50"
+          onClick={() => void send()}
+        >
+          {mode?.kind === "edit" ? "Save" : "Send"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A conversation as X draws it, and what the user does there through X's own controls. Keyed by
+ * X's path, so a draft never follows the user into another conversation.
+ */
+function Conversation({
+  path,
+  conversation,
+  head,
+  group,
+  onMoved,
+}: {
+  readonly path: string;
+  readonly conversation: ChatState["conversation"];
+  readonly head: ChatRow | undefined;
+  readonly group: boolean;
+  /** X may have moved on after a step the user answered in X's page: Chat follows X there. */
+  readonly onMoved: () => void;
+}) {
+  const navigate = useNavigate();
+  const setOver = useAtomSet(xOverAtom);
+  const { press } = usePress();
+  const [draft, setDraft] = useState<Draft>({ text: "", mode: null });
+  const olderAsked = useRef(-1);
+  const answer = async (request: "accept" | "delete") => {
+    if ((await press(() => xChatRequest(path, request, setOver))) !== null) onMoved();
+  };
+  return (
+    <>
+      <div className="drag-region flex min-h-[53px] items-center gap-3 border-b border-border px-4">
+        {head === undefined ? null : <Faces urls={head.avatars} size={32} />}
+        <h2 className="min-w-0 flex-1 truncate text-[17px] font-bold">
+          {conversation?.title ?? head?.name ?? ""}
+        </h2>
+        <button
+          type="button"
+          aria-label="More"
+          className={cn("no-drag", ROUND)}
+          onClick={() =>
+            void press(() => xChatInfo(path, setOver)).then((shown) => shown && onMoved())
+          }
+        >
+          <MoreHorizontal className="size-[18px]" />
+        </button>
+        <button
+          type="button"
+          className="no-drag h-8 cursor-pointer rounded-full border border-white/[0.18] px-3.5 text-[13px] font-bold hover:bg-white/[0.06]"
+          onClick={() => void navigate({ to: "/x" })}
+        >
+          Open in X
+        </button>
+      </div>
+      <div className="min-h-0 flex-1">
+        {conversation === null ? (
+          <XEmpty
+            empty="Opening the conversation in X."
+            onReopen={() => void xNavigate(`https://x.com${path}`)}
+          />
+        ) : (
+          <Virtuoso
+            style={{ height: "100%" }}
+            data={conversation.items}
+            firstItemIndex={conversation.first}
+            initialTopMostItemIndex={conversation.items.length - 1}
+            alignToBottom
+            followOutput={(atBottom) => (atBottom ? "auto" : false)}
+            computeItemKey={(_, item) => item.id}
+            startReached={() => {
+              if (olderAsked.current === conversation.first) return;
+              olderAsked.current = conversation.first;
+              void xChatScroll("messages");
+            }}
+            itemContent={(_, item) => (
+              <Item
+                item={item}
+                group={group}
+                actions={
+                  item.kind === "message" ? (
+                    <MessageActions
+                      path={path}
+                      item={item}
+                      composer={conversation.composer}
+                      onDraft={setDraft}
+                    />
+                  ) : null
+                }
+              />
+            )}
+          />
+        )}
+      </div>
+      {conversation?.request != null ? (
+        <div className="flex flex-col items-center gap-3 border-t border-border p-4">
+          <p className="text-center text-[15px] text-[#71767b]">{conversation.request}</p>
+          <div className="flex w-full max-w-[400px] gap-2">
+            <button
+              type="button"
+              className="h-9 flex-1 cursor-pointer rounded-full border border-white/[0.18] text-[15px] font-bold hover:bg-white/[0.06]"
+              onClick={() => void answer("delete")}
+            >
+              Delete
+            </button>
+            <button
+              type="button"
+              className="h-9 flex-1 cursor-pointer rounded-full bg-foreground text-[15px] font-bold text-background"
+              onClick={() => void answer("accept")}
+            >
+              Accept
+            </button>
+          </div>
+        </div>
+      ) : conversation?.composer === true ? (
+        <Composer path={path} draft={draft} onDraft={setDraft} />
+      ) : null}
+    </>
+  );
+}
+
 /**
  * X's Chat, drawn by Xtend from X's own page: the inbox, its message requests and, once clicked,
  * a conversation. X opens a conversation only for the user's click on its row, since opening one
- * marks it read. Read only: replies happen in X's page (Open in X).
+ * marks it read. Writing goes through X's own controls in X's page, for the user's click.
  */
 function ChatScreen() {
   const { tab, c } = Route.useSearch();
@@ -220,8 +619,7 @@ function ChatScreen() {
   );
 
   const inboxAsked = useRef(-1);
-  // Per conversation: each one's list starts at the same index.
-  const olderAsked = useRef("");
+  const { press } = usePress();
   if (!isElectron)
     return (
       <Empty>
@@ -241,6 +639,26 @@ function ChatScreen() {
     setQuery("");
     void navigate({ to: "/chat", search: { tab, c: row.href } });
   };
+  /**
+   * Where X went after a step the user answered in X's own page (a request deleted, a chat started,
+   * a conversation left): Chat shows X's conversation there, X having opened it, or X's list.
+   */
+  const follow = async (from: string | null) => {
+    const at = await xRun("location.pathname");
+    if (typeof at !== "string" || at === from) return;
+    const conversation = isChatPath(at) && !Object.values(LIST_PATH).includes(at);
+    opened.current = conversation ? at : null;
+    if (conversation) setChat((s) => ({ ...s, path: at }));
+    void navigate({ to: "/chat", search: conversation ? { tab, c: at } : { tab } });
+  };
+  // X's New message sits on its inbox, so an open conversation closes for it.
+  const startChat = async () => {
+    const shown = await press(() => {
+      void navigate({ to: "/chat", search: { tab: "all" } });
+      return xChatNew(setOver);
+    });
+    if (shown !== null) await follow(null);
+  };
   const searching = query.trim() !== "";
   const requests = chat.requests?.path === LIST_PATH[tab] ? chat.requests.rows : null;
   const rows = searching ? chat.search : tab === "all" ? chat.inbox : requests;
@@ -257,7 +675,15 @@ function ChatScreen() {
         className="flex w-[400px] min-w-[320px] shrink-0 flex-col border-r border-border"
       >
         <div className="drag-region flex min-h-[53px] items-center px-4">
-          <h1 className="text-[20px] font-bold">Chat</h1>
+          <h1 className="flex-1 text-[20px] font-bold">Chat</h1>
+          <button
+            type="button"
+            aria-label="New message"
+            className={cn("no-drag", ROUND)}
+            onClick={() => void startChat()}
+          >
+            <SquarePen className="size-[18px]" />
+          </button>
         </div>
         <label className="no-drag mx-4 mb-3 flex h-10 items-center gap-2 rounded-full bg-[#202327] px-4 focus-within:ring-1 focus-within:ring-[#1d9bf0] focus-within:ring-inset">
           <Search className="size-4 text-[#71767b]" />
@@ -356,52 +782,18 @@ function ChatScreen() {
           <div className="m-auto max-w-[340px] px-6">
             <h2 className="text-[31px] leading-9 font-extrabold">Select a message</h2>
             <p className="mt-2 text-[15px] text-[#71767b]">
-              Choose from your existing conversations, or start a new one in X.
+              Choose from your existing conversations, or start a new one.
             </p>
           </div>
         ) : (
-          <>
-            <div className="drag-region flex min-h-[53px] items-center gap-3 border-b border-border px-4">
-              {head === undefined ? null : <Faces urls={head.avatars} size={32} />}
-              <h2 className="min-w-0 flex-1 truncate text-[17px] font-bold">
-                {conversation?.title ?? head?.name ?? ""}
-              </h2>
-              <button
-                type="button"
-                className="no-drag h-8 cursor-pointer rounded-full border border-white/[0.18] px-3.5 text-[13px] font-bold hover:bg-white/[0.06]"
-                onClick={() => void navigate({ to: "/x" })}
-              >
-                Open in X
-              </button>
-            </div>
-            <div className="min-h-0 flex-1">
-              {conversation === null ? (
-                <XEmpty
-                  key={open}
-                  empty="Opening the conversation in X."
-                  onReopen={() => void xNavigate(`https://x.com${open}`)}
-                />
-              ) : (
-                <Virtuoso
-                  key={open}
-                  style={{ height: "100%" }}
-                  data={conversation.items}
-                  firstItemIndex={conversation.first}
-                  initialTopMostItemIndex={conversation.items.length - 1}
-                  alignToBottom
-                  followOutput={(atBottom) => (atBottom ? "auto" : false)}
-                  computeItemKey={(_, item) => item.id}
-                  startReached={() => {
-                    const asked = `${open}:${conversation.first}`;
-                    if (olderAsked.current === asked) return;
-                    olderAsked.current = asked;
-                    void xChatScroll("messages");
-                  }}
-                  itemContent={(_, item) => <Item item={item} group={group} />}
-                />
-              )}
-            </div>
-          </>
+          <Conversation
+            key={open}
+            path={open}
+            conversation={conversation}
+            head={head}
+            group={group}
+            onMoved={() => void follow(open)}
+          />
         )}
       </section>
     </div>

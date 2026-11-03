@@ -90,6 +90,7 @@ it("reads X's inbox rows, its requests row and a conversation by X's own markup"
       time: "5:04 PM",
       media: null,
       reactions: [],
+      status: "sent",
     },
     expect.objectContaining({ id: "m2", mine: false, text: "", time: null, media: "Photo" }),
     expect.objectContaining({
@@ -101,6 +102,35 @@ it("reads X's inbox rows, its requests row and a conversation by X's own markup"
       ],
     }),
   ]);
+});
+
+it("reads X's send marks, whether X draws its composer, and a request X asks the user to accept", () => {
+  const panel = (inner: string) =>
+    `<div data-testid="dm-container"><div data-testid="dm-conversation-panel"><div data-testid="dm-message-list">${inner}</div>`;
+  const composer = `<div data-testid="dm-composer-container"><textarea data-testid="dm-composer-textarea"></textarea></div></div></div>`;
+  using _open = drawX(
+    panel(
+      message("m1", true, words("m1", "On my way"), "").replace("sent", "pending") +
+        message("m2", true, words("m2", "Running late"), "").replace("sent", "failed"),
+    ) + composer,
+  );
+  const open = readChat(document, "/i/chat/11-22");
+  expect([open.items?.map((i) => i.kind === "message" && i.status), open.composer]).toEqual([
+    ["pending", "failed"],
+    true,
+  ]);
+  // A conversation just started: X draws its composer before any message.
+  using _empty = drawX(panel("") + composer);
+  expect(readChat(document, "/i/chat/11-33").items).toEqual([]);
+
+  using _request = drawX(
+    panel(message("m3", false, words("m3", "Hi"), "")) +
+      `<div data-testid="dm-message-request-prompt"><div data-testid="dm-message-request-description">Accept message requests from <a href="https://x.com/bo">@bo</a></div><button data-testid="dm-message-request-accept-button">Accept</button></div></div></div>`,
+  );
+  expect(readChat(document, "/i/chat/requests/11-44")).toMatchObject({
+    composer: false,
+    request: "Accept message requests from @bo",
+  });
 });
 
 it("reads X's passcode screen as locked, with nothing else", () => {

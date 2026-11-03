@@ -47,6 +47,7 @@ const message = (id: string): ChatItem => ({
   time: null,
   media: null,
   reactions: [],
+  status: "sent",
 });
 const read = (over: Partial<ChatRead>): ChatRead => ({
   path: "/i/chat",
@@ -56,6 +57,8 @@ const read = (over: Partial<ChatRead>): ChatRead => ({
   requests: null,
   title: null,
   items: null,
+  composer: false,
+  request: null,
   search: null,
   ...over,
 });

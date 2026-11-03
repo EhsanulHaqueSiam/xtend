@@ -232,6 +232,8 @@ export async function startMockX(
       case "/__mock/chat-unlock":
         state.chat.unlock();
         return json({ ok: true });
+      case "/__mock/chat":
+        return json({ ok: state.chat.write(await readBody(req)) });
       case "/favicon.ico":
         return send(204, "", "image/x-icon");
     }

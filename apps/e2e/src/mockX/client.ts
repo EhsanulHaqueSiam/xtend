@@ -138,6 +138,151 @@ const SCRIPT = String.raw`
         go(a.getAttribute("href"), false);
       }
     });
+    chatControls(root);
+  }
+
+  // X's controls in a conversation (pin-page-rweb): a message's hover bar once the pointer is over
+  // it, its "..." menu and reaction picker, X's confirm, and the composer. What they change goes to
+  // mock X, and the page draws anew, as X's store answers.
+  function chatControls(root) {
+    const conversation = root.querySelector("[data-mock-conversation]")?.dataset.mockConversation;
+    const field = root.querySelector('[data-testid="dm-composer-textarea"]');
+    let replyTo = null;
+    let editing = null;
+    const write = (body) => post("/__mock/chat", { conversation, ...body }).then(() => cache.clear());
+    const messageOf = (id) => root.querySelector('[data-testid="message-' + CSS.escape(id) + '"]');
+    const clone = (message, name) => message.querySelector("template[data-mock-" + name + "]").content.firstElementChild.cloneNode(true);
+    const closePopups = () => {
+      for (const popup of root.querySelectorAll("[data-mock-popup]")) popup.remove();
+      for (const b of root.querySelectorAll('[aria-expanded="true"]')) b.setAttribute("aria-expanded", "false");
+    };
+    const popup = (el, id) => {
+      el.dataset.mockPopup = id ?? "";
+      root.append(el);
+    };
+    const dialog = (title, body, buttons) => {
+      const box = document.createElement("div");
+      box.setAttribute("role", "dialog");
+      const h = document.createElement("h2");
+      h.textContent = title;
+      const p = document.createElement("p");
+      p.textContent = body;
+      box.append(h, p);
+      for (const [label, step] of buttons) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = label;
+        b.addEventListener("click", () => { box.remove(); log("chat:" + label); step?.(); });
+        box.append(b);
+      }
+      closePopups();
+      popup(box);
+    };
+    // X's Send takes the voice button's place once there is text, and reads Save while editing.
+    const swapSend = () => {
+      const now = root.querySelector('[data-testid="dm-composer-send-button"], [data-testid="dm-composer-voice-button"]');
+      const send = field.value.trim() !== "" || editing !== null;
+      const label = !send ? "Record voice message" : editing !== null ? "Save" : "Send";
+      if (!now || now.getAttribute("aria-label") === label) return;
+      const b = document.createElement("button");
+      b.type = "button";
+      b.dataset.testid = send ? "dm-composer-send-button" : "dm-composer-voice-button";
+      b.setAttribute("aria-label", label);
+      b.textContent = send ? "➤" : "🎤";
+      now.replaceWith(b);
+    };
+    const bar = (testid, html) => {
+      for (const old of root.querySelectorAll('[data-testid="dm-composer-reply-bar"], [data-testid="dm-composer-edit-mode"]')) old.remove();
+      const el = document.createElement("div");
+      el.dataset.testid = testid;
+      el.innerHTML = html;
+      root.querySelector('[data-testid="dm-composer-container"]').prepend(el);
+      return el;
+    };
+    const reply = (message) => {
+      editing = null;
+      replyTo = message.dataset.testid.slice("message-".length);
+      bar("dm-composer-reply-bar", '<b></b><button type="button" aria-label="Cancel reply">✕</button>').firstChild.textContent =
+        message.querySelector('span[hidden][id$="-sender"]')?.textContent ?? "";
+      swapSend();
+    };
+    root.addEventListener("mouseover", (event) => {
+      const message = event.target instanceof Element ? event.target.closest('[data-testid^="message-"][data-send-status]') : null;
+      const bubble = message?.querySelector('[role="group"], [role="article"]');
+      if (!bubble || bubble.querySelector(".hover-bar") || !message.querySelector("template[data-mock-hover]")) return;
+      for (const old of root.querySelectorAll(".hover-bar")) old.remove();
+      bubble.append(clone(message, "hover"));
+    });
+    root.addEventListener("input", (event) => {
+      if (field && event.target === field) swapSend();
+    });
+    root.addEventListener("click", (event) => {
+      const button = event.target instanceof Element ? event.target.closest('button, [role="menuitem"]') : null;
+      if (!button) return;
+      const testid = button.dataset.testid ?? "";
+      const message = button.closest('[data-testid^="message-"][data-send-status]');
+      const opener = /^message-(overflow|reaction)-button-(.+)$/.exec(testid);
+      if (opener) {
+        const open = button.getAttribute("aria-expanded") === "true";
+        closePopups();
+        if (open) return;
+        button.setAttribute("aria-expanded", "true");
+        return popup(clone(message, opener[1] === "overflow" ? "menu" : "reactions"), opener[2]);
+      }
+      if (testid.startsWith("message-reply-button-")) return reply(message);
+      const shown = button.closest("[data-mock-popup]");
+      const id = shown?.dataset.mockPopup;
+      if (shown && id && button.hasAttribute("aria-pressed")) {
+        closePopups();
+        log("chat:react");
+        return void write({ kind: "react", message: id, emoji: button.getAttribute("aria-label") }).then(show);
+      }
+      if (shown && id && button.getAttribute("role") === "menuitem") {
+        const label = button.textContent.trim();
+        const name = button.querySelector("svg")?.dataset.icon;
+        const text = shown.dataset.mockText ?? "";
+        closePopups();
+        log("chat:" + label);
+        if (name === "icon-reply-arrow") return reply(messageOf(id));
+        if (name === "icon-pencil-stroke") {
+          replyTo = null;
+          editing = id;
+          bar("dm-composer-edit-mode", '<span>Edit message</span><button type="button" aria-label="Discard edit" data-testid="dm-composer-discard-edit-button">✕</button>');
+          field.value = text;
+          return swapSend();
+        }
+        if (name === "icon-trashcan-stroke")
+          return dialog("Delete message", "Are you sure you want to delete this message?", [["Cancel"], [label, () => void write({ kind: "delete", message: id }).then(show)]]);
+        if (name === "icon-forward-stroke") return dialog("Forward", "", [["Close"]]);
+        if (name === "icon-information-circle") return dialog("Message info", "", [["Close"]]);
+        return;
+      }
+      if (testid === "dm-composer-send-button") {
+        log("chat:send");
+        const body = editing !== null ? { kind: "edit", message: editing, text: field.value } : { kind: "send", text: field.value, ...(replyTo === null ? {} : { replyTo }) };
+        return void write(body).then(show);
+      }
+      if (button.getAttribute("aria-label") === "Cancel reply") {
+        replyTo = null;
+        return button.parentElement.remove();
+      }
+      if (testid === "dm-composer-discard-edit-button") {
+        editing = null;
+        field.value = "";
+        button.parentElement.remove();
+        return swapSend();
+      }
+      if (testid === "dm-message-request-accept-button") {
+        log("chat:accept");
+        return void write({ kind: "accept" }).then(show);
+      }
+      if (testid === "dm-message-request-delete-button")
+        return dialog("Delete conversation?", "Are you sure you want to delete this conversation? This action cannot be undone.", [["Cancel"], ["Delete", () => void write({ kind: "decline" }).then(() => go("/i/chat/requests", true))]]);
+      if (testid === "dm-conversation-more-button") {
+        log("chat:info");
+        go(location.pathname + "/info", false);
+      }
+    });
   }
 
   /** Fires the page's GraphQL calls as X's app makes them, so the capture sees each answer. */

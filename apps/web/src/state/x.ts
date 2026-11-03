@@ -1062,21 +1062,41 @@ const pressMenu = async (
 
 /**
  * Shows the engine over the main area while X's own dialog or page, opened by a press at `path`,
- * is up: until X is back on `path` with no dialog, or press `run` is no longer the latest.
+ * is up: until X is back on `path` with no dialog (or `asking`, a check in X's page, no longer
+ * holds), or press `run` is no longer the latest.
  */
-const holdOver = async (run: number, path: string, over: (shown: boolean) => void) => {
+const holdOver = async (
+  run: number,
+  path: string,
+  over: (shown: boolean) => void,
+  asking = `location.pathname + location.search !== ${JSON.stringify(path)} || !!document.querySelector('[role="dialog"], [role="alertdialog"]')`,
+) => {
   if (run !== overRun) return;
   over(true);
   for (;;) {
     await new Promise((r) => setTimeout(r, 500));
     if (run !== overRun) return;
-    const open = await xRun(
-      `location.pathname + location.search !== ${JSON.stringify(path)} || !!document.querySelector('[role="dialog"], [role="alertdialog"]')`,
-    );
+    const open = await xRun(asking);
     if (open !== true) break;
   }
   // The user may have moved on during the read: a newer press owns the overlay then.
   if (run === overRun) over(false);
+};
+
+/**
+ * Runs `press`, a script for X's page, for the user's click: it gets `mine`, a check in X's page
+ * that this press is still the user's latest. When it answers "over", X drew its own dialog or page
+ * for the user to answer, shown over the main area while `asking` holds. Resolves to its answer.
+ */
+export const xPressOver = async (
+  press: (mine: string) => string,
+  asking: string,
+  over: (shown: boolean) => void,
+) => {
+  const run = await nextRun();
+  const answer = await xRun(press(stillMine(run)));
+  if (answer === "over") await holdOver(run, "", over, asking);
+  return answer;
 };
 
 /**

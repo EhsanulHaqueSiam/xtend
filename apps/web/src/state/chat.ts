@@ -2,13 +2,13 @@ import * as Atom from "effect/reactivity/Atom";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-import { xRun, xRunHeld } from "./x";
+import { xPressOver, xRun, xRunHeld } from "./x";
 
 /**
- * X's Chat, read from X's own page. Its messages are end-to-end encrypted: X's answers carry no
- * text, so the only place a chat is readable is what X's chat embed draws, in open shadow roots on
- * x.com. The engine reads that, and only while Xtend's Chat screen is open. What it reads lives in
- * this module's atom and nowhere else: never in an engine batch, the service, a log or the bench.
+ * X's Chat through X's own page: its messages are end-to-end encrypted, so only X's chat embed
+ * draws them, in open shadow roots on x.com, read while Chat is open and written through X's own
+ * controls for the user's click. What it reads stays in this module's atom: never an engine
+ * batch, the service, a log or the bench.
  */
 
 const ChatRow = Schema.Struct({
@@ -39,7 +39,10 @@ const ChatMessage = Schema.Struct({
   /** X's word for an attachment (Photo, Video, GIF, Voice message, Attachment), shown in its place. */
   media: Schema.NullOr(Schema.String),
   reactions: Schema.Array(Schema.Struct({ emoji: Schema.String, count: Schema.Number })),
+  /** X's own mark: "pending" until X's page has sent it, "failed" when it could not. */
+  status: Schema.Literals(["sent", "pending", "failed"]),
 });
+export type ChatMessage = typeof ChatMessage.Type;
 /** X's lines between messages: a day, "You accepted the request". */
 const ChatInfo = Schema.Struct({
   kind: Schema.Literal("info"),
@@ -60,6 +63,10 @@ const ChatRead = Schema.Struct({
   requests: Schema.NullOr(Schema.Array(ChatRow)),
   title: Schema.NullOr(Schema.String),
   items: Schema.NullOr(Schema.Array(ChatItem)),
+  /** X draws its composer on the conversation: the user can write in it. */
+  composer: Schema.Boolean,
+  /** X asks the user to accept this conversation's request first, in its own words. */
+  request: Schema.NullOr(Schema.String),
   search: Schema.NullOr(Schema.Array(ChatRow)),
 });
 export type ChatRead = typeof ChatRead.Type;
@@ -127,6 +134,9 @@ export function readChat(doc: Document, path: string): ChatRead {
         emoji: text(b.children[0]),
         count: Number(text(b.children[1]) || "1") || 1,
       })),
+      status:
+        (["pending", "failed"] as const).find((s) => s === el.getAttribute("data-send-status")) ??
+        "sent",
     };
   };
   const list = all('[data-testid="dm-message-list"]')[0];
@@ -139,6 +149,10 @@ export function readChat(doc: Document, path: string): ChatRead {
           ),
         ].map(item);
   const requestsRow = all('[data-testid="dm-message-requests-inbox-row"]')[0];
+  const composer = has('[data-testid="dm-composer-textarea"]');
+  const request = has('[data-testid="dm-message-request-prompt"]')
+    ? text(all('[data-testid="dm-message-request-description"]')[0])
+    : null;
   const searching = all('[data-testid="dm-search-input"]').some(
     (i) => i instanceof HTMLInputElement && i.value.trim() !== "",
   );
@@ -187,7 +201,10 @@ export function readChat(doc: Document, path: string): ChatRead {
       '[data-testid="dm-message-requests-empty"]',
     ),
     title: text(all('[data-testid="dm-conversation-username"]')[0]) || null,
-    items: items.length > 0 ? items : null,
+    // A conversation with no messages yet (one just started) is drawn once X draws its composer.
+    items: items.length > 0 || composer || request !== null ? items : null,
+    composer,
+    request,
     search: searching ? options : null,
   };
 }
@@ -208,6 +225,8 @@ export interface ChatState {
     readonly title: string | null;
     readonly items: ReadonlyArray<ChatItem>;
     readonly first: number;
+    readonly composer: boolean;
+    readonly request: string | null;
   } | null;
   readonly search: ReadonlyArray<ChatRow> | null;
 }
@@ -276,6 +295,8 @@ export const mergeChat = (state: ChatState, read: ChatRead): ChatState => {
             title: read.title ?? was?.title ?? null,
             items,
             first: (was?.first ?? FIRST) - Math.max(0, lifted),
+            composer: read.composer,
+            request: read.request,
           },
     search: read.search,
   };
@@ -409,3 +430,296 @@ export const xChatSearch = (query: string, wait = false) =>
 /** X's paths a Chat screen may open: X's own row links, never anything else. */
 export const isChatPath = (path: string) =>
   /^\/i\/chat(\/requests(\/other)?)?(\/[A-Za-z0-9_-]{1,80})?$/.test(path);
+
+/**
+ * Script steps in X's page: X's chat roots, a lookup in them, a short wait for a check, an
+ * element's words as X shows them, and whether X now asks the user something of its own (a
+ * dialog, or a menu X keeps open on a choice). A popup X is closing does not ask anything.
+ */
+const IN_CHAT = `
+    const roots = () => [...document.querySelectorAll('[data-testid^="xchatEmbed"]')].flatMap((h) => (h.shadowRoot ? [h.shadowRoot] : []));
+    const find = (s) => roots().map((r) => r.querySelector(s)).find(Boolean) ?? null;
+    const wait = async (check, tries = 20) => {
+      for (let i = 0; i < tries; i++) {
+        const found = check();
+        if (found) return found;
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      return check();
+    };
+    const words = (el) => {
+      const copy = el.cloneNode(true);
+      for (const hidden of copy.querySelectorAll(".sr-only")) hidden.remove();
+      return copy.textContent.trim();
+    };
+    const asks = () => {
+      const up = ':is([role="dialog"], [role="alertdialog"]):not([data-ending-style])';
+      return !!document.querySelector(up) || roots().some((r) => r.querySelector(up + ', [role="menu"]:not([data-ending-style])'));
+    };`;
+
+/** X still asks the user something in its chat (or, with `under`, shows its page there). */
+const asking = (under?: string) =>
+  `(() => { ${IN_CHAT} return asks()${under === undefined ? "" : ` || location.pathname.startsWith(${JSON.stringify(under)})`}; })()`;
+
+/**
+ * Steps on message `id` in X's open conversation: `hover` shows X's hover bar on it as a pointer
+ * over it does, `menu` opens X's "..." there and answers its own rows, `reactions` opens X's
+ * reaction picker there and answers its emoji buttons. Each is null when X draws none.
+ */
+const onMessage = (id: string) => `
+    const testid = (name) => '[data-testid="' + name + CSS.escape(${JSON.stringify(id)}) + '"]';
+    const hover = async () => {
+      const bubble = find(testid("message-"))?.querySelector('[role="group"], [role="article"]');
+      if (!bubble) return null;
+      const box = bubble.getBoundingClientRect();
+      const at = { bubbles: true, composed: true, clientX: box.left + box.width / 2, clientY: box.top + box.height / 2 };
+      bubble.dispatchEvent(new MouseEvent("mouseover", at));
+      bubble.dispatchEvent(new MouseEvent("mousemove", at));
+      return wait(() => find(testid("message-overflow-button-")));
+    };
+    const menu = async () => {
+      const more = await hover();
+      if (!more) return null;
+      if (more.getAttribute("aria-expanded") !== "true") more.click();
+      const open = await wait(() => {
+        const menus = roots().flatMap((r) => [...r.querySelectorAll('[role="menu"]')]);
+        return menus.length === 1 && menus[0].querySelector('[role="menuitem"]') ? menus[0] : null;
+      });
+      if (!open) return null;
+      const rows = [...open.querySelectorAll('[role="menuitem"]')].filter((r) => r.closest('[role="menu"]') === open);
+      return { more, open, rows };
+    };
+    const reactions = async () => {
+      const react = (await hover()) && find(testid("message-reaction-button-"));
+      if (!react) return null;
+      if (react.getAttribute("aria-expanded") !== "true") react.click();
+      const buttons = await wait(() => {
+        const found = roots().flatMap((r) => [...r.querySelectorAll('[role="dialog"] button[aria-pressed]')]);
+        return found.length > 0 ? found : null;
+      });
+      return buttons ? { react, buttons } : null;
+    };`;
+
+/** X's "..." on a message: each row in X's words, with its icon (the same in every language). */
+const ChatMenu = Schema.Struct({
+  rows: Schema.Array(Schema.Struct({ label: Schema.String, icon: Schema.String })),
+  /** What X says about the message there (when it was sent, who saw it), not pressable. */
+  info: Schema.Array(Schema.String),
+});
+export type ChatMenu = typeof ChatMenu.Type;
+const decodeMenu = Schema.decodeUnknownOption(ChatMenu);
+
+/**
+ * X's "..." on message `id` in X's conversation `path`, read for the user's click on Xtend's.
+ * Presses nothing: X's menu closes again. Null when X draws no such message or menu there.
+ */
+export const xChatMenu = async (path: string, id: string) =>
+  Option.getOrNull(
+    decodeMenu(
+      await xRun(`(async () => {
+    ${IN_CHAT}
+    ${onMessage(id)}
+    if (location.pathname !== ${JSON.stringify(path)}) return null;
+    const shown = await menu();
+    if (!shown) return null;
+    // A row opening a list of its own (who saw it) is a line about the message, as X's plain lines are.
+    const rows = shown.rows.filter((r) => !r.hasAttribute("aria-haspopup")).map((r) => ({ label: words(r), icon: r.querySelector("svg[data-icon]")?.getAttribute("data-icon") ?? "" }));
+    const info = [...shown.open.querySelectorAll('[role="none"], [role="menuitem"][aria-haspopup]')].map(words).filter((w) => w !== "");
+    shown.more.click();
+    return { rows, info };
+  })()`),
+    ),
+  );
+
+/**
+ * Presses row `label` of X's "..." on message `id` for the user's click. What X asks next (Delete's
+ * confirm, Forward's picker, Info) shows over the main area until the user answers it there.
+ * "done" once X took it; null when X draws no such message or row, and nothing was pressed.
+ */
+export const xChatMenuPress = async (
+  path: string,
+  id: string,
+  label: string,
+  over: (shown: boolean) => void,
+) => {
+  const answer = await xPressOver(
+    (mine) => `(async () => {
+    ${IN_CHAT}
+    ${onMessage(id)}
+    if (location.pathname !== ${JSON.stringify(path)} || !${mine}) return null;
+    const shown = await menu();
+    const row = shown?.rows.find((r) => words(r) === ${JSON.stringify(label)});
+    if (!row || !${mine}) return (shown?.more.click(), null);
+    row.click();
+    await new Promise((r) => setTimeout(r, 300));
+    return (await wait(asks, 5)) ? "over" : "done";
+  })()`,
+    asking(),
+    over,
+  );
+  return answer === "over" || answer === "done" ? answer : null;
+};
+
+const Reactions = Schema.Array(Schema.Struct({ emoji: Schema.String, selected: Schema.Boolean }));
+const decodeReactions = Schema.decodeUnknownOption(Reactions);
+
+/**
+ * X's quick reactions on message `id`, read from X's own picker for the user's click on Xtend's:
+ * each emoji, and whether it is the user's reaction now. Presses nothing; null when X offers none.
+ */
+export const xChatReactions = async (path: string, id: string) =>
+  Option.getOrNull(
+    decodeReactions(
+      await xRun(`(async () => {
+    ${IN_CHAT}
+    ${onMessage(id)}
+    if (location.pathname !== ${JSON.stringify(path)}) return null;
+    const picker = await reactions();
+    if (!picker) return null;
+    const quick = picker.buttons.map((b) => ({ emoji: b.getAttribute("aria-label") ?? "", selected: b.getAttribute("aria-pressed") === "true" }));
+    picker.react.click();
+    return quick;
+  })()`),
+    ),
+  );
+
+/**
+ * Picks `emoji` in X's reaction picker on message `id` for the user's click; picking the user's
+ * own reaction again takes it back, as in X. Null when X offers no such reaction there.
+ */
+export const xChatReact = async (path: string, id: string, emoji: string) =>
+  (await xPressOver(
+    (mine) => `(async () => {
+    ${IN_CHAT}
+    ${onMessage(id)}
+    if (location.pathname !== ${JSON.stringify(path)} || !${mine}) return null;
+    const picker = await reactions();
+    const button = picker?.buttons.find((b) => b.getAttribute("aria-label") === ${JSON.stringify(emoji)});
+    if (!button || !${mine}) return (picker?.react.click(), null);
+    button.click();
+    return "done";
+  })()`,
+    asking(),
+    () => {},
+  )) === "done" || null;
+
+/**
+ * Sends `text` in X's conversation `path` for the user's click through X's own composer: typed as
+ * a keystroke types, then X's own Send (Save, for `edit`), after X's own Reply or Edit on that
+ * message. X's answer says how it went: the message X adds as the user's is "sent" once X marks it
+ * so, "failed" when X could not send it, "pending" while X still sends. Null when nothing was sent.
+ */
+export const xChatSend = async (
+  path: string,
+  text: string,
+  to: { readonly reply?: string; readonly edit?: string } = {},
+) => {
+  const answer = await xPressOver(
+    (mine) => `(async () => {
+    ${IN_CHAT}
+    ${onMessage(to.reply ?? to.edit ?? "")}
+    const field = () => find('[data-testid="dm-composer-textarea"]');
+    if (location.pathname !== ${JSON.stringify(path)} || !${mine} || !field()) return null;
+    // X's composer does only what this click asks: a reply or edit it still holds from before ends.
+    [...(find('[data-testid="dm-composer-reply-bar"]')?.querySelectorAll("button") ?? [])].at(-1)?.click();
+    find('[data-testid="dm-composer-discard-edit-button"]')?.click();
+    const plain = () => !find('[data-testid="dm-composer-reply-bar"], [data-testid="dm-composer-edit-mode"]');
+    if (!(await wait(plain))) return null;
+    const pick = async (icon, mode) => {
+      const shown = await menu();
+      const row = shown?.rows.find((r) => r.querySelector('svg[data-icon="' + icon + '"]'));
+      if (!row) return (shown?.more.click(), null);
+      row.click();
+      return wait(() => find(mode));
+    };
+    if (${to.reply !== undefined}) {
+      const reply = (await hover()) && find(testid("message-reply-button-"));
+      reply?.click();
+      const replying = reply ? await wait(() => find('[data-testid="dm-composer-reply-bar"]')) : await pick("icon-reply-arrow", '[data-testid="dm-composer-reply-bar"]');
+      if (!replying) return null;
+    }
+    if (${to.edit !== undefined} && !(await pick("icon-pencil-stroke", '[data-testid="dm-composer-edit-mode"]'))) return null;
+    const messages = () => roots().flatMap((r) => [...r.querySelectorAll('[data-testid="dm-message-list"] [data-testid^="message-"][data-send-status]')]);
+    const before = new Set(messages().map((m) => m.dataset.testid));
+    const input = field();
+    if (!input || !${mine}) return null;
+    // React keeps the field's value itself: its native setter and an input event are a keystroke.
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(input, ${JSON.stringify(text)});
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    const send = await wait(() => {
+      const button = find('[data-testid="dm-composer-send-button"]');
+      return button && !button.disabled ? button : null;
+    });
+    if (!send || !${mine}) return null;
+    send.click();
+    if (${to.edit !== undefined}) return (await wait(() => !find('[data-testid="dm-composer-edit-mode"]'), 50)) ? "sent" : null;
+    const added = () => messages().find((m) => !before.has(m.dataset.testid) && m.classList.contains("justify-end"));
+    if (!(await wait(added, 100))) return field()?.value === "" ? "pending" : null;
+    await wait(() => added()?.dataset.sendStatus !== "pending", 150);
+    return added()?.dataset.sendStatus ?? "pending";
+  })()`,
+    asking(),
+    () => {},
+  );
+  return answer === "sent" || answer === "failed" || answer === "pending" ? answer : null;
+};
+
+/**
+ * Answers X's message request on conversation `path` for the user's click with X's own Accept, or
+ * its Delete, whose confirm shows over the main area for the user to answer. Null when X asks
+ * nothing there.
+ */
+export const xChatRequest = async (
+  path: string,
+  answer: "accept" | "delete",
+  over: (shown: boolean) => void,
+) => {
+  const done = await xPressOver(
+    (mine) => `(async () => {
+    ${IN_CHAT}
+    const button = find(${JSON.stringify(`[data-testid="dm-message-request-${answer}-button"]`)});
+    if (location.pathname !== ${JSON.stringify(path)} || !button || !${mine}) return null;
+    button.click();
+    await new Promise((r) => setTimeout(r, 300));
+    return (await wait(asks, 5)) ? "over" : "done";
+  })()`,
+    asking(),
+    over,
+  );
+  return done === "over" || done === "done" ? done : null;
+};
+
+/**
+ * X's own New message on its inbox, for the user's click: X's dialog to start a chat or a group
+ * shows over the main area until the user is done with it. Null when X drew none.
+ */
+export const xChatNew = (over: (shown: boolean) => void) =>
+  xPressOver(
+    (mine) => `(async () => {
+    ${IN_CHAT}
+    const button = await wait(() => location.pathname === "/i/chat" && find('[data-testid="dm-new-chat-button"]'), 40);
+    if (!button || !${mine}) return null;
+    button.click();
+    return (await wait(asks, 20)) ? "over" : null;
+  })()`,
+    asking(),
+    over,
+  ).then((answer) => answer === "over" || null);
+
+/**
+ * X's own page about conversation `path`, opened as X's More (or its title) opens it for the
+ * user's click: its people, nickname, disappearing messages, calls, safety number, block and
+ * delete are X's to answer, over the main area while X shows it. Null when X drew none.
+ */
+export const xChatInfo = (path: string, over: (shown: boolean) => void) =>
+  xPressOver(
+    (mine) => `(async () => {
+    ${IN_CHAT}
+    const button = find('[data-testid="dm-conversation-more-button"]') ?? find('[data-testid="dm-conversation-username"]');
+    if (location.pathname !== ${JSON.stringify(path)} || !button || !${mine}) return null;
+    button.click();
+    return (await wait(() => location.pathname.startsWith(${JSON.stringify(`${path}/info`)}) || asks(), 20)) ? "over" : null;
+  })()`,
+    asking(`${path}/info`),
+    over,
+  ).then((answer) => answer === "over" || null);

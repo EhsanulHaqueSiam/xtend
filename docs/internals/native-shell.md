@@ -75,6 +75,12 @@ for the user's click (a reload, Back, Forward or relaunch opens nothing: a saved
 comes back as its Chat list) and leaves it when the screen goes. X's passcode screen shows over the main
 area for the user to type, as X's own dialogs do. In the side panel's width X draws the inbox or
 a conversation, never both, so the screen keeps the last inbox it read.
+Writing presses X's own controls in those roots, never X's chat API. X draws a message's hover
+bar only for a pointer over it, so the engine sends the bubble a `mouseover` first; X's row
+labels follow the account's language, so rows are told apart by their icons (`data-icon`).
+X's dialogs and menus draw inside the chat roots, where `holdOver`'s check cannot see them, so
+chat presses pass their own (`xPressOver`). Text reaches X's composer as a keystroke does, and
+only X's own mark on the message it adds (`data-send-status`) says it was sent.
 
 The read-only benchmark (`apps/desktop/scripts/engine-bench.mjs`) checks every surface against a
 dev desktop on the real account; its only write is a bookmark it removes again.
