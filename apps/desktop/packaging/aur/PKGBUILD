@@ -1,0 +1,40 @@
+# Maintainer: Ehsanul Haque Siam
+# The release fills @VERSION@ and the sums from the AppImages it just published and pushes this
+# to the AUR as xtend-bin (.github/workflows/release-desktop.yml). Stable releases only: pkgver
+# cannot hold a nightly's dashes.
+pkgname=xtend-bin
+pkgver=@VERSION@
+pkgrel=1
+pkgdesc="X with growth tools built in"
+arch=('x86_64' 'aarch64')
+url="https://github.com/EhsanulHaqueSiam/xtend"
+license=('LicenseRef-UNLICENSED')
+depends=('gtk3' 'nss' 'alsa-lib')
+options=('!strip' '!debug')
+_release="${url}/releases/download/v${pkgver}"
+source_x86_64=("Xtend-${pkgver}-x86_64.AppImage::${_release}/Xtend-${pkgver}-x86_64.AppImage")
+source_aarch64=("Xtend-${pkgver}-arm64.AppImage::${_release}/Xtend-${pkgver}-arm64.AppImage")
+sha256sums_x86_64=('@SHA256_X86_64@')
+sha256sums_aarch64=('@SHA256_AARCH64@')
+
+prepare() {
+  local appimage
+  for appimage in Xtend-"${pkgver}"-*.AppImage; do
+    chmod +x "${appimage}"
+    ./"${appimage}" --appimage-extract >/dev/null
+  done
+}
+
+# Installed as xtend-desktop: `xtend` is the CLI's name (npm i -g xtend-cli).
+package() {
+  install -d "${pkgdir}/opt/xtend" "${pkgdir}/usr/bin"
+  cp -a squashfs-root/. "${pkgdir}/opt/xtend/"
+  rm -rf "${pkgdir}/opt/xtend/usr" "${pkgdir}/opt/xtend/AppRun" "${pkgdir}/opt/xtend/xtend.desktop" "${pkgdir}/opt/xtend/xtend.png" "${pkgdir}/opt/xtend/.DirIcon"
+  # Electron's sandbox helper needs setuid where unprivileged user namespaces are off.
+  chmod 4755 "${pkgdir}/opt/xtend/chrome-sandbox"
+  ln -s /opt/xtend/xtend "${pkgdir}/usr/bin/xtend-desktop"
+  sed 's|^Exec=AppRun --no-sandbox|Exec=/usr/bin/xtend-desktop|' squashfs-root/xtend.desktop \
+    | install -Dm644 /dev/stdin "${pkgdir}/usr/share/applications/xtend.desktop"
+  install -Dm644 squashfs-root/usr/share/icons/hicolor/1024x1024/apps/xtend.png \
+    "${pkgdir}/usr/share/icons/hicolor/1024x1024/apps/xtend.png"
+}

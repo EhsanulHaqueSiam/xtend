@@ -247,3 +247,112 @@ jobs:
           if (( elapsed > 600 )); then
             echo "::warning::Release took $((elapsed / 60))m $((elapsed % 60))s, over the 10 minute budget."
           fi
+
+  # Each job below waits for its secret: without it, it says so and publishes nothing.
+  npm:
+    name: Publish CLI to npm
+    needs: [version, publish]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      # npm provenance: the registry records this run as the package's origin.
+      id-token: write
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+    steps:
+      - id: ready
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "::notice::NPM_TOKEN is not set; the CLI ships on the GitHub release only."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.ready.outputs.ready == 'true'
+        uses: actions/setup-node@v5
+        with:
+          node-version: 26.11.1
+          registry-url: https://registry.npmjs.org
+      - if: steps.ready.outputs.ready == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: xtend-cli
+      # Nightlies go under the nightly tag, so `npm i -g @xtend/cli` stays on stable.
+      - if: steps.ready.outputs.ready == 'true'
+        env:
+          TAG: ${{ needs.version.outputs.nightly == 'true' && 'nightly' || 'latest' }}
+        run: npm publish ./xtend-cli-*.tgz --access public --provenance --tag "$TAG"
+
+  aur:
+    name: Publish AUR package
+    needs: [version, publish]
+    if: needs.version.outputs.nightly == 'false'
+    runs-on: ubuntu-24.04
+    container: archlinux:base-devel
+    timeout-minutes: 15
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          sparse-checkout: apps/desktop/packaging/aur
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: xtend-linux-*
+          path: artifacts
+          merge-multiple: true
+      # The sums come from the files this release just published; makepkg then fetches those
+      # files from the release and builds the package, so a broken PKGBUILD never reaches the AUR.
+      - name: Validate
+        run: |
+          pacman -Sy --noconfirm --needed git openssh
+          sha() { sha256sum "$1" | cut -d' ' -f1; }
+          useradd -m builder
+          install -d -o builder /home/builder/aur
+          sed -e "s/@VERSION@/$VERSION/" \
+            -e "s/@SHA256_X86_64@/$(sha "artifacts/Xtend-$VERSION-x86_64.AppImage")/" \
+            -e "s/@SHA256_AARCH64@/$(sha "artifacts/Xtend-$VERSION-arm64.AppImage")/" \
+            apps/desktop/packaging/aur/PKGBUILD > /home/builder/aur/PKGBUILD
+          cd /home/builder/aur
+          su builder -c "makepkg --printsrcinfo > .SRCINFO && makepkg --nodeps --noconfirm"
+      - name: Publish
+        run: |
+          if [ -z "$AUR_SSH_PRIVATE_KEY" ]; then
+            echo "::notice::AUR_SSH_PRIVATE_KEY is not set; validated the package, published nothing."
+            exit 0
+          fi
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+          ssh-keyscan -t ed25519 aur.archlinux.org >> ~/.ssh/known_hosts
+          export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/aur"
+          git clone ssh://aur@aur.archlinux.org/xtend-bin.git /tmp/xtend-bin
+          cp /home/builder/aur/PKGBUILD /home/builder/aur/.SRCINFO /tmp/xtend-bin/
+          cd /tmp/xtend-bin
+          git add PKGBUILD .SRCINFO
+          git -c user.name="Xtend release" -c user.email="releases@users.noreply.github.com" \
+            commit -m "Update to $VERSION"
+          git push origin HEAD:master
+
+  # Stable releases only: a nightly ships on every merge to main.
+  discord:
+    name: Announce release on Discord
+    needs: [version, publish, npm, aur]
+    if: ${{ !cancelled() && needs.publish.result == 'success' && needs.version.outputs.nightly == 'false' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - run: |
+          if [ -z "$WEBHOOK" ]; then
+            echo "::notice::DISCORD_WEBHOOK_URL is not set; no announcement."
+            exit 0
+          fi
+          url="https://github.com/$GITHUB_REPOSITORY/releases/tag/v$VERSION"
+          jq -n --arg content "Xtend $VERSION is out for macOS, Windows and Linux: $url" \
+            '{content: $content, allowed_mentions: {parse: []}}' \
+            | curl -fsS -H 'Content-Type: application/json' -d @- "$WEBHOOK"

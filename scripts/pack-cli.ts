@@ -48,6 +48,7 @@ NodeFS.writeFileSync(
   NodePath.join(stage, "package.json"),
   `${JSON.stringify(
     {
+      // Published to npm under this name by the release (the xtend name and scope are taken).
       name: "xtend-cli",
       version: server.version,
       description: "The Xtend service and CLI: run it, or drive a running one.",
@@ -55,7 +56,10 @@ NodeFS.writeFileSync(
       bin: { xtend: "apps/server/dist/bin.mjs" },
       // node:sqlite with backup().
       engines: { node: ">=24" },
-      private: true,
+      // npm provenance checks this against the repository that built the package.
+      repository: { type: "git", url: "git+https://github.com/EhsanulHaqueSiam/xtend.git" },
+      // The repository has no license yet: no rights granted until it does.
+      license: "UNLICENSED",
     },
     null,
     2,
