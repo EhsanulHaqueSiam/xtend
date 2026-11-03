@@ -46,7 +46,7 @@ import { failText } from "../compose/AssistPanel";
 import { FormatTools, StyledArea, styleKey } from "../compose/FormatTools";
 import { NEW_POLL, PollEditor } from "../compose/PollEditor";
 import { REPLY_OPTIONS } from "../compose/ThreadEditor";
-import { shiftStyles, sliceStyles, toggleStyle } from "../compose/textStyles";
+import { plainEntities, shiftStyles, sliceStyles, toggleStyle } from "../compose/textStyles";
 import { GifPicker } from "./GifPicker";
 import { Popover } from "../ui/popover";
 import { toastAtom } from "../ui/toast";
@@ -222,6 +222,8 @@ export function HomeComposer() {
   const setToast = useAtomSet(toastAtom);
   const [text, setText] = useState("");
   const [styles, setStyles] = useState<ReadonlyArray<TextStyle>>([]);
+  // What the box shows and posts: X leaves mentions and links plain, so the box does too.
+  const runs = plainEntities(text, styles);
   const canFormat = useAtomValue(canFormatAtom);
   const [files, setFiles] = useState<ReadonlyArray<Attached>>([]);
   const [poll, setPoll] = useState<DraftPoll | null>(null);
@@ -259,7 +261,7 @@ export function HomeComposer() {
     poll === null &&
     gif === null &&
     reply === "everyone" &&
-    styles.length === 0;
+    runs.length === 0;
 
   const mention = opened && !busy ? mentionAt(text, caret.start, caret.end) : null;
   const self = settings?.handle ?? engine.viewer?.handle ?? null;
@@ -329,7 +331,7 @@ export function HomeComposer() {
   const lead = text.length - text.trimStart().length;
   const post = {
     text: text.trim(),
-    styles: sliceStyles(styles, lead, lead + text.trim().length),
+    styles: sliceStyles(runs, lead, lead + text.trim().length),
     replySettings: reply,
     poll,
     files,
@@ -375,7 +377,7 @@ export function HomeComposer() {
       <fieldset disabled={busy} className="relative m-0 min-w-0 border-0 p-0">
         <StyledArea
           ref={box}
-          styles={styles}
+          styles={runs}
           font="py-2 text-[20px] leading-6"
           aria-label="Post text"
           aria-autocomplete="list"
@@ -398,7 +400,7 @@ export function HomeComposer() {
             const style = session && canFormat ? styleKey(e) : null;
             if (style !== null) {
               e.preventDefault();
-              return setStyles(toggleStyle(styles, caret.start, caret.end, style));
+              return setStyles(toggleStyle(runs, caret.start, caret.end, style));
             }
             if (people.length > 0) {
               const step = { ArrowDown: 1, ArrowUp: -1 }[e.key];
@@ -606,7 +608,7 @@ export function HomeComposer() {
           ) : null}
           {/* Only X's composer applies them, so only where the session posts. */}
           {session ? (
-            <FormatTools styles={styles} selection={caret} onChange={setStyles} className={tool} />
+            <FormatTools styles={runs} selection={caret} onChange={setStyles} className={tool} />
           ) : null}
           <Tool label="Schedule in Compose" onClick={() => void handOff()}>
             <CalendarClock className="size-[18px]" />

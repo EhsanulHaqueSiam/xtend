@@ -591,3 +591,26 @@ it("refuses before Post when X styled other words than asked: a plain gap left b
     expect(composer()).toEqual(EMPTY);
   }
 });
+
+it("counts every character asked for: bold asked on a mention that X's editor shows plain refuses", async () => {
+  // The account's gate was wrong (X formats nothing): "@alice" plain must not pass for bold.
+  const { log, result } = await run(
+    COMPOSER,
+    post({ text: "go @alice now", styles: [{ start: 3, end: 9, style: "Bold" }] }),
+  );
+  expect(result).toMatchObject({
+    message: "x.com's composer did not format the text as asked; nothing was posted",
+    notAttempted: true,
+  });
+  expect(log.some((l) => l.startsWith("press Post"))).toBe(false);
+});
+
+it("reads a no-break space as a space on both sides, so pasted text X formatted posts", async () => {
+  const { log, result } = await run(
+    COMPOSER,
+    post({ text: "go\u00a0big", styles: [{ start: 3, end: 6, style: "Bold" }] }),
+    { formatting: true },
+  );
+  expect(result).toBe("777");
+  expect(log.at(-1)).toBe("press Post, Everyone can reply");
+});

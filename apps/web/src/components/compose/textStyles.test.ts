@@ -1,7 +1,7 @@
 import type { TextStyle } from "@xtend/contracts";
 import { expect, it } from "vite-plus/test";
 
-import { hasStyle, shiftStyles, styledRuns, toggleStyle } from "./textStyles";
+import { hasStyle, plainEntities, shiftStyles, styledRuns, toggleStyle } from "./textStyles";
 
 const bold = (start: number, end: number): TextStyle => ({ start, end, style: "Bold" });
 const italic = (start: number, end: number): TextStyle => ({ start, end, style: "Italic" });
@@ -31,6 +31,16 @@ it("moves runs with the text as typing in X's composer does", () => {
   expect(shiftStyles([bold(3, 6)], "go big now", "go huge now", 7)).toEqual([bold(3, 7)]);
   // Deleted whole, it is gone.
   expect(shiftStyles([italic(1, 3)], "abcd", "ad", 1)).toEqual([]);
+});
+
+it("leaves mentions, hashtags, cashtags and links plain, as X's composer does", () => {
+  const text = "see #ship and https://x.co/a, @alice $TSLA";
+  expect(plainEntities(text, [bold(0, text.length)])).toEqual([
+    bold(0, 4),
+    bold(9, 14),
+    bold(28, 30),
+    bold(36, 37),
+  ]);
 });
 
 it("cuts text where its runs start and end, counting from where it sits in the post", () => {

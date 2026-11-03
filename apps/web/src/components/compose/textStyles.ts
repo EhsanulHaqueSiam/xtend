@@ -35,6 +35,19 @@ export const hasStyle = (
         : s.start < start && start <= s.end,
   );
 
+/** The runs with [start, end) taken out of `style`'s, or out of both styles' when it is absent. */
+const without = (styles: ReadonlyArray<TextStyle>, start: number, end: number, style?: Style) =>
+  normalize(
+    styles.flatMap((s) =>
+      (style !== undefined && s.style !== style) || s.end <= start || s.start >= end
+        ? [s]
+        : [
+            ...(s.start < start ? [{ ...s, end: start }] : []),
+            ...(s.end > end ? [{ ...s, start: end }] : []),
+          ],
+    ),
+  );
+
 /** Bold or italic on the selection as X's toolbar does it: off when all of it has it already, else on. */
 export const toggleStyle = (
   styles: ReadonlyArray<TextStyle>,
@@ -43,18 +56,24 @@ export const toggleStyle = (
   style: Style,
 ): ReadonlyArray<TextStyle> => {
   if (start >= end) return styles;
-  if (!hasStyle(styles, start, end, style)) return normalize([...styles, { start, end, style }]);
-  return normalize(
-    styles.flatMap((s) =>
-      s.style !== style || s.end <= start || s.start >= end
-        ? [s]
-        : [
-            ...(s.start < start ? [{ ...s, end: start }] : []),
-            ...(s.end > end ? [{ ...s, start: end }] : []),
-          ],
-    ),
-  );
+  return hasStyle(styles, start, end, style)
+    ? without(styles, start, end, style)
+    : normalize([...styles, { start, end, style }]);
 };
+
+// What X takes for a mention, hashtag, cashtag or link; read widely, as a run kept off a word X
+// would style only costs that word its style, while a run on one X keeps plain refuses the post.
+const ENTITY =
+  /[@#$][\p{L}\p{N}_]+|https?:\/\/\S*[^\s.,;:!?'")\]]|\b[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}(?:\/\S*[^\s.,;:!?'")\]])?/giu;
+
+/** The runs with `text`'s mentions, hashtags, cashtags and links left plain, as X's composer leaves them. */
+export const plainEntities = (text: string, styles: ReadonlyArray<TextStyle>) =>
+  styles.length === 0
+    ? styles
+    : [...text.matchAll(ENTITY)].reduce(
+        (runs, m) => without(runs, m.index, m.index + m[0].length),
+        styles,
+      );
 
 /**
  * The runs once the text changed from `before` to `after` with the caret at `caret`, as typing in

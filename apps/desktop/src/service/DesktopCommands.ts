@@ -604,23 +604,18 @@ const EDITOR_TEXT = `function () {
   }
   return JSON.stringify({ text, Bold, Italic });
 }`;
-// X never styles a mention, hashtag, cashtag or link, so their characters are X's to draw.
-const ENTITY = /[@#$][\p{L}\p{N}_]+|https?:\/\/\S+|\b[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}(?:\/\S*)?/giu;
-
-/** What X's editor must show for `text`: its text without line breaks and each style's marks. */
+/**
+ * What X's editor must show for `text`: its text without line breaks, a no-break space read as a
+ * space as the editor's side is, and each style's marks. Every requested character counts.
+ */
 function expectedEditor(text: string, styles: ReadonlyArray<TextStyle>) {
-  const free = new Set<number>();
-  for (const m of text.matchAll(ENTITY))
-    for (let i = m.index; i < m.index + m[0].length; i++) free.add(i);
   const want = { text: "", Bold: "", Italic: "" };
   // UTF-16 units, as the runs and X's editor count them.
   for (let i = 0; i < text.length; i++) {
     if (text[i] === "\n" || text[i] === "\r") continue;
-    want.text += text[i];
-    for (const style of ["Bold", "Italic"] as const) {
-      const on = styles.some((s) => s.style === style && s.start <= i && i < s.end);
-      want[style] += free.has(i) ? "?" : on ? "1" : "0";
-    }
+    want.text += text[i] === "\u00a0" ? " " : text[i];
+    for (const style of ["Bold", "Italic"] as const)
+      want[style] += styles.some((s) => s.style === style && s.start <= i && i < s.end) ? "1" : "0";
   }
   return want;
 }
@@ -661,10 +656,7 @@ async function typeText(
   // Every run and every plain gap, as asked: a toggle X missed would post the wrong words styled.
   const shown = JSON.parse(String(await callOn(cdp, box, EDITOR_TEXT))) as Record<string, string>;
   const want = expectedEditor(text, styles);
-  const same = (style: "Bold" | "Italic") =>
-    shown[style]?.length === want[style].length &&
-    [...want[style]].every((c, i) => c === "?" || c === shown[style]![i]);
-  if (shown.text !== want.text || !same("Bold") || !same("Italic"))
+  if (shown.text !== want.text || shown.Bold !== want.Bold || shown.Italic !== want.Italic)
     throw new Error("x.com's composer did not format the text as asked");
 }
 

@@ -457,3 +457,35 @@ it("goes by X's composer when X never sends GetUserClaims, and offers X's upsell
   await userEvent.click(bold);
   await expect.element(bold).toHaveAttribute("aria-pressed", "true");
 });
+
+it("leaves a mention plain in a bold sentence, as X's composer does, in the box and the post", async () => {
+  const { creates, service } = setup();
+  await using screen = await render(
+    <>
+      <EngineSync />
+      <HomeComposer />
+    </>,
+    { service },
+  );
+  bridge.emitEngine({ ...people, op: "GetUserClaims", claims: ["subscriptions_feature_1014"] });
+  const box = screen.getByLabelText("Post text");
+  await userEvent.click(box);
+  await userEvent.keyboard("go @alice now");
+  (box.element() as HTMLTextAreaElement).setSelectionRange(0, 13);
+  await userEvent.click(screen.getByRole("button", { name: "Bold" }));
+  // The box draws what will post: "@alice" not in bold.
+  const drawn = () =>
+    Array.from(screen.container.querySelectorAll("[aria-hidden] span"), (s) => s.textContent);
+  await expect.poll(drawn).toEqual(["go ", " now"]);
+  await userEvent.click(screen.getByRole("button", { name: "Post", exact: true }));
+  await expect.poll(() => creates.length).toBe(1);
+  expect(creates[0]?.blocks).toEqual([
+    {
+      text: "go @alice now",
+      styles: [
+        { start: 0, end: 3, style: "Bold" },
+        { start: 9, end: 13, style: "Bold" },
+      ],
+    },
+  ]);
+});

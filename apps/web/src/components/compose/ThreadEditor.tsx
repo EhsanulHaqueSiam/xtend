@@ -19,7 +19,7 @@ import { compactInputClass } from "../ui/field";
 import { FormatTools, StyledArea, styleKey } from "./FormatTools";
 import { quotedPostId } from "./PostPreview";
 import { Select } from "../ui/select";
-import { shiftStyles, toggleStyle } from "./textStyles";
+import { plainEntities, shiftStyles, toggleStyle } from "./textStyles";
 
 /** The text X receives for post i; the service appends the quote link to the first post. */
 export const postText = (text: string, i: number, quoteUrl: string | null) =>
@@ -52,9 +52,14 @@ export const REPLY_OPTIONS: ReadonlyArray<readonly [ReplySettings, string]> = [
 
 const fileName = (path: string) => path.split("/").pop() ?? path;
 
-/** A block with these runs; none leaves the key out, so an unformatted draft saves as before. */
-const withStyles = ({ styles: _, ...block }: DraftBlock, styles: ReadonlyArray<TextStyle>) =>
-  styles.length === 0 ? block : { ...block, styles };
+/**
+ * A block with these runs, its mentions and links left plain as X leaves them; none leaves the key
+ * out, so an unformatted draft saves as before.
+ */
+const withStyles = ({ styles: _, ...block }: DraftBlock, styles: ReadonlyArray<TextStyle>) => {
+  const runs = plainEntities(block.text, styles);
+  return runs.length === 0 ? block : { ...block, styles: runs };
+};
 
 /** A block with new text, its runs moved as the edit moved the text. */
 const withText = (block: DraftBlock, text: string, caret?: number) =>
