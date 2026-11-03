@@ -1,18 +1,22 @@
 # Install Xtend
 
-Xtend is a desktop app for macOS and Linux. It opens x.com inside its own window, signed in as
+Xtend is a desktop app for macOS, Windows and Linux, on Apple silicon, Intel and Arm. It opens x.com inside its own window, signed in as
 you, and puts the tools beside it. A headless service keeps your data on your machine.
 
 ## Download
 
 Releases are on GitHub under the repository's Releases page. Each one ships:
 
-| file               | what it is                                                          |
-| ------------------ | ------------------------------------------------------------------- |
-| `Xtend-*.dmg`      | the macOS app (unsigned until signing is set up: right-click, Open) |
-| `Xtend-*.zip`      | the same macOS app, zipped                                          |
-| `Xtend-*.AppImage` | the Linux app; make it executable and run it                        |
-| `xtend-cli-*.tgz`  | the service and CLI alone, for a server or a Mac mini               |
+| file               | what it is                                                           |
+| ------------------ | -------------------------------------------------------------------- |
+| `Xtend-*.dmg`      | the macOS app (unsigned until signing is set up: right-click, Open)  |
+| `Xtend-*.zip`      | the same macOS app, zipped                                           |
+| `Xtend-*.exe`      | the Windows installer (unsigned: SmartScreen, More info, Run anyway) |
+| `Xtend-*.AppImage` | the Linux app; make it executable and run it                         |
+| `xtend-cli-*.tgz`  | the service and CLI alone, for a server or a Mac mini                |
+
+Each comes for `arm64` (Apple silicon, Arm laptops) and `x64` (Intel and AMD); the name says
+which. A macOS file without an arch in its name is the Intel one.
 
 ## First run
 

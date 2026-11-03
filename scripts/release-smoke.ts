@@ -5,6 +5,7 @@
 
 //   pnpm dist:desktop:dmg:arm64 && pnpm release:smoke
 //   pnpm dist:desktop:appimage && pnpm release:smoke
+//   pnpm release:smoke --boot              fail unless this machine's own build started
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodeNet from "node:net";
@@ -40,35 +41,37 @@ const asarHeader = (file: string): AsarEntry => {
   return JSON.parse(bytes.toString("utf8", 16, 16 + bytes.readUInt32LE(12))) as AsarEntry;
 };
 
+// electron-builder's unpacked dirs: mac, linux-unpacked, win-unpacked, and -arm64 before the
+// suffix for arm64. x64 goes unnamed.
 const found = (NodeFS.existsSync(release) ? NodeFS.readdirSync(release) : []).flatMap(
   (name): ReadonlyArray<Packaged> => {
-    if (name.startsWith("mac")) {
-      const app = NodePath.join(release, name, "Xtend.app");
+    const match = /^(mac|linux|win)(-arm64)?(-unpacked)?$/.exec(name);
+    if (match === null) return [];
+    const [, os, arm64] = match;
+    const dir = NodePath.join(release, name);
+    const arch = arm64 === undefined ? "x64" : "arm64";
+    if (os === "mac") {
+      const app = NodePath.join(dir, "Xtend.app");
       if (!NodeFS.existsSync(app)) return [];
       return [
         {
           name: `${name}/Xtend.app`,
           platform: "darwin",
-          // electron-builder names the x64 build plain "mac".
-          arch: name === "mac-arm64" ? "arm64" : "x64",
+          arch,
           resources: NodePath.join(app, "Contents", "Resources"),
           runtime: NodePath.join(app, "Contents", "MacOS", "Xtend"),
         },
       ];
     }
-    if (name === "linux-unpacked") {
-      const dir = NodePath.join(release, name);
-      return [
-        {
-          name,
-          platform: "linux",
-          arch: "x64",
-          resources: NodePath.join(dir, "resources"),
-          runtime: NodePath.join(dir, "xtend"),
-        },
-      ];
-    }
-    return [];
+    return [
+      {
+        name,
+        platform: os === "win" ? "win32" : "linux",
+        arch,
+        resources: NodePath.join(dir, "resources"),
+        runtime: NodePath.join(dir, os === "win" ? "Xtend.exe" : "xtend"),
+      },
+    ];
   },
 );
 if (found.length === 0) {
@@ -138,12 +141,16 @@ async function bootService(app: Packaged): Promise<string | null> {
     return wait();
   };
   const ok = await wait();
+  // Windows holds the database open until the process is gone, and rm fails with EBUSY.
+  const exited = new Promise((resolve) => child.once("exit", resolve));
   child.kill("SIGTERM");
-  NodeFS.rmSync(scratch, { recursive: true, force: true });
+  if (child.exitCode === null) await exited;
+  NodeFS.rmSync(scratch, { recursive: true, force: true, maxRetries: 5 });
   return ok ? null : output.trim() || `no answer within ${BOOT_TIMEOUT_MS / 1000}s`;
 }
 
 const failures: Array<string> = [];
+let booted = 0;
 for (const app of found) {
   const missing = missingFiles(app);
   for (const path of missing) failures.push(`${app.name}: missing ${path}`);
@@ -155,9 +162,14 @@ for (const app of found) {
   }
   // One at a time, so a failure's output is its own.
   const error = await bootService(app);
-  if (error === null) console.log(`release-smoke: ${app.name}: contents ok, service started`);
-  else failures.push(`${app.name}: service did not start\n${error}`);
+  if (error === null) {
+    booted += 1;
+    console.log(`release-smoke: ${app.name}: contents ok, service started`);
+  } else failures.push(`${app.name}: service did not start\n${error}`);
 }
+// CI builds on the machine it ships for, so a contents-only pass there means a wrong runner.
+if (process.argv.includes("--boot") && booted === 0)
+  failures.push(`nothing built for ${process.platform}-${process.arch} to start`);
 if (failures.length > 0) {
   console.error(`release-smoke: failed\n  ${failures.join("\n  ")}`);
   process.exit(1);

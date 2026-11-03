@@ -1,5 +1,6 @@
-# Packaging for macOS (dmg, zip) and Linux (AppImage, x64; runs on Arch and any glibc distro).
-# Linux builds need no signing and update through latest-linux.yml. macOS signing and
+# Packaging for macOS (dmg, zip), Linux (AppImage; runs on Arch and any glibc distro) and Windows
+# (NSIS installer), each for arm64 and x64. CI builds every target on a runner of its own OS and
+# arch. Linux and Windows builds are unsigned (Windows SmartScreen warns on first run). macOS signing and
 # notarization are off until the credentials exist:
 #   CSC_LINK / CSC_KEY_PASSWORD      Developer ID Application certificate (.p12) and its password
 #   APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID   notarytool login; then set mac.notarize: true
@@ -35,11 +36,17 @@ mac:
 linux:
   target:
     - target: AppImage
-      arch: [x64]
+      arch: [x64, arm64]
   category: Network
   executableName: xtend
   artifactName: ${productName}-${version}-${arch}.${ext}
   synopsis: X with growth tools built in
+win:
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+  # The arch in the name is how electron-updater picks this machine's installer from latest.yml.
+  artifactName: ${productName}-${version}-${arch}.${ext}
 protocols:
   - name: Xtend
     schemes: [xtend]
