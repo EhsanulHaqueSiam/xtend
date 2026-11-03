@@ -21,7 +21,7 @@ on:
       - main
     paths:
       - "apps/**"
-      # The marketing site deploys on its own and ships in no desktop build.
+      # The marketing site ships in no desktop build; a change to it goes live with the next release.
       - "!apps/marketing/**"
       - "packages/**"
       - "package.json"
