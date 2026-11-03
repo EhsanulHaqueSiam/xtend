@@ -642,6 +642,26 @@ it("keeps X's Post Analytics per post, as X last counted them", () => {
   ]);
 });
 
+it("knows the day X's NBA schedule shows, an empty one too, and that X has not answered yet", () => {
+  const game = {
+    gameId: "51",
+    status: "Final",
+    startsAt: null,
+    away: { abbreviation: "LAL", name: null, points: 1, timeouts: null, bonus: null },
+    home: { abbreviation: "UTA", name: null, points: 0, timeouts: null, bonus: null },
+    period: null,
+    periodType: null,
+    clock: null,
+    halftime: false,
+    lastPlay: null,
+  };
+  expect(emptyEngine.nbaDay).toBe(null);
+  let state = mergeBatch(emptyEngine, { ...batch("NBASchedule", []), games: [game] });
+  expect(state.nbaDay).toEqual(["51"]);
+  state = mergeBatch(state, { ...batch("NBASchedule", []), games: [] });
+  expect(state.nbaDay).toEqual([]);
+});
+
 it("keeps X's news stories per trend, and X's latest NBA standings and leaders", () => {
   const story = (id: string, title: string) => ({
     ...batch("AiTrendByRestId", []),

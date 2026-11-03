@@ -1289,7 +1289,12 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     homeTabs: readHomeTabs(record(body)),
     exploreTabs,
     viewer: op === "Viewer" ? readViewer(result(record(data.viewer).user_results)) : null,
-    ...(games.size === 0 ? {} : { games: [...games.values()] }),
+    ...(games.size > 0
+      ? { games: [...games.values()] }
+      : // X's schedule answered with no games that day: the day is empty, not unknown.
+        op === "NBASchedule" && Array.isArray(record(data.nba_schedule).games)
+        ? { games: [] }
+        : {}),
     ...(gifSlice === null ? {} : { gifs: arr(gifSlice.items).flatMap(readGif) }),
     ...(prompt === undefined ? {} : { prompt }),
     ...readAnalytics(op, data),
@@ -1593,6 +1598,7 @@ export const hasEngineContent = (b: EngineBatch) =>
   b.exploreTabs !== null ||
   b.viewer !== null ||
   (b.games?.length ?? 0) > 0 ||
+  (b.op === "NBASchedule" && b.games !== undefined) ||
   b.gifs !== undefined ||
   b.prompt !== undefined ||
   b.analytics !== undefined ||

@@ -6,7 +6,11 @@ import { Timeline } from "../components/xnative/Timeline";
 import { XTabs, XTitle } from "../components/xnative/XColumn";
 import { fmtWhen } from "../lib/time";
 import { engineAtom } from "../state/engine";
-import { xGo, xNavigate } from "../state/x";
+import { isXRoute, xGo, xLeave, xNavigate, xPanelOpenAtom } from "../state/x";
+
+/** X's own caveat under a story that names none of its own (X's `disclaimer || default`). */
+const DEFAULT_CAVEAT =
+  "This story is a summary of posts on X made by grok. Story will evolve over time.";
 
 /**
  * X's news story, drawn by Xtend from the engine on x.com/i/trending/<id>: its headline, when X
@@ -25,8 +29,21 @@ function StoryScreen() {
   const url = `https://x.com/i/trending/${id}${
     tab === undefined || tab === tabs[0] ? "" : `?timeline=${encodeURIComponent(tab.timelineId)}`
   }`;
+  const panelOpen = useAtomValue(xPanelOpenAtom);
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- moves the engine (the session view) to this story's X page, on the tab picked.
   useEffect(() => void xGo(url), [url]);
+  // Leaving for a screen that moves the engine nowhere takes it off the story, which X polls.
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- parks the engine (the session view) when the user leaves this story's screen.
+  useEffect(
+    () => () => {
+      const where = () => router.state.location.pathname;
+      xLeave(
+        `/i/trending/${id}`,
+        () => panelOpen || isXRoute(where()) || where() === `/trending/${id}`,
+      );
+    },
+    [id, panelOpen, router],
+  );
   return (
     <Timeline
       surface={`explore:${tab?.timelineId ?? ""}`}
@@ -44,9 +61,9 @@ function StoryScreen() {
               {story.summary === "" ? null : (
                 <p className="mt-3 text-[15px] leading-5 whitespace-pre-line">{story.summary}</p>
               )}
-              {story.disclaimer === null ? null : (
-                <p className="mt-3 text-[13px] text-[#71767b]">{story.disclaimer}</p>
-              )}
+              <p className="mt-3 text-[13px] text-[#71767b]">
+                {story.disclaimer || DEFAULT_CAVEAT}
+              </p>
             </div>
             {tabs.length > 1 && tab !== undefined ? (
               <XTabs

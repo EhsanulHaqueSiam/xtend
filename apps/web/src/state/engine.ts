@@ -438,8 +438,8 @@ export interface EngineState {
   /** X's NBA standings and stat leaders, as X last sent them. */
   readonly standings: ReadonlyArray<EngineConference>;
   readonly leaders: ReadonlyArray<EngineLeaders>;
-  /** The games of the day X's NBA schedule last showed, in X's order. */
-  readonly nbaDay: ReadonlyArray<string>;
+  /** The games of the day X's NBA schedule last showed, in X's order; null until X has answered. */
+  readonly nbaDay: ReadonlyArray<string> | null;
   /** Whether X's composer lets the account format, as X's page last drew it; null until it has. */
   readonly formatting: boolean | null;
   readonly radar: Radar;
@@ -488,7 +488,7 @@ export const emptyEngine: EngineState = {
   stories: new Map(),
   standings: [],
   leaders: [],
-  nbaDay: [],
+  nbaDay: null,
   formatting: null,
   radar: { list: null, queries: new Map(), limit: null, counts: new Map() },
   cursors: {},
@@ -797,7 +797,11 @@ const keepTeam = (known: EngineGameTeam, fresh: EngineGameTeam): EngineGameTeam 
  */
 function mergeGames(state: EngineState, batch: EngineBatch): EngineState {
   const fresh = batch.games ?? [];
-  if (fresh.length === 0) return state;
+  // X's schedule for a day without games: the day X shows is empty.
+  if (fresh.length === 0)
+    return batch.op === "NBASchedule" && batch.games !== undefined
+      ? { ...state, nbaDay: [] }
+      : state;
   const games = new Map(state.games);
   for (const g of fresh) {
     const known = games.get(g.gameId);

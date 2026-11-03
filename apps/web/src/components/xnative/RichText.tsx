@@ -38,8 +38,14 @@ export function xtendRoute(href: string): string | null {
   if (second === "communities" && first !== undefined && /^\w{1,15}$/.test(first))
     return third === "explore" ? "/communities?tab=explore" : "/communities";
   // X's news story, and its NBA league page by tab.
-  if (first === "i" && second === "trending" && third !== undefined && /^\d+$/.test(third))
-    return `/trending/${third}`;
+  if (first === "i" && second === "trending" && third !== undefined && /^\d+$/.test(third)) {
+    // The story itself, on the tab its link names; its history is X's own page.
+    if (fourth !== undefined) return null;
+    const timeline = url.searchParams.get("timeline");
+    return timeline
+      ? `/trending/${third}?timeline=${encodeURIComponent(timeline)}`
+      : `/trending/${third}`;
+  }
   if (first === "i" && second === "nba" && fourth === undefined) {
     const tab = third === "standings" || third === "players" ? third : "games";
     return third === undefined || ["home", "games", "standings", "players"].includes(third)

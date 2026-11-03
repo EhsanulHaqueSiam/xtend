@@ -27,6 +27,10 @@ it("opens x.com posts, Articles, profiles, searches, the Follow page and Communi
   expect(xtendRoute("https://x.com/i/trending/1985000000000000001")).toBe(
     "/trending/1985000000000000001",
   );
+  expect(xtendRoute("https://x.com/i/trending/1985000000000000001?timeline=VGltZQ%3D%3D")).toBe(
+    "/trending/1985000000000000001?timeline=VGltZQ%3D%3D",
+  );
+  expect(xtendRoute("https://x.com/i/trending/1985000000000000001/history")).toBeNull();
   expect(xtendRoute("https://x.com/i/nba")).toBe("/nba?tab=games");
   expect(xtendRoute("https://x.com/i/nba/standings")).toBe("/nba?tab=standings");
   expect(xtendRoute("https://x.com/i/nba/media")).toBeNull();

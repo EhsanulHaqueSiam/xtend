@@ -1038,6 +1038,17 @@ describe("renderEngineBatch around posts", () => {
     expect([none.story, hasEngineContent(none)]).toEqual([undefined, false]);
   });
 
+  it("reads a day X's NBA schedule answered with no games as empty, and an error alone as nothing", () => {
+    const empty = renderEngineBatch(
+      "NBASchedule",
+      { limit: 500 },
+      { data: { nba_schedule: { games: [] } } },
+    );
+    expect([empty.games, hasEngineContent(empty)]).toEqual([[], true]);
+    const failed = renderEngineBatch("NBASchedule", { limit: 500 }, { errors: [{}] });
+    expect([failed.games, hasEngineContent(failed)]).toEqual([undefined, false]);
+  });
+
   it("reads X's NBA standings in X's order within each division, and stat leaders by rank", () => {
     const team = (id: string, wins: number, losses: number, rank: number | null) => ({
       team: { rest_id: id },

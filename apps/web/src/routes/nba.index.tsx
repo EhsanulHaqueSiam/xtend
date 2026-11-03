@@ -163,10 +163,10 @@ function LeagueScreen() {
   const url = `https://x.com/i/nba/${tab}`;
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- moves the engine (the session view) to the league's X page for the open tab.
   useEffect(() => void xGo(url), [url]);
-  const games = engine.nbaDay.flatMap((id) => engine.games.get(id) ?? []);
+  const games = (engine.nbaDay ?? []).flatMap((id) => engine.games.get(id) ?? []);
   const has =
     tab === "games"
-      ? games.length > 0
+      ? engine.nbaDay !== null
       : tab === "standings"
         ? engine.standings.length > 0
         : engine.leaders.length > 0;
@@ -182,6 +182,8 @@ function LeagueScreen() {
       </div>
       {!has ? (
         <XEmpty key={tab} empty="Loading the league from X." onReopen={() => void xNavigate(url)} />
+      ) : tab === "games" && games.length === 0 ? (
+        <p className="px-4 py-8 text-center text-[15px] text-[#71767b]">No games on this day.</p>
       ) : tab === "games" ? (
         <ul data-x="league-games" className="flex flex-wrap gap-2 px-4 py-3">
           {games.map((g) => (

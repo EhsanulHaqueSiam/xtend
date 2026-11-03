@@ -6,7 +6,7 @@ import {
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
-import { expect, it } from "vite-plus/test";
+import { expect, it, onTestFinished } from "vite-plus/test";
 import { page } from "vite-plus/test/browser";
 
 import { installFakeBridge } from "../../../test/fakeBridge";
@@ -48,6 +48,11 @@ async function open(route: AnyRoute, path: string, start: string) {
         validateSearch: route.options.validateSearch,
         component: route.options.component!,
       }),
+      createRoute({
+        getParentRoute: () => root,
+        path: "/analyze",
+        component: () => <p>Analyze</p>,
+      }),
     ]),
     history: createMemoryHistory({ initialEntries: [start] }),
   });
@@ -61,6 +66,7 @@ async function open(route: AnyRoute, path: string, start: string) {
   return {
     bridge,
     screen,
+    router,
     url: () => url,
     async [Symbol.asyncDispose]() {
       await screen[Symbol.asyncDispose]();
@@ -90,6 +96,33 @@ it("draws X's news story, and a tab opens X's own page for it with its posts", a
   await expect.element(x.screen.getByText(top.text)).not.toBeInTheDocument();
 });
 
+it("draws X's own caveat under a story X names none for, and takes the engine off it on leaving", async () => {
+  const id = "900000600001";
+  // X's panel closed: nothing shows X's story once the screen is left.
+  const panel = localStorage.getItem("xtend:x-panel-open");
+  localStorage.setItem("xtend:x-panel-open", "false");
+  onTestFinished(() =>
+    panel === null
+      ? localStorage.removeItem("xtend:x-panel-open")
+      : localStorage.setItem("xtend:x-panel-open", panel),
+  );
+  await using x = await open(StoryRoute, "/trending/$id", `/trending/${id}`);
+  await expect.poll(x.url).toBe(`https://x.com/i/trending/${id}`);
+  const told = answer("AiTrendByRestId", id);
+  x.bridge.emitEngine({ ...told, story: { ...told.story!, disclaimer: "" } });
+  await expect
+    .element(
+      x.screen.getByText(
+        "This story is a summary of posts on X made by grok. Story will evolve over time.",
+      ),
+    )
+    .toBeVisible();
+  // A screen that moves the engine nowhere: X's story stops polling there.
+  await x.router.navigate({ to: "/analyze" });
+  await expect.element(x.screen.getByText("Analyze")).toBeVisible();
+  await expect.poll(x.url).toBe("https://x.com/home");
+});
+
 it("draws X's league page: the day's games, standings by conference, and each stat's leaders", async () => {
   await using x = await open(LeagueRoute, "/nba/", "/nba?tab=standings");
   await expect.poll(x.url).toBe("https://x.com/i/nba/standings");
@@ -116,6 +149,9 @@ it("draws X's league page: the day's games, standings by conference, and each st
 
   await x.screen.getByRole("tab", { name: "Schedule" }).click();
   await expect.poll(x.url).toBe("https://x.com/i/nba/games");
+  // A day X answers with no games says so, rather than waiting.
+  x.bridge.emitEngine({ ...answer("NBASchedule"), games: [] });
+  await expect.element(x.screen.getByText("No games on this day.")).toBeVisible();
   x.bridge.emitEngine(answer("NBASchedule"));
   await expect
     .poll(
