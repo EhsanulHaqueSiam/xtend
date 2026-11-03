@@ -80,7 +80,10 @@ bar only for a pointer over it, so the engine sends the bubble a `mouseover` fir
 labels follow the account's language, so rows are told apart by their icons (`data-icon`).
 X's dialogs and menus draw inside the chat roots, where `holdOver`'s check cannot see them, so
 chat presses pass their own (`xPressOver`). Text reaches X's composer as a keystroke does, and
-only X's own mark on the message it adds (`data-send-status`) says it was sent.
+only X's own mark (`data-send-status`) on the message it adds says it was sent. X's markup names
+no conversation and X keeps its conversation screen mounted across them, so a send pins X's
+composer node and the message ids X draws (each one conversation's own), checked before every
+press, then pins the one new message with its text. One send at a time (`chatWriteAtom`).
 
 The read-only benchmark (`apps/desktop/scripts/engine-bench.mjs`) checks every surface against a
 dev desktop on the real account; its only write is a bookmark it removes again.

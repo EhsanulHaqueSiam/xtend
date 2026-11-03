@@ -268,7 +268,7 @@ it("sends through X's own composer and Send, and keeps the user's text when X co
   ).toEqual(["Running late", "Running late"]);
 });
 
-it("holds what the user sent while X still sends it, and gives it back only if X marks it failed", async () => {
+it("holds what the user sent until X marks it, across another conversation, with every Send and Reply waiting", async () => {
   drawX(INBOX);
   await using screen = await render(
     <>
@@ -282,48 +282,54 @@ it("holds what the user sent while X still sends it, and gives it back only if X
       },
     },
   );
-  await userEvent.click(screen.getByRole("button", { name: /Ann/ }));
-  await expect.poll(() => moves.at(-1)).toBe("/i/chat/11-22");
-  // X's composer: its Send adds the message as the user's, still sending, until X marks it.
-  drawX(
-    CONVERSATION.replace(
-      /<\/div><\/div>$/,
-      `</div><div data-testid="dm-composer-container"><textarea data-testid="dm-composer-textarea"></textarea><button data-testid="dm-composer-send-button">Send</button></div></div>`,
-    ),
+  // X's conversation with its composer: its Send adds the user's message, still sending.
+  const withComposer = CONVERSATION.replace(
+    /<\/div><\/div>$/,
+    `</div><div data-testid="dm-composer-container"><textarea data-testid="dm-composer-textarea"></textarea><button data-testid="dm-composer-send-button">Send</button></div></div>`,
   );
+  const open = async (name: RegExp, path: string) => {
+    await userEvent.click(screen.getByRole("button", { name }));
+    await expect.poll(() => moves.at(-1)).toBe(path);
+    drawX(withComposer);
+    await expect.element(screen.getByRole("textbox", { name: "Message" })).toBeVisible();
+  };
+  await open(/Ann/, "/i/chat/11-22");
   const field = root!.querySelector("textarea")!;
   root!.querySelector('[data-testid="dm-composer-send-button"]')!.addEventListener("click", () => {
-    const id = `n${root!.querySelectorAll('[data-testid^="message-n"]').length}`;
     root!
       .querySelector('[data-testid="dm-message-list"]')!
       .insertAdjacentHTML(
         "beforeend",
-        `<div class="justify-end" data-testid="message-${id}" data-send-status="pending"><div data-testid="message-text-${id}"><span>${field.value}</span></div></div>`,
+        `<div class="justify-end" data-testid="message-n0" data-send-status="pending"><div data-testid="message-text-n0"><span>${field.value}</span></div></div>`,
       );
     field.value = "";
   });
   const box = screen.getByRole("textbox", { name: "Message" });
-  await expect.element(box).toBeVisible();
-  // From here, how long Xtend waits for X's mark passes at once.
-  using _timers = fakeTimers();
-  const value = () => (box.element() as HTMLTextAreaElement).value;
-  const mark = async (id: string, status: string) => {
-    root!.querySelector(`[data-testid="message-${id}"]`)!.setAttribute("data-send-status", status);
-    await vi.advanceTimersByTimeAsync(1_000);
-  };
-  const send = async (text: string) => {
-    await userEvent.fill(box, text);
+  await userEvent.fill(box, "Running late");
+  {
+    // From here, how long Xtend waits for X's mark passes at once.
+    using _timers = fakeTimers();
     await userEvent.click(screen.getByRole("button", { name: "Send", exact: true }));
     await vi.advanceTimersByTimeAsync(20_000);
-  };
-  await send("Running late");
-  expect([box.element().hasAttribute("disabled"), value()]).toEqual([true, "Running late"]);
-  await mark("n0", "sent");
-  expect(value()).toBe("");
+  }
+  await expect.element(screen.getByRole("button", { name: "Sending…" })).toBeDisabled();
+  await expect.element(box).toHaveValue("Running late");
 
-  await send("Ten minutes");
-  expect(value()).toBe("Ten minutes");
-  await mark("n1", "failed");
-  expect([box.element().hasAttribute("disabled"), value()]).toEqual([false, "Ten minutes"]);
-  expect(screen.getByText("Failed to send").elements()).toHaveLength(1);
+  // Another conversation waits for it too, and the first keeps its text for the user's return.
+  await open(/Cy/, "/i/chat/11-33");
+  await expect.element(screen.getByRole("textbox", { name: "Message" })).toBeDisabled();
+  await expect
+    .element(screen.getByRole("button", { name: "Reply", exact: true }).first())
+    .toBeDisabled();
+  await open(/Ann/, "/i/chat/11-22");
+  await expect.element(box).toHaveValue("Running late");
+  // X's own page answers: marked sent, the draft goes.
+  root!
+    .querySelector('[data-testid="dm-message-list"]')!
+    .insertAdjacentHTML(
+      "beforeend",
+      `<div class="justify-end" data-testid="message-n0" data-send-status="sent"><div data-testid="message-text-n0"><span>Running late</span></div></div>`,
+    );
+  await expect.element(box).toHaveValue("");
+  await expect.element(box).toBeEnabled();
 });

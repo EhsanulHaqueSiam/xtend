@@ -24,14 +24,19 @@ import { Avatar } from "../components/xnative/XPostView";
 import { isElectron } from "../env";
 import { cn } from "../lib/utils";
 import {
+  type ChatDraft,
   type ChatItem,
   type ChatMenu,
   type ChatMessage,
   type ChatRow,
   type ChatState,
   chatAtom,
+  chatWriteAtom,
+  emptyDraft,
+  endSend,
   isChatPath,
   mergeChat,
+  sendMark,
   watchChat,
   xChatInfo,
   xChatMenu,
@@ -195,10 +200,15 @@ function Item({
   );
 }
 
-/** What the user writes in a conversation: a new message, a reply to one, or an edit of their own. */
-interface Draft {
-  readonly text: string;
-  readonly mode: { readonly kind: "reply" | "edit"; readonly item: ChatMessage } | null;
+/**
+ * Conversation `path`'s draft, kept by X's path while Xtend's screens come and go, and the one send
+ * in flight in X's Chat, which holds every conversation's Send, Reply and Edit until it ends.
+ */
+function useDraft(path: string) {
+  const [write, setWrite] = useAtom(chatWriteAtom);
+  const setDraft = (draft: ChatDraft) =>
+    setWrite((w) => ({ ...w, drafts: new Map(w.drafts).set(path, draft) }));
+  return { draft: write.drafts.get(path) ?? emptyDraft, setDraft, send: write.send, setWrite };
 }
 
 /**
@@ -229,25 +239,26 @@ function MessageActions({
   path,
   item,
   composer,
-  onDraft,
 }: {
   readonly path: string;
   readonly item: ChatMessage;
   /** X draws its composer here, so the user can react and reply. */
   readonly composer: boolean;
-  readonly onDraft: (draft: Draft) => void;
 }) {
   const setOver = useAtomSet(xOverAtom);
   const { press, setToast } = usePress();
+  const { draft, setDraft, send } = useDraft(path);
+  const reply = () => setDraft({ text: draft.text, mode: { kind: "reply", item } });
+  const drafting = (icon: string) => icon === "icon-reply-arrow" || icon === "icon-pencil-stroke";
   const [menu, setMenu] = useState<ChatMenu | null | undefined>(undefined);
   const [picking, setPicking] = useState(false);
   const [quick, setQuick] = useState<Awaited<ReturnType<typeof xChatReactions>> | undefined>(
     undefined,
   );
   const pick = ({ label, icon }: ChatMenu["rows"][number]) => {
-    if (icon === "icon-reply-arrow") return onDraft({ text: "", mode: { kind: "reply", item } });
+    if (icon === "icon-reply-arrow") return reply();
     if (icon === "icon-pencil-stroke")
-      return onDraft({ text: item.text, mode: { kind: "edit", item } });
+      return setDraft({ text: item.text, mode: { kind: "edit", item } });
     // X's own Copy writes the clipboard from the engine, off screen, which is not reliable.
     if (icon === "icon-clone" || icon === "icon-link")
       return void navigator.clipboard
@@ -302,8 +313,9 @@ function MessageActions({
           <button
             type="button"
             aria-label="Reply"
-            className={ROUND}
-            onClick={() => onDraft({ text: "", mode: { kind: "reply", item } })}
+            disabled={send !== null}
+            className={cn(ROUND, "disabled:cursor-default disabled:opacity-50")}
+            onClick={reply}
           >
             <Reply className="size-4" />
           </button>
@@ -330,7 +342,11 @@ function MessageActions({
         ) : (
           <>
             {menu.rows.map((row) => (
-              <MenuItem key={row.label} onClick={() => pick(row)}>
+              <MenuItem
+                key={row.label}
+                disabled={send !== null && drafting(row.icon)}
+                onClick={() => pick(row)}
+              >
                 {row.label}
               </MenuItem>
             ))}
@@ -347,37 +363,33 @@ function MessageActions({
 }
 
 /**
- * Xtend's composer on X's conversation `path`: the text goes to X's own composer and Send only on
- * the user's Send, and X's own answer confirms it. A failure keeps the text; so does a message X
- * still sends (`onPending`, its id), held here (`waiting`) until X marks it.
+ * Xtend's composer on X's conversation `path`, whose messages are `items`: the text goes to X's own
+ * composer and Send only on the user's Send, and stays until X marks the message it sent.
  */
 function Composer({
   path,
-  draft,
-  onDraft,
-  waiting,
-  onPending,
+  items,
 }: {
   readonly path: string;
-  readonly draft: Draft;
-  readonly onDraft: (draft: Draft) => void;
-  readonly waiting: boolean;
-  readonly onPending: (id: string) => void;
+  readonly items: ReadonlyArray<ChatItem>;
 }) {
   const { press, setToast } = usePress();
-  const [sending, setSending] = useState(false);
+  const { draft, setDraft, send, setWrite } = useDraft(path);
   const { text, mode } = draft;
-  const busy = sending || waiting;
-  const send = async () => {
-    if (text.trim() === "" || busy) return;
-    setSending(true);
+  const submit = async () => {
+    if (text.trim() === "" || send !== null) return;
+    setWrite((w) => ({ ...w, send: { path, text, id: null } }));
     const to =
       mode === null ? {} : mode.kind === "reply" ? { reply: mode.item.id } : { edit: mode.item.id };
-    const sent = await press(() => xChatSend(path, text, to));
-    setSending(false);
-    if (sent === null) return;
-    if (sent.status === "sent") return onDraft({ text: "", mode: null });
-    if (sent.status === "pending" && sent.id !== null) return onPending(sent.id);
+    const known = items.flatMap((i) => (i.kind === "message" ? [i.id] : []));
+    const sent = await press(() => xChatSend(path, text, known, to));
+    // X still sends the message it pinned: the chat's reads settle it (`sendMark`).
+    if (sent?.status === "pending" && sent.id !== null) {
+      const { id } = sent;
+      return setWrite((w) => (w.send === null ? w : { ...w, send: { ...w.send, id } }));
+    }
+    setWrite((w) => endSend(w, sent?.status === "sent"));
+    if (sent === null || sent.status === "sent") return;
     setToast({
       text:
         sent.status === "failed"
@@ -404,8 +416,9 @@ function Composer({
           <button
             type="button"
             aria-label={mode.kind === "reply" ? "Cancel reply" : "Discard edit"}
+            disabled={send !== null}
             className={ROUND}
-            onClick={() => onDraft({ text: mode.kind === "edit" ? "" : text, mode: null })}
+            onClick={() => setDraft({ text: mode.kind === "edit" ? "" : text, mode: null })}
           >
             <X className="size-4" />
           </button>
@@ -417,23 +430,23 @@ function Composer({
           placeholder="Message"
           rows={1}
           value={text}
-          disabled={busy}
+          disabled={send !== null}
           className="max-h-40 min-h-8 flex-1 resize-none bg-transparent py-1 text-[15px] leading-6 outline-hidden [field-sizing:content] placeholder:text-[#71767b]"
-          onChange={(e) => onDraft({ text: e.target.value, mode })}
+          onChange={(e) => setDraft({ text: e.target.value, mode })}
           onKeyDown={(e) => {
             // X's Enter sends and Shift+Enter starts a line.
             if (e.key !== "Enter" || e.shiftKey || e.altKey || e.nativeEvent.isComposing) return;
             e.preventDefault();
-            void send();
+            void submit();
           }}
         />
         <button
           type="button"
-          disabled={text.trim() === "" || busy}
+          disabled={text.trim() === "" || send !== null}
           className="h-8 shrink-0 cursor-pointer rounded-full bg-[#1d9bf0] px-4 text-[14px] font-bold text-white disabled:cursor-default disabled:opacity-50"
-          onClick={() => void send()}
+          onClick={() => void submit()}
         >
-          {waiting ? "Sending…" : mode?.kind === "edit" ? "Save" : "Send"}
+          {send?.path === path ? "Sending…" : mode?.kind === "edit" ? "Save" : "Send"}
         </button>
       </div>
     </div>
@@ -461,16 +474,6 @@ function Conversation({
   const navigate = useNavigate();
   const setOver = useAtomSet(xOverAtom);
   const { press } = usePress();
-  const [draft, setDraft] = useState<Draft>({ text: "", mode: null });
-  // X's id for a message X still sent when Xtend stopped waiting: the draft stays until X marks it.
-  const [waiting, setWaiting] = useState<string | null>(null);
-  const held = waiting === null ? undefined : conversation?.items.find((i) => i.id === waiting);
-  // Once X marks it, a sent message takes the draft with it; a failed one, marked in the list,
-  // leaves the draft for the user to send again.
-  if (held?.kind === "message" && held.status !== "pending") {
-    setWaiting(null);
-    if (held.status === "sent") setDraft({ text: "", mode: null });
-  }
   const olderAsked = useRef(-1);
   const answer = async (request: "accept" | "delete") => {
     const answered = await press(() => xChatRequest(path, request, setOver));
@@ -528,12 +531,7 @@ function Conversation({
                 group={group}
                 actions={
                   item.kind === "message" ? (
-                    <MessageActions
-                      path={path}
-                      item={item}
-                      composer={conversation.composer}
-                      onDraft={setDraft}
-                    />
+                    <MessageActions path={path} item={item} composer={conversation.composer} />
                   ) : null
                 }
               />
@@ -562,13 +560,7 @@ function Conversation({
           </div>
         </div>
       ) : conversation?.composer === true ? (
-        <Composer
-          path={path}
-          draft={draft}
-          onDraft={setDraft}
-          waiting={waiting !== null}
-          onPending={setWaiting}
-        />
+        <Composer path={path} items={conversation.items} />
       ) : null}
     </>
   );
@@ -584,6 +576,7 @@ function ChatScreen() {
   const navigate = useNavigate();
   const router = useRouter();
   const [chat, setChat] = useAtom(chatAtom);
+  const setWrite = useAtomSet(chatWriteAtom);
   const setOver = useAtomSet(xOverAtom);
   const [query, setQuery] = useState("");
   // X drew no search to type the query into, even on its inbox.
@@ -605,12 +598,18 @@ function ChatScreen() {
   useEffect(() => {
     if (!isElectron) return;
     const stop = new AbortController();
-    watchChat(stop.signal, (read) => setChat((s) => mergeChat(s, read)));
+    watchChat(stop.signal, (read) => {
+      setChat((s) => mergeChat(s, read));
+      setWrite((w) => {
+        const mark = sendMark(w, read);
+        return mark === null ? w : endSend(w, mark === "sent");
+      });
+    });
     return () => {
       stop.abort();
       setChat((s) => ({ ...s, locked: false, search: null }));
     };
-  }, [setChat]);
+  }, [setChat, setWrite]);
   // An open conversation keeps marking what arrives read in X: once the screen is gone, X leaves it.
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- takes the engine off X's conversation when this screen lets it go.
   useEffect(() => {

@@ -260,53 +260,142 @@ const engineAt = (path: string) => {
   } as unknown as XWebview);
   markXReady();
 };
-/** X's open conversation with `name`, its message list and its composer, Send as `send` draws it. */
-const composing = (name: string, send: string) =>
-  `<div data-testid="dm-container"><div data-testid="dm-conversation-panel"><span data-testid="dm-conversation-username">${name}</span><div data-testid="dm-message-list"></div><textarea data-testid="dm-composer-textarea"></textarea>${send}</div></div>`;
+/** X's open conversation, drawn into `root`: the user's messages `ids`, then X's composer and Send. */
+const conversationIn = (root: ShadowRoot, ids: ReadonlyArray<string>, greyed = false) => {
+  root.innerHTML = `<div data-testid="dm-container"><div data-testid="dm-conversation-panel"><div data-testid="dm-message-list">${ids.map((id) => message(id, true, words(id, `Text ${id}`), "")).join("")}</div><div data-testid="dm-composer-container"><textarea data-testid="dm-composer-textarea"></textarea><button data-testid="dm-composer-send-button"${greyed ? " disabled" : ""}>Send</button></div></div></div>`;
+  return {
+    field: root.querySelector("textarea")!,
+    send: root.querySelector<HTMLButtonElement>('[data-testid="dm-composer-send-button"]')!,
+    /** Adds a message of the user's as X does, marked `status`. */
+    add: (id: string, text: string, status = "sent", at: InsertPosition = "beforeend") =>
+      root
+        .querySelector('[data-testid="dm-message-list"]')!
+        .insertAdjacentHTML(
+          at,
+          message(id, true, words(id, text), "").replace('"sent"', `"${status}"`),
+        ),
+  };
+};
 
-it("presses nothing in another conversation the user opened while a send still waited on X", async () => {
-  using x = drawX(
-    composing("Ann", '<button data-testid="dm-composer-send-button" disabled>Send</button>'),
-  );
+it("presses nothing once X shows another conversation than the one the user wrote in", async () => {
+  using x = drawX("");
   engineAt("/i/chat/11-22");
-  const sending = xChatSend("/i/chat/11-22", "On my way");
-  // X takes the keystrokes but keeps its Send greyed a moment; meanwhile the user opens Bo's chat.
-  await vi.waitFor(() => expect(x.root.querySelector("textarea")?.value).toBe("On my way"));
-  Reflect.set(window, "__xPath", "/i/chat/11-33");
-  x.root.innerHTML = composing("Bo", '<button data-testid="dm-composer-send-button">Send</button>');
   const presses: Array<string> = [];
-  x.root.querySelector("button")!.addEventListener("click", () => presses.push("send"));
-  expect(await sending).toBeNull();
+  // X keeps its Send greyed a moment; meanwhile the user opens Bo's chat.
+  let ann = conversationIn(x.root, ["m1"], true);
+  const moved = xChatSend("/i/chat/11-22", "On my way", ["m1"]);
+  await vi.waitFor(() => expect(ann.field.value).toBe("On my way"));
+  Reflect.set(window, "__xPath", "/i/chat/11-33");
+  conversationIn(x.root, ["b1"]).send.addEventListener("click", () => presses.push("send"));
+  expect(await moved).toBeNull();
+
+  // At the same path, X draws another conversation's messages and composer.
+  Reflect.set(window, "__xPath", "/i/chat/11-22");
+  ann = conversationIn(x.root, ["m1"], true);
+  const redrawn = xChatSend("/i/chat/11-22", "On my way", ["m1"]);
+  await vi.waitFor(() => expect(ann.field.value).toBe("On my way"));
+  conversationIn(x.root, ["b1"]).send.addEventListener("click", () => presses.push("send"));
+  expect(await redrawn).toBeNull();
   expect(presses).toEqual([]);
 });
 
-it("leaves a draft the user wrote in X's own composer alone, and types over only what Xtend typed", async () => {
-  using x = drawX(
-    composing("Ann", '<button data-testid="dm-composer-send-button" disabled>Send</button>'),
-  );
+it("takes its own typing back when X's Send never comes, and leaves whatever X's composer holds alone", async () => {
+  using x = drawX("");
   using _timers = fakeTimers();
   engineAt("/i/chat/11-22");
-  const field = x.root.querySelector("textarea")!;
-  const send = x.root.querySelector("button")!;
-  field.value = "Half a thought";
-  expect(await xChatSend("/i/chat/11-22", "On my way")).toEqual({ status: "draft", id: null });
-  expect(field.value).toBe("Half a thought");
-
-  // What Xtend typed, and X never sent (its Send stayed greyed), is Xtend's own to type over.
-  field.value = "";
-  const greyed = xChatSend("/i/chat/11-22", "On my way");
+  const ann = conversationIn(x.root, ["m1"], true);
+  const greyed = xChatSend("/i/chat/11-22", "On my way", ["m1"]);
   await vi.advanceTimersByTimeAsync(3_000);
-  expect([await greyed, field.value]).toEqual([null, "On my way"]);
-  send.disabled = false;
-  send.addEventListener("click", () =>
-    x.root
-      .querySelector('[data-testid="dm-message-list"]')!
-      .insertAdjacentHTML(
-        "beforeend",
-        `<div class="justify-end" data-testid="message-n1" data-send-status="sent"></div>`,
-      ),
+  expect([await greyed, ann.field.value]).toEqual([null, ""]);
+  // The same words typed in X afterwards are the user's own there, and so is a reply X holds.
+  ann.field.value = "On my way";
+  expect(await xChatSend("/i/chat/11-22", "On my way", ["m1"])).toEqual({
+    status: "draft",
+    id: null,
+  });
+  expect(ann.field.value).toBe("On my way");
+  ann.field.value = "";
+  ann.field.insertAdjacentHTML(
+    "beforebegin",
+    '<div data-testid="dm-composer-reply-bar"><button aria-label="Cancel reply"></button></div>',
   );
-  expect(await xChatSend("/i/chat/11-22", "Running late")).toEqual({ status: "sent", id: "n1" });
+  expect(await xChatSend("/i/chat/11-22", "On my way", ["m1"])).toEqual({
+    status: "draft",
+    id: null,
+  });
+  expect(x.root.querySelector('[data-testid="dm-composer-reply-bar"]')).not.toBeNull();
+});
+
+it("pins its own message: not an older one X mounts meanwhile, and an edit only once X shows its new text sent", async () => {
+  using x = drawX("");
+  using _timers = fakeTimers();
+  engineAt("/i/chat/11-22");
+  const ann = conversationIn(x.root, ["m1"]);
+  ann.send.addEventListener(
+    "click",
+    () => {
+      // X mounts an older message of the user's as its list settles, then adds the new one, sending.
+      ann.add("o1", "Earlier", "sent", "afterbegin");
+      ann.add("n1", ann.field.value, "pending");
+      ann.field.value = "";
+    },
+    { once: true },
+  );
+  const sending = xChatSend("/i/chat/11-22", "Running late", ["m1"]);
+  await vi.advanceTimersByTimeAsync(20_000);
+  expect(await sending).toEqual({ status: "pending", id: "n1" });
+
+  // X's Edit on m1: its hover bar, its "..." and its Edit row put X's composer in edit mode.
+  const editMode =
+    '<div data-testid="dm-composer-edit-mode"><button data-testid="dm-composer-discard-edit-button"></button></div>';
+  x.root.addEventListener("mouseover", () => {
+    if (!x.root.querySelector('[data-testid="message-overflow-button-m1"]'))
+      x.root
+        .querySelector('[data-testid="message-m1"] [role="article"]')!
+        .insertAdjacentHTML(
+          "beforeend",
+          '<button data-testid="message-overflow-button-m1"></button>',
+        );
+  });
+  x.root.addEventListener("click", (event) => {
+    const el = event.target as Element;
+    if (el.matches('[data-testid="message-overflow-button-m1"]'))
+      x.root.append(
+        Object.assign(document.createElement("div"), {
+          role: "menu",
+          innerHTML:
+            '<div role="menuitem"><svg data-icon="icon-pencil-stroke"></svg>Edit message</div>',
+        }),
+      );
+    if (el.closest('[role="menuitem"]')) {
+      x.root.querySelector('[role="menu"]')!.remove();
+      ann.field.insertAdjacentHTML("beforebegin", editMode);
+      ann.field.value = "Text m1";
+    }
+  });
+  const text = () => x.root.querySelector('[data-testid="message-text-m1"] span span')!;
+  // X's Save leaves edit mode at once, before X shows the new text: that is no answer yet.
+  const save = (shows: boolean) =>
+    ann.send.addEventListener(
+      "click",
+      () => {
+        x.root.querySelector('[data-testid="dm-composer-edit-mode"]')!.remove();
+        if (shows) setTimeout(() => (text().textContent = ann.field.value), 500);
+      },
+      { once: true },
+    );
+  save(false);
+  const unanswered = xChatSend("/i/chat/11-22", "Yes, after six", ["m1"], { edit: "m1" });
+  await vi.advanceTimersByTimeAsync(20_000);
+  expect([await unanswered, text().textContent]).toEqual([
+    { status: "pending", id: "m1" },
+    "Text m1",
+  ]);
+  ann.field.value = "";
+  save(true);
+  const edited = xChatSend("/i/chat/11-22", "Yes, after six", ["m1"], { edit: "m1" });
+  await vi.advanceTimersByTimeAsync(20_000);
+  expect(await edited).toEqual({ status: "sent", id: "m1" });
 });
 
 it("lets X's page about a conversation go when the user moves on, and says they finished there only once X is back", async () => {

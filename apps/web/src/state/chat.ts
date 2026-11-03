@@ -606,22 +606,68 @@ export const xChatReact = async (path: string, id: string, emoji: string) =>
     () => {},
   )) === "done" || null;
 
+/** What the user writes in a conversation: a new message, a reply to one, or an edit of their own. */
+export interface ChatDraft {
+  readonly text: string;
+  readonly mode: { readonly kind: "reply" | "edit"; readonly item: ChatMessage } | null;
+}
+export const emptyDraft: ChatDraft = { text: "", mode: null };
+
+/**
+ * What the user writes in X's Chat: each conversation's draft by X's path, and the one send in
+ * flight, whose draft stays until X marks the message it pinned (`id`, null until X draws it).
+ * In memory like `chatAtom`, so an account (a window of its own) never sees another's.
+ */
+export interface ChatWrite {
+  readonly drafts: ReadonlyMap<string, ChatDraft>;
+  readonly send: {
+    readonly path: string;
+    readonly text: string;
+    readonly id: string | null;
+  } | null;
+}
+export const chatWriteAtom = Atom.make<ChatWrite>({ drafts: new Map(), send: null }).pipe(
+  Atom.keepAlive,
+);
+
+/** `write` once its send ends: a sent one takes its draft with it; otherwise the draft stays. */
+export const endSend = (write: ChatWrite, sent: boolean): ChatWrite => {
+  const drafts = new Map(write.drafts);
+  if (sent && write.send !== null) drafts.delete(write.send.path);
+  return { drafts, send: null };
+};
+
+const squash = (s: string) => s.replace(/\s+/g, "");
+
+/**
+ * X's mark, in `read`, on the message the send in flight pinned: "sent" once X marks it so with the
+ * sent text (an edit shows its new text), "failed", or null while X has neither.
+ */
+export const sendMark = ({ send }: ChatWrite, read: ChatRead) => {
+  if (send?.id == null || read.path !== send.path) return null;
+  const message = read.items?.find((i) => i.id === send.id);
+  if (message?.kind !== "message") return null;
+  if (message.status === "failed") return "failed";
+  return message.status === "sent" && squash(message.text) === squash(send.text) ? "sent" : null;
+};
+
 const Sent = Schema.Struct({
   status: Schema.Literals(["sent", "pending", "failed", "draft"]),
-  /** X's id for the message, to watch one X still sends; null when X has not drawn it. */
+  /** X's id for the message this send pinned; null when X drew none. */
   id: Schema.NullOr(Schema.String),
 });
 const decodeSent = Schema.decodeUnknownOption(Sent);
 
 /**
- * Sends `text` in X's conversation `path` for the user's click through X's own composer and Send
- * (Save, for `edit`), after X's own Reply or Edit there. X's mark on the message it adds answers:
- * "sent", "failed", or "pending" while X still sends; "draft" when X's composer holds the user's
- * own text from X, never overwritten. Null when nothing was sent.
+ * Sends `text` in X's conversation `path`, whose messages Xtend knows by `known`, for the user's
+ * click: through X's own composer and Send (Save, for `edit`), after X's own Reply or Edit there.
+ * X's mark on the message it pins answers: "sent", "failed", or "pending" while X still sends;
+ * "draft" when X's composer already holds something of the user's. Null when nothing was sent.
  */
 export const xChatSend = async (
   path: string,
   text: string,
+  known: ReadonlyArray<string>,
   to: { readonly reply?: string; readonly edit?: string } = {},
 ) =>
   Option.getOrNull(
@@ -630,67 +676,73 @@ export const xChatSend = async (
         (mine) => `(async () => {
     ${IN_CHAT}
     ${onMessage(to.reply ?? to.edit ?? "")}
-    // X's own route draws the conversation at its path; a drawer elsewhere has a composer of its own.
+    const read = ${readChat.toString()};
+    const path = ${JSON.stringify(path)};
+    const text = ${JSON.stringify(text)};
+    const squash = (s) => s.replace(/\\s+/g, "");
     const route = () => document.querySelector('[data-testid="xchatEmbedRoute"]')?.shadowRoot ?? null;
     const inRoute = (s) => route()?.querySelector(s) ?? null;
-    const field = () => inRoute('[data-testid="dm-composer-textarea"]');
-    const title = () => inRoute('[data-testid="dm-conversation-username"]')?.textContent.trim() ?? "";
-    if (location.pathname !== ${JSON.stringify(path)} || !${mine} || !field()) return null;
-    // Every press is for the conversation the user wrote in: X shows it still, at its own path.
-    const named = title();
-    const ours = () => location.pathname === ${JSON.stringify(path)} && ${mine} && !!field() && title() === named;
-    // Text in X's composer that Xtend did not type there is the user's own draft in X.
-    const held = field().value;
-    if (held !== "" && held !== window.__xtendChatTyped) return { status: "draft", id: null };
-    // X's composer does only what this click asks: a reply or edit it still holds from before ends.
-    const cancel = [...(inRoute('[data-testid="dm-composer-reply-bar"]')?.querySelectorAll("button") ?? [])].at(-1);
-    if (cancel && !ours()) return null;
-    cancel?.click();
-    const discard = inRoute('[data-testid="dm-composer-discard-edit-button"]');
-    if (discard && !ours()) return null;
-    discard?.click();
-    const plain = () => !inRoute('[data-testid="dm-composer-reply-bar"], [data-testid="dm-composer-edit-mode"]');
-    if (!(await wait(plain))) return null;
-    const pick = async (icon, mode) => {
+    const messages = () => (read(document, path).items ?? []).filter((i) => i.kind === "message");
+    // X's markup names no conversation, but each message id is one conversation's own.
+    const known = new Set(${JSON.stringify(known)});
+    const showsIt = () => {
+      const ids = messages().map((m) => m.id);
+      return known.size === 0 ? ids.length === 0 : ids.some((id) => known.has(id));
+    };
+    const field = inRoute('[data-testid="dm-composer-textarea"]');
+    if (location.pathname !== path || !${mine} || !field || !showsIt()) return null;
+    const box = field.closest('[data-testid="dm-composer-container"]') ?? route();
+    // Every press is for this composer, still in X's route, on the conversation the user wrote in.
+    const ours = () => location.pathname === path && ${mine} && field.isConnected && !!route()?.contains(field) && showsIt();
+    const replyBar = '[data-testid="dm-composer-reply-bar"]';
+    const editMode = '[data-testid="dm-composer-edit-mode"]';
+    // Whatever X's composer holds already (text, a reply, an edit) is the user's own, in X.
+    if (field.value !== "" || inRoute(replyBar + ", " + editMode)) return { status: "draft", id: null };
+    // React keeps the field's value itself: its native setter and an input event are a keystroke.
+    const type = (value) => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(field, value);
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    // Stopping short, the click takes back what it did to X's composer, while it is still this one.
+    const back = () => {
+      if (!ours()) return null;
+      inRoute('[data-testid="dm-composer-discard-edit-button"]')?.click();
+      [...(inRoute(replyBar)?.querySelectorAll("button") ?? [])].at(-1)?.click();
+      if (field.value !== "") type("");
+      return null;
+    };
+    const pick = async (icon, shows) => {
       const shown = await menu();
       const row = shown?.rows.find((r) => r.querySelector('svg[data-icon="' + icon + '"]'));
       if (!ours()) return null;
       if (!row) return (shown?.more.click(), null);
       row.click();
-      return wait(() => inRoute(mode));
+      return wait(() => inRoute(shows));
     };
     if (${to.reply !== undefined}) {
       const reply = (await hover()) && find(testid("message-reply-button-"));
-      if (reply && !ours()) return null;
+      if (!ours()) return null;
       reply?.click();
-      const replying = reply ? await wait(() => inRoute('[data-testid="dm-composer-reply-bar"]')) : await pick("icon-reply-arrow", '[data-testid="dm-composer-reply-bar"]');
-      if (!replying) return null;
+      if (!(reply ? await wait(() => inRoute(replyBar)) : await pick("icon-reply-arrow", replyBar))) return back();
     }
-    if (${to.edit !== undefined}) {
-      if (!(await pick("icon-pencil-stroke", '[data-testid="dm-composer-edit-mode"]'))) return null;
-      // X's Edit put the message's own text there for this click: Xtend's, not a draft of the user's.
-      window.__xtendChatTyped = field()?.value ?? "";
-    }
-    const messages = () => [...(route()?.querySelectorAll('[data-testid="dm-message-list"] [data-testid^="message-"][data-send-status]') ?? [])];
-    const before = new Set(messages().map((m) => m.dataset.testid));
-    const input = field();
-    if (!input || !ours()) return null;
-    // React keeps the field's value itself: its native setter and an input event are a keystroke.
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(input, ${JSON.stringify(text)});
-    window.__xtendChatTyped = input.value;
-    input.dispatchEvent(new Event("input", { bubbles: true }));
+    if (${to.edit !== undefined} && !(await pick("icon-pencil-stroke", editMode))) return back();
+    const before = new Set(messages().map((m) => m.id));
+    if (!ours()) return back();
+    type(text);
     const send = await wait(() => {
-      const button = inRoute('[data-testid="dm-composer-send-button"]');
+      const button = box.querySelector('[data-testid="dm-composer-send-button"]');
       return button && !button.disabled ? button : null;
     });
-    if (!send || !ours()) return null;
+    if (!send || !ours()) return back();
     send.click();
-    if (${to.edit !== undefined}) return (await wait(() => !inRoute('[data-testid="dm-composer-edit-mode"]'), 50)) ? { status: "sent", id: ${JSON.stringify(to.edit ?? null)} } : null;
-    const added = () => messages().find((m) => !before.has(m.dataset.testid) && m.classList.contains("justify-end"));
-    if (!(await wait(added, 100))) return field()?.value === "" ? { status: "pending", id: null } : null;
-    await wait(() => added()?.dataset.sendStatus !== "pending", 150);
-    const message = added();
-    return { status: message?.dataset.sendStatus ?? "pending", id: message ? message.dataset.testid.slice("message-".length) : null };
+    // X's answer, pinned once: the edited message, or the first new one of the user's with this text.
+    const id = ${JSON.stringify(to.edit ?? null)} ?? (await wait(() => messages().find((m) => m.mine && !before.has(m.id) && squash(m.text) === squash(text))?.id, 100));
+    if (!id) return { status: "pending", id: null };
+    const mark = () => {
+      const m = messages().find((x) => x.id === id);
+      return m?.status === "failed" ? "failed" : m?.status === "sent" && squash(m.text) === squash(text) ? "sent" : null;
+    };
+    return { status: (await wait(mark, 150)) ?? "pending", id };
   })()`,
         asking(),
         () => {},
