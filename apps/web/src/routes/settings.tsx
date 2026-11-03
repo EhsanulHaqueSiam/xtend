@@ -6,21 +6,32 @@ import {
   type SettingsUpdate,
   type TriagePaths,
   type TriagePrepared,
+  type UpdateChannel,
   X_SKIN_DEFAULTS,
   X_SKIN_TOGGLES,
+  type XSkinToggle,
 } from "@xtend/contracts";
 import { createFileRoute } from "@tanstack/react-router";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { createContext, useContext, useState, type ReactNode } from "react";
 
 import { PageHeader } from "../components/PageHeader";
+import {
+  AddDevice,
+  BrowserHint,
+  DevicePicker,
+  DevicesList,
+  deviceName,
+  JoinService,
+  useDeviceScoped,
+} from "../components/settings/Devices";
 import { sectionLabel, type SectionId, useSection } from "../components/shell/sections";
 import { Button } from "../components/ui/button";
 import { Field, inputClass } from "../components/ui/field";
 import { Empty, PageBody, Section, Stat, table } from "../components/ui/layout";
 import { Select } from "../components/ui/select";
 import { Switch } from "../components/ui/switch";
-import type { Reachability, ServiceMode } from "../desktopBridge";
+import type { ServiceMode } from "../desktopBridge";
 import { isElectron } from "../env";
 import { fmtWhen } from "../lib/time";
 import { cn, NOT_A_HANDLE, parseHandle } from "../lib/utils";
@@ -30,6 +41,7 @@ import {
   selectAccountAtom,
   switchAccount,
 } from "../state/accounts";
+import { updateDeviceAtom, useSettingsDevice } from "../state/devices";
 import { serverInfoAtom } from "../state/observations";
 import { usd as price, useQuoteLabel } from "../state/costs";
 import { settingsAtom, updateSettingsAtom } from "../state/settings";
@@ -118,7 +130,7 @@ const DEFAULTS: Partial<Record<Page, SettingsUpdate>> = {
 function RestoreDefaults({ onRestored }: { readonly onRestored: () => void }) {
   const page = useSection("/settings");
   const update = useAtomSet(updateSettingsAtom, { mode: "promise" });
-  const setSkin = useAtomSet(xSkinAtom);
+  const setCleanX = useSetCleanX();
   const [confirm, setConfirm] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const defaults = DEFAULTS[page];
@@ -127,7 +139,7 @@ function RestoreDefaults({ onRestored }: { readonly onRestored: () => void }) {
     setError(null);
     try {
       await update(defaults);
-      if (page === "x") setSkin(X_SKIN_DEFAULTS);
+      if (page === "x") await setCleanX(X_SKIN_DEFAULTS);
       setConfirm(false);
       onRestored();
     } catch (e) {
@@ -204,6 +216,8 @@ const ASSIST_PRESETS = [
 
 function SettingsForm({ current }: { readonly current: SettingsShape }) {
   const update = useAtomSet(updateSettingsAtom, { mode: "promise" });
+  const device = useSettingsDevice();
+  const scoped = useDeviceScoped();
   const refreshSettings = useAtomRefresh(settingsAtom);
   // The meter shows the budget, and today and this month are days in the saved time zone.
   const refreshSpend = useAtomRefresh(spendLiveAtom);
@@ -499,7 +513,7 @@ function SettingsForm({ current }: { readonly current: SettingsShape }) {
       </Page>
       <Page id="x">
         {isElectron ? (
-          <Section title="Desktop">
+          <Section title="Desktop" {...(scoped ? { description: "every device" } : {})}>
             <SField
               wide
               label="Act through X for what I click"
@@ -514,8 +528,9 @@ function SettingsForm({ current }: { readonly current: SettingsShape }) {
             </SField>
           </Section>
         ) : null}
-        {isElectron ? (
-          <CleanX />
+        {isElectron || device !== null ? (
+          // Pending picks belong to one device; another device starts from its own stored list.
+          <CleanX key={device?.id ?? "local"} />
         ) : (
           <Section title="Desktop">
             <p className="py-2 text-sm text-muted-foreground">
@@ -582,14 +597,40 @@ function DailyJobsField({
   );
 }
 
-/** The CSS over x.com, one switch per rule set, applied at once; a desktop preference, not a service setting. */
-function CleanX() {
-  const skin = useAtomValue(xSkinAtom);
+/**
+ * Writes Clean X for the device Settings is scoped to; that device applies it from the service.
+ * With no device on record (a service from before devices) it stays this window's own.
+ */
+function useSetCleanX() {
+  const device = useSettingsDevice();
   const setSkin = useAtomSet(xSkinAtom);
+  const updateDevice = useAtomSet(updateDeviceAtom, { mode: "promise" });
+  return async (cleanX: ReadonlyArray<XSkinToggle>) => {
+    if (device === null) return setSkin(cleanX);
+    await updateDevice({ id: device.id, prefs: { ...device.prefs, cleanX } });
+  };
+}
+
+/** The CSS over x.com, one switch per rule set, applied at once on the device it belongs to. */
+function CleanX() {
+  const device = useSettingsDevice();
+  const local = useAtomValue(xSkinAtom);
+  const setCleanX = useSetCleanX();
+  const scoped = useDeviceScoped();
+  const stored = device?.prefs.cleanX ?? local;
+  // Each write is a whole list, so the next switch must build on the last pick until the service
+  // holds it; a refetch of an earlier write must not bring an older list back.
+  const [pending, setPending] = useState<ReadonlyArray<XSkinToggle> | null>(null);
+  const landed =
+    pending !== null &&
+    pending.length === stored.length &&
+    pending.every((t) => stored.includes(t));
+  if (landed) setPending(null);
+  const skin = pending !== null && !landed ? pending : stored;
   return (
     <Section
       title="Clean X"
-      description="Hides parts of x.com inside Xtend with CSS only. X itself runs untouched."
+      description={`${scoped && device !== null ? `${deviceName(device)} only. ` : ""}Hides parts of x.com inside Xtend with CSS only. X itself runs untouched.`}
     >
       {X_SKIN_TOGGLES.map((t) => (
         <SField key={t.id} wide label={t.label}>
@@ -597,13 +638,13 @@ function CleanX() {
             className="mt-1"
             label={t.label}
             checked={skin.includes(t.id)}
-            onChange={(on) =>
-              setSkin(
-                X_SKIN_TOGGLES.map((x) => x.id).filter((id) =>
-                  id === t.id ? on : skin.includes(id),
-                ),
-              )
-            }
+            onChange={(on) => {
+              const next = X_SKIN_TOGGLES.map((x) => x.id).filter((id) =>
+                id === t.id ? on : skin.includes(id),
+              );
+              setPending(next);
+              setCleanX(next).catch(() => setPending(null));
+            }}
           />
         </SField>
       ))}
@@ -735,16 +776,62 @@ const modeLabel = (info: ServerInfo): string => {
   return mode === "remote" && info.supervisor !== "none" ? `remote (${info.supervisor})` : mode;
 };
 
-/** Desktop only: point this window at a service on another machine. */
 const UPDATE_CHANNELS = [
   { id: "stable", label: "Stable" },
   { id: "nightly", label: "Nightly" },
 ] as const;
 
-/** The desktop's version, which release channel it follows, and the update in hand. */
+/** The release channel buttons; the device they belong to follows the pick from the service. */
+function ChannelPicker({
+  channel,
+  onPick,
+}: {
+  readonly channel: UpdateChannel;
+  readonly onPick: (next: UpdateChannel) => void;
+}) {
+  return (
+    <span className="inline-flex gap-1.5">
+      {UPDATE_CHANNELS.map((c) => (
+        <Button
+          key={c.id}
+          variant="outline"
+          size="xs"
+          aria-pressed={channel === c.id}
+          className="aria-pressed:border-foreground"
+          onClick={() => onPick(c.id)}
+        >
+          {c.label}
+        </Button>
+      ))}
+    </span>
+  );
+}
+
+/**
+ * The desktop's version, which release channel it follows, and the update in hand. For another
+ * device only its channel shows: its version and download are its own to report.
+ */
 function Updates() {
   const update = useDesktopUpdate();
   const bridge = window.desktopBridge;
+  const device = useSettingsDevice();
+  const updateDevice = useAtomSet(updateDeviceAtom, { mode: "promise" });
+  const pick = (next: UpdateChannel) =>
+    device === null
+      ? bridge?.setUpdateChannel(next)
+      : void updateDevice({ id: device.id, prefs: { ...device.prefs, updateChannel: next } });
+  if (device !== null && device.id !== bridge?.device.id)
+    return (
+      <dl>
+        <Row label="Channel">
+          {device.prefs.updateChannel === null ? (
+            "does not update itself"
+          ) : (
+            <ChannelPicker channel={device.prefs.updateChannel} onPick={pick} />
+          )}
+        </Row>
+      </dl>
+    );
   if (update === null || bridge === undefined) return null;
   const status =
     update.status === "idle"
@@ -760,20 +847,7 @@ function Updates() {
     <dl>
       <Row label="Version">{update.version}</Row>
       <Row label="Channel">
-        <span className="inline-flex gap-1.5">
-          {UPDATE_CHANNELS.map((c) => (
-            <Button
-              key={c.id}
-              variant="outline"
-              size="xs"
-              aria-pressed={update.channel === c.id}
-              className="aria-pressed:border-foreground"
-              onClick={() => bridge.setUpdateChannel(c.id)}
-            >
-              {c.label}
-            </Button>
-          ))}
-        </span>
+        <ChannelPicker channel={update.channel} onPick={pick} />
       </Row>
       <Row label="Status">
         <span className={cn(update.status === "error" && "text-error-foreground")}>{status}</span>
@@ -799,92 +873,6 @@ function Updates() {
         )}
       </div>
     </dl>
-  );
-}
-
-function RemoteService() {
-  const bridge = window.desktopBridge;
-  const [url, setUrl] = useState(bridge?.remote?.url ?? "");
-  const [token, setToken] = useState(bridge?.remote?.token ?? "");
-  const [checked, setChecked] = useState<{
-    readonly url: string;
-    readonly token: string;
-    readonly result: Reachability;
-  } | null>(null);
-  const [checking, setChecking] = useState(false);
-  const config = { url: url.trim(), token: token.trim() };
-  // A check answers for the URL and token it tested; once either is edited it says nothing.
-  const result =
-    checked !== null && checked.url === config.url && checked.token === config.token
-      ? checked.result
-      : null;
-  if (bridge === undefined)
-    return (
-      <p className="text-xs text-muted-foreground">
-        From another browser, open this service's URL with{" "}
-        <span className="font-mono">?token=</span>
-        followed by the token from <span className="font-mono">auth-token</span> in its data
-        directory.
-      </p>
-    );
-  const check = async () => {
-    setChecking(true);
-    const tested = config;
-    setChecked({ ...tested, result: await bridge.checkRemote(tested) });
-    setChecking(false);
-  };
-  const ok = result !== null && result.health && result.auth;
-  return (
-    <>
-      <SField
-        wide
-        label="Service URL"
-        hint="http://<tailnet ip or host>:4820 of a service started with --host."
-      >
-        <input
-          className={settingsInput}
-          placeholder="http://mac-mini:4820"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-        />
-      </SField>
-      <SField wide label="Service token" hint="auth-token from that machine's data directory.">
-        <input
-          className={settingsInput}
-          type="password"
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
-        />
-      </SField>
-      {result !== null ? (
-        <p
-          className={`font-mono text-2xs ${ok ? "text-success-foreground" : "text-error-foreground"}`}
-          role="status"
-        >
-          {ok
-            ? `reachable, xtend ${result.version}, token accepted`
-            : (result.error ?? "unreachable")}
-        </p>
-      ) : null}
-      <div className="flex justify-end gap-2 pt-3">
-        {bridge.remote !== null ? (
-          <Button size="sm" variant="outline" onClick={() => bridge.setRemote(null)}>
-            Use local service
-          </Button>
-        ) : null}
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={checking || url.trim() === ""}
-          onClick={() => void check()}
-        >
-          {checking ? "Checking…" : "Check"}
-        </Button>
-        <Button size="sm" disabled={!ok} onClick={() => bridge.setRemote(config)}>
-          Connect and relaunch
-        </Button>
-      </div>
-    </>
   );
 }
 
@@ -1100,6 +1088,8 @@ export function SettingsScreen() {
   const refreshSettings = useAtomRefresh(settingsAtom);
   const refreshSpend = useAtomRefresh(spendLiveAtom);
   const page = useSection("/settings");
+  const device = useSettingsDevice();
+  const scoped = useDeviceScoped();
   const [query, setQuery] = useState("");
   // The form's inputs are uncontrolled, so restored values show by remounting it.
   const [formKey, setFormKey] = useState(0);
@@ -1111,6 +1101,8 @@ export function SettingsScreen() {
           title={searching ? "Search" : sectionLabel("/settings", page)}
           actions={
             <>
+              {/* Only these pages hold rows that belong to one device. */}
+              {!searching && (page === "x" || page === "service") ? <DevicePicker /> : null}
               <input
                 type="search"
                 aria-label="Search settings"
@@ -1166,17 +1158,27 @@ export function SettingsScreen() {
                   </Row>
                 </dl>
               </Section>
-              {isElectron ? (
+              <Section title="Devices" description="desktops that use this service">
+                <DevicesList />
+                <AddDevice />
+                <BrowserHint />
+              </Section>
+              {isElectron || device !== null ? (
                 <Section
                   title="Updates"
-                  description="nightly gets every merge to main, stable only tagged releases"
+                  description={`${scoped && device !== null ? `${deviceName(device)} only. ` : ""}Nightly gets every merge to main, stable only tagged releases.`}
                 >
                   <Updates />
                 </Section>
               ) : null}
-              <Section title="Remote service">
-                <RemoteService />
-              </Section>
+              {window.desktopBridge !== undefined ? (
+                <Section
+                  title="Join a service"
+                  description="use another machine's service, so this one shows the same data"
+                >
+                  <JoinService />
+                </Section>
+              ) : null}
             </Page>
             <Page id="diagnostics">
               <Diagnostics />

@@ -25,6 +25,7 @@ import * as AutomateHandlers from "./automate/AutomateHandlers.ts";
 import * as DesktopHandlers from "./desktop/DesktopHandlers.ts";
 import * as EventsHandlers from "./events/EventsHandlers.ts";
 import * as AccountsHandlers from "./accounts/AccountsHandlers.ts";
+import * as DevicesHandlers from "./devices/DevicesHandlers.ts";
 import * as MarksHandlers from "./marks/MarksHandlers.ts";
 import * as PoolHandlers from "./pool/PoolHandlers.ts";
 import * as TriageHandlers from "./triage/TriageHandlers.ts";
@@ -55,6 +56,7 @@ const layerRoutes = Layer.mergeAll(
   ServerHttp.layerDevTokenRoute,
   ServerHttp.layerObservationsRoute,
   ServerHttp.layerWebhookRoute,
+  DevicesHandlers.layerPairRoute,
   Ws.layerRoute,
   HttpRpc.layerRoute,
   ServerHttp.layerWebRoute,
@@ -84,6 +86,7 @@ const layerAreas = Layer.mergeAll(
   DesktopHandlers.layer,
   EventsHandlers.layer,
   AccountsHandlers.layer,
+  DevicesHandlers.layer,
   MarksHandlers.layer,
   PoolHandlers.layer,
   TriageHandlers.layer,
