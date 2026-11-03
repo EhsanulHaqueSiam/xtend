@@ -96,6 +96,25 @@ export interface MainWindowOptions {
   readonly log: (message: string, detail?: unknown) => void;
 }
 
+/**
+ * A saved x.com URL as it may load again unasked: one of X's conversations (or anything under a
+ * Chat list) comes back as that list, since X marks a conversation read once it opens.
+ */
+const chatList = (url: string) => {
+  const at = new URL(url);
+  // Read as X's router reads it, decoded; a path that does not decode is no page to restore.
+  let path: string;
+  try {
+    path = decodeURIComponent(at.pathname).toLowerCase();
+  } catch {
+    return `${at.origin}/i/chat`;
+  }
+  const [i, chat, ...rest] = path.split("/").filter(Boolean);
+  if (i !== "i" || chat !== "chat") return url;
+  const list = rest[0] !== "requests" ? "" : rest[1] === "other" ? "/requests/other" : "/requests";
+  return `${at.origin}/i/chat${list}`;
+};
+
 const CookieFile = Schema.fromJsonString(
   Schema.Array(
     Schema.Struct({
@@ -239,7 +258,7 @@ export function createMainWindow(options: MainWindowOptions) {
   let startUrl = X_HOME;
   try {
     const saved = NodeFS.readFileSync(options.sessionUrlFile, "utf8").trim();
-    if (isXHost(saved)) startUrl = saved;
+    if (isXHost(saved)) startUrl = chatList(saved);
   } catch {}
 
   // A route asked for before the page has its bridge (a deep link at launch) rides in the bridge info.

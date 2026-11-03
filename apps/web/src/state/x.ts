@@ -134,7 +134,7 @@ export const xShows = (path: string) => {
  * Engine steps for Xtend's own X screens, run in X's page on the user's intent: X's own app does
  * the fetching, and the capture hands its responses to the screens. Nothing here sends anything.
  */
-const xRun = (code: string): Promise<unknown> => {
+export const xRun = (code: string): Promise<unknown> => {
   if (!ready || element === null) return Promise.resolve(null);
   // Electron throws, not rejects, when the guest is not attached (yet, or any more).
   try {
@@ -413,7 +413,7 @@ const analyticsDrawn = (path: string, heading: string) =>
   `(location.pathname === ${JSON.stringify(path)} && [...document.querySelectorAll("*")].some((e) => e.childElementCount === 0 && e.textContent.trim() === ${JSON.stringify(heading)}))`;
 
 /** Runs `code` in X's page; a full load under it, or `signal`, ends it as null, since it never settles then. */
-const xRunHeld = (code: string, signal: AbortSignal) =>
+export const xRunHeld = (code: string, signal: AbortSignal) =>
   new Promise<unknown>((settle) => {
     const done = (value: unknown) => {
       onPageLoad.delete(abandon);

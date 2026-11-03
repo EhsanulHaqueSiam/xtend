@@ -64,7 +64,18 @@ Traps that shaped this:
   `referrerpolicy`, so the app page sends no Referer at all (`index.html`).
 
 Video plays from X's mp4 in Xtend's player, so fullscreen and picture in picture are the
-browser's own. Messages stays x.com itself (its chats are end-to-end encrypted in X's page).
+browser's own.
+Chat is read from X's page itself, not its traffic: X's messages are end-to-end encrypted, X's
+chat calls its own host (`api.x.com/graphql`, which the capture never reads) and draws from a
+store in its page. Its embed draws into open shadow roots on X's host divs
+(`[data-testid^="xchatEmbed"]`), and `state/chat.ts` reads those by X's test ids while the Chat
+screen is open, into an atom of its own: never an engine batch, the service, a log or the bench,
+which counts rows only. Opening a conversation marks it read in X, so the engine opens one only
+for the user's click (a reload, Back, Forward or relaunch opens nothing: a saved conversation URL
+comes back as its Chat list) and leaves it when the screen goes. X's passcode screen shows over the main
+area for the user to type, as X's own dialogs do. In the side panel's width X draws the inbox or
+a conversation, never both, so the screen keeps the last inbox it read.
+
 The read-only benchmark (`apps/desktop/scripts/engine-bench.mjs`) checks every surface against a
 dev desktop on the real account; its only write is a bookmark it removes again.
 
@@ -85,9 +96,9 @@ wait on frames, so a hidden engine would never load the next page.
 
 `⌘\` toggles the panel; from `/x` it returns to the last tool with the panel open. The panel
 bar shows the path and has back, forward, reload, full size (`/x`), open in browser and close.
-The sidebar's X rows (Home, Notifications, Messages, Bookmarks, Profile) load their page in the
-webview and go to `/x`; a page the webview already shows is only revealed, since `loadURL` is a
-full reload, and a second click where it shows reloads it.
+The sidebar's X rows open Xtend's own screens; a row for a page Xtend does not draw loads it in
+the webview and goes to `/x`, only revealing a page the webview already shows (`loadURL` is a
+full reload), and a second click where it shows reloads it.
 
 The panel follows the open section (`XPanelFollow` in `AppShell.tsx`, the map is `xPageFor` in
 `sections.ts`): a section with an X page opens the panel on it, one without closes it, and

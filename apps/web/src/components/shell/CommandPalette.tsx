@@ -43,7 +43,7 @@ const X_PAGES: ReadonlyArray<{
 }> = [
   { label: "Home", path: "/home" },
   { label: "Notifications", path: "/notifications" },
-  { label: "Messages", path: "/messages" },
+  { label: "Chat", path: "/i/chat", native: "/chat" },
   { label: "Bookmarks", path: "/i/bookmarks" },
   { label: "Explore", path: "/explore" },
   { label: "Follow", path: "/i/connect_people" },

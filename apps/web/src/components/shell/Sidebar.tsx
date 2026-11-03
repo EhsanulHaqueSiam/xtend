@@ -78,7 +78,7 @@ const ICONS = {
   Home,
   Explore: Compass,
   Notifications: Bell,
-  Messages: Mail,
+  Chat: Mail,
   Bookmarks: Bookmark,
   Lists: ListIcon,
   Communities: UsersRound,
@@ -292,11 +292,12 @@ function ToolRow({
   );
 }
 
-/** X pages Xtend draws itself; the rest (Messages) still show x.com in the main area. */
+/** X pages Xtend draws itself; any other shows x.com in the main area. */
 const NATIVE: Readonly<Record<string, string>> = {
   Home: "/home",
   Explore: "/explore",
   Notifications: "/notifications",
+  Chat: "/chat",
   Bookmarks: "/bookmarks",
   Lists: "/lists",
   Follow: "/follow",
@@ -322,7 +323,7 @@ function XRows({ compact }: { readonly compact: boolean }) {
     { label: "Home", path: "/home" },
     { label: "Explore", path: "/explore" },
     { label: "Notifications", path: "/notifications", count: unread },
-    { label: "Messages", path: "/messages" },
+    { label: "Chat", path: "/i/chat" },
     { label: "Bookmarks", path: "/i/bookmarks" },
     { label: "Lists", path: "/i/lists" },
     { label: "Communities", path: "/i/communities" },

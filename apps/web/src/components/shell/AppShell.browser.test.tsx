@@ -80,9 +80,8 @@ it("puts x.com over the main area on X's pages and beside the tools, from one we
   await expect.element(pane).toHaveAttribute("data-mode", "hidden");
   expect(window.localStorage.getItem("xtend:x-panel-open")).toBe("false");
 
-  // Messages is still x.com itself (X's end-to-end chat), so it shows over the main area.
-  await userEvent.click(screen.getByRole("button", { name: "Messages" }));
-  expect(screen.router?.state.location.pathname).toBe("/x");
+  // X's own page, for anything Xtend does not draw, shows over the main area.
+  await screen.router!.navigate({ href: "/x" });
   await expect.element(pane).toHaveAttribute("data-mode", "main");
 
   // From X's pages, ⌘\ returns to the last tool with x.com docked beside it.
@@ -239,7 +238,7 @@ it("reopens X from the shared tool header and preserves its webview", async () =
   expect(screen.router?.state.location.href).toBe("/plan?tab=queue");
 });
 
-it("moves the panel to each section's X page, hides it where X has none, and reloads only on a second click", async () => {
+it("moves the panel to each section's X page and hides it where X has none", async () => {
   await setup();
   window.localStorage.setItem("xtend:x-panel-open", "true");
   await using screen = await render(shell(), { router: "/compose", service });
@@ -297,15 +296,6 @@ it("moves the panel to each section's X page, hides it where X has none, and rel
   await expect.element(pane).toHaveAttribute("data-mode", "panel");
   await expect.poll(() => loads.at(-1)).toBe("https://x.com/messages");
 
-  // Messages shown beside a tool: the first click only brings it to the main area.
-  const count = loads.length;
-  await userEvent.click(screen.getByRole("button", { name: "Messages" }));
-  await expect.element(pane).toHaveAttribute("data-mode", "main");
-  expect(loads.length).toBe(count);
-  expect(reloads).toBe(0);
-  await userEvent.click(screen.getByRole("button", { name: "Messages" }));
-  expect(reloads).toBe(1);
-
   // Home is Xtend's own screen now: x.com stays out of sight under it.
   await userEvent.click(screen.getByRole("button", { name: "Home" }));
   await expect.poll(() => screen.router!.state.location.pathname).toBe("/home");
@@ -318,5 +308,5 @@ it("moves the panel to each section's X page, hides it where X has none, and rel
   expect(refreshed).toBe(1);
   unset();
   await userEvent.click(screen.getByRole("button", { name: "Home" }));
-  expect(reloads).toBe(1);
+  expect(reloads).toBe(0);
 });

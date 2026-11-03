@@ -23,8 +23,9 @@ Encrypted in the service's database with a key in `~/.xtend`. A copied database 
 it.
 
 **Does Xtend read my DMs?**
-The DMs section reads DM history through the X connection on your click. The session view
-does not capture Messages.
+Chat shows your chats as X's own page draws them in your session. They stay in the app's memory:
+never sent to the service, stored or logged. The DMs section reads DM history through the X
+connection on your click.
 
 **Can I use the tools without the desktop app?**
 Yes, from a browser against a running service (see [Remote service](./remote-service.md)).

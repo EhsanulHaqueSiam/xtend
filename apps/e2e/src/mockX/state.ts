@@ -13,6 +13,7 @@ import type {
 } from "@xtend/contracts";
 
 import { synth } from "../../../web/src/components/xnative/engineFixtures.ts";
+import { createMockChat } from "./chat.ts";
 import { encodeBody, encodeFolder, encodeList, encodeRestUser, encodeTweet } from "./graphql.ts";
 
 /**
@@ -132,6 +133,8 @@ export interface MockOptions {
    * uncapped and its ⌘B and ⌘I applied. It adds no claim: live X may never send GetUserClaims.
    */
   readonly formatting?: boolean;
+  /** X's Chat asks for the account's passcode first, as it does on a new device. */
+  readonly chatLocked?: boolean;
 }
 
 const DAY_MS = 86_400_000;
@@ -1331,6 +1334,8 @@ export function createMockState(options: MockOptions = {}) {
       fixture("ConnectTabTimeline", "connect:creators")!.people.includes(userId),
     /** Everything pressed and written, in order. */
     presses,
+    /** X's Chat: conversations, requests, the pages X opened, and its passcode lock. */
+    chat: createMockChat(options.chatLocked === true, people),
     /** X's Radar: whether the account has Premium, X's query limit, and its queries. */
     radar,
     setTrendHidden: (path: string, name: string, hidden: boolean) => {
