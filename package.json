@@ -10,7 +10,7 @@
     "dev:desktop": "node scripts/dev-runner.ts dev:desktop",
     "dev:ps": "node scripts/dev-ps.ts",
     "dev:x-session": "node scripts/dev-x-session.ts",
-    "build": "vp run --filter './apps/*' build",
+    "build": "vp run -r build",
     "build:desktop": "pnpm dist:desktop:dmg",
     "dist:desktop:dmg": "pnpm build && pnpm --filter @xtend/desktop verify:bundles && pnpm --filter @xtend/desktop dist",
     "dist:desktop:dmg:arm64": "pnpm dist:desktop:dmg dmg zip --arm64",

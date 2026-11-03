@@ -1,0 +1,116 @@
+name: Desktop
+
+# One desktop target, called by the release once per OS and arch. Build packages the JS bundle
+# the release built once, on a runner of that OS and arch. Verify then starts the packaged service
+# on a fresh runner of the same kind, from the unpacked app alone: no checkout, no node_modules
+# that could stand in for a file the package forgot.
+on:
+  workflow_call:
+    inputs:
+      label:
+        type: string
+        required: true
+      runner:
+        type: string
+        required: true
+      # mac, linux or win: electron-builder's platform and the artifact names.
+      os:
+        type: string
+        required: true
+      arch:
+        type: string
+        required: true
+      version:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Build ${{ inputs.label }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup
+
+      - name: Stamp the version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          (cd apps/desktop && npm pkg set version="$VERSION")
+          (cd apps/server && npm pkg set version="$VERSION")
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: js-bundle
+          path: apps
+
+      # The desktop `dist` script drops an empty CSC_LINK, which would otherwise send
+      # electron-builder after a missing certificate.
+      - name: Package
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          TARGET: ${{ inputs.os == 'mac' && 'dist dmg zip' || inputs.os == 'linux' && 'dist:linux' || 'dist:win' }}
+          ARCH: ${{ inputs.arch }}
+        # TARGET is a script name and its targets.
+        run: |
+          read -ra target <<< "$TARGET"
+          pnpm --filter @xtend/desktop "${target[@]}" "--$ARCH" --publish never
+
+      # A tar keeps the exec bits and the .app's symlinks that an artifact zip drops.
+      - name: Pack the unpacked app for Verify
+        run: |
+          cd apps/desktop/release
+          shopt -s nullglob
+          # mac, mac-arm64, linux-unpacked, win-arm64-unpacked...; no file here starts with mac.
+          tar -cf "$RUNNER_TEMP/unpacked.tar" -- mac* *-unpacked
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: verify-${{ inputs.os }}-${{ inputs.arch }}
+          path: ${{ runner.temp }}/unpacked.tar
+          retention-days: 1
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: xtend-${{ inputs.os }}-${{ inputs.arch }}
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+            apps/desktop/release/*.AppImage
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.blockmap
+            apps/desktop/release/*.yml
+          if-no-files-found: error
+
+  verify:
+    name: Verify
+    needs: build
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          sparse-checkout: scripts/release-smoke.ts
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@v5
+        with:
+          # Same pin as mise.toml and .github/actions/setup.
+          node-version: 26.11.1
+      - uses: actions/download-artifact@v8
+        with:
+          name: verify-${{ inputs.os }}-${{ inputs.arch }}
+          path: ${{ runner.temp }}
+      - name: Unpack
+        run: mkdir -p apps/desktop/release && tar -xf "$RUNNER_TEMP/unpacked.tar" -C apps/desktop/release
+      - name: Start the packaged service
+        run: node scripts/release-smoke.ts --boot
