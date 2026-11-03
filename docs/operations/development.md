@@ -261,7 +261,7 @@ is public.
 | ----- | ---------------------------------------------------------------------------------------------------------- |
 | lint  | rejects committed PR evidence (`.github/pr-assets`), then `fmt:check`, `lint`, `knip`                      |
 | build | `typecheck`, `build`, the route tree is current, `verify:bundles`, the desktop smoke test under `xvfb-run` |
-| test  | `typecheck:scripts`, every package's tests and the e2e journeys, Chromium from `.github/actions/chromium`  |
+| test  | `pnpm test` split per runner: server, web, desktop, and `rest` (every other package, root scripts, e2e)    |
 | Check | passes only when every job above passed or was skipped because its gate said so                            |
 
 A `changes` job first reads the changed paths of a pull request against its base, and
@@ -283,11 +283,12 @@ run failed at the browser install.
 that touches the app is a **nightly**: version `X.Y.Z-nightly.YYYYMMDD.RUN`, where `X.Y.Z` is one
 patch past the newest `vX.Y.Z` tag, published as a GitHub prerelease. Merges in a row cancel the
 older run, so only the newest builds. A `vX.Y.Z` tag is **stable**, published as the latest
-release; to promote a nightly, tag its commit. CI runs first on the commit being shipped (`ci.yml` as a reusable workflow), and a stable tag must
-point at a commit already on `main`. A version job picks the version once; a macOS job
+release; to promote a nightly, tag its commit. CI runs on the commit being shipped (`ci.yml` as a
+reusable workflow) beside the builds, not before them, so a release takes about four minutes and
+the publish job warns past ten. A stable tag must point at a commit already on `main`. A version job picks the version once; a macOS job
 builds the dmgs and zips with `pnpm dist:desktop:dmg`, a Linux job the AppImage with
 `pnpm dist:desktop:appimage` and the CLI tarball with `pnpm cli:pack --check`, both stamping the
-version and running `pnpm release:smoke`. Only when both pass does a third job publish the
+version and running `pnpm release:smoke`. Only when both and CI pass does a third job publish the
 release with every file. electron-builder names the updater files after the channel in the
 version: `latest-*.yml` for stable, `nightly-*.yml` for nightlies. A manual run builds the same
 files as workflow artifacts and publishes nothing.
