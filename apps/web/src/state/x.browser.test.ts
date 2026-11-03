@@ -1834,8 +1834,8 @@ it("presses X's Delete only on the one row whose query field is exactly the quer
   }
 });
 
-it("reads X's audience card on X's Home, then brings back X's page, unless X was moved meanwhile", async () => {
-  // Compose leaves the engine on the user's profile, which has no composer.
+it("reads X's audience card on /compose/post, then brings back X's page, unless X was moved meanwhile", async () => {
+  // X draws the card only on its compose page; Compose leaves the engine on the user's profile.
   const run = async (meanwhile?: string) => {
     let path = "/theo";
     const steps: Array<string> = [];
@@ -1856,6 +1856,6 @@ it("reads X's audience card on X's Home, then brings back X's page, unless X was
     await xGifIdle();
     return steps;
   };
-  expect(await run()).toEqual(["/home", "card", "/theo"]);
-  expect(await run("/explore")).toEqual(["/home", "card", "/explore"]);
+  expect(await run()).toEqual(["/compose/post", "card", "/theo"]);
+  expect(await run("/explore")).toEqual(["/compose/post", "card", "/explore"]);
 });

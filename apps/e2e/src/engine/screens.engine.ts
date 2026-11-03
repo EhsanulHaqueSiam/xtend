@@ -1252,10 +1252,12 @@ test("Home's box posts to one of the user's Communities, listed by X's own audie
   await box.click();
   await box.pressSequentially("hello members");
   await e.app.getByRole("button", { name: "Choose audience", exact: true }).click();
-  // The engine opened X's own card, so X sent the list, and closed it with nothing picked.
+  // The engine opened X's own card on X's compose page, so X sent the list, closed it with
+  // nothing picked, and brought X's Home back.
   await expect
     .poll(() => e.mock.reads.some((r) => r.op === "CommunitiesMembershipsSlice"))
     .toBe(true);
+  await expect.poll(enginePath).toBe("/home");
   await expect.poll(() => engineHas('[data-testid="HoverCard"]')).toBe(false);
   const rows = e.app.getByRole("menuitemradio");
   await expect

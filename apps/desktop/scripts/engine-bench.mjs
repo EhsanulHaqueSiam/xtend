@@ -1827,13 +1827,14 @@ const benchmarks = [
     "Choose audience lists X's own card: Everyone, then the user's Communities in X's order, picking nothing (dry)",
     async () => {
       await home("following");
-      // X's own card on X's Home composer: opened, read, closed with Escape, nothing picked.
+      // X draws its card only on /compose/post: opened there, read, closed with Escape, nothing
+      // picked and nothing typed (X asks to discard a draft on leaving only then).
+      await engineGo("/compose/post");
       const read = await engine(`(async () => {
         const wait = () => new Promise((r) => setTimeout(r, 150));
         const button = () => document.querySelector('button[aria-label="Choose audience"]');
         const card = () => document.querySelector('[data-testid="HoverCard"]:has([role="menuitem"])');
-        if (!button()) document.querySelector('[data-testid="tweetTextarea_0"]')?.focus();
-        for (let i = 0; i < 20 && !button(); i++) await wait();
+        for (let i = 0; i < 40 && !button(); i++) await wait();
         if (!button() || card()) return null;
         const before = button().textContent;
         button().click();
@@ -1845,6 +1846,9 @@ const benchmarks = [
         await wait();
         return JSON.stringify({ rows, before, after: button()?.textContent, closed: !card() });
       })()`);
+      // Back to X's Home, as the user's page comes back after the card.
+      await engine(`history.back(), true`);
+      await until(async () => !(await enginePath()).startsWith("/compose"), 5_000);
       if (typeof read !== "string") return false;
       const x = JSON.parse(read);
       // Xtend's picker lists the store's Communities, which X's card just sent.

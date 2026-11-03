@@ -1517,8 +1517,9 @@ export type XGifPicker = ReturnType<typeof xGifPicker>;
 export const xGifIdle = () => gifStep.then(() => undefined);
 
 /**
- * Opens X's own "Choose audience" card on X's Home and closes it with Escape, picking nothing, so
- * X sends the user's Communities. X's page before comes back after, unless X was moved meanwhile.
+ * Opens X's own "Choose audience" card and closes it with Escape, picking nothing, so X sends the
+ * user's Communities. X draws it only on /compose/post, where nothing is typed (X asks to discard
+ * a draft only then); X's page before comes back after, unless X was moved meanwhile.
  * In the GIF picker's queue, which Post waits for. True once X showed its rows.
  */
 export const xAudienceCard = () =>
@@ -1529,17 +1530,13 @@ export const xAudienceCard = () =>
     try {
       from = element.getURL();
     } catch {}
-    const moved = await xGo("https://x.com/home");
+    const moved = await xGo("https://x.com/compose/post");
     const asked = moves;
     const shown = await xRun(`(async () => {
       const wait = () => new Promise((r) => setTimeout(r, 150));
       const button = () => document.querySelector('button[aria-label="Choose audience"]');
       const card = () => document.querySelector('[data-testid="HoverCard"]:has([role="menuitem"])');
-      // X draws its Home's composer as it lands, and its audience button once the composer has focus.
-      for (let i = 0; i < 40 && !button(); i++) {
-        document.querySelector('[data-testid="tweetTextarea_0"]')?.focus();
-        await wait();
-      }
+      for (let i = 0; i < 40 && !button(); i++) await wait();
       if (!button() || card()) return false;
       button().click();
       for (let i = 0; i < 40 && !card(); i++) await wait();
