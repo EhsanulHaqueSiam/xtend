@@ -33,6 +33,7 @@ import { Select } from "../components/ui/select";
 import { Switch } from "../components/ui/switch";
 import type { ServiceMode } from "../desktopBridge";
 import { isElectron } from "../env";
+import { forgetService, savedService } from "../rpc/client";
 import { fmtWhen } from "../lib/time";
 import { cn, NOT_A_HANDLE, parseHandle } from "../lib/utils";
 import {
@@ -1094,6 +1095,8 @@ export function SettingsScreen() {
   // The form's inputs are uncontrolled, so restored values show by remounting it.
   const [formKey, setFormKey] = useState(0);
   const searching = query.trim() !== "";
+  // The service a hosted page connected to; Disconnect is its way back to the connect screen.
+  const hosted = savedService();
   return (
     <SearchContext value={query}>
       <div className="flex h-full flex-col">
@@ -1156,6 +1159,23 @@ export function SettingsScreen() {
                       () => "–",
                     )}
                   </Row>
+                  {hosted === null ? null : (
+                    <Row label="Address">
+                      <span className="inline-flex items-center gap-2">
+                        {new URL(hosted.url).host}
+                        <Button
+                          size="xs"
+                          variant="outline"
+                          onClick={() => {
+                            forgetService();
+                            window.location.reload();
+                          }}
+                        >
+                          Disconnect
+                        </Button>
+                      </span>
+                    </Row>
+                  )}
                 </dl>
               </Section>
               <Section title="Devices" description="desktops that use this service">

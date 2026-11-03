@@ -97,6 +97,7 @@ const layerTest = Articles.layer.pipe(
         staticDir: undefined,
         devUrl: undefined,
         supervisor: "none",
+        allowedOrigins: [],
       }),
     ),
   ),

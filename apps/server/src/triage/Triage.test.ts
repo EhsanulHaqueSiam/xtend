@@ -29,6 +29,7 @@ const configFor = (baseDir: string) =>
     staticDir: undefined,
     devUrl: undefined,
     supervisor: "none",
+    allowedOrigins: [],
   });
 
 describe("triage", () => {

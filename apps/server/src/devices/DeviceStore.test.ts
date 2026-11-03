@@ -21,6 +21,7 @@ const config = (host: string) =>
     staticDir: undefined,
     devUrl: undefined,
     supervisor: "none",
+    allowedOrigins: [],
   });
 
 const layerTest = (host = "100.64.0.1") =>

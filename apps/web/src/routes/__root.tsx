@@ -1,4 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
+import { HEALTH_PATH } from "@xtend/contracts";
 import { createRootRoute, Outlet, useLocation, useNavigate } from "@tanstack/react-router";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { lazy, Suspense, useEffect, useRef } from "react";
@@ -11,6 +12,7 @@ import { ShellNotifications } from "../components/shell/ShellNotifications";
 import { TooltipProvider } from "../components/ui/tooltip";
 import { isElectron } from "../env";
 import { setDisplayZone } from "../lib/time";
+import { serviceOrigin } from "../rpc/client";
 import { settingsAtom } from "../state/settings";
 import { connectionAtom } from "../state/shell";
 
@@ -58,7 +60,7 @@ export function Reconnecting({ children }: { readonly children: React.ReactNode 
     if (!down || serviceSettings) return;
     let active = true;
     const timer = setInterval(() => {
-      fetch("/api/health")
+      fetch(`${serviceOrigin()}${HEALTH_PATH}`)
         .then((r) => {
           if (active && r.ok) window.location.reload();
         })
