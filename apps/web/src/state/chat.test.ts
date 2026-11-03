@@ -61,12 +61,17 @@ const read = (over: Partial<ChatRead>): ChatRead => ({
 });
 
 it("keeps a conversation's place as X draws older messages, and the inbox while X shows only the conversation", () => {
-  const inbox = mergeChat(emptyChat, read({ inbox: [row("1-2"), row("1-3")] }));
+  const unread = (id: string) => ({ ...row(id), unread: true });
+  const inbox = mergeChat(emptyChat, read({ inbox: [unread("1-2"), unread("1-3")] }));
   const open = mergeChat(
     inbox,
     read({ path: "/i/chat/1-2", items: [message("m3"), message("m4")], title: "Ann" }),
   );
-  expect(ids(open.inbox ?? [])).toBe("1-2 1-3");
+  // X marks the open conversation read; its row in the inbox Xtend keeps says so too.
+  expect(open.inbox?.map((r) => [r.id, r.unread])).toEqual([
+    ["1-2", false],
+    ["1-3", true],
+  ]);
   const first = open.conversation!.first;
   const older = mergeChat(
     open,

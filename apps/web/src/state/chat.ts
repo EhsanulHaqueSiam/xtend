@@ -259,7 +259,13 @@ export const mergeChat = (state: ChatState, read: ChatRead): ChatState => {
   return {
     path: read.path,
     locked: read.locked,
-    inbox: read.inbox === null ? state.inbox : mergeWindow(state.inbox ?? [], read.inbox),
+    inbox:
+      read.inbox !== null
+        ? mergeWindow(state.inbox ?? [], read.inbox)
+        : state.inbox?.some((r) => r.href === read.path && r.unread)
+          ? // X marks the conversation it shows read: so does the inbox kept while X draws none.
+            state.inbox.map((r) => (r.href === read.path ? { ...r, unread: false } : r))
+          : state.inbox,
     requestsRow: read.inbox === null ? state.requestsRow : read.requestsRow,
     requests: read.requests === null ? state.requests : { path: read.path, rows: read.requests },
     conversation:
@@ -367,18 +373,22 @@ export const xChatScroll = (list: "inbox" | "messages") =>
   })()`);
 
 /**
- * Types `query` into X's own chat search, as a keystroke does, so X lists its results; an empty
- * query closes X's search with X's own close. Only on X's Chat page, in its route's embed (a chat
- * drawer elsewhere is not Chat's), and the close only for the query Xtend typed while X's field
- * still holds it. Search is X's, on this device: nothing is sent.
+ * Types `query` into the search of X's Chat page (never a chat drawer) as a keystroke does; "" closes
+ * it, only while X's field still holds the query Xtend typed. `wait`: X was just moved, so its field
+ * gets a moment. False when X draws none (its conversation and requests pages). Nothing is sent.
  */
-export const xChatSearch = (query: string) =>
-  xRun(`(() => {
+export const xChatSearch = (query: string, wait = false) =>
+  xRun(`(async () => {
     const query = ${JSON.stringify(query)};
-    const onChat = location.pathname === "/i/chat" || location.pathname.startsWith("/i/chat/");
-    const root = onChat ? document.querySelector('[data-testid="xchatEmbedRoute"]')?.shadowRoot : null;
-    const input = root?.querySelector('[data-testid="dm-search-input"]');
-    if (!(input instanceof HTMLInputElement)) return false;
+    const field = () => {
+      const onChat = location.pathname === "/i/chat" || location.pathname.startsWith("/i/chat/");
+      const input = onChat ? document.querySelector('[data-testid="xchatEmbedRoute"]')?.shadowRoot?.querySelector('[data-testid="dm-search-input"]') : null;
+      return input instanceof HTMLInputElement ? input : null;
+    };
+    for (let i = 0; i < ${wait ? 20 : 0} && field() === null; i++) await new Promise((r) => setTimeout(r, 150));
+    const input = field();
+    if (input === null) return false;
+    const root = input.getRootNode();
     const mine = window.__xtendChatQuery;
     if (query === "") {
       delete window.__xtendChatQuery;
