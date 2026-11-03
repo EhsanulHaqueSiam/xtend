@@ -1,0 +1,19 @@
+{
+  "name": "@xtend/marketing",
+  "version": "0.0.1",
+  "private": true,
+  "description": "The static marketing site: what Xtend is and where to download it.",
+  "type": "module",
+  "scripts": {
+    "dev": "vp dev",
+    "build": "vp build",
+    "preview": "vp preview",
+    "typecheck": "tsc-rs --noEmit",
+    "test": "vp test run"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "catalog:",
+    "tailwindcss": "catalog:",
+    "vite-plus": "catalog:"
+  }
+}
