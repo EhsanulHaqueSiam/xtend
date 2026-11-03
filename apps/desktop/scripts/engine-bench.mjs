@@ -997,6 +997,66 @@ const benchmarks = [
     },
   ],
   [
+    "Analyze X overview: X's own numbers and a range X's page answers, or without Premium X's paywall as X's page shows it (reads only)",
+    async () => {
+      // X may send no claims at all: what X's page shows (its upsell or its analytics) decides,
+      // and the section shows it either way. Nothing waits on claims or reloads for them.
+      await go("#/analyze?tab=x-overview");
+      const ours = `document.querySelector('main [data-x-tile="Impressions"] .font-mono')?.textContent`;
+      const shown = await until(
+        () =>
+          app(
+            `(() => { if (document.querySelector("main")?.innerText.includes("Advanced analytics with Plus")) return "paywall"; return ${ours} ? "numbers" : undefined; })()`,
+          ),
+        30_000,
+      );
+      if (!shown) return false;
+      const claims = await store(`String($.accountAnalytics.access)`);
+      if (shown === "paywall") {
+        // Xtend's Upgrade is X's page, and X's own page shows its upsell, not the numbers.
+        const upgrade = await app(
+          `[...document.querySelectorAll("main a")].find((a) => a.textContent.trim() === "Upgrade")?.getAttribute("href")`,
+        );
+        const gated = await until(() =>
+          engine(
+            `!document.body.innerText.includes("Account overview") && (location.pathname.startsWith("/i/premium_sign_up") || document.body.innerText.includes("Upgrade to continue"))`,
+          ),
+        );
+        return (
+          upgrade === "https://x.com/i/premium_sign_up" &&
+          gated &&
+          `no Premium (access ${claims}): X's page at ${await enginePath()} shows its upsell`
+        );
+      }
+      // Xtend's Impressions, and the number X's page draws right under its own "Impressions".
+      const xs = `[...document.querySelectorAll("main *")].map((e) => /^Impressions\\s*\\n\\s*([\\d,.]+[KM]?)/.exec(e.innerText)?.[1]).filter(Boolean).at(-1)`;
+      const same = () =>
+        until(async () => {
+          const [a, b] = [await app(ours), await engine(xs)];
+          return a && a === b && a;
+        }, 30_000);
+      const first = await same();
+      if (!first) return false;
+      // Another of X's ranges: Xtend presses X's own button, and both draw that range.
+      const was = await store(
+        `$.accountAnalytics.picking.overview ?? $.accountAnalytics.shown.overview`,
+      );
+      const label = was === 28 ? "7D" : "4W";
+      await app(
+        `[...document.querySelectorAll('main [role="tab"]')].find((t) => t.textContent.trim() === ${JSON.stringify(label)})?.click(), true`,
+      );
+      // X may show a range it holds from its own store without asking again: then Xtend shows the
+      // answer it kept for it. Either way X's page and Xtend's agree on the picked range.
+      const picked = await until(() =>
+        app(
+          `document.querySelector('main [role="tab"][aria-selected="true"]')?.textContent.trim() === ${JSON.stringify(label)}`,
+        ),
+      );
+      const then = picked && (await same());
+      return then && `${was} days: Impressions ${first}; ${label}: Impressions ${then}`;
+    },
+  ],
+  [
     "News story and NBA league: a news row opens X's story with X's headline and posts, and the league's standings are X's (reads only)",
     async () => {
       // A news row X's Explore lists (Today's News): its story page, drawn natively.

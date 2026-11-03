@@ -321,6 +321,64 @@ test("Your own post's views and X's ... row open Post Analytics natively, with t
   ).toEqual([]);
 });
 
+test("Analyze draws X's own analytics for the range X's page shows, a range presses X's own button, and a post opens its Post Analytics", async () => {
+  const impressions = (key: string) => {
+    const a = e.mock.state.fixture("accountOverviewDailyQuery", key)!.accountAnalytics!;
+    return a.kind === "overview"
+      ? a.daily.reduce((n, d) => n + (d.Impressions ?? 0), 0).toLocaleString("en")
+      : null;
+  };
+  const tile = () =>
+    e.app.locator('main [data-x-tile="Impressions"] .font-mono').first().textContent();
+  const xTile = () =>
+    e.engine<string>(
+      `[...document.querySelectorAll('[data-testid="analytics-tile"]')].find((t) => t.firstChild.textContent === "Impressions")?.lastChild.textContent`,
+    );
+  await go("/analyze?tab=x-overview");
+  await expect.poll(enginePath).toBe("/i/account_analytics");
+  await expect.poll(tile).toBe(impressions("overview:7"));
+  expect(await xTile()).toBe(impressions("overview:7"));
+
+  await e.app.getByRole("tab", { name: "4W", exact: true }).click();
+  await expect.poll(tile).toBe(impressions("overview:28"));
+  expect(await xTile()).toBe(impressions("overview:28"));
+  // Back to 7D: X shows it from its own store and asks for nothing; the week X sent stays.
+  const asked = e.mock.reads.length;
+  await e.app.getByRole("tab", { name: "7D", exact: true }).click();
+  await expect.poll(tile).toBe(impressions("overview:7"));
+  expect(e.mock.reads.slice(asked).map((r) => r.op)).not.toContain("accountOverviewDailyQuery");
+  expect(presses().filter((p) => p.startsWith("press range:"))).toEqual([
+    "press range:4W",
+    "press range:7D",
+  ]);
+
+  await go("/analyze?tab=x-content");
+  await expect.poll(enginePath).toBe("/i/account_analytics/content");
+  await e.app.getByText("Shipped a dark mode for the editor.", { exact: false }).click();
+  await expect.poll(enginePath).toBe("/you/status/700000000902/analytics");
+});
+
+test("Without Premium X sends no claims: Analyze reads X's upsell on X's page and shows X's paywall", async () => {
+  const lone = await startEngine({ premium: false, sendsClaims: false });
+  try {
+    await lone.app.evaluate((hash) => void (location.hash = hash), "#/analyze?tab=x-overview");
+    await expect.poll(() => lone.engine<string>("location.pathname")).toBe("/i/account_analytics");
+    await expect
+      .poll(() => lone.app.locator("main").innerText())
+      .toContain("Advanced analytics with Plus");
+    await expect
+      .poll(() => lone.app.getByRole("link", { name: "Upgrade" }).getAttribute("href"))
+      .toBe("https://x.com/i/premium_sign_up");
+    const ops = lone.mock.reads.map((r) => r.op);
+    expect([ops.includes("GetUserClaims"), ops.includes("accountOverviewDailyQuery")]).toEqual([
+      false,
+      false,
+    ]);
+  } finally {
+    await lone.close();
+  }
+});
+
 test("A news row in Explore opens X's story natively, its Latest tab is X's own page, and the NBA league page reads X's tabs", async () => {
   const id = "900000600001";
   const story = e.mock.state.batchFor("AiTrendByRestId", { trendId: id })!.story!;

@@ -49,3 +49,21 @@ Watched handles side by side with you: followers, posting rate, average views. B
 followers and average views come free from their posts your session saw, marked seen. A row opens
 their top posts. Watching is free; the list is shared with Scores' Watchlist. Each row has
 **Profile on X**, free, beside **Fetch**, the paid read that fills the row, with its price.
+
+## X's own analytics
+
+**X overview**, **X content**, **X video** and **X audience** are X's own account analytics
+(x.com's Analytics in Creator Studio), read from X's page through your session in the desktop
+app, free. X shows them only to Premium accounts: without Premium these sections show X's
+paywall, and **Upgrade** opens X's own Premium page.
+
+- **X overview**: X's numbers for the range with their change on the range before, and one of
+  them by day as bars or a line. X's ranges are 7D, 2W, 4W, 3M and 1Y; X shows them, and the
+  numbers beside followers, once you have 50 followers.
+- **X content**: your posts in the range with X's impressions, likes, replies and reposts, by
+  type and sortable by column. A post opens its own Post Analytics.
+- **X video**: views, watch time, completion rate and average watch time, then your videos.
+- **X audience**: who engaged by gender, age, country and device, for one engagement at a time.
+
+A range picked here is X's own button pressed on X's page, so x.com shows the same range. Live
+and Spaces analytics stay on x.com.

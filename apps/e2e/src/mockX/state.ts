@@ -123,15 +123,33 @@ export interface MockOptions {
   readonly pageSize?: number;
   /** Every nth made-up post carries a photo, so a page is as tall as X's. */
   readonly photoEvery?: number;
+  /** Whether @you has Premium (X's claims, folders, analytics); X's analytics draw its upsell without. */
+  readonly premium?: boolean;
+  /** False: X's page sends no claims at boot, as live X did not for one account (2026-11-03). */
+  readonly sendsClaims?: boolean;
   /**
    * X's composer lets the account bold and italicize (Premium's write gate): its editor drawn
    * uncapped and its ⌘B and ⌘I applied. It adds no claim: live X may never send GetUserClaims.
    */
   readonly formatting?: boolean;
 }
+
+const DAY_MS = 86_400_000;
+const msOf = (v: unknown) => (typeof v === "number" ? v : Date.parse(String(v)));
+const span = (from: unknown, to: unknown) => Math.round((msOf(to) - msOf(from)) / DAY_MS);
+/** The range each of X's account analytics queries asked for, as the capture keys its answer. */
+const ACCOUNT_ANALYTICS_KEYS: Readonly<Record<string, (v: Json) => string>> = {
+  accountOverviewDailyQuery: (v) => `overview:${span(v.current_from, v.current_to)}`,
+  contentPageQuery: (v) => `content:${span(v.from_time, v.to_time)}`,
+  mediaMetricsQuery: (v) => `video:${Math.round(span(v.from_timestamp, v.to_timestamp) / 2)}`,
+  videoListProviderQuery: () => "videos",
+  audienceOverviewDataQuery: (v) => `audience:${span(v.from_time_incl, v.to_time_excl)}`,
+};
 const PINNED_TAG = "1540000000000000001";
 /** X's claim for bookmark folders (GetUserClaims), as `FOLDERS_CLAIM` in apps/web/src/state/engine.ts. */
 const FOLDERS_CLAIM = "subscriptions_feature_1002";
+/** X's claim for account analytics, as `ANALYTICS_CLAIM` in apps/web/src/state/engine.ts. */
+const ANALYTICS_CLAIM = "subscriptions_feature_account_analytics";
 
 const key = (op: string, k: string | null) => `${op}|${k ?? ""}`;
 const s = (variables: Json, name: string) =>
@@ -583,7 +601,8 @@ export function createMockState(options: MockOptions = {}) {
 
   // Bookmark folders, which X keeps to Premium: the fixtures' account has X's claim for them, and
   // a test can take it away. Each folder's posts newest first, with what X's dialogs did since.
-  let premium = fixture("GetUserClaims", null)?.claims?.includes(FOLDERS_CLAIM) === true;
+  let premium =
+    options.premium ?? fixture("GetUserClaims", null)?.claims?.includes(FOLDERS_CLAIM) === true;
   const listed = fixture("BookmarkFoldersSlice", null)?.bookmarkFolders;
   const folders: Array<EngineBookmarkFolder> = listed?.kind === "list" ? [...listed.folders] : [];
   const folderPosts = new Map(
@@ -856,7 +875,10 @@ export function createMockState(options: MockOptions = {}) {
       case "TweetActivityQuery":
         return fixture(op, s(variables, "restId") ?? "") ?? null;
       case "GetUserClaims":
-        return page(op, null, [], { top: null, claims: premium ? [FOLDERS_CLAIM] : [] });
+        return page(op, null, [], {
+          top: null,
+          claims: premium ? [FOLDERS_CLAIM, ANALYTICS_CLAIM] : [],
+        });
       // X asks for folders only for an account its claims give them.
       case "BookmarkFoldersSlice":
         return premium
@@ -912,6 +934,8 @@ export function createMockState(options: MockOptions = {}) {
           : null;
       }
       default:
+        if (Object.hasOwn(ACCOUNT_ANALYTICS_KEYS, op))
+          return premium ? (fixture(op, ACCOUNT_ANALYTICS_KEYS[op]!(variables)) ?? null) : null;
         if (
           /^User(Tweets|TweetsAndReplies|Media|HighlightsTweets|SuperFollowTweets|RepostsTimeline)$/.test(
             op,
@@ -927,7 +951,7 @@ export function createMockState(options: MockOptions = {}) {
   /** X's GraphQL answer to one request; writes go through `write`. */
   const respond = (op: string, variables: Json): Json => {
     const b = batchFor(op, variables);
-    return b === null ? { data: {} } : encodeBody(b, liveUsers());
+    return b === null ? { data: {} } : encodeBody(b, liveUsers(), variables);
   };
 
   const changePost = (id: string, change: (p: EnginePost) => Partial<EnginePost>) => {
@@ -1210,6 +1234,8 @@ export function createMockState(options: MockOptions = {}) {
     /** Post ids of a feed page after the first. */
     feedPageIds: (feed: Feed, n: number) => feedPage(feed, n).order,
     fixture,
+    /** Whether X's page sends its claims at boot; some accounts' never do. */
+    sendsClaims: options.sendsClaims ?? true,
     fixtures: () => fixtures,
     lists: (): ReadonlyArray<EngineList> => [...xLists.values()],
     community,

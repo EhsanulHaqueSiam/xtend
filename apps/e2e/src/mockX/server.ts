@@ -166,11 +166,12 @@ export async function startMockX(
         }
         const batches = r.requests.map((q) => state.batchFor(q.op, q.variables));
         // X's first calls on a full load: who is signed in, and what their plan gives them.
+        // Some accounts' pages never send their claims (live, 2026-11-03): `sendsClaims: false`.
         const boot =
           url.searchParams.get("boot") === "1"
             ? [
                 { op: "Viewer", variables: {} },
-                { op: "GetUserClaims", variables: {} },
+                ...(state.sendsClaims ? [{ op: "GetUserClaims", variables: {} }] : []),
               ]
             : [];
         return json({

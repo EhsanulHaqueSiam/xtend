@@ -73,7 +73,10 @@ it("answers X's folder dialogs and rows as X does, read back by the capture, and
     "Reading list",
     "Launch ideas",
   ]);
-  expect(read("GetUserClaims", {}).claims).toEqual(["subscriptions_feature_1002"]);
+  expect(read("GetUserClaims", {}).claims).toEqual([
+    "subscriptions_feature_1002",
+    "subscriptions_feature_account_analytics",
+  ]);
 
   state.setPremium(false);
   expect(read("GetUserClaims", {}).claims).toEqual([]);

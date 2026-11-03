@@ -9,7 +9,9 @@ import type {
 } from "@xtend/contracts";
 import { expect, it } from "vite-plus/test";
 
+import { synth } from "../components/xnative/engineFixtures";
 import {
+  ANALYTICS_CLAIM,
   askFollow,
   askMembership,
   askPin,
@@ -17,7 +19,9 @@ import {
   communityPinned,
   communityRole,
   communitySearchSurface,
+  analyticsRange,
   communitySurface,
+  endAnalyticsPick,
   emptyEngine,
   gameSurface,
   type EngineState,
@@ -25,11 +29,14 @@ import {
   hideTrend,
   inspirationSurface,
   mergeBatch,
+  pickAnalyticsRange,
   postOn,
   postSurface,
   profileSurface,
   radarSurface,
   resetSurface,
+  sawAnalyticsPage,
+  sawAnalyticsRange,
   showWaiting,
   surfacesOf,
   userByHandle,
@@ -640,6 +647,80 @@ it("keeps X's Post Analytics per post, as X last counted them", () => {
     ["42", { Impressions: 120, Engagements: 2 }],
     ["43", { Impressions: 7, Engagements: 2 }],
   ]);
+});
+
+const overviewAnswer = (days: number, impressions: number) => ({
+  ...batch("accountOverviewDailyQuery", []),
+  key: `overview:${days}`,
+  accountAnalytics: {
+    kind: "overview" as const,
+    days,
+    from: "2026-10-27T00:00:00.000Z",
+    daily: [{ Impressions: impressions }],
+    previous: {},
+    followers: 80,
+    verifiedFollowers: null,
+  },
+});
+
+it("keeps X's account analytics per range and X's claim; answers never pick the range", () => {
+  let state = mergeBatch(emptyEngine, { ...batch("GetUserClaims", []), claims: [ANALYTICS_CLAIM] });
+  state = mergeBatch(state, overviewAnswer(7, 10));
+  state = mergeBatch(state, overviewAnswer(28, 90));
+  state = mergeBatch(state, overviewAnswer(7, 12));
+  state = mergeBatch(state, batch("HomeLatestTimeline", []));
+  expect([
+    state.accountAnalytics.access,
+    analyticsRange(state.accountAnalytics, "overview"),
+    [...state.accountAnalytics.answers.keys()],
+  ]).toEqual([true, undefined, ["overview:7", "overview:28"]]);
+  // X's claims every few minutes say the same, or that the account lost it.
+  state = mergeBatch(state, { ...batch("GetUserClaims", []), claims: [] });
+  expect(state.accountAnalytics.access).toBe(false);
+});
+
+it("replays the range a dev fixture says X's page shows; X's own answer says none", () => {
+  const replayed = synth().accountAnalytics!.batches.reduce(mergeBatch, emptyEngine);
+  expect([
+    analyticsRange(replayed.accountAnalytics, "overview"),
+    analyticsRange(replayed.accountAnalytics, "audience"),
+    analyticsRange(mergeBatch(emptyEngine, overviewAnswer(7, 10)).accountAnalytics, "overview"),
+  ]).toEqual([7, 7, undefined]);
+});
+
+it("draws the range X's page shows: an answer, late or not, only fills its own range's data", () => {
+  const shown = (state: typeof emptyEngine) => analyticsRange(state.accountAnalytics, "overview");
+  // 1Y, then 3M, each read off X's page once pressed; 1Y's answer comes late.
+  let state = sawAnalyticsRange(emptyEngine, "overview", 7);
+  state = pickAnalyticsRange(state, "overview", 365);
+  state = endAnalyticsPick(sawAnalyticsRange(state, "overview", 365), "overview", 365);
+  state = pickAnalyticsRange(state, "overview", 90);
+  state = endAnalyticsPick(sawAnalyticsRange(state, "overview", 90), "overview", 90);
+  state = mergeBatch(state, overviewAnswer(365, 4000));
+  expect([shown(state), state.accountAnalytics.answers.has("overview:365")]).toEqual([90, true]);
+});
+
+it("shows a pick while its press is on its way, and the range X's page shows once it is over", () => {
+  const shown = (state: typeof emptyEngine) => analyticsRange(state.accountAnalytics, "overview");
+  let state = sawAnalyticsRange(emptyEngine, "overview", 7);
+  state = pickAnalyticsRange(state, "overview", 28);
+  state = pickAnalyticsRange(state, "overview", 90);
+  // 4W's press ends after 3M was picked: 3M still shows; then its press fails, X still shows 7D.
+  state = endAnalyticsPick(state, "overview", 28);
+  expect(shown(state)).toBe(90);
+  state = endAnalyticsPick(state, "overview", 90);
+  expect(shown(state)).toBe(7);
+  // Coming back, or X's page loading anew, on a range X kept: what X's page shows is drawn.
+  state = sawAnalyticsRange(state, "overview", 28);
+  expect(shown(state)).toBe(28);
+});
+
+it("reads access from X's page when X sends no claims, and lets claims say it when they come", () => {
+  let state = sawAnalyticsPage(emptyEngine, true);
+  expect(state.accountAnalytics.access).toBe(false);
+  state = mergeBatch(state, { ...batch("GetUserClaims", []), claims: [ANALYTICS_CLAIM] });
+  expect(sawAnalyticsPage(state, true).accountAnalytics.access).toBe(true);
+  expect(sawAnalyticsPage(emptyEngine, false).accountAnalytics.access).toBe(true);
 });
 
 it("knows the day X's NBA schedule shows, an empty one too, and that X has not answered yet", () => {

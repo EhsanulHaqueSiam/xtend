@@ -65,11 +65,13 @@ const SCRIPT = String.raw`
   const inPage = (path) => {
     const p = path.split("?")[0];
     if (p === "/i/jf/creators/inspiration/top_posts") return "inspiration";
+    if (p === "/i/account_analytics" || p.startsWith("/i/account_analytics/")) return "analytics";
     return p === "/home" ? "home" : /^\/i\/communities\/\d+\/search$/.test(p) ? "communitySearch" : /^\/i\/nba\/game\/\d+$/.test(p) ? "game" : null;
   };
   const pageTab = (path) => {
     const kind = inPage(path);
     if (kind === "inspiration") return localStorage.getItem("mockx:tab:inspiration") || "Likes:Daily";
+    if (kind === "analytics") return localStorage.getItem("mockx:tab:analytics:" + path.split("?")[0]) || "7D";
     return kind === null ? "" : localStorage.getItem("mockx:tab:" + kind) || (kind === "home" ? "forYou" : kind === "game" ? "Top" : "Likes");
   };
   const cacheKey = (path) => (inPage(path) === null ? path : path + "|" + pageTab(path));
@@ -565,6 +567,15 @@ const SCRIPT = String.raw`
     void show();
   });
 
+  // X's analytics range buttons answer a click; a range shown before comes back from the page
+  // cache, sending nothing, as X's Relay store serves it.
+  document.addEventListener("click", (event) => {
+    const el = event.target instanceof Element ? event.target.closest("[data-range]") : null;
+    if (el === null) return;
+    log("range:" + el.dataset.range);
+    localStorage.setItem("mockx:tab:analytics:" + location.pathname, el.dataset.range);
+    void show();
+  });
   // X's bookmark folder dialogs on their own routes (Create, Edit, Add to Folder): each button
   // sends X's call as X's page does, then X leaves the route. Delete Folder asks first.
   document.addEventListener("click", (event) => {

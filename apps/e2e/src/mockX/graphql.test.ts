@@ -44,6 +44,11 @@ const PAGES: ReadonlyArray<readonly [path: string, tab?: string]> = [
   ["/yuki_mensah20"],
   ["/i/nba/game/900000500004", "Top"],
   ["/i/nba/game/900000500004", "Latest"],
+  ["/i/account_analytics"],
+  ["/i/account_analytics", "4W"],
+  ["/i/account_analytics/content"],
+  ["/i/account_analytics/video"],
+  ["/i/account_analytics/audience"],
   ["/i/trending/900000600001"],
   ["/i/trending/900000600001?timeline=story-latest"],
   ["/i/nba/standings"],
@@ -78,7 +83,8 @@ it("answers every request X's pages make with the batch the made-up fixtures hol
     expect(got!.users.map((u) => u.userId)).toEqual(expect.arrayContaining(needed));
     const users = new Map(want.users.map((u) => [u.userId, u]));
     for (const u of got!.users) expect(u).toEqual(users.get(u.userId));
-    expect({ ...got!, users: [] }).toEqual({ ...want, users: [] });
+    // The analytics range a fixture shows is set by dev replay only; X's answers never carry it.
+    expect({ ...got!, users: [] }).toEqual({ ...want, users: [], analyticsShown: undefined });
   }
   // For you's Who to follow, in X's module shape, reads back where the fixture puts it.
   const forYou = read.find((b) => b.op === "HomeTimeline" && b.key === null)!;

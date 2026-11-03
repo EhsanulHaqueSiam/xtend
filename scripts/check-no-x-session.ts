@@ -69,6 +69,8 @@ const ID_ARRAYS = new Set(["people", "order", "edits"]);
 // Ids scrub replaces with counters (s12, n-3, conv-2, community:s4) or X's own route names.
 const OPAQUE_IDS = new Set(["id", "timelineId"]);
 const FAKE_OPAQUE = /^(([a-z_]+:)?s\d+|n-\d+|conv-\d+|post-[6-9]00000\d{6}|[a-z_-]+)$/;
+// X's account analytics kinds and the ranges X's pages offer, in days (48H, 7D, 2W, 4W/28D, 3M, 1Y).
+const ANALYTICS_RANGE = /^(overview|content|video|audience):(2|7|14|28|90|365)$/;
 // Batch keys and cursors: an id, a search, a handle, or a counter.
 const CURSORS = new Set(["key", "top", "bottom", "cursor"]);
 
@@ -103,6 +105,15 @@ function realField(
   if (CURSORS.has(key)) {
     if (key === "key" && owner.op === "UserByScreenName")
       return FAKE_HANDLE.test(value) ? undefined : `a real-looking handle @${value}`;
+    // X's account analytics answers are keyed by their own kind and one of X's ranges in days.
+    const range = owner.accountAnalytics as { kind?: unknown; days?: unknown } | undefined;
+    if (
+      key === "key" &&
+      ANALYTICS_RANGE.test(value) &&
+      range !== undefined &&
+      value === `${range.kind}:${range.days}`
+    )
+      return undefined;
     // A search's query is text, scrubbed as text: short numbers in it are words (years, counts).
     const search = /^((top|bottom)-SearchTimeline-)?[A-Za-z]+:/.exec(value);
     if (owner.op === "SearchTimeline" && search !== null) {

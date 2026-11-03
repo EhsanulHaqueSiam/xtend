@@ -1,4 +1,5 @@
 import type {
+  EngineAccountAnalytics,
   EngineArticle,
   EngineBatch,
   EngineBookmarkFolder,
@@ -433,6 +434,7 @@ export interface EngineState {
   readonly analytics: ReadonlyMap<string, Readonly<Record<string, number>>>;
   /** How many people the viewer follows follow each user, by user id (see `EngineBatch.knownFollowers`). */
   readonly knownFollowers: ReadonlyMap<string, number>;
+  readonly accountAnalytics: AccountAnalytics;
   /** X's news stories by trend id (see `EngineBatch.story`). */
   readonly stories: ReadonlyMap<string, EngineStory>;
   /** X's NBA standings and stat leaders, as X last sent them. */
@@ -452,6 +454,81 @@ export interface EngineState {
   /** The user's bookmark folders in X's order; null until X listed them, which it does for Premium. */
   readonly bookmarkFolders: ReadonlyArray<EngineBookmarkFolder> | null;
 }
+
+/** X's claim for its account analytics (GetUserClaims), Premium. */
+export const ANALYTICS_CLAIM = "subscriptions_feature_account_analytics";
+
+/** The kinds of X's account analytics answers that X's page ranges. */
+export type AnalyticsRanged = Exclude<EngineAccountAnalytics["kind"], "videos">;
+
+/** X's own account analytics (x.com/i/account_analytics), as the engine read it. */
+interface AccountAnalytics {
+  /**
+   * Whether this account has X's analytics (Premium): X's claims when X sends them, else what X's
+   * page showed (its upsell, or its analytics); null until either says.
+   */
+  readonly access: boolean | null;
+  /** X's answers by `<kind>:<days>` (see `EngineBatch.accountAnalytics`). */
+  readonly answers: ReadonlyMap<string, EngineAccountAnalytics>;
+  /** Per kind, the range X's page shows, as last read from X's selected range button. */
+  readonly shown: Readonly<Partial<Record<AnalyticsRanged, number>>>;
+  /** Per kind, a range the user picked whose press is still on its way to X's page. */
+  readonly picking: Readonly<Partial<Record<AnalyticsRanged, number>>>;
+}
+
+const without = <K extends string, A>(record: Readonly<Partial<Record<K, A>>>, key: K) =>
+  Object.fromEntries(Object.entries(record).filter(([k]) => k !== key)) as Partial<Record<K, A>>;
+
+/** The range to draw for `kind`: a pick on its way to X's page, else the range X's page shows. */
+export const analyticsRange = (a: AccountAnalytics, kind: AnalyticsRanged) =>
+  a.picking[kind] ?? a.shown[kind];
+
+const showing = (a: AccountAnalytics, kind: AnalyticsRanged, days: number): AccountAnalytics => ({
+  ...a,
+  shown: { ...a.shown, [kind]: days },
+});
+
+// Answers fill the data for their own range only; which range shows is X's page's to say.
+const mergeAccountAnalytics = (prior: AccountAnalytics, b: EngineBatch): AccountAnalytics => {
+  // A dev fixture's replay says what X's page shows, as the page's own read would.
+  const a =
+    b.analyticsShown === undefined
+      ? prior
+      : showing(prior, b.analyticsShown.kind, b.analyticsShown.days);
+  // X's claims, when X sends them, say it outright.
+  const access = b.claims === undefined ? a.access : b.claims.includes(ANALYTICS_CLAIM);
+  const answer = b.accountAnalytics;
+  if (answer === undefined || b.key === null) return access === a.access ? a : { ...a, access };
+  return { ...a, access, answers: new Map(a.answers).set(b.key, answer) };
+};
+
+const withAnalytics = (s: EngineState, change: Partial<AccountAnalytics>): EngineState => ({
+  ...s,
+  accountAnalytics: { ...s.accountAnalytics, ...change },
+});
+
+/** X's page shows `days` for `kind`: its selected range button, read from X's page. */
+export const sawAnalyticsRange = (s: EngineState, kind: AnalyticsRanged, days: number) => ({
+  ...s,
+  accountAnalytics: showing(s.accountAnalytics, kind, days),
+});
+
+/** The user picked `days` for `kind`; it shows until its press has reached X's page or failed. */
+export const pickAnalyticsRange = (s: EngineState, kind: AnalyticsRanged, days: number) =>
+  withAnalytics(s, { picking: { ...s.accountAnalytics.picking, [kind]: days } });
+
+/** The press for `days` is over; a newer pick still on its way keeps showing. */
+export const endAnalyticsPick = (s: EngineState, kind: AnalyticsRanged, days: number) =>
+  s.accountAnalytics.picking[kind] !== days
+    ? s
+    : withAnalytics(s, { picking: without(s.accountAnalytics.picking, kind) });
+
+/**
+ * What X's analytics page showed when X sent no claims: its upsell (no access) or its analytics.
+ * Claims, when they come, still say it outright.
+ */
+export const sawAnalyticsPage = (s: EngineState, upsell: boolean) =>
+  s.accountAnalytics.access !== null ? s : withAnalytics(s, { access: !upsell });
 
 export const emptyEngine: EngineState = {
   posts: new Map(),
@@ -485,6 +562,7 @@ export const emptyEngine: EngineState = {
   viewer: null,
   analytics: new Map(),
   knownFollowers: new Map(),
+  accountAnalytics: { access: null, answers: new Map(), shown: {}, picking: {} },
   stories: new Map(),
   standings: [],
   leaders: [],
@@ -639,6 +717,7 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
       batch.knownFollowers === undefined || batch.key === null
         ? state.knownFollowers
         : new Map(state.knownFollowers).set(batch.key, batch.knownFollowers),
+    accountAnalytics: mergeAccountAnalytics(state.accountAnalytics, batch),
     stories:
       batch.story === undefined || batch.key === null
         ? state.stories

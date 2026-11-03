@@ -396,6 +396,172 @@ export const xPickInspiration = (
   return press;
 };
 
+let analyticsPresses: Promise<unknown> = Promise.resolve();
+let analyticsLatest: object | null = null;
+
+/**
+ * The heading each of X's analytics pages draws. X's URL changes before its router redraws, so a
+ * page is X's own only once its heading is on screen too.
+ */
+const ANALYTICS_HEADINGS: Readonly<Record<string, string>> = {
+  "/i/account_analytics": "Account overview",
+  "/i/account_analytics/content": "Date",
+  "/i/account_analytics/video": "Video overview",
+  "/i/account_analytics/audience": "Gender",
+};
+const analyticsDrawn = (path: string, heading: string) =>
+  `(location.pathname === ${JSON.stringify(path)} && [...document.querySelectorAll("*")].some((e) => e.childElementCount === 0 && e.textContent.trim() === ${JSON.stringify(heading)}))`;
+
+/** Runs `code` in X's page; a full load under it, or `signal`, ends it as null, since it never settles then. */
+const xRunHeld = (code: string, signal: AbortSignal) =>
+  new Promise<unknown>((settle) => {
+    const done = (value: unknown) => {
+      onPageLoad.delete(abandon);
+      signal.removeEventListener("abort", abandon);
+      settle(value);
+    };
+    const abandon = () => done(null);
+    onPageLoad.add(abandon);
+    signal.addEventListener("abort", abandon);
+    if (signal.aborted) abandon();
+    void xRun(code).then(done);
+  });
+
+/**
+ * Presses X's range button `label` (7D, 4W, 3M) on X's analytics page `path` once `loaded` settles
+ * and X has drawn that page, while the screen has not let it go (`signal`). Another of X's pages
+ * under the same URL gets no press. Presses run one at a time; a later pick drops one waiting.
+ */
+export const xPickAnalyticsRange = (
+  path: string,
+  label: string,
+  loaded: Promise<unknown>,
+  signal: AbortSignal,
+) => {
+  const mine = {};
+  analyticsLatest = mine;
+  const press = analyticsPresses.then(async () => {
+    await loaded;
+    const heading = ANALYTICS_HEADINGS[path];
+    if (signal.aborted || analyticsLatest !== mine || heading === undefined) return false;
+    const run = await nextRun();
+    const pressed = await xRunHeld(
+      `(async () => {
+    for (let i = 0; i < 40 && ${stillMine(run)}; i++) {
+      const button = ${analyticsDrawn(path, heading)}
+        ? [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === ${JSON.stringify(label)})
+        : undefined;
+      if (button !== undefined) {
+        button.click();
+        return true;
+      }
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    return false;
+  })()`,
+      signal,
+    );
+    return pressed === true;
+  });
+  analyticsPresses = press.catch(() => false);
+  return press;
+};
+
+/**
+ * The range X's analytics page `path` shows: the label of its range button in X's primary style
+ * (`bg-btn-primary`, X's only mark of the selected range), once X has drawn the page. `expect`:
+ * a range just pressed, waited for a moment while X redraws. Null when X shows none. Reads only.
+ */
+export const xAnalyticsSelected = async (
+  path: string,
+  labels: ReadonlyArray<string>,
+  loaded: Promise<unknown>,
+  signal: AbortSignal,
+  expect?: string,
+): Promise<string | null> => {
+  await loaded;
+  const heading = ANALYTICS_HEADINGS[path];
+  if (heading === undefined) return null;
+  // An inconclusive read (X still drawing, or loading anew) is tried again a few times.
+  for (let attempt = 0; attempt < 3 && !signal.aborted; attempt++) {
+    const read = await readSelected(path, heading, labels, signal, expect);
+    if (read !== null) return read;
+    await loadedAnewOr(1_000);
+  }
+  return null;
+};
+
+const readSelected = async (
+  path: string,
+  heading: string,
+  labels: ReadonlyArray<string>,
+  signal: AbortSignal,
+  expect: string | undefined,
+) => {
+  const seen = await xRunHeld(
+    `(async () => {
+    const labels = ${JSON.stringify(labels)};
+    let shown = null;
+    for (let i = 0; i < 40; i++) {
+      if (${analyticsDrawn(path, heading)}) {
+        shown = [...document.querySelectorAll("button")].find((b) => labels.includes(b.textContent.trim()) && b.className.includes("bg-btn-primary"))?.textContent.trim() ?? null;
+        if (shown !== null && (${JSON.stringify(expect ?? null)} === null || shown === ${JSON.stringify(expect ?? null)} || i >= 13)) return shown;
+      }
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    return shown;
+  })()`,
+    signal,
+  );
+  return typeof seen === "string" && labels.includes(seen) ? seen : null;
+};
+
+/** X's page loading anew, or `ms` passing, whichever comes first. */
+const loadedAnewOr = (ms: number) =>
+  new Promise<void>((resolve) => {
+    const done = () => {
+      onPageLoad.delete(done);
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    onPageLoad.add(done);
+  });
+
+/**
+ * What X's analytics page `path` shows the account once X has drawn it: true for X's upsell (its
+ * dialog's "Upgrade to continue", or the Premium sign-up X sends to), false for its analytics,
+ * null when X shows neither in time. Reads only. A script that could not run (X's page still
+ * loading) runs again once X's page has loaded.
+ */
+export const xAnalyticsUpsell = async (
+  path: string,
+  loaded: Promise<unknown>,
+  signal: AbortSignal,
+): Promise<boolean | null> => {
+  await loaded;
+  const heading = ANALYTICS_HEADINGS[path];
+  if (heading === undefined) return null;
+  for (let attempt = 0; attempt < 5 && !signal.aborted; attempt++) {
+    const seen = await xRunHeld(
+      `(async () => {
+    for (let i = 0; i < 100; i++) {
+      if (location.pathname.startsWith("/i/premium_sign_up")) return true;
+      if (document.body.innerText.includes("Upgrade to continue")) return true;
+      if (${analyticsDrawn(path, heading)}) return false;
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    return "unseen";
+  })()`,
+      signal,
+    );
+    if (typeof seen === "boolean") return seen;
+    if (seen === "unseen") return null;
+    await loadedAnewOr(1_500);
+  }
+  return null;
+};
+
 /** X's Radar (Premium): the user's saved queries; a query's page is `/<id>`, X's form `/new`. */
 export const RADAR_URL = "https://x.com/i/radar";
 
