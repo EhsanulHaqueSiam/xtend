@@ -1540,6 +1540,9 @@ export const xAudienceCard = () =>
       if (!button() || card()) return false;
       button().click();
       for (let i = 0; i < 40 && !card(); i++) await wait();
+      const count = () => card()?.querySelectorAll('[role="menuitem"]').length ?? 0;
+      // X draws its rows (and asks for them) over about a second: Escape once their count holds.
+      for (let i = 0, n = -1, same = 0; i < 60 && same < 7; i++, await wait()) [n, same] = count() === n ? [n, same + 1] : [count(), 0];
       const shown = !!card();
       document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
       for (let i = 0; i < 20 && card(); i++) await wait();

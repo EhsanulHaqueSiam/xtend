@@ -1838,7 +1838,9 @@ const benchmarks = [
         if (!button() || card()) return null;
         const before = button().textContent;
         button().click();
-        for (let i = 0; i < 40 && (card()?.querySelectorAll('[role="menuitem"]').length ?? 0) < 2; i++) await wait();
+        const count = () => card()?.querySelectorAll('[role="menuitem"]').length ?? 0;
+        // X draws its rows over about a second: read them once their count holds that long.
+        for (let i = 0, n = -1, same = 0; i < 60 && same < 7; i++, await wait()) [n, same] = count() === n ? [n, same + 1] : [count(), 0];
         const rows = [...(card()?.querySelectorAll('[role="menuitem"]') ?? [])].map((r) => r.innerText.split("\\n")[0].trim());
         document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
         for (let i = 0; i < 20 && card(); i++) await wait();
@@ -1852,12 +1854,10 @@ const benchmarks = [
       if (typeof read !== "string") return false;
       const x = JSON.parse(read);
       // Xtend's picker lists the store's Communities, which X's card just sent.
-      const ours = await until(async () => {
-        const names = await store(
-          `at($.communityIds, "communities:mine").map((id) => $.communities.get(id)?.name)`,
-        );
-        return names?.length === x.rows.length - 1 && names;
-      }, 10_000);
+      // Xtend's own list as the store has it once X's answer landed, mismatched or not.
+      const list = `at($.communityIds, "communities:mine").map((id) => $.communities.get(id)?.name)`;
+      await until(async () => (await store(list))?.length > 0, 10_000);
+      const ours = await store(list);
       const same = JSON.stringify(["Everyone", ...(ours || [])]) === JSON.stringify(x.rows);
       if (!same)
         console.log(`  X's rows ${JSON.stringify(x.rows)}, Xtend's ${JSON.stringify(ours)}`);

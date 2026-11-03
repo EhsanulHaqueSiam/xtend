@@ -62,6 +62,8 @@ interface FakeOptions {
   readonly noShare?: boolean;
   /** A second Community the user is in is also "Indie Hackers", its banner's media id `twin`. */
   readonly twin?: string;
+  /** X draws that second row a moment after the others. */
+  readonly twinLate?: boolean;
 }
 
 /** X's composer page and its GIF search route, on this document's URL. */
@@ -142,9 +144,19 @@ function fakeX(markup: string, log: Array<string>, options: FakeOptions = {}) {
           row("1790000000000000003", "Indie Hackers Club", "88"),
           row("1790000000000000001", "Indie Hackers", "1,204"),
           row("1790000000000000004", "Design &amp; Code", "1.2K"),
-          ...(options.twin === undefined ? [] : [row(options.twin, "Indie Hackers", "12")]),
+          ...(options.twin === undefined || options.twinLate === true
+            ? []
+            : [row(options.twin, "Indie Hackers", "12")]),
         ].join("")}</div></div>`,
       );
+      if (options.twin !== undefined && options.twinLate === true)
+        setTimeout(
+          () =>
+            layers
+              ?.querySelector('[data-testid="HoverCard"] [role="group"]')
+              ?.insertAdjacentHTML("beforeend", row(options.twin!, "Indie Hackers", "12")),
+          400,
+        );
       return;
     }
     if (pick !== null && audience !== null) {
@@ -693,6 +705,12 @@ it("refuses, guessing nothing, when two of the user's Communities share the name
   const blind = await run(COMPOSER, post({ text: "hello", community: INDIE }), {
     twin: `${INDIE.id}0`,
   });
+  // X draws the second a moment late: the rows are read once their count holds.
+  const late = await run(COMPOSER, post({ text: "hello", community: INDIE }), {
+    twin: "1790000000000000009",
+    twinLate: true,
+  });
+  expect(late.result).toMatchObject({ notAttempted: true });
   expect(blind.result).toMatchObject({
     message:
       'x.com\'s card lists more than one "Indie Hackers" and does not tell which; nothing was posted',

@@ -41,6 +41,8 @@ const COMPOSER_TIMEOUT_MS = 15_000;
 const CREATED_TIMEOUT_MS = 15_000;
 // X draws the composer's controls with its text box; one still missing by then is not coming.
 const CONTROL_TIMEOUT_MS = 5_000;
+// X draws its audience card's rows over about a second; a count this long unchanged is all of them.
+const ROWS_SETTLE_MS = 1_000;
 
 type Cdp = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 
@@ -700,11 +702,17 @@ async function pickAudience(
     shown === name ||
     (shown.startsWith(name) && /^ ?[\d.,]+[KMB]? Members?$/.test(shown.slice(name.length)));
   const rowsBy = soon();
+  // X draws its rows over a moment: read them once their count holds, so a late second row of
+  // the same name is seen before one is picked.
   let named: Array<number> = [];
-  while (named.length === 0 && Date.now() < rowsBy) {
-    for (const id of await query(cdp, X_COMPOSER.audienceRow))
-      if (isNamed(await textOf(cdp, id))) named.push(id);
-    if (named.length === 0) await sleep(POLL_MS);
+  for (let seen = -1, since = Date.now(); ; await sleep(POLL_MS)) {
+    const rows = await query(cdp, X_COMPOSER.audienceRow);
+    if (rows.length !== seen) [seen, since] = [rows.length, Date.now()];
+    if (Date.now() - since >= ROWS_SETTLE_MS || Date.now() >= rowsBy) {
+      named = [];
+      for (const id of rows) if (isNamed(await textOf(cdp, id))) named.push(id);
+      if (named.length > 0 || Date.now() >= rowsBy) break;
+    }
   }
   if (named.length === 0) throw missing(`"${community.name}" in its audiences`);
   // X's rows name no Community id (a banner, the name, "<N> Members"): two of one name are not
