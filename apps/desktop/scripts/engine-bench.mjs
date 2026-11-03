@@ -1840,7 +1840,7 @@ const benchmarks = [
         button().click();
         const count = () => card()?.querySelectorAll('[role="menuitem"]').length ?? 0;
         // X draws its rows over about a second: read them once their count holds that long.
-        for (let i = 0, n = -1, same = 0; i < 60 && same < 7; i++, await wait()) [n, same] = count() === n ? [n, same + 1] : [count(), 0];
+        for (let i = 0, n = -1, same = 0; i < 60 && same < 7; i++, await wait()) [n, same] = count() === n && n > 0 ? [n, same + 1] : [count(), 0];
         const rows = [...(card()?.querySelectorAll('[role="menuitem"]') ?? [])].map((r) => r.innerText.split("\\n")[0].trim());
         document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
         for (let i = 0; i < 20 && card(); i++) await wait();
