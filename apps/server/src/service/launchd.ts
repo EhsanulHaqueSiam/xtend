@@ -57,6 +57,7 @@ export interface ServiceOptions {
   readonly baseDir: string;
   readonly port: number;
   readonly host: string | undefined;
+  readonly allowedOrigins: ReadonlyArray<string>;
 }
 
 /** Writes the plist for this binary and loads it; a loaded agent is replaced. */
@@ -64,6 +65,7 @@ export const install = (options: ServiceOptions): string => {
   const file = plistPath();
   const serviceArgs = ["--base-dir", options.baseDir, "--port", String(options.port)];
   if (options.host !== undefined) serviceArgs.push("--host", options.host);
+  for (const origin of options.allowedOrigins) serviceArgs.push("--allow-origin", origin);
   NodeFS.mkdirSync(NodePath.dirname(file), { recursive: true });
   NodeFS.mkdirSync(options.baseDir, { recursive: true });
   NodeFS.writeFileSync(

@@ -26,6 +26,8 @@ export class ServerConfig extends Context.Service<
     readonly devUrl: URL | undefined;
     /** Who restarts the process: set by the desktop (child) or the launchd plist. */
     readonly supervisor: ServiceSupervisor;
+    /** Origins of pages served from elsewhere (the hosted web app) allowed to use this service. */
+    readonly allowedOrigins: ReadonlyArray<string>;
   }
 >()("xtend/config/ServerConfig") {}
 
@@ -36,6 +38,7 @@ export interface ResolveOptions {
   readonly host?: string | undefined;
   readonly baseDir?: string | undefined;
   readonly devUrl?: URL | undefined;
+  readonly allowOrigins?: ReadonlyArray<URL> | undefined;
 }
 
 /** Paths derive from one base directory so a `--base-dir` moves everything together. */
@@ -57,6 +60,7 @@ export const resolve = Effect.fn("ServerConfig.resolve")(function* (options: Res
     supervisor: decodeSupervisor(process.env.XTEND_SUPERVISOR).pipe(
       Option.getOrElse(() => "none" as const),
     ),
+    allowedOrigins: (options.allowOrigins ?? []).map((url) => url.origin),
   });
 });
 

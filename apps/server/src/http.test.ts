@@ -45,6 +45,7 @@ const config = (devUrl: URL | undefined) =>
     staticDir: devUrl === undefined ? staticDir : undefined,
     devUrl,
     supervisor: "none",
+    allowedOrigins: [],
   });
 
 const layerAuth = Layer.succeed(ServiceAuth.ServiceAuth)(
@@ -66,6 +67,8 @@ const layerDev = HttpRouter.serve(
 
 const layerPackaged = HttpRouter.serve(
   Layer.mergeAll(
+    ServerHttp.layerCors,
+    ServerHttp.layerHealthRoute,
     ServerHttp.layerDevTokenRoute,
     ServerHttp.layerObservationsRoute,
     ServerHttp.layerWebhookRoute,
@@ -97,20 +100,28 @@ const send = (
 ) =>
   Effect.promise(
     () =>
-      new Promise<{ status: number; body: string; location: string | undefined }>(
-        (resolve, reject) => {
-          const req = NodeHttp.request({ host: "127.0.0.1", port: p, ...request }, (res) => {
-            let body = "";
-            res.setEncoding("utf8");
-            res.on("data", (chunk: string) => (body += chunk));
-            res.on("end", () =>
-              resolve({ status: res.statusCode ?? 0, body, location: res.headers.location }),
-            );
-          });
-          req.on("error", reject);
-          req.end(request.body);
-        },
-      ),
+      new Promise<{
+        status: number;
+        body: string;
+        location: string | undefined;
+        allowOrigin: string | undefined;
+      }>((resolve, reject) => {
+        const req = NodeHttp.request({ host: "127.0.0.1", port: p, ...request }, (res) => {
+          let body = "";
+          res.setEncoding("utf8");
+          res.on("data", (chunk: string) => (body += chunk));
+          res.on("end", () =>
+            resolve({
+              status: res.statusCode ?? 0,
+              body,
+              location: res.headers.location,
+              allowOrigin: res.headers["access-control-allow-origin"],
+            }),
+          );
+        });
+        req.on("error", reject);
+        req.end(request.body);
+      }),
   );
 
 describe("dev server routes", () => {
@@ -154,6 +165,24 @@ describe("packaged server routes", () => {
       expect((yield* get("/../secret.txt")).body).not.toBe("secret");
       // No dev URL, no dev-token route.
       expect((yield* send(p, { method: "POST", path: "/api/auth/dev-token" })).status).toBe(404);
+    }).pipe(Effect.provide(layerPackaged)),
+  );
+
+  it.effect("answers CORS for allowed origins only, and health for any page", () =>
+    Effect.gen(function* () {
+      const p = yield* port;
+      const preflight = (origin: string) =>
+        send(p, {
+          method: "OPTIONS",
+          path: "/api/observations",
+          headers: { origin, "access-control-request-method": "POST" },
+        });
+      expect((yield* preflight(DEV)).allowOrigin).toBe(DEV);
+      expect((yield* preflight("https://evil.test")).allowOrigin).toBeUndefined();
+      const health = (origin: string) =>
+        send(p, { method: "GET", path: "/api/health", headers: { origin } });
+      expect((yield* health("https://evil.test")).allowOrigin).toBe("*");
+      expect((yield* health(DEV)).allowOrigin).toBe(DEV);
     }).pipe(Effect.provide(layerPackaged)),
   );
 

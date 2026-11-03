@@ -21,6 +21,8 @@ on:
       - main
     paths:
       - "apps/**"
+      # The marketing site ships in no desktop build; a change to it goes live with the next release.
+      - "!apps/marketing/**"
       - "packages/**"
       - "package.json"
       - "pnpm-lock.yaml"
@@ -278,7 +280,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: xtend-cli
-      # Nightlies go under the nightly tag, so `npm i -g @xtend/cli` stays on stable.
+      # Nightlies go under the nightly tag, so `npm i -g xtend-cli` stays on stable.
       - if: steps.ready.outputs.ready == 'true'
         env:
           TAG: ${{ needs.version.outputs.nightly == 'true' && 'nightly' || 'latest' }}
@@ -336,10 +338,107 @@ jobs:
             commit -m "Update to $VERSION"
           git push origin HEAD:master
 
+  # The hosted web app and the marketing site go to Vercel as prebuilt static files (Vercel's
+  # Build Output API). Build packages a site; Deploy uploads it as production once the release
+  # exists. With no custom domain the project's *.vercel.app hostname is the site, and a
+  # production deploy moves it at once, so nothing is uploaded before the release.
+  build_web:
+    name: Build hosted web app
+    needs: [version, bundle]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      # The web app this release ships, so the hosted page and the desktop are the same bytes.
+      - uses: actions/download-artifact@v8
+        with:
+          name: js-bundle
+          path: bundle
+      # Any path that is not a file is the router's: serve index.html.
+      - run: |
+          mkdir output
+          cp -R bundle/web/dist output/static
+          echo '{"version":3,"routes":[{"handle":"filesystem"},{"src":"/(.*)","dest":"/index.html"}]}' \
+            > output/config.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: site-web
+          path: output
+          retention-days: 1
+          if-no-files-found: error
+
+  build_marketing:
+    name: Build marketing site
+    needs: version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup
+      - run: pnpm --filter @xtend/marketing build
+      - run: |
+          mkdir output
+          cp -R apps/marketing/dist output/static
+          echo '{"version":3}' > output/config.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: site-marketing
+          path: output
+          retention-days: 1
+          if-no-files-found: error
+
+  # Stable only: there is one hosted URL, and it has to talk to the service users run. After npm,
+  # so the page never asks for a service the registry does not have yet.
+  deploy_web:
+    name: Deploy hosted web app
+    needs: [version, build_web, publish, npm]
+    if: needs.version.outputs.nightly == 'false'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_WEB_PROJECT_ID }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: site-web
+          path: .vercel/output
+      - run: |
+          if [ -z "$VERCEL_TOKEN" ] || [ -z "$VERCEL_ORG_ID" ] || [ -z "$VERCEL_PROJECT_ID" ]; then
+            echo "::notice::VERCEL_TOKEN, VERCEL_ORG_ID or VERCEL_WEB_PROJECT_ID is not set; built the hosted web app, deployed nothing."
+            exit 0
+          fi
+          url=$(npx --yes vercel@64.7.0 deploy --prebuilt --prod --yes --token "$VERCEL_TOKEN")
+          echo "Hosted web app: $url" >> "$GITHUB_STEP_SUMMARY"
+
+  # Every release: the page reads the newest release from GitHub when it loads, so a nightly
+  # deploy changes only the page itself.
+  deploy_marketing:
+    name: Deploy marketing site
+    needs: [build_marketing, publish]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_MARKETING_PROJECT_ID }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: site-marketing
+          path: .vercel/output
+      - run: |
+          if [ -z "$VERCEL_TOKEN" ] || [ -z "$VERCEL_ORG_ID" ] || [ -z "$VERCEL_PROJECT_ID" ]; then
+            echo "::notice::VERCEL_TOKEN, VERCEL_ORG_ID or VERCEL_MARKETING_PROJECT_ID is not set; built the marketing site, deployed nothing."
+            exit 0
+          fi
+          url=$(npx --yes vercel@64.7.0 deploy --prebuilt --prod --yes --token "$VERCEL_TOKEN")
+          echo "Marketing site: $url" >> "$GITHUB_STEP_SUMMARY"
+
   # Stable releases only: a nightly ships on every merge to main.
   discord:
     name: Announce release on Discord
-    needs: [version, publish, npm, aur]
+    needs: [version, publish, npm, aur, deploy_web]
     if: ${{ !cancelled() && needs.publish.result == 'success' && needs.version.outputs.nightly == 'false' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5

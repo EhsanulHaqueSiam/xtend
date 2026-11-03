@@ -111,7 +111,7 @@ describe("ServiceAuth", () => {
     }).pipe(Effect.provide(layerServer)),
   );
 
-  it.effect("keeps one owner-only token across restarts and trusts the service's own origins", () =>
+  it.effect("keeps one owner-only token across restarts and trusts only the origins it names", () =>
     Effect.gen(function* () {
       const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "xtend-auth-"));
       const start = ServiceAuth.ServiceAuth.pipe(
@@ -127,6 +127,7 @@ describe("ServiceAuth", () => {
                 staticDir: undefined,
                 devUrl: new URL("http://localhost:5820"),
                 supervisor: "none",
+                allowedOrigins: ["https://app.xtend.dev"],
               }),
             ),
             Layer.provide(NodeServices.layer),
@@ -140,11 +141,15 @@ describe("ServiceAuth", () => {
       // The desktop and CLI read the file once; a restart must not hand out a new token.
       expect((yield* start).token).toBe(first.token);
 
-      const trusted = ["http://127.0.0.1:4820", "http://localhost:4820", "http://localhost:5820"];
-      expect(trusted.map(first.isAllowedOrigin)).toEqual([true, true, true]);
-      expect(["null", "http://127.0.0.1:5821", "https://x.com"].map(first.isAllowedOrigin)).toEqual(
-        [false, false, false],
-      );
+      const trusted = [
+        "http://127.0.0.1:4820",
+        "http://localhost:4820",
+        "http://localhost:5820",
+        "https://app.xtend.dev",
+      ];
+      expect(trusted.map(first.isAllowedOrigin)).toEqual([true, true, true, true]);
+      const refused = ["null", "http://127.0.0.1:5821", "https://x.com", "http://app.xtend.dev"];
+      expect(refused.map(first.isAllowedOrigin)).toEqual([false, false, false, false]);
     }),
   );
 });

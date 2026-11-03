@@ -2,7 +2,7 @@ import { it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import { expect, onTestFinished, vi } from "vite-plus/test";
 
-import { serviceToken } from "./client";
+import { saveService, serviceToken, socketUrl } from "./client";
 
 it.effect("takes ?token= out of the address bar even when the page's own token wins", () =>
   Effect.gen(function* () {
@@ -28,5 +28,23 @@ it.effect("takes ?token= out of the address bar even when the page's own token w
     // Without the page's token, as after the tab navigates, the link's token still serves it.
     meta.remove();
     expect(yield* serviceToken).toBe("from-link");
+  }),
+);
+
+it.effect("a hosted page opens its socket on the saved service, keeping only a device token", () =>
+  Effect.gen(function* () {
+    vi.stubEnv("DEV", false);
+    onTestFinished(() => {
+      vi.unstubAllEnvs();
+      window.localStorage.clear();
+      window.sessionStorage.clear();
+    });
+
+    saveService("https://mini.ts.net", { device: "device-token" });
+    expect(yield* socketUrl).toBe("wss://mini.ts.net/ws?token=device-token");
+    // The service's own token cannot be revoked, so only the address outlives the tab.
+    saveService("http://localhost:4820", { service: "service-token" });
+    expect(yield* socketUrl).toBe("ws://localhost:4820/ws?token=service-token");
+    expect(JSON.stringify(window.localStorage)).not.toContain("service-token");
   }),
 );

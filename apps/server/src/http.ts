@@ -1,4 +1,4 @@
-import { ObservationBatch } from "@xtend/contracts";
+import { HEALTH_PATH, ObservationBatch, type ServiceHealth } from "@xtend/contracts";
 import * as ByteSize from "effect/ByteSize";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -7,6 +7,7 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import {
   HttpIncomingMessage,
+  HttpMiddleware,
   HttpRouter,
   HttpServerRequest,
   HttpServerResponse,
@@ -24,16 +25,39 @@ const TOKEN_META = "xtend-token";
 
 export const layerHealthRoute = HttpRouter.add(
   "GET",
-  "/api/health",
+  HEALTH_PATH,
   Effect.gen(function* () {
     const config = yield* ServerConfig.ServerConfig;
     // Who supervises it is public on purpose: `xtend triage` reports it with the service up.
-    return yield* HttpServerResponse.json({
-      name: "xtend",
-      version: config.version,
-      supervisor: config.supervisor,
-    });
+    // Any page may read it, so the hosted connect screen can tell "not running" from "origin not allowed".
+    return yield* HttpServerResponse.json(
+      {
+        name: "xtend",
+        version: config.version,
+        supervisor: config.supervisor,
+      } satisfies ServiceHealth,
+      { headers: { "access-control-allow-origin": "*" } },
+    );
   }),
+);
+
+/**
+ * A web app hosted elsewhere calls the HTTP routes cross-origin, so allowed origins get CORS
+ * headers and their preflights answered. Others get none and the browser hides every response.
+ */
+export const layerCors = HttpRouter.middleware(
+  Effect.map(ServiceAuth.ServiceAuth, (auth) => {
+    const cors = HttpMiddleware.cors({
+      // Called with no Origin too, where isAllowedOrigin says yes; that must not echo a header.
+      allowedOrigins: (origin: string | undefined) =>
+        origin !== undefined && auth.isAllowedOrigin(origin),
+      allowedHeaders: ["authorization", "content-type"],
+      maxAge: 600,
+    });
+    // Applied here, not passed as is, so the router infers its error and requirements.
+    return (app) => cors(app);
+  }),
+  { global: true },
 );
 
 /**

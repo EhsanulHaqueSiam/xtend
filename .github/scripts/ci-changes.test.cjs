@@ -9,6 +9,7 @@ const all = [
   "@xtend/contracts",
   "@xtend/desktop",
   "@xtend/e2e",
+  "@xtend/marketing",
   "@xtend/oxlint-plugin",
   "@xtend/pool",
   "@xtend/web",

@@ -56,6 +56,14 @@ const devUrlFlag = Flag.String("dev-url").pipe(
   Flag.optional,
 );
 
+const allowOriginFlag = Flag.String("allow-origin").pipe(
+  Flag.withSchema(Schema.URLFromString),
+  Flag.withDescription(
+    "Let a web app served from this origin use the service, e.g. https://app.xtend.dev. Repeatable.",
+  ),
+  Flag.atLeast(0),
+);
+
 // Shared so `xtend --base-dir X post ...` and `xtend post --base-dir X ...` both reach the same service.
 const root = Command.make("xtend").pipe(
   Command.withSharedFlags({
@@ -63,6 +71,7 @@ const root = Command.make("xtend").pipe(
     host: hostFlag,
     baseDir: baseDirFlag,
     devUrl: devUrlFlag,
+    allowOrigin: allowOriginFlag,
   }),
 );
 type RootFlags = Effect.Success<typeof root>;
@@ -73,6 +82,7 @@ const resolveConfig = (flags: RootFlags) =>
     host: Option.getOrUndefined(flags.host),
     baseDir: Option.getOrUndefined(flags.baseDir),
     devUrl: Option.getOrUndefined(flags.devUrl),
+    allowOrigins: flags.allowOrigin,
   });
 
 /**
@@ -208,6 +218,7 @@ const serviceInstall = Command.make("install").pipe(
         baseDir: config.baseDir,
         port: config.port,
         host: Option.getOrUndefined(flags.host),
+        allowedOrigins: config.allowedOrigins,
       });
       yield* Console.log(`installed ${file}`);
     }),

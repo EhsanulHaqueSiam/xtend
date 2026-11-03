@@ -295,14 +295,22 @@ every target and CI pass does Publish GitHub Release upload the files. Both arch
 of Windows write one updater feed (`latest-mac.yml`, `latest.yml`); Publish joins their file
 lists, and electron-updater picks the file whose name holds the machine's arch, which is why
 Windows installers carry it. electron-builder names the feeds after the channel in the version:
-`latest-*.yml` for stable, `nightly-*.yml` for nightlies. After Publish, three jobs fan out, each
-waiting for its repository secret and saying so in the run when it is missing:
+`latest-*.yml` for stable, `nightly-*.yml` for nightlies. After Publish, these jobs fan out, each
+waiting for its repository secrets and saying so in the run when one is missing:
 
-| job                         | secret                | what it does                                                                                           |
-| --------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------ |
-| Publish CLI to npm          | `NPM_TOKEN`           | `npm publish` of the CLI tarball as `xtend-cli` with provenance, under `nightly` or `latest`           |
-| Publish AUR package         | `AUR_SSH_PRIVATE_KEY` | stable only: fills `apps/desktop/packaging/aur/PKGBUILD`, builds it with `makepkg`, pushes `xtend-bin` |
-| Announce release on Discord | `DISCORD_WEBHOOK_URL` | stable only: posts the release link                                                                    |
+| job                         | secrets                                                        | what it does                                                                                           |
+| --------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Publish CLI to npm          | `NPM_TOKEN`                                                    | `npm publish` of the CLI tarball as `xtend-cli` with provenance, under `nightly` or `latest`           |
+| Publish AUR package         | `AUR_SSH_PRIVATE_KEY`                                          | stable only: fills `apps/desktop/packaging/aur/PKGBUILD`, builds it with `makepkg`, pushes `xtend-bin` |
+| Deploy hosted web app       | `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_WEB_PROJECT_ID`       | stable only, after npm: the release's `apps/web/dist` as the Vercel project's production deployment    |
+| Deploy marketing site       | `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_MARKETING_PROJECT_ID` | every release: `apps/marketing` as its project's production deployment                                 |
+| Announce release on Discord | `DISCORD_WEBHOOK_URL`                                          | stable only: posts the release link                                                                    |
+
+Build hosted web app and Build marketing site package each site in Vercel's prebuilt output
+format beside the desktop builds; Deploy uploads it with `vercel deploy --prebuilt --prod`, so
+Vercel builds nothing and needs no project settings beyond an empty project. Until a custom
+domain exists, each project's `*.vercel.app` hostname is the site. A marketing-only change starts
+no release, so it goes live with the next one.
 
 The AUR package builds even without its key, so a broken PKGBUILD shows up before the key exists. A manual run builds the same
 files as workflow artifacts and publishes nothing.
