@@ -241,9 +241,10 @@ const editor = (state: MockState, placeholder: string) =>
   `<div data-testid="tweetTextarea_0RichTextInputContainer" style="${state.formats ? "min-height: 24px" : "max-height: 720px; overflow-y: auto"}"><div data-testid="tweetTextarea_0" contenteditable="true" role="textbox" aria-label="Post text" data-placeholder="${placeholder}"></div></div>`;
 
 /** X's composer toolbar: its GIF button opens X's GIF search, then `post` (Post or Reply). */
-// X's audience button ("Everyone") sits with the composer's controls here, so X's page keeps its height.
+// X's audience button ("Everyone"), kept out of the flow: mock X's pages keep their height, which
+// decides when a list's end is in view and so when X fetches its next page.
 const toolBar = (post: string) =>
-  `<div data-testid="toolBar"><button aria-label="Choose audience"><span>Everyone</span></button><button data-testid="gifSearchButton" aria-label="Add a GIF">GIF</button>${post}</div>`;
+  `<div data-testid="toolBar" style="position: relative"><button aria-label="Choose audience" style="position: absolute; top: 0; right: 0"><span>Everyone</span></button><button data-testid="gifSearchButton" aria-label="Add a GIF">GIF</button>${post}</div>`;
 /** X's Who to follow among a timeline's posts: header, people with Follow, Show more. */
 const whoToFollow = (m: EngineModule, b: EngineBatch) =>
   `<aside aria-label="${esc(m.title)}"><h2>${esc(m.title)}</h2>${m.userIds
