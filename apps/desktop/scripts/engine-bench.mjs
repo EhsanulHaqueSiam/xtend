@@ -1830,29 +1830,37 @@ const benchmarks = [
       // X draws its card only on /compose/post: opened there, read, closed with Escape, nothing
       // picked and nothing typed (X asks to discard a draft on leaving only then).
       await engineGo("/compose/post");
-      const read = await engine(`(async () => {
-        const wait = () => new Promise((r) => setTimeout(r, 150));
-        const button = () => document.querySelector('button[aria-label="Choose audience"]');
-        const card = () => document.querySelector('[data-testid="HoverCard"]:has([role="menuitem"])');
-        for (let i = 0; i < 40 && !button(); i++) await wait();
-        if (!button() || card()) return null;
-        const before = button().textContent;
-        button().click();
-        const count = () => card()?.querySelectorAll('[role="menuitem"]').length ?? 0;
-        // X draws its rows over about a second: read them once their count holds that long.
-        for (let i = 0, n = -1, same = 0; i < 60 && same < 7; i++, await wait()) [n, same] = count() === n && n > 0 ? [n, same + 1] : [count(), 0];
-        const rows = [...(card()?.querySelectorAll('[role="menuitem"]') ?? [])].map((r) => r.innerText.split("\\n")[0].trim());
-        document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-        for (let i = 0; i < 20 && card(); i++) await wait();
-        if (card()) button()?.click();
-        await wait();
-        return JSON.stringify({ rows, before, after: button()?.textContent, closed: !card() });
-      })()`);
-      // Back to X's Home, as the user's page comes back after the card.
+      // Short steps from here, each its own call: one long script outlived the evaluate's limit.
+      const fail = (step) => (console.log(`  failed at: ${step}`), false);
+      const B = `document.querySelector('button[aria-label="Choose audience"]')`;
+      const CARD = `document.querySelector('[data-testid="HoverCard"]:has([role="menuitem"])')`;
+      if (!(await until(() => engine(`!!${B} && !${CARD}`), 6_000)))
+        return fail("X's audience button");
+      const before = await engine(`${B}.textContent`);
+      await engine(`${B}.click(), true`);
+      // X draws its rows over about a second: read them once a count above zero holds that long.
+      let n = 0;
+      let since = Date.now();
+      const settled = await until(async () => {
+        const now = await engine(`${CARD}?.querySelectorAll('[role="menuitem"]').length ?? 0`);
+        if (now !== n) [n, since] = [now, Date.now()];
+        return n > 0 && Date.now() - since >= 1_000;
+      }, 10_000);
+      const rows = settled
+        ? await engine(
+            `[...${CARD}.querySelectorAll('[role="menuitem"]')].map((r) => r.innerText.split("\\n")[0].trim())`,
+          )
+        : null;
+      await engine(
+        `document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`,
+      );
+      const closed = await until(() => engine(`!${CARD}`), 3_000);
+      const after = await engine(`${B}?.textContent`);
       await engine(`history.back(), true`);
       await until(async () => !(await enginePath()).startsWith("/compose"), 5_000);
-      if (typeof read !== "string") return false;
-      const x = JSON.parse(read);
+      if (!settled) return fail(`X's rows (count ${n})`);
+      if (!closed) return fail("X's card closing on Escape");
+      const x = { rows, before, after, closed };
       // Xtend's picker lists the store's Communities, which X's card just sent.
       // Xtend's own list as the store has it once X's answer landed, mismatched or not.
       const list = `at($.communityIds, "communities:mine").map((id) => $.communities.get(id)?.name)`;
