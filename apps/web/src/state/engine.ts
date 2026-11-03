@@ -731,7 +731,7 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
     xLists,
     communities,
     prompts: promptsOf(state, batch),
-    homeTabs: batch.homeTabs ?? state.homeTabs,
+    homeTabs: batch.homeTabs ?? pinTabs(state.homeTabs, toggled),
     exploreTabs: batch.exploreTabs ?? state.exploreTabs,
     articles:
       batch.articles === undefined
@@ -852,6 +852,20 @@ function listWrite(state: EngineState, batch: EngineBatch): EngineState {
         )
       : state.listIds,
   };
+}
+
+/**
+ * Home's tabs after X's answer to a List pin or unpin: X adds a pinned List's tab last and drops an
+ * unpinned one's, so a Home X serves from its cache shows the change before X sends its tabs again.
+ */
+function pinTabs(
+  tabs: EngineState["homeTabs"],
+  toggled: EngineList | undefined,
+): EngineState["homeTabs"] {
+  if (toggled?.pinned === undefined) return tabs;
+  const id = `list:${toggled.listId}` as const;
+  const rest = tabs.filter((t) => t.id !== id);
+  return toggled.pinned ? [...rest, { id, label: toggled.name }] : rest;
 }
 
 /**

@@ -607,6 +607,12 @@ it("holds a List follow or pin X took until X's answer for that List agrees", ()
     [],
     false,
   ]);
+  // X's pin and unpin answers move Home's tab too, for a Home X then serves from its cache.
+  const answer = (on: boolean) =>
+    batch(on ? "PinTimeline" : "UnpinTimeline", [], { lists: [list("5", null, { pinned: on })] });
+  const onHome = mergeBatch(mergeBatch(agreed, tabs("3")), answer(true));
+  expect(onHome.homeTabs.map((t) => t.id)).toEqual(["list:3", "list:5"]);
+  expect(mergeBatch(onHome, answer(false)).homeTabs.map((t) => t.id)).toEqual(["list:3"]);
 });
 
 it("replaces a profile's people page with X's first page even when X now lists nobody", () => {
