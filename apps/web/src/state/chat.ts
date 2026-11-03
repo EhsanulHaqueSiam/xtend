@@ -284,7 +284,7 @@ const decodeRead = Schema.decodeUnknownOption(
  * roots and answers once they change, or after a while with what it has. Null when the page could
  * not answer (none, or loading anew).
  */
-const nextRead = async (last: string, signal: AbortSignal) => {
+const nextRead = async (last: string, token: number, signal: AbortSignal) => {
   const answer = await xRunHeld(
     `(async () => {
     const read = ${readChat.toString()};
@@ -294,7 +294,11 @@ const nextRead = async (last: string, signal: AbortSignal) => {
     if (now.hash !== ${JSON.stringify(last)}) return now;
     return new Promise((done) => {
       let quiet;
-      const finish = () => { observer.disconnect(); clearTimeout(quiet); clearTimeout(cap); done(look()); };
+      const end = () => {
+        observer.disconnect(); clearTimeout(quiet); clearTimeout(cap);
+        if (window.__xtendChatWatch?.token === ${token}) delete window.__xtendChatWatch;
+      };
+      const finish = () => { end(); done(look()); };
       const watch = () => {
         for (const host of document.querySelectorAll('[data-testid^="xchatEmbed"]'))
           if (host.shadowRoot) observer.observe(host.shadowRoot, { childList: true, subtree: true, characterData: true });
@@ -308,6 +312,7 @@ const nextRead = async (last: string, signal: AbortSignal) => {
       observer.observe(document.body, { childList: true, subtree: true });
       watch();
       const cap = setTimeout(finish, 20000);
+      window.__xtendChatWatch = { token: ${token}, stop: () => { end(); done(null); } };
     });
   })()`,
     signal,
@@ -315,15 +320,27 @@ const nextRead = async (last: string, signal: AbortSignal) => {
   return Option.getOrNull(decodeRead(answer));
 };
 
+let watches = 0;
+
 /**
  * Reads X's Chat into `onRead` until `signal` ends it: each time X's chat redraws. Only for the
  * Chat screen while it is open; a page that could not answer is asked again a second later.
  */
-export const watchChat = (signal: AbortSignal, onRead: (read: ChatRead) => void) =>
+export const watchChat = (signal: AbortSignal, onRead: (read: ChatRead) => void) => {
+  const token = ++watches;
+  // X's page holds its own watch until told: ending here ends it there too, reading nothing more.
+  signal.addEventListener(
+    "abort",
+    () =>
+      void xRun(
+        `window.__xtendChatWatch?.token === ${token} && window.__xtendChatWatch.stop(), true`,
+      ),
+    { once: true },
+  );
   void (async () => {
     let last = "";
     while (!signal.aborted) {
-      const next = await nextRead(last, signal);
+      const next = await nextRead(last, token, signal);
       if (signal.aborted) return;
       if (next === null) await new Promise((r) => setTimeout(r, 1000));
       else {
@@ -332,6 +349,7 @@ export const watchChat = (signal: AbortSignal, onRead: (read: ChatRead) => void)
       }
     }
   })();
+};
 
 /**
  * Scrolls X's own list one screen, so X draws what lies past it: the inbox down to older

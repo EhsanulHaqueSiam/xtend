@@ -1,4 +1,6 @@
-import { expect, it } from "vite-plus/test";
+import { expect, it, vi } from "vite-plus/test";
+
+import { fakeTimers } from "../../test/render";
 
 import { type ChatRead, readChat, watchChat } from "./chat";
 import { markXReady, registerXWebview, type XWebview } from "./x";
@@ -134,4 +136,31 @@ it("answers once X's chat redraws, from its own source in X's page, and stops wh
   await expect.poll(() => reads.length).toBe(2);
   expect(reads[1]?.inbox?.map((r) => r.name)).toEqual(["Ann", "Weekend plans", "Dee"]);
   stop.abort();
+});
+
+it("lets go of X's page when stopped: its watch disconnects and clears its timers, reading no more", async () => {
+  using x = drawX(INBOX);
+  using _timers = fakeTimers();
+  registerXWebview({
+    loadURL: async () => {},
+    getURL: () => "https://x.com/i/chat",
+    executeJavaScript: (code: string) => Promise.resolve(new Function(`return ${code}`)()),
+  } as unknown as XWebview);
+  markXReady();
+  const disconnect = vi.spyOn(MutationObserver.prototype, "disconnect");
+  const reads: Array<ChatRead> = [];
+  const stop = new AbortController();
+  watchChat(stop.signal, (read) => reads.push(read));
+  await vi.waitFor(() => expect(reads).toHaveLength(1));
+  // X's page now waits for its next redraw, with its cap.
+  await vi.waitFor(() => expect(vi.getTimerCount()).toBe(1));
+
+  stop.abort();
+  await vi.advanceTimersByTimeAsync(0);
+  expect([disconnect.mock.calls.length, vi.getTimerCount()]).toEqual([1, 0]);
+  x.root
+    .querySelector('[data-testid="dm-conversation-scroller"]')!
+    .insertAdjacentHTML("beforeend", row("11:44", "Dee", "now", "Hello", "unread"));
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect([reads.length, disconnect.mock.calls.length]).toEqual([1, 1]);
 });
