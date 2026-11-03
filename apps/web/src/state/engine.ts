@@ -522,6 +522,27 @@ export const pickAnalyticsRange = (s: EngineState, kind: AnalyticsRanged, days: 
   });
 
 /**
+ * X's page shows `days` for `kind` (its selected range button): that range is confirmed and its
+ * pick waits on nothing. `opened`: X's page as a section opens, which no older pick outlives.
+ */
+export const settleAnalyticsRange = (
+  s: EngineState,
+  kind: AnalyticsRanged,
+  days: number,
+  opened = false,
+) => {
+  const a = s.accountAnalytics;
+  return withAnalytics(s, {
+    confirmed: { ...a.confirmed, [kind]: days },
+    pending: {
+      ...a.pending,
+      [kind]: opened ? [] : (a.pending[kind] ?? []).filter((d) => d !== days),
+    },
+    selected: opened || a.selected[kind] === days ? without(a.selected, kind) : a.selected,
+  });
+};
+
+/**
  * A pick that never reached X's page (no button, another page, the section left): it waits on
  * nothing, and when it was the latest pick the range is the last one X confirmed again.
  */

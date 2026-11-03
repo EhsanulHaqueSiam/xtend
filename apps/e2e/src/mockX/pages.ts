@@ -756,7 +756,7 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
     const buttons = `<div class="ranges">${labels
       .map(
         (l) =>
-          `<button type="button" data-range="${l}"${l === range ? ' aria-pressed="true"' : ""}>${l}</button>`,
+          `<button type="button" data-range="${l}" class="${l === range ? "bg-btn-primary" : "border-normal"}">${l}</button>`,
       )
       .join("")}</div>`;
     const tile = (label: string, value: string) =>

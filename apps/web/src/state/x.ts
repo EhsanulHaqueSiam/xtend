@@ -467,6 +467,39 @@ export const xPickAnalyticsRange = (
   return press;
 };
 
+/**
+ * The range X's analytics page `path` shows: the label of its range button in X's primary style
+ * (`bg-btn-primary`, X's only mark of the selected range), once X has drawn the page. `expect`:
+ * a range just pressed, waited for a moment while X redraws. Null when X shows none. Reads only.
+ */
+export const xAnalyticsSelected = async (
+  path: string,
+  labels: ReadonlyArray<string>,
+  loaded: Promise<unknown>,
+  signal: AbortSignal,
+  expect?: string,
+): Promise<string | null> => {
+  await loaded;
+  const heading = ANALYTICS_HEADINGS[path];
+  if (signal.aborted || heading === undefined) return null;
+  const seen = await xRunHeld(
+    `(async () => {
+    const labels = ${JSON.stringify(labels)};
+    let shown = null;
+    for (let i = 0; i < 40; i++) {
+      if (${analyticsDrawn(path, heading)}) {
+        shown = [...document.querySelectorAll("button")].find((b) => labels.includes(b.textContent.trim()) && b.className.includes("bg-btn-primary"))?.textContent.trim() ?? null;
+        if (shown !== null && (${JSON.stringify(expect ?? null)} === null || shown === ${JSON.stringify(expect ?? null)} || i >= 13)) return shown;
+      }
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    return shown;
+  })()`,
+    signal,
+  );
+  return typeof seen === "string" && labels.includes(seen) ? seen : null;
+};
+
 /** X's page loading anew, or `ms` passing, whichever comes first. */
 const loadedAnewOr = (ms: number) =>
   new Promise<void>((resolve) => {

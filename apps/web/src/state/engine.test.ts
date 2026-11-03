@@ -35,6 +35,7 @@ import {
   radarSurface,
   resetSurface,
   sawAnalyticsPage,
+  settleAnalyticsRange,
   showWaiting,
   surfacesOf,
   userByHandle,
@@ -724,6 +725,26 @@ it("never lets an older pick's late answer, or an unpressed pick's undo, move of
   expect(shown(state)).toBe(90);
   state = dropAnalyticsPick(state, "overview", 90);
   expect(shown(state)).toBe(7);
+});
+
+it("settles a pick X shows from its own cache by X's page, for a later failed pick and X's own changes", () => {
+  const shown = (state: typeof emptyEngine) => analyticsRange(state.accountAnalytics, "overview");
+  const cachedSevenDays = () => {
+    let state = mergeBatch(emptyEngine, overviewAnswer(7, 10));
+    state = pickAnalyticsRange(state, "overview", 28);
+    state = mergeBatch(state, overviewAnswer(28, 90));
+    // Back to 7D: X shows it from its own store and answers nothing.
+    return pickAnalyticsRange(state, "overview", 7);
+  };
+  // The press landed and X's page shows 7D: a 3M whose press fails goes back to 7D, not 4W.
+  let state = settleAnalyticsRange(cachedSevenDays(), "overview", 7);
+  state = pickAnalyticsRange(state, "overview", 90);
+  state = dropAnalyticsPick(state, "overview", 90);
+  expect(shown(state)).toBe(7);
+  // The section opened again (or X's page reloaded) on 7D: X's own change later is followed.
+  state = settleAnalyticsRange(cachedSevenDays(), "overview", 7, true);
+  state = mergeBatch(state, overviewAnswer(90, 900));
+  expect(shown(state)).toBe(90);
 });
 
 it("reads access from X's page when X sends no claims, and lets claims say it when they come", () => {

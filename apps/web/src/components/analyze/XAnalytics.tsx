@@ -18,10 +18,18 @@ import {
   engineAtom,
   pickAnalyticsRange,
   sawAnalyticsPage,
+  settleAnalyticsRange,
   updateEngine,
   viewerHandleAtom,
 } from "../../state/engine";
-import { xAnalyticsUpsell, xGo, xNavigate, xOverEnded, xPickAnalyticsRange } from "../../state/x";
+import {
+  xAnalyticsSelected,
+  xAnalyticsUpsell,
+  xGo,
+  xNavigate,
+  xOverEnded,
+  xPickAnalyticsRange,
+} from "../../state/x";
 import { HeaderTabs, PageHeader } from "../PageHeader";
 import { sectionLabel } from "../shell/sections";
 import { Empty, PageBody, Section, table } from "../ui/layout";
@@ -95,11 +103,17 @@ function useXAnalytics(section: XSection) {
     void xAnalyticsUpsell(page.path, loaded.current, mine.signal).then((upsell) => {
       if (upsell !== null) setEngine(updateEngine((s) => sawAnalyticsPage(s, upsell)));
     });
+    // The range X's page opens on is the one it shows, whatever an older pick waited for.
+    void xAnalyticsSelected(page.path, page.ranges, loaded.current, mine.signal).then((label) => {
+      const shown = page.ranges.find((r) => r === label);
+      if (shown !== undefined)
+        setEngine(updateEngine((s) => settleAnalyticsRange(s, page.kind, DAYS[shown], true)));
+    });
     return () => {
       mine.abort();
       xOverEnded();
     };
-  }, [url, page.path, setEngine]);
+  }, [url, page, setEngine]);
   return {
     url,
     answer,
@@ -116,12 +130,26 @@ function useXAnalytics(section: XSection) {
           if (picked === undefined || DAYS[picked] === days) return;
           const kind = page.kind;
           setEngine(updateEngine((s) => pickAnalyticsRange(s, kind, DAYS[picked])));
-          void xPickAnalyticsRange(page.path, picked, loaded.current, live.current.signal).then(
-            (pressed) => {
-              if (!pressed)
-                setEngine(updateEngine((s) => dropAnalyticsPick(s, kind, DAYS[picked])));
-            },
-          );
+          const signal = live.current.signal;
+          void xPickAnalyticsRange(page.path, picked, loaded.current, signal)
+            // Once pressed, X's page says which range it shows: X's cache answers nothing.
+            .then((pressed) =>
+              pressed
+                ? xAnalyticsSelected(page.path, page.ranges, loaded.current, signal, picked)
+                : null,
+            )
+            .then((label) => {
+              const shown = page.ranges.find((r) => r === label);
+              setEngine(
+                updateEngine((s) => {
+                  const settled =
+                    shown === undefined ? s : settleAnalyticsRange(s, kind, DAYS[shown]);
+                  return shown === picked
+                    ? settled
+                    : dropAnalyticsPick(settled, kind, DAYS[picked]);
+                }),
+              );
+            });
         }}
       />
     ),

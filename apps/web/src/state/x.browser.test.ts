@@ -21,6 +21,7 @@ import {
   xPickHomeTab,
   xPickInspiration,
   xPickAnalyticsRange,
+  xAnalyticsSelected,
   xAnalyticsUpsell,
   xRadarCreate,
   xRadarDelete,
@@ -1766,6 +1767,31 @@ it("presses X's analytics range only on the page asked for once X draws it, and 
     expect(await xAnalyticsUpsell("/i/account_analytics", Promise.resolve(), open)).toBe(false);
     document.body.innerHTML = `<div role="dialog"><h2>Advanced analytics with Plus</h2><p>See your profile analytics, understand your audience and more. Upgrade to continue.</p><button>Maybe later</button></div>`;
     expect(await xAnalyticsUpsell("/i/account_analytics", Promise.resolve(), open)).toBe(true);
+
+    // X's selected range is its button in X's primary style, the one way X's page marks it.
+    const ranges = (shown: string) =>
+      (document.body.innerHTML = `<h2>Account overview</h2>${["7D", "4W"]
+        .map(
+          (l) =>
+            `<button class="${l === shown ? "bg-btn-primary" : "border-normal"}">${l}</button>`,
+        )
+        .join("")}`);
+    ranges("7D");
+    expect(
+      await xAnalyticsSelected("/i/account_analytics", ["7D", "4W"], Promise.resolve(), open),
+    ).toBe("7D");
+    // Just after a press X still draws the old range for a moment: the read waits for it.
+    const after = xAnalyticsSelected(
+      "/i/account_analytics",
+      ["7D", "4W"],
+      Promise.resolve(),
+      open,
+      "4W",
+    );
+    await vi.advanceTimersByTimeAsync(300);
+    ranges("4W");
+    await vi.runAllTimersAsync();
+    expect(await after).toBe("4W");
   } finally {
     history.replaceState(null, "", start);
   }

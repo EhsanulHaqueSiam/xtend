@@ -27,11 +27,16 @@ async function open(section: XSection, upsell: boolean | null = null) {
   updateEngine(() => emptyEngine);
   const bridge = installFakeBridge();
   const scripts: Array<string> = [];
+  let shown: string | null = null;
   registerXWebview({
     getURL: () => "https://x.com/home",
     loadURL: () => Promise.resolve(),
     executeJavaScript: (code: string) => {
       scripts.push(code);
+      // X's page shows the range last pressed, by its primary style; none before a press.
+      if (code.includes("bg-btn-primary")) return Promise.resolve(shown);
+      const pressed = /b\.textContent\.trim\(\) === ("[^"]+")\)/.exec(code)?.[1];
+      if (pressed !== undefined) shown = JSON.parse(pressed) as string;
       return Promise.resolve(code.includes("Upgrade to continue") ? upsell : true);
     },
   } as unknown as XWebview);
