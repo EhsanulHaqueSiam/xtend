@@ -2021,6 +2021,151 @@ describe("renderEngineBatch for X's sports pages", () => {
   });
 });
 
+describe("renderEngineBatch for bookmark folders", () => {
+  // X's own operations and answers (bundle.BookmarkFolders), with made-up ids and names.
+  const folder = (id: string, name: string, image?: string) => ({
+    id,
+    name,
+    ...(image === undefined ? {} : { media: { media_info: { original_img_url: image } } }),
+  });
+
+  it("reads X's folders, a folder's posts by the folder, and what X's folder dialogs and rows did", () => {
+    const slice = renderEngineBatch(
+      "BookmarkFoldersSlice",
+      {},
+      {
+        data: {
+          viewer: {
+            user_results: {
+              result: {
+                __typename: "User",
+                bookmark_collections_slice: {
+                  items: [
+                    folder("801", "Reading", "https://pbs.twimg.com/media/a.jpg"),
+                    { id: "none" },
+                    folder("802", "Launch ideas"),
+                  ],
+                  slice_info: {},
+                },
+              },
+            },
+          },
+        },
+      },
+    );
+    expect([slice.bookmarkFolders, hasEngineContent(slice)]).toEqual([
+      {
+        kind: "list",
+        folders: [
+          { folderId: "801", name: "Reading", imageUrl: "https://pbs.twimg.com/media/a.jpg" },
+          { folderId: "802", name: "Launch ideas", imageUrl: null },
+        ],
+      },
+      true,
+    ]);
+
+    // A folder X answered with no posts still reaches its screen, which says it is empty.
+    const empty = renderEngineBatch(
+      "BookmarkFolderTimeline",
+      { bookmark_collection_id: "802", includePromotedContent: true },
+      { data: { bookmark_collection_timeline: { timeline: { instructions: [] } } } },
+    );
+    expect([empty.key, hasEngineContent(empty)]).toEqual(["802", true]);
+    // An error alone (X's rate limit) is no answer: the screen offers Load again, not "empty".
+    const limited = renderEngineBatch(
+      "BookmarkFolderTimeline",
+      { bookmark_collection_id: "802", includePromotedContent: true },
+      { errors: [{ code: 88, message: "Rate limit exceeded" }] },
+    );
+    expect([limited.key, hasEngineContent(limited)]).toEqual([null, false]);
+
+    const did = (op: string, variables: Record<string, unknown>, data: Record<string, unknown>) =>
+      renderEngineBatch(op, variables, { data }).bookmarkFolders;
+    expect(
+      did(
+        "createBookmarkFolder",
+        { name: "Recipes" },
+        {
+          bookmark_collection_create: { id: "803", name: "Recipes" },
+        },
+      ),
+    ).toEqual({ kind: "saved", folder: { folderId: "803", name: "Recipes", imageUrl: null } });
+    // X files a renamed folder under the name it asked for, and a failed rename changes nothing.
+    expect(
+      did(
+        "EditBookmarkFolder",
+        { bookmark_collection_id: "801", name: "To read" },
+        {
+          bookmark_collection_update: { id: "801", name: "Reading" },
+        },
+      ),
+    ).toEqual({ kind: "saved", folder: { folderId: "801", name: "To read", imageUrl: null } });
+    expect(
+      did("EditBookmarkFolder", { bookmark_collection_id: "801", name: "To read" }, {}),
+    ).toBeUndefined();
+    expect(
+      did(
+        "DeleteBookmarkFolder",
+        { bookmark_collection_id: "802" },
+        { bookmark_collection_delete: "Done" },
+      ),
+    ).toEqual({ kind: "deleted", folderId: "802" });
+    const post = { bookmark_collection_id: "801", tweet_id: "77" };
+    expect([
+      did("bookmarkTweetToFolder", post, { bookmark_collection_tweet_put: "Done" }),
+      did("RemoveTweetFromBookmarkFolder", post, { bookmark_collection_tweet_delete: "Done" }),
+    ]).toEqual([
+      { kind: "post", folderId: "801", postId: "77", added: true },
+      { kind: "post", folderId: "801", postId: "77", added: false },
+    ]);
+    // An error (no "Done") did nothing.
+    expect(did("DeleteBookmarkFolder", { bookmark_collection_id: "802" }, {})).toBeUndefined();
+  });
+
+  it("passes on Bookmarks X answered, even with no posts, and nothing from an error alone", () => {
+    const none = renderEngineBatch(
+      "Bookmarks",
+      { count: 20, includePromotedContent: true },
+      { data: { bookmark_timeline_v2: { timeline: { instructions: [] } } } },
+    );
+    expect([none.key, hasEngineContent(none)]).toEqual(["bookmarks", true]);
+    const limited = renderEngineBatch("Bookmarks", { count: 20 }, { errors: [{ code: 88 }] });
+    expect([limited.key, hasEngineContent(limited)]).toEqual([null, false]);
+  });
+
+  it("reads the features X's claims say the account holds, and nothing from an answer without them", () => {
+    const claims = renderEngineBatch(
+      "GetUserClaims",
+      {},
+      {
+        data: {
+          viewer_v2: {
+            claims: [
+              {
+                rest_id: "premium-basic",
+                origin: "Commerce",
+                resources: [
+                  { rest_id: "client_feature_switch/subscriptions_feature_1002/true" },
+                  { rest_id: "client_feature_switch/subscriptions_feature_1003/false" },
+                  { rest_id: "subscription/premium-basic" },
+                ],
+              },
+            ],
+          },
+        },
+      },
+    );
+    expect([claims.claims, hasEngineContent(claims)]).toEqual([
+      ["subscriptions_feature_1002"],
+      true,
+    ]);
+    const none = renderEngineBatch("GetUserClaims", {}, { data: { viewer_v2: { claims: [] } } });
+    expect(none.claims).toEqual([]);
+    const error = renderEngineBatch("GetUserClaims", {}, { errors: [{ code: 88 }] });
+    expect([error.claims, hasEngineContent(error)]).toEqual([undefined, false]);
+  });
+});
+
 describe("renderEngineBatch for X's Radar", () => {
   // X's Radar answers in its Relay shape (ondemand.Insights): the user's rules under viewer_v2.
   const viewer = (fields: Record<string, unknown>) => ({

@@ -38,6 +38,11 @@ const WRITES = new Set([
   "LeaveCommunity",
   "PinTimeline",
   "UnpinTimeline",
+  "createBookmarkFolder",
+  "EditBookmarkFolder",
+  "DeleteBookmarkFolder",
+  "bookmarkTweetToFolder",
+  "RemoveTweetFromBookmarkFolder",
   "createInsightInputMutation",
   "deleteInsightButtonMutation",
 ]);
@@ -159,7 +164,14 @@ export async function startMockX(
           });
         }
         const batches = r.requests.map((q) => state.batchFor(q.op, q.variables));
-        const boot = url.searchParams.get("boot") === "1" ? [{ op: "Viewer", variables: {} }] : [];
+        // X's first calls on a full load: who is signed in, and what their plan gives them.
+        const boot =
+          url.searchParams.get("boot") === "1"
+            ? [
+                { op: "Viewer", variables: {} },
+                { op: "GetUserClaims", variables: {} },
+              ]
+            : [];
         return json({
           graphql: [
             ...[...boot, ...r.requests].map(httpRequest),
@@ -168,6 +180,7 @@ export async function startMockX(
           html: r.render(batches),
           next: r.paged === undefined ? null : (batches[r.paged]?.bottom ?? null),
           title: r.title,
+          redirect: r.redirect ?? null,
         });
       }
       case "/__mock/trend": {
