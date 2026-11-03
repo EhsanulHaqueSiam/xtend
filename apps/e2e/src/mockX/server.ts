@@ -38,6 +38,13 @@ const WRITES = new Set([
   "LeaveCommunity",
   "PinTimeline",
   "UnpinTimeline",
+  "createBookmarkFolder",
+  "EditBookmarkFolder",
+  "DeleteBookmarkFolder",
+  "bookmarkTweetToFolder",
+  "RemoveTweetFromBookmarkFolder",
+  "createInsightInputMutation",
+  "deleteInsightButtonMutation",
 ]);
 /** X sends Home's timelines as POSTs, its other reads as GETs. */
 const POSTED = new Set(["HomeTimeline", "HomeLatestTimeline"]);
@@ -157,13 +164,13 @@ export async function startMockX(
           });
         }
         const batches = r.requests.map((q) => state.batchFor(q.op, q.variables));
-        // X asks for the account, and in its code its claims (what Premium unlocks), as its app
-        // boots. Live X sent no claims to an account without Premium (2026-11-03): nor does this.
+        // X's first calls on a full load: who is signed in, and what their plan gives them.
+        // Some accounts' pages never send their claims (live, 2026-11-03): `sendsClaims: false`.
         const boot =
           url.searchParams.get("boot") === "1"
             ? [
                 { op: "Viewer", variables: {} },
-                ...(state.premium ? [{ op: "GetUserClaims", variables: {} }] : []),
+                ...(state.sendsClaims ? [{ op: "GetUserClaims", variables: {} }] : []),
               ]
             : [];
         return json({
@@ -174,6 +181,7 @@ export async function startMockX(
           html: r.render(batches),
           next: r.paged === undefined ? null : (batches[r.paged]?.bottom ?? null),
           title: r.title,
+          redirect: r.redirect ?? null,
         });
       }
       case "/__mock/trend": {

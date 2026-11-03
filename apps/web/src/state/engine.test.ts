@@ -10,6 +10,7 @@ import type {
 import { expect, it } from "vite-plus/test";
 
 import {
+  ANALYTICS_CLAIM,
   askFollow,
   askMembership,
   askPin,
@@ -30,6 +31,7 @@ import {
   postOn,
   postSurface,
   profileSurface,
+  radarSurface,
   resetSurface,
   sawAnalyticsPage,
   showWaiting,
@@ -655,7 +657,7 @@ const overviewAnswer = (days: number, impressions: number) => ({
 });
 
 it("keeps X's account analytics per range, the range X's page shows now, and X's claim", () => {
-  let state = mergeBatch(emptyEngine, { ...batch("GetUserClaims", []), analyticsAccess: true });
+  let state = mergeBatch(emptyEngine, { ...batch("GetUserClaims", []), claims: [ANALYTICS_CLAIM] });
   state = mergeBatch(state, overviewAnswer(7, 10));
   state = mergeBatch(state, overviewAnswer(28, 90));
   state = mergeBatch(state, batch("HomeLatestTimeline", []));
@@ -670,7 +672,7 @@ it("keeps X's account analytics per range, the range X's page shows now, and X's
     ["overview:7", "overview:28"],
   ]);
   // X's claims every few minutes say the same, or that the account lost it.
-  state = mergeBatch(state, { ...batch("GetUserClaims", []), analyticsAccess: false });
+  state = mergeBatch(state, { ...batch("GetUserClaims", []), claims: [] });
   expect(state.accountAnalytics.access).toBe(false);
 });
 
@@ -700,7 +702,7 @@ it("keeps the range picked on X's page until X answers for it, so a late answer 
 it("reads access from X's page when X sends no claims, and lets claims say it when they come", () => {
   let state = sawAnalyticsPage(emptyEngine, true);
   expect(state.accountAnalytics.access).toBe(false);
-  state = mergeBatch(state, { ...batch("GetUserClaims", []), analyticsAccess: true });
+  state = mergeBatch(state, { ...batch("GetUserClaims", []), claims: [ANALYTICS_CLAIM] });
   expect(sawAnalyticsPage(state, true).accountAnalytics.access).toBe(true);
   expect(sawAnalyticsPage(emptyEngine, false).accountAnalytics.access).toBe(true);
 });
@@ -928,4 +930,124 @@ it("keeps what each response said of a game, a team's schedule, each game's day,
     at(state.lists, gameSurface("41", "Top")),
     at(state.lists, gameSurface("41", "Latest")),
   ]).toEqual([["7"], ["8"]]);
+});
+
+it("keeps X's bookmark folders in X's order as X's dialogs and rows change them, each folder's posts under it", () => {
+  const folder = (folderId: string, name: string) => ({ folderId, name, imageUrl: null });
+  const change = (
+    bookmarkFolders: NonNullable<EngineBatch["bookmarkFolders"]>,
+    cursor: string | null = null,
+  ) => batch("Folders", [], { bookmarkFolders, cursor });
+  // A change before X listed the folders says nothing of the rest: still unknown.
+  expect(
+    mergeBatch(emptyEngine, change({ kind: "saved", folder: folder("803", "Recipes") }))
+      .bookmarkFolders,
+  ).toBeNull();
+
+  const ids = (s: EngineState) => s.bookmarkFolders?.map((f) => `${f.folderId} ${f.name}`);
+  let state = [
+    change({
+      kind: "list",
+      folders: [folder("801", "Reading"), { ...folder("802", "Ideas"), imageUrl: "pic" }],
+    }),
+    change({ kind: "list", folders: [folder("804", "Later")] }, "next"),
+    batch("GetUserClaims", [], { claims: ["subscriptions_feature_1002"] }),
+  ].reduce(mergeBatch, emptyEngine);
+  expect([ids(state), [...(state.claims ?? [])]]).toEqual([
+    ["801 Reading", "802 Ideas", "804 Later"],
+    ["subscriptions_feature_1002"],
+  ]);
+  // X lists a folder it created, renamed, or put a post in first; a deleted one goes.
+  state = [
+    change({ kind: "saved", folder: folder("803", "Recipes") }),
+    change({ kind: "saved", folder: folder("802", "Ideas 2") }),
+    change({ kind: "deleted", folderId: "804" }),
+  ].reduce(mergeBatch, state);
+  expect(ids(state)).toEqual(["802 Ideas 2", "803 Recipes", "801 Reading"]);
+  // A rename keeps the picture X's answer did not repeat.
+  expect(state.bookmarkFolders?.[0]?.imageUrl).toBe("pic");
+
+  const [a, b, c] = ["1", "2", "3"].map((id) => post(id, `2026-10-2${id}T10:00:00.000Z`));
+  expect(surfacesOf({ op: "BookmarkFolderTimeline", key: "801" })).toEqual(["bookmarkFolder:801"]);
+  state = [
+    batch("BookmarkFolderTimeline", [a!, b!], { key: "801", order: ["1", "2"] }),
+    batch("HomeTimeline", [c!], { order: ["3"] }),
+    change({ kind: "post", folderId: "801", postId: "3", added: true }),
+    change({ kind: "post", folderId: "801", postId: "1", added: false }),
+    // A folder never opened here waits for X's own first page of it; one X answered as empty
+    // takes the post, as X's page does without fetching.
+    change({ kind: "post", folderId: "803", postId: "3", added: true }),
+    batch("BookmarkFolderTimeline", [], { key: "802", top: "t" }),
+    change({ kind: "post", folderId: "802", postId: "3", added: true }),
+  ].reduce(mergeBatch, state);
+  expect(["801", "803", "802"].map((id) => at(state.lists, `bookmarkFolder:${id}`))).toEqual([
+    ["3", "2"],
+    [],
+    ["3"],
+  ]);
+  expect(ids(state)?.slice(0, 3)).toEqual(["802 Ideas 2", "803 Recipes", "801 Reading"]);
+  // X's next claims, after the plan lapsed, hold no folders.
+  expect(mergeBatch(state, batch("GetUserClaims", [], { claims: [] })).claims?.size).toBe(0);
+});
+
+it("keeps X's Radar: its list in X's order, a query's days as X finishes counting them, and its posts as X ranks them now", () => {
+  const query = (id: string) => ({
+    id,
+    title: "",
+    query: `q${id}`,
+    createdAt: "2026-10-28T09:00:00.000Z",
+    preview: [],
+  });
+  const day = (d: string, count: number | null) => ({ at: `2026-11-0${d}T00:00:00.000Z`, count });
+  const listed = mergeBatch(
+    emptyEngine,
+    batch("insightsListContextQuery", [], { key: "radar", radarQueries: [query("2"), query("1")] }),
+  );
+  // X still counted the oldest day; its next answer for those days fills it in.
+  const counted = [
+    batch("insightsConfigQuery", [], { radarLimit: 3 }),
+    batch("usePostCountQuery", [], { key: "1", radarCounts: [day("1", null), day("2", 7)] }),
+    batch("usePostCountQuery", [], { key: "1", radarCounts: [day("1", 9), day("2", null)] }),
+  ].reduce(mergeBatch, listed);
+  // A day later X's answer starts from a newer day.
+  const nextDay = mergeBatch(
+    counted,
+    batch("usePostCountQuery", [], { key: "1", radarCounts: [day("2", 8), day("3", 2)] }),
+  );
+  const deleted = mergeBatch(
+    counted,
+    batch("deleteInsightButtonMutation", [], { radarDeleted: "2" }),
+  );
+  expect([
+    deleted.radar.list,
+    counted.radar.list,
+    counted.radar.limit,
+    counted.radar.counts.get("1"),
+    nextDay.radar.counts.get("1"),
+  ]).toEqual([["1"], ["2", "1"], 3, [day("1", 9), day("2", 7)], [day("2", 8), day("3", 2)]]);
+
+  // A new visit's first page is X's ranking now, not one behind a pill.
+  const surface = radarSurface("q1");
+  const first = mergeBatch(
+    emptyEngine,
+    batch("postListQuery", [post("5", "2026-11-01T00:00:00Z")], { key: "radar:Top:q1" }),
+  );
+  const again = mergeBatch(
+    first,
+    batch("postListQuery", [post("6", "2026-11-02T00:00:00Z"), post("5", "2026-11-01T00:00:00Z")], {
+      key: "radar:Top:q1",
+    }),
+  );
+  const liked = { ...post("7", "2026-11-01T00:00:00Z"), liked: true };
+  const home = mergeBatch(emptyEngine, batch("HomeTimeline", [liked]));
+  const radar = mergeBatch(
+    home,
+    batch("postListQuery", [post("7", "2026-11-01T00:00:00Z")], { key: "radar:Top:q1" }),
+  );
+  expect([
+    at(first.lists, surface),
+    at(again.lists, surface),
+    radar.posts.get("7")?.liked,
+    at(radar.lists, surface),
+  ]).toEqual([["5"], ["6", "5"], true, ["7"]]);
 });

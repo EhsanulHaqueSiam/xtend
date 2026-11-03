@@ -198,14 +198,21 @@ const EMPTY = {
 
 /** Chromium's DevTools protocol over this page's DOM: the subset the driver sends. */
 function domCdp(log: Array<string>) {
-  const nodes: Array<Element> = [];
+  // Chromium's node ids: new ones only, and DOM.getDocument drops every one handed out before.
+  let ids = new Map<Element, number>();
+  let last = 0;
   // What a select-all command selected, for the Backspace after it.
   let selected: Element | null = null;
-  const idOf = (el: Element) => (nodes.includes(el) ? nodes.indexOf(el) : nodes.push(el) - 1);
-  const at = (params: Record<string, unknown>) => nodes[Number(params.nodeId ?? params.objectId)]!;
+  const idOf = (el: Element) => ids.get(el) ?? (ids.set(el, ++last), last);
+  const at = (params: Record<string, unknown>) => {
+    const id = Number(params.nodeId ?? params.objectId);
+    for (const [el, known] of ids) if (known === id) return el;
+    throw new Error("Could not find node with given id");
+  };
   return async (method: string, params: Record<string, unknown> = {}): Promise<unknown> => {
     switch (method) {
       case "DOM.getDocument":
+        ids = new Map();
         return { root: { nodeId: idOf(document.documentElement) } };
       case "DOM.querySelectorAll":
         return {

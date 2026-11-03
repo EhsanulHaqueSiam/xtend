@@ -11,6 +11,7 @@ import {
   xCommunityJoin,
   xCommunityPin,
   xActInPlace,
+  xFolderDialog,
   xFollow,
   xGifIdle,
   xGifPicker,
@@ -21,6 +22,8 @@ import {
   xPickInspiration,
   xPickAnalyticsRange,
   xAnalyticsUpsell,
+  xRadarCreate,
+  xRadarDelete,
   xPostFollowPress,
   xPostMenuPress,
   xProfileMenu,
@@ -1763,6 +1766,112 @@ it("presses X's analytics range only on the page asked for once X draws it, and 
     expect(await xAnalyticsUpsell("/i/account_analytics", Promise.resolve(), open)).toBe(false);
     document.body.innerHTML = `<div role="dialog"><h2>Advanced analytics with Plus</h2><p>See your profile analytics, understand your audience and more. Upgrade to continue.</p><button>Maybe later</button></div>`;
     expect(await xAnalyticsUpsell("/i/account_analytics", Promise.resolve(), open)).toBe(true);
+  } finally {
+    history.replaceState(null, "", start);
+  }
+});
+
+it("presses Delete Folder only in the editor X shows for that folder, never another folder's", async () => {
+  using _clock = fakeTimers();
+  const start = location.pathname + location.search;
+  const pressed: Array<string> = [];
+  // X's Edit Folder: its name field, then its red row.
+  const editor = (name: string) => {
+    document.body.innerHTML = `<div role="dialog"><input value="${name}"><div><span>Delete Folder</span></div></div>`;
+    document.querySelector("span")!.addEventListener("click", () => pressed.push(name));
+  };
+  inThisPage(() => `https://x.com${location.pathname}`);
+  // X is on this folder's route while the last folder's editor is still drawn.
+  editor("Ideas");
+  try {
+    const shown = xFolderDialog({ folderId: "801", name: "Reading" }, true, () => {});
+    await vi.advanceTimersByTimeAsync(1000);
+    expect([location.pathname, pressed]).toEqual(["/i/bookmarks/801/edit", []]);
+    editor("Reading");
+    await vi.advanceTimersByTimeAsync(200);
+    expect(pressed).toEqual(["Reading"]);
+    // The user confirmed in X's sheet: X leaves the route.
+    history.replaceState(null, "", start);
+    await vi.advanceTimersByTimeAsync(600);
+    expect(await shown).toBe(true);
+  } finally {
+    history.replaceState(null, "", start);
+  }
+});
+
+it("creates a Radar query through X's own form: the query typed into X's field, then X's own Submit once X turns it on", async () => {
+  using _clock = fakeTimers();
+  inThisPage(() => `https://x.com${location.pathname}`);
+  const start = location.href;
+  // X's form: Submit (its arrow) is off until X's field has text, and X opens the query's page.
+  document.body.innerHTML = `<main><input placeholder="$NVDA (sell OR buy)"><button disabled><svg data-icon="icon-arrow-up"></svg></button></main>`;
+  const input = document.querySelector("input")!;
+  const submit = document.querySelector("button")!;
+  input.addEventListener("input", () =>
+    setTimeout(() => (submit.disabled = input.value === ""), 100),
+  );
+  const sent: Array<string> = [];
+  submit.addEventListener("click", () => {
+    sent.push(input.value);
+    history.pushState(null, "", "/i/radar/1803");
+  });
+  try {
+    const created = xRadarCreate("$NVDA (sell OR buy)");
+    await vi.runAllTimersAsync();
+    expect([await created, sent]).toEqual(["1803", ["$NVDA (sell OR buy)"]]);
+  } finally {
+    history.replaceState(null, "", start);
+  }
+});
+
+it("presses X's Delete only on the one row whose query field is exactly the query, and shows X's dialog until the user closes it", async () => {
+  using _clock = fakeTimers();
+  inThisPage(() => `https://x.com${location.pathname}`);
+  const start = location.href;
+  // X's row: a column of its title and date, its query field (the query, or tags one by one), and
+  // its actions with Delete's label.
+  const row = (title: string, ...query: Array<string>) =>
+    `<div class="group"><div><div><div>${title}</div><span>Oct 28</span></div><div>${query.map((q) => `<div><span>${q}</span></div>`).join("")}</div><div><button><svg data-icon="icon-trashcan"></svg><div>Delete</div></button></div></div><div>Posts 12</div></div>`;
+  const pressed: Array<number> = [];
+  const list = (...rows: Array<string>) => {
+    document.body.innerHTML = `<main>${rows.join("")}</main>`;
+    document.querySelectorAll("main button").forEach((b, i) =>
+      b.addEventListener("click", () => {
+        pressed.push(i);
+        document.body.insertAdjacentHTML("beforeend", `<div role="dialog"></div>`);
+      }),
+    );
+  };
+  const over: Array<boolean> = [];
+  const show = (shown: boolean) => over.push(shown);
+  const none = async (query: string, ...rows: Array<string>) => {
+    list(...rows);
+    const deleted = xRadarDelete({ title: "", query }, show);
+    await vi.runAllTimersAsync();
+    return deleted;
+  };
+  try {
+    // Delete's own label, a title, part of a query, more tags than asked, and two rows alike.
+    expect([
+      await none("Delete", row("Untitled query", "bitcoin")),
+      await none("bitcoin", row("bitcoin", "bitcoin min_faves:100")),
+      await none("$GOOGL OR $AAPL", row("Untitled query", "$GOOGL", "$AAPL", "$TSLA")),
+      await none("eth", row("Untitled query", "eth"), row("Untitled query", "eth")),
+      await none("$AAPL OR $AAPL", row("Untitled query", "$AAPL", "$TSLA")),
+      pressed,
+    ]).toEqual([false, false, false, false, false, []]);
+
+    list(
+      row("Untitled query", "$GOOGL", "$AAPL", "$TSLA"),
+      row("Untitled query", "$AAPL", "$GOOGL"),
+    );
+    const done = xRadarDelete({ title: "", query: "$GOOGL OR $AAPL" }, show);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect([pressed, over]).toEqual([[1], [true]]);
+    // The user answers X's dialog in X.
+    document.querySelector('[role="dialog"]')!.remove();
+    await vi.runAllTimersAsync();
+    expect([await done, over]).toEqual([true, [true, false]]);
   } finally {
     history.replaceState(null, "", start);
   }

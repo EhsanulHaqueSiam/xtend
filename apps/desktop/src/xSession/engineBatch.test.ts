@@ -1039,32 +1039,6 @@ describe("renderEngineBatch around posts", () => {
     expect([none.analytics, hasEngineContent(none)]).toEqual([undefined, false]);
   });
 
-  it("reads whether X's claims unlock its account analytics", () => {
-    const claims = (resources: ReadonlyArray<string>) =>
-      renderEngineBatch(
-        "GetUserClaims",
-        {},
-        {
-          data: {
-            viewer_v2: {
-              claims: [
-                { rest_id: "premium-plus", resources: resources.map((rest_id) => ({ rest_id })) },
-              ],
-            },
-          },
-        },
-      );
-    const premium = claims(["client_feature_switch/subscriptions_feature_account_analytics/true"]);
-    expect([premium.analyticsAccess, hasEngineContent(premium)]).toEqual([true, true]);
-    expect(
-      claims(["client_feature_switch/subscriptions_feature_reader_mode/true"]).analyticsAccess,
-    ).toBe(false);
-    // An error alone says nothing either way.
-    expect(renderEngineBatch("GetUserClaims", {}, { errors: [{}] }).analyticsAccess).toBe(
-      undefined,
-    );
-  });
-
   it("reads X's account overview by day as X's page counts it", () => {
     const day = (n: number) => Date.UTC(2026, 9, 27 + n);
     const row = (n: number, engagement_type: string, count: number, verified = "false") => ({
@@ -2277,5 +2251,420 @@ describe("renderEngineBatch for X's sports pages", () => {
     );
     expect([latest.key, latest.order]).toEqual(["41", ["62", "61"]]);
     expect(renderEngineBatch("SportsGameTopTimeline", { gameId: "41" }, {}).key).toBe("41");
+  });
+});
+
+describe("renderEngineBatch for bookmark folders", () => {
+  // X's own operations and answers (bundle.BookmarkFolders), with made-up ids and names.
+  const folder = (id: string, name: string, image?: string) => ({
+    id,
+    name,
+    ...(image === undefined ? {} : { media: { media_info: { original_img_url: image } } }),
+  });
+
+  it("reads X's folders, a folder's posts by the folder, and what X's folder dialogs and rows did", () => {
+    const slice = renderEngineBatch(
+      "BookmarkFoldersSlice",
+      {},
+      {
+        data: {
+          viewer: {
+            user_results: {
+              result: {
+                __typename: "User",
+                bookmark_collections_slice: {
+                  items: [
+                    folder("801", "Reading", "https://pbs.twimg.com/media/a.jpg"),
+                    { id: "none" },
+                    folder("802", "Launch ideas"),
+                  ],
+                  slice_info: {},
+                },
+              },
+            },
+          },
+        },
+      },
+    );
+    expect([slice.bookmarkFolders, hasEngineContent(slice)]).toEqual([
+      {
+        kind: "list",
+        folders: [
+          { folderId: "801", name: "Reading", imageUrl: "https://pbs.twimg.com/media/a.jpg" },
+          { folderId: "802", name: "Launch ideas", imageUrl: null },
+        ],
+      },
+      true,
+    ]);
+
+    // A folder X answered with no posts still reaches its screen, which says it is empty.
+    const empty = renderEngineBatch(
+      "BookmarkFolderTimeline",
+      { bookmark_collection_id: "802", includePromotedContent: true },
+      { data: { bookmark_collection_timeline: { timeline: { instructions: [] } } } },
+    );
+    expect([empty.key, hasEngineContent(empty)]).toEqual(["802", true]);
+    // An error alone (X's rate limit) is no answer: the screen offers Load again, not "empty".
+    const limited = renderEngineBatch(
+      "BookmarkFolderTimeline",
+      { bookmark_collection_id: "802", includePromotedContent: true },
+      { errors: [{ code: 88, message: "Rate limit exceeded" }] },
+    );
+    expect([limited.key, hasEngineContent(limited)]).toEqual([null, false]);
+
+    const did = (op: string, variables: Record<string, unknown>, data: Record<string, unknown>) =>
+      renderEngineBatch(op, variables, { data }).bookmarkFolders;
+    expect(
+      did(
+        "createBookmarkFolder",
+        { name: "Recipes" },
+        {
+          bookmark_collection_create: { id: "803", name: "Recipes" },
+        },
+      ),
+    ).toEqual({ kind: "saved", folder: { folderId: "803", name: "Recipes", imageUrl: null } });
+    // X files a renamed folder under the name it asked for, and a failed rename changes nothing.
+    expect(
+      did(
+        "EditBookmarkFolder",
+        { bookmark_collection_id: "801", name: "To read" },
+        {
+          bookmark_collection_update: { id: "801", name: "Reading" },
+        },
+      ),
+    ).toEqual({ kind: "saved", folder: { folderId: "801", name: "To read", imageUrl: null } });
+    expect(
+      did("EditBookmarkFolder", { bookmark_collection_id: "801", name: "To read" }, {}),
+    ).toBeUndefined();
+    expect(
+      did(
+        "DeleteBookmarkFolder",
+        { bookmark_collection_id: "802" },
+        { bookmark_collection_delete: "Done" },
+      ),
+    ).toEqual({ kind: "deleted", folderId: "802" });
+    const post = { bookmark_collection_id: "801", tweet_id: "77" };
+    expect([
+      did("bookmarkTweetToFolder", post, { bookmark_collection_tweet_put: "Done" }),
+      did("RemoveTweetFromBookmarkFolder", post, { bookmark_collection_tweet_delete: "Done" }),
+    ]).toEqual([
+      { kind: "post", folderId: "801", postId: "77", added: true },
+      { kind: "post", folderId: "801", postId: "77", added: false },
+    ]);
+    // An error (no "Done") did nothing.
+    expect(did("DeleteBookmarkFolder", { bookmark_collection_id: "802" }, {})).toBeUndefined();
+  });
+
+  it("passes on Bookmarks X answered, even with no posts, and nothing from an error alone", () => {
+    const none = renderEngineBatch(
+      "Bookmarks",
+      { count: 20, includePromotedContent: true },
+      { data: { bookmark_timeline_v2: { timeline: { instructions: [] } } } },
+    );
+    expect([none.key, hasEngineContent(none)]).toEqual(["bookmarks", true]);
+    const limited = renderEngineBatch("Bookmarks", { count: 20 }, { errors: [{ code: 88 }] });
+    expect([limited.key, hasEngineContent(limited)]).toEqual([null, false]);
+  });
+
+  it("reads the features X's claims say the account holds, and nothing from an answer without them", () => {
+    const claims = renderEngineBatch(
+      "GetUserClaims",
+      {},
+      {
+        data: {
+          viewer_v2: {
+            claims: [
+              {
+                rest_id: "premium-basic",
+                origin: "Commerce",
+                resources: [
+                  { rest_id: "client_feature_switch/subscriptions_feature_1002/true" },
+                  { rest_id: "client_feature_switch/subscriptions_feature_1003/false" },
+                  { rest_id: "subscription/premium-basic" },
+                ],
+              },
+            ],
+          },
+        },
+      },
+    );
+    expect([claims.claims, hasEngineContent(claims)]).toEqual([
+      ["subscriptions_feature_1002"],
+      true,
+    ]);
+    const none = renderEngineBatch("GetUserClaims", {}, { data: { viewer_v2: { claims: [] } } });
+    expect(none.claims).toEqual([]);
+    const error = renderEngineBatch("GetUserClaims", {}, { errors: [{ code: 88 }] });
+    expect([error.claims, hasEngineContent(error)]).toEqual([undefined, false]);
+  });
+});
+
+describe("renderEngineBatch for X's Radar", () => {
+  // X's Radar answers in its Relay shape (ondemand.Insights): the user's rules under viewer_v2.
+  const viewer = (fields: Record<string, unknown>) => ({
+    data: {
+      viewer_v2: {
+        user_results: { result: { __typename: "User", ...fields, id: "VXNlcjox" }, id: "VXNlcjox" },
+      },
+    },
+  });
+  const rule = (
+    id: string,
+    core: Record<string, unknown>,
+    extra: Record<string, unknown> = {},
+  ) => ({
+    rest_id: id,
+    core: {
+      title: "",
+      tags: null,
+      advanced_query: null,
+      created_at: "2026-10-28T09:00:00.000Z",
+      updated_at: "2026-10-28T09:00:00.000Z",
+      notifications_enabled: false,
+      ...core,
+    },
+    id: btoa(`InsightRule:${id}`),
+    ...extra,
+  });
+
+  it("reads the queries in X's order, how many X allows, and a query's days, one X still counts as unknown", () => {
+    const list = renderEngineBatch(
+      "insightsListContextQuery",
+      { previewsEnabled: true },
+      viewer({
+        insight_rules: {
+          items: [
+            rule("1801", { title: "Bitcoin", advanced_query: "bitcoin min_faves:50" }),
+            // X's older queries name tags, which its page searches joined by OR.
+            rule(
+              "1802",
+              { tags: '["$GOOGL","$AAPL"]', updated_at: "2026-11-01T09:00:00.000Z" },
+              {
+                preview: {
+                  counts: [
+                    { start_time: 1_793_491_200, count: 40 },
+                    { start_time: 1_793_577_600, count: 12 },
+                  ],
+                },
+              },
+            ),
+            rule("bad", { title: "Not X's id" }),
+          ],
+        },
+      }),
+    );
+    const config = renderEngineBatch(
+      "insightsConfigQuery",
+      {},
+      viewer({
+        insights_config: {
+          __typename: "InsightsConfigSuccess",
+          saved_query_limit: 3,
+          time_range_limit_days: 3,
+        },
+      }),
+    );
+    const counts = renderEngineBatch(
+      "usePostCountQuery",
+      { id: "1801", granularity: "Day", from_time: 1_793_404_800, to_time: 1_793_664_000 },
+      viewer({
+        insight_rule_by_id: {
+          matched_post_counts: {
+            __typename: "InsightsMatchedPostCountsSuccess",
+            counts: [
+              { count: 9, start_time: 1_793_404_800 },
+              { count: 7, start_time: 1_793_491_200 },
+              { count: 30, start_time: 1_793_577_600 },
+            ],
+            has_incomplete_counts: true,
+            oldest_complete_count: 1_793_491_200,
+            total: 46,
+          },
+          id: "SW5zaWdodFJ1bGU6MTgwMQ==",
+        },
+      }),
+    );
+    const empty = renderEngineBatch(
+      "insightsListContextQuery",
+      { previewsEnabled: false },
+      viewer({ insight_rules: { items: [] } }),
+    );
+    expect([list.key, list.radarQueries]).toEqual([
+      "radar",
+      [
+        {
+          id: "1802",
+          title: "",
+          query: "$GOOGL OR $AAPL",
+          createdAt: "2026-10-28T09:00:00.000Z",
+          preview: [
+            { at: "2026-11-01T00:00:00.000Z", count: 40 },
+            { at: "2026-11-02T00:00:00.000Z", count: 12 },
+          ],
+        },
+        {
+          id: "1801",
+          title: "Bitcoin",
+          query: "bitcoin min_faves:50",
+          createdAt: "2026-10-28T09:00:00.000Z",
+          preview: [],
+        },
+      ],
+    ]);
+    expect([config.radarLimit, counts.key, counts.radarCounts]).toEqual([
+      3,
+      "1801",
+      [
+        { at: "2026-10-31T00:00:00.000Z", count: null },
+        { at: "2026-11-01T00:00:00.000Z", count: 7 },
+        { at: "2026-11-02T00:00:00.000Z", count: 30 },
+      ],
+    ]);
+    // No queries yet still reaches the screen, which offers X's form.
+    expect([empty.radarQueries, hasEngineContent(empty)]).toEqual([[], true]);
+    // X's answer to the user's delete names the query gone; a failure names none.
+    const deleted = (__typename: string) =>
+      renderEngineBatch(
+        "deleteInsightButtonMutation",
+        { id: "1801" },
+        {
+          data: {
+            delete_insight_rule_v2: {
+              __typename,
+              result: { rest_id: "1801", id: "SW5zaWdodFJ1bGU6MTgwMQ==" },
+            },
+          },
+        },
+      );
+    const [done, failed] = [deleted("InsightRuleMutationSuccess"), deleted("InsightRuleFailure")];
+    expect([done.radarDeleted, hasEngineContent(failed)]).toEqual(["1801", false]);
+  });
+
+  it("reads a query's posts in X's newer post shape, keyed by the query and tab without X's range", () => {
+    const post = {
+      __typename: "Tweet",
+      rest_id: "1900",
+      core: {
+        user_results: {
+          result: {
+            __typename: "User",
+            rest_id: "77",
+            core: { name: "Barchart", screen_name: "Barchart" },
+            avatar: { image_url: "https://pbs.twimg.com/profile_images/77/b_normal.jpg" },
+            verification: { verified_type: "Business" },
+            is_blue_verified: true,
+            affiliates_highlighted_label: {},
+            id: "VXNlcjo3Nw==",
+          },
+          id: "VXNlcjo3Nw==",
+        },
+      },
+      details: {
+        display_text_range: [0, 54],
+        full_text: "$GOOGL fell below its 50-day &amp; @nvidia https://t.co/x",
+        created_at_ms: 1_793_536_000_000,
+        hashtag_entities: [],
+        cashtag_entities: [{ indices: [0, 6], text: "GOOGL" }],
+        smarttags: [],
+      },
+      legacy: { entities: { timestamps: [] } },
+      url_entities: [
+        {
+          display_url: "barchart.com/x",
+          expanded_url: "https://barchart.com/x",
+          indices: [43, 66],
+          url: "https://t.co/x",
+        },
+      ],
+      mention_entities: [
+        { id_str: "88", indices: [35, 42], is_unmentioned: false, screen_name: "nvidia" },
+      ],
+      counts: {
+        reply_count: 2,
+        favorite_count: 30,
+        quote_count: 1,
+        retweet_count: 4,
+        bookmark_count: 5,
+      },
+      views: { count: "4512" },
+      id: "VHdlZXQ6MTkwMA==",
+    };
+    const body = {
+      data: {
+        search_by_raw_query: {
+          search_timeline: {
+            timeline: {
+              instructions: [
+                {
+                  __typename: "TimelineAddEntries",
+                  entries: [
+                    {
+                      content: {
+                        __typename: "TimelineTimelineItem",
+                        content: {
+                          __typename: "TimelineTweet",
+                          tweet_results: { rest_id: "1900", result: post },
+                        },
+                      },
+                    },
+                    {
+                      content: {
+                        __typename: "TimelineTimelineCursor",
+                        value: "DAADDAAB",
+                        cursor_type: "Bottom",
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+          id: "U2VhcmNoUXVlcnk6",
+        },
+      },
+    };
+    const top = renderEngineBatch(
+      "postListQuery",
+      { cursor: null, product: "Top", query: "$GOOGL (buy OR sell) -is:retweet since:2026-10-27" },
+      body,
+    );
+    expect([top.key, top.posts.length, hasEngineContent(top)]).toEqual([
+      "radar:Top:$GOOGL (buy OR sell)",
+      1,
+      true,
+    ]);
+    expect(top.posts[0]).toMatchObject({
+      postId: "1900",
+      author: { userId: "77", handle: "barchart", name: "Barchart", verified: true },
+      text: "$GOOGL fell below its 50-day & @nvidia https://t.co/x",
+      createdAt: "2026-11-01T12:26:40.000Z",
+      hasLink: true,
+      metrics: { views: 4512, likes: 30, reposts: 4, replies: 2, quotes: 1, bookmarks: 5 },
+      avatarUrl: "https://pbs.twimg.com/profile_images/77/b_normal.jpg",
+      entities: {
+        urls: [
+          {
+            url: "https://t.co/x",
+            expanded: "https://barchart.com/x",
+            display: "barchart.com/x",
+            indices: [39, 53],
+          },
+        ],
+        mentions: [{ handle: "nvidia", indices: [31, 38] }],
+        cashtags: [{ tag: "GOOGL", indices: [0, 6] }],
+      },
+    });
+    // Latest is its own list; a range ending at until: is still the same query.
+    expect(
+      renderEngineBatch(
+        "postListQuery",
+        {
+          cursor: null,
+          product: "Latest",
+          query: "$GOOGL (buy OR sell) -is:retweet since:2026-10-27 until:2026-10-30",
+        },
+        body,
+      ).key,
+    ).toBe("radar:Latest:$GOOGL (buy OR sell)");
   });
 });

@@ -6,7 +6,7 @@ import { page, userEvent } from "vite-plus/test/browser";
 import "~/index.css";
 import { installFakeBridge } from "../../../test/fakeBridge";
 import { render } from "../../../test/render";
-import { emptyEngine, updateEngine } from "../../state/engine";
+import { ANALYTICS_CLAIM, emptyEngine, updateEngine } from "../../state/engine";
 import { markXReady, registerXWebview, type XWebview } from "../../state/x";
 import { EngineSync } from "../xnative/EngineSync";
 import { synth } from "../xnative/engineFixtures";
@@ -14,10 +14,10 @@ import { XAnalyticsSection, type XSection } from "./XAnalytics";
 
 const fixture = synth().accountAnalytics!.batches;
 const answer = (key: string) => fixture.find((b) => b.key === key)!;
-const claims = (analyticsAccess: boolean): EngineBatch => ({
-  ...fixture.find((b) => b.op === "GetUserClaims")!,
-  analyticsAccess,
-});
+const claims = (access: boolean): EngineBatch => {
+  const { accountAnalytics: _, ...base } = answer("content:7");
+  return { ...base, op: "GetUserClaims", key: null, claims: access ? [ANALYTICS_CLAIM] : [] };
+};
 
 /**
  * One section on a fresh store, the engine a fake webview whose scripts the test reads. `upsell`

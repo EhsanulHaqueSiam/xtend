@@ -726,14 +726,16 @@ export async function postThroughComposer(
     }
     // Listening before Post; the button stays disabled while uploads run.
     const created = nextCreatedPost();
-    const button = await waitForNode(cdp, 'button[data-testid="tweetButton"]', deadline, enabled);
+    const post = 'button[data-testid="tweetButton"]';
+    await waitForNode(cdp, post, deadline, enabled);
     // Checked again at the press: still closed, and X still names the user's setting.
     await waitForGone(cdp, X_COMPOSER.replyPopover, Date.now()).catch(() => {
       throw new NotAttempted("x.com's reply settings opened again; nothing was posted");
     });
     if (reply !== null)
       await control(cdp, X_COMPOSER.replyButtonFor(reply.label), `"${reply.label}"`, deadline);
-    return { button, created };
+    // Found last: each lookup above drops the node ids Chromium handed out before it.
+    return { button: await waitForNode(cdp, post, deadline, enabled), created };
   };
   const { button, created } = await ready().catch(async (error: unknown) => {
     throw await takeBack(cdp, touched, error);
