@@ -24,6 +24,7 @@ import { Route as FollowRouteImport } from './routes/follow'
 import { Route as ExploreRouteImport } from './routes/explore'
 import { Route as EngageRouteImport } from './routes/engage'
 import { Route as ComposeRouteImport } from './routes/compose'
+import { Route as ChatRouteImport } from './routes/chat'
 import { Route as BookmarksRouteImport } from './routes/bookmarks'
 import { Route as AutomateRouteImport } from './routes/automate'
 import { Route as AnalyzeRouteImport } from './routes/analyze'
@@ -116,6 +117,11 @@ const EngageRoute = EngageRouteImport.update({
 const ComposeRoute = ComposeRouteImport.update({
   id: '/compose',
   path: '/compose',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ChatRoute = ChatRouteImport.update({
+  id: '/chat',
+  path: '/chat',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BookmarksRoute = BookmarksRouteImport.update({
@@ -214,6 +220,7 @@ export interface FileRoutesByFullPath {
   '/analyze': typeof AnalyzeRoute
   '/automate': typeof AutomateRoute
   '/bookmarks': typeof BookmarksRoute
+  '/chat': typeof ChatRoute
   '/compose': typeof ComposeRoute
   '/engage': typeof EngageRoute
   '/explore': typeof ExploreRoute
@@ -249,6 +256,7 @@ export interface FileRoutesByTo {
   '/analyze': typeof AnalyzeRoute
   '/automate': typeof AutomateRoute
   '/bookmarks': typeof BookmarksRoute
+  '/chat': typeof ChatRoute
   '/compose': typeof ComposeRoute
   '/engage': typeof EngageRoute
   '/explore': typeof ExploreRoute
@@ -285,6 +293,7 @@ export interface FileRoutesById {
   '/analyze': typeof AnalyzeRoute
   '/automate': typeof AutomateRoute
   '/bookmarks': typeof BookmarksRoute
+  '/chat': typeof ChatRoute
   '/compose': typeof ComposeRoute
   '/engage': typeof EngageRoute
   '/explore': typeof ExploreRoute
@@ -322,6 +331,7 @@ export interface FileRouteTypes {
     | '/analyze'
     | '/automate'
     | '/bookmarks'
+    | '/chat'
     | '/compose'
     | '/engage'
     | '/explore'
@@ -357,6 +367,7 @@ export interface FileRouteTypes {
     | '/analyze'
     | '/automate'
     | '/bookmarks'
+    | '/chat'
     | '/compose'
     | '/engage'
     | '/explore'
@@ -392,6 +403,7 @@ export interface FileRouteTypes {
     | '/analyze'
     | '/automate'
     | '/bookmarks'
+    | '/chat'
     | '/compose'
     | '/engage'
     | '/explore'
@@ -428,6 +440,7 @@ export interface RootRouteChildren {
   AnalyzeRoute: typeof AnalyzeRoute
   AutomateRoute: typeof AutomateRoute
   BookmarksRoute: typeof BookmarksRoute
+  ChatRoute: typeof ChatRoute
   ComposeRoute: typeof ComposeRoute
   EngageRoute: typeof EngageRoute
   ExploreRoute: typeof ExploreRoute
@@ -566,6 +579,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ComposeRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/chat': {
+      id: '/chat'
+      path: '/chat'
+      fullPath: '/chat'
+      preLoaderRoute: typeof ChatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/bookmarks': {
       id: '/bookmarks'
       path: '/bookmarks'
@@ -700,6 +720,7 @@ const rootRouteChildren: RootRouteChildren = {
   AnalyzeRoute: AnalyzeRoute,
   AutomateRoute: AutomateRoute,
   BookmarksRoute: BookmarksRoute,
+  ChatRoute: ChatRoute,
   ComposeRoute: ComposeRoute,
   EngageRoute: EngageRoute,
   ExploreRoute: ExploreRoute,

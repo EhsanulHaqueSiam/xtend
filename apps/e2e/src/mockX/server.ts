@@ -224,6 +224,9 @@ export async function startMockX(
       }
       case "/__mock/presses":
         return json(state.presses);
+      case "/__mock/chat-unlock":
+        state.chat.unlock();
+        return json({ ok: true });
       case "/favicon.ico":
         return send(204, "", "image/x-icon");
     }

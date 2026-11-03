@@ -84,8 +84,57 @@ const SCRIPT = String.raw`
     t.innerHTML = html;
     const div = document.createElement("div");
     div.append(t.content);
+    // X's chat draws in open shadow roots on its host divs: a template marks each one.
+    for (const shadow of div.querySelectorAll("template[data-shadow]")) {
+      const root = shadow.parentElement.attachShadow({ mode: "open" });
+      root.append(shadow.content);
+      shadow.remove();
+      chatRoot(root);
+    }
     return div;
   };
+
+  // X's Chat, in its shadow root (its events stay inside it): the passcode screen opens the chats
+  // once four digits are typed, search lists X's matches in place, and X's links open in X's router.
+  function chatRoot(root) {
+    const pins = () => [...root.querySelectorAll('[data-testid="pin-code-input-container"] input')];
+    // X draws its results in place of the inbox list while a query is typed, and the list again after.
+    const list = root.querySelector('[data-testid="dm-conversation-scroller"]');
+    const options = root.querySelector("template[data-mock-search]");
+    const results = document.createElement("div");
+    results.setAttribute("role", "listbox");
+    const search = (q) => {
+      if (!list || !options) return;
+      if (q === "") return void results.replaceWith(list);
+      results.replaceChildren(...[...options.content.children].filter((o) => o.dataset.name.toLowerCase().includes(q)).map((o) => o.cloneNode(true)));
+      if (list.isConnected) list.replaceWith(results);
+    };
+    root.addEventListener("input", (event) => {
+      const field = event.target;
+      if (!(field instanceof HTMLInputElement)) return;
+      if (pins().includes(field)) {
+        if (pins().every((p) => /^\d$/.test(p.value)))
+          void post("/__mock/chat-unlock", {}).then(() => { log("chat:passcode"); cache.clear(); void show(); });
+        return;
+      }
+      if (field.dataset.testid === "dm-search-input") search(field.value.trim().toLowerCase());
+    });
+    root.addEventListener("click", (event) => {
+      const el = event.target instanceof Element ? event.target : null;
+      if (el?.closest('[data-testid="dm-search-close"]')) {
+        log("chat:search-close");
+        const input = root.querySelector('[data-testid="dm-search-input"]');
+        if (input) input.value = "";
+        return search("");
+      }
+      const a = el?.closest("a[href]");
+      if (a) {
+        event.preventDefault();
+        log("chat:" + a.getAttribute("href"));
+        go(a.getAttribute("href"), false);
+      }
+    });
+  }
 
   /** Fires the page's GraphQL calls as X's app makes them, so the capture sees each answer. */
   const graphql = (r) =>

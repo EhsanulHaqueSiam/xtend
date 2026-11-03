@@ -2276,17 +2276,35 @@ const benchmarks = [
     },
   ],
   [
-    "Messages stays x.com itself, over the main area",
+    "Chat reads X's passcode screen or X's inbox rows, opening no conversation",
     async () => {
       await app(
-        `[...document.querySelectorAll("nav button, aside button")].find((b) => b.textContent.trim() === "Messages" || b.getAttribute("aria-label") === "Messages")?.click(), true`,
+        `[...document.querySelectorAll("nav button, aside button")].find((b) => b.textContent.trim() === "Chat" || b.getAttribute("aria-label") === "Chat")?.click(), true`,
       );
-      return until(
-        async () =>
-          (await app(
-            `location.hash.startsWith("#/x") && document.querySelector('section[aria-label="x.com"]')?.dataset.mode === "main"`,
-          )) && /^\/(messages|i\/chat)/.test(await enginePath()),
-      );
+      // Opening a conversation marks it read in X: the check must never land on one.
+      const conversation = /^\/i\/chat\/(requests\/(other\/)?)?(\d+-\d+|g\d+)/;
+      // Counts only: a chat's names and words stay in X's page and the app page.
+      const seen = await until(async () => {
+        const path = await enginePath();
+        if (!path.startsWith("/i/chat") || conversation.test(path)) return undefined;
+        const x = await engine(`(() => {
+          const roots = [...document.querySelectorAll('[data-testid^="xchatEmbed"]')].flatMap((h) => (h.shadowRoot ? [h.shadowRoot] : []));
+          const count = (s) => roots.reduce((n, r) => n + r.querySelectorAll(s).length, 0);
+          return { pin: count('[data-testid="pin-code-input-container"], [data-testid="pin-title"]'), rows: count('[data-testid^="dm-conversation-item-"]'), empty: count('[data-testid="dm-empty-inbox"]') };
+        })()`);
+        if (x.pin > 0)
+          return (
+            (await app(
+              `document.querySelector('section[aria-label="x.com"]')?.dataset.mode === "main"`,
+            )) && "X's passcode screen, over the main area"
+          );
+        if (x.rows === 0 && x.empty === 0) return undefined;
+        const drawn = await app(`document.querySelectorAll('main [data-x="chat-row"]').length`);
+        return drawn === x.rows && `${drawn} of X's ${x.rows} rows`;
+      }, 30_000);
+      const path = await enginePath();
+      if (conversation.test(path)) console.log("      the engine opened a conversation");
+      return !conversation.test(path) && seen;
     },
   ],
   [

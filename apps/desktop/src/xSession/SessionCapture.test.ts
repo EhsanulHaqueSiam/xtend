@@ -266,3 +266,29 @@ it("passes X's REST count of followers you know to the X screens, and nothing to
   const batch = await rendered;
   expect([batch.key, batch.knownFollowers, sent]).toEqual(["5", 75, []]);
 });
+
+it("never reads X's Chat answers: nothing from chat's own GraphQL reaches the service or the screens", () => {
+  const rendered: Array<EngineBatch> = [];
+  const contents = { debugger: debug } as unknown as Electron.WebContents;
+  detach = attachSessionCapture(contents, {
+    serviceUrl: "http://127.0.0.1:4820",
+    serviceToken: "tok",
+    accountId: 1,
+    queueDir,
+    log: () => {},
+    onRender: (batch) => rendered.push(batch),
+  });
+  // X's chat calls its own host (api.x.com/graphql); a post shared in a chat comes through it too.
+  const CHAT = "https://api.x.com/graphql/q1";
+  debug.received("inbox", `${CHAT}/GetInitialXChatPageQuery`, {
+    data: { get_initial_chat_page: { message_requests_count: 1, encoded_message_events: [] } },
+  });
+  debug.finished("inbox");
+  debug.received("shared", `${CHAT}/GetPostById?variables=%7B%7D`, {
+    data: { tweetResult: { result: tweet("11") } },
+  });
+  debug.finished("shared");
+  // A finished response the capture takes asks for its body at once: these were never read.
+  expect(debug.commands).not.toContain("Network.getResponseBody");
+  expect([sent, rendered]).toEqual([[], []]);
+});
