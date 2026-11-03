@@ -28,9 +28,11 @@ import { Route as BookmarksRouteImport } from './routes/bookmarks'
 import { Route as AutomateRouteImport } from './routes/automate'
 import { Route as AnalyzeRouteImport } from './routes/analyze'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as NbaIndexRouteImport } from './routes/nba.index'
 import { Route as ListsIndexRouteImport } from './routes/lists.index'
 import { Route as CommunitiesIndexRouteImport } from './routes/communities.index'
 import { Route as UHandleRouteImport } from './routes/u.$handle'
+import { Route as TrendingIdRouteImport } from './routes/trending.$id'
 import { Route as PostIdRouteImport } from './routes/post.$id'
 import { Route as ListsIdRouteImport } from './routes/lists.$id'
 import { Route as CommunitiesIdRouteImport } from './routes/communities.$id'
@@ -136,6 +138,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const NbaIndexRoute = NbaIndexRouteImport.update({
+  id: '/nba/',
+  path: '/nba/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ListsIndexRoute = ListsIndexRouteImport.update({
   id: '/lists/',
   path: '/lists/',
@@ -149,6 +156,11 @@ const CommunitiesIndexRoute = CommunitiesIndexRouteImport.update({
 const UHandleRoute = UHandleRouteImport.update({
   id: '/u/$handle',
   path: '/u/$handle',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TrendingIdRoute = TrendingIdRouteImport.update({
+  id: '/trending/$id',
+  path: '/trending/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PostIdRoute = PostIdRouteImport.update({
@@ -221,9 +233,11 @@ export interface FileRoutesByFullPath {
   '/communities/$id': typeof CommunitiesIdRoute
   '/lists/$id': typeof ListsIdRoute
   '/post/$id': typeof PostIdRoute
+  '/trending/$id': typeof TrendingIdRoute
   '/u/$handle': typeof UHandleRoute
   '/communities/': typeof CommunitiesIndexRoute
   '/lists/': typeof ListsIndexRoute
+  '/nba/': typeof NbaIndexRoute
   '/lists/$id/people': typeof ListsIdPeopleRoute
   '/nba/game/$id': typeof NbaGameIdRoute
   '/post/$id/activity': typeof PostIdActivityRoute
@@ -254,9 +268,11 @@ export interface FileRoutesByTo {
   '/communities/$id': typeof CommunitiesIdRoute
   '/lists/$id': typeof ListsIdRoute
   '/post/$id': typeof PostIdRoute
+  '/trending/$id': typeof TrendingIdRoute
   '/u/$handle': typeof UHandleRoute
   '/communities': typeof CommunitiesIndexRoute
   '/lists': typeof ListsIndexRoute
+  '/nba': typeof NbaIndexRoute
   '/lists/$id/people': typeof ListsIdPeopleRoute
   '/nba/game/$id': typeof NbaGameIdRoute
   '/post/$id/activity': typeof PostIdActivityRoute
@@ -288,9 +304,11 @@ export interface FileRoutesById {
   '/communities/$id': typeof CommunitiesIdRoute
   '/lists/$id': typeof ListsIdRoute
   '/post/$id': typeof PostIdRoute
+  '/trending/$id': typeof TrendingIdRoute
   '/u/$handle': typeof UHandleRoute
   '/communities/': typeof CommunitiesIndexRoute
   '/lists/': typeof ListsIndexRoute
+  '/nba/': typeof NbaIndexRoute
   '/lists/$id_/people': typeof ListsIdPeopleRoute
   '/nba/game/$id': typeof NbaGameIdRoute
   '/post/$id_/activity': typeof PostIdActivityRoute
@@ -323,9 +341,11 @@ export interface FileRouteTypes {
     | '/communities/$id'
     | '/lists/$id'
     | '/post/$id'
+    | '/trending/$id'
     | '/u/$handle'
     | '/communities/'
     | '/lists/'
+    | '/nba/'
     | '/lists/$id/people'
     | '/nba/game/$id'
     | '/post/$id/activity'
@@ -356,9 +376,11 @@ export interface FileRouteTypes {
     | '/communities/$id'
     | '/lists/$id'
     | '/post/$id'
+    | '/trending/$id'
     | '/u/$handle'
     | '/communities'
     | '/lists'
+    | '/nba'
     | '/lists/$id/people'
     | '/nba/game/$id'
     | '/post/$id/activity'
@@ -389,9 +411,11 @@ export interface FileRouteTypes {
     | '/communities/$id'
     | '/lists/$id'
     | '/post/$id'
+    | '/trending/$id'
     | '/u/$handle'
     | '/communities/'
     | '/lists/'
+    | '/nba/'
     | '/lists/$id_/people'
     | '/nba/game/$id'
     | '/post/$id_/activity'
@@ -423,9 +447,11 @@ export interface RootRouteChildren {
   CommunitiesIdRoute: typeof CommunitiesIdRoute
   ListsIdRoute: typeof ListsIdRoute
   PostIdRoute: typeof PostIdRoute
+  TrendingIdRoute: typeof TrendingIdRoute
   UHandleRoute: typeof UHandleRoute
   CommunitiesIndexRoute: typeof CommunitiesIndexRoute
   ListsIndexRoute: typeof ListsIndexRoute
+  NbaIndexRoute: typeof NbaIndexRoute
   ListsIdPeopleRoute: typeof ListsIdPeopleRoute
   NbaGameIdRoute: typeof NbaGameIdRoute
   PostIdActivityRoute: typeof PostIdActivityRoute
@@ -568,6 +594,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/nba/': {
+      id: '/nba/'
+      path: '/nba'
+      fullPath: '/nba/'
+      preLoaderRoute: typeof NbaIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/lists/': {
       id: '/lists/'
       path: '/lists'
@@ -587,6 +620,13 @@ declare module '@tanstack/react-router' {
       path: '/u/$handle'
       fullPath: '/u/$handle'
       preLoaderRoute: typeof UHandleRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/trending/$id': {
+      id: '/trending/$id'
+      path: '/trending/$id'
+      fullPath: '/trending/$id'
+      preLoaderRoute: typeof TrendingIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/post/$id': {
@@ -679,9 +719,11 @@ const rootRouteChildren: RootRouteChildren = {
   CommunitiesIdRoute: CommunitiesIdRoute,
   ListsIdRoute: ListsIdRoute,
   PostIdRoute: PostIdRoute,
+  TrendingIdRoute: TrendingIdRoute,
   UHandleRoute: UHandleRoute,
   CommunitiesIndexRoute: CommunitiesIndexRoute,
   ListsIndexRoute: ListsIndexRoute,
+  NbaIndexRoute: NbaIndexRoute,
   ListsIdPeopleRoute: ListsIdPeopleRoute,
   NbaGameIdRoute: NbaGameIdRoute,
   PostIdActivityRoute: PostIdActivityRoute,

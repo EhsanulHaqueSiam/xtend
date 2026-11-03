@@ -769,6 +769,71 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
       },
     };
   }
+  // X's news story: its summary, then the posts of the tab `?timeline=` names (the first, without).
+  if (lower === "i" && second === "trending" && third !== undefined && fourth === undefined) {
+    const story = state.batchFor("AiTrendByRestId", { trendId: third })?.story;
+    const timelineId = q.get("timeline") ?? story?.timelines[0]?.timelineId;
+    return {
+      title: "News / X",
+      requests: [
+        r("AiTrendByRestId", { trendId: third, includePromotedContent: false }),
+        ...(timelineId === undefined ? [] : [r("GenericTimelineById", { timelineId, count: 20 })]),
+      ],
+      render: ([head, b]) =>
+        head?.story === undefined
+          ? `${header("News")}<div class="empty"><h3>Hmm...this page doesn't exist.</h3></div>`
+          : `${header("News")}<div data-testid="trendStory"><h2>${esc(head.story.title)}</h2><div>Last updated</div><p>${esc(head.story.summary)}</p></div>${tabs(
+              "Story",
+              head.story.timelines.map((t, i) => ({
+                label: t.label,
+                href: `/i/trending/${third}${i === 0 ? "" : `?timeline=${encodeURIComponent(t.timelineId)}`}`,
+                on: t.timelineId === timelineId,
+              })),
+            )}<section data-list>${postsOf(b ?? null, state)}</section>`,
+    };
+  }
+  // X's NBA league page: each tab its own page under /i/nba.
+  if (lower === "i" && second === "nba" && third !== "game" && fourth === undefined) {
+    const tab = third === "standings" || third === "players" ? third : "games";
+    const day = Date.parse(state.batchFor("NBASchedule", {})?.games?.[0]?.startsAt ?? "") || 0;
+    return {
+      title: "NBA / X",
+      requests: [
+        r("NBATeams", {}),
+        tab === "games"
+          ? r("NBASchedule", {
+              start_ms: String(day - 43_200_000),
+              end_ms: String(day + 43_200_000),
+              limit: 500,
+            })
+          : tab === "standings"
+            ? r("NBAStandings", {})
+            : r("NBALeaders", { limit: 25 }),
+      ],
+      render: ([, b]) =>
+        `${header("NBA")}${tabs("NBA", [
+          { label: "Schedule", href: "/i/nba/games", on: tab === "games" },
+          { label: "Standings", href: "/i/nba/standings", on: tab === "standings" },
+          { label: "Stats", href: "/i/nba/players", on: tab === "players" },
+        ])}<section data-testid="nbaHub">${
+          tab === "games"
+            ? (b?.games ?? [])
+                .map((g) => `<a href="/i/nba/game/${g.gameId}">${esc(gameState(g))}</a>`)
+                .join("")
+            : tab === "standings"
+              ? (b?.standings ?? [])
+                  .flatMap((c) => c.divisions.flatMap((d) => d.teams))
+                  .map(
+                    (t) =>
+                      `<div data-testid="standing">${esc(t.abbreviation)} ${t.wins}-${t.losses}</div>`,
+                  )
+                  .join("")
+              : (b?.leaders?.[0]?.leaders ?? [])
+                  .map((l) => `<div data-testid="leader">${esc(l.name)} ${esc(l.value)}</div>`)
+                  .join("")
+        }</section>`,
+    };
+  }
   if (lower === "i" && second === "nba" && third === "game" && fourth !== undefined) {
     const id = fourth;
     const tab = GAME_TABS.find((t) => t === homeTab) ?? "Top";

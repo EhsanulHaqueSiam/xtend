@@ -23,6 +23,13 @@ it("opens x.com posts, Articles, profiles, searches, the Follow page and Communi
   expect(xtendRoute("https://x.com/i/communities/1600000000000000001/members")).toBeNull();
   expect(xtendRoute("https://x.com/you/communities/explore")).toBe("/communities?tab=explore");
   expect(xtendRoute("https://x.com/you/communities")).toBe("/communities");
+  // A news story (Explore's news rows link it) and the NBA league page by X's tab.
+  expect(xtendRoute("https://x.com/i/trending/1985000000000000001")).toBe(
+    "/trending/1985000000000000001",
+  );
+  expect(xtendRoute("https://x.com/i/nba")).toBe("/nba?tab=games");
+  expect(xtendRoute("https://x.com/i/nba/standings")).toBe("/nba?tab=standings");
+  expect(xtendRoute("https://x.com/i/nba/media")).toBeNull();
   // X's own pages Xtend does not draw, and other sites, open in the browser.
   expect(xtendRoute("https://x.com/i/spaces/1")).toBeNull();
   expect(xtendRoute("https://x.com/home")).toBeNull();

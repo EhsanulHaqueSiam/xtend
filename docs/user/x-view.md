@@ -29,7 +29,12 @@ same post.
 
 An NBA team's profile shows its schedule as X does. A game opens with the day's scores, the
 score, clock and last play, and X's Top and Latest posts; Highlights, Stats, Plays and Chat open
-X's own game page in the panel.
+X's own game page in the panel. **NBA** on a game opens the league page: the day's games, the
+standings by conference, and the stat leaders for the stat you pick.
+
+A news row in Explore opens its story: X's headline, when X last updated it, Grok's summary with
+X's caveat, and the story's posts in X's tabs (Top, Latest). Saving, reporting and sharing a story
+stay on x.com.
 
 The box at the top of Home is X's composer: images or a video, a poll, who can reply, emoji
 (the system picker, on macOS and Windows) and @mentions suggested from people Xtend has already

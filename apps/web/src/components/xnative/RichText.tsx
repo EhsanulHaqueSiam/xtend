@@ -35,6 +35,15 @@ export function xtendRoute(href: string): string | null {
   }
   if (second === "communities" && first !== undefined && /^\w{1,15}$/.test(first))
     return third === "explore" ? "/communities?tab=explore" : "/communities";
+  // X's news story, and its NBA league page by tab.
+  if (first === "i" && second === "trending" && third !== undefined && /^\d+$/.test(third))
+    return `/trending/${third}`;
+  if (first === "i" && second === "nba" && fourth === undefined) {
+    const tab = third === "standings" || third === "players" ? third : "games";
+    return third === undefined || ["home", "games", "standings", "players"].includes(third)
+      ? `/nba?tab=${tab}`
+      : null;
+  }
   if (first === undefined || first === "i" || first === "home") return null;
   if (second === "status" && third !== undefined && /^\d+$/.test(third))
     return `/post/${third}?h=${first}`;

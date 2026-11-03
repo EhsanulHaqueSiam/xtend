@@ -997,6 +997,66 @@ const benchmarks = [
     },
   ],
   [
+    "News story and NBA league: a news row opens X's story with X's headline and posts, and the league's standings are X's (reads only)",
+    async () => {
+      // A news row X's Explore lists (Today's News): its story page, drawn natively.
+      await go("#/explore");
+      const id = await until(
+        () =>
+          store(
+            `(() => { for (const per of Object.values($.trends)) for (const t of per) { const m = /\\/i\\/trending\\/(\\d+)/.exec(t.url); if (m) return m[1]; } })()`,
+          ),
+        20_000,
+      );
+      if (!id) return false;
+      await go(`#/trending/${id}`);
+      const story = await until(
+        async () =>
+          (await enginePath()) === `/i/trending/${id}` &&
+          store(
+            `(() => { const s = $.stories.get(${JSON.stringify(id)}); return s && { title: s.title, tabs: s.timelines.length }; })()`,
+          ),
+        30_000,
+      );
+      if (!story) return false;
+      // Xtend's headline is X's, and its first posts are the ones X's page draws first.
+      const xFirst = `[...document.querySelectorAll("article")].map((a) => a.querySelector('a[href*="/status/"] time')?.parentElement.getAttribute("href")?.split("/status/")[1]?.split("/")[0]).filter(Boolean).slice(0, 3)`;
+      const same = await until(async () => {
+        const ours = await nativeIds();
+        const xs = await engine(xFirst);
+        const title = await app(`document.querySelector('main [data-x="story"] h2')?.textContent`);
+        const onX = await engine(
+          `document.body.innerText.includes(${JSON.stringify(story.title)})`,
+        );
+        return (
+          xs?.length > 0 &&
+          title === story.title &&
+          onX &&
+          JSON.stringify(ours.slice(0, xs.length)) === JSON.stringify(xs) &&
+          xs.length
+        );
+      }, 30_000);
+      if (!same) return false;
+      // The league page: X's standings, every team X sent drawn.
+      await go("#/nba?tab=standings");
+      const teams = await until(
+        async () =>
+          (await enginePath()) === "/i/nba/standings" &&
+          store(`$.standings.flatMap((c) => c.divisions.flatMap((d) => d.teams)).length`),
+        30_000,
+      );
+      const rows =
+        teams &&
+        (await until(() =>
+          app(`document.querySelectorAll('main [data-x="standings"] tbody tr').length`),
+        ));
+      return (
+        rows &&
+        `story ${id}: "${story.title}", ${story.tabs} tabs, first ${same} posts as X; standings ${teams} teams, ${rows} drawn`
+      );
+    },
+  ],
+  [
     "Communities search: the Communities X finds, then its Top and Latest, are X's own (dry)",
     async () => {
       // A word from a Community the account has seen, so X finds something; nothing is pressed.

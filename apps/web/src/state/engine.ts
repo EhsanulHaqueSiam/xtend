@@ -2,11 +2,13 @@ import type {
   EngineArticle,
   EngineBatch,
   EngineCommunity,
+  EngineConference,
   EngineExploreTab,
   EngineGame,
   EngineGameTeam,
   EngineGif,
   EngineHomeTab,
+  EngineLeaders,
   EngineList,
   EngineModule,
   EngineNotification,
@@ -15,6 +17,7 @@ import type {
   EnginePrompt,
   EngineRadarCount,
   EngineRadarQuery,
+  EngineStory,
   EngineTrend,
   EngineUser,
   EngineViewer,
@@ -420,6 +423,13 @@ export interface EngineState {
   readonly analytics: ReadonlyMap<string, Readonly<Record<string, number>>>;
   /** How many people the viewer follows follow each user, by user id (see `EngineBatch.knownFollowers`). */
   readonly knownFollowers: ReadonlyMap<string, number>;
+  /** X's news stories by trend id (see `EngineBatch.story`). */
+  readonly stories: ReadonlyMap<string, EngineStory>;
+  /** X's NBA standings and stat leaders, as X last sent them. */
+  readonly standings: ReadonlyArray<EngineConference>;
+  readonly leaders: ReadonlyArray<EngineLeaders>;
+  /** The games of the day X's NBA schedule last showed, in X's order. */
+  readonly nbaDay: ReadonlyArray<string>;
   readonly radar: Radar;
   /** The page cursors X last answered per surface, to tell a fetch of newer posts from the next page. */
   readonly cursors: Readonly<
@@ -459,6 +469,10 @@ export const emptyEngine: EngineState = {
   viewer: null,
   analytics: new Map(),
   knownFollowers: new Map(),
+  stories: new Map(),
+  standings: [],
+  leaders: [],
+  nbaDay: [],
   radar: { list: null, queries: new Map(), limit: null, counts: new Map() },
   cursors: {},
 };
@@ -606,6 +620,12 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
       batch.knownFollowers === undefined || batch.key === null
         ? state.knownFollowers
         : new Map(state.knownFollowers).set(batch.key, batch.knownFollowers),
+    stories:
+      batch.story === undefined || batch.key === null
+        ? state.stories
+        : new Map(state.stories).set(batch.key, batch.story),
+    standings: batch.standings ?? state.standings,
+    leaders: batch.leaders ?? state.leaders,
     radar: mergeRadar(state.radar, batch),
   };
   const listed = surfacesOf(batch).reduce(
@@ -730,6 +750,7 @@ function mergeGames(state: EngineState, batch: EngineBatch): EngineState {
       batch.op === "NBASchedule"
         ? new Map([...state.gameDays, ...ids.map((id) => [id, ids] as const)])
         : state.gameDays,
+    nbaDay: batch.op === "NBASchedule" ? ids : state.nbaDay,
   };
 }
 

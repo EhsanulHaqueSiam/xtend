@@ -1064,6 +1064,88 @@ export function encodeBody(
     }
     case "NBASchedule":
       return { data: { nba_schedule: { games: (batch.games ?? []).map(encodeGame) } } };
+    // X's news story page: its article, update time, caveat and tabs of posts.
+    case "AiTrendByRestId": {
+      const story = batch.story;
+      return story === undefined
+        ? { data: {} }
+        : {
+            data: {
+              ai_trend_by_rest_id: {
+                result: {
+                  rest_id: batch.key,
+                  page: {
+                    article: { title: story.title, article_text: { text: story.summary } },
+                    ...when(story.updatedAt !== null, () => ({
+                      last_updated_at_ms: String(Date.parse(story.updatedAt!)),
+                    })),
+                    ...when(story.disclaimer !== null, () => ({ disclaimer: story.disclaimer })),
+                    post_timelines: story.timelines.map((t) => ({
+                      label: t.label,
+                      post_timeline: { id: t.timelineId },
+                    })),
+                    available_actions: [],
+                  },
+                },
+              },
+            },
+          };
+    }
+    case "NBAStandings": {
+      const pair = (r: { wins: number; losses: number } | null) => r ?? undefined;
+      return {
+        data: {
+          nba_standings: {
+            conferences: (batch.standings ?? []).map((c, ci) => ({
+              conference: { rest_id: String(ci + 1), name: c.name },
+              divisions: c.divisions.map((d, di) => ({
+                division: { rest_id: `${ci + 1}${di + 1}`, name: d.name },
+                teams: d.teams.map((t, rank) => ({
+                  team: { rest_id: t.teamId },
+                  abbreviation: t.abbreviation,
+                  name: t.name,
+                  wins: t.wins,
+                  losses: t.losses,
+                  division_rank: rank + 1,
+                  games_behind_division: t.gamesBack ?? undefined,
+                  home: pair(t.home),
+                  road: pair(t.road),
+                  vs_division: pair(t.division),
+                  vs_conference: pair(t.conference),
+                  points_for: t.pointsFor ?? undefined,
+                  points_against: t.pointsAgainst ?? undefined,
+                  point_diff: t.pointDiff ?? undefined,
+                  streak: t.streak ?? undefined,
+                  last_10: pair(t.lastTen),
+                })),
+              })),
+            })),
+          },
+        },
+      };
+    }
+    case "NBALeaders":
+      return {
+        data: {
+          nba_leaders: {
+            categories: (batch.leaders ?? []).map((c) => ({
+              key: c.key,
+              name: c.title,
+              leaders: c.leaders.map((l) => ({
+                rank: l.rank,
+                display_value: l.value,
+                player: {
+                  info: {
+                    full_name: l.name,
+                    position: l.position ?? undefined,
+                    ...when(l.headshotUrl !== null, () => ({ headshot: { url: l.headshotUrl } })),
+                  },
+                },
+              })),
+            })),
+          },
+        },
+      };
     case "NBAGameHydrate":
     case "NBALiveGame": {
       const g = batch.games?.[0];
