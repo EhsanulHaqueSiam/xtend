@@ -1248,6 +1248,7 @@ const pressCommunity = async (
 /** A React fiber in X's page, as far as a row's own link goes. */
 interface Fiber {
   readonly memoizedProps?: { readonly link?: { readonly pathname?: unknown } } | null;
+  readonly stateNode?: unknown;
   readonly return?: Fiber | null;
 }
 
@@ -1269,13 +1270,16 @@ export function listButton(
       segment.length <= 4 && segment[1] !== "i" && segment[2] === "lists" && !segment[3];
     if (!listsPage) return null;
     const pins = [...root.querySelectorAll('[data-testid="listCell"]')].flatMap((cell) => {
-      // The cell's own component is the first one up from its element that X gave a link.
+      // The cell's own component: one up from its element that X gave a link, never past the
+      // element holding the cell, whose components are not the cell's.
       const key = Object.keys(cell).find((k) => k.startsWith("__reactFiber$"));
       let fiber: Fiber | null | undefined = key === undefined ? null : Reflect.get(cell, key);
-      while (fiber && fiber.memoizedProps?.link === undefined) fiber = fiber.return;
+      while (fiber && fiber.memoizedProps?.link === undefined)
+        fiber = fiber.return?.stateNode instanceof Element ? null : fiber.return;
       const pin = cell.querySelector<HTMLElement>('[data-testid="list-icon-button"]');
       return fiber?.memoizedProps?.link?.pathname === `/i/lists/${list.listId}` &&
         pin !== null &&
+        pin.closest('[data-testid="listCell"]') === cell &&
         /^(Pin|Unpin) List$/.test(pin.getAttribute("aria-label") ?? "")
         ? [pin]
         : [];

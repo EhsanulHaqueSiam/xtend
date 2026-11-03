@@ -386,6 +386,11 @@ export interface EngineState {
    */
   readonly listFollows: ReadonlyMap<string, boolean>;
   readonly listPins: ReadonlyMap<string, boolean>;
+  /**
+   * The Lists pinned to Home as X's own store keeps them: Home's pinned tabs from an answer naming
+   * each one, then X's pin, unpin, unfollow and delete answers since; null until such an answer.
+   */
+  readonly pinnedLists: ReadonlySet<string> | null;
   /** X's people modules (Who to follow) by id; a list names one where X put it among the posts. */
   readonly modules: ReadonlyMap<string, EngineModule>;
   /** Post and module ids per surface, in X's order. */
@@ -546,6 +551,7 @@ export const emptyEngine: EngineState = {
   pinned: new Map(),
   listFollows: new Map(),
   listPins: new Map(),
+  pinnedLists: null,
   modules: new Map(),
   lists: NONE,
   waiting: NONE,
@@ -649,19 +655,17 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
     }
     xLists = next;
   }
-  // Home's pinned tabs say which Lists are pinned now, over an older answer for each List.
-  const tabs = batch.homeTabs === null ? null : new Set(batch.homeTabs.map((t) => t.id));
-  const stale =
-    tabs === null
-      ? []
-      : [...xLists.values()].filter(
-          (l) => l.pinned !== undefined && l.pinned !== tabs.has(`list:${l.listId}`),
-        );
-  if (stale.length > 0)
-    xLists = new Map([
-      ...xLists,
-      ...stale.map((l) => [l.listId, { ...l, pinned: !l.pinned }] as const),
-    ]);
+  // X's own pinned Lists, as its store keeps them (see `pinnedLists`).
+  const toggled =
+    batch.op === "PinTimeline" || batch.op === "UnpinTimeline" ? batch.lists[0] : undefined;
+  const pinnedLists =
+    batch.pinnedLists !== undefined
+      ? new Set(batch.pinnedLists)
+      : state.pinnedLists === null || toggled?.pinned === undefined
+        ? state.pinnedLists
+        : toggled.pinned
+          ? new Set(state.pinnedLists).add(toggled.listId)
+          : new Set([...state.pinnedLists].filter((id) => id !== toggled.listId));
   const said = (id: string) => batch.lists.find((l) => l.listId === id);
   let communities = state.communities;
   if (batch.communities.length > 0) {
@@ -720,10 +724,10 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
     membership,
     pinned,
     listFollows: stillAsked(state.listFollows, (id) => said(id)?.following),
-    listPins: stillAsked(
-      state.listPins,
-      (id) => said(id)?.pinned ?? homeTabs?.some((t) => t.id === `list:${id}`),
+    listPins: stillAsked(state.listPins, (id) =>
+      xPinned({ pinnedLists, homeTabs: homeTabs ?? state.homeTabs }, id, xLists.get(id)),
     ),
+    pinnedLists,
     xLists,
     communities,
     prompts: promptsOf(state, batch),
@@ -833,6 +837,10 @@ function listWrite(state: EngineState, batch: EngineBatch): EngineState {
   return {
     ...state,
     homeTabs: state.homeTabs.filter((t) => t.id !== `list:${gone}`),
+    pinnedLists:
+      state.pinnedLists === null
+        ? null
+        : new Set([...state.pinnedLists].filter((id) => id !== gone)),
     listPins: others(state.listPins),
     listFollows: deleted ? others(state.listFollows) : state.listFollows,
     xLists,
@@ -1352,11 +1360,20 @@ export const askPin = (state: EngineState, communityId: string, on: boolean): En
 export const listFollowing = (state: EngineState, list: EngineList) =>
   state.listFollows.get(list.listId) ?? list.following ?? false;
 
+/**
+ * Whether X has a List pinned, as its answers say: its own pinned Lists once known, else what X
+ * said of the List, else whether Home's tabs list it.
+ */
+const xPinned = (
+  s: Pick<EngineState, "pinnedLists" | "homeTabs">,
+  listId: string,
+  list: EngineList | undefined,
+) =>
+  s.pinnedLists?.has(listId) ?? list?.pinned ?? s.homeTabs.some((t) => t.id === `list:${listId}`);
+
 /** Whether a List is pinned to Home: what X took for the user's click, until X's answer agrees. */
 export const listPinned = (state: EngineState, list: EngineList) =>
-  state.listPins.get(list.listId) ??
-  list.pinned ??
-  state.homeTabs.some((t) => t.id === `list:${list.listId}`);
+  state.listPins.get(list.listId) ?? xPinned(state, list.listId, list);
 
 /** Keeps a List follow or pin X took for the user's click (see `listFollows`). */
 export const askList = (

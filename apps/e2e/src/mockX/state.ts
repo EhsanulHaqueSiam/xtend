@@ -632,8 +632,14 @@ export function createMockState(options: MockOptions = {}) {
     switch (op) {
       case "Viewer":
         return fixture("Viewer", null)!;
-      case "PinnedTimelines":
-        return page("PinnedTimelines", null, [], { top: null, homeTabs: pinnedTabs() });
+      case "PinnedTimelines": {
+        const homeTabs = pinnedTabs();
+        // Mock X names every tab, so its answer is a whole one.
+        const pinnedLists = homeTabs.flatMap((t) =>
+          t.id.startsWith("list:") ? [t.id.slice(5)] : [],
+        );
+        return page("PinnedTimelines", null, [], { top: null, homeTabs, pinnedLists });
+      }
       case "HomeTimeline":
       case "HomeLatestTimeline": {
         const tag = s(variables, "tag");

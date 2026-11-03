@@ -87,7 +87,7 @@ const SCRIPT = String.raw`
     // X draws a List's row anchorless (loader.ListHandler): its List is only the link in the
     // props of the cell React rendered, here a fiber of that shape; the markup's data-href is mock X's.
     for (const cell of div.querySelectorAll('[data-testid="listCell"]'))
-      cell.__reactFiber$mockx = { memoizedProps: { role: "link" }, return: { memoizedProps: { link: { pathname: cell.dataset.href, anchorless: true }, testID: "listCell" }, return: null } };
+      cell.__reactFiber$mockx = { stateNode: cell, memoizedProps: { role: "link" }, return: { memoizedProps: { link: { pathname: cell.dataset.href, anchorless: true }, testID: "listCell" }, return: { stateNode: cell.parentElement, memoizedProps: {}, return: null } } };
     return div;
   };
 

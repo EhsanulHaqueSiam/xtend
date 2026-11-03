@@ -631,6 +631,27 @@ describe("renderEngineBatch around posts", () => {
       { id: "community:1493446837214187523", label: "Build in Public" },
       { id: "list:1295892683890872320", label: "Bangladesh" },
     ]);
+    // Every List tab read, no errors: the whole set of pinned Lists. A List tab X sent without its
+    // name, or an answer with errors, says nothing of the Lists it leaves out.
+    expect(tabs.pinnedLists).toEqual(["1295892683890872320"]);
+    const partial = (body: unknown) => renderEngineBatch("PinnedTimelines", {}, body);
+    const unnamed = partial({
+      data: {
+        pinned_timelines: {
+          pinned_timelines: [{ __typename: "ListPinnedTimeline", list: { id_str: "12" } }],
+        },
+      },
+    });
+    const failed = partial({
+      data: { pinned_timelines: { pinned_timelines: [] } },
+      errors: [{ message: "Timeout" }],
+    });
+    expect([unnamed.homeTabs, unnamed.pinnedLists, failed.homeTabs, failed.pinnedLists]).toEqual([
+      [],
+      undefined,
+      [],
+      undefined,
+    ]);
     const explore = renderEngineBatch(
       "ExplorePage",
       {},

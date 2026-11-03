@@ -791,7 +791,7 @@ const benchmarks = [
       if (mine) {
         const xs = await until(() =>
           engine(
-            `(() => { const id = ${JSON.stringify(mine.id)}; const pins = [...document.querySelectorAll('[data-testid="listCell"]')].flatMap((cell) => { const key = Object.keys(cell).find((k) => k.startsWith("__reactFiber$")); let f = key && cell[key]; while (f && f.memoizedProps?.link === undefined) f = f.return; const pin = cell.querySelector('[data-testid="list-icon-button"]'); return f?.memoizedProps?.link?.pathname === "/i/lists/" + id && pin && /^(Pin|Unpin) List$/.test(pin.getAttribute("aria-label") ?? "") ? [pin.getAttribute("aria-label")] : []; }); return pins.length === 1 ? pins[0] : undefined; })()`,
+            `(() => { const id = ${JSON.stringify(mine.id)}; const pins = [...document.querySelectorAll('[data-testid="listCell"]')].flatMap((cell) => { const key = Object.keys(cell).find((k) => k.startsWith("__reactFiber$")); let f = key && cell[key]; while (f && f.memoizedProps?.link === undefined) f = f.return?.stateNode instanceof Element ? null : f.return; const pin = cell.querySelector('[data-testid="list-icon-button"]'); return f?.memoizedProps?.link?.pathname === "/i/lists/" + id && pin?.closest('[data-testid="listCell"]') === cell && /^(Pin|Unpin) List$/.test(pin.getAttribute("aria-label") ?? "") ? [pin.getAttribute("aria-label")] : []; }); return pins.length === 1 ? pins[0] : undefined; })()`,
           ),
         );
         // What Xtend's Pin shows: a press X took, else X's answer for the List, else Home's tabs.

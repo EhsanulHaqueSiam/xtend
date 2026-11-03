@@ -564,10 +564,12 @@ it("holds a List follow or pin X took until X's answer for that List agrees", ()
   const agreed = mergeBatch(stale, header({ following: true }));
   expect(agreed.listFollows.size).toBe(0);
   // A pin holds until the List, or Home's pinned tabs, say so; a call saying neither leaves it.
-  const tabs = (...ids: ReadonlyArray<string>) =>
+  // `tabs` is a whole Home answer, naming every List pinned; `partial` one that names some.
+  const partial = (...ids: ReadonlyArray<string>) =>
     batch("PinnedTimelines", [], {
       homeTabs: ids.map((id) => ({ id: `list:${id}` as const, label: id })),
     });
+  const tabs = (...ids: ReadonlyArray<string>) => ({ ...partial(...ids), pinnedLists: ids });
   const pinned = askList(agreed, "5", { pinned: true });
   expect(listPinned(mergeBatch(pinned, batch("HomeTimeline", [])), list("5", null))).toBe(true);
   expect(mergeBatch(pinned, tabs("5")).listPins.size).toBe(0);
@@ -581,6 +583,13 @@ it("holds a List follow or pin X took until X's answer for that List agrees", ()
     0,
     true,
   ]);
+  // Home confirms the pin, then X's Lists page answers from before it: Home's word stands.
+  const later = mergeBatch(mergeBatch(pinned, tabs("5")), listsPage(false));
+  expect([later.listPins.size, listPinned(later, later.xLists.get("5")!)]).toEqual([0, true]);
+  // A partial Home answer leaving a pinned List out unpins nothing.
+  const shown = mergeBatch(agreed, listsPage(true));
+  const missing = mergeBatch(shown, partial());
+  expect(listPinned(missing, missing.xLists.get("5")!)).toBe(true);
   // Unfollowed while that pin is still held: X unpins it, and the hold goes with it.
   const dropped = mergeBatch(
     pinned,

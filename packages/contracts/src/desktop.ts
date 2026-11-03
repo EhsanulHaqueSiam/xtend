@@ -603,6 +603,11 @@ export interface EngineBatch {
   readonly radarDeleted?: string;
   /** The List X deleted for the user's confirm in X's Edit List (DeleteList). */
   readonly listDeleted?: string;
+  /**
+   * Every List pinned to Home, when X's pinned tabs answer names each one: no errors, every List
+   * tab read. A partial answer has none, so what it leaves out says nothing.
+   */
+  readonly pinnedLists?: ReadonlyArray<string>;
 }
 
 /** Counts by X's metric name (`Impressions`, `Likes`, `Retweets`, `Bookmark`, `Share`...). */

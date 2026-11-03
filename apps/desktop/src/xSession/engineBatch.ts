@@ -824,6 +824,18 @@ function readHomeTabs(body: Json): ReadonlyArray<EngineHomeTab> | null {
   });
 }
 
+/** The Lists X's pinned tabs name, only when they name each List X pinned (see `pinnedLists`). */
+function readPinnedLists(body: Json): ReadonlyArray<string> | undefined {
+  const tabs = readHomeTabs(body);
+  const pinned = arr(record(record(body.data).pinned_timelines).pinned_timelines);
+  const lists = (tabs ?? []).flatMap((t) => (t.id.startsWith("list:") ? [t.id.slice(5)] : []));
+  return tabs === null ||
+    Array.isArray(body.errors) ||
+    lists.length !== pinned.filter((t) => record(t).__typename === "ListPinnedTimeline").length
+    ? undefined
+    : lists;
+}
+
 function readExploreTabs(body: Json): ReadonlyArray<EngineExploreTab> | null {
   const tabs = record(record(record(body.data).explore_page).body).timelines;
   if (!Array.isArray(tabs)) return null;
@@ -1281,6 +1293,7 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     const list = readList({ list: data.list }, null);
     if (list !== undefined) lists.push(list);
   }
+  const pinnedLists = readPinnedLists(record(body));
   const written = readListWrite(op, data);
   if (written !== undefined) lists.push(written);
   // X's DeleteList answers with no List; an answer with errors deleted nothing.
@@ -1371,6 +1384,7 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     ...(claims === undefined ? {} : { claims }),
     ...readRadar(op, data),
     ...(listDeleted === undefined ? {} : { listDeleted }),
+    ...(pinnedLists === undefined ? {} : { pinnedLists }),
   };
 }
 

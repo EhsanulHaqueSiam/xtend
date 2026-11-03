@@ -1280,14 +1280,18 @@ const listHeader = (id: string, label: string) =>
   `<div><h2>L${id}</h2><a href="/i/lists/${id}/members"><b>3</b> Members</a><a href="/i/lists/${id}/followers"><b>9</b> Followers</a><button role="button"><span>${label}</span></button></div>`;
 const listRow = (name: string, pin: string) =>
   `<div data-testid="listCell" role="link"><div><span>${name}</span></div><div>3 members</div><button data-testid="list-icon-button" aria-label="${pin}"></button></div>`;
-/** X's rows under `root`, each given its List as React holds it: the cell's `link`, in props. */
+/**
+ * X's rows under `root`, each given its List as React holds it: the cell's element, then the
+ * cell's component with its `link`, then the element holding the cell.
+ */
 const linked = <R extends ParentNode>(root: R, ...ids: ReadonlyArray<string>) => {
   root.querySelectorAll('[data-testid="listCell"]').forEach((cell, i) =>
     Reflect.set(cell, "__reactFiber$test", {
+      stateNode: cell,
       memoizedProps: { className: "cell" },
       return: {
         memoizedProps: { link: { pathname: `/i/lists/${ids[i]}`, anchorless: true } },
-        return: null,
+        return: { stateNode: cell.parentElement, memoizedProps: {}, return: null },
       },
     }),
   );
@@ -1336,6 +1340,29 @@ it("finds a List's Follow only in its own header on its page, and its Pin only i
     }),
   ).toBeNull();
   expect(pin(page(listRow("Makers", "Pin List")), "/you/lists")).toBeNull();
+  // A link above the element holding the cell is some other component's, not the cell's.
+  const loose = page(listRow("Makers", "Pin List"));
+  const cell = loose.querySelector('[data-testid="listCell"]')!;
+  Reflect.set(cell, "__reactFiber$test", {
+    stateNode: cell,
+    memoizedProps: {},
+    return: {
+      stateNode: cell.parentElement,
+      memoizedProps: {},
+      return: { memoizedProps: { link: { pathname: "/i/lists/12" } }, return: null },
+    },
+  });
+  expect(pin(loose, "/you/lists")).toBeNull();
+  // A cell drawn inside another: the inner cell's Pin is its own List's, never the outer's.
+  const nested = linked(
+    page(`<div data-testid="listCell" role="link">${listRow("Inner", "Pin List")}</div>`),
+    "12",
+    "13",
+  );
+  expect([
+    pin(nested, "/you/lists"),
+    pin(nested, "/you/lists", { listId: "13", name: "Inner" }),
+  ]).toEqual([null, "Pin List"]);
 });
 
 it("follows and pins a List only as the user clicked, on X's own buttons, and passes on X's toast", async () => {
