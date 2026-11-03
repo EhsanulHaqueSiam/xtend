@@ -9,6 +9,7 @@ import type {
 } from "@xtend/contracts";
 import { expect, it } from "vite-plus/test";
 
+import { synth } from "../components/xnative/engineFixtures";
 import {
   ANALYTICS_CLAIM,
   askFollow,
@@ -676,6 +677,15 @@ it("keeps X's account analytics per range and X's claim; answers never pick the 
   // X's claims every few minutes say the same, or that the account lost it.
   state = mergeBatch(state, { ...batch("GetUserClaims", []), claims: [] });
   expect(state.accountAnalytics.access).toBe(false);
+});
+
+it("replays the range a dev fixture says X's page shows; X's own answer says none", () => {
+  const replayed = synth().accountAnalytics!.batches.reduce(mergeBatch, emptyEngine);
+  expect([
+    analyticsRange(replayed.accountAnalytics, "overview"),
+    analyticsRange(replayed.accountAnalytics, "audience"),
+    analyticsRange(mergeBatch(emptyEngine, overviewAnswer(7, 10)).accountAnalytics, "overview"),
+  ]).toEqual([7, 7, undefined]);
 });
 
 it("draws the range X's page shows: an answer, late or not, only fills its own range's data", () => {

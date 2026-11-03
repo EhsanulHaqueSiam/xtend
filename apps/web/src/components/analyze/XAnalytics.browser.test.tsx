@@ -13,7 +13,11 @@ import { synth } from "../xnative/engineFixtures";
 import { XAnalyticsSection, type XSection } from "./XAnalytics";
 
 const fixture = synth().accountAnalytics!.batches;
-const answer = (key: string) => fixture.find((b) => b.key === key)!;
+// As the desktop sends it: the range shown is X's page's to say, never the fixture's.
+const answer = (key: string): EngineBatch => {
+  const { analyticsShown: _, ...sent } = fixture.find((b) => b.key === key)!;
+  return sent;
+};
 const claims = (access: boolean): EngineBatch => {
   const { accountAnalytics: _, ...base } = answer("content:7");
   return { ...base, op: "GetUserClaims", key: null, claims: access ? [ANALYTICS_CLAIM] : [] };

@@ -1304,8 +1304,20 @@ export function synth(): Readonly<Record<string, Fixture>> {
   // X's own account analytics for @you, in the ranges X's pages open on; Premium on X.
   const DAY = 86_400_000;
   const today = Date.parse(SYNTH_AT.slice(0, 10));
-  const ranged = (op: string, key: string, accountAnalytics: EngineAccountAnalytics) =>
-    batch(op, key, [], { top: null, bottom: null, accountAnalytics });
+  // X's pages open on 7D, so each section's week says the range a replay shows, as X's page would.
+  const ranged = (
+    op: string,
+    key: string,
+    accountAnalytics: Extract<EngineAccountAnalytics, { readonly days: number }>,
+  ) =>
+    batch(op, key, [], {
+      top: null,
+      bottom: null,
+      accountAnalytics,
+      ...(accountAnalytics.days === 7 && {
+        analyticsShown: { kind: accountAnalytics.kind, days: 7 },
+      }),
+    });
   const overview = (days: number) =>
     ranged("accountOverviewDailyQuery", `overview:${days}`, {
       kind: "overview",

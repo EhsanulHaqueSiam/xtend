@@ -560,6 +560,14 @@ export interface EngineBatch {
    * query its page made; `key` is `<kind>:<days>` (`videos` for the video list).
    */
   readonly accountAnalytics?: EngineAccountAnalytics;
+  /**
+   * The range X's analytics page shows for `kind`, as a dev fixture's replay sets it; the desktop
+   * never captures it, since the page reads its own selected range button.
+   */
+  readonly analyticsShown?: {
+    readonly kind: Exclude<EngineAccountAnalytics["kind"], "videos">;
+    readonly days: number;
+  };
   /** X's news story the trend `key` names (AiTrendByRestId, x.com/i/trending/<id>). */
   readonly story?: EngineStory;
   /** X's NBA standings (NBAStandings), by conference, as X's league page reads them. */

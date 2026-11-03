@@ -483,8 +483,18 @@ const without = <K extends string, A>(record: Readonly<Partial<Record<K, A>>>, k
 export const analyticsRange = (a: AccountAnalytics, kind: AnalyticsRanged) =>
   a.picking[kind] ?? a.shown[kind];
 
+const showing = (a: AccountAnalytics, kind: AnalyticsRanged, days: number): AccountAnalytics => ({
+  ...a,
+  shown: { ...a.shown, [kind]: days },
+});
+
 // Answers fill the data for their own range only; which range shows is X's page's to say.
-const mergeAccountAnalytics = (a: AccountAnalytics, b: EngineBatch): AccountAnalytics => {
+const mergeAccountAnalytics = (prior: AccountAnalytics, b: EngineBatch): AccountAnalytics => {
+  // A dev fixture's replay says what X's page shows, as the page's own read would.
+  const a =
+    b.analyticsShown === undefined
+      ? prior
+      : showing(prior, b.analyticsShown.kind, b.analyticsShown.days);
   // X's claims, when X sends them, say it outright.
   const access = b.claims === undefined ? a.access : b.claims.includes(ANALYTICS_CLAIM);
   const answer = b.accountAnalytics;
@@ -498,8 +508,10 @@ const withAnalytics = (s: EngineState, change: Partial<AccountAnalytics>): Engin
 });
 
 /** X's page shows `days` for `kind`: its selected range button, read from X's page. */
-export const sawAnalyticsRange = (s: EngineState, kind: AnalyticsRanged, days: number) =>
-  withAnalytics(s, { shown: { ...s.accountAnalytics.shown, [kind]: days } });
+export const sawAnalyticsRange = (s: EngineState, kind: AnalyticsRanged, days: number) => ({
+  ...s,
+  accountAnalytics: showing(s.accountAnalytics, kind, days),
+});
 
 /** The user picked `days` for `kind`; it shows until its press has reached X's page or failed. */
 export const pickAnalyticsRange = (s: EngineState, kind: AnalyticsRanged, days: number) =>
