@@ -223,6 +223,9 @@ function ChatScreen() {
     void xGo(`https://x.com${row.href}`);
     // X is on its way there: the screen shows it opening until X's next read says where X is.
     setChat((s) => ({ ...s, path: row.href }));
+    // A result opened ends the search, as X's conversation page has none to list it: the inbox
+    // shows again, and X's query, Xtend's own, closes.
+    setQuery("");
     void navigate({ to: "/chat", search: { tab, c: row.href } });
   };
   const searching = query.trim() !== "";

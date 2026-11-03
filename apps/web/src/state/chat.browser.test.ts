@@ -2,7 +2,7 @@ import { expect, it, vi } from "vite-plus/test";
 
 import { fakeTimers } from "../../test/render";
 
-import { type ChatRead, readChat, watchChat } from "./chat";
+import { type ChatRead, readChat, watchChat, xChatSearch } from "./chat";
 import { markXReady, registerXWebview, type XWebview } from "./x";
 
 // X's chat embed as it draws (abs.twimg.com/x-web/xchat/embed, pin-page-rweb): a row's link
@@ -163,4 +163,47 @@ it("lets go of X's page when stopped: its watch disconnects and clears its timer
     .insertAdjacentHTML("beforeend", row("11:44", "Dee", "now", "Hello", "unread"));
   await vi.advanceTimersByTimeAsync(30_000);
   expect([reads.length, disconnect.mock.calls.length]).toEqual([1, 1]);
+});
+
+it("types only into X's own Chat page, never its drawer, and closes only the query it typed while X holds it", async () => {
+  using x = drawX(INBOX);
+  // X's chat drawer, on X's other pages, has a search of its own.
+  const drawer = document.createElement("div");
+  drawer.dataset.testid = "xchatEmbedDrawer";
+  document.body.append(drawer);
+  const drawerRoot = drawer.attachShadow({ mode: "open" });
+  drawerRoot.innerHTML = `<input data-testid="dm-search-input">`;
+  x.root
+    .querySelector('[data-testid="dm-search-bar"]')!
+    .insertAdjacentHTML("beforeend", '<button data-testid="dm-search-close"></button>');
+  const field = (root: ShadowRoot) =>
+    root.querySelector<HTMLInputElement>('[data-testid="dm-search-input"]')!;
+  let closes = 0;
+  x.root
+    .querySelector('[data-testid="dm-search-close"]')!
+    .addEventListener("click", () => closes++);
+  // The engine's scripts run here, as X's page at `path`.
+  let path = "/home";
+  registerXWebview({
+    loadURL: async () => {},
+    getURL: () => `https://x.com${path}`,
+    executeJavaScript: (code: string) =>
+      Promise.resolve(
+        new Function(`return ${code.replaceAll("location.pathname", JSON.stringify(path))}`)(),
+      ),
+  } as unknown as XWebview);
+  markXReady();
+
+  await xChatSearch("Ann");
+  expect([field(x.root).value, field(drawerRoot).value]).toEqual(["", ""]);
+  path = "/i/chat";
+  await xChatSearch("Ann");
+  expect([field(x.root).value, field(drawerRoot).value]).toEqual(["Ann", ""]);
+  // The user typed over it in X: that query is theirs, so Xtend leaves it open.
+  field(x.root).value = "Bob";
+  await xChatSearch("");
+  expect(closes).toBe(0);
+  await xChatSearch("Cy");
+  await xChatSearch("");
+  expect(closes).toBe(1);
 });

@@ -368,22 +368,28 @@ export const xChatScroll = (list: "inbox" | "messages") =>
 
 /**
  * Types `query` into X's own chat search, as a keystroke does, so X lists its results; an empty
- * query closes X's search with X's own close. Search is X's, on this device: nothing is sent.
+ * query closes X's search with X's own close. Only on X's Chat page, in its route's embed (a chat
+ * drawer elsewhere is not Chat's), and the close only for the query Xtend typed while X's field
+ * still holds it. Search is X's, on this device: nothing is sent.
  */
 export const xChatSearch = (query: string) =>
   xRun(`(() => {
-    const roots = [...document.querySelectorAll('[data-testid^="xchatEmbed"]')].flatMap((h) => (h.shadowRoot ? [h.shadowRoot] : []));
-    const find = (testid) => roots.map((r) => r.querySelector('[data-testid="' + testid + '"]')).find(Boolean);
-    const input = find("dm-search-input");
+    const query = ${JSON.stringify(query)};
+    const onChat = location.pathname === "/i/chat" || location.pathname.startsWith("/i/chat/");
+    const root = onChat ? document.querySelector('[data-testid="xchatEmbedRoute"]')?.shadowRoot : null;
+    const input = root?.querySelector('[data-testid="dm-search-input"]');
     if (!(input instanceof HTMLInputElement)) return false;
-    if (${JSON.stringify(query)} === "") {
-      if (input.value !== "") find("dm-search-close")?.click();
+    const mine = window.__xtendChatQuery;
+    if (query === "") {
+      delete window.__xtendChatQuery;
+      if (mine !== undefined && input.value === mine) root.querySelector('[data-testid="dm-search-close"]')?.click();
       return true;
     }
     // React keeps the field's value itself: its native setter and an input event are a keystroke.
     input.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, ${JSON.stringify(query)});
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, query);
     input.dispatchEvent(new Event("input", { bubbles: true }));
+    window.__xtendChatQuery = query;
     return true;
   })()`);
 

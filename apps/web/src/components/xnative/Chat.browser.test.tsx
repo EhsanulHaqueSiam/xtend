@@ -25,6 +25,8 @@ const CONVERSATION = `<div data-testid="dm-conversation-panel"><span data-testid
   <div class="justify-start" data-testid="message-m2" data-send-status="sent"><span hidden id=":r2:-sender">Ann</span><span hidden id=":r2:-kind">Photo</span></div>
   <div class="justify-start" data-testid="message-m3" data-send-status="sent"><span hidden id=":r3:-sender">Ann</span><div data-testid="message-text-m3"><span>See you at 6</span></div><div style="grid-area: message-info"><button><div><span>👍</span></div><span>2</span></button></div></div>
 </div></div>`;
+// X's search in place of its inbox, listing its matches by their conversation's link.
+const SEARCH = `<div data-testid="dm-inbox-panel"><div data-testid="dm-search-bar"><input data-testid="dm-search-input" value="Ann"><button data-testid="dm-search-close"></button></div><div role="listbox"><a id="dm-search-conversation-option-r1" role="option" href="/i/chat/11-22"><div class="size-14"><img src="https://pbs.twimg.com/profile_images/1/a.jpg"></div><div><span>Ann</span></div><span>@ann</span></a></div></div>`;
 const PIN = `<h1 data-testid="pin-title">Enter your passcode</h1><div data-testid="pin-code-input-container"><input><input><input><input></div>`;
 
 /** X's page in this document: X's chat host and its open shadow root drawing `markup`. */
@@ -59,7 +61,7 @@ registerXWebview({
       );
     const to = /history\.pushState\(null, "", "([^"]+)"\)/.exec(code)?.[1];
     if (to !== undefined) moves.push(to);
-    const query = /if \((".*?") === ""\)/.exec(code)?.[1];
+    const query = /const query = (".*?");/.exec(code)?.[1];
     if (code.includes("dm-search-close") && query !== undefined)
       searches.push(JSON.parse(query) as string);
     return Promise.resolve(true);
@@ -156,4 +158,20 @@ it("presses nothing in X's search without a query, and undoes only a query it ty
   await vi.advanceTimersByTimeAsync(300);
   await screen.unmount();
   expect(searches).toEqual(["Ann", "", "Cy", ""]);
+});
+
+it("leaves the search for the inbox once a result opens, since X's conversation page draws no search", async () => {
+  moves.length = 0;
+  searches.length = 0;
+  drawX(INBOX);
+  await using screen = await render(ui(), { router: "/chat", service: {} });
+  await userEvent.fill(screen.getByRole("textbox", { name: "Search" }), "Ann");
+  await expect.poll(() => searches).toEqual(["Ann"]);
+  drawX(SEARCH);
+  await userEvent.click(screen.getByRole("button", { name: /Ann.*@ann/ }));
+  await expect.poll(() => moves.at(-1)).toBe("/i/chat/11-22");
+  drawX(CONVERSATION);
+  await expect.element(screen.getByText("Yes, after work")).toBeVisible();
+  await expect.element(screen.getByRole("button", { name: /Cy/ })).toBeVisible();
+  await expect.element(screen.getByRole("textbox", { name: "Search" })).toHaveValue("");
 });
