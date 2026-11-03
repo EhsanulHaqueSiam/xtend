@@ -1898,6 +1898,36 @@ export function renderKnownFollowers(url: string, body: unknown): EngineBatch | 
   };
 }
 
+/** X's REST saves from its own Edit profile and Set up profile (bundle.SettingsProfile, bundle.Ocf). */
+const PROFILE_SAVE =
+  /^\/i\/api\/1\.1\/account\/(update_profile|update_profile_image|update_profile_banner|remove_profile_banner)\.json$/;
+const profileSaveCall = (url: string) =>
+  URL.canParse(url) ? PROFILE_SAVE.exec(new URL(url).pathname)?.[1] : undefined;
+export const isProfileSaveUrl = (url: string) => profileSaveCall(url) !== undefined;
+
+/**
+ * What one of X's profile saves changed, from X's answer: the user as a v1.1 user object (the
+ * picture calls ask for it with `return_user`). Only the fields that call saved are X's word: X
+ * sends the picture calls beside the text one without waiting, so the others may be stale. X files
+ * a removed banner as none itself, whatever its answer says. Null for any other answer (an error).
+ */
+export function renderProfileSave(url: string, body: unknown): EngineBatch | null {
+  const call = profileSaveCall(url);
+  const legacy = record(body);
+  const user = readUser({ rest_id: legacy.id_str, legacy });
+  if (call === undefined || user === undefined) return null;
+  const saved =
+    call === "update_profile"
+      ? { name: user.name, bio: user.bio, location: user.location, website: user.website }
+      : call === "update_profile_image"
+        ? { avatarUrl: user.avatarUrl }
+        : { bannerUrl: call === "update_profile_banner" ? user.bannerUrl : null };
+  return {
+    ...renderEngineBatch("UpdateProfile", {}, {}),
+    profileSaved: { userId: user.userId, handle: user.handle, ...saved },
+  };
+}
+
 /** A batch that only names the signed-in account, as X's nav shows it. */
 export const viewerBatch = (viewer: EngineViewer): EngineBatch => ({
   op: "ViewerFromNav",

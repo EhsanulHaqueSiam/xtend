@@ -16,8 +16,10 @@ import {
 import {
   hasEngineContent,
   isKnownFollowersUrl,
+  isProfileSaveUrl,
   renderEngineBatch,
   renderKnownFollowers,
+  renderProfileSave,
   requestVariables,
 } from "./engineBatch.ts";
 
@@ -79,8 +81,13 @@ export function attachSessionCapture(
       const response = isRecord(params.response) ? params.response : undefined;
       const url = typeof response?.url === "string" ? response.url : "";
       const mime = typeof response?.mimeType === "string" ? response.mimeType : "";
-      // GraphQL, and the one REST read the screens use: X's count of followers you know.
-      if (!(isGraphqlUrl(url) || isKnownFollowersUrl(url)) || !mime.includes("json")) return;
+      // GraphQL, and X's REST answers the screens use: its count of followers you know, and the
+      // user's profile as X's own Edit profile saved it.
+      if (
+        !(isGraphqlUrl(url) || isKnownFollowersUrl(url) || isProfileSaveUrl(url)) ||
+        !mime.includes("json")
+      )
+        return;
       pending.set(params.requestId, url);
       // Maps iterate in insertion order, so the first key is the oldest request.
       if (pending.size > MAX_PENDING) pending.delete(pending.keys().next().value!);
@@ -118,6 +125,11 @@ export function attachSessionCapture(
     }
     if (isKnownFollowersUrl(url)) {
       const batch = renderKnownFollowers(url, body);
+      if (batch !== null) options.onRender?.(batch);
+      return;
+    }
+    if (isProfileSaveUrl(url)) {
+      const batch = renderProfileSave(url, body);
       if (batch !== null) options.onRender?.(batch);
       return;
     }

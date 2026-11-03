@@ -1271,6 +1271,22 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
         `<div class="bar"><button data-testid="app-bar-back" aria-label="Back">←</button><input placeholder="Search for GIFs" value="${esc(query)}"></div><label>Auto-play GIFs <input type="checkbox" role="switch" checked></label><section data-list>${postsOf(b ?? null, state)}</section>`,
     };
   }
+  // X's Edit profile (bundle.SettingsProfile) on its own route, X's words and field names on it.
+  // A picture's button stands for picking a file; Save sends X's calls (client.ts).
+  if (lower === "settings" && second === "profile") {
+    const u = state.user(state.viewer.userId!)!;
+    const field = (label: string, name: string, value: string) =>
+      `<label>${label} <input name="${name}" value="${esc(value)}"></label>`;
+    return {
+      title: "Edit profile / X",
+      requests: [],
+      render: () =>
+        routeDialog(
+          "Edit profile",
+          `<button data-testid="Profile_Save_Button">Save</button><button aria-label="Add banner photo" data-pick="banner">📷</button><button aria-label="Add avatar photo" data-pick="avatar">📷</button>${field("Name", "displayName", u.name)}<label>Bio <textarea name="description">${esc(u.bio)}</textarea></label>${field("Location", "location", u.location ?? "")}${field("Website", "url", u.website?.url ?? "")}`,
+        ),
+    };
+  }
   if (lower === "compose")
     return {
       title: "Compose new post / X",

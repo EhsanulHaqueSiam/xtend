@@ -16,6 +16,7 @@ import type {
   EngineNotification,
   EnginePeopleSection,
   EnginePost,
+  EngineProfileSave,
   EnginePrompt,
   EngineRadarCount,
   EngineRadarQuery,
@@ -621,6 +622,7 @@ function join<A>(
  * this store never saw) every new post is newer than the list's top.
  */
 export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState {
+  if (batch.profileSaved !== undefined) return saveProfile(state, batch.profileSaved);
   const posts = new Map(state.posts);
   for (const post of batch.posts)
     // X's Radar sends a post without its media, quote or the viewer's own state: a fuller copy stays.
@@ -866,6 +868,56 @@ function pinTabs(
   const id = `list:${toggled.listId}` as const;
   const rest = tabs.filter((t) => t.id !== id);
   return toggled.pinned ? [...rest, { id, label: toggled.name }] : rest;
+}
+
+/**
+ * The user's profile after one of X's own saves: their header, the signed-in account and their
+ * posts take what X saved, so every face and name of theirs follows before X sends them again.
+ */
+function saveProfile(
+  state: EngineState,
+  { userId, handle, ...saved }: EngineProfileSave,
+): EngineState {
+  const known = state.users.get(userId);
+  const viewer = state.viewer;
+  const posts = new Map(state.posts);
+  for (const [id, p] of state.posts)
+    if (p.author.userId === userId)
+      posts.set(id, {
+        ...p,
+        avatarUrl: saved.avatarUrl ?? p.avatarUrl,
+        author: { ...p.author, name: saved.name ?? p.author.name },
+      });
+  return {
+    ...state,
+    users:
+      known === undefined ? state.users : new Map(state.users).set(userId, { ...known, ...saved }),
+    viewer:
+      viewer !== null &&
+      (viewer.userId === userId || viewer.handle.toLowerCase() === handle.toLowerCase())
+        ? {
+            ...viewer,
+            name: saved.name ?? viewer.name,
+            avatarUrl: saved.avatarUrl ?? viewer.avatarUrl,
+          }
+        : viewer,
+    posts,
+    xLists: new Map(
+      [...state.xLists].map(([id, l]) => [
+        id,
+        l.owner?.userId === userId
+          ? {
+              ...l,
+              owner: {
+                ...l.owner,
+                name: saved.name ?? l.owner.name,
+                avatarUrl: saved.avatarUrl ?? l.owner.avatarUrl,
+              },
+            }
+          : l,
+      ]),
+    ),
+  };
 }
 
 /**

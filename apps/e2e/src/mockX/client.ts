@@ -731,6 +731,20 @@ const SCRIPT = String.raw`
         ],
       });
   }, true);
+  // X's Edit profile: a picture picked waits for Save, which sends it by its upload's media id
+  // beside the text fields' call, and X goes back once that one answers, as bundle.SettingsProfile.
+  document.addEventListener("click", (event) => {
+    const el = event.target instanceof Element ? event.target.closest('[data-testid="editProfileButton"], [data-testid="Profile_Save_Button"], [data-pick]') : null;
+    if (!el) return;
+    const box = el.closest('[role="dialog"]');
+    if (el.dataset.testid === "editProfileButton") return log("editProfileButton");
+    if (el.dataset.pick) return void (box.dataset[el.dataset.pick] = el.dataset.pick === "avatar" ? "1950000000000000001" : "1950000000000000002");
+    log("Profile_Save_Button");
+    const value = (name) => box.querySelector('[name="' + name + '"]').value;
+    if (box.dataset.avatar) void post("/i/api/1.1/account/update_profile_image.json", { media_id: box.dataset.avatar, return_user: true });
+    if (box.dataset.banner) void post("/i/api/1.1/account/update_profile_banner.json", { media_id: box.dataset.banner, return_user: true });
+    void post("/i/api/1.1/account/update_profile.json", { name: value("displayName"), description: value("description"), location: value("location"), url: value("url") }).then(() => history.back());
+  });
   // X's Radar: its form's Submit turns on once its field has text, sends X's create call and opens
   // the query's page; a row opens its query, and its Delete asks in X's dialog, after which X takes
   // the row off its list without asking for the list again.

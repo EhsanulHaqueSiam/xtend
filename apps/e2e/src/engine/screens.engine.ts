@@ -448,6 +448,55 @@ test("A profile renders X's header and posts; its ... rows come from X, its bell
   expect(await enginePath()).toBe(`/${user.handle}`);
 });
 
+test("Your own profile's Edit profile is X's dialog over the main area: closing it changes nothing, and what X saves shows natively", async () => {
+  const me = e.mock.state.user(e.mock.state.viewer.userId!)!;
+  await go(`/u/${me.handle}`);
+  const profile = e.app.locator('main [data-x="profile"]');
+  await profile.getByText(me.bio).waitFor();
+  const edit = profile.getByRole("button", { name: "Edit profile", exact: true });
+  const writes = () => presses().filter((p) => p.startsWith("write account/"));
+
+  // Closed with X's own ✕: X saved nothing, and the engine is back on the profile.
+  await edit.click();
+  await expect.poll(pane).toBe("main");
+  expect(await enginePath()).toBe("/settings/profile");
+  await e.engine(`document.querySelector('[role="dialog"] [data-testid="app-bar-close"]').click()`);
+  await expect.poll(pane).toBe("hidden");
+  expect([await enginePath(), writes()]).toEqual([`/${me.handle}`, []]);
+
+  // The user edits in X's dialog, picks a picture and presses X's Save.
+  await edit.click();
+  await expect.poll(pane).toBe("main");
+  await e.engine(`(() => {
+    const box = document.querySelector('[role="dialog"]');
+    box.querySelector('[name="displayName"]').value = "Mock Me";
+    box.querySelector('[name="description"]').value = "Edited in X's own dialog.";
+    box.querySelector('[name="location"]').value = "Dhaka";
+    box.querySelector('[data-pick="avatar"]').click();
+    box.querySelector('[data-testid="Profile_Save_Button"]').click();
+    return true;
+  })()`);
+  await expect.poll(pane).toBe("hidden");
+  await profile.getByText("Edited in X's own dialog.").waitFor();
+  await profile.getByText("Dhaka").waitFor();
+  await expect.poll(() => profile.getByText("Mock Me").count()).toBeGreaterThan(0);
+  // The picture X stored for the upload, in the size the header draws.
+  await expect
+    .poll(() =>
+      profile
+        .locator("img")
+        .evaluateAll((is) =>
+          is.some((i) => i.getAttribute("src")?.includes("/profile_images/1950000000000000001/")),
+        ),
+    )
+    .toBe(true);
+  expect(writes().toSorted()).toEqual([
+    "write account/update_profile",
+    "write account/update_profile_image",
+  ]);
+  expect(await enginePath()).toBe(`/${me.handle}`);
+});
+
 test("A creator's profile has X's Reposts and Subs: Reposts reads X's tab, Subs shows X's prompt, and its Subscribe opens X's dialog", async () => {
   const creator = e.mock.state.user(
     e.mock.state.fixture("ConnectTabTimeline", "connect:creators")!.people[0]!,

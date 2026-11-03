@@ -4,6 +4,7 @@ import {
   hasEngineContent,
   renderEngineBatch,
   renderKnownFollowers,
+  renderProfileSave,
   requestVariables,
 } from "./engineBatch.ts";
 import { normalizeGraphqlResponse } from "./normalizeGraphql.ts";
@@ -1655,6 +1656,48 @@ describe("renderEngineBatch around posts", () => {
     expect([known.key, known.knownFollowers, hasEngineContent(known)]).toEqual(["5", 75, true]);
     expect(renderKnownFollowers(url("6"), { users: [], total_count: 0 })?.knownFollowers).toBe(0);
     expect(renderKnownFollowers(url("5"), { errors: [{ code: 88 }] })).toBeNull();
+  });
+
+  it("reads the user's profile from X's answers to its Edit profile saves, each only for what it saved", () => {
+    const url = (call: string) => `https://x.com/i/api/1.1/account/${call}.json`;
+    // X's v1.1 user, as each of its saves answers.
+    const me = {
+      id_str: "5",
+      screen_name: "Siam",
+      name: "Siam H",
+      description: "Builds Xtend",
+      location: "Dhaka",
+      url: "https://t.co/r",
+      entities: {
+        url: {
+          urls: [
+            { url: "https://t.co/r", expanded_url: "https://xtend.dev", display_url: "xtend.dev" },
+          ],
+        },
+        description: { urls: [] },
+      },
+      profile_image_url_https: "https://pbs.twimg.com/profile_images/9/new_normal.jpg",
+      profile_banner_url: "https://pbs.twimg.com/profile_banners/5/77",
+    };
+    const saved = (call: string, body: unknown = me) =>
+      renderProfileSave(url(call), body)?.profileSaved;
+    const whose = { userId: "5", handle: "siam" };
+    expect(saved("update_profile")).toEqual({
+      ...whose,
+      name: "Siam H",
+      bio: "Builds Xtend",
+      location: "Dhaka",
+      website: { url: "https://xtend.dev", display: "xtend.dev" },
+    });
+    expect(saved("update_profile_image")).toEqual({
+      ...whose,
+      avatarUrl: me.profile_image_url_https,
+    });
+    expect(saved("update_profile_banner")).toEqual({ ...whose, bannerUrl: me.profile_banner_url });
+    // X files a removed banner as none, whatever its answer still says.
+    expect(saved("remove_profile_banner")).toEqual({ ...whose, bannerUrl: null });
+    expect(saved("update_profile", { errors: [{ code: 120 }] })).toBeUndefined();
+    expect(saved("verify_credentials")).toBeUndefined();
   });
 });
 
