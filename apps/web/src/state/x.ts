@@ -1429,7 +1429,8 @@ export const xEditProfile = async (
     profilePage(handle),
     press,
     async (opened) => {
-      if (!opened) return;
+      // A late answer after the user moved on never shows the engine again.
+      if (!opened || !live()) return;
       over(true);
       for (;;) {
         await new Promise((r) => setTimeout(r, 500));

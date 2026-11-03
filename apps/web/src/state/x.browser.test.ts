@@ -10,6 +10,7 @@ import {
   registerXWebview,
   xCommunityJoin,
   xCommunityPin,
+  xEditProfile,
   xActInPlace,
   xFolderDialog,
   xFollow,
@@ -1931,4 +1932,23 @@ it("reads X's audience card on /compose/post, then brings back X's page, unless 
   expect(await run()).toEqual(["/compose/post", "card", "/theo"]);
   expect(await run("/explore")).toEqual(["/compose/post", "card", "/explore"]);
   expect(await run(undefined, "/jack")).toEqual(["/compose/post", "card"]);
+});
+
+it("never shows X's Edit profile over the main area once the user moved on while X opened it", async () => {
+  document.body.innerHTML = `<button data-testid="editProfileButton"></button>`;
+  // X opens its dialog's route, and the user leaves the profile before Xtend hears back.
+  document.querySelector("button")!.addEventListener("click", () => {
+    history.replaceState(null, "", "/settings/profile");
+    xOverEnded();
+  });
+  inThisPage(() => `https://x.com${location.pathname}`);
+  const start = location.href;
+  try {
+    history.replaceState(null, "", "/ann");
+    const shown: Array<boolean> = [];
+    expect(await xEditProfile("ann", (on) => shown.push(on))).toBeNull();
+    expect(shown).toEqual([]);
+  } finally {
+    history.replaceState(null, "", start);
+  }
 });

@@ -662,6 +662,18 @@ it("shows what X's Edit profile saved on the user's header, their account and th
     emptyEngine,
     batch("UserByScreenName", [post("2", "2026-11-01T00:00:00Z")], { users: [me], viewer }),
   );
+  const list = {
+    listId: "9",
+    name: "Builders",
+    description: "",
+    members: 1,
+    followers: 0,
+    isPrivate: false,
+    bannerUrl: null,
+    owner: { userId: "1", handle: "ann", name: "Ann", avatarUrl: me.avatarUrl },
+    group: "Your Lists",
+  };
+  state = mergeBatch(state, batch("ListsManagementPageTimeline", [], { lists: [list] }));
   const save = (saved: Omit<EngineProfileSave, "userId" | "handle">) =>
     batch("UpdateProfile", [], { profileSaved: { userId: "1", handle: "ann", ...saved } });
   const site = { url: "https://ann.dev", display: "ann.dev" };
@@ -683,6 +695,7 @@ it("shows what X's Edit profile saved on the user's header, their account and th
     face,
     "Ann B",
   ]);
+  expect(state.xLists.get("9")?.owner).toEqual({ ...list.owner, name: "Ann B", avatarUrl: face });
 });
 
 it("keeps X's Post Analytics per post, as X last counted them", () => {

@@ -787,6 +787,21 @@ function saveProfile(
           }
         : viewer,
     posts,
+    xLists: new Map(
+      [...state.xLists].map(([id, l]) => [
+        id,
+        l.owner?.userId === userId
+          ? {
+              ...l,
+              owner: {
+                ...l.owner,
+                name: saved.name ?? l.owner.name,
+                avatarUrl: saved.avatarUrl ?? l.owner.avatarUrl,
+              },
+            }
+          : l,
+      ]),
+    ),
   };
 }
 
