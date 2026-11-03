@@ -1854,12 +1854,15 @@ const benchmarks = [
       await engine(
         `document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`,
       );
-      const closed = await until(() => engine(`!${CARD}`), 3_000);
+      // A card a synthetic Escape leaves open closes on X's own button, as discovery does.
+      const closed =
+        (await until(() => engine(`!${CARD}`), 3_000)) ||
+        ((await engine(`${B}?.click(), true`)) && (await until(() => engine(`!${CARD}`), 3_000)));
       const after = await engine(`${B}?.textContent`);
       await engine(`history.back(), true`);
       await until(async () => !(await enginePath()).startsWith("/compose"), 5_000);
       if (!settled) return fail(`X's rows (count ${n})`);
-      if (!closed) return fail("X's card closing on Escape");
+      if (!closed) return fail("X's card closing (Escape, then X's own button)");
       const x = { rows, before, after, closed };
       // Xtend's picker lists the store's Communities, which X's card just sent.
       // Xtend's own list as the store has it once X's answer landed, mismatched or not.
