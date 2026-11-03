@@ -134,22 +134,39 @@ jobs:
       - name: Engine e2e on mock X
         run: xvfb-run -a pnpm test:engine
 
+  # The three big suites get a runner each: on one runner they fought over its 4 cores and the job
+  # took 3 minutes. `rest` excludes them by name, so a new package lands there without editing this.
+  # Together the shards run `pnpm test`; keep `rest` in step with its root commands.
   test:
-    name: Test
+    name: Test (${{ matrix.shard }})
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.test != 'false' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    strategy:
+      matrix:
+        include:
+          - shard: server
+            run: pnpm --filter xtend test
+          - shard: web
+            run: pnpm --filter @xtend/web test
+          - shard: desktop
+            run: pnpm --filter @xtend/desktop test
+          - shard: rest
+            # Root scripts alone skip the build job, whose `pnpm typecheck` covers them otherwise.
+            run: |
+              pnpm typecheck:scripts
+              pnpm -r --filter '!xtend' --filter '!@xtend/web' --filter '!@xtend/desktop' test
+              pnpm exec vp test run --dir scripts
+              node --test .github/scripts
+              pnpm test:e2e
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
 
-      # Web and desktop both run *.browser.test.* files in headless Chromium.
+      # Web and desktop both run *.browser.test.* files in headless Chromium, the e2e journeys too.
       - uses: ./.github/actions/chromium
-      # Root scripts alone skip the build job, whose `pnpm typecheck` covers them otherwise.
-      - run: pnpm typecheck:scripts
-      - run: pnpm test
-      - run: pnpm test:e2e
+      - run: ${{ matrix.run }}
 
   # The one check that sums up the run. A skipped job reports success, so this passes
   # only when every job passed or was skipped because `changes` said its gate was not needed, and

@@ -6,8 +6,9 @@ name: Release
 # (electron-builder's GitHub publisher ignores the prerelease channel); a nightly app finds its
 # release by the -nightly tag and electron-updater falls back to that release's latest-*.yml. Each builds the macOS app (dmg, zip), the Linux AppImage and the CLI
 # tarball, checks them with the release smoke tests, and only then publishes. A manual run builds
-# the same files as workflow artifacts and publishes nothing. Nothing builds until CI's checks pass
-# on the same commit, and a stable tag must point at a commit on main. macOS builds are unsigned
+# the same files as workflow artifacts and publishes nothing. The builds run beside CI's checks on
+# the same commit, not after them, so a release takes the longer of the two, not their sum; nothing
+# publishes until both pass. A stable tag must point at a commit on main. macOS builds are unsigned
 # until the signing secrets exist (see apps/desktop/electron-builder.yml), so macOS installs link
 # to the download instead of updating in place.
 on:
@@ -69,7 +70,7 @@ jobs:
 
   mac:
     name: macOS
-    needs: [version, checks]
+    needs: version
     runs-on: macos-15
     timeout-minutes: 30
     steps:
@@ -106,7 +107,7 @@ jobs:
 
   linux:
     name: Linux AppImage and CLI
-    needs: [version, checks]
+    needs: version
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -139,7 +140,7 @@ jobs:
   publish:
     name: Publish
     if: github.event_name == 'push'
-    needs: [version, mac, linux]
+    needs: [version, checks, mac, linux]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -165,4 +166,15 @@ jobs:
           else
             gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --latest \
               --title "Xtend $VERSION" --generate-notes "${files[@]}"
+          fi
+      # Push to release stays under ten minutes; this flags the change that breaks it.
+      - name: Release time
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          started=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" -q .run_started_at)
+          elapsed=$(( $(date +%s) - $(date -d "$started" +%s) ))
+          echo "Released in $((elapsed / 60))m $((elapsed % 60))s." >> "$GITHUB_STEP_SUMMARY"
+          if (( elapsed > 600 )); then
+            echo "::warning::Release took $((elapsed / 60))m $((elapsed % 60))s, over the 10 minute budget."
           fi
