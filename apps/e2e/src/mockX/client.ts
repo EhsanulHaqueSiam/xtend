@@ -669,6 +669,64 @@ const SCRIPT = String.raw`
         ],
       });
   });
+  // X's Hide post: the rule picked, X hides the post and goes back to where it was.
+  document.addEventListener("click", (event) => {
+    const el = event.target instanceof Element ? event.target.closest("[data-hide-rule]") : null;
+    if (!el) return;
+    log("hide:" + el.dataset.hideRule, location.pathname.split("/").pop());
+    history.back();
+  });
+  // X's List buttons and dialogs (bundle.UserLists). Follow in a List's header and Pin in a row of
+  // Your Lists turn once X answered. Create's Next goes on to Add to your List, whose Done opens
+  // the new List; Edit List's Done goes back to it; Delete List asks first, then opens the user's
+  // Lists page. X's store shows what each did, so the mock drops its cached pages.
+  document.addEventListener("click", (event) => {
+    const el = event.target instanceof Element ? event.target.closest("[data-list-follow], [data-list-pin], [data-list-form]") : null;
+    if (!el) return;
+    event.stopPropagation();
+    const send = (op, variables) => post("/i/api/graphql/" + window.__mockHash[op] + "/" + op, { variables });
+    if (el.dataset.listFollow !== undefined) {
+      const listId = el.dataset.listFollow;
+      const follow = el.textContent.trim() === "Follow";
+      log("listFollow:" + (follow ? "Follow" : "Unfollow"), listId);
+      void send(follow ? "ListSubscribe" : "ListUnsubscribe", { listId }).then(() => { el.textContent = follow ? "Following" : "Follow"; });
+      return;
+    }
+    if (el.dataset.listPin !== undefined) {
+      const id = el.dataset.listPin;
+      const pin = el.getAttribute("aria-label") === "Pin List";
+      log("listPin:" + (pin ? "Pin" : "Unpin"), id);
+      void send(pin ? "PinTimeline" : "UnpinTimeline", { pinnedTimelineItem: { id, pinned_timeline_type: "List" } })
+        .then(() => el.setAttribute("aria-label", pin ? "Unpin List" : "Pin List"));
+      return;
+    }
+    const [action, listId] = el.dataset.listForm.split(":");
+    const field = (name) => document.querySelector('[role="dialog"] [name="' + name + '"]');
+    const form = { name: field("name")?.value.trim() ?? "", description: field("description")?.value ?? "", isPrivate: field("isPrivate")?.checked === true };
+    log("list:" + action, listId ?? null);
+    cache.clear();
+    if (action === "create" && form.name)
+      void send("CreateList", form).then((r) => go("/i/lists/" + r.data.list.id_str + "/members/suggested", true));
+    if (action === "done") go("/i/lists/" + listId, true);
+    if (action === "save" && form.name) void send("UpdateList", { listId, ...form }).then(() => history.back());
+    if (action === "delete")
+      dialog({
+        title: "Delete List?",
+        body: "This can’t be undone and you’ll lose your List.",
+        sheet: true,
+        buttons: [
+          {
+            label: "Delete",
+            testid: "confirmationSheetConfirm",
+            step: {
+              write: { path: "/i/api/graphql/" + window.__mockHash.DeleteList + "/DeleteList", body: { variables: { listId } } },
+              replace: document.querySelector('nav a[aria-label="Lists"]').getAttribute("href") + "/",
+            },
+          },
+          { label: "Cancel", testid: "confirmationSheetCancel" },
+        ],
+      });
+  }, true);
   // X's Radar: its form's Submit turns on once its field has text, sends X's create call and opens
   // the query's page; a row opens its query, and its Delete asks in X's dialog, after which X takes
   // the row off its list without asking for the list again.

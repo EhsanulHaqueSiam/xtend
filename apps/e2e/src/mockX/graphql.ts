@@ -560,12 +560,13 @@ function listItem(l: EngineList): Json {
   return {
     itemType: "TimelineTwitterList",
     __typename: "TimelineTwitterList",
-    displayType: "List",
+    displayType:
+      l.button === "pin" ? "ListWithPin" : l.button === "follow" ? "ListWithSubscribe" : "List",
     list: encodeList(l),
   };
 }
 
-function encodeList(l: EngineList): Json {
+export function encodeList(l: EngineList): Json {
   return {
     id_str: l.listId,
     name: l.name,
@@ -577,6 +578,8 @@ function encodeList(l: EngineList): Json {
       default_banner_media: { media_info: { original_img_url: l.bannerUrl } },
     })),
     ...when(l.owner !== null, () => ({ user_results: { result: encodeMini(l.owner!) } })),
+    ...when(l.following !== undefined, () => ({ following: l.following })),
+    ...when(l.pinned !== undefined, () => ({ pinning: l.pinned })),
   };
 }
 

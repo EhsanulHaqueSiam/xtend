@@ -554,6 +554,75 @@ it("opens X's Lists page of the account X is signed in to, not the one Settings 
   }
 });
 
+it("draws X's Lists page in X's order with X's Pin on Your Lists, and keeps a pin X took over a stale answer", async () => {
+  const bridge = installFakeBridge();
+  // X's page takes the Pin press and turns its button.
+  registerXWebview({
+    getURL: () => "https://x.com/me/lists",
+    loadURL: () => Promise.resolve(),
+    executeJavaScript: (code: string) =>
+      Promise.resolve(
+        code.includes("button.click()") ? { over: null, toast: null, label: "Unpin List" } : true,
+      ),
+  } as unknown as XWebview);
+  markXReady();
+  const list = (listId: string, name: string, group: string | null) => ({
+    listId,
+    name,
+    description: "",
+    members: 3,
+    followers: 9,
+    isPrivate: false,
+    bannerUrl: null,
+    owner: null,
+    group,
+  });
+  const listsPage = (pinned: boolean) => ({
+    ...batch("ListsManagementPageTimeline", []),
+    lists: [
+      { ...list("91", "Found on X", "Discover new Lists"), button: "follow" as const },
+      { ...list("92", "Mine", "Your Lists"), button: "pin" as const, pinned },
+    ],
+  });
+  try {
+    const Lists = ListsRoute.options.component!;
+    await using screen = await render(
+      <>
+        <EngineSync />
+        <Suspense>
+          <Lists />
+        </Suspense>
+      </>,
+      {
+        service: {
+          "settings.get": () => Effect.succeed({ ...settings, sessionPostingEnabled: true }),
+        },
+      },
+    );
+    bridge.emitEngine({
+      ...batch("Viewer", []),
+      viewer: { userId: "7", handle: "me", name: "Me", avatarUrl: null },
+    });
+    // A List opened elsewhere is not on X's Lists page.
+    bridge.emitEngine({
+      ...batch("ListByRestId", []),
+      lists: [list("93", "Opened elsewhere", null)],
+    });
+    bridge.emitEngine(listsPage(false));
+    await expect.element(screen.getByText("Mine")).toBeVisible();
+    expect(screen.getByText("Opened elsewhere").query()).toBeNull();
+    // X draws its Pin on Your Lists only.
+    expect(screen.getByRole("button", { name: "Pin List" }).all()).toHaveLength(1);
+    await screen.getByRole("button", { name: "Pin List" }).click();
+    await expect.element(screen.getByRole("button", { name: "Unpin List" })).toBeVisible();
+    // X's Lists page answered again from before the press: X's Pin's word holds.
+    bridge.emitEngine(listsPage(false));
+    await expect.element(screen.getByRole("button", { name: "Unpin List" })).toBeVisible();
+  } finally {
+    registerXWebview(null);
+  }
+});
+
 it("runs one of a Community header's presses at a time: Join waits while X takes Pin", async () => {
   // X's page holds the Pin press until the test lets it finish.
   let finish: (done: unknown) => void = () => {};

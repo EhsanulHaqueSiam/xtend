@@ -608,6 +608,8 @@ function readNotification(item: Json): EngineNotification | undefined {
 }
 
 function readList(item: Json, group: string | null): EngineList | undefined {
+  // X's Pinned Lists tiles repeat Lists it also lists under Your Lists, each with its Pin.
+  if (item.displayType === "ListTile") return undefined;
   const list = record(item.list);
   const listId = asString(list.id_str);
   const name = asString(list.name);
@@ -624,7 +626,54 @@ function readList(item: Json, group: string | null): EngineList | undefined {
     bannerUrl: banner(list.custom_banner_media) ?? banner(list.default_banner_media) ?? null,
     owner: miniUser(record(list.user_results).result)[0] ?? null,
     group,
+    ...(typeof list.following === "boolean" ? { following: list.following } : {}),
+    ...(typeof list.pinning === "boolean" ? { pinned: list.pinning } : {}),
+    // X's row: ListWithPin on Your Lists, ListWithSubscribe on Discover new Lists.
+    ...(item.displayType === "ListWithPin"
+      ? { button: "pin" as const }
+      : item.displayType === "ListWithSubscribe"
+        ? { button: "follow" as const }
+        : {}),
   };
+}
+
+/**
+ * The List one of X's List writes answers with (bundle.UserLists' calls), as the write leaves it:
+ * X's own code counts a Follow, Unfollow, Pin or Unpin that answered with the List as taken.
+ */
+function readListWrite(op: string, data: Json): EngineList | undefined {
+  switch (op) {
+    case "CreateList":
+    case "UpdateList":
+    case "ListAddMember":
+    case "ListRemoveMember":
+    case "EditListBanner":
+    case "DeleteListBanner":
+      return readList({ list: data.list }, null);
+    case "ListSubscribe": {
+      const list = readList({ list: data.list_subscribe_v3 }, null);
+      return list && { ...list, following: true };
+    }
+    // X takes a List the user unfollows off Home's pinned tabs too.
+    case "ListUnsubscribe": {
+      const list = readList({ list: data.list }, null);
+      return list && { ...list, following: false, pinned: false };
+    }
+    case "PinTimeline":
+    case "UnpinTimeline": {
+      const pinned = record(
+        record(op === "PinTimeline" ? data.pin_timeline : data.unpin_timeline)
+          .updated_pinned_timeline,
+      );
+      const list =
+        pinned.__typename === "ListPinnedTimeline"
+          ? readList({ list: pinned.list }, null)
+          : undefined;
+      return list && { ...list, pinned: op === "PinTimeline" };
+    }
+    default:
+      return undefined;
+  }
 }
 
 /**
@@ -1232,6 +1281,18 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     const list = readList({ list: data.list }, null);
     if (list !== undefined) lists.push(list);
   }
+  const written = readListWrite(op, data);
+  if (written !== undefined) lists.push(written);
+  // X's DeleteList answers with no List; an answer with errors deleted nothing.
+  const deleted = asString(variables.listId);
+  const listDeleted =
+    op === "DeleteList" &&
+    deleted !== undefined &&
+    X_ID.test(deleted) &&
+    isRecord(record(body).data) &&
+    !Array.isArray(record(body).errors)
+      ? deleted
+      : undefined;
   const exploreTabs = readExploreTabs(record(body));
   // X's GIF search is no timeline: its tiles and its next page's cursor sit in one slice.
   const gifSlice = op === "GifSearch" ? record(data.gif_search_slice) : null;
@@ -1309,6 +1370,7 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     ...(folders === undefined ? {} : { bookmarkFolders: folders }),
     ...(claims === undefined ? {} : { claims }),
     ...readRadar(op, data),
+    ...(listDeleted === undefined ? {} : { listDeleted }),
   };
 }
 
@@ -1880,4 +1942,5 @@ export const hasEngineContent = (b: EngineBatch) =>
   b.radarLimit !== undefined ||
   b.radarCounts !== undefined ||
   b.radarDeleted !== undefined ||
+  b.listDeleted !== undefined ||
   (b.op === "postListQuery" && b.key !== null);

@@ -167,12 +167,15 @@ const listsRow = (label: string, state: MockState): Row => ({
 
 const copied = { toast: { text: "Copied to clipboard" } };
 
-/** The rows of the menu `spec` names (`post:<id>`, `share:<id>`, `profile:<handle>`, `sort:<id>`). */
+/**
+ * The rows of the menu `spec` names (`post:<id>`, `share:<id>`, `profile:<handle>`, `sort:<id>`);
+ * `post:<id>:community:<id>` is a post on the page of a Community the user moderates.
+ */
 export function menuRows(state: MockState, spec: string): ReadonlyArray<Row> {
   const [kind = "", ...parts] = spec.split(":");
   const arg = parts.join(":");
   if (kind === "post") {
-    const p = state.post(arg);
+    const p = state.post(parts[0] ?? "");
     if (p === undefined) return [];
     const h = p.author.handle;
     const id = p.postId;
@@ -239,6 +242,10 @@ export function menuRows(state: MockState, spec: string): ReadonlyArray<Row> {
       ];
     const author = state.user(p.author.userId);
     return [
+      // X's moderators' row (TweetCurationActionMenu): a link to X's flow for hiding it.
+      ...(parts[1] === "community"
+        ? [{ label: "Hide post", go: `/i/report/hidetweet/${id}` }]
+        : []),
       author?.youFollow === true
         ? { label: `Unfollow @${h}`, dialog: unfollowSheet(p.author.userId, h) }
         : {

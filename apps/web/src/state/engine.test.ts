@@ -3,6 +3,7 @@ import type {
   EngineCommunity,
   EngineGame,
   EngineGif,
+  EngineList,
   EngineNotification,
   EnginePost,
   EngineUser,
@@ -13,6 +14,7 @@ import { synth } from "../components/xnative/engineFixtures";
 import {
   ANALYTICS_CLAIM,
   askFollow,
+  askList,
   askMembership,
   askPin,
   at,
@@ -28,6 +30,8 @@ import {
   gifSurface,
   hideTrend,
   inspirationSurface,
+  listFollowing,
+  listPinned,
   mergeBatch,
   pickAnalyticsRange,
   postOn,
@@ -478,6 +482,90 @@ it("holds a pin or unpin X took until X's pinned tabs agree", () => {
   const unpinned = mergeBatch(askPin(agreed, "21", false), tabs("21", "20"));
   expect(communityPinned(unpinned, "21")).toBe(false);
   expect(mergeBatch(unpinned, tabs("20")).pinned.size).toBe(0);
+});
+
+const list = (
+  listId: string,
+  group: string | null,
+  extra: Partial<EngineList> = {},
+): EngineList => ({
+  listId,
+  name: `L${listId}`,
+  description: "",
+  members: 1,
+  followers: 0,
+  isPrivate: false,
+  bannerUrl: null,
+  owner: null,
+  group,
+  ...extra,
+});
+
+it("keeps a List's section and row button across its own page, and files one X just created first under Your Lists", () => {
+  const page = mergeBatch(
+    emptyEngine,
+    batch("ListsManagementPageTimeline", [], {
+      lists: [
+        list("1", "Discover new Lists", { button: "follow" }),
+        list("2", "Your Lists", { button: "pin" }),
+      ],
+    }),
+  );
+  // A List's own page names no section or row button: the Lists page's stay.
+  const opened = mergeBatch(
+    page,
+    batch("ListByRestId", [], { key: "list:2", lists: [list("2", null, { name: "Renamed" })] }),
+  );
+  expect(opened.xLists.get("2")).toMatchObject({
+    name: "Renamed",
+    group: "Your Lists",
+    button: "pin",
+  });
+  // X fetches nothing after its Create a new List: the List it answered with goes first.
+  const made = mergeBatch(opened, batch("CreateList", [], { lists: [list("3", null)] }));
+  expect(at(made.listIds, "lists")).toEqual(["1", "3", "2"]);
+  expect(made.xLists.get("3")).toMatchObject({ group: "Your Lists", button: "pin" });
+  // Deleted in X's Edit List: off the Lists page and Home's pinned tabs.
+  const pinned = mergeBatch(
+    made,
+    batch("PinnedTimelines", [], { homeTabs: [{ id: "list:3", label: "L3" }] }),
+  );
+  const deleted = mergeBatch(pinned, batch("DeleteList", [], { listDeleted: "3" }));
+  expect([at(deleted.listIds, "lists"), deleted.xLists.has("3"), deleted.homeTabs]).toEqual([
+    ["1", "2"],
+    false,
+    [],
+  ]);
+});
+
+it("holds a List follow or pin X took until X's answer for that List agrees", () => {
+  const header = (extra: Partial<EngineList>) =>
+    batch("ListByRestId", [], { key: "list:5", lists: [list("5", null, extra)] });
+  const followed = askList(mergeBatch(emptyEngine, header({ following: false })), "5", {
+    following: true,
+  });
+  // X's page answered before the click: it still says not following.
+  const stale = mergeBatch(followed, header({ following: false }));
+  expect(listFollowing(stale, stale.xLists.get("5")!)).toBe(true);
+  const agreed = mergeBatch(stale, header({ following: true }));
+  expect(agreed.listFollows.size).toBe(0);
+  // A pin holds until the List, or Home's pinned tabs, say so; a call saying neither leaves it.
+  const tabs = (...ids: ReadonlyArray<string>) =>
+    batch("PinnedTimelines", [], {
+      homeTabs: ids.map((id) => ({ id: `list:${id}` as const, label: id })),
+    });
+  const pinned = askList(agreed, "5", { pinned: true });
+  expect(listPinned(mergeBatch(pinned, batch("HomeTimeline", [])), list("5", null))).toBe(true);
+  expect(mergeBatch(pinned, tabs("5")).listPins.size).toBe(0);
+  // Unfollowed: X takes it off Home's pinned tabs too.
+  const unfollowed = mergeBatch(
+    mergeBatch(agreed, tabs("5")),
+    batch("ListUnsubscribe", [], { lists: [list("5", null, { following: false, pinned: false })] }),
+  );
+  expect([unfollowed.homeTabs, listPinned(unfollowed, unfollowed.xLists.get("5")!)]).toEqual([
+    [],
+    false,
+  ]);
 });
 
 it("replaces a profile's people page with X's first page even when X now lists nobody", () => {

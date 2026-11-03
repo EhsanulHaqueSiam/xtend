@@ -1245,6 +1245,193 @@ const pressCommunity = async (
   return label === null ? null : { refused: false, label, toast: pressed.toast ?? null };
 };
 
+/**
+ * X's own button of `kind` for a List in X's page at `path`. Follow: in the List's own header on
+ * its page (Follow, Following; X gives it no test id or label), the one box that links its Members.
+ * Pin: on X's Lists page (x.com/<handle>/lists), in the one row whose name is `name` exactly, since
+ * X's rows carry no link; two rows of that name are no one's. Runs in X's page as its own source.
+ */
+export function listButton(
+  root: ParentNode,
+  path: string,
+  list: { readonly listId: string; readonly name: string },
+  kind: "follow" | "pin",
+): HTMLElement | null {
+  const segment = path.split("/");
+  if (kind === "pin") {
+    const listsPage =
+      segment.length <= 4 && segment[1] !== "i" && segment[2] === "lists" && !segment[3];
+    if (!listsPage) return null;
+    const pins = [...root.querySelectorAll('[data-testid="listCell"]')].flatMap((cell) => {
+      const pin = cell.querySelector<HTMLElement>('[data-testid="list-icon-button"]');
+      const named = [...cell.querySelectorAll("span, div")].some(
+        (el) => el.textContent?.trim() === list.name,
+      );
+      return named &&
+        pin !== null &&
+        /^(Pin|Unpin) List$/.test(pin.getAttribute("aria-label") ?? "")
+        ? [pin]
+        : [];
+    });
+    return pins.length === 1 ? pins[0]! : null;
+  }
+  if (
+    segment.length !== 4 ||
+    segment[1] !== "i" ||
+    segment[2] !== "lists" ||
+    segment[3] !== list.listId
+  )
+    return null;
+  // A person's Follow carries X's test id (`<id>-follow`); the List's carries none.
+  const buttons = [...root.querySelectorAll<HTMLElement>('button, [role="button"]')].filter(
+    (b) =>
+      !b.hasAttribute("data-testid") &&
+      /^(Follow|Following|Unfollow)$/.test(b.textContent?.trim() ?? ""),
+  );
+  const mine = buttons.filter((button) => {
+    for (let box = button.parentElement; box !== null; box = box.parentElement) {
+      if (box.querySelector(`a[href="/i/lists/${list.listId}/members"]`) === null) continue;
+      return buttons.every((b) => b === button || !box.contains(b));
+    }
+    return false;
+  });
+  return mine.length === 1 ? mine[0]! : null;
+}
+
+/**
+ * Presses X's own `kind` button for a List for the user's click while what it says matches
+ * `offers` (else refused with X's words), on `page`: the List's own page for Follow, the user's
+ * Lists page for Pin. What X's button and toast say after, even once a later press started; null
+ * when X drew none first.
+ */
+const pressList = async (
+  list: { readonly listId: string; readonly name: string },
+  kind: "follow" | "pin",
+  page: string,
+  offers: RegExp,
+  over: (shown: boolean) => void,
+): Promise<{
+  readonly refused: boolean;
+  readonly label: string;
+  readonly toast: string | null;
+} | null> => {
+  // The id goes into scripts run in X's page: digits only; the name only as a JSON string.
+  if (!/^\d{1,25}$/.test(list.listId)) return null;
+  const run = await nextRun();
+  const find = `(() => (${listButton.toString()})(document, location.pathname, ${JSON.stringify(list)}, ${JSON.stringify(kind)}))`;
+  const says = kind === "pin" ? `?.getAttribute("aria-label")` : `?.textContent.trim()`;
+  const live = () => run === overRun;
+  let tries = 10;
+  const press = () =>
+    xRun(`(async () => {
+    const find = ${find};
+    for (let i = 0; i < ${tries} && !find(); i++) await new Promise((r) => setTimeout(r, 100));
+    const button = find();
+    if (!button || !${stillMine(run)}) return null;
+    const was = button${says};
+    if (!${String(offers)}.test(was)) return { refused: was };
+    const at = location.pathname + location.search;
+    button.click();
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      if (location.pathname + location.search !== at || document.querySelector('[role="dialog"], [role="alertdialog"]')) return { over: at };
+      if (find()${says} !== was) break;
+    }
+    // X turns its button once X answered; leaving before then could drop X's toast.
+    await new Promise((r) => setTimeout(r, 1000));
+    return { over: null, toast: ${TOAST_TEXT}, label: find()${says} ?? null };
+  })()`).then((done) => {
+      tries = 50;
+      return typeof done === "object" && done !== null
+        ? (done as {
+            readonly over?: string | null;
+            readonly refused?: string;
+            readonly toast?: string | null;
+            readonly label?: string | null;
+          })
+        : null;
+    });
+  let label: string | null = null;
+  const pressed = await onPage(
+    { url: `https://x.com${page}`, path: page },
+    press,
+    async (done) => {
+      if (typeof done.over !== "string") return;
+      await holdOver(run, done.over, over);
+      const now = await xRun(`${find}()${says} ?? null`);
+      label = typeof now === "string" ? now : null;
+    },
+    live,
+  );
+  if (pressed === null) return null;
+  if (pressed.refused !== undefined) return { refused: true, label: pressed.refused, toast: null };
+  label ??= pressed.label ?? null;
+  return label === null ? null : { refused: false, label, toast: pressed.toast ?? null };
+};
+
+/**
+ * Follows (`on`) or unfollows a List for the user's click on X's own button in its header, only
+ * while X offers that: "Follow", or "Following" (X's "Unfollow" under a pointer). One X has turned
+ * since is refused with X's words.
+ */
+export const xListFollow = (
+  list: { readonly listId: string; readonly name: string },
+  on: boolean,
+  over: (shown: boolean) => void,
+) =>
+  pressList(
+    list,
+    "follow",
+    `/i/lists/${list.listId}`,
+    on ? /^Follow$/ : /^(Following|Unfollow)$/,
+    over,
+  );
+
+/**
+ * Pins (`on`) or unpins a List as a Home tab for the user's click on X's own Pin in its row of
+ * the user's Lists page (`handle`'s), only while X offers that ("Pin List", "Unpin List"). At
+ * X's limit of pinned Timelines X keeps it unpinned and says so in its toast.
+ */
+export const xListPin = (
+  list: { readonly listId: string; readonly name: string },
+  handle: string,
+  on: boolean,
+  over: (shown: boolean) => void,
+) =>
+  validHandle(handle)
+    ? pressList(list, "pin", `/${handle}/lists`, on ? /^Pin List$/ : /^Unpin List$/, over)
+    : Promise.resolve(null);
+
+/**
+ * Opens X's own Create a new List (`listId` null) or Edit List for the user's click, over the main
+ * area until X is on a List's page or off X's List routes with no dialog up (in the engine's narrow
+ * window each step is a page). Where X settled; false when X showed none; null if the user left.
+ */
+export const xListDialog = async (
+  listId: string | null,
+  over: (shown: boolean) => void,
+): Promise<string | false | null> => {
+  // No engine (a browser): no X. The id goes into a script: digits only.
+  if (element === null || !ready || (listId !== null && !/^\d{1,25}$/.test(listId))) return false;
+  const run = await nextRun();
+  const path = listId === null ? "/i/lists/create" : `/i/lists/${listId}/info`;
+  await xGo(`https://x.com${path}`);
+  // On its route X draws its form; wherever X takes the user from there, the loop follows.
+  if ((await xRun(`location.pathname === ${JSON.stringify(path)}`)) !== true) return false;
+  over(true);
+  let settled: unknown = null;
+  while (typeof settled !== "string") {
+    await new Promise((r) => setTimeout(r, 500));
+    // The user moved on: AppShell already ended the engine's place over the main area.
+    if (run !== overRun) return null;
+    settled = await xRun(
+      `/^\\/i\\/lists\\/(?!\\d+$)/.test(location.pathname) || document.querySelector('[role="dialog"], [role="alertdialog"]') ? null : location.pathname`,
+    );
+  }
+  over(false);
+  return settled;
+};
+
 /** X's own rows of a trend's "...", read from X's menu on the Explore tab the engine shows. */
 export const xTrendMenu = async (name: string) => {
   const rows = await onPage(null, () => xMenuInPlace(trendMenuAt(name), { cancelRead: true }));

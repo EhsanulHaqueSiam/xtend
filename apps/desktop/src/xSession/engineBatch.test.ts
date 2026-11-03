@@ -500,6 +500,8 @@ describe("renderEngineBatch around posts", () => {
                         item: {
                           itemContent: {
                             itemType: "TimelineTwitterList",
+                            // X's round Follow on the row.
+                            displayType: "ListWithSubscribe",
                             list: {
                               id_str: "1295892683890872320",
                               name: "Bangladesh",
@@ -507,6 +509,8 @@ describe("renderEngineBatch around posts", () => {
                               member_count: 26,
                               subscriber_count: 30545,
                               mode: "Public",
+                              following: false,
+                              pinning: false,
                               default_banner_media: {
                                 media_info: {
                                   original_img_url: "https://pbs.twimg.com/media/b.png",
@@ -586,6 +590,9 @@ describe("renderEngineBatch around posts", () => {
         bannerUrl: "https://pbs.twimg.com/media/b.png",
         owner: { handle: "nation_crf" },
         group: "Discover new Lists",
+        following: false,
+        pinned: false,
+        button: "follow",
       },
     ]);
   });
@@ -2874,5 +2881,110 @@ describe("renderEngineBatch for X's Radar", () => {
         body,
       ).key,
     ).toBe("radar:Latest:$GOOGL (buy OR sell)");
+  });
+});
+
+describe("renderEngineBatch for X's List writes", () => {
+  // X's own operations and answers (bundle.UserLists' calls), with a made-up List.
+  const list = { id_str: "12", name: "Makers", mode: "Public", member_count: 3 };
+  const said = (op: string, data: Record<string, unknown>, variables = { listId: "12" }) =>
+    renderEngineBatch(op, variables, { data }).lists.map((l) => [
+      l.listId,
+      l.members,
+      l.following,
+      l.pinned,
+    ]);
+
+  it("reads the List each write answers with, as X's code counts the write taken", () => {
+    expect([
+      said("CreateList", { list }, { listId: "" }),
+      said("UpdateList", { list }),
+      said("ListRemoveMember", { list: { ...list, member_count: 2 } }),
+      said("ListSubscribe", { list_subscribe_v3: list }),
+      // X takes a List the user unfollows off Home's pinned tabs too.
+      said("ListUnsubscribe", { list }),
+    ]).toEqual([
+      [["12", 3, undefined, undefined]],
+      [["12", 3, undefined, undefined]],
+      [["12", 2, undefined, undefined]],
+      [["12", 3, true, undefined]],
+      [["12", 3, false, false]],
+    ]);
+    const pin = (op: "PinTimeline" | "UnpinTimeline", answer: Record<string, unknown>) =>
+      said(
+        op,
+        { [op === "PinTimeline" ? "pin_timeline" : "unpin_timeline"]: answer },
+        {
+          listId: "",
+        },
+      );
+    expect([
+      pin("PinTimeline", { updated_pinned_timeline: { __typename: "ListPinnedTimeline", list } }),
+      pin("UnpinTimeline", { updated_pinned_timeline: { __typename: "ListPinnedTimeline", list } }),
+      // X refused (its limit of pinned Timelines), or pinned a Community: no List.
+      pin("PinTimeline", { __typename: "PinTimelineErrorResult", message: "Too many" }),
+      pin("PinTimeline", {
+        updated_pinned_timeline: {
+          __typename: "CommunityPinnedTimeline",
+          community_results: { result: { id_str: "14", name: "Build" } },
+        },
+      }),
+    ]).toEqual([[["12", 3, undefined, true]], [["12", 3, undefined, false]], [], []]);
+  });
+
+  it("lists a pinned List once, under Your Lists with X's Pin, not again as X's Pinned Lists tile", () => {
+    const module = (header: string, displayType: string) => ({
+      content: {
+        entryType: "TimelineTimelineModule",
+        header: { text: header },
+        items: [
+          {
+            item: {
+              itemContent: {
+                itemType: "TimelineTwitterList",
+                displayType,
+                list: { ...list, pinning: true },
+              },
+            },
+          },
+        ],
+      },
+    });
+    const page = renderEngineBatch(
+      "ListsManagementPageTimeline",
+      {},
+      {
+        data: {
+          viewer: {
+            list_management_timeline: {
+              timeline: {
+                instructions: [
+                  {
+                    type: "TimelineAddEntries",
+                    entries: [
+                      module("Pinned Lists", "ListTile"),
+                      module("Your Lists", "ListWithPin"),
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+        },
+      },
+    );
+    expect(page.lists.map((l) => [l.listId, l.group, l.button, l.pinned])).toEqual([
+      ["12", "Your Lists", "pin", true],
+    ]);
+  });
+
+  it("names a List X deleted, and none from an answer with errors", () => {
+    const deleted = (body: unknown) => renderEngineBatch("DeleteList", { listId: "12" }, body);
+    expect(hasEngineContent(deleted({ data: { list_delete: "Done" } }))).toBe(true);
+    expect([
+      deleted({ data: { list_delete: "Done" } }).listDeleted,
+      deleted({ data: {}, errors: [{ message: "Not found" }] }).listDeleted,
+      renderEngineBatch("DeleteList", { listId: "x" }, { data: {} }).listDeleted,
+    ]).toEqual(["12", undefined, undefined]);
   });
 });
