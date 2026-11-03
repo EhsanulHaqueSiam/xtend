@@ -1952,3 +1952,42 @@ it("never shows X's Edit profile over the main area once the user moved on while
     history.replaceState(null, "", start);
   }
 });
+
+it("leaves the overlay to a newer press when the user moves on while Xtend checks X's Edit profile", async () => {
+  document.body.innerHTML = `<button data-testid="editProfileButton"></button>`;
+  document
+    .querySelector("button")!
+    .addEventListener("click", () => history.replaceState(null, "", "/settings/profile"));
+  // X closes its dialog, and the user opens another screen while Xtend's read of it is under way.
+  let moveOn = false;
+  const el = {
+    loadURL: async () => {},
+    getURL: () => `https://x.com${location.pathname}`,
+    executeJavaScript: (code: string) => {
+      const answer = new Function(`return ${code}`)();
+      if (moveOn && code.startsWith('(location.pathname === "/settings/profile"')) {
+        moveOn = false;
+        xOverEnded();
+      }
+      return Promise.resolve(answer);
+    },
+  } satisfies Pick<XWebview, "loadURL" | "executeJavaScript" | "getURL">;
+  registerXWebview(el as unknown as XWebview);
+  markXReady();
+  const start = location.href;
+  try {
+    history.replaceState(null, "", "/ann");
+    const shown: Array<boolean> = [];
+    const result = await xEditProfile("ann", (on) => {
+      shown.push(on);
+      if (on) {
+        history.replaceState(null, "", "/ann");
+        moveOn = true;
+      }
+    });
+    expect(result).toBeNull();
+    expect(shown).toEqual([true]);
+  } finally {
+    history.replaceState(null, "", start);
+  }
+});

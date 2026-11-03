@@ -1075,7 +1075,8 @@ const holdOver = async (run: number, path: string, over: (shown: boolean) => voi
     );
     if (open !== true) break;
   }
-  over(false);
+  // The user may have moved on during the read: a newer press owns the overlay then.
+  if (run === overRun) over(false);
 };
 
 /**
@@ -1438,7 +1439,8 @@ export const xEditProfile = async (
         if (!live()) return;
         if ((await xRun(EDITING_PROFILE)) !== true) break;
       }
-      over(false);
+      // Moved on during that read: a newer press owns the overlay.
+      if (live()) over(false);
     },
     live,
   );
