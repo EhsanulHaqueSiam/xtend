@@ -21,6 +21,8 @@ on:
       - main
     paths:
       - "apps/**"
+      # The marketing site deploys on its own and ships in no desktop build.
+      - "!apps/marketing/**"
       - "packages/**"
       - "package.json"
       - "pnpm-lock.yaml"
