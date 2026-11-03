@@ -20,7 +20,7 @@ import {
   communitySearchSurface,
   analyticsRange,
   communitySurface,
-  dropAnalyticsPick,
+  endAnalyticsPick,
   emptyEngine,
   gameSurface,
   type EngineState,
@@ -35,7 +35,7 @@ import {
   radarSurface,
   resetSurface,
   sawAnalyticsPage,
-  settleAnalyticsRange,
+  sawAnalyticsRange,
   showWaiting,
   surfacesOf,
   userByHandle,
@@ -662,89 +662,47 @@ const overviewAnswer = (days: number, impressions: number) => ({
   },
 });
 
-it("keeps X's account analytics per range, the range X's page shows now, and X's claim", () => {
+it("keeps X's account analytics per range and X's claim; answers never pick the range", () => {
   let state = mergeBatch(emptyEngine, { ...batch("GetUserClaims", []), claims: [ANALYTICS_CLAIM] });
   state = mergeBatch(state, overviewAnswer(7, 10));
   state = mergeBatch(state, overviewAnswer(28, 90));
+  state = mergeBatch(state, overviewAnswer(7, 12));
   state = mergeBatch(state, batch("HomeLatestTimeline", []));
   expect([
     state.accountAnalytics.access,
     analyticsRange(state.accountAnalytics, "overview"),
-  ]).toEqual([true, 28]);
-  // X's page moved back to 7D itself (a click on x.com): its answer moves the range back.
-  state = mergeBatch(state, overviewAnswer(7, 12));
-  expect([
-    analyticsRange(state.accountAnalytics, "overview"),
     [...state.accountAnalytics.answers.keys()],
-  ]).toEqual([7, ["overview:7", "overview:28"]]);
+  ]).toEqual([true, undefined, ["overview:7", "overview:28"]]);
   // X's claims every few minutes say the same, or that the account lost it.
   state = mergeBatch(state, { ...batch("GetUserClaims", []), claims: [] });
   expect(state.accountAnalytics.access).toBe(false);
 });
 
-it("keeps the range picked on X's page until X answers for it, so a late answer or X's cache cannot undo it", () => {
-  let state = mergeBatch(emptyEngine, overviewAnswer(7, 10));
-  // 4W, then back to 7D, which X shows from its own store and asks nothing for.
-  state = pickAnalyticsRange(state, "overview", 28);
-  state = mergeBatch(state, overviewAnswer(28, 90));
-  state = pickAnalyticsRange(state, "overview", 7);
-  expect(analyticsRange(state.accountAnalytics, "overview")).toBe(7);
-  // 3M picked while X still fetches 1Y: 1Y's answer comes late and leaves 3M, X's own pick.
+it("draws the range X's page shows: an answer, late or not, only fills its own range's data", () => {
+  const shown = (state: typeof emptyEngine) => analyticsRange(state.accountAnalytics, "overview");
+  // 1Y, then 3M, each read off X's page once pressed; 1Y's answer comes late.
+  let state = sawAnalyticsRange(emptyEngine, "overview", 7);
   state = pickAnalyticsRange(state, "overview", 365);
+  state = endAnalyticsPick(sawAnalyticsRange(state, "overview", 365), "overview", 365);
   state = pickAnalyticsRange(state, "overview", 90);
+  state = endAnalyticsPick(sawAnalyticsRange(state, "overview", 90), "overview", 90);
   state = mergeBatch(state, overviewAnswer(365, 4000));
-  expect(analyticsRange(state.accountAnalytics, "overview")).toBe(90);
-  state = mergeBatch(state, overviewAnswer(90, 900));
-  // While a pick still waits on X (7D, from X's cache), an answer nobody picked moves nothing.
-  state = mergeBatch(state, overviewAnswer(28, 95));
-  expect(analyticsRange(state.accountAnalytics, "overview")).toBe(90);
-  // A pick that never reached X's page goes back to the range X confirmed; a newer one stays.
-  state = pickAnalyticsRange(state, "overview", 14);
-  state = dropAnalyticsPick(state, "overview", 14);
-  expect(analyticsRange(state.accountAnalytics, "overview")).toBe(90);
-  state = pickAnalyticsRange(state, "overview", 7);
-  expect(
-    analyticsRange(dropAnalyticsPick(state, "overview", 14).accountAnalytics, "overview"),
-  ).toBe(7);
+  expect([shown(state), state.accountAnalytics.answers.has("overview:365")]).toEqual([90, true]);
 });
 
-it("never lets an older pick's late answer, or an unpressed pick's undo, move off the range X shows", () => {
+it("shows a pick while its press is on its way, and the range X's page shows once it is over", () => {
   const shown = (state: typeof emptyEngine) => analyticsRange(state.accountAnalytics, "overview");
-  // 1Y, then 3M: 3M's answer comes first, 1Y's late one after it.
-  let state = mergeBatch(emptyEngine, overviewAnswer(7, 10));
-  state = pickAnalyticsRange(state, "overview", 365);
-  state = pickAnalyticsRange(state, "overview", 90);
-  state = mergeBatch(state, overviewAnswer(90, 900));
-  state = mergeBatch(state, overviewAnswer(365, 4000));
-  expect(shown(state)).toBe(90);
-  // 4W, then 3M, neither reaching X's page: back to the 7D X confirmed, not the unpressed 4W.
-  state = mergeBatch(emptyEngine, overviewAnswer(7, 10));
+  let state = sawAnalyticsRange(emptyEngine, "overview", 7);
   state = pickAnalyticsRange(state, "overview", 28);
   state = pickAnalyticsRange(state, "overview", 90);
-  state = dropAnalyticsPick(state, "overview", 28);
+  // 4W's press ends after 3M was picked: 3M still shows; then its press fails, X still shows 7D.
+  state = endAnalyticsPick(state, "overview", 28);
   expect(shown(state)).toBe(90);
-  state = dropAnalyticsPick(state, "overview", 90);
+  state = endAnalyticsPick(state, "overview", 90);
   expect(shown(state)).toBe(7);
-});
-
-it("settles a pick X shows from its own cache by X's page, for a later failed pick and X's own changes", () => {
-  const shown = (state: typeof emptyEngine) => analyticsRange(state.accountAnalytics, "overview");
-  const cachedSevenDays = () => {
-    let state = mergeBatch(emptyEngine, overviewAnswer(7, 10));
-    state = pickAnalyticsRange(state, "overview", 28);
-    state = mergeBatch(state, overviewAnswer(28, 90));
-    // Back to 7D: X shows it from its own store and answers nothing.
-    return pickAnalyticsRange(state, "overview", 7);
-  };
-  // The press landed and X's page shows 7D: a 3M whose press fails goes back to 7D, not 4W.
-  let state = settleAnalyticsRange(cachedSevenDays(), "overview", 7);
-  state = pickAnalyticsRange(state, "overview", 90);
-  state = dropAnalyticsPick(state, "overview", 90);
-  expect(shown(state)).toBe(7);
-  // The section opened again (or X's page reloaded) on 7D: X's own change later is followed.
-  state = settleAnalyticsRange(cachedSevenDays(), "overview", 7, true);
-  state = mergeBatch(state, overviewAnswer(90, 900));
-  expect(shown(state)).toBe(90);
+  // Coming back, or X's page loading anew, on a range X kept: what X's page shows is drawn.
+  state = sawAnalyticsRange(state, "overview", 28);
+  expect(shown(state)).toBe(28);
 });
 
 it("reads access from X's page when X sends no claims, and lets claims say it when they come", () => {

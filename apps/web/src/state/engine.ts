@@ -460,50 +460,26 @@ interface AccountAnalytics {
   readonly access: boolean | null;
   /** X's answers by `<kind>:<days>` (see `EngineBatch.accountAnalytics`). */
   readonly answers: ReadonlyMap<string, EngineAccountAnalytics>;
-  /** Per kind, the last range X answered for as the one its page shows. */
-  readonly confirmed: Readonly<Partial<Record<AnalyticsRanged, number>>>;
-  /** Per kind, the user's latest pick: it shows over `confirmed` until a pick never reaches X. */
-  readonly selected: Readonly<Partial<Record<AnalyticsRanged, number>>>;
-  /** Per kind, picks X has not answered yet: their answers, when they come late, show nothing. */
-  readonly pending: Readonly<Partial<Record<AnalyticsRanged, ReadonlyArray<number>>>>;
+  /** Per kind, the range X's page shows, as last read from X's selected range button. */
+  readonly shown: Readonly<Partial<Record<AnalyticsRanged, number>>>;
+  /** Per kind, a range the user picked whose press is still on its way to X's page. */
+  readonly picking: Readonly<Partial<Record<AnalyticsRanged, number>>>;
 }
 
 const without = <K extends string, A>(record: Readonly<Partial<Record<K, A>>>, key: K) =>
   Object.fromEntries(Object.entries(record).filter(([k]) => k !== key)) as Partial<Record<K, A>>;
 
-/** The range X's page shows for `kind`: the latest pick, else the last one X confirmed. */
+/** The range to draw for `kind`: a pick on its way to X's page, else the range X's page shows. */
 export const analyticsRange = (a: AccountAnalytics, kind: AnalyticsRanged) =>
-  a.selected[kind] ?? a.confirmed[kind];
+  a.picking[kind] ?? a.shown[kind];
 
+// Answers fill the data for their own range only; which range shows is X's page's to say.
 const mergeAccountAnalytics = (a: AccountAnalytics, b: EngineBatch): AccountAnalytics => {
   // X's claims, when X sends them, say it outright.
   const access = b.claims === undefined ? a.access : b.claims.includes(ANALYTICS_CLAIM);
   const answer = b.accountAnalytics;
   if (answer === undefined || b.key === null) return access === a.access ? a : { ...a, access };
-  const answers = new Map(a.answers).set(b.key, answer);
-  if (answer.kind === "videos") return { ...a, access, answers };
-  const { kind, days } = answer;
-  const pending = a.pending[kind] ?? [];
-  if (pending.includes(days)) {
-    // A pick's own answer: X confirms it only while it is still the latest pick.
-    const rest = pending.filter((d) => d !== days);
-    return {
-      ...a,
-      access,
-      answers,
-      confirmed: a.selected[kind] === days ? { ...a.confirmed, [kind]: days } : a.confirmed,
-      pending: { ...a.pending, [kind]: rest },
-    };
-  }
-  // X's page moved by itself (a reload, a click on x.com): followed only while nothing waits.
-  if (pending.length > 0) return { ...a, access, answers };
-  return {
-    ...a,
-    access,
-    answers,
-    confirmed: { ...a.confirmed, [kind]: days },
-    selected: without(a.selected, kind),
-  };
+  return { ...a, access, answers: new Map(a.answers).set(b.key, answer) };
 };
 
 const withAnalytics = (s: EngineState, change: Partial<AccountAnalytics>): EngineState => ({
@@ -511,52 +487,19 @@ const withAnalytics = (s: EngineState, change: Partial<AccountAnalytics>): Engin
   accountAnalytics: { ...s.accountAnalytics, ...change },
 });
 
-/** The user picked `days` for `kind`, pressed on X's page: it shows from now on. */
+/** X's page shows `days` for `kind`: its selected range button, read from X's page. */
+export const sawAnalyticsRange = (s: EngineState, kind: AnalyticsRanged, days: number) =>
+  withAnalytics(s, { shown: { ...s.accountAnalytics.shown, [kind]: days } });
+
+/** The user picked `days` for `kind`; it shows until its press has reached X's page or failed. */
 export const pickAnalyticsRange = (s: EngineState, kind: AnalyticsRanged, days: number) =>
-  withAnalytics(s, {
-    selected: { ...s.accountAnalytics.selected, [kind]: days },
-    pending: {
-      ...s.accountAnalytics.pending,
-      [kind]: [...(s.accountAnalytics.pending[kind] ?? []).filter((d) => d !== days), days],
-    },
-  });
+  withAnalytics(s, { picking: { ...s.accountAnalytics.picking, [kind]: days } });
 
-/**
- * X's page shows `days` for `kind` (its selected range button): that range is confirmed and its
- * pick waits on nothing. `opened`: X's page as a section opens, which no older pick outlives.
- */
-export const settleAnalyticsRange = (
-  s: EngineState,
-  kind: AnalyticsRanged,
-  days: number,
-  opened = false,
-) => {
-  const a = s.accountAnalytics;
-  return withAnalytics(s, {
-    confirmed: { ...a.confirmed, [kind]: days },
-    pending: {
-      ...a.pending,
-      [kind]: opened ? [] : (a.pending[kind] ?? []).filter((d) => d !== days),
-    },
-    selected: opened || a.selected[kind] === days ? without(a.selected, kind) : a.selected,
-  });
-};
-
-/**
- * A pick that never reached X's page (no button, another page, the section left): it waits on
- * nothing, and when it was the latest pick the range is the last one X confirmed again.
- */
-export const dropAnalyticsPick = (s: EngineState, kind: AnalyticsRanged, days: number) =>
-  withAnalytics(s, {
-    pending: {
-      ...s.accountAnalytics.pending,
-      [kind]: (s.accountAnalytics.pending[kind] ?? []).filter((d) => d !== days),
-    },
-    selected:
-      s.accountAnalytics.selected[kind] === days
-        ? without(s.accountAnalytics.selected, kind)
-        : s.accountAnalytics.selected,
-  });
+/** The press for `days` is over; a newer pick still on its way keeps showing. */
+export const endAnalyticsPick = (s: EngineState, kind: AnalyticsRanged, days: number) =>
+  s.accountAnalytics.picking[kind] !== days
+    ? s
+    : withAnalytics(s, { picking: without(s.accountAnalytics.picking, kind) });
 
 /**
  * What X's analytics page showed when X sent no claims: its upsell (no access) or its analytics.
@@ -597,7 +540,7 @@ export const emptyEngine: EngineState = {
   viewer: null,
   analytics: new Map(),
   knownFollowers: new Map(),
-  accountAnalytics: { access: null, answers: new Map(), confirmed: {}, selected: {}, pending: {} },
+  accountAnalytics: { access: null, answers: new Map(), shown: {}, picking: {} },
   formatting: null,
   radar: { list: null, queries: new Map(), limit: null, counts: new Map() },
   cursors: {},

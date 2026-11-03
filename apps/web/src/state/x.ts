@@ -481,7 +481,23 @@ export const xAnalyticsSelected = async (
 ): Promise<string | null> => {
   await loaded;
   const heading = ANALYTICS_HEADINGS[path];
-  if (signal.aborted || heading === undefined) return null;
+  if (heading === undefined) return null;
+  // An inconclusive read (X still drawing, or loading anew) is tried again a few times.
+  for (let attempt = 0; attempt < 3 && !signal.aborted; attempt++) {
+    const read = await readSelected(path, heading, labels, signal, expect);
+    if (read !== null) return read;
+    await loadedAnewOr(1_000);
+  }
+  return null;
+};
+
+const readSelected = async (
+  path: string,
+  heading: string,
+  labels: ReadonlyArray<string>,
+  signal: AbortSignal,
+  expect: string | undefined,
+) => {
   const seen = await xRunHeld(
     `(async () => {
     const labels = ${JSON.stringify(labels)};

@@ -1039,7 +1039,7 @@ const benchmarks = [
       if (!first) return false;
       // Another of X's ranges: Xtend presses X's own button, and both draw that range.
       const was = await store(
-        `$.accountAnalytics.selected.overview ?? $.accountAnalytics.confirmed.overview`,
+        `$.accountAnalytics.picking.overview ?? $.accountAnalytics.shown.overview`,
       );
       const label = was === 28 ? "7D" : "4W";
       await app(

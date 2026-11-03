@@ -7,18 +7,18 @@ import type {
   EngineMetrics,
 } from "@xtend/contracts";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { type TableComponents, TableVirtuoso } from "react-virtuoso";
 
 import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
 import {
   analyticsRange,
-  dropAnalyticsPick,
+  endAnalyticsPick,
   engineAtom,
   pickAnalyticsRange,
   sawAnalyticsPage,
-  settleAnalyticsRange,
+  sawAnalyticsRange,
   updateEngine,
   viewerHandleAtom,
 } from "../../state/engine";
@@ -95,6 +95,20 @@ function useXAnalytics(section: XSection) {
   const answer = days === undefined ? undefined : answers.get(`${page.kind}:${days}`);
   const loaded = useRef<Promise<unknown>>(Promise.resolve());
   const live = useRef(new AbortController());
+  // The range X's page shows, from its selected range button: on open and with each answer.
+  const readShown = useCallback(
+    (signal: AbortSignal) =>
+      void xAnalyticsSelected(page.path, page.ranges, loaded.current, signal).then((label) => {
+        const read = page.ranges.find((r) => r === label);
+        if (read !== undefined)
+          setEngine(updateEngine((s) => sawAnalyticsRange(s, page.kind, DAYS[read])));
+      }),
+    [page, setEngine],
+  );
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- reads X's selected range again when X's page answers, which may follow a range change on x.com.
+  useEffect(() => {
+    if (answers.size > 0) readShown(live.current.signal);
+  }, [answers, readShown]);
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- moves the engine (the session view) to X's analytics page while this section is open, reads whether X shows it or its upsell, and ends a pick still waiting there after.
   useEffect(() => {
     const mine = new AbortController();
@@ -103,17 +117,12 @@ function useXAnalytics(section: XSection) {
     void xAnalyticsUpsell(page.path, loaded.current, mine.signal).then((upsell) => {
       if (upsell !== null) setEngine(updateEngine((s) => sawAnalyticsPage(s, upsell)));
     });
-    // The range X's page opens on is the one it shows, whatever an older pick waited for.
-    void xAnalyticsSelected(page.path, page.ranges, loaded.current, mine.signal).then((label) => {
-      const shown = page.ranges.find((r) => r === label);
-      if (shown !== undefined)
-        setEngine(updateEngine((s) => settleAnalyticsRange(s, page.kind, DAYS[shown], true)));
-    });
+    readShown(mine.signal);
     return () => {
       mine.abort();
       xOverEnded();
     };
-  }, [url, page, setEngine]);
+  }, [url, page, setEngine, readShown]);
   return {
     url,
     answer,
@@ -131,25 +140,31 @@ function useXAnalytics(section: XSection) {
           const kind = page.kind;
           setEngine(updateEngine((s) => pickAnalyticsRange(s, kind, DAYS[picked])));
           const signal = live.current.signal;
-          void xPickAnalyticsRange(page.path, picked, loaded.current, signal)
-            // Once pressed, X's page says which range it shows: X's cache answers nothing.
-            .then((pressed) =>
-              pressed
-                ? xAnalyticsSelected(page.path, page.ranges, loaded.current, signal, picked)
-                : null,
-            )
-            .then((label) => {
-              const shown = page.ranges.find((r) => r === label);
+          void xPickAnalyticsRange(page.path, picked, loaded.current, signal).then(
+            async (pressed) => {
+              // X's page says which range it shows; a read that says nothing after a press
+              // that landed is the pick, never another range. A failed press changes nothing.
+              const label = pressed
+                ? ((await xAnalyticsSelected(
+                    page.path,
+                    page.ranges,
+                    loaded.current,
+                    signal,
+                    picked,
+                  )) ?? picked)
+                : null;
+              const read = page.ranges.find((r) => r === label);
               setEngine(
-                updateEngine((s) => {
-                  const settled =
-                    shown === undefined ? s : settleAnalyticsRange(s, kind, DAYS[shown]);
-                  return shown === picked
-                    ? settled
-                    : dropAnalyticsPick(settled, kind, DAYS[picked]);
-                }),
+                updateEngine((s) =>
+                  endAnalyticsPick(
+                    read === undefined ? s : sawAnalyticsRange(s, kind, DAYS[read]),
+                    kind,
+                    DAYS[picked],
+                  ),
+                ),
               );
-            });
+            },
+          );
         }}
       />
     ),

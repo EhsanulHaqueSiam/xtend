@@ -27,14 +27,16 @@ async function open(section: XSection, upsell: boolean | null = null) {
   updateEngine(() => emptyEngine);
   const bridge = installFakeBridge();
   const scripts: Array<string> = [];
-  let shown: string | null = null;
+  // X's page opens on 7D; a test can make reading its selected range fail.
+  let shown: string | null = "7D";
+  let readFails = false;
   registerXWebview({
     getURL: () => "https://x.com/home",
     loadURL: () => Promise.resolve(),
     executeJavaScript: (code: string) => {
       scripts.push(code);
       // X's page shows the range last pressed, by its primary style; none before a press.
-      if (code.includes("bg-btn-primary")) return Promise.resolve(shown);
+      if (code.includes("bg-btn-primary")) return Promise.resolve(readFails ? null : shown);
       const pressed = /b\.textContent\.trim\(\) === ("[^"]+")\)/.exec(code)?.[1];
       if (pressed !== undefined) shown = JSON.parse(pressed) as string;
       return Promise.resolve(code.includes("Upgrade to continue") ? upsell : true);
@@ -55,6 +57,9 @@ async function open(section: XSection, upsell: boolean | null = null) {
     bridge,
     scripts,
     screen,
+    failReads: () => {
+      readFails = true;
+    },
     async [Symbol.asyncDispose]() {
       await screen[Symbol.asyncDispose]();
       registerXWebview(null);
@@ -112,8 +117,10 @@ it("draws X's overview for the range X's page shows, and a pick presses X's own 
   x.bridge.emitEngine(answer("overview:28"));
   await expect.poll(() => tile("Impressions")).toBe("Impressions11,385↑171%");
 
-  // Back to 7D, which X shows from its own store and asks nothing for. Leaving the section and
+  // Back to 7D, which X shows from its own store and asks nothing for, and reading X's selected
+  // range then fails: the press landed, so it is 7D, never the 4W before. Leaving the section and
   // coming back still shows 7D, as X's page does.
+  x.failReads();
   await userEvent.click(x.screen.getByRole("tab", { name: "7D" }));
   await expect.poll(() => tile("Impressions")).toBe("Impressions3,150↑200%");
   await x.screen.rerender(<XAnalyticsSection key="away" section="x-content" />);
