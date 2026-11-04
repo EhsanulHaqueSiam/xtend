@@ -1313,6 +1313,7 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
                 `<div role="button" tabindex="0" data-ban-rule="${esc(rule)}" data-post="${esc(q.get("post") ?? "")}">${esc(rule)}</div>`,
             )
             .join(""),
+          state.compact,
         ),
     };
   // X's Hide post (bundle.Report's hidetweet flow): the moderator picks the rule it broke, and X

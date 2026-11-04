@@ -80,3 +80,30 @@ test("compact X: a setting's edit is X's page over the main area until X is back
     e.mock.state.setCommunityRole(id, community.role);
   }
 });
+
+test("compact X: Hide on a reported post is X's rule picker as a page, and X's decision takes the row", async () => {
+  const id = "600000000104";
+  const community = e.mock.state.community(id)!;
+  e.mock.state.setCommunityRole(id, "Admin");
+  try {
+    await go(`/communities/${id}`);
+    await expect.poll(enginePath).toBe(`/i/communities/${id}`);
+    await e.engine("setTimeout(() => location.reload()), true");
+    await e.app.locator("main").getByRole("link", { name: "Admin tools" }).waitFor();
+    await go(`/communities/${id}/moderation/reported_tweets`);
+    await expect.poll(enginePath).toBe(`/i/communities/${id}/moderation/reported_tweets`);
+    const cases = e.app.locator('main [data-x="report-case"]');
+    const [first] = e.mock.state.reportCases(id);
+    await expect.poll(() => cases.count()).toBe(2);
+    await cases.first().getByRole("button", { name: "Hide" }).click();
+    await expect.poll(enginePath).toBe(`/i/report/hidetweet/${first!.postId}`);
+    expect(await engineHas('[role="dialog"]')).toBe(false);
+    await expect.poll(pane).toBe("main");
+    await e.engine(`document.querySelector('[data-hide-rule]').click(), true`);
+    await expect.poll(pane).toBe("hidden");
+    await expect.poll(() => cases.count()).toBe(1);
+  } finally {
+    e.mock.state.resetCommunity(id);
+    e.mock.state.setCommunityRole(id, community.role);
+  }
+});
