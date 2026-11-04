@@ -28,6 +28,10 @@ it("opens x.com posts, Articles, profiles, searches, the Follow page and Communi
   );
   expect(xtendRoute("https://x.com/i/communities/16/tools/settings/name")).toBeNull();
   expect(xtendRoute("https://x.com/i/communities/16/tools/members")).toBeNull();
+  expect(xtendRoute("https://x.com/i/communities/16/moderation/reported_tweets")).toBe(
+    "/communities/16/moderation/reported_tweets",
+  );
+  expect(xtendRoute("https://x.com/i/communities/16/moderation/moderation_log")).toBeNull();
   expect(xtendRoute("https://x.com/you/communities/explore")).toBe("/communities?tab=explore");
   expect(xtendRoute("https://x.com/you/communities")).toBe("/communities");
   // A news story (Explore's news rows link it) and the NBA league page by X's tab.

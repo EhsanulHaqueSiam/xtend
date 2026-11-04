@@ -242,9 +242,20 @@ export function menuRows(state: MockState, spec: string): ReadonlyArray<Row> {
       ];
     const author = state.user(p.author.userId);
     return [
-      // X's moderators' row (TweetCurationActionMenu): a link to X's flow for hiding it.
+      // X's moderators' rows (loader.TweetCurationActionMenu): its search for the author's posts
+      // there, and links to X's flows for hiding the post and banning its author.
       ...(parts[1] === "community"
-        ? [{ label: "Hide post", go: `/i/report/hidetweet/${id}` }]
+        ? [
+            {
+              label: `Search @${h}’s posts in this Community`,
+              go: `/i/communities/${parts[2]}/search/?q=(from:${h})`,
+            },
+            { label: "Hide post", go: `/i/report/hidetweet/${id}` },
+            {
+              label: "Ban author from Community",
+              go: `/i/report/removecommunitymember/${p.author.userId}?community_id=${parts[2]}`,
+            },
+          ]
         : []),
       author?.youFollow === true
         ? { label: `Unfollow @${h}`, dialog: unfollowSheet(p.author.userId, h) }

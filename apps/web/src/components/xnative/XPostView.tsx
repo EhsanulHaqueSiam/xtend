@@ -1,5 +1,5 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
-import { useNavigate } from "@tanstack/react-router";
+import { useLocation, useNavigate } from "@tanstack/react-router";
 import * as Atom from "effect/reactivity/Atom";
 import type { EngineMedia, EnginePost, EngineUser } from "@xtend/contracts";
 import {
@@ -8,6 +8,7 @@ import {
   Heart,
   MessageCircle,
   MoreHorizontal,
+  CircleSlash2,
   PencilLine,
   Repeat2,
   Share,
@@ -21,6 +22,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
 import { askFollow, engineAtom, updateEngine, youFollow } from "../../state/engine";
 import {
@@ -36,6 +38,7 @@ import { fmt } from "../analyze/ui";
 import { useDropPost } from "../shell/drops";
 import { Menu, MenuItem } from "../ui/menu";
 import { useXPress } from "./useXPress";
+import { useExplainPost } from "./GrokExplain";
 import { FollowButton } from "./FollowButton";
 import { HoverCard } from "./HoverCard";
 import { viewerAtom } from "./MediaViewer";
@@ -513,8 +516,10 @@ export function XPostView({
   readonly under?: ReactNode;
 }) {
   const { blocked, pressRow, setToast } = useXPress();
+  const explain = useExplainPost();
   const drop = useDropPost();
   const navigate = useNavigate();
+  const pathname = useLocation({ select: (l) => l.pathname });
   // The author as X described them (badge colour, organisation shape, affiliate), when seen.
   const engine = useAtomValue(engineAtom);
   const author = engine.users.get(post.author.userId);
@@ -631,6 +636,17 @@ export function XPostView({
       search: { h: post.author.handle },
     });
   /**
+   * X's moderators' row on a Community's post, "Search @x’s posts in this Community", as Xtend's
+   * own search inside the Community open now. False for any other row.
+   */
+  const searchInCommunity = (label: string) => {
+    const author = /^Search @(\w{1,15})’s posts in this Community$/.exec(label)?.[1];
+    const id = /^\/communities\/(\d+)/.exec(pathname)?.[1];
+    if (author === undefined || id === undefined) return false;
+    void navigate({ to: "/communities/$id", params: { id }, search: { q: `(from:${author})` } });
+    return true;
+  };
+  /**
    * X's own row for the user's click; X's dialogs (Report, Block, Send via Chat) show over the main
    * area. Post activity and Post analytics, X's own pages, are Xtend's native screens of them.
    */
@@ -643,18 +659,20 @@ export function XPostView({
         })
       : label === "View post analytics"
         ? openAnalytics()
-        : pressRow(async () => {
-            // X's own "Follow @handle" / "Unfollow @handle" row for this author: what X's menu says
-            // afterwards holds like a Follow button's press.
-            const follow = /^(?:Follow|Unfollow) @(\w{1,15})$/.exec(label);
-            if (follow === null || follow[1]!.toLowerCase() !== post.author.handle.toLowerCase())
-              return xPostMenuPress(xPost, label, setOver, menu);
-            const pressed = await xPostFollowPress(xPost, label, setOver);
-            const following = pressed?.following ?? null;
-            if (following !== null)
-              setEngine(updateEngine((s) => askFollow(s, post.author.userId, following)));
-            return pressed?.outcome ?? null;
-          });
+        : searchInCommunity(label)
+          ? undefined
+          : pressRow(async () => {
+              // X's own "Follow @handle" / "Unfollow @handle" row for this author: what X's menu says
+              // afterwards holds like a Follow button's press.
+              const follow = /^(?:Follow|Unfollow) @(\w{1,15})$/.exec(label);
+              if (follow === null || follow[1]!.toLowerCase() !== post.author.handle.toLowerCase())
+                return xPostMenuPress(xPost, label, setOver, menu);
+              const pressed = await xPostFollowPress(xPost, label, setOver);
+              const following = pressed?.following ?? null;
+              if (following !== null)
+                setEngine(updateEngine((s) => askFollow(s, post.author.userId, following)));
+              return pressed?.outcome ?? null;
+            });
 
   const name = (
     <span className="flex min-w-0 items-center gap-1">
@@ -674,6 +692,30 @@ export function XPostView({
       <Affiliate user={author} />
     </span>
   );
+  // X's Grok button on a post, as X draws it beside the "...": Explain this post.
+  const grok = isElectron ? (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            aria-label="Explain this post"
+            className={cn(
+              "-m-2 grid size-[34px] shrink-0 cursor-pointer place-items-center rounded-full transition-colors duration-150 hover:bg-[#1d9bf0]/10 hover:text-[#1d9bf0]",
+              X_GRAY,
+            )}
+            onClick={(e) => {
+              e.stopPropagation();
+              void explain(post);
+            }}
+          />
+        }
+      >
+        <CircleSlash2 className="size-[17px]" />
+      </TooltipTrigger>
+      <TooltipPopup>Explain this post</TooltipPopup>
+    </Tooltip>
+  ) : null;
   const menu = (
     // React carries a click in the menu's portal up to the post, which would open it.
     <span className="contents" onClick={(e) => e.stopPropagation()}>
@@ -854,7 +896,10 @@ export function XPostView({
           {author !== undefined && youFollow(engine, author) ? null : (
             <FollowButton user={author} size="sm" />
           )}
-          {menu}
+          <span className="flex shrink-0 items-center gap-3">
+            {grok}
+            {menu}
+          </span>
         </div>
         <div className="mt-3 empty:hidden">
           <ReplyingTo handles={post.replyingTo} />
@@ -948,7 +993,10 @@ export function XPostView({
                   <TooltipPopup>{xStamp(post.createdAt)}</TooltipPopup>
                 </Tooltip>
               </span>
-              {menu}
+              <span className="ml-auto flex shrink-0 items-center gap-3">
+                {grok}
+                {menu}
+              </span>
             </>
           )}
         </div>

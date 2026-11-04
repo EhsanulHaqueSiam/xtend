@@ -8,6 +8,7 @@ import type {
   EnginePost,
   EngineProfileSave,
   EngineUser,
+  EngineXArticle,
 } from "@xtend/contracts";
 import { expect, it } from "vite-plus/test";
 
@@ -38,7 +39,11 @@ import {
   postOn,
   postSurface,
   profileSurface,
+  decide,
+  decisionKey,
+  requestState,
   roleIn,
+  waitingIn,
   radarSurface,
   resetSurface,
   sawAnalyticsPage,
@@ -476,6 +481,116 @@ it("sums what X tells a Community's moderators across answers, and its Admin too
     batch("CommunitiesCreateButtonQuery", [], { communityCreate: "verify" }),
   );
   expect(mergeBatch(offered, batch("Viewer", [])).communityCreate).toBe("verify");
+});
+
+it("keeps a Community's queues in X's order: a first page replaces, a next page joins, a decision updates", () => {
+  const request = (userId: string, state = "Pending") => ({
+    userId,
+    answer: null,
+    at: null,
+    state,
+    blocking: false,
+    muting: false,
+  });
+  const requests = (
+    page: boolean,
+    rows: ReadonlyArray<ReturnType<typeof request>>,
+    cursor: string | null = null,
+  ) =>
+    batch("MemberRequests_Query", [], {
+      cursor,
+      joinRequests: {
+        communityId: "20",
+        page,
+        requests: rows,
+        next: page && cursor === null ? "c1" : null,
+      },
+    });
+  let state = [
+    requests(true, [request("31"), request("32")]),
+    requests(true, [request("33")], "c1"),
+  ].reduce(mergeBatch, emptyEngine);
+  expect(state.joinRequests.get("20")?.map((r) => r.userId)).toEqual(["31", "32", "33"]);
+  // X's last page said there is no next one.
+  expect(state.queueMore.get("request:20")).toBe(false);
+  // X's Approve answers with the one request: it keeps its place, decided.
+  state = mergeBatch(state, requests(false, [request("32", "Approved")]));
+  expect(state.joinRequests.get("20")?.map((r) => r.state)).toEqual([
+    "Pending",
+    "Approved",
+    "Pending",
+  ]);
+  // X's page loaded afresh lists only what still waits.
+  state = mergeBatch(state, requests(true, [request("33")]));
+  expect(state.joinRequests.get("20")?.map((r) => r.userId)).toEqual(["33"]);
+  // What X decided for a press, X drew in the row's place: it holds over the list's own state.
+  const held = decide(state, "20", "request", "33", "Denied");
+  expect(requestState(held, "20", held.joinRequests.get("20")![0]!)).toBe("Denied");
+  // X's next fresh page still lists them as waiting: X's word wins, the row is pressable again.
+  const again = mergeBatch(held, requests(true, [request("33")]));
+  expect(requestState(again, "20", again.joinRequests.get("20")![0]!)).toBe("Pending");
+
+  const cases = (ids: ReadonlyArray<string>, cursor: string | null = null) =>
+    batch("CommunityModerationTweetCasesSlice", [], {
+      cursor,
+      reportCases: {
+        communityId: "20",
+        cases: ids.map((postId) => ({ postId, reports: 1, at: null, byX: false, rules: [] })),
+        next: null,
+      },
+    });
+  const listed = [cases(["50", "51"]), cases(["51", "52"], "c1")].reduce(mergeBatch, emptyEngine);
+  expect(listed.reportCases.get("20")?.map((c) => c.postId)).toEqual(["50", "51", "52"]);
+  // Kept, then reported again: X's fresh list has it waiting, so Xtend's "You kept" goes.
+  const kept = decide(listed, "20", "post", "50", "Kept");
+  expect(kept.decided.get(decisionKey("20", "post", "50"))).toBe("Kept");
+  expect(mergeBatch(kept, cases(["50"])).decided.has(decisionKey("20", "post", "50"))).toBe(false);
+  // X's later page listing it as waiting is X's word too.
+  expect(mergeBatch(kept, cases(["50"], "c2")).decided.has(decisionKey("20", "post", "50"))).toBe(
+    false,
+  );
+});
+
+it("takes a decision X drew off X's count of what waits, once per row, and gives it back when X lists it again", () => {
+  const tools = (reported: number, requests: number | null) =>
+    batch("CommunityToolsScreenContainerQuery", [], {
+      communityAdmin: [{ communityId: "20", role: "Admin", reported, requests }],
+    });
+  const asking = (userIds: ReadonlyArray<string>) =>
+    batch("MemberRequests_Query", [], {
+      joinRequests: {
+        communityId: "20",
+        page: true,
+        next: null,
+        requests: userIds.map((userId) => ({
+          userId,
+          answer: null,
+          at: null,
+          state: "Pending",
+          blocking: false,
+          muting: false,
+        })),
+      },
+    });
+  let state = mergeBatch(emptyEngine, tools(2, 3));
+  state = decide(state, "20", "request", "33", "Denied");
+  state = decide(state, "20", "request", "33", "Denied");
+  state = decide(state, "20", "post", "50", "Kept");
+  expect(waitingIn(state, "20")).toEqual({ reported: 1, requests: 2 });
+  // X lists them as waiting again: their row counts again, once, and a new decision takes it off.
+  state = mergeBatch(state, asking(["33"]));
+  expect(waitingIn(state, "20")).toEqual({ reported: 1, requests: 3 });
+  state = decide(state, "20", "request", "33", "Denied");
+  expect(waitingIn(state, "20").requests).toBe(2);
+  // Waiting again on a later page of X's list: counted again just the same.
+  const later = mergeBatch(state, { ...asking(["33"]), cursor: "c1" });
+  expect([waitingIn(later, "20").requests, later.decided.size]).toEqual([3, 1]);
+  // X's own count, fresh, already has every decision in it.
+  state = mergeBatch(state, tools(0, 2));
+  expect(waitingIn(state, "20")).toEqual({ reported: 0, requests: 2 });
+  // A Community that takes no requests keeps saying so.
+  const open = decide(mergeBatch(emptyEngine, tools(0, null)), "20", "post", "50", "Kept");
+  expect(waitingIn(open, "20")).toEqual({ reported: 0, requests: null });
 });
 
 it("keeps what X took for a join, ask or leave until X's capture of the Community agrees", () => {
@@ -1365,4 +1480,33 @@ it("keeps X's Radar: its list in X's order, a query's days as X finishes countin
     radar.posts.get("7")?.liked,
     at(radar.lists, surface),
   ]).toEqual([["5"], ["6", "5"], true, ["7"]]);
+});
+
+it("keeps the user's own X Articles: each list as X last sent it, and a body X sent once", () => {
+  const article = (id: string, blocks: EngineXArticle["blocks"] = null): EngineXArticle => ({
+    id,
+    title: `T${id}`,
+    preview: "",
+    lifecycle: "Draft",
+    modifiedAt: null,
+    postId: null,
+    coverUrl: null,
+    blocks,
+  });
+  const body = [
+    { key: "a", type: "unstyled", text: "hi", styles: [], links: [], images: [], markdown: null },
+  ];
+  const state = [
+    batch("ArticleEntityResultByRestId", [], { xArticles: [article("1", body)] }),
+    batch("ArticleEntitiesSlice", [], {
+      key: "articles:Draft",
+      xArticles: [article("2"), article("1")],
+    }),
+    batch("ArticleEntitiesSlice", [], { key: "articles:Published", xArticles: [] }),
+  ].reduce(mergeBatch, emptyEngine);
+  expect([
+    state.xArticles.Draft,
+    state.xArticles.Published,
+    state.xArticles.byId.get("1")?.blocks,
+  ]).toEqual([["2", "1"], [], body]);
 });

@@ -50,6 +50,7 @@ import {
   xChecklist,
   xControl,
   xPressToPage,
+  xPressRow,
 } from "./x";
 
 // X's page as the engine holds it: a post quoting 42, then 42 itself, edited, so its timestamp
@@ -2241,6 +2242,18 @@ it("finds X's own control by its words or its label, a checkbox row's box, and n
   // A row whose words run on, and a name X draws twice, are never pressed.
   expect(xControl(document, "Members")).toBeNull();
   expect(xControl(document, "Save")).toBeNull();
+
+  // In a queue, each row has its own: the one in the row that links to that post or person.
+  document.body.innerHTML = `
+    <div id="a"><article><a href="/ann/status/50"><time></time></a></article><button>Keep</button></div>
+    <div id="b"><article><a href="/bo/status/51"><time></time></a><a href="/ann/status/50">quoted</a></article><button>Keep</button></div>`;
+  // A post is its row's by its own timestamp link; one quoting it links to it with none.
+  const own = (id: string) => `a[href$="/status/${id}"] time`;
+  expect(xControl(document, "Keep", own("51"))?.parentElement?.id).toBe("b");
+  expect(xControl(document, "Keep", own("50"))?.parentElement?.id).toBe("a");
+  // Linked from both rows, a post names no one row: nothing is pressed.
+  expect(xControl(document, "Keep", 'a[href$="/status/50"]')).toBeNull();
+  expect(xControl(document, "Keep", own("52"))).toBeNull();
 });
 
 it("reads X's checklist card: its rows in X's order, each done or not, and none without the card", () => {
@@ -2340,6 +2353,196 @@ it("presses only the control in the box of the Community it is for, never one le
     expect(pressedIn).toEqual(["20"]);
   } finally {
     history.replaceState(null, "", start);
+    registerXWebview(null);
+  }
+});
+
+it("waits for X to turn a queue row after Keep, however long X's answer takes", async () => {
+  using _clock = fakeTimers();
+  const start = location.pathname + location.search;
+  history.replaceState(null, "", "/i/communities/20/moderation/reported_tweets");
+  document.body.innerHTML = `<div id="row"><article><a href="/ann/status/50"><time></time></a></article><button>Keep</button></div>`;
+  // X answers its keep a while later, then draws "You kept this post" in the row's place.
+  document.querySelector("button")!.addEventListener("click", () =>
+    setTimeout(() => {
+      document.querySelector("#row")!.outerHTML = `<div aria-label="You kept this post"></div>`;
+    }, 1500),
+  );
+  inThisPage(() => `https://x.com${location.pathname}`);
+  try {
+    const keeping = xPressRow(
+      "/i/communities/20/moderation/reported_tweets",
+      'a[href$="/status/50"] time',
+      "Keep",
+      () => true,
+      () => {},
+    );
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(await keeping).toMatchObject({ gone: true });
+  } finally {
+    history.replaceState(null, "", start);
+    registerXWebview(null);
+  }
+});
+
+it("ends a queue press whose read X's page never answers, once X loads anew or the user moves on", async () => {
+  using _clock = fakeTimers();
+  const start = location.pathname + location.search;
+  history.replaceState(null, "", "/i/communities/20/moderation/reported_tweets");
+  document.body.innerHTML = `<div><article><a href="/ann/status/50"><time></time></a></article><button>Keep</button></div>`;
+  // X's page goes away under the press's last read: that read never answers.
+  registerXWebview({
+    loadURL: async () => {},
+    getURL: () => `https://x.com${location.pathname}`,
+    executeJavaScript: (code: string) =>
+      code.includes("return find() === null;")
+        ? new Promise(() => {})
+        : Promise.resolve(new Function(`return ${code}`)()),
+  } as unknown as XWebview);
+  markXReady();
+  const keep = () => {
+    let ended = false;
+    void xPressRow(
+      "/i/communities/20/moderation/reported_tweets",
+      'a[href$="/status/50"] time',
+      "Keep",
+      () => true,
+      () => {},
+    ).then(() => (ended = true));
+    return () => ended;
+  };
+  try {
+    const reloaded = keep();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(reloaded()).toBe(false);
+    // X's page loads anew.
+    markXReady();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(reloaded()).toBe(true);
+    // The user opens another screen while it reads.
+    const left = keep();
+    await vi.advanceTimersByTimeAsync(2000);
+    xOverEnded();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(left()).toBe(true);
+  } finally {
+    history.replaceState(null, "", start);
+    registerXWebview(null);
+  }
+});
+
+it("ends a scroll for X's next page that X's page never answers, once X loads anew or the list goes", async () => {
+  // X's page goes away under the scroll: its read never answers.
+  registerXWebview({
+    loadURL: async () => {},
+    getURL: () => "https://x.com/i/communities/20/moderation/reported_tweets",
+    executeJavaScript: () => new Promise(() => {}),
+  } as unknown as XWebview);
+  markXReady();
+  const scroll = (signal?: AbortSignal) => {
+    let ended = false;
+    void xScrollMore(signal).then(() => (ended = true));
+    return () => ended;
+  };
+  try {
+    const reloaded = scroll();
+    await Promise.resolve();
+    expect(reloaded()).toBe(false);
+    markXReady();
+    await expect.poll(reloaded).toBe(true);
+    const gone = new AbortController();
+    const left = scroll(gone.signal);
+    gone.abort();
+    await expect.poll(left).toBe(true);
+  } finally {
+    registerXWebview(null);
+  }
+});
+
+it("ends a queue press held in its move to the row's page or its Back, once X loads anew or the user moves on", async () => {
+  using _clock = fakeTimers();
+  const start = location.pathname + location.search;
+  const row = () => {
+    document.body.innerHTML = `<div><article><a href="/ann/status/50"><time></time></a></article><button>Keep</button></div>`;
+    // X takes the keep at once: its row turns.
+    document
+      .querySelector("button")!
+      .addEventListener("click", () => (document.body.innerHTML = ""));
+  };
+  // X's router never answers the move (`hang` "go") or the Back after the press (`hang` "back").
+  let hang: "go" | "back" = "back";
+  registerXWebview({
+    loadURL: async () => {},
+    getURL: () => `https://x.com${location.pathname}`,
+    executeJavaScript: (code: string) =>
+      (hang === "go" && code.includes("pushState")) ||
+      (hang === "back" && code.includes("history.back()"))
+        ? new Promise(() => {})
+        : Promise.resolve(new Function(`return ${code}`)()),
+  } as unknown as XWebview);
+  markXReady();
+  const keep = () => {
+    let ended = false;
+    void xPressRow(
+      "/i/communities/20/moderation/reported_tweets",
+      'a[href$="/status/50"] time',
+      "Keep",
+      () => true,
+      () => {},
+    ).then(() => (ended = true));
+    return () => ended;
+  };
+  try {
+    // The engine is on the other queue: the press moves it to the row's page, then Back.
+    history.replaceState(null, "", "/i/communities/20/moderation/member_requests");
+    row();
+    const back = keep();
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(back()).toBe(false);
+    markXReady();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(back()).toBe(true);
+    // The move itself never lands; the user opens another screen.
+    hang = "go";
+    history.replaceState(null, "", "/i/communities/20/moderation/member_requests");
+    row();
+    const go = keep();
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(go()).toBe(false);
+    xOverEnded();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(go()).toBe(true);
+  } finally {
+    history.replaceState(null, "", start);
+    registerXWebview(null);
+  }
+});
+
+it("ends a move of the engine X's router never answers, on its signal or X's page loading anew", async () => {
+  registerXWebview({
+    loadURL: async () => {},
+    getURL: () => "https://x.com/i/communities/20/moderation/member_requests",
+    executeJavaScript: () => new Promise(() => {}),
+  } as unknown as XWebview);
+  markXReady();
+  const move = (signal: AbortSignal) => {
+    let ended = false;
+    void xGo("https://x.com/i/communities/20/moderation/reported_tweets", signal).then(
+      () => (ended = true),
+    );
+    return () => ended;
+  };
+  try {
+    const gone = new AbortController();
+    const aborted = move(gone.signal);
+    gone.abort();
+    await expect.poll(aborted).toBe(true);
+    const reloaded = move(new AbortController().signal);
+    await Promise.resolve();
+    expect(reloaded()).toBe(false);
+    markXReady();
+    await expect.poll(reloaded).toBe(true);
+  } finally {
     registerXWebview(null);
   }
 });

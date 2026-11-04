@@ -1291,6 +1291,7 @@ test("X's Admin tools: a moderator's gear opens X's list natively, each tool X's
     await expect
       .poll(() => tools.allTextContents())
       .toEqual([
+        "Review all",
         "Reported posts",
         ...(admin.requests === null ? [] : ["Member requests"]),
         "Moderation log",
@@ -1861,5 +1862,164 @@ test("A post goes into a folder through X's own Bookmark to Folder and out with 
   } finally {
     e.mock.state.setPremium(true);
     await e.engine("location.reload(), true");
+  }
+});
+
+test("A Community's queues: Review all, Member requests and Reported posts drawn natively, each press X's own button", async () => {
+  // Founder therapy asks before people join, so it has requests.
+  const id = "600000000104";
+  const community = e.mock.state.community(id)!;
+  const requests = e.app.locator('main [data-x="join-request"]');
+  const cases = e.app.locator('main [data-x="report-case"]');
+  // Not a mod: X's queues draw its not-found page, and so does Xtend.
+  await go(`/communities/${id}/moderation/member_requests`);
+  await e.app.getByText("Hmm...this page doesn’t exist.").waitFor();
+
+  e.mock.state.setCommunityRole(id, "Admin");
+  try {
+    await go(`/communities/${id}`);
+    await expect.poll(enginePath).toBe(`/i/communities/${id}`);
+    await e.engine("setTimeout(() => location.reload()), true");
+    await e.app.locator("main").getByRole("link", { name: "Admin tools" }).click();
+    await e.app.locator('main [data-x="community-tools"]').getByText("Review all").click();
+    await expect.poll(xtendHash).toBe(`#/communities/${id}/moderation/review`);
+    // Both of X's lists in one, read off X's two pages: X's first page of each, and no more
+    // until the reader scrolls (the engine pages at the user's pace).
+    const pending = e.mock.state.memberRequests(id);
+    const reported = e.mock.state.reportCases(id);
+    const pages = (op: string) =>
+      e.mock.reads.filter((r) => r.op === op && r.variables.communityId === id);
+    const nextPages = () =>
+      [...pages("MemberRequests_Query"), ...pages("CommunityModerationTweetCasesSlice")].filter(
+        (r) => r.variables.cursor !== undefined,
+      ).length;
+    await expect.poll(() => requests.count()).toBe(3);
+    await expect.poll(() => cases.count()).toBe(2);
+    let still = 0;
+    await expect
+      .poll(async () => (nextPages() === 0 && (await requests.count()) === 3 ? ++still : -1), {
+        interval: 100,
+      })
+      .toBeGreaterThan(15);
+    // The reader scrolls Xtend's list down: X's next page of each, on that queue's own page.
+    const scroll = () =>
+      e.app
+        .locator("main [data-virtuoso-scroller]")
+        .first()
+        .evaluate((el) => el.scrollBy(0, el.scrollHeight));
+    await expect
+      .poll(async () => (await scroll(), (await requests.count()) + (await cases.count())), {
+        interval: 500,
+        timeout: 20_000,
+      })
+      .toBe(pending.length + reported.length);
+    expect(pages("MemberRequests_Query").some((r) => r.variables.cursor !== undefined)).toBe(true);
+    expect(
+      pages("CommunityModerationTweetCasesSlice").some((r) => r.variables.cursor !== undefined),
+    ).toBe(true);
+    // ⌘R, as main sends it, asks X for both queues again, the second once the first answered.
+    const asked = (op: string) => pages(op).filter((r) => r.variables.cursor === undefined).length;
+    const before = [asked("MemberRequests_Query"), asked("CommunityModerationTweetCasesSlice")];
+    await e.electron.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0]!.webContents.send("xtend:shortcut", "refresh"),
+    );
+    await expect
+      .poll(() => [asked("MemberRequests_Query"), asked("CommunityModerationTweetCasesSlice")])
+      .toEqual([before[0]! + 1, before[1]! + 1]);
+    await expect.poll(() => requests.count()).toBeGreaterThan(0);
+    await expect.poll(enginePath).toBe(`/i/communities/${id}/moderation/reported_tweets`);
+    // X's warning for someone the user muted, and Xtend's line from what the account holds.
+    const muted = requests.filter({ hasText: "You’ve muted this person." });
+    await muted
+      .locator('[data-x="xtend-line"]')
+      .getByText(/followers/)
+      .waitFor();
+    // Deny on a request moves the engine to X's Member requests for X's own button, then back.
+    const deniedUser = e.mock.state.user(pending[2]!.userId)!;
+    await muted.getByRole("button", { name: "Deny" }).click();
+    await e.app
+      .getByText(`@${deniedUser.handle} was denied and can’t join your Community`)
+      .waitFor();
+    expect(presses()).toContain(`write actions_denyMemberRequest_Mutation ${id}`);
+    await expect.poll(enginePath).toBe(`/i/communities/${id}/moderation/reported_tweets`);
+
+    // Member requests alone: Approve, and X's words take the row's place.
+    await go(`/communities/${id}/moderation/member_requests`);
+    await expect.poll(enginePath).toBe(`/i/communities/${id}/moderation/member_requests`);
+    const approved = e.mock.state.user(pending[0]!.userId)!;
+    await requests.first().getByText(pending[0]!.answer!).waitFor();
+    await requests.first().getByRole("button", { name: "Approve" }).click();
+    await e.app
+      .getByText(`@${approved.handle} was approved and is now a member of your Community`)
+      .waitFor();
+    expect(presses()).toContain(`write actions_approveMemberRequest_Mutation ${id}`);
+
+    // Reported posts: who reported it and the rule each named, then X's Keep and X's Hide.
+    await go(`/communities/${id}/moderation/reported_tweets`);
+    await expect.poll(enginePath).toBe(`/i/communities/${id}/moderation/reported_tweets`);
+    await cases.first().getByText("Reported by 2 members").waitFor();
+    await cases.nth(1).getByText("Reported by @X").waitFor();
+    const keptAuthor = e.mock.state.post(reported[0]!.postId)!.author.handle;
+    await cases.first().getByRole("button", { name: "Keep" }).click();
+    await e.app.getByText(`You kept @${keptAuthor}’s post`).waitFor();
+    expect(presses()).toContain("write CommunityModerationKeepTweet");
+    // Hide opens X's own rule picker over the main area; X goes back and takes the post off.
+    await cases.first().getByRole("button", { name: "Hide" }).click();
+    await expect.poll(pane).toBe("main");
+    await expect.poll(enginePath).toBe(`/i/report/hidetweet/${reported[1]!.postId}`);
+    await e.engine(`document.querySelector('[data-hide-rule]').click(), true`);
+    await expect.poll(pane).toBe("hidden");
+    // X lists what still waits afresh: the kept and the hidden post are off it.
+    await expect.poll(() => cases.count()).toBe(reported.length - 2);
+    expect(presses()).toContain(`press hide:Keep posts on topic. ${reported[1]!.postId}`);
+  } finally {
+    e.mock.state.resetCommunity(id);
+    e.mock.state.setCommunityRole(id, community.role);
+  }
+});
+
+test("A moderator's \"...\" on a Community's post: X's own rows, its search Xtend's own, Ban X's flow", async () => {
+  const community = e.mock.state
+    .fixtures()
+    .communities!.batches.find((b) => b.op === "CommunityQuery")!.communities[0]!;
+  const id = community.communityId;
+  e.mock.state.setCommunityRole(id, "Moderator");
+  try {
+    await go(`/communities/${id}`);
+    await expect.poll(enginePath).toBe(`/i/communities/${id}`);
+    await e.engine("setTimeout(() => location.reload()), true");
+    await expect.poll(async () => (await nativeIds()).length).toBeGreaterThan(0);
+    const [postId] = await nativeIds();
+    const author = e.mock.state.post(postId!)!.author.handle;
+    await expect.poll(() => engineHas(`[data-menu="post:${postId}:community:${id}"]`)).toBe(true);
+    const open = () =>
+      e.app.locator(`main [data-post="${postId}"] button[aria-label="More"]`).click();
+    await open();
+    await expect
+      .poll(appMenuRows)
+      .toEqual(
+        expect.arrayContaining([
+          `Search @${author}’s posts in this Community`,
+          "Hide post",
+          "Ban author from Community",
+        ]),
+      );
+    // Ban is X's own flow over the main area, its rule picked there.
+    await e.app.getByRole("menuitem", { name: "Ban author from Community", exact: true }).click();
+    await expect.poll(pane).toBe("main");
+    await expect.poll(enginePath).toMatch(/^\/i\/report\/removecommunitymember\//);
+    await e.engine(`document.querySelector('[data-ban-rule]').click(), true`);
+    await expect.poll(pane).toBe("hidden");
+    // The search is Xtend's own, inside this Community.
+    await open();
+    await e.app
+      .getByRole("menuitem", { name: `Search @${author}’s posts in this Community`, exact: true })
+      .click();
+    await expect
+      .poll(() => e.app.evaluate(() => decodeURIComponent(location.hash)))
+      .toBe(`#/communities/${id}?q=(from:${author})`);
+  } finally {
+    e.mock.state.resetCommunity(id);
+    e.mock.state.setCommunityRole(id, community.role);
   }
 });
