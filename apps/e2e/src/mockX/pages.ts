@@ -362,9 +362,14 @@ const gameSides = (g: EngineGame) =>
 /** X's tabs on a game's page, switched in place on its one URL. */
 const GAME_TABS = ["Top", "Latest", "Highlights", "Stats", "Plays", "Chat"] as const;
 
-/** A full-page dialog X opens as its own route (Report, Send via Chat, the composer). */
-const routeDialog = (title: string, body: string) =>
-  `<div role="dialog" aria-modal="true" aria-labelledby="dialog-title" class="dialog route"><div class="bar"><button data-testid="app-bar-close" aria-label="Close">✕</button><h2 id="dialog-title">${esc(title)}</h2></div>${body}</div>`;
+/**
+ * A full-page dialog X opens as its own route (Report, Send via Chat, the composer). In X's
+ * compact layout (`compact`) the route is a page: its title in the app bar beside Back.
+ */
+const routeDialog = (title: string, body: string, compact = false) =>
+  compact
+    ? `${header(title)}<div class="route">${body}</div>`
+    : `<div role="dialog" aria-modal="true" aria-labelledby="dialog-title" class="dialog route"><div class="bar"><button data-testid="app-bar-close" aria-label="Close">✕</button><h2 id="dialog-title">${esc(title)}</h2></div>${body}</div>`;
 
 /**
  * X's Radar pages (ondemand.Insights): without Premium, X's upsell and no call, as on x.com. With
@@ -992,6 +997,7 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
         routeDialog(
           "Create a new Community",
           `<div data-x-form><div class="muted">Tell us a little about your Community. You can always change these details later.</div><input aria-label="Community name" name="name" maxlength="30"><textarea aria-label="Community purpose" name="description" maxlength="160"></textarea><h3>Membership</h3><label><input type="radio" name="joinPolicy" value="Open" checked> Open</label><div class="muted">Anyone can join and/or be invited to the Community.</div><label><input type="radio" name="joinPolicy" value="Restricted"> Restricted</label><div class="muted">People must ask to join, and the mod team must approve those requests. People invited by the mod team are automatically approved.</div><h3>Approval question (optional)</h3><input aria-label="Approval question (optional)" name="question"><button data-x-save="CreateCommunity">Create</button></div>`,
+          state.compact,
         ),
     };
   // X's Premium upsell, where X's create button goes for an account X has not verified.
@@ -1263,7 +1269,7 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
                 .join("")}</div></div>`;
         // X's summary over a Community it just made.
         const summary = q.has("show_creation_summary")
-          ? `<div role="dialog" aria-modal="true" class="dialog"><h2>About your new Community</h2><p>We start you out with some basic settings, but your Community is completely customizable. We’ll get into that next.</p><h3>Your Community is ${c.joinPolicy === "Open" ? "Open" : "Restricted"}</h3><h3>Your starter Community rules are</h3><ul>${(c.rules ?? []).map((rule) => `<li>${esc(rule.name)}</li>`).join("")}</ul><h3>Settings can be changed in Admin Tools</h3><p>Not feeling your settings? No problem. It’s easy enough to change.</p><button data-x-got-it>Got it</button></div>`
+          ? `<div ${state.compact ? 'class="route"' : 'role="dialog" aria-modal="true" class="dialog"'} data-x-summary><h2>About your new Community</h2><p>We start you out with some basic settings, but your Community is completely customizable. We’ll get into that next.</p><h3>Your Community is ${c.joinPolicy === "Open" ? "Open" : "Restricted"}</h3><h3>Your starter Community rules are</h3><ul>${(c.rules ?? []).map((rule) => `<li>${esc(rule.name)}</li>`).join("")}</ul><h3>Settings can be changed in Admin Tools</h3><p>Not feeling your settings? No problem. It’s easy enough to change.</p><button data-x-got-it>Got it</button></div>`
           : "";
         return `${summary}<div class="bar"><button data-testid="app-bar-back" aria-label="Back">←</button><h2 role="heading">${esc(c.name)}</h2><a href="/i/communities/${id}/search" aria-label="Search Community">⌕</a>${more}</div><div data-testid="communityHeader"><img alt="" src="${esc(c.bannerUrl ?? "")}" class="banner-img"><h2>${esc(c.name)}</h2><a href="/i/communities/${c.communityId}/members"><b>${compact(c.members)}</b> Members</a><button aria-label="${pin}" data-community-pin="${id}">📌</button><button aria-label="Share Community">⤴</button>${joinButton(c, state.communityRequested(id))}</div>${tabs(
           "Community",
@@ -1328,6 +1334,7 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
                 `<div role="button" tabindex="0" data-hide-rule="${esc(rule)}">${esc(rule)}</div>`,
             )
             .join("")}`,
+          state.compact,
         ),
     };
   }

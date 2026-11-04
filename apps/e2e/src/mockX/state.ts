@@ -138,6 +138,11 @@ export interface MockOptions {
   readonly formatting?: boolean;
   /** X's Chat asks for the account's passcode first, as it does on a new device. */
   readonly chatLocked?: boolean;
+  /**
+   * X's compact layout, as in a narrow engine window: X's flows and sheets are pages of their
+   * own, titled in the app bar beside its Back, not dialogs.
+   */
+  readonly compact?: boolean;
 }
 
 const DAY_MS = 86_400_000;
@@ -1546,6 +1551,8 @@ export function createMockState(options: MockOptions = {}) {
     /** Post ids of a feed page after the first. */
     feedPageIds: (feed: Feed, n: number) => feedPage(feed, n).order,
     fixture,
+    /** Whether X draws its compact layout (see `MockOptions.compact`). */
+    compact: options.compact ?? false,
     /** Whether X's page sends its claims at boot; some accounts' never do. */
     sendsClaims: options.sendsClaims ?? true,
     fixtures: () => fixtures,
