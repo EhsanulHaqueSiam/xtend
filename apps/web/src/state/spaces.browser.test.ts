@@ -66,6 +66,13 @@ it("tells recordings apart by X's title in its dock and, for a title they share,
       dock.replaceWith(dock.cloneNode(true));
     });
     expect(await xSpacePlay(b, "Weekly office hours")).toBe("unsure");
+    // X refuses B while A plays on: its clock ticks 12:00 to 12:01 with -30:00 left, the second
+    // X's display rounds away, which is no other length.
+    page("Weekly office hours", "Welcome in.");
+    document.getElementById("play")!.addEventListener("click", () => {
+      document.getElementById("played")!.textContent = "12:01";
+    });
+    expect(await xSpacePlay(b, "Weekly office hours")).toBe("unsure");
     // X's player holding B shows as X starting it over.
     page("Weekly office hours", "Welcome in.");
     document.getElementById("play")!.addEventListener("click", () => {

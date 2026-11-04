@@ -296,10 +296,10 @@ const pressOnPage = async (
       // Another title: X's dock shows this one now.
       if (title !== "" && was.title === null) return titled(now.box) !== null;
       // The same title, or none: X's dock names no recording, so only its player says it switched,
-      // starting over from well into the other one, or running another length. A dock drawn anew
-      // is no such sign.
+      // starting over from well into the other one, or running another length (past the 2 s its
+      // two rounded clocks may drift). A dock drawn anew is no such sign.
       const p = player(now.box);
-      return was.player !== null && p !== null && ((was.player.at > 15000 && p.at <= 5000) || (was.player.length !== null && p.length !== null && p.length !== was.player.length));
+      return was.player !== null && p !== null && ((was.player.at > 15000 && p.at <= 5000) || (was.player.length !== null && p.length !== null && Math.abs(p.length - was.player.length) > 2000));
     };
     for (let i = 0; i < 50 && !taken(); i++) await new Promise((r) => setTimeout(r, 100));
     if (taken()) return "joined";
