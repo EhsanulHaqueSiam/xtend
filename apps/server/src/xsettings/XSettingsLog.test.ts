@@ -28,15 +28,16 @@ describe("XSettingsLog", () => {
       Effect.gen(function* () {
         const log = yield* XSettingsLog.XSettingsLog;
         // First seen: nothing to compare with, so no change.
-        expect(yield* log.seen([value("Protect your posts", "Off")], null)).toEqual([]);
-        expect(yield* log.seen([value("Protect your posts", "Off")], null)).toEqual([]);
+        expect(yield* log.seen(1, [value("Protect your posts", "Off")], [])).toEqual([]);
+        expect(yield* log.seen(1, [value("Protect your posts", "Off")], [])).toEqual([]);
         // Flipped on the phone: X's page shows it changed, not from Xtend.
-        const [phone] = yield* log.seen([value("Protect your posts", "On")], null);
+        const [phone] = yield* log.seen(1, [value("Protect your posts", "On")], []);
         expect(phone).toMatchObject({ from: "Off", to: "On", inXtend: false });
         // Pressed in Xtend.
         yield* log.seen(
+          1,
           [value("Protect your posts", "Off")],
-          "/settings/audience_and_tagging Protect your posts",
+          ["/settings/audience_and_tagging Protect your posts"],
         );
         expect((yield* log.changes).map((c) => `${c.from}>${c.to} ${c.inXtend}`)).toEqual([
           "On>Off true",
@@ -46,9 +47,12 @@ describe("XSettingsLog", () => {
         // Another account has its own values and log.
         yield* switchAccount(2);
         expect(yield* log.changes).toEqual([]);
-        expect(yield* log.seen([value("Protect your posts", "On")], null)).toEqual([]);
+        expect(yield* log.seen(2, [value("Protect your posts", "On")], [])).toEqual([]);
+        // Sent from account 1's window, handled after the switch to 2: still account 1's.
+        expect(yield* log.seen(1, [value("Protect your posts", "On")], [])).toHaveLength(1);
+        expect(yield* log.changes).toEqual([]);
         yield* switchAccount(1);
-        expect(yield* log.changes).toHaveLength(2);
+        expect(yield* log.changes).toHaveLength(3);
       }).pipe(Effect.provide(layerTest)),
   );
 });

@@ -1,8 +1,16 @@
-import { useAtom, useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
+import {
+  RegistryContext,
+  useAtom,
+  useAtomRefresh,
+  useAtomSet,
+  useAtomValue,
+} from "@effect/atom-react";
+import type { XSettingChange, XSettingValue } from "@xtend/contracts";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { ArrowUpRight, ChevronRight, Search } from "lucide-react";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { useEffect, useRef, useState } from "react";
+import type * as AtomRegistry from "effect/reactivity/AtomRegistry";
+import { useContext, useEffect, useRef, useState } from "react";
 
 import { isElectron } from "../../env";
 import { fmtWhen } from "../../lib/time";
@@ -14,13 +22,20 @@ import {
   watchXSettings,
   xPageBarAtom,
   xSettingsAtom,
+  xSettingsNow,
   xSettingsPress,
   type XSettingsItem,
+  type XSettingsRead,
 } from "../../state/xSettings";
 import {
   loggedValues,
+  markKey,
+  pressedIn,
+  pressTarget,
   settingKey,
+  valueOf,
   xSettingsChangesAtom,
+  xSettingsMarksAtom,
   xSettingsSeenAtom,
 } from "../../state/xSettingsLog";
 import { Section } from "../ui/layout";
@@ -74,6 +89,41 @@ function useXPage(path: string | null, title: string, onBack: () => void) {
   }, [path, setOver, setBar]);
 }
 
+/** The Xtend account whose session view this window holds: the one X's pages are read for. */
+const accountId = () => window.desktopBridge?.accountId ?? 0;
+
+/**
+ * Files a read of X's page in the change log, naming the values that show a change the user made
+ * in Xtend; a change the log filed settles the user's mark on it, theirs or not.
+ */
+function fileRead(
+  registry: AtomRegistry.AtomRegistry,
+  read: XSettingsRead,
+  seen: (input: {
+    readonly accountId: number;
+    readonly values: ReadonlyArray<XSettingValue>;
+    readonly pressed: ReadonlyArray<string>;
+  }) => Promise<ReadonlyArray<XSettingChange>>,
+  refresh: () => void,
+) {
+  if (read.loading || read.typing) return;
+  const values = loggedValues(read);
+  if (values.length === 0) return;
+  const account = accountId();
+  const pressed = pressedIn(registry.get(xSettingsMarksAtom), account, values);
+  void seen({ accountId: account, values, pressed }).then(
+    (logged) => {
+      if (logged.length === 0) return;
+      const marks = new Map(registry.get(xSettingsMarksAtom));
+      for (const c of logged) marks.delete(markKey(account, c.key));
+      registry.set(xSettingsMarksAtom, marks);
+      refresh();
+    },
+    // The log is Xtend's own note; X's page and its controls work without it.
+    () => {},
+  );
+}
+
 /**
  * One of X's settings pages, drawn by Xtend from what X's page draws in the engine (X's words, X's
  * order), in X's column. Each control presses X's own for the user's click, one at a time; a page
@@ -118,8 +168,9 @@ export function XSettingsScreen({
   const setBar = useAtomSet(xPageBarAtom);
   const seen = useAtomSet(xSettingsSeenAtom, { mode: "promise" });
   const refreshChanges = useAtomRefresh(xSettingsChangesAtom);
-  // The control the user last pressed here, so the log files its change as theirs.
-  const pressed = useRef<string | null>(null);
+  const registry = useContext(RegistryContext);
+  // While a press is out, its page's reads wait: they are filed once the user's mark is set.
+  const pressOut = useRef(false);
   const reading = isElectron && !xOnly && opened === null;
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- reads X's settings page (the session view) while it is open here.
   useEffect(() => {
@@ -128,18 +179,7 @@ export function XSettingsScreen({
     const stop = new AbortController();
     watchXSettings(path, stop.signal, (next) => {
       setReads((all) => new Map(all).set(next.path, next));
-      if (next.path !== path || next.loading || next.typing) return;
-      const values = loggedValues(next);
-      if (values.length === 0) return;
-      void seen({ values, pressed: pressed.current }).then(
-        (logged) => {
-          if (logged.length === 0) return;
-          if (logged.some((c) => c.key === pressed.current)) pressed.current = null;
-          refreshChanges();
-        },
-        // The log is Xtend's own note; X's page and its controls work without it.
-        () => {},
-      );
+      if (next.path === path && !pressOut.current) fileRead(registry, next, seen, refreshChanges);
     });
     return () => {
       stop.abort();
@@ -148,7 +188,7 @@ export function XSettingsScreen({
       setOver(false);
       setBar(null);
     };
-  }, [path, reading, setReads, setOver, setBar, seen, refreshChanges]);
+  }, [path, reading, setReads, setOver, setBar, registry, seen, refreshChanges]);
 
   const [pressing, setPressing] = useState<number | null>(null);
   const { blocked, setToast } = useXPress();
@@ -159,14 +199,31 @@ export function XSettingsScreen({
     const why = blocked();
     if (why !== null) return setToast({ text: why });
     setPressing(index);
-    if (item.kind === "check" || item.kind === "radio" || item.kind === "select")
-      pressed.current = settingKey(path, item.kind === "radio" ? item.group : item.label);
+    pressOut.current = true;
+    const target = pressTarget(path, item, value);
     // X's answer (its confirm, or its own page a button opens) gets Xtend's bar and its Back.
     const over = (shown: boolean) => {
       setOver(shown);
       setBar(shown ? { title, back: () => (xOverEnded(), setOver(false), setBar(null)) } : null);
     };
-    void xSettingsPress(path, index, item, over, value).finally(() => setPressing(null));
+    void (async () => {
+      const answer = await xSettingsPress(path, index, item, over, value);
+      if (target !== null) {
+        // After X's confirm, only X's page says whether the user confirmed or cancelled there.
+        const now = answer === "over" ? await xSettingsNow(path, index, item) : null;
+        const took = answer === "done" || (now !== null && valueOf(now)?.value === target.value);
+        const mark = markKey(accountId(), target.key);
+        const marks = new Map(registry.get(xSettingsMarksAtom));
+        if (took) marks.set(mark, target.value);
+        else marks.delete(mark);
+        registry.set(xSettingsMarksAtom, marks);
+      }
+    })().finally(() => {
+      setPressing(null);
+      pressOut.current = false;
+      const latest = registry.get(xSettingsAtom).get(path);
+      if (latest !== undefined) fileRead(registry, latest, seen, refreshChanges);
+    });
   };
   const open = (href: string, label: string) => {
     const to = xPath(href);

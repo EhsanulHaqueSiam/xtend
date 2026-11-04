@@ -49,13 +49,19 @@ export const XSettings_METHODS = {
 
 export const XSettingsRpcGroup = RpcGroup.make(
   /**
-   * The values X's page drew, as Xtend read them. `pressed` is the key the user just clicked in
-   * Xtend, so its change is logged as theirs. Answers with the changes logged now.
+   * The values X's page drew, as Xtend read them. `pressed` holds the keys the user changed in
+   * Xtend that X's page now shows, so those changes are logged as theirs. Answers with the changes
+   * logged now.
    */
   Rpc.make(XSettings_METHODS.seen, {
     payload: Schema.Struct({
+      /**
+       * The Xtend account whose session view drew the values: a request handled after a switch
+       * still belongs to it, not the current one.
+       */
+      accountId: Schema.Int,
       values: Schema.Array(XSettingValue).check(Schema.isMaxLength(200)),
-      pressed: Schema.NullOr(Bounded),
+      pressed: Schema.Array(Bounded).check(Schema.isMaxLength(200)),
     }),
     success: Schema.Array(XSettingChange),
     error: XSettingsError,

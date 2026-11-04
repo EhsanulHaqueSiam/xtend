@@ -315,6 +315,32 @@ const sameItem = (a: XSettingsItem, b: XSettingsItem) =>
   ("label" in a ? a.label : a.text) === ("label" in b ? b.label : b.text) &&
   (a.kind !== "radio" || (b.kind === "radio" && a.group === b.group));
 
+const decodeItem = Schema.decodeUnknownOption(XSettingsItem);
+
+/**
+ * Item `index` of X's page `path` once X draws it changed from `item`, or as it is after two
+ * seconds: what an answer in X's own confirm left it at. Null when X draws another control there.
+ */
+export const xSettingsNow = async (path: string, index: number, item: XSettingsItem) =>
+  Option.getOrNull(
+    decodeItem(
+      await xRun(`(async () => {
+    const read = ${readXSettings.toString()};
+    const same = ${sameItem.toString()};
+    const was = ${JSON.stringify(item)};
+    let now = null;
+    for (let i = 0; i < 20; i++) {
+      if (location.pathname !== ${JSON.stringify(path)}) return null;
+      now = read(document, location.pathname).items[${index}] ?? null;
+      if (!now || !same(now, was)) return null;
+      if (JSON.stringify(now) !== JSON.stringify(was)) return now;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return now;
+  })()`),
+    ),
+  );
+
 // X's own confirm sheets (Protect your posts?) and dialogs a press opens.
 const ASKS = `[role="alertdialog"], [data-testid="confirmationSheetDialog"], [data-testid="sheetDialog"]`;
 

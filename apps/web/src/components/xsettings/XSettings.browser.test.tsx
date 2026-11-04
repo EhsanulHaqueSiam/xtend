@@ -65,14 +65,31 @@ const ui = (
 );
 const probe = () => document.querySelector('[data-testid="probe"]')?.textContent ?? "";
 /** What the screen filed in the change log, as the service got it. */
-const filed: Array<{ readonly values: string; readonly pressed: string | null }> = [];
+const filed: Array<{ readonly values: string; readonly pressed: ReadonlyArray<string> }> = [];
+/** The last value the fake log saw per key, so it answers with a change as the service does. */
+const last = new Map<string, string>();
 const service: FakeService = {
   "accounts.list": () => Effect.succeed({ accounts: [], currentId: 1 }),
   "settings.get": () => Effect.succeed({ ...settings, sessionPostingEnabled: true }),
-  "xSettings.seen": ({ values, pressed }) =>
+  "xSettings.seen": ({ accountId, values, pressed }) =>
     Effect.sync(() => {
+      expect(accountId).toBe(1);
       filed.push({ values: values.map((v) => `${v.label}=${v.value}`).join(", "), pressed });
-      return [];
+      return values.flatMap((v) => {
+        const from = last.get(v.key);
+        last.set(v.key, v.value);
+        return from === undefined || from === v.value
+          ? []
+          : [
+              {
+                ...v,
+                from,
+                to: v.value,
+                at: "2026-11-04T10:00:00.000Z",
+                inXtend: pressed.includes(v.key),
+              },
+            ];
+      });
     }),
   "xSettings.changes": () =>
     Effect.succeed([
@@ -114,12 +131,12 @@ it("finds X's settings in Settings search beside Xtend's, and draws the one pick
   // X redraws its checkbox: Xtend shows X's word for it.
   await expect.element(screen.getByRole("checkbox", { name: /Protect your posts/ })).toBeChecked();
   // The log gets what X's page drew, the press named as the user's; its rail shows X's flip elsewhere.
-  expect(filed.at(0)).toEqual({ values: "Protect your posts=Off", pressed: null });
+  expect(filed.at(0)).toEqual({ values: "Protect your posts=Off", pressed: [] });
   await expect
     .poll(() => filed.at(-1))
     .toEqual({
       values: "Protect your posts=On",
-      pressed: "/settings/audience_and_tagging Protect your posts",
+      pressed: ["/settings/audience_and_tagging Protect your posts"],
     });
   // The rail folds away at this width, as it does beside a narrow main area.
   await expect.element(screen.getByText(/not from Xtend · Filters/)).toBeInTheDocument();
@@ -152,4 +169,48 @@ it("presses none of X's controls while session actions are off, and says so", as
   await expect
     .element(screen.getByRole("checkbox", { name: /Protect your posts/ }))
     .not.toBeChecked();
+});
+
+it("files the user's change as theirs when X shows it after they left, and a cancelled confirm as nobody's", async () => {
+  const key = "/settings/audience_and_tagging Protect your posts";
+  last.clear();
+  filed.length = 0;
+  // X takes the click but draws its change later.
+  x.innerHTML = AUDIENCE;
+  x.querySelector("input")!.addEventListener("click", (e) => e.preventDefault());
+  await using screen = await render(ui, {
+    router: "/settings?tab=x-privacy&x=%2Fsettings%2Faudience_and_tagging",
+    service,
+  });
+  const protect = screen.getByRole("checkbox", { name: /Protect your posts/ });
+  await userEvent.click(protect);
+  await expect.element(protect).toBeDisabled();
+  await expect.element(protect).toBeEnabled();
+  // Gone before X draws it; back once X shows it on.
+  x.innerHTML = "";
+  await screen.router!.navigate({ href: "/settings?tab=x-notifications" });
+  x.innerHTML = AUDIENCE.replace('type="checkbox"', 'type="checkbox" checked');
+  await screen.router!.navigate({
+    href: "/settings?tab=x-privacy&x=%2Fsettings%2Faudience_and_tagging",
+  });
+  await expect
+    .poll(() => filed.at(-1))
+    .toEqual({ values: "Protect your posts=On", pressed: [key] });
+
+  // X asks first, and the user cancels in X's sheet: X's value stays.
+  const input = x.querySelector("input")!;
+  input.addEventListener("click", (e) => {
+    e.preventDefault();
+    const sheet = document.createElement("div");
+    sheet.setAttribute("role", "alertdialog");
+    x.append(sheet);
+  });
+  await userEvent.click(screen.getByRole("checkbox", { name: /Protect your posts/ }));
+  await expect.poll(() => x.querySelector('[role="alertdialog"]')).not.toBeNull();
+  x.querySelector('[role="alertdialog"]')!.remove();
+  await expect.element(screen.getByRole("checkbox", { name: /Protect your posts/ })).toBeEnabled();
+  // Turned off later in X's app: X's page shows it, and it is not the user's click in Xtend.
+  input.checked = false;
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+  await expect.poll(() => filed.at(-1)).toEqual({ values: "Protect your posts=Off", pressed: [] });
 });

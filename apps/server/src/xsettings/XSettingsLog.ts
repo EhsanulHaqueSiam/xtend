@@ -34,12 +34,14 @@ export class XSettingsLog extends Context.Service<
   XSettingsLog,
   {
     /**
-     * Files what X's page drew: a value that differs from the last one seen is a change, the
-     * user's own when its key is `pressed`. A key seen for the first time is no change.
+     * Files what account `accountId`'s X page drew: a value that differs from the last one seen
+     * is a change, the user's own when its key is in `pressed`. A key seen for the first time is
+     * no change, and an account that no longer exists files nothing.
      */
     readonly seen: (
+      accountId: number,
       values: ReadonlyArray<XSettingValue>,
-      pressed: string | null,
+      pressed: ReadonlyArray<string>,
     ) => Effect.Effect<ReadonlyArray<XSettingChange>, XSettingsError>;
     /** The current account's changes, newest first. */
     readonly changes: Effect.Effect<ReadonlyArray<XSettingChange>, XSettingsError>;
@@ -48,12 +50,19 @@ export class XSettingsLog extends Context.Service<
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
-  const account = sql.literal(CURRENT_ACCOUNT);
+  const current = sql.literal(CURRENT_ACCOUNT);
 
   const seen = Effect.fn("XSettingsLog.seen")(
-    function* (values: ReadonlyArray<XSettingValue>, pressed: string | null) {
+    function* (
+      accountId: number,
+      values: ReadonlyArray<XSettingValue>,
+      pressed: ReadonlyArray<string>,
+    ) {
       const at = DateTime.formatIso(yield* DateTime.now);
       const logged: Array<XSettingChange> = [];
+      const [owner] = yield* sql<{ id: number }>`SELECT id FROM accounts WHERE id = ${accountId}`;
+      if (owner === undefined) return logged;
+      const account = owner.id;
       for (const v of values) {
         const [last] = yield* sql<{ value: string }>`
           SELECT value FROM x_settings_seen WHERE account_id = ${account} AND key = ${v.key}
@@ -71,7 +80,7 @@ const make = Effect.gen(function* () {
           from: last.value,
           to: v.value,
           at,
-          inXtend: v.key === pressed,
+          inXtend: pressed.includes(v.key),
         };
         yield* sql`
           INSERT INTO x_settings_changes (account_id, key, page, label, from_value, to_value, in_xtend, at)
@@ -93,7 +102,7 @@ const make = Effect.gen(function* () {
 
   const changes = sql<ChangeRow>`
     SELECT key, page, label, from_value, to_value, in_xtend, at FROM x_settings_changes
-    WHERE account_id = ${account} ORDER BY id DESC
+    WHERE account_id = ${current} ORDER BY id DESC
   `.pipe(
     Effect.map((rows) => rows.map(toChange)),
     Effect.mapError((cause) => new XSettingsError({ operation: "changes", cause })),

@@ -10,7 +10,8 @@ export const layerHandlers = XSettingsRpcGroup.toLayer(
   Effect.gen(function* () {
     const log = yield* XSettingsLog.XSettingsLog;
     return XSettingsRpcGroup.of({
-      [XSettings_METHODS.seen]: ({ values, pressed }) => log.seen(values, pressed),
+      [XSettings_METHODS.seen]: ({ accountId, values, pressed }) =>
+        log.seen(accountId, values, pressed),
       [XSettings_METHODS.changes]: () => log.changes,
     });
   }),
