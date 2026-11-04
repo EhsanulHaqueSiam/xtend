@@ -28,6 +28,12 @@ X's own composer there. They stay in the app's memory: never sent to the service
 logged. The DMs section reads DM history through the X
 connection on your click.
 
+**Is Grok Xtend's AI?**
+No. Grok is X's, on your X account, and X's page under Xtend runs it; Xtend draws it and sends
+only what you type, with X's own Send. Your questions and Grok's answers stay in the app's memory:
+never sent to the service, stored or logged. Xtend's own assist is the priced buttons inside its
+screens, on your own Claude or Codex login.
+
 **Can I use the tools without the desktop app?**
 Yes, from a browser against a running service (see [Remote service](./remote-service.md)).
 You lose the x.com panel and the free observations the desktop captures.

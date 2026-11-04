@@ -116,12 +116,31 @@ export const xNavigate = (url: string): Promise<void> => {
   });
 };
 
+/** `work`, or null once `signal` aborts or X's page loads anew under it, when it never settles. */
+const heldOn = <A>(work: Promise<A>, signal: AbortSignal) =>
+  new Promise<A | null>((settle) => {
+    const done = (value: A | null) => {
+      onPageLoad.delete(abandon);
+      signal.removeEventListener("abort", abandon);
+      settle(value);
+    };
+    const abandon = () => done(null);
+    onPageLoad.add(abandon);
+    signal.addEventListener("abort", abandon);
+    if (signal.aborted) abandon();
+    void work.then(done);
+  });
+
 /**
  * Moves the engine to an x.com page through X's own router, like a link clicked in X: no full
  * reload, and a page X still holds shows without a fetch, so screens read its keyed surface. Loads
- * the URL instead before the first load or off a signed-in x.com page. True when it moved.
+ * the URL instead before the first load or off a signed-in x.com page. True when it moved; with
+ * `signal`, false once it aborts or X's page loads anew before the move lands.
  */
-export const xGo = (url: string): Promise<boolean> => {
+export const xGo = (url: string, signal?: AbortSignal): Promise<boolean> =>
+  signal === undefined ? go(url) : heldOn(go(url), signal).then((moved) => moved ?? false);
+
+const go = (url: string): Promise<boolean> => {
   if (!isXUrl(url)) return Promise.resolve(false);
   const load = () => xNavigate(url).then(() => true);
   if (element === null || !ready) return load();
@@ -157,6 +176,9 @@ export const xLeave = (path: string, inView: () => boolean) => {
   });
 };
 
+/** How many times screens moved the engine: a screen going compares it after the next one mounts. */
+export const xMoves = () => moves;
+
 /** Whether the webview already shows this x.com path, so a screen can skip reloading it. */
 export const xShows = (path: string) => {
   try {
@@ -180,13 +202,13 @@ export const xRun = (code: string): Promise<unknown> => {
 };
 
 /**
- * Near a native list's end, X scrolls its own page to fetch the next. A jump to the bottom can
- * fetch nothing (end marker already in view, or X mid-fetch), and the list asks once per length,
- * so it follows the bottom, a screen back between tries, until X's last post or person changes.
- * Page height is no signal: images grow it too.
+ * Near a native list's end, X scrolls its own page to fetch the next: it follows the bottom, a
+ * screen back between tries (a jump can fetch nothing), until X's last post or person changes;
+ * page height is no signal. X's page loading anew, or `signal` (the list going), ends it.
  */
-export const xScrollMore = () =>
-  xRun(`(async () => {
+export const xScrollMore = (signal: AbortSignal = new AbortController().signal) =>
+  xRunHeld(
+    `(async () => {
     const path = location.pathname + location.search;
     const run = window.__xtendScroll = (window.__xtendScroll ?? 0) + 1;
     const current = () => window.__xtendScroll === run && location.pathname + location.search === path;
@@ -216,7 +238,9 @@ export const xScrollMore = () =>
       if (!current() || (window.__xtendTrendLookups && !(await resume()))) return false;
     }
     return false;
-  })()`);
+  })()`,
+    signal,
+  );
 
 /**
  * Picks a tab on X's page (Home's "Following", a Community's "Latest") once X has drawn it, only
@@ -271,6 +295,47 @@ export const xPickCommunitySearchTab = async (
     return false;
   })()`)) === true
   );
+};
+
+/**
+ * Presses X's tab `label` (Top, Latest, Media) on Community `communityId`'s page, which X switches
+ * in place on one URL, or with null only reads the tab X opened on: Latest for a member, Top
+ * otherwise, then the one last picked there (bundle.Communities). Only on that page, and only while
+ * this is the user's latest press, as `xPickCommunitySearchTab`. The tab X shows after, or null.
+ */
+export const xPickCommunityTab = async (
+  communityId: string,
+  label: string | null,
+  loaded: Promise<unknown>,
+  signal: AbortSignal,
+) => {
+  // It goes into a script run in X's page: digits only.
+  if (!/^\d{1,25}$/.test(communityId)) return null;
+  await loaded;
+  const page = `/i/communities/${communityId}`;
+  // A script X's page cut off by loading anew runs again once it has loaded.
+  for (let attempt = 0; attempt < 5 && !signal.aborted; attempt++) {
+    const run = await nextRun();
+    // This Community's tabs, by their link to its About: the last page's can still show.
+    const shown = await xRunHeld(
+      `(async () => {
+    for (let i = 0; i < 40 && ${stillMine(run)}; i++) {
+      const list = location.pathname.replace(/\\/$/, "") === ${JSON.stringify(page)} ? [...document.querySelectorAll('[role="tablist"]')].find((l) => l.querySelector(${JSON.stringify(`a[href="${page}/about"]`)})) : undefined;
+      const tab = [...(list?.querySelectorAll('[role="tab"]') ?? [])].find((t) => ${label === null ? `t.getAttribute("aria-selected") === "true"` : `t.textContent.trim() === ${JSON.stringify(label)}`});
+      if (tab !== undefined) {
+        if (tab.getAttribute("aria-selected") !== "true") tab.click();
+        return tab.textContent.trim();
+      }
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    return "";
+  })()`,
+      signal,
+    );
+    if (typeof shown === "string") return shown === "" || signal.aborted ? null : shown;
+    await loadedAnewOr(1_500);
+  }
+  return null;
 };
 
 /** X's calls for one game's page, keyed by the game: an answer means X is drawing that game. */
@@ -616,6 +681,27 @@ export const xRadarUpsell = async (loaded: Promise<unknown>) => {
     return false;
   })()`)) === true
   );
+};
+
+/** X's Articles page (bundle.TwitterArticles): the user's Drafts and Published, and X's pen. */
+export const ARTICLES_URL = "https://x.com/compose/articles";
+
+/**
+ * Whether X gives this account its Articles once `loaded` settles: true when X draws its Articles
+ * page (its pen, `aria-label="create"`), false when X answers the page with its "Page not found",
+ * as it does without Premium (`subscriptions_feature_article_composer`). Null when the engine left
+ * the page first. Reads only.
+ */
+export const xArticlesAccess = async (loaded: Promise<unknown>) => {
+  await loaded;
+  const seen = await xRun(`(async () => {
+    for (let i = 0; i < 60 && location.pathname === "/compose/articles"; i++) {
+      if (document.querySelector('[aria-label="create"]')) return true;
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    return location.pathname === "/compose/articles" ? false : null;
+  })()`);
+  return typeof seen === "boolean" ? seen : null;
 };
 
 /**
@@ -1009,6 +1095,8 @@ const onPage = async <A>(
   step: () => Promise<A | null>,
   leave: (result: A) => Promise<unknown> = () => Promise.resolve(),
   live: () => boolean = () => true,
+  // Ends the move and the Back when X's page loads anew or the press is over (see `xGo`).
+  signal?: AbortSignal,
 ): Promise<A | null> => {
   // No engine (a browser): no X.
   if (element === null || !ready) return null;
@@ -1016,15 +1104,15 @@ const onPage = async <A>(
   if (here !== null) return (await leave(here), here);
   // The user moved on meanwhile: the engine is theirs, not this press's.
   if (page === null || !live()) return null;
-  const moved = await xGo(page.url);
+  const moved = await xGo(page.url, signal);
   const there = live() ? await step() : null;
   if (there !== null) await leave(there);
   // Back only from a page this step opened, while the engine is still on it, and while this
   // press is still the user's latest: a screen they opened since owns the engine now.
-  if (moved && live())
-    await xRun(
-      `location.pathname.toLowerCase().endsWith(${JSON.stringify(page.path.toLowerCase())}) && history.back(), true`,
-    );
+  if (moved && live()) {
+    const back = `location.pathname.toLowerCase().endsWith(${JSON.stringify(page.path.toLowerCase())}) && history.back(), true`;
+    await (signal === undefined ? xRun(back) : xRunHeld(back, signal));
+  }
   return there;
 };
 
@@ -1056,11 +1144,16 @@ export const xProfileMenu = async (handle: string) =>
 export const xOverAtom = Atom.make(false);
 
 let overRun = 0;
+/** Ends the latest press's reads in X's page once a newer press (or a screen change) starts. */
+let runEnded = new AbortController();
 /** Starts a new press: the latest one, in Xtend and in X's page alike. */
 const nextRun = async () => {
   const run = ++overRun;
-  await xRun(
+  runEnded.abort();
+  runEnded = new AbortController();
+  await xRunHeld(
     `window.__xtendMenuRead = (window.__xtendMenuRead ?? 0) + 1, window.__xtendPress = ${run}, true`,
+    runEnded.signal,
   );
   return run;
 };
@@ -1503,6 +1596,260 @@ export const xListDialog = async (
   if (run !== overRun) return null;
   over(false);
   return settled;
+};
+
+/**
+ * Holds the engine over the main area for press `run` while X shows its own dialog, or a page
+ * Xtend does not draw (`drawn` tells, by its x.com address). Where X settled (a page Xtend draws,
+ * no dialog up) and whether X showed anything else first; null when the user moved on first.
+ */
+const holdUntilDrawn = async (
+  run: number,
+  drawn: (href: string) => boolean,
+  over: (shown: boolean) => void,
+) => {
+  // X's page loading anew, or a newer press, ends a read X's page would never answer.
+  const read = (code: string) => xRunHeld(code, runEnded.signal);
+  over(true);
+  // After the user confirms in X's sheet, X writes first and then leaves the page (Leave
+  // moderation team, Delete Community): until it does, or 10 s pass, X is not done.
+  await read(`(() => {
+    window.__xtendConfirmed = null;
+    if (!window.__xtendConfirmWatch)
+      document.addEventListener("click", (e) => {
+        if (e.target instanceof Element && e.target.closest('[data-testid="confirmationSheetConfirm"]')) window.__xtendConfirmed = location.pathname;
+      }, true);
+    window.__xtendConfirmWatch = true;
+    return true;
+  })()`);
+  let at: unknown = null;
+  let away = false;
+  for (let looks = 0; typeof at !== "string" || !drawn(at); looks++) {
+    away ||= looks > 0;
+    await new Promise((r) => setTimeout(r, 500));
+    if (run !== overRun) return null;
+    at = await read(
+      `document.querySelector('[role="dialog"], [role="alertdialog"]') || (window.__xtendConfirmed === location.pathname && ${looks} < 20) ? null : location.href`,
+    );
+  }
+  if (run !== overRun) return null;
+  over(false);
+  return { at, away };
+};
+
+/**
+ * Whether X sends the engine from `path` to its Home within 10 s of opening it: X's Redirect for
+ * a page its role rules refuse (a Community's Admin tools for anyone but its mods). False once
+ * `signal` ends the watch (the screen went).
+ */
+export const xSentHome = async (path: string, signal: AbortSignal) => {
+  for (let i = 0; i < 40; i++) {
+    await new Promise((r) => setTimeout(r, 250));
+    if (signal.aborted) return false;
+    const at = await xRun("location.pathname");
+    if (at === "/home" || at === "/") return !signal.aborted;
+    if (at !== path) return false;
+  }
+  return false;
+};
+
+/**
+ * Opens X's own page `path` for the user's click (a Community setting's edit, an admin tool Xtend
+ * does not draw), over the main area until X is on a page Xtend draws (`drawn`). Where X settled;
+ * false when X did not show `path` (a role X's page refuses); null when the user moved on.
+ */
+export const xOverPage = async (
+  path: string,
+  drawn: (href: string) => boolean,
+  over: (shown: boolean) => void,
+): Promise<string | false | null> => {
+  // No engine (a browser): no X. The path goes into a script: letters, digits, _ and / only.
+  if (element === null || !ready || !/^\/[\w/]+$/.test(path)) return false;
+  const run = await nextRun();
+  await xGo(`https://x.com${path}`);
+  const onRoute = (await xRun(`location.pathname === ${JSON.stringify(path)}`)) === true;
+  if (run !== overRun) return null;
+  if (!onRoute) return false;
+  return (await holdUntilDrawn(run, drawn, over))?.at ?? null;
+};
+
+/**
+ * X's own control in `root` named `label` by its words or label: one only, never a name X draws
+ * twice; `within` (a post's or person's link) picks its row, `community` one whose box links into
+ * that Community alone, as its Join is matched. Runs in X's page as its own source.
+ */
+export function xControl(
+  root: ParentNode,
+  label: string,
+  within?: string,
+  community?: string,
+): HTMLElement | null {
+  const CONTROL =
+    'a, button, [role="button"], [role="link"], [role="listitem"], [role="checkbox"], label';
+  const found = new Set<HTMLElement>();
+  // X's checkbox row is a label around its words and its box: the box is what X reads.
+  for (const el of root.querySelectorAll<HTMLElement>(CONTROL))
+    if (el.textContent?.trim() === label)
+      found.add(
+        el.tagName === "LABEL"
+          ? (el.querySelector<HTMLElement>('input[type="checkbox"]') ?? el)
+          : el,
+      );
+  // X labels an icon button on its icon.
+  for (const el of root.querySelectorAll<HTMLElement>("[aria-label]"))
+    if (el.getAttribute("aria-label") === label)
+      found.add(el.closest<HTMLElement>('a, button, [role="button"], [role="link"]') ?? el);
+  // A control inside another that matched is the same one.
+  const outer = [...found].filter((el) => ![...found].some((o) => o !== el && o.contains(el)));
+  // X's page can still draw the last Community's: its box links into another.
+  const ours = (el: Element) => {
+    for (let box = el.parentElement; box !== null; box = box.parentElement) {
+      const links = [...box.querySelectorAll('a[href*="/i/communities/"]')].map(
+        (a) => (a.getAttribute("href") ?? "").split("/i/communities/")[1]?.split(/[/?#]/)[0],
+      );
+      if (links.length > 0) return links.every((id) => id === community);
+    }
+    return false;
+  };
+  const mine = community === undefined ? outer : outer.filter(ours);
+  const scoped =
+    within === undefined
+      ? mine
+      : mine.filter((el) => {
+          for (let box = el.parentElement; box !== null; box = box.parentElement)
+            if (box.querySelector(within) !== null)
+              return mine.every((o) => o === el || !box.contains(o));
+          return false;
+        });
+  return scoped.length === 1 ? scoped[0]! : null;
+}
+
+/**
+ * Presses X's own control `label` (see `xControl`) on X's page `page` for the user's click, over
+ * the main area until X is on a page Xtend draws; a disabled one, or a box X shows otherwise than
+ * `checked`, is not pressed. Where X settled and whether X took the control off its row since;
+ * false when X drew none; null when the user moved on.
+ */
+const pressControl = async (
+  page: string,
+  label: string,
+  drawn: (href: string) => boolean,
+  over: (shown: boolean) => void,
+  { checked, within }: { readonly checked?: boolean; readonly within?: string } = {},
+): Promise<{ readonly at: string; readonly gone: boolean } | false | null> => {
+  if (element === null || !ready || !/^\/[\w/]+$/.test(page)) return false;
+  const run = await nextRun();
+  const ended = runEnded.signal;
+  // On a Community's own page (not its queues, whose rows say whose they are), its control alone.
+  const community =
+    within === undefined ? /^\/i\/communities\/(\d{1,25})(\/|$)/.exec(page)?.[1] : undefined;
+  const find = `(() => (${xControl.toString()})(document, ${JSON.stringify(label)}, ${JSON.stringify(within)}, ${JSON.stringify(community)}))`;
+  let tries = 10;
+  const press = () =>
+    xRunHeld(
+      `(async () => {
+    const find = ${find};
+    // X's page for this very page (this Community's), not one still drawn from the last.
+    const here = () => location.pathname.replace(/\\/$/, "").toLowerCase() === ${JSON.stringify(page.toLowerCase())};
+    for (let i = 0; i < ${tries} && !(here() && find()); i++) await new Promise((r) => setTimeout(r, 100));
+    const control = here() ? find() : null;
+    if (!control || !${stillMine(run)} || control.disabled || control.getAttribute("aria-disabled") === "true") return null;
+    if (${JSON.stringify(checked ?? null)} !== null && control.checked !== ${JSON.stringify(checked ?? null)}) return null;
+    control.click();
+    return true;
+  })()`,
+      ended,
+    ).then((done) => {
+      tries = 50;
+      return done === true ? true : null;
+    });
+  // Held before onPage takes the engine back from a page it opened: X's dialog is on that page.
+  let settled: { readonly at: string; readonly gone: boolean } | null = null;
+  const pressed = await onPage(
+    { url: `https://x.com${page}`, path: page },
+    press,
+    async () => {
+      const held = await holdUntilDrawn(run, drawn, over);
+      if (held === null) return;
+      // A write at the press (Keep, Approve) turns X's row once X answered: wait for it, up to
+      // 10 s. Back from X's own flow (Hide, Ban), X has drawn the row as it left it.
+      const looks = within === undefined || held.away ? 1 : 50;
+      const gone = await xRunHeld(
+        `(async () => {
+        const find = ${find};
+        for (let i = 1; i < ${looks} && find(); i++) await new Promise((r) => setTimeout(r, 200));
+        return find() === null;
+      })()`,
+        ended,
+      );
+      settled = { at: held.at, gone: gone === true };
+    },
+    () => run === overRun,
+    ended,
+  );
+  if (run !== overRun) return null;
+  return pressed === null ? false : settled;
+};
+
+/** Presses X's own control `label` on X's page `page` (see `pressControl`): where X settled. */
+export const xPressToPage = (
+  page: string,
+  label: string,
+  drawn: (href: string) => boolean,
+  over: (shown: boolean) => void,
+  checked?: boolean,
+) =>
+  pressControl(page, label, drawn, over, checked === undefined ? {} : { checked }).then((done) =>
+    done === false || done === null ? done : done.at,
+  );
+
+/**
+ * Presses X's own control `label` in the row of X's page `page` that holds `within` (a post's or
+ * a person's link), for the user's click on one of a Community's queues: Approve, Deny, Keep,
+ * Hide, Ban. Whether X took it shows as `gone`, X having drawn its decision in the row's place.
+ */
+export const xPressRow = (
+  page: string,
+  within: string,
+  label: string,
+  drawn: (href: string) => boolean,
+  over: (shown: boolean) => void,
+) => pressControl(page, label, drawn, over, { within });
+
+/**
+ * X's checklist card for a new Community, as X draws it atop its posts on the Community's page:
+ * its rows in X's order, each done or not. X keeps the card in its own page (no call says), so it
+ * is read there; null when X draws none. Runs in X's page as its own source.
+ */
+export function xChecklist(
+  root: ParentNode,
+): ReadonlyArray<{ readonly title: string; readonly done: boolean }> | null {
+  const dismiss = root.querySelector('[aria-label="Dismiss Checklist"]');
+  let card = dismiss?.parentElement ?? null;
+  while (card !== null && card.querySelector('[role="list"]') === null) card = card.parentElement;
+  if (card === null) return null;
+  return [...card.querySelectorAll('[role="listitem"]')].map((row) => ({
+    title: row.textContent?.trim() ?? "",
+    done: row.querySelector('[aria-label="Completed"]') !== null,
+  }));
+}
+
+/**
+ * Reads X's checklist card on Community `communityId`'s page (see `xChecklist`) once the engine is
+ * there and X has drawn it or its posts. Null when X draws no card, or the engine is elsewhere.
+ */
+export const xCommunityChecklist = async (communityId: string) => {
+  if (element === null || !ready || !/^\d{1,25}$/.test(communityId)) return null;
+  const rows = await xRun(`(async () => {
+    const here = () => location.pathname.replace(/\\/$/, "") === ${JSON.stringify(`/i/communities/${communityId}`)};
+    const read = () => (${xChecklist.toString()})(document);
+    // The screen moves the engine there as it opens; X draws the card with its posts.
+    for (let i = 0; i < 50 && !here(); i++) await new Promise((r) => setTimeout(r, 100));
+    for (let i = 0; i < 30 && here() && !read() && !document.querySelector("article"); i++)
+      await new Promise((r) => setTimeout(r, 100));
+    return here() ? read() : null;
+  })()`);
+  return Array.isArray(rows) ? (rows as ReturnType<typeof xChecklist>) : null;
 };
 
 /** X's own rows of a trend's "...", read from X's menu on the Explore tab the engine shows. */

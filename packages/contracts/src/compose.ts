@@ -224,6 +224,16 @@ export const VoiceMatch = Schema.Struct({
 });
 export type VoiceMatch = typeof VoiceMatch.Type;
 
+/**
+ * The article editor's assist: Rewrite and Tighten work on the selected text, Titles and Share
+ * post (the caption X adds to the Article's post) on the whole draft.
+ */
+export const ArticleAssistMode = Schema.Literals(["rewrite", "tighten", "titles", "sharePost"]);
+export type ArticleAssistMode = typeof ArticleAssistMode.Type;
+
+export const ArticleAssistOptions = Schema.Struct({ options: Schema.Array(Schema.String) });
+export type ArticleAssistOptions = typeof ArticleAssistOptions.Type;
+
 /** Prices the service pays for things outside the X rate card: X Articles and the cover model. */
 export const ComposeQuote = Schema.Struct({
   articleUsd: Schema.Number,
@@ -262,6 +272,7 @@ export const Compose_METHODS = {
   assistThreadIdeas: "compose.assistThreadIdeas",
   assistContinue: "compose.assistContinue",
   assistVoiceMatch: "compose.assistVoiceMatch",
+  assistArticle: "compose.assistArticle",
   mediaAdd: "compose.mediaAdd",
   mediaRemove: "compose.mediaRemove",
   generateCover: "compose.generateCover",
@@ -305,6 +316,8 @@ export const ComposeRpcGroup = RpcGroup.make(
       gif: Schema.optional(PickedGif),
       /** The first post's audience, set in X's own composer: only the session can post to one. */
       community: Schema.optional(PostCommunity),
+      /** An Article's caption, typed into X's own Publish dialog: X adds the link after it. */
+      caption: Schema.optional(Schema.String),
     }),
     success: Draft,
     error: ComposeError,
@@ -332,6 +345,17 @@ export const ComposeRpcGroup = RpcGroup.make(
   Rpc.make(Compose_METHODS.assistVoiceMatch, {
     payload: Blocks,
     success: VoiceMatch,
+    error: ComposeError,
+  }),
+  Rpc.make(Compose_METHODS.assistArticle, {
+    payload: Schema.Struct({
+      mode: ArticleAssistMode,
+      title: Schema.String,
+      body: Schema.String,
+      /** The selected text Rewrite and Tighten work on. */
+      text: Schema.optional(Schema.String),
+    }),
+    success: ArticleAssistOptions,
     error: ComposeError,
   }),
   /** Stores one file (base64, at most MEDIA_MAX_BYTES) under the base dir and returns the draft with it attached. */

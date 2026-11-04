@@ -62,6 +62,17 @@ export class SessionPosting extends Context.Service<
       userId: string,
       text: string,
     ) => Effect.Effect<void, ComposeError | DesktopUnavailableError>;
+    /**
+     * Publishes an Article through X's own editor in the session view, for the user's click: the
+     * body goes in as one paste of `html`. Shares the human pace with posts.
+     */
+    readonly article: (input: {
+      readonly title: string;
+      readonly html: string;
+      readonly coverPath?: string;
+      readonly replySettings: ReplySettings;
+      readonly caption?: string;
+    }) => Effect.Effect<{ readonly postId: string }, ComposeError | DesktopUnavailableError>;
     /** Points the session view at a URL (used to hand a freshly posted link card to the desktop). */
     readonly navigate: (url: string) => Effect.Effect<void, ComposeError>;
   }
@@ -142,6 +153,30 @@ const make = Effect.gen(function* () {
     yield* desktop.request({ type: "sessionDm", userId, text });
   });
 
+  const article = Effect.fn("SessionPosting.article")(function* (input: {
+    readonly title: string;
+    readonly html: string;
+    readonly coverPath?: string;
+    readonly replySettings: ReplySettings;
+    readonly caption?: string;
+  }) {
+    yield* requireEnabled.pipe(Effect.mapError(fail("sessionArticle")));
+    const refused = yield* humanPace;
+    if (refused !== null)
+      return yield* new ComposeError({ operation: "sessionArticle", detail: refused });
+    const { postId } = yield* desktop.request({
+      type: "sessionArticle",
+      title: input.title,
+      html: input.html,
+      ...(input.coverPath === undefined ? {} : { coverPath: input.coverPath }),
+      ...(input.replySettings === "everyone" ? {} : { replySettings: input.replySettings }),
+      ...(input.caption === undefined || input.caption.trim() === ""
+        ? {}
+        : { caption: input.caption }),
+    });
+    return { postId };
+  });
+
   const navigate = Effect.fn("SessionPosting.navigate")(
     function* (url: string) {
       yield* requireEnabled;
@@ -150,7 +185,7 @@ const make = Effect.gen(function* () {
     Effect.mapError(fail("sessionNavigate")),
   );
 
-  return SessionPosting.of({ post, like, dm, navigate });
+  return SessionPosting.of({ post, like, dm, article, navigate });
 });
 
 export const layer = Layer.effect(SessionPosting, make);

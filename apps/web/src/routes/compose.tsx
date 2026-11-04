@@ -11,10 +11,10 @@ import {
   type PostCommunity,
   type ReplySettings,
 } from "@xtend/contracts";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Navigate, useNavigate, useRouter } from "@tanstack/react-router";
 import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { ArrowLeft, CalendarClock, ChevronRight } from "lucide-react";
+import { ArrowLeft, CalendarClock, ChevronRight, CircleSlash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { TextMorph } from "torph/react";
 
@@ -24,7 +24,6 @@ import { fmtWhen, postCosts, sumUsd } from "../components/compose/DraftsList";
 import { NEW_POLL, PollEditor } from "../components/compose/PollEditor";
 import { PostPreview, quotedPostId } from "../components/compose/PostPreview";
 import {
-  MediaList,
   postText,
   REPLY_OPTIONS,
   splitBlocks,
@@ -39,15 +38,18 @@ import { compactInputClass, inputClass, TimeField } from "../components/ui/field
 import { Cost, PageBody } from "../components/ui/layout";
 import { Popover } from "../components/ui/popover";
 import { XLink } from "../components/ui/x-link";
+import { GrokDrawer } from "../components/xnative/Grok";
+import { MediaViewer } from "../components/xnative/MediaViewer";
+import { useXPress } from "../components/xnative/useXPress";
+import { isElectron } from "../env";
 import { XCard } from "../components/x";
 import { cn, toBase64 } from "../lib/utils";
 import { localInputToInstant } from "../lib/time";
 import {
   composeContextAtom,
-  composeQuoteAtom,
   createDraftAtom,
   draftsAtom,
-  generateCoverAtom,
+  followPost,
   mediaAddAtom,
   mediaRemoveAtom,
   postNowAtom,
@@ -55,10 +57,12 @@ import {
   updateDraftAtom,
 } from "../state/compose";
 import { useRates } from "../state/costs";
+import { grokWriteAtom, xGrokLeave, xGrokOpenNew, xGrokRelease } from "../state/grok";
 import { savedPostAtom } from "../state/library";
 import { recentPostsAtom } from "../state/observations";
 import { queueAtom, scheduleAtom, unscheduleAtom } from "../state/plan";
 import { settingsAtom, useSessionLane } from "../state/settings";
+import { xUrlAtom } from "../state/x";
 import { Select } from "../components/ui/select";
 import { Switch } from "../components/ui/switch";
 
@@ -327,8 +331,13 @@ function ComposeScreen() {
   const search = Route.useSearch();
   const tab = useSection("/compose");
   const navigate = useNavigate();
+  const drafts = AsyncResult.getOrElse(useAtomValue(draftsAtom), (): ReadonlyArray<Draft> => []);
   const go = (next: Partial<ComposeSearch>) =>
     void navigate({ to: "/compose", search: composeSearch(next) });
+  // Articles have their own editor, X's, under Articles.
+  const article = drafts.find((d) => d.id === search.draft && d.kind === "article");
+  if (article !== undefined)
+    return <Navigate to="/articles" search={{ draft: article.id }} replace />;
   const editing =
     search.draft !== undefined ||
     search.new === true ||
@@ -382,12 +391,12 @@ export function ComposeEditor({
   /** The draft moved to another section (it was queued, posted or failed); the sidebar follows. */
   readonly onSection: (tab: ComposeTab) => void;
 }) {
+  const navigate = useNavigate();
   const rates = useRates();
   const drafts = useAtomValue(draftsAtom);
   const refresh = useAtomRefresh(draftsAtom);
   const refreshContext = useAtomRefresh(composeContextAtom);
   const settings = useAtomValue(settingsAtom);
-  const quote = AsyncResult.getOrElse(useAtomValue(composeQuoteAtom), () => null);
   const context = AsyncResult.getOrElse(useAtomValue(composeContextAtom), () => null);
   const handle = AsyncResult.getOrElse(
     AsyncResult.map(settings, (s) => s.handle),
@@ -409,7 +418,6 @@ export function ComposeEditor({
   const postNow = useAtomSet(postNowAtom, { mode: "promiseExit" });
   const mediaAdd = useAtomSet(mediaAddAtom, { mode: "promiseExit" });
   const mediaRemove = useAtomSet(mediaRemoveAtom, { mode: "promiseExit" });
-  const generateCover = useAtomSet(generateCoverAtom, { mode: "promiseExit" });
 
   const initial: Editor = {
     ...empty,
@@ -427,6 +435,54 @@ export function ComposeEditor({
   const laneText = useSessionLane();
   const [previews, setPreviews] = useState<Record<string, string>>({});
   const [active, setActive] = useState(0);
+  // X's Grok docked beside the draft: where the engine was when the user asked it, and the post
+  // that asked, which Insert writes to (null once it was removed).
+  const [grok, setGrok] = useState<{
+    readonly from: string;
+    readonly target: number | null;
+  } | null>(null);
+  const router = useRouter();
+  const xUrl = useAtomValue(xUrlAtom);
+  const setGrokWrite = useAtomSet(grokWriteAtom);
+  const { blocked, setToast: setXToast } = useXPress();
+  /**
+   * "Ask Grok" for the user's click: X's Grok on a new chat beside the draft, the post the user is
+   * on typed into Grok's box for them to send. Grok's answers come back with Insert.
+   */
+  const askGrok = async (target: number) => {
+    const why = blocked();
+    if (why !== null) return setXToast({ text: why });
+    const text = editor.blocks[target]?.text ?? "";
+    setGrok((g) => ({ from: g?.from ?? xUrl, target }));
+    if ((await xGrokOpenNew()) === null)
+      return setXToast({ text: "X did not open Grok. Try again in a moment." });
+    setGrokWrite((w) => (w.send === null ? { ...w, draft: text } : w));
+  };
+  const lastBlocks = useRef(editor.blocks);
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- keeps Insert on the post that asked Grok as the thread's posts move or go.
+  useEffect(() => {
+    const before = lastBlocks.current;
+    lastBlocks.current = editor.blocks;
+    if (before === editor.blocks) return;
+    setGrok((g) =>
+      g === null || g.target === null
+        ? g
+        : { ...g, target: followPost(before, editor.blocks, g.target) },
+    );
+  }, [editor.blocks]);
+  const docked = useRef(grok);
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- keeps the docked Grok for the release below, without re-registering it.
+  useEffect(() => {
+    docked.current = grok;
+  });
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- releases the docked Grok (the engine's Grok page) when Compose goes.
+  useEffect(
+    () => () => {
+      if (docked.current !== null)
+        xGrokRelease(docked.current.from, () => router.state.location.pathname === "/grok");
+    },
+    [router],
+  );
   const [notice, setNotice] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<"post" | "schedule" | null>(null);
   const [when, setWhen] = useState("");
@@ -436,11 +492,8 @@ export function ComposeEditor({
   // unconfirmed. Judged against when the picker opened; Schedule checks the clock again.
   const [pickerOpenedAt, setPickerOpenedAt] = useState(0);
   const schedulePast = scheduleAt !== null && scheduleAt.getTime() <= pickerOpenedAt;
-  const [coverPrompt, setCoverPrompt] = useState("");
   // The paid or sending action in flight; its buttons stay disabled so a double click cannot repeat it.
-  const [busy, setBusy] = useState<"post" | "queue" | "schedule" | "unschedule" | "cover" | null>(
-    null,
-  );
+  const [busy, setBusy] = useState<"post" | "queue" | "schedule" | "unschedule" | null>(null);
   const lastSaved = useRef<string>(JSON.stringify(initial));
   const saving = useRef<Promise<Draft> | null>(null);
   const removals = useRef(Promise.resolve());
@@ -643,7 +696,6 @@ export function ComposeEditor({
   const styledAt = (i: number) => (blocks[i]?.styles?.length ?? 0) > 0;
   const quoteUrl = editor.quoteUrl.trim() === "" ? null : editor.quoteUrl.trim();
   const quoteBad = quoteUrl !== null && quotedPostId(quoteUrl) === null;
-  const isArticle = editor.kind === "article";
   // The scheduler or another window moves the draft while it is open here; the list follows
   // their status events, so its newer copy is where the draft really is.
   const listed =
@@ -660,7 +712,7 @@ export function ComposeEditor({
   const locked = current?.status === "posted" || current?.status === "posting";
   // Posts of a failed thread already on X. A retry skips them while they still say what went out;
   // an edit to them makes the service start the thread over.
-  const onX = current === null || locked || isArticle ? 0 : current.postIds.length;
+  const onX = current === null || locked ? 0 : current.postIds.length;
   const skipped =
     current !== null && onX > 0 && said({ ...editor, quoteUrl }, onX) === said(current, onX)
       ? onX
@@ -679,39 +731,26 @@ export function ComposeEditor({
     (_, i) => i >= skipped && (hasMediaAt(i) || styledAt(i) || laneText),
   ).length;
   const toPost = blocks.length - skipped;
-  const cover = media.find((m) => m.blockIndex === 0 && m.kind === "image");
   // What the publisher would refuse (Publisher.refusal), caught before a thread stops halfway.
-  const emptyAt = isArticle
-    ? -1
-    : blocks.findIndex((b, i) => postText(b.text, i, quoteUrl).trim() === "" && !hasMediaAt(i));
-  const longAt = isArticle
-    ? -1
-    : blocks.findIndex((b, i) => charCount(postText(b.text, i, quoteUrl)) > POST_LIMIT);
+  const emptyAt = blocks.findIndex(
+    (b, i) => postText(b.text, i, quoteUrl).trim() === "" && !hasMediaAt(i),
+  );
+  const longAt = blocks.findIndex((b, i) => charCount(postText(b.text, i, quoteUrl)) > POST_LIMIT);
   const blocker =
     isBlank(editor) || quoteBad
       ? null
-      : isArticle
-        ? editor.title.trim() === "" || editor.body.trim() === ""
-          ? "Article needs a title and a body"
-          : null
-        : emptyAt !== -1
-          ? `Post ${emptyAt + 1} is empty`
-          : longAt !== -1
-            ? `Post ${longAt + 1} is over ${POST_LIMIT} characters`
-            : editor.poll !== null && editor.poll.options.some((o) => o.trim() === "")
-              ? "A poll option is empty"
-              : editor.poll !== null && hasMediaAt(0)
-                ? "A poll cannot share the first post with media"
-                : null;
-  // What sending costs: a thread post by post, an article as its draft and publish requests.
-  const sendUsd = isArticle
-    ? quote === null
-      ? null
-      : quote.articleUsd * 2
-    : rates === null
-      ? null
-      : total;
-  const scheduledUsd = isArticle || rates === null ? sendUsd : scheduledTotal;
+      : emptyAt !== -1
+        ? `Post ${emptyAt + 1} is empty`
+        : longAt !== -1
+          ? `Post ${longAt + 1} is over ${POST_LIMIT} characters`
+          : editor.poll !== null && editor.poll.options.some((o) => o.trim() === "")
+            ? "A poll option is empty"
+            : editor.poll !== null && hasMediaAt(0)
+              ? "A poll cannot share the first post with media"
+              : null;
+  // What sending costs, post by post.
+  const sendUsd = rates === null ? null : total;
+  const scheduledUsd = rates === null ? sendUsd : scheduledTotal;
   // Nothing sends until its price is known.
   const canSend =
     !isBlank(editor) &&
@@ -738,7 +777,7 @@ export function ComposeEditor({
   const slotAt =
     queued && current.scheduledAt !== null ? current.scheduledAt : (context?.nextSlot ?? null);
   const slot = slotAt === null ? null : slotLabel(zone, new Date(slotAt), mountedAt);
-  const firstLine = (isArticle ? editor.title : (blocks[0]?.text ?? "")).split("\n")[0]?.trim();
+  const firstLine = (blocks[0]?.text ?? "").split("\n")[0]?.trim();
   const title = waiting
     ? "Draft"
     : firstLine !== undefined && firstLine !== ""
@@ -747,24 +786,20 @@ export function ComposeEditor({
         ? "Untitled"
         : reply !== undefined
           ? "Reply"
-          : isArticle
-            ? "New article"
-            : "New thread";
+          : "New thread";
   // A voice score only describes the text it was run on.
   const voiceScore =
     voice !== null && voice.text === JSON.stringify(blocks.map((b) => b.text)) ? voice.score : null;
   const facts = waiting
     ? []
     : [
-        isArticle ? "article" : `${blocks.length} ${blocks.length === 1 ? "post" : "posts"}`,
+        `${blocks.length} ${blocks.length === 1 ? "post" : "posts"}`,
         current === null || current.status === "draft" ? null : current.status,
         voiceScore === null ? null : `voice ${Math.round(voiceScore * 100)}%`,
       ].filter((x) => x !== null);
   const back = current === null ? "drafts" : tabOf(current.status);
 
-  const postNowText = isArticle
-    ? "Publish this article now: a draft and a publish request."
-    : `Post ${toPost} ${toPost === 1 ? "post" : "posts"} now.`;
+  const postNowText = `Post ${toPost} ${toPost === 1 ? "post" : "posts"} now.`;
 
   return (
     <div className="flex h-full flex-col">
@@ -797,39 +832,29 @@ export function ComposeEditor({
               >
                 <p>{postNowText}</p>
                 <dl className="mt-2 flex flex-col font-mono text-xs tabular-nums">
-                  {isArticle ? (
+                  {linkCount > 0 && rates !== null ? (
                     <div className="flex justify-between py-0.5 text-muted-foreground">
-                      <dt>2 requests</dt>
-                      <dd>{quote === null ? "…" : <Cost usd={quote.articleUsd} />} each</dd>
+                      <dt>{linkCount} with a link</dt>
+                      <dd>
+                        <Cost usd={rates.postWithLink} /> each
+                      </dd>
                     </div>
-                  ) : (
-                    <>
-                      {linkCount > 0 && rates !== null ? (
-                        <div className="flex justify-between py-0.5 text-muted-foreground">
-                          <dt>{linkCount} with a link</dt>
-                          <dd>
-                            <Cost usd={rates.postWithLink} /> each
-                          </dd>
-                        </div>
-                      ) : null}
-                      {sessionCount > 0 ? (
-                        <div className="flex justify-between py-0.5 text-muted-foreground">
-                          <dt>
-                            {sessionCount}
-                            {laneText ? "" : " with media or formatting,"} through your x.com
-                            session
-                          </dt>
-                          <dd>free</dd>
-                        </div>
-                      ) : null}
-                      {skipped > 0 ? (
-                        <div className="flex justify-between py-0.5 text-muted-foreground">
-                          <dt>{skipped} already on X</dt>
-                          <dd>free</dd>
-                        </div>
-                      ) : null}
-                    </>
-                  )}
+                  ) : null}
+                  {sessionCount > 0 ? (
+                    <div className="flex justify-between py-0.5 text-muted-foreground">
+                      <dt>
+                        {sessionCount}
+                        {laneText ? "" : " with media or formatting,"} through your x.com session
+                      </dt>
+                      <dd>free</dd>
+                    </div>
+                  ) : null}
+                  {skipped > 0 ? (
+                    <div className="flex justify-between py-0.5 text-muted-foreground">
+                      <dt>{skipped} already on X</dt>
+                      <dd>free</dd>
+                    </div>
+                  ) : null}
                   <div className="mt-1 flex justify-between border-t border-border pt-1.5">
                     <dt>Total</dt>
                     <dd>{sendUsd === null ? "…" : <Cost usd={sendUsd} />}</dd>
@@ -948,7 +973,11 @@ export function ComposeEditor({
                     { id: "article", label: "Article" },
                   ]}
                   value={editor.kind}
-                  onChange={(kind) => setEditor({ ...editor, kind })}
+                  onChange={(kind) =>
+                    kind === "article"
+                      ? void navigate({ to: "/articles", search: { new: true } })
+                      : setEditor({ ...editor, kind })
+                  }
                 />
               </div>
             )}
@@ -996,101 +1025,6 @@ export function ComposeEditor({
                     ? failText(drafts.cause)
                     : "Loading draft"}
               </p>
-            ) : isArticle ? (
-              <fieldset disabled={frozen} className="flex min-w-0 flex-col gap-3">
-                <input
-                  className="w-full bg-transparent text-2xl font-semibold tracking-tight outline-hidden placeholder:text-placeholder"
-                  aria-label="Title"
-                  placeholder="Title"
-                  value={editor.title}
-                  onChange={(e) => setEditor({ ...editor, title: e.target.value })}
-                />
-                <textarea
-                  className="min-h-[10lh] w-full resize-none bg-transparent text-[15px] leading-relaxed outline-hidden field-sizing-content placeholder:text-placeholder"
-                  aria-label="Body"
-                  placeholder="Write in markdown"
-                  value={editor.body}
-                  onChange={(e) => setEditor({ ...editor, body: e.target.value })}
-                />
-                <div className="mt-4 flex flex-col gap-2 border-t border-border pt-4">
-                  <h2 className="text-[12.5px] font-semibold text-foreground/80">Cover</h2>
-                  {cover !== undefined ? (
-                    <MediaList
-                      media={[cover]}
-                      previews={previews}
-                      onChange={(m) =>
-                        setEditor({
-                          ...editor,
-                          media: [...media.filter((x) => x.id !== cover.id), ...m],
-                        })
-                      }
-                      onRemove={removeMedia}
-                    />
-                  ) : null}
-                  <div className="flex gap-1.5">
-                    <input
-                      className={inputClass}
-                      aria-label="Cover prompt"
-                      placeholder="Describe the cover image"
-                      value={coverPrompt}
-                      onChange={(e) => setCoverPrompt(e.target.value)}
-                    />
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={
-                        coverPrompt.trim() === "" ||
-                        cover !== undefined ||
-                        quote === null ||
-                        busy !== null
-                      }
-                      onClick={async () => {
-                        setBusy("cover");
-                        try {
-                          const d = selected ?? (await save(true).catch(reportFailure));
-                          if (d === null) return;
-                          setNotice("Generating cover");
-                          const exit = await generateCover({ draftId: d.id, prompt: coverPrompt });
-                          if (Exit.isFailure(exit)) setNotice(`Failed: ${failText(exit.cause)}`);
-                          else {
-                            attach(exit.value, newIds(exit.value, d.media));
-                            setNotice("Cover generated");
-                          }
-                        } finally {
-                          setBusy(null);
-                        }
-                      }}
-                    >
-                      Generate
-                      {quote === null ? <Cost label="…" /> : <Cost usd={quote.coverUsd} />}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={cover !== undefined}
-                      onClick={() => {
-                        const input = document.createElement("input");
-                        input.type = "file";
-                        input.accept = "image/*";
-                        input.addEventListener("change", () =>
-                          addFiles(0, [...(input.files ?? [])]),
-                        );
-                        input.click();
-                      }}
-                    >
-                      Upload
-                    </Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {quote === null ? null : (
-                      <span className="font-mono text-2xs">{quote.coverModel} · </span>
-                    )}
-                    Publishes through X Articles via treg at{" "}
-                    {quote === null ? "…" : <Cost usd={quote.articleUsd} />} a request. Unverified
-                    against the live API, so the first publish may fail.
-                  </p>
-                </div>
-              </fieldset>
             ) : (
               <fieldset disabled={frozen} className="min-w-0">
                 {/* A queued draft posts at its slot through the API, which cannot reach a Community. */}
@@ -1139,7 +1073,7 @@ export function ComposeEditor({
                 />
               </fieldset>
             )}
-            {waiting || isArticle || locked ? null : (
+            {waiting || locked ? null : (
               <details className="group mt-4 border-t border-border">
                 <summary className="flex h-10 cursor-pointer list-none items-center gap-1.5 text-[13px] text-muted-foreground transition-colors duration-150 hover:text-foreground [&::-webkit-details-marker]:hidden">
                   <ChevronRight className="size-3.5 group-open:rotate-90" />
@@ -1154,7 +1088,7 @@ export function ComposeEditor({
               </details>
             )}
           </div>
-          {waiting || isArticle || locked ? null : (
+          {waiting || locked ? null : (
             <div className="mx-auto w-full max-w-[640px] px-6">
               <AssistPanel
                 handle={handle}
@@ -1177,12 +1111,44 @@ export function ComposeEditor({
                   setVoice({ score, text: JSON.stringify(blocks.map((b) => b.text)) })
                 }
               />
+              {isElectron ? (
+                <button
+                  type="button"
+                  className="flex h-7 cursor-pointer items-center gap-1.5 rounded-full px-2 text-[13px] text-muted-foreground hover:bg-white/[0.06] hover:text-foreground"
+                  onClick={() => void askGrok(active)}
+                >
+                  <CircleSlash2 aria-hidden className="size-3.5" />
+                  Ask Grok
+                  <span className="font-mono text-[11px] text-success-foreground">free on X</span>
+                </button>
+              ) : null}
             </div>
           )}
           <Companion>
+            {grok === null ? null : (
+              <>
+                <GrokDrawer
+                  onInsert={(text) => {
+                    const at = grok.target;
+                    if (at === null)
+                      return setXToast({ text: "The post you asked Grok about was removed." });
+                    setEditor((e) => ({
+                      ...e,
+                      blocks: e.blocks.map((b, j) => (j === at ? { ...b, text } : b)),
+                    }));
+                  }}
+                  onClose={() => {
+                    setGrok(null);
+                    void xGrokLeave(grok.from);
+                  }}
+                  onExpand={() => setGrok(null)}
+                />
+                <MediaViewer />
+              </>
+            )}
             {inspire !== undefined ? <Inspiration postId={inspire} /> : null}
             {editor.replyToPostId !== null ? <ReplyTarget postId={editor.replyToPostId} /> : null}
-            {isArticle || waiting ? null : (
+            {waiting ? null : (
               <>
                 <PostPreview
                   blocks={blocks}

@@ -24,6 +24,14 @@ import { Timeline } from "./Timeline";
 import { resetSurface, updateEngine } from "../../state/engine";
 import { Suspense } from "react";
 import { Route as ListsRoute } from "../../routes/lists.index";
+import { Route as CommunityRoute } from "../../routes/communities.$id";
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  RouterProvider,
+} from "@tanstack/react-router";
 
 // Polls count their days left from now; these tests run at this moment.
 const NOW = Date.parse("2026-10-31T12:00:00.000Z");
@@ -664,6 +672,46 @@ it("runs one of a Community header's presses at a time: Join waits while X takes
   } finally {
     registerXWebview(null);
   }
+});
+
+/** The Community screen at `path`, under its route as the app declares it, its route loaded. */
+const communityScreen = async (path: string) => {
+  const root = createRootRoute();
+  const router = createRouter({
+    routeTree: root.addChildren([
+      createRoute({
+        getParentRoute: () => root,
+        path: "/communities/$id",
+        validateSearch: CommunityRoute.options.validateSearch,
+        component: CommunityRoute.options.component!,
+      }),
+    ]),
+    history: createMemoryHistory({ initialEntries: [path] }),
+  });
+  await router.load();
+  return render(
+    <div style={{ height: 800, display: "flex" }}>
+      <EngineSync />
+      <RouterProvider router={router} />
+    </div>,
+    { router: false, service: {} },
+  );
+};
+
+it("in a browser with no engine, a replayed Community opens on the list the replay holds", async () => {
+  const bridge = installFakeBridge();
+  const { batches } = synth().communities!;
+  const id = batches.find((b) => b.op === "CommunityQuery")!.communities[0]!.communityId;
+  // No x.com page answers here.
+  await using screen = await communityScreen(`/communities/${id}`);
+  for (const b of batches) bridge.emitEngine(b);
+  const top = batches.find(
+    (b) => b.op === "CommunityTweetsTimeline" && b.key === `community:${id}`,
+  )!;
+  await expect.element(screen.getByText(top.posts[0]!.text)).toBeVisible();
+  await expect
+    .element(screen.getByRole("tab", { name: "Top" }))
+    .toHaveAttribute("aria-selected", "true");
 });
 
 it("in the browser alone, says free posting needs the desktop and carries a poll to Compose as a draft", async () => {

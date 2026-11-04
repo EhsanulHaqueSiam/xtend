@@ -21,6 +21,17 @@ it("opens x.com posts, Articles, profiles, searches, the Follow page and Communi
     "/communities/1600000000000000001?tab=about",
   );
   expect(xtendRoute("https://x.com/i/communities/1600000000000000001/members")).toBeNull();
+  // X's Admin tools and General settings are Xtend's; X's other tools and each edit stay X's.
+  expect(xtendRoute("https://x.com/i/communities/16/tools")).toBe("/communities/16/tools");
+  expect(xtendRoute("https://x.com/i/communities/16/tools/settings")).toBe(
+    "/communities/16/tools/settings",
+  );
+  expect(xtendRoute("https://x.com/i/communities/16/tools/settings/name")).toBeNull();
+  expect(xtendRoute("https://x.com/i/communities/16/tools/members")).toBeNull();
+  expect(xtendRoute("https://x.com/i/communities/16/moderation/reported_tweets")).toBe(
+    "/communities/16/moderation/reported_tweets",
+  );
+  expect(xtendRoute("https://x.com/i/communities/16/moderation/moderation_log")).toBeNull();
   expect(xtendRoute("https://x.com/you/communities/explore")).toBe("/communities?tab=explore");
   expect(xtendRoute("https://x.com/you/communities")).toBe("/communities");
   // A news story (Explore's news rows link it) and the NBA league page by X's tab.

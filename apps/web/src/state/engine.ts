@@ -4,6 +4,9 @@ import type {
   EngineBatch,
   EngineBookmarkFolder,
   EngineCommunity,
+  EngineCommunityAdmin,
+  EngineJoinRequest,
+  EngineReportCase,
   EngineConference,
   EngineExploreTab,
   EngineGame,
@@ -19,6 +22,7 @@ import type {
   EngineProfileSave,
   EnginePrompt,
   EngineRadarCount,
+  EngineXArticle,
   EngineRadarQuery,
   EngineSpace,
   EngineStory,
@@ -424,6 +428,26 @@ export interface EngineState {
   readonly communities: ReadonlyMap<string, EngineCommunity>;
   /** Community ids per surface, in X's order (the user's Communities). */
   readonly communityIds: PerSurface<string>;
+  /** What X told each Community's moderators, by id, each the sum of X's answers since. */
+  readonly communityAdmin: ReadonlyMap<string, EngineCommunityAdmin>;
+  /** X's Create a new Community for this account (see `EngineBatch.communityCreate`); undefined until X said. */
+  readonly communityCreate: "create" | "verify" | null | undefined;
+  /** Each Community's requests to join in X's order, as X's Member requests last listed them. */
+  readonly joinRequests: ReadonlyMap<string, ReadonlyArray<EngineJoinRequest>>;
+  /** Each Community's Reported posts in X's order, as X last listed them. */
+  readonly reportCases: ReadonlyMap<string, ReadonlyArray<EngineReportCase>>;
+  /**
+   * What X decided for the user's press in a queue (see `decisionKey`): "Approved", "Denied",
+   * "Kept", "Hidden" or "Banned". X draws its decision in the row's place and fetches nothing.
+   */
+  readonly decided: ReadonlyMap<string, string>;
+  /** Whether X has a next page of a Community's queue, by `<request|post>:<community>`. */
+  readonly queueMore: ReadonlyMap<string, boolean>;
+  /**
+   * The decided rows not yet in X's own waiting count, by `<request|post>:<community>`: X's
+   * answer to a press carries no count. X's next count has them all.
+   */
+  readonly discounted: ReadonlyMap<string, ReadonlySet<string>>;
   /** NBA games by id, each the sum of what X's responses said of it (see `EngineGame`). */
   readonly games: ReadonlyMap<string, EngineGame>;
   /** A team's schedule by the team's user id, in X's order: its profile's carousel. */
@@ -459,6 +483,7 @@ export interface EngineState {
   /** Whether X's composer lets the account format, as X's page last drew it; null until it has. */
   readonly formatting: boolean | null;
   readonly radar: Radar;
+  readonly xArticles: XArticles;
   /** The page cursors X last answered per surface, to tell a fetch of newer posts from the next page. */
   readonly cursors: Readonly<
     Partial<Record<AnySurface, { readonly top: string | null; readonly bottom: string | null }>>
@@ -572,6 +597,13 @@ export const emptyEngine: EngineState = {
   listIds: NONE,
   communities: new Map(),
   communityIds: NONE,
+  communityAdmin: new Map(),
+  communityCreate: undefined,
+  joinRequests: new Map(),
+  reportCases: new Map(),
+  decided: new Map(),
+  queueMore: new Map(),
+  discounted: new Map(),
   games: new Map(),
   schedules: new Map(),
   gameDays: new Map(),
@@ -590,6 +622,7 @@ export const emptyEngine: EngineState = {
   nbaDay: null,
   formatting: null,
   radar: { list: null, queries: new Map(), limit: null, counts: new Map() },
+  xArticles: { byId: new Map(), Draft: null, Published: null },
   cursors: {},
   claims: null,
   bookmarkFolders: null,
@@ -739,6 +772,10 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
     pinnedLists,
     xLists,
     communities,
+    communityAdmin: mergeAdmin(state.communityAdmin, batch),
+    ...mergeQueues(state, batch),
+    communityCreate:
+      batch.communityCreate === undefined ? state.communityCreate : batch.communityCreate,
     prompts: promptsOf(state, batch),
     homeTabs: batch.homeTabs ?? pinTabs(state.homeTabs, toggled),
     exploreTabs: batch.exploreTabs ?? state.exploreTabs,
@@ -791,6 +828,7 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
               ),
             )
           : state.spacesUnavailable,
+    xArticles: mergeXArticles(state.xArticles, batch),
   };
   const listed = surfacesOf(batch).reduce(
     (state, surface) =>
@@ -812,6 +850,98 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
   // The response also carries the post it quotes, which stays where it was.
   const created = batch.posts.filter((p) => !batch.posts.some((q) => q.quotedId === p.postId));
   return created.reduce(placeCreated, listed);
+}
+
+/**
+ * What X told each Community's moderators, with this answer's: its fields over the last ones, and
+ * the role X now gives the viewer wherever this answer names the Community.
+ */
+function mergeAdmin(
+  admin: EngineState["communityAdmin"],
+  batch: EngineBatch,
+): EngineState["communityAdmin"] {
+  const roles = batch.communities.filter((c) => c.role !== null && admin.has(c.communityId));
+  if (batch.communityAdmin === undefined && roles.length === 0) return admin;
+  const next = new Map(admin);
+  for (const c of roles) next.set(c.communityId, { ...next.get(c.communityId)!, role: c.role! });
+  for (const a of batch.communityAdmin ?? [])
+    next.set(a.communityId, { ...next.get(a.communityId), ...a });
+  return next;
+}
+
+/**
+ * A Community's queues with this answer's: a first page of requests or cases is X's list now,
+ * a later page joins it, and a decided request takes its place in the list.
+ */
+function mergeQueues(
+  state: EngineState,
+  batch: EngineBatch,
+): Pick<EngineState, "joinRequests" | "reportCases" | "decided" | "queueMore" | "discounted"> {
+  const page = <A>(
+    known: ReadonlyArray<A> | undefined,
+    fresh: ReadonlyArray<A>,
+    id: (a: A) => string,
+  ) => (batch.cursor === null || known === undefined ? fresh : join(known, fresh, id));
+  const asked = batch.joinRequests;
+  const cases = batch.reportCases;
+  const known = asked === undefined ? undefined : state.joinRequests.get(asked.communityId);
+  // Any page of X's list is X's word on what waits: one X lists as waiting again is undecided.
+  const waiting = [
+    ...(asked?.page === true
+      ? asked.requests
+          .filter((r) => r.state === "Pending")
+          .map((r) => decisionKey(asked.communityId, "request", r.userId))
+      : []),
+    ...(cases !== undefined
+      ? cases.cases.map((c) => decisionKey(cases.communityId, "post", c.postId))
+      : []),
+  ].filter((key) => state.decided.has(key));
+  const more = [
+    ...(asked?.page === true
+      ? [[`request:${asked.communityId}`, asked.next !== null] as const]
+      : []),
+    ...(cases === undefined ? [] : [[`post:${cases.communityId}`, cases.next !== null] as const]),
+  ];
+  // X's own count, fresh, has every decision in it; a row X lists as waiting again counts again.
+  const counted = (batch.communityAdmin ?? []).flatMap((a) => [
+    ...(a.reported === undefined ? [] : [`post:${a.communityId}`]),
+    ...(a.requests === undefined ? [] : [`request:${a.communityId}`]),
+  ]);
+  const discounted =
+    counted.length === 0 && waiting.length === 0
+      ? state.discounted
+      : new Map(
+          [...state.discounted]
+            .filter(([group]) => !counted.includes(group))
+            .map(([group, keys]) => [
+              group,
+              new Set([...keys].filter((k) => !waiting.includes(k))),
+            ]),
+        );
+  return {
+    discounted,
+    queueMore: more.length === 0 ? state.queueMore : new Map([...state.queueMore, ...more]),
+    decided:
+      waiting.length === 0
+        ? state.decided
+        : new Map([...state.decided].filter(([key]) => !waiting.includes(key))),
+    joinRequests:
+      asked === undefined
+        ? state.joinRequests
+        : new Map(state.joinRequests).set(
+            asked.communityId,
+            asked.page
+              ? page(known, asked.requests, (r) => r.userId)
+              : (known ?? []).map((r) => asked.requests.find((d) => d.userId === r.userId) ?? r),
+          ),
+    reportCases:
+      cases === undefined
+        ? state.reportCases
+        : new Map(state.reportCases).set(
+            cases.communityId,
+            page(state.reportCases.get(cases.communityId), cases.cases, (c) => c.postId),
+          ),
+  };
 }
 
 /** What the user asked X for, per List, less what X's answer (`said`) now agrees with. */
@@ -1047,6 +1177,29 @@ function mergeRadar(radar: Radar, batch: EngineBatch): Radar {
     queries,
     limit: batch.radarLimit ?? radar.limit,
     counts,
+  };
+}
+
+/** The user's own Articles on x.com, as X's Articles page listed and previewed them. */
+interface XArticles {
+  readonly byId: ReadonlyMap<string, EngineXArticle>;
+  /** Each list's ids in X's order, once X listed it. */
+  readonly Draft: ReadonlyArray<string> | null;
+  readonly Published: ReadonlyArray<string> | null;
+}
+
+/** X's list replaces the one it names; a body X sent once stays when the list row comes without it. */
+function mergeXArticles(known: XArticles, batch: EngineBatch): XArticles {
+  const { xArticles, key } = batch;
+  if (xArticles === undefined) return known;
+  const byId = new Map(known.byId);
+  for (const a of xArticles)
+    byId.set(a.id, a.blocks === null ? { ...a, blocks: known.byId.get(a.id)?.blocks ?? null } : a);
+  const ids = xArticles.map((a) => a.id);
+  return {
+    byId,
+    Draft: key === "articles:Draft" ? ids : known.Draft,
+    Published: key === "articles:Published" ? ids : known.Published,
   };
 }
 
@@ -1425,6 +1578,67 @@ export type CommunityRole = "NonMember" | "Member" | "Moderator" | "Admin" | "Re
 /** The viewer's role in a Community: what X took for their click, until X's capture agrees. */
 export const communityRole = (state: EngineState, c: EngineCommunity) =>
   state.membership.get(c.communityId) ?? c.role;
+
+/**
+ * The viewer's role in a Community by id, X's Admin tools included, whose answer names no
+ * Community. Null until X said.
+ */
+export const roleIn = (state: EngineState, communityId: string) =>
+  state.membership.get(communityId) ??
+  state.communityAdmin.get(communityId)?.role ??
+  state.communities.get(communityId)?.role ??
+  null;
+
+/** Whether X gives the viewer its Admin tools: a Community's admins and moderators. */
+export const moderates = (role: string | null) => role === "Admin" || role === "Moderator";
+
+/** Where `decided` keeps X's decision on a Community's request (by person) or reported post. */
+export const decisionKey = (communityId: string, kind: "request" | "post", id: string) =>
+  `${kind}:${communityId}:${id}`;
+
+/**
+ * Keeps what X decided for the user's press in a queue (see `decided`), its row off X's count of
+ * what waits there until X counts again (see `discounted`).
+ */
+export const decide = (
+  state: EngineState,
+  communityId: string,
+  kind: "request" | "post",
+  id: string,
+  decision: string,
+): EngineState => {
+  const key = decisionKey(communityId, kind, id);
+  const group = `${kind}:${communityId}`;
+  return {
+    ...state,
+    decided: new Map(state.decided).set(key, decision),
+    discounted: new Map(state.discounted).set(group, new Set(state.discounted.get(group)).add(key)),
+  };
+};
+
+/** What waits on a Community's mods, by X's count less the rows X has decided since. */
+export const waitingIn = (state: EngineState, communityId: string) => {
+  const admin = state.communityAdmin.get(communityId);
+  const less = (n: number, kind: "request" | "post") =>
+    Math.max(0, n - (state.discounted.get(`${kind}:${communityId}`)?.size ?? 0));
+  return {
+    reported: less(admin?.reported ?? 0, "post"),
+    requests: admin?.requests == null ? null : less(admin.requests, "request"),
+  };
+};
+
+/** Forgets a Community's queues, for a full load of X's pages to list them afresh. */
+export const forgetQueues = (state: EngineState, communityId: string): EngineState => {
+  const drop = <A>(m: ReadonlyMap<string, A>) => new Map([...m].filter(([k]) => k !== communityId));
+  return { ...state, joinRequests: drop(state.joinRequests), reportCases: drop(state.reportCases) };
+};
+
+/**
+ * A request's state as X shows it: what X decided for the user's press, else X's list. X's
+ * own answer to the press (its Approve or Deny) updates the list too.
+ */
+export const requestState = (state: EngineState, communityId: string, request: EngineJoinRequest) =>
+  state.decided.get(decisionKey(communityId, "request", request.userId)) ?? request.state;
 
 /** Keeps the role X took for the user's join, ask or leave (see `membership`). */
 export const askMembership = (

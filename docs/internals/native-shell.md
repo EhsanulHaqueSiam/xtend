@@ -100,6 +100,51 @@ test ids: its controls are found by X's labels inside the box around its Leave, 
 beside its Collapse, and captions are the lines of X's own panel there (X reads them from its
 `api.x.com/live-chat` stream, which the capture never reads).
 
+Grok is read from X's page too. X serves two Grok clients at `/i/grok` (its routes pick by the
+`responsive_web_grok_xweb_replacement_enabled` switch and the account's grok.com link): the newer
+one (`bundle.GrokXWeb`) calls grok.com's REST and streams from there, which the capture never
+reads, and draws plain DOM with hooks of its own (`data-turn-id`, `data-quotable-message`,
+`data-grok-composer`, Streamdown's `data-streamdown`, `data-icon`). `state/grok.ts` reads that DOM
+into an atom while a Grok surface is open, as Chat's reads, and writes only through X's controls.
+X draws its history only while its History panel is open, so the rail opens and closes it per read. Docked
+Grok (Explain this post, Compose's Ask Grok) reads the same page: X's own Grok button on the post
+opens X's drawer or Grok page, and the engine then shows X's Grok page, as X's drawer's full page
+button does. X draws Grok's images from blobs of its own page, fetched with grok.com's credentials,
+so X's page makes the copies the app draws.
+The older client has no such hooks, so it, and X's grok.com link prompt (`/i/jf/grok`), show over
+the main area for the user to use in X's own page.
+
+Articles are Xtend drafts written in Xtend's editor; X's own drafts are only read, off X's
+Articles page (ArticleEntitiesSlice) and its preview (ArticleEntityResultByRestId). X's editor
+is Draft.js and saves every change a few seconds after it (ArticleEntityUpdateContent), so
+anything typed into it is X's at once: Xtend never edits an X draft. Publish now
+(`articleThroughEditor` in the desktop's commands, for the click) presses X's pen for a fresh
+draft, types the title, puts the cover through X's own file input and crop dialog, and pastes
+the body once as HTML (`toPasteHtml`): X's paste handler keeps paragraphs, Heading, Subheading,
+quotes, lists, bold, italic, strikethrough and links, and drops atomic blocks, which is why a
+body with code, LaTeX, a divider or a post goes out through the API instead. Publish stays off
+until X has saved. X's two Publish buttons have no test id, only X's word. The engine is usually
+narrow, where X draws its compact layout: the crop step and the Publish sheet are whole routes, not
+dialogs, so their parts are found by their own names; the sheet's Publish is pressed only inside a
+sheet found for certain (its dialog, or the caption's container with X's reply select and none of
+X's editor), never the editor's Publish, and waited for; with no such sheet nothing is pressed. X gates the pages on
+`subscriptions_feature_article_composer`, which no claim the capture sees carries, and answers
+them with "Page not found" without it, so access is read from X's page: its pen, or none.
+
+X's settings are read from X's page too, not its traffic: X keeps them in its own store (its
+notification filters for four minutes in the browser's storage), so its router often shows a
+settings page without asking X again. `state/xSettings.ts` reads the open page only, X's words
+in X's order, and presses X's own control there. X lays settings out by the engine's width: on a
+wide window the page is a section labelled by its header beside X's list, beside Xtend's panel it
+is X's compact page, its title in the app bar and its body after it in `main`; both are read. X's settings inputs carry no names, so a press
+finds its control by place and checks the label X draws there before clicking. X's search index
+(bundle.Settings) is Xtend's list of X's pages, so Settings search loads none of them. A page
+that asks for typing (a password, a username), and the pages X keeps for itself (password,
+two-factor, passkeys, sessions, Premium, Monetization: `isXOnly`), show as X's page over the
+main area with Xtend's bar and its Back. The rail's change log (`xsettings/XSettingsLog.ts`)
+keeps, per account, the last value of each toggle or pick Xtend saw and every flip, so a
+setting changed on the phone shows the next time its page is read; never what the user types.
+
 The read-only benchmark (`apps/desktop/scripts/engine-bench.mjs`) checks every surface against a
 dev desktop on the real account; its only write is a bookmark it removes again.
 

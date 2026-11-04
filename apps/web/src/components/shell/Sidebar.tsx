@@ -2,6 +2,7 @@ import { useAtom, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { Link, useLocation, useNavigate, useRouter } from "@tanstack/react-router";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import {
+  ArrowUpRight,
   ChevronDown,
   CircleCheck,
   Download,
@@ -12,6 +13,7 @@ import {
   Mail,
   Bookmark,
   Compass,
+  FileText,
   UserPlus,
   UserRound,
   PenLine,
@@ -23,11 +25,12 @@ import {
   UsersRound,
   Workflow,
   ChartNoAxesCombined,
+  CircleSlash2,
   Gauge,
   Settings,
   Sun,
 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
 
 import { isElectron } from "../../env";
 import { carriesLink, postFromTransfer } from "../../lib/drag";
@@ -80,9 +83,11 @@ const ICONS = {
   Notifications: Bell,
   Chat: Mail,
   Bookmarks: Bookmark,
+  Grok: CircleSlash2,
   Lists: ListIcon,
   Communities: UsersRound,
   Follow: UserPlus,
+  Articles: FileText,
   Profile: UserRound,
   Compose: PenLine,
   Plan: CalendarDays,
@@ -102,14 +107,17 @@ function RowBody({
   hot = false,
   verb,
   compact = false,
+  bare = false,
 }: {
   readonly label: string;
   readonly count?: number | null | undefined;
+  /** A section's row: no icon, even when it shares a tool's name (X's Notifications, Lists). */
+  readonly bare?: boolean;
   readonly hot?: boolean;
   readonly verb?: string | undefined;
   readonly compact?: boolean;
 }) {
-  const Icon = ICONS[label as keyof typeof ICONS];
+  const Icon = bare ? undefined : ICONS[label as keyof typeof ICONS];
   if (compact && Icon !== undefined)
     return <Icon aria-hidden="true" className="mx-auto size-4 shrink-0" />;
   return (
@@ -182,8 +190,12 @@ function ToolRow({
   const pathname = useLocation({ select: (l) => l.pathname });
   const searchStr = useLocation({ select: (l) => l.searchStr });
   const on = isOn(pathname, tool.to);
-  const sections: ReadonlyArray<{ readonly id: string; readonly label: string }> =
-    on && isSectionRoute(tool.to) ? SECTIONS[tool.to] : [];
+  const sections: ReadonlyArray<{
+    readonly id: string;
+    readonly label: string;
+    readonly group?: string;
+    readonly xPage?: boolean;
+  }> = on && isSectionRoute(tool.to) ? SECTIONS[tool.to] : [];
   const tab = new URLSearchParams(searchStr).get("tab");
   const openId = sections.find((s) => s.id === tab)?.id ?? sections[0]?.id;
   const dragging = useAtomValue(linkDragAtom);
@@ -266,26 +278,44 @@ function ToolRow({
           <TooltipPopup>{`${tool.label} sections`}</TooltipPopup>
         </Tooltip>
       ) : null}
-      {(compact ? [] : sections).map((section) => {
+      {(compact ? [] : sections).map((section, i) => {
         const href = `${tool.to}?tab=${section.id}`;
+        // A group's label heads its first row: Settings lists Xtend's sections, then X's.
+        const group = sections.slice(0, i + 1).findLast((s) => s.group !== undefined)?.group;
+        const heads =
+          section.group !== undefined &&
+          sections.slice(0, i).findLast((s) => s.group !== undefined)?.group !== group;
         return (
-          <a
-            key={section.id}
-            href={router.history.createHref(href)}
-            data-active={section.id === openId}
-            className={cn(SUB_ROW, dragClass(dragging, false))}
-            onClick={(event) => {
-              if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
-              event.preventDefault();
-              void navigate({ href });
-            }}
-          >
-            <RowBody
-              label={section.label}
-              count={tool.to === "/automate" && section.id === "needs-you" ? count : undefined}
-              hot={hot}
-            />
-          </a>
+          <Fragment key={section.id}>
+            {heads ? (
+              <div className="pt-1.5 pb-0.5 pl-[34px] text-3xs font-medium tracking-[0.08em] text-sidebar-muted-foreground/70 uppercase">
+                {group}
+              </div>
+            ) : null}
+            <a
+              href={router.history.createHref(href)}
+              data-active={section.id === openId}
+              className={cn(SUB_ROW, dragClass(dragging, false))}
+              onClick={(event) => {
+                if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+                event.preventDefault();
+                void navigate({ href });
+              }}
+            >
+              <RowBody
+                bare
+                label={section.label}
+                count={tool.to === "/automate" && section.id === "needs-you" ? count : undefined}
+                hot={hot}
+              />
+              {section.xPage === true ? (
+                <ArrowUpRight
+                  aria-label="X's own page"
+                  className="ml-auto size-3 shrink-0 text-sidebar-muted-foreground"
+                />
+              ) : null}
+            </a>
+          </Fragment>
         );
       })}
     </>
@@ -299,9 +329,11 @@ const NATIVE: Readonly<Record<string, string>> = {
   Notifications: "/notifications",
   Chat: "/chat",
   Bookmarks: "/bookmarks",
+  Grok: "/grok",
   Lists: "/lists",
   Follow: "/follow",
   Communities: "/communities",
+  Articles: "/articles",
 };
 
 /** X's own pages; each loads in the one x.com webview, shown in the main area. */
@@ -325,50 +357,76 @@ function XRows({ compact }: { readonly compact: boolean }) {
     { label: "Notifications", path: "/notifications", count: unread },
     { label: "Chat", path: "/i/chat" },
     { label: "Bookmarks", path: "/i/bookmarks" },
+    { label: "Grok", path: "/i/grok" },
     { label: "Lists", path: "/i/lists" },
     { label: "Communities", path: "/i/communities" },
     { label: "Follow", path: "/i/connect_people" },
+    { label: "Articles", path: "/compose/articles" },
     ...(handle === null ? [] : [{ label: "Profile", path: `/${handle}` }]),
   ];
+  const searchStr = useLocation({ select: (l) => l.searchStr });
+  const articlesTab = new URLSearchParams(searchStr).get("tab");
   return (
     <>
       {pages.map((page) => (
-        <Tooltip key={page.label} disabled={!compact}>
-          <TooltipTrigger
-            render={
-              <button
-                aria-label={compact ? page.label : undefined}
-                type="button"
-                data-active={
-                  page.label === "Profile"
-                    ? pathname.toLowerCase() === `/u/${handle}`.toLowerCase()
-                    : NATIVE[page.label] !== undefined
-                      ? pathname === NATIVE[page.label] ||
-                        pathname.startsWith(`${NATIVE[page.label]}/`)
-                      : onX && (path === page.path || path.startsWith(`${page.path}/`))
-                }
-                className={cn(ROW, dragClass(dragging, false))}
-                onClick={() => {
-                  // Xtend draws these itself; the engine follows them off screen.
-                  const native = page.label === "Profile" ? `/u/${handle}` : NATIVE[page.label];
-                  // Clicked again on its own page, it loads fresh posts from the top, as X's does.
-                  if (native === pathname) return loadNewPosts();
-                  if (native !== undefined) return void navigate({ href: native });
-                  // A page already in the webview is only revealed; clicked again where it shows, it
-                  // reloads, like X's own Home.
-                  if (path !== page.path) xNavigate(`https://x.com${page.path}`);
-                  else if (onX || (pinned && panelOpen)) xReload();
-                  // Pinned beside a tool, X's pages open in the panel and the tool stays.
-                  if (pinned && !onX) setPanel(true);
-                  else void navigate({ to: "/x" });
-                }}
-              />
-            }
-          >
-            <RowBody label={page.label} count={page.count} compact={compact} />
-          </TooltipTrigger>
-          <TooltipPopup>{page.label}</TooltipPopup>
-        </Tooltip>
+        <Fragment key={page.label}>
+          <Tooltip disabled={!compact}>
+            <TooltipTrigger
+              render={
+                <button
+                  aria-label={compact ? page.label : undefined}
+                  type="button"
+                  data-active={
+                    page.label === "Profile"
+                      ? pathname.toLowerCase() === `/u/${handle}`.toLowerCase()
+                      : NATIVE[page.label] !== undefined
+                        ? pathname === NATIVE[page.label] ||
+                          pathname.startsWith(`${NATIVE[page.label]}/`)
+                        : onX && (path === page.path || path.startsWith(`${page.path}/`))
+                  }
+                  className={cn(ROW, dragClass(dragging, false))}
+                  onClick={() => {
+                    // Xtend draws these itself; the engine follows them off screen.
+                    const native = page.label === "Profile" ? `/u/${handle}` : NATIVE[page.label];
+                    // Clicked again on its own page, it loads fresh posts from the top, as X's does.
+                    // Articles has no posts to load: clicked from its editor, it goes back to its list.
+                    if (native === pathname && page.label !== "Articles") return loadNewPosts();
+                    if (native !== undefined) return void navigate({ href: native });
+                    // A page already in the webview is only revealed; clicked again where it shows, it
+                    // reloads, like X's own Home.
+                    if (path !== page.path) xNavigate(`https://x.com${page.path}`);
+                    else if (onX || (pinned && panelOpen)) xReload();
+                    // Pinned beside a tool, X's pages open in the panel and the tool stays.
+                    if (pinned && !onX) setPanel(true);
+                    else void navigate({ to: "/x" });
+                  }}
+                />
+              }
+            >
+              <RowBody label={page.label} count={page.count} compact={compact} />
+            </TooltipTrigger>
+            <TooltipPopup>{page.label}</TooltipPopup>
+          </Tooltip>
+          {/* Articles shows its sections under it while it is open, as a tool does. */}
+          {page.label === "Articles" && pathname === "/articles" && !compact
+            ? SECTIONS["/articles"].map((section) => (
+                <button
+                  key={section.id}
+                  type="button"
+                  data-active={
+                    (
+                      SECTIONS["/articles"].find((s) => s.id === articlesTab) ??
+                      SECTIONS["/articles"][0]
+                    ).id === section.id
+                  }
+                  className={SUB_ROW}
+                  onClick={() => void navigate({ href: `/articles?tab=${section.id}` })}
+                >
+                  <RowBody label={section.label} />
+                </button>
+              ))
+            : null}
+        </Fragment>
       ))}
     </>
   );

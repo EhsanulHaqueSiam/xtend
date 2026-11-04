@@ -24,6 +24,7 @@ import {
   xPostMenu,
   xOverEnded,
   xPickCommunitySearchTab,
+  xPickCommunityTab,
   xPickHomeTab,
   xPickInspiration,
   xPickAnalyticsRange,
@@ -46,6 +47,10 @@ import {
   xHeard,
   xNavigate,
   xGo,
+  xChecklist,
+  xControl,
+  xPressToPage,
+  xPressRow,
 } from "./x";
 
 // X's page as the engine holds it: a post quoting 42, then 42 itself, edited, so its timestamp
@@ -1535,6 +1540,36 @@ it("picks X's search tab only on the Community search it was asked for, and give
   }
 });
 
+it("reads the tab X opened a Community on, and presses X's own tab there only", async () => {
+  using _clock = fakeTimers();
+  using _url = keepUrl();
+  const open = () => new AbortController().signal;
+  const clicked: Array<string> = [];
+  inThisPage(() => `https://x.com${location.pathname}`);
+  history.replaceState(null, "", "/i/communities/11");
+  // X has moved to the Community, but the hub's tabs still show: they are not its.
+  document.body.innerHTML = `<nav role="tablist"><a role="tab" aria-selected="true" href="/you/communities/explore">Explore</a></nav>`;
+  const read = xPickCommunityTab("11", null, Promise.resolve(), open());
+  await vi.advanceTimersByTimeAsync(300);
+  // X opened this Community on Latest, as it does for a member.
+  document.body.innerHTML = `<nav role="tablist"><a role="tab" aria-selected="false" href="/i/communities/11">Top</a><a role="tab" aria-selected="true" href="/i/communities/11">Latest</a><a role="tab" aria-selected="false" href="/i/communities/11">Media</a><a role="tab" aria-selected="false" href="/i/communities/11/about">About</a></nav>`;
+  for (const tab of document.querySelectorAll('[role="tab"]'))
+    tab.addEventListener("click", (event) => {
+      event.preventDefault();
+      clicked.push(tab.textContent!);
+    });
+  await vi.runAllTimersAsync();
+  expect([await read, clicked]).toEqual(["Latest", []]);
+  const top = xPickCommunityTab("11", "Top", Promise.resolve(), open());
+  await vi.runAllTimersAsync();
+  expect([await top, clicked]).toEqual(["Top", ["Top"]]);
+  // Another Community's tabs are not this one's.
+  history.replaceState(null, "", "/i/communities/12");
+  const other = xPickCommunityTab("11", "Media", Promise.resolve(), open());
+  await vi.runAllTimersAsync();
+  expect([await other, clicked]).toEqual([null, ["Top"]]);
+});
+
 /** Puts this document's URL back as it was, once the test is done with X's routes. */
 const keepUrl = (): Disposable => {
   const start = location.href;
@@ -2189,5 +2224,325 @@ it("leaves the overlay to a newer press when the user moves on while Xtend check
     expect(shown).toEqual([true]);
   } finally {
     history.replaceState(null, "", start);
+  }
+});
+
+it("finds X's own control by its words or its label, a checkbox row's box, and never one X draws twice", () => {
+  document.body.innerHTML = `
+    <a href="/i/communities/create" role="link"><svg aria-label="Create a new Community"></svg></a>
+    <div role="button"><span>Leave moderation team</span></div>
+    <label><div>Adult Content (NSFW)</div><input type="checkbox"></label><div>Help text</div>
+    <div role="listitem"><div>Invite members</div><svg aria-label="Uncompleted"></svg></div>
+    <a href="/i/communities/20/tools/members">Members<span>1,284 members</span></a>
+    <button>Save</button><button>Save</button>`;
+  expect(xControl(document, "Create a new Community")?.tagName).toBe("A");
+  expect(xControl(document, "Leave moderation team")?.getAttribute("role")).toBe("button");
+  expect((xControl(document, "Adult Content (NSFW)") as HTMLInputElement).type).toBe("checkbox");
+  expect(xControl(document, "Invite members")?.getAttribute("role")).toBe("listitem");
+  // A row whose words run on, and a name X draws twice, are never pressed.
+  expect(xControl(document, "Members")).toBeNull();
+  expect(xControl(document, "Save")).toBeNull();
+
+  // In a queue, each row has its own: the one in the row that links to that post or person.
+  document.body.innerHTML = `
+    <div id="a"><article><a href="/ann/status/50"><time></time></a></article><button>Keep</button></div>
+    <div id="b"><article><a href="/bo/status/51"><time></time></a><a href="/ann/status/50">quoted</a></article><button>Keep</button></div>`;
+  // A post is its row's by its own timestamp link; one quoting it links to it with none.
+  const own = (id: string) => `a[href$="/status/${id}"] time`;
+  expect(xControl(document, "Keep", own("51"))?.parentElement?.id).toBe("b");
+  expect(xControl(document, "Keep", own("50"))?.parentElement?.id).toBe("a");
+  // Linked from both rows, a post names no one row: nothing is pressed.
+  expect(xControl(document, "Keep", 'a[href$="/status/50"]')).toBeNull();
+  expect(xControl(document, "Keep", own("52"))).toBeNull();
+});
+
+it("reads X's checklist card: its rows in X's order, each done or not, and none without the card", () => {
+  document.body.innerHTML = `<div><div><h2>Community checklist</h2><button aria-label="Dismiss Checklist"></button></div>
+    <div role="list"><div role="listitem"><div>Review your rules</div><svg aria-label="Completed"></svg></div>
+    <div role="listitem"><div>Invite members</div><svg aria-label="Uncompleted"></svg></div></div></div>`;
+  expect(xChecklist(document)).toEqual([
+    { title: "Review your rules", done: true },
+    { title: "Invite members", done: false },
+  ]);
+  document.body.innerHTML = `<div role="list"><div role="listitem">Something else</div></div>`;
+  expect(xChecklist(document)).toBeNull();
+});
+
+it("holds X's page over the main area after the user confirms in X's sheet, until X leaves it", async () => {
+  using _clock = fakeTimers();
+  const start = location.pathname + location.search;
+  history.replaceState(null, "", "/i/communities/20/tools");
+  document.body.innerHTML = `<a href="/i/communities/20/tools/members">Members</a><div role="button"><span>Leave moderation team</span></div>`;
+  // X's sheet on the press; its buttons close it, and after a confirm X writes before it moves on.
+  document.querySelector('[role="button"]')!.addEventListener("click", () => {
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      `<div role="alertdialog"><button data-testid="confirmationSheetConfirm">Yes, I want to leave</button><button data-testid="confirmationSheetCancel">Cancel</button></div>`,
+    );
+    for (const b of document.querySelectorAll('[role="alertdialog"] button'))
+      b.addEventListener("click", () => document.querySelector('[role="alertdialog"]')!.remove());
+  });
+  inThisPage(() => `https://x.com${location.pathname}`);
+  const shown: Array<boolean> = [];
+  const drawn = (href: string) => /^\/i\/communities\/20(\/tools)?$/.test(new URL(href).pathname);
+  const leave = () =>
+    xPressToPage("/i/communities/20/tools", "Leave moderation team", drawn, (on) => shown.push(on));
+  const sheet = (button: string) =>
+    document.querySelector<HTMLElement>(`[data-testid="confirmationSheet${button}"]`)!.click();
+  try {
+    const leaving = leave();
+    await vi.advanceTimersByTimeAsync(600);
+    expect(shown).toEqual([true]);
+    sheet("Confirm");
+    // X is writing: back on its tools page with no sheet, it is not done yet.
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(shown).toEqual([true]);
+    history.replaceState(null, "", "/i/communities/20");
+    await vi.advanceTimersByTimeAsync(600);
+    expect([new URL(String(await leaving)).pathname, shown]).toEqual([
+      "/i/communities/20",
+      [true, false],
+    ]);
+    // Cancelled in X's sheet: X stays where it was, and is done.
+    history.replaceState(null, "", "/i/communities/20/tools");
+    const kept = leave();
+    await vi.advanceTimersByTimeAsync(600);
+    sheet("Cancel");
+    await vi.advanceTimersByTimeAsync(600);
+    expect(new URL(String(await kept)).pathname).toBe("/i/communities/20/tools");
+  } finally {
+    history.replaceState(null, "", start);
+    registerXWebview(null);
+  }
+});
+
+it("presses only the control in the box of the Community it is for, never one left from another", async () => {
+  using _clock = fakeTimers();
+  const start = location.pathname + location.search;
+  const tools = (id: string) =>
+    `<div data-c="${id}"><a href="/i/communities/${id}/tools/members">Members</a><div role="button"><span>Leave moderation team</span></div></div>`;
+  const pressedIn: Array<string> = [];
+  const listen = () => {
+    for (const b of document.querySelectorAll('[role="button"]'))
+      b.addEventListener("click", () =>
+        pressedIn.push(b.closest<HTMLElement>("[data-c]")!.dataset.c!),
+      );
+  };
+  inThisPage(() => `https://x.com${location.pathname}`);
+  const leave = () =>
+    xPressToPage(
+      "/i/communities/20/tools",
+      "Leave moderation team",
+      () => true,
+      () => {},
+    );
+  try {
+    // X's router is on Community 20 already, while its page still draws Community 10's tools.
+    history.replaceState(null, "", "/i/communities/20/tools");
+    document.body.innerHTML = tools("10");
+    listen();
+    const refused = leave();
+    await vi.advanceTimersByTimeAsync(8000);
+    expect([await refused, pressedIn]).toEqual([false, []]);
+    // Both drawn, the old one first: only Community 20's is pressed.
+    document.body.innerHTML = tools("10") + tools("20");
+    listen();
+    const left = leave();
+    await vi.advanceTimersByTimeAsync(8000);
+    await left;
+    expect(pressedIn).toEqual(["20"]);
+  } finally {
+    history.replaceState(null, "", start);
+    registerXWebview(null);
+  }
+});
+
+it("waits for X to turn a queue row after Keep, however long X's answer takes", async () => {
+  using _clock = fakeTimers();
+  const start = location.pathname + location.search;
+  history.replaceState(null, "", "/i/communities/20/moderation/reported_tweets");
+  document.body.innerHTML = `<div id="row"><article><a href="/ann/status/50"><time></time></a></article><button>Keep</button></div>`;
+  // X answers its keep a while later, then draws "You kept this post" in the row's place.
+  document.querySelector("button")!.addEventListener("click", () =>
+    setTimeout(() => {
+      document.querySelector("#row")!.outerHTML = `<div aria-label="You kept this post"></div>`;
+    }, 1500),
+  );
+  inThisPage(() => `https://x.com${location.pathname}`);
+  try {
+    const keeping = xPressRow(
+      "/i/communities/20/moderation/reported_tweets",
+      'a[href$="/status/50"] time',
+      "Keep",
+      () => true,
+      () => {},
+    );
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(await keeping).toMatchObject({ gone: true });
+  } finally {
+    history.replaceState(null, "", start);
+    registerXWebview(null);
+  }
+});
+
+it("ends a queue press whose read X's page never answers, once X loads anew or the user moves on", async () => {
+  using _clock = fakeTimers();
+  const start = location.pathname + location.search;
+  history.replaceState(null, "", "/i/communities/20/moderation/reported_tweets");
+  document.body.innerHTML = `<div><article><a href="/ann/status/50"><time></time></a></article><button>Keep</button></div>`;
+  // X's page goes away under the press's last read: that read never answers.
+  registerXWebview({
+    loadURL: async () => {},
+    getURL: () => `https://x.com${location.pathname}`,
+    executeJavaScript: (code: string) =>
+      code.includes("return find() === null;")
+        ? new Promise(() => {})
+        : Promise.resolve(new Function(`return ${code}`)()),
+  } as unknown as XWebview);
+  markXReady();
+  const keep = () => {
+    let ended = false;
+    void xPressRow(
+      "/i/communities/20/moderation/reported_tweets",
+      'a[href$="/status/50"] time',
+      "Keep",
+      () => true,
+      () => {},
+    ).then(() => (ended = true));
+    return () => ended;
+  };
+  try {
+    const reloaded = keep();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(reloaded()).toBe(false);
+    // X's page loads anew.
+    markXReady();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(reloaded()).toBe(true);
+    // The user opens another screen while it reads.
+    const left = keep();
+    await vi.advanceTimersByTimeAsync(2000);
+    xOverEnded();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(left()).toBe(true);
+  } finally {
+    history.replaceState(null, "", start);
+    registerXWebview(null);
+  }
+});
+
+it("ends a scroll for X's next page that X's page never answers, once X loads anew or the list goes", async () => {
+  // X's page goes away under the scroll: its read never answers.
+  registerXWebview({
+    loadURL: async () => {},
+    getURL: () => "https://x.com/i/communities/20/moderation/reported_tweets",
+    executeJavaScript: () => new Promise(() => {}),
+  } as unknown as XWebview);
+  markXReady();
+  const scroll = (signal?: AbortSignal) => {
+    let ended = false;
+    void xScrollMore(signal).then(() => (ended = true));
+    return () => ended;
+  };
+  try {
+    const reloaded = scroll();
+    await Promise.resolve();
+    expect(reloaded()).toBe(false);
+    markXReady();
+    await expect.poll(reloaded).toBe(true);
+    const gone = new AbortController();
+    const left = scroll(gone.signal);
+    gone.abort();
+    await expect.poll(left).toBe(true);
+  } finally {
+    registerXWebview(null);
+  }
+});
+
+it("ends a queue press held in its move to the row's page or its Back, once X loads anew or the user moves on", async () => {
+  using _clock = fakeTimers();
+  const start = location.pathname + location.search;
+  const row = () => {
+    document.body.innerHTML = `<div><article><a href="/ann/status/50"><time></time></a></article><button>Keep</button></div>`;
+    // X takes the keep at once: its row turns.
+    document
+      .querySelector("button")!
+      .addEventListener("click", () => (document.body.innerHTML = ""));
+  };
+  // X's router never answers the move (`hang` "go") or the Back after the press (`hang` "back").
+  let hang: "go" | "back" = "back";
+  registerXWebview({
+    loadURL: async () => {},
+    getURL: () => `https://x.com${location.pathname}`,
+    executeJavaScript: (code: string) =>
+      (hang === "go" && code.includes("pushState")) ||
+      (hang === "back" && code.includes("history.back()"))
+        ? new Promise(() => {})
+        : Promise.resolve(new Function(`return ${code}`)()),
+  } as unknown as XWebview);
+  markXReady();
+  const keep = () => {
+    let ended = false;
+    void xPressRow(
+      "/i/communities/20/moderation/reported_tweets",
+      'a[href$="/status/50"] time',
+      "Keep",
+      () => true,
+      () => {},
+    ).then(() => (ended = true));
+    return () => ended;
+  };
+  try {
+    // The engine is on the other queue: the press moves it to the row's page, then Back.
+    history.replaceState(null, "", "/i/communities/20/moderation/member_requests");
+    row();
+    const back = keep();
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(back()).toBe(false);
+    markXReady();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(back()).toBe(true);
+    // The move itself never lands; the user opens another screen.
+    hang = "go";
+    history.replaceState(null, "", "/i/communities/20/moderation/member_requests");
+    row();
+    const go = keep();
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(go()).toBe(false);
+    xOverEnded();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(go()).toBe(true);
+  } finally {
+    history.replaceState(null, "", start);
+    registerXWebview(null);
+  }
+});
+
+it("ends a move of the engine X's router never answers, on its signal or X's page loading anew", async () => {
+  registerXWebview({
+    loadURL: async () => {},
+    getURL: () => "https://x.com/i/communities/20/moderation/member_requests",
+    executeJavaScript: () => new Promise(() => {}),
+  } as unknown as XWebview);
+  markXReady();
+  const move = (signal: AbortSignal) => {
+    let ended = false;
+    void xGo("https://x.com/i/communities/20/moderation/reported_tweets", signal).then(
+      () => (ended = true),
+    );
+    return () => ended;
+  };
+  try {
+    const gone = new AbortController();
+    const aborted = move(gone.signal);
+    gone.abort();
+    await expect.poll(aborted).toBe(true);
+    const reloaded = move(new AbortController().signal);
+    await Promise.resolve();
+    expect(reloaded()).toBe(false);
+    markXReady();
+    await expect.poll(reloaded).toBe(true);
+  } finally {
+    registerXWebview(null);
   }
 });

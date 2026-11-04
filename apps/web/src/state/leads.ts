@@ -42,6 +42,17 @@ export const trackedPeopleAtom = Atom.family((handles: string) =>
   ),
 );
 
+/** The user's Leads row for `handle`, if they have one: its stage and score. Free, stored. */
+export const leadAtom = Atom.family((handle: string) =>
+  clientRuntime.atom(
+    Effect.gen(function* () {
+      const client = yield* XtendClient;
+      const page = yield* client[Leads_METHODS.peopleList]({ search: handle });
+      return page.people.find((p) => p.handle.toLowerCase() === handle.toLowerCase()) ?? null;
+    }),
+  ),
+);
+
 export const personAtom = Atom.family((id: number) =>
   clientRuntime.atom(
     Effect.gen(function* () {

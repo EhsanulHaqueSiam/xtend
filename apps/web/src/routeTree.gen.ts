@@ -20,6 +20,7 @@ import { Route as NotificationsRouteImport } from './routes/notifications'
 import { Route as LibraryRouteImport } from './routes/library'
 import { Route as LeadsRouteImport } from './routes/leads'
 import { Route as HomeRouteImport } from './routes/home'
+import { Route as GrokRouteImport } from './routes/grok'
 import { Route as FollowRouteImport } from './routes/follow'
 import { Route as ExploreRouteImport } from './routes/explore'
 import { Route as EngageRouteImport } from './routes/engage'
@@ -27,6 +28,7 @@ import { Route as ComposeRouteImport } from './routes/compose'
 import { Route as ChatRouteImport } from './routes/chat'
 import { Route as BookmarksRouteImport } from './routes/bookmarks'
 import { Route as AutomateRouteImport } from './routes/automate'
+import { Route as ArticlesRouteImport } from './routes/articles'
 import { Route as AnalyzeRouteImport } from './routes/analyze'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as NbaIndexRouteImport } from './routes/nba.index'
@@ -43,6 +45,9 @@ import { Route as PostIdAnalyticsRouteImport } from './routes/post.$id_.analytic
 import { Route as PostIdActivityRouteImport } from './routes/post.$id_.activity'
 import { Route as NbaGameIdRouteImport } from './routes/nba.game.$id'
 import { Route as ListsIdPeopleRouteImport } from './routes/lists.$id_.people'
+import { Route as CommunitiesIdToolsRouteImport } from './routes/communities.$id_.tools'
+import { Route as CommunitiesIdToolsSettingsRouteImport } from './routes/communities.$id_.tools_.settings'
+import { Route as CommunitiesIdModerationQueueRouteImport } from './routes/communities.$id_.moderation.$queue'
 
 const XRoute = XRouteImport.update({
   id: '/x',
@@ -99,6 +104,11 @@ const HomeRoute = HomeRouteImport.update({
   path: '/home',
   getParentRoute: () => rootRouteImport,
 } as any)
+const GrokRoute = GrokRouteImport.update({
+  id: '/grok',
+  path: '/grok',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const FollowRoute = FollowRouteImport.update({
   id: '/follow',
   path: '/follow',
@@ -132,6 +142,11 @@ const BookmarksRoute = BookmarksRouteImport.update({
 const AutomateRoute = AutomateRouteImport.update({
   id: '/automate',
   path: '/automate',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ArticlesRoute = ArticlesRouteImport.update({
+  id: '/articles',
+  path: '/articles',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AnalyzeRoute = AnalyzeRouteImport.update({
@@ -214,10 +229,28 @@ const ListsIdPeopleRoute = ListsIdPeopleRouteImport.update({
   path: '/lists/$id/people',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CommunitiesIdToolsRoute = CommunitiesIdToolsRouteImport.update({
+  id: '/communities/$id_/tools',
+  path: '/communities/$id/tools',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CommunitiesIdToolsSettingsRoute =
+  CommunitiesIdToolsSettingsRouteImport.update({
+    id: '/communities/$id_/tools_/settings',
+    path: '/communities/$id/tools/settings',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const CommunitiesIdModerationQueueRoute =
+  CommunitiesIdModerationQueueRouteImport.update({
+    id: '/communities/$id_/moderation/$queue',
+    path: '/communities/$id/moderation/$queue',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/analyze': typeof AnalyzeRoute
+  '/articles': typeof ArticlesRoute
   '/automate': typeof AutomateRoute
   '/bookmarks': typeof BookmarksRoute
   '/chat': typeof ChatRoute
@@ -225,6 +258,7 @@ export interface FileRoutesByFullPath {
   '/engage': typeof EngageRoute
   '/explore': typeof ExploreRoute
   '/follow': typeof FollowRoute
+  '/grok': typeof GrokRoute
   '/home': typeof HomeRoute
   '/leads': typeof LeadsRoute
   '/library': typeof LibraryRoute
@@ -245,15 +279,19 @@ export interface FileRoutesByFullPath {
   '/communities/': typeof CommunitiesIndexRoute
   '/lists/': typeof ListsIndexRoute
   '/nba/': typeof NbaIndexRoute
+  '/communities/$id/tools': typeof CommunitiesIdToolsRoute
   '/lists/$id/people': typeof ListsIdPeopleRoute
   '/nba/game/$id': typeof NbaGameIdRoute
   '/post/$id/activity': typeof PostIdActivityRoute
   '/post/$id/analytics': typeof PostIdAnalyticsRoute
   '/u/$handle/people': typeof UHandlePeopleRoute
+  '/communities/$id/moderation/$queue': typeof CommunitiesIdModerationQueueRoute
+  '/communities/$id/tools/settings': typeof CommunitiesIdToolsSettingsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/analyze': typeof AnalyzeRoute
+  '/articles': typeof ArticlesRoute
   '/automate': typeof AutomateRoute
   '/bookmarks': typeof BookmarksRoute
   '/chat': typeof ChatRoute
@@ -261,6 +299,7 @@ export interface FileRoutesByTo {
   '/engage': typeof EngageRoute
   '/explore': typeof ExploreRoute
   '/follow': typeof FollowRoute
+  '/grok': typeof GrokRoute
   '/home': typeof HomeRoute
   '/leads': typeof LeadsRoute
   '/library': typeof LibraryRoute
@@ -281,16 +320,20 @@ export interface FileRoutesByTo {
   '/communities': typeof CommunitiesIndexRoute
   '/lists': typeof ListsIndexRoute
   '/nba': typeof NbaIndexRoute
+  '/communities/$id/tools': typeof CommunitiesIdToolsRoute
   '/lists/$id/people': typeof ListsIdPeopleRoute
   '/nba/game/$id': typeof NbaGameIdRoute
   '/post/$id/activity': typeof PostIdActivityRoute
   '/post/$id/analytics': typeof PostIdAnalyticsRoute
   '/u/$handle/people': typeof UHandlePeopleRoute
+  '/communities/$id/moderation/$queue': typeof CommunitiesIdModerationQueueRoute
+  '/communities/$id/tools/settings': typeof CommunitiesIdToolsSettingsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/analyze': typeof AnalyzeRoute
+  '/articles': typeof ArticlesRoute
   '/automate': typeof AutomateRoute
   '/bookmarks': typeof BookmarksRoute
   '/chat': typeof ChatRoute
@@ -298,6 +341,7 @@ export interface FileRoutesById {
   '/engage': typeof EngageRoute
   '/explore': typeof ExploreRoute
   '/follow': typeof FollowRoute
+  '/grok': typeof GrokRoute
   '/home': typeof HomeRoute
   '/leads': typeof LeadsRoute
   '/library': typeof LibraryRoute
@@ -318,17 +362,21 @@ export interface FileRoutesById {
   '/communities/': typeof CommunitiesIndexRoute
   '/lists/': typeof ListsIndexRoute
   '/nba/': typeof NbaIndexRoute
+  '/communities/$id_/tools': typeof CommunitiesIdToolsRoute
   '/lists/$id_/people': typeof ListsIdPeopleRoute
   '/nba/game/$id': typeof NbaGameIdRoute
   '/post/$id_/activity': typeof PostIdActivityRoute
   '/post/$id_/analytics': typeof PostIdAnalyticsRoute
   '/u/$handle_/people': typeof UHandlePeopleRoute
+  '/communities/$id_/moderation/$queue': typeof CommunitiesIdModerationQueueRoute
+  '/communities/$id_/tools_/settings': typeof CommunitiesIdToolsSettingsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/analyze'
+    | '/articles'
     | '/automate'
     | '/bookmarks'
     | '/chat'
@@ -336,6 +384,7 @@ export interface FileRouteTypes {
     | '/engage'
     | '/explore'
     | '/follow'
+    | '/grok'
     | '/home'
     | '/leads'
     | '/library'
@@ -356,15 +405,19 @@ export interface FileRouteTypes {
     | '/communities/'
     | '/lists/'
     | '/nba/'
+    | '/communities/$id/tools'
     | '/lists/$id/people'
     | '/nba/game/$id'
     | '/post/$id/activity'
     | '/post/$id/analytics'
     | '/u/$handle/people'
+    | '/communities/$id/moderation/$queue'
+    | '/communities/$id/tools/settings'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/analyze'
+    | '/articles'
     | '/automate'
     | '/bookmarks'
     | '/chat'
@@ -372,6 +425,7 @@ export interface FileRouteTypes {
     | '/engage'
     | '/explore'
     | '/follow'
+    | '/grok'
     | '/home'
     | '/leads'
     | '/library'
@@ -392,15 +446,19 @@ export interface FileRouteTypes {
     | '/communities'
     | '/lists'
     | '/nba'
+    | '/communities/$id/tools'
     | '/lists/$id/people'
     | '/nba/game/$id'
     | '/post/$id/activity'
     | '/post/$id/analytics'
     | '/u/$handle/people'
+    | '/communities/$id/moderation/$queue'
+    | '/communities/$id/tools/settings'
   id:
     | '__root__'
     | '/'
     | '/analyze'
+    | '/articles'
     | '/automate'
     | '/bookmarks'
     | '/chat'
@@ -408,6 +466,7 @@ export interface FileRouteTypes {
     | '/engage'
     | '/explore'
     | '/follow'
+    | '/grok'
     | '/home'
     | '/leads'
     | '/library'
@@ -428,16 +487,20 @@ export interface FileRouteTypes {
     | '/communities/'
     | '/lists/'
     | '/nba/'
+    | '/communities/$id_/tools'
     | '/lists/$id_/people'
     | '/nba/game/$id'
     | '/post/$id_/activity'
     | '/post/$id_/analytics'
     | '/u/$handle_/people'
+    | '/communities/$id_/moderation/$queue'
+    | '/communities/$id_/tools_/settings'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AnalyzeRoute: typeof AnalyzeRoute
+  ArticlesRoute: typeof ArticlesRoute
   AutomateRoute: typeof AutomateRoute
   BookmarksRoute: typeof BookmarksRoute
   ChatRoute: typeof ChatRoute
@@ -445,6 +508,7 @@ export interface RootRouteChildren {
   EngageRoute: typeof EngageRoute
   ExploreRoute: typeof ExploreRoute
   FollowRoute: typeof FollowRoute
+  GrokRoute: typeof GrokRoute
   HomeRoute: typeof HomeRoute
   LeadsRoute: typeof LeadsRoute
   LibraryRoute: typeof LibraryRoute
@@ -465,11 +529,14 @@ export interface RootRouteChildren {
   CommunitiesIndexRoute: typeof CommunitiesIndexRoute
   ListsIndexRoute: typeof ListsIndexRoute
   NbaIndexRoute: typeof NbaIndexRoute
+  CommunitiesIdToolsRoute: typeof CommunitiesIdToolsRoute
   ListsIdPeopleRoute: typeof ListsIdPeopleRoute
   NbaGameIdRoute: typeof NbaGameIdRoute
   PostIdActivityRoute: typeof PostIdActivityRoute
   PostIdAnalyticsRoute: typeof PostIdAnalyticsRoute
   UHandlePeopleRoute: typeof UHandlePeopleRoute
+  CommunitiesIdModerationQueueRoute: typeof CommunitiesIdModerationQueueRoute
+  CommunitiesIdToolsSettingsRoute: typeof CommunitiesIdToolsSettingsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -551,6 +618,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof HomeRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/grok': {
+      id: '/grok'
+      path: '/grok'
+      fullPath: '/grok'
+      preLoaderRoute: typeof GrokRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/follow': {
       id: '/follow'
       path: '/follow'
@@ -598,6 +672,13 @@ declare module '@tanstack/react-router' {
       path: '/automate'
       fullPath: '/automate'
       preLoaderRoute: typeof AutomateRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/articles': {
+      id: '/articles'
+      path: '/articles'
+      fullPath: '/articles'
+      preLoaderRoute: typeof ArticlesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/analyze': {
@@ -712,12 +793,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ListsIdPeopleRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/communities/$id_/tools': {
+      id: '/communities/$id_/tools'
+      path: '/communities/$id/tools'
+      fullPath: '/communities/$id/tools'
+      preLoaderRoute: typeof CommunitiesIdToolsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/communities/$id_/tools_/settings': {
+      id: '/communities/$id_/tools_/settings'
+      path: '/communities/$id/tools/settings'
+      fullPath: '/communities/$id/tools/settings'
+      preLoaderRoute: typeof CommunitiesIdToolsSettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/communities/$id_/moderation/$queue': {
+      id: '/communities/$id_/moderation/$queue'
+      path: '/communities/$id/moderation/$queue'
+      fullPath: '/communities/$id/moderation/$queue'
+      preLoaderRoute: typeof CommunitiesIdModerationQueueRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AnalyzeRoute: AnalyzeRoute,
+  ArticlesRoute: ArticlesRoute,
   AutomateRoute: AutomateRoute,
   BookmarksRoute: BookmarksRoute,
   ChatRoute: ChatRoute,
@@ -725,6 +828,7 @@ const rootRouteChildren: RootRouteChildren = {
   EngageRoute: EngageRoute,
   ExploreRoute: ExploreRoute,
   FollowRoute: FollowRoute,
+  GrokRoute: GrokRoute,
   HomeRoute: HomeRoute,
   LeadsRoute: LeadsRoute,
   LibraryRoute: LibraryRoute,
@@ -745,11 +849,14 @@ const rootRouteChildren: RootRouteChildren = {
   CommunitiesIndexRoute: CommunitiesIndexRoute,
   ListsIndexRoute: ListsIndexRoute,
   NbaIndexRoute: NbaIndexRoute,
+  CommunitiesIdToolsRoute: CommunitiesIdToolsRoute,
   ListsIdPeopleRoute: ListsIdPeopleRoute,
   NbaGameIdRoute: NbaGameIdRoute,
   PostIdActivityRoute: PostIdActivityRoute,
   PostIdAnalyticsRoute: PostIdAnalyticsRoute,
   UHandlePeopleRoute: UHandlePeopleRoute,
+  CommunitiesIdModerationQueueRoute: CommunitiesIdModerationQueueRoute,
+  CommunitiesIdToolsSettingsRoute: CommunitiesIdToolsSettingsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
