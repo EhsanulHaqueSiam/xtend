@@ -5,6 +5,7 @@ import {
   emptyLegacy,
   type GrokLegacyState,
   markdownBlocks,
+  openChat,
   turnsOf,
 } from "./grokLegacy";
 
@@ -93,20 +94,72 @@ it("gives each question to the stream X's ask names its chat in, whichever start
     asked: new Map([
       ["c1", "A"],
       ["c2", "B"],
-      ["", "C"],
     ]),
   };
   s = applyCapture(s, { kind: "start", stream: "1", conversation: "c1" });
   s = applyCapture(s, { kind: "start", stream: "2", conversation: "c2" });
-  s = applyCapture(s, { kind: "start", stream: "3", conversation: "c-new" });
   // X's first lines name the user's item, not the conversation.
-  for (const stream of ["2", "3", "1"])
+  for (const stream of ["2", "1"])
     s = applyCapture(s, line({ userChatItemId: `u${stream}`, agentChatItemId: "a" }, stream));
-  expect([turnsOf(s, "c1"), turnsOf(s, "c2"), turnsOf(s, "c-new")]).toMatchObject([
+  expect([turnsOf(s, "c1"), turnsOf(s, "c2")]).toMatchObject([
     [{ id: "u1", user: "A" }],
     [{ id: "u2", user: "B" }],
-    [{ id: "u3", user: "C" }],
   ]);
+});
+
+it("gives a new chat's question only to the answer X started a new chat for, not an old chat resumed", () => {
+  let s: GrokLegacyState = { ...emptyLegacy, asked: new Map([["", "New"]]) };
+  // An old chat Xtend never cached, resumed.
+  s = applyCapture(s, { kind: "start", stream: "1", conversation: "c-old" });
+  s = applyCapture(s, line({ userChatItemId: "u1" }, "1"));
+  // X creates the new chat's conversation, then asks in it.
+  s = applyCapture(s, {
+    kind: "graphql",
+    op: "CreateGrokConversation",
+    variables: {},
+    body: { data: { create_grok_conversation: { conversation_id: "c-new" } } },
+  });
+  s = applyCapture(s, { kind: "start", stream: "2", conversation: "c-new" });
+  s = applyCapture(s, line({ userChatItemId: "u2" }, "2"));
+  // An ask that names no chat starts one too.
+  s = { ...s, asked: new Map([["", "Newer"]]) };
+  s = applyCapture(s, { kind: "start", stream: "3", conversation: null });
+  s = applyCapture(s, line({ conversationId: "c3", userChatItemId: "u3" }, "3"));
+  expect([turnsOf(s, "c-old"), turnsOf(s, "c-new"), turnsOf(s, "c3")]).toMatchObject([
+    [{ id: "u1", user: null }],
+    [{ id: "u2", user: "New" }],
+    [{ id: "u3", user: "Newer" }],
+  ]);
+});
+
+it("goes on from the part of an answer X's items hold when X resumes its stream", () => {
+  let s = applyCapture(
+    emptyLegacy,
+    items("c1", [
+      { chat_item_id: "a1", sender_type: "Agent", message: "Existing prefix ", is_partial: true },
+      { chat_item_id: "u1", sender_type: "User", message: "Q" },
+    ]),
+  );
+  s = applyCapture(s, { kind: "start", stream: "1", conversation: "c1" });
+  s = applyCapture(s, line({ userChatItemId: "u1", agentChatItemId: "a1" }));
+  s = applyCapture(s, line({ result: { message: "new suffix" } }));
+  expect(turnsOf(s, "c1")).toEqual([
+    { id: "u1", user: "Q", answer: "Existing prefix new suffix", thinking: null, live: true },
+  ]);
+});
+
+it("keeps the chat on screen however many others X loads, and opening one makes it the latest", () => {
+  let s = emptyLegacy;
+  for (let i = 1; i <= 20; i++)
+    s = applyCapture(
+      s,
+      items(`c${i}`, [{ chat_item_id: "u", sender_type: "User", message: `q${i}` }]),
+    );
+  s = openChat(s, "c1");
+  expect([...s.conversations.keys()].at(-1)).toBe("c1");
+  for (let i = 21; i <= 45; i++) s = applyCapture(s, items(`c${i}`, []));
+  expect(turnsOf(s, "c1")).toMatchObject([{ user: "q1" }]);
+  expect(s.conversations.size).toBe(20);
 });
 
 it("keeps the last 20 conversations and the one X streams in, and a streamed word copies none of them", () => {

@@ -1,9 +1,15 @@
 import { useAtom, useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import type { GrokRead } from "../../state/grok";
-import { grokLegacyAtom, markdownBlocks, turnsOf, xGrokLegacySend } from "../../state/grokLegacy";
+import {
+  grokLegacyAtom,
+  markdownBlocks,
+  openChat,
+  turnsOf,
+  xGrokLegacySend,
+} from "../../state/grokLegacy";
 import { xGo, xUrlAtom } from "../../state/x";
 import { GrokConversation, useGrokPress } from "./Grok";
 
@@ -23,6 +29,8 @@ export function GrokLegacy() {
   try {
     chat = new URL(url).searchParams.get("conversation");
   } catch {}
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- marks the chat X's page shows as the one on screen, so the store keeps it.
+  useEffect(() => setLegacy((s) => openChat(s, chat)), [chat, setLegacy]);
   const turns = chat === null ? [] : turnsOf(legacy, chat);
   const live = turns.some((t) => t.live);
   // The same conversation Xtend draws for X's newer client, from X's markdown.

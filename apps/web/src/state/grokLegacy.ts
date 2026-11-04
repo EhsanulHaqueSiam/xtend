@@ -41,6 +41,10 @@ export interface GrokLegacyState {
   readonly streams: ReadonlyMap<string, LegacyStream>;
   /** What the user asked through Xtend's box, by the chat it was asked in ("" for a new chat). */
   readonly asked: ReadonlyMap<string, string>;
+  /** The conversation X last created for a new chat, until a stream answers in it. */
+  readonly created: string | null;
+  /** The chat on screen: never evicted. */
+  readonly open: string | null;
 }
 export const emptyLegacy: GrokLegacyState = {
   history: null,
@@ -48,6 +52,8 @@ export const emptyLegacy: GrokLegacyState = {
   conversations: new Map(),
   streams: new Map(),
   asked: new Map(),
+  created: null,
+  open: null,
 };
 const KEEP = 20;
 export const grokLegacyAtom = Atom.make(emptyLegacy).pipe(Atom.keepAlive);
@@ -98,6 +104,8 @@ export const applyCapture = (state: GrokLegacyState, capture: GrokCapture): Grok
         history: state.history?.map((r) => ({ ...r, pinned: pinned.includes(r.id) })) ?? null,
       };
     }
+    if (capture.op === "CreateGrokConversation")
+      return { ...state, created: str(record(data.create_grok_conversation).conversation_id) };
     const id = str(record(capture.variables).restId);
     if (capture.op !== "GrokConversationItemsByRestId" || id === null) return state;
     // X lists a conversation's items newest first.
@@ -165,26 +173,31 @@ export const applyCapture = (state: GrokLegacyState, capture: GrokCapture): Grok
   const conversation = stream?.conversation ?? str(line.conversationId);
   if (conversation === null) return state;
   let asked = state.asked;
+  let created = state.created;
   let turn = stream?.turn ?? null;
   if (turn === null) {
-    // X's first line names the user's item; its question is the one asked in this chat, or in a
-    // new chat when X's conversation is one Xtend has not seen.
-    const key = asked.has(conversation)
-      ? conversation
-      : asked.has("") && !state.conversations.has(conversation)
-        ? ""
-        : null;
+    // X's first line names the user's item; its question is the one asked in this chat, or the
+    // new chat's when X's ask named no chat or the one X just created for it.
+    const fresh = stream?.conversation === null || conversation === created;
+    if (conversation === created) created = null;
+    const key = asked.has(conversation) ? conversation : fresh && asked.has("") ? "" : null;
     if (key !== null) {
       const rest = new Map(asked);
       rest.delete(key);
       asked = rest;
     }
-    const id = str(line.userChatItemId) ?? `live-${capture.stream}`;
+    const user = str(line.userChatItemId);
+    const agent = str(line.agentChatItemId);
+    // A resumed answer goes on from what X's items already hold of it.
+    const cached = state.conversations
+      .get(conversation)
+      ?.find((t) => t.id === user || t.id === agent);
     turn = {
-      id,
-      user: key === null ? null : state.asked.get(key)!,
+      id: user ?? `live-${capture.stream}`,
       answer: null,
       thinking: null,
+      ...cached,
+      user: cached?.user ?? (key === null ? null : state.asked.get(key)!),
       live: true,
     };
   }
@@ -198,28 +211,39 @@ export const applyCapture = (state: GrokLegacyState, capture: GrokCapture): Grok
   return {
     ...state,
     asked,
+    created,
     streams: new Map(state.streams).set(capture.stream, { conversation, turn }),
   };
 };
 
 /**
  * `conversations` with `id` set to `turns` as the latest touched, less the oldest beyond `KEEP`
- * that no stream in flight answers in.
+ * that neither is on screen nor has a stream in flight.
  */
 const remember = (
-  state: Pick<GrokLegacyState, "conversations" | "streams">,
+  state: Pick<GrokLegacyState, "conversations" | "streams" | "open">,
   id: string,
   turns: ReadonlyArray<LegacyTurn>,
 ) => {
   const next = new Map(state.conversations);
   next.delete(id);
   next.set(id, turns);
-  const live = new Set([...state.streams.values()].map((s) => s.conversation));
+  const live = new Set([state.open, ...[...state.streams.values()].map((s) => s.conversation)]);
   for (const key of next.keys()) {
     if (next.size <= KEEP) break;
     if (!live.has(key)) next.delete(key);
   }
   return next;
+};
+
+/** The window's copy with `chat` on screen, as its latest touched conversation. */
+export const openChat = (state: GrokLegacyState, chat: string | null): GrokLegacyState => {
+  if (state.open === chat) return state;
+  const turns = chat === null ? undefined : state.conversations.get(chat);
+  const open = { ...state, open: chat };
+  return chat === null || turns === undefined
+    ? open
+    : { ...open, conversations: remember(open, chat, turns) };
 };
 
 /** Conversation `chat`'s turns as X's items list them, with the answers X is streaming in it. */
