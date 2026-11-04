@@ -35,6 +35,19 @@ export const DesktopCommand = Schema.Union([
   Schema.Struct({ type: Schema.Literal("sessionLike"), postId: XId }),
   /** Sends a DM through X's own message composer in the session view; same setting as sessionPost. */
   Schema.Struct({ type: Schema.Literal("sessionDm"), userId: XId, text: Schema.String }),
+  /**
+   * Publishes an Article through X's own editor (same setting as sessionPost): X's create, the
+   * title typed, the cover through X's own upload, the body as one paste (`toPasteHtml`), then X's
+   * Publish and its dialog's, with who can reply and the caption set there.
+   */
+  Schema.Struct({
+    type: Schema.Literal("sessionArticle"),
+    title: Schema.String,
+    html: Schema.String,
+    coverPath: Schema.optional(Schema.String),
+    replySettings: Schema.optional(ReplySettings),
+    caption: Schema.optional(Schema.String),
+  }),
 ]);
 export type DesktopCommand = typeof DesktopCommand.Type;
 
@@ -49,6 +62,8 @@ export const DESKTOP_COMMAND_LIMIT_MS = {
   sessionPost: 180_000,
   sessionLike: 30_000,
   sessionDm: 45_000,
+  // X saves an Article's content a few seconds after the last change, and the cover uploads first.
+  sessionArticle: 180_000,
 } satisfies Record<DesktopCommand["type"], number>;
 
 export const DesktopCommandResult = Schema.Union([
@@ -57,6 +72,7 @@ export const DesktopCommandResult = Schema.Union([
   Schema.Struct({ type: Schema.Literal("sessionNavigate") }),
   Schema.Struct({ type: Schema.Literal("sessionLike") }),
   Schema.Struct({ type: Schema.Literal("sessionDm") }),
+  Schema.Struct({ type: Schema.Literal("sessionArticle"), postId: XId }),
 ]);
 export type DesktopCommandResult = typeof DesktopCommandResult.Type;
 
@@ -395,6 +411,31 @@ export interface EngineCommunityAdmin {
   readonly deletable?: boolean;
 }
 
+/** A request to join a Community, as X's Member requests lists it; its person is in `users`. */
+export interface EngineJoinRequest {
+  readonly userId: string;
+  /** Their answer to the Community's approval question. */
+  readonly answer: string | null;
+  readonly at: string | null;
+  /** "Pending", or what a moderator decided: "Approved", "Denied". */
+  readonly state: string;
+  /** X's warnings on the row: the viewer blocked or muted them. */
+  readonly blocking: boolean;
+  readonly muting: boolean;
+}
+
+/** A reported post waiting on a Community's moderators (X's Reported posts); the post is in `posts`. */
+export interface EngineReportCase {
+  readonly postId: string;
+  readonly reports: number;
+  /** When the latest report came. */
+  readonly at: string | null;
+  /** X itself reported it (Auto Report by X). */
+  readonly byX: boolean;
+  /** The rule each report named, in X's order. */
+  readonly rules: ReadonlyArray<string>;
+}
+
 /**
  * A tab the user pinned to X's Home after For you and Following: a topic, a Community or a List.
  * `id` is the surface its posts land in (`tag:<id>`, `community:<id>`, `list:<id>`); `label` is
@@ -667,6 +708,44 @@ export interface EngineBatch {
    * Premium upsell for an unverified account, or none at all.
    */
   readonly communityCreate?: "create" | "verify" | null;
+  /**
+   * A Community's requests to join: X's Member requests list (`page` true; a first page replaces
+   * the last), or the one request a moderator's Approve or Deny just decided.
+   */
+  readonly joinRequests?: {
+    readonly communityId: string;
+    readonly page: boolean;
+    readonly requests: ReadonlyArray<EngineJoinRequest>;
+    /** X's cursor for its next page of the list; null at its end, or for a decision. */
+    readonly next: string | null;
+  };
+  /** A page of a Community's Reported posts (CommunityModerationTweetCasesSlice), in X's order. */
+  readonly reportCases?: {
+    readonly communityId: string;
+    readonly cases: ReadonlyArray<EngineReportCase>;
+    /** X's cursor for its next page; null at its end. */
+    readonly next: string | null;
+  };
+  /**
+   * The user's own Articles on x.com (bundle.TwitterArticles): a list X's Articles page asked for
+   * (ArticleEntitiesSlice, keyed `articles:Draft` or `articles:Published`), or the one Article its
+   * preview loaded (ArticleEntityResultByRestId, with its body).
+   */
+  readonly xArticles?: ReadonlyArray<EngineXArticle>;
+}
+
+/** One of the user's Articles as X's own Articles page lists it; `blocks` only once X sent its body. */
+export interface EngineXArticle {
+  /** X's id for the Article (its editor's `/compose/articles/edit/<id>`), not the post's. */
+  readonly id: string;
+  readonly title: string;
+  readonly preview: string;
+  readonly lifecycle: "Draft" | "Published";
+  readonly modifiedAt: string | null;
+  /** The post X made when it was published. */
+  readonly postId: string | null;
+  readonly coverUrl: string | null;
+  readonly blocks: ReadonlyArray<EngineArticleBlock> | null;
 }
 
 /** Counts by X's metric name (`Impressions`, `Likes`, `Retweets`, `Bookmark`, `Share`...). */

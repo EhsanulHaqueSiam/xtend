@@ -41,7 +41,7 @@ export const layerHandlers = ComposeRpcGroup.toLayer(
       [Compose_METHODS.draftCreate]: (patch) => drafts.create(patch),
       [Compose_METHODS.draftUpdate]: ({ id, patch }) => media.update(id, patch),
       [Compose_METHODS.draftDelete]: ({ id }) => media.removeDraft(id),
-      [Compose_METHODS.postNow]: ({ id, sessionOnly, gif, community }) =>
+      [Compose_METHODS.postNow]: ({ id, sessionOnly, gif, community, caption }) =>
         publisher.post(id, {
           purpose: "compose.postNow",
           retry: false,
@@ -49,12 +49,14 @@ export const layerHandlers = ComposeRpcGroup.toLayer(
           sessionOnly: sessionOnly === true,
           ...(gif === undefined ? {} : { gif }),
           ...(community === undefined ? {} : { community }),
+          ...(caption === undefined ? {} : { caption }),
         }),
       [Compose_METHODS.assistHook]: ({ blocks, tone }) => assist.improveHook(blocks, tone),
       [Compose_METHODS.assistRewrite]: ({ text, tone }) => assist.rewrite(text, tone),
       [Compose_METHODS.assistThreadIdeas]: ({ topic, tone }) => assist.threadIdeas(topic, tone),
       [Compose_METHODS.assistContinue]: ({ blocks, tone }) => assist.continueThread(blocks, tone),
       [Compose_METHODS.assistVoiceMatch]: ({ blocks }) => assist.voiceMatch(blocks),
+      [Compose_METHODS.assistArticle]: (input) => assist.article(input),
       [Compose_METHODS.mediaAdd]: ({ draftId, blockIndex, kind, name, base64, alt }) =>
         media.add({
           draftId,

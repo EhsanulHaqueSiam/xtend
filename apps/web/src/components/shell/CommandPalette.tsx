@@ -59,6 +59,7 @@ const X_PAGES: ReadonlyArray<{
   { label: "Explore", path: "/explore" },
   { label: "Follow", path: "/i/connect_people" },
   { label: "Communities", path: "/i/communities", native: "/communities" },
+  { label: "Articles", path: "/compose/articles", native: "/articles" },
 ];
 
 /**
@@ -170,6 +171,13 @@ function PaletteBody({
         label: "New draft",
         icon: SquarePen,
         run: to("/compose?new=true"),
+      },
+      {
+        id: "new-article",
+        group: "Actions" as const,
+        label: "Write an article",
+        icon: SquarePen,
+        run: to("/articles?new=1"),
       },
       ...(isElectron
         ? [

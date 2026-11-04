@@ -32,6 +32,19 @@ Create Folder, Edit Folder and Delete Folder open X's own dialogs, and a post's 
 Bookmark to Folder (and, inside a folder, Remove from Folder). Without Premium the title shows
 X's offer, and Upgrade opens X's own page.
 
+**Articles** (X Premium) is X's long-form editor, drawn by Xtend: X's toolbar, the 5:2 cover,
+the title and the body, with X's limits checked beside it, assist, and your other article
+drafts. **Publish** offers three ways out, each with its price: **Publish now** fills X's own
+editor once and presses X's Publish for your click, free, with who can reply and a caption set in
+X's dialog; **Queue** and **Schedule** publish later through the X API ($0.01: a draft and a
+publish request). The X API cannot carry a cover or a reply setting yet, and X's editor takes
+code, LaTeX, dividers and embedded posts only from its own Insert menu, so each way out says what
+it cannot carry before you press it; when X's editor cannot take the article, Publish offers the X
+API instead, at its price. Articles you started on x.com are listed and open read-only;
+**Copy to Xtend** makes a draft of one, and says first what it leaves out (the cover, images,
+embedded posts, dividers, LaTeX). Without Premium, Articles shows X's offer, and **Upgrade to
+unlock** opens X's own page. Writing works in a browser too; Publish now needs the desktop app.
+
 An NBA team's profile shows its schedule as X does. A game opens with the day's scores, the
 score, clock and last play, and X's Top and Latest posts; Highlights, Stats, Plays and Chat open
 X's own game page in the panel. **NBA** on a game opens the league page: the day's games, the
@@ -94,6 +107,9 @@ X's own button; one that asks first opens X's own rules dialog, where you agree 
 presses X's Pin too; the Community shows as a tab on Home once X's Home loads again (⌘R there).
 In a Community you moderate, the gear opens X's Admin tools, with what waits on you; General
 settings lists each setting, and editing one opens X's own page for it, as do X's other tools.
+Member requests and Reported posts show who asks or what was reported, with your score, followers,
+account age and Leads stage beside each person; Review all puts both in one list. Approve, Deny
+and Keep press X's own buttons; Hide and Ban open X's own rule picker.
 Communities' + opens X's Create a new Community, or X's Premium upsell where X asks for one.
 Follow is X's Who to follow and
 Creators for you; a creator's Subscribe opens X's own subscribe dialog, where X shows the price. Notifications shows X's unread count. The tools follow: Compose, Plan,

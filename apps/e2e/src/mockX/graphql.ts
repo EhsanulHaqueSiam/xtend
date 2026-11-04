@@ -1250,6 +1250,101 @@ export function encodeBody(
         },
       };
     }
+    // X's Member requests (Relay, aliased `communityResults`): who asks, their answer and when.
+    case "MemberRequests_Query": {
+      const asked = batch.joinRequests;
+      return {
+        data: {
+          communityResults:
+            asked === undefined
+              ? {}
+              : {
+                  result: {
+                    __typename: "Community",
+                    join_requests_result: {
+                      __typename: "CommunityJoinRequests",
+                      pending_join_requests_slice: {
+                        items: asked.requests.flatMap((r) => {
+                          const u = users.get(r.userId);
+                          return u === undefined
+                            ? []
+                            : [
+                                {
+                                  id: `Sm9pblJlcXVlc3Q${r.userId}`,
+                                  answer: r.answer ?? "",
+                                  created_at: Date.parse(r.at ?? ""),
+                                  state: r.state,
+                                  user_relationship: {
+                                    user_results: {
+                                      result: {
+                                        ...encodeUser(u),
+                                        relationship_perspectives: {
+                                          following: u.youFollow,
+                                          followed_by: u.followsYou,
+                                          blocking: r.blocking,
+                                          muting: r.muting,
+                                        },
+                                      },
+                                    },
+                                  },
+                                },
+                              ];
+                        }),
+                        slice_info: asked.next === null ? {} : { next_cursor: asked.next },
+                      },
+                    },
+                  },
+                },
+        },
+      };
+    }
+    // X's Reported posts: each case's post, its count and the rule each report named.
+    case "CommunityModerationTweetCasesSlice": {
+      const cases = batch.reportCases?.cases ?? [];
+      const reporters = batch.users;
+      return {
+        data: {
+          communityResults: {
+            result: {
+              __typename: "Community",
+              moderation: {
+                tweet_cases_slice: {
+                  items: cases.flatMap((c) => {
+                    const p = batch.posts.find((q) => q.postId === c.postId);
+                    return p === undefined
+                      ? []
+                      : [
+                          {
+                            tweet_id_str: c.postId,
+                            report_count: c.reports,
+                            report_created_at_max: Date.parse(c.at ?? ""),
+                            reports_slice: {
+                              items: c.rules.map((rule, i) => ({
+                                created_at: Date.parse(c.at ?? ""),
+                                rule: { rest_id: String(i + 1), name: rule },
+                                reporter_relationship: {
+                                  user_results: {
+                                    result:
+                                      c.byX && i === c.rules.length - 1
+                                        ? { __typename: "User", rest_id: "783214" }
+                                        : encodeUser(reporters[i % reporters.length]!),
+                                  },
+                                },
+                              })),
+                            },
+                            tweet_results: { result: encodeTweet(p, users) },
+                          },
+                        ];
+                  }),
+                  slice_info:
+                    batch.reportCases?.next == null ? {} : { next_cursor: batch.reportCases.next },
+                },
+              },
+            },
+          },
+        },
+      };
+    }
     // X's create button: its form, or for an unverified account X's upsell; synthetic: the
     // available result's type name, which X's code never reads.
     case "CommunitiesCreateButtonQuery":

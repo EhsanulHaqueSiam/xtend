@@ -150,3 +150,36 @@ export const X_REPLY_ROWS = {
   },
   verified: { row: "Verified accounts", label: "Only Verified accounts can reply" },
 } as const;
+
+/**
+ * X's Article editor (bundle.TwitterArticles), as its code names its parts. X's Publish buttons
+ * carry no test id, only X's word, so they are found by it (English accounts).
+ */
+export const X_ARTICLE = {
+  /** X's Articles page; an account without X's article composer gets X's "Page not found". */
+  home: "https://x.com/compose/articles",
+  /** X's pen in the page's header: it creates an empty draft and opens its editor. */
+  create: '[aria-label="create"]',
+  editRoute: /^\/compose\/articles\/edit\/(\d+)$/,
+  /** The editor's only plain text field: X's title (its name and hint follow the account's language). */
+  title: "main textarea",
+  body: '[data-testid="composer"] [contenteditable="true"]',
+  /** X's cover picker, the one file input X draws until Insert's Media opens another. */
+  coverInput: 'main input[type="file"]',
+  /** X's crop step after a cover is picked (a dialog, or the whole route when compact); its Apply uploads it. */
+  coverApply: '[data-testid="applyButton"]',
+  /** X's cover once it is saved on the Article: X's own image host. */
+  coverSaved: 'main img[src^="https://pbs.twimg.com/"]',
+  publishWord: "Publish",
+  replyControl: 'select[data-testid="convoControl"]',
+  caption: 'textarea[name="articleTweetText"]',
+  /** Where X goes once it published: the Article's post. */
+  publishedRoute: /^\/[^/]+\/status\/(\d+)/,
+} as const;
+
+/** X's values in its Publish dialog's "Who can reply?" for each setting (X's `conversationControl`). */
+export const X_ARTICLE_REPLIES = {
+  following: "Community",
+  verified: "Verified",
+  mentionedUsers: "ByInvitation",
+} as const;
