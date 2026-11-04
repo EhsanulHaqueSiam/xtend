@@ -105,3 +105,44 @@ test("Start a Space opens X's own Create your Space over the main area, and End 
   await dock().getByText("ENDED").waitFor();
   await expect.poll(enginePath).toBe("/home");
 });
+
+test("In X's compact layout (a narrow engine) X's Space pages are routes and End's confirm a sheet with no dialog role, and each still works", async () => {
+  e.mock.state.spaces.setCompact(true);
+  try {
+    const post = e.mock.state.fixtures().spaces!.batches[0]!.posts[0]!;
+    const page = `/${post.author.handle}/status/${post.postId}`;
+    await go(`/post/${post.postId}?h=${post.author.handle}`);
+    await expect.poll(enginePath).toBe(page);
+    await e.app.locator('main [data-x="space-card"]').click();
+    await dock().getByRole("button", { name: "Start listening" }).click();
+    await dock().getByRole("button", { name: "Leave" }).waitFor();
+    await expect.poll(enginePath).toBe(page);
+    await dock().getByRole("button", { name: "Leave" }).click();
+    await expect.poll(() => e.mock.state.spaces.dock).toBeNull();
+
+    await palette("Start a Space");
+    await expect.poll(enginePath).toBe("/i/spaces/start");
+    await expect.poll(pane).toBe("main");
+    await e.engine(
+      `(() => { document.querySelector('[data-space-start] input[name="title"]').value = "Compact hours"; document.querySelector("[data-space-start-now]").click(); return true; })()`,
+    );
+    await expect.poll(pane).toBe("hidden");
+    await dock().getByText("Compact hours").waitFor();
+    await dock().getByRole("button", { name: "End", exact: true }).click();
+    // X's sheet has no dialog role here; it shows over the main area all the same.
+    await expect.poll(pane).toBe("main");
+    const confirm = `document.querySelector('#layers [data-testid="confirmationSheetConfirm"]')`;
+    await expect
+      .poll(() =>
+        e.engine(
+          `!!${confirm} && !${confirm}.closest('[role]:not([role="button"]):not([role="none"])')`,
+        ),
+      )
+      .toBe(true);
+    await e.engine(`${confirm}.click(), true`);
+    await expect.poll(pane).toBe("hidden");
+    await expect.poll(presses).toContain(`write space:end ${STARTED_SPACE}`);
+  } finally {
+    e.mock.state.spaces.setCompact(false);
+  }
+});
