@@ -237,12 +237,34 @@ export function readInline(source: string): InlineText {
       }
       return;
     }
-    const piece = t.kind === "char" ? t.ch : t.kind === "mark" ? t.mark : t.label;
-    if (t.kind === "link") links.push({ offset: length, length: [...piece].length, url: t.url });
+    if (t.kind === "link") {
+      // A link's label carries its own styles: `[**Read this**](…)`.
+      const label = readInline(t.label);
+      const n = [...label.text].length;
+      links.push({ offset: length, length: n, url: t.url });
+      styles.push(...label.styles.map((x) => ({ ...x, offset: x.offset + length })));
+      text += label.text;
+      length += n;
+      return;
+    }
+    const piece = t.kind === "char" ? t.ch : t.mark;
     text += piece;
     length += [...piece].length;
   });
-  return { text, styles, links };
+  return { text, styles: merged(styles), links };
+}
+
+/** Ranges of one style that touch or overlap as one, in order: a link's edge splits none. */
+function merged(styles: ReadonlyArray<InlineText["styles"][number]>) {
+  const out: Array<InlineText["styles"][number]> = [];
+  for (const x of styles.toSorted((a, b) => a.offset - b.offset)) {
+    const last = out.findLast((o) => o.style === x.style);
+    if (last !== undefined && x.offset <= last.offset + last.length) {
+      const end = Math.max(last.offset + last.length, x.offset + x.length);
+      out[out.indexOf(last)] = { ...last, length: end - last.offset };
+    } else out.push(x);
+  }
+  return out;
 }
 
 /** The Markdown for text with X's styles and links; `readInline` reads it back. */
@@ -258,13 +280,15 @@ export function writeInline(inline: InlineText): string {
   let prev = at(-1);
   for (let n = 0; n <= chars.length; n++) {
     const cur = n < chars.length ? at(n) : { styles: new Set<InlineStyle>(), link: undefined };
-    // Close what ends here (inner first), then the link, then open what starts.
+    // Close what ends here (inner first), then the link, then open what starts. At a link's
+    // edge every style closes and opens again, so a label's marks pair inside its brackets.
+    const edge = prev.link !== cur.link;
     for (const [mark, style] of [...MARKS].toReversed())
-      if (prev.styles.has(style) && !cur.styles.has(style)) out += mark;
-    if (prev.link !== undefined && prev.link !== cur.link) out += `](${prev.link.url})`;
-    if (cur.link !== undefined && prev.link !== cur.link) out += "[";
+      if (prev.styles.has(style) && (edge || !cur.styles.has(style))) out += mark;
+    if (prev.link !== undefined && edge) out += `](${prev.link.url})`;
+    if (cur.link !== undefined && edge) out += "[";
     for (const [mark, style] of MARKS)
-      if (cur.styles.has(style) && !prev.styles.has(style)) out += mark;
+      if (cur.styles.has(style) && (edge || !prev.styles.has(style))) out += mark;
     if (n < chars.length) out += ESCAPABLE.test(chars[n]!) ? `\\${chars[n]}` : chars[n];
     prev = cur;
   }

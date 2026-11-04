@@ -64,6 +64,26 @@ describe("article body", () => {
     expect(readInline(writeInline(overlap))).toEqual(overlap);
   });
 
+  it("keeps a link's own styles, and a style across a link's edge, through Markdown and back", () => {
+    const bold = {
+      text: "Read this now",
+      styles: [{ offset: 0, length: 9, style: "Bold" as const }],
+      links: [{ offset: 0, length: 9, url: "https://e.com" }],
+    };
+    expect(writeInline(bold)).toBe("[**Read this**](https://e.com) now");
+    expect(readInline(writeInline(bold))).toEqual(bold);
+    const crossing = {
+      text: "a big link",
+      styles: [{ offset: 2, length: 5, style: "Italic" as const }],
+      links: [{ offset: 6, length: 4, url: "https://e.com" }],
+    };
+    expect(readInline(writeInline(crossing))).toEqual(crossing);
+    expect(toContentState("[**Read**](https://e.com)").blocks[0]).toMatchObject({
+      text: "Read",
+      inline_style_ranges: [{ offset: 0, length: 4, style: "bold" }],
+    });
+  });
+
   it("gives X's API its Draft.js content state, atomic blocks as entities", () => {
     const state = toContentState(
       "Hi **you** [me](https://e.com)\n\n---\n\n```py\nx\n```\n\nhttps://x.com/jon/status/123",
