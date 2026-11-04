@@ -497,13 +497,20 @@ it("keeps a Community's queues in X's order: a first page replaces, a next page 
   ) =>
     batch("MemberRequests_Query", [], {
       cursor,
-      joinRequests: { communityId: "20", page, requests: rows },
+      joinRequests: {
+        communityId: "20",
+        page,
+        requests: rows,
+        next: page && cursor === null ? "c1" : null,
+      },
     });
   let state = [
     requests(true, [request("31"), request("32")]),
     requests(true, [request("33")], "c1"),
   ].reduce(mergeBatch, emptyEngine);
   expect(state.joinRequests.get("20")?.map((r) => r.userId)).toEqual(["31", "32", "33"]);
+  // X's last page said there is no next one.
+  expect(state.queueMore.get("request:20")).toBe(false);
   // X's Approve answers with the one request: it keeps its place, decided.
   state = mergeBatch(state, requests(false, [request("32", "Approved")]));
   expect(state.joinRequests.get("20")?.map((r) => r.state)).toEqual([
@@ -515,8 +522,11 @@ it("keeps a Community's queues in X's order: a first page replaces, a next page 
   state = mergeBatch(state, requests(true, [request("33")]));
   expect(state.joinRequests.get("20")?.map((r) => r.userId)).toEqual(["33"]);
   // What X decided for a press, X drew in the row's place: it holds over the list's own state.
-  const held = decide(state, decisionKey({ communityId: "20", userId: "33" }), "Denied");
+  const held = decide(state, "20", "request", "33", "Denied");
   expect(requestState(held, "20", held.joinRequests.get("20")![0]!)).toBe("Denied");
+  // X's next fresh page still lists them as waiting: X's word wins, the row is pressable again.
+  const again = mergeBatch(held, requests(true, [request("33")]));
+  expect(requestState(again, "20", again.joinRequests.get("20")![0]!)).toBe("Pending");
 
   const cases = (ids: ReadonlyArray<string>, cursor: string | null = null) =>
     batch("CommunityModerationTweetCasesSlice", [], {
@@ -524,10 +534,43 @@ it("keeps a Community's queues in X's order: a first page replaces, a next page 
       reportCases: {
         communityId: "20",
         cases: ids.map((postId) => ({ postId, reports: 1, at: null, byX: false, rules: [] })),
+        next: null,
       },
     });
   const listed = [cases(["50", "51"]), cases(["51", "52"], "c1")].reduce(mergeBatch, emptyEngine);
   expect(listed.reportCases.get("20")?.map((c) => c.postId)).toEqual(["50", "51", "52"]);
+  // Kept, then reported again: X's fresh list has it waiting, so Xtend's "You kept" goes.
+  const kept = decide(listed, "20", "post", "50", "Kept");
+  expect(kept.decided.get(decisionKey("20", "post", "50"))).toBe("Kept");
+  expect(mergeBatch(kept, cases(["50"])).decided.has(decisionKey("20", "post", "50"))).toBe(false);
+  // A later page of X's list is no word on the first's: the decision stays.
+  expect(mergeBatch(kept, cases(["50"], "c2")).decided.has(decisionKey("20", "post", "50"))).toBe(
+    true,
+  );
+});
+
+it("takes a decision X drew off X's count of what waits, once per row", () => {
+  let state = mergeBatch(
+    emptyEngine,
+    batch("CommunityToolsScreenContainerQuery", [], {
+      communityAdmin: [{ communityId: "20", role: "Admin", reported: 2, requests: 3 }],
+    }),
+  );
+  state = decide(state, "20", "request", "33", "Denied");
+  state = decide(state, "20", "request", "33", "Denied");
+  state = decide(state, "20", "post", "50", "Kept");
+  expect(state.communityAdmin.get("20")).toMatchObject({ requests: 2, reported: 1 });
+  // A Community that takes no requests keeps saying so.
+  const open = mergeBatch(
+    emptyEngine,
+    batch("CommunityToolsScreenContainerQuery", [], {
+      communityAdmin: [{ communityId: "21", role: "Admin", reported: 0, requests: null }],
+    }),
+  );
+  expect(decide(open, "21", "post", "50", "Kept").communityAdmin.get("21")).toMatchObject({
+    requests: null,
+    reported: 0,
+  });
 });
 
 it("keeps what X took for a join, ask or leave until X's capture of the Community agrees", () => {

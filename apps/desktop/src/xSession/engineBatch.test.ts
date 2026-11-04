@@ -1079,6 +1079,7 @@ describe("renderEngineBatch around posts", () => {
                     },
                     { answer: "", created_at: 1762240000000, ...asker("32", { muting: true }) },
                   ],
+                  slice_info: { next_cursor: "DAACCgAB" },
                 },
               },
             },
@@ -1089,6 +1090,7 @@ describe("renderEngineBatch around posts", () => {
     expect(requests.joinRequests).toEqual({
       communityId: "20",
       page: true,
+      next: "DAACCgAB",
       requests: [
         {
           userId: "31",
@@ -1172,6 +1174,7 @@ describe("renderEngineBatch around posts", () => {
     );
     expect(cases.reportCases).toEqual({
       communityId: "20",
+      next: null,
       cases: [
         {
           postId: "50",

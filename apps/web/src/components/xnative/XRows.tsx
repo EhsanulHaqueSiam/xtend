@@ -29,7 +29,12 @@ const QUIET_MS = 12_000;
  * always, and earlier, once per list (`key`) and length while X works on it, when the reader scrolls
  * `scroller` down within MORE_AHEAD_PX of the end. At X's pace; leaving the list drops a pending ask.
  */
-export function useMore(scroller: HTMLElement | null, key: string, length: number) {
+export function useMore(
+  scroller: HTMLElement | null,
+  key: string,
+  length: number,
+  load: () => Promise<unknown> = xScrollMore,
+) {
   const id = `${key}\n${length}`;
   const asked = useRef("");
   const run = useRef(0);
@@ -56,7 +61,7 @@ export function useMore(scroller: HTMLElement | null, key: string, length: numbe
     last.current = Date.now();
     // An early ask made before X's page settled fetches nothing; once X's page is done with it,
     // the reader's next scroll may ask again, unless a later ask took over (and owns the guard).
-    void xScrollMore().finally(() => {
+    void load().finally(() => {
       if (run.current === mine) asked.current = "";
     });
   };
@@ -153,6 +158,7 @@ export function XRows<A>({
   empty,
   onReopen,
   paged = true,
+  more: load,
 }: {
   /** What the list shows (its surface): a new one starts a fresh wait for X. */
   readonly waitKey: string;
@@ -164,9 +170,11 @@ export function XRows<A>({
   readonly onReopen: () => void;
   /** X pages this list on scroll; false for lists X sends whole. */
   readonly paged?: boolean;
+  /** How X is asked for the next page, when not by scrolling the page the engine is on. */
+  readonly more?: () => Promise<unknown>;
 }) {
   const scroller = useXScrollParent();
-  const more = useMore(paged ? scroller : null, waitKey, items.length);
+  const more = useMore(paged ? scroller : null, waitKey, items.length, load);
   if (items.length === 0) return <XEmpty key={waitKey} empty={empty} onReopen={onReopen} />;
   if (scroller === null) return null;
   return (

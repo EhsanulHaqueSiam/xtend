@@ -606,11 +606,11 @@ export function createMockState(options: MockOptions = {}) {
   const memberRequests = (id: string): ReadonlyArray<EngineJoinRequest> =>
     madeCommunities.has(id) || community(id)?.joinPolicy === "Open"
       ? []
-      : people.slice(6, 9).map((u, i) => ({
+      : people.slice(6, 11).map((u, i) => ({
           userId: u.userId,
-          answer: ["An invoicing tool that chases late payers.", null, "Class booking for gyms."][
-            i
-          ]!,
+          answer:
+            ["An invoicing tool that chases late payers.", null, "Class booking for gyms."][i] ??
+            null,
           at: new Date(Date.UTC(2026, 10, 3, 12 - i)).toISOString(),
           state: requestStates.get(`${id}:${u.userId}`) ?? "Pending",
           blocking: false,
@@ -620,13 +620,23 @@ export function createMockState(options: MockOptions = {}) {
   const reportCases = (id: string): ReadonlyArray<EngineReportCase> =>
     madeCommunities.has(id)
       ? []
-      : morePages.forYou[0]!.slice(3, 5).map((p, i) => ({
+      : morePages.forYou[0]!.slice(3, 6).map((p, i) => ({
           postId: p.postId,
-          reports: 2 - i,
+          reports: i === 0 ? 2 : 1,
           at: new Date(Date.UTC(2026, 10, 3, 13 - i)).toISOString(),
           byX: i === 1,
-          rules: i === 0 ? ["Keep posts on topic.", "Be kind and respectful."] : ["No spam"],
+          rules: [
+            ["Keep posts on topic.", "Be kind and respectful."],
+            ["No spam"],
+            ["Be kind and respectful."],
+          ][i]!,
         }));
+  /** X's pages of a queue: `size` at a time from the cursor, which says where the page starts. */
+  const queuePage = <A>(list: ReadonlyArray<A>, cursor: unknown, size: number) => {
+    const from = typeof cursor === "string" ? Number(cursor) : 0;
+    const next = from + size < list.length ? String(from + size) : null;
+    return { items: list.slice(from, from + size), next };
+  };
   /**
    * What X tells a Community's moderators (X's Admin tools, its page's counts, its settings):
    * the requests and reports waiting, and X's Spotlight row for a personal account.
@@ -857,22 +867,38 @@ export function createMockState(options: MockOptions = {}) {
       case "MemberRequests_Query": {
         const id = s(variables, "communityId") ?? "";
         if (communityAdmin(id) === undefined) return null;
-        const requests = memberRequests(id).filter((r) => r.state === "Pending");
+        const shown = queuePage(
+          memberRequests(id).filter((r) => r.state === "Pending"),
+          variables.cursor,
+          3,
+        );
         return page(op, null, [], {
           top: null,
-          users: requests.flatMap((r) => user(r.userId) ?? []),
-          joinRequests: { communityId: id, page: true, requests },
+          bottom: shown.next,
+          cursor: s(variables, "cursor") ?? null,
+          users: shown.items.flatMap((r) => user(r.userId) ?? []),
+          joinRequests: { communityId: id, page: true, requests: shown.items, next: shown.next },
         });
       }
       case "CommunityModerationTweetCasesSlice": {
         const id = s(variables, "communityId") ?? "";
         if (communityAdmin(id) === undefined) return null;
-        const cases = reportCases(id).filter((k) => !caseStates.has(k.postId));
+        const shown = queuePage(
+          reportCases(id).filter((k) => !caseStates.has(k.postId)),
+          variables.cursor,
+          2,
+        );
         return page(
           op,
           null,
-          cases.flatMap((k) => post(k.postId) ?? []),
-          { top: null, users: people.slice(1, 3), reportCases: { communityId: id, cases } },
+          shown.items.flatMap((k) => post(k.postId) ?? []),
+          {
+            top: null,
+            bottom: shown.next,
+            cursor: s(variables, "cursor") ?? null,
+            users: people.slice(1, 3),
+            reportCases: { communityId: id, cases: shown.items, next: shown.next },
+          },
         );
       }
       // X's Create a new Community: its form, or for an account without Premium its upsell.

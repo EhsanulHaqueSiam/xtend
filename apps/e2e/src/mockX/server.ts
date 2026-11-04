@@ -175,7 +175,7 @@ export async function startMockX(
           const batch = state.batchFor(next.op, next.variables);
           return json({
             graphql: [httpRequest(next)],
-            html: postsOf(batch, state),
+            html: r.more?.(batch) ?? postsOf(batch, state),
             next: batch?.bottom ?? null,
             title: r.title,
           });

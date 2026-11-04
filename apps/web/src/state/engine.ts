@@ -439,6 +439,8 @@ export interface EngineState {
    * "Kept", "Hidden" or "Banned". X draws its decision in the row's place and fetches nothing.
    */
   readonly decided: ReadonlyMap<string, string>;
+  /** Whether X has a next page of a Community's queue, by `<request|post>:<community>`. */
+  readonly queueMore: ReadonlyMap<string, boolean>;
   /** NBA games by id, each the sum of what X's responses said of it (see `EngineGame`). */
   readonly games: ReadonlyMap<string, EngineGame>;
   /** A team's schedule by the team's user id, in X's order: its profile's carousel. */
@@ -588,6 +590,7 @@ export const emptyEngine: EngineState = {
   joinRequests: new Map(),
   reportCases: new Map(),
   decided: new Map(),
+  queueMore: new Map(),
   games: new Map(),
   schedules: new Map(),
   gameDays: new Map(),
@@ -842,7 +845,7 @@ function mergeAdmin(
 function mergeQueues(
   state: EngineState,
   batch: EngineBatch,
-): Pick<EngineState, "joinRequests" | "reportCases"> {
+): Pick<EngineState, "joinRequests" | "reportCases" | "decided" | "queueMore"> {
   const page = <A>(
     known: ReadonlyArray<A> | undefined,
     fresh: ReadonlyArray<A>,
@@ -851,7 +854,29 @@ function mergeQueues(
   const asked = batch.joinRequests;
   const cases = batch.reportCases;
   const known = asked === undefined ? undefined : state.joinRequests.get(asked.communityId);
+  // A fresh first page is X's word on what waits: one X lists as waiting again is undecided.
+  const waiting = [
+    ...(asked?.page === true && batch.cursor === null
+      ? asked.requests
+          .filter((r) => r.state === "Pending")
+          .map((r) => decisionKey(asked.communityId, "request", r.userId))
+      : []),
+    ...(cases !== undefined && batch.cursor === null
+      ? cases.cases.map((c) => decisionKey(cases.communityId, "post", c.postId))
+      : []),
+  ].filter((key) => state.decided.has(key));
+  const more = [
+    ...(asked?.page === true
+      ? [[`request:${asked.communityId}`, asked.next !== null] as const]
+      : []),
+    ...(cases === undefined ? [] : [[`post:${cases.communityId}`, cases.next !== null] as const]),
+  ];
   return {
+    queueMore: more.length === 0 ? state.queueMore : new Map([...state.queueMore, ...more]),
+    decided:
+      waiting.length === 0
+        ? state.decided
+        : new Map([...state.decided].filter(([key]) => !waiting.includes(key))),
     joinRequests:
       asked === undefined
         ? state.joinRequests
@@ -1496,23 +1521,54 @@ export const roleIn = (state: EngineState, communityId: string) =>
 /** Whether X gives the viewer its Admin tools: a Community's admins and moderators. */
 export const moderates = (role: string | null) => role === "Admin" || role === "Moderator";
 
-/** Where `decided` keeps X's decision on a request (by its Community and person) or a post. */
-export const decisionKey = (
-  row: { readonly communityId: string; readonly userId: string } | string,
-) => (typeof row === "string" ? `post:${row}` : `request:${row.communityId}:${row.userId}`);
+/** Where `decided` keeps X's decision on a Community's request (by person) or reported post. */
+export const decisionKey = (communityId: string, kind: "request" | "post", id: string) =>
+  `${kind}:${communityId}:${id}`;
 
-/** Keeps what X decided for the user's press in a queue (see `decided`). */
-export const decide = (state: EngineState, key: string, decision: string): EngineState => ({
-  ...state,
-  decided: new Map(state.decided).set(key, decision),
-});
+/**
+ * Keeps what X decided for the user's press in a queue (see `decided`), and takes it off X's
+ * count of what waits there, once: X's own answers to a press carry no count.
+ */
+export const decide = (
+  state: EngineState,
+  communityId: string,
+  kind: "request" | "post",
+  id: string,
+  decision: string,
+): EngineState => {
+  const key = decisionKey(communityId, kind, id);
+  const admin = state.communityAdmin.get(communityId);
+  const fresh = !state.decided.has(key) && admin !== undefined;
+  const less = (n: number | null | undefined) => (typeof n === "number" ? Math.max(0, n - 1) : n);
+  return {
+    ...state,
+    decided: new Map(state.decided).set(key, decision),
+    communityAdmin: !fresh
+      ? state.communityAdmin
+      : new Map(state.communityAdmin).set(
+          communityId,
+          kind === "request"
+            ? { ...admin, ...(admin.requests == null ? {} : { requests: less(admin.requests)! }) }
+            : {
+                ...admin,
+                ...(admin.reported === undefined ? {} : { reported: less(admin.reported)! }),
+              },
+        ),
+  };
+};
+
+/** Forgets a Community's queues, for a full load of X's pages to list them afresh. */
+export const forgetQueues = (state: EngineState, communityId: string): EngineState => {
+  const drop = <A>(m: ReadonlyMap<string, A>) => new Map([...m].filter(([k]) => k !== communityId));
+  return { ...state, joinRequests: drop(state.joinRequests), reportCases: drop(state.reportCases) };
+};
 
 /**
  * A request's state as X shows it: what X decided for the user's press, else X's list. X's
  * own answer to the press (its Approve or Deny) updates the list too.
  */
 export const requestState = (state: EngineState, communityId: string, request: EngineJoinRequest) =>
-  state.decided.get(decisionKey({ communityId, userId: request.userId })) ?? request.state;
+  state.decided.get(decisionKey(communityId, "request", request.userId)) ?? request.state;
 
 /** Keeps the role X took for the user's join, ask or leave (see `membership`). */
 export const askMembership = (

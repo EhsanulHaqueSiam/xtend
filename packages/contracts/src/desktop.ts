@@ -683,11 +683,15 @@ export interface EngineBatch {
     readonly communityId: string;
     readonly page: boolean;
     readonly requests: ReadonlyArray<EngineJoinRequest>;
+    /** X's cursor for its next page of the list; null at its end, or for a decision. */
+    readonly next: string | null;
   };
   /** A page of a Community's Reported posts (CommunityModerationTweetCasesSlice), in X's order. */
   readonly reportCases?: {
     readonly communityId: string;
     readonly cases: ReadonlyArray<EngineReportCase>;
+    /** X's cursor for its next page; null at its end. */
+    readonly next: string | null;
   };
 }
 

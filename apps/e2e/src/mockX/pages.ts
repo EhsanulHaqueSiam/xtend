@@ -310,6 +310,8 @@ interface Route {
   readonly render: (batches: ReadonlyArray<EngineBatch | null>) => string;
   /** Where X's router sends the path instead, replacing it, as X's Redirect does. */
   readonly redirect?: string;
+  /** The rows a next page appends, for a page that lists no posts of its own (X's queues). */
+  readonly more?: (batch: EngineBatch | null) => string;
 }
 
 const RESERVED = new Set([
@@ -1088,22 +1090,30 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
       };
     }
     // X's queues: each row X's own buttons, and X's words in a decided row's place.
+    // X's queues, each page of rows from X's answer, each row X's own buttons; a decided row
+    // is X's words in its place, drawn by the page script.
+    const requestRows = (b: EngineBatch | null | undefined) =>
+      (b?.joinRequests?.requests ?? [])
+        .map((q) => {
+          const u = state.user(q.userId)!;
+          return `<div data-testid="UserCell"><a href="/${esc(u.handle)}"><b>${esc(u.name)}</b></a> <a href="/${esc(u.handle)}">@${esc(u.handle)}</a><div>${esc(u.bio)}</div><div>${esc(q.answer ?? "")}</div><button data-x-request="approve:${q.userId}">Approve</button><button data-x-request="deny:${q.userId}">Deny</button></div>`;
+        })
+        .join("");
+    const caseRows = (b: EngineBatch | null | undefined) =>
+      (b?.reportCases?.cases ?? [])
+        .map((k) => {
+          const p = state.post(k.postId)!;
+          return `<div data-case="${k.postId}"><div>Reported by ${k.reports} members</div>${article(p, state)}<button data-x-case="keep:${k.postId}">Keep</button><a href="/i/report/hidetweet/${k.postId}">Hide</a><a href="/i/report/removecommunitymember/${p.author.userId}?community_id=${id}&post=${k.postId}">Ban</a></div>`;
+        })
+        .join("");
     if (rest === "member_requests")
       return {
         title: "Member requests / X",
         requests: [fetchOne, r("MemberRequests_Query", { communityId: id })],
-        render: () =>
-          `${header("Member requests")}<section data-list>${state
-            .memberRequests(id)
-            .map((q) => {
-              const u = state.user(q.userId)!;
-              return q.state === "Approved"
-                ? `<div>@${esc(u.handle)} was approved and is now a member of your Community</div>`
-                : q.state === "Denied"
-                  ? `<div>@${esc(u.handle)} was denied and can’t join your Community</div>`
-                  : `<div data-testid="UserCell"><a href="/${esc(u.handle)}"><b>${esc(u.name)}</b></a> <a href="/${esc(u.handle)}">@${esc(u.handle)}</a><div>${esc(u.bio)}</div><div>${esc(q.answer ?? "")}</div><button data-x-request="approve:${q.userId}">Approve</button><button data-x-request="deny:${q.userId}">Deny</button></div>`;
-            })
-            .join("")}</section>`,
+        paged: 1,
+        more: requestRows,
+        render: ([, b]) =>
+          `${header("Member requests")}<section data-list>${requestRows(b)}</section>`,
       };
     if (rest === "reported_tweets")
       return {
@@ -1112,21 +1122,9 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
           fetchOne,
           r("CommunityModerationTweetCasesSlice", { communityId: id, count: 20 }),
         ],
-        render: () =>
-          `${header("Reported posts")}<section data-list>${state
-            .reportCases(id)
-            .map((k) => {
-              const p = state.post(k.postId)!;
-              const decided = state.caseState(k.postId);
-              return decided === "Kept"
-                ? `<div aria-label="You kept this post">You kept @${esc(p.author.handle)}’s post</div>`
-                : decided === "Hidden"
-                  ? `<div aria-label="You hid this post">You hid @${esc(p.author.handle)}’s post</div>`
-                  : decided === "Banned"
-                    ? ""
-                    : `<div data-case="${k.postId}"><div>Reported by ${k.reports} members</div>${article(p, state)}<button data-x-case="keep:${k.postId}">Keep</button><a href="/i/report/hidetweet/${k.postId}">Hide</a><a href="/i/report/removecommunitymember/${p.author.userId}?community_id=${id}&post=${k.postId}">Ban</a></div>`;
-            })
-            .join("")}</section>`,
+        paged: 1,
+        more: caseRows,
+        render: ([, b]) => `${header("Reported posts")}<section data-list>${caseRows(b)}</section>`,
       };
     // The tools Xtend leaves on X's own page: here, each its title and X's back.
     const titles: Readonly<Record<string, string>> = {

@@ -829,7 +829,8 @@ function readModeration(op: string, variables: Json, data: Json) {
     );
     if (!Array.isArray(slice.items)) return {};
     const requests = slice.items.filter(isRecord).flatMap((i) => readJoinRequest(i) ?? []);
-    return { joinRequests: { communityId, page: true, requests } };
+    const next = asString(record(slice.slice_info).next_cursor) || null;
+    return { joinRequests: { communityId, page: true, requests, next } };
   }
   const decision =
     op === "actions_approveMemberRequest_Mutation"
@@ -845,13 +846,17 @@ function readModeration(op: string, variables: Json, data: Json) {
         : undefined;
     return request === undefined
       ? {}
-      : { joinRequests: { communityId, page: false, requests: [request] } };
+      : { joinRequests: { communityId, page: false, requests: [request], next: null } };
   }
   if (op === "CommunityModerationTweetCasesSlice") {
     const slice = record(record(result(data.communityResults).moderation).tweet_cases_slice);
     if (!Array.isArray(slice.items)) return {};
     return {
-      reportCases: { communityId, cases: slice.items.filter(isRecord).flatMap(readReportCase) },
+      reportCases: {
+        communityId,
+        cases: slice.items.filter(isRecord).flatMap(readReportCase),
+        next: asString(record(slice.slice_info).next_cursor) || null,
+      },
     };
   }
   return {};

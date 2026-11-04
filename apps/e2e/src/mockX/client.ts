@@ -23,6 +23,8 @@ main { margin-left: 72px; }
 .tabs [role="tab"] { flex: 1; text-align: center; padding: 12px 4px; color: #71767b; cursor: pointer; }
 .tabs [aria-selected="true"] { color: #e7e9ea; font-weight: 700; box-shadow: inset 0 -3px #1d9bf0; }
 article, .user, [data-testid="trend"], [data-testid="listCell"] { display: block; min-height: 120px; padding: 12px; border-bottom: 1px solid #2f3336; }
+/* X's queue rows are tall enough that a page of them scrolls, as X's do. */
+[data-testid="UserCell"], [data-case] { display: block; min-height: 640px; border-bottom: 1px solid #2f3336; }
 .row, .head, .profile-row { display: flex; gap: 10px; justify-content: space-between; }
 .body { flex: 1; min-width: 0; }
 .avatar { width: 40px; height: 40px; border-radius: 50%; }

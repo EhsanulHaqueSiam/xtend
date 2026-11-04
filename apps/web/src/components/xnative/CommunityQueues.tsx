@@ -32,7 +32,13 @@ function useRowPress() {
   const setEngine = useAtomSet(engineAtom);
   const [pending, setPending] = useState(false);
   const press = async (
-    row: { readonly page: string; readonly within: string; readonly key: string },
+    row: {
+      readonly page: string;
+      readonly within: string;
+      readonly communityId: string;
+      readonly kind: "request" | "post";
+      readonly id: string;
+    },
     label: string,
     decision: string,
   ) => {
@@ -52,7 +58,9 @@ function useRowPress() {
         return setToast({
           text: `X is not showing ${label} on this row now. Try again in a moment.`,
         });
-      if (done?.gone) setEngine(updateEngine((s) => decide(s, row.key, decision)));
+      // Only a decision X drew counts: a cancelled or refused press changes nothing.
+      if (done?.gone)
+        setEngine(updateEngine((s) => decide(s, row.communityId, row.kind, row.id, decision)));
     } finally {
       setPending(false);
     }
@@ -144,7 +152,9 @@ export function RequestRow({
   const row = {
     page: queuePage(communityId, "member_requests"),
     within: `a[href="/${user.handle}"]`,
-    key: decisionKey({ communityId, userId: request.userId }),
+    communityId,
+    kind: "request" as const,
+    id: request.userId,
   };
   const context =
     user.youFollow && user.followsYou
@@ -230,7 +240,7 @@ export function CaseRow({
   const { pending, press } = useRowPress();
   const post = engine.posts.get(kase.postId);
   if (post === undefined) return null;
-  const decision = engine.decided.get(decisionKey(kase.postId));
+  const decision = engine.decided.get(decisionKey(communityId, "post", kase.postId));
   const handle = post.author.handle;
   if (decision === "Kept") return <Decided icon="check" text={`You kept @${handle}’s post`} />;
   if (decision === "Hidden") return <Decided icon="hidden" text={`You hid @${handle}’s post`} />;
@@ -240,7 +250,9 @@ export function CaseRow({
     page: queuePage(communityId, "reported_tweets"),
     // The post's own timestamp link; a post quoting it links to it with none.
     within: `a[href$="/status/${kase.postId}"] time`,
-    key: decisionKey(kase.postId),
+    communityId,
+    kind: "post" as const,
+    id: kase.postId,
   };
   return (
     <div data-x="report-case" className="border-b border-border">

@@ -1290,6 +1290,7 @@ export function encodeBody(
                                 },
                               ];
                         }),
+                        slice_info: asked.next === null ? {} : { next_cursor: asked.next },
                       },
                     },
                   },
@@ -1335,7 +1336,8 @@ export function encodeBody(
                           },
                         ];
                   }),
-                  slice_info: {},
+                  slice_info:
+                    batch.reportCases?.next == null ? {} : { next_cursor: batch.reportCases.next },
                 },
               },
             },

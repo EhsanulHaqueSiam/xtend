@@ -1856,11 +1856,28 @@ test("A Community's queues: Review all, Member requests and Reported posts drawn
     await e.app.locator("main").getByRole("link", { name: "Admin tools" }).click();
     await e.app.locator('main [data-x="community-tools"]').getByText("Review all").click();
     await expect.poll(xtendHash).toBe(`#/communities/${id}/moderation/review`);
-    // Both of X's lists in one, read off X's two pages; the engine ends on Reported posts.
+    // Both of X's lists in one, read off X's two pages, each paged on with X's own paging as the
+    // list reaches its end; the engine reads each queue's next page on that queue's page.
     const pending = e.mock.state.memberRequests(id);
     const reported = e.mock.state.reportCases(id);
     await expect.poll(() => requests.count()).toBe(pending.length);
     await expect.poll(() => cases.count()).toBe(reported.length);
+    const pages = (op: string) =>
+      e.mock.reads.filter((r) => r.op === op && r.variables.communityId === id);
+    expect(pages("MemberRequests_Query").some((r) => r.variables.cursor !== undefined)).toBe(true);
+    expect(
+      pages("CommunityModerationTweetCasesSlice").some((r) => r.variables.cursor !== undefined),
+    ).toBe(true);
+    // ⌘R, as main sends it, asks X for both queues again, the second once the first answered.
+    const asked = (op: string) => pages(op).filter((r) => r.variables.cursor === undefined).length;
+    const before = [asked("MemberRequests_Query"), asked("CommunityModerationTweetCasesSlice")];
+    await e.electron.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0]!.webContents.send("xtend:shortcut", "refresh"),
+    );
+    await expect
+      .poll(() => [asked("MemberRequests_Query"), asked("CommunityModerationTweetCasesSlice")])
+      .toEqual([before[0]! + 1, before[1]! + 1]);
+    await expect.poll(() => requests.count()).toBeGreaterThan(0);
     await expect.poll(enginePath).toBe(`/i/communities/${id}/moderation/reported_tweets`);
     // X's warning for someone the user muted, and Xtend's line from what the account holds.
     const muted = requests.filter({ hasText: "You’ve muted this person." });
@@ -1903,7 +1920,8 @@ test("A Community's queues: Review all, Member requests and Reported posts drawn
     await expect.poll(enginePath).toBe(`/i/report/hidetweet/${reported[1]!.postId}`);
     await e.engine(`document.querySelector('[data-hide-rule]').click(), true`);
     await expect.poll(pane).toBe("hidden");
-    await expect.poll(() => cases.count()).toBe(0);
+    // X lists what still waits afresh: the kept and the hidden post are off it.
+    await expect.poll(() => cases.count()).toBe(reported.length - 2);
     expect(presses()).toContain(`press hide:Keep posts on topic. ${reported[1]!.postId}`);
   } finally {
     e.mock.state.resetCommunity(id);
