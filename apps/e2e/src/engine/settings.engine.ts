@@ -37,6 +37,16 @@ test("X's Privacy and safety reads X's page; Protect your posts presses X's chec
   await expect.poll(pane).toBe("hidden");
   await expect.poll(() => protect.isChecked()).toBe(true);
   expect([writes(), e.mock.state.settings.protected]).toEqual([["account/settings"], true]);
+  // The rail's log notes the flip as the user's, from what X's page drew after it.
+  await expect
+    .poll(() =>
+      main.locator("li", { hasText: "Protect your posts" }).filter({ hasText: "Off → On" }).count(),
+    )
+    .toBe(1);
+  await main
+    .getByText(/in Xtend/)
+    .first()
+    .waitFor({ state: "attached" });
 });
 
 test("At the engine's width beside Xtend's panel, X draws its compact settings page, and Xtend reads it the same", async () => {

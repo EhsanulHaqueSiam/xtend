@@ -1,9 +1,19 @@
-import { useAtom, useAtomSet, useAtomValue } from "@effect/atom-react";
+import {
+  RegistryContext,
+  useAtom,
+  useAtomRefresh,
+  useAtomSet,
+  useAtomValue,
+} from "@effect/atom-react";
+import type { XSettingChange, XSettingValue } from "@xtend/contracts";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { ArrowUpRight, ChevronRight, Search } from "lucide-react";
-import { useEffect, useState } from "react";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
+import type * as AtomRegistry from "effect/reactivity/AtomRegistry";
+import { useContext, useEffect, useRef, useState } from "react";
 
 import { isElectron } from "../../env";
+import { fmtWhen } from "../../lib/time";
 import { cn } from "../../lib/utils";
 import { engineAtom } from "../../state/engine";
 import { settingsAtom } from "../../state/settings";
@@ -12,9 +22,23 @@ import {
   watchXSettings,
   xPageBarAtom,
   xSettingsAtom,
+  xSettingsNow,
   xSettingsPress,
   type XSettingsItem,
+  type XSettingsRead,
 } from "../../state/xSettings";
+import {
+  loggedValues,
+  markKey,
+  pressedIn,
+  pressTarget,
+  settingKey,
+  settleMarks,
+  valueOf,
+  xSettingsChangesAtom,
+  xSettingsMarksAtom,
+  xSettingsSeenAtom,
+} from "../../state/xSettingsLog";
 import { Section } from "../ui/layout";
 import { Switch } from "../ui/switch";
 import { useXPress } from "../xnative/useXPress";
@@ -66,6 +90,43 @@ function useXPage(path: string | null, title: string, onBack: () => void) {
   }, [path, setOver, setBar]);
 }
 
+/** The Xtend account whose session view this window holds: the one X's pages are read for. */
+const accountId = () => window.desktopBridge?.accountId ?? 0;
+
+/**
+ * Files a read of X's page in the change log, naming the values that show a change the user made
+ * in Xtend; a change the log filed settles the user's mark on it, theirs or not.
+ */
+function fileRead(
+  registry: AtomRegistry.AtomRegistry,
+  read: XSettingsRead,
+  seen: (input: {
+    readonly accountId: number;
+    readonly values: ReadonlyArray<XSettingValue>;
+    readonly pressed: ReadonlyArray<string>;
+  }) => Promise<ReadonlyArray<XSettingChange>>,
+  refresh: () => void,
+) {
+  if (read.loading || read.typing) return;
+  const values = loggedValues(read);
+  if (values.length === 0) return;
+  const account = accountId();
+  const sent = registry.get(xSettingsMarksAtom);
+  const pressed = pressedIn(sent, account, values);
+  void seen({ accountId: account, values, pressed }).then(
+    (logged) => {
+      if (logged.length === 0) return;
+      registry.set(
+        xSettingsMarksAtom,
+        settleMarks(registry.get(xSettingsMarksAtom), sent, account, logged),
+      );
+      refresh();
+    },
+    // The log is Xtend's own note; X's page and its controls work without it.
+    () => {},
+  );
+}
+
 /**
  * One of X's settings pages, drawn by Xtend from what X's page draws in the engine (X's words, X's
  * order), in X's column. Each control presses X's own for the user's click, one at a time; a page
@@ -108,15 +169,21 @@ export function XSettingsScreen({
 
   const setOver = useAtomSet(xOverAtom);
   const setBar = useAtomSet(xPageBarAtom);
+  const seen = useAtomSet(xSettingsSeenAtom, { mode: "promise" });
+  const refreshChanges = useAtomRefresh(xSettingsChangesAtom);
+  const registry = useContext(RegistryContext);
+  // While a press is out, its page's reads wait: they are filed once the user's mark is set.
+  const pressOut = useRef(false);
   const reading = isElectron && !xOnly && opened === null;
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- reads X's settings page (the session view) while it is open here.
   useEffect(() => {
     // Not while one of X's own pages is open from here: the engine is on that page, not this one.
     if (!reading) return;
     const stop = new AbortController();
-    watchXSettings(path, stop.signal, (next) =>
-      setReads((all) => new Map(all).set(next.path, next)),
-    );
+    watchXSettings(path, stop.signal, (next) => {
+      setReads((all) => new Map(all).set(next.path, next));
+      if (next.path === path && !pressOut.current) fileRead(registry, next, seen, refreshChanges);
+    });
     return () => {
       stop.abort();
       // A press on the page being left ends with it, and X's answer to it is no longer shown.
@@ -124,7 +191,7 @@ export function XSettingsScreen({
       setOver(false);
       setBar(null);
     };
-  }, [path, reading, setReads, setOver, setBar]);
+  }, [path, reading, setReads, setOver, setBar, registry, seen, refreshChanges]);
 
   const [pressing, setPressing] = useState<number | null>(null);
   const { blocked, setToast } = useXPress();
@@ -135,12 +202,31 @@ export function XSettingsScreen({
     const why = blocked();
     if (why !== null) return setToast({ text: why });
     setPressing(index);
+    pressOut.current = true;
+    const target = pressTarget(path, item, value);
     // X's answer (its confirm, or its own page a button opens) gets Xtend's bar and its Back.
     const over = (shown: boolean) => {
       setOver(shown);
       setBar(shown ? { title, back: () => (xOverEnded(), setOver(false), setBar(null)) } : null);
     };
-    void xSettingsPress(path, index, item, over, value).finally(() => setPressing(null));
+    void (async () => {
+      const answer = await xSettingsPress(path, index, item, over, value);
+      if (target !== null) {
+        // After X's confirm, only X's page says whether the user confirmed or cancelled there.
+        const now = answer === "over" ? await xSettingsNow(path, index, item) : null;
+        const took = answer === "done" || (now !== null && valueOf(now)?.value === target.value);
+        const mark = markKey(accountId(), target.key);
+        const marks = new Map(registry.get(xSettingsMarksAtom));
+        if (took) marks.set(mark, { value: target.value });
+        else marks.delete(mark);
+        registry.set(xSettingsMarksAtom, marks);
+      }
+    })().finally(() => {
+      setPressing(null);
+      pressOut.current = false;
+      const latest = registry.get(xSettingsAtom).get(path);
+      if (latest !== undefined) fileRead(registry, latest, seen, refreshChanges);
+    });
   };
   const open = (href: string, label: string) => {
     const to = xPath(href);
@@ -152,6 +238,7 @@ export function XSettingsScreen({
   const items = read?.path === path ? read.items : [];
   return (
     <XColumn
+      rail={isElectron ? <ChangeLog path={path} /> : undefined}
       header={
         <>
           <XTitle title={title} detail={`X · ${section.label}`} onBack={back} />
@@ -189,7 +276,6 @@ export function XSettingsScreen({
       ) : (
         <ul className="pb-6">
           {items.map((item, i) => (
-            // X's items have no ids; X's order is the key, as a press finds them by it too.
             // oxlint-disable-next-line react/no-array-index-key -- X's page has no ids; its order is the identity a press checks.
             <li key={i} className={cn(pressing === i && "opacity-60")}>
               <Item
@@ -204,6 +290,46 @@ export function XSettingsScreen({
         </ul>
       )}
     </XColumn>
+  );
+}
+
+/**
+ * Which of X's values Xtend saw change, and when: this page's first, then the rest. A change not
+ * from Xtend is one made elsewhere (X's app on the phone), seen when its page was read here.
+ */
+function ChangeLog({ path }: { readonly path: string }) {
+  const changes = AsyncResult.getOrElse(useAtomValue(xSettingsChangesAtom), () => []);
+  const here = settingKey(path, "");
+  const shown = [
+    ...changes.filter((c) => c.key.startsWith(here)),
+    ...changes.filter((c) => !c.key.startsWith(here)),
+  ].slice(0, 8);
+  return (
+    <section className="rounded-2xl border border-white/[0.12] px-4 py-3">
+      <h2 className="mb-1 text-[17px] font-extrabold">Changed</h2>
+      {shown.length === 0 ? (
+        <p className={MUTED}>
+          No change to X's settings seen yet. Xtend notes one when it reads a page.
+        </p>
+      ) : (
+        <ul>
+          {shown.map((c) => (
+            <li key={`${c.key} ${c.at}`} className="flex items-baseline gap-2 py-1.5 text-[13.5px]">
+              <span className="min-w-0 flex-1">
+                <span className="block truncate">{c.label}</span>
+                <span className={cn(MUTED, "block")}>
+                  {fmtWhen(c.at)} · {c.inXtend ? "in Xtend" : "not from Xtend"}
+                  {c.key.startsWith(here) ? "" : ` · ${c.page}`}
+                </span>
+              </span>
+              <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                {c.from} → {c.to}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
