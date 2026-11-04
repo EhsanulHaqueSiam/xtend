@@ -475,7 +475,8 @@ it("reads none of X's other Grok traffic: no body, no log, no observation, no en
   debug.receivedText("1", `${GRAPHQL}/GrokHome?variables=%7B%7D`, '{"m":"secret chat text"}, x');
   debug.received("2", `${GRAPHQL}/GrokShareConversation?variables=%7B%7D`, { data: tweet("9") });
   debug.received("3", "https://x.com/i/api/2/grok/attachment.json", { data: tweet("7") });
-  for (const id of ["1", "2", "3"]) debug.finished(id);
+  debug.received("5", `${GRAPHQL}/ClearGrokConversations`, { data: tweet("6") });
+  for (const id of ["1", "2", "3", "5"]) debug.finished(id);
   // An ordinary response after them is read, so theirs would have been by now.
   debug.received("4", `${GRAPHQL}/HomeTimeline?variables=%7B%7D`, { data: [tweet("8")] });
   debug.finished("4");
@@ -484,4 +485,14 @@ it("reads none of X's other Grok traffic: no body, no log, no observation, no en
   expect(rendered.map((b) => b.op)).toEqual(["HomeTimeline"]);
   expect(debug.commands.filter((c) => c === "Network.getResponseBody")).toHaveLength(1);
   expect([heard, logged]).toEqual([[], []]);
+});
+
+it("hands the window the conversation X creates for a new chat", async () => {
+  const { heard } = startGrok();
+  const created = { data: { create_grok_conversation: { conversation_id: "c-new" } } };
+  debug.received("1", `${GRAPHQL}/CreateGrokConversation`, created);
+  debug.finished("1");
+  await vi.waitFor(() =>
+    expect(heard).toMatchObject([{ kind: "graphql", op: "CreateGrokConversation", body: created }]),
+  );
 });

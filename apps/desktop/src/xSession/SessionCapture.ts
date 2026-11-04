@@ -382,16 +382,21 @@ interface GrokStream {
   finished: boolean;
 }
 
-/** X's older Grok client's GraphQL operations: its history, pins and a conversation's items. */
+/**
+ * X's older Grok client's GraphQL operations the window reads: its history, pins, a conversation's
+ * items and the id X creates for a new chat.
+ */
 const GROK_OPS = new Set([
   "GrokHistory",
   "GrokPinnedConversations",
   "GrokConversationItemsByRestId",
+  "CreateGrokConversation",
 ]);
 
-/** Any of X's Grok traffic, by its URL alone: a GraphQL operation named Grok…, or X's /2/grok/ API. */
-const isGrokUrl = (url: string) => /\/graphql\/[^/?]+\/Grok[^/?]*(?:\?|$)|\/2\/grok\//.test(url);
-const grokOp = (url: string) => /\/graphql\/[^/?]+\/(Grok[^/?]*)(?:\?|$)/.exec(url)?.[1];
+/** Any of X's Grok traffic, by its URL alone: a GraphQL operation naming Grok, or X's /2/grok/ API. */
+const isGrokUrl = (url: string) =>
+  /\/graphql\/[^/?]+\/[^/?]*Grok[^/?]*(?:\?|$)|\/2\/grok\//.test(url);
+const grokOp = (url: string) => /\/graphql\/[^/?]+\/([^/?]*Grok[^/?]*)(?:\?|$)/.exec(url)?.[1];
 
 /** The conversation one of X's Grok asks is for: in its JSON body, or its query when X resumes one. */
 const grokConversation = (url: string, body: unknown) => {
