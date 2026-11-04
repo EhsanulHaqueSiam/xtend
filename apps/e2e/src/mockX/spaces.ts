@@ -45,6 +45,16 @@ export function createMockSpaces(batches: ReadonlyArray<EngineBatch>, viewer: En
     ),
   );
   let dock: Dock | null = null;
+  /**
+   * X's compact layout, which a narrow window gets: its pages are routes with X's app bar (its
+   * back, the title as an h2), not dialogs, and its confirm is a sheet with no dialog role.
+   */
+  let compact = false;
+  /** A page of X's: a dialog over the page, or in the compact layout a route with X's app bar. */
+  const sheet = (attrs: string, title: string, body: string) =>
+    compact
+      ? `<div ${attrs}><div><div role="button" aria-label="Back" data-testid="app-bar-back" data-space-close>←</div><h2>${title}</h2></div>${body}</div>`
+      : `<div class="dialog route" role="dialog" aria-modal="true" ${attrs}><div role="button" aria-label="Close" data-space-close>✕</div><h2>${title}</h2>${body}</div>`;
   /** Each recording's captions, as X's recording chat holds them. */
   const captions = new Map<string, ReadonlyArray<EngineSpaceCaption>>(
     batches.flatMap((b) =>
@@ -103,24 +113,25 @@ export function createMockSpaces(batches: ReadonlyArray<EngineBatch>, viewer: En
           : s.recorded
             ? button("Play recording", `data-space-play="${esc(id)}"`, "Play recording")
             : "";
-    return `<div class="dialog route" role="dialog" aria-modal="true" data-space-peek="${esc(id)}">
-      <div role="button" aria-label="Close" data-space-close>✕</div>
-      <h2>${esc(s.title)}</h2>
-      <p>${s.state === "Running" ? `${s.listening ?? 0} listening` : s.state}</p>
+    return sheet(
+      `data-space-peek="${esc(id)}"`,
+      esc(s.title),
+      `<p>${s.state === "Running" ? `${s.listening ?? 0} listening` : s.state}</p>
       ${host === undefined ? "" : `<div><b>${esc(host.name)}</b> <span>Host</span></div>`}
-      ${cta}
-    </div>`;
+      ${cta}`,
+    );
   };
 
   /** X's Create your Space, over the page: its title field and Start now. */
-  const start = () => `<div class="dialog route" role="dialog" aria-modal="true" data-space-start>
-    <div role="button" aria-label="Close" data-space-close>✕</div>
-    <h2>Create your Space</h2>
-    <label>Who can speak?<span>Everyone</span></label>
+  const start = () =>
+    sheet(
+      "data-space-start",
+      "Create your Space",
+      `<label>Who can speak?<span>Everyone</span></label>
     <input name="title" placeholder="What do you want to talk about?">
     <label>Record Space<input type="checkbox" role="switch" checked></label>
-    ${button("Start now", "data-space-start-now", "Start now")}
-  </div>`;
+    ${button("Start now", "data-space-start-now", "Start now")}`,
+    );
 
   /** X's player for a recording: its Close, captions panel, seek slider and times, controls. */
   const replayHtml = (d: Dock) => {
@@ -159,7 +170,7 @@ export function createMockSpaces(batches: ReadonlyArray<EngineBatch>, viewer: En
         : "";
     const mic =
       dock.role === "listener" ? "" : button(dock.muted ? "Unmute" : "Mute", "data-space-mic", "🎙");
-    return `<div data-mock-dock="${esc(dock.spaceId)}">
+    return `<div data-mock-dock="${esc(dock.spaceId)}"${compact ? " data-compact" : ""}>
       <div>${button("Collapse", "", "⌄")}${button("Share", "data-space-share", "⇪")}${button("More", "data-space-more", "…")}<div role="button" tabindex="0" data-space-word>${word}</div></div>
       <div>${esc(s?.title ?? "")}</div>
       ${captions}
@@ -302,6 +313,10 @@ export function createMockSpaces(batches: ReadonlyArray<EngineBatch>, viewer: En
     /** The Space X's dock plays, and how; null while the user is in none. */
     get dock() {
       return dock;
+    },
+    /** X's compact layout on (a narrow window) or off. */
+    setCompact: (on: boolean) => {
+      compact = on;
     },
     /** The host lets the user speak, as a host's Invite to speak does on X. */
     invite: () => {

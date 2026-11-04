@@ -318,7 +318,9 @@ export const xSpaceDockPress = async (
   if (!validSpace(spaceId)) return null;
   const header = label === "Leave" || label === "End" || label === "Close";
   // X's page for the ended Space, which X opens once End is confirmed, is no question for the user.
-  const asking = `!(${ON_PEEK(spaceId)}) && ${ASKING}`;
+  // In X's compact layout (a narrow engine) End's confirm is a sheet with no dialog role: its own
+  // "Yes, end" says it is up.
+  const asking = `!(${ON_PEEK(spaceId)}) && (${ASKING} || [...document.querySelectorAll('[role="button"], button')].some((b) => b.textContent.trim() === "Yes, end"))`;
   const answer = await xPressOver(
     (mine) => `(async () => {
     const dock = (${spaceDockRoot.toString()})(document);

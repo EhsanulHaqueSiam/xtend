@@ -1034,7 +1034,8 @@ const SCRIPT = String.raw`
     if (el.dataset.spaceWord !== undefined) {
       log("space:" + el.textContent);
       if (el.textContent === "Leave" || el.textContent === "Close") return void space({ kind: "leave", id }).then(drawDock);
-      const sheet = spaceLayer("alertdialog", [
+      // X's compact layout draws its confirm as a sheet with no dialog role.
+      const sheet = spaceLayer(dock?.dataset.compact === undefined ? "alertdialog" : "none", [
         Object.assign(document.createElement("h2"), { textContent: "End Space?" }),
         Object.assign(document.createElement("p"), { textContent: "This will end the conversation for everyone." }),
         // X then shows the Space's page, ended.
