@@ -929,8 +929,9 @@ const SCRIPT = String.raw`
     }
     if (el.dataset.xGotIt !== undefined) {
       log("Got it", communityId);
-      el.closest('[role="dialog"]').remove();
-      history.replaceState(null, "", location.pathname);
+      // X's Got it replaces the address with the Community's own, its summary gone.
+      el.closest("[data-x-summary]").remove();
+      history.replaceState(null, "", location.pathname + "/");
     }
   }, true);
   // X's List buttons and dialogs (bundle.UserLists). Follow in a List's header and Pin in a row of

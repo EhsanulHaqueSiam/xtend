@@ -94,8 +94,17 @@ export const onXPage = (path: string) => (over: (shown: boolean) => void) =>
 
 /** X's own control `label` on X's page `page` for the user's click (see `useOnX`). */
 export const onXControl =
-  (page: string, label: string, checked?: boolean) => (over: (shown: boolean) => void) =>
-    xPressToPage(page, label, drawn, over, checked);
+  (page: string, label: string, checked?: boolean, done = drawn) =>
+  (over: (shown: boolean) => void) =>
+    xPressToPage(page, label, done, over, checked);
+
+/**
+ * Where X is done creating a Community: a page Xtend draws, but not the new Community under X's
+ * summary (`?show_creation_summary`), which X's Got it replaces. Compact X draws that summary as
+ * its page, not a dialog.
+ */
+const created = (href: string) =>
+  drawn(href) && !new URL(href).searchParams.has("show_creation_summary");
 
 /** X's count badge on a row or the gear: what waits on the Community's moderators. */
 function Count({ n }: { readonly n: number | undefined | null }) {
@@ -321,7 +330,7 @@ export function CreateCommunityButton({ handle }: { readonly handle: string | nu
       onClick={() =>
         void onX(
           "Create a new Community",
-          onXControl(`/${handle}/communities`, "Create a new Community"),
+          onXControl(`/${handle}/communities`, "Create a new Community", undefined, created),
         )
       }
     >
