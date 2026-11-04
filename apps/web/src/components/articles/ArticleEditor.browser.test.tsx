@@ -1,4 +1,4 @@
-import type { Draft, DraftPatch } from "@xtend/contracts";
+import { ComposeError, type Draft, type DraftPatch } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 import { expect, it, vi } from "vite-plus/test";
@@ -394,4 +394,24 @@ it("shows the latest failure the service named, through an edit, never the older
   await userEvent.fill(screen.getByLabelText("Article Title"), "Two plans, edited");
   await expect.poll(() => row.title).toBe("Two plans, edited");
   await expect.element(status).toHaveTextContent("Failed: B: X API said no");
+});
+
+it("shows an edit's failed save over a publish failure stored from before", async () => {
+  await using screen = await render(editor("a1"), {
+    service: service(
+      () => [article({ status: "failed", error: "x.com did not confirm the Article" })],
+      {
+        "compose.draftUpdate": () =>
+          Effect.fail(
+            new ComposeError({ operation: "draftUpdate", detail: "the service is away" }),
+          ),
+      },
+    ),
+  });
+  const status = screen.getByRole("status");
+  await expect.element(status).toHaveTextContent("Failed: x.com did not confirm the Article");
+  await userEvent.fill(screen.getByLabelText("Article Title"), "Two plans, edited");
+  await expect
+    .element(status)
+    .toHaveTextContent("Failed: Compose draftUpdate failed: the service is away");
 });

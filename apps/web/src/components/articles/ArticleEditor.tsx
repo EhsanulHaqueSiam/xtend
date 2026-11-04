@@ -400,11 +400,10 @@ function Editor({
     if (locked) return;
     const t = setTimeout(
       () =>
-        void flush
-          .current()
-          .catch((e: unknown) =>
-            setNoticeFor({ text: `Failed: ${readableError(e)}`, outcome: null }),
-          ),
+        void flush.current().catch((e: unknown) =>
+          // Said about the draft as last saved, so its stored publish failure does not cover it.
+          setNoticeFor({ text: `Failed: ${readableError(e)}`, outcome: outcomeOf(row.current) }),
+        ),
       600,
     );
     return () => clearTimeout(t);
