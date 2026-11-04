@@ -1,6 +1,6 @@
 import { expect, it, vi } from "vite-plus/test";
 
-import { readGrok, xGrokHistory, xGrokHistoryPress, xGrokSend } from "./grok";
+import { readGrok, xGrokHistory, xGrokHistoryPress, xGrokSend, xGrokPastEntry } from "./grok";
 import { markXReady, registerXWebview, type XWebview } from "./x";
 
 // X's Grok page (bundle.GrokXWeb) as it draws: X's header in its column, the transcript region
@@ -342,4 +342,37 @@ it("goes Back to the chat when X's compact History page opens without its search
     .addEventListener("click", () => (at.path = "/i/grok/history"));
   expect(await xGrokHistory()).toBeNull();
   expect(at.path).toBe("/i/grok/c/c2");
+});
+
+it("goes on from X's grok.com account gate to the Grok page it names, through X's router", async () => {
+  const moves: Array<string> = [];
+  let at = "/i/jf/grok/entry";
+  registerXWebview({
+    loadURL: async () => {},
+    getURL: () => `https://x.com${at}?redirect=https%3A%2F%2Fx.com%2Fi%2Fgrok`,
+    executeJavaScript: (code: string) => {
+      const to = /history\.pushState\(null, "", "([^"]+)"\)/.exec(code)?.[1];
+      if (to !== undefined) {
+        moves.push(to);
+        at = to;
+        return Promise.resolve(true);
+      }
+      return Promise.resolve(
+        new Function(
+          `return ${code
+            .replaceAll("location.pathname", JSON.stringify(at))
+            .replaceAll(
+              "location.search",
+              JSON.stringify("?redirect=https%3A%2F%2Fx.com%2Fi%2Fgrok"),
+            )
+            .replaceAll("location.origin", JSON.stringify("https://x.com"))}`,
+        )(),
+      );
+    },
+  } as unknown as XWebview);
+  markXReady();
+  expect(await xGrokPastEntry()).toBe(true);
+  expect(moves).toEqual(["/i/grok"]);
+  // Elsewhere there is no gate to pass.
+  expect(await xGrokPastEntry()).toBe(false);
 });
