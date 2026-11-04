@@ -1361,6 +1361,8 @@ test("Create a new Community: X's form over the main area, X's summary, then the
   const hub = `/${e.mock.state.viewer.handle}/communities`;
   await go("/communities");
   await expect.poll(enginePath).toBe(hub);
+  // X's own button, which the press finds, is drawn once X's page has loaded.
+  await expect.poll(() => engineHas('[aria-label="Create a new Community"]')).toBe(true);
   await create.click();
   await expect.poll(enginePath).toBe("/i/communities/create");
   await expect.poll(pane).toBe("main");
