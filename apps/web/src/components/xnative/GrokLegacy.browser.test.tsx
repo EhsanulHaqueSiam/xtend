@@ -184,3 +184,27 @@ it("sends one new chat at a time: the next waits until X's stream takes the last
   hear({ kind: "end", stream: "n" });
   page.search = "?conversation=c1";
 });
+
+it("stops waiting for a new chat X never answered once the user opens another chat or leaves Grok", async () => {
+  await using screen = await renderScreen();
+  page.search = "";
+  field.value = "";
+  xSend.disabled = false;
+  const box = screen.getByRole("textbox", { name: "Ask Grok" });
+  const waiting = screen.getByText("Waiting for Grok to start the last chat");
+  const ask = async (text: string) => {
+    await userEvent.click(screen.getByRole("button", { name: "On a new chat" }));
+    await userEvent.fill(box, text);
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+    await expect.element(waiting).toBeVisible();
+  };
+  await ask("Unanswered");
+  await userEvent.click(screen.getByRole("button", { name: "On c1" }));
+  await userEvent.click(screen.getByRole("button", { name: "On a new chat" }));
+  await expect.element(waiting).not.toBeInTheDocument();
+  await ask("Unanswered again");
+  await userEvent.click(screen.getByRole("button", { name: "Toggle Grok" }));
+  await userEvent.click(screen.getByRole("button", { name: "Toggle Grok" }));
+  await expect.element(waiting).not.toBeInTheDocument();
+  page.search = "?conversation=c1";
+});

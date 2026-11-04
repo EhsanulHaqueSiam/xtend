@@ -154,6 +154,12 @@ export const applyCapture = (state: GrokLegacyState, capture: GrokCapture): Grok
     if (stream === undefined) return state;
     const streams = new Map(state.streams);
     streams.delete(capture.stream);
+    // A new chat's stream that ended before naming its turn never will: its question is X's no more.
+    if (
+      stream.turn === null &&
+      (stream.conversation === null || stream.conversation === state.created)
+    )
+      return { ...settleLegacy(state), streams };
     if (stream.conversation === null || stream.turn === null) return { ...state, streams };
     const done = { ...stream.turn, live: false };
     const turns = state.conversations.get(stream.conversation) ?? [];
@@ -245,10 +251,18 @@ const remember = (
 };
 
 /** The window's copy with `text` asked through Xtend's box in `chat`, or the new chat when null. */
-export const askLegacy = (state: GrokLegacyState, chat: string | null, text: string) =>
+export const askLegacy = (
+  state: GrokLegacyState,
+  chat: string | null,
+  text: string,
+): GrokLegacyState =>
   chat === null
-    ? { ...state, fresh: text }
+    ? { ...state, fresh: text, created: null }
     : { ...state, asked: new Map(state.asked).set(chat, text) };
+
+/** The window's copy with no new chat's question waiting, once X will not answer it. */
+export const settleLegacy = (state: GrokLegacyState): GrokLegacyState =>
+  state.fresh === null && state.created === null ? state : { ...state, fresh: null, created: null };
 
 /** The window's copy without `text`, a question X never received. */
 export const unaskLegacy = (

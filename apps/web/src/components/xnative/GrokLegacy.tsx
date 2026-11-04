@@ -1,6 +1,6 @@
 import { useAtom, useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { GrokRead } from "../../state/grok";
 import {
@@ -8,6 +8,7 @@ import {
   grokLegacyAtom,
   markdownBlocks,
   openChat,
+  settleLegacy,
   turnsOf,
   unaskLegacy,
   xGrokLegacySend,
@@ -27,15 +28,28 @@ export function GrokLegacy() {
   const { press, setToast } = useGrokPress();
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  // Read by the effects below, which must not rerun when a Send starts or settles.
+  const sendingRef = useRef(false);
   let chat: string | null = null;
   try {
     chat = new URL(url).searchParams.get("conversation");
   } catch {}
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- marks the chat X's page shows as the one on screen while it is, so the store keeps it.
   useEffect(() => {
-    setLegacy((s) => openChat(s, chat));
+    // Another chat opened: a new chat's question no stream took is dropped, unless this is the
+    // chat X just created for it.
+    setLegacy((s) =>
+      openChat(sendingRef.current || chat === s.created ? s : settleLegacy(s), chat),
+    );
     return () => setLegacy((s) => (s.open === chat ? openChat(s, null) : s));
   }, [chat, setLegacy]);
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- drops a new chat's question no stream took when the user leaves Grok.
+  useEffect(
+    () => () => {
+      if (!sendingRef.current) setLegacy(settleLegacy);
+    },
+    [setLegacy],
+  );
   const turns = chat === null ? [] : turnsOf(legacy, chat);
   const live = turns.some((t) => t.live);
   // One new chat at a time: its question waits for X's stream to say which chat it started.
@@ -72,9 +86,11 @@ export function GrokLegacy() {
     const text = draft;
     if (text.trim() === "" || sending || live || waiting) return;
     setSending(true);
+    sendingRef.current = true;
     // X's stream names the turn but not the question: its turn in this chat takes these words.
     setLegacy((s) => askLegacy(s, chat, text));
     const sent = await press(() => xGrokLegacySend(text));
+    sendingRef.current = false;
     setSending(false);
     if (sent !== "sent" && sent !== "pending") setLegacy((s) => unaskLegacy(s, chat, text));
     if (sent === "sent") setDraft("");

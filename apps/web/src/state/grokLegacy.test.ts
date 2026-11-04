@@ -139,6 +139,29 @@ it("gives the new chat's one question to the first new chat's stream, of either 
   expect(s.fresh).toBeNull();
 });
 
+it("never gives a new chat's question to a chat X created before it was asked", () => {
+  let s = applyCapture(emptyLegacy, {
+    kind: "graphql",
+    op: "CreateGrokConversation",
+    variables: {},
+    body: { data: { create_grok_conversation: { conversation_id: "c-stale" } } },
+  });
+  s = askLegacy(s, null, "Q");
+  s = applyCapture(s, { kind: "start", stream: "1", conversation: "c-stale" });
+  s = applyCapture(s, line({ userChatItemId: "u1" }, "1"));
+  expect([turnsOf(s, "c-stale")[0]?.user, s.fresh]).toEqual([null, "Q"]);
+});
+
+it("lets go of a new chat's question when its stream ends before naming its turn, not another chat's", () => {
+  let s = askLegacy(emptyLegacy, null, "Q");
+  s = applyCapture(s, { kind: "start", stream: "1", conversation: "c1" });
+  s = applyCapture(s, { kind: "end", stream: "1" });
+  expect(s.fresh).toBe("Q");
+  s = applyCapture(s, { kind: "start", stream: "2", conversation: null });
+  s = applyCapture(s, { kind: "end", stream: "2" });
+  expect(s.fresh).toBeNull();
+});
+
 it("goes on from the part of an answer X's items hold when X resumes its stream", () => {
   let s = applyCapture(
     emptyLegacy,
