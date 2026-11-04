@@ -1544,12 +1544,16 @@ export const xOverPage = async (
 };
 
 /**
- * X's own control in `root` that X names `label`, by its words or its label: a link, a button, a
- * list row or a checkbox's row. Only one may match: a name X draws twice is never guessed at,
- * unless `within` (a selector, a post's or a person's link) picks the row it sits in: the one box
- * around it holding that link and no other such control. Runs in X's page as its own source.
+ * X's own control in `root` named `label` by its words or label: one only, never a name X draws
+ * twice; `within` (a post's or person's link) picks its row, `community` one whose box links into
+ * that Community alone, as its Join is matched. Runs in X's page as its own source.
  */
-export function xControl(root: ParentNode, label: string, within?: string): HTMLElement | null {
+export function xControl(
+  root: ParentNode,
+  label: string,
+  within?: string,
+  community?: string,
+): HTMLElement | null {
   const CONTROL =
     'a, button, [role="button"], [role="link"], [role="listitem"], [role="checkbox"], label';
   const found = new Set<HTMLElement>();
@@ -1566,7 +1570,18 @@ export function xControl(root: ParentNode, label: string, within?: string): HTML
     if (el.getAttribute("aria-label") === label)
       found.add(el.closest<HTMLElement>('a, button, [role="button"], [role="link"]') ?? el);
   // A control inside another that matched is the same one.
-  const mine = [...found].filter((el) => ![...found].some((o) => o !== el && o.contains(el)));
+  const outer = [...found].filter((el) => ![...found].some((o) => o !== el && o.contains(el)));
+  // X's page can still draw the last Community's: its box links into another.
+  const ours = (el: Element) => {
+    for (let box = el.parentElement; box !== null; box = box.parentElement) {
+      const links = [...box.querySelectorAll('a[href*="/i/communities/"]')].map(
+        (a) => (a.getAttribute("href") ?? "").split("/i/communities/")[1]?.split(/[/?#]/)[0],
+      );
+      if (links.length > 0) return links.every((id) => id === community);
+    }
+    return false;
+  };
+  const mine = community === undefined ? outer : outer.filter(ours);
   const scoped =
     within === undefined
       ? mine
@@ -1594,7 +1609,10 @@ const pressControl = async (
 ): Promise<{ readonly at: string; readonly gone: boolean } | false | null> => {
   if (element === null || !ready || !/^\/[\w/]+$/.test(page)) return false;
   const run = await nextRun();
-  const find = `(() => (${xControl.toString()})(document, ${JSON.stringify(label)}, ${JSON.stringify(within)}))`;
+  // On a Community's own page (not its queues, whose rows say whose they are), its control alone.
+  const community =
+    within === undefined ? /^\/i\/communities\/(\d{1,25})(\/|$)/.exec(page)?.[1] : undefined;
+  const find = `(() => (${xControl.toString()})(document, ${JSON.stringify(label)}, ${JSON.stringify(within)}, ${JSON.stringify(community)}))`;
   let tries = 10;
   const press = () =>
     xRun(`(async () => {
