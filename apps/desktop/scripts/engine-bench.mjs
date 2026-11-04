@@ -2571,6 +2571,16 @@ const benchmarks = [
   [
     "Grok reads X's history rows from X's own panel into the rail, sending nothing",
     async () => {
+      // X fetches its history when its Grok page opens: from Home, so this run sees that answer.
+      await go("#/home?feed=following");
+      if (
+        !(await until(
+          async () => (await enginePath()) === "/home" && (await nativeIds()).length >= 1,
+          20_000,
+        ))
+      )
+        return undefined;
+      grokHistory = null;
       await app(
         `[...document.querySelectorAll("nav button, aside button")].find((b) => b.textContent.trim() === "Grok" || b.getAttribute("aria-label") === "Grok")?.click(), true`,
       );
