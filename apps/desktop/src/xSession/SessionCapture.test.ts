@@ -3,7 +3,7 @@ import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
-import type { EngineBatch, ObservationBatch } from "@xtend/contracts";
+import type { EngineBatch, GrokCapture, ObservationBatch } from "@xtend/contracts";
 import type * as Electron from "electron";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 
@@ -291,4 +291,59 @@ it("never reads X's Chat answers: nothing from chat's own GraphQL reaches the se
   // A finished response the capture takes asks for its body at once: these were never read.
   expect(debug.commands).not.toContain("Network.getResponseBody");
   expect([sent, rendered]).toEqual([[], []]);
+});
+
+it("hands X's older Grok client's answers to the window only: never an observation or an engine batch", async () => {
+  const heard: Array<GrokCapture> = [];
+  const rendered: Array<EngineBatch> = [];
+  detach = attachSessionCapture({ debugger: debug } as unknown as Electron.WebContents, {
+    serviceUrl: "http://127.0.0.1:4820",
+    serviceToken: "tok",
+    accountId: 1,
+    queueDir,
+    log: () => {},
+    onRender: (batch) => rendered.push(batch),
+    onGrok: (capture) => heard.push(capture),
+  });
+  // A Grok conversation, even one that holds a post X sent along with it.
+  const items = { message: "a private question", sender_type: "User", chat_item_id: "1" };
+  debug.received(
+    "1",
+    `${GRAPHQL}/GrokConversationItemsByRestId?variables=%7B%22restId%22%3A%22c1%22%7D`,
+    {
+      data: { grok_conversation_items_by_rest_id: { items: [items] }, post: tweet("9") },
+    },
+  );
+  debug.finished("1");
+  await vi.waitFor(() => expect(heard).toHaveLength(1));
+  expect(heard[0]).toMatchObject({
+    kind: "graphql",
+    op: "GrokConversationItemsByRestId",
+    variables: { restId: "c1" },
+  });
+  // X's streamed answer, one JSON line per chunk, a line split across two chunks.
+  debug.emit("message", {}, "Network.responseReceived", {
+    requestId: "2",
+    response: { url: "https://x.com/i/api/2/grok/add_response.json", mimeType: "text/plain" },
+  });
+  const chunk = (data: string) =>
+    debug.emit("message", {}, "Network.dataReceived", {
+      requestId: "2",
+      data: Buffer.from(data).toString("base64"),
+    });
+  chunk('{"result":{"message":"Repl');
+  chunk('ies"}}\n{"result":{"message":" split"}}\n');
+  debug.finished("2");
+  expect(heard.slice(1)).toEqual([
+    { kind: "chunk", stream: "2", line: '{"result":{"message":"Replies"}}' },
+    { kind: "chunk", stream: "2", line: '{"result":{"message":" split"}}' },
+    { kind: "end", stream: "2" },
+  ]);
+  expect(debug.commands).toContain("Network.streamResourceContent");
+  // The next ordinary response goes to the service, and only its own post.
+  debug.received("3", `${GRAPHQL}/HomeTimeline?variables=%7B%7D`, { data: [tweet("8")] });
+  debug.finished("3");
+  await vi.waitFor(() => expect(sent).toHaveLength(1));
+  expect(sent.flatMap((b) => b.posts.map((p) => p.postId))).toEqual(["8"]);
+  expect(rendered.map((b) => b.op)).toEqual(["HomeTimeline"]);
 });

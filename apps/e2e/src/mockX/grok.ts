@@ -119,6 +119,19 @@ export function createMockGrok(limited: boolean, compact: boolean) {
   const find = (id: unknown) => conversations.find((c) => c.id === id);
   return {
     conversations,
+    /** How long X's older client's stream waits between chunks. */
+    chunkMs: 300,
+    /**
+     * X's older client's streamed answer to `message` (add_response.json), chunk by chunk: the
+     * conversation, then its words, then X's final line.
+     */
+    streamFor: (message: string) => [
+      { conversationId: "c-legacy", userChatItemId: "u-1", agentChatItemId: "a-1" },
+      ...["Replies split ", "between people ", `who asked: ${message}`].map((token) => ({
+        result: { message: token, isThinking: false, messageTag: "final", sender: "ASSISTANT" },
+      })),
+      { result: { isSoftStop: true } },
+    ],
     /** X's compact layout (a narrow window): History is X's own page, not a panel. */
     compact,
     get model() {

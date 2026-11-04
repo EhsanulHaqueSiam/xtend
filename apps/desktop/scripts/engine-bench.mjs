@@ -2431,6 +2431,35 @@ const benchmarks = [
     },
   ],
   [
+    "Grok's backend on X's Grok page, from the requests X's page made, sending nothing",
+    async () => {
+      await go("#/grok");
+      if (!(await until(async () => (await enginePath()).startsWith("/i/grok"), 20_000)))
+        return undefined;
+      await sleep(4_000);
+      // Counts only, from what X's page already fetched: no URL, title or text leaves the page.
+      const x = await engine(`(() => {
+        const urls = performance.getEntriesByType("resource").map((r) => r.name);
+        const count = (has) => urls.filter(has).length;
+        return {
+          xweb: !!document.querySelector("fieldset[data-grok-composer]"),
+          graphql: count((u) => u.includes("/i/api/graphql/") && ["GrokHistory", "GrokPinnedConversations", "GrokConversationItemsByRestId", "GrokHome"].some((op) => u.includes("/" + op))),
+          stream: count((u) => u.includes("/2/grok/add_response.json")),
+          rest: count((u) => u.includes("grok.com/rest/app-chat")),
+        };
+      })()`);
+      console.log(`      ${JSON.stringify(x)}`);
+      const client = x.xweb ? "X's newer Grok client" : "X's older Grok client";
+      const backend =
+        x.rest > 0 && x.graphql === 0
+          ? `grok.com REST (${x.rest} requests)`
+          : x.graphql > 0
+            ? `X's GraphQL (${x.graphql} Grok requests, ${x.stream} streamed)`
+            : "no Grok requests yet";
+      return `${client}, ${backend}`;
+    },
+  ],
+  [
     "Back on Home, the engine follows",
     async () => (
       await go("#/home?feed=following"),

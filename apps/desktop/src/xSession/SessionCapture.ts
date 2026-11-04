@@ -1,7 +1,7 @@
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
-import type { EngineBatch, ObservationBatch, ObservedPost } from "@xtend/contracts";
+import type { EngineBatch, GrokCapture, ObservationBatch, ObservedPost } from "@xtend/contracts";
 import type * as Electron from "electron";
 
 import {
@@ -50,6 +50,11 @@ export interface SessionCaptureOptions {
   readonly onRender?: (batch: EngineBatch) => void;
   /** The id x.com returned for a post the session just created (CreateTweet). */
   readonly onCreatedPost?: (postId: string) => void;
+  /**
+   * X's older Grok client's GraphQL answers and streamed answer lines, for the window only: they
+   * never reach the service, a log or an observation.
+   */
+  readonly onGrok?: (capture: GrokCapture) => void;
   /** The signed-in handle from X's nav, for sessions that never make the Viewer call. */
   readonly fallbackViewer?: () => string | null;
 }
@@ -59,6 +64,15 @@ export function attachSessionCapture(
   options: SessionCaptureOptions,
 ): () => void {
   const pending = new Map<string, string>();
+  // X's streamed Grok answers in flight, by request: the part of a line not yet ended.
+  const streams = new Map<string, string>();
+  const streamLines = (requestId: string, data: string) => {
+    const text = (streams.get(requestId) ?? "") + data;
+    const lines = text.split("\n");
+    streams.set(requestId, lines.pop() ?? "");
+    for (const line of lines)
+      if (line.trim() !== "") options.onGrok?.({ kind: "chunk", stream: requestId, line });
+  };
   // A POST's body (X sends HomeTimeline as one) holds the variables that say which Home tab it is for.
   const postData = new Map<string, string>();
   const debug = contents.debugger;
@@ -77,9 +91,27 @@ export function attachSessionCapture(
       }
       return;
     }
+    // X's streamed Grok answer: each chunk as it arrives, through DevTools' own streaming read.
+    if (method === "Network.dataReceived" && streams.has(params.requestId)) {
+      if (typeof params.data === "string")
+        streamLines(params.requestId, Buffer.from(params.data, "base64").toString("utf8"));
+      return;
+    }
     if (method === "Network.responseReceived") {
       const response = isRecord(params.response) ? params.response : undefined;
       const url = typeof response?.url === "string" ? response.url : "";
+      if (options.onGrok !== undefined && isGrokStreamUrl(url)) {
+        const id = params.requestId;
+        streams.set(id, "");
+        void debug
+          .sendCommand("Network.streamResourceContent", { requestId: id })
+          .then((result: { bufferedData?: string }) => {
+            if (result.bufferedData)
+              streamLines(id, Buffer.from(result.bufferedData, "base64").toString("utf8"));
+          })
+          .catch(() => {});
+        return;
+      }
       const mime = typeof response?.mimeType === "string" ? response.mimeType : "";
       // GraphQL, and X's REST answers the screens use: its count of followers you know, and the
       // user's profile as X's own Edit profile saved it.
@@ -91,6 +123,15 @@ export function attachSessionCapture(
       pending.set(params.requestId, url);
       // Maps iterate in insertion order, so the first key is the oldest request.
       if (pending.size > MAX_PENDING) pending.delete(pending.keys().next().value!);
+      return;
+    }
+    if (
+      (method === "Network.loadingFinished" || method === "Network.loadingFailed") &&
+      streams.has(params.requestId)
+    ) {
+      streamLines(params.requestId, "\n");
+      streams.delete(params.requestId);
+      options.onGrok?.({ kind: "end", stream: params.requestId });
       return;
     }
     if (method === "Network.loadingFailed") {
@@ -133,9 +174,14 @@ export function attachSessionCapture(
       if (batch !== null) options.onRender?.(batch);
       return;
     }
+    // X's older Grok client's answers are the user's chats: the window's only, never an observation.
+    const op = new URL(url).pathname.split("/").at(-1) ?? "";
+    if (GROK_OPS.has(op)) {
+      options.onGrok?.({ kind: "graphql", op, variables: requestVariables(url, sent), body });
+      return;
+    }
     if (options.onRender !== undefined) {
       // /i/api/graphql/<queryId>/<Operation>?variables=...
-      const op = new URL(url).pathname.split("/").at(-1) ?? "";
       const batch = renderEngineBatch(op, requestVariables(url, sent), body);
       if (hasEngineContent(batch)) options.onRender(batch);
     }
@@ -270,6 +316,17 @@ export function attachSessionCapture(
     pending.clear();
   };
 }
+
+/** X's older Grok client's GraphQL operations: its history, pins and a conversation's items. */
+const GROK_OPS = new Set([
+  "GrokHistory",
+  "GrokPinnedConversations",
+  "GrokConversationItemsByRestId",
+]);
+
+/** X's streamed Grok answer, on x.com's API or X's Grok host. */
+const isGrokStreamUrl = (url: string) =>
+  /^https:\/\/(?:x\.com\/i\/api|grok\.x\.com)\/2\/grok\/add_response\.json(?:\?|$)/.test(url);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
