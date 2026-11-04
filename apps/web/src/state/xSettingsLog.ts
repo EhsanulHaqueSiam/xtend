@@ -85,9 +85,13 @@ export const pressTarget = (path: string, item: XSettingsItem, picked?: string) 
 
 /**
  * The user's changes X took but the log has not seen yet, by account and key, with the value X
- * will show: kept apart from any screen, so leaving before X draws it keeps it the user's.
+ * will show: kept apart from any screen, so leaving before X draws it keeps it the user's. Each
+ * press is its own object, so a read settles only the press it was sent with.
  */
-export const xSettingsMarksAtom = Atom.make<ReadonlyMap<string, string>>(new Map()).pipe(
+export interface XSettingMark {
+  readonly value: string;
+}
+export const xSettingsMarksAtom = Atom.make<ReadonlyMap<string, XSettingMark>>(new Map()).pipe(
   Atom.keepAlive,
 );
 
@@ -95,18 +99,19 @@ export const markKey = (accountId: number, key: string) => `${accountId} ${key}`
 
 /** The keys among `values` that show the change the user made in Xtend. */
 export const pressedIn = (
-  marks: ReadonlyMap<string, string>,
+  marks: ReadonlyMap<string, XSettingMark>,
   accountId: number,
   values: ReadonlyArray<XSettingValue>,
-) => values.filter((v) => marks.get(markKey(accountId, v.key)) === v.value).map((v) => v.key);
+) =>
+  values.filter((v) => marks.get(markKey(accountId, v.key))?.value === v.value).map((v) => v.key);
 
 /**
  * `marks` once the log filed `logged` for a read sent while the marks were `sent`: each filed key's
  * mark settles, unless the user pressed it again since, which keeps the newer press theirs.
  */
 export const settleMarks = (
-  marks: ReadonlyMap<string, string>,
-  sent: ReadonlyMap<string, string>,
+  marks: ReadonlyMap<string, XSettingMark>,
+  sent: ReadonlyMap<string, XSettingMark>,
   accountId: number,
   logged: ReadonlyArray<{ readonly key: string }>,
 ) => {

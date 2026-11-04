@@ -217,7 +217,7 @@ export function XSettingsScreen({
         const took = answer === "done" || (now !== null && valueOf(now)?.value === target.value);
         const mark = markKey(accountId(), target.key);
         const marks = new Map(registry.get(xSettingsMarksAtom));
-        if (took) marks.set(mark, target.value);
+        if (took) marks.set(mark, { value: target.value });
         else marks.delete(mark);
         registry.set(xSettingsMarksAtom, marks);
       }
