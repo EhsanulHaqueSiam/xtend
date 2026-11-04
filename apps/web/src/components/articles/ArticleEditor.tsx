@@ -312,7 +312,12 @@ function Editor({
   const [focus, setFocus] = useState<{ readonly index: number; readonly at: number } | null>(null);
   const [active, setActive] = useState(0);
   const [selected, setSelected] = useState<Selected | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  // The editor's own message, with the draft's outcome it was said about (null: any): another
+  // outcome from the service (Plan's Post now, the scheduler) replaces it.
+  const [notice, setNoticeFor] = useState<{
+    readonly text: string;
+    readonly outcome: string | null;
+  } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
@@ -333,6 +338,8 @@ function Editor({
   const current =
     newest !== undefined && draft !== null && newest.updatedAt > draft.updatedAt ? newest : draft;
   const status = current?.status ?? "draft";
+  const setNotice = (text: string | null, about: Draft | null = current) =>
+    setNoticeFor(text === null ? null : { text, outcome: outcomeOf(about) });
   const locked = status === "posted" || status === "posting";
   const cover = media.find((m) => m.blockIndex === 0 && m.kind === "image");
 
@@ -392,7 +399,12 @@ function Editor({
   useEffect(() => {
     if (locked) return;
     const t = setTimeout(
-      () => void flush.current().catch((e: unknown) => setNotice(`Failed: ${readableError(e)}`)),
+      () =>
+        void flush
+          .current()
+          .catch((e: unknown) =>
+            setNoticeFor({ text: `Failed: ${readableError(e)}`, outcome: null }),
+          ),
       600,
     );
     return () => clearTimeout(t);
@@ -598,9 +610,9 @@ function Editor({
         if (Exit.isFailure(exit)) return setNotice(`Failed: ${failText(exit.cause)}`);
         setDraft(exit.value);
         row.current = exit.value;
-        if (exit.value.status === "failed") setNotice(`Failed: ${exit.value.error}`);
+        if (exit.value.status === "failed") setNotice(`Failed: ${exit.value.error}`, exit.value);
         else if (exit.value.status === "posted")
-          setNotice("Success! Your Article has been published");
+          setNotice("Success! Your Article has been published", exit.value);
       }
       setStep(null);
       refresh();
@@ -750,7 +762,11 @@ function Editor({
   // In X's column, so focus mode and a narrow window show it too; a failure stored on the draft
   // (the last attempt's, or the scheduler's) shows until something newer replaces it.
   const message =
-    notice ?? (status === "failed" && current?.error != null ? `Failed: ${current.error}` : null);
+    notice !== null && (notice.outcome === null || notice.outcome === outcomeOf(current))
+      ? notice.text
+      : status === "failed" && current?.error != null
+        ? `Failed: ${current.error}`
+        : null;
   const editor = (
     <div className={cn(locked && "pointer-events-none opacity-80")}>
       {message === null ? null : (
@@ -1040,6 +1056,9 @@ function Editor({
     </XColumn>
   );
 }
+
+/** What a draft's outcome is, as far as a message about it goes. */
+const outcomeOf = (d: Draft | null) => `${d?.status ?? ""}|${d?.error ?? ""}`;
 
 const apiBlock = (cover: DraftMedia | undefined, replies: ReplySettings, usd: number | null) =>
   cover !== undefined

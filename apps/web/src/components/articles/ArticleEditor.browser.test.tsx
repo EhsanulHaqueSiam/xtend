@@ -248,3 +248,52 @@ it("follows the draft as the service moves it: published by the scheduler while 
   await expect.element(screen.getByText("Published", { exact: true })).toBeVisible();
   await expect.element(screen.getByLabelText("Article Title")).toHaveAttribute("readonly");
 });
+
+it("drops its own failure once the service lists a newer outcome: published from Plan after it failed here", async () => {
+  let land = () => {};
+  const landed = new Promise<void>((resolve) => (land = resolve));
+  const event = {
+    type: "draft_status_changed" as const,
+    at: "2030-01-07T09:40:00.000Z",
+    payload: { draftId: "a1", status: "posted" },
+  };
+  let row = article();
+  await using screen = await render(editor("a1"), {
+    service: service(() => [row], {
+      "compose.postNow": () => {
+        row = {
+          ...row,
+          status: "failed",
+          error: "x.com kept Publish off",
+          updatedAt: "2030-01-07T09:30:00.000Z",
+        };
+        return Effect.succeed(row);
+      },
+      "events.subscribe": () =>
+        Stream.fromEffect(Effect.promise(() => landed).pipe(Effect.as(event))).pipe(
+          Stream.concat(Stream.never),
+        ),
+    }),
+  });
+  await userEvent.click(screen.getByRole("button", { name: /^Publish$/ }));
+  await userEvent.click(
+    page
+      .getByRole("list", { name: "Ways out" })
+      .getByRole("button", { name: /Opens X.s Publish dialog/ }),
+  );
+  await userEvent.click(page.getByRole("button", { name: /^Publish\s*free$/ }));
+  await expect
+    .element(screen.getByRole("status"))
+    .toHaveTextContent("Failed: x.com kept Publish off");
+  // Plan's Post now publishes it through the X API while the editor is open.
+  row = {
+    ...row,
+    status: "posted",
+    error: null,
+    postIds: ["19"],
+    updatedAt: "2030-01-07T09:40:00.000Z",
+  };
+  land();
+  await expect.element(screen.getByText("Published", { exact: true })).toBeVisible();
+  await expect.element(screen.getByRole("status")).not.toBeInTheDocument();
+});
