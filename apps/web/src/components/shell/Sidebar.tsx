@@ -2,6 +2,7 @@ import { useAtom, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { Link, useLocation, useNavigate, useRouter } from "@tanstack/react-router";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import {
+  ArrowUpRight,
   ChevronDown,
   CircleCheck,
   Download,
@@ -27,7 +28,7 @@ import {
   Settings,
   Sun,
 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
 
 import { isElectron } from "../../env";
 import { carriesLink, postFromTransfer } from "../../lib/drag";
@@ -182,8 +183,12 @@ function ToolRow({
   const pathname = useLocation({ select: (l) => l.pathname });
   const searchStr = useLocation({ select: (l) => l.searchStr });
   const on = isOn(pathname, tool.to);
-  const sections: ReadonlyArray<{ readonly id: string; readonly label: string }> =
-    on && isSectionRoute(tool.to) ? SECTIONS[tool.to] : [];
+  const sections: ReadonlyArray<{
+    readonly id: string;
+    readonly label: string;
+    readonly group?: string;
+    readonly xPage?: boolean;
+  }> = on && isSectionRoute(tool.to) ? SECTIONS[tool.to] : [];
   const tab = new URLSearchParams(searchStr).get("tab");
   const openId = sections.find((s) => s.id === tab)?.id ?? sections[0]?.id;
   const dragging = useAtomValue(linkDragAtom);
@@ -266,26 +271,43 @@ function ToolRow({
           <TooltipPopup>{`${tool.label} sections`}</TooltipPopup>
         </Tooltip>
       ) : null}
-      {(compact ? [] : sections).map((section) => {
+      {(compact ? [] : sections).map((section, i) => {
         const href = `${tool.to}?tab=${section.id}`;
+        // A group's label heads its first row: Settings lists Xtend's sections, then X's.
+        const group = sections.slice(0, i + 1).findLast((s) => s.group !== undefined)?.group;
+        const heads =
+          section.group !== undefined &&
+          sections.slice(0, i).findLast((s) => s.group !== undefined)?.group !== group;
         return (
-          <a
-            key={section.id}
-            href={router.history.createHref(href)}
-            data-active={section.id === openId}
-            className={cn(SUB_ROW, dragClass(dragging, false))}
-            onClick={(event) => {
-              if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
-              event.preventDefault();
-              void navigate({ href });
-            }}
-          >
-            <RowBody
-              label={section.label}
-              count={tool.to === "/automate" && section.id === "needs-you" ? count : undefined}
-              hot={hot}
-            />
-          </a>
+          <Fragment key={section.id}>
+            {heads ? (
+              <div className="pt-1.5 pb-0.5 pl-[34px] text-3xs font-medium tracking-[0.08em] text-sidebar-muted-foreground/70 uppercase">
+                {group}
+              </div>
+            ) : null}
+            <a
+              href={router.history.createHref(href)}
+              data-active={section.id === openId}
+              className={cn(SUB_ROW, dragClass(dragging, false))}
+              onClick={(event) => {
+                if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+                event.preventDefault();
+                void navigate({ href });
+              }}
+            >
+              <RowBody
+                label={section.label}
+                count={tool.to === "/automate" && section.id === "needs-you" ? count : undefined}
+                hot={hot}
+              />
+              {section.xPage === true ? (
+                <ArrowUpRight
+                  aria-label="X's own page"
+                  className="ml-auto size-3 shrink-0 text-sidebar-muted-foreground"
+                />
+              ) : null}
+            </a>
+          </Fragment>
         );
       })}
     </>
