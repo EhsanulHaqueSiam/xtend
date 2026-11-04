@@ -168,13 +168,22 @@ describe("article body", () => {
     });
     const image = { url: "https://pbs.twimg.com/media/a.jpg", width: 1, height: 1 };
     expect(
-      copyLeavesOut([
-        block({ type: "unstyled", text: "kept" }),
-        block({ markdown: "| a |" }),
-        block({ images: [image, image] }),
-        block({}),
-      ]),
-    ).toEqual({ images: 2, blocks: 1 });
+      copyLeavesOut(
+        [
+          block({ type: "unstyled", text: "kept" }),
+          block({ markdown: "| a |" }),
+          block({ images: [image, image] }),
+          block({}),
+        ],
+        null,
+      ),
+    ).toEqual({ cover: false, images: 2, blocks: 1 });
+    // A text-only Article loses its cover too.
+    expect(copyLeavesOut([block({ type: "unstyled", text: "kept" })], image.url)).toEqual({
+      cover: true,
+      images: 0,
+      blocks: 0,
+    });
   });
 
   it("says what X's Publish says, in X's order", () => {

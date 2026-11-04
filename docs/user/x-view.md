@@ -41,8 +41,8 @@ publish request). The X API cannot carry a cover or a reply setting yet, and X's
 code, LaTeX, dividers and embedded posts only from its own Insert menu, so each way out says what
 it cannot carry before you press it; when X's editor cannot take the article, Publish offers the X
 API instead, at its price. Articles you started on x.com are listed and open read-only;
-**Copy to Xtend** makes a draft of one, and says first what it leaves out (images, embedded posts,
-dividers, LaTeX). Without Premium, Articles shows X's offer, and **Upgrade to
+**Copy to Xtend** makes a draft of one, and says first what it leaves out (the cover, images,
+embedded posts, dividers, LaTeX). Without Premium, Articles shows X's offer, and **Upgrade to
 unlock** opens X's own page. Writing works in a browser too; Publish now needs the desktop app.
 
 An NBA team's profile shows its schedule as X does. A game opens with the day's scores, the
