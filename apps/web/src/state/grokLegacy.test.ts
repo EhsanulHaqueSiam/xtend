@@ -2,6 +2,7 @@ import { expect, it } from "vite-plus/test";
 
 import {
   applyCapture,
+  askLegacy,
   emptyLegacy,
   type GrokLegacyState,
   markdownBlocks,
@@ -107,29 +108,41 @@ it("gives each question to the stream X's ask names its chat in, whichever start
   ]);
 });
 
-it("gives a new chat's question only to the answer X started a new chat for, not an old chat resumed", () => {
-  let s: GrokLegacyState = { ...emptyLegacy, asked: new Map([["", "New"]]) };
-  // An old chat Xtend never cached, resumed.
-  s = applyCapture(s, { kind: "start", stream: "1", conversation: "c-old" });
-  s = applyCapture(s, line({ userChatItemId: "u1" }, "1"));
-  // X creates the new chat's conversation, then asks in it.
-  s = applyCapture(s, {
-    kind: "graphql",
-    op: "CreateGrokConversation",
-    variables: {},
-    body: { data: { create_grok_conversation: { conversation_id: "c-new" } } },
-  });
-  s = applyCapture(s, { kind: "start", stream: "2", conversation: "c-new" });
-  s = applyCapture(s, line({ userChatItemId: "u2" }, "2"));
-  // An ask that names no chat starts one too.
-  s = { ...s, asked: new Map([["", "Newer"]]) };
-  s = applyCapture(s, { kind: "start", stream: "3", conversation: null });
-  s = applyCapture(s, line({ conversationId: "c3", userChatItemId: "u3" }, "3"));
-  expect([turnsOf(s, "c-old"), turnsOf(s, "c-new"), turnsOf(s, "c3")]).toMatchObject([
-    [{ id: "u1", user: null }],
-    [{ id: "u2", user: "New" }],
-    [{ id: "u3", user: "Newer" }],
+it("gives each new chat's question to the conversation X created for it, oldest first, once", () => {
+  const created = (id: string) =>
+    ({
+      kind: "graphql",
+      op: "CreateGrokConversation",
+      variables: {},
+      body: { data: { create_grok_conversation: { conversation_id: id } } },
+    }) as const;
+  const answer = (s: GrokLegacyState, stream: string, conversation: string | null, extra = {}) =>
+    applyCapture(
+      applyCapture(s, { kind: "start", stream, conversation }),
+      line({ userChatItemId: `u${stream}`, ...extra }, stream),
+    );
+  // A created id with no question waiting binds nothing.
+  let s = applyCapture(emptyLegacy, created("c-unused"));
+  s = askLegacy(s, null, "A");
+  s = askLegacy(s, null, "B");
+  s = applyCapture(s, created("cA"));
+  s = applyCapture(s, created("cB"));
+  s = answer(s, "1", "cA");
+  s = answer(s, "2", "cB");
+  // An old chat resumed, and the created id X never asked in, take no one's question.
+  s = askLegacy(s, null, "C");
+  s = answer(s, "3", "c-old");
+  s = answer(s, "4", "c-unused");
+  // An ask naming no chat takes the oldest new chat's.
+  s = answer(s, "5", null, { conversationId: "c5" });
+  expect(["cA", "cB", "c-old", "c-unused", "c5"].map((c) => turnsOf(s, c)[0]?.user)).toEqual([
+    "A",
+    "B",
+    null,
+    null,
+    "C",
   ]);
+  expect([s.asked.size, s.fresh]).toEqual([0, []]);
 });
 
 it("goes on from the part of an answer X's items hold when X resumes its stream", () => {

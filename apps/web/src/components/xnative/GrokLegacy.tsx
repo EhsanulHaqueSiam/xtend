@@ -4,10 +4,12 @@ import { useEffect, useState } from "react";
 
 import type { GrokRead } from "../../state/grok";
 import {
+  askLegacy,
   grokLegacyAtom,
   markdownBlocks,
   openChat,
   turnsOf,
+  unaskLegacy,
   xGrokLegacySend,
 } from "../../state/grokLegacy";
 import { xGo, xUrlAtom } from "../../state/x";
@@ -29,8 +31,11 @@ export function GrokLegacy() {
   try {
     chat = new URL(url).searchParams.get("conversation");
   } catch {}
-  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- marks the chat X's page shows as the one on screen, so the store keeps it.
-  useEffect(() => setLegacy((s) => openChat(s, chat)), [chat, setLegacy]);
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- marks the chat X's page shows as the one on screen while it is, so the store keeps it.
+  useEffect(() => {
+    setLegacy((s) => openChat(s, chat));
+    return () => setLegacy((s) => (s.open === chat ? openChat(s, null) : s));
+  }, [chat, setLegacy]);
   const turns = chat === null ? [] : turnsOf(legacy, chat);
   const live = turns.some((t) => t.live);
   // The same conversation Xtend draws for X's newer client, from X's markdown.
@@ -66,17 +71,10 @@ export function GrokLegacy() {
     if (text.trim() === "" || sending || live) return;
     setSending(true);
     // X's stream names the turn but not the question: its turn in this chat takes these words.
-    const key = chat ?? "";
-    setLegacy((s) => ({ ...s, asked: new Map(s.asked).set(key, text) }));
+    setLegacy((s) => askLegacy(s, chat, text));
     const sent = await press(() => xGrokLegacySend(text));
     setSending(false);
-    if (sent !== "sent" && sent !== "pending")
-      setLegacy((s) => {
-        if (s.asked.get(key) !== text) return s;
-        const asked = new Map(s.asked);
-        asked.delete(key);
-        return { ...s, asked };
-      });
+    if (sent !== "sent" && sent !== "pending") setLegacy((s) => unaskLegacy(s, chat, text));
     if (sent === "sent") setDraft("");
     if (sent === "draft") setToast({ text: "X's Grok box holds a draft; finish it in X." });
     // X draws no Send Xtend knows here: the words wait in X's own box, on X's page.

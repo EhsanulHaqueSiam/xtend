@@ -1,5 +1,5 @@
 import "../../index.css";
-import { useAtomSet } from "@effect/atom-react";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useState } from "react";
 import type { GrokCapture } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
@@ -24,6 +24,7 @@ const hear = (capture: GrokCapture) => {
 };
 const { GrokLegacy } = await import("./GrokLegacy");
 const { EngineSync } = await import("./EngineSync");
+const { grokLegacyAtom } = await import("../../state/grokLegacy");
 const { markXReady, registerXWebview, xUrlAtom } = await import("../../state/x");
 
 // X's older Grok page (bundle.Grok) as the engine holds it: its box and Send, nothing to read.
@@ -51,6 +52,7 @@ markXReady();
 function Screen() {
   const setUrl = useAtomSet(xUrlAtom);
   const [open, setOpen] = useState(true);
+  const onScreen = useAtomValue(grokLegacyAtom).open;
   return (
     <div style={{ height: 700, display: "flex", flexDirection: "column" }}>
       <button type="button" onClick={() => setUrl("https://x.com/i/grok?conversation=c1")}>
@@ -59,6 +61,7 @@ function Screen() {
       <button type="button" onClick={() => setOpen(!open)}>
         Toggle Grok
       </button>
+      <output aria-label="On screen">{onScreen ?? "none"}</output>
       <EngineSync />
       {open ? <GrokLegacy /> : null}
     </div>
@@ -142,4 +145,13 @@ it("presses nothing when the user opens another chat before X's Send is ready, a
   await expect.element(box).toBeEnabled();
   expect(pressed).toEqual([]);
   await expect.element(box).toHaveValue("Only for c1");
+});
+
+it("lets go of the chat it kept on screen once the Grok screen closes", async () => {
+  await using screen = await renderScreen();
+  await userEvent.click(screen.getByRole("button", { name: "On c1" }));
+  const onScreen = screen.getByRole("status", { name: "On screen" });
+  await expect.element(onScreen).toHaveTextContent("c1");
+  await userEvent.click(screen.getByRole("button", { name: "Toggle Grok" }));
+  await expect.element(onScreen).toHaveTextContent("none");
 });
