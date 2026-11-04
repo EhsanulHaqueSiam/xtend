@@ -64,6 +64,23 @@ export const markXReady = () => {
       .then(done);
 };
 
+/** Whether xGo moves X's page at `url` through X's router, not a full load. */
+const routable = (url: string) => {
+  try {
+    const here = new URL(url);
+    return X_HOSTS.has(here.hostname) && !here.pathname.startsWith("/i/flow/");
+  } catch {
+    return false;
+  }
+};
+
+/** True while X's page plays a Space, which a full load of the page would end. */
+let keepPage = false;
+/** Set while X's dock is up (`watchSpaceDock`), so engine moves keep X's page and its audio. */
+export const xKeepPage = (keep: boolean) => {
+  keepPage = keep;
+};
+
 /** Engine moves screens made, so a screen being left can tell whether the next one moved it. */
 let moves = 0;
 
@@ -74,6 +91,12 @@ let moves = 0;
  */
 export const xNavigate = (url: string): Promise<void> => {
   if (!isXUrl(url)) return Promise.resolve();
+  // X leaves the Space it plays when its page unloads; its router keeps its dock and the audio.
+  if (keepPage && element !== null && ready && routable(element.getURL()))
+    return xGo(url).then(
+      () => {},
+      () => {},
+    );
   moves++;
   if (element !== null && ready) return element.loadURL(url).catch(() => {});
   return new Promise((resolve) => {

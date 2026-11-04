@@ -1,5 +1,6 @@
 import type { MockState } from "./state.ts";
 import { esc } from "./pages.ts";
+import { SPACE_REACTIONS } from "./spaces.ts";
 
 /**
  * Mock x.com's one HTML document: X's shell (nav, primary column, the layers X draws menus,
@@ -306,6 +307,8 @@ const SCRIPT = String.raw`
     closeLayers();
     // X's Radar asks afresh each time its page shows (network-only), so it is never cached.
     if (path.startsWith("/i/radar")) cache.delete(key);
+    // X's Space pages say what the user can do in the Space now.
+    if (path.startsWith("/i/spaces/")) cache.delete(key);
     let entry = cache.get(key);
     if (!entry) {
       const view = await load(path);
@@ -967,6 +970,85 @@ const SCRIPT = String.raw`
         ],
       });
     } else go("/i/radar/" + el.dataset.radarRow, false);
+  }, true);
+
+  // X's Spaces: Start listening on a Space's peek and Start now on Create your Space join it and
+  // close the page; X's dock then sits beside X's main column across X's routes, until Leave, End
+  // or the page unloads. Its controls carry X's labels (it has no test ids).
+  const space = (body) => post("/__mock/space", body);
+  async function drawDock() {
+    const view = await fetch("/__mock/space-dock").then(json);
+    document.querySelector("[data-mock-dock]")?.remove();
+    if (view.html) document.getElementById("react-root").append(fragment(view.html).firstElementChild);
+    await Promise.all(view.graphql.map(graphql));
+  }
+  addEventListener("beforeunload", () => navigator.sendBeacon("/__mock/space", JSON.stringify({ kind: "unload" })));
+  function spaceLayer(role, children) {
+    closeLayers();
+    const box = document.createElement("div");
+    box.setAttribute("role", role);
+    box.dataset.mockSpace = "";
+    box.append(...children);
+    layers.append(box);
+    return box;
+  }
+  // X's menus and picker close on Escape, picking nothing.
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && layers.querySelector("[data-mock-space]")) closeLayers();
+  });
+  const item = (role, label, text, run) => {
+    const el = document.createElement("div");
+    el.setAttribute("role", role);
+    if (label) el.setAttribute("aria-label", label);
+    el.textContent = text;
+    el.addEventListener("click", () => { closeLayers(); void run(); });
+    return el;
+  };
+  document.addEventListener("click", (event) => {
+    const el = event.target instanceof Element ? event.target.closest("[data-space-listen], [data-space-start-now], [data-space-close], [data-space-word], [data-space-request], [data-space-mic], [data-space-more], [data-space-react], [data-space-share]") : null;
+    if (!el) return;
+    event.stopPropagation();
+    const dock = document.querySelector("[data-mock-dock]");
+    const id = dock?.dataset.mockDock ?? "";
+    if (el.dataset.spaceListen !== undefined) {
+      log("space:Start listening", el.dataset.spaceListen);
+      return void space({ kind: "listen", id: el.dataset.spaceListen }).then(drawDock).then(() => history.back());
+    }
+    if (el.dataset.spaceStartNow !== undefined) {
+      const title = el.closest("[data-space-start]").querySelector('input[name="title"]').value;
+      log("space:Start now");
+      return void space({ kind: "start", title }).then(drawDock).then(() => history.back());
+    }
+    if (el.dataset.spaceClose !== undefined) return void history.back();
+    if (el.dataset.spaceWord !== undefined) {
+      log("space:" + el.textContent);
+      if (el.textContent === "Leave") return void space({ kind: "leave", id }).then(drawDock);
+      const sheet = spaceLayer("alertdialog", [
+        Object.assign(document.createElement("h2"), { textContent: "End Space?" }),
+        Object.assign(document.createElement("p"), { textContent: "This will end the conversation for everyone." }),
+        // X then shows the Space's page, ended.
+        item("button", "", "Yes, end", () => space({ kind: "end", id }).then(drawDock).then(() => go("/i/spaces/" + id + "/peek", false))),
+        item("button", "", "No", () => {}),
+      ]);
+      sheet.dataset.testid = "confirmationSheetDialog";
+      sheet.children[2].dataset.testid = "confirmationSheetConfirm";
+      sheet.children[3].dataset.testid = "confirmationSheetCancel";
+      return;
+    }
+    const label = el.getAttribute("aria-label");
+    log("space:" + label, id);
+    if (el.dataset.spaceRequest !== undefined) return void space({ kind: label === "Request sent" ? "cancel" : "request", id }).then(drawDock);
+    if (el.dataset.spaceMic !== undefined) return void space({ kind: label === "Mute" ? "mute" : "unmute", id }).then(drawDock);
+    if (el.dataset.spaceMore !== undefined) {
+      const on = !!dock?.querySelector('[role="listbox"]');
+      return void spaceLayer("menu", [
+        item("menuitem", "", on ? "Hide captions" : "Show captions", () => space({ kind: "captions", id }).then(drawDock)),
+        item("menuitem", "", "Report this Space", () => {}),
+      ]);
+    }
+    if (el.dataset.spaceReact !== undefined)
+      return void spaceLayer("dialog", ${JSON.stringify(SPACE_REACTIONS)}.map((e) => item("button", "React with " + e, e, () => space({ kind: "react", id, emoji: e }))));
+    if (el.dataset.spaceShare !== undefined) return void spaceLayer("menu", [item("menuitem", "", "Copy link", () => {})]);
   }, true);
 
   void show();

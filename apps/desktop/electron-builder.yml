@@ -32,6 +32,8 @@ mac:
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    NSMicrophoneUsageDescription: X asks for your microphone when you speak in or host a Space.
   notarize: false
 linux:
   target:

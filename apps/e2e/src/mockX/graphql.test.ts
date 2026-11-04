@@ -53,6 +53,8 @@ const PAGES: ReadonlyArray<readonly [path: string, tab?: string]> = [
   ["/i/trending/900000600001?timeline=story-latest"],
   ["/i/nba/standings"],
   ["/i/nba/players"],
+  ["/sam_sato/status/700000000034"],
+  ["/i/spaces/900000700001/peek"],
 ];
 
 it("answers every request X's pages make with the batch the made-up fixtures hold, as the capture reads it", () => {

@@ -30,6 +30,18 @@ export const peopleAtom = Atom.family((listId: number | null) =>
   }),
 );
 
+/** The account's people among `handles` (space separated, as one key per set of handles). */
+export const trackedPeopleAtom = Atom.family((handles: string) =>
+  clientRuntime.atom(
+    Effect.gen(function* () {
+      const client = yield* XtendClient;
+      return yield* client[Leads_METHODS.peopleByHandles]({
+        handles: handles.split(" ").filter((h) => h !== ""),
+      });
+    }),
+  ),
+);
+
 export const personAtom = Atom.family((id: number) =>
   clientRuntime.atom(
     Effect.gen(function* () {

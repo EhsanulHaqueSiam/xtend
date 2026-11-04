@@ -26,6 +26,8 @@ import type {
   EnginePrompt,
   EngineRadarCount,
   EngineRadarQuery,
+  EngineSpace,
+  EngineSpacePerson,
   EngineTrend,
   EngineUser,
   EngineViewer,
@@ -110,6 +112,17 @@ function readPoll(card: Json): EnginePoll | null {
   };
 }
 
+/** X's card for a Space (`<id>:audiospace`); its `id` binding is the Space's. */
+const SPACE_CARD = /:audiospace$/;
+const SPACE_ID = /^[A-Za-z0-9]{8,20}$/;
+
+function readSpaceCard(tweet: Json): string | undefined {
+  const card = record(tweet.card);
+  if (!SPACE_CARD.test(asString(record(card.legacy).name) ?? "")) return undefined;
+  const id = asString(bindings(card).get("id")?.string_value);
+  return id !== undefined && SPACE_ID.test(id) ? id : undefined;
+}
+
 const imageOf = (value: Json | undefined) => asString(record(value?.image_value).url) ?? null;
 
 function readCard(
@@ -130,7 +143,7 @@ function readCard(
   }
   const card = record(tweet.card);
   const name = asString(record(card.legacy).name) ?? "";
-  if (name === "" || POLL.test(name)) return null;
+  if (name === "" || POLL.test(name) || SPACE_CARD.test(name)) return null;
   const b = bindings(card);
   if (name === "unified_card") return readUnifiedCard(b.get("unified_card")?.string_value);
   const title = asString(b.get("title")?.string_value);
@@ -384,6 +397,7 @@ function readEnginePost(
   const source = entitySource(tweet, legacy);
   const links = readLinks(source);
   const card = readCard(tweet, links);
+  const space = readSpaceCard(tweet);
   const replyingTo = readReplyingTo(legacy);
   const hidden = new Set(
     [
@@ -422,6 +436,7 @@ function readEnginePost(
     aiGenerated:
       record(record(tweet.content_disclosure).ai_generated_disclosure).has_ai_generated_media ===
       true,
+    ...(space === undefined ? {} : { spaceId: space }),
   };
 }
 
@@ -1119,6 +1134,7 @@ function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExp
   // A post's reposters and likers (X's Post activity).
   if (op === "Retweeters" || op === "Favoriters") return s("tweetId") ?? null;
   if (op === "TweetActivityQuery") return s("restId") ?? null;
+  if (op === "AudioSpaceById") return s("id") ?? null;
   const accountAnalytics = accountAnalyticsKey(op, variables);
   if (accountAnalytics !== undefined) return accountAnalytics;
   // A news story's page asks for it by its trend id.
@@ -1157,6 +1173,70 @@ function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExp
       : `radar:${s("product")}:${query}`;
   }
   return s("userId") ?? null;
+}
+
+/** A Space's time, X's milliseconds; null for none. */
+const spaceTime = (value: unknown) => {
+  const ms = typeof value === "string" && /^\d+$/.test(value) ? Number(value) : value;
+  return typeof ms === "number" && ms > 0 ? new Date(ms).toISOString() : null;
+};
+
+/** One of AudioSpaceById's participants (admins, speakers, listeners). */
+function readSpacePerson(
+  value: unknown,
+  role: EngineSpacePerson["role"],
+): EngineSpacePerson | undefined {
+  const p = record(value);
+  const handle = asString(p.twitter_screen_name);
+  if (handle === undefined || !X_HANDLE.test(handle)) return undefined;
+  const userId = asString(record(p.user_results).rest_id);
+  return {
+    userId: userId !== undefined && X_ID.test(userId) ? userId : null,
+    handle: handle.toLowerCase(),
+    name: asString(p.display_name) ?? handle,
+    avatarUrl: asString(p.avatar_url) ?? null,
+    verified: p.is_verified === true,
+    role,
+    muted: role !== "listener" && (p.is_muted_by_admin === true || p.is_muted_by_guest === true),
+  };
+}
+
+/** X's answer for one Space (AudioSpaceById): its state, title, counts and people, in X's order. */
+function readSpace(op: string, data: Json): EngineSpace | undefined {
+  if (op !== "AudioSpaceById") return undefined;
+  const space = record(data.audioSpace);
+  const meta = record(space.metadata);
+  const spaceId = asString(meta.rest_id);
+  const state = asString(meta.state);
+  if (spaceId === undefined || !SPACE_ID.test(spaceId) || state === undefined) return undefined;
+  const participants = record(space.participants);
+  const admins = arr(participants.admins).flatMap(
+    (a, i) => readSpacePerson(a, i === 0 ? "host" : "cohost") ?? [],
+  );
+  const community = result(meta.community_results);
+  const communityId = asString(community.rest_id) ?? asString(community.id_str);
+  const communityName = asString(community.name);
+  return {
+    spaceId,
+    state,
+    title: asString(meta.title) ?? "",
+    scheduledStart: spaceTime(meta.scheduled_start),
+    startedAt: spaceTime(meta.started_at),
+    endedAt: spaceTime(meta.ended_at),
+    listening: asCount(meta.total_live_listeners),
+    replays: asCount(meta.total_replay_watched),
+    recorded: meta.is_space_available_for_replay === true,
+    community:
+      communityId !== undefined && X_ID.test(communityId) && communityName !== undefined
+        ? { communityId, name: communityName }
+        : null,
+    people: [
+      ...admins,
+      ...arr(participants.speakers).flatMap((p) => readSpacePerson(p, "speaker") ?? []),
+      ...arr(participants.listeners).flatMap((p) => readSpacePerson(p, "listener") ?? []),
+    ],
+    total: asCount(participants.total),
+  };
 }
 
 /** A profile's people pages (X's Followers, Following, Followers you know, Verified Followers). */
@@ -1313,6 +1393,7 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
   const folders = readFolderChange(op, variables, data);
   const claims = readClaims(op, data);
   const articles = walkTweets(body, readArticle);
+  const space = readSpace(op, data);
   return {
     op,
     // The user's Communities, once X answered with the list (empty, when they left the last one):
@@ -1385,6 +1466,7 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     ...readRadar(op, data),
     ...(listDeleted === undefined ? {} : { listDeleted }),
     ...(pinnedLists === undefined ? {} : { pinnedLists }),
+    ...(space === undefined ? {} : { spaces: [space] }),
   };
 }
 
@@ -1987,4 +2069,5 @@ export const hasEngineContent = (b: EngineBatch) =>
   b.radarCounts !== undefined ||
   b.radarDeleted !== undefined ||
   b.listDeleted !== undefined ||
+  b.spaces !== undefined ||
   (b.op === "postListQuery" && b.key !== null);

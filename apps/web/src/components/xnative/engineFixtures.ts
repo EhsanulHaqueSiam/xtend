@@ -14,6 +14,8 @@ import type {
   EngineMedia,
   EngineNotification,
   EnginePost,
+  EngineSpace,
+  EngineSpacePerson,
   EngineTrend,
   EngineUser,
   EngineViewer,
@@ -418,6 +420,8 @@ const handleFor = (n: number) =>
 
 // Made-up fixtures, so every native X screen has something to draw before anyone records.
 const SYNTH_AT = "2026-11-01T12:00:00.000Z";
+/** The made-up live Space a post's card opens. */
+export const LIVE_SPACE = "900000700001";
 /** The made-up news story the first Today's News row opens. */
 const STORY_ID = "900000600001";
 /** One team's made-up standing, the rest of X's columns filled in from its record. */
@@ -559,6 +563,7 @@ const UNPAGED = new Set([
   // X's About ends its timeline after the moderators, with no cursors.
   "CommunityAboutTimeline",
   "TweetResultByRestId",
+  "AudioSpaceById",
 ]);
 /** A batch with the parts every response shares empty. */
 const batch = (
@@ -1649,6 +1654,58 @@ export function synth(): Readonly<Record<string, Fixture>> {
     ],
   };
 
+  // X's Spaces: a host's post carrying its live Space's card, and X's answer for that Space with
+  // its hosts, speakers and more listeners than a dock shows.
+  const spacePerson = (
+    u: EngineUser,
+    role: EngineSpacePerson["role"],
+    muted = false,
+  ): EngineSpacePerson => ({
+    userId: u.userId,
+    handle: u.handle,
+    name: u.name,
+    avatarUrl: u.avatarUrl,
+    verified: u.verified,
+    role,
+    muted,
+  });
+  const listeners = Array.from({ length: 40 }, (_, i) => person(30 + i));
+  const liveSpace: EngineSpace = {
+    spaceId: LIVE_SPACE,
+    state: "Running",
+    title: "Churn, pricing pages and the one email that worked",
+    scheduledStart: null,
+    startedAt: ago(9),
+    endedAt: null,
+    listening: 214,
+    replays: null,
+    recorded: true,
+    community: null,
+    people: [
+      spacePerson(PEOPLE[1]!, "host"),
+      spacePerson(PEOPLE[2]!, "cohost"),
+      spacePerson(PEOPLE[3]!, "speaker"),
+      spacePerson(PEOPLE[4]!, "speaker", true),
+      ...[PEOPLE[5]!, PEOPLE[6]!, ...listeners].map((u) => spacePerson(u, "listener")),
+    ],
+    total: 214,
+  };
+  const spacePost = say(
+    1,
+    "Going live in 2 min on what actually moved our churn this quarter. Bring questions.",
+    12,
+    { spaceId: LIVE_SPACE },
+  );
+  const spaces: Fixture = {
+    meta: meta("spaces", "A post with a live Space's card, and X's answer for the Space", [
+      `/post/${spacePost.postId}`,
+    ]),
+    batches: [
+      batch("TweetDetail", spacePost.postId, [spacePost], { users: PEOPLE, bottom: null }),
+      batch("AudioSpaceById", LIVE_SPACE, [], { spaces: [liveSpace] }),
+    ],
+  };
+
   return {
     home,
     post,
@@ -1665,5 +1722,6 @@ export function synth(): Readonly<Record<string, Fixture>> {
     accountAnalytics,
     news,
     sports,
+    spaces,
   };
 }

@@ -41,6 +41,7 @@ import { HoverCard } from "./HoverCard";
 import { viewerAtom } from "./MediaViewer";
 import { ContextLine, LinkCard, Note, Poll } from "./PostParts";
 import { RichText } from "./RichText";
+import { SpaceCard } from "./SpaceCard";
 import { avatar96, engagement, viewsPerHour, xAge, xStamp } from "./format";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
@@ -385,7 +386,7 @@ export function QuoteBox({
 }
 
 /**
- * What X draws under a post's text besides media: its link card, poll and Community Note.
+ * What X draws under a post's text besides media: its Space, link card, poll and Community Note.
  * `onVote` votes in the poll; absent where the viewer cannot (their own poll).
  */
 function Extras({
@@ -397,6 +398,7 @@ function Extras({
 }) {
   return (
     <>
+      {post.spaceId === undefined ? null : <SpaceCard post={post} />}
       {post.card === null ? null : <LinkCard card={post.card} post={post} />}
       {post.poll === null ? null : <Poll postId={post.postId} poll={post.poll} onVote={onVote} />}
       {post.note === null ? null : <Note note={post.note} />}

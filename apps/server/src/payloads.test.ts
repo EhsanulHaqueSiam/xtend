@@ -43,6 +43,7 @@ const wireBytes = (rpc: string, value: unknown) => {
  * why that is safe. A new list RPC lands in the budget above or here, with its reason.
  */
 const UNBUDGETED: Readonly<Record<string, string>> = {
+  "leads.peopleByHandles": "the account's own leads among one Space's people: a handful of rows",
   ...Object.fromEntries(
     [
       "accounts.list",

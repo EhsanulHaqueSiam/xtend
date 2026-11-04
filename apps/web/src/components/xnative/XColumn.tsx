@@ -1,4 +1,4 @@
-import { useAtomSet } from "@effect/atom-react";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useRouter } from "@tanstack/react-router";
 import { ArrowDown, ChevronLeft, ChevronRight, Search } from "lucide-react";
 import {
@@ -24,10 +24,12 @@ import {
   WHEEL_PAUSE_MS,
 } from "../../lib/wheelGesture";
 import { type AnySurface, engineAtom, resetSurface, updateEngine } from "../../state/engine";
+import { spaceDockAtom } from "../../state/spaces";
 import { loadNewPosts, setScreenRefresh } from "../../state/x";
 import { DayGlance } from "../shell/HomeCompanion";
 import { MediaViewer } from "./MediaViewer";
 import { QuoteComposer } from "./QuoteComposer";
+import { SpaceDock } from "./SpaceDock";
 
 /** The element that scrolls an X screen; lists inside virtualize against it. */
 const ScrollParent = createContext<HTMLElement | null>(null);
@@ -135,7 +137,7 @@ function useWheelGestures(
 
 /**
  * X's own reading shape: one 600px column between hairlines, and Xtend's rail beside it (the
- * screen's own panels, then the day at a glance). The
+ * screen's own panels, then the day at a glance, or the Space the user opened). The
  * whole area scrolls, as X's page does, so the wheel works over the rail too; the column header
  * and the rail stay put. When the main area is narrower than both, the rail folds away.
  */
@@ -164,6 +166,7 @@ export function XColumn({
 }) {
   const [scroller, setScroller] = useState<HTMLElement | null>(null);
   const setEngine = useAtomSet(engineAtom);
+  const space = useAtomValue(spaceDockAtom);
   const latest = useRef(refresh);
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- keeps the latest refresh callback for the screen-refresh registration below, without re-registering.
   useEffect(() => {
@@ -227,11 +230,18 @@ export function XColumn({
           <QuoteComposer />
         </section>
         <aside className="sticky top-0 flex h-fit w-[340px] shrink-0 flex-col gap-4 py-3 @max-[1000px]:hidden">
-          {rail}
-          {/* Xtend's day beside every X screen, where X keeps its own right column. */}
-          <section className="rounded-2xl border border-white/[0.12] px-4 pt-1 pb-0 [&>a:first-child]:border-t-0">
-            <DayGlance />
-          </section>
+          {/* X docks an open Space in its right column, in place of what the column holds. */}
+          {space === null ? (
+            <>
+              {rail}
+              {/* Xtend's day beside every X screen, where X keeps its own right column. */}
+              <section className="rounded-2xl border border-white/[0.12] px-4 pt-1 pb-0 [&>a:first-child]:border-t-0">
+                <DayGlance />
+              </section>
+            </>
+          ) : (
+            <SpaceDock spaceId={space} />
+          )}
         </aside>
       </div>
       {GESTURES ? (

@@ -1,0 +1,107 @@
+import { afterAll, beforeAll, expect, test } from "vite-plus/test";
+
+import { LIVE_SPACE } from "../../../web/src/components/xnative/engineFixtures.ts";
+import { STARTED_SPACE } from "../mockX/spaces.ts";
+import { type Engine, startEngine } from "./harness.ts";
+
+/**
+ * Xtend's Space dock on the desktop, with mock X's Spaces as the engine: opening a Space reads X's
+ * answer for it, and only Start listening joins, through X's own button; X's dock then plays in
+ * X's page across Xtend's screens, and every control presses X's own.
+ */
+
+let e: Engine;
+beforeAll(async () => {
+  e = await startEngine();
+});
+afterAll(() => e?.close());
+
+const go = (route: string) => e.app.evaluate((hash) => void (location.hash = hash), `#${route}`);
+const enginePath = () => e.engine<string>("location.pathname + location.search");
+const pane = () => e.app.locator('section[aria-label="x.com"]').getAttribute("data-mode");
+const presses = () =>
+  e.mock.state.presses.map((p) => `${p.kind} ${p.name} ${p.target ?? ""}`.trim());
+const dock = () => e.app.locator('[data-x="space-dock"]');
+const palette = async (command: string) => {
+  await e.app.keyboard.press("Control+k");
+  await e.app.getByRole("option", { name: command, exact: true }).click();
+};
+
+test("A post's Space opens the dock and joins nothing; Start listening joins through X's own button, and X keeps playing across Xtend's screens", async () => {
+  const post = e.mock.state.fixtures().spaces!.batches[0]!.posts[0]!;
+  const page = `/${post.author.handle}/status/${post.postId}`;
+  const open = `/post/${post.postId}?h=${post.author.handle}`;
+  await go(open);
+  await expect.poll(enginePath).toBe(page);
+  await e.app.locator('main [data-x="space-card"]').click();
+  await dock().getByText("214 listening").waitFor();
+  // X's card already answered for the Space: the dock moved nothing and pressed nothing.
+  expect(await enginePath()).toBe(page);
+  expect(presses().filter((p) => p.includes("space:"))).toEqual([]);
+  expect(e.mock.state.spaces.dock).toBeNull();
+
+  await dock().getByRole("button", { name: "Start listening" }).click();
+  await dock().getByRole("button", { name: "Leave" }).waitFor();
+  expect(presses()).toEqual(
+    expect.arrayContaining([
+      `press space:Start listening ${LIVE_SPACE}`,
+      `write space:listen ${LIVE_SPACE}`,
+    ]),
+  );
+  // X closes the Space's page as it joins; the engine is back on the post.
+  await expect.poll(enginePath).toBe(page);
+
+  await dock().getByRole("button", { name: "Request to speak" }).click();
+  await dock().getByRole("button", { name: "Cancel request" }).waitFor();
+  expect(presses()).toContain(`write space:request ${LIVE_SPACE}`);
+  await dock().getByRole("button", { name: "Show captions" }).click();
+  await dock().getByText("Welcome in. We'll do twenty minutes on churn").waitFor();
+  await dock().getByRole("button", { name: "React" }).click();
+  await e.app.getByRole("menuitem", { name: "💯" }).click();
+  await expect.poll(presses).toContain("write space:react 💯");
+
+  // Xtend's screens, and a page Xtend does not draw (a full load anywhere else), move X's page
+  // through X's router while it plays: the same page, its dock still up.
+  await e.engine("window.__stillLoaded = true");
+  await go("/bookmarks");
+  await expect.poll(enginePath).toBe("/i/bookmarks");
+  await palette("Notifications");
+  await expect.poll(enginePath).toBe("/notifications");
+  expect(await e.engine("window.__stillLoaded === true")).toBe(true);
+  expect(e.mock.state.spaces.dock?.spaceId).toBe(LIVE_SPACE);
+  expect(presses()).not.toContain("write space:unload");
+
+  await go(open);
+  await expect.poll(enginePath).toBe(page);
+  await dock().getByRole("button", { name: "Leave" }).click();
+  await dock().getByRole("button", { name: "Start listening" }).waitFor();
+  expect(presses()).toContain(`write space:leave ${LIVE_SPACE}`);
+  expect(e.mock.state.spaces.dock).toBeNull();
+});
+
+test("Start a Space opens X's own Create your Space over the main area, and End asks in X's own confirm", async () => {
+  await go("/home?feed=following");
+  await palette("Start a Space");
+  await expect.poll(enginePath).toBe("/i/spaces/start");
+  await expect.poll(pane).toBe("main");
+  await e.engine(
+    `(() => { document.querySelector('[data-space-start] input[name="title"]').value = "Office hours"; document.querySelector("[data-space-start-now]").click(); return true; })()`,
+  );
+  await expect.poll(pane).toBe("hidden");
+  expect(presses()).toContain("write space:start Office hours");
+  // Xtend's dock follows X's to the Space the user hosts, as X's answer names its host.
+  await dock().getByText("Office hours").waitFor();
+  await dock().getByRole("button", { name: "Mute" }).click();
+  await dock().getByRole("button", { name: "Unmute" }).waitFor();
+
+  await dock().getByRole("button", { name: "End", exact: true }).click();
+  await expect.poll(pane).toBe("main");
+  const confirm = `document.querySelector('#layers [data-testid="confirmationSheetConfirm"]')`;
+  await expect.poll(() => e.engine(`!!${confirm}`)).toBe(true);
+  await e.engine(`${confirm}.click(), true`);
+  await expect.poll(pane).toBe("hidden");
+  await expect.poll(presses).toContain(`write space:end ${STARTED_SPACE}`);
+  // X showed the Space ended; the engine is back on Home, and the dock says so.
+  await dock().getByText("ENDED").waitFor();
+  await expect.poll(enginePath).toBe("/home");
+});

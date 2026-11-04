@@ -33,6 +33,7 @@ export const layerHandlers = LeadsRpcGroup.toLayer(
     const agents = yield* SignalAgents.SignalAgents;
     return LeadsRpcGroup.of({
       [Leads_METHODS.peopleList]: (query) => people.list(query),
+      [Leads_METHODS.peopleByHandles]: ({ handles }) => people.byHandles(handles),
       [Leads_METHODS.personGet]: ({ id }) =>
         Effect.all({ person: people.get(id), activity: people.activity(id) }),
       [Leads_METHODS.personProfile]: ({ id }) => ops.profile(id),

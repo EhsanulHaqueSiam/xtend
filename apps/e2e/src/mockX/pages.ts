@@ -464,6 +464,12 @@ function radarPage(state: MockState, page: string | undefined): Route {
   };
 }
 
+/** X's AudioSpaceById for a Space, as its peek, its card and its dock ask it. */
+export const spaceRequest = (id: string): GraphqlRequest => ({
+  op: "AudioSpaceById",
+  variables: { id, isMetatagsQuery: false, withReplays: true, withListeners: true },
+});
+
 /** The route for an x.com path (with its query), and Home's picked tab. */
 export function route(state: MockState, pathWithQuery: string, homeTab: string): Route {
   const url = new URL(pathWithQuery, "https://x.com");
@@ -474,6 +480,19 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
   const lower = first.toLowerCase();
 
   if (lower === "i" && second === "radar" && fourth === undefined) return radarPage(state, third);
+  // X's Spaces (bundle.AudioSpacePeek, AudioSpaceStart): /i/spaces/<id> opens its peek.
+  if (lower === "i" && second === "spaces" && third !== undefined) {
+    if (third === "start")
+      return { title: "Create your Space / X", requests: [], render: () => state.spaces.start() };
+    if (fourth === undefined)
+      return { title: "X", requests: [], redirect: `/i/spaces/${third}/peek`, render: () => "" };
+    if (fourth === "peek")
+      return {
+        title: "Space / X",
+        requests: [spaceRequest(third)],
+        render: () => state.spaces.peek(third),
+      };
+  }
   if (lower === "i" && second === "chat") {
     const page = chatPage(state.chat, url.pathname);
     return { title: page.title, requests: [], render: () => page.html };
@@ -1404,6 +1423,10 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
             with_rux_injections: false,
             includePromotedContent: true,
           }),
+          // X's Space card asks X for its Space.
+          ...(state.post(id)?.spaceId === undefined
+            ? []
+            : [spaceRequest(state.post(id)!.spaceId!)]),
         ],
         render: ([b]) => {
           if (b === null || b === undefined)

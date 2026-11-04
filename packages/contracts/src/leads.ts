@@ -183,6 +183,7 @@ const LeadsOrX = Schema.Union([LeadsError, XApiError]);
 
 export const Leads_METHODS = {
   peopleList: "leads.peopleList",
+  peopleByHandles: "leads.peopleByHandles",
   personGet: "leads.personGet",
   personProfile: "leads.personProfile",
   personAdd: "leads.personAdd",
@@ -211,6 +212,12 @@ export const LeadsRpcGroup = RpcGroup.make(
   Rpc.make(Leads_METHODS.peopleList, {
     payload: PeopleQuery,
     success: PeoplePage,
+    error: LeadsError,
+  }),
+  /** The account's people among these handles, any case: who a Space or a list of X's names. */
+  Rpc.make(Leads_METHODS.peopleByHandles, {
+    payload: Schema.Struct({ handles: Schema.Array(XHandle).check(Schema.isMaxLength(2000)) }),
+    success: Schema.Array(Person),
     error: LeadsError,
   }),
   Rpc.make(Leads_METHODS.personGet, {

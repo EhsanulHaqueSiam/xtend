@@ -20,6 +20,7 @@ import type {
   EnginePrompt,
   EngineRadarCount,
   EngineRadarQuery,
+  EngineSpace,
   EngineStory,
   EngineTrend,
   EngineUser,
@@ -466,6 +467,8 @@ export interface EngineState {
   readonly claims: ReadonlySet<string> | null;
   /** The user's bookmark folders in X's order; null until X listed them, which it does for Premium. */
   readonly bookmarkFolders: ReadonlyArray<EngineBookmarkFolder> | null;
+  /** X's Spaces by id, as X last described each (AudioSpaceById). */
+  readonly spaces: ReadonlyMap<string, EngineSpace>;
 }
 
 /** X's claim for its account analytics (GetUserClaims), Premium. */
@@ -588,6 +591,7 @@ export const emptyEngine: EngineState = {
   cursors: {},
   claims: null,
   bookmarkFolders: null,
+  spaces: new Map(),
 };
 
 /** A surface's entries; a tab X has not sent yet has none. */
@@ -770,6 +774,10 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
     bookmarkFolders: foldersOf(state.bookmarkFolders, batch),
     ...folderPost(state, batch),
     radar: mergeRadar(state.radar, batch),
+    spaces:
+      batch.spaces === undefined || batch.spaces.length === 0
+        ? state.spaces
+        : new Map([...state.spaces, ...batch.spaces.map((sp) => [sp.spaceId, sp] as const)]),
   };
   const listed = surfacesOf(batch).reduce(
     (state, surface) =>

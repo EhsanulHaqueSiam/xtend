@@ -15,6 +15,7 @@ import type {
 import { synth } from "../../../web/src/components/xnative/engineFixtures.ts";
 import { createMockChat } from "./chat.ts";
 import { encodeBody, encodeFolder, encodeList, encodeRestUser, encodeTweet } from "./graphql.ts";
+import { createMockSpaces } from "./spaces.ts";
 
 /**
  * What mock X knows: the people and posts of the made-up engine fixtures (`synth()`), the pages
@@ -168,6 +169,7 @@ export function createMockState(options: MockOptions = {}) {
   const fixture = (op: string, k: string | null) => snapshot.get(key(op, k));
   const home = fixtures.home!.batches;
   const viewer = home.find((b) => b.viewer !== null)!.viewer!;
+  const spaces = createMockSpaces(batches, viewer);
 
   const basePosts = new Map<string, EnginePost>();
   const baseUsers = new Map<string, EngineUser>();
@@ -654,6 +656,13 @@ export function createMockState(options: MockOptions = {}) {
       }
       case "TweetDetail":
         return threadOf(s(variables, "focalTweetId") ?? "", s(variables, "rankingMode"));
+      case "AudioSpaceById": {
+        const id = s(variables, "id") ?? "";
+        const space = spaces.space(id);
+        return space === undefined
+          ? null
+          : page(op, id, [], { top: null, bottom: null, spaces: [space] });
+      }
       case "TweetResultByRestId": {
         // Only the fixtures' Articles have a reader page.
         const id = s(variables, "tweetId");
@@ -1334,6 +1343,8 @@ export function createMockState(options: MockOptions = {}) {
       fixture("ConnectTabTimeline", "connect:creators")!.people.includes(userId),
     /** Everything pressed and written, in order. */
     presses,
+    /** X's Spaces: who is in them, and X's dock for the one the user is in. */
+    spaces,
     /** X's Chat: conversations, requests, the pages X opened, and its passcode lock. */
     chat: createMockChat(options.chatLocked === true, people),
     /** X's Radar: whether the account has Premium, X's query limit, and its queries. */

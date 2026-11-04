@@ -824,6 +824,50 @@ const benchmarks = [
     },
   ],
   [
+    "Spaces: a post's Space opens Xtend's dock saying what X's own page for it says, and joins nothing (dry)",
+    async () => {
+      // Nothing is pressed: opening a Space reads X's answer for it (AudioSpaceById); only X's
+      // Start listening, which the bench never presses, makes the account a listener.
+      const q = "filter:spaces";
+      await reset(`search:Latest:${q}`);
+      await go(`#/search?q=${encodeURIComponent(q)}&f=latest`);
+      const card = `document.querySelector('main [data-x="space-card"]')`;
+      if (!(await until(() => app(`!!${card}`)))) return "no post with a Space on X's search now";
+      await app(`${card}.click(), true`);
+      const title = await until(() =>
+        app(
+          `(() => { const d = document.querySelector('[data-x="space-dock"][aria-label]'); return d && d.getAttribute("aria-label"); })()`,
+        ),
+      );
+      if (!title) return false;
+      const space = await store(
+        `(() => { const s = [...$.spaces.values()].find((x) => x.title === ${JSON.stringify(title)}); return s && { id: s.spaceId, state: s.state }; })()`,
+      );
+      if (!space) return false;
+      // X's own page for the Space: its title, and the one button X offers for its state.
+      const want =
+        space.state === "Running"
+          ? "Start listening"
+          : space.state === "NotStarted"
+            ? "Set reminder"
+            : "Play recording";
+      await engineGo(`/i/spaces/${space.id}/peek`);
+      const xs = await until(() =>
+        engine(
+          `document.body.innerText.includes(${JSON.stringify(title)}) && !!document.querySelector(${JSON.stringify(`[aria-label="${want}"]`)})`,
+        ),
+      );
+      const joined = await engine(
+        `[...document.querySelectorAll('[role="button"]')].some((b) => !b.hasAttribute("aria-label") && /^(Leave|End)$/.test(b.textContent.trim()))`,
+      );
+      await engine(`location.pathname.endsWith("/peek") && history.back(), true`);
+      await app(
+        `document.querySelector('[data-x="space-dock"] button[aria-label="Close"]')?.click(), true`,
+      );
+      return xs && !joined && `${space.id} (${space.state}): X's page shows "${title}" and ${want}`;
+    },
+  ],
+  [
     "Profile people: X's tabs (Followers you know only with mutuals), each listing what X's page lists",
     async () => {
       const seen = await until(() =>

@@ -1,6 +1,6 @@
 import { expect, it } from "vite-plus/test";
 
-import { markXReady, registerXWebview, xAct, xGo, xNavigate, type XWebview } from "./x";
+import { markXReady, registerXWebview, xAct, xGo, xKeepPage, xNavigate, type XWebview } from "./x";
 
 /** A webview that records what it was asked to do, showing `url`; scripts answer `answers` in turn. */
 const fakeWebview = (url: string, answers: Array<unknown> = []) => {
@@ -32,6 +32,26 @@ it("moves within x.com through X's router, and loads anything it cannot", async 
   markXReady();
   await xGo("https://x.com/home");
   expect(signingIn.calls).toEqual(["load https://x.com/home"]);
+
+  // X leaves the Space it plays when its page unloads: while it plays, a load goes through X's
+  // router, unless X's page is one its router cannot leave.
+  const playing = fakeWebview("https://x.com/home");
+  registerXWebview(playing.el);
+  markXReady();
+  xKeepPage(true);
+  await xNavigate("https://x.com/i/bookmarks");
+  registerXWebview(signingIn.el);
+  markXReady();
+  await xNavigate("https://x.com/home");
+  xKeepPage(false);
+  registerXWebview(playing.el);
+  markXReady();
+  await xNavigate("https://x.com/i/bookmarks");
+  expect(playing.calls).toEqual([
+    'run history.pushState(null, "", "/i/bookmarks',
+    "load https://x.com/i/bookmarks",
+  ]);
+  expect(signingIn.calls.at(-1)).toBe("load https://x.com/home");
 });
 
 it("presses X's button in place, or on the post's page and then back to the list", async () => {
