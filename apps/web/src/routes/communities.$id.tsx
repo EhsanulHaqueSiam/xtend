@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { fmt } from "../components/analyze/ui";
 import { Menu, MenuItem } from "../components/ui/menu";
 import { CommunityHeader, ICON_BUTTON } from "../components/xnative/CommunityHeader";
+import { AdminToolsButton, CommunityChecklist } from "../components/xnative/CommunityTools";
 import { Timeline } from "../components/xnative/Timeline";
 import { XColumn, XSearchBar, XTabs, XTitle } from "../components/xnative/XColumn";
 import { xtendRoute } from "../components/xnative/RichText";
@@ -17,6 +18,8 @@ import {
   type CommunityTab,
   communitySurface,
   engineAtom,
+  moderates,
+  roleIn,
 } from "../state/engine";
 import { xGo, xNavigate, xOverAtom, xOverEnded, xPickCommunitySearchTab } from "../state/x";
 
@@ -110,6 +113,11 @@ function CommunityScreen() {
     );
 
   const surface = communitySurface(id, current.label);
+  // X answered its posts with none (its cursors are in, its posts are not): X's empty state.
+  const none =
+    (current.label === "Top" || current.label === "Latest") &&
+    at(engine.lists, surface).length === 0 &&
+    engine.cursors[surface] !== undefined;
   const header = (
     <XTitle
       title={community?.name ?? "Community"}
@@ -127,7 +135,12 @@ function CommunityScreen() {
           >
             <Search className="size-5" />
           </button>
-          <CommunityMore />
+          {/* X gives its admins and moderators the gear to Admin tools where others get "More". */}
+          {moderates(roleIn(engine, id)) ? (
+            <AdminToolsButton communityId={id} />
+          ) : (
+            <CommunityMore />
+          )}
         </>
       }
     />
@@ -145,6 +158,16 @@ function CommunityScreen() {
           }
         />
       </div>
+      {/* X draws a new Community's checklist atop its posts on the Community's own page. */}
+      {current.id === "top" ? <CommunityChecklist communityId={id} /> : null}
+      {none ? (
+        <div className="px-8 py-10">
+          <p className="text-[31px] leading-9 font-extrabold">
+            There aren’t any posts in this Community yet
+          </p>
+          <p className="mt-2 text-[15px] text-[#71767b]">Once there are, you’ll see them here.</p>
+        </div>
+      ) : null}
     </div>
   );
   if (current.label === "About")
@@ -160,9 +183,11 @@ function CommunityScreen() {
       header={header}
       top={top}
       empty={
-        current.label === "Media"
-          ? "Loading the Community's media from X."
-          : "Loading the Community from X."
+        none
+          ? null
+          : current.label === "Media"
+            ? "Loading the Community's media from X."
+            : "Loading the Community from X."
       }
       onReopen={reload}
     />

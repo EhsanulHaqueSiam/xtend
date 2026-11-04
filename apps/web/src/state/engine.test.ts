@@ -38,6 +38,7 @@ import {
   postOn,
   postSurface,
   profileSurface,
+  roleIn,
   radarSurface,
   resetSurface,
   sawAnalyticsPage,
@@ -426,6 +427,55 @@ it("lists the user's Communities in X's order, and keeps what each response said
   expect(at(again.communityIds, "communities:mine")).toEqual(["20"]);
   const none = mergeBatch(again, batch("CarouselQuery", [], { key: "communities:mine" }));
   expect(at(none.communityIds, "communities:mine")).toEqual([]);
+});
+
+it("sums what X tells a Community's moderators across answers, and its Admin tools name the role", () => {
+  // X's Admin tools: counts and the role, no name; then X's fetch of it for its settings.
+  const tools = batch("CommunityToolsScreenContainerQuery", [], {
+    communityAdmin: [{ communityId: "20", role: "Moderator", reported: 3, requests: 4 }],
+  });
+  const fetched = batch("CommunitiesFetchOneQuery", [], {
+    communityAdmin: [{ communityId: "20", question: null, searchTags: ["saas"], nsfw: false }],
+  });
+  const state = [tools, fetched].reduce(mergeBatch, emptyEngine);
+  expect(state.communityAdmin.get("20")).toEqual({
+    communityId: "20",
+    role: "Moderator",
+    reported: 3,
+    requests: 4,
+    question: null,
+    searchTags: ["saas"],
+    nsfw: false,
+  });
+  expect(roleIn(state, "20")).toBe("Moderator");
+  // X's page answers afresh: the reports handled, and the role X now gives the viewer.
+  const later = mergeBatch(
+    state,
+    batch("CommunityQuery", [], {
+      communities: [
+        {
+          communityId: "20",
+          name: "C20",
+          description: null,
+          bannerUrl: null,
+          members: null,
+          topic: null,
+          rules: null,
+          joinPolicy: null,
+          role: "Admin",
+        },
+      ],
+      communityAdmin: [{ communityId: "20", reported: 0 }],
+    }),
+  );
+  expect([later.communityAdmin.get("20")?.reported, roleIn(later, "20")]).toEqual([0, "Admin"]);
+  expect(roleIn(later, "21")).toBeNull();
+  // X's create button, as X's answer offers it, stays until X says otherwise.
+  const offered = mergeBatch(
+    later,
+    batch("CommunitiesCreateButtonQuery", [], { communityCreate: "verify" }),
+  );
+  expect(mergeBatch(offered, batch("Viewer", [])).communityCreate).toBe("verify");
 });
 
 it("keeps what X took for a join, ask or leave until X's capture of the Community agrees", () => {

@@ -8,6 +8,7 @@ import {
   type CommunitiesSearchTab,
 } from "../components/xnative/CommunitiesSearch";
 import { ICON_BUTTON } from "../components/xnative/CommunityHeader";
+import { CreateCommunityButton } from "../components/xnative/CommunityTools";
 import { Timeline } from "../components/xnative/Timeline";
 import { XTabs, XTitle } from "../components/xnative/XColumn";
 import { at, type CommunitiesTab, engineAtom } from "../state/engine";
@@ -61,16 +62,19 @@ function CommunitiesHub({ tab }: { readonly tab: Tab }) {
           <XTitle
             title="Communities"
             actions={
-              <button
-                type="button"
-                aria-label="Search Communities"
-                className={ICON_BUTTON}
-                onClick={() =>
-                  void navigate({ to: "/communities", search: { q: "", tab: "communities" } })
-                }
-              >
-                <Search className="size-5" />
-              </button>
+              <>
+                <button
+                  type="button"
+                  aria-label="Search Communities"
+                  className={ICON_BUTTON}
+                  onClick={() =>
+                    void navigate({ to: "/communities", search: { q: "", tab: "communities" } })
+                  }
+                >
+                  <Search className="size-5" />
+                </button>
+                <CreateCommunityButton handle={handle} />
+              </>
             }
           />
           <XTabs

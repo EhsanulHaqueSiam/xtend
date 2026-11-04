@@ -46,6 +46,9 @@ import {
   xHeard,
   xNavigate,
   xGo,
+  xChecklist,
+  xControl,
+  xPressToPage,
 } from "./x";
 
 // X's page as the engine holds it: a post quoting 42, then 42 itself, edited, so its timestamp
@@ -2189,5 +2192,123 @@ it("leaves the overlay to a newer press when the user moves on while Xtend check
     expect(shown).toEqual([true]);
   } finally {
     history.replaceState(null, "", start);
+  }
+});
+
+it("finds X's own control by its words or its label, a checkbox row's box, and never one X draws twice", () => {
+  document.body.innerHTML = `
+    <a href="/i/communities/create" role="link"><svg aria-label="Create a new Community"></svg></a>
+    <div role="button"><span>Leave moderation team</span></div>
+    <label><div>Adult Content (NSFW)</div><input type="checkbox"></label><div>Help text</div>
+    <div role="listitem"><div>Invite members</div><svg aria-label="Uncompleted"></svg></div>
+    <a href="/i/communities/20/tools/members">Members<span>1,284 members</span></a>
+    <button>Save</button><button>Save</button>`;
+  expect(xControl(document, "Create a new Community")?.tagName).toBe("A");
+  expect(xControl(document, "Leave moderation team")?.getAttribute("role")).toBe("button");
+  expect((xControl(document, "Adult Content (NSFW)") as HTMLInputElement).type).toBe("checkbox");
+  expect(xControl(document, "Invite members")?.getAttribute("role")).toBe("listitem");
+  // A row whose words run on, and a name X draws twice, are never pressed.
+  expect(xControl(document, "Members")).toBeNull();
+  expect(xControl(document, "Save")).toBeNull();
+});
+
+it("reads X's checklist card: its rows in X's order, each done or not, and none without the card", () => {
+  document.body.innerHTML = `<div><div><h2>Community checklist</h2><button aria-label="Dismiss Checklist"></button></div>
+    <div role="list"><div role="listitem"><div>Review your rules</div><svg aria-label="Completed"></svg></div>
+    <div role="listitem"><div>Invite members</div><svg aria-label="Uncompleted"></svg></div></div></div>`;
+  expect(xChecklist(document)).toEqual([
+    { title: "Review your rules", done: true },
+    { title: "Invite members", done: false },
+  ]);
+  document.body.innerHTML = `<div role="list"><div role="listitem">Something else</div></div>`;
+  expect(xChecklist(document)).toBeNull();
+});
+
+it("holds X's page over the main area after the user confirms in X's sheet, until X leaves it", async () => {
+  using _clock = fakeTimers();
+  const start = location.pathname + location.search;
+  history.replaceState(null, "", "/i/communities/20/tools");
+  document.body.innerHTML = `<a href="/i/communities/20/tools/members">Members</a><div role="button"><span>Leave moderation team</span></div>`;
+  // X's sheet on the press; its buttons close it, and after a confirm X writes before it moves on.
+  document.querySelector('[role="button"]')!.addEventListener("click", () => {
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      `<div role="alertdialog"><button data-testid="confirmationSheetConfirm">Yes, I want to leave</button><button data-testid="confirmationSheetCancel">Cancel</button></div>`,
+    );
+    for (const b of document.querySelectorAll('[role="alertdialog"] button'))
+      b.addEventListener("click", () => document.querySelector('[role="alertdialog"]')!.remove());
+  });
+  inThisPage(() => `https://x.com${location.pathname}`);
+  const shown: Array<boolean> = [];
+  const drawn = (href: string) => /^\/i\/communities\/20(\/tools)?$/.test(new URL(href).pathname);
+  const leave = () =>
+    xPressToPage("/i/communities/20/tools", "Leave moderation team", drawn, (on) => shown.push(on));
+  const sheet = (button: string) =>
+    document.querySelector<HTMLElement>(`[data-testid="confirmationSheet${button}"]`)!.click();
+  try {
+    const leaving = leave();
+    await vi.advanceTimersByTimeAsync(600);
+    expect(shown).toEqual([true]);
+    sheet("Confirm");
+    // X is writing: back on its tools page with no sheet, it is not done yet.
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(shown).toEqual([true]);
+    history.replaceState(null, "", "/i/communities/20");
+    await vi.advanceTimersByTimeAsync(600);
+    expect([new URL(String(await leaving)).pathname, shown]).toEqual([
+      "/i/communities/20",
+      [true, false],
+    ]);
+    // Cancelled in X's sheet: X stays where it was, and is done.
+    history.replaceState(null, "", "/i/communities/20/tools");
+    const kept = leave();
+    await vi.advanceTimersByTimeAsync(600);
+    sheet("Cancel");
+    await vi.advanceTimersByTimeAsync(600);
+    expect(new URL(String(await kept)).pathname).toBe("/i/communities/20/tools");
+  } finally {
+    history.replaceState(null, "", start);
+    registerXWebview(null);
+  }
+});
+
+it("presses only the control in the box of the Community it is for, never one left from another", async () => {
+  using _clock = fakeTimers();
+  const start = location.pathname + location.search;
+  const tools = (id: string) =>
+    `<div data-c="${id}"><a href="/i/communities/${id}/tools/members">Members</a><div role="button"><span>Leave moderation team</span></div></div>`;
+  const pressedIn: Array<string> = [];
+  const listen = () => {
+    for (const b of document.querySelectorAll('[role="button"]'))
+      b.addEventListener("click", () =>
+        pressedIn.push(b.closest<HTMLElement>("[data-c]")!.dataset.c!),
+      );
+  };
+  inThisPage(() => `https://x.com${location.pathname}`);
+  const leave = () =>
+    xPressToPage(
+      "/i/communities/20/tools",
+      "Leave moderation team",
+      () => true,
+      () => {},
+    );
+  try {
+    // X's router is on Community 20 already, while its page still draws Community 10's tools.
+    history.replaceState(null, "", "/i/communities/20/tools");
+    document.body.innerHTML = tools("10");
+    listen();
+    const refused = leave();
+    await vi.advanceTimersByTimeAsync(8000);
+    expect([await refused, pressedIn]).toEqual([false, []]);
+    // Both drawn, the old one first: only Community 20's is pressed.
+    document.body.innerHTML = tools("10") + tools("20");
+    listen();
+    const left = leave();
+    await vi.advanceTimersByTimeAsync(8000);
+    await left;
+    expect(pressedIn).toEqual(["20"]);
+  } finally {
+    history.replaceState(null, "", start);
+    registerXWebview(null);
   }
 });

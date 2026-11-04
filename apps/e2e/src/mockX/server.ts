@@ -38,6 +38,13 @@ const WRITES = new Set([
   "JoinCommunity",
   "RequestToJoinCommunity",
   "LeaveCommunity",
+  "CommunityEditName",
+  "CommunityEditPurpose",
+  "CommunityEditQuestion",
+  "SettingsUpdateAdultContentMutation",
+  "CreateCommunity",
+  "DeleteCommunityMutation",
+  "CommunityUpdateRole",
   "PinTimeline",
   "UnpinTimeline",
   "CreateList",
@@ -206,6 +213,12 @@ export async function startMockX(
       case "/__mock/trend": {
         const body = await readBody(req);
         state.setTrendHidden(String(body.path), String(body.name), body.hidden === true);
+        return json({ ok: true });
+      }
+      // X's checklist rows mark themselves done in X's own page; the mock keeps them here.
+      case "/__mock/checklist": {
+        const body = await readBody(req);
+        state.pressChecklist(String(body.communityId), String(body.flag));
         return json({ ok: true });
       }
       case "/__mock/menu":
