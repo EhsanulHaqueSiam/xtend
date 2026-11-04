@@ -371,6 +371,16 @@ export function toReaderBlocks(body: string): Array<EngineArticleBlock> {
   });
 }
 
+/**
+ * What `fromReaderBlocks` cannot carry into an Xtend draft: the Article's images, and its other
+ * atomic blocks with no Markdown (embedded posts, dividers, LaTeX, GIFs). Said before copying.
+ */
+export const copyLeavesOut = (blocks: ReadonlyArray<EngineArticleBlock>) => ({
+  images: blocks.reduce((n, b) => n + (b.type === "atomic" ? b.images.length : 0), 0),
+  blocks: blocks.filter((b) => b.type === "atomic" && b.images.length === 0 && b.markdown === null)
+    .length,
+});
+
 /** An X Article's blocks (as the engine read them off X) as an Xtend draft body. */
 export function fromReaderBlocks(blocks: ReadonlyArray<EngineArticleBlock>): string {
   const kinds = new Map<string, (typeof TEXT_KINDS)[number]>(

@@ -1,7 +1,9 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import {
   articleWords,
+  copyLeavesOut,
   type Draft,
+  type EngineArticleBlock,
   type EngineXArticle,
   fromReaderBlocks,
   parseArticle,
@@ -241,6 +243,23 @@ function ArticlesHome({ tab }: { readonly tab: Tab }) {
   );
 }
 
+/** What Copy to Xtend will leave out of this Article, said before the copy, or nothing. */
+function LeftOut({ blocks }: { readonly blocks: ReadonlyArray<EngineArticleBlock> }) {
+  const { images, blocks: other } = copyLeavesOut(blocks);
+  if (images === 0 && other === 0) return null;
+  const parts = [
+    images === 0 ? null : `${images} ${images === 1 ? "image" : "images"}`,
+    other === 0
+      ? null
+      : `${other} ${other === 1 ? "block" : "blocks"} like posts, dividers or LaTeX`,
+  ].filter((p) => p !== null);
+  return (
+    <p className="border-b border-white/[0.12] px-4 py-2 text-[13px] text-warning-foreground">
+      Copy to Xtend leaves out {parts.join(" and ")}: an Xtend draft has no place for them yet.
+    </p>
+  );
+}
+
 /**
  * An Article the user keeps on x.com, read off X's own preview of it: shown read-only, since
  * Xtend never types into X's editor for it. "Copy to Xtend" makes an Xtend draft of it.
@@ -288,6 +307,7 @@ function XArticleView({ id, tab }: { readonly id: string; readonly tab: Tab }) {
       {error === null ? null : (
         <p className="px-4 pt-3 text-[13px] text-error-foreground">{error}</p>
       )}
+      {article?.blocks == null ? null : <LeftOut blocks={article.blocks} />}
       {article?.blocks == null ? (
         <XEmpty key={id} empty="Loading the Article from X." onReopen={() => void xGo(preview)} />
       ) : (

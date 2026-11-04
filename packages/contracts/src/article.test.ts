@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 
+import type { EngineArticleBlock } from "./desktop.ts";
+
 import {
   articleBlocker,
   articleWords,
+  copyLeavesOut,
   fromReaderBlocks,
   parseArticle,
   readInline,
@@ -150,6 +153,28 @@ describe("article body", () => {
       { kind: "body", text: "**bold** \\* star" },
       { kind: "code", lang: "js", text: "1" },
     ]);
+  });
+
+  it("counts what Copy to Xtend leaves out of an X Article: its images, and atomic blocks with no Markdown", () => {
+    const block = (extra: Partial<EngineArticleBlock>): EngineArticleBlock => ({
+      key: "k",
+      type: "atomic",
+      text: " ",
+      styles: [],
+      links: [],
+      images: [],
+      markdown: null,
+      ...extra,
+    });
+    const image = { url: "https://pbs.twimg.com/media/a.jpg", width: 1, height: 1 };
+    expect(
+      copyLeavesOut([
+        block({ type: "unstyled", text: "kept" }),
+        block({ markdown: "| a |" }),
+        block({ images: [image, image] }),
+        block({}),
+      ]),
+    ).toEqual({ images: 2, blocks: 1 });
   });
 
   it("says what X's Publish says, in X's order", () => {
