@@ -25,7 +25,7 @@ import {
 } from "../../lib/wheelGesture";
 import { type AnySurface, engineAtom, resetSurface, updateEngine } from "../../state/engine";
 import { spaceDockAtom } from "../../state/spaces";
-import { loadNewPosts, setScreenRefresh } from "../../state/x";
+import { loadNewPosts, setScreenRefresh, xKeepsPage } from "../../state/x";
 import { DayGlance } from "../shell/HomeCompanion";
 import { MediaViewer } from "./MediaViewer";
 import { QuoteComposer } from "./QuoteComposer";
@@ -181,7 +181,9 @@ export function XColumn({
       if (r === undefined) return;
       scroller?.scrollTo({ top: 0 });
       if (mode === "new" && r.showNew?.() === true) return;
-      setEngine(updateEngine((s) => r.surfaces.reduce(resetSurface, s)));
+      // While X plays a Space X's page is not loaded anew (see `xNavigate`), so the lists keep
+      // what they hold and take what X's own refresh sends.
+      if (!xKeepsPage()) setEngine(updateEngine((s) => r.surfaces.reduce(resetSurface, s)));
       r.load();
     });
   }, [refreshes, scroller, setEngine]);
