@@ -18,6 +18,7 @@ import type {
 import { synth } from "../../../web/src/components/xnative/engineFixtures.ts";
 import { createMockArticles } from "./articles.ts";
 import { createMockChat } from "./chat.ts";
+import { createMockGrok } from "./grok.ts";
 import { mockSettings } from "./settings.ts";
 import { encodeBody, encodeFolder, encodeList, encodeRestUser, encodeTweet } from "./graphql.ts";
 
@@ -144,6 +145,8 @@ export interface MockOptions {
   readonly formatting?: boolean;
   /** X's Chat asks for the account's passcode first, as it does on a new device. */
   readonly chatLocked?: boolean;
+  /** The account is past X's free Grok limit: X answers with its SuperGrok upsell. */
+  readonly grokLimited?: boolean;
   /**
    * X's compact layout, as in a narrow engine window: X's flows and sheets are pages of their
    * own, titled in the app bar beside its Back, not dialogs.
@@ -1553,6 +1556,8 @@ export function createMockState(options: MockOptions = {}) {
     settings: mockSettings(),
     /** X's Chat: conversations, requests, the pages X opened, and its passcode lock. */
     chat: createMockChat(options.chatLocked === true, people),
+    /** X's Grok: its conversations, X's pick of model, Private, and its free limit. */
+    grok: createMockGrok(options.grokLimited === true, options.compact === true),
     /** X's Radar: whether the account has Premium, X's query limit, and its queries. */
     radar,
     /** The user's Articles on X; X gives its Articles pages only with Premium (`premium`). */

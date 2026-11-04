@@ -1064,6 +1064,128 @@ const SCRIPT = String.raw`
     } else go("/i/radar/" + el.dataset.radarRow, false);
   }, true);
 
+  // X's Grok (bundle.GrokXWeb): its History panel and model menu open from X's own buttons into
+  // X's layers, its composer swaps Voice for Send once there is text, and its row controls swap in
+  // X's own Rename field and Delete confirm. What they change goes to mock X, and the page draws
+  // anew in place (its open panel too), as X's store answers; an answer streams, then completes.
+  const grokTemplate = (name) => shown.el.querySelector("template[data-mock-grok-" + name + "]").content.firstElementChild.cloneNode(true);
+  const grokConversation = () => document.querySelector("fieldset[data-grok-composer]")?.dataset.mockConversation || null;
+  const grokPanel = () => layers.querySelector("[data-mock-grok-panel]");
+  async function grokRedraw() {
+    const entry = shown;
+    if (!entry || !location.pathname.startsWith("/i/grok")) return;
+    cache.clear();
+    const view = await load(here());
+    entry.el.replaceChildren(...fragment(view.html).childNodes);
+    entry.path = here();
+    cache.set(cacheKey(here()), entry);
+    const panel = grokPanel();
+    if (panel) {
+      panel.replaceChildren(...grokTemplate("history").childNodes);
+      entry.el.querySelector('[data-mock-grok="history"]')?.setAttribute("aria-expanded", "true");
+    }
+    if (entry.el.querySelector('[data-mock-grok="stop"]'))
+      setTimeout(() => {
+        const turn = [...entry.el.querySelectorAll("[data-mock-turn]")].at(-1)?.dataset.mockTurn;
+        if (turn && shown === entry && entry.el.querySelector('[data-mock-grok="stop"]')) void grokWrite({ kind: "finish", turn });
+      }, 400);
+  }
+  async function grokWrite(body) {
+    const answer = await post("/__mock/grok", { conversation: grokConversation(), ...body });
+    // A new chat's first send: X puts its conversation in the URL.
+    if (answer.conversation && !grokConversation() && location.pathname === "/i/grok")
+      history.replaceState(null, "", "/i/grok?conversation=" + encodeURIComponent(answer.conversation));
+    await grokRedraw();
+  }
+  const grokButton = (kind, label) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.dataset.mockGrok = kind;
+    b.setAttribute("aria-label", label);
+    b.innerHTML = kind === "voice" ? '<svg data-icon="icon-voice"></svg>' : "<svg></svg>";
+    return b;
+  };
+  document.addEventListener("input", (event) => {
+    const field = event.target;
+    if (field instanceof HTMLTextAreaElement && field.closest("fieldset[data-grok-composer]")) {
+      const now = field.closest("fieldset").querySelector('[data-mock-grok="voice"], [data-mock-grok="send"]');
+      const want = field.value.trim() !== "" ? "send" : "voice";
+      if (now && now.dataset.mockGrok !== want) now.replaceWith(grokButton(want, want === "send" ? "Send" : "Voice mode"));
+      return;
+    }
+    // X's history search: only the matching rows, under their groups.
+    const panel = field instanceof HTMLInputElement && field.type === "search" ? field.closest("[data-mock-grok-panel]") : null;
+    if (!panel) return;
+    const q = field.value.trim().toLowerCase();
+    const rows = [...grokTemplate("history").querySelector("ul").children].filter((li) => q === "" || li.getAttribute("role") === "presentation" || li.textContent.toLowerCase().includes(q));
+    panel.querySelector("ul").replaceChildren(...rows.filter((li, i) => li.getAttribute("role") !== "presentation" || rows[i + 1]?.hasAttribute("data-mock-row")));
+  });
+  document.addEventListener("click", (event) => {
+    const el = event.target instanceof Element ? event.target.closest('[data-mock-grok], [data-mock-grok-model], [data-mock-grok-panel] a[href]:not([target]), [data-mock-grok-menu] a[href]') : null;
+    if (!el) return;
+    const kind = el.dataset.mockGrok;
+    const row = el.closest("[data-mock-row]");
+    const turn = el.closest("[data-mock-turn]")?.dataset.mockTurn;
+    const toggle = (button, open, show) => {
+      button.setAttribute("aria-expanded", String(!open));
+      if (!open) layers.append(show());
+    };
+    // X's compact layout opens its History as a page of its own.
+    if (kind === "history-page") return go("/i/grok/history", false);
+    if (kind === "history") {
+      const open = grokPanel();
+      if (open) open.remove();
+      return toggle(el, !!open, () => grokTemplate("history"));
+    }
+    if (kind === "models") {
+      const open = layers.querySelector("[data-mock-grok-menu]");
+      if (open) open.remove();
+      return toggle(el, !!open, () => grokTemplate("models"));
+    }
+    if (el.matches("a[href]")) {
+      event.preventDefault();
+      event.stopPropagation();
+      grokPanel()?.remove();
+      layers.querySelector("[data-mock-grok-menu]")?.remove();
+      log("grok:" + el.getAttribute("href"));
+      return go(el.getAttribute("href"), false);
+    }
+    if (el.dataset.mockGrokModel) {
+      layers.querySelector("[data-mock-grok-menu]")?.remove();
+      document.querySelector('[data-mock-grok="models"]')?.setAttribute("aria-expanded", "false");
+      log("grok:model");
+      return void grokWrite({ kind: "model", title: el.dataset.mockGrokModel });
+    }
+    if (kind === "voice") return;
+    log("grok:" + kind);
+    if (kind === "private") return void grokWrite({ kind: "private" });
+    if (kind === "send") return void grokWrite({ kind: "send", text: document.querySelector("fieldset[data-grok-composer] textarea").value });
+    if (kind === "stop") return void grokWrite({ kind: "stop", turn: [...document.querySelectorAll("[data-mock-turn]")].at(-1)?.dataset.mockTurn });
+    if (kind === "up" || kind === "down") return void grokWrite({ kind: "feedback", turn, feedback: kind });
+    if (kind === "regenerate") return void grokWrite({ kind: "regenerate", turn });
+    const id = row?.dataset.mockRow;
+    if (!row || !id) return;
+    const actions = row.querySelector(".grid, [data-mock-mode]");
+    const mode = (buttons) => {
+      const box = document.createElement("div");
+      box.dataset.mockMode = "";
+      box.append(...buttons);
+      actions.replaceWith(box);
+    };
+    if (kind === "pin" || kind === "unpin") return void grokWrite({ kind, conversation: id });
+    if (kind === "rename") {
+      const link = row.querySelector("a[href]:not([target])");
+      const input = document.createElement("input");
+      input.setAttribute("aria-label", "Rename");
+      input.value = link.querySelector("span").textContent;
+      link.replaceWith(input);
+      return mode([grokButton("cancel", "Cancel"), grokButton("rename-save", "Save")]);
+    }
+    if (kind === "delete") return mode([grokButton("cancel", "Cancel"), grokButton("delete-confirm", "Delete")]);
+    if (kind === "rename-save") return void grokWrite({ kind: "rename", conversation: id, title: row.querySelector("input").value });
+    if (kind === "delete-confirm") return void grokWrite({ kind: "delete", conversation: id });
+    if (kind === "cancel") return void grokRedraw();
+  }, true);
   // X's Articles: its pen makes a draft and opens X's editor. The editor saves its title, and its
   // content a moment after each change (Publish stays off meanwhile); a cover goes up through X's
   // crop dialog's Apply; Publish opens X's dialog, whose Publish publishes and opens the post.

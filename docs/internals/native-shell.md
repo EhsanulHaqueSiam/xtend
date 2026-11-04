@@ -86,6 +86,16 @@ composer node and the message ids X draws (each one conversation's own), checked
 press, then pins the one new message with its text; with no message drawn there is no identity,
 so a conversation's first message is written in X's page. One send at a time (`chatWriteAtom`).
 
+Grok is read from X's page too. X serves two Grok clients at `/i/grok` (its routes pick by the
+`responsive_web_grok_xweb_replacement_enabled` switch and the account's grok.com link): the newer
+one (`bundle.GrokXWeb`) calls grok.com's REST and streams from there, which the capture never
+reads, and draws plain DOM with hooks of its own (`data-turn-id`, `data-quotable-message`,
+`data-grok-composer`, Streamdown's `data-streamdown`, `data-icon`). `state/grok.ts` reads that DOM
+into an atom while a Grok surface is open, as Chat's reads, and writes only through X's controls.
+X draws its history only while its History panel is open, so the rail opens and closes it per read.
+The older client has no such hooks, so it, and X's grok.com link prompt (`/i/jf/grok`), show over
+the main area for the user to use in X's own page.
+
 Articles are Xtend drafts written in Xtend's editor; X's own drafts are only read, off X's
 Articles page (ArticleEntitiesSlice) and its preview (ArticleEntityResultByRestId). X's editor
 is Draft.js and saves every change a few seconds after it (ArticleEntityUpdateContent), so
