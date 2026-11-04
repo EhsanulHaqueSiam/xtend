@@ -93,6 +93,9 @@ const SCRIPT = String.raw`
       shadow.remove();
       chatRoot(root);
     }
+    // X's Grok draws its images from blobs of its own page.
+    for (const img of div.querySelectorAll("img[data-mock-blob]"))
+      void fetch(img.dataset.mockBlob).then((r) => r.blob()).then((b) => { img.src = URL.createObjectURL(b); });
     // X draws a List's row anchorless (loader.ListHandler): its List is only the link in the
     // props of the cell React rendered, here a fiber of that shape; the markup's data-href is mock X's.
     for (const cell of div.querySelectorAll('[data-testid="listCell"]'))
@@ -1120,6 +1123,21 @@ const SCRIPT = String.raw`
     const rows = [...grokTemplate("history").querySelector("ul").children].filter((li) => q === "" || li.getAttribute("role") === "presentation" || li.textContent.toLowerCase().includes(q));
     panel.querySelector("ul").replaceChildren(...rows.filter((li, i) => li.getAttribute("role") !== "presentation" || rows[i + 1]?.hasAttribute("data-mock-row")));
   });
+  // X's Grok button on a post: X asks its analysis in a new chat and, with no room for its drawer,
+  // opens its Grok page on it.
+  document.addEventListener("click", (event) => {
+    const button = event.target instanceof Element ? event.target.closest("[data-mock-grok-explain]") : null;
+    if (!button) return;
+    event.preventDefault();
+    event.stopPropagation();
+    log("grok:explain", button.dataset.mockGrokExplain);
+    void post("/__mock/grok", { kind: "analyze", post: button.dataset.mockGrokExplain }).then(async (r) => {
+      history.pushState(null, "", "/i/grok?conversation=" + encodeURIComponent(r.conversation));
+      cache.clear();
+      await show();
+      await grokRedraw();
+    });
+  }, true);
   document.addEventListener("click", (event) => {
     const el = event.target instanceof Element ? event.target.closest('[data-mock-grok], [data-mock-grok-model], [data-mock-grok-panel] a[href]:not([target]), [data-mock-grok-menu] a[href]') : null;
     if (!el) return;
@@ -1132,6 +1150,20 @@ const SCRIPT = String.raw`
     };
     // X's compact layout opens its History as a page of its own.
     if (kind === "history-page") return go("/i/grok/history", false);
+    // X's Media tab shows the account's images in place of its rows; Chats shows the rows again.
+    if (kind === "tab-media" || kind === "tab-chats") {
+      const panel = el.closest("[data-mock-grok-panel]");
+      for (const t of panel.querySelectorAll('[role="tab"]')) t.setAttribute("aria-selected", String(t === el));
+      const list = panel.querySelector("ul, [data-mock-grok-list]");
+      const next = kind === "tab-media"
+        ? panel.querySelector("template[data-mock-grok-media]").content.firstElementChild.cloneNode(true)
+        : grokTemplate("history").querySelector("ul").cloneNode(true);
+      if (kind === "tab-media") next.dataset.mockGrokList = "";
+      for (const img of next.querySelectorAll("img[data-mock-blob]"))
+        void fetch(img.dataset.mockBlob).then((r) => r.blob()).then((b) => { img.src = URL.createObjectURL(b); });
+      list.replaceWith(next);
+      return;
+    }
     if (kind === "history") {
       const open = grokPanel();
       if (open) open.remove();

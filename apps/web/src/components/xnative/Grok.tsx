@@ -1,4 +1,5 @@
 import { useAtom, useAtomSet } from "@effect/atom-react";
+import type { EnginePost } from "@xtend/contracts";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
   ArrowUp,
@@ -7,6 +8,7 @@ import {
   Copy,
   Ghost,
   Lightbulb,
+  Maximize2,
   PenLine,
   RotateCw,
   Square,
@@ -15,7 +17,9 @@ import {
   ThumbsUp,
   Zap,
 } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
+
+import { isElectron } from "../../env";
 
 import { cn } from "../../lib/utils";
 import {
@@ -25,13 +29,19 @@ import {
   type GrokModel,
   type GrokRead,
   type GrokRun,
+  grokAtom,
   grokWriteAtom,
+  settleSend,
+  watchGrok,
+  xGrokImage,
   xGrokModels,
   xGrokPickModel,
   xGrokPress,
   xGrokSend,
 } from "../../state/grok";
 import { xGo, xOverAtom } from "../../state/x";
+import { viewerAtom } from "./MediaViewer";
+import { QuoteBox } from "./XPostView";
 import { Menu, MenuItem } from "../ui/menu";
 import { useXPress } from "./useXPress";
 
@@ -137,6 +147,77 @@ function Note({ note }: { readonly note: Extract<GrokBlock, { kind: "note" }> })
   );
 }
 
+/**
+ * One of X's Grok images: X's own https picture as is, else the copy X's page makes of the blob it
+ * drew; it opens in Xtend's photo viewer.
+ */
+export function GrokImage({
+  src,
+  alt,
+  tile = false,
+}: {
+  readonly src: string;
+  readonly alt: string;
+  /** A square in X's Media grid. */
+  readonly tile?: boolean;
+}) {
+  const setViewer = useAtomSet(viewerAtom);
+  const [copy, setCopy] = useState<string | null | undefined>(
+    /^(https:\/\/(?!assets\.grok\.com\/)|data:image\/)/.test(src) ? src : undefined,
+  );
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- asks X's page for its copy of the blob it drew, once per image.
+  useEffect(() => {
+    if (copy !== undefined) return;
+    let gone = false;
+    void xGrokImage(src).then((url) => !gone && setCopy(url));
+    return () => {
+      gone = true;
+    };
+  }, [src, copy]);
+  if (copy == null)
+    return (
+      <span
+        className={cn(
+          "grid aspect-square place-items-center rounded-2xl bg-white/[0.06] text-[13px] text-[#71767b]",
+          tile ? "w-full" : "w-48",
+        )}
+      >
+        {copy === undefined ? "Loading image" : "Image in X's Grok"}
+      </span>
+    );
+  return (
+    <button
+      type="button"
+      aria-label={alt || "Image"}
+      className={cn("cursor-zoom-in", tile ? "block w-full" : "w-fit")}
+      onClick={() =>
+        setViewer({
+          media: [
+            {
+              kind: "photo",
+              url: copy,
+              videoUrl: null,
+              width: 0,
+              height: 0,
+              durationMs: null,
+              altText: alt || null,
+            },
+          ],
+          index: 0,
+        })
+      }
+    >
+      <img
+        src={copy}
+        alt={alt}
+        className={
+          tile ? "aspect-square w-full rounded-lg object-cover" : "max-h-[420px] rounded-2xl"
+        }
+      />
+    </button>
+  );
+}
+
 /** One block of X's answer, drawn as X's markdown draws it. */
 function Block({ block }: { readonly block: GrokBlock }) {
   switch (block.kind) {
@@ -196,7 +277,7 @@ function Block({ block }: { readonly block: GrokBlock }) {
     case "hr":
       return <hr className="border-white/[0.12]" />;
     case "img":
-      return <img src={block.src} alt={block.alt} className="max-h-[420px] rounded-xl" />;
+      return <GrokImage key={block.src} src={block.src} alt={block.alt} />;
     case "note":
       return <Note note={block} />;
   }
@@ -207,10 +288,13 @@ function Answer({
   answer,
   latest,
   onDraft,
+  onInsert,
 }: {
   readonly answer: GrokAnswer;
   readonly latest: boolean;
   readonly onDraft?: ((text: string) => void) | undefined;
+  /** Xtend's: puts the answer into the draft Grok was opened beside, in place of Draft a post. */
+  readonly onInsert?: ((text: string) => void) | undefined;
 }) {
   const { press, setToast } = useGrokPress();
   const text = answerText(answer);
@@ -274,7 +358,15 @@ function Answer({
           >
             <ThumbsDown className="size-4" />
           </button>
-          {onDraft === undefined || text === "" ? null : (
+          {onInsert !== undefined && text !== "" ? (
+            <button
+              type="button"
+              className="ml-auto flex h-8 cursor-pointer items-center gap-1.5 rounded-full bg-foreground px-3 text-[13px] font-bold text-background"
+              onClick={() => onInsert(text)}
+            >
+              Insert
+            </button>
+          ) : onDraft === undefined || text === "" ? null : (
             <button
               type="button"
               className="ml-auto flex h-8 cursor-pointer items-center gap-1.5 rounded-full border border-white/[0.18] px-3 text-[13px] font-bold hover:bg-white/[0.06]"
@@ -490,7 +582,16 @@ export function GrokBox({ read }: { readonly read: GrokRead }) {
  * X's conversation as X's page shows it: the user's questions on the right, X's answers under
  * them, and X's follow-ups, which fill the box for the user to send.
  */
-export function GrokConversation({ read }: { readonly read: GrokRead }) {
+export function GrokConversation({
+  read,
+  compact = false,
+  onInsert,
+}: {
+  readonly read: GrokRead;
+  /** Docked beside a screen: a narrow column. */
+  readonly compact?: boolean;
+  readonly onInsert?: ((text: string) => void) | undefined;
+}) {
   const navigate = useNavigate();
   const setWrite = useAtomSet(grokWriteAtom);
   const turns = read.turns ?? [];
@@ -499,19 +600,26 @@ export function GrokConversation({ read }: { readonly read: GrokRead }) {
     void navigate({ href: `/compose?${new URLSearchParams({ text }).toString()}` });
   if (turns.length === 0)
     return (
-      <div className="m-auto max-w-[420px] px-6 text-center">
-        <h2 className="text-[31px] leading-9 font-extrabold">Grok</h2>
+      <div className="m-auto max-w-[420px] px-6 py-6 text-center">
+        <h2 className={cn("font-extrabold", compact ? "text-[20px]" : "text-[31px] leading-9")}>
+          Grok
+        </h2>
         <p className="mt-2 text-[15px] text-[#71767b]">
           Ask anything. Grok runs on your X account, free within X's limits.
         </p>
       </div>
     );
   return (
-    <div className="mx-auto flex w-full max-w-[760px] flex-col gap-6 px-6 py-6">
+    <div
+      className={cn(
+        "mx-auto flex w-full max-w-[760px] flex-col gap-6",
+        compact ? "px-3 py-3" : "px-6 py-6",
+      )}
+    >
       {turns.map((turn) => (
         <div key={turn.id} data-x="grok-turn" className="flex flex-col gap-4">
           {turn.user === null ? null : (
-            <p className="max-w-[80%] self-end rounded-3xl bg-[#202327] px-4 py-2.5 text-[15px] whitespace-pre-wrap">
+            <p className="max-w-[80%] self-end rounded-3xl bg-[#202327] px-4 py-2.5 text-[15px] whitespace-pre-wrap [overflow-wrap:anywhere]">
               {turn.user}
             </p>
           )}
@@ -520,6 +628,7 @@ export function GrokConversation({ read }: { readonly read: GrokRead }) {
               answer={turn.answer}
               latest={turn.answer.id === last}
               onDraft={read.private === true ? undefined : draft}
+              onInsert={onInsert}
             />
           )}
         </div>
@@ -545,5 +654,104 @@ export function GrokConversation({ read }: { readonly read: GrokRead }) {
         </p>
       )}
     </div>
+  );
+}
+
+/**
+ * Reads X's Grok page into `grokAtom` while a Grok surface (the page or a docked drawer) is
+ * mounted, and settles the send in flight by what X draws. One surface at a time watches.
+ */
+export function useGrokWatch() {
+  const [grok, setGrok] = useAtom(grokAtom);
+  const setWrite = useAtomSet(grokWriteAtom);
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- reads X's Grok page while this surface is open, and only then.
+  useEffect(() => {
+    if (!isElectron) return;
+    const stop = new AbortController();
+    watchGrok(stop.signal, (next) => {
+      // X's own History page (its compact layout), while the rail reads it: the chat stays.
+      if (next.path === "/i/grok/history") return;
+      setGrok((s) => ({ ...s, read: next }));
+      setWrite((w) => settleSend(w, next));
+    });
+    return () => stop.abort();
+  }, [setGrok, setWrite]);
+  return grok;
+}
+
+/**
+ * X's Grok docked beside a screen, as X's drawer docks over the page: X's model, New chat, the
+ * full page and close; the post it was opened on; then the same conversation and box as the
+ * page. `onInsert` adds Insert on each answer, for the draft it was opened beside.
+ */
+export function GrokDrawer({
+  post,
+  onInsert,
+  onClose,
+  onExpand,
+}: {
+  readonly post?: EnginePost | undefined;
+  readonly onInsert?: ((text: string) => void) | undefined;
+  /** Closed: the engine goes back to where it was. */
+  readonly onClose: () => void;
+  /** Off to the full page: the drawer goes, the engine stays on X's Grok page. */
+  readonly onExpand: () => void;
+}) {
+  const navigate = useNavigate();
+  const { read } = useGrokWatch();
+  const ready = read !== null && read.page === "xweb" && read.path.startsWith("/i/grok");
+  return (
+    <section
+      aria-label="Grok"
+      className="flex h-[calc(100vh-24px)] min-h-[420px] flex-col overflow-hidden rounded-2xl border border-white/[0.12] bg-black"
+    >
+      {ready ? (
+        <GrokBar read={read}>
+          <button
+            type="button"
+            aria-label="Open full page"
+            className={cn("no-drag", ROUND)}
+            onClick={() => {
+              onExpand();
+              void navigate({ to: "/grok" });
+            }}
+          >
+            <Maximize2 className="size-4" />
+          </button>
+          <button
+            type="button"
+            aria-label="Close Grok"
+            className={cn("no-drag", ROUND)}
+            onClick={onClose}
+          >
+            <ChevronDown className="size-4" />
+          </button>
+        </GrokBar>
+      ) : (
+        <div className="flex min-h-[53px] items-center gap-1 px-3">
+          <span className="flex-1 text-[15px] font-bold">Grok</span>
+          <button type="button" aria-label="Close Grok" className={ROUND} onClick={onClose}>
+            <ChevronDown className="size-4" />
+          </button>
+        </div>
+      )}
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        {post === undefined ? null : (
+          <div className="px-3 pt-1">
+            <QuoteBox quoted={post} onOpen={undefined} />
+          </div>
+        )}
+        {ready ? (
+          <GrokConversation read={read} compact onInsert={onInsert} />
+        ) : (
+          <p className="m-auto px-6 text-center text-[13px] text-[#71767b]">
+            {read?.page === "other"
+              ? "X shows this account its own Grok page; open it in X."
+              : "Opening Grok in X."}
+          </p>
+        )}
+      </div>
+      {ready ? <GrokBox read={read} /> : null}
+    </section>
   );
 }

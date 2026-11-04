@@ -141,6 +141,9 @@ export const xLeave = (path: string, inView: () => boolean) => {
   });
 };
 
+/** How many times screens moved the engine: a screen going compares it after the next one mounts. */
+export const xMoves = () => moves;
+
 /** Whether the webview already shows this x.com path, so a screen can skip reloading it. */
 export const xShows = (path: string) => {
   try {

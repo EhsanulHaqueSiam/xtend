@@ -2577,6 +2577,35 @@ const benchmarks = [
       until(async () => (await enginePath()) === "/home" && (await nativeIds()).length >= 1, 20_000)
     ),
   ],
+  [
+    "Explain this post finds X's own Grok button on X's Home posts, pressing nothing",
+    async () => {
+      // On X's Home in the app and the engine first: the check before may leave X on Grok.
+      await go("#/home?feed=following");
+      if (
+        !(await until(
+          // X's own posts too: Xtend's list may be kept from before X's page loaded anew.
+          async () =>
+            (await enginePath()) === "/home" &&
+            (await nativeIds()).length >= 1 &&
+            (await engine(`document.querySelectorAll("article").length`)) >= 1,
+          20_000,
+        ))
+      )
+        return undefined;
+      // Counts only: which posts carry it is X's, per account and per post.
+      const x = await engine(
+        `({ posts: document.querySelectorAll("article").length, grok: document.querySelectorAll('article [aria-label="Grok actions"]').length })`,
+      );
+      const drawn = await app(
+        `document.querySelectorAll('main [data-x="post"] [aria-label="Explain this post"]').length`,
+      );
+      if (x.posts === 0) return undefined;
+      return x.grok > 0
+        ? drawn > 0 && `X's Grok button on ${x.grok} of X's ${x.posts} posts`
+        : `X draws no Grok button on its ${x.posts} posts for this account: Explain opens Grok with the post's link`;
+    },
+  ],
 ];
 
 const chosen = benchmarks.filter(

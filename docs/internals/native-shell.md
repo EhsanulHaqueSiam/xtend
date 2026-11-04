@@ -92,7 +92,11 @@ one (`bundle.GrokXWeb`) calls grok.com's REST and streams from there, which the 
 reads, and draws plain DOM with hooks of its own (`data-turn-id`, `data-quotable-message`,
 `data-grok-composer`, Streamdown's `data-streamdown`, `data-icon`). `state/grok.ts` reads that DOM
 into an atom while a Grok surface is open, as Chat's reads, and writes only through X's controls.
-X draws its history only while its History panel is open, so the rail opens and closes it per read.
+X draws its history only while its History panel is open, so the rail opens and closes it per read. Docked
+Grok (Explain this post, Compose's Ask Grok) reads the same page: X's own Grok button on the post
+opens X's drawer or Grok page, and the engine then shows X's Grok page, as X's drawer's full page
+button does. X draws Grok's images from blobs of its own page, fetched with grok.com's credentials,
+so X's page makes the copies the app draws.
 The older client has no such hooks, so it, and X's grok.com link prompt (`/i/jf/grok`), show over
 the main area for the user to use in X's own page.
 

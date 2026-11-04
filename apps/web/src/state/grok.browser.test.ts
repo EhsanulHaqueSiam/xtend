@@ -1,6 +1,14 @@
 import { expect, it, vi } from "vite-plus/test";
 
-import { readGrok, xGrokHistory, xGrokHistoryPress, xGrokSend, xGrokPastEntry } from "./grok";
+import {
+  readGrok,
+  xGrokExplain,
+  xGrokHistory,
+  xGrokHistoryPress,
+  xGrokMedia,
+  xGrokPastEntry,
+  xGrokSend,
+} from "./grok";
 import { markXReady, registerXWebview, type XWebview } from "./x";
 
 // X's Grok page (bundle.GrokXWeb) as it draws: X's header in its column, the transcript region
@@ -380,4 +388,134 @@ it("goes on from X's grok.com account gate to the Grok page it names, through X'
   at = "/i/jf/grok/entry";
   hold = true;
   expect(await xGrokPastEntry()).toBe("held");
+});
+
+// A 2x1 PNG, as X's page draws Grok's images from its own blobs.
+
+const PNG =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAEUlEQVR4nGP4z8DwHwQZYAwAOS0D/WkLu/AAAAAASUVORK5CYII=";
+
+it("reads X's image slots as images, and X's line while it still draws one", () => {
+  const slots = `<div class="group flex flex-col items-start gap-1" data-quotable-message="r3"><div class="flex w-full min-w-0 flex-col gap-3"><div class="flex w-full min-w-0 flex-row flex-wrap gap-2"><button type="button" aria-label="A city under twin moons"><img src="${PNG}" alt="A city under twin moons"></button><div class="relative"><span role="status">Generating image…</span></div></div></div></div>`;
+  using _x = drawX(page(turn("u3", "Draw a city", slots)));
+  expect(readGrok(document, "/i/grok").turns?.[0]?.answer?.blocks).toEqual([
+    { kind: "img", src: PNG, alt: "A city under twin moons" },
+    { kind: "note", text: "Generating image…", link: null },
+  ]);
+});
+
+it("copies X's Media tab images while X draws them, and leaves X's panel on Chats, closed", async () => {
+  using _x = drawX(page(""));
+  engineAt("/i/grok");
+  const button = document.querySelector<HTMLButtonElement>('[aria-haspopup="dialog"]')!;
+  const tabsPanel = HISTORY.replace(
+    "<header>",
+    '<div role="tablist"><button role="tab">Chats</button><button role="tab">Media</button></div><header>',
+  );
+  const pressed: Array<string> = [];
+  button.addEventListener("click", () => {
+    const open = document.querySelector('[role="dialog"]');
+    if (open !== null) return void (open.remove(), button.setAttribute("aria-expanded", "false"));
+    document.body.insertAdjacentHTML("beforeend", tabsPanel);
+    button.setAttribute("aria-expanded", "true");
+    const [chats, mediaTab] = document.querySelectorAll('[role="tab"]');
+    chats!.addEventListener("click", () => pressed.push("Chats"));
+    // X's Media tab swaps the list for its grid of the account's images.
+    mediaTab!.addEventListener("click", () => {
+      pressed.push("Media");
+      document.querySelector('[role="dialog"] ul')!.outerHTML =
+        `<ul class="grid grid-cols-3 gap-1"><li><button aria-label="Open image 1"><img src="${PNG}"></button></li></ul>`;
+    });
+  });
+  const media = await xGrokMedia();
+  expect(media?.images.map((src) => src.startsWith("data:image/jpeg"))).toEqual([true]);
+  expect([pressed, document.querySelector('[role="dialog"]')]).toEqual([["Media", "Chats"], null]);
+});
+
+it("lets go of an Explain the user left: no press on X's Grok button and no move once it ended", async () => {
+  using _x = drawX(`<main><article><a href="/ann/status/17"><time>3h</time></a></article></main>`);
+  const inX: Array<string> = [];
+  const left = new AbortController();
+  registerXWebview({
+    loadURL: async () => {},
+    getURL: () => "https://x.com/home",
+    executeJavaScript: (code: string) => {
+      const to = /history\.pushState\(null, "", "([^"]+)"\)/.exec(code)?.[1];
+      if (to !== undefined) {
+        inX.push(`go ${to}`);
+        return Promise.resolve(true);
+      }
+      // The user leaves just as X draws its Grok button on the post.
+      if (code.includes('[aria-label="Grok actions"]') && !left.signal.aborted) {
+        left.abort();
+        document
+          .querySelector("article")!
+          .insertAdjacentHTML("beforeend", '<button aria-label="Grok actions"></button>');
+        document
+          .querySelector('[aria-label="Grok actions"]')!
+          .addEventListener("click", () => inX.push("Grok actions"));
+      }
+      return Promise.resolve(
+        new Function(`return ${code.replaceAll("location.pathname", '"/home"')}`)(),
+      );
+    },
+  } as unknown as XWebview);
+  markXReady();
+  expect(await xGrokExplain({ postId: "17", handle: "ann" }, left.signal)).toBe("cancelled");
+  expect(inX).toEqual([]);
+});
+
+it("ends an Explain when the user presses something else in X before it goes to the post", async () => {
+  // The engine page shows no such post: Explain would go to the post's own page next.
+  using _x = drawX(`<main><article><a href="/bo/status/9"><time>1h</time></a></article></main>`);
+  const inX: Array<string> = [];
+  registerXWebview({
+    loadURL: async () => {},
+    getURL: () => "https://x.com/home",
+    executeJavaScript: (code: string) => {
+      const to = /history\.pushState\(null, "", "([^"]+)"\)/.exec(code)?.[1];
+      if (to !== undefined) {
+        inX.push(`go ${to}`);
+        return Promise.resolve(true);
+      }
+      const answer = new Function(`return ${code.replaceAll("location.pathname", '"/home"')}`)();
+      // Meanwhile the user's click on another of X's controls becomes the latest press.
+      if (code.includes('[aria-label="Grok actions"]'))
+        return Promise.resolve(answer).then((a) => (Reflect.set(window, "__xtendPress", 999), a));
+      return Promise.resolve(answer);
+    },
+  } as unknown as XWebview);
+  markXReady();
+  const signal = new AbortController().signal;
+  expect(await xGrokExplain({ postId: "17", handle: "ann" }, signal)).toBe("cancelled");
+  expect(inX).toEqual([]);
+});
+
+it("ends an Explain closed while X's page answers whether it is still the user's, before any move", async () => {
+  using _x = drawX(`<main><article><a href="/bo/status/9"><time>1h</time></a></article></main>`);
+  const inX: Array<string> = [];
+  const left = new AbortController();
+  registerXWebview({
+    loadURL: async () => {},
+    getURL: () => "https://x.com/home",
+    executeJavaScript: (code: string) => {
+      const to = /history\.pushState\(null, "", "([^"]+)"\)/.exec(code)?.[1];
+      if (to !== undefined) {
+        inX.push(`go ${to}`);
+        return Promise.resolve(true);
+      }
+      // The ownership check: still the user's, but they close the drawer before the answer lands.
+      if (code.startsWith("(window.__xtendGrokExplain ===")) {
+        const answer = new Function(`return ${code}`)();
+        left.abort();
+        return Promise.resolve(answer);
+      }
+      return Promise.resolve(
+        new Function(`return ${code.replaceAll("location.pathname", '"/home"')}`)(),
+      );
+    },
+  } as unknown as XWebview);
+  markXReady();
+  expect(await xGrokExplain({ postId: "17", handle: "ann" }, left.signal)).toBe("cancelled");
+  expect(inX).toEqual([]);
 });

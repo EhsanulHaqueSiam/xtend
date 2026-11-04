@@ -199,3 +199,25 @@ export const composeContextAtom = clientRuntime.atom(
     return yield* client[Compose_METHODS.context]({});
   }),
 );
+
+/**
+ * Where post `at` of thread `before` sits in `after`: where it moved, the same place while only it
+ * changed (its words, or a paste that split it into several: its first), null once it was removed.
+ * Compose's edits keep every other post's object.
+ */
+export const followPost = <A>(
+  before: ReadonlyArray<A>,
+  after: ReadonlyArray<A>,
+  at: number,
+): number | null => {
+  const post = before[at];
+  if (post === undefined) return null;
+  const moved = after.indexOf(post);
+  if (moved !== -1) return moved;
+  // The posts around it are as they were: what lies between them took its place.
+  const rest = before.slice(at + 1);
+  const around =
+    before.slice(0, at).every((b, i) => after[i] === b) &&
+    rest.every((b, i) => after[after.length - rest.length + i] === b);
+  return around && after.length - rest.length > at ? at : null;
+};
