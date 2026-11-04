@@ -2,7 +2,7 @@ import * as Atom from "effect/reactivity/Atom";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-import { xGo, xMoves, xPressOver, xRun, xRunHeld } from "./x";
+import { xGo, xMoves, xNavigate, xPressOver, xRun, xRunHeld } from "./x";
 
 /**
  * X's Grok through X's own page (bundle.GrokXWeb talks to grok.com, not X's GraphQL): read from
@@ -1158,4 +1158,23 @@ export const xGrokRelease = (from: string, stays: () => boolean) => {
 export const xGrokLeave = async (from: string) => {
   if ((await xRun(`location.pathname.startsWith("/i/grok")`)) !== true) return;
   if (!/^https:\/\/x\.com\/i\/grok/.test(from)) await xGo(from);
+};
+
+/**
+ * X's grok.com account gate (`/i/jf/grok/entry?redirect=…`) is X's page in transit: the engine
+ * goes on to the Grok page it names, through X's router, or by loading it when X holds its router
+ * there. False when the engine is not at X's gate.
+ */
+export const xGrokPastEntry = async () => {
+  const to = await xRun(`(() => {
+    if (!location.pathname.startsWith("/i/jf/grok")) return null;
+    try {
+      const next = new URL(new URLSearchParams(location.search).get("redirect") ?? "", location.origin);
+      return next.origin === location.origin && next.pathname.startsWith("/i/grok") ? next.href : location.origin + "/i/grok";
+    } catch { return location.origin + "/i/grok"; }
+  })()`);
+  if (typeof to !== "string" || !/^https:\/\/x\.com\/i\/grok/.test(to)) return false;
+  await xGo(to);
+  if ((await xRun(`location.pathname.startsWith("/i/jf/grok")`)) === true) await xNavigate(to);
+  return true;
 };

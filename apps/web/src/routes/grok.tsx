@@ -34,6 +34,7 @@ import {
   xGrokHistory,
   xGrokHistoryPress,
   xGrokMedia,
+  xGrokPastEntry,
 } from "../state/grok";
 import { addPersonAtom } from "../state/leads";
 import { xGo, xOverAtom, xRun } from "../state/x";
@@ -365,13 +366,22 @@ function GrokScreen() {
       if (typeof at !== "string" || !isGrokPath(at)) void xGo("https://x.com/i/grok");
     });
   }, [c]);
-  // X's older Grok page and its account link prompt are X's to show: over the main area.
+  // X's grok.com account gate is X's page in transit: the engine goes on to the Grok page it names,
+  // once per screen. Should X send it back there, X's gate is X's to answer, over the main area.
+  const gated = read?.path.startsWith("/i/jf/grok") ?? false;
+  const gates = useRef(0);
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- moves the engine (the session view) on from X's account gate to X's Grok page.
+  useEffect(() => {
+    if (!gated) return;
+    gates.current += 1;
+    if (gates.current === 1) void xGrokPastEntry();
+  }, [gated]);
+  // X's older Grok page, and X's gate when it holds, are X's to show: over the main area.
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- shows the engine over the main area while X draws a Grok page Xtend does not read.
   useEffect(() => {
-    const other = page === "other" || (read?.path.startsWith("/i/jf/grok") ?? false);
-    setOver(other);
+    setOver(page === "other" || (gated && gates.current > 1));
     return () => setOver(false);
-  }, [page, read?.path, setOver]);
+  }, [page, gated, setOver]);
 
   const load = useCallback(
     (query: string, more = false) =>

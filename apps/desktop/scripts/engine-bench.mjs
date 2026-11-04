@@ -2440,6 +2440,15 @@ const benchmarks = [
   [
     "Explain this post finds X's own Grok button on X's Home posts, pressing nothing",
     async () => {
+      // On X's Home in the app and the engine first: the check before may leave X on Grok.
+      await go("#/home?feed=following");
+      if (
+        !(await until(
+          async () => (await enginePath()) === "/home" && (await nativeIds()).length >= 1,
+          20_000,
+        ))
+      )
+        return undefined;
       // Counts only: which posts carry it is X's, per account and per post.
       const x = await engine(
         `({ posts: document.querySelectorAll("article").length, grok: document.querySelectorAll('article [aria-label="Grok actions"]').length })`,

@@ -6,6 +6,7 @@ import {
   xGrokHistory,
   xGrokHistoryPress,
   xGrokMedia,
+  xGrokPastEntry,
   xGrokSend,
 } from "./grok";
 import { markXReady, registerXWebview, type XWebview } from "./x";
@@ -351,7 +352,41 @@ it("goes Back to the chat when X's compact History page opens without its search
   expect(at.path).toBe("/i/grok/c/c2");
 });
 
+it("goes on from X's grok.com account gate to the Grok page it names, through X's router", async () => {
+  const moves: Array<string> = [];
+  let at = "/i/jf/grok/entry";
+  registerXWebview({
+    loadURL: async () => {},
+    getURL: () => `https://x.com${at}?redirect=https%3A%2F%2Fx.com%2Fi%2Fgrok`,
+    executeJavaScript: (code: string) => {
+      const to = /history\.pushState\(null, "", "([^"]+)"\)/.exec(code)?.[1];
+      if (to !== undefined) {
+        moves.push(to);
+        at = to;
+        return Promise.resolve(true);
+      }
+      return Promise.resolve(
+        new Function(
+          `return ${code
+            .replaceAll("location.pathname", JSON.stringify(at))
+            .replaceAll(
+              "location.search",
+              JSON.stringify("?redirect=https%3A%2F%2Fx.com%2Fi%2Fgrok"),
+            )
+            .replaceAll("location.origin", JSON.stringify("https://x.com"))}`,
+        )(),
+      );
+    },
+  } as unknown as XWebview);
+  markXReady();
+  expect(await xGrokPastEntry()).toBe(true);
+  expect(moves).toEqual(["/i/grok"]);
+  // Elsewhere there is no gate to pass.
+  expect(await xGrokPastEntry()).toBe(false);
+});
+
 // A 2x1 PNG, as X's page draws Grok's images from its own blobs.
+
 const PNG =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAEUlEQVR4nGP4z8DwHwQZYAwAOS0D/WkLu/AAAAAASUVORK5CYII=";
 
