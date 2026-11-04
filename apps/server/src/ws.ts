@@ -17,6 +17,7 @@ import * as EventsHandlers from "./events/EventsHandlers.ts";
 import * as AccountsHandlers from "./accounts/AccountsHandlers.ts";
 import * as DevicesHandlers from "./devices/DevicesHandlers.ts";
 import * as MarksHandlers from "./marks/MarksHandlers.ts";
+import * as XSettingsHandlers from "./xsettings/XSettingsHandlers.ts";
 import * as PoolHandlers from "./pool/PoolHandlers.ts";
 import * as TriageHandlers from "./triage/TriageHandlers.ts";
 
@@ -74,6 +75,7 @@ export const layerHandlers = Layer.mergeAll(
   MarksHandlers.layerHandlers,
   PoolHandlers.layerHandlers,
   TriageHandlers.layerHandlers,
+  XSettingsHandlers.layerHandlers,
 );
 
 export const layerRoute = HttpRouter.add(

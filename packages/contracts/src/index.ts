@@ -18,6 +18,7 @@ export * from "./events.ts";
 export * from "./accounts.ts";
 export * from "./devices.ts";
 export * from "./marks.ts";
+export * from "./xsettings.ts";
 export * from "./pool.ts";
 export * from "./redact.ts";
 export * from "./triage.ts";
