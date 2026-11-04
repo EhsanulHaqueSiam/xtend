@@ -17,7 +17,7 @@ const { GrokConversation, GrokDrawer } = await import("./Grok");
 const { grokDrawerAtom } = await import("../../state/grok");
 const { XColumn } = await import("./XColumn");
 const { XPostView } = await import("./XPostView");
-const { markXReady, registerXWebview } = await import("../../state/x");
+const { markXReady, registerXWebview, xGo } = await import("../../state/x");
 
 const post: EnginePost = {
   postId: "17",
@@ -64,6 +64,7 @@ const GROK_PAGE = `<main><div data-testid="primaryColumn"><div><button aria-hasp
 /** What X's page received, in order: X's Grok button pressed, each move in X's router. */
 const inX: Array<string> = [];
 let at = "/rinaships/status/17";
+let moveDuringLeave: (() => void) | null = null;
 const draw = () => {
   document.querySelector("#x")?.remove();
   document.body.insertAdjacentHTML(
@@ -91,6 +92,14 @@ registerXWebview({
       at = to;
       draw();
       return Promise.resolve(true);
+    }
+    // A screen moving the engine while Grok checks where X is, before it goes back.
+    if (code === 'location.pathname.startsWith("/i/grok")' && moveDuringLeave !== null) {
+      const move = moveDuringLeave;
+      moveDuringLeave = null;
+      const answer = at.startsWith("/i/grok");
+      move();
+      return Promise.resolve(answer);
     }
     return Promise.resolve(
       new Function(`return ${code.replaceAll("location.pathname", JSON.stringify(at))}`)(),
@@ -246,4 +255,19 @@ it("draws an image again when X gives its slot a new picture", async () => {
     />,
   );
   await expect.element(screen.getByRole("img", { name: "A city" })).toBeVisible();
+});
+
+it("leaves the engine where the next screen took it, even when that screen moves it while Grok lets go", async () => {
+  at = "/i/grok";
+  draw();
+  inX.length = 0;
+  await using screen = await render(<Leaving />, { router: "/post/17", service });
+  await userEvent.click(screen.getByRole("button", { name: "Dock" }));
+  await expect.element(screen.getByRole("region", { name: "Grok" })).toBeVisible();
+  // The next screen (Explore) moves the engine just as the drawer lets go of X's Grok page.
+  moveDuringLeave = () => void xGo("https://x.com/explore");
+  await userEvent.click(screen.getByRole("button", { name: "Leave" }));
+  await expect.poll(() => inX).toEqual(["go /explore"]);
+  await expect.poll(() => screen.container.textContent).toBe("Leaveno drawer");
+  expect(inX).toEqual(["go /explore"]);
 });

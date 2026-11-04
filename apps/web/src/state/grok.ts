@@ -1062,19 +1062,19 @@ let explains = 0;
 
 /**
  * Presses X's own Grok button on the post ("Grok actions", its first row when X offers more) for
- * the user's click, as one operation `signal` ends: X sends its analysis and opens its drawer or
- * Grok page, and the engine then shows X's Grok page, as X's drawer's own full page button does.
- * Each step, in Xtend and in X's page, checks it is still wanted. Null when X drew no such button.
+ * the user's click, then shows X's Grok page, as X's drawer's full page button does. Every step
+ * checks `signal` and that it is still the user's latest press. "done", "none" (no button), or
+ * "cancelled", with nothing more done.
  */
 export const xGrokExplain = async (
   post: { readonly postId: string; readonly handle: string },
   signal: AbortSignal,
 ) => {
-  if (!/^\d{1,25}$/.test(post.postId) || !/^[A-Za-z0-9_]{1,15}$/.test(post.handle)) return null;
+  if (!/^\d{1,25}$/.test(post.postId) || !/^[A-Za-z0-9_]{1,15}$/.test(post.handle)) return "none";
   const token = ++explains;
   // This operation, and still the user's latest press, in X's page.
   const press0 = await xRun(`(window.__xtendGrokExplain = ${token}, window.__xtendPress ?? 0)`);
-  if (typeof press0 !== "number" || signal.aborted) return null;
+  if (typeof press0 !== "number" || signal.aborted) return "cancelled";
   const mine = `(window.__xtendGrokExplain === ${token} && (window.__xtendPress ?? 0) === ${press0})`;
   signal.addEventListener(
     "abort",
@@ -1098,18 +1098,23 @@ export const xGrokExplain = async (
     }
     return (await wait(() => onGrok() || !!document.querySelector('[data-testid="GrokDrawer"] fieldset[data-grok-composer]'), 30)) ? "done" : null;
   })()`);
+  // Still this Explain, and still the user's latest press: checked before every move.
+  const owned = async () => !signal.aborted && (await xRun(mine)) === true;
   let answer = await press(10);
   if (answer !== "done") {
-    if (signal.aborted) return null;
+    if (!(await owned())) return "cancelled";
     // Not on the engine page: on the post's own page, through X's router.
     await xGo(`https://x.com/${post.handle}/status/${post.postId}`);
-    if (signal.aborted) return null;
+    if (!(await owned())) return "cancelled";
     answer = await press(100);
   }
-  if (answer !== "done" || signal.aborted) return null;
-  if ((await xRun(`location.pathname.startsWith("/i/grok")`)) !== true && !signal.aborted)
+  if (!(await owned())) return "cancelled";
+  if (answer !== "done") return "none";
+  if ((await xRun(`location.pathname.startsWith("/i/grok")`)) !== true) {
+    if (!(await owned())) return "cancelled";
     await xGo("https://x.com/i/grok");
-  return signal.aborted ? null : answer;
+  }
+  return "done";
 };
 
 /**
@@ -1149,15 +1154,17 @@ export const xGrokOpenNew = async () => {
  */
 export const xGrokRelease = (from: string, stays: () => boolean) => {
   const asked = xMoves();
+  const still = () => xMoves() === asked && !stays();
   queueMicrotask(() => {
-    if (xMoves() === asked && !stays()) void xGrokLeave(from);
+    if (still()) void xGrokLeave(from, still);
   });
 };
 
 /** Takes the engine from X's Grok page back to `from`, once a docked Grok closes, if X is still there. */
-export const xGrokLeave = async (from: string) => {
+export const xGrokLeave = async (from: string, still: () => boolean = () => true) => {
   if ((await xRun(`location.pathname.startsWith("/i/grok")`)) !== true) return;
-  if (!/^https:\/\/x\.com\/i\/grok/.test(from)) await xGo(from);
+  // Checked again right before the move: the next screen may have moved the engine meanwhile.
+  if (!/^https:\/\/x\.com\/i\/grok/.test(from) && still()) await xGo(from);
 };
 
 /**

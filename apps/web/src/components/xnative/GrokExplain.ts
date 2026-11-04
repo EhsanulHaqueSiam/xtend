@@ -32,7 +32,8 @@ export function useExplainPost() {
     explaining = run;
     const ref = { postId: post.postId, handle: post.author.handle };
     setDrawer((d) => ({ from: d?.from ?? xUrl, post: ref }));
-    if ((await xGrokExplain(ref, run.signal)) !== null || run.signal.aborted) return;
+    // Only where X drew no Grok button, and the Explain is still the user's: the link fallback.
+    if ((await xGrokExplain(ref, run.signal)) !== "none" || run.signal.aborted) return;
     const opened = await xGrokOpenNew();
     if (run.signal.aborted) return;
     if (opened === null) return setToast({ text: "X did not open Grok. Try again in a moment." });

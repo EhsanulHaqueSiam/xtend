@@ -456,6 +456,32 @@ it("lets go of an Explain the user left: no press on X's Grok button and no move
     },
   } as unknown as XWebview);
   markXReady();
-  expect(await xGrokExplain({ postId: "17", handle: "ann" }, left.signal)).toBeNull();
+  expect(await xGrokExplain({ postId: "17", handle: "ann" }, left.signal)).toBe("cancelled");
+  expect(inX).toEqual([]);
+});
+
+it("ends an Explain when the user presses something else in X before it goes to the post", async () => {
+  // The engine page shows no such post: Explain would go to the post's own page next.
+  using _x = drawX(`<main><article><a href="/bo/status/9"><time>1h</time></a></article></main>`);
+  const inX: Array<string> = [];
+  registerXWebview({
+    loadURL: async () => {},
+    getURL: () => "https://x.com/home",
+    executeJavaScript: (code: string) => {
+      const to = /history\.pushState\(null, "", "([^"]+)"\)/.exec(code)?.[1];
+      if (to !== undefined) {
+        inX.push(`go ${to}`);
+        return Promise.resolve(true);
+      }
+      const answer = new Function(`return ${code.replaceAll("location.pathname", '"/home"')}`)();
+      // Meanwhile the user's click on another of X's controls becomes the latest press.
+      if (code.includes('[aria-label="Grok actions"]'))
+        return Promise.resolve(answer).then((a) => (Reflect.set(window, "__xtendPress", 999), a));
+      return Promise.resolve(answer);
+    },
+  } as unknown as XWebview);
+  markXReady();
+  const signal = new AbortController().signal;
+  expect(await xGrokExplain({ postId: "17", handle: "ann" }, signal)).toBe("cancelled");
   expect(inX).toEqual([]);
 });
