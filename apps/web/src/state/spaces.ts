@@ -239,15 +239,26 @@ export const xSpaceRead = async (spaceId: string) => {
  * a listener, in public, as on X. Then the engine goes Back where it was; X's dock stays and plays.
  * True once X drew its dock; null when X offered no Start listening there (X's page says why).
  */
-export const xSpaceListen = (spaceId: string) => pressOnPage(spaceId, "Start listening");
+export const xSpaceListen = (spaceId: string, title: string) =>
+  pressOnPage(spaceId, title, "Start listening");
 
 /**
  * Presses X's own Play recording on Space `spaceId`'s page for the user's click: X's player for the
- * recording takes X's dock. True once X drew it; null when X offered no recording there.
+ * recording takes X's dock. True once X's dock holds it; null when X offered no recording there,
+ * or kept playing what it played.
  */
-export const xSpacePlay = (spaceId: string) => pressOnPage(spaceId, "Play recording");
+export const xSpacePlay = (spaceId: string, title: string) =>
+  pressOnPage(spaceId, title, "Play recording");
 
-const pressOnPage = async (spaceId: string, label: "Start listening" | "Play recording") => {
+/**
+ * X's dock names no Space, only its title: one that held another Space before the press holds this
+ * one once it shows this Space's title. With no title to tell them apart, only a dock drawn anew.
+ */
+const pressOnPage = async (
+  spaceId: string,
+  title: string,
+  label: "Start listening" | "Play recording",
+) => {
   if (!validSpace(spaceId)) return null;
   const moved = await xGo(peekUrl(spaceId));
   const answer = await xPressOver(
@@ -257,9 +268,14 @@ const pressOnPage = async (spaceId: string, label: "Start listening" | "Play rec
     for (let i = 0; i < 50 && ${ON_PEEK(spaceId)} && !find(); i++) await new Promise((r) => setTimeout(r, 100));
     const button = find();
     if (!button || !(${ON_PEEK(spaceId)}) || !${mine}) return null;
+    const title = ${JSON.stringify(title.trim())};
+    const holds = (box) => (title === "" ? true : (box.textContent ?? "").includes(title));
+    const before = root(document);
+    const was = before !== null && (title === "" || holds(before.box));
     button.click();
-    for (let i = 0; i < 50 && !root(document); i++) await new Promise((r) => setTimeout(r, 100));
-    return root(document) ? "joined" : null;
+    const taken = () => { const now = root(document); return now !== null && !was && holds(now.box) && (title !== "" || before === null); };
+    for (let i = 0; i < 50 && !taken(); i++) await new Promise((r) => setTimeout(r, 100));
+    return taken() ? "joined" : null;
   })()`,
     "false",
     () => {},

@@ -136,10 +136,11 @@ export function usePlayRecording() {
   const setLive = useAtomSet(spaceLiveAtom);
   const setDock = useAtomSet(spaceDockAtom);
   const { blocked, setToast } = useXPress();
-  return async (spaceId: string) => {
+  return async ({ spaceId, title }: Pick<EngineSpace, "spaceId" | "title">) => {
     const why = blocked();
     if (why !== null) return (setToast({ text: why }), false);
-    if ((await xSpacePlay(spaceId)) !== true) {
+    // A refusal leaves whatever X plays as it was, with its own dock.
+    if ((await xSpacePlay(spaceId, title)) !== true) {
       setToast({ text: "X did not play the recording. Try again in a moment." });
       return false;
     }
@@ -253,7 +254,7 @@ function SpaceDockBody({
   };
   const listen = () =>
     press(async () => {
-      const joined = await xSpaceListen(space.spaceId);
+      const joined = await xSpaceListen(space.spaceId, space.title);
       if (joined === true) setLive((l) => ({ ...l, joined: space.spaceId }));
       return joined === true;
     });
@@ -390,7 +391,7 @@ function SpaceDockBody({
             const open = () => void navigate({ to: "/spaces/$id", params: { id: space.spaceId } });
             if (read !== null) return open();
             setBusy(true);
-            void playRecording(space.spaceId)
+            void playRecording(space)
               .then((played) => played && open())
               .finally(() => setBusy(false));
           }}

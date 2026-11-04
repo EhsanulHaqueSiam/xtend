@@ -119,7 +119,7 @@ function Recording({
     if (busy) return;
     setBusy(true);
     try {
-      await playRecording(space.spaceId);
+      await playRecording(space);
     } finally {
       setBusy(false);
     }
@@ -234,9 +234,11 @@ function Recording({
           >
             {window.desktopBridge === undefined
               ? "X plays recordings in the desktop app"
-              : space.recorded
-                ? "Play recording"
-                : "X kept no recording of this Space"}
+              : busy
+                ? "Starting the recording"
+                : space.recorded
+                  ? "Play recording"
+                  : "X kept no recording of this Space"}
           </button>
         ) : (
           <>
