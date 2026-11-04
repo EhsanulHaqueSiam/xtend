@@ -58,6 +58,9 @@ function Screen() {
       <button type="button" onClick={() => setUrl("https://x.com/i/grok?conversation=c1")}>
         On c1
       </button>
+      <button type="button" onClick={() => setUrl("https://x.com/i/grok")}>
+        On a new chat
+      </button>
       <button type="button" onClick={() => setOpen(!open)}>
         Toggle Grok
       </button>
@@ -154,4 +157,30 @@ it("lets go of the chat it kept on screen once the Grok screen closes", async ()
   await expect.element(onScreen).toHaveTextContent("c1");
   await userEvent.click(screen.getByRole("button", { name: "Toggle Grok" }));
   await expect.element(onScreen).toHaveTextContent("none");
+});
+
+it("sends one new chat at a time: the next waits until X's stream takes the last one's question", async () => {
+  await using screen = await renderScreen();
+  await userEvent.click(screen.getByRole("button", { name: "On a new chat" }));
+  page.search = "";
+  pressed.length = 0;
+  field.value = "";
+  xSend.disabled = false;
+  const box = screen.getByRole("textbox", { name: "Ask Grok" });
+  const send = screen.getByRole("button", { name: "Send" });
+  await userEvent.fill(box, "First");
+  await userEvent.click(send);
+  await expect.poll(() => pressed).toEqual(["sent First"]);
+  await userEvent.fill(box, "Second");
+  await expect.element(screen.getByText("Waiting for Grok to start the last chat")).toBeVisible();
+  await expect.element(send).toBeDisabled();
+  hear({ kind: "start", stream: "n", conversation: null });
+  hear({
+    kind: "chunk",
+    stream: "n",
+    line: JSON.stringify({ conversationId: "c-new", userChatItemId: "u" }),
+  });
+  await expect.element(send).toBeEnabled();
+  hear({ kind: "end", stream: "n" });
+  page.search = "?conversation=c1";
 });

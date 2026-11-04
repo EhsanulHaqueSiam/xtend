@@ -108,7 +108,7 @@ it("gives each question to the stream X's ask names its chat in, whichever start
   ]);
 });
 
-it("gives each new chat's question to the conversation X created for it, oldest first, once", () => {
+it("gives the new chat's one question to the first new chat's stream, of either kind, once", () => {
   const created = (id: string) =>
     ({
       kind: "graphql",
@@ -116,33 +116,27 @@ it("gives each new chat's question to the conversation X created for it, oldest 
       variables: {},
       body: { data: { create_grok_conversation: { conversation_id: id } } },
     }) as const;
-  const answer = (s: GrokLegacyState, stream: string, conversation: string | null, extra = {}) =>
+  const answer = (s: GrokLegacyState, stream: string, conversation: string | null) =>
     applyCapture(
       applyCapture(s, { kind: "start", stream, conversation }),
-      line({ userChatItemId: `u${stream}`, ...extra }, stream),
+      line({ userChatItemId: `u${stream}`, conversationId: `c${stream}` }, stream),
     );
-  // A created id with no question waiting binds nothing.
-  let s = applyCapture(emptyLegacy, created("c-unused"));
-  s = askLegacy(s, null, "A");
-  s = askLegacy(s, null, "B");
-  s = applyCapture(s, created("cA"));
-  s = applyCapture(s, created("cB"));
-  s = answer(s, "1", "cA");
-  s = answer(s, "2", "cB");
-  // An old chat resumed, and the created id X never asked in, take no one's question.
-  s = askLegacy(s, null, "C");
+  // An ask naming no chat takes it.
+  let s = answer(askLegacy(emptyLegacy, null, "A"), "1", null);
+  s = answer(s, "2", null);
+  // So does the conversation X just created, but not an old chat resumed meanwhile.
+  s = applyCapture(askLegacy(s, null, "B"), created("c4"));
   s = answer(s, "3", "c-old");
-  s = answer(s, "4", "c-unused");
-  // An ask naming no chat takes the oldest new chat's.
-  s = answer(s, "5", null, { conversationId: "c5" });
-  expect(["cA", "cB", "c-old", "c-unused", "c5"].map((c) => turnsOf(s, c)[0]?.user)).toEqual([
+  s = answer(s, "4", "c4");
+  s = answer(applyCapture(s, created("c5")), "5", "c5");
+  expect(["c1", "c2", "c-old", "c4", "c5"].map((c) => turnsOf(s, c)[0]?.user)).toEqual([
     "A",
+    null,
+    null,
     "B",
     null,
-    null,
-    "C",
   ]);
-  expect([s.asked.size, s.fresh]).toEqual([0, []]);
+  expect(s.fresh).toBeNull();
 });
 
 it("goes on from the part of an answer X's items hold when X resumes its stream", () => {

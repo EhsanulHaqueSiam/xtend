@@ -39,10 +39,12 @@ export interface GrokLegacyState {
   readonly conversations: ReadonlyMap<string, ReadonlyArray<LegacyTurn>>;
   /** X's streams in flight, by the capture's stream id. */
   readonly streams: ReadonlyMap<string, LegacyStream>;
-  /** What the user asked through Xtend's box, by the chat it was asked in or X created for it. */
+  /** What the user asked through Xtend's box, by the chat it was asked in. */
   readonly asked: ReadonlyMap<string, string>;
-  /** New chats' questions, oldest first, until X creates each one's conversation. */
-  readonly fresh: ReadonlyArray<string>;
+  /** The new chat's question, one at a time, until X's stream for that chat takes it. */
+  readonly fresh: string | null;
+  /** The conversation X last created for a new chat. */
+  readonly created: string | null;
   /** The chat on screen: never evicted. */
   readonly open: string | null;
 }
@@ -52,7 +54,8 @@ export const emptyLegacy: GrokLegacyState = {
   conversations: new Map(),
   streams: new Map(),
   asked: new Map(),
-  fresh: [],
+  fresh: null,
+  created: null,
   open: null,
 };
 const KEEP = 20;
@@ -104,14 +107,9 @@ export const applyCapture = (state: GrokLegacyState, capture: GrokCapture): Grok
         history: state.history?.map((r) => ({ ...r, pinned: pinned.includes(r.id) })) ?? null,
       };
     }
-    // X creates a new chat's conversation before asking in it: the oldest new chat's question is its.
-    if (capture.op === "CreateGrokConversation") {
-      const created = str(record(data.create_grok_conversation).conversation_id);
-      const [first, ...rest] = state.fresh;
-      return created === null || first === undefined
-        ? state
-        : { ...state, fresh: rest, asked: new Map(state.asked).set(created, first) };
-    }
+    // X creates a new chat's conversation, then asks in it.
+    if (capture.op === "CreateGrokConversation")
+      return { ...state, created: str(record(data.create_grok_conversation).conversation_id) };
     const id = str(record(capture.variables).restId);
     if (capture.op !== "GrokConversationItemsByRestId" || id === null) return state;
     // X lists a conversation's items newest first.
@@ -180,18 +178,20 @@ export const applyCapture = (state: GrokLegacyState, capture: GrokCapture): Grok
   if (conversation === null) return state;
   let asked = state.asked;
   let fresh = state.fresh;
+  let created = state.created;
   let turn = stream?.turn ?? null;
   if (turn === null) {
-    // X's first line names the user's item; its question is the one asked in this chat, once. An
-    // ask naming no chat takes the oldest new chat's.
+    // X's first line names the user's item; its question is the one asked in this chat, once, or
+    // the new chat's when X's ask named no chat or the one X just created.
     let question = asked.get(conversation) ?? null;
     if (question !== null) {
       const rest = new Map(asked);
       rest.delete(conversation);
       asked = rest;
-    } else if (stream?.conversation === null && fresh.length > 0) {
-      question = fresh[0]!;
-      fresh = fresh.slice(1);
+    } else if (stream?.conversation === null || conversation === created) {
+      question = fresh;
+      fresh = null;
+      created = null;
     }
     const user = str(line.userChatItemId);
     const agent = str(line.agentChatItemId);
@@ -219,6 +219,7 @@ export const applyCapture = (state: GrokLegacyState, capture: GrokCapture): Grok
     ...state,
     asked,
     fresh,
+    created,
     streams: new Map(state.streams).set(capture.stream, { conversation, turn }),
   };
 };
@@ -243,10 +244,10 @@ const remember = (
   return next;
 };
 
-/** The window's copy with `text` asked through Xtend's box in `chat`, or a new chat when null. */
+/** The window's copy with `text` asked through Xtend's box in `chat`, or the new chat when null. */
 export const askLegacy = (state: GrokLegacyState, chat: string | null, text: string) =>
   chat === null
-    ? { ...state, fresh: [...state.fresh, text] }
+    ? { ...state, fresh: text }
     : { ...state, asked: new Map(state.asked).set(chat, text) };
 
 /** The window's copy without `text`, a question X never received. */
@@ -255,10 +256,7 @@ export const unaskLegacy = (
   chat: string | null,
   text: string,
 ): GrokLegacyState => {
-  if (chat === null) {
-    const at = state.fresh.lastIndexOf(text);
-    return at === -1 ? state : { ...state, fresh: state.fresh.toSpliced(at, 1) };
-  }
+  if (chat === null) return state.fresh === text ? { ...state, fresh: null } : state;
   if (state.asked.get(chat) !== text) return state;
   const asked = new Map(state.asked);
   asked.delete(chat);

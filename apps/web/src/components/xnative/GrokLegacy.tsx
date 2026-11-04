@@ -38,6 +38,8 @@ export function GrokLegacy() {
   }, [chat, setLegacy]);
   const turns = chat === null ? [] : turnsOf(legacy, chat);
   const live = turns.some((t) => t.live);
+  // One new chat at a time: its question waits for X's stream to say which chat it started.
+  const waiting = chat === null && legacy.fresh !== null;
   // The same conversation Xtend draws for X's newer client, from X's markdown.
   const read: GrokRead = {
     path: "/i/grok",
@@ -68,7 +70,7 @@ export function GrokLegacy() {
   };
   const send = async () => {
     const text = draft;
-    if (text.trim() === "" || sending || live) return;
+    if (text.trim() === "" || sending || live || waiting) return;
     setSending(true);
     // X's stream names the turn but not the question: its turn in this chat takes these words.
     setLegacy((s) => askLegacy(s, chat, text));
@@ -95,6 +97,11 @@ export function GrokLegacy() {
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         <GrokConversation read={read} />
       </div>
+      {waiting ? (
+        <p className="px-4 pt-2 text-[13px] text-[#71767b]">
+          Waiting for Grok to start the last chat
+        </p>
+      ) : null}
       <div className="flex items-end gap-2 px-4 pt-2 pb-4">
         <textarea
           aria-label="Ask Grok"
@@ -112,7 +119,7 @@ export function GrokLegacy() {
         />
         <button
           type="button"
-          disabled={draft.trim() === "" || sending || live}
+          disabled={draft.trim() === "" || sending || live || waiting}
           className="h-10 shrink-0 cursor-pointer rounded-full bg-foreground px-4 text-[14px] font-bold text-background disabled:cursor-default disabled:opacity-40"
           onClick={() => void send()}
         >
