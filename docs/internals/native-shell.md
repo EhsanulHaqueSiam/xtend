@@ -102,6 +102,20 @@ its caption field. X gates the pages on
 `subscriptions_feature_article_composer`, which no claim the capture sees carries, and answers
 them with "Page not found" without it, so access is read from X's page: its pen, or none.
 
+X's settings are read from X's page too, not its traffic: X keeps them in its own store (its
+notification filters for four minutes in the browser's storage), so its router often shows a
+settings page without asking X again. `state/xSettings.ts` reads the open page only, X's words
+in X's order, and presses X's own control there. X lays settings out by the engine's width: on a
+wide window the page is a section labelled by its header beside X's list, beside Xtend's panel it
+is X's compact page, its title in the app bar and its body after it in `main`; both are read. X's settings inputs carry no names, so a press
+finds its control by place and checks the label X draws there before clicking. X's search index
+(bundle.Settings) is Xtend's list of X's pages, so Settings search loads none of them. A page
+that asks for typing (a password, a username), and the pages X keeps for itself (password,
+two-factor, passkeys, sessions, Premium, Monetization: `isXOnly`), show as X's page over the
+main area with Xtend's bar and its Back. The rail's change log (`xsettings/XSettingsLog.ts`)
+keeps, per account, the last value of each toggle or pick Xtend saw and every flip, so a
+setting changed on the phone shows the next time its page is read; never what the user types.
+
 The read-only benchmark (`apps/desktop/scripts/engine-bench.mjs`) checks every surface against a
 dev desktop on the real account; its only write is a bookmark it removes again.
 

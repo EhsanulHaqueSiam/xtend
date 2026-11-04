@@ -2427,6 +2427,29 @@ const benchmarks = [
     },
   ],
   [
+    "X settings: Muted notifications draws X's own checkboxes with X's values, pressing nothing (dry)",
+    async () => {
+      // X's settings page in the engine, found as Xtend's reader finds it (state/xSettings.ts): the
+      // detail section X labels by its header on a wide window, else X's main, as in its compact
+      // layout beside Xtend's panel. Counts and states only; no checkbox is pressed.
+      await go("#/settings?tab=x-notifications&x=%2Fsettings%2Fnotifications%2Fadvanced_filters");
+      return until(async () => {
+        if ((await enginePath()) !== "/settings/notifications/advanced_filters") return false;
+        const x = await engine(
+          `[...(document.querySelector('[aria-labelledby="modal-header"]') ?? document.querySelector('[aria-labelledby="detail-header"]') ?? document.querySelector("main") ?? document.createElement("i")).querySelectorAll('input[type="checkbox"]')].map((i) => i.checked)`,
+        );
+        const drawn = await app(
+          `[...document.querySelectorAll('main input[type="checkbox"]')].map((i) => i.checked)`,
+        );
+        if (!x?.length || JSON.stringify(x) !== JSON.stringify(drawn)) {
+          console.log(`      ${JSON.stringify({ x, drawn, width: await engine("innerWidth") })}`);
+          return false;
+        }
+        return `${x.length} of X's filters, ${x.filter(Boolean).length} on, as X's page has them`;
+      }, 20_000);
+    },
+  ],
+  [
     "Back on Home, the engine follows",
     async () => (
       await go("#/home?feed=following"),
