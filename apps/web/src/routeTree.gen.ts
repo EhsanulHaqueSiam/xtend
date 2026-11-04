@@ -46,6 +46,7 @@ import { Route as NbaGameIdRouteImport } from './routes/nba.game.$id'
 import { Route as ListsIdPeopleRouteImport } from './routes/lists.$id_.people'
 import { Route as CommunitiesIdToolsRouteImport } from './routes/communities.$id_.tools'
 import { Route as CommunitiesIdToolsSettingsRouteImport } from './routes/communities.$id_.tools_.settings'
+import { Route as CommunitiesIdModerationQueueRouteImport } from './routes/communities.$id_.moderation.$queue'
 
 const XRoute = XRouteImport.update({
   id: '/x',
@@ -233,6 +234,12 @@ const CommunitiesIdToolsSettingsRoute =
     path: '/communities/$id/tools/settings',
     getParentRoute: () => rootRouteImport,
   } as any)
+const CommunitiesIdModerationQueueRoute =
+  CommunitiesIdModerationQueueRouteImport.update({
+    id: '/communities/$id_/moderation/$queue',
+    path: '/communities/$id/moderation/$queue',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -271,6 +278,7 @@ export interface FileRoutesByFullPath {
   '/post/$id/activity': typeof PostIdActivityRoute
   '/post/$id/analytics': typeof PostIdAnalyticsRoute
   '/u/$handle/people': typeof UHandlePeopleRoute
+  '/communities/$id/moderation/$queue': typeof CommunitiesIdModerationQueueRoute
   '/communities/$id/tools/settings': typeof CommunitiesIdToolsSettingsRoute
 }
 export interface FileRoutesByTo {
@@ -310,6 +318,7 @@ export interface FileRoutesByTo {
   '/post/$id/activity': typeof PostIdActivityRoute
   '/post/$id/analytics': typeof PostIdAnalyticsRoute
   '/u/$handle/people': typeof UHandlePeopleRoute
+  '/communities/$id/moderation/$queue': typeof CommunitiesIdModerationQueueRoute
   '/communities/$id/tools/settings': typeof CommunitiesIdToolsSettingsRoute
 }
 export interface FileRoutesById {
@@ -350,6 +359,7 @@ export interface FileRoutesById {
   '/post/$id_/activity': typeof PostIdActivityRoute
   '/post/$id_/analytics': typeof PostIdAnalyticsRoute
   '/u/$handle_/people': typeof UHandlePeopleRoute
+  '/communities/$id_/moderation/$queue': typeof CommunitiesIdModerationQueueRoute
   '/communities/$id_/tools_/settings': typeof CommunitiesIdToolsSettingsRoute
 }
 export interface FileRouteTypes {
@@ -391,6 +401,7 @@ export interface FileRouteTypes {
     | '/post/$id/activity'
     | '/post/$id/analytics'
     | '/u/$handle/people'
+    | '/communities/$id/moderation/$queue'
     | '/communities/$id/tools/settings'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -430,6 +441,7 @@ export interface FileRouteTypes {
     | '/post/$id/activity'
     | '/post/$id/analytics'
     | '/u/$handle/people'
+    | '/communities/$id/moderation/$queue'
     | '/communities/$id/tools/settings'
   id:
     | '__root__'
@@ -469,6 +481,7 @@ export interface FileRouteTypes {
     | '/post/$id_/activity'
     | '/post/$id_/analytics'
     | '/u/$handle_/people'
+    | '/communities/$id_/moderation/$queue'
     | '/communities/$id_/tools_/settings'
   fileRoutesById: FileRoutesById
 }
@@ -509,6 +522,7 @@ export interface RootRouteChildren {
   PostIdActivityRoute: typeof PostIdActivityRoute
   PostIdAnalyticsRoute: typeof PostIdAnalyticsRoute
   UHandlePeopleRoute: typeof UHandlePeopleRoute
+  CommunitiesIdModerationQueueRoute: typeof CommunitiesIdModerationQueueRoute
   CommunitiesIdToolsSettingsRoute: typeof CommunitiesIdToolsSettingsRoute
 }
 
@@ -773,6 +787,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CommunitiesIdToolsSettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/communities/$id_/moderation/$queue': {
+      id: '/communities/$id_/moderation/$queue'
+      path: '/communities/$id/moderation/$queue'
+      fullPath: '/communities/$id/moderation/$queue'
+      preLoaderRoute: typeof CommunitiesIdModerationQueueRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -813,6 +834,7 @@ const rootRouteChildren: RootRouteChildren = {
   PostIdActivityRoute: PostIdActivityRoute,
   PostIdAnalyticsRoute: PostIdAnalyticsRoute,
   UHandlePeopleRoute: UHandlePeopleRoute,
+  CommunitiesIdModerationQueueRoute: CommunitiesIdModerationQueueRoute,
   CommunitiesIdToolsSettingsRoute: CommunitiesIdToolsSettingsRoute,
 }
 export const routeTree = rootRouteImport

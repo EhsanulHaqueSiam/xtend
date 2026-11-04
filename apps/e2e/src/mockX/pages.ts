@@ -312,6 +312,8 @@ interface Route {
   readonly render: (batches: ReadonlyArray<EngineBatch | null>) => string;
   /** Where X's router sends the path instead, replacing it, as X's Redirect does. */
   readonly redirect?: string;
+  /** The rows a next page appends, for a page that lists no posts of its own (X's queues). */
+  readonly more?: (batch: EngineBatch | null) => string;
 }
 
 const RESERVED = new Set([
@@ -1038,6 +1040,14 @@ export function route(
     const admin = state.communityAdmin(id);
     const rest = parts.slice(4).join("/");
     const base = `/i/communities/${id}`;
+    // Its queues draw X's not-found page for anyone else instead.
+    if (fourth === "moderation" && c !== undefined && admin === undefined)
+      return {
+        title: "Page not found / X",
+        requests: [r("CommunitiesFetchOneQuery", { communityId: id })],
+        render: () =>
+          `${header("Page not found")}<div class="empty"><h3>Hmm...this page doesn’t exist. Try searching for something else.</h3></div>`,
+      };
     if (
       c === undefined ||
       admin === undefined ||
@@ -1096,6 +1106,43 @@ export function route(
           `<div data-x-form>${header(title)}<input aria-label="${esc(title)}" name="${field}" value="${esc(value)}"><button data-x-save="${op}">Save</button></div>`,
       };
     }
+    // X's queues: each row X's own buttons, and X's words in a decided row's place.
+    // X's queues, each page of rows from X's answer, each row X's own buttons; a decided row
+    // is X's words in its place, drawn by the page script.
+    const requestRows = (b: EngineBatch | null | undefined) =>
+      (b?.joinRequests?.requests ?? [])
+        .map((q) => {
+          const u = state.user(q.userId)!;
+          return `<div data-testid="UserCell"><a href="/${esc(u.handle)}"><b>${esc(u.name)}</b></a> <a href="/${esc(u.handle)}">@${esc(u.handle)}</a><div>${esc(u.bio)}</div><div>${esc(q.answer ?? "")}</div><button data-x-request="approve:${q.userId}">Approve</button><button data-x-request="deny:${q.userId}">Deny</button></div>`;
+        })
+        .join("");
+    const caseRows = (b: EngineBatch | null | undefined) =>
+      (b?.reportCases?.cases ?? [])
+        .map((k) => {
+          const p = state.post(k.postId)!;
+          return `<div data-case="${k.postId}"><div>Reported by ${k.reports} members</div>${article(p, state)}<button data-x-case="keep:${k.postId}">Keep</button><a href="/i/report/hidetweet/${k.postId}">Hide</a><a href="/i/report/removecommunitymember/${p.author.userId}?community_id=${id}&post=${k.postId}">Ban</a></div>`;
+        })
+        .join("");
+    if (rest === "member_requests")
+      return {
+        title: "Member requests / X",
+        requests: [fetchOne, r("MemberRequests_Query", { communityId: id })],
+        paged: 1,
+        more: requestRows,
+        render: ([, b]) =>
+          `${header("Member requests")}<section data-list>${requestRows(b)}</section>`,
+      };
+    if (rest === "reported_tweets")
+      return {
+        title: "Reported posts / X",
+        requests: [
+          fetchOne,
+          r("CommunityModerationTweetCasesSlice", { communityId: id, count: 20 }),
+        ],
+        paged: 1,
+        more: caseRows,
+        render: ([, b]) => `${header("Reported posts")}<section data-list>${caseRows(b)}</section>`,
+      };
     // The tools Xtend leaves on X's own page: here, each its title and X's back.
     const titles: Readonly<Record<string, string>> = {
       "settings/topic": "Edit topic",
@@ -1260,6 +1307,30 @@ export function route(
       },
     };
   }
+  // X's Ban (bundle.Report's removecommunitymember flow): the moderator picks the rule the author
+  // broke, and X removes them and goes back. Synthetic: `post`, the mock's note of the post banned
+  // from, which X's flow takes from its referrer.
+  if (
+    lower === "i" &&
+    second === "report" &&
+    third === "removecommunitymember" &&
+    fourth !== undefined
+  )
+    return {
+      title: "Ban / X",
+      requests: [],
+      render: () =>
+        routeDialog(
+          "Ban from Community",
+          ["Keep posts on topic.", "No spam"]
+            .map(
+              (rule) =>
+                `<div role="button" tabindex="0" data-ban-rule="${esc(rule)}" data-post="${esc(q.get("post") ?? "")}">${esc(rule)}</div>`,
+            )
+            .join(""),
+          state.compact,
+        ),
+    };
   // X's Hide post (bundle.Report's hidetweet flow): the moderator picks the rule it broke, and X
   // hides the post and goes back to where it was. It sends no GraphQL call.
   if (lower === "i" && second === "report" && third === "hidetweet" && fourth !== undefined) {
