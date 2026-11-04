@@ -69,6 +69,7 @@ it("lists X's Admin tools by X's role rules, with requests and Spotlight only wh
     // X's gear counts what waits on the mods: requests and reported posts.
     await expect.element(screen.getByRole("link", { name: "Admin tools" })).toHaveTextContent("5");
     expect(rows()).toEqual([
+      "Review all",
       "Reported posts",
       "Member requests",
       "Moderation log",
@@ -86,6 +87,7 @@ it("lists X's Admin tools by X's role rules, with requests and Spotlight only wh
     bridge.emitEngine(tools({ role: "Moderator", reported: 0, requests: null, spotlight: null }));
     await expect.element(screen.getByRole("link", { name: "Moderator tools" })).toBeVisible();
     expect(rows()).toEqual([
+      "Review all",
       "Reported posts",
       "Moderation log",
       "Members",
