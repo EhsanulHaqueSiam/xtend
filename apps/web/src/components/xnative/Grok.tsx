@@ -277,7 +277,7 @@ function Block({ block }: { readonly block: GrokBlock }) {
     case "hr":
       return <hr className="border-white/[0.12]" />;
     case "img":
-      return <GrokImage src={block.src} alt={block.alt} />;
+      return <GrokImage key={block.src} src={block.src} alt={block.alt} />;
     case "note":
       return <Note note={block} />;
   }
@@ -688,10 +688,14 @@ export function GrokDrawer({
   post,
   onInsert,
   onClose,
+  onExpand,
 }: {
   readonly post?: EnginePost | undefined;
   readonly onInsert?: ((text: string) => void) | undefined;
+  /** Closed: the engine goes back to where it was. */
   readonly onClose: () => void;
+  /** Off to the full page: the drawer goes, the engine stays on X's Grok page. */
+  readonly onExpand: () => void;
 }) {
   const navigate = useNavigate();
   const { read } = useGrokWatch();
@@ -708,7 +712,7 @@ export function GrokDrawer({
             aria-label="Open full page"
             className={cn("no-drag", ROUND)}
             onClick={() => {
-              onClose();
+              onExpand();
               void navigate({ to: "/grok" });
             }}
           >

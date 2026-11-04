@@ -5,6 +5,15 @@ import { grokDrawerAtom, grokWriteAtom, xGrokExplain, xGrokOpenNew } from "../..
 import { xUrlAtom } from "../../state/x";
 import { useXPress } from "./useXPress";
 
+/** The Explain in flight: one at a time, ended when its drawer goes. */
+let explaining: AbortController | null = null;
+
+/** Ends the Explain in flight, if any: nothing more of it reaches X. */
+export const endExplain = () => {
+  explaining?.abort();
+  explaining = null;
+};
+
 /**
  * "Explain this post" for the user's click: Grok docks beside the screen and X's own Grok button
  * on the post asks X's analysis of it. Where X draws no such button for the account, X's Grok
@@ -18,11 +27,15 @@ export function useExplainPost() {
   return async (post: EnginePost) => {
     const why = blocked();
     if (why !== null) return setToast({ text: why });
+    endExplain();
+    const run = new AbortController();
+    explaining = run;
     const ref = { postId: post.postId, handle: post.author.handle };
     setDrawer((d) => ({ from: d?.from ?? xUrl, post: ref }));
-    if ((await xGrokExplain(ref)) !== null) return;
-    if ((await xGrokOpenNew()) === null)
-      return setToast({ text: "X did not open Grok. Try again in a moment." });
+    if ((await xGrokExplain(ref, run.signal)) !== null || run.signal.aborted) return;
+    const opened = await xGrokOpenNew();
+    if (run.signal.aborted) return;
+    if (opened === null) return setToast({ text: "X did not open Grok. Try again in a moment." });
     setWrite((w) =>
       w.send === null ? { ...w, draft: `https://x.com/${ref.handle}/status/${ref.postId}` } : w,
     );

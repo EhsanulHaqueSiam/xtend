@@ -1,6 +1,13 @@
 import { expect, it } from "vite-plus/test";
 
-import { readGrok, xGrokHistory, xGrokHistoryPress, xGrokMedia, xGrokSend } from "./grok";
+import {
+  readGrok,
+  xGrokExplain,
+  xGrokHistory,
+  xGrokHistoryPress,
+  xGrokMedia,
+  xGrokSend,
+} from "./grok";
 import { markXReady, registerXWebview, type XWebview } from "./x";
 
 // X's Grok page (bundle.GrokXWeb) as it draws: X's header in its column, the transcript region
@@ -334,4 +341,37 @@ it("copies X's Media tab images while X draws them, and leaves X's panel on Chat
   const media = await xGrokMedia();
   expect(media?.images.map((src) => src.startsWith("data:image/jpeg"))).toEqual([true]);
   expect([pressed, document.querySelector('[role="dialog"]')]).toEqual([["Media", "Chats"], null]);
+});
+
+it("lets go of an Explain the user left: no press on X's Grok button and no move once it ended", async () => {
+  using _x = drawX(`<main><article><a href="/ann/status/17"><time>3h</time></a></article></main>`);
+  const inX: Array<string> = [];
+  const left = new AbortController();
+  registerXWebview({
+    loadURL: async () => {},
+    getURL: () => "https://x.com/home",
+    executeJavaScript: (code: string) => {
+      const to = /history\.pushState\(null, "", "([^"]+)"\)/.exec(code)?.[1];
+      if (to !== undefined) {
+        inX.push(`go ${to}`);
+        return Promise.resolve(true);
+      }
+      // The user leaves just as X draws its Grok button on the post.
+      if (code.includes('[aria-label="Grok actions"]') && !left.signal.aborted) {
+        left.abort();
+        document
+          .querySelector("article")!
+          .insertAdjacentHTML("beforeend", '<button aria-label="Grok actions"></button>');
+        document
+          .querySelector('[aria-label="Grok actions"]')!
+          .addEventListener("click", () => inX.push("Grok actions"));
+      }
+      return Promise.resolve(
+        new Function(`return ${code.replaceAll("location.pathname", '"/home"')}`)(),
+      );
+    },
+  } as unknown as XWebview);
+  markXReady();
+  expect(await xGrokExplain({ postId: "17", handle: "ann" }, left.signal)).toBeNull();
+  expect(inX).toEqual([]);
 });

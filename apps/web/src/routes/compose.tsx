@@ -11,7 +11,7 @@ import {
   type PostCommunity,
   type ReplySettings,
 } from "@xtend/contracts";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
 import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { ArrowLeft, CalendarClock, ChevronRight, CircleSlash2 } from "lucide-react";
@@ -51,6 +51,7 @@ import {
   composeQuoteAtom,
   createDraftAtom,
   draftsAtom,
+  followPost,
   generateCoverAtom,
   mediaAddAtom,
   mediaRemoveAtom,
@@ -59,7 +60,7 @@ import {
   updateDraftAtom,
 } from "../state/compose";
 import { useRates } from "../state/costs";
-import { grokWriteAtom, xGrokLeave, xGrokOpenNew } from "../state/grok";
+import { grokWriteAtom, xGrokLeave, xGrokOpenNew, xGrokRelease } from "../state/grok";
 import { savedPostAtom } from "../state/library";
 import { recentPostsAtom } from "../state/observations";
 import { queueAtom, scheduleAtom, unscheduleAtom } from "../state/plan";
@@ -433,8 +434,13 @@ export function ComposeEditor({
   const laneText = useSessionLane();
   const [previews, setPreviews] = useState<Record<string, string>>({});
   const [active, setActive] = useState(0);
-  // X's Grok docked beside the draft: where the engine was when the user asked it.
-  const [grokFrom, setGrokFrom] = useState<string | null>(null);
+  // X's Grok docked beside the draft: where the engine was when the user asked it, and the post
+  // that asked, which Insert writes to (null once it was removed).
+  const [grok, setGrok] = useState<{
+    readonly from: string;
+    readonly target: number | null;
+  } | null>(null);
+  const router = useRouter();
   const xUrl = useAtomValue(xUrlAtom);
   const setGrokWrite = useAtomSet(grokWriteAtom);
   const { blocked, setToast: setXToast } = useXPress();
@@ -442,14 +448,40 @@ export function ComposeEditor({
    * "Ask Grok" for the user's click: X's Grok on a new chat beside the draft, the post the user is
    * on typed into Grok's box for them to send. Grok's answers come back with Insert.
    */
-  const askGrok = async (text: string) => {
+  const askGrok = async (target: number) => {
     const why = blocked();
     if (why !== null) return setXToast({ text: why });
-    setGrokFrom((f) => f ?? xUrl);
+    const text = editor.blocks[target]?.text ?? "";
+    setGrok((g) => ({ from: g?.from ?? xUrl, target }));
     if ((await xGrokOpenNew()) === null)
       return setXToast({ text: "X did not open Grok. Try again in a moment." });
     setGrokWrite((w) => (w.send === null ? { ...w, draft: text } : w));
   };
+  const lastBlocks = useRef(editor.blocks);
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- keeps Insert on the post that asked Grok as the thread's posts move or go.
+  useEffect(() => {
+    const before = lastBlocks.current;
+    lastBlocks.current = editor.blocks;
+    if (before === editor.blocks) return;
+    setGrok((g) =>
+      g === null || g.target === null
+        ? g
+        : { ...g, target: followPost(before, editor.blocks, g.target) },
+    );
+  }, [editor.blocks]);
+  const docked = useRef(grok);
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- keeps the docked Grok for the release below, without re-registering it.
+  useEffect(() => {
+    docked.current = grok;
+  });
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- releases the docked Grok (the engine's Grok page) when Compose goes.
+  useEffect(
+    () => () => {
+      if (docked.current !== null)
+        xGrokRelease(docked.current.from, () => router.state.location.pathname === "/grok");
+    },
+    [router],
+  );
   const [notice, setNotice] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<"post" | "schedule" | null>(null);
   const [when, setWhen] = useState("");
@@ -1204,7 +1236,7 @@ export function ComposeEditor({
                 <button
                   type="button"
                   className="flex h-7 cursor-pointer items-center gap-1.5 rounded-full px-2 text-[13px] text-muted-foreground hover:bg-white/[0.06] hover:text-foreground"
-                  onClick={() => void askGrok(blocks[active]?.text ?? "")}
+                  onClick={() => void askGrok(active)}
                 >
                   <CircleSlash2 aria-hidden className="size-3.5" />
                   Ask Grok
@@ -1214,19 +1246,23 @@ export function ComposeEditor({
             </div>
           )}
           <Companion>
-            {grokFrom === null ? null : (
+            {grok === null ? null : (
               <>
                 <GrokDrawer
-                  onInsert={(text) =>
+                  onInsert={(text) => {
+                    const at = grok.target;
+                    if (at === null)
+                      return setXToast({ text: "The post you asked Grok about was removed." });
                     setEditor((e) => ({
                       ...e,
-                      blocks: e.blocks.map((b, j) => (j === active ? { ...b, text } : b)),
-                    }))
-                  }
-                  onClose={() => {
-                    setGrokFrom(null);
-                    void xGrokLeave(grokFrom);
+                      blocks: e.blocks.map((b, j) => (j === at ? { ...b, text } : b)),
+                    }));
                   }}
+                  onClose={() => {
+                    setGrok(null);
+                    void xGrokLeave(grok.from);
+                  }}
+                  onExpand={() => setGrok(null)}
                 />
                 <MediaViewer />
               </>

@@ -1,6 +1,8 @@
 import "../../index.css";
 import type { EnginePost } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useState } from "react";
 import { expect, it } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
@@ -11,7 +13,8 @@ import type { XWebview } from "../../state/x";
 
 // The screens read the bridge at module load (env.ts), so they are imported after it exists.
 installFakeBridge();
-const { GrokDrawer } = await import("./Grok");
+const { GrokConversation, GrokDrawer } = await import("./Grok");
+const { grokDrawerAtom } = await import("../../state/grok");
 const { XColumn } = await import("./XColumn");
 const { XPostView } = await import("./XPostView");
 const { markXReady, registerXWebview } = await import("../../state/x");
@@ -126,7 +129,7 @@ it("puts Grok's answer into the draft it was opened beside only on Insert", asyn
   const inserted: Array<string> = [];
   await using screen = await render(
     <div style={{ height: 800 }}>
-      <GrokDrawer onInsert={(text) => inserted.push(text)} onClose={() => {}} />
+      <GrokDrawer onInsert={(text) => inserted.push(text)} onClose={() => {}} onExpand={() => {}} />
     </div>,
     { router: "/compose", service },
   );
@@ -136,4 +139,111 @@ it("puts Grok's answer into the draft it was opened beside only on Insert", asyn
   expect(inserted).toEqual([]);
   await userEvent.click(screen.getByRole("button", { name: "Insert" }));
   expect(inserted).toEqual(["The post pairs a common rule with a twist."]);
+});
+
+/** Whether Grok is still docked anywhere, once its screen went. */
+function Probe() {
+  return <p>{useAtomValue(grokDrawerAtom) === null ? "no drawer" : "drawer"}</p>;
+}
+
+/** The docked screen, then, once Leave is pressed, another that does not move the engine. */
+function Leaving() {
+  const [gone, setGone] = useState(false);
+  return (
+    <>
+      <button type="button" onClick={() => setGone(true)}>
+        Leave
+      </button>
+      {gone ? <Probe /> : <Docked />}
+    </>
+  );
+}
+
+/** A native X screen with Grok docked on it, as Explain docks it, from the post's page. */
+function Docked() {
+  const dock = useAtomSet(grokDrawerAtom);
+  return (
+    <div style={{ height: 800, width: 1200 }}>
+      <XColumn
+        header={
+          <button
+            type="button"
+            onClick={() => dock({ from: "https://x.com/rinaships/status/17", post: null })}
+          >
+            Dock
+          </button>
+        }
+      >
+        {null}
+      </XColumn>
+    </div>
+  );
+}
+
+it("releases a docked Grok when its screen goes, taking the engine back where it was", async () => {
+  at = "/i/grok";
+  draw();
+  inX.length = 0;
+  await using screen = await render(<Leaving />, { router: "/post/17", service });
+  await userEvent.click(screen.getByRole("button", { name: "Dock" }));
+  await expect.element(screen.getByRole("region", { name: "Grok" })).toBeVisible();
+  // Off to a screen that does not move the engine (a tool, Settings): X's Grok page is let go.
+  await userEvent.click(screen.getByRole("button", { name: "Leave" }));
+  await expect.poll(() => inX).toEqual(["go /rinaships/status/17"]);
+  await expect.poll(() => screen.container.textContent).toBe("Leaveno drawer");
+});
+
+it("opens the full page from the drawer without taking the engine off X's Grok page", async () => {
+  at = "/i/grok";
+  draw();
+  inX.length = 0;
+  await using screen = await render(<Docked />, { router: "/post/17", service });
+  await userEvent.click(screen.getByRole("button", { name: "Dock" }));
+  await userEvent.click(screen.getByRole("button", { name: "Open full page" }));
+  await expect.poll(() => screen.router?.state.location.pathname).toBe("/grok");
+  expect(inX).toEqual([]);
+});
+
+it("draws an image again when X gives its slot a new picture", async () => {
+  const read = (src: string) =>
+    ({
+      path: "/i/grok",
+      page: "xweb",
+      followUps: [],
+      alert: null,
+      composer: null,
+      model: null,
+      private: null,
+      conversation: true,
+      chat: "a",
+      turns: [
+        {
+          id: "t1",
+          user: "Draw a city",
+          answer: {
+            id: "r1",
+            trace: null,
+            blocks: [{ kind: "img", src, alt: "A city" }],
+            sources: null,
+            done: false,
+            feedback: null,
+            regenerate: false,
+          },
+        },
+      ],
+    }) as const;
+  // A blob X's page no longer holds: nothing to copy yet.
+  await using screen = await render(<GrokConversation read={read("blob:https://x.com/gone")} />, {
+    router: "/grok",
+    service,
+  });
+  await expect.element(screen.getByText("Image in X's Grok")).toBeVisible();
+  await screen.rerender(
+    <GrokConversation
+      read={read(
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAwS2OUAAAAABJRU5ErkJggg==",
+      )}
+    />,
+  );
+  await expect.element(screen.getByRole("img", { name: "A city" })).toBeVisible();
 });
