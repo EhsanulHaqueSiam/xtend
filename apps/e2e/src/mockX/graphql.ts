@@ -4,6 +4,7 @@ import type {
   EngineBatch,
   EngineBookmarkFolder,
   EngineCommunity,
+  EngineCommunityAdmin,
   EngineEntities,
   EngineGame,
   EngineGameTeam,
@@ -649,6 +650,37 @@ function encodeCommunity(c: EngineCommunity): Json {
     ...when(c.role !== null, () => ({ role: c.role })),
   };
 }
+
+/**
+ * What X adds to a Community for its moderators, on its page and in X's own fetch of it:
+ * CommunityQuery's counts, and the settings its General settings shows.
+ */
+const encodeAdmin = (a: EngineCommunityAdmin | undefined): Json =>
+  a === undefined
+    ? {}
+    : {
+        ...when(a.reported !== undefined, () => ({
+          moderation: { tweet_case_count: a.reported, id: "TW9kZXJhdGlvbg" },
+        })),
+        ...when(a.requests !== undefined, () => ({
+          join_requests_result:
+            a.requests === null
+              ? { __typename: "CommunityJoinRequestsUnavailable" }
+              : { __typename: "CommunityJoinRequests", pending_join_request_count: a.requests },
+        })),
+        ...when(a.question !== undefined, () => ({ question: a.question ?? "" })),
+        ...when(a.searchTags !== undefined, () => ({ search_tags: a.searchTags })),
+        ...when(a.nsfw !== undefined, () => ({ is_nsfw: a.nsfw })),
+        ...when(a.deletable !== undefined, () => ({
+          actions: {
+            delete_action_result: {
+              __typename: a.deletable
+                ? "CommunityDeleteAction"
+                : "CommunityDeleteActionUnavailable",
+            },
+          },
+        })),
+      };
 
 /**
  * An NBA game as X's sports calls send it: the score, timeouts and bonus under `live`, the teams
@@ -1311,8 +1343,162 @@ export function encodeBody(
     case "CommunityQuery":
     case "CommunitiesFetchOneQuery": {
       const c = batch.communities[0];
-      return { data: { communityResults: c === undefined ? {} : { result: encodeCommunity(c) } } };
+      return {
+        data: {
+          communityResults:
+            c === undefined
+              ? {}
+              : { result: { ...encodeCommunity(c), ...encodeAdmin(batch.communityAdmin?.[0]) } },
+        },
+      };
     }
+    // X's Admin tools: X's Relay query aliases the Community's id and names it not.
+    case "CommunityToolsScreenContainerQuery": {
+      const a = batch.communityAdmin?.[0];
+      return {
+        data: {
+          communityResults:
+            a === undefined
+              ? {}
+              : {
+                  result: {
+                    __typename: "Community",
+                    communityId: a.communityId,
+                    role: a.role,
+                    moderation: { count: a.reported ?? 0, id: "TW9kZXJhdGlvbg" },
+                    actions: {
+                      community_spotlight_setup_action_result:
+                        a.spotlight == null
+                          ? { __typename: "CommunitySpotlightSetupActionUnavailable" }
+                          : {
+                              __typename: "CommunitySpotlightSetupActionShow",
+                              deeplink:
+                                a.spotlight === "/i/flow/convert_to_professional"
+                                  ? 'twitter://onboarding/task?flow_name=convert_to_professional&input_flow_data={"requested_variant": "communities"}'
+                                  : "twitter://settings/professional_profile/profile_spotlight",
+                            },
+                      id: "QWN0aW9ucw",
+                    },
+                    ...encodeAdmin({
+                      communityId: a.communityId,
+                      ...(a.requests === undefined ? {} : { requests: a.requests }),
+                    }),
+                  },
+                },
+        },
+      };
+    }
+    // X's Member requests (Relay, aliased `communityResults`): who asks, their answer and when.
+    case "MemberRequests_Query": {
+      const asked = batch.joinRequests;
+      return {
+        data: {
+          communityResults:
+            asked === undefined
+              ? {}
+              : {
+                  result: {
+                    __typename: "Community",
+                    join_requests_result: {
+                      __typename: "CommunityJoinRequests",
+                      pending_join_requests_slice: {
+                        items: asked.requests.flatMap((r) => {
+                          const u = users.get(r.userId);
+                          return u === undefined
+                            ? []
+                            : [
+                                {
+                                  id: `Sm9pblJlcXVlc3Q${r.userId}`,
+                                  answer: r.answer ?? "",
+                                  created_at: Date.parse(r.at ?? ""),
+                                  state: r.state,
+                                  user_relationship: {
+                                    user_results: {
+                                      result: {
+                                        ...encodeUser(u),
+                                        relationship_perspectives: {
+                                          following: u.youFollow,
+                                          followed_by: u.followsYou,
+                                          blocking: r.blocking,
+                                          muting: r.muting,
+                                        },
+                                      },
+                                    },
+                                  },
+                                },
+                              ];
+                        }),
+                        slice_info: asked.next === null ? {} : { next_cursor: asked.next },
+                      },
+                    },
+                  },
+                },
+        },
+      };
+    }
+    // X's Reported posts: each case's post, its count and the rule each report named.
+    case "CommunityModerationTweetCasesSlice": {
+      const cases = batch.reportCases?.cases ?? [];
+      const reporters = batch.users;
+      return {
+        data: {
+          communityResults: {
+            result: {
+              __typename: "Community",
+              moderation: {
+                tweet_cases_slice: {
+                  items: cases.flatMap((c) => {
+                    const p = batch.posts.find((q) => q.postId === c.postId);
+                    return p === undefined
+                      ? []
+                      : [
+                          {
+                            tweet_id_str: c.postId,
+                            report_count: c.reports,
+                            report_created_at_max: Date.parse(c.at ?? ""),
+                            reports_slice: {
+                              items: c.rules.map((rule, i) => ({
+                                created_at: Date.parse(c.at ?? ""),
+                                rule: { rest_id: String(i + 1), name: rule },
+                                reporter_relationship: {
+                                  user_results: {
+                                    result:
+                                      c.byX && i === c.rules.length - 1
+                                        ? { __typename: "User", rest_id: "783214" }
+                                        : encodeUser(reporters[i % reporters.length]!),
+                                  },
+                                },
+                              })),
+                            },
+                            tweet_results: { result: encodeTweet(p, users) },
+                          },
+                        ];
+                  }),
+                  slice_info:
+                    batch.reportCases?.next == null ? {} : { next_cursor: batch.reportCases.next },
+                },
+              },
+            },
+          },
+        },
+      };
+    }
+    // X's create button: its form, or for an unverified account X's upsell; synthetic: the
+    // available result's type name, which X's code never reads.
+    case "CommunitiesCreateButtonQuery":
+      return {
+        data: {
+          viewer: {
+            create_community_action_result:
+              batch.communityCreate === "create"
+                ? { __typename: "CommunityCreateAction" }
+                : {
+                    __typename: "CommunityCreateActionUnavailable",
+                    reason: batch.communityCreate === "verify" ? "NotVerified" : "Unavailable",
+                  },
+          },
+        },
+      };
     case "CommunityTweetsTimeline":
       return {
         data: {

@@ -50,6 +50,8 @@ const PARITY = flag("--parity");
 const sessions = new Map();
 /** X's API calls the engine page made while the bench watched it, for pacing. */
 let xCalls = 0;
+/** The latest X API calls' host and path (no query: no variables), for a failing check to show. */
+const xSeen = [];
 const X_API = /^https:\/\/(x\.com\/i\/api\/|api\.x\.com\/)/;
 async function session(match) {
   const all = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
@@ -68,8 +70,11 @@ async function session(match) {
   const waiting = new Map();
   socket.addEventListener("message", (e) => {
     const message = JSON.parse(String(e.data));
-    if (message.method === "Network.requestWillBeSent" && X_API.test(message.params.request.url))
+    if (message.method === "Network.requestWillBeSent" && X_API.test(message.params.request.url)) {
       xCalls++;
+      xSeen.push(`${message.params.request.method} ${message.params.request.url.split("?")[0]}`);
+      if (xSeen.length > 300) xSeen.shift();
+    }
     waiting.get(message.id)?.(message);
     waiting.delete(message.id);
   });
@@ -894,6 +899,84 @@ const benchmarks = [
     },
   ],
   [
+    "Community admin: X's Create a new Community and its gear are where Xtend presses them, and X's Admin tools send a non-mod Home (dry)",
+    async () => {
+      // Nothing is pressed. X's create button is found as xControl in apps/web/src/state/x.ts
+      // finds it; it goes where X's answer says: its form, or for an unverified account X's upsell.
+      const handle = await until(() => store(`$.viewer?.handle`));
+      if (!handle) return false;
+      await go("#/communities");
+      if (!(await until(async () => (await enginePath()) === `/${handle}/communities`)))
+        return false;
+      const offer = await until(() =>
+        store(`$.communityCreate === undefined ? undefined : String($.communityCreate)`),
+      );
+      const xs = await until(() =>
+        engine(
+          `(() => { const found = [...new Set([...document.querySelectorAll('[aria-label="Create a new Community"]')].map((el) => el.closest('a, button, [role="button"], [role="link"]') ?? el))]; return found.length === 1 ? found[0].getAttribute("href") ?? "button" : undefined; })()`,
+        ),
+      );
+      const ours = await app(
+        `!!document.querySelector('main button[aria-label="Create a new Community"]')`,
+      );
+      const wants = {
+        create: "/i/communities/create",
+        verify: "/i/verified-get-verified",
+        null: undefined,
+      };
+      if (offer === undefined || xs !== wants[offer] || ours !== (offer !== "null")) return false;
+      // A Community the account does not moderate: X's top bar has no gear, nor has Xtend's.
+      const id = await store(
+        `[...$.communities.values()].find((c) => c.role === "NonMember" || c.role === "Member")?.communityId`,
+      );
+      if (!id) return `create: X's ${offer}; no Community to look at`;
+      await go(`#/communities/${id}`);
+      if (!(await until(async () => (await enginePath()) === `/i/communities/${id}`))) return false;
+      await sleep(2_000);
+      const gear = await engine(`!!document.querySelector('a[href="/i/communities/${id}/tools"]')`);
+      const ourGear = await app(
+        `!!document.querySelector('main a[aria-label="Admin tools"], main a[aria-label="Moderator tools"]')`,
+      );
+      if (gear || ourGear) return false;
+      // Its Admin tools: X sends a non-mod Home, and Xtend follows.
+      await go(`#/communities/${id}/tools`);
+      const home = await until(
+        async () =>
+          (await enginePath()) === "/home" && (await app(`location.hash`)).startsWith("#/home"),
+      );
+      return home && `create: X's ${offer} (${xs}); ${id}: no gear, Admin tools sent Home`;
+    },
+  ],
+  [
+    "Community queues: a non-mod's Member requests and Reported posts are X's not-found page, in X and in Xtend (dry)",
+    async () => {
+      // Nothing is pressed: each queue opens on X's own page, which X refuses anyone but its mods.
+      const id = await until(() =>
+        store(
+          `[...$.communities.values()].find((c) => c.role === "NonMember" || c.role === "Member")?.communityId`,
+        ),
+      );
+      if (!id) return "no Community to look at";
+      const seen = [];
+      for (const queue of ["member_requests", "reported_tweets"]) {
+        await go(`#/communities/${id}/moderation/${queue}`);
+        const xs = await until(
+          async () =>
+            (await enginePath()) === `/i/communities/${id}/moderation/${queue}` &&
+            engine(`document.body.innerText.includes("this page doesn’t exist")`),
+        );
+        const ours = await until(() =>
+          app(
+            `document.querySelector("main")?.innerText.includes("Hmm...this page doesn’t exist.")`,
+          ),
+        );
+        if (!xs || !ours) return false;
+        seen.push(queue);
+      }
+      return `${id}: ${seen.join(", ")} not found in X and Xtend`;
+    },
+  ],
+  [
     "Profile people: X's tabs (Followers you know only with mutuals), each listing what X's page lists",
     async () => {
       const seen = await until(() =>
@@ -1057,9 +1140,38 @@ const benchmarks = [
         `(() => { const cs = [...$.communities.values()]; return (cs.find((c) => c.role === "NonMember") ?? cs.find((c) => c.role !== null))?.communityId; })()`,
       );
       if (!explore || !id) return false;
-      await reset(`community:${id}`);
+      // No reset: X shows a Community it loaded earlier in this page from its cache and sends
+      // nothing, so Xtend draws what it kept (or loads X's page anew when it kept none).
+      const callsBefore = xCalls;
       await go(`#/communities/${id}`);
-      const top = (await xTab("Top")) && (await same());
+      // X opens on Latest for a member and Top otherwise (or the tab last picked there); Xtend
+      // draws the tab X opened, and the other is one press of X's own tab away.
+      const ourTab = (label) =>
+        until(() =>
+          app(
+            `document.querySelector('main [role="tab"][aria-selected="true"]')?.textContent.trim() === ${JSON.stringify(label)}`,
+          ),
+        );
+      const opened = await until(() =>
+        engine(
+          `(() => { const t = document.querySelector('[role="tablist"]:has(a[href$="/about"]) [role="tab"][aria-selected="true"]')?.textContent.trim(); return ["Top", "Latest", "Media"].includes(t) && t; })()`,
+        ),
+      );
+      const first = opened && (await ourTab(opened)) && (await same());
+      // Why nothing drew: the Community calls X's page made, and what Xtend's store holds of it.
+      if (!first)
+        console.log(
+          `  Community ${id}: X opened ${opened}; X's Community calls:`,
+          xSeen.slice(-(xCalls - callsBefore) || xSeen.length).filter((c) => /Communit/.test(c)),
+          "store:",
+          await store(`Object.keys($.lists).filter((k) => k.includes(${JSON.stringify(id)}))`),
+        );
+      const other = opened === "Top" ? "Latest" : "Top";
+      await app(
+        `[...document.querySelectorAll('main [role="tab"]')].find((t) => t.textContent.trim() === ${JSON.stringify(other)})?.click(), true`,
+      );
+      const second = first && (await xTab(other)) && (await ourTab(other)) && (await same());
+      const top = second && `${opened} ${first}, ${other} ${second}`;
       // As Xtend presses it (communityButton in apps/web/src/state/x.ts): in the header that
       // links into this Community alone.
       const xs = await until(() =>
@@ -1067,9 +1179,12 @@ const benchmarks = [
           `(() => { const id = ${JSON.stringify(id)}; const join = [...document.querySelectorAll('button, [role="button"]')].filter((b) => /^(Join|Ask to join|Joined|Requested|Pending)$/.test(b.textContent.trim()) || /^(Join|Ask to join) /.test(b.getAttribute("aria-label") ?? "")); const mine = join.filter((b) => { for (let box = b.parentElement; box; box = box.parentElement) { const links = [...box.querySelectorAll('a[href*="/i/communities/"]')].map((a) => a.getAttribute("href").split("/i/communities/")[1]?.split(/[/?#]/)[0]); if (links.length > 0) return links.every((l) => l === id) && join.every((o) => o === b || !box.contains(o)); } return false; }); return mine.length === 1 ? mine[0].textContent.trim() : undefined; })()`,
         ),
       );
-      // Xtend's button says what X's does, from what X sent of the viewer's role.
+      // Xtend's button says what X's does, from what X sent of the viewer's role; Pin and Share
+      // before it have no words.
       const ours = await until(() =>
-        app(`document.querySelector('main [data-x="community"] button[aria-label]')?.textContent`),
+        app(
+          `[...document.querySelectorAll('main [data-x="community"] button')].map((b) => b.textContent.trim()).find((t) => /^(Join|Ask to join|Joined|Requested)$/.test(t))`,
+        ),
       );
       return (
         top &&
@@ -1451,6 +1566,45 @@ const benchmarks = [
         const rows = await app(`document.querySelectorAll("main li").length`);
         return rows === radar.list.length && `Premium: ${rows} queries, as X lists them`;
       }, 30_000);
+    },
+  ],
+  [
+    "Articles: X's editor and its controls, or X's Not found and Xtend's upsell without Premium (dry)",
+    async () => {
+      // X gives its Articles pages only to Premium; without it X answers them with Not found and
+      // Xtend shows X's upsell. With it, X's page has its pen, and a draft X keeps opens X's own
+      // editor, whose controls are counted. Nothing is pressed or typed: X saves only on a change.
+      await go("#/articles");
+      const seen = await until(async () => {
+        if ((await enginePath()) !== "/compose/articles") return undefined;
+        if (await engine(`!!document.querySelector('[aria-label="create"]')`)) return "premium";
+        const upsell = await app(
+          `[...document.querySelectorAll("main a")].some((a) => a.textContent.trim() === "Upgrade to unlock" && a.getAttribute("href") === "https://x.com/i/premium_sign_up?referring_page=level_up_content_benefits")`,
+        );
+        return upsell ? "upsell" : undefined;
+      }, 30_000);
+      if (seen === "upsell") return "no Premium: X's Not found, and Xtend shows X's upsell";
+      if (seen !== "premium") return false;
+      const draft = await until(
+        () => store(`$.xArticles.Draft && ($.xArticles.Draft[0] ?? "none")`),
+        10_000,
+      );
+      if (!draft) return false;
+      if (draft === "none") return "Premium, X's pen, no X draft to open";
+      const path = `/compose/articles/edit/${draft}`;
+      await engine(
+        `history.pushState(null, "", ${JSON.stringify(path)}), dispatchEvent(new PopStateEvent("popstate", { state: null })), true`,
+      );
+      const controls = await until(async () => {
+        if ((await enginePath()) !== path) return undefined;
+        const x = await engine(
+          `({ title: document.querySelectorAll("main textarea").length, body: document.querySelectorAll('[data-testid="composer"] [contenteditable="true"]').length, cover: document.querySelectorAll('main input[type="file"]').length, publish: [...document.querySelectorAll('[role="button"], button')].filter((b) => b.textContent.trim() === "Publish").length })`,
+        );
+        return x.title === 1 && x.body === 1 && x.publish === 1 ? x : undefined;
+      }, 20_000);
+      await engine("history.back(), true");
+      if (!controls) return false;
+      return `Premium: X's editor has its title, body, ${controls.cover === 1 ? "cover input" : "no cover input yet"} and Publish`;
     },
   ],
   [
@@ -2494,11 +2648,106 @@ const benchmarks = [
     },
   ],
   [
+    "X settings: Muted notifications draws X's own checkboxes with X's values, pressing nothing (dry)",
+    async () => {
+      // X's settings page in the engine, found as Xtend's reader finds it (state/xSettings.ts): the
+      // detail section X labels by its header on a wide window, else X's main, as in its compact
+      // layout beside Xtend's panel. Counts and states only; no checkbox is pressed.
+      await go("#/settings?tab=x-notifications&x=%2Fsettings%2Fnotifications%2Fadvanced_filters");
+      return until(async () => {
+        if ((await enginePath()) !== "/settings/notifications/advanced_filters") return false;
+        const x = await engine(
+          `[...(document.querySelector('[aria-labelledby="modal-header"]') ?? document.querySelector('[aria-labelledby="detail-header"]') ?? document.querySelector("main") ?? document.createElement("i")).querySelectorAll('input[type="checkbox"]')].map((i) => i.checked)`,
+        );
+        const drawn = await app(
+          `[...document.querySelectorAll('main input[type="checkbox"]')].map((i) => i.checked)`,
+        );
+        if (!x?.length || JSON.stringify(x) !== JSON.stringify(drawn)) {
+          console.log(`      ${JSON.stringify({ x, drawn, width: await engine("innerWidth") })}`);
+          return false;
+        }
+        return `${x.length} of X's filters, ${x.filter(Boolean).length} on, as X's page has them`;
+      }, 20_000);
+    },
+  ],
+  [
+    "Grok reads X's history rows from X's own panel into the rail, sending nothing",
+    async () => {
+      await app(
+        `[...document.querySelectorAll("nav button, aside button")].find((b) => b.textContent.trim() === "Grok" || b.getAttribute("aria-label") === "Grok")?.click(), true`,
+      );
+      // Counts only: a chat's titles and words stay in X's page and the app page.
+      return until(async () => {
+        if (!(await enginePath()).startsWith("/i/grok")) return undefined;
+        const x = await engine(
+          `(() => ({ xweb: !!document.querySelector("fieldset[data-grok-composer]"), other: !!document.querySelector('main textarea, main [contenteditable="true"]') }))()`,
+        );
+        // X's older Grok page (or its account link prompt) is X's own: it shows over the main area.
+        if (!x.xweb)
+          return (
+            x.other &&
+            (await app(
+              `document.querySelector('section[aria-label="x.com"]')?.dataset.mode === "main"`,
+            )) &&
+            "X's older Grok page, over the main area"
+          );
+        const drawn = await app(`document.querySelectorAll('[data-x="grok-history-row"]').length`);
+        const empty = await app(
+          `!!document.querySelector('[aria-label="History"]')?.textContent.includes("No conversations yet")`,
+        );
+        if (drawn === 0 && !empty) return undefined;
+        // X's own History panel, opened and closed again as Xtend's read does: its rows, counted.
+        const rows = await engine(`(async () => {
+          const button = (document.querySelector('[data-testid="primaryColumn"]') ?? document).querySelector('[aria-haspopup="dialog"][aria-expanded]');
+          // X's panel, or in X's compact layout its History page, left again with Back.
+          const panel = () => [...document.querySelectorAll('[role="dialog"]')].find((d) => d.querySelector('input[type="search"]')) ?? (location.pathname === "/i/grok/history" ? document.querySelector('[data-testid="primaryColumn"]') : null);
+          if (!button) return -1;
+          if (!panel()) button.click();
+          for (let i = 0; i < 50 && !panel()?.querySelector('a[href^="/i/grok/c/"]') && !panel()?.querySelector('[role="status"]'); i++) await new Promise((r) => setTimeout(r, 100));
+          const n = panel()?.querySelectorAll('a[href^="/i/grok/c/"]:not([target])').length ?? -1;
+          if (location.pathname === "/i/grok/history") history.back();
+          else if (panel() && button.getAttribute("aria-expanded") === "true") button.click();
+          return n;
+        })()`);
+        return rows === drawn && `${drawn} of X's ${rows} history rows`;
+      }, 30_000);
+    },
+  ],
+  [
     "Back on Home, the engine follows",
     async () => (
       await go("#/home?feed=following"),
       until(async () => (await enginePath()) === "/home" && (await nativeIds()).length >= 1, 20_000)
     ),
+  ],
+  [
+    "Explain this post finds X's own Grok button on X's Home posts, pressing nothing",
+    async () => {
+      // On X's Home in the app and the engine first: the check before may leave X on Grok.
+      await go("#/home?feed=following");
+      if (
+        !(await until(
+          // X's own posts too: Xtend's list may be kept from before X's page loaded anew.
+          async () =>
+            (await enginePath()) === "/home" &&
+            (await nativeIds()).length >= 1 &&
+            (await engine(`document.querySelectorAll("article").length`)) >= 1,
+          20_000,
+        ))
+      )
+        return undefined;
+      // Counts only: which posts carry it is X's, per account and per post.
+      const x = await engine(
+        `({ posts: document.querySelectorAll("article").length, grok: document.querySelectorAll('article [aria-label="Grok actions"]').length })`,
+      );
+      const drawn = await app(
+        `document.querySelectorAll('main [data-x="post"] [aria-label="Explain this post"]').length`,
+      );
+      if (x.posts === 0) return undefined;
+      return x.grok > 0
+        ? drawn > 0 && `X's Grok button on ${x.grok} of X's ${x.posts} posts`
+        : `X draws no Grok button on its ${x.posts} posts for this account: Explain opens Grok with the post's link`;
+    },
   ],
 ];
 

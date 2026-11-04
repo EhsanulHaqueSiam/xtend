@@ -923,6 +923,286 @@ describe("renderEngineBatch around posts", () => {
     expect([feed.order, feed.communities, feed.posts[0]?.context?.text]).toEqual([["50"], [], "A"]);
   });
 
+  it("reads what a Community's moderators see: X's Admin tools, its page's counts and its settings", () => {
+    // X's Admin tools alias the Community's id and name it not.
+    const tools = (spotlight: Record<string, unknown>, requests: Record<string, unknown>) =>
+      renderEngineBatch(
+        "CommunityToolsScreenContainerQuery",
+        { communityId: "20" },
+        {
+          data: {
+            communityResults: {
+              result: {
+                __typename: "Community",
+                communityId: "20",
+                role: "Admin",
+                moderation: { count: 3, id: "m" },
+                member_count: 1284,
+                actions: { community_spotlight_setup_action_result: spotlight, id: "a" },
+                join_requests_result: requests,
+              },
+            },
+          },
+        },
+      );
+    const personal = tools(
+      {
+        __typename: "CommunitySpotlightSetupActionShow",
+        deeplink:
+          'twitter://onboarding/task?flow_name=convert_to_professional&input_flow_data={"requested_variant": "communities"}',
+      },
+      { __typename: "CommunityJoinRequests", pending_join_request_count: 4 },
+    );
+    expect([personal.communities, personal.communityAdmin]).toEqual([
+      [],
+      [
+        {
+          communityId: "20",
+          role: "Admin",
+          reported: 3,
+          requests: 4,
+          spotlight: "/i/flow/convert_to_professional",
+        },
+      ],
+    ]);
+    expect(hasEngineContent(personal)).toBe(true);
+    // A professional account's row goes to X's Profile Spotlight; an Open Community takes no requests.
+    const open = tools(
+      { __typename: "CommunitySpotlightSetupActionShow", deeplink: "twitter://spotlight" },
+      { __typename: "CommunityJoinRequestsUnavailable" },
+    );
+    expect(open.communityAdmin?.[0]).toMatchObject({
+      requests: null,
+      spotlight: "/settings/professional_profile/profile_spotlight",
+    });
+    expect(
+      tools({ __typename: "CommunitySpotlightSetupActionUnavailable" }, {}).communityAdmin?.[0],
+    ).toEqual({ communityId: "20", role: "Admin", reported: 3, spotlight: null });
+
+    // X's own fetch of it: its settings, beside what the Community itself shows.
+    const settings = renderEngineBatch(
+      "CommunitiesFetchOneQuery",
+      { communityId: "20" },
+      {
+        data: {
+          communityResults: {
+            result: {
+              __typename: "Community",
+              id_str: "20",
+              name: "A",
+              question: "",
+              search_tags: ["saas", "mrr"],
+              is_nsfw: false,
+              actions: { delete_action_result: { __typename: "CommunityDeleteAction" } },
+            },
+          },
+        },
+      },
+    );
+    expect(settings.communityAdmin).toEqual([
+      {
+        communityId: "20",
+        question: null,
+        searchTags: ["saas", "mrr"],
+        nsfw: false,
+        deletable: true,
+      },
+    ]);
+  });
+
+  it("passes on a Community's posts X answered with none, cursors in, but not an answer with errors", () => {
+    const empty = renderEngineBatch(
+      "CommunityTweetsTimeline",
+      { communityId: "20", rankingMode: "Relevance" },
+      {
+        data: {
+          communityResults: {
+            result: {
+              ranked_community_timeline: {
+                timeline: {
+                  instructions: [
+                    {
+                      type: "TimelineAddEntries",
+                      entries: [
+                        { entryId: "cursor-top-1", content: { cursorType: "Top", value: "t" } },
+                        {
+                          entryId: "cursor-bottom-1",
+                          content: { cursorType: "Bottom", value: "b" },
+                        },
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+    );
+    expect([empty.key, empty.posts, hasEngineContent(empty)]).toEqual(["community:20", [], true]);
+    const failed = renderEngineBatch(
+      "CommunityTweetsTimeline",
+      { communityId: "20" },
+      { errors: [{}] },
+    );
+    expect(hasEngineContent(failed)).toBe(false);
+  });
+
+  it("reads X's moderation queues: Member requests, the one X's Approve decided, and Reported posts", () => {
+    const asker = (id: string, extra: Record<string, unknown> = {}) => ({
+      user_relationship: {
+        user_results: {
+          result: {
+            ...user(id, `asker${id}`),
+            relationship_perspectives: { following: false, followed_by: true, ...extra },
+          },
+        },
+      },
+    });
+    const requests = renderEngineBatch(
+      "MemberRequests_Query",
+      { communityId: "20" },
+      {
+        data: {
+          communityResults: {
+            result: {
+              __typename: "Community",
+              join_requests_result: {
+                __typename: "CommunityJoinRequests",
+                pending_join_requests_slice: {
+                  items: [
+                    {
+                      answer: " An invoicing tool ",
+                      created_at: 1762250000000,
+                      state: "Pending",
+                      ...asker("31"),
+                    },
+                    { answer: "", created_at: 1762240000000, ...asker("32", { muting: true }) },
+                  ],
+                  slice_info: { next_cursor: "DAACCgAB" },
+                },
+              },
+            },
+          },
+        },
+      },
+    );
+    expect(requests.joinRequests).toEqual({
+      communityId: "20",
+      page: true,
+      next: "DAACCgAB",
+      requests: [
+        {
+          userId: "31",
+          answer: "An invoicing tool",
+          at: new Date(1762250000000).toISOString(),
+          state: "Pending",
+          blocking: false,
+          muting: false,
+        },
+        {
+          userId: "32",
+          answer: null,
+          at: new Date(1762240000000).toISOString(),
+          state: "Pending",
+          blocking: false,
+          muting: true,
+        },
+      ],
+    });
+    // The people who ask are read as people, for their rows.
+    expect(requests.users.map((u) => u.handle)).toEqual(["asker31", "asker32"]);
+    expect(hasEngineContent(requests)).toBe(true);
+
+    // X's Approve answers with the request; one without its state is the decision X took.
+    const approved = renderEngineBatch(
+      "actions_approveMemberRequest_Mutation",
+      { communityId: "20", userId: "31" },
+      {
+        data: {
+          community_join_request_approve: { __typename: "CommunityJoinRequest", ...asker("31") },
+        },
+      },
+    );
+    expect(approved.joinRequests).toMatchObject({
+      page: false,
+      requests: [{ userId: "31", state: "Approved" }],
+    });
+    // An error answer decided nothing.
+    expect(
+      renderEngineBatch(
+        "actions_denyMemberRequest_Mutation",
+        { communityId: "20", userId: "31" },
+        { errors: [{}] },
+      ).joinRequests,
+    ).toBeUndefined();
+
+    // X's Reported posts: each post, its count and the rule each report named; X's own reports.
+    const report = (by: string, rule: string) => ({
+      created_at: 1762250000000,
+      rule: { rest_id: "9", name: rule },
+      reporter_relationship: { user_results: { result: user(by, `r${by}`) } },
+    });
+    const cases = renderEngineBatch(
+      "CommunityModerationTweetCasesSlice",
+      { communityId: "20", count: 20 },
+      {
+        data: {
+          communityResults: {
+            result: {
+              __typename: "Community",
+              moderation: {
+                tweet_cases_slice: {
+                  items: [
+                    {
+                      tweet_id_str: "50",
+                      report_count: 2,
+                      report_created_at_max: 1762250000000,
+                      reports_slice: {
+                        items: [report("41", "Stay on topic"), report("783214", "No spam")],
+                      },
+                      tweet_results: { result: tweet("50") },
+                    },
+                  ],
+                  slice_info: {},
+                },
+              },
+            },
+          },
+        },
+      },
+    );
+    expect(cases.reportCases).toEqual({
+      communityId: "20",
+      next: null,
+      cases: [
+        {
+          postId: "50",
+          reports: 2,
+          at: new Date(1762250000000).toISOString(),
+          byX: true,
+          rules: ["Stay on topic", "No spam"],
+        },
+      ],
+    });
+    expect(cases.posts.map((p) => p.postId)).toEqual(["50"]);
+  });
+
+  it("reads X's Create a new Community for the account: its form, its upsell, or none", () => {
+    const create = (result: Record<string, unknown>) =>
+      renderEngineBatch(
+        "CommunitiesCreateButtonQuery",
+        {},
+        { data: { viewer: { create_community_action_result: result } } },
+      ).communityCreate;
+    expect([
+      create({ __typename: "CommunityCreateActionAvailable" }),
+      create({ __typename: "CommunityCreateActionUnavailable", reason: "NotVerified" }),
+      create({ __typename: "CommunityCreateActionUnavailable", reason: "Suspended" }),
+      renderEngineBatch("CommunitiesCreateButtonQuery", {}, { errors: [{}] }).communityCreate,
+    ]).toEqual(["create", "verify", null, undefined]);
+  });
+
   it("reads a Community's About as X's two boxes, Moderators then Members, each with its Show more", () => {
     // X's About: one module per box, under its header, with a footer to the full list.
     const box = (entryId: string, title: string, page: string, ids: ReadonlyArray<string>) => ({
@@ -3288,5 +3568,94 @@ describe("renderEngineBatch for X's Spaces", () => {
       ["lena", "speaker", false, null, false],
       ["ana", "listener", false, null, false],
     ]);
+  });
+});
+
+describe("renderEngineBatch for the user's own X Articles", () => {
+  const entity = (lifecycle: string, extra: Record<string, unknown> = {}) => ({
+    rest_id: "1900",
+    title: "Two plans",
+    preview_text: "Last month we ran one test",
+    lifecycle_state: { lifecycle, modified_at_secs: 1_793_491_200 },
+    metadata: {
+      tweet_results: lifecycle === "Published" ? { result: { rest_id: "1950" } } : {},
+    },
+    ...extra,
+  });
+
+  it("lists X's drafts by lifecycle, and reads one Article's body from its preview", () => {
+    const list = renderEngineBatch(
+      "ArticleEntitiesSlice",
+      { userId: "5", lifecycle: "Draft" },
+      {
+        data: {
+          user: {
+            result: {
+              __typename: "User",
+              articles_article_mixer_slice: {
+                items: [
+                  { article_entity_results: { result: entity("Draft") } },
+                  { article_entity_results: { result: { rest_id: "not X's" } } },
+                ],
+                slice_info: {},
+              },
+            },
+          },
+        },
+      },
+    );
+    expect([list.key, hasEngineContent(list)]).toEqual(["articles:Draft", true]);
+    expect(list.xArticles).toEqual([
+      {
+        id: "1900",
+        title: "Two plans",
+        preview: "Last month we ran one test",
+        lifecycle: "Draft",
+        modifiedAt: "2026-11-01T00:00:00.000Z",
+        postId: null,
+        coverUrl: null,
+        blocks: null,
+      },
+    ]);
+    const one = renderEngineBatch(
+      "ArticleEntityResultByRestId",
+      { articleEntityId: "1900" },
+      {
+        data: {
+          article_result_by_rest_id: {
+            result: entity("Published", {
+              content_state: {
+                blocks: [
+                  {
+                    key: "a",
+                    type: "header-one",
+                    text: "Why",
+                    inlineStyleRanges: [],
+                    entityRanges: [],
+                    data: {},
+                  },
+                ],
+                entityMap: [],
+              },
+            }),
+          },
+        },
+      },
+    );
+    expect(one.xArticles?.[0]).toMatchObject({
+      lifecycle: "Published",
+      postId: "1950",
+      blocks: [
+        {
+          key: "a",
+          type: "header-one",
+          text: "Why",
+          styles: [],
+          links: [],
+          images: [],
+          markdown: null,
+        },
+      ],
+    });
   });
 });

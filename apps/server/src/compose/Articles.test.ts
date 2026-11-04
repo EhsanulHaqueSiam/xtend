@@ -46,7 +46,7 @@ const tregStub = Layer.succeed(Treg.Treg)({
       const body = input.endpoint.endsWith("/draft")
         ? { data: { id: "art-1" } }
         : input.endpoint.endsWith("/publish")
-          ? { data: { id: "post-9" } }
+          ? { data: { post_id: "post-9" } }
           : input.endpoint === "replicate.predictions.get"
             ? { status: "succeeded", output: ["https://cdn.example/cover.webp"] }
             : { id: "pred-1", status: "starting" };
@@ -127,7 +127,16 @@ describe("Articles", () => {
       const articles = yield* Articles.Articles;
       const d = yield* drafts.create({ kind: "article", title: "T", body: "# hello" });
       expect((yield* Effect.result(articles.publish(d, "test")))._tag).toBe("Failure");
-      expect(tregCalls[0]?.body).toEqual({ title: "T", content: "# hello" });
+      // X's documented draft body: the title and the body as Draft.js content state.
+      expect(tregCalls[0]?.body).toEqual({
+        title: "T",
+        content_state: {
+          blocks: [
+            { text: "hello", type: "header-one", inline_style_ranges: [], entity_ranges: [] },
+          ],
+          entities: [],
+        },
+      });
 
       stub.failPublish = false;
       const retried = yield* drafts.get(d.id);

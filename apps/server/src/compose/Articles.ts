@@ -1,4 +1,10 @@
-import { ComposeError, type Draft, type XApiError, isComposeError } from "@xtend/contracts";
+import {
+  ComposeError,
+  type Draft,
+  type XApiError,
+  isComposeError,
+  toContentState,
+} from "@xtend/contracts";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -9,7 +15,10 @@ import * as Treg from "../x/Treg.ts";
 import * as DraftStore from "./DraftStore.ts";
 import * as Media from "./Media.ts";
 
-/** X Articles through treg: $0.005 per request on X's content row. Neither endpoint is verified against the live API. */
+/**
+ * X Articles through treg: $0.005 per request on X's content row. The shapes are X's documented
+ * ones (docs.x.com/x-api/articles), not yet seen on a live call.
+ */
 const ARTICLE = {
   createDraft: "x/2/articles/draft",
   publish: (articleId: string) => `x/2/articles/${articleId}/publish`,
@@ -76,8 +85,7 @@ const make = Effect.gen(function* () {
                 .call({
                   endpoint: ARTICLE.createDraft,
                   method: "POST",
-                  // shortcut: X's article body shape is undocumented in treg's catalog; title + markdown content, revisit on the first real call.
-                  body: { title: draft.title, content: draft.body },
+                  body: { title: draft.title, content_state: toContentState(draft.body) },
                   purpose,
                   expectedCostUsd: ARTICLE.usd,
                 })
@@ -100,9 +108,8 @@ const make = Effect.gen(function* () {
         purpose,
         expectedCostUsd: ARTICLE.usd,
       });
-      const data = obj(obj(published.body).data);
-      const postId = str(data.tweet_id) || str(data.post_id) || str(data.id) || articleId;
-      return { articleId, postId };
+      // X answers with the post it made for the Article; none leaves the publish unconfirmed.
+      return { articleId, postId: str(obj(obj(published.body).data).post_id) };
     },
     Effect.mapError((e) => (e._tag === "XApiError" ? e : fail("articlePublish")(e))),
   );
@@ -116,7 +123,8 @@ const make = Effect.gen(function* () {
       const started = yield* treg.call({
         endpoint: COVER.model,
         method: "POST",
-        body: { input: { prompt, num_outputs: 1, aspect_ratio: "16:9", output_format: "webp" } },
+        // The model's widest ratio near the 5:2 X recommends for a cover; X crops the rest.
+        body: { input: { prompt, num_outputs: 1, aspect_ratio: "21:9", output_format: "webp" } },
         purpose,
         expectedCostUsd: COVER.usd,
       });

@@ -24,6 +24,8 @@ main { margin-left: 72px; }
 .tabs [role="tab"] { flex: 1; text-align: center; padding: 12px 4px; color: #71767b; cursor: pointer; }
 .tabs [aria-selected="true"] { color: #e7e9ea; font-weight: 700; box-shadow: inset 0 -3px #1d9bf0; }
 article, .user, [data-testid="trend"], [data-testid="listCell"] { display: block; min-height: 120px; padding: 12px; border-bottom: 1px solid #2f3336; }
+/* X's queue rows are tall enough that a page of them scrolls, as X's do. */
+[data-testid="UserCell"], [data-case] { display: block; min-height: 640px; border-bottom: 1px solid #2f3336; }
 .row, .head, .profile-row { display: flex; gap: 10px; justify-content: space-between; }
 .body { flex: 1; min-width: 0; }
 .avatar { width: 40px; height: 40px; border-radius: 50%; }
@@ -67,12 +69,15 @@ const SCRIPT = String.raw`
     const p = path.split("?")[0];
     if (p === "/i/jf/creators/inspiration/top_posts") return "inspiration";
     if (p === "/i/account_analytics" || p.startsWith("/i/account_analytics/")) return "analytics";
+    // A Community's Top, Latest and Media, its last pick kept per Community as X does.
+    if (/^\/i\/communities\/\d+$/.test(p)) return "community:" + p.split("/")[3];
     return p === "/home" ? "home" : /^\/i\/communities\/\d+\/search$/.test(p) ? "communitySearch" : /^\/i\/nba\/game\/\d+$/.test(p) ? "game" : null;
   };
   const pageTab = (path) => {
     const kind = inPage(path);
     if (kind === "inspiration") return localStorage.getItem("mockx:tab:inspiration") || "Likes:Daily";
     if (kind === "analytics") return localStorage.getItem("mockx:tab:analytics:" + path.split("?")[0]) || "7D";
+    if (kind?.startsWith("community:")) return localStorage.getItem("mockx:tab:" + kind) || "";
     return kind === null ? "" : localStorage.getItem("mockx:tab:" + kind) || (kind === "home" ? "forYou" : kind === "game" ? "Top" : "Likes");
   };
   const cacheKey = (path) => (inPage(path) === null ? path : path + "|" + pageTab(path));
@@ -92,6 +97,9 @@ const SCRIPT = String.raw`
       shadow.remove();
       chatRoot(root);
     }
+    // X's Grok draws its images from blobs of its own page.
+    for (const img of div.querySelectorAll("img[data-mock-blob]"))
+      void fetch(img.dataset.mockBlob).then((r) => r.blob()).then((b) => { img.src = URL.createObjectURL(b); });
     // X draws a List's row anchorless (loader.ListHandler): its List is only the link in the
     // props of the cell React rendered, here a fiber of that shape; the markup's data-href is mock X's.
     for (const cell of div.querySelectorAll('[data-testid="listCell"]'))
@@ -291,7 +299,8 @@ const SCRIPT = String.raw`
     fetch(r.url, r.body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: r.body }).then(json);
 
   async function load(path, cursor) {
-    const q = new URLSearchParams({ path, tab: pageTab(path) });
+    // X draws some pages (its settings) by the window's width: wide, or its compact layout.
+    const q = new URLSearchParams({ path, tab: pageTab(path), width: String(innerWidth) });
     if (cursor) q.set("cursor", cursor);
     if (!booted) q.set("boot", "1");
     booted = true;
@@ -309,6 +318,8 @@ const SCRIPT = String.raw`
     if (path.startsWith("/i/radar")) cache.delete(key);
     // X's Space pages say what the user can do in the Space now.
     if (path.startsWith("/i/spaces/")) cache.delete(key);
+    // So do X's Articles pages: the editor and the lists read the Article afresh.
+    if (path.startsWith("/compose/articles")) cache.delete(key);
     let entry = cache.get(key);
     if (!entry) {
       const view = await load(path);
@@ -320,6 +331,9 @@ const SCRIPT = String.raw`
       }
       entry = { el: fragment(view.html), next: view.next, title: view.title, path, scroll: 0 };
       cache.set(key, entry);
+      // X keeps a Community's tab it opened on: picked later, it shows from cache, asking nothing.
+      const opened = inPage(path)?.startsWith("community:") && pageTab(path) === "" ? entry.el.querySelector('[role="tab"][aria-selected="true"]')?.textContent.trim() : undefined;
+      if (opened) cache.set(path + "|" + opened, entry);
     }
     if (mine !== token) return;
     if (shown && shown !== entry) {
@@ -874,9 +888,99 @@ const SCRIPT = String.raw`
   document.addEventListener("click", (event) => {
     const el = event.target instanceof Element ? event.target.closest("[data-hide-rule]") : null;
     if (!el) return;
-    log("hide:" + el.dataset.hideRule, location.pathname.split("/").pop());
-    history.back();
+    const postId = location.pathname.split("/").pop();
+    log("hide:" + el.dataset.hideRule, postId);
+    cache.clear();
+    void post("/__mock/moderate", { kind: "hide", postId }).then(() => history.back());
   });
+  // X's Ban: the rule picked, X removes the author and goes back.
+  document.addEventListener("click", (event) => {
+    const el = event.target instanceof Element ? event.target.closest("[data-ban-rule]") : null;
+    if (!el) return;
+    log("ban:" + el.dataset.banRule, location.pathname.split("/").pop());
+    cache.clear();
+    void post("/__mock/moderate", { kind: "ban", postId: el.dataset.post }).then(() => history.back());
+  });
+  // X's queues: Approve, Deny and Keep send X's call, and X draws its decision in the row's place.
+  document.addEventListener("click", (event) => {
+    const el = event.target instanceof Element ? event.target.closest("[data-x-request], [data-x-case]") : null;
+    if (!el) return;
+    event.stopPropagation();
+    const communityId = location.pathname.split("/")[3];
+    const send = (op, variables) => post("/i/api/graphql/" + window.__mockHash[op] + "/" + op, { variables });
+    const [action, id] = (el.dataset.xRequest ?? el.dataset.xCase).split(":");
+    log(action, id);
+    const row = el.closest("[data-testid=UserCell], [data-case]");
+    const handle = row.querySelector("a[href]")?.getAttribute("href").slice(1);
+    if (action === "keep")
+      void send("CommunityModerationKeepTweet", { tweetId: id }).then(() => {
+        row.outerHTML = '<div aria-label="You kept this post">You kept this post</div>';
+      });
+    else
+      void send(action === "approve" ? "actions_approveMemberRequest_Mutation" : "actions_denyMemberRequest_Mutation", { communityId, userId: id }).then(() => {
+        row.outerHTML = action === "approve" ? "<div>@" + handle + " was approved and is now a member of your Community</div>" : "<div>@" + handle + " was denied and can’t join your Community</div>";
+      });
+  }, true);
+  // X's Community admin pages (bundle.Communities). A form's Save sends X's call with its fields
+  // and goes back (Create opens the new Community under X's summary); Adult Content saves at the
+  // press and X loads its page again; Leave moderation team and Delete Community ask first. A
+  // checklist row marks itself done in X's page and opens its step; Got it closes X's summary.
+  document.addEventListener("click", (event) => {
+    const el = event.target instanceof Element ? event.target.closest("[data-x-save], [data-x-check], [data-x-confirm], [data-x-step], [data-x-got-it]") : null;
+    if (!el) return;
+    event.stopPropagation();
+    const send = (op, variables) => post("/i/api/graphql/" + window.__mockHash[op] + "/" + op, { variables });
+    const communityId = location.pathname.split("/")[3];
+    if (el.dataset.xSave !== undefined) {
+      const op = el.dataset.xSave;
+      const fields = {};
+      for (const f of el.closest("[data-x-form]").querySelectorAll("[name]"))
+        if (f.type !== "radio" || f.checked) fields[f.name] = f.value.trim();
+      log("save:" + op, communityId ?? null);
+      cache.clear();
+      if (op === "CreateCommunity")
+        void send(op, fields).then((r) => go("/i/communities/" + r.data.community_create_v2.rest_id + "?show_creation_summary", true));
+      else void send(op, { communityId, ...fields }).then(() => history.back());
+      return;
+    }
+    if (el.dataset.xCheck !== undefined) {
+      log("check:" + el.dataset.xCheck, communityId);
+      void send(el.dataset.xCheck, { communityId, adultContentSetting: el.checked }).then(() => location.reload());
+      return;
+    }
+    if (el.dataset.xConfirm === "leave")
+      return dialog({
+        title: "Are you sure you want to leave the mod team?",
+        body: "You’ll no longer have access to the moderation tools. If you change your mind, you’ll have to be invited as a moderator again.",
+        sheet: true,
+        buttons: [
+          { label: "Yes, I want to leave", testid: "confirmationSheetConfirm", step: { write: { path: "/i/api/graphql/" + window.__mockHash.CommunityUpdateRole + "/CommunityUpdateRole", body: { variables: { communityId, role: "Member" } } }, replace: "/i/communities/" + communityId } },
+          { label: "Cancel", testid: "confirmationSheetCancel" },
+        ],
+      });
+    if (el.dataset.xConfirm === "delete")
+      return dialog({
+        title: "Delete Community",
+        body: "This can’t be undone. Post authors can still see their own posts.",
+        buttons: [
+          { label: "Delete Community", testid: "confirmationSheetConfirm", step: { write: { path: "/i/api/graphql/" + window.__mockHash.DeleteCommunityMutation + "/DeleteCommunityMutation", body: { variables: { id: communityId } } }, replace: "/i/communities/" + communityId } },
+          { label: "Cancel", testid: "confirmationSheetCancel" },
+        ],
+      });
+    if (el.dataset.xStep !== undefined) {
+      const [flag, ...to] = el.dataset.xStep.split(":");
+      log("checklist:" + flag, communityId);
+      cache.clear();
+      void post("/__mock/checklist", { communityId, flag }).then(() => (flag === "dismiss" ? void show() : go(to.join(":"), false)));
+      return;
+    }
+    if (el.dataset.xGotIt !== undefined) {
+      log("Got it", communityId);
+      // X's Got it replaces the address with the Community's own, its summary gone.
+      el.closest("[data-x-summary]").remove();
+      history.replaceState(null, "", location.pathname + "/");
+    }
+  }, true);
   // X's List buttons and dialogs (bundle.UserLists). Follow in a List's header and Pin in a row of
   // Your Lists turn once X answered. Create's Next goes on to Add to your List, whose Done opens
   // the new List; Edit List's Done goes back to it; Delete List asks first, then opens the user's
@@ -1081,6 +1185,295 @@ const SCRIPT = String.raw`
       return void spaceLayer("dialog", ${JSON.stringify(SPACE_REACTIONS)}.map((e) => item("button", "React with " + e, e, () => space({ kind: "react", id, emoji: e }))));
     if (el.dataset.spaceShare !== undefined) return void spaceLayer("menu", [item("menuitem", "", "Copy link", () => {})]);
   }, true);
+  // X's Grok (bundle.GrokXWeb): its History panel and model menu open from X's own buttons into
+  // X's layers, its composer swaps Voice for Send once there is text, and its row controls swap in
+  // X's own Rename field and Delete confirm. What they change goes to mock X, and the page draws
+  // anew in place (its open panel too), as X's store answers; an answer streams, then completes.
+  const grokTemplate = (name) => shown.el.querySelector("template[data-mock-grok-" + name + "]").content.firstElementChild.cloneNode(true);
+  const grokConversation = () => document.querySelector("fieldset[data-grok-composer]")?.dataset.mockConversation || null;
+  const grokPanel = () => layers.querySelector("[data-mock-grok-panel]");
+  async function grokRedraw() {
+    const entry = shown;
+    if (!entry || !location.pathname.startsWith("/i/grok")) return;
+    cache.clear();
+    const view = await load(here());
+    entry.el.replaceChildren(...fragment(view.html).childNodes);
+    entry.path = here();
+    cache.set(cacheKey(here()), entry);
+    const panel = grokPanel();
+    if (panel) {
+      panel.replaceChildren(...grokTemplate("history").childNodes);
+      entry.el.querySelector('[data-mock-grok="history"]')?.setAttribute("aria-expanded", "true");
+    }
+    if (entry.el.querySelector('[data-mock-grok="stop"]'))
+      setTimeout(() => {
+        const turn = [...entry.el.querySelectorAll("[data-mock-turn]")].at(-1)?.dataset.mockTurn;
+        if (turn && shown === entry && entry.el.querySelector('[data-mock-grok="stop"]')) void grokWrite({ kind: "finish", turn });
+      }, 400);
+  }
+  async function grokWrite(body) {
+    const answer = await post("/__mock/grok", { conversation: grokConversation(), ...body });
+    // A new chat's first send: X puts its conversation in the URL.
+    if (answer.conversation && !grokConversation() && location.pathname === "/i/grok")
+      history.replaceState(null, "", "/i/grok?conversation=" + encodeURIComponent(answer.conversation));
+    await grokRedraw();
+  }
+  const grokButton = (kind, label) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.dataset.mockGrok = kind;
+    b.setAttribute("aria-label", label);
+    b.innerHTML = kind === "voice" ? '<svg data-icon="icon-voice"></svg>' : "<svg></svg>";
+    return b;
+  };
+  document.addEventListener("input", (event) => {
+    const field = event.target;
+    if (field instanceof HTMLTextAreaElement && field.closest("fieldset[data-grok-composer]")) {
+      const now = field.closest("fieldset").querySelector('[data-mock-grok="voice"], [data-mock-grok="send"]');
+      const want = field.value.trim() !== "" ? "send" : "voice";
+      if (now && now.dataset.mockGrok !== want) now.replaceWith(grokButton(want, want === "send" ? "Send" : "Voice mode"));
+      return;
+    }
+    // X's history search: only the matching rows, under their groups.
+    const panel = field instanceof HTMLInputElement && field.type === "search" ? field.closest("[data-mock-grok-panel]") : null;
+    if (!panel) return;
+    const q = field.value.trim().toLowerCase();
+    const rows = [...grokTemplate("history").querySelector("ul").children].filter((li) => q === "" || li.getAttribute("role") === "presentation" || li.textContent.toLowerCase().includes(q));
+    panel.querySelector("ul").replaceChildren(...rows.filter((li, i) => li.getAttribute("role") !== "presentation" || rows[i + 1]?.hasAttribute("data-mock-row")));
+  });
+  // X's Grok button on a post: X asks its analysis in a new chat and, with no room for its drawer,
+  // opens its Grok page on it.
+  document.addEventListener("click", (event) => {
+    const button = event.target instanceof Element ? event.target.closest("[data-mock-grok-explain]") : null;
+    if (!button) return;
+    event.preventDefault();
+    event.stopPropagation();
+    log("grok:explain", button.dataset.mockGrokExplain);
+    void post("/__mock/grok", { kind: "analyze", post: button.dataset.mockGrokExplain }).then(async (r) => {
+      history.pushState(null, "", "/i/grok?conversation=" + encodeURIComponent(r.conversation));
+      cache.clear();
+      await show();
+      await grokRedraw();
+    });
+  }, true);
+  document.addEventListener("click", (event) => {
+    const el = event.target instanceof Element ? event.target.closest('[data-mock-grok], [data-mock-grok-model], [data-mock-grok-panel] a[href]:not([target]), [data-mock-grok-menu] a[href]') : null;
+    if (!el) return;
+    const kind = el.dataset.mockGrok;
+    const row = el.closest("[data-mock-row]");
+    const turn = el.closest("[data-mock-turn]")?.dataset.mockTurn;
+    const toggle = (button, open, show) => {
+      button.setAttribute("aria-expanded", String(!open));
+      if (!open) layers.append(show());
+    };
+    // X's compact layout opens its History as a page of its own.
+    if (kind === "history-page") return go("/i/grok/history", false);
+    // X's Media tab shows the account's images in place of its rows; Chats shows the rows again.
+    if (kind === "tab-media" || kind === "tab-chats") {
+      const panel = el.closest("[data-mock-grok-panel]");
+      for (const t of panel.querySelectorAll('[role="tab"]')) t.setAttribute("aria-selected", String(t === el));
+      const list = panel.querySelector("ul, [data-mock-grok-list]");
+      const next = kind === "tab-media"
+        ? panel.querySelector("template[data-mock-grok-media]").content.firstElementChild.cloneNode(true)
+        : grokTemplate("history").querySelector("ul").cloneNode(true);
+      if (kind === "tab-media") next.dataset.mockGrokList = "";
+      for (const img of next.querySelectorAll("img[data-mock-blob]"))
+        void fetch(img.dataset.mockBlob).then((r) => r.blob()).then((b) => { img.src = URL.createObjectURL(b); });
+      list.replaceWith(next);
+      return;
+    }
+    if (kind === "history") {
+      const open = grokPanel();
+      if (open) open.remove();
+      return toggle(el, !!open, () => grokTemplate("history"));
+    }
+    if (kind === "models") {
+      const open = layers.querySelector("[data-mock-grok-menu]");
+      if (open) open.remove();
+      return toggle(el, !!open, () => grokTemplate("models"));
+    }
+    if (el.matches("a[href]")) {
+      event.preventDefault();
+      event.stopPropagation();
+      grokPanel()?.remove();
+      layers.querySelector("[data-mock-grok-menu]")?.remove();
+      log("grok:" + el.getAttribute("href"));
+      return go(el.getAttribute("href"), false);
+    }
+    if (el.dataset.mockGrokModel) {
+      layers.querySelector("[data-mock-grok-menu]")?.remove();
+      document.querySelector('[data-mock-grok="models"]')?.setAttribute("aria-expanded", "false");
+      log("grok:model");
+      return void grokWrite({ kind: "model", title: el.dataset.mockGrokModel });
+    }
+    if (kind === "voice") return;
+    log("grok:" + kind);
+    if (kind === "private") return void grokWrite({ kind: "private" });
+    if (kind === "send") return void grokWrite({ kind: "send", text: document.querySelector("fieldset[data-grok-composer] textarea").value });
+    if (kind === "stop") return void grokWrite({ kind: "stop", turn: [...document.querySelectorAll("[data-mock-turn]")].at(-1)?.dataset.mockTurn });
+    if (kind === "up" || kind === "down") return void grokWrite({ kind: "feedback", turn, feedback: kind });
+    if (kind === "regenerate") return void grokWrite({ kind: "regenerate", turn });
+    const id = row?.dataset.mockRow;
+    if (!row || !id) return;
+    const actions = row.querySelector(".grid, [data-mock-mode]");
+    const mode = (buttons) => {
+      const box = document.createElement("div");
+      box.dataset.mockMode = "";
+      box.append(...buttons);
+      actions.replaceWith(box);
+    };
+    if (kind === "pin" || kind === "unpin") return void grokWrite({ kind, conversation: id });
+    if (kind === "rename") {
+      const link = row.querySelector("a[href]:not([target])");
+      const input = document.createElement("input");
+      input.setAttribute("aria-label", "Rename");
+      input.value = link.querySelector("span").textContent;
+      link.replaceWith(input);
+      return mode([grokButton("cancel", "Cancel"), grokButton("rename-save", "Save")]);
+    }
+    if (kind === "delete") return mode([grokButton("cancel", "Cancel"), grokButton("delete-confirm", "Delete")]);
+    if (kind === "rename-save") return void grokWrite({ kind: "rename", conversation: id, title: row.querySelector("input").value });
+    if (kind === "delete-confirm") return void grokWrite({ kind: "delete", conversation: id });
+    if (kind === "cancel") return void grokRedraw();
+  }, true);
+  // X's Articles: its pen makes a draft and opens X's editor. The editor saves its title, and its
+  // content a moment after each change (Publish stays off meanwhile); a cover goes up through X's
+  // crop dialog's Apply; Publish opens X's dialog, whose Publish publishes and opens the post.
+  // A step of X's editor (the crop, the Publish sheet): a dialog in X's layers, or in its compact
+  // layout the whole route, X's app bar on top (Back, the title as its h2, the step's own button)
+  // and the editor kept behind it.
+  const closeArticleSheet = () => {
+    for (const el of document.querySelectorAll("[data-article-sheet]")) el.remove();
+    const root = document.querySelector("[data-mock-article]");
+    if (root) root.hidden = false;
+  };
+  const articleSheet = (title, inner, primary) => {
+    closeLayers();
+    closeArticleSheet();
+    const box = document.createElement("div");
+    box.dataset.articleSheet = "";
+    // With __mockLateSheet the step's own button comes a moment after the rest, as X may draw it.
+    const late = window.__mockLateSheet && primary !== "";
+    const now = late ? "" : primary;
+    const later = (where) => { if (late) setTimeout(() => where.insertAdjacentHTML("beforeend", primary), 800); };
+    if (window.__mockCompact) {
+      box.innerHTML = '<div class="bar"><button type="button" data-testid="app-bar-back" aria-label="Back">←</button><h2>' + title + "</h2>" + now + "</div>" + inner;
+      later(box.querySelector(".bar"));
+      box.querySelector('[data-testid="app-bar-back"]').addEventListener("click", closeArticleSheet);
+      const root = document.querySelector("[data-mock-article]");
+      // With __mockReplaceOpener the editor stays on screen and its Publish is drawn anew.
+      if (window.__mockReplaceOpener) {
+        const opener = root.querySelector("[data-article-publish]");
+        opener.replaceWith(opener.cloneNode(true));
+      } else root.hidden = true;
+      root.after(box);
+    } else {
+      box.className = "dialog";
+      box.setAttribute("role", "dialog");
+      box.innerHTML = "<h2>" + title + "</h2>" + inner + now;
+      layers.append(box);
+      later(box);
+    }
+  };
+  const articleOp = (op, variables) => post("/i/api/graphql/" + window.__mockHash[op] + "/" + op, { variables });
+  const articleId = () => document.querySelector("[data-mock-article]")?.dataset.mockArticle;
+  const BLOCK_TYPES = { H1: "header-one", H2: "header-two", BLOCKQUOTE: "blockquote" };
+  let saving = 0;
+  const canPublish = () => {
+    const root = document.querySelector("[data-mock-article]");
+    const publish = root?.querySelector("[data-article-publish]");
+    if (!publish) return;
+    const ready = saving === 0 && root.querySelector("textarea").value.trim() !== "" && root.querySelector("[contenteditable]").textContent.trim() !== "";
+    publish.disabled = !ready;
+    publish.setAttribute("aria-disabled", String(!ready));
+    root.querySelector("[data-save]").textContent = saving > 0 ? "Saving..." : "Saved";
+  };
+  const save = (op, variables) => {
+    saving++;
+    canPublish();
+    setTimeout(() => void articleOp(op, variables).finally(() => { saving--; canPublish(); }), 400);
+  };
+  document.addEventListener("input", (event) => {
+    const field = event.target;
+    if (!(field instanceof HTMLTextAreaElement) || !field.closest("[data-mock-article]")) return;
+    save("ArticleEntityUpdateTitle", { articleEntityId: articleId(), title: field.value });
+  });
+  document.addEventListener("paste", (event) => {
+    const box = event.target instanceof Element ? event.target.closest('[data-testid="composer"] [contenteditable]') : null;
+    if (!box) return;
+    event.preventDefault();
+    const html = event.clipboardData.getData("text/html");
+    log("article:paste", html);
+    // X's editor keeps the paste's blocks and styles (convertFromHTML); the mock keeps the markup.
+    box.innerHTML = html;
+    const blocks = [...box.querySelectorAll(":scope > *, :scope > ul > li, :scope > ol > li")]
+      .filter((el) => el.tagName !== "UL" && el.tagName !== "OL")
+      .map((el) => ({ type: el.tagName === "LI" ? (el.parentElement.tagName === "OL" ? "ordered-list-item" : "unordered-list-item") : BLOCK_TYPES[el.tagName] ?? "unstyled", text: el.textContent }));
+    save("ArticleEntityUpdateContent", { article_entity: articleId(), content_state: { blocks, entityMap: [] } });
+  }, true);
+  document.addEventListener("change", (event) => {
+    const input = event.target;
+    if (!(input instanceof HTMLInputElement) || input.type !== "file" || !input.closest("[data-article-cover]")) return;
+    log("article:cover", input.files[0]?.name ?? "");
+    articleSheet("Edit media", "", '<button type="button" data-testid="applyButton" data-article-apply>Apply</button>');
+  });
+  document.addEventListener("click", (event) => {
+    const el = event.target instanceof Element ? event.target.closest("[data-article-create], [data-article-apply], [data-article-publish], [data-article-confirm]") : null;
+    if (!el) return;
+    event.stopPropagation();
+    const id = articleId();
+    if (el.dataset.articleCreate !== undefined) {
+      log("article:create");
+      void articleOp("ArticleEntityDraftCreate", { content_state: { blocks: [], entityMap: [] }, title: "" })
+        .then((r) => go("/compose/articles/edit/" + r.data.articleentity_create_draft.article_entity_results.result.rest_id, false));
+    } else if (el.dataset.articleApply !== undefined) {
+      log("article:apply");
+      closeArticleSheet();
+      const media = "1960000000000000001";
+      saving++;
+      canPublish();
+      void articleOp("ArticleEntityUpdateCoverMedia", { articleEntityId: id, coverMedia: { media_id: media, media_category: "DraftTweetImage" } }).then(() => {
+        document.querySelector("[data-article-cover]").innerHTML = '<img alt="" src="https://pbs.twimg.com/media/' + media + '.jpg">';
+        saving--;
+        canPublish();
+      });
+    } else if (el.dataset.articlePublish !== undefined) {
+      if (el.disabled) return;
+      log("article:publish");
+      articleSheet(
+        "Publish Article",
+        '<h3>Who can reply?</h3><select data-testid="convoControl"><option value="All">Everyone</option><option value="Community">Accounts you follow</option><option value="Verified">Verified accounts</option><option value="ByInvitation">Only accounts you mention</option></select><textarea name="articleTweetText" data-testid="articleTweetTextInput" placeholder="Provide a caption (optional)"></textarea>',
+        '<button type="button" data-article-confirm>Publish</button>',
+      );
+    } else {
+      const dialog = el.closest("[data-article-sheet]");
+      const mode = dialog.querySelector("select").value;
+      const caption = dialog.querySelector("textarea").value.trim();
+      log("article:confirm");
+      void articleOp("ArticleEntityPublish", { articleEntityId: id, visibilitySetting: "Public", ...(caption === "" ? {} : { tweetText: caption }), ...(mode === "All" ? {} : { conversationControl: { mode } }) }).then((r) => {
+        closeArticleSheet();
+        go("/you/status/" + r.data.articleentity_publish.article_entity_results.result.metadata.tweet_results.result.rest_id, false);
+      });
+    }
+  }, true);
+  // X's settings checkboxes save each change at once, as X's page sends it (settings.ts); Protect
+  // your posts stays off until X's confirm sheet's Protect.
+  document.addEventListener("click", (event) => {
+    const box = event.target instanceof HTMLInputElement && event.target.dataset.mockWrite ? event.target : null;
+    if (!box) return;
+    const at = box.dataset.mockWrite.lastIndexOf(":");
+    const [path, field] = [box.dataset.mockWrite.slice(0, at), box.dataset.mockWrite.slice(at + 1)];
+    const save = (on) => {
+      box.checked = on;
+      log("setting:" + field);
+      void post(path, path.includes("/graphql/") ? { variables: { isAllowed: !on } } : { [field]: field === "universal_quality_filtering" ? (on ? "enabled" : "disabled") : on });
+    };
+    if (!box.checked || !box.dataset.mockConfirm) return save(box.checked);
+    event.preventDefault();
+    const ask = JSON.parse(box.dataset.mockConfirm);
+    dialog({ sheet: true, title: ask.title, body: ask.body, buttons: [{ label: ask.yes, testid: "confirmationSheetConfirm" }, { label: "Cancel", testid: "confirmationSheetCancel" }] });
+    document.querySelector('[data-testid="confirmationSheetConfirm"]').addEventListener("click", () => save(true));
+  });
 
   void show();
 })();
@@ -1108,7 +1501,7 @@ export function shell(state: MockState, hashes: Readonly<Record<string, string>>
 <main role="main"><div data-testid="primaryColumn"></div></main>
 <div id="layers"></div>
 </div>
-<script>window.__mockHash = ${JSON.stringify(hashes)}; window.__mockFormats = ${String(state.formats)};</script>
+<script>window.__mockHash = ${JSON.stringify(hashes)}; window.__mockFormats = ${String(state.formats)}; window.__mockCompact = ${String(state.compact)}; window.__mockLateSheet = ${String(state.lateSheetPublish)}; window.__mockReplaceOpener = ${String(state.replaceOpener)};</script>
 <script src="/__mock/client.js"></script>
 </body></html>`;
 }

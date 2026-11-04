@@ -11,7 +11,7 @@ import {
   X_SKIN_TOGGLES,
   type XSkinToggle,
 } from "@xtend/contracts";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useLocation } from "@tanstack/react-router";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { createContext, useContext, useState, type ReactNode } from "react";
 
@@ -26,6 +26,7 @@ import {
   useDeviceScoped,
 } from "../components/settings/Devices";
 import { sectionLabel, type SectionId, useSection } from "../components/shell/sections";
+import { XSettingsResults, XSettingsScreen } from "../components/xsettings/XSettings";
 import { Button } from "../components/ui/button";
 import { Field, inputClass } from "../components/ui/field";
 import { Empty, PageBody, Section, Stat, table } from "../components/ui/layout";
@@ -1097,6 +1098,17 @@ export function SettingsScreen() {
   const searching = query.trim() !== "";
   // The service a hosted page connected to; Disconnect is its way back to the connect screen.
   const hosted = savedService();
+  // X's page under one of X's sections, from `?x=`: a path on x.com only.
+  const xPage = useLocation({ select: (l) => new URLSearchParams(l.searchStr).get("x") });
+  if (!searching && page.startsWith("x-"))
+    return (
+      <XSettingsScreen
+        key={page}
+        section={page as Extract<Page, `x-${string}`>}
+        path={xPage !== null && /^\/[\w/?=&.%-]*$/.test(xPage) ? xPage : null}
+        onSearch={setQuery}
+      />
+    );
   return (
     <SearchContext value={query}>
       <div className="flex h-full flex-col">
@@ -1112,6 +1124,8 @@ export function SettingsScreen() {
                 placeholder="Search settings"
                 className={cn(settingsInput, "h-7 w-48")}
                 value={query}
+                // Typing in one of X's pages opens the results here, the typing still going on.
+                autoFocus={searching}
                 onChange={(e) => setQuery(e.target.value)}
               />
               {searching ? null : (
@@ -1208,6 +1222,7 @@ export function SettingsScreen() {
                 <Accounts />
               </Section>
             </Page>
+            {searching ? <XSettingsResults query={query} onPick={() => setQuery("")} /> : null}
           </div>
         </PageBody>
       </div>

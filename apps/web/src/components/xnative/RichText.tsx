@@ -31,6 +31,13 @@ export function xtendRoute(href: string): string | null {
     if (third === undefined) return "/communities";
     if (!/^\d+$/.test(third)) return null;
     if (fourth === undefined) return `/communities/${third}`;
+    // X's Admin tools list and its General settings; X's other tools stay X's own.
+    const rest = url.pathname.split("/").filter(Boolean).slice(4).join("/");
+    if (fourth === "tools" && (rest === "" || rest === "settings"))
+      return `/communities/${third}/tools${rest === "" ? "" : "/settings"}`;
+    // Its queues: Member requests and Reported posts; the Moderation log stays X's.
+    if (fourth === "moderation" && (rest === "member_requests" || rest === "reported_tweets"))
+      return `/communities/${third}/moderation/${rest}`;
     return ["latest", "media", "about"].includes(fourth)
       ? `/communities/${third}?tab=${fourth}`
       : null;

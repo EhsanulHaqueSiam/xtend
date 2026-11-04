@@ -1,5 +1,7 @@
 import { useLocation } from "@tanstack/react-router";
 
+import { isXOnly, X_SECTIONS } from "../xsettings/catalog.ts";
+
 /**
  * What each tool is, in one sentence a first visit shows under the header and
  * the sidebar row carries as its title: what it does, where its data comes
@@ -41,6 +43,19 @@ export const SECTIONS = {
       about: "Yours, and what Library and rules wrote for you, not yet queued.",
     },
     { id: "posted", label: "Posted", about: "On X, with their ids." },
+  ],
+  "/articles": [
+    {
+      id: "drafts",
+      label: "Drafts",
+      about: "Your article drafts, and the ones you started on x.com, read only.",
+    },
+    {
+      id: "queued",
+      label: "Queued",
+      about: "Articles going out through the X API at a slot or time.",
+    },
+    { id: "published", label: "Published", about: "Your Articles on X." },
   ],
   "/plan": [
     {
@@ -196,7 +211,12 @@ export const SECTIONS = {
     { id: "watchlist", label: "Watchlist", about: "Accounts you watch; each rescore is paid." },
   ],
   "/settings": [
-    { id: "account", label: "Account", about: "Your handle and every connected account." },
+    {
+      id: "account",
+      label: "Account",
+      about: "Your handle and every connected account.",
+      group: "Xtend",
+    },
     {
       id: "money",
       label: "Money",
@@ -219,6 +239,15 @@ export const SECTIONS = {
       about:
         "Where the logs are, and a scrubbed triage folder for a coding agent when something breaks.",
     },
+    // X's own settings, as rows under Xtend's: one Settings, one search across both.
+    ...X_SECTIONS.map((s) => ({
+      id: s.id,
+      label: s.label,
+      about: "X's own settings, read from your X session as X shows them. Free.",
+      group: "X",
+      /** X's own page, opened over the main area: nothing of it is drawn by Xtend. */
+      xPage: isXOnly(s.path),
+    })),
   ],
 } as const;
 

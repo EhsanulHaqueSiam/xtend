@@ -2,12 +2,23 @@ import { Dialog } from "@base-ui/react/dialog";
 import { RegistryContext, useAtom, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useLocation, useNavigate, useSearch } from "@tanstack/react-router";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { AtSign, Bot, Gauge, Mic, Search, SquarePen, Twitter, type LucideIcon } from "lucide-react";
+import {
+  AtSign,
+  Bot,
+  Gauge,
+  Mic,
+  Search,
+  Settings,
+  SquarePen,
+  Twitter,
+  type LucideIcon,
+} from "lucide-react";
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 
 import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
 import { useQuoteLabel, useRates } from "../../state/costs";
+import { engineAtom, moderates, roleIn } from "../../state/engine";
 import { agentsAtom, peopleAtom, runAgentAtom } from "../../state/leads";
 import { paletteOpenAtom } from "../../state/shell";
 import { toastAtom } from "../ui/toast";
@@ -46,9 +57,11 @@ const X_PAGES: ReadonlyArray<{
   { label: "Notifications", path: "/notifications" },
   { label: "Chat", path: "/i/chat", native: "/chat" },
   { label: "Bookmarks", path: "/i/bookmarks" },
+  { label: "Grok", path: "/i/grok", native: "/grok" },
   { label: "Explore", path: "/explore" },
   { label: "Follow", path: "/i/connect_people" },
   { label: "Communities", path: "/i/communities", native: "/communities" },
+  { label: "Articles", path: "/compose/articles", native: "/articles" },
 ];
 
 /**
@@ -68,6 +81,7 @@ function PaletteBody({
   readonly running: boolean;
 }) {
   const agents = useAtomValue(agentsAtom);
+  const engine = useAtomValue(engineAtom);
   const [panelOpen, setPanel] = useAtom(xPanelOpenAtom);
   const pathname = useLocation({ select: (l) => l.pathname });
   const search = useSearch({ strict: false });
@@ -102,6 +116,23 @@ function PaletteBody({
             icon: Twitter,
             run: p.native === undefined ? onX(p.path) : to(p.native),
           }))
+        : []),
+      // X's Admin tools of each Community the user moderates, by X's name for the role.
+      ...(isElectron
+        ? [...engine.communities.values()].flatMap((c) => {
+            const role = roleIn(engine, c.communityId);
+            return moderates(role)
+              ? [
+                  {
+                    id: `x:tools:${c.communityId}`,
+                    group: "X" as const,
+                    label: `${role === "Admin" ? "Admin" : "Moderator"} tools: ${c.name}`,
+                    icon: Settings,
+                    run: to(`/communities/${c.communityId}/tools`),
+                  },
+                ]
+              : [];
+          })
         : []),
       ...(isElectron
         ? [
@@ -143,6 +174,13 @@ function PaletteBody({
         label: "New draft",
         icon: SquarePen,
         run: to("/compose?new=true"),
+      },
+      {
+        id: "new-article",
+        group: "Actions" as const,
+        label: "Write an article",
+        icon: SquarePen,
+        run: to("/articles?new=1"),
       },
       ...(isElectron
         ? [
@@ -216,6 +254,7 @@ function PaletteBody({
   }, [
     agents,
     assistQuote,
+    engine,
     go,
     navigate,
     panelOpen,

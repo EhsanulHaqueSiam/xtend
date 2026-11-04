@@ -29,14 +29,31 @@ const QUIET_MS = 12_000;
  * always, and earlier, once per list (`key`) and length while X works on it, when the reader scrolls
  * `scroller` down within MORE_AHEAD_PX of the end. At X's pace; leaving the list drops a pending ask.
  */
-export function useMore(scroller: HTMLElement | null, key: string, length: number) {
+export function useMore(
+  scroller: HTMLElement | null,
+  key: string,
+  length: number,
+  load: (signal: AbortSignal) => Promise<unknown> = xScrollMore,
+  /** One ask at a time: none until X has answered the last with its page (a Community's queues). */
+  single = false,
+) {
   const id = `${key}\n${length}`;
   const asked = useRef("");
+  // The list as it was when the ask in flight went out; a page from X since ends it.
+  const loading = useRef<string | null>(null);
+  // Ends an ask still waiting on X once the list goes, so its lock never outlives it.
+  const live = useRef(new AbortController());
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- ends the list's ask in X's page when the list unmounts.
+  useEffect(() => {
+    const mine = new AbortController();
+    live.current = mine;
+    return () => mine.abort();
+  }, []);
   const run = useRef(0);
   const last = useRef(0);
   const trailing = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ask = (atEnd = false) => {
-    if (scroller === null) return;
+    if (scroller === null || (single && loading.current === id)) return;
     if (
       !atEnd &&
       (asked.current === id ||
@@ -56,7 +73,9 @@ export function useMore(scroller: HTMLElement | null, key: string, length: numbe
     last.current = Date.now();
     // An early ask made before X's page settled fetches nothing; once X's page is done with it,
     // the reader's next scroll may ask again, unless a later ask took over (and owns the guard).
-    void xScrollMore().finally(() => {
+    loading.current = id;
+    void load(live.current.signal).finally(() => {
+      if (loading.current === id) loading.current = null;
       if (run.current === mine) asked.current = "";
     });
   };
@@ -88,10 +107,25 @@ export function useMore(scroller: HTMLElement | null, key: string, length: numbe
     return () => scroller.removeEventListener("scroll", onScroll);
   }, [scroller]);
   // Reaching the end asks without a scroll only while the column has nothing to scroll (a short
-  // list filling the screen); past that, only the reader's own scroll asks X for more.
+  // list filling the screen); past that, only the reader's own scroll asks X for more. An end held
+  // back asks once the column grows past its list (a larger window), when no scroll could.
+  const held = useRef(false);
+  const scrolls = () => scroller !== null && scroller.scrollHeight > scroller.clientHeight + 1;
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- watches the X column's size for an end held back while it scrolled.
+  useEffect(() => {
+    if (scroller === null) return;
+    const seen = new ResizeObserver(() => {
+      if (!held.current || scrolls()) return;
+      held.current = false;
+      latest.current(true);
+    });
+    seen.observe(scroller);
+    return () => seen.disconnect();
+    // eslint-disable-next-line react/exhaustive-effect-dependencies -- `scrolls` reads only `scroller`.
+  }, [scroller]);
   return () => {
-    if (scroller !== null && scroller.scrollHeight > scroller.clientHeight + 1) return;
-    ask(true);
+    held.current = scrolls();
+    if (!held.current) ask(true);
   };
 }
 
@@ -158,6 +192,7 @@ export function XRows<A>({
   empty,
   onReopen,
   paged = true,
+  more: load,
 }: {
   /** What the list shows (its surface): a new one starts a fresh wait for X. */
   readonly waitKey: string;
@@ -169,9 +204,14 @@ export function XRows<A>({
   readonly onReopen: () => void;
   /** X pages this list on scroll; false for lists X sends whole. */
   readonly paged?: boolean;
+  /**
+   * How X is asked for the next page (a Community's queues): such a list pages only as the reader
+   * scrolls down near its end, one ask at a time, never as it draws or grows; `signal` ends it.
+   */
+  readonly more?: (signal: AbortSignal) => Promise<unknown>;
 }) {
   const scroller = useXScrollParent();
-  const more = useMore(paged ? scroller : null, waitKey, items.length);
+  const more = useMore(paged ? scroller : null, waitKey, items.length, load, load !== undefined);
   if (items.length === 0) return <XEmpty key={waitKey} empty={empty} onReopen={onReopen} />;
   if (scroller === null) return null;
   return (
@@ -180,7 +220,7 @@ export function XRows<A>({
       data={items}
       computeItemKey={(_, item) => rowKey(item)}
       increaseViewportBy={800}
-      {...(paged ? { endReached: more } : {})}
+      {...(paged && load === undefined ? { endReached: more } : {})}
       itemContent={(index, item) => row(item, index)}
     />
   );

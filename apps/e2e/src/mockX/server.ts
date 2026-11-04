@@ -12,6 +12,7 @@ import {
   unfollowSheet,
 } from "./menus.ts";
 import { pollMarkup, postsOf, route, spaceRequest } from "./pages.ts";
+import { settingWrite, writeSetting } from "./settings.ts";
 import { createMockState, type GraphqlRequest, type Json, type MockOptions } from "./state.ts";
 
 /**
@@ -37,6 +38,16 @@ const WRITES = new Set([
   "JoinCommunity",
   "RequestToJoinCommunity",
   "LeaveCommunity",
+  "CommunityEditName",
+  "CommunityEditPurpose",
+  "CommunityEditQuestion",
+  "SettingsUpdateAdultContentMutation",
+  "CreateCommunity",
+  "DeleteCommunityMutation",
+  "CommunityUpdateRole",
+  "actions_approveMemberRequest_Mutation",
+  "actions_denyMemberRequest_Mutation",
+  "CommunityModerationKeepTweet",
   "PinTimeline",
   "UnpinTimeline",
   "CreateList",
@@ -51,6 +62,11 @@ const WRITES = new Set([
   "RemoveTweetFromBookmarkFolder",
   "createInsightInputMutation",
   "deleteInsightButtonMutation",
+  "ArticleEntityDraftCreate",
+  "ArticleEntityUpdateTitle",
+  "ArticleEntityUpdateContent",
+  "ArticleEntityUpdateCoverMedia",
+  "ArticleEntityPublish",
 ]);
 /** X sends Home's timelines as POSTs, its other reads as GETs. */
 const POSTED = new Set(["HomeTimeline", "HomeLatestTimeline"]);
@@ -120,7 +136,13 @@ export async function startMockX(
     const json = (body: unknown) =>
       send(200, JSON.stringify(body), "application/json; charset=utf-8");
 
-    const graphql = /^\/i\/api\/graphql\/[^/]+\/([A-Za-z]+)$/.exec(url.pathname);
+    // X's settings pages save each change on its own (settings.ts).
+    const setting = req.method === "POST" ? settingWrite(url.pathname) : undefined;
+    if (setting !== undefined) {
+      state.presses.push({ kind: "write", name: setting, target: null, path: from });
+      return json(writeSetting(state.settings, setting, await readBody(req)));
+    }
+    const graphql = /^\/i\/api\/graphql\/[^/]+\/([A-Za-z_]+)$/.exec(url.pathname);
     if (graphql !== null) {
       const op = graphql[1]!;
       if (req.method === "POST") {
@@ -156,7 +178,12 @@ export async function startMockX(
       case "/__mock/view": {
         const path = url.searchParams.get("path") ?? "/home";
         const cursor = url.searchParams.get("cursor");
-        const r = route(state, path, url.searchParams.get("tab") ?? "forYou");
+        const r = route(
+          state,
+          path,
+          url.searchParams.get("tab") ?? "forYou",
+          Number(url.searchParams.get("width") ?? "1280"),
+        );
         if (cursor !== null) {
           const paged = r.paged === undefined ? undefined : r.requests[r.paged];
           if (paged === undefined)
@@ -165,7 +192,7 @@ export async function startMockX(
           const batch = state.batchFor(next.op, next.variables);
           return json({
             graphql: [httpRequest(next)],
-            html: postsOf(batch, state),
+            html: r.more?.(batch) ?? postsOf(batch, state),
             next: batch?.bottom ?? null,
             title: r.title,
           });
@@ -194,6 +221,18 @@ export async function startMockX(
       case "/__mock/trend": {
         const body = await readBody(req);
         state.setTrendHidden(String(body.path), String(body.name), body.hidden === true);
+        return json({ ok: true });
+      }
+      // X's checklist rows mark themselves done in X's own page; the mock keeps them here.
+      case "/__mock/checklist": {
+        const body = await readBody(req);
+        state.pressChecklist(String(body.communityId), String(body.flag));
+        return json({ ok: true });
+      }
+      // X's Hide post and Ban flows send no GraphQL call; the mock notes what the rule pick did.
+      case "/__mock/moderate": {
+        const body = await readBody(req);
+        state.moderate(body.kind === "ban" ? "ban" : "hide", String(body.postId));
         return json({ ok: true });
       }
       case "/__mock/menu":
@@ -277,6 +316,8 @@ export async function startMockX(
         return json({ ok: true });
       case "/__mock/chat":
         return json({ ok: state.chat.write(await readBody(req)) });
+      case "/__mock/grok":
+        return json(state.grok.write(await readBody(req)));
       case "/favicon.ico":
         return send(204, "", "image/x-icon");
     }

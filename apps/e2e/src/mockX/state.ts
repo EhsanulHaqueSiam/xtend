@@ -2,12 +2,15 @@ import type {
   EngineBatch,
   EngineBookmarkFolder,
   EngineCommunity,
+  EngineCommunityAdmin,
   EngineGif,
   EngineHomeTab,
+  EngineJoinRequest,
   EngineList,
   EnginePost,
   EngineRadarCount,
   EngineRadarQuery,
+  EngineReportCase,
   EngineTrend,
   EngineUser,
 } from "@xtend/contracts";
@@ -17,7 +20,10 @@ import {
   LIVE_SPACE,
   synth,
 } from "../../../web/src/components/xnative/engineFixtures.ts";
+import { createMockArticles } from "./articles.ts";
 import { createMockChat } from "./chat.ts";
+import { createMockGrok } from "./grok.ts";
+import { mockSettings } from "./settings.ts";
 import { encodeBody, encodeFolder, encodeList, encodeRestUser, encodeTweet } from "./graphql.ts";
 import { createMockSpaces } from "./spaces.ts";
 
@@ -131,6 +137,10 @@ export interface MockOptions {
   readonly photoEvery?: number;
   /** Whether @you has Premium (X's claims, folders, analytics); X's analytics draw its upsell without. */
   readonly premium?: boolean;
+  /** X's Publish sheet draws its caption first and its own Publish a moment later. */
+  readonly lateSheetPublish?: boolean;
+  /** Opening X's compact Publish sheet redraws the editor's app bar: its Publish is a new node. */
+  readonly replaceOpener?: boolean;
   /** False: X's page sends no claims at boot, as live X did not for one account (2026-11-03). */
   readonly sendsClaims?: boolean;
   /**
@@ -140,6 +150,13 @@ export interface MockOptions {
   readonly formatting?: boolean;
   /** X's Chat asks for the account's passcode first, as it does on a new device. */
   readonly chatLocked?: boolean;
+  /** The account is past X's free Grok limit: X answers with its SuperGrok upsell. */
+  readonly grokLimited?: boolean;
+  /**
+   * X's compact layout, as in a narrow engine window: X's flows and sheets are pages of their
+   * own, titled in the app bar beside its Back, not dialogs.
+   */
+  readonly compact?: boolean;
 }
 
 const DAY_MS = 86_400_000;
@@ -605,6 +622,72 @@ export function createMockState(options: MockOptions = {}) {
     const c = community(id);
     if (c !== undefined) communityChanges.set(id, { ...communityChanges.get(id), ...change(c) });
   };
+  /** A Community's settings X keeps beside its card, as its admins changed them. */
+  const communitySettings = new Map<string, Partial<EngineCommunityAdmin>>();
+  /** The Communities the user made here, and each one's checklist rows X's page marked done. */
+  const madeCommunities = new Set<string>();
+  const checklists = new Map<string, Set<string>>();
+  /** What a Community's mods decided of its requests (by `<community>:<person>`) and reported posts. */
+  const requestStates = new Map<string, string>();
+  const caseStates = new Map<string, string>();
+  /** A Community's requests to join (none for one just made, or one anyone joins), in X's order. */
+  const memberRequests = (id: string): ReadonlyArray<EngineJoinRequest> =>
+    madeCommunities.has(id) || community(id)?.joinPolicy === "Open"
+      ? []
+      : people.slice(6, 11).map((u, i) => ({
+          userId: u.userId,
+          answer:
+            ["An invoicing tool that chases late payers.", null, "Class booking for gyms."][i] ??
+            null,
+          at: new Date(Date.UTC(2026, 10, 3, 12 - i)).toISOString(),
+          state: requestStates.get(`${id}:${u.userId}`) ?? "Pending",
+          blocking: false,
+          muting: i === 2,
+        }));
+  /** A Community's reported posts, newest report first; X takes a decided one off its list. */
+  const reportCases = (id: string): ReadonlyArray<EngineReportCase> =>
+    madeCommunities.has(id)
+      ? []
+      : morePages.forYou[0]!.slice(3, 6).map((p, i) => ({
+          postId: p.postId,
+          reports: i === 0 ? 2 : 1,
+          at: new Date(Date.UTC(2026, 10, 3, 13 - i)).toISOString(),
+          byX: i === 1,
+          rules: [
+            ["Keep posts on topic.", "Be kind and respectful."],
+            ["No spam"],
+            ["Be kind and respectful."],
+          ][i]!,
+        }));
+  /** X's pages of a queue: `size` at a time from the cursor, which says where the page starts. */
+  const queuePage = <A>(list: ReadonlyArray<A>, cursor: unknown, size: number) => {
+    const from = typeof cursor === "string" ? Number(cursor) : 0;
+    const next = from + size < list.length ? String(from + size) : null;
+    return { items: list.slice(from, from + size), next };
+  };
+  /**
+   * What X tells a Community's moderators (X's Admin tools, its page's counts, its settings):
+   * the requests and reports waiting, and X's Spotlight row for a personal account.
+   */
+  const communityAdmin = (id: string): EngineCommunityAdmin | undefined => {
+    const c = community(id);
+    if (c === undefined || (c.role !== "Admin" && c.role !== "Moderator")) return undefined;
+    return {
+      communityId: id,
+      role: c.role,
+      reported: reportCases(id).filter((k) => !caseStates.has(k.postId)).length,
+      requests:
+        c.joinPolicy === "Open"
+          ? null
+          : memberRequests(id).filter((r) => r.state === "Pending").length,
+      spotlight: c.role === "Admin" ? "/i/flow/convert_to_professional" : null,
+      question: null,
+      searchTags: [],
+      nsfw: false,
+      deletable: c.role === "Admin",
+      ...communitySettings.get(id),
+    };
+  };
 
   // The NBA games the fixtures name, by id: a team's schedule, the day's scoreboard, one game.
   const games = new Map(batches.flatMap((b) => b.games ?? []).map((g) => [g.gameId, g]));
@@ -628,6 +711,7 @@ export function createMockState(options: MockOptions = {}) {
 
   // Bookmark folders, which X keeps to Premium: the fixtures' account has X's claim for them, and
   // a test can take it away. Each folder's posts newest first, with what X's dialogs did since.
+  const articles = createMockArticles();
   let premium =
     options.premium ?? fixture("GetUserClaims", null)?.claims?.includes(FOLDERS_CLAIM) === true;
   const listed = fixture("BookmarkFoldersSlice", null)?.bookmarkFolders;
@@ -808,10 +892,63 @@ export function createMockState(options: MockOptions = {}) {
       case "CommunityQuery":
       case "CommunitiesFetchOneQuery": {
         const c = community(s(variables, "communityId") ?? "");
+        const admin = c === undefined ? undefined : communityAdmin(c.communityId);
         return c === undefined
           ? null
-          : page(op, `community:${c.communityId}`, [], { top: null, communities: [c] });
+          : page(op, `community:${c.communityId}`, [], {
+              top: null,
+              communities: [c],
+              ...(admin === undefined ? {} : { communityAdmin: [admin] }),
+            });
       }
+      // X's Admin tools answer for its admins and moderators only; X sends anyone else Home.
+      case "CommunityToolsScreenContainerQuery": {
+        const admin = communityAdmin(s(variables, "communityId") ?? "");
+        return admin === undefined
+          ? null
+          : page(op, `community:${admin.communityId}`, [], { top: null, communityAdmin: [admin] });
+      }
+      // X's queues answer its admins and moderators only, each listing what still waits.
+      case "MemberRequests_Query": {
+        const id = s(variables, "communityId") ?? "";
+        if (communityAdmin(id) === undefined) return null;
+        const shown = queuePage(
+          memberRequests(id).filter((r) => r.state === "Pending"),
+          variables.cursor,
+          3,
+        );
+        return page(op, null, [], {
+          top: null,
+          bottom: shown.next,
+          cursor: s(variables, "cursor") ?? null,
+          users: shown.items.flatMap((r) => user(r.userId) ?? []),
+          joinRequests: { communityId: id, page: true, requests: shown.items, next: shown.next },
+        });
+      }
+      case "CommunityModerationTweetCasesSlice": {
+        const id = s(variables, "communityId") ?? "";
+        if (communityAdmin(id) === undefined) return null;
+        const shown = queuePage(
+          reportCases(id).filter((k) => !caseStates.has(k.postId)),
+          variables.cursor,
+          2,
+        );
+        return page(
+          op,
+          null,
+          shown.items.flatMap((k) => post(k.postId) ?? []),
+          {
+            top: null,
+            bottom: shown.next,
+            cursor: s(variables, "cursor") ?? null,
+            users: people.slice(1, 3),
+            reportCases: { communityId: id, cases: shown.items, next: shown.next },
+          },
+        );
+      }
+      // X's Create a new Community: its form, or for an account without Premium its upsell.
+      case "CommunitiesCreateButtonQuery":
+        return page(op, null, [], { top: null, communityCreate: premium ? "create" : "verify" });
       case "CommunityTweetsTimeline":
       case "CommunityMediaTimeline":
       case "CommunityAboutTimeline": {
@@ -824,6 +961,8 @@ export function createMockState(options: MockOptions = {}) {
             : `community:${id}`;
         const own = fixture(op, k);
         if (own !== undefined) return live(own);
+        // A Community the user just made has no posts yet.
+        if (madeCommunities.has(id)) return page(op, k, []);
         // The Communities the fixtures only name: a few posts, two moderators, no media.
         if (op === "CommunityAboutTimeline") {
           const box = (title: string, page: string, who: ReadonlyArray<EngineUser>) => ({
@@ -1002,6 +1141,8 @@ export function createMockState(options: MockOptions = {}) {
 
   /** X's GraphQL answer to one request; writes go through `write`. */
   const respond = (op: string, variables: Json): Json => {
+    const article = articles.respond(op, variables, premium);
+    if (article !== undefined) return article;
     const b = batchFor(op, variables);
     return b === null ? { data: {} } : encodeBody(b, liveUsers(), variables);
   };
@@ -1127,6 +1268,8 @@ export function createMockState(options: MockOptions = {}) {
     const done = (field: string) => ({ data: { [field]: "Done" } });
     const list = writeList(name, input, id);
     if (list !== undefined) return list;
+    const article = articles.write(name, input);
+    if (article !== undefined) return article;
     switch (name) {
       case "FavoriteTweet":
         changePost(tweet, (p) => ({ liked: true, ...count(p, "likes", 1) }));
@@ -1263,6 +1406,81 @@ export function createMockState(options: MockOptions = {}) {
           members: Math.max(0, (c.members ?? 1) - 1),
         }));
         return { data: { community_leave: "Done" } };
+      // X's Community settings edits (bundle.Communities), each answered with the Community.
+      case "CommunityEditName":
+        changeCommunity(id ?? "", () => ({ name: s(input, "name") ?? "" }));
+        return { data: { community_name_put: { __typename: "Community", rest_id: id } } };
+      case "CommunityEditPurpose":
+        changeCommunity(id ?? "", () => ({ description: s(input, "description") ?? "" }));
+        return { data: { community_description_put: { __typename: "Community", rest_id: id } } };
+      case "CommunityEditQuestion":
+        communitySettings.set(id ?? "", {
+          ...communitySettings.get(id ?? ""),
+          question: s(input, "question") || null,
+        });
+        return { data: { community_question_put: { __typename: "Community", rest_id: id } } };
+      case "SettingsUpdateAdultContentMutation":
+        communitySettings.set(id ?? "", {
+          ...communitySettings.get(id ?? ""),
+          nsfw: input.adultContentSetting === true,
+        });
+        return {
+          data: { community_is_nsfw_put: { rest_id: id, is_nsfw: input.adultContentSetting } },
+        };
+      case "CreateCommunity": {
+        const made = String(600_000_000_901 + madeCommunities.size);
+        // X starts a Community with its three starter rules, its maker its admin.
+        communityCards.set(made, {
+          communityId: made,
+          name: s(input, "name") ?? "",
+          description: s(input, "description") ?? null,
+          bannerUrl: null,
+          members: 1,
+          topic: null,
+          rules: [
+            { name: "Be kind and respectful.", description: "" },
+            { name: "Keep posts on topic.", description: "" },
+            { name: "Explore and share.", description: "" },
+          ],
+          joinPolicy: s(input, "joinPolicy") === "Restricted" ? "Restricted" : "Open",
+          role: "Admin",
+        });
+        madeCommunities.add(made);
+        checklists.set(made, new Set());
+        return {
+          data: { community_create_v2: { __typename: "Community", rest_id: made, id_str: made } },
+        };
+      }
+      case "DeleteCommunityMutation":
+        communityCards.delete(id ?? "");
+        return { data: { community_delete: { __typename: "CommunityDeleteSuccess" } } };
+      // X's Approve and Deny on Member requests, each answered with the request X decided.
+      case "actions_approveMemberRequest_Mutation":
+      case "actions_denyMemberRequest_Mutation": {
+        const state = name.startsWith("actions_approve") ? "Approved" : "Denied";
+        requestStates.set(`${id ?? ""}:${s(input, "userId") ?? ""}`, state);
+        const field =
+          state === "Approved" ? "community_join_request_approve" : "community_join_request_deny";
+        return {
+          data: {
+            [field]: {
+              __typename: "CommunityJoinRequest",
+              state,
+              user_relationship: {
+                user_results: { result: { __typename: "User", rest_id: s(input, "userId") } },
+              },
+            },
+          },
+        };
+      }
+      // X's Keep on a reported post.
+      case "CommunityModerationKeepTweet":
+        caseStates.set(s(input, "tweetId") ?? "", "Kept");
+        return { data: { community_tweet_keep: { __typename: "Community", rest_id: id } } };
+      // Leaving the mod team: X's role write for the user's own row.
+      case "CommunityUpdateRole":
+        changeCommunity(id ?? "", () => ({ role: s(input, "role") ?? "Member" }));
+        return { data: { community_role_put: { __typename: "Community", rest_id: id } } };
       // X's folder dialogs and rows (bundle.BookmarkFolders), each answered as X does.
       case "createBookmarkFolder": {
         const folder = {
@@ -1371,10 +1589,16 @@ export function createMockState(options: MockOptions = {}) {
     presses,
     /** X's Spaces: who is in them, and X's dock for the one the user is in. */
     spaces,
+    /** X's settings values, by X's field names (settings.ts). */
+    settings: mockSettings(),
     /** X's Chat: conversations, requests, the pages X opened, and its passcode lock. */
     chat: createMockChat(options.chatLocked === true, people),
+    /** X's Grok: its conversations, X's pick of model, Private, and its free limit. */
+    grok: createMockGrok(options.grokLimited === true, options.compact === true),
     /** X's Radar: whether the account has Premium, X's query limit, and its queries. */
     radar,
+    /** The user's Articles on X; X gives its Articles pages only with Premium (`premium`). */
+    articles,
     setTrendHidden: (path: string, name: string, hidden: boolean) => {
       const names = hiddenTrends.get(path) ?? new Set<string>();
       if (hidden) names.add(name);
@@ -1410,6 +1634,10 @@ export function createMockState(options: MockOptions = {}) {
     /** Post ids of a feed page after the first. */
     feedPageIds: (feed: Feed, n: number) => feedPage(feed, n).order,
     fixture,
+    compact: options.compact ?? false,
+    /** Whether X's Publish sheet draws its Publish after its caption (see `MockOptions`). */
+    lateSheetPublish: options.lateSheetPublish === true,
+    replaceOpener: options.replaceOpener === true,
     /** Whether X's page sends its claims at boot; some accounts' never do. */
     sendsClaims: options.sendsClaims ?? true,
     fixtures: () => fixtures,
@@ -1432,6 +1660,34 @@ export function createMockState(options: MockOptions = {}) {
     /** Makes the user a Community's moderator, or takes it back, as its admins would on X. */
     setCommunityRole: (id: string, role: EngineCommunity["role"]) => {
       changeCommunity(id, () => ({ role }));
+    },
+    /** What X tells the moderators of a Community the user moderates (see `communityAdmin`). */
+    communityAdmin,
+    /**
+     * X's checklist for a Community the user just made, as X's page keeps it: each row's flag,
+     * and whether it still shows; `press` marks a row done, or `dismiss` takes the card away.
+     */
+    checklist: (id: string) => {
+      const done = checklists.get(id);
+      return done === undefined || done.has("dismiss") ? null : done;
+    },
+    pressChecklist: (id: string, flag: string) => {
+      checklists.get(id)?.add(flag);
+    },
+    /** A Community's requests to join and reported posts, and what its mods decided of each. */
+    memberRequests,
+    reportCases,
+    caseState: (postId: string) => caseStates.get(postId),
+    /** X's Hide post and Ban flows, which send no GraphQL call: the post hidden, its author banned. */
+    moderate: (kind: "hide" | "ban", postId: string) => {
+      caseStates.set(postId, kind === "hide" ? "Hidden" : "Banned");
+    },
+    /** Takes back what the user changed of a Community's card and settings. */
+    resetCommunity: (id: string) => {
+      communityChanges.delete(id);
+      communitySettings.delete(id);
+      for (const k of requestStates.keys()) if (k.startsWith(`${id}:`)) requestStates.delete(k);
+      caseStates.clear();
     },
     /** Whether the user asked to join a Community that asks first, and waits for its moderators. */
     communityRequested: (id: string) => requested.has(id),

@@ -2,12 +2,15 @@ import type {
   EngineAccountAnalytics,
   EngineArticle,
   EngineArticleBlock,
+  EngineXArticle,
   EngineRecord,
   EngineBatch,
   EngineBookmarkFolder,
   EngineCard,
   EngineCommunity,
+  EngineCommunityAdmin,
   EngineEntities,
+  EngineJoinRequest,
   EngineRange,
   EngineExploreTab,
   EngineFolderChange,
@@ -26,6 +29,7 @@ import type {
   EnginePrompt,
   EngineRadarCount,
   EngineRadarQuery,
+  EngineReportCase,
   EngineSpace,
   EngineSpacePerson,
   EngineTrend,
@@ -201,9 +205,15 @@ function readUnifiedCard(raw: unknown): EngineCard | null {
  */
 function readArticle(tweet: Json): EngineArticle | undefined {
   const postId = asString(tweet.rest_id);
-  const article = result(record(tweet.article).article_results);
+  const blocks = readArticleBlocks(result(record(tweet.article).article_results));
+  if (postId === undefined || !X_ID.test(postId) || blocks === undefined) return undefined;
+  return { postId, blocks };
+}
+
+/** An Article's `content_state` as blocks (see `readArticle`); undefined when X sent no body. */
+function readArticleBlocks(article: Json): Array<EngineArticleBlock> | undefined {
   const state = record(article.content_state);
-  if (postId === undefined || !X_ID.test(postId) || !Array.isArray(state.blocks)) return undefined;
+  if (!Array.isArray(state.blocks)) return undefined;
   const images = new Map(
     arr(article.media_entities).flatMap((m) => {
       const id = asString(record(m).media_id);
@@ -233,7 +243,7 @@ function readArticle(tweet: Json): EngineArticle | undefined {
     }),
   );
   const span = (r: Json) => ({ offset: asNumber(r.offset), length: asNumber(r.length) });
-  const blocks = state.blocks.filter(isRecord).map((block, i): EngineArticleBlock => {
+  return state.blocks.filter(isRecord).map((block, i): EngineArticleBlock => {
     const used = arr(block.entityRanges).flatMap((r) => {
       const entity = entities.get(String(record(r).key));
       return entity === undefined ? [] : [{ range: record(r), entity, data: record(entity.data) }];
@@ -263,7 +273,45 @@ function readArticle(tweet: Json): EngineArticle | undefined {
         )[0] ?? null,
     };
   });
-  return { postId, blocks };
+}
+
+/**
+ * The user's own Articles from X's Articles page (bundle.TwitterArticles): its Drafts or Published
+ * list (ArticleEntitiesSlice), or the one Article its preview loads with its body
+ * (ArticleEntityResultByRestId).
+ */
+function readXArticles(op: string, data: Json): { readonly xArticles?: Array<EngineXArticle> } {
+  const found =
+    op === "ArticleEntitiesSlice"
+      ? arr(record(result(data.user).articles_article_mixer_slice).items).map((i) =>
+          result(record(i).article_entity_results),
+        )
+      : op === "ArticleEntityResultByRestId"
+        ? [result(data.article_result_by_rest_id)]
+        : null;
+  if (found === null) return {};
+  return {
+    xArticles: found.flatMap((a): Array<EngineXArticle> => {
+      const id = asString(a.rest_id);
+      if (id === undefined || !X_ID.test(id)) return [];
+      const lifecycle = record(a.lifecycle_state);
+      const modified =
+        asNumber(lifecycle.modified_at_secs) || asNumber(record(a.metadata).modified_at_secs);
+      const postId = asString(result(record(a.metadata).tweet_results).rest_id);
+      return [
+        {
+          id,
+          title: asString(a.title) ?? "",
+          preview: asString(a.preview_text) ?? "",
+          lifecycle: lifecycle.lifecycle === "Published" ? "Published" : "Draft",
+          modifiedAt: modified > 0 ? new Date(modified * 1000).toISOString() : null,
+          postId: postId !== undefined && X_ID.test(postId) ? postId : null,
+          coverUrl: asString(record(record(a.cover_media).media_info).original_img_url) ?? null,
+          blocks: readArticleBlocks(a) ?? null,
+        },
+      ];
+    }),
+  };
 }
 
 /** A post's entities as X lists them: a long post's live with its full text in note_tweet. */
@@ -722,6 +770,159 @@ function readCommunity(value: Json): EngineCommunity | undefined {
 }
 
 /**
+ * What a Community's moderators see of it, from any of X's shapes that carry some: its page
+ * (CommunityQuery's counts), X's Admin tools (which alias its id `communityId` and name it not),
+ * and X's own fetch of it for its settings. Undefined when the node carries none of it.
+ */
+function readCommunityAdmin(value: Json): EngineCommunityAdmin | undefined {
+  const communityId =
+    asString(value.rest_id) ?? asString(value.id_str) ?? asString(value.communityId);
+  if (communityId === undefined || !X_ID.test(communityId)) return undefined;
+  const moderation = record(value.moderation);
+  const requests = record(value.join_requests_result);
+  const actions = record(value.actions);
+  const spotlight = record(actions.community_spotlight_setup_action_result);
+  const deletion = asString(record(actions.delete_action_result).__typename);
+  const reported = asCount(moderation.tweet_case_count ?? moderation.count);
+  const tags = Array.isArray(value.search_tags) ? value.search_tags : undefined;
+  const admin: EngineCommunityAdmin = {
+    communityId,
+    // Elsewhere the Community itself carries the role (`EngineCommunity.role`).
+    ...(typeof value.role === "string" && value.name === undefined ? { role: value.role } : {}),
+    ...(reported === null ? {} : { reported }),
+    // X lists Member requests only for a Community whose answer is CommunityJoinRequests.
+    ...(typeof requests.__typename !== "string"
+      ? {}
+      : {
+          requests:
+            requests.__typename === "CommunityJoinRequests"
+              ? (asCount(requests.pending_join_request_count) ?? 0)
+              : null,
+        }),
+    // X's own row: a personal account's deeplink is X's switch to a professional profile.
+    ...(typeof spotlight.__typename !== "string"
+      ? {}
+      : {
+          spotlight:
+            spotlight.__typename !== "CommunitySpotlightSetupActionShow"
+              ? null
+              : /flow_name=convert_to_professional/.test(asString(spotlight.deeplink) ?? "")
+                ? "/i/flow/convert_to_professional"
+                : "/settings/professional_profile/profile_spotlight",
+        }),
+    ...(typeof value.question === "string" || value.question === null
+      ? { question: value.question || null }
+      : {}),
+    ...(tags === undefined
+      ? {}
+      : { searchTags: tags.filter((t): t is string => typeof t === "string") }),
+    ...(typeof value.is_nsfw === "boolean" ? { nsfw: value.is_nsfw } : {}),
+    ...(deletion === undefined ? {} : { deletable: deletion === "CommunityDeleteAction" }),
+  };
+  return Object.keys(admin).length > 1 ? admin : undefined;
+}
+
+/** X's Create a new Community (CommunitiesCreateButtonQuery): X draws it for these answers only. */
+function readCommunityCreate(op: string, data: Json) {
+  if (op !== "CommunitiesCreateButtonQuery") return {};
+  const action = record(record(data.viewer ?? data.viewer_v2).create_community_action_result);
+  if (typeof action.__typename !== "string") return {};
+  return {
+    communityCreate:
+      action.__typename !== "CommunityCreateActionUnavailable"
+        ? ("create" as const)
+        : action.reason === "NotVerified"
+          ? ("verify" as const)
+          : null,
+  };
+}
+
+/** X's own account, which files X's automatic reports (Auto Report by X) in a Community. */
+const X_ACCOUNT = "783214";
+
+/** One of X's CommunityJoinRequests: who asks, their answer, and what was decided. */
+function readJoinRequest(item: Json, decided?: string): EngineJoinRequest | undefined {
+  const user = result(record(item.user_relationship).user_results);
+  const userId = asString(user.rest_id);
+  if (userId === undefined || !X_ID.test(userId)) return undefined;
+  const seen = record(user.relationship_perspectives);
+  return {
+    userId,
+    answer: asString(item.answer)?.trim() || null,
+    at: isoOf(item.created_at) ?? null,
+    state: asString(item.state) ?? decided ?? "Pending",
+    blocking: seen.blocking === true,
+    muting: seen.muting === true,
+  };
+}
+
+/** One of X's Reported posts: the post, its count, and the rule each report named. */
+function readReportCase(item: Json): ReadonlyArray<EngineReportCase> {
+  const tweet = result(item.tweet_results);
+  const postId =
+    asString(item.tweet_id_str) ?? asString(tweet.rest_id) ?? asString(record(tweet.tweet).rest_id);
+  if (postId === undefined || !X_ID.test(postId)) return [];
+  const reports = arr(record(item.reports_slice).items).filter(isRecord);
+  const reporter = (r: Json) =>
+    asString(result(record(r.reporter_relationship).user_results).rest_id);
+  return [
+    {
+      postId,
+      reports: asCount(item.report_count) ?? reports.length,
+      at: isoOf(item.report_created_at_max) ?? null,
+      byX: reports.some((r) => reporter(r) === X_ACCOUNT),
+      rules: reports.flatMap((r) => asString(record(r.rule).name) ?? []),
+    },
+  ];
+}
+
+/**
+ * A Community's moderation queues as X's pages read them (bundle.Communities): Member requests
+ * (MemberRequests_Query), the request X's Approve or Deny decided, and Reported posts.
+ */
+function readModeration(op: string, variables: Json, data: Json) {
+  const communityId = asString(variables.communityId);
+  if (communityId === undefined || !X_ID.test(communityId)) return {};
+  if (op === "MemberRequests_Query") {
+    const slice = record(
+      record(result(data.communityResults).join_requests_result).pending_join_requests_slice,
+    );
+    if (!Array.isArray(slice.items)) return {};
+    const requests = slice.items.filter(isRecord).flatMap((i) => readJoinRequest(i) ?? []);
+    const next = asString(record(slice.slice_info).next_cursor) || null;
+    return { joinRequests: { communityId, page: true, requests, next } };
+  }
+  const decision =
+    op === "actions_approveMemberRequest_Mutation"
+      ? { answer: data.community_join_request_approve, state: "Approved" }
+      : op === "actions_denyMemberRequest_Mutation"
+        ? { answer: data.community_join_request_deny, state: "Denied" }
+        : undefined;
+  if (decision !== undefined) {
+    const answer = record(decision.answer);
+    const request =
+      answer.__typename === "CommunityJoinRequest"
+        ? readJoinRequest(answer, decision.state)
+        : undefined;
+    return request === undefined
+      ? {}
+      : { joinRequests: { communityId, page: false, requests: [request], next: null } };
+  }
+  if (op === "CommunityModerationTweetCasesSlice") {
+    const slice = record(record(result(data.communityResults).moderation).tweet_cases_slice);
+    if (!Array.isArray(slice.items)) return {};
+    return {
+      reportCases: {
+        communityId,
+        cases: slice.items.filter(isRecord).flatMap(readReportCase),
+        next: asString(record(slice.slice_info).next_cursor) || null,
+      },
+    };
+  }
+  return {};
+}
+
+/**
  * A module of people under X's own header (a Community's Moderators, its Members), with where its
  * footer's "Show more" goes. X links there on twitter.com; the engine lives on x.com.
  */
@@ -1093,6 +1294,8 @@ function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExp
   const s = (k: string) => asString(variables[k]);
   // One list per query; X's picker opens on its empty query.
   if (op === "GifSearch") return `gifs:${s("query") ?? ""}`;
+  // X's Articles page lists Drafts and Published apart.
+  if (op === "ArticleEntitiesSlice") return `articles:${s("lifecycle") ?? "Draft"}`;
   if (op === "HomeTimeline") return s("tag") === undefined ? null : `tag:${s("tag")}`;
   // A search inside a Community, one list per order and query; Top is X's default, by likes.
   if (op === "CommunityTweetSearchModuleQuery")
@@ -1379,6 +1582,7 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
   const notifications: Array<EngineNotification> = [];
   const lists: Array<EngineList> = [];
   const communities = new Map<string, EngineCommunity>();
+  const communityAdmin = new Map<string, EngineCommunityAdmin>();
   const games = new Map<string, EngineGame>();
   let prompt: EnginePrompt | undefined;
   let top: string | null = null;
@@ -1467,6 +1671,12 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
       const community = readCommunity(node);
       if (community !== undefined && !communities.has(community.communityId))
         communities.set(community.communityId, community);
+      const admin = readCommunityAdmin(node);
+      if (admin !== undefined)
+        communityAdmin.set(admin.communityId, {
+          ...communityAdmin.get(admin.communityId),
+          ...admin,
+        });
     } else if (
       isRecord(record(node.summary).away) &&
       isRecord(record(node.summary).home) &&
@@ -1592,11 +1802,15 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     ...(folders === undefined ? {} : { bookmarkFolders: folders }),
     ...(claims === undefined ? {} : { claims }),
     ...readRadar(op, data),
+    ...readXArticles(op, data),
     ...(listDeleted === undefined ? {} : { listDeleted }),
     ...(pinnedLists === undefined ? {} : { pinnedLists }),
     ...(space === undefined ? {} : { spaces: [space] }),
     ...readSpaceAnalytics(op, data),
     ...(spaceUnavailable === undefined ? {} : { spaceUnavailable }),
+    ...(communityAdmin.size === 0 ? {} : { communityAdmin: [...communityAdmin.values()] }),
+    ...readCommunityCreate(op, data),
+    ...readModeration(op, variables, data),
   };
 }
 
@@ -2203,4 +2417,15 @@ export const hasEngineContent = (b: EngineBatch) =>
   b.spaceCaptions !== undefined ||
   b.spaceAnalytics !== undefined ||
   b.spaceUnavailable !== undefined ||
+  b.communityAdmin !== undefined ||
+  b.joinRequests !== undefined ||
+  b.reportCases !== undefined ||
+  // A Community's posts X answered with none (a new one), its cursors still in: X says it is empty.
+  (b.op === "CommunityTweetsTimeline" &&
+    b.key !== null &&
+    b.cursor === null &&
+    (b.top !== null || b.bottom !== null)) ||
+  b.communityCreate !== undefined ||
+  // X's Articles lists, an empty one included: the screen says it has none.
+  b.xArticles !== undefined ||
   (b.op === "postListQuery" && b.key !== null);
