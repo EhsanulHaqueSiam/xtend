@@ -81,12 +81,31 @@ export const xNavigate = (url: string): Promise<void> => {
   });
 };
 
+/** `work`, or null once `signal` aborts or X's page loads anew under it, when it never settles. */
+const heldOn = <A>(work: Promise<A>, signal: AbortSignal) =>
+  new Promise<A | null>((settle) => {
+    const done = (value: A | null) => {
+      onPageLoad.delete(abandon);
+      signal.removeEventListener("abort", abandon);
+      settle(value);
+    };
+    const abandon = () => done(null);
+    onPageLoad.add(abandon);
+    signal.addEventListener("abort", abandon);
+    if (signal.aborted) abandon();
+    void work.then(done);
+  });
+
 /**
  * Moves the engine to an x.com page through X's own router, like a link clicked in X: no full
  * reload, and a page X still holds shows without a fetch, so screens read its keyed surface. Loads
- * the URL instead before the first load or off a signed-in x.com page. True when it moved.
+ * the URL instead before the first load or off a signed-in x.com page. True when it moved; with
+ * `signal`, false once it aborts or X's page loads anew before the move lands.
  */
-export const xGo = (url: string): Promise<boolean> => {
+export const xGo = (url: string, signal?: AbortSignal): Promise<boolean> =>
+  signal === undefined ? go(url) : heldOn(go(url), signal).then((moved) => moved ?? false);
+
+const go = (url: string): Promise<boolean> => {
   if (!isXUrl(url)) return Promise.resolve(false);
   const load = () => xNavigate(url).then(() => true);
   if (element === null || !ready) return load();
@@ -976,6 +995,8 @@ const onPage = async <A>(
   step: () => Promise<A | null>,
   leave: (result: A) => Promise<unknown> = () => Promise.resolve(),
   live: () => boolean = () => true,
+  // Ends the move and the Back when X's page loads anew or the press is over (see `xGo`).
+  signal?: AbortSignal,
 ): Promise<A | null> => {
   // No engine (a browser): no X.
   if (element === null || !ready) return null;
@@ -983,15 +1004,15 @@ const onPage = async <A>(
   if (here !== null) return (await leave(here), here);
   // The user moved on meanwhile: the engine is theirs, not this press's.
   if (page === null || !live()) return null;
-  const moved = await xGo(page.url);
+  const moved = await xGo(page.url, signal);
   const there = live() ? await step() : null;
   if (there !== null) await leave(there);
   // Back only from a page this step opened, while the engine is still on it, and while this
   // press is still the user's latest: a screen they opened since owns the engine now.
-  if (moved && live())
-    await xRun(
-      `location.pathname.toLowerCase().endsWith(${JSON.stringify(page.path.toLowerCase())}) && history.back(), true`,
-    );
+  if (moved && live()) {
+    const back = `location.pathname.toLowerCase().endsWith(${JSON.stringify(page.path.toLowerCase())}) && history.back(), true`;
+    await (signal === undefined ? xRun(back) : xRunHeld(back, signal));
+  }
   return there;
 };
 
@@ -1664,6 +1685,7 @@ const pressControl = async (
       settled = { at: held.at, gone: gone === true };
     },
     () => run === overRun,
+    ended,
   );
   if (run !== overRun) return null;
   return pressed === null ? false : settled;

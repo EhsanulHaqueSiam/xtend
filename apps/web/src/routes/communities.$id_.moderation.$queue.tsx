@@ -83,7 +83,8 @@ function QueueScreen({ id, queue }: { readonly id: string; readonly queue: Queue
       more("request") && (!more("post") || tail(requests) >= tail(cases))
         ? requestsPage
         : reportedPage;
-    await xGo(`https://x.com${page}`);
+    // X's page loading anew, or the list going, ends the move too.
+    await xGo(`https://x.com${page}`, signal);
     return signal.aborted ? null : xScrollMore(signal);
   };
   const role = roleIn(engine, id);

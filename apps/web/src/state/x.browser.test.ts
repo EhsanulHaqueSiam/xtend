@@ -2427,3 +2427,91 @@ it("ends a scroll for X's next page that X's page never answers, once X loads an
     registerXWebview(null);
   }
 });
+
+it("ends a queue press held in its move to the row's page or its Back, once X loads anew or the user moves on", async () => {
+  using _clock = fakeTimers();
+  const start = location.pathname + location.search;
+  const row = () => {
+    document.body.innerHTML = `<div><article><a href="/ann/status/50"><time></time></a></article><button>Keep</button></div>`;
+    // X takes the keep at once: its row turns.
+    document
+      .querySelector("button")!
+      .addEventListener("click", () => (document.body.innerHTML = ""));
+  };
+  // X's router never answers the move (`hang` "go") or the Back after the press (`hang` "back").
+  let hang: "go" | "back" = "back";
+  registerXWebview({
+    loadURL: async () => {},
+    getURL: () => `https://x.com${location.pathname}`,
+    executeJavaScript: (code: string) =>
+      (hang === "go" && code.includes("pushState")) ||
+      (hang === "back" && code.includes("history.back()"))
+        ? new Promise(() => {})
+        : Promise.resolve(new Function(`return ${code}`)()),
+  } as unknown as XWebview);
+  markXReady();
+  const keep = () => {
+    let ended = false;
+    void xPressRow(
+      "/i/communities/20/moderation/reported_tweets",
+      'a[href$="/status/50"] time',
+      "Keep",
+      () => true,
+      () => {},
+    ).then(() => (ended = true));
+    return () => ended;
+  };
+  try {
+    // The engine is on the other queue: the press moves it to the row's page, then Back.
+    history.replaceState(null, "", "/i/communities/20/moderation/member_requests");
+    row();
+    const back = keep();
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(back()).toBe(false);
+    markXReady();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(back()).toBe(true);
+    // The move itself never lands; the user opens another screen.
+    hang = "go";
+    history.replaceState(null, "", "/i/communities/20/moderation/member_requests");
+    row();
+    const go = keep();
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(go()).toBe(false);
+    xOverEnded();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(go()).toBe(true);
+  } finally {
+    history.replaceState(null, "", start);
+    registerXWebview(null);
+  }
+});
+
+it("ends a move of the engine X's router never answers, on its signal or X's page loading anew", async () => {
+  registerXWebview({
+    loadURL: async () => {},
+    getURL: () => "https://x.com/i/communities/20/moderation/member_requests",
+    executeJavaScript: () => new Promise(() => {}),
+  } as unknown as XWebview);
+  markXReady();
+  const move = (signal: AbortSignal) => {
+    let ended = false;
+    void xGo("https://x.com/i/communities/20/moderation/reported_tweets", signal).then(
+      () => (ended = true),
+    );
+    return () => ended;
+  };
+  try {
+    const gone = new AbortController();
+    const aborted = move(gone.signal);
+    gone.abort();
+    await expect.poll(aborted).toBe(true);
+    const reloaded = move(new AbortController().signal);
+    await Promise.resolve();
+    expect(reloaded()).toBe(false);
+    markXReady();
+    await expect.poll(reloaded).toBe(true);
+  } finally {
+    registerXWebview(null);
+  }
+});
