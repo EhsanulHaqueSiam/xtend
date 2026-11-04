@@ -24,6 +24,7 @@ import {
   xPostMenu,
   xOverEnded,
   xPickCommunitySearchTab,
+  xPickCommunityTab,
   xPickHomeTab,
   xPickInspiration,
   xPickAnalyticsRange,
@@ -1537,6 +1538,36 @@ it("picks X's search tab only on the Community search it was asked for, and give
   } finally {
     history.replaceState(null, "", start);
   }
+});
+
+it("reads the tab X opened a Community on, and presses X's own tab there only", async () => {
+  using _clock = fakeTimers();
+  using _url = keepUrl();
+  const open = () => new AbortController().signal;
+  const clicked: Array<string> = [];
+  inThisPage(() => `https://x.com${location.pathname}`);
+  history.replaceState(null, "", "/i/communities/11");
+  // X has moved to the Community, but the hub's tabs still show: they are not its.
+  document.body.innerHTML = `<nav role="tablist"><a role="tab" aria-selected="true" href="/you/communities/explore">Explore</a></nav>`;
+  const read = xPickCommunityTab("11", null, Promise.resolve(), open());
+  await vi.advanceTimersByTimeAsync(300);
+  // X opened this Community on Latest, as it does for a member.
+  document.body.innerHTML = `<nav role="tablist"><a role="tab" aria-selected="false" href="/i/communities/11">Top</a><a role="tab" aria-selected="true" href="/i/communities/11">Latest</a><a role="tab" aria-selected="false" href="/i/communities/11">Media</a><a role="tab" aria-selected="false" href="/i/communities/11/about">About</a></nav>`;
+  for (const tab of document.querySelectorAll('[role="tab"]'))
+    tab.addEventListener("click", (event) => {
+      event.preventDefault();
+      clicked.push(tab.textContent!);
+    });
+  await vi.runAllTimersAsync();
+  expect([await read, clicked]).toEqual(["Latest", []]);
+  const top = xPickCommunityTab("11", "Top", Promise.resolve(), open());
+  await vi.runAllTimersAsync();
+  expect([await top, clicked]).toEqual(["Top", ["Top"]]);
+  // Another Community's tabs are not this one's.
+  history.replaceState(null, "", "/i/communities/12");
+  const other = xPickCommunityTab("11", "Media", Promise.resolve(), open());
+  await vi.runAllTimersAsync();
+  expect([await other, clicked]).toEqual([null, ["Top"]]);
 });
 
 /** Puts this document's URL back as it was, once the test is done with X's routes. */

@@ -48,7 +48,8 @@ test("compact X: Create's form and X's summary are pages, over the main area unt
     .toBeGreaterThan(15);
   await e.engine(`document.querySelector('[data-x-got-it]').click(), true`);
   await expect.poll(pane).toBe("hidden");
-  await expect.poll(xtendHash).toBe(`#/communities/${made}`);
+  // The Community, on the tab X opened it on.
+  await expect.poll(xtendHash).toMatch(new RegExp(`^#/communities/${made}(\\?tab=\\w+)?$`));
   await e.app
     .locator('main [data-x="community-checklist"]')
     .getByText("Review your rules")

@@ -68,12 +68,15 @@ const SCRIPT = String.raw`
     const p = path.split("?")[0];
     if (p === "/i/jf/creators/inspiration/top_posts") return "inspiration";
     if (p === "/i/account_analytics" || p.startsWith("/i/account_analytics/")) return "analytics";
+    // A Community's Top, Latest and Media, its last pick kept per Community as X does.
+    if (/^\/i\/communities\/\d+$/.test(p)) return "community:" + p.split("/")[3];
     return p === "/home" ? "home" : /^\/i\/communities\/\d+\/search$/.test(p) ? "communitySearch" : /^\/i\/nba\/game\/\d+$/.test(p) ? "game" : null;
   };
   const pageTab = (path) => {
     const kind = inPage(path);
     if (kind === "inspiration") return localStorage.getItem("mockx:tab:inspiration") || "Likes:Daily";
     if (kind === "analytics") return localStorage.getItem("mockx:tab:analytics:" + path.split("?")[0]) || "7D";
+    if (kind?.startsWith("community:")) return localStorage.getItem("mockx:tab:" + kind) || "";
     return kind === null ? "" : localStorage.getItem("mockx:tab:" + kind) || (kind === "home" ? "forYou" : kind === "game" ? "Top" : "Likes");
   };
   const cacheKey = (path) => (inPage(path) === null ? path : path + "|" + pageTab(path));
@@ -325,6 +328,9 @@ const SCRIPT = String.raw`
       }
       entry = { el: fragment(view.html), next: view.next, title: view.title, path, scroll: 0 };
       cache.set(key, entry);
+      // X keeps a Community's tab it opened on: picked later, it shows from cache, asking nothing.
+      const opened = inPage(path)?.startsWith("community:") && pageTab(path) === "" ? entry.el.querySelector('[role="tab"][aria-selected="true"]')?.textContent.trim() : undefined;
+      if (opened) cache.set(path + "|" + opened, entry);
     }
     if (mine !== token) return;
     if (shown && shown !== entry) {
