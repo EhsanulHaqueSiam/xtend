@@ -2066,5 +2066,10 @@ export const hasEngineContent = (b: EngineBatch) =>
   b.radarDeleted !== undefined ||
   b.listDeleted !== undefined ||
   b.communityAdmin !== undefined ||
+  // A Community's posts X answered with none (a new one), its cursors still in: X says it is empty.
+  (b.op === "CommunityTweetsTimeline" &&
+    b.key !== null &&
+    b.cursor === null &&
+    (b.top !== null || b.bottom !== null)) ||
   b.communityCreate !== undefined ||
   (b.op === "postListQuery" && b.key !== null);

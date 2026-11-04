@@ -1375,9 +1375,10 @@ test("Create a new Community: X's form over the main area, X's summary, then the
   await expect.poll(xtendHash).toBe(`#/communities/${made}`);
   expect(presses()).toContain(`write CreateCommunity`);
 
-  // X's checklist drawn natively; a row presses X's own, which opens its step.
+  // X's checklist drawn natively over X's empty state; a row presses X's own, which opens its step.
   const card = e.app.locator('main [data-x="community-checklist"]');
   await card.getByText("Review your rules").waitFor();
+  await e.app.getByText("There aren’t any posts in this Community yet").waitFor();
   await card.getByRole("button", { name: /Personalize your Community/ }).click();
   await expect.poll(xtendHash).toBe(`#/communities/${made}/tools/settings`);
   expect(presses()).toContain(`press checklist:setup_clicked_personalization ${made}`);

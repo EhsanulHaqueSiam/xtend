@@ -1010,6 +1010,44 @@ describe("renderEngineBatch around posts", () => {
     ]);
   });
 
+  it("passes on a Community's posts X answered with none, cursors in, but not an answer with errors", () => {
+    const empty = renderEngineBatch(
+      "CommunityTweetsTimeline",
+      { communityId: "20", rankingMode: "Relevance" },
+      {
+        data: {
+          communityResults: {
+            result: {
+              ranked_community_timeline: {
+                timeline: {
+                  instructions: [
+                    {
+                      type: "TimelineAddEntries",
+                      entries: [
+                        { entryId: "cursor-top-1", content: { cursorType: "Top", value: "t" } },
+                        {
+                          entryId: "cursor-bottom-1",
+                          content: { cursorType: "Bottom", value: "b" },
+                        },
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+    );
+    expect([empty.key, empty.posts, hasEngineContent(empty)]).toEqual(["community:20", [], true]);
+    const failed = renderEngineBatch(
+      "CommunityTweetsTimeline",
+      { communityId: "20" },
+      { errors: [{}] },
+    );
+    expect(hasEngineContent(failed)).toBe(false);
+  });
+
   it("reads X's Create a new Community for the account: its form, its upsell, or none", () => {
     const create = (result: Record<string, unknown>) =>
       renderEngineBatch(
