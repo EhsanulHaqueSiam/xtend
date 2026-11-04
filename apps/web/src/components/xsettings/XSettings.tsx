@@ -33,6 +33,7 @@ import {
   pressedIn,
   pressTarget,
   settingKey,
+  settleMarks,
   valueOf,
   xSettingsChangesAtom,
   xSettingsMarksAtom,
@@ -110,13 +111,15 @@ function fileRead(
   const values = loggedValues(read);
   if (values.length === 0) return;
   const account = accountId();
-  const pressed = pressedIn(registry.get(xSettingsMarksAtom), account, values);
+  const sent = registry.get(xSettingsMarksAtom);
+  const pressed = pressedIn(sent, account, values);
   void seen({ accountId: account, values, pressed }).then(
     (logged) => {
       if (logged.length === 0) return;
-      const marks = new Map(registry.get(xSettingsMarksAtom));
-      for (const c of logged) marks.delete(markKey(account, c.key));
-      registry.set(xSettingsMarksAtom, marks);
+      registry.set(
+        xSettingsMarksAtom,
+        settleMarks(registry.get(xSettingsMarksAtom), sent, account, logged),
+      );
       refresh();
     },
     // The log is Xtend's own note; X's page and its controls work without it.

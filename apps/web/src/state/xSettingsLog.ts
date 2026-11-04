@@ -99,3 +99,21 @@ export const pressedIn = (
   accountId: number,
   values: ReadonlyArray<XSettingValue>,
 ) => values.filter((v) => marks.get(markKey(accountId, v.key)) === v.value).map((v) => v.key);
+
+/**
+ * `marks` once the log filed `logged` for a read sent while the marks were `sent`: each filed key's
+ * mark settles, unless the user pressed it again since, which keeps the newer press theirs.
+ */
+export const settleMarks = (
+  marks: ReadonlyMap<string, string>,
+  sent: ReadonlyMap<string, string>,
+  accountId: number,
+  logged: ReadonlyArray<{ readonly key: string }>,
+) => {
+  const next = new Map(marks);
+  for (const { key } of logged) {
+    const k = markKey(accountId, key);
+    if (next.get(k) === sent.get(k)) next.delete(k);
+  }
+  return next;
+};
