@@ -2388,6 +2388,47 @@ const benchmarks = [
     },
   ],
   [
+    "Grok reads X's history rows from X's own panel into the rail, sending nothing",
+    async () => {
+      await app(
+        `[...document.querySelectorAll("nav button, aside button")].find((b) => b.textContent.trim() === "Grok" || b.getAttribute("aria-label") === "Grok")?.click(), true`,
+      );
+      // Counts only: a chat's titles and words stay in X's page and the app page.
+      return until(async () => {
+        if (!(await enginePath()).startsWith("/i/grok")) return undefined;
+        const x = await engine(
+          `(() => ({ xweb: !!document.querySelector("fieldset[data-grok-composer]"), other: !!document.querySelector('main textarea, main [contenteditable="true"]') }))()`,
+        );
+        // X's older Grok page (or its account link prompt) is X's own: it shows over the main area.
+        if (!x.xweb)
+          return (
+            x.other &&
+            (await app(
+              `document.querySelector('section[aria-label="x.com"]')?.dataset.mode === "main"`,
+            )) &&
+            "X's older Grok page, over the main area"
+          );
+        const drawn = await app(`document.querySelectorAll('[data-x="grok-history-row"]').length`);
+        const empty = await app(
+          `!!document.querySelector('[aria-label="History"]')?.textContent.includes("No conversations yet")`,
+        );
+        if (drawn === 0 && !empty) return undefined;
+        // X's own History panel, opened and closed again as Xtend's read does: its rows, counted.
+        const rows = await engine(`(async () => {
+          const button = (document.querySelector('[data-testid="primaryColumn"]') ?? document).querySelector('[aria-haspopup="dialog"][aria-expanded]');
+          const panel = () => [...document.querySelectorAll('[role="dialog"]')].find((d) => d.querySelector('input[type="search"]'));
+          if (!button) return -1;
+          if (!panel()) button.click();
+          for (let i = 0; i < 50 && !panel()?.querySelector('a[href^="/i/grok/c/"]') && !panel()?.querySelector('[role="status"]'); i++) await new Promise((r) => setTimeout(r, 100));
+          const n = panel()?.querySelectorAll('a[href^="/i/grok/c/"]:not([target])').length ?? -1;
+          if (panel() && button.getAttribute("aria-expanded") === "true") button.click();
+          return n;
+        })()`);
+        return rows === drawn && `${drawn} of X's ${rows} history rows`;
+      }, 30_000);
+    },
+  ],
+  [
     "Back on Home, the engine follows",
     async () => (
       await go("#/home?feed=following"),

@@ -45,6 +45,7 @@ const X_PAGES: ReadonlyArray<{
   { label: "Notifications", path: "/notifications" },
   { label: "Chat", path: "/i/chat", native: "/chat" },
   { label: "Bookmarks", path: "/i/bookmarks" },
+  { label: "Grok", path: "/i/grok", native: "/grok" },
   { label: "Explore", path: "/explore" },
   { label: "Follow", path: "/i/connect_people" },
   { label: "Communities", path: "/i/communities", native: "/communities" },

@@ -12,6 +12,7 @@ import type {
 } from "@xtend/contracts";
 
 import { chatPage } from "./chat.ts";
+import { grokPage } from "./grok.ts";
 import {
   type GraphqlRequest,
   INSPIRATION_FILTERS,
@@ -474,6 +475,10 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
   const lower = first.toLowerCase();
 
   if (lower === "i" && second === "radar" && fourth === undefined) return radarPage(state, third);
+  if (lower === "i" && second === "grok" && (third === undefined || third === "c")) {
+    const page = grokPage(state.grok, url.pathname, q.get("conversation"));
+    return { title: page.title, requests: [], render: () => page.html };
+  }
   if (lower === "i" && second === "chat") {
     const page = chatPage(state.chat, url.pathname);
     return { title: page.title, requests: [], render: () => page.html };

@@ -20,6 +20,7 @@ import { Route as NotificationsRouteImport } from './routes/notifications'
 import { Route as LibraryRouteImport } from './routes/library'
 import { Route as LeadsRouteImport } from './routes/leads'
 import { Route as HomeRouteImport } from './routes/home'
+import { Route as GrokRouteImport } from './routes/grok'
 import { Route as FollowRouteImport } from './routes/follow'
 import { Route as ExploreRouteImport } from './routes/explore'
 import { Route as EngageRouteImport } from './routes/engage'
@@ -97,6 +98,11 @@ const LeadsRoute = LeadsRouteImport.update({
 const HomeRoute = HomeRouteImport.update({
   id: '/home',
   path: '/home',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GrokRoute = GrokRouteImport.update({
+  id: '/grok',
+  path: '/grok',
   getParentRoute: () => rootRouteImport,
 } as any)
 const FollowRoute = FollowRouteImport.update({
@@ -225,6 +231,7 @@ export interface FileRoutesByFullPath {
   '/engage': typeof EngageRoute
   '/explore': typeof ExploreRoute
   '/follow': typeof FollowRoute
+  '/grok': typeof GrokRoute
   '/home': typeof HomeRoute
   '/leads': typeof LeadsRoute
   '/library': typeof LibraryRoute
@@ -261,6 +268,7 @@ export interface FileRoutesByTo {
   '/engage': typeof EngageRoute
   '/explore': typeof ExploreRoute
   '/follow': typeof FollowRoute
+  '/grok': typeof GrokRoute
   '/home': typeof HomeRoute
   '/leads': typeof LeadsRoute
   '/library': typeof LibraryRoute
@@ -298,6 +306,7 @@ export interface FileRoutesById {
   '/engage': typeof EngageRoute
   '/explore': typeof ExploreRoute
   '/follow': typeof FollowRoute
+  '/grok': typeof GrokRoute
   '/home': typeof HomeRoute
   '/leads': typeof LeadsRoute
   '/library': typeof LibraryRoute
@@ -336,6 +345,7 @@ export interface FileRouteTypes {
     | '/engage'
     | '/explore'
     | '/follow'
+    | '/grok'
     | '/home'
     | '/leads'
     | '/library'
@@ -372,6 +382,7 @@ export interface FileRouteTypes {
     | '/engage'
     | '/explore'
     | '/follow'
+    | '/grok'
     | '/home'
     | '/leads'
     | '/library'
@@ -408,6 +419,7 @@ export interface FileRouteTypes {
     | '/engage'
     | '/explore'
     | '/follow'
+    | '/grok'
     | '/home'
     | '/leads'
     | '/library'
@@ -445,6 +457,7 @@ export interface RootRouteChildren {
   EngageRoute: typeof EngageRoute
   ExploreRoute: typeof ExploreRoute
   FollowRoute: typeof FollowRoute
+  GrokRoute: typeof GrokRoute
   HomeRoute: typeof HomeRoute
   LeadsRoute: typeof LeadsRoute
   LibraryRoute: typeof LibraryRoute
@@ -549,6 +562,13 @@ declare module '@tanstack/react-router' {
       path: '/home'
       fullPath: '/home'
       preLoaderRoute: typeof HomeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/grok': {
+      id: '/grok'
+      path: '/grok'
+      fullPath: '/grok'
+      preLoaderRoute: typeof GrokRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/follow': {
@@ -725,6 +745,7 @@ const rootRouteChildren: RootRouteChildren = {
   EngageRoute: EngageRoute,
   ExploreRoute: ExploreRoute,
   FollowRoute: FollowRoute,
+  GrokRoute: GrokRoute,
   HomeRoute: HomeRoute,
   LeadsRoute: LeadsRoute,
   LibraryRoute: LibraryRoute,

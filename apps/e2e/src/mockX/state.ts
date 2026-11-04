@@ -14,6 +14,7 @@ import type {
 
 import { synth } from "../../../web/src/components/xnative/engineFixtures.ts";
 import { createMockChat } from "./chat.ts";
+import { createMockGrok } from "./grok.ts";
 import { encodeBody, encodeFolder, encodeList, encodeRestUser, encodeTweet } from "./graphql.ts";
 
 /**
@@ -135,6 +136,8 @@ export interface MockOptions {
   readonly formatting?: boolean;
   /** X's Chat asks for the account's passcode first, as it does on a new device. */
   readonly chatLocked?: boolean;
+  /** The account is past X's free Grok limit: X answers with its SuperGrok upsell. */
+  readonly grokLimited?: boolean;
 }
 
 const DAY_MS = 86_400_000;
@@ -1336,6 +1339,8 @@ export function createMockState(options: MockOptions = {}) {
     presses,
     /** X's Chat: conversations, requests, the pages X opened, and its passcode lock. */
     chat: createMockChat(options.chatLocked === true, people),
+    /** X's Grok: its conversations, X's pick of model, Private, and its free limit. */
+    grok: createMockGrok(options.grokLimited === true),
     /** X's Radar: whether the account has Premium, X's query limit, and its queries. */
     radar,
     setTrendHidden: (path: string, name: string, hidden: boolean) => {
