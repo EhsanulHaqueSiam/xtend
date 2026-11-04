@@ -96,8 +96,11 @@ export const xNavigate = (url: string): Promise<void> => {
   // X leaves the Space it plays when its page unloads; its router keeps its dock and the audio.
   // The page X already shows refreshes through X's own nav link for it, as a click there does.
   if (keepPage && element !== null && ready && routable(element.getURL())) {
-    const path = new URL(url).pathname;
-    if (new URL(element.getURL()).pathname === path)
+    const target = new URL(url);
+    const here = new URL(element.getURL());
+    const path = target.pathname;
+    // Another query is another page (a search), for X's router; only the same page refreshes.
+    if (here.pathname + here.search === path + target.search)
       return xRun(
         `document.querySelector(${JSON.stringify(`a[data-testid^="AppTabBar_"][href="${path}"]`)})?.click(), true`,
       ).then(() => {});

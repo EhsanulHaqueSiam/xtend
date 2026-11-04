@@ -52,6 +52,15 @@ it("moves within x.com through X's router, and loads anything it cannot", async 
     "load https://x.com/i/bookmarks",
   ]);
   expect(signingIn.calls.at(-1)).toBe("load https://x.com/home");
+
+  // Another search on the search page is another page: X's router moves there.
+  const searching = fakeWebview("https://x.com/search?q=rising");
+  registerXWebview(searching.el);
+  markXReady();
+  xKeepPage(true);
+  await xNavigate("https://x.com/search?q=launch");
+  xKeepPage(false);
+  expect(searching.calls).toEqual(['run history.pushState(null, "", "/search?q=la']);
 });
 
 it("presses X's button in place, or on the post's page and then back to the list", async () => {
