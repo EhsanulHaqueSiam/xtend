@@ -200,40 +200,22 @@ export const xScrollMore = () =>
     // People lists and Community search results have no posts: without their rows this never sees
     // X's next page land and keeps scrolling, so X fetches page after page.
     const last = () => [...document.querySelectorAll('article a[href*="/status/"] time, [data-testid="UserCell"] a[href^="/"], [data-testid="cellInnerDiv"]:not(:has(article)) a[href^="/i/communities/"]')].at(-1)?.closest("a")?.getAttribute("href");
-    const from = scrollY;
-    if (!window.__xtendScrollHomeWatch) {
-      window.__xtendScrollHomeWatch = true;
-      addEventListener("popstate", () => {
-        const home = window.__xtendScrollHome;
-        if (home && location.pathname + location.search === home.path)
-          setTimeout(() => { if (location.pathname + location.search === home.path) scrollTo(0, home.from); window.__xtendScrollHome = null; }, 500);
-      });
-    }
-    // Left for another page mid-way, X keeps this one's scroll at its end and restores it on Back:
-    // once X shows it again, it goes back too.
-    const away = (done) => {
-      if (current()) window.scrollTo(0, from);
-      else if (location.pathname + location.search !== path) window.__xtendScrollHome = { path, from };
-      return done;
-    };
     window.scrollTo(0, document.documentElement.scrollHeight);
     await new Promise((r) => setTimeout(r, 300));
-    if (!current() || (window.__xtendTrendLookups && !(await resume()))) return away(false);
+    if (!current() || (window.__xtendTrendLookups && !(await resume()))) return false;
     const before = last();
-    // X's page left at its end would fetch page after page by itself as its cells resize (Space
-    // cards, as their Spaces load or fail): once X answered, or not, it goes back where it was.
     for (let attempt = 0; attempt < 4; attempt++) {
       for (let i = 0; i < 15; i++) {
         await new Promise((r) => setTimeout(r, 250));
-        if (!current() || (window.__xtendTrendLookups && !(await resume()))) return away(false);
+        if (!current() || (window.__xtendTrendLookups && !(await resume()))) return false;
         window.scrollTo(0, document.documentElement.scrollHeight);
-        if (last() !== before) return away(true);
+        if (last() !== before) return true;
       }
       window.scrollBy(0, -window.innerHeight);
       await new Promise((r) => setTimeout(r, 300));
-      if (!current() || (window.__xtendTrendLookups && !(await resume()))) return away(false);
+      if (!current() || (window.__xtendTrendLookups && !(await resume()))) return false;
     }
-    return away(false);
+    return false;
   })()`);
 
 /**
