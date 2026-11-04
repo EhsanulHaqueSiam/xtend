@@ -103,14 +103,17 @@ function RowBody({
   hot = false,
   verb,
   compact = false,
+  bare = false,
 }: {
   readonly label: string;
   readonly count?: number | null | undefined;
+  /** A section's row: no icon, even when it shares a tool's name (X's Notifications, Lists). */
+  readonly bare?: boolean;
   readonly hot?: boolean;
   readonly verb?: string | undefined;
   readonly compact?: boolean;
 }) {
-  const Icon = ICONS[label as keyof typeof ICONS];
+  const Icon = bare ? undefined : ICONS[label as keyof typeof ICONS];
   if (compact && Icon !== undefined)
     return <Icon aria-hidden="true" className="mx-auto size-4 shrink-0" />;
   return (
@@ -296,6 +299,7 @@ function ToolRow({
               }}
             >
               <RowBody
+                bare
                 label={section.label}
                 count={tool.to === "/automate" && section.id === "needs-you" ? count : undefined}
                 hot={hot}
