@@ -347,6 +347,7 @@ it("goes Back to the chat when X's compact History page opens without its search
 it("goes on from X's grok.com account gate to the Grok page it names, through X's router", async () => {
   const moves: Array<string> = [];
   let at = "/i/jf/grok/entry";
+  let hold = false;
   registerXWebview({
     loadURL: async () => {},
     getURL: () => `https://x.com${at}?redirect=https%3A%2F%2Fx.com%2Fi%2Fgrok`,
@@ -354,7 +355,7 @@ it("goes on from X's grok.com account gate to the Grok page it names, through X'
       const to = /history\.pushState\(null, "", "([^"]+)"\)/.exec(code)?.[1];
       if (to !== undefined) {
         moves.push(to);
-        at = to;
+        if (!hold) at = to;
         return Promise.resolve(true);
       }
       return Promise.resolve(
@@ -371,8 +372,12 @@ it("goes on from X's grok.com account gate to the Grok page it names, through X'
     },
   } as unknown as XWebview);
   markXReady();
-  expect(await xGrokPastEntry()).toBe(true);
+  expect(await xGrokPastEntry()).toBe("passed");
   expect(moves).toEqual(["/i/grok"]);
   // Elsewhere there is no gate to pass.
-  expect(await xGrokPastEntry()).toBe(false);
+  expect(await xGrokPastEntry()).toBe("away");
+  // X holds its router on the gate, and its full load lands there again: the engine is held.
+  at = "/i/jf/grok/entry";
+  hold = true;
+  expect(await xGrokPastEntry()).toBe("held");
 });
