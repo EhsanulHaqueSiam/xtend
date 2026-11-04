@@ -1,4 +1,5 @@
 import "../../index.css";
+import { useAtomValue } from "@effect/atom-react";
 import { useLocation } from "@tanstack/react-router";
 import * as Effect from "effect/Effect";
 import { expect, it, vi } from "vite-plus/test";
@@ -12,7 +13,7 @@ import type { XWebview } from "../../state/x";
 // The screen reads the bridge at module load (env.ts), so it is imported after the bridge exists.
 installFakeBridge();
 const { Route } = await import("../../routes/grok");
-const { markXReady, registerXWebview } = await import("../../state/x");
+const { markXReady, registerXWebview, xOverAtom } = await import("../../state/x");
 
 // X's Grok page (bundle.GrokXWeb) as the engine page holds it: header, transcript, composer.
 const icon = (name: string) => `<svg data-icon="${name}"></svg>`;
@@ -159,4 +160,25 @@ it("deletes a chat in X only once the user confirms it beside the row, as X asks
   await expect.poll(() => inX).toEqual(["delete", "confirm"]);
   // X's history, read again, has the row no more.
   await expect.element(rail.getByRole("button", { name: "Churn email" })).not.toBeInTheDocument();
+});
+
+it("shows X's account gate over the main area when X sends the engine back to it after a pass", async () => {
+  using _x = drawX();
+  at = "/i/jf/grok/entry";
+  const Over = () => <p data-testid="over">{String(useAtomValue(xOverAtom))}</p>;
+  await using screen = await render(
+    <>
+      <Over />
+      {ui()}
+    </>,
+    { router: "/grok", service },
+  );
+  const over = screen.getByTestId("over");
+  // The one attempt passes the gate, and X's page is read natively.
+  await expect.poll(() => at).toBe("/i/grok");
+  await expect.element(over).toHaveTextContent("false");
+  // X sends the engine back to its gate and draws it: X's own page, over the main area.
+  at = "/i/jf/grok/entry";
+  document.querySelector("#x")!.insertAdjacentHTML("beforeend", "<div>Link your account</div>");
+  await expect.element(over).toHaveTextContent("true");
 });
