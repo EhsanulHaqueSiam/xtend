@@ -761,12 +761,18 @@ function Editor({
 
   // In X's column, so focus mode and a narrow window show it too; a failure stored on the draft
   // (the last attempt's, or the scheduler's) shows until something newer replaces it.
-  const message =
-    notice !== null && (notice.outcome === null || sameOutcome(notice.outcome, current))
-      ? notice.text
-      : status === "failed" && current?.error != null
-        ? `Failed: ${current.error}`
-        : null;
+  // The message follows the service: another publish outcome drops it for good, and a failure
+  // the service names becomes it, so an edit's save (which clears the stored error) keeps it.
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- follows the listed draft's publish outcome into the message.
+  useEffect(() => {
+    if (current === null || (notice?.outcome != null && sameOutcome(notice.outcome, current)))
+      return;
+    const named = current.status === "failed" && current.error !== null;
+    if (!named && notice?.outcome == null) return;
+    // eslint-disable-next-line react/set-state-in-effect -- the message is this effect's output.
+    setNoticeFor(named ? { text: `Failed: ${current.error}`, outcome: outcomeOf(current) } : null);
+  }, [current, notice]);
+  const message = notice?.text ?? null;
   const editor = (
     <div className={cn(locked && "pointer-events-none opacity-80")}>
       {message === null ? null : (

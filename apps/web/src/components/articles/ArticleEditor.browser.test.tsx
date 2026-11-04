@@ -341,3 +341,57 @@ it("keeps its own failure through an edit, whose save clears the stored error wi
     .element(screen.getByRole("status"))
     .toHaveTextContent("Failed: x.com kept Publish off");
 });
+
+it("shows the latest failure the service named, through an edit, never the older one of its own", async () => {
+  let fail = () => {};
+  const failed = new Promise<void>((resolve) => (fail = resolve));
+  const event = {
+    type: "draft_status_changed" as const,
+    at: "2030-01-07T09:40:00.000Z",
+    payload: { draftId: "a1", status: "failed" },
+  };
+  let row = article();
+  await using screen = await render(editor("a1"), {
+    service: service(() => [row], {
+      "compose.postNow": () => {
+        row = {
+          ...row,
+          status: "failed",
+          error: "A: x.com kept Publish off",
+          updatedAt: "2030-01-07T09:30:00.000Z",
+        };
+        return Effect.succeed(row);
+      },
+      "compose.draftUpdate": ({ patch }) => {
+        row = {
+          ...row,
+          title: patch.title ?? row.title,
+          error: null,
+          updatedAt: "2030-01-07T09:50:00.000Z",
+        };
+        return Effect.succeed(row);
+      },
+      "events.subscribe": () =>
+        Stream.fromEffect(Effect.promise(() => failed).pipe(Effect.as(event))).pipe(
+          Stream.concat(Stream.never),
+        ),
+    }),
+  });
+  const status = screen.getByRole("status");
+  await userEvent.click(screen.getByRole("button", { name: /^Publish$/ }));
+  await userEvent.click(
+    page
+      .getByRole("list", { name: "Ways out" })
+      .getByRole("button", { name: /Opens X.s Publish dialog/ }),
+  );
+  await userEvent.click(page.getByRole("button", { name: /^Publish\s*free$/ }));
+  await expect.element(status).toHaveTextContent("Failed: A: x.com kept Publish off");
+  // Plan's Post now fails again, through the X API, with its own error.
+  row = { ...row, error: "B: X API said no", updatedAt: "2030-01-07T09:40:00.000Z" };
+  fail();
+  await expect.element(status).toHaveTextContent("Failed: B: X API said no");
+  // An edit's save clears the stored error; B stays, and A never comes back.
+  await userEvent.fill(screen.getByLabelText("Article Title"), "Two plans, edited");
+  await expect.poll(() => row.title).toBe("Two plans, edited");
+  await expect.element(status).toHaveTextContent("Failed: B: X API said no");
+});
