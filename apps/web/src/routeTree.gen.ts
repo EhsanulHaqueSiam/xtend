@@ -43,6 +43,8 @@ import { Route as PostIdAnalyticsRouteImport } from './routes/post.$id_.analytic
 import { Route as PostIdActivityRouteImport } from './routes/post.$id_.activity'
 import { Route as NbaGameIdRouteImport } from './routes/nba.game.$id'
 import { Route as ListsIdPeopleRouteImport } from './routes/lists.$id_.people'
+import { Route as CommunitiesIdToolsRouteImport } from './routes/communities.$id_.tools'
+import { Route as CommunitiesIdToolsSettingsRouteImport } from './routes/communities.$id_.tools_.settings'
 
 const XRoute = XRouteImport.update({
   id: '/x',
@@ -214,6 +216,17 @@ const ListsIdPeopleRoute = ListsIdPeopleRouteImport.update({
   path: '/lists/$id/people',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CommunitiesIdToolsRoute = CommunitiesIdToolsRouteImport.update({
+  id: '/communities/$id_/tools',
+  path: '/communities/$id/tools',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CommunitiesIdToolsSettingsRoute =
+  CommunitiesIdToolsSettingsRouteImport.update({
+    id: '/communities/$id_/tools_/settings',
+    path: '/communities/$id/tools/settings',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -245,11 +258,13 @@ export interface FileRoutesByFullPath {
   '/communities/': typeof CommunitiesIndexRoute
   '/lists/': typeof ListsIndexRoute
   '/nba/': typeof NbaIndexRoute
+  '/communities/$id/tools': typeof CommunitiesIdToolsRoute
   '/lists/$id/people': typeof ListsIdPeopleRoute
   '/nba/game/$id': typeof NbaGameIdRoute
   '/post/$id/activity': typeof PostIdActivityRoute
   '/post/$id/analytics': typeof PostIdAnalyticsRoute
   '/u/$handle/people': typeof UHandlePeopleRoute
+  '/communities/$id/tools/settings': typeof CommunitiesIdToolsSettingsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -281,11 +296,13 @@ export interface FileRoutesByTo {
   '/communities': typeof CommunitiesIndexRoute
   '/lists': typeof ListsIndexRoute
   '/nba': typeof NbaIndexRoute
+  '/communities/$id/tools': typeof CommunitiesIdToolsRoute
   '/lists/$id/people': typeof ListsIdPeopleRoute
   '/nba/game/$id': typeof NbaGameIdRoute
   '/post/$id/activity': typeof PostIdActivityRoute
   '/post/$id/analytics': typeof PostIdAnalyticsRoute
   '/u/$handle/people': typeof UHandlePeopleRoute
+  '/communities/$id/tools/settings': typeof CommunitiesIdToolsSettingsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -318,11 +335,13 @@ export interface FileRoutesById {
   '/communities/': typeof CommunitiesIndexRoute
   '/lists/': typeof ListsIndexRoute
   '/nba/': typeof NbaIndexRoute
+  '/communities/$id_/tools': typeof CommunitiesIdToolsRoute
   '/lists/$id_/people': typeof ListsIdPeopleRoute
   '/nba/game/$id': typeof NbaGameIdRoute
   '/post/$id_/activity': typeof PostIdActivityRoute
   '/post/$id_/analytics': typeof PostIdAnalyticsRoute
   '/u/$handle_/people': typeof UHandlePeopleRoute
+  '/communities/$id_/tools_/settings': typeof CommunitiesIdToolsSettingsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -356,11 +375,13 @@ export interface FileRouteTypes {
     | '/communities/'
     | '/lists/'
     | '/nba/'
+    | '/communities/$id/tools'
     | '/lists/$id/people'
     | '/nba/game/$id'
     | '/post/$id/activity'
     | '/post/$id/analytics'
     | '/u/$handle/people'
+    | '/communities/$id/tools/settings'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -392,11 +413,13 @@ export interface FileRouteTypes {
     | '/communities'
     | '/lists'
     | '/nba'
+    | '/communities/$id/tools'
     | '/lists/$id/people'
     | '/nba/game/$id'
     | '/post/$id/activity'
     | '/post/$id/analytics'
     | '/u/$handle/people'
+    | '/communities/$id/tools/settings'
   id:
     | '__root__'
     | '/'
@@ -428,11 +451,13 @@ export interface FileRouteTypes {
     | '/communities/'
     | '/lists/'
     | '/nba/'
+    | '/communities/$id_/tools'
     | '/lists/$id_/people'
     | '/nba/game/$id'
     | '/post/$id_/activity'
     | '/post/$id_/analytics'
     | '/u/$handle_/people'
+    | '/communities/$id_/tools_/settings'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -465,11 +490,13 @@ export interface RootRouteChildren {
   CommunitiesIndexRoute: typeof CommunitiesIndexRoute
   ListsIndexRoute: typeof ListsIndexRoute
   NbaIndexRoute: typeof NbaIndexRoute
+  CommunitiesIdToolsRoute: typeof CommunitiesIdToolsRoute
   ListsIdPeopleRoute: typeof ListsIdPeopleRoute
   NbaGameIdRoute: typeof NbaGameIdRoute
   PostIdActivityRoute: typeof PostIdActivityRoute
   PostIdAnalyticsRoute: typeof PostIdAnalyticsRoute
   UHandlePeopleRoute: typeof UHandlePeopleRoute
+  CommunitiesIdToolsSettingsRoute: typeof CommunitiesIdToolsSettingsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -712,6 +739,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ListsIdPeopleRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/communities/$id_/tools': {
+      id: '/communities/$id_/tools'
+      path: '/communities/$id/tools'
+      fullPath: '/communities/$id/tools'
+      preLoaderRoute: typeof CommunitiesIdToolsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/communities/$id_/tools_/settings': {
+      id: '/communities/$id_/tools_/settings'
+      path: '/communities/$id/tools/settings'
+      fullPath: '/communities/$id/tools/settings'
+      preLoaderRoute: typeof CommunitiesIdToolsSettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -745,11 +786,13 @@ const rootRouteChildren: RootRouteChildren = {
   CommunitiesIndexRoute: CommunitiesIndexRoute,
   ListsIndexRoute: ListsIndexRoute,
   NbaIndexRoute: NbaIndexRoute,
+  CommunitiesIdToolsRoute: CommunitiesIdToolsRoute,
   ListsIdPeopleRoute: ListsIdPeopleRoute,
   NbaGameIdRoute: NbaGameIdRoute,
   PostIdActivityRoute: PostIdActivityRoute,
   PostIdAnalyticsRoute: PostIdAnalyticsRoute,
   UHandlePeopleRoute: UHandlePeopleRoute,
+  CommunitiesIdToolsSettingsRoute: CommunitiesIdToolsSettingsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

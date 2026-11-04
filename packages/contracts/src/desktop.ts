@@ -370,6 +370,32 @@ export interface EngineCommunity {
 }
 
 /**
+ * What a Community's moderators see of it, in pieces from X's calls (its page, X's Admin tools,
+ * its settings): a field a response left out is absent, and the store keeps an earlier one's.
+ */
+export interface EngineCommunityAdmin {
+  readonly communityId: string;
+  /** The viewer's role, from X's Admin tools, whose answer names no Community. */
+  readonly role?: string;
+  /** Reported posts waiting on its moderators (X's `tweet_case_count`). */
+  readonly reported?: number;
+  /** Requests to join waiting; null when it takes none, so X lists no Member requests. */
+  readonly requests?: number | null;
+  /**
+   * Where X's "Spotlight your Community" goes: X's Profile Spotlight, or for a personal account
+   * X's switch to a professional profile. Null when X offers no such row.
+   */
+  readonly spotlight?: string | null;
+  /** The question X asks people who ask to join; null when it asks none. */
+  readonly question?: string | null;
+  readonly searchTags?: ReadonlyArray<string>;
+  /** X's Adult Content (NSFW) setting. */
+  readonly nsfw?: boolean;
+  /** Whether X offers the viewer Delete Community (X's `delete_action_result`). */
+  readonly deletable?: boolean;
+}
+
+/**
  * A tab the user pinned to X's Home after For you and Following: a topic, a Community or a List.
  * `id` is the surface its posts land in (`tag:<id>`, `community:<id>`, `list:<id>`); `label` is
  * the tab's text on X, which is how the engine picks it.
@@ -617,6 +643,13 @@ export interface EngineBatch {
    * tab read. A partial answer has none, so what it leaves out says nothing.
    */
   readonly pinnedLists?: ReadonlyArray<string>;
+  /** What the response told the moderators of each Community it names (`EngineCommunityAdmin`). */
+  readonly communityAdmin?: ReadonlyArray<EngineCommunityAdmin>;
+  /**
+   * X's Create a new Community for this account (CommunitiesCreateButtonQuery): its form, its
+   * Premium upsell for an unverified account, or none at all.
+   */
+  readonly communityCreate?: "create" | "verify" | null;
 }
 
 /** Counts by X's metric name (`Impressions`, `Likes`, `Retweets`, `Bookmark`, `Share`...). */

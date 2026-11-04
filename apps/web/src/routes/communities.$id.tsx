@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { fmt } from "../components/analyze/ui";
 import { Menu, MenuItem } from "../components/ui/menu";
 import { CommunityHeader, ICON_BUTTON } from "../components/xnative/CommunityHeader";
+import { AdminToolsButton, CommunityChecklist } from "../components/xnative/CommunityTools";
 import { Timeline } from "../components/xnative/Timeline";
 import { XColumn, XSearchBar, XTabs, XTitle } from "../components/xnative/XColumn";
 import { xtendRoute } from "../components/xnative/RichText";
@@ -17,6 +18,8 @@ import {
   type CommunityTab,
   communitySurface,
   engineAtom,
+  moderates,
+  roleIn,
 } from "../state/engine";
 import { xGo, xNavigate, xOverAtom, xOverEnded, xPickCommunitySearchTab } from "../state/x";
 
@@ -127,7 +130,12 @@ function CommunityScreen() {
           >
             <Search className="size-5" />
           </button>
-          <CommunityMore />
+          {/* X gives its admins and moderators the gear to Admin tools where others get "More". */}
+          {moderates(roleIn(engine, id)) ? (
+            <AdminToolsButton communityId={id} />
+          ) : (
+            <CommunityMore />
+          )}
         </>
       }
     />
@@ -145,6 +153,8 @@ function CommunityScreen() {
           }
         />
       </div>
+      {/* X draws a new Community's checklist atop its posts on the Community's own page. */}
+      {current.id === "top" ? <CommunityChecklist communityId={id} /> : null}
     </div>
   );
   if (current.label === "About")

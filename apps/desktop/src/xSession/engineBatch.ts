@@ -7,6 +7,7 @@ import type {
   EngineBookmarkFolder,
   EngineCard,
   EngineCommunity,
+  EngineCommunityAdmin,
   EngineEntities,
   EngineRange,
   EngineExploreTab,
@@ -707,6 +708,74 @@ function readCommunity(value: Json): EngineCommunity | undefined {
 }
 
 /**
+ * What a Community's moderators see of it, from any of X's shapes that carry some: its page
+ * (CommunityQuery's counts), X's Admin tools (which alias its id `communityId` and name it not),
+ * and X's own fetch of it for its settings. Undefined when the node carries none of it.
+ */
+function readCommunityAdmin(value: Json): EngineCommunityAdmin | undefined {
+  const communityId =
+    asString(value.rest_id) ?? asString(value.id_str) ?? asString(value.communityId);
+  if (communityId === undefined || !X_ID.test(communityId)) return undefined;
+  const moderation = record(value.moderation);
+  const requests = record(value.join_requests_result);
+  const actions = record(value.actions);
+  const spotlight = record(actions.community_spotlight_setup_action_result);
+  const deletion = asString(record(actions.delete_action_result).__typename);
+  const reported = asCount(moderation.tweet_case_count ?? moderation.count);
+  const tags = Array.isArray(value.search_tags) ? value.search_tags : undefined;
+  const admin: EngineCommunityAdmin = {
+    communityId,
+    // Elsewhere the Community itself carries the role (`EngineCommunity.role`).
+    ...(typeof value.role === "string" && value.name === undefined ? { role: value.role } : {}),
+    ...(reported === null ? {} : { reported }),
+    // X lists Member requests only for a Community whose answer is CommunityJoinRequests.
+    ...(typeof requests.__typename !== "string"
+      ? {}
+      : {
+          requests:
+            requests.__typename === "CommunityJoinRequests"
+              ? (asCount(requests.pending_join_request_count) ?? 0)
+              : null,
+        }),
+    // X's own row: a personal account's deeplink is X's switch to a professional profile.
+    ...(typeof spotlight.__typename !== "string"
+      ? {}
+      : {
+          spotlight:
+            spotlight.__typename !== "CommunitySpotlightSetupActionShow"
+              ? null
+              : /flow_name=convert_to_professional/.test(asString(spotlight.deeplink) ?? "")
+                ? "/i/flow/convert_to_professional"
+                : "/settings/professional_profile/profile_spotlight",
+        }),
+    ...(typeof value.question === "string" || value.question === null
+      ? { question: value.question || null }
+      : {}),
+    ...(tags === undefined
+      ? {}
+      : { searchTags: tags.filter((t): t is string => typeof t === "string") }),
+    ...(typeof value.is_nsfw === "boolean" ? { nsfw: value.is_nsfw } : {}),
+    ...(deletion === undefined ? {} : { deletable: deletion === "CommunityDeleteAction" }),
+  };
+  return Object.keys(admin).length > 1 ? admin : undefined;
+}
+
+/** X's Create a new Community (CommunitiesCreateButtonQuery): X draws it for these answers only. */
+function readCommunityCreate(op: string, data: Json) {
+  if (op !== "CommunitiesCreateButtonQuery") return {};
+  const action = record(record(data.viewer ?? data.viewer_v2).create_community_action_result);
+  if (typeof action.__typename !== "string") return {};
+  return {
+    communityCreate:
+      action.__typename !== "CommunityCreateActionUnavailable"
+        ? ("create" as const)
+        : action.reason === "NotVerified"
+          ? ("verify" as const)
+          : null,
+  };
+}
+
+/**
  * A module of people under X's own header (a Community's Moderators, its Members), with where its
  * footer's "Show more" goes. X links there on twitter.com; the engine lives on x.com.
  */
@@ -1176,6 +1245,7 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
   const notifications: Array<EngineNotification> = [];
   const lists: Array<EngineList> = [];
   const communities = new Map<string, EngineCommunity>();
+  const communityAdmin = new Map<string, EngineCommunityAdmin>();
   const games = new Map<string, EngineGame>();
   let prompt: EnginePrompt | undefined;
   let top: string | null = null;
@@ -1264,6 +1334,12 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
       const community = readCommunity(node);
       if (community !== undefined && !communities.has(community.communityId))
         communities.set(community.communityId, community);
+      const admin = readCommunityAdmin(node);
+      if (admin !== undefined)
+        communityAdmin.set(admin.communityId, {
+          ...communityAdmin.get(admin.communityId),
+          ...admin,
+        });
     } else if (
       isRecord(record(node.summary).away) &&
       isRecord(record(node.summary).home) &&
@@ -1385,6 +1461,8 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     ...readRadar(op, data),
     ...(listDeleted === undefined ? {} : { listDeleted }),
     ...(pinnedLists === undefined ? {} : { pinnedLists }),
+    ...(communityAdmin.size === 0 ? {} : { communityAdmin: [...communityAdmin.values()] }),
+    ...readCommunityCreate(op, data),
   };
 }
 
@@ -1987,4 +2065,6 @@ export const hasEngineContent = (b: EngineBatch) =>
   b.radarCounts !== undefined ||
   b.radarDeleted !== undefined ||
   b.listDeleted !== undefined ||
+  b.communityAdmin !== undefined ||
+  b.communityCreate !== undefined ||
   (b.op === "postListQuery" && b.key !== null);

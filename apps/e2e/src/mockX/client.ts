@@ -874,6 +874,65 @@ const SCRIPT = String.raw`
     log("hide:" + el.dataset.hideRule, location.pathname.split("/").pop());
     history.back();
   });
+  // X's Community admin pages (bundle.Communities). A form's Save sends X's call with its fields
+  // and goes back (Create opens the new Community under X's summary); Adult Content saves at the
+  // press and X loads its page again; Leave moderation team and Delete Community ask first. A
+  // checklist row marks itself done in X's page and opens its step; Got it closes X's summary.
+  document.addEventListener("click", (event) => {
+    const el = event.target instanceof Element ? event.target.closest("[data-x-save], [data-x-check], [data-x-confirm], [data-x-step], [data-x-got-it]") : null;
+    if (!el) return;
+    event.stopPropagation();
+    const send = (op, variables) => post("/i/api/graphql/" + window.__mockHash[op] + "/" + op, { variables });
+    const communityId = location.pathname.split("/")[3];
+    if (el.dataset.xSave !== undefined) {
+      const op = el.dataset.xSave;
+      const fields = {};
+      for (const f of el.closest("[data-x-form]").querySelectorAll("[name]"))
+        if (f.type !== "radio" || f.checked) fields[f.name] = f.value.trim();
+      log("save:" + op, communityId ?? null);
+      cache.clear();
+      if (op === "CreateCommunity")
+        void send(op, fields).then((r) => go("/i/communities/" + r.data.community_create_v2.rest_id + "?show_creation_summary", true));
+      else void send(op, { communityId, ...fields }).then(() => history.back());
+      return;
+    }
+    if (el.dataset.xCheck !== undefined) {
+      log("check:" + el.dataset.xCheck, communityId);
+      void send(el.dataset.xCheck, { communityId, adultContentSetting: el.checked }).then(() => location.reload());
+      return;
+    }
+    if (el.dataset.xConfirm === "leave")
+      return dialog({
+        title: "Are you sure you want to leave the mod team?",
+        body: "You’ll no longer have access to the moderation tools. If you change your mind, you’ll have to be invited as a moderator again.",
+        sheet: true,
+        buttons: [
+          { label: "Yes, I want to leave", testid: "confirmationSheetConfirm", step: { write: { path: "/i/api/graphql/" + window.__mockHash.CommunityUpdateRole + "/CommunityUpdateRole", body: { variables: { communityId, role: "Member" } } }, replace: "/i/communities/" + communityId } },
+          { label: "Cancel", testid: "confirmationSheetCancel" },
+        ],
+      });
+    if (el.dataset.xConfirm === "delete")
+      return dialog({
+        title: "Delete Community",
+        body: "This can’t be undone. Post authors can still see their own posts.",
+        buttons: [
+          { label: "Delete Community", testid: "confirmationSheetConfirm", step: { write: { path: "/i/api/graphql/" + window.__mockHash.DeleteCommunityMutation + "/DeleteCommunityMutation", body: { variables: { id: communityId } } }, replace: "/i/communities/" + communityId } },
+          { label: "Cancel", testid: "confirmationSheetCancel" },
+        ],
+      });
+    if (el.dataset.xStep !== undefined) {
+      const [flag, ...to] = el.dataset.xStep.split(":");
+      log("checklist:" + flag, communityId);
+      cache.clear();
+      void post("/__mock/checklist", { communityId, flag }).then(() => (flag === "dismiss" ? void show() : go(to.join(":"), false)));
+      return;
+    }
+    if (el.dataset.xGotIt !== undefined) {
+      log("Got it", communityId);
+      el.closest('[role="dialog"]').remove();
+      history.replaceState(null, "", location.pathname);
+    }
+  }, true);
   // X's List buttons and dialogs (bundle.UserLists). Follow in a List's header and Pin in a row of
   // Your Lists turn once X answered. Create's Next goes on to Add to your List, whose Done opens
   // the new List; Edit List's Done goes back to it; Delete List asks first, then opens the user's

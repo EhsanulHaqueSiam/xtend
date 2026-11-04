@@ -923,6 +923,108 @@ describe("renderEngineBatch around posts", () => {
     expect([feed.order, feed.communities, feed.posts[0]?.context?.text]).toEqual([["50"], [], "A"]);
   });
 
+  it("reads what a Community's moderators see: X's Admin tools, its page's counts and its settings", () => {
+    // X's Admin tools alias the Community's id and name it not.
+    const tools = (spotlight: Record<string, unknown>, requests: Record<string, unknown>) =>
+      renderEngineBatch(
+        "CommunityToolsScreenContainerQuery",
+        { communityId: "20" },
+        {
+          data: {
+            communityResults: {
+              result: {
+                __typename: "Community",
+                communityId: "20",
+                role: "Admin",
+                moderation: { count: 3, id: "m" },
+                member_count: 1284,
+                actions: { community_spotlight_setup_action_result: spotlight, id: "a" },
+                join_requests_result: requests,
+              },
+            },
+          },
+        },
+      );
+    const personal = tools(
+      {
+        __typename: "CommunitySpotlightSetupActionShow",
+        deeplink:
+          'twitter://onboarding/task?flow_name=convert_to_professional&input_flow_data={"requested_variant": "communities"}',
+      },
+      { __typename: "CommunityJoinRequests", pending_join_request_count: 4 },
+    );
+    expect([personal.communities, personal.communityAdmin]).toEqual([
+      [],
+      [
+        {
+          communityId: "20",
+          role: "Admin",
+          reported: 3,
+          requests: 4,
+          spotlight: "/i/flow/convert_to_professional",
+        },
+      ],
+    ]);
+    expect(hasEngineContent(personal)).toBe(true);
+    // A professional account's row goes to X's Profile Spotlight; an Open Community takes no requests.
+    const open = tools(
+      { __typename: "CommunitySpotlightSetupActionShow", deeplink: "twitter://spotlight" },
+      { __typename: "CommunityJoinRequestsUnavailable" },
+    );
+    expect(open.communityAdmin?.[0]).toMatchObject({
+      requests: null,
+      spotlight: "/settings/professional_profile/profile_spotlight",
+    });
+    expect(
+      tools({ __typename: "CommunitySpotlightSetupActionUnavailable" }, {}).communityAdmin?.[0],
+    ).toEqual({ communityId: "20", role: "Admin", reported: 3, spotlight: null });
+
+    // X's own fetch of it: its settings, beside what the Community itself shows.
+    const settings = renderEngineBatch(
+      "CommunitiesFetchOneQuery",
+      { communityId: "20" },
+      {
+        data: {
+          communityResults: {
+            result: {
+              __typename: "Community",
+              id_str: "20",
+              name: "A",
+              question: "",
+              search_tags: ["saas", "mrr"],
+              is_nsfw: false,
+              actions: { delete_action_result: { __typename: "CommunityDeleteAction" } },
+            },
+          },
+        },
+      },
+    );
+    expect(settings.communityAdmin).toEqual([
+      {
+        communityId: "20",
+        question: null,
+        searchTags: ["saas", "mrr"],
+        nsfw: false,
+        deletable: true,
+      },
+    ]);
+  });
+
+  it("reads X's Create a new Community for the account: its form, its upsell, or none", () => {
+    const create = (result: Record<string, unknown>) =>
+      renderEngineBatch(
+        "CommunitiesCreateButtonQuery",
+        {},
+        { data: { viewer: { create_community_action_result: result } } },
+      ).communityCreate;
+    expect([
+      create({ __typename: "CommunityCreateActionAvailable" }),
+      create({ __typename: "CommunityCreateActionUnavailable", reason: "NotVerified" }),
+      create({ __typename: "CommunityCreateActionUnavailable", reason: "Suspended" }),
+      renderEngineBatch("CommunitiesCreateButtonQuery", {}, { errors: [{}] }).communityCreate,
+    ]).toEqual(["create", "verify", null, undefined]);
+  });
+
   it("reads a Community's About as X's two boxes, Moderators then Members, each with its Show more", () => {
     // X's About: one module per box, under its header, with a footer to the full list.
     const box = (entryId: string, title: string, page: string, ids: ReadonlyArray<string>) => ({
