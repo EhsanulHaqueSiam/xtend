@@ -1543,10 +1543,11 @@ export const xOverPage = async (
 
 /**
  * X's own control in `root` that X names `label`, by its words or its label: a link, a button, a
- * list row or a checkbox's row. Only one may match: a name X draws twice is never guessed at.
- * Runs in X's page as its own source.
+ * list row or a checkbox's row. Only one may match: a name X draws twice is never guessed at. For
+ * a Community (`community`), only one whose box links into that Community alone, as its Join is
+ * matched: X's page can still draw the last one's. Runs in X's page as its own source.
  */
-export function xControl(root: ParentNode, label: string): HTMLElement | null {
+export function xControl(root: ParentNode, label: string, community?: string): HTMLElement | null {
   const CONTROL =
     'a, button, [role="button"], [role="link"], [role="listitem"], [role="checkbox"], label';
   const found = new Set<HTMLElement>();
@@ -1563,7 +1564,17 @@ export function xControl(root: ParentNode, label: string): HTMLElement | null {
     if (el.getAttribute("aria-label") === label)
       found.add(el.closest<HTMLElement>('a, button, [role="button"], [role="link"]') ?? el);
   // A control inside another that matched is the same one.
-  const mine = [...found].filter((el) => ![...found].some((o) => o !== el && o.contains(el)));
+  const outer = [...found].filter((el) => ![...found].some((o) => o !== el && o.contains(el)));
+  const ours = (el: Element) => {
+    for (let box = el.parentElement; box !== null; box = box.parentElement) {
+      const links = [...box.querySelectorAll('a[href*="/i/communities/"]')].map(
+        (a) => (a.getAttribute("href") ?? "").split("/i/communities/")[1]?.split(/[/?#]/)[0],
+      );
+      if (links.length > 0) return links.every((id) => id === community);
+    }
+    return false;
+  };
+  const mine = community === undefined ? outer : outer.filter(ours);
   return mine.length === 1 ? mine[0]! : null;
 }
 
@@ -1582,7 +1593,9 @@ export const xPressToPage = async (
 ): Promise<string | false | null> => {
   if (element === null || !ready || !/^\/[\w/]+$/.test(page)) return false;
   const run = await nextRun();
-  const find = `(() => (${xControl.toString()})(document, ${JSON.stringify(label)}))`;
+  // On a Community's page, its control alone (see `xControl`).
+  const community = /^\/i\/communities\/(\d{1,25})(\/|$)/.exec(page)?.[1];
+  const find = `(() => (${xControl.toString()})(document, ${JSON.stringify(label)}, ${JSON.stringify(community)}))`;
   let tries = 10;
   const press = () =>
     xRun(`(async () => {

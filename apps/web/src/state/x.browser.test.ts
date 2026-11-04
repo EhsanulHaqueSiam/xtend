@@ -2228,7 +2228,7 @@ it("holds X's page over the main area after the user confirms in X's sheet, unti
   using _clock = fakeTimers();
   const start = location.pathname + location.search;
   history.replaceState(null, "", "/i/communities/20/tools");
-  document.body.innerHTML = `<div role="button"><span>Leave moderation team</span></div>`;
+  document.body.innerHTML = `<a href="/i/communities/20/tools/members">Members</a><div role="button"><span>Leave moderation team</span></div>`;
   // X's sheet on the press; its buttons close it, and after a confirm X writes before it moves on.
   document.querySelector('[role="button"]')!.addEventListener("click", () => {
     document.body.insertAdjacentHTML(
@@ -2272,28 +2272,41 @@ it("holds X's page over the main area after the user confirms in X's sheet, unti
   }
 });
 
-it("presses a control only once X's page shows the Community it is for, never one still drawn from the last", async () => {
+it("presses only the control in the box of the Community it is for, never one left from another", async () => {
   using _clock = fakeTimers();
   const start = location.pathname + location.search;
-  // X still shows Community 10's tools, its Leave moderation team with them.
-  history.replaceState(null, "", "/i/communities/10/tools");
-  document.body.innerHTML = `<div role="button"><span>Leave moderation team</span></div>`;
-  const pressedOn: Array<string> = [];
-  document
-    .querySelector('[role="button"]')!
-    .addEventListener("click", () => pressedOn.push(location.pathname));
+  const tools = (id: string) =>
+    `<div data-c="${id}"><a href="/i/communities/${id}/tools/members">Members</a><div role="button"><span>Leave moderation team</span></div></div>`;
+  const pressedIn: Array<string> = [];
+  const listen = () => {
+    for (const b of document.querySelectorAll('[role="button"]'))
+      b.addEventListener("click", () =>
+        pressedIn.push(b.closest<HTMLElement>("[data-c]")!.dataset.c!),
+      );
+  };
   inThisPage(() => `https://x.com${location.pathname}`);
-  try {
-    const leaving = xPressToPage(
+  const leave = () =>
+    xPressToPage(
       "/i/communities/20/tools",
       "Leave moderation team",
       () => true,
       () => {},
     );
+  try {
+    // X's router is on Community 20 already, while its page still draws Community 10's tools.
+    history.replaceState(null, "", "/i/communities/20/tools");
+    document.body.innerHTML = tools("10");
+    listen();
+    const refused = leave();
     await vi.advanceTimersByTimeAsync(8000);
-    await leaving;
-    // X's router took the engine to Community 20 first; only there was X's control pressed.
-    expect(pressedOn).toEqual(["/i/communities/20/tools"]);
+    expect([await refused, pressedIn]).toEqual([false, []]);
+    // Both drawn, the old one first: only Community 20's is pressed.
+    document.body.innerHTML = tools("10") + tools("20");
+    listen();
+    const left = leave();
+    await vi.advanceTimersByTimeAsync(8000);
+    await left;
+    expect(pressedIn).toEqual(["20"]);
   } finally {
     history.replaceState(null, "", start);
     registerXWebview(null);
