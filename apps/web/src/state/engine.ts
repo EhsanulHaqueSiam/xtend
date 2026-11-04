@@ -4,6 +4,7 @@ import type {
   EngineBatch,
   EngineBookmarkFolder,
   EngineCommunity,
+  EngineCommunityAdmin,
   EngineConference,
   EngineExploreTab,
   EngineGame,
@@ -423,6 +424,10 @@ export interface EngineState {
   readonly communities: ReadonlyMap<string, EngineCommunity>;
   /** Community ids per surface, in X's order (the user's Communities). */
   readonly communityIds: PerSurface<string>;
+  /** What X told each Community's moderators, by id, each the sum of X's answers since. */
+  readonly communityAdmin: ReadonlyMap<string, EngineCommunityAdmin>;
+  /** X's Create a new Community for this account (see `EngineBatch.communityCreate`); undefined until X said. */
+  readonly communityCreate: "create" | "verify" | null | undefined;
   /** NBA games by id, each the sum of what X's responses said of it (see `EngineGame`). */
   readonly games: ReadonlyMap<string, EngineGame>;
   /** A team's schedule by the team's user id, in X's order: its profile's carousel. */
@@ -567,6 +572,8 @@ export const emptyEngine: EngineState = {
   listIds: NONE,
   communities: new Map(),
   communityIds: NONE,
+  communityAdmin: new Map(),
+  communityCreate: undefined,
   games: new Map(),
   schedules: new Map(),
   gameDays: new Map(),
@@ -732,6 +739,9 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
     pinnedLists,
     xLists,
     communities,
+    communityAdmin: mergeAdmin(state.communityAdmin, batch),
+    communityCreate:
+      batch.communityCreate === undefined ? state.communityCreate : batch.communityCreate,
     prompts: promptsOf(state, batch),
     homeTabs: batch.homeTabs ?? pinTabs(state.homeTabs, toggled),
     exploreTabs: batch.exploreTabs ?? state.exploreTabs,
@@ -791,6 +801,23 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
   // The response also carries the post it quotes, which stays where it was.
   const created = batch.posts.filter((p) => !batch.posts.some((q) => q.quotedId === p.postId));
   return created.reduce(placeCreated, listed);
+}
+
+/**
+ * What X told each Community's moderators, with this answer's: its fields over the last ones, and
+ * the role X now gives the viewer wherever this answer names the Community.
+ */
+function mergeAdmin(
+  admin: EngineState["communityAdmin"],
+  batch: EngineBatch,
+): EngineState["communityAdmin"] {
+  const roles = batch.communities.filter((c) => c.role !== null && admin.has(c.communityId));
+  if (batch.communityAdmin === undefined && roles.length === 0) return admin;
+  const next = new Map(admin);
+  for (const c of roles) next.set(c.communityId, { ...next.get(c.communityId)!, role: c.role! });
+  for (const a of batch.communityAdmin ?? [])
+    next.set(a.communityId, { ...next.get(a.communityId), ...a });
+  return next;
 }
 
 /** What the user asked X for, per List, less what X's answer (`said`) now agrees with. */
@@ -1404,6 +1431,19 @@ export type CommunityRole = "NonMember" | "Member" | "Moderator" | "Admin" | "Re
 /** The viewer's role in a Community: what X took for their click, until X's capture agrees. */
 export const communityRole = (state: EngineState, c: EngineCommunity) =>
   state.membership.get(c.communityId) ?? c.role;
+
+/**
+ * The viewer's role in a Community by id, X's Admin tools included, whose answer names no
+ * Community. Null until X said.
+ */
+export const roleIn = (state: EngineState, communityId: string) =>
+  state.membership.get(communityId) ??
+  state.communityAdmin.get(communityId)?.role ??
+  state.communities.get(communityId)?.role ??
+  null;
+
+/** Whether X gives the viewer its Admin tools: a Community's admins and moderators. */
+export const moderates = (role: string | null) => role === "Admin" || role === "Moderator";
 
 /** Keeps the role X took for the user's join, ask or leave (see `membership`). */
 export const askMembership = (

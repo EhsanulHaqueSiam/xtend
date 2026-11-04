@@ -824,6 +824,55 @@ const benchmarks = [
     },
   ],
   [
+    "Community admin: X's Create a new Community and its gear are where Xtend presses them, and X's Admin tools send a non-mod Home (dry)",
+    async () => {
+      // Nothing is pressed. X's create button is found as xControl in apps/web/src/state/x.ts
+      // finds it; it goes where X's answer says: its form, or for an unverified account X's upsell.
+      const handle = await until(() => store(`$.viewer?.handle`));
+      if (!handle) return false;
+      await go("#/communities");
+      if (!(await until(async () => (await enginePath()) === `/${handle}/communities`)))
+        return false;
+      const offer = await until(() =>
+        store(`$.communityCreate === undefined ? undefined : String($.communityCreate)`),
+      );
+      const xs = await until(() =>
+        engine(
+          `(() => { const found = [...new Set([...document.querySelectorAll('[aria-label="Create a new Community"]')].map((el) => el.closest('a, button, [role="button"], [role="link"]') ?? el))]; return found.length === 1 ? found[0].getAttribute("href") ?? "button" : undefined; })()`,
+        ),
+      );
+      const ours = await app(
+        `!!document.querySelector('main button[aria-label="Create a new Community"]')`,
+      );
+      const wants = {
+        create: "/i/communities/create",
+        verify: "/i/verified-get-verified",
+        null: undefined,
+      };
+      if (offer === undefined || xs !== wants[offer] || ours !== (offer !== "null")) return false;
+      // A Community the account does not moderate: X's top bar has no gear, nor has Xtend's.
+      const id = await store(
+        `[...$.communities.values()].find((c) => c.role === "NonMember" || c.role === "Member")?.communityId`,
+      );
+      if (!id) return `create: X's ${offer}; no Community to look at`;
+      await go(`#/communities/${id}`);
+      if (!(await until(async () => (await enginePath()) === `/i/communities/${id}`))) return false;
+      await sleep(2_000);
+      const gear = await engine(`!!document.querySelector('a[href="/i/communities/${id}/tools"]')`);
+      const ourGear = await app(
+        `!!document.querySelector('main a[aria-label="Admin tools"], main a[aria-label="Moderator tools"]')`,
+      );
+      if (gear || ourGear) return false;
+      // Its Admin tools: X sends a non-mod Home, and Xtend follows.
+      await go(`#/communities/${id}/tools`);
+      const home = await until(
+        async () =>
+          (await enginePath()) === "/home" && (await app(`location.hash`)).startsWith("#/home"),
+      );
+      return home && `create: X's ${offer} (${xs}); ${id}: no gear, Admin tools sent Home`;
+    },
+  ],
+  [
     "Profile people: X's tabs (Followers you know only with mutuals), each listing what X's page lists",
     async () => {
       const seen = await until(() =>

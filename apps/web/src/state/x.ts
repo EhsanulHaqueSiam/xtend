@@ -1511,6 +1511,198 @@ export const xListDialog = async (
   return settled;
 };
 
+/**
+ * Holds the engine over the main area for press `run` while X shows its own dialog, or a page
+ * Xtend does not draw (`drawn` tells, by its x.com address). Where X settled: the address of a
+ * page Xtend draws, with no dialog up; null when the user moved on first.
+ */
+const holdUntilDrawn = async (
+  run: number,
+  drawn: (href: string) => boolean,
+  over: (shown: boolean) => void,
+) => {
+  over(true);
+  // After the user confirms in X's sheet, X writes first and then leaves the page (Leave
+  // moderation team, Delete Community): until it does, or 10 s pass, X is not done.
+  await xRun(`(() => {
+    window.__xtendConfirmed = null;
+    if (!window.__xtendConfirmWatch)
+      document.addEventListener("click", (e) => {
+        if (e.target instanceof Element && e.target.closest('[data-testid="confirmationSheetConfirm"]')) window.__xtendConfirmed = location.pathname;
+      }, true);
+    window.__xtendConfirmWatch = true;
+    return true;
+  })()`);
+  let at: unknown = null;
+  for (let looks = 0; typeof at !== "string" || !drawn(at); looks++) {
+    await new Promise((r) => setTimeout(r, 500));
+    if (run !== overRun) return null;
+    at = await xRun(
+      `document.querySelector('[role="dialog"], [role="alertdialog"]') || (window.__xtendConfirmed === location.pathname && ${looks} < 20) ? null : location.href`,
+    );
+  }
+  if (run !== overRun) return null;
+  over(false);
+  return at;
+};
+
+/**
+ * Whether X sends the engine from `path` to its Home within 10 s of opening it: X's Redirect for
+ * a page its role rules refuse (a Community's Admin tools for anyone but its mods). False once
+ * `signal` ends the watch (the screen went).
+ */
+export const xSentHome = async (path: string, signal: AbortSignal) => {
+  for (let i = 0; i < 40; i++) {
+    await new Promise((r) => setTimeout(r, 250));
+    if (signal.aborted) return false;
+    const at = await xRun("location.pathname");
+    if (at === "/home" || at === "/") return !signal.aborted;
+    if (at !== path) return false;
+  }
+  return false;
+};
+
+/**
+ * Opens X's own page `path` for the user's click (a Community setting's edit, an admin tool Xtend
+ * does not draw), over the main area until X is on a page Xtend draws (`drawn`). Where X settled;
+ * false when X did not show `path` (a role X's page refuses); null when the user moved on.
+ */
+export const xOverPage = async (
+  path: string,
+  drawn: (href: string) => boolean,
+  over: (shown: boolean) => void,
+): Promise<string | false | null> => {
+  // No engine (a browser): no X. The path goes into a script: letters, digits, _ and / only.
+  if (element === null || !ready || !/^\/[\w/]+$/.test(path)) return false;
+  const run = await nextRun();
+  await xGo(`https://x.com${path}`);
+  const onRoute = (await xRun(`location.pathname === ${JSON.stringify(path)}`)) === true;
+  if (run !== overRun) return null;
+  if (!onRoute) return false;
+  return holdUntilDrawn(run, drawn, over);
+};
+
+/**
+ * X's own control in `root` that X names `label`, by its words or its label: a link, a button, a
+ * list row or a checkbox's row. Only one may match: a name X draws twice is never guessed at. For
+ * a Community (`community`), only one whose box links into that Community alone, as its Join is
+ * matched: X's page can still draw the last one's. Runs in X's page as its own source.
+ */
+export function xControl(root: ParentNode, label: string, community?: string): HTMLElement | null {
+  const CONTROL =
+    'a, button, [role="button"], [role="link"], [role="listitem"], [role="checkbox"], label';
+  const found = new Set<HTMLElement>();
+  // X's checkbox row is a label around its words and its box: the box is what X reads.
+  for (const el of root.querySelectorAll<HTMLElement>(CONTROL))
+    if (el.textContent?.trim() === label)
+      found.add(
+        el.tagName === "LABEL"
+          ? (el.querySelector<HTMLElement>('input[type="checkbox"]') ?? el)
+          : el,
+      );
+  // X labels an icon button on its icon.
+  for (const el of root.querySelectorAll<HTMLElement>("[aria-label]"))
+    if (el.getAttribute("aria-label") === label)
+      found.add(el.closest<HTMLElement>('a, button, [role="button"], [role="link"]') ?? el);
+  // A control inside another that matched is the same one.
+  const outer = [...found].filter((el) => ![...found].some((o) => o !== el && o.contains(el)));
+  const ours = (el: Element) => {
+    for (let box = el.parentElement; box !== null; box = box.parentElement) {
+      const links = [...box.querySelectorAll('a[href*="/i/communities/"]')].map(
+        (a) => (a.getAttribute("href") ?? "").split("/i/communities/")[1]?.split(/[/?#]/)[0],
+      );
+      if (links.length > 0) return links.every((id) => id === community);
+    }
+    return false;
+  };
+  const mine = community === undefined ? outer : outer.filter(ours);
+  return mine.length === 1 ? mine[0]! : null;
+}
+
+/**
+ * Presses X's own control `label` (see `xControl`) for the user's click on X's page at `page`
+ * (reached first when the engine is elsewhere); X's dialog, or the page it opens, shows over the
+ * main area until X is on a page Xtend draws. `checked` presses a checkbox only while X shows it
+ * that way. Where X settled; false when X drew no such control; null when the user moved on.
+ */
+export const xPressToPage = async (
+  page: string,
+  label: string,
+  drawn: (href: string) => boolean,
+  over: (shown: boolean) => void,
+  checked?: boolean,
+): Promise<string | false | null> => {
+  if (element === null || !ready || !/^\/[\w/]+$/.test(page)) return false;
+  const run = await nextRun();
+  // On a Community's page, its control alone (see `xControl`).
+  const community = /^\/i\/communities\/(\d{1,25})(\/|$)/.exec(page)?.[1];
+  const find = `(() => (${xControl.toString()})(document, ${JSON.stringify(label)}, ${JSON.stringify(community)}))`;
+  let tries = 10;
+  const press = () =>
+    xRun(`(async () => {
+    const find = ${find};
+    // X's page for this very page (this Community's), not one still drawn from the last.
+    const here = () => location.pathname.replace(/\\/$/, "").toLowerCase() === ${JSON.stringify(page.toLowerCase())};
+    for (let i = 0; i < ${tries} && !(here() && find()); i++) await new Promise((r) => setTimeout(r, 100));
+    const control = here() ? find() : null;
+    if (!control || !${stillMine(run)}) return null;
+    if (${JSON.stringify(checked ?? null)} !== null && control.checked !== ${JSON.stringify(checked ?? null)}) return null;
+    control.click();
+    return true;
+  })()`).then((done) => {
+      tries = 50;
+      return done === true ? true : null;
+    });
+  // Held before onPage takes the engine back from a page it opened: X's dialog is on that page.
+  let settled: string | null = null;
+  const pressed = await onPage(
+    { url: `https://x.com${page}`, path: page },
+    press,
+    async () => {
+      settled = await holdUntilDrawn(run, drawn, over);
+    },
+    () => run === overRun,
+  );
+  if (run !== overRun) return null;
+  return pressed === null ? false : settled;
+};
+
+/**
+ * X's checklist card for a new Community, as X draws it atop its posts on the Community's page:
+ * its rows in X's order, each done or not. X keeps the card in its own page (no call says), so it
+ * is read there; null when X draws none. Runs in X's page as its own source.
+ */
+export function xChecklist(
+  root: ParentNode,
+): ReadonlyArray<{ readonly title: string; readonly done: boolean }> | null {
+  const dismiss = root.querySelector('[aria-label="Dismiss Checklist"]');
+  let card = dismiss?.parentElement ?? null;
+  while (card !== null && card.querySelector('[role="list"]') === null) card = card.parentElement;
+  if (card === null) return null;
+  return [...card.querySelectorAll('[role="listitem"]')].map((row) => ({
+    title: row.textContent?.trim() ?? "",
+    done: row.querySelector('[aria-label="Completed"]') !== null,
+  }));
+}
+
+/**
+ * Reads X's checklist card on Community `communityId`'s page (see `xChecklist`) once the engine is
+ * there and X has drawn it or its posts. Null when X draws no card, or the engine is elsewhere.
+ */
+export const xCommunityChecklist = async (communityId: string) => {
+  if (element === null || !ready || !/^\d{1,25}$/.test(communityId)) return null;
+  const rows = await xRun(`(async () => {
+    const here = () => location.pathname.replace(/\\/$/, "") === ${JSON.stringify(`/i/communities/${communityId}`)};
+    const read = () => (${xChecklist.toString()})(document);
+    // The screen moves the engine there as it opens; X draws the card with its posts.
+    for (let i = 0; i < 50 && !here(); i++) await new Promise((r) => setTimeout(r, 100));
+    for (let i = 0; i < 30 && here() && !read() && !document.querySelector("article"); i++)
+      await new Promise((r) => setTimeout(r, 100));
+    return here() ? read() : null;
+  })()`);
+  return Array.isArray(rows) ? (rows as ReturnType<typeof xChecklist>) : null;
+};
+
 /** X's own rows of a trend's "...", read from X's menu on the Explore tab the engine shows. */
 export const xTrendMenu = async (name: string) => {
   const rows = await onPage(null, () => xMenuInPlace(trendMenuAt(name), { cancelRead: true }));
