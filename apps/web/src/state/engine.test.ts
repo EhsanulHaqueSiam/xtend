@@ -42,6 +42,7 @@ import {
   decisionKey,
   requestState,
   roleIn,
+  waitingIn,
   radarSurface,
   resetSurface,
   sawAnalyticsPage,
@@ -549,28 +550,43 @@ it("keeps a Community's queues in X's order: a first page replaces, a next page 
   );
 });
 
-it("takes a decision X drew off X's count of what waits, once per row", () => {
-  let state = mergeBatch(
-    emptyEngine,
+it("takes a decision X drew off X's count of what waits, once per row, and gives it back when X lists it again", () => {
+  const tools = (reported: number, requests: number | null) =>
     batch("CommunityToolsScreenContainerQuery", [], {
-      communityAdmin: [{ communityId: "20", role: "Admin", reported: 2, requests: 3 }],
-    }),
-  );
+      communityAdmin: [{ communityId: "20", role: "Admin", reported, requests }],
+    });
+  const asking = (userIds: ReadonlyArray<string>) =>
+    batch("MemberRequests_Query", [], {
+      joinRequests: {
+        communityId: "20",
+        page: true,
+        next: null,
+        requests: userIds.map((userId) => ({
+          userId,
+          answer: null,
+          at: null,
+          state: "Pending",
+          blocking: false,
+          muting: false,
+        })),
+      },
+    });
+  let state = mergeBatch(emptyEngine, tools(2, 3));
   state = decide(state, "20", "request", "33", "Denied");
   state = decide(state, "20", "request", "33", "Denied");
   state = decide(state, "20", "post", "50", "Kept");
-  expect(state.communityAdmin.get("20")).toMatchObject({ requests: 2, reported: 1 });
+  expect(waitingIn(state, "20")).toEqual({ reported: 1, requests: 2 });
+  // X lists them as waiting again: their row counts again, once, and a new decision takes it off.
+  state = mergeBatch(state, asking(["33"]));
+  expect(waitingIn(state, "20")).toEqual({ reported: 1, requests: 3 });
+  state = decide(state, "20", "request", "33", "Denied");
+  expect(waitingIn(state, "20").requests).toBe(2);
+  // X's own count, fresh, already has every decision in it.
+  state = mergeBatch(state, tools(0, 2));
+  expect(waitingIn(state, "20")).toEqual({ reported: 0, requests: 2 });
   // A Community that takes no requests keeps saying so.
-  const open = mergeBatch(
-    emptyEngine,
-    batch("CommunityToolsScreenContainerQuery", [], {
-      communityAdmin: [{ communityId: "21", role: "Admin", reported: 0, requests: null }],
-    }),
-  );
-  expect(decide(open, "21", "post", "50", "Kept").communityAdmin.get("21")).toMatchObject({
-    requests: null,
-    reported: 0,
-  });
+  const open = decide(mergeBatch(emptyEngine, tools(0, null)), "20", "post", "50", "Kept");
+  expect(waitingIn(open, "20")).toEqual({ reported: 0, requests: null });
 });
 
 it("keeps what X took for a join, ask or leave until X's capture of the Community agrees", () => {

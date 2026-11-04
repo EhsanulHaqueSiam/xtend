@@ -24,7 +24,7 @@ import {
 import { useEffect, useState } from "react";
 
 import { cn } from "../../lib/utils";
-import { engineAtom, moderates, roleIn } from "../../state/engine";
+import { engineAtom, moderates, roleIn, waitingIn } from "../../state/engine";
 import {
   xCommunityChecklist,
   xGo,
@@ -148,6 +148,8 @@ export function CommunityToolList({
   const onX = useOnX();
   const role = roleIn(engine, communityId);
   const admin = engine.communityAdmin.get(communityId);
+  // X's counts, less the rows X decided for the user's presses since.
+  const waiting = waitingIn(engine, communityId);
   const members = engine.communities.get(communityId)?.members ?? null;
   const base = `/i/communities/${communityId}`;
   const isAdmin = role === "Admin";
@@ -163,14 +165,14 @@ export function CommunityToolList({
     {
       label: "Review all",
       icon: Inbox,
-      count: (admin?.reported ?? 0) + (admin?.requests ?? 0),
+      count: waiting.reported + (waiting.requests ?? 0),
       current: current === "review",
       run: queue("review"),
     },
     {
       label: "Reported posts",
       icon: Flag,
-      count: admin?.reported,
+      count: waiting.reported,
       current: current === "reported_tweets",
       run: queue("reported_tweets"),
     },
@@ -178,7 +180,7 @@ export function CommunityToolList({
     typeof admin?.requests === "number" && {
       label: "Member requests",
       icon: UserPlus,
-      count: admin.requests,
+      count: waiting.requests,
       current: current === "member_requests",
       run: queue("member_requests"),
     },
@@ -310,8 +312,8 @@ export function AdminToolsButton({ communityId }: { readonly communityId: string
   const engine = useAtomValue(engineAtom);
   const role = roleIn(engine, communityId);
   if (!moderates(role)) return null;
-  const admin = engine.communityAdmin.get(communityId);
-  const waiting = (admin?.requests ?? 0) + (admin?.reported ?? 0);
+  const { reported, requests } = waitingIn(engine, communityId);
+  const waiting = (requests ?? 0) + reported;
   return (
     <Link
       to="/communities/$id/tools"

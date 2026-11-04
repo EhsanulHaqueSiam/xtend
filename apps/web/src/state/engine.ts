@@ -441,6 +441,11 @@ export interface EngineState {
   readonly decided: ReadonlyMap<string, string>;
   /** Whether X has a next page of a Community's queue, by `<request|post>:<community>`. */
   readonly queueMore: ReadonlyMap<string, boolean>;
+  /**
+   * The decided rows not yet in X's own waiting count, by `<request|post>:<community>`: X's
+   * answer to a press carries no count. X's next count has them all.
+   */
+  readonly discounted: ReadonlyMap<string, ReadonlySet<string>>;
   /** NBA games by id, each the sum of what X's responses said of it (see `EngineGame`). */
   readonly games: ReadonlyMap<string, EngineGame>;
   /** A team's schedule by the team's user id, in X's order: its profile's carousel. */
@@ -591,6 +596,7 @@ export const emptyEngine: EngineState = {
   reportCases: new Map(),
   decided: new Map(),
   queueMore: new Map(),
+  discounted: new Map(),
   games: new Map(),
   schedules: new Map(),
   gameDays: new Map(),
@@ -845,7 +851,7 @@ function mergeAdmin(
 function mergeQueues(
   state: EngineState,
   batch: EngineBatch,
-): Pick<EngineState, "joinRequests" | "reportCases" | "decided" | "queueMore"> {
+): Pick<EngineState, "joinRequests" | "reportCases" | "decided" | "queueMore" | "discounted"> {
   const page = <A>(
     known: ReadonlyArray<A> | undefined,
     fresh: ReadonlyArray<A>,
@@ -871,7 +877,24 @@ function mergeQueues(
       : []),
     ...(cases === undefined ? [] : [[`post:${cases.communityId}`, cases.next !== null] as const]),
   ];
+  // X's own count, fresh, has every decision in it; a row X lists as waiting again counts again.
+  const counted = (batch.communityAdmin ?? []).flatMap((a) => [
+    ...(a.reported === undefined ? [] : [`post:${a.communityId}`]),
+    ...(a.requests === undefined ? [] : [`request:${a.communityId}`]),
+  ]);
+  const discounted =
+    counted.length === 0 && waiting.length === 0
+      ? state.discounted
+      : new Map(
+          [...state.discounted]
+            .filter(([group]) => !counted.includes(group))
+            .map(([group, keys]) => [
+              group,
+              new Set([...keys].filter((k) => !waiting.includes(k))),
+            ]),
+        );
   return {
+    discounted,
     queueMore: more.length === 0 ? state.queueMore : new Map([...state.queueMore, ...more]),
     decided:
       waiting.length === 0
@@ -1526,8 +1549,8 @@ export const decisionKey = (communityId: string, kind: "request" | "post", id: s
   `${kind}:${communityId}:${id}`;
 
 /**
- * Keeps what X decided for the user's press in a queue (see `decided`), and takes it off X's
- * count of what waits there, once: X's own answers to a press carry no count.
+ * Keeps what X decided for the user's press in a queue (see `decided`), its row off X's count of
+ * what waits there until X counts again (see `discounted`).
  */
 export const decide = (
   state: EngineState,
@@ -1537,23 +1560,22 @@ export const decide = (
   decision: string,
 ): EngineState => {
   const key = decisionKey(communityId, kind, id);
-  const admin = state.communityAdmin.get(communityId);
-  const fresh = !state.decided.has(key) && admin !== undefined;
-  const less = (n: number | null | undefined) => (typeof n === "number" ? Math.max(0, n - 1) : n);
+  const group = `${kind}:${communityId}`;
   return {
     ...state,
     decided: new Map(state.decided).set(key, decision),
-    communityAdmin: !fresh
-      ? state.communityAdmin
-      : new Map(state.communityAdmin).set(
-          communityId,
-          kind === "request"
-            ? { ...admin, ...(admin.requests == null ? {} : { requests: less(admin.requests)! }) }
-            : {
-                ...admin,
-                ...(admin.reported === undefined ? {} : { reported: less(admin.reported)! }),
-              },
-        ),
+    discounted: new Map(state.discounted).set(group, new Set(state.discounted.get(group)).add(key)),
+  };
+};
+
+/** What waits on a Community's mods, by X's count less the rows X has decided since. */
+export const waitingIn = (state: EngineState, communityId: string) => {
+  const admin = state.communityAdmin.get(communityId);
+  const less = (n: number, kind: "request" | "post") =>
+    Math.max(0, n - (state.discounted.get(`${kind}:${communityId}`)?.size ?? 0));
+  return {
+    reported: less(admin?.reported ?? 0, "post"),
+    requests: admin?.requests == null ? null : less(admin.requests, "request"),
   };
 };
 
