@@ -50,6 +50,8 @@ const PARITY = flag("--parity");
 const sessions = new Map();
 /** X's API calls the engine page made while the bench watched it, for pacing. */
 let xCalls = 0;
+/** The latest X API calls' host and path (no query: no variables), for a failing check to show. */
+const xSeen = [];
 const X_API = /^https:\/\/(x\.com\/i\/api\/|api\.x\.com\/)/;
 async function session(match) {
   const all = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
@@ -68,8 +70,11 @@ async function session(match) {
   const waiting = new Map();
   socket.addEventListener("message", (e) => {
     const message = JSON.parse(String(e.data));
-    if (message.method === "Network.requestWillBeSent" && X_API.test(message.params.request.url))
+    if (message.method === "Network.requestWillBeSent" && X_API.test(message.params.request.url)) {
       xCalls++;
+      xSeen.push(`${message.params.request.method} ${message.params.request.url.split("?")[0]}`);
+      if (xSeen.length > 300) xSeen.shift();
+    }
     waiting.get(message.id)?.(message);
     waiting.delete(message.id);
   });
@@ -1038,6 +1043,7 @@ const benchmarks = [
       if (!explore || !id) return false;
       // No reset: X shows a Community it loaded earlier in this page from its cache and sends
       // nothing, so Xtend draws what it kept (or loads X's page anew when it kept none).
+      const callsBefore = xCalls;
       await go(`#/communities/${id}`);
       // X opens on Latest for a member and Top otherwise (or the tab last picked there); Xtend
       // draws the tab X opened, and the other is one press of X's own tab away.
@@ -1053,6 +1059,14 @@ const benchmarks = [
         ),
       );
       const first = opened && (await ourTab(opened)) && (await same());
+      // Why nothing drew: the Community calls X's page made, and what Xtend's store holds of it.
+      if (!first)
+        console.log(
+          `  Community ${id}: X opened ${opened}; X's Community calls:`,
+          xSeen.slice(-(xCalls - callsBefore) || xSeen.length).filter((c) => /Communit/.test(c)),
+          "store:",
+          await store(`Object.keys($.lists).filter((k) => k.includes(${JSON.stringify(id)}))`),
+        );
       const other = opened === "Top" ? "Latest" : "Top";
       await app(
         `[...document.querySelectorAll('main [role="tab"]')].find((t) => t.textContent.trim() === ${JSON.stringify(other)})?.click(), true`,
