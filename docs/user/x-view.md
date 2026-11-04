@@ -85,6 +85,9 @@ X's own button; one that asks first opens X's own rules dialog, where you agree 
 presses X's Pin too; the Community shows as a tab on Home once X's Home loads again (⌘R there).
 In a Community you moderate, the gear opens X's Admin tools, with what waits on you; General
 settings lists each setting, and editing one opens X's own page for it, as do X's other tools.
+Member requests and Reported posts show who asks or what was reported, with your score, followers,
+account age and Leads stage beside each person; Review all puts both in one list. Approve, Deny
+and Keep press X's own buttons; Hide and Ban open X's own rule picker.
 Communities' + opens X's Create a new Community, or X's Premium upsell where X asks for one.
 Follow is X's Who to follow and
 Creators for you; a creator's Subscribe opens X's own subscribe dialog, where X shows the price. Notifications shows X's unread count. The tools follow: Compose, Plan,
