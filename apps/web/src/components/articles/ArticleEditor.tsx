@@ -312,11 +312,11 @@ function Editor({
   const [focus, setFocus] = useState<{ readonly index: number; readonly at: number } | null>(null);
   const [active, setActive] = useState(0);
   const [selected, setSelected] = useState<Selected | null>(null);
-  // The editor's own message, with the draft's outcome it was said about (null: any): another
-  // outcome from the service (Plan's Post now, the scheduler) replaces it.
+  // The editor's own message, with the draft's publish outcome it was said about (null: any):
+  // another outcome from the service (Plan's Post now, the scheduler) replaces it.
   const [notice, setNoticeFor] = useState<{
     readonly text: string;
-    readonly outcome: string | null;
+    readonly outcome: Outcome | null;
   } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -762,7 +762,7 @@ function Editor({
   // In X's column, so focus mode and a narrow window show it too; a failure stored on the draft
   // (the last attempt's, or the scheduler's) shows until something newer replaces it.
   const message =
-    notice !== null && (notice.outcome === null || notice.outcome === outcomeOf(current))
+    notice !== null && (notice.outcome === null || sameOutcome(notice.outcome, current))
       ? notice.text
       : status === "failed" && current?.error != null
         ? `Failed: ${current.error}`
@@ -1057,8 +1057,25 @@ function Editor({
   );
 }
 
-/** What a draft's outcome is, as far as a message about it goes. */
-const outcomeOf = (d: Draft | null) => `${d?.status ?? ""}|${d?.error ?? ""}`;
+/** A draft's publish outcome, as far as a message about it goes. */
+type Outcome = Pick<Draft, "status" | "postIds" | "error">;
+const outcomeOf = (d: Draft | null): Outcome => ({
+  status: d?.status ?? "draft",
+  postIds: d?.postIds ?? [],
+  error: d?.error ?? null,
+});
+/**
+ * Whether `d` still has the outcome a message was about. A save of an edit clears the stored
+ * error (DraftStore.update) without any new attempt, so only a new error is a new outcome.
+ */
+const sameOutcome = (o: Outcome, d: Draft | null) => {
+  const now = outcomeOf(d);
+  return (
+    now.status === o.status &&
+    now.postIds.join() === o.postIds.join() &&
+    (now.error === null || now.error === o.error)
+  );
+};
 
 const apiBlock = (cover: DraftMedia | undefined, replies: ReplySettings, usd: number | null) =>
   cover !== undefined

@@ -297,3 +297,47 @@ it("drops its own failure once the service lists a newer outcome: published from
   await expect.element(screen.getByText("Published", { exact: true })).toBeVisible();
   await expect.element(screen.getByRole("status")).not.toBeInTheDocument();
 });
+
+it("keeps its own failure through an edit, whose save clears the stored error without a new attempt", async () => {
+  let row = article();
+  await using screen = await render(editor("a1"), {
+    service: service(() => [row], {
+      "compose.postNow": () => {
+        row = {
+          ...row,
+          status: "failed",
+          error: "x.com kept Publish off",
+          attempts: 1,
+          updatedAt: "2030-01-07T09:30:00.000Z",
+        };
+        return Effect.succeed(row);
+      },
+      // DraftStore.update: an edit clears the error and the attempts, and keeps the status.
+      "compose.draftUpdate": ({ patch }) => {
+        row = {
+          ...row,
+          title: patch.title ?? row.title,
+          error: null,
+          attempts: 0,
+          updatedAt: "2030-01-07T09:31:00.000Z",
+        };
+        return Effect.succeed(row);
+      },
+    }),
+  });
+  await userEvent.click(screen.getByRole("button", { name: /^Publish$/ }));
+  await userEvent.click(
+    page
+      .getByRole("list", { name: "Ways out" })
+      .getByRole("button", { name: /Opens X.s Publish dialog/ }),
+  );
+  await userEvent.click(page.getByRole("button", { name: /^Publish\s*free$/ }));
+  await expect
+    .element(screen.getByRole("status"))
+    .toHaveTextContent("Failed: x.com kept Publish off");
+  await userEvent.fill(screen.getByLabelText("Article Title"), "Two plans, edited");
+  await expect.poll(() => row.title).toBe("Two plans, edited");
+  await expect
+    .element(screen.getByRole("status"))
+    .toHaveTextContent("Failed: x.com kept Publish off");
+});
