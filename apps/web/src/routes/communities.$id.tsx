@@ -5,6 +5,7 @@ import { MoreHorizontal, Search } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { fmt } from "../components/analyze/ui";
+import { isElectron } from "../env";
 import { Menu, MenuItem } from "../components/ui/menu";
 import { CommunityHeader, ICON_BUTTON } from "../components/xnative/CommunityHeader";
 import { Timeline } from "../components/xnative/Timeline";
@@ -64,8 +65,17 @@ function CommunityScreen() {
   const router = useRouter();
   const engine = useAtomValue(engineAtom);
   const setOver = useAtomSet(xOverAtom);
-  // No tab named: the one X opens on, read from X's page once it draws.
-  const current = TABS.find((t) => t.id === tab);
+  // No tab named: the one X opens on, read from X's page once it draws. A browser has no X page
+  // to read: the list a dev replay holds, else Top.
+  const opened =
+    tab ??
+    (isElectron
+      ? undefined
+      : at(engine.lists, communitySurface(id, "Top")).length === 0 &&
+          at(engine.lists, communitySurface(id, "Latest")).length > 0
+        ? "latest"
+        : "top");
+  const current = TABS.find((t) => t.id === opened);
   const community = engine.communities.get(id);
   const url =
     q === undefined
