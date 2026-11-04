@@ -1394,6 +1394,11 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
   const claims = readClaims(op, data);
   const articles = walkTweets(body, readArticle);
   const space = readSpace(op, data);
+  const asked = asString(variables.id);
+  const spaceUnavailable =
+    op === "AudioSpaceById" && space === undefined && asked !== undefined && SPACE_ID.test(asked)
+      ? asked
+      : undefined;
   return {
     op,
     // The user's Communities, once X answered with the list (empty, when they left the last one):
@@ -1467,6 +1472,7 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     ...(listDeleted === undefined ? {} : { listDeleted }),
     ...(pinnedLists === undefined ? {} : { pinnedLists }),
     ...(space === undefined ? {} : { spaces: [space] }),
+    ...(spaceUnavailable === undefined ? {} : { spaceUnavailable }),
   };
 }
 
@@ -2070,4 +2076,5 @@ export const hasEngineContent = (b: EngineBatch) =>
   b.radarDeleted !== undefined ||
   b.listDeleted !== undefined ||
   b.spaces !== undefined ||
+  b.spaceUnavailable !== undefined ||
   (b.op === "postListQuery" && b.key !== null);

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "vite-plus/test";
 
-import { LIVE_SPACE } from "../../../web/src/components/xnative/engineFixtures.ts";
+import { GONE_SPACE, LIVE_SPACE } from "../../../web/src/components/xnative/engineFixtures.ts";
 import { STARTED_SPACE } from "../mockX/spaces.ts";
 import { type Engine, startEngine } from "./harness.ts";
 
@@ -145,4 +145,27 @@ test("In X's compact layout (a narrow engine) X's Space pages are routes and End
   } finally {
     e.mock.state.spaces.setCompact(false);
   }
+});
+
+test("A Space X has none of shows X's own error in the dock, and Xtend asks X for it once, not on every screen", async () => {
+  const gone = e.mock.state
+    .fixtures()
+    .spaces!.batches.find((b) => b.op === "TweetDetail" && b.posts[0]!.spaceId === GONE_SPACE)!
+    .posts[0]!;
+  const asked = () =>
+    e.mock.reads.filter((r) => r.op === "AudioSpaceById" && r.variables.id === GONE_SPACE).length;
+  const open = `/post/${gone.postId}?h=${gone.author.handle}`;
+  await go(open);
+  await expect.poll(enginePath).toBe(`/${gone.author.handle}/status/${gone.postId}`);
+  await e.app.locator('main [data-x="space-card"]').click();
+  await dock().getByText("Something went wrong. Please try again later.").waitFor();
+  const once = asked();
+  // Other screens with the dock beside them, and back: X is asked nothing more for it.
+  await go("/bookmarks");
+  await expect.poll(enginePath).toBe("/i/bookmarks");
+  await go(open);
+  await expect.poll(enginePath).toBe(`/${gone.author.handle}/status/${gone.postId}`);
+  await dock().getByText("Something went wrong. Please try again later.").waitFor();
+  expect(asked()).toBe(once);
+  await dock().getByRole("button", { name: "Close" }).click();
 });

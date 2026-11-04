@@ -3130,6 +3130,23 @@ describe("renderEngineBatch for X's Spaces", () => {
     );
     expect(batch.key).toBe("1YqKDqWqdPLGV");
     expect(hasEngineContent(batch)).toBe(true);
+    expect(batch.spaceUnavailable).toBeUndefined();
+    // X answers an ended, removed or private Space with an error and no Space: X's page then shows
+    // only its error, and so does Xtend. An answer for another call names no Space at all.
+    for (const body of [
+      { errors: [{ message: "Not found", code: 34 }], data: {} },
+      { data: { audioSpace: {} } },
+    ]) {
+      const gone = renderEngineBatch("AudioSpaceById", { id: "1OwGWwnoleRGQ" }, body);
+      expect([gone.spaces, gone.spaceUnavailable, hasEngineContent(gone)]).toEqual([
+        undefined,
+        "1OwGWwnoleRGQ",
+        true,
+      ]);
+    }
+    expect(
+      renderEngineBatch("AudioSpaceById", { id: "not an id!" }, { data: {} }).spaceUnavailable,
+    ).toBeUndefined();
     const [space] = batch.spaces!;
     expect({ ...space!, people: [] }).toEqual({
       spaceId: "1YqKDqWqdPLGV",

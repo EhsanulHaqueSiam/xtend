@@ -469,6 +469,8 @@ export interface EngineState {
   readonly bookmarkFolders: ReadonlyArray<EngineBookmarkFolder> | null;
   /** X's Spaces by id, as X last described each (AudioSpaceById). */
   readonly spaces: ReadonlyMap<string, EngineSpace>;
+  /** Spaces X answered with no Space (see `EngineBatch.spaceUnavailable`), until X sends one. */
+  readonly spacesUnavailable: ReadonlySet<string>;
 }
 
 /** X's claim for its account analytics (GetUserClaims), Premium. */
@@ -592,6 +594,7 @@ export const emptyEngine: EngineState = {
   claims: null,
   bookmarkFolders: null,
   spaces: new Map(),
+  spacesUnavailable: new Set(),
 };
 
 /** A surface's entries; a tab X has not sent yet has none. */
@@ -778,6 +781,16 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
       batch.spaces === undefined || batch.spaces.length === 0
         ? state.spaces
         : new Map([...state.spaces, ...batch.spaces.map((sp) => [sp.spaceId, sp] as const)]),
+    spacesUnavailable:
+      batch.spaceUnavailable !== undefined
+        ? new Set(state.spacesUnavailable).add(batch.spaceUnavailable)
+        : batch.spaces?.some((sp) => state.spacesUnavailable.has(sp.spaceId)) === true
+          ? new Set(
+              [...state.spacesUnavailable].filter(
+                (id) => !batch.spaces!.some((sp) => sp.spaceId === id),
+              ),
+            )
+          : state.spacesUnavailable,
   };
   const listed = surfacesOf(batch).reduce(
     (state, surface) =>

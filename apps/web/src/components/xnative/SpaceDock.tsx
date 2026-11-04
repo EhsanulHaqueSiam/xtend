@@ -36,6 +36,7 @@ import {
   xSpaceReactions,
   xSpaceRead,
   xSpaceStart,
+  SPACE_ERROR,
 } from "../../state/spaces";
 import { xOverAtom } from "../../state/x";
 import { fmt } from "../analyze/ui";
@@ -150,7 +151,9 @@ const ICON =
  * Opening it joins nothing.
  */
 export function SpaceDock({ spaceId }: { readonly spaceId: string }) {
-  const space = useAtomValue(engineAtom).spaces.get(spaceId);
+  const engine = useAtomValue(engineAtom);
+  const space = engine.spaces.get(spaceId);
+  const unavailable = engine.spacesUnavailable.has(spaceId);
   const setDock = useAtomSet(spaceDockAtom);
   const known = space !== undefined;
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- asks X's own page for a Space no card in X's page answered for yet.
@@ -163,7 +166,9 @@ export function SpaceDock({ spaceId }: { readonly spaceId: string }) {
         data-x="space-dock"
         className="flex items-center gap-2 rounded-2xl border border-white/[0.12] px-4 py-3 text-[15px]"
       >
-        <span className="flex-1 text-[#71767b]">Loading the Space from X.</span>
+        <span className="flex-1 text-[#71767b]">
+          {unavailable ? SPACE_ERROR : "Loading the Space from X."}
+        </span>
         <button type="button" aria-label="Close" className={ICON} onClick={() => setDock(null)}>
           <Close className="size-4" />
         </button>

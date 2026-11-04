@@ -422,6 +422,8 @@ const handleFor = (n: number) =>
 const SYNTH_AT = "2026-11-01T12:00:00.000Z";
 /** The made-up live Space a post's card opens. */
 export const LIVE_SPACE = "900000700001";
+/** A made-up Space X answers with no Space, as for one ended and removed. */
+export const GONE_SPACE = "900000700007";
 /** The made-up news story the first Today's News row opens. */
 const STORY_ID = "900000600001";
 /** One team's made-up standing, the rest of X's columns filled in from its record. */
@@ -1696,6 +1698,10 @@ export function synth(): Readonly<Record<string, Fixture>> {
     12,
     { spaceId: LIVE_SPACE },
   );
+  // A post whose Space X no longer has (ended and removed): X answers it with no Space.
+  const gonePost = say(4, "Rewatch our launch Space from last month.", 600, {
+    spaceId: GONE_SPACE,
+  });
   const spaces: Fixture = {
     meta: meta("spaces", "A post with a live Space's card, and X's answer for the Space", [
       `/post/${spacePost.postId}`,
@@ -1703,6 +1709,7 @@ export function synth(): Readonly<Record<string, Fixture>> {
     batches: [
       batch("TweetDetail", spacePost.postId, [spacePost], { users: PEOPLE, bottom: null }),
       batch("AudioSpaceById", LIVE_SPACE, [], { spaces: [liveSpace] }),
+      batch("TweetDetail", gonePost.postId, [gonePost], { users: PEOPLE, bottom: null }),
     ],
   };
 

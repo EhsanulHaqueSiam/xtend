@@ -658,6 +658,8 @@ export interface EngineBatch {
   readonly pinnedLists?: ReadonlyArray<string>;
   /** The X Spaces the response describes (AudioSpaceById). */
   readonly spaces?: ReadonlyArray<EngineSpace>;
+  /** The Space X answered AudioSpaceById for with no Space (ended, removed, private, or an error). */
+  readonly spaceUnavailable?: string;
 }
 
 /** Counts by X's metric name (`Impressions`, `Likes`, `Retweets`, `Bookmark`, `Share`...). */
