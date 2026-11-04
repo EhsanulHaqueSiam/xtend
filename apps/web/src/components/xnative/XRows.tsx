@@ -106,7 +106,27 @@ export function useMore(
     scroller.addEventListener("scroll", onScroll, { passive: true });
     return () => scroller.removeEventListener("scroll", onScroll);
   }, [scroller]);
-  return () => ask(true);
+  // Reaching the end asks without a scroll only while the column has nothing to scroll (a short
+  // list filling the screen); past that, only the reader's own scroll asks X for more. An end held
+  // back asks once the column grows past its list (a larger window), when no scroll could.
+  const held = useRef(false);
+  const scrolls = () => scroller !== null && scroller.scrollHeight > scroller.clientHeight + 1;
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- watches the X column's size for an end held back while it scrolled.
+  useEffect(() => {
+    if (scroller === null) return;
+    const seen = new ResizeObserver(() => {
+      if (!held.current || scrolls()) return;
+      held.current = false;
+      latest.current(true);
+    });
+    seen.observe(scroller);
+    return () => seen.disconnect();
+    // eslint-disable-next-line react/exhaustive-effect-dependencies -- `scrolls` reads only `scroller`.
+  }, [scroller]);
+  return () => {
+    held.current = scrolls();
+    if (!held.current) ask(true);
+  };
 }
 
 /**
