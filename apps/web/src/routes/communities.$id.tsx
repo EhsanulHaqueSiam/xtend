@@ -18,13 +18,20 @@ import {
   communitySurface,
   engineAtom,
 } from "../state/engine";
-import { xGo, xNavigate, xOverAtom, xOverEnded, xPickCommunitySearchTab } from "../state/x";
+import {
+  xGo,
+  xNavigate,
+  xOverAtom,
+  xOverEnded,
+  xPickCommunitySearchTab,
+  xPickCommunityTab,
+} from "../state/x";
 
-// Each tab is its own page on X, as x.com/i/communities/<id>/latest.
+// X switches Top, Latest and Media in place on x.com/i/communities/<id>; About is its own page.
 const TABS = [
   { id: "top", label: "Top", path: "" },
-  { id: "latest", label: "Latest", path: "/latest" },
-  { id: "media", label: "Media", path: "/media" },
+  { id: "latest", label: "Latest", path: "" },
+  { id: "media", label: "Media", path: "" },
   { id: "about", label: "About", path: "/about" },
 ] as const satisfies ReadonlyArray<{ id: string; label: CommunityTab; path: string }>;
 type Tab = (typeof TABS)[number]["id"];
@@ -57,11 +64,12 @@ function CommunityScreen() {
   const router = useRouter();
   const engine = useAtomValue(engineAtom);
   const setOver = useAtomSet(xOverAtom);
-  const current = TABS.find((t) => t.id === tab) ?? TABS[0];
+  // No tab named: the one X opens on, read from X's page once it draws.
+  const current = TABS.find((t) => t.id === tab);
   const community = engine.communities.get(id);
   const url =
     q === undefined
-      ? `https://x.com/i/communities/${id}${current.path}`
+      ? `https://x.com/i/communities/${id}${current?.path ?? ""}`
       : `https://x.com/i/communities/${id}/search${q === "" ? "" : `?q=${encodeURIComponent(q)}`}`;
   // X's search page switches Top and Latest in place, on one URL: X's own tab picks the order,
   // only on this search, and only until the user moves on (the effect below ends it).
@@ -70,11 +78,26 @@ function CommunityScreen() {
   // tab pick still waiting on X's load.
   const live = useRef(new AbortController());
   const pick = useCallback(
-    (loaded: Promise<unknown>) =>
-      void (q === undefined || searchTab === null
-        ? loaded
-        : xPickCommunitySearchTab(id, q, searchTab, loaded, live.current.signal)),
-    [id, q, searchTab],
+    (loaded: Promise<unknown>) => {
+      const signal = live.current.signal;
+      const label = TABS.find((t) => t.id === tab)?.label ?? null;
+      if (q !== undefined)
+        return void (searchTab === null
+          ? loaded
+          : xPickCommunitySearchTab(id, q, searchTab, loaded, signal));
+      if (label === "About") return;
+      void xPickCommunityTab(id, label, loaded, signal).then((shown) => {
+        const opened = TABS.find((t) => t.label === shown);
+        if (label === null && opened !== undefined)
+          void navigate({
+            to: "/communities/$id",
+            params: { id },
+            search: { tab: opened.id },
+            replace: true,
+          });
+      });
+    },
+    [id, q, searchTab, tab, navigate],
   );
   // ⌘R and "Load again": X's page in full, since X's router does nothing on the page it shows.
   const reload = () => pick(xNavigate(url));
@@ -94,7 +117,7 @@ function CommunityScreen() {
       setOver(false);
     },
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- the open page is the trigger: leaving it ends its press.
-    [url, searchTab, setOver],
+    [url, searchTab, tab, setOver],
   );
 
   if (q !== undefined)
@@ -109,7 +132,7 @@ function CommunityScreen() {
       />
     );
 
-  const surface = communitySurface(id, current.label);
+  const surface = current === undefined ? null : communitySurface(id, current.label);
   const header = (
     <XTitle
       title={community?.name ?? "Community"}
@@ -139,7 +162,7 @@ function CommunityScreen() {
         <XTabs
           label="Community"
           tabs={TABS}
-          value={current.id}
+          value={current?.id}
           onChange={(next) =>
             void navigate({ to: "/communities/$id", params: { id }, search: { tab: next } })
           }
@@ -147,7 +170,14 @@ function CommunityScreen() {
       </div>
     </div>
   );
-  if (current.label === "About")
+  if (surface === null)
+    return (
+      <XColumn header={header}>
+        {top}
+        <XEmpty empty="Loading the Community from X." onReopen={reload} />
+      </XColumn>
+    );
+  if (current?.label === "About")
     return (
       <XColumn header={header} refresh={{ surfaces: [surface], load: reload }}>
         {top}
@@ -160,7 +190,7 @@ function CommunityScreen() {
       header={header}
       top={top}
       empty={
-        current.label === "Media"
+        current?.label === "Media"
           ? "Loading the Community's media from X."
           : "Loading the Community from X."
       }
@@ -345,12 +375,10 @@ function About({
 }
 
 export const Route = createFileRoute("/communities/$id")({
-  // Optional, so a link to a Community needs no tab: Top is the default.
+  // Optional, so a link to a Community needs no tab: it opens on the tab X opens on.
   // With `q`, `tab` is the search's order instead: "latest" is Latest, anything else Top.
   validateSearch: (s: Record<string, unknown>): { tab?: Tab; q?: string } => ({
-    ...(typeof s.tab === "string" && s.tab !== "top" && TAB_IDS.has(s.tab)
-      ? { tab: s.tab as Tab }
-      : {}),
+    ...(typeof s.tab === "string" && TAB_IDS.has(s.tab) ? { tab: s.tab as Tab } : {}),
     // X's search inside the Community; empty while the user types the first query.
     ...(typeof s.q === "string" ? { q: s.q } : {}),
   }),

@@ -238,6 +238,47 @@ export const xPickCommunitySearchTab = async (
   );
 };
 
+/**
+ * Presses X's tab `label` (Top, Latest, Media) on Community `communityId`'s page, which X switches
+ * in place on one URL, or with null only reads the tab X opened on: Latest for a member, Top
+ * otherwise, then the one last picked there (bundle.Communities). Only on that page, and only while
+ * this is the user's latest press, as `xPickCommunitySearchTab`. The tab X shows after, or null.
+ */
+export const xPickCommunityTab = async (
+  communityId: string,
+  label: string | null,
+  loaded: Promise<unknown>,
+  signal: AbortSignal,
+) => {
+  // It goes into a script run in X's page: digits only.
+  if (!/^\d{1,25}$/.test(communityId)) return null;
+  await loaded;
+  const page = `/i/communities/${communityId}`;
+  // A script X's page cut off by loading anew runs again once it has loaded.
+  for (let attempt = 0; attempt < 5 && !signal.aborted; attempt++) {
+    const run = await nextRun();
+    // This Community's tabs, by their link to its About: the last page's can still show.
+    const shown = await xRunHeld(
+      `(async () => {
+    for (let i = 0; i < 40 && ${stillMine(run)}; i++) {
+      const list = location.pathname.replace(/\\/$/, "") === ${JSON.stringify(page)} ? [...document.querySelectorAll('[role="tablist"]')].find((l) => l.querySelector(${JSON.stringify(`a[href="${page}/about"]`)})) : undefined;
+      const tab = [...(list?.querySelectorAll('[role="tab"]') ?? [])].find((t) => ${label === null ? `t.getAttribute("aria-selected") === "true"` : `t.textContent.trim() === ${JSON.stringify(label)}`});
+      if (tab !== undefined) {
+        if (tab.getAttribute("aria-selected") !== "true") tab.click();
+        return tab.textContent.trim();
+      }
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    return "";
+  })()`,
+      signal,
+    );
+    if (typeof shown === "string") return shown === "" || signal.aborted ? null : shown;
+    await loadedAnewOr(1_500);
+  }
+  return null;
+};
+
 /** X's calls for one game's page, keyed by the game: an answer means X is drawing that game. */
 const GAME_CALLS: ReadonlySet<string> = new Set([
   "NBAGameHydrate",
