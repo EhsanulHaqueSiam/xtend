@@ -89,7 +89,9 @@ so a conversation's first message is written in X's page. One send at a time (`c
 X's settings are read from X's page too, not its traffic: X keeps them in its own store (its
 notification filters for four minutes in the browser's storage), so its router often shows a
 settings page without asking X again. `state/xSettings.ts` reads the open page only, X's words
-in X's order, and presses X's own control there. X's settings inputs carry no names, so a press
+in X's order, and presses X's own control there. X lays settings out by the engine's width: on a
+wide window the page is a section labelled by its header beside X's list, beside Xtend's panel it
+is X's compact page, its title in the app bar and its body after it in `main`; both are read. X's settings inputs carry no names, so a press
 finds its control by place and checks the label X draws there before clicking. X's search index
 (bundle.Settings) is Xtend's list of X's pages, so Settings search loads none of them. A page
 that asks for typing (a password, a username), and the pages X keeps for itself (password,

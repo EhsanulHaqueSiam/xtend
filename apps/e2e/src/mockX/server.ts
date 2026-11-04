@@ -163,7 +163,12 @@ export async function startMockX(
       case "/__mock/view": {
         const path = url.searchParams.get("path") ?? "/home";
         const cursor = url.searchParams.get("cursor");
-        const r = route(state, path, url.searchParams.get("tab") ?? "forYou");
+        const r = route(
+          state,
+          path,
+          url.searchParams.get("tab") ?? "forYou",
+          Number(url.searchParams.get("width") ?? "1280"),
+        );
         if (cursor !== null) {
           const paged = r.paged === undefined ? undefined : r.requests[r.paged];
           if (paged === undefined)

@@ -39,6 +39,26 @@ test("X's Privacy and safety reads X's page; Protect your posts presses X's chec
   expect([writes(), e.mock.state.settings.protected]).toEqual([["account/settings"], true]);
 });
 
+test("At the engine's width beside Xtend's panel, X draws its compact settings page, and Xtend reads it the same", async () => {
+  await go("/settings?tab=x-notifications&x=%2Fsettings%2Fnotifications%2Fadvanced_filters");
+  await expect.poll(enginePath).toBe("/settings/notifications/advanced_filters");
+  // The engine sits at the side panel's width: X's compact layout, with no labelled detail section.
+  expect(await e.engine<number>("innerWidth")).toBeLessThan(1000);
+  await expect
+    .poll(() => e.engine<number>(`document.querySelectorAll('main input[type="checkbox"]').length`))
+    .toBe(6);
+  expect(
+    await e.engine<boolean>(`!!document.querySelector('[aria-labelledby="detail-header"]')`),
+  ).toBe(false);
+  const main = e.app.locator("main");
+  await expect.poll(() => main.getByRole("checkbox").count()).toBe(6);
+  await main.getByRole("heading", { name: "Muted notifications" }).waitFor();
+  await main.getByText("Mute notifications from people:").waitFor();
+  await main
+    .getByText("These filters won’t affect notifications from people you follow.")
+    .waitFor();
+});
+
 test("Muted notifications draws X's six filters with X's values, and each click saves through X's own page", async () => {
   await go("/settings?tab=x-notifications&x=%2Fsettings%2Fnotifications%2Fadvanced_filters");
   const main = e.app.locator("main");
