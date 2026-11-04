@@ -623,9 +623,13 @@ const IN_GROK = `
       if (shown) return { panel: shown, opened: false };
       const button = historyButton();
       if (!button) return null;
+      const from = location.pathname;
       button.click();
       const panel = await wait(historyPanel, 30);
-      return panel ? { panel, opened: location.pathname === "/i/grok/history" ? "page" : "panel" } : null;
+      if (panel) return { panel, opened: location.pathname === "/i/grok/history" ? "page" : "panel" };
+      // X went to its History page but drew no search there: Back to the chat it came from.
+      if (from !== "/i/grok/history" && location.pathname === "/i/grok/history") history.back();
+      return null;
     };
     // X's page goes Back to the conversation; X's panel closes from its own button.
     const closeHistory = (opened) => {
@@ -751,8 +755,10 @@ export const xGrokHistoryPress = async (
       const save = [...row.querySelectorAll("button")].at(-1);
       if (!save) return done(null);
       save.click();
-      // Under a search, the new title may no longer match: X then lists the row no more.
+      // While X still shows its field on the row, its Save has not finished. Then, under a search,
+      // the new title may no longer match: X lists the row no more.
       const renamed = await wait(() => {
+        if (row.isConnected && row.querySelector("input")) return false;
         const now = read(panel).rows.find((r) => r.id === id);
         return now === undefined ? query !== "" : now.title === ${JSON.stringify(title.trim())};
       }, 50);

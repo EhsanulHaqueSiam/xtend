@@ -1,4 +1,4 @@
-import { expect, it } from "vite-plus/test";
+import { expect, it, vi } from "vite-plus/test";
 
 import {
   readGrok,
@@ -300,6 +300,55 @@ it("reads X's History as its own page in X's compact layout, and goes Back to th
   const history = await xGrokHistory();
   expect(history?.rows.map((r) => r.id)).toEqual(["c1", "c2", "c3"]);
   expect([at.path, document.querySelector("#history-page")]).toEqual(["/i/grok/c/c2", null]);
+});
+
+it("waits for X's Save on a Rename under the rail's search, and reports X keeping the old title", async () => {
+  using _x = drawX(page("") + HISTORY);
+  engineAt("/i/grok");
+  const search = document.querySelector<HTMLInputElement>('input[type="search"]')!;
+  search.value = "churn";
+  const list = document.querySelector('[role="dialog"] ul')!;
+  list.innerHTML = historyRow("c3", "Churn email", "5 hours ago");
+  let saving = false;
+  // X's Rename: its own field, then Save, which keeps the field while X saves.
+  list.querySelector('[aria-label="Rename"]')!.addEventListener("click", () => {
+    const li = list.querySelector("li")!;
+    li.querySelector("a")!.outerHTML = `<input aria-label="Rename" value="Churn email">`;
+    li.querySelector(".grid")!.outerHTML =
+      `<div><button aria-label="Cancel"></button><button aria-label="Save"></button></div>`;
+    li.querySelector('[aria-label="Save"]')!.addEventListener("click", () => (saving = true));
+  });
+  const renamed = xGrokHistoryPress("c3", "rename", "Retention notes", "churn");
+  await vi.waitFor(() => expect(saving).toBe(true));
+  // X's save failed: the row is back with its old title.
+  list.innerHTML = historyRow("c3", "Churn email", "5 hours ago");
+  expect(await renamed).toBeNull();
+});
+
+it("goes Back to the chat when X's compact History page opens without its search", async () => {
+  using _x = drawX(page(""));
+  const at = { path: "/i/grok/c/c2" };
+  registerXWebview({
+    loadURL: async () => {},
+    getURL: () => `https://x.com${at.path}`,
+    executeJavaScript: (code: string) =>
+      Promise.resolve(
+        new Function(
+          "at",
+          "back",
+          `return ${code.replaceAll("location.pathname", "at.path").replaceAll("history.back()", "back()")}`,
+        )(at, () => {
+          at.path = "/i/grok/c/c2";
+        }),
+      ),
+  } as unknown as XWebview);
+  markXReady();
+  // X opens its History page, which never draws its search field.
+  document
+    .querySelector('[aria-haspopup="dialog"]')!
+    .addEventListener("click", () => (at.path = "/i/grok/history"));
+  expect(await xGrokHistory()).toBeNull();
+  expect(at.path).toBe("/i/grok/c/c2");
 });
 
 // A 2x1 PNG, as X's page draws Grok's images from its own blobs.
