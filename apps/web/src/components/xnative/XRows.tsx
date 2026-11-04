@@ -34,14 +34,18 @@ export function useMore(
   key: string,
   length: number,
   load: () => Promise<unknown> = xScrollMore,
+  /** One ask at a time: none until X has answered the last with its page (a Community's queues). */
+  single = false,
 ) {
   const id = `${key}\n${length}`;
   const asked = useRef("");
+  // The list as it was when the ask in flight went out; a page from X since ends it.
+  const loading = useRef<string | null>(null);
   const run = useRef(0);
   const last = useRef(0);
   const trailing = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ask = (atEnd = false) => {
-    if (scroller === null) return;
+    if (scroller === null || (single && loading.current === id)) return;
     if (
       !atEnd &&
       (asked.current === id ||
@@ -61,7 +65,9 @@ export function useMore(
     last.current = Date.now();
     // An early ask made before X's page settled fetches nothing; once X's page is done with it,
     // the reader's next scroll may ask again, unless a later ask took over (and owns the guard).
+    loading.current = id;
     void load().finally(() => {
+      if (loading.current === id) loading.current = null;
       if (run.current === mine) asked.current = "";
     });
   };
@@ -170,11 +176,14 @@ export function XRows<A>({
   readonly onReopen: () => void;
   /** X pages this list on scroll; false for lists X sends whole. */
   readonly paged?: boolean;
-  /** How X is asked for the next page, when not by scrolling the page the engine is on. */
+  /**
+   * How X is asked for the next page (a Community's queues): such a list pages only as the reader
+   * scrolls down near its end, one ask at a time, never as it draws or grows.
+   */
   readonly more?: () => Promise<unknown>;
 }) {
   const scroller = useXScrollParent();
-  const more = useMore(paged ? scroller : null, waitKey, items.length, load);
+  const more = useMore(paged ? scroller : null, waitKey, items.length, load, load !== undefined);
   if (items.length === 0) return <XEmpty key={waitKey} empty={empty} onReopen={onReopen} />;
   if (scroller === null) return null;
   return (
@@ -183,7 +192,7 @@ export function XRows<A>({
       data={items}
       computeItemKey={(_, item) => rowKey(item)}
       increaseViewportBy={800}
-      {...(paged ? { endReached: more } : {})}
+      {...(paged && load === undefined ? { endReached: more } : {})}
       itemContent={(index, item) => row(item, index)}
     />
   );

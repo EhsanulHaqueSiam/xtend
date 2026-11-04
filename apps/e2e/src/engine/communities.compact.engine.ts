@@ -94,15 +94,19 @@ test("compact X: Hide on a reported post is X's rule picker as a page, and X's d
     await expect.poll(enginePath).toBe(`/i/communities/${id}/moderation/reported_tweets`);
     const cases = e.app.locator('main [data-x="report-case"]');
     const [first] = e.mock.state.reportCases(id);
-    const all = e.mock.state.reportCases(id).length;
-    await expect.poll(() => cases.count()).toBe(all);
+    // X's first page; the rest only as the reader scrolls.
+    await expect.poll(() => cases.count()).toBe(2);
+    const hidden = e.app.locator(
+      `main [data-x="report-case"] article[data-post="${first!.postId}"]`,
+    );
+    expect(await hidden.count()).toBe(1);
     await cases.first().getByRole("button", { name: "Hide" }).click();
     await expect.poll(enginePath).toBe(`/i/report/hidetweet/${first!.postId}`);
     expect(await engineHas('[role="dialog"]')).toBe(false);
     await expect.poll(pane).toBe("main");
     await e.engine(`document.querySelector('[data-hide-rule]').click(), true`);
     await expect.poll(pane).toBe("hidden");
-    await expect.poll(() => cases.count()).toBe(all - 1);
+    await expect.poll(() => hidden.count()).toBe(0);
   } finally {
     e.mock.state.resetCommunity(id);
     e.mock.state.setCommunityRole(id, community.role);

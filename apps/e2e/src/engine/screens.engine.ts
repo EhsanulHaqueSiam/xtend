@@ -1856,14 +1856,36 @@ test("A Community's queues: Review all, Member requests and Reported posts drawn
     await e.app.locator("main").getByRole("link", { name: "Admin tools" }).click();
     await e.app.locator('main [data-x="community-tools"]').getByText("Review all").click();
     await expect.poll(xtendHash).toBe(`#/communities/${id}/moderation/review`);
-    // Both of X's lists in one, read off X's two pages, each paged on with X's own paging as the
-    // list reaches its end; the engine reads each queue's next page on that queue's page.
+    // Both of X's lists in one, read off X's two pages: X's first page of each, and no more
+    // until the reader scrolls (the engine pages at the user's pace).
     const pending = e.mock.state.memberRequests(id);
     const reported = e.mock.state.reportCases(id);
-    await expect.poll(() => requests.count()).toBe(pending.length);
-    await expect.poll(() => cases.count()).toBe(reported.length);
     const pages = (op: string) =>
       e.mock.reads.filter((r) => r.op === op && r.variables.communityId === id);
+    const nextPages = () =>
+      [...pages("MemberRequests_Query"), ...pages("CommunityModerationTweetCasesSlice")].filter(
+        (r) => r.variables.cursor !== undefined,
+      ).length;
+    await expect.poll(() => requests.count()).toBe(3);
+    await expect.poll(() => cases.count()).toBe(2);
+    let still = 0;
+    await expect
+      .poll(async () => (nextPages() === 0 && (await requests.count()) === 3 ? ++still : -1), {
+        interval: 100,
+      })
+      .toBeGreaterThan(15);
+    // The reader scrolls Xtend's list down: X's next page of each, on that queue's own page.
+    const scroll = () =>
+      e.app
+        .locator("main [data-virtuoso-scroller]")
+        .first()
+        .evaluate((el) => el.scrollBy(0, el.scrollHeight));
+    await expect
+      .poll(async () => (await scroll(), (await requests.count()) + (await cases.count())), {
+        interval: 500,
+        timeout: 20_000,
+      })
+      .toBe(pending.length + reported.length);
     expect(pages("MemberRequests_Query").some((r) => r.variables.cursor !== undefined)).toBe(true);
     expect(
       pages("CommunityModerationTweetCasesSlice").some((r) => r.variables.cursor !== undefined),

@@ -143,7 +143,7 @@ function QueueScreen({ id, queue }: { readonly id: string; readonly queue: Queue
           empty={`Loading ${QUEUES[queue]} from X.`}
           onReopen={reload}
           paged={paged}
-          {...(queue === "review" ? { more: loadMore } : {})}
+          more={queue === "review" ? loadMore : xScrollMore}
         />
       ) : !answered ? (
         <XEmpty empty={`Loading ${QUEUES[queue]} from X.`} onReopen={reload} />
