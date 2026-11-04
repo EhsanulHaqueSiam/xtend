@@ -279,16 +279,6 @@ export const xPickCommunityTab = async (
   return null;
 };
 
-/**
- * Whether X draws Community `communityId`'s page, its tabs and posts under them: what X shows from
- * its own cache, asking for nothing, when it has loaded that tab before.
- */
-export const xCommunityDrawn = async (communityId: string) =>
-  /^\d{1,25}$/.test(communityId) &&
-  (await xRun(
-    `!!document.querySelector('[role="tablist"] a[href="/i/communities/${communityId}/about"]') && !!document.querySelector('[data-testid="primaryColumn"] article')`,
-  )) === true;
-
 /** X's calls for one game's page, keyed by the game: an answer means X is drawing that game. */
 const GAME_CALLS: ReadonlySet<string> = new Set([
   "NBAGameHydrate",
