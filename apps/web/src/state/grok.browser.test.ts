@@ -224,6 +224,77 @@ it("presses a row the user found by search under that same search in X's panel",
   expect([pinned, search.value]).toEqual([["/i/grok/c/c3"], "churn"]);
 });
 
+it("counts a send only on the conversation it was sent on, not another X moved to with the same question", async () => {
+  using _x = drawX(page(turn("u1", "Again?", "")));
+  const field = document.querySelector("textarea")!;
+  // X takes the send, then shows conversation B, which asked the same question before.
+  field.addEventListener("input", () => {
+    const voice = document.querySelector('fieldset [aria-label="Voice mode"]');
+    if (field.value === "" || voice === null) return;
+    voice.outerHTML = `<button aria-label="Send"><svg></svg></button>`;
+    document.querySelector('[aria-label="Send"]')!.addEventListener("click", () => {
+      document.querySelector('[role="region"] .space-y-4')!.innerHTML =
+        turn("b1", "Hello", "") + turn("b2", "Again?", "");
+      field.value = "";
+    });
+  });
+  engineAt("/i/grok");
+  expect(await xGrokSend("/i/grok", "Again?")).toEqual({ status: "pending" });
+});
+
+it("takes a Rename done when the new title leaves the rail's search, as X then lists the row no more", async () => {
+  using _x = drawX(page("") + HISTORY);
+  engineAt("/i/grok");
+  const search = document.querySelector<HTMLInputElement>('input[type="search"]')!;
+  search.value = "churn";
+  const list = document.querySelector('[role="dialog"] ul')!;
+  list.innerHTML = historyRow("c3", "Churn email", "5 hours ago");
+  // X's Rename: its own field and Save; the saved title no longer matches, so X drops the row.
+  list.querySelector('[aria-label="Rename"]')!.addEventListener("click", () => {
+    const li = list.querySelector("li")!;
+    li.querySelector("a")!.outerHTML = `<input aria-label="Rename" value="Churn email">`;
+    li.querySelector(".grid")!.outerHTML =
+      `<div><button aria-label="Cancel"></button><button aria-label="Save"></button></div>`;
+    li.querySelector('[aria-label="Save"]')!.addEventListener("click", () => li.remove());
+  });
+  expect(await xGrokHistoryPress("c3", "rename", "Retention notes", "churn")).toBe("done");
+});
+
+it("reads X's History as its own page in X's compact layout, and goes Back to the chat", async () => {
+  using _x = drawX(page(""));
+  // X's page moves: the engine's scripts read where X is now, and X's Back is X's own.
+  const at = { path: "/i/grok/c/c2" };
+  registerXWebview({
+    loadURL: async () => {},
+    getURL: () => `https://x.com${at.path}`,
+    executeJavaScript: (code: string) =>
+      Promise.resolve(
+        new Function(
+          "at",
+          "back",
+          `return ${code.replaceAll("location.pathname", "at.path").replaceAll("history.back()", "back()")}`,
+        )(at, () => {
+          at.path = "/i/grok/c/c2";
+          document.querySelector("#history-page")?.remove();
+        }),
+      ),
+  } as unknown as XWebview);
+  markXReady();
+  // In X's compact layout, History opens X's History page in its column, no panel.
+  document.querySelector('[aria-haspopup="dialog"]')!.addEventListener("click", () => {
+    at.path = "/i/grok/history";
+    document
+      .querySelector('[data-testid="primaryColumn"]')!
+      .insertAdjacentHTML(
+        "beforeend",
+        `<div id="history-page">${HISTORY.replace('role="dialog"', "")}</div>`,
+      );
+  });
+  const history = await xGrokHistory();
+  expect(history?.rows.map((r) => r.id)).toEqual(["c1", "c2", "c3"]);
+  expect([at.path, document.querySelector("#history-page")]).toEqual(["/i/grok/c/c2", null]);
+});
+
 // A 2x1 PNG, as X's page draws Grok's images from its own blobs.
 const PNG =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAEUlEQVR4nGP4z8DwHwQZYAwAOS0D/WkLu/AAAAAASUVORK5CYII=";

@@ -1053,6 +1053,8 @@ const SCRIPT = String.raw`
       button.setAttribute("aria-expanded", String(!open));
       if (!open) layers.append(show());
     };
+    // X's compact layout opens its History as a page of its own.
+    if (kind === "history-page") return go("/i/grok/history", false);
     // X's Media tab shows the account's images in place of its rows; Chats shows the rows again.
     if (kind === "tab-media" || kind === "tab-chats") {
       const panel = el.closest("[data-mock-grok-panel]");

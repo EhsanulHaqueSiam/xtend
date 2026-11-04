@@ -126,6 +126,8 @@ const GrokRead = Schema.Struct({
   private: Schema.NullOr(Schema.Boolean),
   /** X draws its New chat: a conversation is open. */
   conversation: Schema.Boolean,
+  /** X's conversation id for the page, from its path or its `conversation` query; null on a new chat. */
+  chat: Schema.NullOr(Schema.String),
 });
 export type GrokRead = typeof GrokRead.Type;
 
@@ -371,6 +373,9 @@ export function readGrok(doc: Document, path: string): GrokRead {
     private:
       page === "xweb" && privacy !== null ? privacy.getAttribute("aria-pressed") === "true" : null,
     conversation: head?.querySelector('a[href="/i/grok"]') != null,
+    chat: path.startsWith("/i/grok/c/")
+      ? decodeURIComponent(path.slice("/i/grok/c/".length))
+      : new URLSearchParams(doc.location?.search ?? "").get("conversation"),
   };
 }
 
@@ -391,33 +396,65 @@ export interface GrokWrite {
   readonly draft: string;
   readonly send: {
     readonly text: string;
-    /** X's page it was sent on, the turns and alert X drew there then: only a new turn is this send's. */
+    /** This attempt, so only it ends itself. */
+    readonly id: number;
+    /** X's page and conversation it was sent on, the turns X drew there then, and X's alert. */
     readonly path: string;
+    readonly chat: string | null;
     readonly before: ReadonlyArray<string>;
     readonly alert: string | null;
   } | null;
 }
 export const grokWriteAtom = Atom.make<GrokWrite>({ draft: "", send: null }).pipe(Atom.keepAlive);
 
-/** Whether X shows `a` as `b`: the same words, however X lays out their spaces and lines. */
-const sameWords = (a: string, b: string) =>
-  a.replace(/\s+/g, " ").trim() === b.replace(/\s+/g, " ").trim();
+/**
+ * Whether X's `turns` are the send's own conversation grown by its question: every turn X drew
+ * when it was sent, then one more, the question. Runs in X's page too, as its own source.
+ */
+function askedIn(
+  before: ReadonlyArray<string>,
+  turns: ReadonlyArray<{ readonly id: string; readonly user: string | null }>,
+  text: string,
+) {
+  const same = (a: string, b: string) =>
+    a.replace(/\s+/g, " ").trim() === b.replace(/\s+/g, " ").trim();
+  const last = turns.at(-1);
+  return (
+    turns.length === before.length + 1 &&
+    before.every((id) => turns.some((t) => t.id === id)) &&
+    last !== undefined &&
+    !before.includes(last.id) &&
+    last.user !== null &&
+    same(last.user, text)
+  );
+}
 
 /**
- * What became of the send in flight, by X's page `read`: "shown" once X draws it as a new turn
- * there, "failed" once X refused it (a new alert, another page or conversation), null meanwhile.
+ * What became of the send in flight, by X's page `read`: "shown" once X draws it on its own
+ * conversation, "failed" once X refused it (an alert during this attempt, another page or
+ * conversation), null meanwhile.
  */
-export const sendSettled = ({ send }: GrokWrite, read: GrokRead) => {
+const sendSettled = ({ send }: GrokWrite, read: GrokRead) => {
   if (send === null) return null;
-  if (read.path !== send.path) return "failed";
+  if (read.path !== send.path || (send.chat !== null && read.chat !== send.chat)) return "failed";
   if (read.turns === null) return null;
   const ids = new Set(read.turns.map((t) => t.id));
   if (!send.before.every((id) => ids.has(id))) return "failed";
-  const asked = read.turns.some(
-    (t) => !send.before.includes(t.id) && t.user !== null && sameWords(t.user, send.text),
-  );
-  if (asked) return "shown";
+  if (askedIn(send.before, read.turns, send.text)) return "shown";
   return read.alert !== null && read.alert !== send.alert ? "failed" : null;
+};
+
+/**
+ * `write` after X's page `read`: the send in flight ends once settled, its words kept when X
+ * refused it. An alert X showed when it was sent counts once X clears it: shown again, it ends it.
+ */
+export const settleSend = (write: GrokWrite, read: GrokRead): GrokWrite => {
+  const settled = sendSettled(write, read);
+  if (settled !== null) return { draft: settled === "shown" ? "" : write.draft, send: null };
+  const send = write.send;
+  if (send !== null && send.alert !== null && read.alert === null && read.path === send.path)
+    return { ...write, send: { ...send, alert: null } };
+  return write;
 };
 
 /** An answer as plain text, for Copy and Draft a post: X's markdown without its marks. */
@@ -578,7 +615,8 @@ const IN_GROK = `
     };
     const valueOf = (el) => (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement ? el.value : el.textContent ?? "");
     const historyButton = () => head().querySelector('[aria-haspopup="dialog"][aria-expanded]');
-    const historyPanel = () => [...document.querySelectorAll('[role="dialog"]')].find((d) => d.querySelector('input[type="search"]')) ?? null;
+    // X's History panel, or, in X's compact layout, X's History page (/i/grok/history).
+    const historyPanel = () => [...document.querySelectorAll('[role="dialog"]')].find((d) => d.querySelector('input[type="search"]')) ?? (location.pathname === "/i/grok/history" ? document.querySelector('[data-testid="primaryColumn"] input[type="search"]')?.closest('[data-testid="primaryColumn"]') ?? null : null);
     const rowOf = (panel, id) => [...panel.querySelectorAll("li")].find((li) => li.querySelector('a[href="/i/grok/c/' + encodeURIComponent(id) + '"]')) ?? null;
     const openHistory = async () => {
       const shown = historyPanel();
@@ -587,9 +625,13 @@ const IN_GROK = `
       if (!button) return null;
       button.click();
       const panel = await wait(historyPanel, 30);
-      return panel ? { panel, opened: true } : null;
+      return panel ? { panel, opened: location.pathname === "/i/grok/history" ? "page" : "panel" } : null;
     };
-    const closeHistory = (opened) => { if (opened && historyPanel() && historyButton()?.getAttribute("aria-expanded") === "true") historyButton().click(); };`;
+    // X's page goes Back to the conversation; X's panel closes from its own button.
+    const closeHistory = (opened) => {
+      if (opened === "page" && location.pathname === "/i/grok/history") history.back();
+      else if (opened && historyPanel() && historyButton()?.getAttribute("aria-expanded") === "true") historyButton().click();
+    };`;
 
 /** X's history panel: its rows by group, its status line, and whether it has more to load. */
 const READ_HISTORY = `(panel) => {
@@ -709,7 +751,11 @@ export const xGrokHistoryPress = async (
       const save = [...row.querySelectorAll("button")].at(-1);
       if (!save) return done(null);
       save.click();
-      const renamed = await wait(() => read(panel).rows.find((r) => r.id === id)?.title === ${JSON.stringify(title.trim())}, 50);
+      // Under a search, the new title may no longer match: X then lists the row no more.
+      const renamed = await wait(() => {
+        const now = read(panel).rows.find((r) => r.id === id);
+        return now === undefined ? query !== "" : now.title === ${JSON.stringify(title.trim())};
+      }, 50);
       return done(renamed ? "done" : null);
     }
     const trash = has("icon-trashcan");
@@ -860,7 +906,9 @@ export const xGrokSend = async (path: string, text: string) =>
     if (valueOf(input).trim() !== "") return { status: "draft" };
     const pinned = () => location.pathname === path && input.isConnected && composer() === box;
     const ours = () => pinned() && ${mine};
-    const before = new Set((now.turns ?? []).map((t) => t.id));
+    const before = (now.turns ?? []).map((t) => t.id);
+    const chat = now.chat;
+    const asked = ${askedIn.toString()};
     type(input, text);
     const send = await wait(() => {
       const buttons = [...box.querySelectorAll("button")];
@@ -870,7 +918,12 @@ export const xGrokSend = async (path: string, text: string) =>
     // Stopping short, the click takes back what it typed, while X's field still holds exactly that.
     if (!send || !ours()) return (pinned() && same(valueOf(input), text) && type(input, ""), null);
     send.click();
-    const shown = await wait(() => (read(document, location.pathname).turns ?? []).some((t) => !before.has(t.id) && t.user !== null && same(t.user, text)), 100);
+    // Only on the conversation it was sent on: X may have moved to another holding the same words.
+    const shown = await wait(() => {
+      if (location.pathname !== path) return false;
+      const later = read(document, path);
+      return (chat === null || later.chat === chat) && asked(before, later.turns ?? [], text);
+    }, 100);
     return { status: shown ? "sent" : "pending" };
   })()`,
         asking,

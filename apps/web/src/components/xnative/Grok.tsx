@@ -31,7 +31,7 @@ import {
   type GrokRun,
   grokAtom,
   grokWriteAtom,
-  sendSettled,
+  settleSend,
   watchGrok,
   xGrokImage,
   xGrokModels,
@@ -486,6 +486,8 @@ export function GrokBar({
   );
 }
 
+let sends = 0;
+
 /**
  * Grok's box: the user's words go to X's own composer and Send only on Send, and stay until X
  * shows them asked. Stop and X's Quick Answer or Think Harder chip are X's while it answers.
@@ -499,11 +501,18 @@ export function GrokBox({ read }: { readonly read: GrokRead }) {
     const text = write.draft;
     if (text.trim() === "" || write.send !== null || composer === null || busy) return;
     const before = (read.turns ?? []).map((t) => t.id);
-    setWrite((w) => ({ ...w, send: { text, path: read.path, before, alert: read.alert } }));
+    const id = ++sends;
+    setWrite((w) => ({
+      ...w,
+      send: { id, text, path: read.path, chat: read.chat, before, alert: read.alert },
+    }));
     const sent = await press(() => xGrokSend(read.path, text));
-    // Pending: X still sends it, and the page's next reads settle it (`sendSettled`).
+    // Pending: X still sends it, and the page's next reads settle it (`settleSend`).
     if (sent?.status === "pending") return;
-    setWrite((w) => ({ draft: sent?.status === "sent" ? "" : w.draft, send: null }));
+    // Only this attempt ends itself: the page's reads may have settled it already.
+    setWrite((w) =>
+      w.send?.id !== id ? w : { draft: sent?.status === "sent" ? "" : w.draft, send: null },
+    );
     if (sent?.status === "draft") setToast({ text: "X's Grok box holds a draft; finish it in X." });
     if (sent?.status === "busy") setToast({ text: "Grok is still answering." });
   };
@@ -660,12 +669,10 @@ export function useGrokWatch() {
     if (!isElectron) return;
     const stop = new AbortController();
     watchGrok(stop.signal, (next) => {
+      // X's own History page (its compact layout), while the rail reads it: the chat stays.
+      if (next.path === "/i/grok/history") return;
       setGrok((s) => ({ ...s, read: next }));
-      setWrite((w) => {
-        const settled = sendSettled(w, next);
-        // A refused send keeps its words in the box for the user to send again.
-        return settled === null ? w : { draft: settled === "shown" ? "" : w.draft, send: null };
-      });
+      setWrite((w) => settleSend(w, next));
     });
     return () => stop.abort();
   }, [setGrok, setWrite]);

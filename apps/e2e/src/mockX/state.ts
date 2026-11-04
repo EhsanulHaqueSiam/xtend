@@ -138,6 +138,8 @@ export interface MockOptions {
   readonly chatLocked?: boolean;
   /** The account is past X's free Grok limit: X answers with its SuperGrok upsell. */
   readonly grokLimited?: boolean;
+  /** X draws its compact layout (a narrow engine): Grok's History is X's own page. */
+  readonly compact?: boolean;
 }
 
 const DAY_MS = 86_400_000;
@@ -1340,7 +1342,7 @@ export function createMockState(options: MockOptions = {}) {
     /** X's Chat: conversations, requests, the pages X opened, and its passcode lock. */
     chat: createMockChat(options.chatLocked === true, people),
     /** X's Grok: its conversations, X's pick of model, Private, and its free limit. */
-    grok: createMockGrok(options.grokLimited === true),
+    grok: createMockGrok(options.grokLimited === true, options.compact === true),
     /** X's Radar: whether the account has Premium, X's query limit, and its queries. */
     radar,
     setTrendHidden: (path: string, name: string, hidden: boolean) => {

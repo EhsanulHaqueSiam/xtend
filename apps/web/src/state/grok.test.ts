@@ -1,6 +1,6 @@
 import { expect, it } from "vite-plus/test";
 
-import { type GrokAnswer, namedHandles, sendSettled } from "./grok";
+import { type GrokAnswer, namedHandles, settleSend } from "./grok";
 
 const run = (text: string, href: string | null = null) => ({
   text,
@@ -41,6 +41,7 @@ const page = (
   path: string,
   turns: ReadonlyArray<ReturnType<typeof turn>>,
   alert: string | null = null,
+  chat: string | null = path.startsWith("/i/grok/c/") ? path.slice(10) : null,
 ) =>
   ({
     path,
@@ -52,27 +53,52 @@ const page = (
     model: null,
     private: null,
     conversation: true,
+    chat,
   }) as const;
+const sending = (send: { before: Array<string>; alert?: string; chat?: string | null }) => ({
+  draft: "Again?",
+  send: {
+    id: 1,
+    text: "Again?",
+    path: "/i/grok",
+    chat: send.chat === undefined ? "a" : send.chat,
+    before: send.before,
+    alert: send.alert ?? null,
+  },
+});
+const sent = { draft: "", send: null };
+const kept = { draft: "Again?", send: null };
 
-it("settles a send only by a new turn on its own page, and ends it when X refuses it", () => {
-  const write = {
-    draft: "Again?",
-    send: { text: "Again?", path: "/i/grok/c/a", before: ["t1"], alert: null },
-  };
+it("settles a send only by its own conversation grown by its question, and ends it when X refuses it", () => {
+  const write = sending({ before: ["t1"] });
   // The same question asked before is not this send.
-  expect(sendSettled(write, page("/i/grok/c/a", [turn("t1", "Again?")]))).toBeNull();
+  expect(settleSend(write, page("/i/grok", [turn("t1", "Again?")], null, "a"))).toBe(write);
   expect(
-    sendSettled(write, page("/i/grok/c/a", [turn("t1", "Again?"), turn("t2", "Again?")])),
-  ).toBe("shown");
-  // X refused it: another page, another conversation (New chat), or X's alert.
-  expect(sendSettled(write, page("/i/grok/c/b", [turn("t2", "Again?")]))).toBe("failed");
-  expect(sendSettled(write, page("/i/grok/c/a", []))).toBe("failed");
+    settleSend(write, page("/i/grok", [turn("t1", "Again?"), turn("t2", "Again?")], null, "a")),
+  ).toEqual(sent);
+  // Another conversation that holds the same question is not this send's: X moved on.
   expect(
-    sendSettled(write, page("/i/grok/c/a", [turn("t1", "Again?")], "Grok lost its connection.")),
-  ).toBe("failed");
-  // An alert X already showed when the user sent is not X's answer to this send.
-  const shown = { ...write, send: { ...write.send, alert: "Grok lost its connection." } };
+    settleSend(write, page("/i/grok", [turn("t1", "Again?"), turn("b2", "Again?")], null, "b")),
+  ).toEqual(kept);
+  expect(settleSend(write, page("/i/grok/c/b", [turn("t2", "Again?")]))).toEqual(kept);
+  expect(settleSend(write, page("/i/grok", [], null, "a"))).toEqual(kept);
+  // A new chat's first question, once X gives the chat its id.
   expect(
-    sendSettled(shown, page("/i/grok/c/a", [turn("t1", "Again?")], "Grok lost its connection.")),
-  ).toBeNull();
+    settleSend(
+      sending({ before: [], chat: null }),
+      page("/i/grok", [turn("n1", "Again?")], null, "new"),
+    ),
+  ).toEqual(sent);
+});
+
+it("ends a send on X's alert during its attempt, even one X showed before it and cleared", () => {
+  const lost = "Grok lost its connection. Please try again.";
+  const retry = sending({ before: ["t1"], alert: lost });
+  const at = (alert: string | null) => page("/i/grok", [turn("t1", "Again?")], alert, "a");
+  // Still the alert X showed when the user sent again: not X's answer to this attempt.
+  expect(settleSend(retry, at(lost))).toBe(retry);
+  // X clears it, then shows it again: this attempt failed.
+  const cleared = settleSend(retry, at(null));
+  expect(cleared.send?.alert).toBeNull();
+  expect(settleSend(cleared, at(lost))).toEqual(kept);
 });
