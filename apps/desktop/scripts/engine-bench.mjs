@@ -873,6 +873,35 @@ const benchmarks = [
     },
   ],
   [
+    "Community queues: a non-mod's Member requests and Reported posts are X's not-found page, in X and in Xtend (dry)",
+    async () => {
+      // Nothing is pressed: each queue opens on X's own page, which X refuses anyone but its mods.
+      const id = await until(() =>
+        store(
+          `[...$.communities.values()].find((c) => c.role === "NonMember" || c.role === "Member")?.communityId`,
+        ),
+      );
+      if (!id) return "no Community to look at";
+      const seen = [];
+      for (const queue of ["member_requests", "reported_tweets"]) {
+        await go(`#/communities/${id}/moderation/${queue}`);
+        const xs = await until(
+          async () =>
+            (await enginePath()) === `/i/communities/${id}/moderation/${queue}` &&
+            engine(`document.body.innerText.includes("this page doesn’t exist")`),
+        );
+        const ours = await until(() =>
+          app(
+            `document.querySelector("main")?.innerText.includes("Hmm...this page doesn’t exist.")`,
+          ),
+        );
+        if (!xs || !ours) return false;
+        seen.push(queue);
+      }
+      return `${id}: ${seen.join(", ")} not found in X and Xtend`;
+    },
+  ],
+  [
     "Profile people: X's tabs (Followers you know only with mutuals), each listing what X's page lists",
     async () => {
       const seen = await until(() =>
@@ -1394,6 +1423,45 @@ const benchmarks = [
         const rows = await app(`document.querySelectorAll("main li").length`);
         return rows === radar.list.length && `Premium: ${rows} queries, as X lists them`;
       }, 30_000);
+    },
+  ],
+  [
+    "Articles: X's editor and its controls, or X's Not found and Xtend's upsell without Premium (dry)",
+    async () => {
+      // X gives its Articles pages only to Premium; without it X answers them with Not found and
+      // Xtend shows X's upsell. With it, X's page has its pen, and a draft X keeps opens X's own
+      // editor, whose controls are counted. Nothing is pressed or typed: X saves only on a change.
+      await go("#/articles");
+      const seen = await until(async () => {
+        if ((await enginePath()) !== "/compose/articles") return undefined;
+        if (await engine(`!!document.querySelector('[aria-label="create"]')`)) return "premium";
+        const upsell = await app(
+          `[...document.querySelectorAll("main a")].some((a) => a.textContent.trim() === "Upgrade to unlock" && a.getAttribute("href") === "https://x.com/i/premium_sign_up?referring_page=level_up_content_benefits")`,
+        );
+        return upsell ? "upsell" : undefined;
+      }, 30_000);
+      if (seen === "upsell") return "no Premium: X's Not found, and Xtend shows X's upsell";
+      if (seen !== "premium") return false;
+      const draft = await until(
+        () => store(`$.xArticles.Draft && ($.xArticles.Draft[0] ?? "none")`),
+        10_000,
+      );
+      if (!draft) return false;
+      if (draft === "none") return "Premium, X's pen, no X draft to open";
+      const path = `/compose/articles/edit/${draft}`;
+      await engine(
+        `history.pushState(null, "", ${JSON.stringify(path)}), dispatchEvent(new PopStateEvent("popstate", { state: null })), true`,
+      );
+      const controls = await until(async () => {
+        if ((await enginePath()) !== path) return undefined;
+        const x = await engine(
+          `({ title: document.querySelectorAll("main textarea").length, body: document.querySelectorAll('[data-testid="composer"] [contenteditable="true"]').length, cover: document.querySelectorAll('main input[type="file"]').length, publish: [...document.querySelectorAll('[role="button"], button')].filter((b) => b.textContent.trim() === "Publish").length })`,
+        );
+        return x.title === 1 && x.body === 1 && x.publish === 1 ? x : undefined;
+      }, 20_000);
+      await engine("history.back(), true");
+      if (!controls) return false;
+      return `Premium: X's editor has its title, body, ${controls.cover === 1 ? "cover input" : "no cover input yet"} and Publish`;
     },
   ],
   [

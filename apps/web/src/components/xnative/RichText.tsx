@@ -35,6 +35,9 @@ export function xtendRoute(href: string): string | null {
     const rest = url.pathname.split("/").filter(Boolean).slice(4).join("/");
     if (fourth === "tools" && (rest === "" || rest === "settings"))
       return `/communities/${third}/tools${rest === "" ? "" : "/settings"}`;
+    // Its queues: Member requests and Reported posts; the Moderation log stays X's.
+    if (fourth === "moderation" && (rest === "member_requests" || rest === "reported_tweets"))
+      return `/communities/${third}/moderation/${rest}`;
     return ["latest", "media", "about"].includes(fourth)
       ? `/communities/${third}?tab=${fourth}`
       : null;

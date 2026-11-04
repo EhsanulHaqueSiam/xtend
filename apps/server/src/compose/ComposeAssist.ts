@@ -1,4 +1,7 @@
 import {
+  ARTICLE_TITLE_RECOMMENDED,
+  ArticleAssistOptions,
+  type ArticleAssistMode,
   ComposeError,
   ContinuedBlocks,
   HookAlternatives,
@@ -44,6 +47,13 @@ export class ComposeAssist extends Context.Service<
      * saw, free, and X's timeline only when it saw fewer than VOICE_MIN_SEEN.
      */
     readonly voiceMatch: (blocks: Blocks) => Effect.Effect<VoiceMatch, ComposeError>;
+    /** One of the article editor's assist actions; the options never touch the draft until Use. */
+    readonly article: (input: {
+      readonly mode: ArticleAssistMode;
+      readonly title: string;
+      readonly body: string;
+      readonly text?: string | undefined;
+    }) => Effect.Effect<ArticleAssistOptions, ComposeError>;
   }
 >()("xtend/compose/ComposeAssist") {}
 
@@ -136,7 +146,39 @@ const make = Effect.gen(function* () {
     Effect.mapError(fail("assistVoiceMatch")),
   );
 
-  return ComposeAssist.of({ improveHook, rewrite, threadIdeas, continueThread, voiceMatch });
+  const ARTICLE: Record<ArticleAssistMode, string> = {
+    rewrite:
+      "Rewrite the selected passage of this X Article 3 different ways: same meaning and about the same length, a different angle or rhythm. Plain text, no Markdown markers.",
+    tighten:
+      "Tighten the selected passage of this X Article 3 ways: cut filler and hedging, keep every fact, each option clearly shorter. Plain text, no Markdown markers.",
+    titles: `Write 3 titles for this X Article, each ${ARTICLE_TITLE_RECOMMENDED[0]} to ${ARTICLE_TITLE_RECOMMENDED[1]} characters (X's recommendation), a specific claim rather than a teaser.`,
+    sharePost:
+      "Write 3 captions for the post X makes when this Article is published, each under 250 characters (X adds the Article's link after it): the single most surprising point, no hashtags.",
+  };
+  const article = Effect.fn("ComposeAssist.article")(
+    (input: {
+      readonly mode: ArticleAssistMode;
+      readonly title: string;
+      readonly body: string;
+      readonly text?: string | undefined;
+    }) =>
+      assist.generate({
+        task: `compose.article.${input.mode}`,
+        instructions: ARTICLE[input.mode],
+        input: { title: input.title, body: input.body, selected: input.text ?? null },
+        output: ArticleAssistOptions,
+      }),
+    Effect.mapError(fail("assistArticle")),
+  );
+
+  return ComposeAssist.of({
+    improveHook,
+    rewrite,
+    threadIdeas,
+    continueThread,
+    voiceMatch,
+    article,
+  });
 });
 
 export const layer = Layer.effect(ComposeAssist, make);

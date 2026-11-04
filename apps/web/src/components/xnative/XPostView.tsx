@@ -1,5 +1,5 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
-import { useNavigate } from "@tanstack/react-router";
+import { useLocation, useNavigate } from "@tanstack/react-router";
 import * as Atom from "effect/reactivity/Atom";
 import type { EngineMedia, EnginePost, EngineUser } from "@xtend/contracts";
 import {
@@ -519,6 +519,7 @@ export function XPostView({
   const explain = useExplainPost();
   const drop = useDropPost();
   const navigate = useNavigate();
+  const pathname = useLocation({ select: (l) => l.pathname });
   // The author as X described them (badge colour, organisation shape, affiliate), when seen.
   const engine = useAtomValue(engineAtom);
   const author = engine.users.get(post.author.userId);
@@ -635,6 +636,17 @@ export function XPostView({
       search: { h: post.author.handle },
     });
   /**
+   * X's moderators' row on a Community's post, "Search @x’s posts in this Community", as Xtend's
+   * own search inside the Community open now. False for any other row.
+   */
+  const searchInCommunity = (label: string) => {
+    const author = /^Search @(\w{1,15})’s posts in this Community$/.exec(label)?.[1];
+    const id = /^\/communities\/(\d+)/.exec(pathname)?.[1];
+    if (author === undefined || id === undefined) return false;
+    void navigate({ to: "/communities/$id", params: { id }, search: { q: `(from:${author})` } });
+    return true;
+  };
+  /**
    * X's own row for the user's click; X's dialogs (Report, Block, Send via Chat) show over the main
    * area. Post activity and Post analytics, X's own pages, are Xtend's native screens of them.
    */
@@ -647,18 +659,20 @@ export function XPostView({
         })
       : label === "View post analytics"
         ? openAnalytics()
-        : pressRow(async () => {
-            // X's own "Follow @handle" / "Unfollow @handle" row for this author: what X's menu says
-            // afterwards holds like a Follow button's press.
-            const follow = /^(?:Follow|Unfollow) @(\w{1,15})$/.exec(label);
-            if (follow === null || follow[1]!.toLowerCase() !== post.author.handle.toLowerCase())
-              return xPostMenuPress(xPost, label, setOver, menu);
-            const pressed = await xPostFollowPress(xPost, label, setOver);
-            const following = pressed?.following ?? null;
-            if (following !== null)
-              setEngine(updateEngine((s) => askFollow(s, post.author.userId, following)));
-            return pressed?.outcome ?? null;
-          });
+        : searchInCommunity(label)
+          ? undefined
+          : pressRow(async () => {
+              // X's own "Follow @handle" / "Unfollow @handle" row for this author: what X's menu says
+              // afterwards holds like a Follow button's press.
+              const follow = /^(?:Follow|Unfollow) @(\w{1,15})$/.exec(label);
+              if (follow === null || follow[1]!.toLowerCase() !== post.author.handle.toLowerCase())
+                return xPostMenuPress(xPost, label, setOver, menu);
+              const pressed = await xPostFollowPress(xPost, label, setOver);
+              const following = pressed?.following ?? null;
+              if (following !== null)
+                setEngine(updateEngine((s) => askFollow(s, post.author.userId, following)));
+              return pressed?.outcome ?? null;
+            });
 
   const name = (
     <span className="flex min-w-0 items-center gap-1">

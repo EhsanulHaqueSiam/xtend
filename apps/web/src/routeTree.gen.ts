@@ -28,6 +28,7 @@ import { Route as ComposeRouteImport } from './routes/compose'
 import { Route as ChatRouteImport } from './routes/chat'
 import { Route as BookmarksRouteImport } from './routes/bookmarks'
 import { Route as AutomateRouteImport } from './routes/automate'
+import { Route as ArticlesRouteImport } from './routes/articles'
 import { Route as AnalyzeRouteImport } from './routes/analyze'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as NbaIndexRouteImport } from './routes/nba.index'
@@ -46,6 +47,7 @@ import { Route as NbaGameIdRouteImport } from './routes/nba.game.$id'
 import { Route as ListsIdPeopleRouteImport } from './routes/lists.$id_.people'
 import { Route as CommunitiesIdToolsRouteImport } from './routes/communities.$id_.tools'
 import { Route as CommunitiesIdToolsSettingsRouteImport } from './routes/communities.$id_.tools_.settings'
+import { Route as CommunitiesIdModerationQueueRouteImport } from './routes/communities.$id_.moderation.$queue'
 
 const XRoute = XRouteImport.update({
   id: '/x',
@@ -142,6 +144,11 @@ const AutomateRoute = AutomateRouteImport.update({
   path: '/automate',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ArticlesRoute = ArticlesRouteImport.update({
+  id: '/articles',
+  path: '/articles',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AnalyzeRoute = AnalyzeRouteImport.update({
   id: '/analyze',
   path: '/analyze',
@@ -233,10 +240,17 @@ const CommunitiesIdToolsSettingsRoute =
     path: '/communities/$id/tools/settings',
     getParentRoute: () => rootRouteImport,
   } as any)
+const CommunitiesIdModerationQueueRoute =
+  CommunitiesIdModerationQueueRouteImport.update({
+    id: '/communities/$id_/moderation/$queue',
+    path: '/communities/$id/moderation/$queue',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/analyze': typeof AnalyzeRoute
+  '/articles': typeof ArticlesRoute
   '/automate': typeof AutomateRoute
   '/bookmarks': typeof BookmarksRoute
   '/chat': typeof ChatRoute
@@ -271,11 +285,13 @@ export interface FileRoutesByFullPath {
   '/post/$id/activity': typeof PostIdActivityRoute
   '/post/$id/analytics': typeof PostIdAnalyticsRoute
   '/u/$handle/people': typeof UHandlePeopleRoute
+  '/communities/$id/moderation/$queue': typeof CommunitiesIdModerationQueueRoute
   '/communities/$id/tools/settings': typeof CommunitiesIdToolsSettingsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/analyze': typeof AnalyzeRoute
+  '/articles': typeof ArticlesRoute
   '/automate': typeof AutomateRoute
   '/bookmarks': typeof BookmarksRoute
   '/chat': typeof ChatRoute
@@ -310,12 +326,14 @@ export interface FileRoutesByTo {
   '/post/$id/activity': typeof PostIdActivityRoute
   '/post/$id/analytics': typeof PostIdAnalyticsRoute
   '/u/$handle/people': typeof UHandlePeopleRoute
+  '/communities/$id/moderation/$queue': typeof CommunitiesIdModerationQueueRoute
   '/communities/$id/tools/settings': typeof CommunitiesIdToolsSettingsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/analyze': typeof AnalyzeRoute
+  '/articles': typeof ArticlesRoute
   '/automate': typeof AutomateRoute
   '/bookmarks': typeof BookmarksRoute
   '/chat': typeof ChatRoute
@@ -350,6 +368,7 @@ export interface FileRoutesById {
   '/post/$id_/activity': typeof PostIdActivityRoute
   '/post/$id_/analytics': typeof PostIdAnalyticsRoute
   '/u/$handle_/people': typeof UHandlePeopleRoute
+  '/communities/$id_/moderation/$queue': typeof CommunitiesIdModerationQueueRoute
   '/communities/$id_/tools_/settings': typeof CommunitiesIdToolsSettingsRoute
 }
 export interface FileRouteTypes {
@@ -357,6 +376,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/analyze'
+    | '/articles'
     | '/automate'
     | '/bookmarks'
     | '/chat'
@@ -391,11 +411,13 @@ export interface FileRouteTypes {
     | '/post/$id/activity'
     | '/post/$id/analytics'
     | '/u/$handle/people'
+    | '/communities/$id/moderation/$queue'
     | '/communities/$id/tools/settings'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/analyze'
+    | '/articles'
     | '/automate'
     | '/bookmarks'
     | '/chat'
@@ -430,11 +452,13 @@ export interface FileRouteTypes {
     | '/post/$id/activity'
     | '/post/$id/analytics'
     | '/u/$handle/people'
+    | '/communities/$id/moderation/$queue'
     | '/communities/$id/tools/settings'
   id:
     | '__root__'
     | '/'
     | '/analyze'
+    | '/articles'
     | '/automate'
     | '/bookmarks'
     | '/chat'
@@ -469,12 +493,14 @@ export interface FileRouteTypes {
     | '/post/$id_/activity'
     | '/post/$id_/analytics'
     | '/u/$handle_/people'
+    | '/communities/$id_/moderation/$queue'
     | '/communities/$id_/tools_/settings'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AnalyzeRoute: typeof AnalyzeRoute
+  ArticlesRoute: typeof ArticlesRoute
   AutomateRoute: typeof AutomateRoute
   BookmarksRoute: typeof BookmarksRoute
   ChatRoute: typeof ChatRoute
@@ -509,6 +535,7 @@ export interface RootRouteChildren {
   PostIdActivityRoute: typeof PostIdActivityRoute
   PostIdAnalyticsRoute: typeof PostIdAnalyticsRoute
   UHandlePeopleRoute: typeof UHandlePeopleRoute
+  CommunitiesIdModerationQueueRoute: typeof CommunitiesIdModerationQueueRoute
   CommunitiesIdToolsSettingsRoute: typeof CommunitiesIdToolsSettingsRoute
 }
 
@@ -647,6 +674,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AutomateRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/articles': {
+      id: '/articles'
+      path: '/articles'
+      fullPath: '/articles'
+      preLoaderRoute: typeof ArticlesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/analyze': {
       id: '/analyze'
       path: '/analyze'
@@ -773,12 +807,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CommunitiesIdToolsSettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/communities/$id_/moderation/$queue': {
+      id: '/communities/$id_/moderation/$queue'
+      path: '/communities/$id/moderation/$queue'
+      fullPath: '/communities/$id/moderation/$queue'
+      preLoaderRoute: typeof CommunitiesIdModerationQueueRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AnalyzeRoute: AnalyzeRoute,
+  ArticlesRoute: ArticlesRoute,
   AutomateRoute: AutomateRoute,
   BookmarksRoute: BookmarksRoute,
   ChatRoute: ChatRoute,
@@ -813,6 +855,7 @@ const rootRouteChildren: RootRouteChildren = {
   PostIdActivityRoute: PostIdActivityRoute,
   PostIdAnalyticsRoute: PostIdAnalyticsRoute,
   UHandlePeopleRoute: UHandlePeopleRoute,
+  CommunitiesIdModerationQueueRoute: CommunitiesIdModerationQueueRoute,
   CommunitiesIdToolsSettingsRoute: CommunitiesIdToolsSettingsRoute,
 }
 export const routeTree = rootRouteImport
