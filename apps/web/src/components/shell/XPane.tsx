@@ -31,6 +31,7 @@ import {
   xUrlAtom,
   type XWebview,
 } from "../../state/x";
+import { xPageBarAtom } from "../../state/xSettings";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
@@ -223,6 +224,22 @@ function PanelBar() {
   );
 }
 
+/** Xtend's bar atop one of X's own pages shown over the main area (a password, a payment). */
+function XPageBar() {
+  const bar = useAtomValue(xPageBarAtom);
+  if (bar === null) return null;
+  return (
+    <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-3 text-[13px]">
+      <span className="font-mono text-xs text-muted-foreground">X's page</span>
+      <span className="min-w-0 flex-1 truncate">{bar.title}</span>
+      <Button size="xs" variant="ghost" onClick={bar.back}>
+        <ArrowLeft />
+        Back
+      </Button>
+    </div>
+  );
+}
+
 /**
  * Drag handle on the panel's left edge. While dragging, a sheet covers the
  * window: the webview is its own process and would swallow the pointer otherwise.
@@ -299,6 +316,8 @@ export function XPane({
           <ResizeHandle />
           <PanelBar />
         </>
+      ) : mode === "main" ? (
+        <XPageBar />
       ) : null}
       <div className="relative min-h-0 flex-1">
         <div ref={setHost} className="absolute inset-0" />
