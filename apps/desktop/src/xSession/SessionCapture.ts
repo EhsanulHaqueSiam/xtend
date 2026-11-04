@@ -64,14 +64,24 @@ export function attachSessionCapture(
   options: SessionCaptureOptions,
 ): () => void {
   const pending = new Map<string, string>();
-  // X's streamed Grok answers in flight, by request: the part of a line not yet ended.
-  const streams = new Map<string, string>();
-  const streamLines = (requestId: string, data: string) => {
-    const text = (streams.get(requestId) ?? "") + data;
-    const lines = text.split("\n");
-    streams.set(requestId, lines.pop() ?? "");
+  // X's streamed Grok answers in flight, by request.
+  const streams = new Map<string, GrokStream>();
+  const streamBytes = (id: string, stream: GrokStream, base64: string, last = false) => {
+    const text = stream.decoder.decode(Buffer.from(base64, "base64"), { stream: !last });
+    const lines = (stream.rest + text + (last ? "\n" : "")).split("\n");
+    stream.rest = lines.pop() ?? "";
     for (const line of lines)
-      if (line.trim() !== "") options.onGrok?.({ kind: "chunk", stream: requestId, line });
+      if (line.trim() !== "") options.onGrok?.({ kind: "chunk", stream: id, line });
+  };
+  const endStream = (id: string, stream: GrokStream) => {
+    streams.delete(id);
+    streamBytes(id, stream, "", true);
+    options.onGrok?.({ kind: "end", stream: id });
+  };
+  // DevTools let go of the view, or the capture stopped: X's answers in flight will never finish.
+  const dropStreams = () => {
+    for (const id of streams.keys()) options.onGrok?.({ kind: "end", stream: id });
+    streams.clear();
   };
   // A POST's body (X sends HomeTimeline as one) holds the variables that say which Home tab it is for.
   const postData = new Map<string, string>();
@@ -92,9 +102,12 @@ export function attachSessionCapture(
       return;
     }
     // X's streamed Grok answer: each chunk as it arrives, through DevTools' own streaming read.
-    if (method === "Network.dataReceived" && streams.has(params.requestId)) {
-      if (typeof params.data === "string")
-        streamLines(params.requestId, Buffer.from(params.data, "base64").toString("utf8"));
+    const stream = streams.get(params.requestId);
+    if (method === "Network.dataReceived" && stream !== undefined) {
+      if (typeof params.data === "string") {
+        if (stream.held === null) streamBytes(params.requestId, stream, params.data);
+        else stream.held.push(params.data);
+      }
       return;
     }
     if (method === "Network.responseReceived") {
@@ -102,14 +115,25 @@ export function attachSessionCapture(
       const url = typeof response?.url === "string" ? response.url : "";
       if (options.onGrok !== undefined && isGrokStreamUrl(url)) {
         const id = params.requestId;
-        streams.set(id, "");
+        const started: GrokStream = {
+          decoder: new TextDecoder(),
+          rest: "",
+          held: [],
+          finished: false,
+        };
+        streams.set(id, started);
+        // What X sent before the read began comes first, then the chunks held meanwhile.
+        const ready = (buffered: string | undefined) => {
+          if (streams.get(id) !== started) return;
+          const held = started.held ?? [];
+          started.held = null;
+          for (const data of buffered ? [buffered, ...held] : held) streamBytes(id, started, data);
+          if (started.finished) endStream(id, started);
+        };
         void debug
           .sendCommand("Network.streamResourceContent", { requestId: id })
-          .then((result: { bufferedData?: string }) => {
-            if (result.bufferedData)
-              streamLines(id, Buffer.from(result.bufferedData, "base64").toString("utf8"));
-          })
-          .catch(() => {});
+          .then((result: { bufferedData?: string }) => ready(result.bufferedData))
+          .catch(() => ready(undefined));
         return;
       }
       const mime = typeof response?.mimeType === "string" ? response.mimeType : "";
@@ -127,11 +151,10 @@ export function attachSessionCapture(
     }
     if (
       (method === "Network.loadingFinished" || method === "Network.loadingFailed") &&
-      streams.has(params.requestId)
+      stream !== undefined
     ) {
-      streamLines(params.requestId, "\n");
-      streams.delete(params.requestId);
-      options.onGrok?.({ kind: "end", stream: params.requestId });
+      if (stream.held === null) endStream(params.requestId, stream);
+      else stream.finished = true;
       return;
     }
     if (method === "Network.loadingFailed") {
@@ -150,6 +173,30 @@ export function attachSessionCapture(
   };
 
   const captureBody = async (requestId: string, url: string, sent: string | undefined) => {
+    // /i/api/graphql/<queryId>/<Operation>?variables=...
+    const op = new URL(url).pathname.split("/").at(-1) ?? "";
+    // X's older Grok client's answers are the user's chats: the window's only, never an observation
+    // or a log (a parse error can quote the body).
+    if (GROK_OPS.has(op)) {
+      try {
+        const result = (await debug.sendCommand("Network.getResponseBody", { requestId })) as {
+          body: string;
+          base64Encoded: boolean;
+        };
+        const text = result.base64Encoded
+          ? Buffer.from(result.body, "base64").toString("utf8")
+          : result.body;
+        options.onGrok?.({
+          kind: "graphql",
+          op,
+          variables: requestVariables(url, sent),
+          body: JSON.parse(text),
+        });
+      } catch {
+        options.log("grok response unavailable");
+      }
+      return;
+    }
     let body: unknown;
     try {
       const result = (await debug.sendCommand("Network.getResponseBody", { requestId })) as {
@@ -174,14 +221,7 @@ export function attachSessionCapture(
       if (batch !== null) options.onRender?.(batch);
       return;
     }
-    // X's older Grok client's answers are the user's chats: the window's only, never an observation.
-    const op = new URL(url).pathname.split("/").at(-1) ?? "";
-    if (GROK_OPS.has(op)) {
-      options.onGrok?.({ kind: "graphql", op, variables: requestVariables(url, sent), body });
-      return;
-    }
     if (options.onRender !== undefined) {
-      // /i/api/graphql/<queryId>/<Operation>?variables=...
       const batch = renderEngineBatch(op, requestVariables(url, sent), body);
       if (hasEngineContent(batch)) options.onRender(batch);
     }
@@ -297,6 +337,7 @@ export function attachSessionCapture(
   const onDetach = (_event: Electron.Event, reason: string) => {
     pending.clear();
     postData.clear();
+    dropStreams();
     if (stopped) return;
     options.log("debugger detached, reattaching", { reason });
     reattachTimer = setTimeout(attach, REATTACH_MS);
@@ -314,7 +355,20 @@ export function attachSessionCapture(
     debug.off("detach", onDetach);
     if (debug.isAttached()) debug.detach();
     pending.clear();
+    dropStreams();
   };
+}
+
+/** One of X's streamed Grok answers as the capture reads it. */
+interface GrokStream {
+  /** One decoder for the whole answer, so a character X split across chunks stays whole. */
+  readonly decoder: TextDecoder;
+  /** The part of a line not yet ended. */
+  rest: string;
+  /** Chunks that came before DevTools' streaming read answered; null once it has. */
+  held: Array<string> | null;
+  /** X's answer finished before that read answered. */
+  finished: boolean;
 }
 
 /** X's older Grok client's GraphQL operations: its history, pins and a conversation's items. */
