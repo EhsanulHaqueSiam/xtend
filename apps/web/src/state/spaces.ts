@@ -260,7 +260,7 @@ export const xSpacePlay = (spaceId: string, title: string) =>
 /**
  * X's dock names no Space, only its title: one that held another Space before the press holds this
  * one once X's title element there shows this Space's title. When the two share a title (or have
- * none), only a change of X's dock after the press says so: drawn anew, or its player at 0:00.
+ * none), only X's player says so (starting over, or another length); without that, "unsure".
  */
 const pressOnPage = async (
   spaceId: string,
@@ -279,9 +279,12 @@ const pressOnPage = async (
     const title = ${JSON.stringify(title.trim())};
     // X's title in its dock is an element of its own; a caption that names it is no title.
     const titled = (box) => [...box.querySelectorAll("*")].find((e) => e.childElementCount === 0 && e.closest('[role="listbox"]') === null && (e.textContent ?? "").trim() === title) ?? null;
-    const played = (box) => [...box.querySelectorAll("*")].map((e) => (e.childElementCount === 0 ? (e.textContent ?? "").trim() : "")).find((t) => /^\\d{1,2}(:\\d{2}){1,2}$/.test(t)) ?? null;
+    // X's player writes the time played, then the time left with a minus: both in ms.
+    const times = (box) => [...box.querySelectorAll("*")].flatMap((e) => { const t = e.childElementCount === 0 ? (e.textContent ?? "").trim() : ""; return /^-?\\d{1,2}(:\\d{2}){1,2}$/.test(t) ? [t] : []; });
+    const ms = (t) => t.replace("-", "").split(":").reduce((n, p) => n * 60 + Number(p), 0) * 1000;
+    const player = (box) => { const t = times(box); const at = t.find((x) => !x.startsWith("-")); const left = t.find((x) => x.startsWith("-")); return at === undefined ? null : { at: ms(at), length: left === undefined ? null : ms(at) + ms(left) }; };
     const before = root(document);
-    const was = before === null ? null : { box: before.box, title: title === "" ? null : titled(before.box), at: played(before.box) };
+    const was = before === null ? null : { title: title === "" ? null : titled(before.box), player: player(before.box) };
     button.click();
     const taken = () => {
       const now = root(document);
@@ -289,18 +292,24 @@ const pressOnPage = async (
       if (was === null) return title === "" || titled(now.box) !== null;
       // Another title: X's dock shows this one now.
       if (title !== "" && was.title === null) return titled(now.box) !== null;
-      // The same title, or none: only X's dock drawn anew, or its player starting over, says so.
-      return now.box !== was.box || (title !== "" && titled(now.box) !== was.title) || (was.at !== null && was.at !== "0:00" && played(now.box) === "0:00");
+      // The same title, or none: X's dock names no recording, so only its player says it switched,
+      // starting over from well into the other one, or running another length. A dock drawn anew
+      // is no such sign.
+      const p = player(now.box);
+      return was.player !== null && p !== null && ((was.player.at > 15000 && p.at <= 5000) || (was.player.length !== null && p.length !== null && p.length !== was.player.length));
     };
     for (let i = 0; i < 50 && !taken(); i++) await new Promise((r) => setTimeout(r, 100));
-    return taken() ? "joined" : null;
+    if (taken()) return "joined";
+    // X's dock still shows a Space of this title: maybe this one, maybe the other. Never claimed.
+    const now = root(document);
+    return was !== null && now !== null && (title === "" || titled(now.box) !== null) ? "unsure" : null;
   })()`,
     "false",
     () => {},
   );
   // X closes its page as it joins; one still up (it refused) goes, back to where the engine was.
   if (moved) await xRun(`${ON_PEEK(spaceId)} && history.back(), true`);
-  return answer === "joined" ? true : null;
+  return answer === "joined" ? true : answer === "unsure" ? ("unsure" as const) : null;
 };
 
 /** Takes the engine off Space `spaceId`'s page, where X goes once its host ended it. */

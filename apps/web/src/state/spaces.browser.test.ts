@@ -58,9 +58,16 @@ it("tells recordings apart by X's title in its dock and, for a title they share,
     });
     expect(await xSpacePlay(b, "Recording B")).toBeNull();
 
-    // A and B share a title: X's player holding B shows as X starting it over.
+    // A and B share a title: X refuses B, then draws A's dock anew at the same 12:00. A dock drawn
+    // anew is no sign X's player holds B, so Xtend never claims it.
     page("Weekly office hours", "Welcome in.");
-    expect(await xSpacePlay(b, "Weekly office hours")).toBeNull();
+    document.getElementById("play")!.addEventListener("click", () => {
+      const dock = document.getElementById("dock")!;
+      dock.replaceWith(dock.cloneNode(true));
+    });
+    expect(await xSpacePlay(b, "Weekly office hours")).toBe("unsure");
+    // X's player holding B shows as X starting it over.
+    page("Weekly office hours", "Welcome in.");
     document.getElementById("play")!.addEventListener("click", () => {
       document.getElementById("played")!.textContent = "0:00";
     });

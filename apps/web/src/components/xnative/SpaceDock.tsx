@@ -60,6 +60,10 @@ export const ago = (iso: string) => {
   return /^\d+[smh]$/.test(age) ? `${age} ago` : age;
 };
 
+/** X's dock names no Space: one of the same title may be another, so Xtend says so, claiming nothing. */
+const unsure = (title: string) =>
+  `X's player still shows ${title || "a Space"}; this may be the other recording.`;
+
 /** Faces the dock draws before X's "+N more", as X's 360px dock fits them. */
 const FACES = 11;
 
@@ -141,8 +145,14 @@ export function usePlayRecording() {
     const why = blocked();
     if (why !== null) return (setToast({ text: why }), false);
     // A refusal leaves whatever X plays as it was, with its own dock.
-    if ((await xSpacePlay(spaceId, title)) !== true) {
-      setToast({ text: "X did not play the recording. Try again in a moment." });
+    const played = await xSpacePlay(spaceId, title);
+    if (played !== true) {
+      setToast({
+        text:
+          played === "unsure"
+            ? unsure(title)
+            : "X did not play the recording. Try again in a moment.",
+      });
       return false;
     }
     setLive({ read: await xSpaceDockNow(), joined: spaceId });
@@ -261,7 +271,8 @@ function SpaceDockBody({
     press(async () => {
       const joined = await xSpaceListen(space.spaceId, space.title);
       if (joined === true) setLive((l) => ({ ...l, joined: space.spaceId }));
-      return joined === true;
+      if (joined === "unsure") setToast({ text: unsure(space.title) });
+      return joined !== null;
     });
   const dockPress = (label: Parameters<typeof xSpaceDockPress>[0]) =>
     press(async () => {
