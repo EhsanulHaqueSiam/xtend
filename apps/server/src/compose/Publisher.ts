@@ -207,21 +207,24 @@ const make = Effect.gen(function* () {
     draft: Draft,
     purpose: string,
     clicked: boolean,
+    sessionOnly: boolean,
     caption: string | undefined,
   ) {
     // Already published by an attempt that failed afterwards; publishing again would pay twice.
     if (draft.postIds.length > 0) return [...draft.postIds];
     const cover = draft.media.find((m) => m.blockIndex === 0 && m.kind === "image");
-    if (clicked) {
-      // The user's click goes through X's own editor, free; X's paste keeps only text blocks.
-      const html = toPasteHtml(draft.body);
-      if (html === null)
-        return yield* new ComposeError({
-          operation: "articlePublish",
-          detail:
-            "X's editor takes code, Markdown, LaTeX, dividers and posts only from its own Insert menu: Queue or Schedule sends them through the X API",
-        });
-      const { postId } = yield* session
+    // A click tries X's own editor first, free, when it can carry the article: X's paste keeps
+    // only text blocks. Otherwise, or when the session refused before pressing anything, a click
+    // that was priced for the API (Plan's Post now, the editor's API way out) takes the API.
+    const html = clicked ? toPasteHtml(draft.body) : null;
+    if (clicked && html === null && sessionOnly)
+      return yield* new ComposeError({
+        operation: "articlePublish",
+        detail:
+          "X's editor takes code, Markdown, LaTeX, dividers and posts only from its own Insert menu: publish through the X API instead",
+      });
+    if (html !== null) {
+      const sent = yield* session
         .article({
           title: draft.title,
           html,
@@ -230,17 +233,21 @@ const make = Effect.gen(function* () {
           ...(caption === undefined ? {} : { caption }),
         })
         .pipe(
-          Effect.mapError((e) =>
-            mayHavePosted(e) ? new Unconfirmed({ post: 1, detail: e.message }) : e,
+          Effect.catch((e) =>
+            !sessionOnly && SessionPosting.notAttempted(e)
+              ? Effect.succeed(null)
+              : Effect.fail(mayHavePosted(e) ? new Unconfirmed({ post: 1, detail: e.message }) : e),
           ),
         );
-      if (!isXId(postId))
-        return yield* new Unconfirmed({
-          post: 1,
-          detail: "X answered the article without a post id",
-        });
-      yield* drafts.setOutcome(draft.id, { postIds: [postId] });
-      return [postId];
+      if (sent !== null) {
+        if (!isXId(sent.postId))
+          return yield* new Unconfirmed({
+            post: 1,
+            detail: "X answered the article without a post id",
+          });
+        yield* drafts.setOutcome(draft.id, { postIds: [sent.postId] });
+        return [sent.postId];
+      }
     }
     // X's publish endpoint takes no reply setting or caption, and treg uploads no media yet.
     if (cover !== undefined)
@@ -298,7 +305,13 @@ const make = Effect.gen(function* () {
         ? { error: failure, ids: [] as ReadonlyArray<string>, retryable: false }
         : yield* (
             draft.kind === "article"
-              ? postArticle(draft, options.purpose, options.clicked === true, options.caption)
+              ? postArticle(
+                  draft,
+                  options.purpose,
+                  options.clicked === true,
+                  options.sessionOnly === true,
+                  options.caption,
+                )
               : postBlocks(
                   draft,
                   options.purpose,
