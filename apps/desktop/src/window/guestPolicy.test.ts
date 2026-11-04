@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  allowsXPermission,
   browserUserAgent,
   externalWebUrl,
   guestKey,
@@ -118,5 +119,22 @@ describe("browser identity and exits", () => {
     expect(externalWebUrl("https://example.com/a")).toBe("https://example.com/a");
     expect(externalWebUrl("file:///etc/passwd")).toBeNull();
     expect(externalWebUrl("vscode://open")).toBeNull();
+  });
+});
+
+describe("x.com's permissions", () => {
+  it("lets x.com's page have the microphone, for a Space, and never the camera or anything else", () => {
+    const x = "https://x.com/i/spaces/1/peek";
+    expect(allowsXPermission("media", x, ["audio"])).toBe(true);
+    expect(allowsXPermission("notifications", x, undefined)).toBe(true);
+    expect(allowsXPermission("fullscreen", x, undefined)).toBe(true);
+    // The camera, alone or with the mic; a media ask naming nothing; another site; anything else.
+    expect(allowsXPermission("media", x, ["video"])).toBe(false);
+    expect(allowsXPermission("media", x, ["audio", "video"])).toBe(false);
+    expect(allowsXPermission("media", x, [])).toBe(false);
+    expect(allowsXPermission("media", x, undefined)).toBe(false);
+    expect(allowsXPermission("media", "https://example.com/", ["audio"])).toBe(false);
+    expect(allowsXPermission("geolocation", x, undefined)).toBe(false);
+    expect(allowsXPermission("clipboard-read", x, undefined)).toBe(false);
   });
 });

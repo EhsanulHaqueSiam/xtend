@@ -113,3 +113,21 @@ export function guestKey(input: KeyInput, platform: NodeJS.Platform): GuestKey |
   if (input.key === "=" || input.key === "+") return { kind: "zoom", step: 1 };
   return null;
 }
+
+/**
+ * Whether a page may have `permission`: notifications and fullscreen (X's video player), and for
+ * x.com alone the microphone, which X asks for when the user speaks in or hosts a Space. `media`
+ * is what a media ask names; the camera, with the mic or alone, and everything else stay denied.
+ */
+export const allowsXPermission = (
+  permission: string,
+  origin: string,
+  media: ReadonlyArray<string> | undefined,
+) =>
+  permission === "notifications" ||
+  permission === "fullscreen" ||
+  (permission === "media" &&
+    isXHost(origin) &&
+    media !== undefined &&
+    media.length > 0 &&
+    media.every((m) => m === "audio"));
