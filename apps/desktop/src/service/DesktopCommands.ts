@@ -1044,22 +1044,28 @@ async function enabledText(
   return enabledText(cdp, where, word, deadline);
 }
 
-// The Publish nearest the caption field: the sheet's own, never the editor's behind it.
-const NEAREST_PUBLISH = `function (word) {
-  for (let n = this.parentElement; n !== null; n = n.parentElement) {
-    const found = [...n.querySelectorAll('[role="button"], button')].find((b) => b.textContent.trim() === word);
-    if (found) return found;
+// The sheet's own Publish, run on its caption field: searched only in the sheet (its dialog, or in
+// the compact layout the biggest container of the caption that does not hold the editor's
+// Publish), and never the editor's Publish (`opener`) itself. Null while the sheet has none yet.
+const SHEET_PUBLISH = `function (opener, word) {
+  let box = this.closest('[role="dialog"]');
+  if (box === null) {
+    box = this;
+    while (box.parentElement !== null && !box.parentElement.contains(opener)) box = box.parentElement;
   }
-  return null;
+  return [...box.querySelectorAll('[role="button"], button')].find((b) => b !== opener && !b.contains(opener) && b.textContent.trim() === word) ?? null;
 }`;
 
-/** X's Publish sheet's own Publish, once X turns it on; fails at `deadline`. */
-async function sheetPublish(cdp: Cdp, deadline: number): Promise<number> {
+/**
+ * X's Publish sheet's own Publish, once X draws it and turns it on, never `opener` (the editor's
+ * Publish, as a page object: node ids do not outlive the lookups after it); fails at `deadline`.
+ */
+async function sheetPublish(cdp: Cdp, opener: string, deadline: number): Promise<number> {
   const caption = await waitForNode(cdp, X_ARTICLE.caption, deadline);
   const { result } = (await cdp("Runtime.callFunctionOn", {
     objectId: await objectOf(cdp, caption),
-    functionDeclaration: NEAREST_PUBLISH,
-    arguments: [{ value: X_ARTICLE.publishWord }],
+    functionDeclaration: SHEET_PUBLISH,
+    arguments: [{ objectId: opener }, { value: X_ARTICLE.publishWord }],
     returnByValue: false,
   })) as { result: { objectId?: string } };
   if (result.objectId !== undefined) {
@@ -1070,7 +1076,7 @@ async function sheetPublish(cdp: Cdp, deadline: number): Promise<number> {
   }
   if (Date.now() >= deadline) throw new Error("x.com's Publish sheet kept Publish off");
   await sleep(POLL_MS);
-  return sheetPublish(cdp, deadline);
+  return sheetPublish(cdp, opener, deadline);
 }
 
 // X's editor is Draft.js: a paste event with HTML on its clipboard is what pasting does, and X's
@@ -1134,7 +1140,9 @@ async function articleThroughEditor(
       throw new Error("x.com's editor did not take the paste");
     // X saves the content a few seconds after the paste; Publish stays off until it has.
     // Found in the whole page, wherever X's layout puts the editor's app bar.
-    await click(cdp, await enabledText(cdp, "body", X_ARTICLE.publishWord, deadline));
+    const opener = await enabledText(cdp, "body", X_ARTICLE.publishWord, deadline);
+    const openerObject = await objectOf(cdp, opener);
+    await click(cdp, opener);
     // X's Publish sheet is a dialog on a wide window and the whole route in its compact layout
     // (the engine's usual width), so its fields are found by their own names, in either.
     await waitForNode(cdp, X_ARTICLE.caption, step(COMPOSER_TIMEOUT_MS));
@@ -1148,7 +1156,7 @@ async function articleThroughEditor(
       await click(cdp, await waitForNode(cdp, X_ARTICLE.caption, step(CONTROL_TIMEOUT_MS)));
       await cdp("Input.insertText", { text: command.caption });
     }
-    return sheetPublish(cdp, step(CONTROL_TIMEOUT_MS));
+    return sheetPublish(cdp, openerObject, step(CONTROL_TIMEOUT_MS));
   };
   const confirm = await ready().catch((error: unknown) => {
     throw kept(error);

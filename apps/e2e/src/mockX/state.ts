@@ -133,6 +133,8 @@ export interface MockOptions {
    * steps are whole routes with X's app bar (`app-bar-back`, the title as its h2), not dialogs.
    */
   readonly compact?: boolean;
+  /** X's Publish sheet draws its caption first and its own Publish a moment later. */
+  readonly lateSheetPublish?: boolean;
   /** False: X's page sends no claims at boot, as live X did not for one account (2026-11-03). */
   readonly sendsClaims?: boolean;
   /**
@@ -1391,6 +1393,8 @@ export function createMockState(options: MockOptions = {}) {
     fixture,
     /** Whether X draws its compact layout (see `MockOptions.compact`). */
     compact: options.compact === true,
+    /** Whether X's Publish sheet draws its Publish after its caption (see `MockOptions`). */
+    lateSheetPublish: options.lateSheetPublish === true,
     /** Whether X's page sends its claims at boot; some accounts' never do. */
     sendsClaims: options.sendsClaims ?? true,
     fixtures: () => fixtures,

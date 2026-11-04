@@ -988,8 +988,13 @@ const SCRIPT = String.raw`
     closeArticleSheet();
     const box = document.createElement("div");
     box.dataset.articleSheet = "";
+    // With __mockLateSheet the step's own button comes a moment after the rest, as X may draw it.
+    const late = window.__mockLateSheet && primary !== "";
+    const now = late ? "" : primary;
+    const later = (where) => { if (late) setTimeout(() => where.insertAdjacentHTML("beforeend", primary), 800); };
     if (window.__mockCompact) {
-      box.innerHTML = '<div class="bar"><button type="button" data-testid="app-bar-back" aria-label="Back">←</button><h2>' + title + "</h2>" + primary + "</div>" + inner;
+      box.innerHTML = '<div class="bar"><button type="button" data-testid="app-bar-back" aria-label="Back">←</button><h2>' + title + "</h2>" + now + "</div>" + inner;
+      later(box.querySelector(".bar"));
       box.querySelector('[data-testid="app-bar-back"]').addEventListener("click", closeArticleSheet);
       const root = document.querySelector("[data-mock-article]");
       root.hidden = true;
@@ -997,8 +1002,9 @@ const SCRIPT = String.raw`
     } else {
       box.className = "dialog";
       box.setAttribute("role", "dialog");
-      box.innerHTML = "<h2>" + title + "</h2>" + inner + primary;
+      box.innerHTML = "<h2>" + title + "</h2>" + inner + now;
       layers.append(box);
+      later(box);
     }
   };
   const articleOp = (op, variables) => post("/i/api/graphql/" + window.__mockHash[op] + "/" + op, { variables });
@@ -1127,7 +1133,7 @@ export function shell(state: MockState, hashes: Readonly<Record<string, string>>
 <main role="main"><div data-testid="primaryColumn"></div></main>
 <div id="layers"></div>
 </div>
-<script>window.__mockHash = ${JSON.stringify(hashes)}; window.__mockFormats = ${String(state.formats)}; window.__mockCompact = ${String(state.compact)};</script>
+<script>window.__mockHash = ${JSON.stringify(hashes)}; window.__mockFormats = ${String(state.formats)}; window.__mockCompact = ${String(state.compact)}; window.__mockLateSheet = ${String(state.lateSheetPublish)};</script>
 <script src="/__mock/client.js"></script>
 </body></html>`;
 }

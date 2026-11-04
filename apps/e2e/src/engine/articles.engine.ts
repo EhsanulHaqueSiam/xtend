@@ -10,7 +10,8 @@ import { type Engine, startEngine } from "./harness.ts";
 
 let e: Engine;
 beforeAll(async () => {
-  e = await startEngine({ premium: false });
+  // X's Publish sheet here draws its caption before its own Publish.
+  e = await startEngine({ premium: false, lateSheetPublish: true });
   // Publish now goes through the session only while session actions are on.
   await e.service.rpc("settings.update", { sessionPostingEnabled: true });
   await e.app.reload();
