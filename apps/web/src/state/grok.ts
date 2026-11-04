@@ -1099,7 +1099,12 @@ export const xGrokExplain = async (
     return (await wait(() => onGrok() || !!document.querySelector('[data-testid="GrokDrawer"] fieldset[data-grok-composer]'), 30)) ? "done" : null;
   })()`);
   // Still this Explain, and still the user's latest press: checked before every move.
-  const owned = async () => !signal.aborted && (await xRun(mine)) === true;
+  // Checked again once X's page answers: the user may close or leave while it does.
+  const owned = async () => {
+    if (signal.aborted) return false;
+    const ours = (await xRun(mine)) === true;
+    return ours && !signal.aborted;
+  };
   let answer = await press(10);
   if (answer !== "done") {
     if (!(await owned())) return "cancelled";
@@ -1170,7 +1175,7 @@ export const xGrokLeave = async (from: string, still: () => boolean = () => true
 /**
  * X's grok.com account gate (`/i/jf/grok/entry?redirect=…`) is X's page in transit: the engine
  * goes on to the Grok page it names, through X's router, or by loading it when X holds its router
- * there. False when the engine is not at X's gate.
+ * there. "passed", "held" when X kept the engine on its gate, "away" when it was not there.
  */
 export const xGrokPastEntry = async () => {
   const to = await xRun(`(() => {
@@ -1180,8 +1185,10 @@ export const xGrokPastEntry = async () => {
       return next.origin === location.origin && next.pathname.startsWith("/i/grok") ? next.href : location.origin + "/i/grok";
     } catch { return location.origin + "/i/grok"; }
   })()`);
-  if (typeof to !== "string" || !/^https:\/\/x\.com\/i\/grok/.test(to)) return false;
+  if (typeof to !== "string" || !/^https:\/\/x\.com\/i\/grok/.test(to)) return "away";
+  const onGate = async () => (await xRun(`location.pathname.startsWith("/i/jf/grok")`)) === true;
   await xGo(to);
-  if ((await xRun(`location.pathname.startsWith("/i/jf/grok")`)) === true) await xNavigate(to);
-  return true;
+  if (await onGate()) await xNavigate(to);
+  // Where the one attempt left the engine: past X's gate, or still on it.
+  return (await onGate()) ? "held" : "passed";
 };

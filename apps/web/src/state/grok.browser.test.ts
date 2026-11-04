@@ -355,6 +355,7 @@ it("goes Back to the chat when X's compact History page opens without its search
 it("goes on from X's grok.com account gate to the Grok page it names, through X's router", async () => {
   const moves: Array<string> = [];
   let at = "/i/jf/grok/entry";
+  let hold = false;
   registerXWebview({
     loadURL: async () => {},
     getURL: () => `https://x.com${at}?redirect=https%3A%2F%2Fx.com%2Fi%2Fgrok`,
@@ -362,7 +363,7 @@ it("goes on from X's grok.com account gate to the Grok page it names, through X'
       const to = /history\.pushState\(null, "", "([^"]+)"\)/.exec(code)?.[1];
       if (to !== undefined) {
         moves.push(to);
-        at = to;
+        if (!hold) at = to;
         return Promise.resolve(true);
       }
       return Promise.resolve(
@@ -379,10 +380,14 @@ it("goes on from X's grok.com account gate to the Grok page it names, through X'
     },
   } as unknown as XWebview);
   markXReady();
-  expect(await xGrokPastEntry()).toBe(true);
+  expect(await xGrokPastEntry()).toBe("passed");
   expect(moves).toEqual(["/i/grok"]);
   // Elsewhere there is no gate to pass.
-  expect(await xGrokPastEntry()).toBe(false);
+  expect(await xGrokPastEntry()).toBe("away");
+  // X holds its router on the gate, and its full load lands there again: the engine is held.
+  at = "/i/jf/grok/entry";
+  hold = true;
+  expect(await xGrokPastEntry()).toBe("held");
 });
 
 // A 2x1 PNG, as X's page draws Grok's images from its own blobs.
@@ -483,5 +488,34 @@ it("ends an Explain when the user presses something else in X before it goes to 
   markXReady();
   const signal = new AbortController().signal;
   expect(await xGrokExplain({ postId: "17", handle: "ann" }, signal)).toBe("cancelled");
+  expect(inX).toEqual([]);
+});
+
+it("ends an Explain closed while X's page answers whether it is still the user's, before any move", async () => {
+  using _x = drawX(`<main><article><a href="/bo/status/9"><time>1h</time></a></article></main>`);
+  const inX: Array<string> = [];
+  const left = new AbortController();
+  registerXWebview({
+    loadURL: async () => {},
+    getURL: () => "https://x.com/home",
+    executeJavaScript: (code: string) => {
+      const to = /history\.pushState\(null, "", "([^"]+)"\)/.exec(code)?.[1];
+      if (to !== undefined) {
+        inX.push(`go ${to}`);
+        return Promise.resolve(true);
+      }
+      // The ownership check: still the user's, but they close the drawer before the answer lands.
+      if (code.startsWith("(window.__xtendGrokExplain ===")) {
+        const answer = new Function(`return ${code}`)();
+        left.abort();
+        return Promise.resolve(answer);
+      }
+      return Promise.resolve(
+        new Function(`return ${code.replaceAll("location.pathname", '"/home"')}`)(),
+      );
+    },
+  } as unknown as XWebview);
+  markXReady();
+  expect(await xGrokExplain({ postId: "17", handle: "ann" }, left.signal)).toBe("cancelled");
   expect(inX).toEqual([]);
 });
