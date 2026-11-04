@@ -2329,6 +2329,33 @@ const benchmarks = [
     },
   ],
   [
+    "Chat finds X's own composer and Send on a conversation already open, pressing nothing",
+    async () => {
+      // Opening a conversation marks it read in X, so the bench never opens one: it looks only at
+      // one the user already has open in Chat (run it first: --only chat), and counts X's controls.
+      const conversation = /^\/i\/chat\/(requests\/(other\/)?)?(\d+-\d+|g\d+)$/;
+      if (
+        !(await app(`location.hash.startsWith("#/chat")`)) ||
+        !conversation.test(await enginePath())
+      )
+        return "no conversation open in Chat, so nothing to look at";
+      const x = await engine(`(() => {
+        const roots = [...document.querySelectorAll('[data-testid^="xchatEmbed"]')].flatMap((h) => (h.shadowRoot ? [h.shadowRoot] : []));
+        const count = (s) => roots.reduce((n, r) => n + r.querySelectorAll(s).length, 0);
+        // X draws its voice button in Send's place until there is text to send.
+        return { field: count('[data-testid="dm-composer-textarea"]'), send: count('[data-testid="dm-composer-send-button"], [data-testid="dm-composer-voice-button"]'), accept: count('[data-testid="dm-message-request-accept-button"]') };
+      })()`);
+      const drawn = await app(
+        `({ field: document.querySelectorAll('main textarea[aria-label="Message"]').length, accept: [...document.querySelectorAll("main button")].filter((b) => b.textContent.trim() === "Accept").length })`,
+      );
+      if (x.accept > 0)
+        return drawn.accept === 1 && drawn.field === 0 && "X's Accept on a request, and Xtend's";
+      return (
+        x.field === 1 && x.send === 1 && drawn.field === 1 && "X's composer and Send, and Xtend's"
+      );
+    },
+  ],
+  [
     "Chat reads X's passcode screen or X's inbox rows, opening no conversation",
     async () => {
       await app(

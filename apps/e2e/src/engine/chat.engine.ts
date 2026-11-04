@@ -115,3 +115,101 @@ test("X's passcode screen shows over the main area for the user to type, then Ch
     await locked.close();
   }
 });
+
+const messages = () => e.app.locator('main [data-x="chat-message"]');
+/** Runs `step` on X's own chat root in the engine page, as the user's hand there does. */
+const inX = (step: string) =>
+  e.engine(`(() => {
+    const root = document.querySelector('[data-testid="xchatEmbedRoute"]').shadowRoot;
+    ${step}
+    return true;
+  })()`);
+const openConversation = async (name: string, list = "/chat") => {
+  await go(list);
+  await rows().filter({ hasText: name }).click();
+  await messages().first().waitFor();
+};
+
+test("Send types into X's own composer and presses X's Send: X's sent message shows, and the composer empties", async () => {
+  const c = e.mock.state.chat.conversations[1]!;
+  await openConversation(c.name);
+  await expect.poll(enginePath).toBe(link(c.id));
+  const box = e.app.getByRole("textbox", { name: "Message" });
+  await box.fill("On my way");
+  await e.app.getByRole("button", { name: "Send", exact: true }).click();
+  await messages().filter({ hasText: "On my way" }).waitFor();
+  expect(await box.inputValue()).toBe("");
+  expect([e.mock.state.chat.writes.at(-1), c.messages.at(-1)]).toEqual([
+    "send s1",
+    expect.objectContaining({ mine: true, text: "On my way" }),
+  ]);
+});
+
+test("React lists X's own quick reactions from X's picker, and the one picked is X's", async () => {
+  const c = e.mock.state.chat.conversations[0]!;
+  await openConversation(c.name);
+  const target = messages().filter({ hasText: "See you at 6 then" });
+  await target.hover();
+  await target.getByRole("button", { name: "React", exact: true }).click();
+  const picker = e.app.getByRole("dialog");
+  await expect
+    .poll(() => picker.getByRole("button").allTextContents())
+    .toEqual(["👍", "👎", "❤️", "😂", "🎉", "😮"]);
+  // Reading X's picker presses nothing: it closed again in X's page.
+  expect(await inX(`if (root.querySelector('[role="dialog"]')) throw new Error("open");`)).toBe(
+    true,
+  );
+  await picker.getByRole("button", { name: "❤️" }).click();
+  await target.getByText("❤️").waitFor();
+  expect(e.mock.state.chat.writes.at(-1)).toBe("react m4");
+});
+
+test("Delete is X's own: X's confirm shows over the main area, and once the user confirms it there the message goes", async () => {
+  const c = e.mock.state.chat.conversations[0]!;
+  await openConversation(c.name);
+  const target = messages().filter({ hasText: "Yes, after work" });
+  await target.hover();
+  await target.getByRole("button", { name: "More", exact: true }).click();
+  await expect
+    .poll(() => e.app.getByRole("menuitem").allTextContents())
+    .toEqual([
+      "Reply",
+      "Forward",
+      "Edit message",
+      "Copy message text",
+      "Info",
+      "Delete for me",
+      "Delete for all",
+    ]);
+  await e.app.getByRole("menuitem", { name: "Delete for me", exact: true }).click();
+  await expect.poll(() => pane()).toBe("main");
+  // Nothing is deleted until the user answers X's confirm, in X's page.
+  expect(c.messages.map((m) => m.id)).toContain("m2");
+  await inX(
+    `[...root.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent === "Delete for me").click();`,
+  );
+  await expect.poll(() => pane()).not.toBe("main");
+  await expect.poll(() => target.count()).toBe(0);
+  expect(e.mock.state.chat.writes.at(-1)).toBe("delete m2");
+});
+
+test("Accept answers X's message request with X's own Accept, after which the conversation takes messages", async () => {
+  const request = e.mock.state.chat.requests[0]!;
+  await openConversation(request.name, "/chat?tab=requests");
+  await e.app.getByText(`Accept message requests from @${request.handle}`).waitFor();
+  expect(await e.app.getByRole("textbox", { name: "Message" }).count()).toBe(0);
+  await e.app.getByRole("button", { name: "Accept", exact: true }).click();
+  await e.app.getByRole("textbox", { name: "Message" }).waitFor();
+  expect(e.mock.state.chat.writes.at(-1)).toBe(`accept ${request.id}`);
+});
+
+test("More opens X's own page about the conversation over the main area, until X's Back returns to it", async () => {
+  const c = e.mock.state.chat.conversations.find((x) => x.id.startsWith("g"))!;
+  await openConversation(c.name);
+  await e.app.getByRole("button", { name: "More", exact: true }).first().click();
+  await expect.poll(enginePath).toBe(`${link(c.id)}/info`);
+  await expect.poll(() => pane()).toBe("main");
+  await inX(`root.querySelector('a[aria-label="Back"]').click();`);
+  await expect.poll(() => pane()).not.toBe("main");
+  expect(await enginePath()).toBe(link(c.id));
+});

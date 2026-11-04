@@ -75,8 +75,12 @@ the reading runs on your own Claude or Codex login.
 
 The X rows at the top open X's pages: Home, Explore, Notifications, Bookmarks, Lists, Communities,
 Follow, Profile and Chat in Xtend. Chat reads your conversations from X's own page and opens one
-only when you click it, since X then marks it read; reply with Open in X. When X asks for your chat
-passcode, X's page shows for you to type it. A Community's Join presses
+only when you click it, since X then marks it read. What you write, react, edit or delete there
+goes through X's own controls in your session, free; what X asks next (a delete's confirm, the
+forward picker, a request's Delete) shows X's page for you to answer; so does the first message
+of a new chat. More in a conversation
+opens X's page about it, for nicknames, disappearing messages, calls, the safety number and
+blocking. When X asks for your chat passcode, X's page shows for you to type it. A Community's Join presses
 X's own button; one that asks first opens X's own rules dialog, where you agree and ask. Its Pin
 presses X's Pin too; the Community shows as a tab on Home once X's Home loads again (⌘R there).
 Follow is X's Who to follow and

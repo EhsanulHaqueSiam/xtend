@@ -1,12 +1,15 @@
 import "../../index.css";
 import { useAtomValue } from "@effect/atom-react";
 import { useLocation } from "@tanstack/react-router";
+import * as Effect from "effect/Effect";
 import { expect, it, vi } from "vite-plus/test";
-import { userEvent } from "vite-plus/test/browser";
+import { page, userEvent } from "vite-plus/test/browser";
 
 import { installFakeBridge } from "../../../test/fakeBridge";
+import { settings } from "../../../test/fixtures";
 import { fakeTimers, render } from "../../../test/render";
 import type { XWebview } from "../../state/x";
+import { Toasts } from "../ui/toast";
 
 // The screen reads the bridge at module load (env.ts), so it is imported after the bridge exists.
 installFakeBridge();
@@ -59,7 +62,8 @@ registerXWebview({
     if (code.includes("dm-search-close") && query !== undefined)
       searches.push(JSON.parse(query) as string);
     // X's path is where the engine last moved it; this document's own is the test runner's.
-    if (code.includes("MutationObserver") || code.includes("dm-search-close"))
+    // Every script on X's chat runs here, and presses too (`__xtendPress` marks each one).
+    if (code.includes("xchatEmbed") || code.includes("__xtendPress"))
       return Promise.resolve(
         new Function(
           `return ${code.replaceAll("location.pathname", JSON.stringify(moves.at(-1) ?? "/home"))}`,
@@ -207,4 +211,229 @@ it("searches from an open conversation in X's inbox, where X draws its search, a
   drawX("<div></div>");
   await userEvent.fill(box, "Dee");
   await expect.element(screen.getByText("X shows no chat search right now.")).toBeVisible();
+});
+
+it("sends through X's own composer and Send, and keeps the user's text when X could not send it", async () => {
+  drawX(INBOX);
+  await using screen = await render(
+    <>
+      {ui()}
+      <Toasts />
+    </>,
+    {
+      router: "/chat",
+      service: {
+        "settings.get": () => Effect.succeed({ ...settings, sessionPostingEnabled: true }),
+      },
+    },
+  );
+  await userEvent.click(screen.getByRole("button", { name: /Ann/ }));
+  await expect.poll(() => moves.at(-1)).toBe("/i/chat/11-22");
+  // X's composer: its Send adds the message as the user's, marked as X's page marks it.
+  drawX(
+    CONVERSATION.replace(
+      /<\/div><\/div>$/,
+      `</div><div data-testid="dm-composer-container"><textarea data-testid="dm-composer-textarea"></textarea><button data-testid="dm-composer-send-button">Send</button></div></div>`,
+    ),
+  );
+  let status = "failed";
+  const field = root!.querySelector("textarea")!;
+  root!.querySelector('[data-testid="dm-composer-send-button"]')!.addEventListener("click", () => {
+    const id = `n${root!.querySelectorAll('[data-testid^="message-n"]').length}`;
+    root!
+      .querySelector('[data-testid="dm-message-list"]')!
+      .insertAdjacentHTML(
+        "beforeend",
+        `<div class="justify-end" data-testid="message-${id}" data-send-status="${status}"><div data-testid="message-text-${id}"><span>${field.value}</span></div></div>`,
+      );
+    field.value = "";
+  });
+  const box = screen.getByRole("textbox", { name: "Message" });
+  await userEvent.fill(box, "Running late");
+  await userEvent.click(screen.getByRole("button", { name: "Send", exact: true }));
+  await expect.element(screen.getByText("Message failed to send")).toBeVisible();
+  await expect.element(box).toHaveValue("Running late");
+  // The message X kept shows as X marks it.
+  await expect.element(screen.getByText("Failed to send")).toBeVisible();
+
+  status = "sent";
+  await userEvent.click(screen.getByRole("button", { name: "Send", exact: true }));
+  await expect.element(box).toHaveValue("");
+  expect(
+    [...root!.querySelectorAll('[data-testid^="message-text-n"]')].map((m) => m.textContent),
+  ).toEqual(["Running late", "Running late"]);
+});
+
+it("holds what the user sent until X marks it, across another conversation, with every Send and Reply waiting", async () => {
+  drawX(INBOX);
+  await using screen = await render(
+    <>
+      {ui()}
+      <Toasts />
+    </>,
+    {
+      router: "/chat",
+      service: {
+        "settings.get": () => Effect.succeed({ ...settings, sessionPostingEnabled: true }),
+      },
+    },
+  );
+  // X's conversation with its composer: its Send adds the user's message, still sending.
+  const withComposer = CONVERSATION.replace(
+    /<\/div><\/div>$/,
+    `</div><div data-testid="dm-composer-container"><textarea data-testid="dm-composer-textarea"></textarea><button data-testid="dm-composer-send-button">Send</button></div></div>`,
+  );
+  const open = async (name: RegExp, path: string) => {
+    await userEvent.click(screen.getByRole("button", { name }));
+    await expect.poll(() => moves.at(-1)).toBe(path);
+    drawX(withComposer);
+    await expect.element(screen.getByRole("textbox", { name: "Message" })).toBeVisible();
+  };
+  await open(/Ann/, "/i/chat/11-22");
+  const field = root!.querySelector("textarea")!;
+  root!.querySelector('[data-testid="dm-composer-send-button"]')!.addEventListener("click", () => {
+    root!
+      .querySelector('[data-testid="dm-message-list"]')!
+      .insertAdjacentHTML(
+        "beforeend",
+        `<div class="justify-end" data-testid="message-n0" data-send-status="pending"><div data-testid="message-text-n0"><span>${field.value}</span></div></div>`,
+      );
+    field.value = "";
+  });
+  const box = screen.getByRole("textbox", { name: "Message" });
+  await userEvent.fill(box, "Running late");
+  {
+    // From here, how long Xtend waits for X's mark passes at once.
+    using _timers = fakeTimers();
+    await userEvent.click(screen.getByRole("button", { name: "Send", exact: true }));
+    await vi.advanceTimersByTimeAsync(20_000);
+  }
+  await expect.element(screen.getByRole("button", { name: "Sending…" })).toBeDisabled();
+  await expect.element(box).toHaveValue("Running late");
+
+  // Another conversation waits for it too, and the first keeps its text for the user's return.
+  await open(/Cy/, "/i/chat/11-33");
+  await expect.element(screen.getByRole("textbox", { name: "Message" })).toBeDisabled();
+  await expect
+    .element(screen.getByRole("button", { name: "Reply", exact: true }).first())
+    .toBeDisabled();
+  await open(/Ann/, "/i/chat/11-22");
+  await expect.element(box).toHaveValue("Running late");
+  // X's own page answers: marked sent, the draft goes.
+  root!
+    .querySelector('[data-testid="dm-message-list"]')!
+    .insertAdjacentHTML(
+      "beforeend",
+      `<div class="justify-end" data-testid="message-n0" data-send-status="sent"><div data-testid="message-text-n0"><span>Running late</span></div></div>`,
+    );
+  await expect.element(box).toHaveValue("");
+  await expect.element(box).toBeEnabled();
+});
+
+it("offers no composer of its own on a conversation without a message X drew, only X's page to write the first", async () => {
+  drawX(INBOX);
+  await using screen = await render(ui(), { router: "/chat", service: {} });
+  await userEvent.click(screen.getByRole("button", { name: /Ann/ }));
+  await expect.poll(() => moves.at(-1)).toBe("/i/chat/11-22");
+  drawX(
+    `<div data-testid="dm-conversation-panel"><span data-testid="dm-conversation-username">Ann</span><div data-testid="dm-message-list"></div><div data-testid="dm-composer-container"><textarea data-testid="dm-composer-textarea"></textarea></div></div>`,
+  );
+  await expect
+    .element(screen.getByRole("button", { name: "Write the first message in X" }))
+    .toBeVisible();
+  expect(screen.getByRole("textbox", { name: "Message" }).elements()).toHaveLength(0);
+});
+
+it("starts an edit from the text X loads into its own editor, not from what X displays", async () => {
+  drawX(INBOX);
+  await using screen = await render(ui(), {
+    router: "/chat",
+    service: {
+      "settings.get": () => Effect.succeed({ ...settings, sessionPostingEnabled: true }),
+    },
+  });
+  await userEvent.click(screen.getByRole("button", { name: /Ann/ }));
+  await expect.poll(() => moves.at(-1)).toBe("/i/chat/11-22");
+  // X displays "Yes, after work"; its editor holds the whole message, markdown X hides included.
+  const full = "Yes, after work **today**";
+  // X slow to load its editor, the second time.
+  let slow = false;
+  let loaded = false;
+  drawX(
+    `<div data-testid="dm-conversation-panel"><span data-testid="dm-conversation-username">Ann</span><div data-testid="dm-message-list"><div class="justify-end" data-testid="message-m1" data-send-status="sent"><span hidden id=":r1:-sender">You</span><div role="article"><div data-testid="message-text-m1"><span>Yes, after work</span></div></div></div></div><div data-testid="dm-composer-container"><textarea data-testid="dm-composer-textarea"></textarea><button data-testid="dm-composer-send-button">Send</button></div></div>`,
+  );
+  const field = root!.querySelector("textarea")!;
+  root!.addEventListener("mouseover", () => {
+    if (!root!.querySelector('[data-testid="message-overflow-button-m1"]'))
+      root!
+        .querySelector('[role="article"]')!
+        .insertAdjacentHTML(
+          "beforeend",
+          '<button data-testid="message-overflow-button-m1"></button>',
+        );
+  });
+  root!.addEventListener("click", (event) => {
+    const el = event.target as Element;
+    // X's "..." opens its menu, and closes it pressed again.
+    const open = root!.querySelector('[role="menu"]');
+    if (el.matches('[data-testid="message-overflow-button-m1"]') && open) open.remove();
+    else if (el.matches('[data-testid="message-overflow-button-m1"]'))
+      root!.append(
+        Object.assign(document.createElement("div"), {
+          role: "menu",
+          innerHTML:
+            '<div role="menuitem"><svg data-icon="icon-pencil-stroke"></svg>Edit message</div>',
+        }),
+      );
+    if (el.closest('[role="menuitem"]')) {
+      root!.querySelector('[role="menu"]')!.remove();
+      const load = () => {
+        field.insertAdjacentHTML(
+          "beforebegin",
+          '<div data-testid="dm-composer-edit-mode"><button data-testid="dm-composer-discard-edit-button"></button></div>',
+        );
+        field.value = full;
+        loaded = slow;
+      };
+      if (slow) setTimeout(load, 800);
+      else load();
+    }
+    if (el.matches('[data-testid="dm-composer-discard-edit-button"]')) {
+      el.parentElement!.remove();
+      field.value = "";
+    }
+  });
+  const message = screen.getByText("Yes, after work");
+  await expect.element(message).toBeVisible();
+  await userEvent.hover(message);
+  await userEvent.click(screen.getByRole("button", { name: "More", exact: true }).last());
+  // Xtend's menu, in its own portal, beside X's own in X's page.
+  await userEvent.click(
+    page
+      .getByRole("menu", { name: "Message actions" })
+      .getByRole("menuitem", { name: "Edit message" }),
+  );
+  await expect.element(screen.getByRole("textbox", { name: "Message" })).toHaveValue(full);
+  await expect.element(screen.getByRole("button", { name: "Discard edit" })).toBeVisible();
+  // X's composer is back as it was.
+  expect([root!.querySelector('[data-testid="dm-composer-edit-mode"]'), field.value]).toEqual([
+    null,
+    "",
+  ]);
+  // The user types while X loads its editor: their text stays, the edit waits for another click.
+  await userEvent.click(screen.getByRole("button", { name: "Discard edit" }));
+  slow = true;
+  await userEvent.hover(message);
+  await userEvent.click(screen.getByRole("button", { name: "More", exact: true }).last());
+  await userEvent.click(
+    page
+      .getByRole("menu", { name: "Message actions" })
+      .getByRole("menuitem", { name: "Edit message" }),
+  );
+  await userEvent.type(screen.getByRole("textbox", { name: "Message" }), "Hi");
+  // X loaded its editor and Xtend put X's composer back: the user's text is what stays.
+  await expect
+    .poll(() => loaded && root!.querySelector('[data-testid="dm-composer-edit-mode"]'))
+    .toBeNull();
+  await expect.element(screen.getByRole("textbox", { name: "Message" })).toHaveValue("Hi");
 });
