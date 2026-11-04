@@ -290,7 +290,8 @@ const SCRIPT = String.raw`
     fetch(r.url, r.body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: r.body }).then(json);
 
   async function load(path, cursor) {
-    const q = new URLSearchParams({ path, tab: pageTab(path) });
+    // X draws some pages (its settings) by the window's width: wide, or its compact layout.
+    const q = new URLSearchParams({ path, tab: pageTab(path), width: String(innerWidth) });
     if (cursor) q.set("cursor", cursor);
     if (!booted) q.set("boot", "1");
     booted = true;

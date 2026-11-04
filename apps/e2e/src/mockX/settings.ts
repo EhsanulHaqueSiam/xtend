@@ -25,13 +25,22 @@ export const mockSettings = (): MockSettings => ({
 const esc = (s: string) =>
   s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll('"', "&quot;");
 
-const page = (title: string, body: string) =>
-  `<section aria-labelledby="detail-header" role="region"><div><div><button data-testid="app-bar-back" aria-label="Back">←</button></div><div><h2 id="detail-header" role="heading" aria-level="2" dir="ltr"><span>${title}</span></h2><div dir="ltr"><span>@mock</span></div></div></div><div>${body}</div></section>`;
+/** Below this width X draws its compact settings: one page, no list beside it (mock X's line). */
+const WIDE = 1000;
+
+/**
+ * A settings page in X's layout for the window: wide, the detail section X labels by its header;
+ * compact (read live, 2026-11-04, at 440px), the app bar with Back and the title, then the body.
+ */
+const layout = (width: number) => (title: string, body: string) =>
+  width >= WIDE
+    ? `<section aria-labelledby="detail-header" role="region"><div><div><button data-testid="app-bar-back" aria-label="Back">←</button></div><div><h2 id="detail-header" role="heading" aria-level="2" dir="ltr"><span>${title}</span></h2><div dir="ltr"><span>@mock</span></div></div></div><div>${body}</div></section>`
+    : `<div><div><div><button aria-label="Back" role="button" data-testid="app-bar-back" type="button">←</button></div><div><div><h2 dir="ltr" aria-level="2" role="heading"><span>${title}</span></h2></div></div></div><div><div><div>${body}</div></div></div></div>`;
 const link = (label: string, href: string, description = "") =>
   `<a href="${href}" role="tab" data-testid="pivot"><div><div dir="ltr"><span>${label}</span></div>${description === "" ? "" : `<div dir="ltr" data-testid="pivot-description"><span>${esc(description)}</span></div>`}</div></a>`;
 const text = (t: string) => `<div dir="ltr"><span>${esc(t)}</span></div>`;
 const heading = (t: string) =>
-  `<div role="heading" aria-level="2"><div dir="ltr"><span>${esc(t)}</span></div></div>`;
+  `<h2 aria-level="2" role="heading"><div></div><div dir="ltr"><span>${esc(t)}</span></div><div></div></h2>`;
 
 /**
  * A checkbox X saves through `write` (`<REST path>:<field>`), as X's SettingsCheckbox draws it.
@@ -53,8 +62,9 @@ const ACCOUNT = "/i/api/1.1/account/settings.json";
 const FILTERS = "/i/api/1.1/mutes/advanced_filters.json";
 const SEARCH = "/i/api/1.1/strato/column/User/1700000000000000001/search/searchSafety";
 
-/** Mock X's settings page at `path` as HTML, or undefined for one it does not draw. */
-export function settingsPage(s: MockSettings, path: string): string | undefined {
+/** Mock X's settings page at `path` as HTML at the window's `width`, or undefined for one it does not draw. */
+export function settingsPage(s: MockSettings, path: string, width: number): string | undefined {
+  const page = layout(width);
   switch (path) {
     case "/settings/account":
       return page(
@@ -192,7 +202,8 @@ export function settingsPage(s: MockSettings, path: string): string | undefined 
             "filter_no_confirmed_phone",
             FILTERS,
             "Who haven’t confirmed their phone number",
-          ),
+          ) +
+          `<div dir="ltr">These filters won’t affect notifications from people you follow. <a href="https://support.x.com/articles/20169398"><span>Learn more</span></a></div>`,
       );
   }
   return undefined;

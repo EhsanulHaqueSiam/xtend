@@ -81,6 +81,41 @@ it("reads X's settings page in X's order and words: heads, checkboxes with their
   ]);
 });
 
+// X's compact layout (a window under about 1000px wide, as the engine is beside Xtend's panel),
+// read live: no labelled section, the title an h2 in the app bar beside Back, the body after it.
+const compactCheck = (label: string, n: number) =>
+  `<div><div><label><div><div dir="ltr"><span>${label}</span></div><div><div><div></div></div><input aria-describedby="CHECKBOX_${n}_LABEL" type="checkbox"></div></div></label></div></div>`;
+const COMPACT = `<main role="main"><div><div><div><button aria-label="Back" role="button" data-testid="app-bar-back" type="button"><svg></svg></button></div><div><div><h2 dir="ltr" aria-level="2" role="heading"><span>Muted notifications</span></h2></div></div></div><div><div><div><h2 aria-level="2" role="heading"><div></div><div dir="ltr"><span>Mute notifications from people:</span></div><div></div></h2></div><div>${[
+  "You don’t follow",
+  "Who don’t follow you",
+  "With a new account",
+  "Who have a default profile photo",
+  "Who haven’t confirmed their email",
+  "Who haven’t confirmed their phone number",
+]
+  .map((l, i) => compactCheck(l, i + 1))
+  .join(
+    "",
+  )}<div dir="ltr">These filters won’t affect notifications from people you follow. <a href="https://support.x.com/articles/20169398"><span>Learn more</span></a></div></div></div></div></div></main>`;
+
+it("reads X's compact settings page the same way: its title from the app bar, its heading, checkboxes and lines", () => {
+  document.body.innerHTML = COMPACT;
+  const read = readXSettings(document, "/settings/notifications/advanced_filters");
+  expect(read.title).toBe("Muted notifications");
+  expect(read.items.map((i) => (i.kind === "check" ? i.label : i.kind))).toEqual([
+    "heading",
+    "You don’t follow",
+    "Who don’t follow you",
+    "With a new account",
+    "Who have a default profile photo",
+    "Who haven’t confirmed their email",
+    "Who haven’t confirmed their phone number",
+    "text",
+    "link",
+  ]);
+  expect(read.items[0]).toEqual({ kind: "heading", text: "Mute notifications from people:" });
+});
+
 it("reads X's radio groups by their labels, and a page asking for a password as X's own to type in", () => {
   document.body.innerHTML = xPage(
     "Display",
