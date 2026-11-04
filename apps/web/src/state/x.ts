@@ -1597,8 +1597,10 @@ const pressControl = async (
   const press = () =>
     xRun(`(async () => {
     const find = ${find};
-    for (let i = 0; i < ${tries} && !find(); i++) await new Promise((r) => setTimeout(r, 100));
-    const control = find();
+    // X's page for this very page (this Community's), not one still drawn from the last.
+    const here = () => location.pathname.replace(/\\/$/, "").toLowerCase() === ${JSON.stringify(page.toLowerCase())};
+    for (let i = 0; i < ${tries} && !(here() && find()); i++) await new Promise((r) => setTimeout(r, 100));
+    const control = here() ? find() : null;
     if (!control || !${stillMine(run)} || control.disabled || control.getAttribute("aria-disabled") === "true") return null;
     if (${JSON.stringify(checked ?? null)} !== null && control.checked !== ${JSON.stringify(checked ?? null)}) return null;
     control.click();

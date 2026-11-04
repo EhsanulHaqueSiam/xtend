@@ -2283,3 +2283,31 @@ it("holds X's page over the main area after the user confirms in X's sheet, unti
     registerXWebview(null);
   }
 });
+
+it("presses a control only once X's page shows the Community it is for, never one still drawn from the last", async () => {
+  using _clock = fakeTimers();
+  const start = location.pathname + location.search;
+  // X still shows Community 10's tools, its Leave moderation team with them.
+  history.replaceState(null, "", "/i/communities/10/tools");
+  document.body.innerHTML = `<div role="button"><span>Leave moderation team</span></div>`;
+  const pressedOn: Array<string> = [];
+  document
+    .querySelector('[role="button"]')!
+    .addEventListener("click", () => pressedOn.push(location.pathname));
+  inThisPage(() => `https://x.com${location.pathname}`);
+  try {
+    const leaving = xPressToPage(
+      "/i/communities/20/tools",
+      "Leave moderation team",
+      () => true,
+      () => {},
+    );
+    await vi.advanceTimersByTimeAsync(8000);
+    await leaving;
+    // X's router took the engine to Community 20 first; only there was X's control pressed.
+    expect(pressedOn).toEqual(["/i/communities/20/tools"]);
+  } finally {
+    history.replaceState(null, "", start);
+    registerXWebview(null);
+  }
+});
