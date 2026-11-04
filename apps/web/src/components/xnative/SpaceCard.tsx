@@ -4,7 +4,7 @@ import type { MouseEvent } from "react";
 
 import { cn } from "../../lib/utils";
 import { engineAtom } from "../../state/engine";
-import { spaceDockAtom, spacePhase } from "../../state/spaces";
+import { forgetSpaceRead, spaceDockAtom, spacePhase } from "../../state/spaces";
 import { fmt } from "../analyze/ui";
 import { xAge } from "./format";
 import { Avatar } from "./XPostView";
@@ -23,6 +23,7 @@ export function SpaceCard({ post }: { readonly post: Pick<EnginePost, "spaceId">
   const phase = space === undefined ? null : spacePhase(space);
   const open = (e: MouseEvent) => {
     e.stopPropagation();
+    forgetSpaceRead(post.spaceId!);
     setDock(post.spaceId!);
   };
   const faces = space?.people.slice(0, 3) ?? [];

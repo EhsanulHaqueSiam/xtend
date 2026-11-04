@@ -983,6 +983,20 @@ const SCRIPT = String.raw`
     await Promise.all(view.graphql.map(graphql));
   }
   addEventListener("beforeunload", () => navigator.sendBeacon("/__mock/space", JSON.stringify({ kind: "unload" })));
+  // X's Space cards on the page shown poll their Spaces, as X's do.
+  setInterval(() => {
+    const ids = [...new Set([...(shown?.el.querySelectorAll("[data-space-card]") ?? [])].map((a) => a.dataset.spaceCard))];
+    if (ids.length === 0 || !document.contains(shown.el)) return;
+    void fetch("/__mock/space-poll?ids=" + ids.join(",")).then(json).then((rs) => Promise.all(rs.map(graphql))).then((answers) => {
+      // A card whose Space X has none of shrinks to a line once X hears so: X's page grows shorter.
+      answers.forEach((a, i) => {
+        if (a?.data?.audioSpace?.metadata === undefined)
+          for (const card of document.querySelectorAll('[data-space-card="' + ids[i] + '"]')) Object.assign(card.style, { height: "48px", overflow: "hidden" });
+      });
+      // X's list checks its end again as its cells resize.
+      void more();
+    }).catch(() => {});
+  }, 1500);
   function spaceLayer(role, children) {
     closeLayers();
     const box = document.createElement("div");

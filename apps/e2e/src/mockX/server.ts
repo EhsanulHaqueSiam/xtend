@@ -243,6 +243,14 @@ export async function startMockX(
           });
         return json({ ok });
       }
+      // X's Space cards poll AudioSpaceById for their Spaces (every 15 s on X, faster here).
+      case "/__mock/space-poll":
+        return json(
+          (url.searchParams.get("ids") ?? "")
+            .split(",")
+            .filter((id) => id !== "")
+            .map((id) => httpRequest(spaceRequest(id))),
+        );
       // X's dock, and the AudioSpaceById it polls for the Space in it.
       case "/__mock/space-dock": {
         const dock = state.spaces.dock;

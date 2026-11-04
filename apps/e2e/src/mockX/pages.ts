@@ -138,7 +138,7 @@ function article(p: EnginePost, state: MockState, opts: { focal?: boolean; sort?
     opts.sort === undefined
       ? ""
       : `<div class="sort"><div><button aria-haspopup="menu" aria-expanded="false" data-menu="sort:${p.postId}">${esc(opts.sort)}</button></div><a href="/${esc(p.author.handle)}/status/${p.postId}/quotes">View quotes ›</a></div>`;
-  return `<article data-testid="tweet" role="article" tabindex="${opts.focal === true ? "-1" : "0"}" aria-labelledby="t${p.postId}">
+  return `<article data-testid="tweet" role="article" tabindex="${opts.focal === true ? "-1" : "0"}" aria-labelledby="t${p.postId}"${p.spaceId === undefined ? "" : ` data-space-card="${esc(p.spaceId)}"`}>
   ${context}
   <div class="row"><div data-testid="Tweet-User-Avatar"><a href="/${esc(p.author.handle)}">${avatar(p.avatarUrl, p.author.handle)}</a></div>
   <div class="body">
@@ -464,6 +464,9 @@ function radarPage(state: MockState, page: string | undefined): Route {
   };
 }
 
+/** A search whose every result carries a Space's card, with page after page of them. */
+const SPACES_QUERY = "filter:spaces";
+
 /** X's AudioSpaceById for a Space, as its peek, its card and its dock ask it. */
 export const spaceRequest = (id: string): GraphqlRequest => ({
   op: "AudioSpaceById",
@@ -686,6 +689,8 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
           product: tab.product,
         }),
       ],
+      // X's search pages on as it scrolls; mock X's Spaces search has page after page.
+      ...(query === SPACES_QUERY ? { paged: 0 } : {}),
       render: ([b]) =>
         `<div class="bar"><button data-testid="app-bar-back" aria-label="Back">←</button><input data-testid="SearchBox_Search_Input" aria-label="Search query" value="${esc(query)}"><button aria-label="More" aria-haspopup="menu" aria-expanded="false" data-menu="search">…</button></div>${tabs(
           "Search",
