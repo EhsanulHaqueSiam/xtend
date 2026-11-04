@@ -59,6 +59,7 @@ import {
   generateCoverAtom,
   mediaAddAtom,
   mediaRemoveAtom,
+  postNowAtom,
   publishArticleAtom,
   updateDraftAtom,
 } from "../../state/compose";
@@ -158,7 +159,7 @@ interface Suggestions {
 
 /** A way out of the editor: what it does, what it costs, and why it cannot run now. */
 interface Way {
-  readonly id: "publish" | "queue" | "schedule";
+  readonly id: "publish" | "api" | "queue" | "schedule";
   readonly label: string;
   readonly detail: string;
   readonly cost: ReactNode;
@@ -197,7 +198,7 @@ export function ArticleEditor({
     <Editor
       key={draftId ?? "new"}
       initial={found}
-      others={listed.filter((d) => d.kind === "article" && d.id !== draftId)}
+      listed={listed}
       onOpen={onOpen}
       onBack={onBack}
       refresh={refresh}
@@ -265,13 +266,14 @@ function Bar({
 
 function Editor({
   initial,
-  others,
+  listed,
   onOpen,
   onBack,
   refresh,
 }: {
   readonly initial: Draft | null;
-  readonly others: ReadonlyArray<Draft>;
+  /** Every draft as the service lists it: the scheduler moves this one while it is open. */
+  readonly listed: ReadonlyArray<Draft>;
   readonly onOpen: (draftId: string) => void;
   readonly onBack: () => void;
   readonly refresh: () => void;
@@ -283,6 +285,7 @@ function Editor({
   const mediaRemove = useAtomSet(mediaRemoveAtom, { mode: "promiseExit" });
   const generateCover = useAtomSet(generateCoverAtom, { mode: "promiseExit" });
   const publish = useAtomSet(publishArticleAtom, { mode: "promiseExit" });
+  const postNow = useAtomSet(postNowAtom, { mode: "promiseExit" });
   const queue = useAtomSet(queueAtom, { mode: "promiseExit" });
   const schedule = useAtomSet(scheduleAtom, { mode: "promiseExit" });
   const unschedule = useAtomSet(unscheduleAtom, { mode: "promiseExit" });
@@ -325,7 +328,11 @@ function Editor({
   const body = serializeArticle(
     blocks.filter((b) => !isTextBlock(b) || b.text.trim() !== "" || blocks.length === 1),
   );
-  const status = draft?.status ?? "draft";
+  // The service's newer copy wins: the scheduler or another window may have published it.
+  const newest = draft === null ? undefined : listed.find((d) => d.id === draft.id);
+  const current =
+    newest !== undefined && draft !== null && newest.updatedAt > draft.updatedAt ? newest : draft;
+  const status = current?.status ?? "draft";
   const locked = status === "posted" || status === "posting";
   const cover = media.find((m) => m.blockIndex === 0 && m.kind === "image");
 
@@ -582,7 +589,12 @@ function Editor({
         if (Exit.isFailure(exit)) return setNotice(`Failed: ${failText(exit.cause)}`);
         setDraft(exit.value);
       } else {
-        const exit = way === "queue" ? await queue(d.id) : await publish({ id: d.id, caption });
+        const exit =
+          way === "queue"
+            ? await queue(d.id)
+            : way === "api"
+              ? await postNow(d.id)
+              : await publish({ id: d.id, caption });
         if (Exit.isFailure(exit)) return setNotice(`Failed: ${failText(exit.cause)}`);
         setDraft(exit.value);
         row.current = exit.value;
@@ -600,6 +612,15 @@ function Editor({
   const blocker = articleBlocker(title, body);
   const atomic = blocks.some((b) => !isTextBlock(b));
   const apiUsd = quote === null ? null : quote.articleUsd * 2;
+  // Why X's own editor cannot take it now; then the X API at its price is the way out instead.
+  const laneBlock = !isElectron
+    ? "Publish now needs X's editor, which runs in the desktop app"
+    : !sessionLane
+      ? "Session actions are off in Settings, X session"
+      : atomic
+        ? "Code, Markdown, LaTeX, dividers and posts go out through the X API: X's editor takes them only from its own Insert menu"
+        : null;
+  const upsell = access === false ? "X shows Articles only with Premium: Upgrade to unlock" : null;
   // Why each way out cannot run now; null when it can. Publish now goes through X's own editor.
   const ways: ReadonlyArray<Way> = [
     {
@@ -607,17 +628,19 @@ function Editor({
       label: "Publish now",
       detail: "Opens X's Publish dialog",
       cost: <Cost label="free" />,
-      blocked: !isElectron
-        ? "Publish now needs X's editor, which runs in the desktop app"
-        : !sessionLane
-          ? "Session actions are off in Settings, X session"
-          : access === false
-            ? "X shows Articles only with Premium: Upgrade to unlock"
-            : (blocker ??
-              (atomic
-                ? "Code, Markdown, LaTeX, dividers and posts go out with Queue or Schedule: X's editor takes them only from its own Insert menu"
-                : null)),
+      blocked: upsell ?? laneBlock ?? blocker,
     },
+    ...(laneBlock === null || upsell !== null
+      ? []
+      : [
+          {
+            id: "api" as const,
+            label: "Publish now through the X API",
+            detail: "No caption, everyone can reply · X API",
+            cost: apiUsd === null ? <Cost label="…" /> : <Cost usd={apiUsd} />,
+            blocked: blocker ?? apiBlock(cover, replySettings, apiUsd),
+          },
+        ]),
     {
       id: "queue",
       label: "Queue",
@@ -638,14 +661,14 @@ function Editor({
   ];
   const titleCount = charCount(title);
   // The rest of the article drafts; a new draft joins the list once it is saved, and is this one.
-  const rest = others.filter((d) => d.id !== draft?.id);
+  const rest = listed.filter((d) => d.kind === "article" && d.id !== current?.id);
   const words = articleWords(body);
 
   const header = (
     <>
       <Bar
         onBack={() => void save().then(onBack, report)}
-        status={draft === null ? null : status}
+        status={current === null ? null : status}
         saving={saving}
       >
         <button
@@ -724,8 +747,23 @@ function Editor({
     </>
   );
 
+  // In X's column, so focus mode and a narrow window show it too; a failure stored on the draft
+  // (the last attempt's, or the scheduler's) shows until something newer replaces it.
+  const message =
+    notice ?? (status === "failed" && current?.error != null ? `Failed: ${current.error}` : null);
   const editor = (
     <div className={cn(locked && "pointer-events-none opacity-80")}>
+      {message === null ? null : (
+        <p
+          role="status"
+          className={cn(
+            "border-b border-white/[0.12] px-4 py-2 text-[15px]",
+            message.startsWith("Failed") ? "text-error-foreground" : "text-[#00ba7c]",
+          )}
+        >
+          {message}
+        </p>
+      )}
       <Cover
         cover={cover}
         preview={preview}
@@ -786,13 +824,13 @@ function Editor({
           <div className="flex flex-col gap-4 rounded-2xl border border-white/[0.12] p-4">
             <section className={railGroup} aria-label="Go out">
               <h2 className={railLabel}>Go out</h2>
-              {status === "queued" && draft !== null ? (
+              {status === "queued" && current !== null ? (
                 <div className="flex items-center justify-between gap-3 py-1.5">
                   <div className="min-w-0">
                     <p className="text-[15px] font-bold">Queued</p>
                     <p className="truncate text-[13px] text-[#71767b]">
-                      {draft.scheduledAt === null ? "Next slot" : fmtWhen(draft.scheduledAt)} · X
-                      API
+                      {current.scheduledAt === null ? "Next slot" : fmtWhen(current.scheduledAt)} ·
+                      X API
                     </p>
                   </div>
                   <button
@@ -800,7 +838,7 @@ function Editor({
                     className={cn(pill, "border border-white/[0.24] hover:bg-white/[0.06]")}
                     disabled={busy !== null}
                     onClick={() =>
-                      void unschedule(draft.id).then((exit) => {
+                      void unschedule(current.id).then((exit) => {
                         if (Exit.isFailure(exit))
                           return setNotice(`Failed: ${failText(exit.cause)}`);
                         setDraft(exit.value);
@@ -813,9 +851,9 @@ function Editor({
                 </div>
               ) : locked ? (
                 <p className="py-1.5 text-[15px]">
-                  {status === "posted" && draft?.postIds[0] !== undefined ? (
+                  {status === "posted" && current?.postIds[0] !== undefined ? (
                     <XLink
-                      href={`https://x.com/i/web/status/${draft.postIds[0]}`}
+                      href={`https://x.com/i/web/status/${current.postIds[0]}`}
                       className="text-[#1d9bf0] hover:underline"
                     >
                       View Article
@@ -847,9 +885,11 @@ function Editor({
                           ? "bg-foreground text-background"
                           : "border border-white/[0.24] hover:bg-white/[0.06]",
                       )}
-                      onClick={() => (w.id === "queue" ? void run("queue") : setStep(w.id))}
+                      onClick={() =>
+                        w.id === "queue" || w.id === "api" ? void run(w.id) : setStep(w.id)
+                      }
                     >
-                      {w.label === "Publish now" ? "Publish" : w.label}
+                      {w.id === "publish" || w.id === "api" ? "Publish" : w.label}
                       {w.cost}
                     </button>
                   </div>
@@ -863,17 +903,6 @@ function Editor({
                   Upgrade to unlock
                 </XLink>
               ) : null}
-              {notice === null ? null : (
-                <p
-                  role="status"
-                  className={cn(
-                    "pt-1 text-[13px]",
-                    notice.startsWith("Failed") ? "text-error-foreground" : "text-[#00ba7c]",
-                  )}
-                >
-                  {notice}
-                </p>
-              )}
             </section>
             <section className={railGroup} aria-label="Checks">
               <h2 className={cn(railLabel, "flex justify-between")}>
@@ -1490,7 +1519,7 @@ function PublishMenu({
                 type="button"
                 disabled={w.blocked !== null || busy !== null}
                 className="flex w-full cursor-pointer items-center gap-3 rounded-[calc(var(--radius)-4px)] px-3 py-2.5 text-left hover:bg-white/7 disabled:cursor-default disabled:opacity-60"
-                onClick={() => (w.id === "queue" ? run("queue") : setStep(w.id))}
+                onClick={() => (w.id === "queue" || w.id === "api" ? run(w.id) : setStep(w.id))}
               >
                 <span className="min-w-0 flex-1">
                   <span className="block text-[15px] font-bold">{w.label}</span>

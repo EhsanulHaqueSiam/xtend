@@ -1,10 +1,14 @@
 import type { Draft, DraftPatch } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
-import { expect, it } from "vite-plus/test";
+import * as Stream from "effect/Stream";
+import { expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
 import type { FakeService } from "../../../test/fakeService";
 import { installFakeBridge } from "../../../test/fakeBridge";
+
+// The day beside every X screen reads other areas' rpcs; this screen's tests are about the editor.
+vi.mock("../shell/HomeCompanion", () => ({ DayGlance: () => null }));
 
 // Inside the desktop app with session actions on, where Publish now can press X's own editor.
 // Everything that reads isElectron loads after the bridge exists.
@@ -145,8 +149,8 @@ it("holds back what X would refuse, in X's words, and what each lane cannot carr
   await using screen = await render(editor("a1"), {
     service: service(() => [article({ body: "It worked.\n\n---", media: [cover] })]),
   });
-  // X's paste drops a divider; the X API lane has no media upload.
-  await expect.element(screen.getByText(/go out with Queue or Schedule/)).toBeVisible();
+  // X's paste drops a divider; the X API lane has no media upload, so no way out is open.
+  await expect.element(screen.getByText(/go out through the X API/).first()).toBeVisible();
   await expect
     .element(screen.getByText(/A cover goes out only with Publish now/).first())
     .toBeVisible();
@@ -192,4 +196,55 @@ it("rewrites the selected passage from the bubble over it, at the assist's price
     screen.getByRole("list", { name: "Suggestions" }).getByRole("button", { name: "Use" }),
   );
   await expect.poll(() => saved.at(-1)).toBe("Signups rose 18% and nobody wrote in.");
+});
+
+it("offers the X API inline, at its price, when X's editor cannot take the article", async () => {
+  await using screen = await render(editor("a1"), {
+    service: service(() => [article({ body: "It worked.\n\n---" })]),
+  });
+  await userEvent.click(screen.getByRole("button", { name: /^Publish$/ }));
+  const ways = page.getByRole("list", { name: "Ways out" });
+  await expect
+    .element(ways.getByRole("button", { name: /Publish now.*Insert menu/ }))
+    .toBeDisabled();
+  await expect
+    .element(ways.getByRole("button", { name: /^Publish now through the X API.*\$0\.01$/ }))
+    .toBeEnabled();
+});
+
+it("shows a publish failure in X's column, the one stored from last time included, in focus mode too", async () => {
+  await using screen = await render(editor("a1"), {
+    service: service(() => [
+      article({ status: "failed", error: "x.com did not confirm the Article" }),
+    ]),
+  });
+  const column = screen.container.querySelector<HTMLElement>('[data-x="column"]')!;
+  await userEvent.click(screen.getByRole("button", { name: "Focus mode" }));
+  await expect
+    .element(page.elementLocator(column).getByRole("status"))
+    .toHaveTextContent("Failed: x.com did not confirm the Article");
+});
+
+it("follows the draft as the service moves it: published by the scheduler while open, it locks", async () => {
+  let publish = () => {};
+  const published = new Promise<void>((resolve) => (publish = resolve));
+  const event = {
+    type: "draft_status_changed" as const,
+    at: "2030-01-07T09:31:00.000Z",
+    payload: { draftId: "a1", status: "posted" },
+  };
+  let row = article({ status: "queued", scheduledAt: "2030-01-07T09:30:00.000Z" });
+  await using screen = await render(editor("a1"), {
+    service: service(() => [row], {
+      "events.subscribe": () =>
+        Stream.fromEffect(Effect.promise(() => published).pipe(Effect.as(event))).pipe(
+          Stream.concat(Stream.never),
+        ),
+    }),
+  });
+  await expect.element(screen.getByRole("button", { name: "Unschedule" })).toBeVisible();
+  row = { ...row, status: "posted", postIds: ["19"], updatedAt: "2030-01-07T09:31:00.000Z" };
+  publish();
+  await expect.element(screen.getByText("Published", { exact: true })).toBeVisible();
+  await expect.element(screen.getByLabelText("Article Title")).toHaveAttribute("readonly");
 });
