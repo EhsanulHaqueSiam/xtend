@@ -873,6 +873,35 @@ const benchmarks = [
     },
   ],
   [
+    "Community queues: a non-mod's Member requests and Reported posts are X's not-found page, in X and in Xtend (dry)",
+    async () => {
+      // Nothing is pressed: each queue opens on X's own page, which X refuses anyone but its mods.
+      const id = await until(() =>
+        store(
+          `[...$.communities.values()].find((c) => c.role === "NonMember" || c.role === "Member")?.communityId`,
+        ),
+      );
+      if (!id) return "no Community to look at";
+      const seen = [];
+      for (const queue of ["member_requests", "reported_tweets"]) {
+        await go(`#/communities/${id}/moderation/${queue}`);
+        const xs = await until(
+          async () =>
+            (await enginePath()) === `/i/communities/${id}/moderation/${queue}` &&
+            engine(`document.body.innerText.includes("this page doesn’t exist")`),
+        );
+        const ours = await until(() =>
+          app(
+            `document.querySelector("main")?.innerText.includes("Hmm...this page doesn’t exist.")`,
+          ),
+        );
+        if (!xs || !ours) return false;
+        seen.push(queue);
+      }
+      return `${id}: ${seen.join(", ")} not found in X and Xtend`;
+    },
+  ],
+  [
     "Profile people: X's tabs (Followers you know only with mutuals), each listing what X's page lists",
     async () => {
       const seen = await until(() =>

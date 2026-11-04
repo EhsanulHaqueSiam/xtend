@@ -45,6 +45,9 @@ const WRITES = new Set([
   "CreateCommunity",
   "DeleteCommunityMutation",
   "CommunityUpdateRole",
+  "actions_approveMemberRequest_Mutation",
+  "actions_denyMemberRequest_Mutation",
+  "CommunityModerationKeepTweet",
   "PinTimeline",
   "UnpinTimeline",
   "CreateList",
@@ -134,7 +137,7 @@ export async function startMockX(
       state.presses.push({ kind: "write", name: setting, target: null, path: from });
       return json(writeSetting(state.settings, setting, await readBody(req)));
     }
-    const graphql = /^\/i\/api\/graphql\/[^/]+\/([A-Za-z]+)$/.exec(url.pathname);
+    const graphql = /^\/i\/api\/graphql\/[^/]+\/([A-Za-z_]+)$/.exec(url.pathname);
     if (graphql !== null) {
       const op = graphql[1]!;
       if (req.method === "POST") {
@@ -184,7 +187,7 @@ export async function startMockX(
           const batch = state.batchFor(next.op, next.variables);
           return json({
             graphql: [httpRequest(next)],
-            html: postsOf(batch, state),
+            html: r.more?.(batch) ?? postsOf(batch, state),
             next: batch?.bottom ?? null,
             title: r.title,
           });
@@ -219,6 +222,12 @@ export async function startMockX(
       case "/__mock/checklist": {
         const body = await readBody(req);
         state.pressChecklist(String(body.communityId), String(body.flag));
+        return json({ ok: true });
+      }
+      // X's Hide post and Ban flows send no GraphQL call; the mock notes what the rule pick did.
+      case "/__mock/moderate": {
+        const body = await readBody(req);
+        state.moderate(body.kind === "ban" ? "ban" : "hide", String(body.postId));
         return json({ ok: true });
       }
       case "/__mock/menu":
