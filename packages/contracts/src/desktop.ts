@@ -704,6 +704,8 @@ export interface EngineBatch {
   readonly spaceAnalytics?:
     | { readonly kind: "list"; readonly spaces: ReadonlyArray<EngineSpaceRow> }
     | { readonly kind: "space"; readonly space: EngineSpaceStats };
+  /** The Space X answered AudioSpaceById for with no Space (ended, removed, private, or an error). */
+  readonly spaceUnavailable?: string;
 }
 
 /** Counts by X's metric name (`Impressions`, `Likes`, `Retweets`, `Bookmark`, `Share`...). */

@@ -477,6 +477,8 @@ export interface EngineState {
   /** X's Space analytics: the user's Spaces once X listed them, and each Space's numbers. */
   readonly spaceList: ReadonlyArray<EngineSpaceRow> | null;
   readonly spaceStats: ReadonlyMap<string, EngineSpaceStats>;
+  /** Spaces X answered with no Space (see `EngineBatch.spaceUnavailable`), until X sends one. */
+  readonly spacesUnavailable: ReadonlySet<string>;
 }
 
 /** X's claim for its account analytics (GetUserClaims), Premium. */
@@ -603,6 +605,7 @@ export const emptyEngine: EngineState = {
   spaceCaptions: new Map(),
   spaceList: null,
   spaceStats: new Map(),
+  spacesUnavailable: new Set(),
 };
 
 /** A surface's entries; a tab X has not sent yet has none. */
@@ -805,6 +808,16 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
             batch.spaceAnalytics.space,
           )
         : state.spaceStats,
+    spacesUnavailable:
+      batch.spaceUnavailable !== undefined
+        ? new Set(state.spacesUnavailable).add(batch.spaceUnavailable)
+        : batch.spaces?.some((sp) => state.spacesUnavailable.has(sp.spaceId)) === true
+          ? new Set(
+              [...state.spacesUnavailable].filter(
+                (id) => !batch.spaces!.some((sp) => sp.spaceId === id),
+              ),
+            )
+          : state.spacesUnavailable,
   };
   const listed = surfacesOf(batch).reduce(
     (state, surface) =>

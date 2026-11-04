@@ -824,47 +824,64 @@ const benchmarks = [
     },
   ],
   [
-    "Spaces: a post's Space opens Xtend's dock saying what X's own page for it says, and joins nothing (dry)",
+    "Spaces: a post's Space opens Xtend's dock saying what X's own page for it says, X's error included, and joins nothing (dry)",
     async () => {
       // Nothing is pressed: opening a Space reads X's answer for it (AudioSpaceById); only X's
-      // Start listening, which the bench never presses, makes the account a listener.
+      // Start listening, which the bench never presses, makes the account a listener. A Space X
+      // has none of (ended, removed) shows X's error on X's page, and Xtend's dock must say so too.
       const q = "filter:spaces";
+      const error = "Something went wrong. Please try again later.";
       await reset(`search:Latest:${q}`);
       await go(`#/search?q=${encodeURIComponent(q)}&f=latest`);
-      const card = `document.querySelector('main [data-x="space-card"]')`;
-      if (!(await until(() => app(`!!${card}`)))) return "no post with a Space on X's search now";
-      await app(`${card}.click(), true`);
-      const title = await until(() =>
+      const ids = await until(() =>
         app(
-          `(() => { const d = document.querySelector('[data-x="space-dock"][aria-label]'); return d && d.getAttribute("aria-label"); })()`,
+          `(() => { const ids = [...new Set([...document.querySelectorAll('main [data-x="space-card"]')].map((c) => c.dataset.spaceId))]; return ids.length > 0 && ids.slice(0, 3); })()`,
         ),
       );
-      if (!title) return false;
-      const space = await store(
-        `(() => { const s = [...$.spaces.values()].find((x) => x.title === ${JSON.stringify(title)}); return s && { id: s.spaceId, state: s.state }; })()`,
-      );
-      if (!space) return false;
-      // X's own page for the Space: its title, and the one button X offers for its state.
-      const want =
-        space.state === "Running"
-          ? "Start listening"
-          : space.state === "NotStarted"
-            ? "Set reminder"
-            : "Play recording";
-      await engineGo(`/i/spaces/${space.id}/peek`);
-      const xs = await until(() =>
-        engine(
-          `document.body.innerText.includes(${JSON.stringify(title)}) && !!document.querySelector(${JSON.stringify(`[aria-label="${want}"]`)})`,
-        ),
-      );
-      const joined = await engine(
-        `[...document.querySelectorAll('[role="button"]')].some((b) => !b.hasAttribute("aria-label") && /^(Leave|End)$/.test(b.textContent.trim()))`,
-      );
-      await engine(`location.pathname.endsWith("/peek") && history.back(), true`);
-      await app(
-        `document.querySelector('[data-x="space-dock"] button[aria-label="Close"]')?.click(), true`,
-      );
-      return xs && !joined && `${space.id} (${space.state}): X's page shows "${title}" and ${want}`;
+      if (!ids) return "no post with a Space on X's search now";
+      const seen = [];
+      for (const id of ids) {
+        await app(
+          `document.querySelector('main [data-x="space-card"][data-space-id="${id}"]')?.click(), true`,
+        );
+        const ours = await until(
+          () =>
+            app(
+              `(() => { const d = document.querySelector('[data-x="space-dock"]'); if (!d) return undefined; if (d.innerText.includes(${JSON.stringify(error)})) return { error: true }; const t = d.getAttribute("aria-label"); return t ? { title: t } : undefined; })()`,
+            ),
+          10_000,
+        );
+        const state = await store(`$.spaces.get(${JSON.stringify(id)})?.state ?? null`);
+        await engineGo(`/i/spaces/${id}/peek`);
+        // X's own page: its error, or the Space's title and its one button for that state.
+        const want =
+          state === "Running"
+            ? "Start listening"
+            : state === "NotStarted"
+              ? "Set reminder"
+              : "Play recording";
+        const xs = await until(
+          () =>
+            engine(
+              `document.body.innerText.includes(${JSON.stringify(error)}) ? "error" : ${JSON.stringify(ours?.title ?? "")} !== "" && document.body.innerText.includes(${JSON.stringify(ours?.title ?? "")}) && !!document.querySelector(${JSON.stringify(`[aria-label="${want}"]`)}) ? "space" : undefined`,
+            ),
+          10_000,
+        );
+        const joined = await engine(
+          `[...document.querySelectorAll('[role="button"]')].some((b) => !b.hasAttribute("aria-label") && /^(Leave|End)$/.test(b.textContent.trim()))`,
+        );
+        await engine(`location.pathname.endsWith("/peek") && history.back(), true`);
+        await app(
+          `document.querySelector('[data-x="space-dock"] button[aria-label="Close"]')?.click(), true`,
+        );
+        if (joined) return false;
+        if (xs === "space" && ours?.title)
+          return `${id} (${state}): X's page shows "${ours.title}" and ${want}${seen.length ? `; before it ${seen.join(", ")}` : ""}`;
+        // X's error on its page and Xtend's dock agreeing passes; the next card may be a live one.
+        if (xs === "error" && ours?.error) seen.push(`${id}: X's error, and Xtend's dock says it`);
+        else return false;
+      }
+      return seen.join("; ");
     },
   ],
   [

@@ -100,8 +100,9 @@ export function createMockSpaces(batches: ReadonlyArray<EngineBatch>, viewer: En
   /** X's peek for a Space: its state, title and host, and its one button for what it is now. */
   const peek = (id: string) => {
     const s = space(id);
+    // X's page for a Space it has none to show (ended, removed): its error sheet alone.
     if (s === undefined)
-      return `<div class="dialog route" role="dialog"><p>This Space is unavailable.</p></div>`;
+      return `<div role="dialog" aria-modal="true"><div role="button" aria-label="Close" data-testid="app-bar-close" data-space-close>✕</div><span>Something went wrong. Please try again later.</span></div>`;
     const host = s.people.find((p) => p.role === "host");
     const cta =
       s.state === "Running"

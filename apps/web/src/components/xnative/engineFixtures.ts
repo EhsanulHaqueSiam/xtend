@@ -425,6 +425,8 @@ export const LIVE_SPACE = "900000700001";
 /** The user's own made-up recorded Space, and one they scheduled. */
 export const RECORDED_SPACE = "900000700003";
 const SCHEDULED_SPACE = "900000700004";
+/** A made-up Space X answers with no Space, as for one ended and removed. */
+export const GONE_SPACE = "900000700007";
 /** The made-up news story the first Today's News row opens. */
 const STORY_ID = "900000600001";
 /** One team's made-up standing, the rest of X's columns filled in from its record. */
@@ -1748,6 +1750,10 @@ export function synth(): Readonly<Record<string, Fixture>> {
     recorded: sp.recorded,
     speakers: sp.people.filter((p) => p.role === "speaker").length,
   });
+  // A post whose Space X no longer has (ended and removed): X answers it with no Space.
+  const gonePost = say(4, "Rewatch our launch Space from last month.", 600, {
+    spaceId: GONE_SPACE,
+  });
   const spaces: Fixture = {
     meta: meta(
       "spaces",
@@ -1805,6 +1811,7 @@ export function synth(): Readonly<Record<string, Fixture>> {
           },
         },
       }),
+      batch("TweetDetail", gonePost.postId, [gonePost], { users: PEOPLE, bottom: null }),
     ],
   };
 

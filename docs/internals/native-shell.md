@@ -91,7 +91,10 @@ its audio (X's player, HLS into a `<video>`) live across X's router moves, the e
 Xtend included; X leaves the Space when its page unloads. So while X's dock is up
 (`watchSpaceDock`) a full load (`xNavigate`) moves through X's router instead, and ⌘R on the page
 X already shows presses X's own nav link for it (X's refresh), the lists keeping what they hold. X's Space page
-(`/i/spaces/<id>/peek`) and its cards only ask AudioSpaceById; the user is a public listener only
+(`/i/spaces/<id>/peek`) and its cards only ask AudioSpaceById (X's cards poll it every 15 s
+while a Space is live or not loaded, retrying errors, so a page of Space cards is X's own heavy
+traffic; Xtend opens a Space's page itself at most once per Space, and shows X's error when X has
+no Space for it); the user is a public listener only
 once X's Start listening is pressed, which the engine does for that click alone. The dock has no
 test ids: its controls are found by X's labels inside the box around its Leave, End or Close
 beside its Collapse. A live Space's captions are the lines of X's own panel there. A recording's

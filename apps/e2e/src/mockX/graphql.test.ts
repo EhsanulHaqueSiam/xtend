@@ -55,6 +55,7 @@ const PAGES: ReadonlyArray<readonly [path: string, tab?: string]> = [
   ["/i/nba/standings"],
   ["/i/nba/players"],
   ["/sam_sato/status/700000000034"],
+  ["/ines_berg/status/700000000035"],
   ["/i/spaces/900000700001/peek"],
   ["/i/spaces/900000700003/peek"],
   ["/i/account_analytics/spaces"],

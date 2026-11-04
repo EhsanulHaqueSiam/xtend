@@ -30,6 +30,7 @@ export function SpaceCard({ post }: { readonly post: Pick<EnginePost, "spaceId">
     <button
       type="button"
       data-x="space-card"
+      data-space-id={post.spaceId}
       className={cn(
         "flex w-full cursor-pointer flex-col gap-1.5 rounded-2xl px-4 py-3 text-left transition-[filter] duration-150 hover:brightness-110",
         phase === "live" ? "text-white" : "border border-white/[0.12] bg-white/[0.03]",
