@@ -974,6 +974,32 @@ const SCRIPT = String.raw`
   // X's Articles: its pen makes a draft and opens X's editor. The editor saves its title, and its
   // content a moment after each change (Publish stays off meanwhile); a cover goes up through X's
   // crop dialog's Apply; Publish opens X's dialog, whose Publish publishes and opens the post.
+  // A step of X's editor (the crop, the Publish sheet): a dialog in X's layers, or in its compact
+  // layout the whole route, X's app bar on top (Back, the title as its h2, the step's own button)
+  // and the editor kept behind it.
+  const closeArticleSheet = () => {
+    for (const el of document.querySelectorAll("[data-article-sheet]")) el.remove();
+    const root = document.querySelector("[data-mock-article]");
+    if (root) root.hidden = false;
+  };
+  const articleSheet = (title, inner, primary) => {
+    closeLayers();
+    closeArticleSheet();
+    const box = document.createElement("div");
+    box.dataset.articleSheet = "";
+    if (window.__mockCompact) {
+      box.innerHTML = '<div class="bar"><button type="button" data-testid="app-bar-back" aria-label="Back">←</button><h2>' + title + "</h2>" + primary + "</div>" + inner;
+      box.querySelector('[data-testid="app-bar-back"]').addEventListener("click", closeArticleSheet);
+      const root = document.querySelector("[data-mock-article]");
+      root.hidden = true;
+      root.after(box);
+    } else {
+      box.className = "dialog";
+      box.setAttribute("role", "dialog");
+      box.innerHTML = "<h2>" + title + "</h2>" + inner + primary;
+      layers.append(box);
+    }
+  };
   const articleOp = (op, variables) => post("/i/api/graphql/" + window.__mockHash[op] + "/" + op, { variables });
   const articleId = () => document.querySelector("[data-mock-article]")?.dataset.mockArticle;
   const BLOCK_TYPES = { H1: "header-one", H2: "header-two", BLOCKQUOTE: "blockquote" };
@@ -1014,12 +1040,7 @@ const SCRIPT = String.raw`
     const input = event.target;
     if (!(input instanceof HTMLInputElement) || input.type !== "file" || !input.closest("[data-article-cover]")) return;
     log("article:cover", input.files[0]?.name ?? "");
-    closeLayers();
-    const box = document.createElement("div");
-    box.className = "dialog";
-    box.setAttribute("role", "dialog");
-    box.innerHTML = '<h2>Edit media</h2><button type="button" data-testid="applyButton" data-article-apply>Apply</button>';
-    layers.append(box);
+    articleSheet("Edit media", "", '<button type="button" data-testid="applyButton" data-article-apply>Apply</button>');
   });
   document.addEventListener("click", (event) => {
     const el = event.target instanceof Element ? event.target.closest("[data-article-create], [data-article-apply], [data-article-publish], [data-article-confirm]") : null;
@@ -1032,7 +1053,7 @@ const SCRIPT = String.raw`
         .then((r) => go("/compose/articles/edit/" + r.data.articleentity_create_draft.article_entity_results.result.rest_id, false));
     } else if (el.dataset.articleApply !== undefined) {
       log("article:apply");
-      closeLayers();
+      closeArticleSheet();
       const media = "1960000000000000001";
       saving++;
       canPublish();
@@ -1044,19 +1065,18 @@ const SCRIPT = String.raw`
     } else if (el.dataset.articlePublish !== undefined) {
       if (el.disabled) return;
       log("article:publish");
-      closeLayers();
-      const box = document.createElement("div");
-      box.className = "dialog";
-      box.setAttribute("role", "dialog");
-      box.innerHTML = '<h2>Publish Article</h2><h3>Who can reply?</h3><select data-testid="convoControl"><option value="All">Everyone</option><option value="Community">Accounts you follow</option><option value="Verified">Verified accounts</option><option value="ByInvitation">Only accounts you mention</option></select><textarea name="articleTweetText" data-testid="articleTweetTextInput" placeholder="Provide a caption (optional)"></textarea><button type="button" data-article-confirm>Publish</button>';
-      layers.append(box);
+      articleSheet(
+        "Publish Article",
+        '<h3>Who can reply?</h3><select data-testid="convoControl"><option value="All">Everyone</option><option value="Community">Accounts you follow</option><option value="Verified">Verified accounts</option><option value="ByInvitation">Only accounts you mention</option></select><textarea name="articleTweetText" data-testid="articleTweetTextInput" placeholder="Provide a caption (optional)"></textarea>',
+        '<button type="button" data-article-confirm>Publish</button>',
+      );
     } else {
-      const dialog = el.closest('[role="dialog"]');
+      const dialog = el.closest("[data-article-sheet]");
       const mode = dialog.querySelector("select").value;
       const caption = dialog.querySelector("textarea").value.trim();
       log("article:confirm");
       void articleOp("ArticleEntityPublish", { articleEntityId: id, visibilitySetting: "Public", ...(caption === "" ? {} : { tweetText: caption }), ...(mode === "All" ? {} : { conversationControl: { mode } }) }).then((r) => {
-        closeLayers();
+        closeArticleSheet();
         go("/you/status/" + r.data.articleentity_publish.article_entity_results.result.metadata.tweet_results.result.rest_id, false);
       });
     }
@@ -1088,7 +1108,7 @@ export function shell(state: MockState, hashes: Readonly<Record<string, string>>
 <main role="main"><div data-testid="primaryColumn"></div></main>
 <div id="layers"></div>
 </div>
-<script>window.__mockHash = ${JSON.stringify(hashes)}; window.__mockFormats = ${String(state.formats)};</script>
+<script>window.__mockHash = ${JSON.stringify(hashes)}; window.__mockFormats = ${String(state.formats)}; window.__mockCompact = ${String(state.compact)};</script>
 <script src="/__mock/client.js"></script>
 </body></html>`;
 }

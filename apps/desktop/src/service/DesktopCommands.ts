@@ -1044,6 +1044,35 @@ async function enabledText(
   return enabledText(cdp, where, word, deadline);
 }
 
+// The Publish nearest the caption field: the sheet's own, never the editor's behind it.
+const NEAREST_PUBLISH = `function (word) {
+  for (let n = this.parentElement; n !== null; n = n.parentElement) {
+    const found = [...n.querySelectorAll('[role="button"], button')].find((b) => b.textContent.trim() === word);
+    if (found) return found;
+  }
+  return null;
+}`;
+
+/** X's Publish sheet's own Publish, once X turns it on; fails at `deadline`. */
+async function sheetPublish(cdp: Cdp, deadline: number): Promise<number> {
+  const caption = await waitForNode(cdp, X_ARTICLE.caption, deadline);
+  const { result } = (await cdp("Runtime.callFunctionOn", {
+    objectId: await objectOf(cdp, caption),
+    functionDeclaration: NEAREST_PUBLISH,
+    arguments: [{ value: X_ARTICLE.publishWord }],
+    returnByValue: false,
+  })) as { result: { objectId?: string } };
+  if (result.objectId !== undefined) {
+    const { nodeId } = (await cdp("DOM.requestNode", { objectId: result.objectId })) as {
+      nodeId: number;
+    };
+    if (enabled(await attributes(cdp, nodeId))) return nodeId;
+  }
+  if (Date.now() >= deadline) throw new Error("x.com's Publish sheet kept Publish off");
+  await sleep(POLL_MS);
+  return sheetPublish(cdp, deadline);
+}
+
 // X's editor is Draft.js: a paste event with HTML on its clipboard is what pasting does, and X's
 // own paste handler turns it into X's blocks.
 const PASTE = `function (html) {
@@ -1104,30 +1133,22 @@ async function articleThroughEditor(
     if ((await callOn(cdp, body, PASTE, command.html)) !== true)
       throw new Error("x.com's editor did not take the paste");
     // X saves the content a few seconds after the paste; Publish stays off until it has.
-    await click(cdp, await enabledText(cdp, "main", X_ARTICLE.publishWord, deadline));
-    await waitForNode(cdp, `${X_ARTICLE.dialog} ${X_ARTICLE.caption}`, step(COMPOSER_TIMEOUT_MS));
+    // Found in the whole page, wherever X's layout puts the editor's app bar.
+    await click(cdp, await enabledText(cdp, "body", X_ARTICLE.publishWord, deadline));
+    // X's Publish sheet is a dialog on a wide window and the whole route in its compact layout
+    // (the engine's usual width), so its fields are found by their own names, in either.
+    await waitForNode(cdp, X_ARTICLE.caption, step(COMPOSER_TIMEOUT_MS));
     const reply = command.replySettings;
     if (reply !== undefined && reply !== "everyone") {
-      const select = await waitForNode(
-        cdp,
-        `${X_ARTICLE.dialog} ${X_ARTICLE.replyControl}`,
-        step(CONTROL_TIMEOUT_MS),
-      );
+      const select = await waitForNode(cdp, X_ARTICLE.replyControl, step(CONTROL_TIMEOUT_MS));
       if ((await pick(cdp, select, X_ARTICLE_REPLIES[reply])) !== true)
         throw new Error("x.com's Publish dialog did not take who can reply");
     }
     if (command.caption !== undefined) {
-      await click(
-        cdp,
-        await waitForNode(
-          cdp,
-          `${X_ARTICLE.dialog} ${X_ARTICLE.caption}`,
-          step(CONTROL_TIMEOUT_MS),
-        ),
-      );
+      await click(cdp, await waitForNode(cdp, X_ARTICLE.caption, step(CONTROL_TIMEOUT_MS)));
       await cdp("Input.insertText", { text: command.caption });
     }
-    return enabledText(cdp, X_ARTICLE.dialog, X_ARTICLE.publishWord, step(CONTROL_TIMEOUT_MS));
+    return sheetPublish(cdp, step(CONTROL_TIMEOUT_MS));
   };
   const confirm = await ready().catch((error: unknown) => {
     throw kept(error);

@@ -166,12 +166,11 @@ export const X_ARTICLE = {
   body: '[data-testid="composer"] [contenteditable="true"]',
   /** X's cover picker, the one file input X draws until Insert's Media opens another. */
   coverInput: 'main input[type="file"]',
-  /** X's crop dialog after a cover is picked; its Apply uploads it. */
+  /** X's crop step after a cover is picked (a dialog, or the whole route when compact); its Apply uploads it. */
   coverApply: '[data-testid="applyButton"]',
   /** X's cover once it is saved on the Article: X's own image host. */
   coverSaved: 'main img[src^="https://pbs.twimg.com/"]',
   publishWord: "Publish",
-  dialog: '[role="dialog"]',
   replyControl: 'select[data-testid="convoControl"]',
   caption: 'textarea[name="articleTweetText"]',
   /** Where X goes once it published: the Article's post. */

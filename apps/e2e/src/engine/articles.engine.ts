@@ -94,3 +94,56 @@ test("Publish now goes through X's own editor: X's create, one paste, X's Publis
   expect(writes().filter((w) => w === "ArticleEntityPublish")).toHaveLength(1);
   await expect.poll(enginePath).toBe(`/you/status/${published.postId}`);
 });
+
+// A 1x1 PNG: the cover the compact case uploads through X's own input.
+const PNG =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
+test("Publish now works in X's compact layout too, the cover through X's own input and crop step", async () => {
+  // The engine is usually narrow, where X draws its steps and sheets as whole routes.
+  const c = await startEngine({ premium: true, compact: true });
+  try {
+    await c.service.rpc("settings.update", { sessionPostingEnabled: true });
+    const d = await c.service.rpc("compose.draftCreate", {
+      kind: "article",
+      title: "Compact layout",
+      body: "One paragraph",
+    });
+    await c.service.rpc("compose.mediaAdd", {
+      draftId: d.id,
+      blockIndex: 0,
+      kind: "image",
+      name: "cover.png",
+      base64: PNG,
+    });
+    await c.app.reload();
+    await c.app.evaluate((hash) => void (location.hash = hash), `#/articles?draft=${d.id}`);
+    await c.app.getByRole("button", { name: "Publish", exact: true }).click();
+    await c.app
+      .getByRole("list", { name: "Ways out" })
+      .getByRole("button", { name: /Opens X.s Publish dialog/ })
+      .click();
+    await c.app.getByLabel("Add a caption to your article").fill("Narrow");
+    await c.app.getByRole("button", { name: /^Publish\s*free$/ }).click();
+    await c.app.getByText("Success! Your Article has been published").waitFor({ timeout: 60_000 });
+
+    const published = c.mock.state.articles.articles.find((a) => a.title === "Compact layout")!;
+    expect([published.lifecycle, published.caption, published.coverMediaId]).toEqual([
+      "Published",
+      "Narrow",
+      "1960000000000000001",
+    ]);
+    expect(
+      c.mock.state.presses.filter((p) => p.name.startsWith("article:")).map((p) => p.name),
+    ).toEqual([
+      "article:create",
+      "article:cover",
+      "article:apply",
+      "article:paste",
+      "article:publish",
+      "article:confirm",
+    ]);
+  } finally {
+    await c.close();
+  }
+});

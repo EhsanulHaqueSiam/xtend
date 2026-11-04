@@ -1377,7 +1377,7 @@ const benchmarks = [
       const controls = await until(async () => {
         if ((await enginePath()) !== path) return undefined;
         const x = await engine(
-          `({ title: document.querySelectorAll("main textarea").length, body: document.querySelectorAll('[data-testid="composer"] [contenteditable="true"]').length, cover: document.querySelectorAll('main input[type="file"]').length, publish: [...document.querySelectorAll('main [role="button"], main button')].filter((b) => b.textContent.trim() === "Publish").length })`,
+          `({ title: document.querySelectorAll("main textarea").length, body: document.querySelectorAll('[data-testid="composer"] [contenteditable="true"]').length, cover: document.querySelectorAll('main input[type="file"]').length, publish: [...document.querySelectorAll('[role="button"], button')].filter((b) => b.textContent.trim() === "Publish").length })`,
         );
         return x.title === 1 && x.body === 1 && x.publish === 1 ? x : undefined;
       }, 20_000);
