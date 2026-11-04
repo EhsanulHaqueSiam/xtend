@@ -6,8 +6,11 @@ import { expect, it } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
 import { installFakeBridge } from "../../../test/fakeBridge";
+import type { FakeService } from "../../../test/fakeService";
+import { settings } from "../../../test/fixtures";
 import { render } from "../../../test/render";
 import type { XWebview } from "../../state/x";
+import { Toasts } from "../ui/toast";
 
 // The screen reads the bridge at module load (env.ts), so it is imported after the bridge exists.
 installFakeBridge();
@@ -57,10 +60,14 @@ const ui = (
   <div style={{ height: 700 }}>
     <Probe />
     <SettingsScreen />
+    <Toasts />
   </div>
 );
 const probe = () => document.querySelector('[data-testid="probe"]')?.textContent ?? "";
-const service = { "accounts.list": () => Effect.succeed({ accounts: [], currentId: 1 }) };
+const service: FakeService = {
+  "accounts.list": () => Effect.succeed({ accounts: [], currentId: 1 }),
+  "settings.get": () => Effect.succeed({ ...settings, sessionPostingEnabled: true }),
+};
 
 it("finds X's settings in Settings search beside Xtend's, and draws the one picked from X's page, pressing X's own checkbox", async () => {
   x.innerHTML = AUDIENCE;
@@ -98,4 +105,22 @@ it("keeps X's password page X's own: over the main area under Xtend's bar, nothi
   await expect.poll(probe).toMatch(/^over true bar Password reset /);
   await expect.poll(() => moves.at(-1)).toBe("/settings/password");
   await expect.element(screen.getByText(/stays X's own page/)).toBeVisible();
+});
+
+it("presses none of X's controls while session actions are off, and says so", async () => {
+  x.innerHTML = AUDIENCE;
+  const pressed: Array<boolean> = [];
+  x.querySelector("input")!.addEventListener("change", () => pressed.push(true));
+  await using screen = await render(ui, {
+    router: "/settings?tab=x-privacy&x=%2Fsettings%2Faudience_and_tagging",
+    service: { ...service, "settings.get": () => Effect.succeed(settings) },
+  });
+  await userEvent.click(screen.getByRole("checkbox", { name: /Protect your posts/ }));
+  await expect
+    .element(screen.getByText("Session actions are off in Settings, X session."))
+    .toBeVisible();
+  expect(pressed).toEqual([]);
+  await expect
+    .element(screen.getByRole("checkbox", { name: /Protect your posts/ }))
+    .not.toBeChecked();
 });

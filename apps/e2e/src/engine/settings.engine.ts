@@ -61,9 +61,21 @@ test("Password stays X's own page over the main area under Xtend's bar, and its 
   await bar.getByText("Change your password").waitFor();
   await bar.getByRole("button", { name: "Back" }).click();
   await expect.poll(pane).toBe("hidden");
+  // Back returns the engine to the page the user came from, read again from there.
+  await expect.poll(enginePath).toBe("/settings/account");
   await main.getByRole("button", { name: /Deactivate your account/ }).waitFor();
   // Account information asks for the password first, on X's own page.
   await main.getByRole("button", { name: /Account information/ }).click();
   await expect.poll(pane).toBe("main");
   expect(await enginePath()).toBe("/settings/your_twitter_data/account");
+});
+
+test("Opening a page X keeps from another screen shows X's page over the main area, and it stays there", async () => {
+  await go("/home");
+  await expect.poll(enginePath).toBe("/home");
+  await go("/settings?tab=x-account&x=%2Fsettings%2Fpassword");
+  await expect.poll(enginePath).toBe("/settings/password");
+  // Past the screen change's own reset: X's page is still the one in view.
+  await e.app.locator('section[aria-label="x.com"]').getByText("Password reset").waitFor();
+  expect(await pane()).toBe("main");
 });
