@@ -1,6 +1,7 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import type { EngineJoinRequest, EngineReportCase, EngineUser } from "@xtend/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
+import * as Atom from "effect/reactivity/Atom";
 import { Check, EyeOff } from "lucide-react";
 import { useState } from "react";
 
@@ -22,6 +23,12 @@ const OUTLINED =
   "h-8 flex-1 cursor-pointer rounded-full border border-white/[0.35] px-4 text-[14px] font-bold transition-colors duration-150 hover:bg-white/[0.06] disabled:cursor-default disabled:opacity-60";
 
 /**
+ * True while a queue press waits on X, X's decision included: one runs at a time across every
+ * row and queue, since a second would start its run over the first's. Kept across remounts.
+ */
+const queuePressAtom = Atom.make(false).pipe(Atom.keepAlive);
+
+/**
  * Presses X's own button in one row of a queue for the user's click, one press at a time; X's
  * flow (Hide's and Ban's rule picker) shows over the main area. When X draws its decision in the
  * row's place, Xtend keeps it (`decided`).
@@ -30,7 +37,8 @@ function useRowPress() {
   const { blocked, setToast } = useXPress();
   const setOver = useAtomSet(xOverAtom);
   const setEngine = useAtomSet(engineAtom);
-  const [pending, setPending] = useState(false);
+  const pending = useAtomValue(queuePressAtom);
+  const setPending = useAtomSet(queuePressAtom);
   const press = async (
     row: {
       readonly page: string;

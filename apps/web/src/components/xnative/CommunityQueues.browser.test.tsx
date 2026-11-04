@@ -5,6 +5,7 @@ import { expect, it } from "vite-plus/test";
 import { installFakeBridge } from "../../../test/fakeBridge";
 import { settings } from "../../../test/fixtures";
 import { render } from "../../../test/render";
+import { markXReady, registerXWebview, type XWebview } from "../../state/x";
 import { CaseRow, RequestRow } from "./CommunityQueues";
 import { EngineSync } from "./EngineSync";
 
@@ -191,4 +192,55 @@ it("says who reported a post as X does, X itself among them", async () => {
   await expect.element(screen.getByText("Reported by 1 member", { exact: true })).toBeVisible();
   // Each rule once, as the reports named it.
   expect(screen.getByText("· No spam", { exact: false }).all()).toHaveLength(3);
+});
+
+it("runs one queue press at a time across rows: another row waits while X takes the first", async () => {
+  const bridge = installFakeBridge();
+  // X's page holds the first press until the test is over.
+  registerXWebview({
+    getURL: () => "https://x.com/i/communities/20/moderation/member_requests",
+    loadURL: () => Promise.resolve(),
+    executeJavaScript: (code: string) =>
+      code.includes("control.click()") ? new Promise(() => {}) : Promise.resolve(true),
+  } as unknown as XWebview);
+  markXReady();
+  const request = (userId: string) => ({
+    userId,
+    answer: null,
+    at: null,
+    state: "Pending",
+    blocking: false,
+    muting: false,
+  });
+  try {
+    await using screen = await render(
+      <>
+        <EngineSync />
+        <RequestRow communityId="20" request={request("31")} />
+        <RequestRow communityId="20" request={request("32")} />
+      </>,
+      {
+        service: {
+          "settings.get": () => Effect.succeed({ ...settings, sessionPostingEnabled: true }),
+          "scores.report": () => Effect.fail(new ScoresError({ operation: "report", detail: "-" })),
+          "leads.peopleList": () =>
+            Effect.succeed({
+              people: [],
+              total: 0,
+              counts: { new: 0, contacted: 0, replied: 0, customer: 0, ignored: 0 },
+              offset: 0,
+            }),
+        },
+      },
+    );
+    bridge.emitEngine(
+      empty("MemberRequests_Query", { users: [asker, { ...asker, userId: "32", handle: "tom" }] }),
+    );
+    const approve = screen.getByRole("button", { name: "Approve" });
+    await expect.poll(() => approve.all().length).toBe(2);
+    await approve.first().click();
+    await expect.element(approve.nth(1)).toBeDisabled();
+  } finally {
+    registerXWebview(null);
+  }
 });
