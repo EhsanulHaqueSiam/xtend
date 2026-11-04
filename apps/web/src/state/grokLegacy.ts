@@ -25,18 +25,26 @@ interface LegacyTurn {
   /** X is still streaming it. */
   readonly live: boolean;
 }
+/** One of X's answers in flight: the conversation and turn X's first line named. */
+interface LegacyStream {
+  readonly conversation: string;
+  readonly turn: string;
+}
 export interface GrokLegacyState {
   readonly history: ReadonlyArray<LegacyRow> | null;
   readonly pinned: ReadonlyArray<string>;
   readonly conversations: ReadonlyMap<string, ReadonlyArray<LegacyTurn>>;
-  /** The conversation X's stream answers in, once X said which. */
-  readonly streaming: string | null;
+  /** X's streams in flight, by the capture's stream id. */
+  readonly streams: ReadonlyMap<string, LegacyStream>;
+  /** What the user just asked through Xtend's box, until X's next stream names its turn. */
+  readonly asked: string | null;
 }
 export const emptyLegacy: GrokLegacyState = {
   history: null,
   pinned: [],
   conversations: new Map(),
-  streaming: null,
+  streams: new Map(),
+  asked: null,
 };
 export const grokLegacyAtom = Atom.make(emptyLegacy).pipe(Atom.keepAlive);
 
@@ -115,19 +123,31 @@ export const applyCapture = (state: GrokLegacyState, capture: GrokCapture): Grok
           turns.push({ id: str(item.chat_item_id) ?? String(turns.length), user: null, ...answer });
       }
     }
+    // A turn X is still streaming keeps the words streamed so far; X's items fill in its question.
+    const before = state.conversations.get(id) ?? [];
+    for (const s of state.streams.values()) {
+      const mine = s.conversation === id ? before.find((t) => t.id === s.turn) : undefined;
+      if (mine === undefined) continue;
+      const at = turns.findIndex((t) => t.id === s.turn);
+      if (at === -1) turns.push(mine);
+      else turns[at] = { ...mine, user: turns[at]!.user ?? mine.user };
+    }
     return { ...state, conversations: new Map(state.conversations).set(id, turns) };
   }
-  const id = state.streaming;
+  const stream = state.streams.get(capture.stream);
+  // The one turn this stream answers, changed by `f`.
+  const update = (s: LegacyStream, f: (t: LegacyTurn) => LegacyTurn) => ({
+    ...state,
+    conversations: new Map(state.conversations).set(
+      s.conversation,
+      (state.conversations.get(s.conversation) ?? []).map((t) => (t.id === s.turn ? f(t) : t)),
+    ),
+  });
   if (capture.kind === "end") {
-    if (id === null) return state;
-    const turns = (state.conversations.get(id) ?? []).map((t) =>
-      t.live ? { ...t, live: false } : t,
-    );
-    return {
-      ...state,
-      streaming: null,
-      conversations: new Map(state.conversations).set(id, turns),
-    };
+    if (stream === undefined) return state;
+    const streams = new Map(state.streams);
+    streams.delete(capture.stream);
+    return { ...update(stream, (t) => ({ ...t, live: false })), streams };
   }
   let line: Record<string, unknown>;
   try {
@@ -135,25 +155,31 @@ export const applyCapture = (state: GrokLegacyState, capture: GrokCapture): Grok
   } catch {
     return state;
   }
-  // X's first line names the conversation the answer belongs to.
+  // X's first line names the conversation and the user's item the answer belongs to.
   const named = str(line.conversationId);
-  if (named !== null) return { ...state, streaming: named };
+  if (named !== null) {
+    const turn = str(line.userChatItemId) ?? `live-${capture.stream}`;
+    const turns = state.conversations.get(named) ?? [];
+    return {
+      ...state,
+      asked: null,
+      streams: new Map(state.streams).set(capture.stream, { conversation: named, turn }),
+      conversations: new Map(state.conversations).set(
+        named,
+        turns.some((t) => t.id === turn)
+          ? turns.map((t) => (t.id === turn ? { ...t, live: true } : t))
+          : [...turns, { id: turn, user: state.asked, answer: null, thinking: null, live: true }],
+      ),
+    };
+  }
   const result = record(line.result);
   const token = str(result.message);
-  if (id === null || token === null) return state;
-  const turns = [...(state.conversations.get(id) ?? [])];
-  const last = turns.at(-1);
-  const into =
-    last?.live === true
-      ? last
-      : { id: `live-${turns.length}`, user: null, answer: null, thinking: null, live: true };
-  const next =
+  if (stream === undefined || token === null) return state;
+  return update(stream, (t) =>
     result.isThinking === true
-      ? { ...into, thinking: (into.thinking ?? "") + token }
-      : { ...into, answer: (into.answer ?? "") + token };
-  if (last?.live === true) turns[turns.length - 1] = next;
-  else turns.push(next);
-  return { ...state, conversations: new Map(state.conversations).set(id, turns) };
+      ? { ...t, thinking: (t.thinking ?? "") + token }
+      : { ...t, answer: (t.answer ?? "") + token },
+  );
 };
 
 /** X's inline markdown as runs: **bold**, *italic*, `code` and [links](url). */
@@ -212,7 +238,8 @@ export const listenGrokLegacy = (set: (f: (s: GrokLegacyState) => GrokLegacyStat
 /**
  * Asks Grok `text` in X's older client for the user's click: typed into X's own "Ask anything"
  * box, then X's own Send by its English label. "sent", "pending", "draft" (X's box holds the
- * user's words) or "unlabelled" (no Send Xtend knows); null when X draws no older client here.
+ * user's words) or "unlabelled" (no Send Xtend knows); null when X draws no older client here, or
+ * the chat, X's box or its words changed before Send was ready (nothing pressed).
  */
 export const xGrokLegacySend = async (text: string) => {
   const answer = await xPressOver(
@@ -223,12 +250,15 @@ export const xGrokLegacySend = async (text: string) => {
     const field = column?.querySelector('textarea[placeholder="Ask anything"]') ?? null;
     if (!onGrok || !field || document.querySelector("fieldset[data-grok-composer]") || !${mine}) return null;
     if (field.value.trim() !== "") return "draft";
+    const at = location.pathname + location.search;
     const labels = ["Grok something", "Send"];
     const send = () => [...column.querySelectorAll('button, [role="button"]')].find((b) => labels.includes(b.getAttribute("aria-label") ?? "") && !b.disabled && b.getAttribute("aria-disabled") !== "true") ?? null;
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(field, ${JSON.stringify(text)});
     field.dispatchEvent(new Event("input", { bubbles: true }));
     const button = await wait(send, 20);
     if (!button || !${mine}) return "unlabelled";
+    // The user opened another chat, or X redrew or changed its box, while X readied Send.
+    if (location.pathname + location.search !== at || !field.isConnected || column.querySelector('textarea[placeholder="Ask anything"]') !== field || field.value !== ${JSON.stringify(text)}) return null;
     button.click();
     return (await wait(() => field.value === "", 50)) ? "sent" : "pending";
   })()`,

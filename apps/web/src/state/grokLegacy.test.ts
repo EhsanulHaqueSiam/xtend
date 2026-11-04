@@ -9,8 +9,8 @@ const items = (restId: string, list: ReadonlyArray<Record<string, unknown>>) =>
     variables: { restId },
     body: { data: { grok_conversation_items_by_rest_id: { items: list } } },
   }) as const;
-const line = (value: unknown) =>
-  ({ kind: "chunk", stream: "1", line: JSON.stringify(value) }) as const;
+const line = (value: unknown, stream = "1") =>
+  ({ kind: "chunk", stream, line: JSON.stringify(value) }) as const;
 
 it("reads X's conversation items in order and grows the streamed answer word by word", () => {
   // X lists items newest first.
@@ -38,7 +38,47 @@ it("reads X's conversation items in order and grows the streamed answer word by 
     answer: "Replies split.",
     live: false,
   });
-  expect(s.streaming).toBeNull();
+  expect(s.streams.size).toBe(0);
+});
+
+it("keeps two of X's streams apart: each one's words and end reach only its own turn", () => {
+  let s = applyCapture(emptyLegacy, line({ conversationId: "c1", userChatItemId: "ua" }, "A"));
+  s = applyCapture(s, line({ conversationId: "c2", userChatItemId: "ub" }, "B"));
+  s = applyCapture(s, line({ result: { message: "for A" } }, "A"));
+  s = applyCapture(s, line({ result: { message: "for B" } }, "B"));
+  s = applyCapture(s, { kind: "end", stream: "A" });
+  expect(s.conversations.get("c1")).toMatchObject([{ id: "ua", answer: "for A", live: false }]);
+  expect(s.conversations.get("c2")).toMatchObject([{ id: "ub", answer: "for B", live: true }]);
+});
+
+it("gives the question the user sent to the turn X's stream confirms, until X's items say otherwise", () => {
+  let s = applyCapture(
+    { ...emptyLegacy, asked: "And who is right?" },
+    line({ conversationId: "c1", userChatItemId: "u2" }),
+  );
+  s = applyCapture(s, line({ result: { message: "Neither." } }));
+  expect(s.conversations.get("c1")).toEqual([
+    { id: "u2", user: "And who is right?", answer: "Neither.", thinking: null, live: true },
+  ]);
+  expect(s.asked).toBeNull();
+  // X's items from before the question keep the turn still streaming.
+  s = applyCapture(s, items("c1", [{ chat_item_id: "u1", sender_type: "User", message: "Hi" }]));
+  expect(s.conversations.get("c1")?.map((t) => [t.id, t.user])).toEqual([
+    ["u1", "Hi"],
+    ["u2", "And who is right?"],
+  ]);
+  // Once streamed, X's own items are the conversation.
+  s = applyCapture(s, { kind: "end", stream: "1" });
+  s = applyCapture(
+    s,
+    items("c1", [
+      { chat_item_id: "a2", sender_type: "Agent", message: "Neither." },
+      { chat_item_id: "u2", sender_type: "User", message: "And who is right? " },
+    ]),
+  );
+  expect(s.conversations.get("c1")).toEqual([
+    { id: "u2", user: "And who is right? ", answer: "Neither.", thinking: null, live: false },
+  ]);
 });
 
 it("draws X's markdown answer as blocks: headings, lists, bold, links and code", () => {

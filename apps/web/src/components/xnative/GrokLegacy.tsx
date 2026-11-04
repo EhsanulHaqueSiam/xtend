@@ -1,14 +1,9 @@
 import { useAtom, useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import type { GrokRead } from "../../state/grok";
-import {
-  grokLegacyAtom,
-  listenGrokLegacy,
-  markdownBlocks,
-  xGrokLegacySend,
-} from "../../state/grokLegacy";
+import { grokLegacyAtom, markdownBlocks, xGrokLegacySend } from "../../state/grokLegacy";
 import { xGo, xUrlAtom } from "../../state/x";
 import { GrokConversation, useGrokPress } from "./Grok";
 
@@ -24,8 +19,6 @@ export function GrokLegacy() {
   const { press, setToast } = useGrokPress();
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
-  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- follows X's older Grok client's answers from the capture while this screen is open.
-  useEffect(() => listenGrokLegacy(setLegacy), [setLegacy]);
   let chat: string | null = null;
   try {
     chat = new URL(url).searchParams.get("conversation");
@@ -64,8 +57,12 @@ export function GrokLegacy() {
     const text = draft;
     if (text.trim() === "" || sending || live) return;
     setSending(true);
+    // X's stream names the turn but not the question: the turn it starts takes these words.
+    setLegacy((s) => ({ ...s, asked: text }));
     const sent = await press(() => xGrokLegacySend(text));
     setSending(false);
+    if (sent !== "sent" && sent !== "pending")
+      setLegacy((s) => (s.asked === text ? { ...s, asked: null } : s));
     if (sent === "sent") setDraft("");
     if (sent === "draft") setToast({ text: "X's Grok box holds a draft; finish it in X." });
     // X draws no Send Xtend knows here: the words wait in X's own box, on X's page.
