@@ -48,6 +48,19 @@ const PARITY = flag("--parity");
 
 /** One DevTools session per page, kept open across checks. */
 const sessions = new Map();
+/** X's Grok requests the engine page made while the bench watched it, by kind. */
+const grokSeen = { graphql: 0, stream: 0, rest: 0 };
+const grokKind = (url) =>
+  /\/i\/api\/graphql\/[^/]+\/[^/?]*Grok/.test(url)
+    ? "graphql"
+    : url.includes("/2/grok/add_response.json")
+      ? "stream"
+      : url.includes("grok.com/rest/app-chat")
+        ? "rest"
+        : null;
+/** The titles in X's own last GrokHistory answer, for comparing in this process: never printed. */
+let grokHistory = null;
+let grokHistoryRequest = null;
 /** X's API calls the engine page made while the bench watched it, for pacing. */
 let xCalls = 0;
 const X_API = /^https:\/\/(x\.com\/i\/api\/|api\.x\.com\/)/;
@@ -68,8 +81,32 @@ async function session(match) {
   const waiting = new Map();
   socket.addEventListener("message", (e) => {
     const message = JSON.parse(String(e.data));
-    if (message.method === "Network.requestWillBeSent" && X_API.test(message.params.request.url))
-      xCalls++;
+    if (message.method === "Network.requestWillBeSent") {
+      const url = message.params.request.url;
+      if (X_API.test(url)) xCalls++;
+      const kind = grokKind(url);
+      if (kind !== null) grokSeen[kind]++;
+      if (/\/graphql\/[^/]+\/GrokHistory(?:\?|$)/.test(url))
+        grokHistoryRequest = message.params.requestId;
+    }
+    if (
+      message.method === "Network.loadingFinished" &&
+      message.params.requestId === grokHistoryRequest
+    )
+      void call("Network.getResponseBody", { requestId: grokHistoryRequest }).then(({ result }) => {
+        try {
+          const text = result.base64Encoded
+            ? Buffer.from(result.body, "base64").toString("utf8")
+            : result.body;
+          const items = JSON.parse(text).data.grok_conversation_history.items ?? [];
+          // The rows Xtend draws: X's items that name their conversation.
+          grokHistory = items
+            .filter((i) => i.grokConversation?.rest_id ?? i.grokConversation?.id)
+            .map((i) => i.title || "Untitled chat");
+        } catch {
+          // Not an answer the check can read; it waits for the next one.
+        }
+      });
     waiting.get(message.id)?.(message);
     waiting.delete(message.id);
   });
@@ -86,6 +123,10 @@ async function session(match) {
   // dozen or so); the budget leaves room for them. Upgrade to Target auto-attach if it ever matters.
   if (match === "x.com") {
     await call("Network.enable", {});
+    // X's page loads hundreds of images: a full timing buffer would drop the Grok calls checks count.
+    await call("Runtime.evaluate", {
+      expression: "performance.setResourceTimingBufferSize(10000)",
+    });
     // What this page already called before the session attached (a fresh load's startup calls).
     const { result } = await call("Runtime.evaluate", {
       expression: `performance.getEntriesByType("resource").filter((e) => ${X_API}.test(e.name)).length`,
@@ -2533,21 +2574,24 @@ const benchmarks = [
       await app(
         `[...document.querySelectorAll("nav button, aside button")].find((b) => b.textContent.trim() === "Grok" || b.getAttribute("aria-label") === "Grok")?.click(), true`,
       );
-      // Counts only: a chat's titles and words stay in X's page and the app page.
+      // Counts only are printed: a chat's titles are compared in this process, never shown.
       return until(async () => {
         if (!(await enginePath()).startsWith("/i/grok")) return undefined;
         const x = await engine(
-          `(() => ({ xweb: !!document.querySelector("fieldset[data-grok-composer]"), other: !!document.querySelector('main textarea, main [contenteditable="true"]') }))()`,
+          `(() => ({ xweb: !!document.querySelector("fieldset[data-grok-composer]") }))()`,
         );
-        // X's older Grok page (or its account link prompt) is X's own: it shows over the main area.
-        if (!x.xweb)
-          return (
-            x.other &&
-            (await app(
-              `document.querySelector('section[aria-label="x.com"]')?.dataset.mode === "main"`,
-            )) &&
-            "X's older Grok page, over the main area"
+        // X's older Grok client is drawn by Xtend: its rail holds the rows of X's own GrokHistory.
+        if (!x.xweb) {
+          if (grokHistory === null) return undefined;
+          const drawn = await app(
+            `[...document.querySelectorAll('[data-x="grok-history-row"]')].map((b) => b.textContent.trim())`,
           );
+          return (
+            drawn.length === grokHistory.length &&
+            grokHistory.slice(0, 5).every((title) => drawn.includes(title)) &&
+            `${drawn.length} of X's ${grokHistory.length} history rows, its first titles among them`
+          );
+        }
         const drawn = await app(`document.querySelectorAll('[data-x="grok-history-row"]').length`);
         const empty = await app(
           `!!document.querySelector('[aria-label="History"]')?.textContent.includes("No conversations yet")`,
@@ -2588,14 +2632,22 @@ const benchmarks = [
           rest: count((u) => u.includes("grok.com/rest/app-chat")),
         };
       })()`);
-      console.log(`      ${JSON.stringify(x)}`);
+      // Also what the bench saw since it attached, and what the window heard through the capture:
+      // Xtend's rail drawing X's history means X's GrokHistory reached it.
+      for (const kind of ["graphql", "stream", "rest"]) x[kind] = Math.max(x[kind], grokSeen[kind]);
+      const heard = await app(
+        `(() => { const h = document.querySelector('section[aria-label="History"]'); return !!h && !h.textContent.includes("Your history shows once X loads it"); })()`,
+      );
+      console.log(`      ${JSON.stringify({ ...x, heard })}`);
       const client = x.xweb ? "X's newer Grok client" : "X's older Grok client";
       const backend =
         x.rest > 0 && x.graphql === 0
           ? `grok.com REST (${x.rest} requests)`
           : x.graphql > 0
             ? `X's GraphQL (${x.graphql} Grok requests, ${x.stream} streamed)`
-            : "no Grok requests yet";
+            : !x.xweb && heard
+              ? "X's GraphQL (its GrokHistory reached the window)"
+              : "no Grok requests yet";
       return `${client}, ${backend}`;
     },
   ],
