@@ -11,6 +11,7 @@ import type {
   EngineUser,
 } from "@xtend/contracts";
 
+import { articlesPage } from "./articles.ts";
 import { chatPage } from "./chat.ts";
 import {
   type GraphqlRequest,
@@ -474,6 +475,10 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
   const lower = first.toLowerCase();
 
   if (lower === "i" && second === "radar" && fourth === undefined) return radarPage(state, third);
+  if (lower === "compose" && second === "articles") {
+    const page = articlesPage(state.articles, state.premium, url.pathname);
+    return { title: page.title, requests: page.requests, render: () => page.html };
+  }
   if (lower === "i" && second === "chat") {
     const page = chatPage(state.chat, url.pathname);
     return { title: page.title, requests: [], render: () => page.html };

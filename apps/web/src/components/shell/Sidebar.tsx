@@ -12,6 +12,7 @@ import {
   Mail,
   Bookmark,
   Compass,
+  FileText,
   UserPlus,
   UserRound,
   PenLine,
@@ -27,7 +28,7 @@ import {
   Settings,
   Sun,
 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
 
 import { isElectron } from "../../env";
 import { carriesLink, postFromTransfer } from "../../lib/drag";
@@ -83,6 +84,7 @@ const ICONS = {
   Lists: ListIcon,
   Communities: UsersRound,
   Follow: UserPlus,
+  Articles: FileText,
   Profile: UserRound,
   Compose: PenLine,
   Plan: CalendarDays,
@@ -302,6 +304,7 @@ const NATIVE: Readonly<Record<string, string>> = {
   Lists: "/lists",
   Follow: "/follow",
   Communities: "/communities",
+  Articles: "/articles",
 };
 
 /** X's own pages; each loads in the one x.com webview, shown in the main area. */
@@ -328,47 +331,72 @@ function XRows({ compact }: { readonly compact: boolean }) {
     { label: "Lists", path: "/i/lists" },
     { label: "Communities", path: "/i/communities" },
     { label: "Follow", path: "/i/connect_people" },
+    { label: "Articles", path: "/compose/articles" },
     ...(handle === null ? [] : [{ label: "Profile", path: `/${handle}` }]),
   ];
+  const searchStr = useLocation({ select: (l) => l.searchStr });
+  const articlesTab = new URLSearchParams(searchStr).get("tab");
   return (
     <>
       {pages.map((page) => (
-        <Tooltip key={page.label} disabled={!compact}>
-          <TooltipTrigger
-            render={
-              <button
-                aria-label={compact ? page.label : undefined}
-                type="button"
-                data-active={
-                  page.label === "Profile"
-                    ? pathname.toLowerCase() === `/u/${handle}`.toLowerCase()
-                    : NATIVE[page.label] !== undefined
-                      ? pathname === NATIVE[page.label] ||
-                        pathname.startsWith(`${NATIVE[page.label]}/`)
-                      : onX && (path === page.path || path.startsWith(`${page.path}/`))
-                }
-                className={cn(ROW, dragClass(dragging, false))}
-                onClick={() => {
-                  // Xtend draws these itself; the engine follows them off screen.
-                  const native = page.label === "Profile" ? `/u/${handle}` : NATIVE[page.label];
-                  // Clicked again on its own page, it loads fresh posts from the top, as X's does.
-                  if (native === pathname) return loadNewPosts();
-                  if (native !== undefined) return void navigate({ href: native });
-                  // A page already in the webview is only revealed; clicked again where it shows, it
-                  // reloads, like X's own Home.
-                  if (path !== page.path) xNavigate(`https://x.com${page.path}`);
-                  else if (onX || (pinned && panelOpen)) xReload();
-                  // Pinned beside a tool, X's pages open in the panel and the tool stays.
-                  if (pinned && !onX) setPanel(true);
-                  else void navigate({ to: "/x" });
-                }}
-              />
-            }
-          >
-            <RowBody label={page.label} count={page.count} compact={compact} />
-          </TooltipTrigger>
-          <TooltipPopup>{page.label}</TooltipPopup>
-        </Tooltip>
+        <Fragment key={page.label}>
+          <Tooltip disabled={!compact}>
+            <TooltipTrigger
+              render={
+                <button
+                  aria-label={compact ? page.label : undefined}
+                  type="button"
+                  data-active={
+                    page.label === "Profile"
+                      ? pathname.toLowerCase() === `/u/${handle}`.toLowerCase()
+                      : NATIVE[page.label] !== undefined
+                        ? pathname === NATIVE[page.label] ||
+                          pathname.startsWith(`${NATIVE[page.label]}/`)
+                        : onX && (path === page.path || path.startsWith(`${page.path}/`))
+                  }
+                  className={cn(ROW, dragClass(dragging, false))}
+                  onClick={() => {
+                    // Xtend draws these itself; the engine follows them off screen.
+                    const native = page.label === "Profile" ? `/u/${handle}` : NATIVE[page.label];
+                    // Clicked again on its own page, it loads fresh posts from the top, as X's does.
+                    // Articles has no posts to load: clicked from its editor, it goes back to its list.
+                    if (native === pathname && page.label !== "Articles") return loadNewPosts();
+                    if (native !== undefined) return void navigate({ href: native });
+                    // A page already in the webview is only revealed; clicked again where it shows, it
+                    // reloads, like X's own Home.
+                    if (path !== page.path) xNavigate(`https://x.com${page.path}`);
+                    else if (onX || (pinned && panelOpen)) xReload();
+                    // Pinned beside a tool, X's pages open in the panel and the tool stays.
+                    if (pinned && !onX) setPanel(true);
+                    else void navigate({ to: "/x" });
+                  }}
+                />
+              }
+            >
+              <RowBody label={page.label} count={page.count} compact={compact} />
+            </TooltipTrigger>
+            <TooltipPopup>{page.label}</TooltipPopup>
+          </Tooltip>
+          {/* Articles shows its sections under it while it is open, as a tool does. */}
+          {page.label === "Articles" && pathname === "/articles" && !compact
+            ? SECTIONS["/articles"].map((section) => (
+                <button
+                  key={section.id}
+                  type="button"
+                  data-active={
+                    (
+                      SECTIONS["/articles"].find((s) => s.id === articlesTab) ??
+                      SECTIONS["/articles"][0]
+                    ).id === section.id
+                  }
+                  className={SUB_ROW}
+                  onClick={() => void navigate({ href: `/articles?tab=${section.id}` })}
+                >
+                  <RowBody label={section.label} />
+                </button>
+              ))
+            : null}
+        </Fragment>
       ))}
     </>
   );

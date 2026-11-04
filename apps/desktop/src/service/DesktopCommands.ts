@@ -33,7 +33,7 @@ import {
   type OverlaySave,
   type OverlayReply,
 } from "../ipc/channels.ts";
-import { X_COMPOSER, X_REPLY_ROWS } from "../overlay/xDom.ts";
+import { X_ARTICLE, X_ARTICLE_REPLIES, X_COMPOSER, X_REPLY_ROWS } from "../overlay/xDom.ts";
 
 const RECONNECT_MS = 2_000;
 const POLL_MS = 250;
@@ -269,6 +269,14 @@ export function commandRunner(deps: CommandRunnerDeps) {
         if (!enabled) throw new NotAttempted("session posting is off in Settings");
         await dmThroughComposer(deps.contents, deps.cdp, command, deadline);
         return { type: "sessionDm" };
+      }
+      case "sessionArticle": {
+        const enabled = await deps.sessionPostingEnabled().catch((error: unknown) => {
+          throw untouched(error);
+        });
+        if (!enabled) throw new NotAttempted("session posting is off in Settings");
+        const postId = await articleThroughEditor(deps.contents, deps.cdp, command, deadline);
+        return { type: "sessionArticle", postId };
       }
     }
   };
@@ -995,5 +1003,137 @@ export async function dmThroughComposer(
   await click(cdp, await waitForNode(cdp, send, step(COMPOSER_TIMEOUT_MS), enabled));
   await waitForNode(cdp, send, step(CREATED_TIMEOUT_MS), (attrs) => !enabled(attrs)).catch(() => {
     throw new Error("x.com did not confirm the message");
+  });
+}
+
+const PATHNAME = "location.pathname";
+const pathname = async (cdp: Cdp) =>
+  String(
+    (
+      (await cdp("Runtime.evaluate", { expression: PATHNAME, returnByValue: true })) as {
+        result: { value: unknown };
+      }
+    ).result.value,
+  );
+
+/** Resolves with the first match of `route` on the page's path; fails at `deadline`. */
+async function waitForRoute(cdp: Cdp, route: RegExp, deadline: number): Promise<string> {
+  const match = route.exec(await pathname(cdp));
+  if (match !== null) return match[1]!;
+  if (Date.now() >= deadline) throw new Error(`x.com did not open ${route.source}`);
+  await sleep(POLL_MS);
+  return waitForRoute(cdp, route, deadline);
+}
+
+/** The button under `where` that says `word`, once X turns it on; fails at `deadline`. */
+async function enabledText(
+  cdp: Cdp,
+  where: string,
+  word: string,
+  deadline: number,
+): Promise<number> {
+  const button = await waitForText(
+    cdp,
+    `${where} [role="button"], ${where} button`,
+    word,
+    deadline,
+  );
+  if (enabled(await attributes(cdp, button))) return button;
+  if (Date.now() >= deadline) throw new Error(`x.com kept ${word} off`);
+  await sleep(POLL_MS);
+  return enabledText(cdp, where, word, deadline);
+}
+
+// X's editor is Draft.js: a paste event with HTML on its clipboard is what pasting does, and X's
+// own paste handler turns it into X's blocks.
+const PASTE = `function (html) {
+  const text = document.createElement("div");
+  text.innerHTML = html;
+  const data = new DataTransfer();
+  data.setData("text/html", html);
+  data.setData("text/plain", text.innerText);
+  this.focus();
+  this.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+  return this.textContent.trim() !== "";
+}`;
+
+/**
+ * Publishes an Article through X's own editor, as the user would: X's create on its Articles page,
+ * the title typed, the cover picked in X's own file input and applied in X's crop dialog, the body
+ * pasted once, then X's Publish, who can reply and the caption in X's dialog, and its Publish.
+ * Before that last press a failure has published nothing, though X keeps the draft it made.
+ */
+async function articleThroughEditor(
+  contents: Pick<Electron.WebContents, "loadURL">,
+  cdp: Cdp,
+  command: Extract<DesktopCommand, { type: "sessionArticle" }>,
+  deadline: number,
+): Promise<string> {
+  const step = (ms: number) => Math.min(Date.now() + ms, deadline);
+  const create = await until(
+    contents.loadURL(X_ARTICLE.home),
+    deadline,
+    "x.com's Articles did not load",
+  )
+    .then(() => waitForNode(cdp, X_ARTICLE.create, step(COMPOSER_TIMEOUT_MS)))
+    .catch(() => {
+      throw new NotAttempted(
+        "X shows no Articles for this account (Premium on X); nothing was published",
+      );
+    });
+  const kept = (error: unknown) =>
+    new NotAttempted(
+      `${error instanceof Error ? error.message : String(error)}; nothing was published, and X keeps the draft it made in its Articles`,
+    );
+  const ready = async () => {
+    await click(cdp, create);
+    await waitForRoute(cdp, X_ARTICLE.editRoute, step(COMPOSER_TIMEOUT_MS));
+    await click(cdp, await waitForNode(cdp, X_ARTICLE.title, step(COMPOSER_TIMEOUT_MS)));
+    await cdp("Input.insertText", { text: command.title });
+    if (command.coverPath !== undefined) {
+      const input = await waitForNode(cdp, X_ARTICLE.coverInput, step(CONTROL_TIMEOUT_MS));
+      await cdp("DOM.setFileInputFiles", { nodeId: input, files: [command.coverPath] });
+      await click(
+        cdp,
+        await waitForNode(cdp, X_ARTICLE.coverApply, step(COMPOSER_TIMEOUT_MS), enabled),
+      );
+      // The upload may take what is left.
+      await waitForNode(cdp, X_ARTICLE.coverSaved, deadline);
+    }
+    const body = await waitForNode(cdp, X_ARTICLE.body, step(CONTROL_TIMEOUT_MS));
+    if ((await callOn(cdp, body, PASTE, command.html)) !== true)
+      throw new Error("x.com's editor did not take the paste");
+    // X saves the content a few seconds after the paste; Publish stays off until it has.
+    await click(cdp, await enabledText(cdp, "main", X_ARTICLE.publishWord, deadline));
+    await waitForNode(cdp, `${X_ARTICLE.dialog} ${X_ARTICLE.caption}`, step(COMPOSER_TIMEOUT_MS));
+    const reply = command.replySettings;
+    if (reply !== undefined && reply !== "everyone") {
+      const select = await waitForNode(
+        cdp,
+        `${X_ARTICLE.dialog} ${X_ARTICLE.replyControl}`,
+        step(CONTROL_TIMEOUT_MS),
+      );
+      if ((await pick(cdp, select, X_ARTICLE_REPLIES[reply])) !== true)
+        throw new Error("x.com's Publish dialog did not take who can reply");
+    }
+    if (command.caption !== undefined) {
+      await click(
+        cdp,
+        await waitForNode(
+          cdp,
+          `${X_ARTICLE.dialog} ${X_ARTICLE.caption}`,
+          step(CONTROL_TIMEOUT_MS),
+        ),
+      );
+      await cdp("Input.insertText", { text: command.caption });
+    }
+    return enabledText(cdp, X_ARTICLE.dialog, X_ARTICLE.publishWord, step(CONTROL_TIMEOUT_MS));
+  };
+  const confirm = await ready().catch((error: unknown) => {
+    throw kept(error);
+  });
+  await click(cdp, confirm);
+  return waitForRoute(cdp, X_ARTICLE.publishedRoute, step(CREATED_TIMEOUT_MS)).catch(() => {
+    throw new Error("x.com did not confirm the Article");
   });
 }

@@ -8,6 +8,7 @@ import type {
   EnginePost,
   EngineProfileSave,
   EngineUser,
+  EngineXArticle,
 } from "@xtend/contracts";
 import { expect, it } from "vite-plus/test";
 
@@ -1315,4 +1316,33 @@ it("keeps X's Radar: its list in X's order, a query's days as X finishes countin
     radar.posts.get("7")?.liked,
     at(radar.lists, surface),
   ]).toEqual([["5"], ["6", "5"], true, ["7"]]);
+});
+
+it("keeps the user's own X Articles: each list as X last sent it, and a body X sent once", () => {
+  const article = (id: string, blocks: EngineXArticle["blocks"] = null): EngineXArticle => ({
+    id,
+    title: `T${id}`,
+    preview: "",
+    lifecycle: "Draft",
+    modifiedAt: null,
+    postId: null,
+    coverUrl: null,
+    blocks,
+  });
+  const body = [
+    { key: "a", type: "unstyled", text: "hi", styles: [], links: [], images: [], markdown: null },
+  ];
+  const state = [
+    batch("ArticleEntityResultByRestId", [], { xArticles: [article("1", body)] }),
+    batch("ArticleEntitiesSlice", [], {
+      key: "articles:Draft",
+      xArticles: [article("2"), article("1")],
+    }),
+    batch("ArticleEntitiesSlice", [], { key: "articles:Published", xArticles: [] }),
+  ].reduce(mergeBatch, emptyEngine);
+  expect([
+    state.xArticles.Draft,
+    state.xArticles.Published,
+    state.xArticles.byId.get("1")?.blocks,
+  ]).toEqual([["2", "1"], [], body]);
 });

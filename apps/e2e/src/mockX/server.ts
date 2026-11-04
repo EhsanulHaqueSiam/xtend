@@ -51,6 +51,11 @@ const WRITES = new Set([
   "RemoveTweetFromBookmarkFolder",
   "createInsightInputMutation",
   "deleteInsightButtonMutation",
+  "ArticleEntityDraftCreate",
+  "ArticleEntityUpdateTitle",
+  "ArticleEntityUpdateContent",
+  "ArticleEntityUpdateCoverMedia",
+  "ArticleEntityPublish",
 ]);
 /** X sends Home's timelines as POSTs, its other reads as GETs. */
 const POSTED = new Set(["HomeTimeline", "HomeLatestTimeline"]);

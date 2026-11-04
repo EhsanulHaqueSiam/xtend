@@ -2,6 +2,7 @@ import type {
   EngineAccountAnalytics,
   EngineArticle,
   EngineArticleBlock,
+  EngineXArticle,
   EngineRecord,
   EngineBatch,
   EngineBookmarkFolder,
@@ -188,9 +189,15 @@ function readUnifiedCard(raw: unknown): EngineCard | null {
  */
 function readArticle(tweet: Json): EngineArticle | undefined {
   const postId = asString(tweet.rest_id);
-  const article = result(record(tweet.article).article_results);
+  const blocks = readArticleBlocks(result(record(tweet.article).article_results));
+  if (postId === undefined || !X_ID.test(postId) || blocks === undefined) return undefined;
+  return { postId, blocks };
+}
+
+/** An Article's `content_state` as blocks (see `readArticle`); undefined when X sent no body. */
+function readArticleBlocks(article: Json): Array<EngineArticleBlock> | undefined {
   const state = record(article.content_state);
-  if (postId === undefined || !X_ID.test(postId) || !Array.isArray(state.blocks)) return undefined;
+  if (!Array.isArray(state.blocks)) return undefined;
   const images = new Map(
     arr(article.media_entities).flatMap((m) => {
       const id = asString(record(m).media_id);
@@ -220,7 +227,7 @@ function readArticle(tweet: Json): EngineArticle | undefined {
     }),
   );
   const span = (r: Json) => ({ offset: asNumber(r.offset), length: asNumber(r.length) });
-  const blocks = state.blocks.filter(isRecord).map((block, i): EngineArticleBlock => {
+  return state.blocks.filter(isRecord).map((block, i): EngineArticleBlock => {
     const used = arr(block.entityRanges).flatMap((r) => {
       const entity = entities.get(String(record(r).key));
       return entity === undefined ? [] : [{ range: record(r), entity, data: record(entity.data) }];
@@ -250,7 +257,45 @@ function readArticle(tweet: Json): EngineArticle | undefined {
         )[0] ?? null,
     };
   });
-  return { postId, blocks };
+}
+
+/**
+ * The user's own Articles from X's Articles page (bundle.TwitterArticles): its Drafts or Published
+ * list (ArticleEntitiesSlice), or the one Article its preview loads with its body
+ * (ArticleEntityResultByRestId).
+ */
+function readXArticles(op: string, data: Json): { readonly xArticles?: Array<EngineXArticle> } {
+  const found =
+    op === "ArticleEntitiesSlice"
+      ? arr(record(result(data.user).articles_article_mixer_slice).items).map((i) =>
+          result(record(i).article_entity_results),
+        )
+      : op === "ArticleEntityResultByRestId"
+        ? [result(data.article_result_by_rest_id)]
+        : null;
+  if (found === null) return {};
+  return {
+    xArticles: found.flatMap((a): Array<EngineXArticle> => {
+      const id = asString(a.rest_id);
+      if (id === undefined || !X_ID.test(id)) return [];
+      const lifecycle = record(a.lifecycle_state);
+      const modified =
+        asNumber(lifecycle.modified_at_secs) || asNumber(record(a.metadata).modified_at_secs);
+      const postId = asString(result(record(a.metadata).tweet_results).rest_id);
+      return [
+        {
+          id,
+          title: asString(a.title) ?? "",
+          preview: asString(a.preview_text) ?? "",
+          lifecycle: lifecycle.lifecycle === "Published" ? "Published" : "Draft",
+          modifiedAt: modified > 0 ? new Date(modified * 1000).toISOString() : null,
+          postId: postId !== undefined && X_ID.test(postId) ? postId : null,
+          coverUrl: asString(record(record(a.cover_media).media_info).original_img_url) ?? null,
+          blocks: readArticleBlocks(a) ?? null,
+        },
+      ];
+    }),
+  };
 }
 
 /** A post's entities as X lists them: a long post's live with its full text in note_tweet. */
@@ -1078,6 +1123,8 @@ function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExp
   const s = (k: string) => asString(variables[k]);
   // One list per query; X's picker opens on its empty query.
   if (op === "GifSearch") return `gifs:${s("query") ?? ""}`;
+  // X's Articles page lists Drafts and Published apart.
+  if (op === "ArticleEntitiesSlice") return `articles:${s("lifecycle") ?? "Draft"}`;
   if (op === "HomeTimeline") return s("tag") === undefined ? null : `tag:${s("tag")}`;
   // A search inside a Community, one list per order and query; Top is X's default, by likes.
   if (op === "CommunityTweetSearchModuleQuery")
@@ -1383,6 +1430,7 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     ...(folders === undefined ? {} : { bookmarkFolders: folders }),
     ...(claims === undefined ? {} : { claims }),
     ...readRadar(op, data),
+    ...readXArticles(op, data),
     ...(listDeleted === undefined ? {} : { listDeleted }),
     ...(pinnedLists === undefined ? {} : { pinnedLists }),
   };
@@ -1987,4 +2035,6 @@ export const hasEngineContent = (b: EngineBatch) =>
   b.radarCounts !== undefined ||
   b.radarDeleted !== undefined ||
   b.listDeleted !== undefined ||
+  // X's Articles lists, an empty one included: the screen says it has none.
+  b.xArticles !== undefined ||
   (b.op === "postListQuery" && b.key !== null);

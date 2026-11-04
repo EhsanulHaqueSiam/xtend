@@ -19,6 +19,7 @@ import type {
   EngineProfileSave,
   EnginePrompt,
   EngineRadarCount,
+  EngineXArticle,
   EngineRadarQuery,
   EngineStory,
   EngineTrend,
@@ -458,6 +459,7 @@ export interface EngineState {
   /** Whether X's composer lets the account format, as X's page last drew it; null until it has. */
   readonly formatting: boolean | null;
   readonly radar: Radar;
+  readonly xArticles: XArticles;
   /** The page cursors X last answered per surface, to tell a fetch of newer posts from the next page. */
   readonly cursors: Readonly<
     Partial<Record<AnySurface, { readonly top: string | null; readonly bottom: string | null }>>
@@ -585,6 +587,7 @@ export const emptyEngine: EngineState = {
   nbaDay: null,
   formatting: null,
   radar: { list: null, queries: new Map(), limit: null, counts: new Map() },
+  xArticles: { byId: new Map(), Draft: null, Published: null },
   cursors: {},
   claims: null,
   bookmarkFolders: null,
@@ -770,6 +773,7 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
     bookmarkFolders: foldersOf(state.bookmarkFolders, batch),
     ...folderPost(state, batch),
     radar: mergeRadar(state.radar, batch),
+    xArticles: mergeXArticles(state.xArticles, batch),
   };
   const listed = surfacesOf(batch).reduce(
     (state, surface) =>
@@ -1026,6 +1030,29 @@ function mergeRadar(radar: Radar, batch: EngineBatch): Radar {
     queries,
     limit: batch.radarLimit ?? radar.limit,
     counts,
+  };
+}
+
+/** The user's own Articles on x.com, as X's Articles page listed and previewed them. */
+interface XArticles {
+  readonly byId: ReadonlyMap<string, EngineXArticle>;
+  /** Each list's ids in X's order, once X listed it. */
+  readonly Draft: ReadonlyArray<string> | null;
+  readonly Published: ReadonlyArray<string> | null;
+}
+
+/** X's list replaces the one it names; a body X sent once stays when the list row comes without it. */
+function mergeXArticles(known: XArticles, batch: EngineBatch): XArticles {
+  const { xArticles, key } = batch;
+  if (xArticles === undefined) return known;
+  const byId = new Map(known.byId);
+  for (const a of xArticles)
+    byId.set(a.id, a.blocks === null ? { ...a, blocks: known.byId.get(a.id)?.blocks ?? null } : a);
+  const ids = xArticles.map((a) => a.id);
+  return {
+    byId,
+    Draft: key === "articles:Draft" ? ids : known.Draft,
+    Published: key === "articles:Published" ? ids : known.Published,
   };
 }
 

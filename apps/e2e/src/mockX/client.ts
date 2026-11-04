@@ -306,6 +306,8 @@ const SCRIPT = String.raw`
     closeLayers();
     // X's Radar asks afresh each time its page shows (network-only), so it is never cached.
     if (path.startsWith("/i/radar")) cache.delete(key);
+    // So do X's Articles pages: the editor and the lists read the Article afresh.
+    if (path.startsWith("/compose/articles")) cache.delete(key);
     let entry = cache.get(key);
     if (!entry) {
       const view = await load(path);
@@ -967,6 +969,97 @@ const SCRIPT = String.raw`
         ],
       });
     } else go("/i/radar/" + el.dataset.radarRow, false);
+  }, true);
+
+  // X's Articles: its pen makes a draft and opens X's editor. The editor saves its title, and its
+  // content a moment after each change (Publish stays off meanwhile); a cover goes up through X's
+  // crop dialog's Apply; Publish opens X's dialog, whose Publish publishes and opens the post.
+  const articleOp = (op, variables) => post("/i/api/graphql/" + window.__mockHash[op] + "/" + op, { variables });
+  const articleId = () => document.querySelector("[data-mock-article]")?.dataset.mockArticle;
+  const BLOCK_TYPES = { H1: "header-one", H2: "header-two", BLOCKQUOTE: "blockquote" };
+  let saving = 0;
+  const canPublish = () => {
+    const root = document.querySelector("[data-mock-article]");
+    const publish = root?.querySelector("[data-article-publish]");
+    if (!publish) return;
+    const ready = saving === 0 && root.querySelector("textarea").value.trim() !== "" && root.querySelector("[contenteditable]").textContent.trim() !== "";
+    publish.disabled = !ready;
+    publish.setAttribute("aria-disabled", String(!ready));
+    root.querySelector("[data-save]").textContent = saving > 0 ? "Saving..." : "Saved";
+  };
+  const save = (op, variables) => {
+    saving++;
+    canPublish();
+    setTimeout(() => void articleOp(op, variables).finally(() => { saving--; canPublish(); }), 400);
+  };
+  document.addEventListener("input", (event) => {
+    const field = event.target;
+    if (!(field instanceof HTMLTextAreaElement) || !field.closest("[data-mock-article]")) return;
+    save("ArticleEntityUpdateTitle", { articleEntityId: articleId(), title: field.value });
+  });
+  document.addEventListener("paste", (event) => {
+    const box = event.target instanceof Element ? event.target.closest('[data-testid="composer"] [contenteditable]') : null;
+    if (!box) return;
+    event.preventDefault();
+    const html = event.clipboardData.getData("text/html");
+    log("article:paste", html);
+    // X's editor keeps the paste's blocks and styles (convertFromHTML); the mock keeps the markup.
+    box.innerHTML = html;
+    const blocks = [...box.querySelectorAll(":scope > *, :scope > ul > li, :scope > ol > li")]
+      .filter((el) => el.tagName !== "UL" && el.tagName !== "OL")
+      .map((el) => ({ type: el.tagName === "LI" ? (el.parentElement.tagName === "OL" ? "ordered-list-item" : "unordered-list-item") : BLOCK_TYPES[el.tagName] ?? "unstyled", text: el.textContent }));
+    save("ArticleEntityUpdateContent", { article_entity: articleId(), content_state: { blocks, entityMap: [] } });
+  }, true);
+  document.addEventListener("change", (event) => {
+    const input = event.target;
+    if (!(input instanceof HTMLInputElement) || input.type !== "file" || !input.closest("[data-article-cover]")) return;
+    log("article:cover", input.files[0]?.name ?? "");
+    closeLayers();
+    const box = document.createElement("div");
+    box.className = "dialog";
+    box.setAttribute("role", "dialog");
+    box.innerHTML = '<h2>Edit media</h2><button type="button" data-testid="applyButton" data-article-apply>Apply</button>';
+    layers.append(box);
+  });
+  document.addEventListener("click", (event) => {
+    const el = event.target instanceof Element ? event.target.closest("[data-article-create], [data-article-apply], [data-article-publish], [data-article-confirm]") : null;
+    if (!el) return;
+    event.stopPropagation();
+    const id = articleId();
+    if (el.dataset.articleCreate !== undefined) {
+      log("article:create");
+      void articleOp("ArticleEntityDraftCreate", { content_state: { blocks: [], entityMap: [] }, title: "" })
+        .then((r) => go("/compose/articles/edit/" + r.data.articleentity_create_draft.article_entity_results.result.rest_id, false));
+    } else if (el.dataset.articleApply !== undefined) {
+      log("article:apply");
+      closeLayers();
+      const media = "1960000000000000001";
+      saving++;
+      canPublish();
+      void articleOp("ArticleEntityUpdateCoverMedia", { articleEntityId: id, coverMedia: { media_id: media, media_category: "DraftTweetImage" } }).then(() => {
+        document.querySelector("[data-article-cover]").innerHTML = '<img alt="" src="https://pbs.twimg.com/media/' + media + '.jpg">';
+        saving--;
+        canPublish();
+      });
+    } else if (el.dataset.articlePublish !== undefined) {
+      if (el.disabled) return;
+      log("article:publish");
+      closeLayers();
+      const box = document.createElement("div");
+      box.className = "dialog";
+      box.setAttribute("role", "dialog");
+      box.innerHTML = '<h2>Publish Article</h2><h3>Who can reply?</h3><select data-testid="convoControl"><option value="All">Everyone</option><option value="Community">Accounts you follow</option><option value="Verified">Verified accounts</option><option value="ByInvitation">Only accounts you mention</option></select><textarea name="articleTweetText" data-testid="articleTweetTextInput" placeholder="Provide a caption (optional)"></textarea><button type="button" data-article-confirm>Publish</button>';
+      layers.append(box);
+    } else {
+      const dialog = el.closest('[role="dialog"]');
+      const mode = dialog.querySelector("select").value;
+      const caption = dialog.querySelector("textarea").value.trim();
+      log("article:confirm");
+      void articleOp("ArticleEntityPublish", { articleEntityId: id, visibilitySetting: "Public", ...(caption === "" ? {} : { tweetText: caption }), ...(mode === "All" ? {} : { conversationControl: { mode } }) }).then((r) => {
+        closeLayers();
+        go("/you/status/" + r.data.articleentity_publish.article_entity_results.result.metadata.tweet_results.result.rest_id, false);
+      });
+    }
   }, true);
 
   void show();

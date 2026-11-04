@@ -78,8 +78,8 @@ const layerTest = Publisher.layer.pipe(
       desktopStub(desktopCalls, (command) =>
         desktop.answer === "ok"
           ? (Effect.succeed(
-              command.type === "sessionPost"
-                ? { type: "sessionPost", postId: `${desktopCalls.length}0` }
+              command.type === "sessionPost" || command.type === "sessionArticle"
+                ? { type: command.type, postId: `${desktopCalls.length}0` }
                 : { type: command.type },
             ) as never)
           : Effect.fail(new DesktopUnavailableError({ reason: desktop.answer, detail: "test" })),
@@ -413,6 +413,65 @@ describe("Publisher", () => {
         const out = yield* publisher.post(d.id, scheduled);
         expect(out.status).toBe("failed");
         expect(out.error).toContain("Post 1 may already be on X");
+      }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect(
+    "a clicked article goes through X's own editor as one paste, its caption with it, and never pays the API",
+    () =>
+      Effect.gen(function* () {
+        reset();
+        const drafts = yield* DraftStore.DraftStore;
+        const publisher = yield* Publisher.Publisher;
+        const d = yield* drafts.create({
+          kind: "article",
+          title: "Two plans",
+          body: "# Why\n\nIt **worked**",
+          replySettings: "following",
+        });
+        // The articles fake dies on publish, so the API lane would fail the test.
+        const out = yield* publisher.post(d.id, { ...postNow, clicked: true, caption: "Read it" });
+        expect(out.status).toBe("posted");
+        expect(out.postIds).toEqual(["10"]);
+        expect(desktopCalls).toEqual([
+          {
+            type: "sessionArticle",
+            title: "Two plans",
+            html: "<h1>Why</h1><p>It <strong>worked</strong></p>",
+            replySettings: "following",
+            caption: "Read it",
+          },
+        ]);
+      }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect(
+    "an article refuses, before X or treg sees it, what its lane cannot carry, in X's own words first",
+    () =>
+      Effect.gen(function* () {
+        reset();
+        const drafts = yield* DraftStore.DraftStore;
+        const publisher = yield* Publisher.Publisher;
+        const untitled = yield* drafts.create({ kind: "article", title: "", body: "text" });
+        expect((yield* publisher.post(untitled.id, { ...postNow, clicked: true })).error).toBe(
+          "Your Article needs a title before publishing.",
+        );
+        // X's paste drops a divider, so Publish now refuses it rather than lose it.
+        const divided = yield* drafts.create({ kind: "article", title: "T", body: "a\n\n---" });
+        expect((yield* publisher.post(divided.id, { ...postNow, clicked: true })).error).toContain(
+          "Insert menu",
+        );
+        expect(desktopCalls).toEqual([]);
+        // X's publish endpoint takes no reply setting.
+        const replies = yield* drafts.create({
+          kind: "article",
+          title: "T",
+          body: "a",
+          replySettings: "following",
+        });
+        expect((yield* publisher.post(replies.id, scheduled)).error).toContain(
+          "everyone can reply",
+        );
       }).pipe(Effect.provide(layerTest)),
   );
 

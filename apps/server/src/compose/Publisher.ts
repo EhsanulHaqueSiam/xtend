@@ -1,4 +1,5 @@
 import {
+  articleBlocker,
   charCount,
   ComposeError,
   type DesktopUnavailableError,
@@ -7,6 +8,7 @@ import {
   type PickedGif,
   type PostCommunity,
   POST_LIMIT,
+  toPasteHtml,
   type XApiError,
   XId,
 } from "@xtend/contracts";
@@ -64,10 +66,7 @@ const mayHavePosted = (e: ComposeError | XApiError | DesktopUnavailableError) =>
  * halfway. `gif`: the click picked one for the first post; `community`, the first post's audience.
  */
 const refusal = (draft: Draft, gif: boolean, community: boolean): string | null => {
-  if (draft.kind === "article")
-    return draft.title.trim() === "" || draft.body.trim() === ""
-      ? "Article needs a title and a body"
-      : null;
+  if (draft.kind === "article") return articleBlocker(draft.title, draft.body);
   const hasMedia = (i: number) => draft.media.some((m) => m.blockIndex === i) || (i === 0 && gif);
   // A post may be only media or only the quote link, but not nothing.
   const blank = draft.blocks.findIndex((_, i) => blockText(draft, i).trim() === "" && !hasMedia(i));
@@ -111,6 +110,8 @@ export class Publisher extends Context.Service<
         readonly gif?: PickedGif;
         /** The first post's audience, set in X's own composer; only the session can post to one. */
         readonly community?: PostCommunity;
+        /** An Article's caption for X's Publish dialog; only the session can set one. */
+        readonly caption?: string;
       },
     ) => Effect.Effect<Draft, ComposeError>;
   }
@@ -202,9 +203,56 @@ const make = Effect.gen(function* () {
     return ids;
   });
 
-  const postArticle = Effect.fn("Publisher.postArticle")(function* (draft: Draft, purpose: string) {
+  const postArticle = Effect.fn("Publisher.postArticle")(function* (
+    draft: Draft,
+    purpose: string,
+    clicked: boolean,
+    caption: string | undefined,
+  ) {
     // Already published by an attempt that failed afterwards; publishing again would pay twice.
     if (draft.postIds.length > 0) return [...draft.postIds];
+    const cover = draft.media.find((m) => m.blockIndex === 0 && m.kind === "image");
+    if (clicked) {
+      // The user's click goes through X's own editor, free; X's paste keeps only text blocks.
+      const html = toPasteHtml(draft.body);
+      if (html === null)
+        return yield* new ComposeError({
+          operation: "articlePublish",
+          detail:
+            "X's editor takes code, Markdown, LaTeX, dividers and posts only from its own Insert menu: Queue or Schedule sends them through the X API",
+        });
+      const { postId } = yield* session
+        .article({
+          title: draft.title,
+          html,
+          replySettings: draft.replySettings,
+          ...(cover === undefined ? {} : { coverPath: cover.path }),
+          ...(caption === undefined ? {} : { caption }),
+        })
+        .pipe(
+          Effect.mapError((e) =>
+            mayHavePosted(e) ? new Unconfirmed({ post: 1, detail: e.message }) : e,
+          ),
+        );
+      if (!isXId(postId))
+        return yield* new Unconfirmed({
+          post: 1,
+          detail: "X answered the article without a post id",
+        });
+      yield* drafts.setOutcome(draft.id, { postIds: [postId] });
+      return [postId];
+    }
+    // X's publish endpoint takes no reply setting or caption, and treg uploads no media yet.
+    if (cover !== undefined)
+      return yield* new ComposeError({
+        operation: "articlePublish",
+        detail: "A cover goes out only with Publish now: the X API lane cannot upload media yet",
+      });
+    if (draft.replySettings !== "everyone")
+      return yield* new ComposeError({
+        operation: "articlePublish",
+        detail: "Through the X API everyone can reply: Publish now sets who can reply",
+      });
     // A publish that timed out may be live on X; like a post, it is never retried on its own.
     const { articleId, postId } = yield* articles
       .publish(draft, purpose)
@@ -238,6 +286,7 @@ const make = Effect.gen(function* () {
       readonly sessionOnly?: boolean;
       readonly gif?: PickedGif;
       readonly community?: PostCommunity;
+      readonly caption?: string;
     },
   ) {
     // Read after the claim so the editor's last autosave is what goes out.
@@ -249,7 +298,7 @@ const make = Effect.gen(function* () {
         ? { error: failure, ids: [] as ReadonlyArray<string>, retryable: false }
         : yield* (
             draft.kind === "article"
-              ? postArticle(draft, options.purpose)
+              ? postArticle(draft, options.purpose, options.clicked === true, options.caption)
               : postBlocks(
                   draft,
                   options.purpose,
@@ -302,6 +351,7 @@ const make = Effect.gen(function* () {
       readonly sessionOnly?: boolean;
       readonly gif?: PickedGif;
       readonly community?: PostCommunity;
+      readonly caption?: string;
     },
   ) {
     if (!(yield* drafts.claim(id, options.due)))

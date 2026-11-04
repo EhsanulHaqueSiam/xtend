@@ -127,11 +127,6 @@ const refusals: ReadonlyArray<readonly [string, Partial<Draft>, string | null]> 
     },
     "A poll cannot share the first post with media",
   ],
-  [
-    "an article without a body",
-    { kind: "article", title: "How I ship", body: "" },
-    "Article needs a title and a body",
-  ],
   // The publisher posts a first post that is only the quote link.
   [
     "a post that is only a quote",
@@ -210,19 +205,7 @@ it("locks the editor when the scheduler claims the open draft", async () => {
     .not.toBeInTheDocument();
 });
 
-it("offers no editable field on a posted article or a posted thread's options", async () => {
-  const article = draft("a1", "posted", {
-    kind: "article",
-    title: "How I ship",
-    body: "Every day.",
-    postIds: ["21"],
-  });
-  {
-    await using screen = await render(editor("a1"), { service: editorService(() => [article]) });
-    await expect.element(screen.getByPlaceholder("Title")).toBeDisabled();
-    await expect.element(screen.getByPlaceholder("Describe the cover image")).toBeDisabled();
-    await expect.element(screen.getByRole("button", { name: "Upload" })).toBeDisabled();
-  }
+it("offers no editable field on a posted thread's options", async () => {
   const thread = draft("t1", "posted", { postIds: ["31"] });
   await using screen = await render(editor("t1"), { service: editorService(() => [thread]) });
   await expect.element(screen.getByLabelText("Post 1")).toBeDisabled();
@@ -406,16 +389,6 @@ it("saves edits made while a save is running before it queues", async () => {
   await userEvent.click(screen.getByRole("button", { name: /^Queue/ }));
   release();
   await expect.poll(() => order).toEqual(["save first", "save first, then more", "queue"]);
-});
-
-it("holds back an article until its publish price is known", async () => {
-  const article = draft("a1", "draft", { kind: "article", title: "How I ship", body: "Daily." });
-  await using screen = await render(editor("a1"), {
-    service: { ...editorService(() => [article]), "compose.quote": () => Effect.never },
-  });
-  await expect.element(screen.getByLabelText("Title")).toHaveValue("How I ship");
-  await expect.element(screen.getByRole("button", { name: /^Post now/ })).toBeDisabled();
-  await expect.element(screen.getByRole("button", { name: /^Queue/ })).toBeDisabled();
 });
 
 const pasteInto = (target: HTMLElement, text: string) => {

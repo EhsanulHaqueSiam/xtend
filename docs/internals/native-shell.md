@@ -86,6 +86,19 @@ composer node and the message ids X draws (each one conversation's own), checked
 press, then pins the one new message with its text; with no message drawn there is no identity,
 so a conversation's first message is written in X's page. One send at a time (`chatWriteAtom`).
 
+Articles are Xtend drafts written in Xtend's editor; X's own drafts are only read, off X's
+Articles page (ArticleEntitiesSlice) and its preview (ArticleEntityResultByRestId). X's editor
+is Draft.js and saves every change a few seconds after it (ArticleEntityUpdateContent), so
+anything typed into it is X's at once: Xtend never edits an X draft. Publish now
+(`articleThroughEditor` in the desktop's commands, for the click) presses X's pen for a fresh
+draft, types the title, puts the cover through X's own file input and crop dialog, and pastes
+the body once as HTML (`toPasteHtml`): X's paste handler keeps paragraphs, Heading, Subheading,
+quotes, lists, bold, italic, strikethrough and links, and drops atomic blocks, which is why a
+body with code, LaTeX, a divider or a post goes out through the API instead. Publish stays off
+until X has saved. X's two Publish buttons have no test id, only X's word. X gates the pages on
+`subscriptions_feature_article_composer`, which no claim the capture sees carries, and answers
+them with "Page not found" without it, so access is read from X's page: its pen, or none.
+
 The read-only benchmark (`apps/desktop/scripts/engine-bench.mjs`) checks every surface against a
 dev desktop on the real account; its only write is a bookmark it removes again.
 

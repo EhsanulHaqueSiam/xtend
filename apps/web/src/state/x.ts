@@ -583,6 +583,27 @@ export const xRadarUpsell = async (loaded: Promise<unknown>) => {
   );
 };
 
+/** X's Articles page (bundle.TwitterArticles): the user's Drafts and Published, and X's pen. */
+export const ARTICLES_URL = "https://x.com/compose/articles";
+
+/**
+ * Whether X gives this account its Articles once `loaded` settles: true when X draws its Articles
+ * page (its pen, `aria-label="create"`), false when X answers the page with its "Page not found",
+ * as it does without Premium (`subscriptions_feature_article_composer`). Null when the engine left
+ * the page first. Reads only.
+ */
+export const xArticlesAccess = async (loaded: Promise<unknown>) => {
+  await loaded;
+  const seen = await xRun(`(async () => {
+    for (let i = 0; i < 60 && location.pathname === "/compose/articles"; i++) {
+      if (document.querySelector('[aria-label="create"]')) return true;
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    return location.pathname === "/compose/articles" ? false : null;
+  })()`);
+  return typeof seen === "boolean" ? seen : null;
+};
+
 /**
  * Creates a Radar query for the user's click through X's own form on its new-query page: the field
  * set as typing sets it, then X's own Submit (its arrow), so X sends its own request. Resolves to

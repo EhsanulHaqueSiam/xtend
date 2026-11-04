@@ -27,6 +27,7 @@ import { Route as ComposeRouteImport } from './routes/compose'
 import { Route as ChatRouteImport } from './routes/chat'
 import { Route as BookmarksRouteImport } from './routes/bookmarks'
 import { Route as AutomateRouteImport } from './routes/automate'
+import { Route as ArticlesRouteImport } from './routes/articles'
 import { Route as AnalyzeRouteImport } from './routes/analyze'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as NbaIndexRouteImport } from './routes/nba.index'
@@ -134,6 +135,11 @@ const AutomateRoute = AutomateRouteImport.update({
   path: '/automate',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ArticlesRoute = ArticlesRouteImport.update({
+  id: '/articles',
+  path: '/articles',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AnalyzeRoute = AnalyzeRouteImport.update({
   id: '/analyze',
   path: '/analyze',
@@ -218,6 +224,7 @@ const ListsIdPeopleRoute = ListsIdPeopleRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/analyze': typeof AnalyzeRoute
+  '/articles': typeof ArticlesRoute
   '/automate': typeof AutomateRoute
   '/bookmarks': typeof BookmarksRoute
   '/chat': typeof ChatRoute
@@ -254,6 +261,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/analyze': typeof AnalyzeRoute
+  '/articles': typeof ArticlesRoute
   '/automate': typeof AutomateRoute
   '/bookmarks': typeof BookmarksRoute
   '/chat': typeof ChatRoute
@@ -291,6 +299,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/analyze': typeof AnalyzeRoute
+  '/articles': typeof ArticlesRoute
   '/automate': typeof AutomateRoute
   '/bookmarks': typeof BookmarksRoute
   '/chat': typeof ChatRoute
@@ -329,6 +338,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/analyze'
+    | '/articles'
     | '/automate'
     | '/bookmarks'
     | '/chat'
@@ -365,6 +375,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/analyze'
+    | '/articles'
     | '/automate'
     | '/bookmarks'
     | '/chat'
@@ -401,6 +412,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/analyze'
+    | '/articles'
     | '/automate'
     | '/bookmarks'
     | '/chat'
@@ -438,6 +450,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AnalyzeRoute: typeof AnalyzeRoute
+  ArticlesRoute: typeof ArticlesRoute
   AutomateRoute: typeof AutomateRoute
   BookmarksRoute: typeof BookmarksRoute
   ChatRoute: typeof ChatRoute
@@ -600,6 +613,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AutomateRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/articles': {
+      id: '/articles'
+      path: '/articles'
+      fullPath: '/articles'
+      preLoaderRoute: typeof ArticlesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/analyze': {
       id: '/analyze'
       path: '/analyze'
@@ -718,6 +738,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AnalyzeRoute: AnalyzeRoute,
+  ArticlesRoute: ArticlesRoute,
   AutomateRoute: AutomateRoute,
   BookmarksRoute: BookmarksRoute,
   ChatRoute: ChatRoute,

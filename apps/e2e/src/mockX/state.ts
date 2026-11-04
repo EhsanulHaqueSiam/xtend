@@ -13,6 +13,7 @@ import type {
 } from "@xtend/contracts";
 
 import { synth } from "../../../web/src/components/xnative/engineFixtures.ts";
+import { createMockArticles } from "./articles.ts";
 import { createMockChat } from "./chat.ts";
 import { encodeBody, encodeFolder, encodeList, encodeRestUser, encodeTweet } from "./graphql.ts";
 
@@ -609,6 +610,7 @@ export function createMockState(options: MockOptions = {}) {
 
   // Bookmark folders, which X keeps to Premium: the fixtures' account has X's claim for them, and
   // a test can take it away. Each folder's posts newest first, with what X's dialogs did since.
+  const articles = createMockArticles();
   let premium =
     options.premium ?? fixture("GetUserClaims", null)?.claims?.includes(FOLDERS_CLAIM) === true;
   const listed = fixture("BookmarkFoldersSlice", null)?.bookmarkFolders;
@@ -967,6 +969,8 @@ export function createMockState(options: MockOptions = {}) {
 
   /** X's GraphQL answer to one request; writes go through `write`. */
   const respond = (op: string, variables: Json): Json => {
+    const article = articles.respond(op, variables, premium);
+    if (article !== undefined) return article;
     const b = batchFor(op, variables);
     return b === null ? { data: {} } : encodeBody(b, liveUsers(), variables);
   };
@@ -1092,6 +1096,8 @@ export function createMockState(options: MockOptions = {}) {
     const done = (field: string) => ({ data: { [field]: "Done" } });
     const list = writeList(name, input, id);
     if (list !== undefined) return list;
+    const article = articles.write(name, input);
+    if (article !== undefined) return article;
     switch (name) {
       case "FavoriteTweet":
         changePost(tweet, (p) => ({ liked: true, ...count(p, "likes", 1) }));
@@ -1338,6 +1344,8 @@ export function createMockState(options: MockOptions = {}) {
     chat: createMockChat(options.chatLocked === true, people),
     /** X's Radar: whether the account has Premium, X's query limit, and its queries. */
     radar,
+    /** The user's Articles on X; X gives its Articles pages only with Premium (`premium`). */
+    articles,
     setTrendHidden: (path: string, name: string, hidden: boolean) => {
       const names = hiddenTrends.get(path) ?? new Set<string>();
       if (hidden) names.add(name);
