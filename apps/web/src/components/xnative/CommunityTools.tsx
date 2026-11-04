@@ -7,6 +7,7 @@ import {
   Circle,
   ExternalLink,
   Flag,
+  Inbox,
   List,
   ListPlus,
   LogOut,
@@ -119,10 +120,10 @@ type Tool =
     };
 
 /**
- * X's Admin tools for a Community, in X's order and by X's role rules: Review needed, then
- * Community management (some rows only for its admins), and for a moderator X's Leave
- * moderation team. General settings is Xtend's own screen; every other tool opens X's own page
- * over the main area. `rail` draws it beside an open tool, in a box, without descriptions.
+ * X's Admin tools for a Community, in X's order and by X's role rules, with Xtend's Review all on
+ * top: Review needed, Community management (some rows only for its admins), and for a moderator
+ * X's Leave moderation team. The queues and General settings are Xtend's screens; every other tool
+ * opens X's own page over the main area. `rail` draws it beside an open tool, without descriptions.
  */
 export function CommunityToolList({
   communityId,
@@ -130,7 +131,7 @@ export function CommunityToolList({
   rail = false,
 }: {
   readonly communityId: string;
-  readonly current?: "settings";
+  readonly current?: "settings" | "member_requests" | "reported_tweets" | "review";
   readonly rail?: boolean;
 }) {
   const engine = useAtomValue(engineAtom);
@@ -142,20 +143,35 @@ export function CommunityToolList({
   const base = `/i/communities/${communityId}`;
   const isAdmin = role === "Admin";
   const page = (label: string, path: string) => () => void onX(label, onXPage(path));
+  const queue = (to: "member_requests" | "reported_tweets" | "review") => () =>
+    void navigate({
+      to: "/communities/$id/moderation/$queue",
+      params: { id: communityId, queue: to },
+    });
   const tools: ReadonlyArray<Tool | false> = [
     { group: "Review needed" },
+    // Xtend's own: X's two queues in one list.
+    {
+      label: "Review all",
+      icon: Inbox,
+      count: (admin?.reported ?? 0) + (admin?.requests ?? 0),
+      current: current === "review",
+      run: queue("review"),
+    },
     {
       label: "Reported posts",
       icon: Flag,
       count: admin?.reported,
-      run: page("Reported posts", `${base}/moderation/reported_tweets`),
+      current: current === "reported_tweets",
+      run: queue("reported_tweets"),
     },
     // X lists requests only for a Community that takes them.
     typeof admin?.requests === "number" && {
       label: "Member requests",
       icon: UserPlus,
       count: admin.requests,
-      run: page("Member requests", `${base}/moderation/member_requests`),
+      current: current === "member_requests",
+      run: queue("member_requests"),
     },
     {
       label: "Moderation log",

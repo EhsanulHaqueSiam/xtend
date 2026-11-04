@@ -1543,10 +1543,11 @@ export const xOverPage = async (
 
 /**
  * X's own control in `root` that X names `label`, by its words or its label: a link, a button, a
- * list row or a checkbox's row. Only one may match: a name X draws twice is never guessed at.
- * Runs in X's page as its own source.
+ * list row or a checkbox's row. Only one may match: a name X draws twice is never guessed at,
+ * unless `within` (a selector, a post's or a person's link) picks the row it sits in: the one box
+ * around it holding that link and no other such control. Runs in X's page as its own source.
  */
-export function xControl(root: ParentNode, label: string): HTMLElement | null {
+export function xControl(root: ParentNode, label: string, within?: string): HTMLElement | null {
   const CONTROL =
     'a, button, [role="button"], [role="link"], [role="listitem"], [role="checkbox"], label';
   const found = new Set<HTMLElement>();
@@ -1564,32 +1565,41 @@ export function xControl(root: ParentNode, label: string): HTMLElement | null {
       found.add(el.closest<HTMLElement>('a, button, [role="button"], [role="link"]') ?? el);
   // A control inside another that matched is the same one.
   const mine = [...found].filter((el) => ![...found].some((o) => o !== el && o.contains(el)));
-  return mine.length === 1 ? mine[0]! : null;
+  const scoped =
+    within === undefined
+      ? mine
+      : mine.filter((el) => {
+          for (let box = el.parentElement; box !== null; box = box.parentElement)
+            if (box.querySelector(within) !== null)
+              return mine.every((o) => o === el || !box.contains(o));
+          return false;
+        });
+  return scoped.length === 1 ? scoped[0]! : null;
 }
 
 /**
- * Presses X's own control `label` (see `xControl`) for the user's click on X's page at `page`
- * (reached first when the engine is elsewhere); X's dialog, or the page it opens, shows over the
- * main area until X is on a page Xtend draws. `checked` presses a checkbox only while X shows it
- * that way. Where X settled; false when X drew no such control; null when the user moved on.
+ * Presses X's own control `label` (see `xControl`) on X's page `page` for the user's click, over
+ * the main area until X is on a page Xtend draws; a disabled one, or a box X shows otherwise than
+ * `checked`, is not pressed. Where X settled and whether X took the control off its row since;
+ * false when X drew none; null when the user moved on.
  */
-export const xPressToPage = async (
+const pressControl = async (
   page: string,
   label: string,
   drawn: (href: string) => boolean,
   over: (shown: boolean) => void,
-  checked?: boolean,
-): Promise<string | false | null> => {
+  { checked, within }: { readonly checked?: boolean; readonly within?: string } = {},
+): Promise<{ readonly at: string; readonly gone: boolean } | false | null> => {
   if (element === null || !ready || !/^\/[\w/]+$/.test(page)) return false;
   const run = await nextRun();
-  const find = `(() => (${xControl.toString()})(document, ${JSON.stringify(label)}))`;
+  const find = `(() => (${xControl.toString()})(document, ${JSON.stringify(label)}, ${JSON.stringify(within)}))`;
   let tries = 10;
   const press = () =>
     xRun(`(async () => {
     const find = ${find};
     for (let i = 0; i < ${tries} && !find(); i++) await new Promise((r) => setTimeout(r, 100));
     const control = find();
-    if (!control || !${stillMine(run)}) return null;
+    if (!control || !${stillMine(run)} || control.disabled || control.getAttribute("aria-disabled") === "true") return null;
     if (${JSON.stringify(checked ?? null)} !== null && control.checked !== ${JSON.stringify(checked ?? null)}) return null;
     control.click();
     return true;
@@ -1598,18 +1608,44 @@ export const xPressToPage = async (
       return done === true ? true : null;
     });
   // Held before onPage takes the engine back from a page it opened: X's dialog is on that page.
-  let settled: string | null = null;
+  let settled: { readonly at: string; readonly gone: boolean } | null = null;
   const pressed = await onPage(
     { url: `https://x.com${page}`, path: page },
     press,
     async () => {
-      settled = await holdUntilDrawn(run, drawn, over);
+      const at = await holdUntilDrawn(run, drawn, over);
+      if (at !== null) settled = { at, gone: (await xRun(`${find}() === null`)) === true };
     },
     () => run === overRun,
   );
   if (run !== overRun) return null;
   return pressed === null ? false : settled;
 };
+
+/** Presses X's own control `label` on X's page `page` (see `pressControl`): where X settled. */
+export const xPressToPage = (
+  page: string,
+  label: string,
+  drawn: (href: string) => boolean,
+  over: (shown: boolean) => void,
+  checked?: boolean,
+) =>
+  pressControl(page, label, drawn, over, checked === undefined ? {} : { checked }).then((done) =>
+    done === false || done === null ? done : done.at,
+  );
+
+/**
+ * Presses X's own control `label` in the row of X's page `page` that holds `within` (a post's or
+ * a person's link), for the user's click on one of a Community's queues: Approve, Deny, Keep,
+ * Hide, Ban. Whether X took it shows as `gone`, X having drawn its decision in the row's place.
+ */
+export const xPressRow = (
+  page: string,
+  within: string,
+  label: string,
+  drawn: (href: string) => boolean,
+  over: (shown: boolean) => void,
+) => pressControl(page, label, drawn, over, { within });
 
 /**
  * X's checklist card for a new Community, as X draws it atop its posts on the Community's page:

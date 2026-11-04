@@ -9,6 +9,7 @@ import type {
   EngineCommunity,
   EngineCommunityAdmin,
   EngineEntities,
+  EngineJoinRequest,
   EngineRange,
   EngineExploreTab,
   EngineFolderChange,
@@ -27,6 +28,7 @@ import type {
   EnginePrompt,
   EngineRadarCount,
   EngineRadarQuery,
+  EngineReportCase,
   EngineTrend,
   EngineUser,
   EngineViewer,
@@ -775,6 +777,86 @@ function readCommunityCreate(op: string, data: Json) {
   };
 }
 
+/** X's own account, which files X's automatic reports (Auto Report by X) in a Community. */
+const X_ACCOUNT = "783214";
+
+/** One of X's CommunityJoinRequests: who asks, their answer, and what was decided. */
+function readJoinRequest(item: Json, decided?: string): EngineJoinRequest | undefined {
+  const user = result(record(item.user_relationship).user_results);
+  const userId = asString(user.rest_id);
+  if (userId === undefined || !X_ID.test(userId)) return undefined;
+  const seen = record(user.relationship_perspectives);
+  return {
+    userId,
+    answer: asString(item.answer)?.trim() || null,
+    at: isoOf(item.created_at) ?? null,
+    state: asString(item.state) ?? decided ?? "Pending",
+    blocking: seen.blocking === true,
+    muting: seen.muting === true,
+  };
+}
+
+/** One of X's Reported posts: the post, its count, and the rule each report named. */
+function readReportCase(item: Json): ReadonlyArray<EngineReportCase> {
+  const tweet = result(item.tweet_results);
+  const postId =
+    asString(item.tweet_id_str) ?? asString(tweet.rest_id) ?? asString(record(tweet.tweet).rest_id);
+  if (postId === undefined || !X_ID.test(postId)) return [];
+  const reports = arr(record(item.reports_slice).items).filter(isRecord);
+  const reporter = (r: Json) =>
+    asString(result(record(r.reporter_relationship).user_results).rest_id);
+  return [
+    {
+      postId,
+      reports: asCount(item.report_count) ?? reports.length,
+      at: isoOf(item.report_created_at_max) ?? null,
+      byX: reports.some((r) => reporter(r) === X_ACCOUNT),
+      rules: reports.flatMap((r) => asString(record(r.rule).name) ?? []),
+    },
+  ];
+}
+
+/**
+ * A Community's moderation queues as X's pages read them (bundle.Communities): Member requests
+ * (MemberRequests_Query), the request X's Approve or Deny decided, and Reported posts.
+ */
+function readModeration(op: string, variables: Json, data: Json) {
+  const communityId = asString(variables.communityId);
+  if (communityId === undefined || !X_ID.test(communityId)) return {};
+  if (op === "MemberRequests_Query") {
+    const slice = record(
+      record(result(data.communityResults).join_requests_result).pending_join_requests_slice,
+    );
+    if (!Array.isArray(slice.items)) return {};
+    const requests = slice.items.filter(isRecord).flatMap((i) => readJoinRequest(i) ?? []);
+    return { joinRequests: { communityId, page: true, requests } };
+  }
+  const decision =
+    op === "actions_approveMemberRequest_Mutation"
+      ? { answer: data.community_join_request_approve, state: "Approved" }
+      : op === "actions_denyMemberRequest_Mutation"
+        ? { answer: data.community_join_request_deny, state: "Denied" }
+        : undefined;
+  if (decision !== undefined) {
+    const answer = record(decision.answer);
+    const request =
+      answer.__typename === "CommunityJoinRequest"
+        ? readJoinRequest(answer, decision.state)
+        : undefined;
+    return request === undefined
+      ? {}
+      : { joinRequests: { communityId, page: false, requests: [request] } };
+  }
+  if (op === "CommunityModerationTweetCasesSlice") {
+    const slice = record(record(result(data.communityResults).moderation).tweet_cases_slice);
+    if (!Array.isArray(slice.items)) return {};
+    return {
+      reportCases: { communityId, cases: slice.items.filter(isRecord).flatMap(readReportCase) },
+    };
+  }
+  return {};
+}
+
 /**
  * A module of people under X's own header (a Community's Moderators, its Members), with where its
  * footer's "Show more" goes. X links there on twitter.com; the engine lives on x.com.
@@ -1463,6 +1545,7 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     ...(pinnedLists === undefined ? {} : { pinnedLists }),
     ...(communityAdmin.size === 0 ? {} : { communityAdmin: [...communityAdmin.values()] }),
     ...readCommunityCreate(op, data),
+    ...readModeration(op, variables, data),
   };
 }
 
@@ -2066,6 +2149,8 @@ export const hasEngineContent = (b: EngineBatch) =>
   b.radarDeleted !== undefined ||
   b.listDeleted !== undefined ||
   b.communityAdmin !== undefined ||
+  b.joinRequests !== undefined ||
+  b.reportCases !== undefined ||
   // A Community's posts X answered with none (a new one), its cursors still in: X says it is empty.
   (b.op === "CommunityTweetsTimeline" &&
     b.key !== null &&

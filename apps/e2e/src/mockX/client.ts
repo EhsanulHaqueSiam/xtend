@@ -871,9 +871,39 @@ const SCRIPT = String.raw`
   document.addEventListener("click", (event) => {
     const el = event.target instanceof Element ? event.target.closest("[data-hide-rule]") : null;
     if (!el) return;
-    log("hide:" + el.dataset.hideRule, location.pathname.split("/").pop());
-    history.back();
+    const postId = location.pathname.split("/").pop();
+    log("hide:" + el.dataset.hideRule, postId);
+    cache.clear();
+    void post("/__mock/moderate", { kind: "hide", postId }).then(() => history.back());
   });
+  // X's Ban: the rule picked, X removes the author and goes back.
+  document.addEventListener("click", (event) => {
+    const el = event.target instanceof Element ? event.target.closest("[data-ban-rule]") : null;
+    if (!el) return;
+    log("ban:" + el.dataset.banRule, location.pathname.split("/").pop());
+    cache.clear();
+    void post("/__mock/moderate", { kind: "ban", postId: el.dataset.post }).then(() => history.back());
+  });
+  // X's queues: Approve, Deny and Keep send X's call, and X draws its decision in the row's place.
+  document.addEventListener("click", (event) => {
+    const el = event.target instanceof Element ? event.target.closest("[data-x-request], [data-x-case]") : null;
+    if (!el) return;
+    event.stopPropagation();
+    const communityId = location.pathname.split("/")[3];
+    const send = (op, variables) => post("/i/api/graphql/" + window.__mockHash[op] + "/" + op, { variables });
+    const [action, id] = (el.dataset.xRequest ?? el.dataset.xCase).split(":");
+    log(action, id);
+    const row = el.closest("[data-testid=UserCell], [data-case]");
+    const handle = row.querySelector("a[href]")?.getAttribute("href").slice(1);
+    if (action === "keep")
+      void send("CommunityModerationKeepTweet", { tweetId: id }).then(() => {
+        row.outerHTML = '<div aria-label="You kept this post">You kept this post</div>';
+      });
+    else
+      void send(action === "approve" ? "actions_approveMemberRequest_Mutation" : "actions_denyMemberRequest_Mutation", { communityId, userId: id }).then(() => {
+        row.outerHTML = action === "approve" ? "<div>@" + handle + " was approved and is now a member of your Community</div>" : "<div>@" + handle + " was denied and can’t join your Community</div>";
+      });
+  }, true);
   // X's Community admin pages (bundle.Communities). A form's Save sends X's call with its fields
   // and goes back (Create opens the new Community under X's summary); Adult Content saves at the
   // press and X loads its page again; Leave moderation team and Delete Community ask first. A

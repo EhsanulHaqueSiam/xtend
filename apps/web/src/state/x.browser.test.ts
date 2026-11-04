@@ -2210,6 +2210,18 @@ it("finds X's own control by its words or its label, a checkbox row's box, and n
   // A row whose words run on, and a name X draws twice, are never pressed.
   expect(xControl(document, "Members")).toBeNull();
   expect(xControl(document, "Save")).toBeNull();
+
+  // In a queue, each row has its own: the one in the row that links to that post or person.
+  document.body.innerHTML = `
+    <div id="a"><article><a href="/ann/status/50"><time></time></a></article><button>Keep</button></div>
+    <div id="b"><article><a href="/bo/status/51"><time></time></a><a href="/ann/status/50">quoted</a></article><button>Keep</button></div>`;
+  // A post is its row's by its own timestamp link; one quoting it links to it with none.
+  const own = (id: string) => `a[href$="/status/${id}"] time`;
+  expect(xControl(document, "Keep", own("51"))?.parentElement?.id).toBe("b");
+  expect(xControl(document, "Keep", own("50"))?.parentElement?.id).toBe("a");
+  // Linked from both rows, a post names no one row: nothing is pressed.
+  expect(xControl(document, "Keep", 'a[href$="/status/50"]')).toBeNull();
+  expect(xControl(document, "Keep", own("52"))).toBeNull();
 });
 
 it("reads X's checklist card: its rows in X's order, each done or not, and none without the card", () => {

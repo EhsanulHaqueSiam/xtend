@@ -38,6 +38,9 @@ import {
   postOn,
   postSurface,
   profileSurface,
+  decide,
+  decisionKey,
+  requestState,
   roleIn,
   radarSurface,
   resetSurface,
@@ -476,6 +479,55 @@ it("sums what X tells a Community's moderators across answers, and its Admin too
     batch("CommunitiesCreateButtonQuery", [], { communityCreate: "verify" }),
   );
   expect(mergeBatch(offered, batch("Viewer", [])).communityCreate).toBe("verify");
+});
+
+it("keeps a Community's queues in X's order: a first page replaces, a next page joins, a decision updates", () => {
+  const request = (userId: string, state = "Pending") => ({
+    userId,
+    answer: null,
+    at: null,
+    state,
+    blocking: false,
+    muting: false,
+  });
+  const requests = (
+    page: boolean,
+    rows: ReadonlyArray<ReturnType<typeof request>>,
+    cursor: string | null = null,
+  ) =>
+    batch("MemberRequests_Query", [], {
+      cursor,
+      joinRequests: { communityId: "20", page, requests: rows },
+    });
+  let state = [
+    requests(true, [request("31"), request("32")]),
+    requests(true, [request("33")], "c1"),
+  ].reduce(mergeBatch, emptyEngine);
+  expect(state.joinRequests.get("20")?.map((r) => r.userId)).toEqual(["31", "32", "33"]);
+  // X's Approve answers with the one request: it keeps its place, decided.
+  state = mergeBatch(state, requests(false, [request("32", "Approved")]));
+  expect(state.joinRequests.get("20")?.map((r) => r.state)).toEqual([
+    "Pending",
+    "Approved",
+    "Pending",
+  ]);
+  // X's page loaded afresh lists only what still waits.
+  state = mergeBatch(state, requests(true, [request("33")]));
+  expect(state.joinRequests.get("20")?.map((r) => r.userId)).toEqual(["33"]);
+  // What X decided for a press, X drew in the row's place: it holds over the list's own state.
+  const held = decide(state, decisionKey({ communityId: "20", userId: "33" }), "Denied");
+  expect(requestState(held, "20", held.joinRequests.get("20")![0]!)).toBe("Denied");
+
+  const cases = (ids: ReadonlyArray<string>, cursor: string | null = null) =>
+    batch("CommunityModerationTweetCasesSlice", [], {
+      cursor,
+      reportCases: {
+        communityId: "20",
+        cases: ids.map((postId) => ({ postId, reports: 1, at: null, byX: false, rules: [] })),
+      },
+    });
+  const listed = [cases(["50", "51"]), cases(["51", "52"], "c1")].reduce(mergeBatch, emptyEngine);
+  expect(listed.reportCases.get("20")?.map((c) => c.postId)).toEqual(["50", "51", "52"]);
 });
 
 it("keeps what X took for a join, ask or leave until X's capture of the Community agrees", () => {

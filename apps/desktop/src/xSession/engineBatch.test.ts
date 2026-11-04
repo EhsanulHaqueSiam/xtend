@@ -1048,6 +1048,143 @@ describe("renderEngineBatch around posts", () => {
     expect(hasEngineContent(failed)).toBe(false);
   });
 
+  it("reads X's moderation queues: Member requests, the one X's Approve decided, and Reported posts", () => {
+    const asker = (id: string, extra: Record<string, unknown> = {}) => ({
+      user_relationship: {
+        user_results: {
+          result: {
+            ...user(id, `asker${id}`),
+            relationship_perspectives: { following: false, followed_by: true, ...extra },
+          },
+        },
+      },
+    });
+    const requests = renderEngineBatch(
+      "MemberRequests_Query",
+      { communityId: "20" },
+      {
+        data: {
+          communityResults: {
+            result: {
+              __typename: "Community",
+              join_requests_result: {
+                __typename: "CommunityJoinRequests",
+                pending_join_requests_slice: {
+                  items: [
+                    {
+                      answer: " An invoicing tool ",
+                      created_at: 1762250000000,
+                      state: "Pending",
+                      ...asker("31"),
+                    },
+                    { answer: "", created_at: 1762240000000, ...asker("32", { muting: true }) },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+    );
+    expect(requests.joinRequests).toEqual({
+      communityId: "20",
+      page: true,
+      requests: [
+        {
+          userId: "31",
+          answer: "An invoicing tool",
+          at: new Date(1762250000000).toISOString(),
+          state: "Pending",
+          blocking: false,
+          muting: false,
+        },
+        {
+          userId: "32",
+          answer: null,
+          at: new Date(1762240000000).toISOString(),
+          state: "Pending",
+          blocking: false,
+          muting: true,
+        },
+      ],
+    });
+    // The people who ask are read as people, for their rows.
+    expect(requests.users.map((u) => u.handle)).toEqual(["asker31", "asker32"]);
+    expect(hasEngineContent(requests)).toBe(true);
+
+    // X's Approve answers with the request; one without its state is the decision X took.
+    const approved = renderEngineBatch(
+      "actions_approveMemberRequest_Mutation",
+      { communityId: "20", userId: "31" },
+      {
+        data: {
+          community_join_request_approve: { __typename: "CommunityJoinRequest", ...asker("31") },
+        },
+      },
+    );
+    expect(approved.joinRequests).toMatchObject({
+      page: false,
+      requests: [{ userId: "31", state: "Approved" }],
+    });
+    // An error answer decided nothing.
+    expect(
+      renderEngineBatch(
+        "actions_denyMemberRequest_Mutation",
+        { communityId: "20", userId: "31" },
+        { errors: [{}] },
+      ).joinRequests,
+    ).toBeUndefined();
+
+    // X's Reported posts: each post, its count and the rule each report named; X's own reports.
+    const report = (by: string, rule: string) => ({
+      created_at: 1762250000000,
+      rule: { rest_id: "9", name: rule },
+      reporter_relationship: { user_results: { result: user(by, `r${by}`) } },
+    });
+    const cases = renderEngineBatch(
+      "CommunityModerationTweetCasesSlice",
+      { communityId: "20", count: 20 },
+      {
+        data: {
+          communityResults: {
+            result: {
+              __typename: "Community",
+              moderation: {
+                tweet_cases_slice: {
+                  items: [
+                    {
+                      tweet_id_str: "50",
+                      report_count: 2,
+                      report_created_at_max: 1762250000000,
+                      reports_slice: {
+                        items: [report("41", "Stay on topic"), report("783214", "No spam")],
+                      },
+                      tweet_results: { result: tweet("50") },
+                    },
+                  ],
+                  slice_info: {},
+                },
+              },
+            },
+          },
+        },
+      },
+    );
+    expect(cases.reportCases).toEqual({
+      communityId: "20",
+      cases: [
+        {
+          postId: "50",
+          reports: 2,
+          at: new Date(1762250000000).toISOString(),
+          byX: true,
+          rules: ["Stay on topic", "No spam"],
+        },
+      ],
+    });
+    expect(cases.posts.map((p) => p.postId)).toEqual(["50"]);
+  });
+
   it("reads X's Create a new Community for the account: its form, its upsell, or none", () => {
     const create = (result: Record<string, unknown>) =>
       renderEngineBatch(
