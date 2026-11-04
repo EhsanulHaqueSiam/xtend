@@ -343,14 +343,20 @@ function ModelMenu({ model }: { readonly model: string | null }) {
   );
 }
 
-/** X's top bar on its Grok page: the model, then Private on a new chat or New chat in one. */
+/**
+ * X's top bar on its Grok page: the model, then Private on a new chat or New chat in one. New chat
+ * ends a send X never showed, keeping its words in the box; `onNew` follows X there.
+ */
 export function GrokBar({
   read,
+  onNew,
   children,
 }: {
   readonly read: GrokRead;
+  readonly onNew?: () => void;
   readonly children?: ReactNode;
 }) {
+  const setWrite = useAtomSet(grokWriteAtom);
   const { press } = useGrokPress();
   return (
     <div className="drag-region flex min-h-[53px] items-center gap-1 px-3">
@@ -372,7 +378,13 @@ export function GrokBar({
           type="button"
           aria-label="New chat"
           className={cn("no-drag", ROUND)}
-          onClick={() => void press(() => xGrokPress("new"))}
+          onClick={() =>
+            void press(() => xGrokPress("new")).then((done) => {
+              if (done === null) return;
+              setWrite((w) => ({ ...w, send: null }));
+              onNew?.();
+            })
+          }
         >
           <SquarePen className="size-[18px]" />
         </button>
@@ -394,9 +406,10 @@ export function GrokBox({ read }: { readonly read: GrokRead }) {
   const submit = async () => {
     const text = write.draft;
     if (text.trim() === "" || write.send !== null || composer === null || busy) return;
-    setWrite((w) => ({ ...w, send: { text, path: read.path } }));
+    const before = (read.turns ?? []).map((t) => t.id);
+    setWrite((w) => ({ ...w, send: { text, path: read.path, before, alert: read.alert } }));
     const sent = await press(() => xGrokSend(read.path, text));
-    // Pending: X still sends it, and the page's next reads settle it (`sendShown`).
+    // Pending: X still sends it, and the page's next reads settle it (`sendSettled`).
     if (sent?.status === "pending") return;
     setWrite((w) => ({ draft: sent?.status === "sent" ? "" : w.draft, send: null }));
     if (sent?.status === "draft") setToast({ text: "X's Grok box holds a draft; finish it in X." });

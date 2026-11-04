@@ -23,7 +23,7 @@ import {
   grokWriteAtom,
   isGrokPath,
   namedHandles,
-  sendShown,
+  sendSettled,
   watchGrok,
   xGrokHistory,
   xGrokHistoryPress,
@@ -92,11 +92,14 @@ function Named({ handle }: { readonly handle: string }) {
 /** A history row as X draws it, with X's own Pin, Rename and Delete, and X's inline confirm. */
 function HistoryRow({
   row,
+  query,
   open,
   onOpen,
   onChanged,
 }: {
   readonly row: GrokHistoryRow;
+  /** The rail's search, which X's own History holds when the row is pressed. */
+  readonly query: string;
   readonly open: boolean;
   readonly onOpen: () => void;
   readonly onChanged: () => void;
@@ -106,7 +109,7 @@ function HistoryRow({
   const [title, setTitle] = useState(row.title);
   const act = async (action: "pin" | "unpin" | "rename" | "delete", value = "") => {
     setMode(null);
-    if ((await press(() => xGrokHistoryPress(row.id, action, value))) !== null) onChanged();
+    if ((await press(() => xGrokHistoryPress(row.id, action, value, query))) !== null) onChanged();
   };
   return (
     <li
@@ -252,6 +255,7 @@ function History({
                     <HistoryRow
                       key={row.id}
                       row={row}
+                      query={history.query}
                       open={row.id === open}
                       onOpen={() => onOpen(row.id)}
                       onChanged={() => onLoad(query.trim())}
@@ -305,7 +309,11 @@ function GrokScreen() {
     const stop = new AbortController();
     watchGrok(stop.signal, (next) => {
       setGrok((s) => ({ ...s, read: next }));
-      setWrite((w) => (sendShown(w, next) ? { draft: "", send: null } : w));
+      setWrite((w) => {
+        const settled = sendSettled(w, next);
+        // A refused send keeps its words in the box for the user to send again.
+        return settled === null ? w : { draft: settled === "shown" ? "" : w.draft, send: null };
+      });
     });
     return () => stop.abort();
   }, [setGrok, setWrite]);
@@ -348,8 +356,11 @@ function GrokScreen() {
     );
 
   const openRow = (id: string) => {
-    if (!isGrokPath(`/i/grok/c/${encodeURIComponent(id)}`)) return;
-    void navigate({ to: "/grok", search: { c: id } });
+    const path = `/i/grok/c/${encodeURIComponent(id)}`;
+    if (!isGrokPath(path)) return;
+    // The route may still name it while X has moved on (X's New chat, a delete): X opens it again.
+    if (id === c) void xGo(`https://x.com${path}`);
+    else void navigate({ to: "/grok", search: { c: id } });
   };
   // Only a finished answer: a handle X is still streaming may be cut short.
   const last = (read?.turns ?? []).findLast((t) => t.answer?.done === true)?.answer;
@@ -365,7 +376,7 @@ function GrokScreen() {
           </>
         ) : (
           <>
-            <GrokBar read={read} />
+            <GrokBar read={read} onNew={() => void navigate({ to: "/grok", search: {} })} />
             <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
               <GrokConversation read={read} />
             </div>

@@ -194,3 +194,32 @@ it("asks Grok through X's own composer and Send only on X's page it was asked on
   expect(await xGrokSend("/i/grok", "Hello")).toEqual({ status: "draft" });
   expect(field.value).toBe("my own words");
 });
+
+it("presses a row the user found by search under that same search in X's panel", async () => {
+  // X's History lists the row only for its query: X's first page without it is older rows.
+  using _x = drawX(page("") + HISTORY);
+  engineAt("/i/grok");
+  const search = document.querySelector<HTMLInputElement>('input[type="search"]')!;
+  const list = document.querySelector('[role="dialog"] ul')!;
+  const rows = {
+    "": historyRow("c1", "Weekly niche recap", "2 days ago", true),
+    churn: historyRow("c3", "Churn email", "5 hours ago"),
+  };
+  const show = () => (list.innerHTML = rows[search.value === "churn" ? "churn" : ""]);
+  search.addEventListener("input", show);
+  search.value = "churn";
+  show();
+  const pinned: Array<string> = [];
+  document.addEventListener("click", (e) => {
+    const button = (e.target as Element).closest('[aria-label="Pin"]');
+    const id = button?.closest("li")?.querySelector("a")?.getAttribute("href");
+    if (!button || id == null) return;
+    pinned.push(id);
+    button
+      .closest("li")!
+      .querySelector("a")!
+      .insertAdjacentHTML("afterbegin", icon("icon-pin-fill"));
+  });
+  expect(await xGrokHistoryPress("c3", "pin", "", "churn")).toBe("done");
+  expect([pinned, search.value]).toEqual([["/i/grok/c/c3"], "churn"]);
+});

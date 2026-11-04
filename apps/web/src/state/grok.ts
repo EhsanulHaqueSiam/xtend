@@ -365,7 +365,13 @@ export const grokAtom = Atom.make<GrokState>({ read: null, history: null }).pipe
  */
 export interface GrokWrite {
   readonly draft: string;
-  readonly send: { readonly text: string; readonly path: string } | null;
+  readonly send: {
+    readonly text: string;
+    /** X's page it was sent on, the turns and alert X drew there then: only a new turn is this send's. */
+    readonly path: string;
+    readonly before: ReadonlyArray<string>;
+    readonly alert: string | null;
+  } | null;
 }
 export const grokWriteAtom = Atom.make<GrokWrite>({ draft: "", send: null }).pipe(Atom.keepAlive);
 
@@ -373,11 +379,22 @@ export const grokWriteAtom = Atom.make<GrokWrite>({ draft: "", send: null }).pip
 const sameWords = (a: string, b: string) =>
   a.replace(/\s+/g, " ").trim() === b.replace(/\s+/g, " ").trim();
 
-/** The send in flight once X's page `read` shows its text asked, on the page it was sent from. */
-export const sendShown = ({ send }: GrokWrite, read: GrokRead) =>
-  send !== null &&
-  read.path.startsWith("/i/grok") &&
-  (read.turns ?? []).some((t) => t.user !== null && sameWords(t.user, send.text));
+/**
+ * What became of the send in flight, by X's page `read`: "shown" once X draws it as a new turn
+ * there, "failed" once X refused it (a new alert, another page or conversation), null meanwhile.
+ */
+export const sendSettled = ({ send }: GrokWrite, read: GrokRead) => {
+  if (send === null) return null;
+  if (read.path !== send.path) return "failed";
+  if (read.turns === null) return null;
+  const ids = new Set(read.turns.map((t) => t.id));
+  if (!send.before.every((id) => ids.has(id))) return "failed";
+  const asked = read.turns.some(
+    (t) => !send.before.includes(t.id) && t.user !== null && sameWords(t.user, send.text),
+  );
+  if (asked) return "shown";
+  return read.alert !== null && read.alert !== send.alert ? "failed" : null;
+};
 
 /** An answer as plain text, for Copy and Draft a post: X's markdown without its marks. */
 export const answerText = (answer: GrokAnswer) =>
@@ -622,14 +639,16 @@ const asking = `(() => {
   })()`;
 
 /**
- * Presses X's own control on history row `id` for the user's click, in X's History panel: Pin or
- * Unpin, Rename with `title` typed into X's own field and X's Save, or Delete and X's own confirm
- * beside it. "done" once X's row shows it; null when X draws no such row or control.
+ * Presses X's own control on history row `id` for the user's click, in X's History panel searched
+ * for `query`, as the rail lists it: Pin or Unpin, Rename with `title` typed into X's own field and
+ * X's Save, or Delete and X's own confirm beside it. "done" once X's row shows it; null when X
+ * draws no such row or control.
  */
 export const xGrokHistoryPress = async (
   id: string,
   action: "pin" | "unpin" | "rename" | "delete",
   title = "",
+  query = "",
 ) => {
   const answer = await xPressOver(
     (mine) => `(async () => {
@@ -640,9 +659,10 @@ export const xGrokHistoryPress = async (
     const shown = await openHistory();
     if (!shown) return null;
     const { panel, opened } = shown;
-    // X's search may hide the row: the panel shows every row again first.
+    // The row as the rail lists it, under the rail's own search: X's search holds the same query.
     const search = panel.querySelector('input[type="search"]');
-    if (search && search.value !== "") { type(search, ""); await new Promise((r) => setTimeout(r, 250)); }
+    const query = ${JSON.stringify(query)};
+    if (search && search.value !== query) { type(search, query); await new Promise((r) => setTimeout(r, 250)); }
     const row = await wait(() => rowOf(panel, id), 30);
     const has = (name) => [...(row?.querySelectorAll("button") ?? [])].find((b) => icon(b, name));
     const done = (answer) => (closeHistory(opened), answer);

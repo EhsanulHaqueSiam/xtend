@@ -1,6 +1,6 @@
 import { expect, it } from "vite-plus/test";
 
-import { type GrokAnswer, namedHandles } from "./grok";
+import { type GrokAnswer, namedHandles, sendSettled } from "./grok";
 
 const run = (text: string, href: string | null = null) => ({
   text,
@@ -34,4 +34,45 @@ it("names each person an answer points at once, by X's profile links and @handle
     ],
   };
   expect(namedHandles(answer)).toEqual(["JonPark", "lenaw", "mayabuilds"]);
+});
+
+const turn = (id: string, user: string) => ({ id, user, answer: null });
+const page = (
+  path: string,
+  turns: ReadonlyArray<ReturnType<typeof turn>>,
+  alert: string | null = null,
+) =>
+  ({
+    path,
+    page: "xweb",
+    turns,
+    followUps: [],
+    alert,
+    composer: null,
+    model: null,
+    private: null,
+    conversation: true,
+  }) as const;
+
+it("settles a send only by a new turn on its own page, and ends it when X refuses it", () => {
+  const write = {
+    draft: "Again?",
+    send: { text: "Again?", path: "/i/grok/c/a", before: ["t1"], alert: null },
+  };
+  // The same question asked before is not this send.
+  expect(sendSettled(write, page("/i/grok/c/a", [turn("t1", "Again?")]))).toBeNull();
+  expect(
+    sendSettled(write, page("/i/grok/c/a", [turn("t1", "Again?"), turn("t2", "Again?")])),
+  ).toBe("shown");
+  // X refused it: another page, another conversation (New chat), or X's alert.
+  expect(sendSettled(write, page("/i/grok/c/b", [turn("t2", "Again?")]))).toBe("failed");
+  expect(sendSettled(write, page("/i/grok/c/a", []))).toBe("failed");
+  expect(
+    sendSettled(write, page("/i/grok/c/a", [turn("t1", "Again?")], "Grok lost its connection.")),
+  ).toBe("failed");
+  // An alert X already showed when the user sent is not X's answer to this send.
+  const shown = { ...write, send: { ...write.send, alert: "Grok lost its connection." } };
+  expect(
+    sendSettled(shown, page("/i/grok/c/a", [turn("t1", "Again?")], "Grok lost its connection.")),
+  ).toBeNull();
 });

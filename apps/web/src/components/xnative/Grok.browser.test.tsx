@@ -66,15 +66,32 @@ const drawX = () => {
         });
       });
   });
+  // X's New chat starts a new chat on X's own page, in X's router.
+  document.querySelector('#x a[href="/i/grok"]')!.addEventListener("click", (e) => {
+    e.preventDefault();
+    at = "/i/grok";
+  });
   return { [Symbol.dispose]: () => document.querySelector("#x")?.remove() };
 };
 
-// The engine: every script runs in X's page, here this document's #x, as X's at /i/grok.
+// The engine: every script runs in X's page, here this document's #x, as X's at `at`; a move in
+// X's router is only recorded, as the path it would show.
+let at = "/i/grok";
+const moves: Array<string> = [];
 registerXWebview({
   loadURL: async () => {},
-  getURL: () => "https://x.com/i/grok",
-  executeJavaScript: (code: string) =>
-    Promise.resolve(new Function(`return ${code.replaceAll("location.pathname", '"/i/grok"')}`)()),
+  getURL: () => `https://x.com${at}`,
+  executeJavaScript: (code: string) => {
+    const to = /history\.pushState\(null, "", "([^"]+)"\)/.exec(code)?.[1];
+    if (to !== undefined) {
+      at = to;
+      moves.push(to);
+      return Promise.resolve(true);
+    }
+    return Promise.resolve(
+      new Function(`return ${code.replaceAll("location.pathname", JSON.stringify(at))}`)(),
+    );
+  },
 } as unknown as XWebview);
 markXReady();
 
@@ -114,6 +131,19 @@ it("draws X's conversation and history, and asks Grok only through X's own compo
   await expect.element(screen.getByText("Dev Rao quotes it most.")).toBeVisible();
   expect(inX).toEqual(["typed Who is quoting this?", "send"]);
   await expect.element(box).toHaveValue("");
+});
+
+it("opens a chat in X again after X's New chat, though the route named it before", async () => {
+  using _x = drawX();
+  moves.length = 0;
+  await using screen = await render(ui(), { router: "/grok", service });
+  const rail = screen.getByRole("complementary", { name: "Grok rail" });
+  await userEvent.click(rail.getByRole("button", { name: "Two-plan pricing" }));
+  await expect.poll(() => moves).toEqual(["/i/grok/c/c1"]);
+  await userEvent.click(screen.getByRole("button", { name: "New chat" }));
+  await expect.poll(() => at).toBe("/i/grok");
+  await userEvent.click(rail.getByRole("button", { name: "Two-plan pricing" }));
+  await expect.poll(() => moves).toEqual(["/i/grok/c/c1", "/i/grok/c/c1"]);
 });
 
 it("deletes a chat in X only once the user confirms it beside the row, as X asks", async () => {
