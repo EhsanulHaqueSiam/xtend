@@ -76,7 +76,7 @@ function QueueScreen({ id, queue }: { readonly id: string; readonly queue: Queue
    * Review all's next page, from the queue whose loaded rows end newest: its next ones may come
    * before the other's last. The engine moves to that queue's page and scrolls it, as X pages.
    */
-  const loadMore = async () => {
+  const loadMore = async (signal: AbortSignal) => {
     const tail = (list: ReadonlyArray<{ readonly at: string | null }> | undefined) =>
       Date.parse(list?.at(-1)?.at ?? "") || 0;
     const page =
@@ -84,7 +84,7 @@ function QueueScreen({ id, queue }: { readonly id: string; readonly queue: Queue
         ? requestsPage
         : reportedPage;
     await xGo(`https://x.com${page}`);
-    return xScrollMore();
+    return signal.aborted ? null : xScrollMore(signal);
   };
   const role = roleIn(engine, id);
   const items: ReadonlyArray<Item> = [

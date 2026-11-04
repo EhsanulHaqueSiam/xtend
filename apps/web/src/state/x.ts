@@ -145,13 +145,13 @@ export const xRun = (code: string): Promise<unknown> => {
 };
 
 /**
- * Near a native list's end, X scrolls its own page to fetch the next. A jump to the bottom can
- * fetch nothing (end marker already in view, or X mid-fetch), and the list asks once per length,
- * so it follows the bottom, a screen back between tries, until X's last post or person changes.
- * Page height is no signal: images grow it too.
+ * Near a native list's end, X scrolls its own page to fetch the next: it follows the bottom, a
+ * screen back between tries (a jump can fetch nothing), until X's last post or person changes;
+ * page height is no signal. X's page loading anew, or `signal` (the list going), ends it.
  */
-export const xScrollMore = () =>
-  xRun(`(async () => {
+export const xScrollMore = (signal: AbortSignal = new AbortController().signal) =>
+  xRunHeld(
+    `(async () => {
     const path = location.pathname + location.search;
     const run = window.__xtendScroll = (window.__xtendScroll ?? 0) + 1;
     const current = () => window.__xtendScroll === run && location.pathname + location.search === path;
@@ -181,7 +181,9 @@ export const xScrollMore = () =>
       if (!current() || (window.__xtendTrendLookups && !(await resume()))) return false;
     }
     return false;
-  })()`);
+  })()`,
+    signal,
+  );
 
 /**
  * Picks a tab on X's page (Home's "Following", a Community's "Latest") once X has drawn it, only

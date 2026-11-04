@@ -2399,3 +2399,31 @@ it("ends a queue press whose read X's page never answers, once X loads anew or t
     registerXWebview(null);
   }
 });
+
+it("ends a scroll for X's next page that X's page never answers, once X loads anew or the list goes", async () => {
+  // X's page goes away under the scroll: its read never answers.
+  registerXWebview({
+    loadURL: async () => {},
+    getURL: () => "https://x.com/i/communities/20/moderation/reported_tweets",
+    executeJavaScript: () => new Promise(() => {}),
+  } as unknown as XWebview);
+  markXReady();
+  const scroll = (signal?: AbortSignal) => {
+    let ended = false;
+    void xScrollMore(signal).then(() => (ended = true));
+    return () => ended;
+  };
+  try {
+    const reloaded = scroll();
+    await Promise.resolve();
+    expect(reloaded()).toBe(false);
+    markXReady();
+    await expect.poll(reloaded).toBe(true);
+    const gone = new AbortController();
+    const left = scroll(gone.signal);
+    gone.abort();
+    await expect.poll(left).toBe(true);
+  } finally {
+    registerXWebview(null);
+  }
+});

@@ -33,7 +33,7 @@ export function useMore(
   scroller: HTMLElement | null,
   key: string,
   length: number,
-  load: () => Promise<unknown> = xScrollMore,
+  load: (signal: AbortSignal) => Promise<unknown> = xScrollMore,
   /** One ask at a time: none until X has answered the last with its page (a Community's queues). */
   single = false,
 ) {
@@ -41,6 +41,14 @@ export function useMore(
   const asked = useRef("");
   // The list as it was when the ask in flight went out; a page from X since ends it.
   const loading = useRef<string | null>(null);
+  // Ends an ask still waiting on X once the list goes, so its lock never outlives it.
+  const live = useRef(new AbortController());
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- ends the list's ask in X's page when the list unmounts.
+  useEffect(() => {
+    const mine = new AbortController();
+    live.current = mine;
+    return () => mine.abort();
+  }, []);
   const run = useRef(0);
   const last = useRef(0);
   const trailing = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -66,7 +74,7 @@ export function useMore(
     // An early ask made before X's page settled fetches nothing; once X's page is done with it,
     // the reader's next scroll may ask again, unless a later ask took over (and owns the guard).
     loading.current = id;
-    void load().finally(() => {
+    void load(live.current.signal).finally(() => {
       if (loading.current === id) loading.current = null;
       if (run.current === mine) asked.current = "";
     });
@@ -178,9 +186,9 @@ export function XRows<A>({
   readonly paged?: boolean;
   /**
    * How X is asked for the next page (a Community's queues): such a list pages only as the reader
-   * scrolls down near its end, one ask at a time, never as it draws or grows.
+   * scrolls down near its end, one ask at a time, never as it draws or grows; `signal` ends it.
    */
-  readonly more?: () => Promise<unknown>;
+  readonly more?: (signal: AbortSignal) => Promise<unknown>;
 }) {
   const scroller = useXScrollParent();
   const more = useMore(paged ? scroller : null, waitKey, items.length, load, load !== undefined);
