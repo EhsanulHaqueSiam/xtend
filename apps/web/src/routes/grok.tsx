@@ -23,7 +23,7 @@ import {
   grokWriteAtom,
   isGrokPath,
   namedHandles,
-  sendSettled,
+  settleSend,
   watchGrok,
   xGrokHistory,
   xGrokHistoryPress,
@@ -308,12 +308,10 @@ function GrokScreen() {
     if (!isElectron) return;
     const stop = new AbortController();
     watchGrok(stop.signal, (next) => {
+      // X's own History page (its compact layout), while the rail reads it: the chat stays.
+      if (next.path === "/i/grok/history") return;
       setGrok((s) => ({ ...s, read: next }));
-      setWrite((w) => {
-        const settled = sendSettled(w, next);
-        // A refused send keeps its words in the box for the user to send again.
-        return settled === null ? w : { draft: settled === "shown" ? "" : w.draft, send: null };
-      });
+      setWrite((w) => settleSend(w, next));
     });
     return () => stop.abort();
   }, [setGrok, setWrite]);

@@ -1035,6 +1035,8 @@ const SCRIPT = String.raw`
       button.setAttribute("aria-expanded", String(!open));
       if (!open) layers.append(show());
     };
+    // X's compact layout opens its History as a page of its own.
+    if (kind === "history-page") return go("/i/grok/history", false);
     if (kind === "history") {
       const open = grokPanel();
       if (open) open.remove();

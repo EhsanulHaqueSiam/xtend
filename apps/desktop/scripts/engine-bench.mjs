@@ -2416,12 +2416,14 @@ const benchmarks = [
         // X's own History panel, opened and closed again as Xtend's read does: its rows, counted.
         const rows = await engine(`(async () => {
           const button = (document.querySelector('[data-testid="primaryColumn"]') ?? document).querySelector('[aria-haspopup="dialog"][aria-expanded]');
-          const panel = () => [...document.querySelectorAll('[role="dialog"]')].find((d) => d.querySelector('input[type="search"]'));
+          // X's panel, or in X's compact layout its History page, left again with Back.
+          const panel = () => [...document.querySelectorAll('[role="dialog"]')].find((d) => d.querySelector('input[type="search"]')) ?? (location.pathname === "/i/grok/history" ? document.querySelector('[data-testid="primaryColumn"]') : null);
           if (!button) return -1;
           if (!panel()) button.click();
           for (let i = 0; i < 50 && !panel()?.querySelector('a[href^="/i/grok/c/"]') && !panel()?.querySelector('[role="status"]'); i++) await new Promise((r) => setTimeout(r, 100));
           const n = panel()?.querySelectorAll('a[href^="/i/grok/c/"]:not([target])').length ?? -1;
-          if (panel() && button.getAttribute("aria-expanded") === "true") button.click();
+          if (location.pathname === "/i/grok/history") history.back();
+          else if (panel() && button.getAttribute("aria-expanded") === "true") button.click();
           return n;
         })()`);
         return rows === drawn && `${drawn} of X's ${rows} history rows`;

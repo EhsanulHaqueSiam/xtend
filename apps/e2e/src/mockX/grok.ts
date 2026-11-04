@@ -47,7 +47,7 @@ const ANSWERS = [
 ];
 
 /** What mock X's Grok holds: made-up conversations, X's pick of model, Private, and its limit. */
-export function createMockGrok(limited: boolean) {
+export function createMockGrok(limited: boolean, compact: boolean) {
   const conversations: Array<MockGrokConversation> = [
     {
       id: "c-recap",
@@ -99,6 +99,8 @@ export function createMockGrok(limited: boolean) {
   const find = (id: unknown) => conversations.find((c) => c.id === id);
   return {
     conversations,
+    /** X's compact layout (a narrow window): History is X's own page, not a panel. */
+    compact,
     get model() {
       return model;
     },
@@ -253,7 +255,7 @@ export function grokPage(grok: MockGrok, path: string, conversation: string | nu
   const c = id === null ? null : (grok.conversations.find((x) => x.id === id) ?? null);
   const busy = c?.turns.some((t) => t.streaming) === true;
   const open = id !== null;
-  const header = `<div class="grok-header"><div><button type="button" role="button" aria-expanded="false" aria-haspopup="dialog" data-mock-grok="history">History</button></div><div>${open ? `<a href="/i/grok" role="link" data-mock-grok="new">New chat</a>` : `<button type="button" role="button" aria-pressed="${grok.temporary}" data-mock-grok="private">Private</button>`}</div></div>`;
+  const header = `<div class="grok-header"><div><button type="button" role="button" aria-expanded="false" aria-haspopup="dialog" data-mock-grok="${grok.compact ? "history-page" : "history"}">History</button></div><div>${open ? `<a href="/i/grok" role="link" data-mock-grok="new">New chat</a>` : `<button type="button" role="button" aria-pressed="${grok.temporary}" data-mock-grok="private">Private</button>`}</div></div>`;
   const turns = (c?.turns ?? []).map((t) => turnHtml(c, t)).join("");
   const followUps =
     c !== null && c.turns.length > 0 && !busy
@@ -266,5 +268,17 @@ export function grokPage(grok: MockGrok, path: string, conversation: string | nu
   return {
     title: "Grok / X",
     html: `${header}<div role="region" aria-label="Conversation" tabindex="-1"><div class="mx-auto w-full max-w-[800px]"><div class="relative"><div class="space-y-4" data-mock-grok-transcript>${turns}${followUps}</div></div></div></div><div>${composer}</div><template data-mock-grok-history>${historyPanel(grok, c?.id ?? null)}</template><template data-mock-grok-models>${modelMenu(grok)}</template>`,
+  };
+}
+
+/** X's History page (/i/grok/history), which X's compact layout opens in place of its panel. */
+export function grokHistoryPage(grok: MockGrok) {
+  const panel = historyPanel(grok, null).replace(
+    'role="dialog" aria-label="History" data-mock-grok-panel class="dialog"',
+    "data-mock-grok-panel",
+  );
+  return {
+    title: "Grok / X",
+    html: `${panel}<template data-mock-grok-history>${historyPanel(grok, null)}</template>`,
   };
 }

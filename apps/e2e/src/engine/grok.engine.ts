@@ -106,3 +106,31 @@ test("past X's free limit, X's own SuperGrok upsell shows in place of the answer
     await limited.close();
   }
 });
+
+test("in X's compact layout, the rail reads X's History page and X goes Back to the chat", async () => {
+  const compact = await startEngine({ premium: false, compact: true });
+  try {
+    const { grok } = compact.mock.state;
+    await compact.app.evaluate(() => void (location.hash = "#/grok?c=c-pricing"));
+    await expect
+      .poll(() => compact.engine<string>("location.pathname"))
+      .toBe("/i/grok/c/c-pricing");
+    await expect.poll(() => rows(compact).count()).toBe(grok.conversations.length);
+    // X went to its History page for the read and came Back to the chat open in Xtend.
+    await expect
+      .poll(() => compact.engine<string>("location.pathname"))
+      .toBe("/i/grok/c/c-pricing");
+    await compact.app
+      .getByText("What are founders saying about two-plan pricing pages this week?")
+      .waitFor();
+    const row = rows(compact).filter({ hasText: "Explain this post: churn email" });
+    await row.hover();
+    await row.getByRole("button", { name: "Pin" }).click();
+    await expect.poll(() => grok.writes.at(-1)).toBe("pin c-churn");
+    await expect
+      .poll(() => compact.engine<string>("location.pathname"))
+      .toBe("/i/grok/c/c-pricing");
+  } finally {
+    await compact.close();
+  }
+});
