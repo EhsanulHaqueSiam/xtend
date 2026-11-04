@@ -1,6 +1,12 @@
 import { expect, it } from "vite-plus/test";
 
-import { applyCapture, emptyLegacy, markdownBlocks } from "./grokLegacy";
+import {
+  applyCapture,
+  emptyLegacy,
+  type GrokLegacyState,
+  markdownBlocks,
+  turnsOf,
+} from "./grokLegacy";
 
 const items = (restId: string, list: ReadonlyArray<Record<string, unknown>>) =>
   ({
@@ -27,7 +33,7 @@ it("reads X's conversation items in order and grows the streamed answer word by 
   s = applyCapture(s, line({ conversationId: "c1", userChatItemId: "u2" }));
   s = applyCapture(s, line({ result: { message: "Thinking", isThinking: true } }));
   s = applyCapture(s, line({ result: { message: "Replies ", isThinking: false } }));
-  expect(s.conversations.get("c1")?.at(-1)).toMatchObject({
+  expect(turnsOf(s, "c1").at(-1)).toMatchObject({
     answer: "Replies ",
     thinking: "Thinking",
     live: true,
@@ -47,23 +53,23 @@ it("keeps two of X's streams apart: each one's words and end reach only its own 
   s = applyCapture(s, line({ result: { message: "for A" } }, "A"));
   s = applyCapture(s, line({ result: { message: "for B" } }, "B"));
   s = applyCapture(s, { kind: "end", stream: "A" });
-  expect(s.conversations.get("c1")).toMatchObject([{ id: "ua", answer: "for A", live: false }]);
-  expect(s.conversations.get("c2")).toMatchObject([{ id: "ub", answer: "for B", live: true }]);
+  expect(turnsOf(s, "c1")).toMatchObject([{ id: "ua", answer: "for A", live: false }]);
+  expect(turnsOf(s, "c2")).toMatchObject([{ id: "ub", answer: "for B", live: true }]);
 });
 
 it("gives the question the user sent to the turn X's stream confirms, until X's items say otherwise", () => {
   let s = applyCapture(
-    { ...emptyLegacy, asked: "And who is right?" },
+    { ...emptyLegacy, asked: new Map([["c1", "And who is right?"]]) },
     line({ conversationId: "c1", userChatItemId: "u2" }),
   );
   s = applyCapture(s, line({ result: { message: "Neither." } }));
-  expect(s.conversations.get("c1")).toEqual([
+  expect(turnsOf(s, "c1")).toEqual([
     { id: "u2", user: "And who is right?", answer: "Neither.", thinking: null, live: true },
   ]);
-  expect(s.asked).toBeNull();
+  expect(s.asked.size).toBe(0);
   // X's items from before the question keep the turn still streaming.
   s = applyCapture(s, items("c1", [{ chat_item_id: "u1", sender_type: "User", message: "Hi" }]));
-  expect(s.conversations.get("c1")?.map((t) => [t.id, t.user])).toEqual([
+  expect(turnsOf(s, "c1").map((t) => [t.id, t.user])).toEqual([
     ["u1", "Hi"],
     ["u2", "And who is right?"],
   ]);
@@ -79,6 +85,46 @@ it("gives the question the user sent to the turn X's stream confirms, until X's 
   expect(s.conversations.get("c1")).toEqual([
     { id: "u2", user: "And who is right? ", answer: "Neither.", thinking: null, live: false },
   ]);
+});
+
+it("gives each question to the stream X's ask names its chat in, whichever starts first", () => {
+  let s: GrokLegacyState = {
+    ...emptyLegacy,
+    asked: new Map([
+      ["c1", "A"],
+      ["c2", "B"],
+      ["", "C"],
+    ]),
+  };
+  s = applyCapture(s, { kind: "start", stream: "1", conversation: "c1" });
+  s = applyCapture(s, { kind: "start", stream: "2", conversation: "c2" });
+  s = applyCapture(s, { kind: "start", stream: "3", conversation: "c-new" });
+  // X's first lines name the user's item, not the conversation.
+  for (const stream of ["2", "3", "1"])
+    s = applyCapture(s, line({ userChatItemId: `u${stream}`, agentChatItemId: "a" }, stream));
+  expect([turnsOf(s, "c1"), turnsOf(s, "c2"), turnsOf(s, "c-new")]).toMatchObject([
+    [{ id: "u1", user: "A" }],
+    [{ id: "u2", user: "B" }],
+    [{ id: "u3", user: "C" }],
+  ]);
+});
+
+it("keeps the last 20 conversations and the one X streams in, and a streamed word copies none of them", () => {
+  let s = applyCapture(
+    emptyLegacy,
+    items("c0", [{ chat_item_id: "u", sender_type: "User", message: "q" }]),
+  );
+  s = applyCapture(s, { kind: "start", stream: "1", conversation: "c0" });
+  s = applyCapture(s, line({ userChatItemId: "u0" }));
+  for (let i = 1; i <= 25; i++) s = applyCapture(s, items(`c${i}`, []));
+  expect([...s.conversations.keys()]).toEqual([
+    "c0",
+    ...Array.from({ length: 19 }, (_, i) => `c${i + 7}`),
+  ]);
+  const before = s.conversations;
+  s = applyCapture(s, line({ result: { message: "word" } }));
+  expect(s.conversations).toBe(before);
+  expect(turnsOf(s, "c0").at(-1)).toMatchObject({ id: "u0", answer: "word", live: true });
 });
 
 it("draws X's markdown answer as blocks: headings, lists, bold, links and code", () => {

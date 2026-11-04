@@ -25,27 +25,31 @@ interface LegacyTurn {
   /** X is still streaming it. */
   readonly live: boolean;
 }
-/** One of X's answers in flight: the conversation and turn X's first line named. */
+/** One of X's answers in flight, kept apart from the conversations so each word copies only this. */
 interface LegacyStream {
-  readonly conversation: string;
-  readonly turn: string;
+  /** The conversation X's ask named, else X's first line; null until either did. */
+  readonly conversation: string | null;
+  /** The turn it answers, from X's first line on. */
+  readonly turn: LegacyTurn | null;
 }
 export interface GrokLegacyState {
   readonly history: ReadonlyArray<LegacyRow> | null;
   readonly pinned: ReadonlyArray<string>;
+  /** The conversations X's items or finished answers last touched, oldest first, `KEEP` at most. */
   readonly conversations: ReadonlyMap<string, ReadonlyArray<LegacyTurn>>;
   /** X's streams in flight, by the capture's stream id. */
   readonly streams: ReadonlyMap<string, LegacyStream>;
-  /** What the user just asked through Xtend's box, until X's next stream names its turn. */
-  readonly asked: string | null;
+  /** What the user asked through Xtend's box, by the chat it was asked in ("" for a new chat). */
+  readonly asked: ReadonlyMap<string, string>;
 }
 export const emptyLegacy: GrokLegacyState = {
   history: null,
   pinned: [],
   conversations: new Map(),
   streams: new Map(),
-  asked: null,
+  asked: new Map(),
 };
+const KEEP = 20;
 export const grokLegacyAtom = Atom.make(emptyLegacy).pipe(Atom.keepAlive);
 
 const record = (v: unknown): Record<string, unknown> =>
@@ -123,31 +127,34 @@ export const applyCapture = (state: GrokLegacyState, capture: GrokCapture): Grok
           turns.push({ id: str(item.chat_item_id) ?? String(turns.length), user: null, ...answer });
       }
     }
-    // A turn X is still streaming keeps the words streamed so far; X's items fill in its question.
-    const before = state.conversations.get(id) ?? [];
-    for (const s of state.streams.values()) {
-      const mine = s.conversation === id ? before.find((t) => t.id === s.turn) : undefined;
-      if (mine === undefined) continue;
-      const at = turns.findIndex((t) => t.id === s.turn);
-      if (at === -1) turns.push(mine);
-      else turns[at] = { ...mine, user: turns[at]!.user ?? mine.user };
-    }
-    return { ...state, conversations: new Map(state.conversations).set(id, turns) };
+    return { ...state, conversations: remember(state, id, turns) };
   }
   const stream = state.streams.get(capture.stream);
-  // The one turn this stream answers, changed by `f`.
-  const update = (s: LegacyStream, f: (t: LegacyTurn) => LegacyTurn) => ({
-    ...state,
-    conversations: new Map(state.conversations).set(
-      s.conversation,
-      (state.conversations.get(s.conversation) ?? []).map((t) => (t.id === s.turn ? f(t) : t)),
-    ),
-  });
+  if (capture.kind === "start")
+    return {
+      ...state,
+      streams: new Map(state.streams).set(capture.stream, {
+        conversation: capture.conversation,
+        turn: null,
+      }),
+    };
   if (capture.kind === "end") {
     if (stream === undefined) return state;
     const streams = new Map(state.streams);
     streams.delete(capture.stream);
-    return { ...update(stream, (t) => ({ ...t, live: false })), streams };
+    if (stream.conversation === null || stream.turn === null) return { ...state, streams };
+    const done = { ...stream.turn, live: false };
+    const turns = state.conversations.get(stream.conversation) ?? [];
+    const at = turns.findIndex((t) => t.id === done.id);
+    const next =
+      at === -1
+        ? [...turns, done]
+        : turns.with(at, { ...done, user: turns[at]!.user ?? done.user });
+    return {
+      ...state,
+      streams,
+      conversations: remember({ ...state, streams }, stream.conversation, next),
+    };
   }
   let line: Record<string, unknown>;
   try {
@@ -155,31 +162,77 @@ export const applyCapture = (state: GrokLegacyState, capture: GrokCapture): Grok
   } catch {
     return state;
   }
-  // X's first line names the conversation and the user's item the answer belongs to.
-  const named = str(line.conversationId);
-  if (named !== null) {
-    const turn = str(line.userChatItemId) ?? `live-${capture.stream}`;
-    const turns = state.conversations.get(named) ?? [];
-    return {
-      ...state,
-      asked: null,
-      streams: new Map(state.streams).set(capture.stream, { conversation: named, turn }),
-      conversations: new Map(state.conversations).set(
-        named,
-        turns.some((t) => t.id === turn)
-          ? turns.map((t) => (t.id === turn ? { ...t, live: true } : t))
-          : [...turns, { id: turn, user: state.asked, answer: null, thinking: null, live: true }],
-      ),
+  const conversation = stream?.conversation ?? str(line.conversationId);
+  if (conversation === null) return state;
+  let asked = state.asked;
+  let turn = stream?.turn ?? null;
+  if (turn === null) {
+    // X's first line names the user's item; its question is the one asked in this chat, or in a
+    // new chat when X's conversation is one Xtend has not seen.
+    const key = asked.has(conversation)
+      ? conversation
+      : asked.has("") && !state.conversations.has(conversation)
+        ? ""
+        : null;
+    if (key !== null) {
+      const rest = new Map(asked);
+      rest.delete(key);
+      asked = rest;
+    }
+    const id = str(line.userChatItemId) ?? `live-${capture.stream}`;
+    turn = {
+      id,
+      user: key === null ? null : state.asked.get(key)!,
+      answer: null,
+      thinking: null,
+      live: true,
     };
   }
   const result = record(line.result);
   const token = str(result.message);
-  if (stream === undefined || token === null) return state;
-  return update(stream, (t) =>
-    result.isThinking === true
-      ? { ...t, thinking: (t.thinking ?? "") + token }
-      : { ...t, answer: (t.answer ?? "") + token },
-  );
+  if (token !== null)
+    turn =
+      result.isThinking === true
+        ? { ...turn, thinking: (turn.thinking ?? "") + token }
+        : { ...turn, answer: (turn.answer ?? "") + token };
+  return {
+    ...state,
+    asked,
+    streams: new Map(state.streams).set(capture.stream, { conversation, turn }),
+  };
+};
+
+/**
+ * `conversations` with `id` set to `turns` as the latest touched, less the oldest beyond `KEEP`
+ * that no stream in flight answers in.
+ */
+const remember = (
+  state: Pick<GrokLegacyState, "conversations" | "streams">,
+  id: string,
+  turns: ReadonlyArray<LegacyTurn>,
+) => {
+  const next = new Map(state.conversations);
+  next.delete(id);
+  next.set(id, turns);
+  const live = new Set([...state.streams.values()].map((s) => s.conversation));
+  for (const key of next.keys()) {
+    if (next.size <= KEEP) break;
+    if (!live.has(key)) next.delete(key);
+  }
+  return next;
+};
+
+/** Conversation `chat`'s turns as X's items list them, with the answers X is streaming in it. */
+export const turnsOf = (state: GrokLegacyState, chat: string): ReadonlyArray<LegacyTurn> => {
+  const turns = [...(state.conversations.get(chat) ?? [])];
+  for (const s of state.streams.values()) {
+    if (s.conversation !== chat || s.turn === null) continue;
+    const at = turns.findIndex((t) => t.id === s.turn!.id);
+    // X's items fill in the question; the words streamed so far are the answer's.
+    if (at === -1) turns.push(s.turn);
+    else turns[at] = { ...s.turn, user: turns[at]!.user ?? s.turn.user };
+  }
+  return turns;
 };
 
 /** X's inline markdown as runs: **bold**, *italic*, `code` and [links](url). */
