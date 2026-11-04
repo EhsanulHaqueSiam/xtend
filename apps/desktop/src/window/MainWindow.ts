@@ -44,6 +44,7 @@ import { attachSessionCapture } from "../xSession/SessionCapture.ts";
 import { MOCK_X_PARTITION, useMockX } from "./mockX.ts";
 import {
   browserUserAgent,
+  allowsXPermission,
   externalWebUrl,
   guestKey,
   hardenXWebview,
@@ -173,16 +174,27 @@ async function importCookies(
 }
 
 /**
- * x.com may ask for notifications and fullscreen (its video player); nothing else (camera,
- * geolocation, clipboard reads) has a reason to. Granted web notifications are shown by the OS
- * notification centre; Electron does that itself.
+ * What x.com may ask for (`allowsXPermission`): notifications, fullscreen and, for a Space, the
+ * microphone; nothing else (camera, geolocation, clipboard reads). Granted web notifications are
+ * shown by the OS notification centre; Electron does that itself.
  */
-const ALLOWED_PERMISSIONS = new Set(["notifications", "fullscreen"]);
 const allowXPermissions = (s: Electron.Session) => {
-  s.setPermissionRequestHandler((_contents, permission, callback) =>
-    callback(ALLOWED_PERMISSIONS.has(permission)),
+  s.setPermissionRequestHandler((_contents, permission, callback, details) =>
+    callback(
+      allowsXPermission(
+        permission,
+        details.requestingUrl ?? "",
+        "mediaTypes" in details ? details.mediaTypes : undefined,
+      ),
+    ),
   );
-  s.setPermissionCheckHandler((_contents, permission) => ALLOWED_PERMISSIONS.has(permission));
+  s.setPermissionCheckHandler((_contents, permission, origin, details) =>
+    allowsXPermission(
+      permission,
+      origin,
+      details.mediaType === undefined ? undefined : [details.mediaType],
+    ),
+  );
 };
 
 const openExternalWeb = (url: string) => {

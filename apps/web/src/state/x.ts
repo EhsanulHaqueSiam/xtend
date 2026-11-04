@@ -80,6 +80,8 @@ let keepPage = false;
 export const xKeepPage = (keep: boolean) => {
   keepPage = keep;
 };
+/** Whether X's page plays a Space now, so a refresh goes through X's router and keeps the lists. */
+export const xKeepsPage = () => keepPage;
 
 /** Engine moves screens made, so a screen being left can tell whether the next one moved it. */
 let moves = 0;
@@ -92,11 +94,18 @@ let moves = 0;
 export const xNavigate = (url: string): Promise<void> => {
   if (!isXUrl(url)) return Promise.resolve();
   // X leaves the Space it plays when its page unloads; its router keeps its dock and the audio.
-  if (keepPage && element !== null && ready && routable(element.getURL()))
+  // The page X already shows refreshes through X's own nav link for it, as a click there does.
+  if (keepPage && element !== null && ready && routable(element.getURL())) {
+    const path = new URL(url).pathname;
+    if (new URL(element.getURL()).pathname === path)
+      return xRun(
+        `document.querySelector(${JSON.stringify(`a[data-testid^="AppTabBar_"][href="${path}"]`)})?.click(), true`,
+      ).then(() => {});
     return xGo(url).then(
       () => {},
       () => {},
     );
+  }
   moves++;
   if (element !== null && ready) return element.loadURL(url).catch(() => {});
   return new Promise((resolve) => {
