@@ -15,7 +15,7 @@ test("settings: handle, budget and treg token save, and the sidebar meter follow
   // Fields are named by their label and hint; the accounts form below has a bare "Handle".
   await page.getByRole("textbox", { name: /^Handle / }).fill("shipper");
   // Pages share one unsaved draft, so the handle survives the move to Money.
-  await page.getByRole("link", { name: "Money" }).click();
+  await page.getByRole("link", { name: "Money", exact: true }).click();
   // A password field has no textbox role; its label still names it (label and hint run together).
   const token = page.getByLabel(/^treg token/);
   await token.fill("treg-e2e-token");
@@ -32,7 +32,7 @@ test("settings: handle, budget and treg token save, and the sidebar meter follow
   await expect
     .poll(() => page.getByRole("spinbutton", { name: /^Monthly budget/ }).inputValue())
     .toBe("30");
-  await page.getByRole("link", { name: "Account" }).click();
+  await page.getByRole("link", { name: "Account", exact: true }).click();
   expect(await page.getByRole("textbox", { name: /^Handle / }).inputValue()).toBe("shipper");
 
   const settings = await rpc("settings.get", {});

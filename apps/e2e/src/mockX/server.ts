@@ -12,6 +12,7 @@ import {
   unfollowSheet,
 } from "./menus.ts";
 import { pollMarkup, postsOf, route } from "./pages.ts";
+import { settingWrite, writeSetting } from "./settings.ts";
 import { createMockState, type GraphqlRequest, type Json, type MockOptions } from "./state.ts";
 
 /**
@@ -127,6 +128,12 @@ export async function startMockX(
     const json = (body: unknown) =>
       send(200, JSON.stringify(body), "application/json; charset=utf-8");
 
+    // X's settings pages save each change on its own (settings.ts).
+    const setting = req.method === "POST" ? settingWrite(url.pathname) : undefined;
+    if (setting !== undefined) {
+      state.presses.push({ kind: "write", name: setting, target: null, path: from });
+      return json(writeSetting(state.settings, setting, await readBody(req)));
+    }
     const graphql = /^\/i\/api\/graphql\/[^/]+\/([A-Za-z]+)$/.exec(url.pathname);
     if (graphql !== null) {
       const op = graphql[1]!;
@@ -163,7 +170,12 @@ export async function startMockX(
       case "/__mock/view": {
         const path = url.searchParams.get("path") ?? "/home";
         const cursor = url.searchParams.get("cursor");
-        const r = route(state, path, url.searchParams.get("tab") ?? "forYou");
+        const r = route(
+          state,
+          path,
+          url.searchParams.get("tab") ?? "forYou",
+          Number(url.searchParams.get("width") ?? "1280"),
+        );
         if (cursor !== null) {
           const paged = r.paged === undefined ? undefined : r.requests[r.paged];
           if (paged === undefined)
