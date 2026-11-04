@@ -25,6 +25,7 @@ import {
   xOverAtom,
   xOverEnded,
   xPickCommunitySearchTab,
+  xCommunityDrawn,
   xPickCommunityTab,
 } from "../state/x";
 
@@ -37,6 +38,8 @@ const TABS = [
 ] as const satisfies ReadonlyArray<{ id: string; label: CommunityTab; path: string }>;
 type Tab = (typeof TABS)[number]["id"];
 const TAB_IDS: ReadonlySet<string> = new Set(TABS.map((t) => t.id));
+/** How long X may take to send an open tab's posts before X's own cache is taken to hold them. */
+const CACHED_MS = 8_000;
 
 /** X's top bar "More" for a Community: two links to X's help, opened in the browser. */
 const MORE_LINKS = [
@@ -118,6 +121,22 @@ function CommunityScreen() {
     const mine = live.current;
     return () => mine.abort();
   }, [url, pick]);
+  // X draws a tab it loaded before from its own cache and sends nothing; with none of it here (the
+  // store emptied since), X's page loads in full once, so X sends it again.
+  const listed =
+    q !== undefined || current === undefined || current.label === "About"
+      ? null
+      : communitySurface(id, current.label);
+  const missing = listed !== null && at(engine.lists, listed).length === 0;
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- watches X's page for a tab it draws from its cache while this screen has none of it.
+  useEffect(() => {
+    if (!missing) return;
+    const timer = setTimeout(
+      () => void xCommunityDrawn(id).then((drawn) => drawn && pick(xNavigate(url))),
+      CACHED_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [missing, id, pick, url]);
   // The tabs and searches share a route, which is what ends a press elsewhere: leaving one (or a
   // search's order) ends X's dialog and a tab pick still waiting.
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- ends X's press, dialog and tab pick when the open Community tab, search or order changes.

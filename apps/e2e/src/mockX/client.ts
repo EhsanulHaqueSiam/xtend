@@ -321,6 +321,9 @@ const SCRIPT = String.raw`
       }
       entry = { el: fragment(view.html), next: view.next, title: view.title, path, scroll: 0 };
       cache.set(key, entry);
+      // X keeps a Community's tab it opened on: picked later, it shows from cache, asking nothing.
+      const opened = inPage(path)?.startsWith("community:") && pageTab(path) === "" ? entry.el.querySelector('[role="tab"][aria-selected="true"]')?.textContent.trim() : undefined;
+      if (opened) cache.set(path + "|" + opened, entry);
     }
     if (mine !== token) return;
     if (shown && shown !== entry) {

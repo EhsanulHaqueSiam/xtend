@@ -987,7 +987,8 @@ const benchmarks = [
         `(() => { const cs = [...$.communities.values()]; return (cs.find((c) => c.role === "NonMember") ?? cs.find((c) => c.role !== null))?.communityId; })()`,
       );
       if (!explore || !id) return false;
-      await reset(`community:${id}`, `community:${id}:Recency`);
+      // No reset: X shows a Community it loaded earlier in this page from its cache and sends
+      // nothing, so Xtend draws what it kept (or loads X's page anew when it kept none).
       await go(`#/communities/${id}`);
       // X opens on Latest for a member and Top otherwise (or the tab last picked there); Xtend
       // draws the tab X opened, and the other is one press of X's own tab away.

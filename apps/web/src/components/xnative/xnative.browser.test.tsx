@@ -21,7 +21,7 @@ import { Poll } from "./PostParts";
 import { ReplyComposer } from "./ReplyComposer";
 import { ReplySort } from "./ReplySort";
 import { Timeline } from "./Timeline";
-import { resetSurface, updateEngine } from "../../state/engine";
+import { at, resetSurface, updateEngine } from "../../state/engine";
 import { Suspense } from "react";
 import { Route as ListsRoute } from "../../routes/lists.index";
 import { Route as CommunityRoute } from "../../routes/communities.$id";
@@ -674,11 +674,8 @@ it("runs one of a Community header's presses at a time: Join waits while X takes
   }
 });
 
-it("in a browser with no engine, a replayed Community opens on the list the replay holds", async () => {
-  const bridge = installFakeBridge();
-  const { batches } = synth().communities!;
-  const id = batches.find((b) => b.op === "CommunityQuery")!.communities[0]!.communityId;
-  // The Community's route as the app declares it; no x.com page answers here.
+/** The Community screen at `path`, under its route as the app declares it, its route loaded. */
+const communityScreen = async (path: string, beforeRender = () => {}) => {
   const root = createRootRoute();
   const router = createRouter({
     routeTree: root.addChildren([
@@ -689,15 +686,25 @@ it("in a browser with no engine, a replayed Community opens on the list the repl
         component: CommunityRoute.options.component!,
       }),
     ]),
-    history: createMemoryHistory({ initialEntries: [`/communities/${id}`] }),
+    history: createMemoryHistory({ initialEntries: [path] }),
   });
-  await using screen = await render(
+  await router.load();
+  beforeRender();
+  return render(
     <div style={{ height: 800, display: "flex" }}>
       <EngineSync />
       <RouterProvider router={router} />
     </div>,
     { router: false, service: {} },
   );
+};
+
+it("in a browser with no engine, a replayed Community opens on the list the replay holds", async () => {
+  const bridge = installFakeBridge();
+  const { batches } = synth().communities!;
+  const id = batches.find((b) => b.op === "CommunityQuery")!.communities[0]!.communityId;
+  // No x.com page answers here.
+  await using screen = await communityScreen(`/communities/${id}`);
   for (const b of batches) bridge.emitEngine(b);
   const top = batches.find(
     (b) => b.op === "CommunityTweetsTimeline" && b.key === `community:${id}`,
@@ -706,6 +713,52 @@ it("in a browser with no engine, a replayed Community opens on the list the repl
   await expect
     .element(screen.getByRole("tab", { name: "Top" }))
     .toHaveAttribute("aria-selected", "true");
+});
+
+it("loads X's Community page in full when X draws a tab from its cache that Xtend has none of", async () => {
+  const bridge = installFakeBridge();
+  const id = "600000000188";
+  const loads: Array<string> = [];
+  // X's page already shows this Community's Latest, with posts, from its own cache.
+  registerXWebview({
+    getURL: () => `https://x.com/i/communities/${id}`,
+    loadURL: (url: string) => (loads.push(url), Promise.resolve()),
+    executeJavaScript: (code: string) =>
+      Promise.resolve(
+        code.includes("article") ? true : code.includes("aria-selected") ? "Latest" : true,
+      ),
+  } as unknown as XWebview);
+  markXReady();
+  // A page an earlier screen asked for before any engine was there: not this screen's load.
+  loads.length = 0;
+  // The router loads before the clock is faked: it waits on timers of its own.
+  const clocks: Array<Disposable> = [];
+  const fake = () => void clocks.push(fakeTimers());
+  try {
+    {
+      using _clock = { [Symbol.dispose]: () => clocks.pop()?.[Symbol.dispose]() };
+      await using _screen = await communityScreen(`/communities/${id}?tab=latest`, fake);
+      await vi.advanceTimersByTimeAsync(7_000);
+      expect(loads).toEqual([]);
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(loads).toEqual([`https://x.com/i/communities/${id}`]);
+    }
+    // With X's posts here, X's page stays as it is.
+    loads.length = 0;
+    using _clock = { [Symbol.dispose]: () => clocks.pop()?.[Symbol.dispose]() };
+    await using _screen = await communityScreen(`/communities/${id}?tab=latest`, fake);
+    bridge.emitEngine({
+      ...batch("CommunityTweetsTimeline", [post("51", "Kept from before")]),
+      key: `community:${id}:Recency`,
+    });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect([at(updateEngine((s) => s).lists, `community:${id}:Recency`), loads]).toEqual([
+      ["51"],
+      [],
+    ]);
+  } finally {
+    registerXWebview(null);
+  }
 });
 
 it("in the browser alone, says free posting needs the desktop and carries a poll to Compose as a draft", async () => {

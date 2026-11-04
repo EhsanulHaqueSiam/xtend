@@ -613,6 +613,14 @@ test("Communities: the hub's Home and Explore, and a Community's tabs, read X's 
   await e.app.getByRole("tab", { name: "Top", exact: true }).click();
   await expect.poll(xSelected).toBe("Top");
   await expect.poll(nativeIds).toEqual(tweets("Relevance", mine));
+  // Back again after the hub: X shows the tab last picked from its cache, asking nothing, and
+  // Xtend draws what it kept.
+  await go("/communities");
+  await expect.poll(enginePath).toBe(hub);
+  await go(`/communities/${mine}`);
+  await expect.poll(enginePath).toBe(`/i/communities/${mine}`);
+  await expect.poll(selected).toBe("Top");
+  await expect.poll(nativeIds).toEqual(tweets("Relevance", mine));
 
   // The Community the fixtures give a page of its own.
   const community = e.mock.state
