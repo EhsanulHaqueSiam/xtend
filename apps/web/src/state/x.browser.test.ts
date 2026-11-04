@@ -49,6 +49,7 @@ import {
   xChecklist,
   xControl,
   xPressToPage,
+  xPressRow,
 } from "./x";
 
 // X's page as the engine holds it: a post quoting 42, then 42 itself, edited, so its timestamp
@@ -2306,6 +2307,34 @@ it("presses a control only once X's page shows the Community it is for, never on
     await leaving;
     // X's router took the engine to Community 20 first; only there was X's control pressed.
     expect(pressedOn).toEqual(["/i/communities/20/tools"]);
+  } finally {
+    history.replaceState(null, "", start);
+    registerXWebview(null);
+  }
+});
+
+it("waits for X to turn a queue row after Keep, however long X's answer takes", async () => {
+  using _clock = fakeTimers();
+  const start = location.pathname + location.search;
+  history.replaceState(null, "", "/i/communities/20/moderation/reported_tweets");
+  document.body.innerHTML = `<div id="row"><article><a href="/ann/status/50"><time></time></a></article><button>Keep</button></div>`;
+  // X answers its keep a while later, then draws "You kept this post" in the row's place.
+  document.querySelector("button")!.addEventListener("click", () =>
+    setTimeout(() => {
+      document.querySelector("#row")!.outerHTML = `<div aria-label="You kept this post"></div>`;
+    }, 1500),
+  );
+  inThisPage(() => `https://x.com${location.pathname}`);
+  try {
+    const keeping = xPressRow(
+      "/i/communities/20/moderation/reported_tweets",
+      'a[href$="/status/50"] time',
+      "Keep",
+      () => true,
+      () => {},
+    );
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(await keeping).toMatchObject({ gone: true });
   } finally {
     history.replaceState(null, "", start);
     registerXWebview(null);

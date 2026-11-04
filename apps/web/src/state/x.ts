@@ -1472,8 +1472,8 @@ export const xListDialog = async (
 
 /**
  * Holds the engine over the main area for press `run` while X shows its own dialog, or a page
- * Xtend does not draw (`drawn` tells, by its x.com address). Where X settled: the address of a
- * page Xtend draws, with no dialog up; null when the user moved on first.
+ * Xtend does not draw (`drawn` tells, by its x.com address). Where X settled (a page Xtend draws,
+ * no dialog up) and whether X showed anything else first; null when the user moved on first.
  */
 const holdUntilDrawn = async (
   run: number,
@@ -1493,7 +1493,9 @@ const holdUntilDrawn = async (
     return true;
   })()`);
   let at: unknown = null;
+  let away = false;
   for (let looks = 0; typeof at !== "string" || !drawn(at); looks++) {
+    away ||= looks > 0;
     await new Promise((r) => setTimeout(r, 500));
     if (run !== overRun) return null;
     at = await xRun(
@@ -1502,7 +1504,7 @@ const holdUntilDrawn = async (
   }
   if (run !== overRun) return null;
   over(false);
-  return at;
+  return { at, away };
 };
 
 /**
@@ -1538,7 +1540,7 @@ export const xOverPage = async (
   const onRoute = (await xRun(`location.pathname === ${JSON.stringify(path)}`)) === true;
   if (run !== overRun) return null;
   if (!onRoute) return false;
-  return holdUntilDrawn(run, drawn, over);
+  return (await holdUntilDrawn(run, drawn, over))?.at ?? null;
 };
 
 /**
@@ -1615,8 +1617,17 @@ const pressControl = async (
     { url: `https://x.com${page}`, path: page },
     press,
     async () => {
-      const at = await holdUntilDrawn(run, drawn, over);
-      if (at !== null) settled = { at, gone: (await xRun(`${find}() === null`)) === true };
+      const held = await holdUntilDrawn(run, drawn, over);
+      if (held === null) return;
+      // A write at the press (Keep, Approve) turns X's row once X answered: wait for it, up to
+      // 10 s. Back from X's own flow (Hide, Ban), X has drawn the row as it left it.
+      const looks = within === undefined || held.away ? 1 : 50;
+      const gone = await xRun(`(async () => {
+        const find = ${find};
+        for (let i = 1; i < ${looks} && find(); i++) await new Promise((r) => setTimeout(r, 200));
+        return find() === null;
+      })()`);
+      settled = { at: held.at, gone: gone === true };
     },
     () => run === overRun,
   );
