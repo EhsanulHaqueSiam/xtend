@@ -997,7 +997,11 @@ const SCRIPT = String.raw`
       later(box.querySelector(".bar"));
       box.querySelector('[data-testid="app-bar-back"]').addEventListener("click", closeArticleSheet);
       const root = document.querySelector("[data-mock-article]");
-      root.hidden = true;
+      // With __mockReplaceOpener the editor stays on screen and its Publish is drawn anew.
+      if (window.__mockReplaceOpener) {
+        const opener = root.querySelector("[data-article-publish]");
+        opener.replaceWith(opener.cloneNode(true));
+      } else root.hidden = true;
       root.after(box);
     } else {
       box.className = "dialog";
@@ -1133,7 +1137,7 @@ export function shell(state: MockState, hashes: Readonly<Record<string, string>>
 <main role="main"><div data-testid="primaryColumn"></div></main>
 <div id="layers"></div>
 </div>
-<script>window.__mockHash = ${JSON.stringify(hashes)}; window.__mockFormats = ${String(state.formats)}; window.__mockCompact = ${String(state.compact)}; window.__mockLateSheet = ${String(state.lateSheetPublish)};</script>
+<script>window.__mockHash = ${JSON.stringify(hashes)}; window.__mockFormats = ${String(state.formats)}; window.__mockCompact = ${String(state.compact)}; window.__mockLateSheet = ${String(state.lateSheetPublish)}; window.__mockReplaceOpener = ${String(state.replaceOpener)};</script>
 <script src="/__mock/client.js"></script>
 </body></html>`;
 }

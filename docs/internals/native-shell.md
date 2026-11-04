@@ -97,9 +97,9 @@ quotes, lists, bold, italic, strikethrough and links, and drops atomic blocks, w
 body with code, LaTeX, a divider or a post goes out through the API instead. Publish stays off
 until X has saved. X's two Publish buttons have no test id, only X's word. The engine is usually
 narrow, where X draws its compact layout: the crop step and the Publish sheet are whole routes, not
-dialogs, so their parts are found by their own names; the sheet's Publish is searched only in
-the sheet around its caption, never the editor's Publish pressed first, and waited for when X
-draws it after the caption. X gates the pages on
+dialogs, so their parts are found by their own names; the sheet's Publish is pressed only inside a
+sheet found for certain (its dialog, or the caption's container with X's reply select and none of
+X's editor), never the editor's Publish, and waited for; with no such sheet nothing is pressed. X gates the pages on
 `subscriptions_feature_article_composer`, which no claim the capture sees carries, and answers
 them with "Page not found" without it, so access is read from X's page: its pen, or none.
 

@@ -102,7 +102,13 @@ const PNG =
 
 test("Publish now works in X's compact layout too, the cover through X's own input and crop step", async () => {
   // The engine is usually narrow, where X draws its steps and sheets as whole routes.
-  const c = await startEngine({ premium: true, compact: true });
+  // Opening X's sheet redraws the editor's Publish, and the sheet draws its own after its caption.
+  const c = await startEngine({
+    premium: true,
+    compact: true,
+    lateSheetPublish: true,
+    replaceOpener: true,
+  });
   try {
     await c.service.rpc("settings.update", { sessionPostingEnabled: true });
     const d = await c.service.rpc("compose.draftCreate", {

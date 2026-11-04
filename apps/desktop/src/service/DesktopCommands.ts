@@ -1044,16 +1044,20 @@ async function enabledText(
   return enabledText(cdp, where, word, deadline);
 }
 
-// The sheet's own Publish, run on its caption field: searched only in the sheet (its dialog, or in
-// the compact layout the biggest container of the caption that does not hold the editor's
-// Publish), and never the editor's Publish (`opener`) itself. Null while the sheet has none yet.
+// The sheet's own Publish, run on its caption field, or null. Only inside a sheet found for
+// certain: its dialog, or in the compact layout the caption's biggest container that holds X's
+// reply select and none of X's editor (its composer, its title field); never `opener` (the
+// editor's Publish pressed first). Without such a sheet nothing is pressed.
 const SHEET_PUBLISH = `function (opener, word) {
+  const editor = (n) => n.querySelector('[data-testid="composer"]') !== null ||
+    [...n.querySelectorAll("textarea")].some((t) => t.name !== "articleTweetText") ||
+    (opener.isConnected && n.contains(opener));
   let box = this.closest('[role="dialog"]');
-  if (box === null) {
-    box = this;
-    while (box.parentElement !== null && !box.parentElement.contains(opener)) box = box.parentElement;
-  }
-  return [...box.querySelectorAll('[role="button"], button')].find((b) => b !== opener && !b.contains(opener) && b.textContent.trim() === word) ?? null;
+  if (box === null)
+    for (let n = this.parentElement; n !== null && !editor(n); n = n.parentElement)
+      if (n.querySelector('select[data-testid="convoControl"]') !== null) box = n;
+  if (box === null || editor(box)) return null;
+  return [...box.querySelectorAll('[role="button"], button')].find((b) => b.textContent.trim() === word) ?? null;
 }`;
 
 /**
@@ -1074,7 +1078,8 @@ async function sheetPublish(cdp: Cdp, opener: string, deadline: number): Promise
     };
     if (enabled(await attributes(cdp, nodeId))) return nodeId;
   }
-  if (Date.now() >= deadline) throw new Error("x.com's Publish sheet kept Publish off");
+  if (Date.now() >= deadline)
+    throw new Error("x.com's Publish sheet showed no Publish of its own to press");
   await sleep(POLL_MS);
   return sheetPublish(cdp, opener, deadline);
 }

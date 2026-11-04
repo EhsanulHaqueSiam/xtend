@@ -135,6 +135,8 @@ export interface MockOptions {
   readonly compact?: boolean;
   /** X's Publish sheet draws its caption first and its own Publish a moment later. */
   readonly lateSheetPublish?: boolean;
+  /** Opening X's compact Publish sheet redraws the editor's app bar: its Publish is a new node. */
+  readonly replaceOpener?: boolean;
   /** False: X's page sends no claims at boot, as live X did not for one account (2026-11-03). */
   readonly sendsClaims?: boolean;
   /**
@@ -1395,6 +1397,7 @@ export function createMockState(options: MockOptions = {}) {
     compact: options.compact === true,
     /** Whether X's Publish sheet draws its Publish after its caption (see `MockOptions`). */
     lateSheetPublish: options.lateSheetPublish === true,
+    replaceOpener: options.replaceOpener === true,
     /** Whether X's page sends its claims at boot; some accounts' never do. */
     sendsClaims: options.sendsClaims ?? true,
     fixtures: () => fixtures,
