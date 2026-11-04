@@ -544,9 +544,9 @@ it("keeps a Community's queues in X's order: a first page replaces, a next page 
   const kept = decide(listed, "20", "post", "50", "Kept");
   expect(kept.decided.get(decisionKey("20", "post", "50"))).toBe("Kept");
   expect(mergeBatch(kept, cases(["50"])).decided.has(decisionKey("20", "post", "50"))).toBe(false);
-  // A later page of X's list is no word on the first's: the decision stays.
+  // X's later page listing it as waiting is X's word too.
   expect(mergeBatch(kept, cases(["50"], "c2")).decided.has(decisionKey("20", "post", "50"))).toBe(
-    true,
+    false,
   );
 });
 
@@ -581,6 +581,9 @@ it("takes a decision X drew off X's count of what waits, once per row, and gives
   expect(waitingIn(state, "20")).toEqual({ reported: 1, requests: 3 });
   state = decide(state, "20", "request", "33", "Denied");
   expect(waitingIn(state, "20").requests).toBe(2);
+  // Waiting again on a later page of X's list: counted again just the same.
+  const later = mergeBatch(state, { ...asking(["33"]), cursor: "c1" });
+  expect([waitingIn(later, "20").requests, later.decided.size]).toEqual([3, 1]);
   // X's own count, fresh, already has every decision in it.
   state = mergeBatch(state, tools(0, 2));
   expect(waitingIn(state, "20")).toEqual({ reported: 0, requests: 2 });

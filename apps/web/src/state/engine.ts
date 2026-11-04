@@ -860,14 +860,14 @@ function mergeQueues(
   const asked = batch.joinRequests;
   const cases = batch.reportCases;
   const known = asked === undefined ? undefined : state.joinRequests.get(asked.communityId);
-  // A fresh first page is X's word on what waits: one X lists as waiting again is undecided.
+  // Any page of X's list is X's word on what waits: one X lists as waiting again is undecided.
   const waiting = [
-    ...(asked?.page === true && batch.cursor === null
+    ...(asked?.page === true
       ? asked.requests
           .filter((r) => r.state === "Pending")
           .map((r) => decisionKey(asked.communityId, "request", r.userId))
       : []),
-    ...(cases !== undefined && batch.cursor === null
+    ...(cases !== undefined
       ? cases.cases.map((c) => decisionKey(cases.communityId, "post", c.postId))
       : []),
   ].filter((key) => state.decided.has(key));
