@@ -31,6 +31,10 @@ export function xtendRoute(href: string): string | null {
     if (third === undefined) return "/communities";
     if (!/^\d+$/.test(third)) return null;
     if (fourth === undefined) return `/communities/${third}`;
+    // X's Admin tools list and its General settings; X's other tools stay X's own.
+    const rest = url.pathname.split("/").filter(Boolean).slice(4).join("/");
+    if (fourth === "tools" && (rest === "" || rest === "settings"))
+      return `/communities/${third}/tools${rest === "" ? "" : "/settings"}`;
     return ["latest", "media", "about"].includes(fourth)
       ? `/communities/${third}?tab=${fourth}`
       : null;

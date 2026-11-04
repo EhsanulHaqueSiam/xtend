@@ -88,6 +88,9 @@ opens X's page about it, for nicknames, disappearing messages, calls, the safety
 blocking. When X asks for your chat passcode, X's page shows for you to type it. A Community's Join presses
 X's own button; one that asks first opens X's own rules dialog, where you agree and ask. Its Pin
 presses X's Pin too; the Community shows as a tab on Home once X's Home loads again (⌘R there).
+In a Community you moderate, the gear opens X's Admin tools, with what waits on you; General
+settings lists each setting, and editing one opens X's own page for it, as do X's other tools.
+Communities' + opens X's Create a new Community, or X's Premium upsell where X asks for one.
 Follow is X's Who to follow and
 Creators for you; a creator's Subscribe opens X's own subscribe dialog, where X shows the price. Notifications shows X's unread count. The tools follow: Compose, Plan,
 Library, Engage, Leads, Automate, Analyze, Scores, Seen, then Settings. Each tool's sections

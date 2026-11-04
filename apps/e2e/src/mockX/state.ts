@@ -2,6 +2,7 @@ import type {
   EngineBatch,
   EngineBookmarkFolder,
   EngineCommunity,
+  EngineCommunityAdmin,
   EngineGif,
   EngineHomeTab,
   EngineList,
@@ -139,7 +140,10 @@ export interface MockOptions {
   readonly chatLocked?: boolean;
   /** The account is past X's free Grok limit: X answers with its SuperGrok upsell. */
   readonly grokLimited?: boolean;
-  /** X draws its compact layout (a narrow engine): Grok's History is X's own page. */
+  /**
+   * X's compact layout, as in a narrow engine window: X's flows and sheets are pages of their
+   * own, titled in the app bar beside its Back, not dialogs.
+   */
   readonly compact?: boolean;
 }
 
@@ -592,6 +596,32 @@ export function createMockState(options: MockOptions = {}) {
     const c = community(id);
     if (c !== undefined) communityChanges.set(id, { ...communityChanges.get(id), ...change(c) });
   };
+  /** A Community's settings X keeps beside its card, as its admins changed them. */
+  const communitySettings = new Map<string, Partial<EngineCommunityAdmin>>();
+  /** The Communities the user made here, and each one's checklist rows X's page marked done. */
+  const madeCommunities = new Set<string>();
+  const checklists = new Map<string, Set<string>>();
+  /**
+   * What X tells a Community's moderators (X's Admin tools, its page's counts, its settings):
+   * a few requests and reports waiting, and X's Spotlight row for a personal account.
+   */
+  const communityAdmin = (id: string): EngineCommunityAdmin | undefined => {
+    const c = community(id);
+    if (c === undefined || (c.role !== "Admin" && c.role !== "Moderator")) return undefined;
+    const made = madeCommunities.has(id);
+    return {
+      communityId: id,
+      role: c.role,
+      reported: made ? 0 : 2,
+      requests: c.joinPolicy === "Open" ? null : made ? 0 : 3,
+      spotlight: c.role === "Admin" ? "/i/flow/convert_to_professional" : null,
+      question: null,
+      searchTags: [],
+      nsfw: false,
+      deletable: c.role === "Admin",
+      ...communitySettings.get(id),
+    };
+  };
 
   // The NBA games the fixtures name, by id: a team's schedule, the day's scoreboard, one game.
   const games = new Map(batches.flatMap((b) => b.games ?? []).map((g) => [g.gameId, g]));
@@ -779,10 +809,25 @@ export function createMockState(options: MockOptions = {}) {
       case "CommunityQuery":
       case "CommunitiesFetchOneQuery": {
         const c = community(s(variables, "communityId") ?? "");
+        const admin = c === undefined ? undefined : communityAdmin(c.communityId);
         return c === undefined
           ? null
-          : page(op, `community:${c.communityId}`, [], { top: null, communities: [c] });
+          : page(op, `community:${c.communityId}`, [], {
+              top: null,
+              communities: [c],
+              ...(admin === undefined ? {} : { communityAdmin: [admin] }),
+            });
       }
+      // X's Admin tools answer for its admins and moderators only; X sends anyone else Home.
+      case "CommunityToolsScreenContainerQuery": {
+        const admin = communityAdmin(s(variables, "communityId") ?? "");
+        return admin === undefined
+          ? null
+          : page(op, `community:${admin.communityId}`, [], { top: null, communityAdmin: [admin] });
+      }
+      // X's Create a new Community: its form, or for an account without Premium its upsell.
+      case "CommunitiesCreateButtonQuery":
+        return page(op, null, [], { top: null, communityCreate: premium ? "create" : "verify" });
       case "CommunityTweetsTimeline":
       case "CommunityMediaTimeline":
       case "CommunityAboutTimeline": {
@@ -795,6 +840,8 @@ export function createMockState(options: MockOptions = {}) {
             : `community:${id}`;
         const own = fixture(op, k);
         if (own !== undefined) return live(own);
+        // A Community the user just made has no posts yet.
+        if (madeCommunities.has(id)) return page(op, k, []);
         // The Communities the fixtures only name: a few posts, two moderators, no media.
         if (op === "CommunityAboutTimeline") {
           const box = (title: string, page: string, who: ReadonlyArray<EngineUser>) => ({
@@ -1234,6 +1281,58 @@ export function createMockState(options: MockOptions = {}) {
           members: Math.max(0, (c.members ?? 1) - 1),
         }));
         return { data: { community_leave: "Done" } };
+      // X's Community settings edits (bundle.Communities), each answered with the Community.
+      case "CommunityEditName":
+        changeCommunity(id ?? "", () => ({ name: s(input, "name") ?? "" }));
+        return { data: { community_name_put: { __typename: "Community", rest_id: id } } };
+      case "CommunityEditPurpose":
+        changeCommunity(id ?? "", () => ({ description: s(input, "description") ?? "" }));
+        return { data: { community_description_put: { __typename: "Community", rest_id: id } } };
+      case "CommunityEditQuestion":
+        communitySettings.set(id ?? "", {
+          ...communitySettings.get(id ?? ""),
+          question: s(input, "question") || null,
+        });
+        return { data: { community_question_put: { __typename: "Community", rest_id: id } } };
+      case "SettingsUpdateAdultContentMutation":
+        communitySettings.set(id ?? "", {
+          ...communitySettings.get(id ?? ""),
+          nsfw: input.adultContentSetting === true,
+        });
+        return {
+          data: { community_is_nsfw_put: { rest_id: id, is_nsfw: input.adultContentSetting } },
+        };
+      case "CreateCommunity": {
+        const made = String(600_000_000_901 + madeCommunities.size);
+        // X starts a Community with its three starter rules, its maker its admin.
+        communityCards.set(made, {
+          communityId: made,
+          name: s(input, "name") ?? "",
+          description: s(input, "description") ?? null,
+          bannerUrl: null,
+          members: 1,
+          topic: null,
+          rules: [
+            { name: "Be kind and respectful.", description: "" },
+            { name: "Keep posts on topic.", description: "" },
+            { name: "Explore and share.", description: "" },
+          ],
+          joinPolicy: s(input, "joinPolicy") === "Restricted" ? "Restricted" : "Open",
+          role: "Admin",
+        });
+        madeCommunities.add(made);
+        checklists.set(made, new Set());
+        return {
+          data: { community_create_v2: { __typename: "Community", rest_id: made, id_str: made } },
+        };
+      }
+      case "DeleteCommunityMutation":
+        communityCards.delete(id ?? "");
+        return { data: { community_delete: { __typename: "CommunityDeleteSuccess" } } };
+      // Leaving the mod team: X's role write for the user's own row.
+      case "CommunityUpdateRole":
+        changeCommunity(id ?? "", () => ({ role: s(input, "role") ?? "Member" }));
+        return { data: { community_role_put: { __typename: "Community", rest_id: id } } };
       // X's folder dialogs and rows (bundle.BookmarkFolders), each answered as X does.
       case "createBookmarkFolder": {
         const folder = {
@@ -1383,6 +1482,8 @@ export function createMockState(options: MockOptions = {}) {
     /** Post ids of a feed page after the first. */
     feedPageIds: (feed: Feed, n: number) => feedPage(feed, n).order,
     fixture,
+    /** Whether X draws its compact layout (see `MockOptions.compact`). */
+    compact: options.compact ?? false,
     /** Whether X's page sends its claims at boot; some accounts' never do. */
     sendsClaims: options.sendsClaims ?? true,
     fixtures: () => fixtures,
@@ -1405,6 +1506,24 @@ export function createMockState(options: MockOptions = {}) {
     /** Makes the user a Community's moderator, or takes it back, as its admins would on X. */
     setCommunityRole: (id: string, role: EngineCommunity["role"]) => {
       changeCommunity(id, () => ({ role }));
+    },
+    /** What X tells the moderators of a Community the user moderates (see `communityAdmin`). */
+    communityAdmin,
+    /**
+     * X's checklist for a Community the user just made, as X's page keeps it: each row's flag,
+     * and whether it still shows; `press` marks a row done, or `dismiss` takes the card away.
+     */
+    checklist: (id: string) => {
+      const done = checklists.get(id);
+      return done === undefined || done.has("dismiss") ? null : done;
+    },
+    pressChecklist: (id: string, flag: string) => {
+      checklists.get(id)?.add(flag);
+    },
+    /** Takes back what the user changed of a Community's card and settings. */
+    resetCommunity: (id: string) => {
+      communityChanges.delete(id);
+      communitySettings.delete(id);
     },
     /** Whether the user asked to join a Community that asks first, and waits for its moderators. */
     communityRequested: (id: string) => requested.has(id),
