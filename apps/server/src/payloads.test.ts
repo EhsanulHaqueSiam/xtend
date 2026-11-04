@@ -90,6 +90,12 @@ const UNBUDGETED: Readonly<Record<string, string>> = {
       "plan.runsList",
     ].map((rpc) => [rpc, "not yet measured: no heavy-seed path; budget it when one exists"]),
   ),
+  ...Object.fromEntries(
+    ["xSettings.changes", "xSettings.seen"].map((rpc) => [
+      rpc,
+      "X's settings flips: the log keeps 100 short rows per account",
+    ]),
+  ),
 };
 
 const answersList = (rpc: string) =>

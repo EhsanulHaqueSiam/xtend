@@ -15,6 +15,7 @@ import type {
 import { synth } from "../../../web/src/components/xnative/engineFixtures.ts";
 import { createMockChat } from "./chat.ts";
 import { createMockGrok } from "./grok.ts";
+import { mockSettings } from "./settings.ts";
 import { encodeBody, encodeFolder, encodeList, encodeRestUser, encodeTweet } from "./graphql.ts";
 
 /**
@@ -1339,6 +1340,8 @@ export function createMockState(options: MockOptions = {}) {
       fixture("ConnectTabTimeline", "connect:creators")!.people.includes(userId),
     /** Everything pressed and written, in order. */
     presses,
+    /** X's settings values, by X's field names (settings.ts). */
+    settings: mockSettings(),
     /** X's Chat: conversations, requests, the pages X opened, and its passcode lock. */
     chat: createMockChat(options.chatLocked === true, people),
     /** X's Grok: its conversations, X's pick of model, Private, and its free limit. */
