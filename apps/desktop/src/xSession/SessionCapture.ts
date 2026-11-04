@@ -85,6 +85,8 @@ export function attachSessionCapture(
   };
   // A POST's body (X sends HomeTimeline as one) holds the variables that say which Home tab it is for.
   const postData = new Map<string, string>();
+  // The conversation each of X's Grok asks names, by request, until its answer starts.
+  const streamChats = new Map<string, string | null>();
   const debug = contents.debugger;
   // Learned from x.com's own Viewer call; null until the session has loaded once.
   let viewerHandle: string | null = null;
@@ -95,9 +97,14 @@ export function attachSessionCapture(
     if (!isRecord(params) || typeof params.requestId !== "string") return;
     if (method === "Network.requestWillBeSent") {
       const request = isRecord(params.request) ? params.request : undefined;
-      if (typeof request?.postData === "string" && isGraphqlUrl(String(request.url))) {
+      const url = String(request?.url);
+      if (typeof request?.postData === "string" && isGraphqlUrl(url)) {
         postData.set(params.requestId, request.postData);
         if (postData.size > MAX_PENDING) postData.delete(postData.keys().next().value!);
+      }
+      if (isGrokStreamUrl(url)) {
+        streamChats.set(params.requestId, grokConversation(url, request?.postData));
+        if (streamChats.size > MAX_PENDING) streamChats.delete(streamChats.keys().next().value!);
       }
       return;
     }
@@ -122,6 +129,8 @@ export function attachSessionCapture(
           finished: false,
         };
         streams.set(id, started);
+        options.onGrok({ kind: "start", stream: id, conversation: streamChats.get(id) ?? null });
+        streamChats.delete(id);
         // What X sent before the read began comes first, then the chunks held meanwhile.
         const ready = (buffered: string | undefined) => {
           if (streams.get(id) !== started) return;
@@ -136,6 +145,8 @@ export function attachSessionCapture(
           .catch(() => ready(undefined));
         return;
       }
+      // The rest of X's Grok traffic is the user's chats too, and no screen reads it.
+      if (isGrokUrl(url) && !GROK_OPS.has(grokOp(url) ?? "")) return;
       const mime = typeof response?.mimeType === "string" ? response.mimeType : "";
       // GraphQL, and X's REST answers the screens use: its count of followers you know, and the
       // user's profile as X's own Edit profile saved it.
@@ -177,7 +188,7 @@ export function attachSessionCapture(
     const op = new URL(url).pathname.split("/").at(-1) ?? "";
     // X's older Grok client's answers are the user's chats: the window's only, never an observation
     // or a log (a parse error can quote the body).
-    if (GROK_OPS.has(op)) {
+    if (isGrokUrl(url)) {
       try {
         const result = (await debug.sendCommand("Network.getResponseBody", { requestId })) as {
           body: string;
@@ -377,6 +388,25 @@ const GROK_OPS = new Set([
   "GrokPinnedConversations",
   "GrokConversationItemsByRestId",
 ]);
+
+/** Any of X's Grok traffic, by its URL alone: a GraphQL operation named Grok…, or X's /2/grok/ API. */
+const isGrokUrl = (url: string) => /\/graphql\/[^/?]+\/Grok[^/?]*(?:\?|$)|\/2\/grok\//.test(url);
+const grokOp = (url: string) => /\/graphql\/[^/?]+\/(Grok[^/?]*)(?:\?|$)/.exec(url)?.[1];
+
+/** The conversation one of X's Grok asks is for: in its JSON body, or its query when X resumes one. */
+const grokConversation = (url: string, body: unknown) => {
+  let named: unknown = null;
+  try {
+    named =
+      typeof body === "string"
+        ? (JSON.parse(body) as { conversationId?: unknown }).conversationId
+        : null;
+  } catch {
+    // The user's own words: never logged.
+  }
+  named = typeof named === "string" ? named : new URL(url).searchParams.get("conversationId");
+  return typeof named === "string" && named !== "" ? named : null;
+};
 
 /** X's streamed Grok answer, on x.com's API or X's Grok host. */
 const isGrokStreamUrl = (url: string) =>

@@ -547,8 +547,9 @@ export interface EngineRadarQuery {
  */
 /**
  * X's older Grok client's own traffic, from the desktop's capture to the app window only: never the
- * service, a log or an observation. `graphql` is one of its GraphQL answers; `chunk` one line of a
- * streamed answer (`add_response.json`) as it arrives, `end` once that stream finished.
+ * service, a log or an observation. `graphql` is one of its GraphQL answers; `start` a streamed
+ * answer (`add_response.json`) beginning, with the conversation X's request named; `chunk` one of
+ * its lines as it arrives, `end` once that stream finished.
  */
 export type GrokCapture =
   | {
@@ -557,6 +558,7 @@ export type GrokCapture =
       readonly variables: Readonly<Record<string, unknown>> | null;
       readonly body: unknown;
     }
+  | { readonly kind: "start"; readonly stream: string; readonly conversation: string | null }
   | { readonly kind: "chunk"; readonly stream: string; readonly line: string }
   | { readonly kind: "end"; readonly stream: string };
 

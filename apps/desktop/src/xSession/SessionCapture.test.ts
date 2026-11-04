@@ -341,6 +341,7 @@ it("hands X's older Grok client's answers to the window only: never an observati
   debug.finished("2");
   await vi.waitFor(() => expect(heard.at(-1)?.kind).toBe("end"));
   expect(heard.slice(1)).toEqual([
+    { kind: "start", stream: "2", conversation: null },
     { kind: "chunk", stream: "2", line: '{"result":{"message":"Replies"}}' },
     { kind: "chunk", stream: "2", line: '{"result":{"message":" split"}}' },
     { kind: "end", stream: "2" },
@@ -393,6 +394,7 @@ it("reads what DevTools buffered before X's later chunks, and ends X's answer on
   await vi.waitFor(() => expect(heard.at(-1)?.kind).toBe("end"));
   chunk("2", Buffer.from('{"result":{"message":" stray"}}\n'));
   expect(heard).toEqual([
+    { kind: "start", stream: "2", conversation: null },
     { kind: "chunk", stream: "2", line: '{"result":{"message":"first"}}' },
     { kind: "chunk", stream: "2", line: '{"result":{"message":" later"}}' },
     { kind: "end", stream: "2" },
@@ -410,7 +412,7 @@ it("keeps a character X split across chunks whole, including DevTools' buffered 
   chunk("2", line.subarray(at + 3));
   debug.finished("2");
   await vi.waitFor(() => expect(heard.at(-1)?.kind).toBe("end"));
-  expect(heard[0]).toEqual({ kind: "chunk", stream: "2", line: '{"result":{"message":"বাংলা"}}' });
+  expect(heard[1]).toEqual({ kind: "chunk", stream: "2", line: '{"result":{"message":"বাংলা"}}' });
 });
 
 it("ends X's answers in flight when DevTools lets go of the view, and reads nothing more of them", async () => {
@@ -419,7 +421,10 @@ it("ends X's answers in flight when DevTools lets go of the view, and reads noth
   debug.emit("detach", {}, "target closed");
   chunk("2", Buffer.from('{"result":{"message":"after"}}\n'));
   debug.finished("2");
-  expect(heard).toEqual([{ kind: "end", stream: "2" }]);
+  expect(heard).toEqual([
+    { kind: "start", stream: "2", conversation: null },
+    { kind: "end", stream: "2" },
+  ]);
 });
 
 it("logs only a fixed line for a Grok answer that is not JSON: no word of the user's chat", async () => {
@@ -434,4 +439,49 @@ it("logs only a fixed line for a Grok answer that is not JSON: no word of the us
   await vi.waitFor(() => expect(logged).toHaveLength(1));
   expect(logged).toEqual([["grok response unavailable", undefined]]);
   expect(heard).toEqual([]);
+});
+
+it("names the conversation X's Grok ask is for when its answer starts: from its body, or its query on a resume", () => {
+  const { heard, respond } = startGrok();
+  const ask = (requestId: string, url: string, postData?: string) =>
+    debug.emit("message", {}, "Network.requestWillBeSent", {
+      requestId,
+      request: { url, postData },
+    });
+  ask("2", STREAM, JSON.stringify({ responses: [{ message: "private" }], conversationId: "c1" }));
+  ask("3", `${STREAM}?conversationId=c2&responseToChatItemId=a1`);
+  respond("3");
+  respond("2");
+  expect(heard).toEqual([
+    { kind: "start", stream: "3", conversation: "c2" },
+    { kind: "start", stream: "2", conversation: "c1" },
+  ]);
+});
+
+it("reads none of X's other Grok traffic: no body, no log, no observation, no engine batch", async () => {
+  const { heard, logged } = startGrok();
+  const rendered: Array<EngineBatch> = [];
+  detach();
+  detach = attachSessionCapture({ debugger: debug } as unknown as Electron.WebContents, {
+    serviceUrl: "http://127.0.0.1:4820",
+    serviceToken: "tok",
+    accountId: 1,
+    queueDir,
+    log: (message, detail) => logged.push([message, detail]),
+    onRender: (batch) => rendered.push(batch),
+    onGrok: (capture) => heard.push(capture),
+  });
+  // V8's parse error would quote the text around where it broke.
+  debug.receivedText("1", `${GRAPHQL}/GrokHome?variables=%7B%7D`, '{"m":"secret chat text"}, x');
+  debug.received("2", `${GRAPHQL}/GrokShareConversation?variables=%7B%7D`, { data: tweet("9") });
+  debug.received("3", "https://x.com/i/api/2/grok/attachment.json", { data: tweet("7") });
+  for (const id of ["1", "2", "3"]) debug.finished(id);
+  // An ordinary response after them is read, so theirs would have been by now.
+  debug.received("4", `${GRAPHQL}/HomeTimeline?variables=%7B%7D`, { data: [tweet("8")] });
+  debug.finished("4");
+  await vi.waitFor(() => expect(sent).toHaveLength(1));
+  expect(sent.flatMap((b) => b.posts.map((p) => p.postId))).toEqual(["8"]);
+  expect(rendered.map((b) => b.op)).toEqual(["HomeTimeline"]);
+  expect(debug.commands.filter((c) => c === "Network.getResponseBody")).toHaveLength(1);
+  expect([heard, logged]).toEqual([[], []]);
 });

@@ -266,9 +266,11 @@ export async function startMockX(
     }
     // X's older Grok client's answer: one JSON line per chunk, a moment apart, as X streams it.
     if (req.method === "POST" && url.pathname === "/i/api/2/grok/add_response.json") {
+      // X's ask: `{ responses: [{ message, sender: 1, ... }], conversationId, ... }`.
       const asked = await readBody(req);
+      const [first] = Array.isArray(asked.responses) ? asked.responses : [];
       res.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
-      for (const line of state.grok.streamFor(String(asked.message ?? ""))) {
+      for (const line of state.grok.streamFor(String(first?.message ?? ""))) {
         res.write(`${JSON.stringify(line)}\n`);
         await new Promise((r) => setTimeout(r, state.grok.chunkMs));
       }

@@ -16,6 +16,7 @@ afterAll(() => e?.close());
 
 interface Heard {
   readonly kind: string;
+  readonly conversation?: string | null;
   readonly line?: string;
   readonly at: number;
 }
@@ -32,7 +33,7 @@ test("X's streamed Grok answer reaches the window line by line, as X's page rece
   const heard = () => e.app.evaluate(() => Reflect.get(window, "__grok") as ReadonlyArray<Heard>);
   // X's page asks as X's older client does: one POST, its answer read as it streams.
   await e.engine(
-    `void fetch("/i/api/2/grok/add_response.json", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ message: "hi" }) }).then((r) => r.text()), true`,
+    `void fetch("/i/api/2/grok/add_response.json", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ responses: [{ message: "hi", sender: 1 }], conversationId: "c-legacy" }) }).then((r) => r.text()), true`,
   );
   const expected = e.mock.state.grok.streamFor("hi").map((l) => JSON.stringify(l));
   // The first line is in the window while X is still sending the rest, a chunk every 300ms.
@@ -41,6 +42,8 @@ test("X's streamed Grok answer reaches the window line by line, as X's page rece
   expect(first.some((h) => h.kind === "end")).toBe(false);
   await expect.poll(async () => (await heard()).at(-1)?.kind, { timeout: 10_000 }).toBe("end");
   const all = await heard();
+  // The conversation comes from X's ask; X's lines name only the items.
+  expect(all[0]).toMatchObject({ kind: "start", conversation: "c-legacy" });
   expect(all.filter((h) => h.kind === "chunk").map((h) => h.line)).toEqual(expected);
   // Lines came apart in time, as X sent them, not all at the end.
   const chunks = all.filter((h) => h.kind === "chunk");

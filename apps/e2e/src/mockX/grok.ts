@@ -123,10 +123,10 @@ export function createMockGrok(limited: boolean, compact: boolean) {
     chunkMs: 300,
     /**
      * X's older client's streamed answer to `message` (add_response.json), chunk by chunk: the
-     * conversation, then its words, then X's final line.
+     * user's and Grok's item ids (X's ask named the conversation), then its words, then X's final line.
      */
     streamFor: (message: string) => [
-      { conversationId: "c-legacy", userChatItemId: "u-1", agentChatItemId: "a-1" },
+      { userChatItemId: "u-1", agentChatItemId: "a-1" },
       ...["Replies split ", "between people ", `who asked: ${message}`].map((token) => ({
         result: { message: token, isThinking: false, messageTag: "final", sender: "ASSISTANT" },
       })),
