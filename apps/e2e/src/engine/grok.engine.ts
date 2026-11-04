@@ -22,8 +22,13 @@ test("Grok lists X's history in the rail from X's own panel and opens a chat onl
   await e.app.getByRole("button", { name: "Grok", exact: true }).click();
   await expect.poll(enginePath).toBe("/i/grok");
   await expect.poll(() => rows().count()).toBe(grok.conversations.length);
+  // In X's groups: Pinned, Today, Yesterday.
+  const order = ["Pinned", "Today", "Yesterday"] as const;
+  const grouped = order.flatMap((g) =>
+    grok.conversations.filter((c) => (g === "Pinned" ? c.starred : !c.starred && c.group === g)),
+  );
   expect(await rows().allTextContents()).toEqual(
-    grok.conversations.map((c) => expect.stringContaining(c.title)),
+    grouped.map((c) => expect.stringContaining(c.title)),
   );
   // Reading X's history changed nothing in X.
   expect(grok.writes).toEqual([]);

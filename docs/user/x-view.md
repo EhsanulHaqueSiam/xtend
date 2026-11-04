@@ -78,8 +78,12 @@ Communities, Follow, Profile and Chat in Xtend. Grok is X's own Grok on your X a
 within X's limits (SuperGrok is X's subscription, and X's own upgrade link shows when you reach a
 limit). Only what you type is sent, with X's own Send; your Grok history sits in the right column,
 where Pin, Rename and Delete are X's own, and Delete asks to confirm beside the row as X does.
-Under it, the people Grok named show with your Leads stage and Track. If X still serves your
-account its older Grok page, X's page shows instead. Grok needs the desktop app. Chat reads your conversations from X's own page and opens one
+Under it, the people Grok named show with your Leads stage and Track. A post's Grok button,
+Explain this post, is X's own: Grok answers beside the screen, and the arrow opens the full page.
+In Compose, Ask Grok puts your post into Grok's box for you to send, and Insert puts Grok's answer
+into the post. Grok's images show in its answers and in History's Media tab when X has it. To edit
+your profile photo with Grok, use X's Edit your photo with Imagine in Edit profile. If X still
+serves your account its older Grok page, X's page shows instead. Grok needs the desktop app. Chat reads your conversations from X's own page and opens one
 only when you click it, since X then marks it read. What you write, react, edit or delete there
 goes through X's own controls in your session, free; what X asks next (a delete's confirm, the
 forward picker, a request's Delete) shows X's page for you to answer; so does the first message

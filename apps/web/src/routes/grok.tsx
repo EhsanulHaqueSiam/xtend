@@ -1,4 +1,4 @@
-import { useAtom, useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Leads_METHODS } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
@@ -10,7 +10,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { StageText } from "../components/leads/ui";
 import { Empty } from "../components/ui/layout";
 import { FollowButton } from "../components/xnative/FollowButton";
-import { GrokBar, GrokBox, GrokConversation, useGrokPress } from "../components/xnative/Grok";
+import {
+  GrokBar,
+  GrokBox,
+  GrokConversation,
+  GrokImage,
+  useGrokPress,
+  useGrokWatch,
+} from "../components/xnative/Grok";
+import { MediaViewer } from "../components/xnative/MediaViewer";
 import { Avatar } from "../components/xnative/XPostView";
 import { isElectron } from "../env";
 import { cn } from "../lib/utils";
@@ -23,10 +31,9 @@ import {
   grokWriteAtom,
   isGrokPath,
   namedHandles,
-  sendSettled,
-  watchGrok,
   xGrokHistory,
   xGrokHistoryPress,
+  xGrokMedia,
 } from "../state/grok";
 import { addPersonAtom } from "../state/leads";
 import { xGo, xOverAtom, xRun } from "../state/x";
@@ -209,15 +216,69 @@ function History({
   const [query, setQuery] = useState("");
   const typing = useRef<ReturnType<typeof setTimeout>>(undefined);
   const history = grok.history;
+  const [tab, setTab] = useState<"chats" | "media">("chats");
+  const [media, setMedia] = useState<Awaited<ReturnType<typeof xGrokMedia>> | undefined>(undefined);
+  const tabClass =
+    "cursor-pointer border-b-2 border-transparent pb-1 text-[#71767b] aria-selected:border-[#1d9bf0] aria-selected:text-foreground";
   const groups = new Map<string, Array<GrokHistoryRow>>();
   for (const row of history?.rows ?? [])
     groups.set(row.group, [...(groups.get(row.group) ?? []), row]);
   return (
     <section aria-label="History" className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center gap-4 px-4 pt-3 pb-2 text-[15px] font-bold">
-        <span className="border-b-2 border-[#1d9bf0] pb-1">Chats</span>
+      <div
+        role="tablist"
+        aria-label="History"
+        className="flex items-center gap-4 px-4 pt-3 pb-2 text-[15px] font-bold"
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "chats"}
+          className={tabClass}
+          onClick={() => setTab("chats")}
+        >
+          Chats
+        </button>
+        {/* X's Media tab, behind X's own switch: only where X draws it. */}
+        {history?.media === true ? (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "media"}
+            className={tabClass}
+            onClick={() => {
+              setTab("media");
+              setMedia(undefined);
+              void xGrokMedia().then(setMedia);
+            }}
+          >
+            Media
+          </button>
+        ) : null}
       </div>
-      <label className="mx-4 mb-2 flex h-9 items-center gap-2 rounded-full border border-white/[0.16] px-3 focus-within:border-[#1d9bf0]">
+      {tab === "media" ? (
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+          {media === undefined || media === null || media.images.length === 0 ? (
+            <p className="px-2 py-6 text-center text-[13px] text-[#71767b]">
+              {media === undefined
+                ? "Loading your media from X."
+                : (media?.status ?? "No media yet. Images you create or upload appear here.")}
+            </p>
+          ) : (
+            <ul className="grid grid-cols-3 gap-1">
+              {media.images.map((src) => (
+                <li key={src}>
+                  <GrokImage src={src} alt="" tile />
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : null}
+      <label
+        hidden={tab === "media"}
+        className="mx-4 mb-2 flex h-9 items-center gap-2 rounded-full border border-white/[0.16] px-3 focus-within:border-[#1d9bf0]"
+      >
         <Search className="size-4 text-[#71767b]" />
         <input
           aria-label="Search conversations"
@@ -233,7 +294,7 @@ function History({
           }}
         />
       </label>
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+      <div hidden={tab === "media"} className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
         {history === null ? (
           <p className="px-2 py-6 text-center text-[13px] text-[#71767b]">
             Loading your history from X.
@@ -288,8 +349,9 @@ function History({
 function GrokScreen() {
   const { c } = Route.useSearch();
   const navigate = useNavigate();
-  const [grok, setGrok] = useAtom(grokAtom);
-  const [write, setWrite] = useAtom(grokWriteAtom);
+  const grok = useGrokWatch();
+  const setGrok = useAtomSet(grokAtom);
+  const write = useAtomValue(grokWriteAtom);
   const setOver = useAtomSet(xOverAtom);
   const read = grok.read;
   const page = read?.page ?? null;
@@ -303,20 +365,6 @@ function GrokScreen() {
       if (typeof at !== "string" || !isGrokPath(at)) void xGo("https://x.com/i/grok");
     });
   }, [c]);
-  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- reads X's Grok page while this screen is open, and only then.
-  useEffect(() => {
-    if (!isElectron) return;
-    const stop = new AbortController();
-    watchGrok(stop.signal, (next) => {
-      setGrok((s) => ({ ...s, read: next }));
-      setWrite((w) => {
-        const settled = sendSettled(w, next);
-        // A refused send keeps its words in the box for the user to send again.
-        return settled === null ? w : { draft: settled === "shown" ? "" : w.draft, send: null };
-      });
-    });
-    return () => stop.abort();
-  }, [setGrok, setWrite]);
   // X's older Grok page and its account link prompt are X's to show: over the main area.
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- shows the engine over the main area while X draws a Grok page Xtend does not read.
   useEffect(() => {
@@ -327,17 +375,22 @@ function GrokScreen() {
 
   const load = useCallback(
     (query: string, more = false) =>
-      void xGrokHistory(query, more).then((history) => {
+      xGrokHistory(query, more).then((history) => {
         if (history !== null) setGrok((s) => ({ ...s, history: { ...history, query } }));
+        return history !== null;
       }),
     [setGrok],
   );
-  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- reads X's history once X draws its Grok page.
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- reads X's history once X draws its Grok page, asking again until X answers.
   useEffect(() => {
-    if (page !== "xweb" || asked.current) return;
+    if (read === null || page !== "xweb" || asked.current) return;
+    // A read kept from an earlier screen may come before the engine is back on X's Grok page:
+    // X answers nothing there, and the next read asks again.
     asked.current = true;
-    load("");
-  }, [page, load]);
+    void load("").then((done) => {
+      if (!done) asked.current = false;
+    });
+  }, [page, read, load]);
   // A question X shows asked lands in X's history: the rail reads it again.
   const sending = write.send !== null;
   const was = useRef(sending);
@@ -384,6 +437,7 @@ function GrokScreen() {
           </>
         )}
       </section>
+      <MediaViewer />
       <aside
         aria-label="Grok rail"
         className="flex w-[360px] min-w-[300px] shrink-0 flex-col border-l border-border"

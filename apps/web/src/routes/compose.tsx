@@ -14,7 +14,7 @@ import {
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import * as Exit from "effect/Exit";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { ArrowLeft, CalendarClock, ChevronRight } from "lucide-react";
+import { ArrowLeft, CalendarClock, ChevronRight, CircleSlash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { TextMorph } from "torph/react";
 
@@ -39,6 +39,10 @@ import { compactInputClass, inputClass, TimeField } from "../components/ui/field
 import { Cost, PageBody } from "../components/ui/layout";
 import { Popover } from "../components/ui/popover";
 import { XLink } from "../components/ui/x-link";
+import { GrokDrawer } from "../components/xnative/Grok";
+import { MediaViewer } from "../components/xnative/MediaViewer";
+import { useXPress } from "../components/xnative/useXPress";
+import { isElectron } from "../env";
 import { XCard } from "../components/x";
 import { cn, toBase64 } from "../lib/utils";
 import { localInputToInstant } from "../lib/time";
@@ -55,10 +59,12 @@ import {
   updateDraftAtom,
 } from "../state/compose";
 import { useRates } from "../state/costs";
+import { grokWriteAtom, xGrokLeave, xGrokOpenNew } from "../state/grok";
 import { savedPostAtom } from "../state/library";
 import { recentPostsAtom } from "../state/observations";
 import { queueAtom, scheduleAtom, unscheduleAtom } from "../state/plan";
 import { settingsAtom, useSessionLane } from "../state/settings";
+import { xUrlAtom } from "../state/x";
 import { Select } from "../components/ui/select";
 import { Switch } from "../components/ui/switch";
 
@@ -427,6 +433,23 @@ export function ComposeEditor({
   const laneText = useSessionLane();
   const [previews, setPreviews] = useState<Record<string, string>>({});
   const [active, setActive] = useState(0);
+  // X's Grok docked beside the draft: where the engine was when the user asked it.
+  const [grokFrom, setGrokFrom] = useState<string | null>(null);
+  const xUrl = useAtomValue(xUrlAtom);
+  const setGrokWrite = useAtomSet(grokWriteAtom);
+  const { blocked, setToast: setXToast } = useXPress();
+  /**
+   * "Ask Grok" for the user's click: X's Grok on a new chat beside the draft, the post the user is
+   * on typed into Grok's box for them to send. Grok's answers come back with Insert.
+   */
+  const askGrok = async (text: string) => {
+    const why = blocked();
+    if (why !== null) return setXToast({ text: why });
+    setGrokFrom((f) => f ?? xUrl);
+    if ((await xGrokOpenNew()) === null)
+      return setXToast({ text: "X did not open Grok. Try again in a moment." });
+    setGrokWrite((w) => (w.send === null ? { ...w, draft: text } : w));
+  };
   const [notice, setNotice] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<"post" | "schedule" | null>(null);
   const [when, setWhen] = useState("");
@@ -1177,9 +1200,37 @@ export function ComposeEditor({
                   setVoice({ score, text: JSON.stringify(blocks.map((b) => b.text)) })
                 }
               />
+              {isElectron ? (
+                <button
+                  type="button"
+                  className="flex h-7 cursor-pointer items-center gap-1.5 rounded-full px-2 text-[13px] text-muted-foreground hover:bg-white/[0.06] hover:text-foreground"
+                  onClick={() => void askGrok(blocks[active]?.text ?? "")}
+                >
+                  <CircleSlash2 aria-hidden className="size-3.5" />
+                  Ask Grok
+                  <span className="font-mono text-[11px] text-success-foreground">free on X</span>
+                </button>
+              ) : null}
             </div>
           )}
           <Companion>
+            {grokFrom === null ? null : (
+              <>
+                <GrokDrawer
+                  onInsert={(text) =>
+                    setEditor((e) => ({
+                      ...e,
+                      blocks: e.blocks.map((b, j) => (j === active ? { ...b, text } : b)),
+                    }))
+                  }
+                  onClose={() => {
+                    setGrokFrom(null);
+                    void xGrokLeave(grokFrom);
+                  }}
+                />
+                <MediaViewer />
+              </>
+            )}
             {inspire !== undefined ? <Inspiration postId={inspire} /> : null}
             {editor.replyToPostId !== null ? <ReplyTarget postId={editor.replyToPostId} /> : null}
             {isArticle || waiting ? null : (

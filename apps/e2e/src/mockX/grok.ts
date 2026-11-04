@@ -21,6 +21,8 @@ interface MockTurn {
   feedback: "up" | "down" | null;
   /** X's usage limit in place of an answer (a non-Premium account past X's free limit). */
   limited: boolean;
+  /** Grok answered with an image, which X's page draws from a blob of its own. */
+  readonly image?: boolean;
 }
 
 interface MockGrokConversation {
@@ -84,6 +86,24 @@ export function createMockGrok(limited: boolean) {
       ],
     },
     {
+      id: "c-images",
+      title: "Cover image ideas",
+      starred: false,
+      age: "Yesterday",
+      group: "Yesterday",
+      turns: [
+        {
+          id: "t3",
+          question: "Draw a city under twin moons",
+          answer: null,
+          image: true,
+          streaming: false,
+          feedback: null,
+          limited: false,
+        },
+      ],
+    },
+    {
       id: "c-churn",
       title: "Explain this post: churn email",
       starred: false,
@@ -125,6 +145,28 @@ export function createMockGrok(limited: boolean) {
         temporary = !temporary;
         writes.push(`private ${temporary}`);
         return { ok: true };
+      }
+      // X's Grok button on a post: X's own analysis, asked in a new chat with the post's link.
+      if (kind === "analyze") {
+        const c: MockGrokConversation = {
+          id: `c-new${++made}`,
+          title: "Explain this post",
+          starred: false,
+          age: "now",
+          group: "Today",
+          turns: [],
+        };
+        conversations.unshift(c);
+        c.turns.push({
+          id: `t-${c.id}-1`,
+          question: `https://x.com/${String(body.post)}`,
+          answer: "<p>Thinking it through</p>",
+          streaming: true,
+          feedback: null,
+          limited,
+        });
+        writes.push(`analyze ${String(body.post)}`);
+        return { ok: true, conversation: c.id };
       }
       if (kind === "send") {
         let c = find(body.conversation);
@@ -195,6 +237,11 @@ const icon = (name: string) =>
 /** X's limit block (its upsell quota card) for an account past X's free Grok limit. */
 const limitCard = `<div class="border-normal flex flex-col items-start gap-2 rounded-2xl border px-4 py-3"><p class="text-primary text-[15px] font-bold">More Grok with SuperGrok</p><p role="status" class="text-secondary text-[13px]">You have reached your Grok usage limit. Upgrade for more access.</p><a href="/i/premium_sign_up" class="btn">Upgrade to SuperGrok</a></div>`;
 
+/** A 2x1 picture, standing in for Grok's image; X's page draws it from a blob (`data-mock-blob`). */
+const PICTURE =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAEUlEQVR4nGP4z8DwHwQZYAwAOS0D/WkLu/AAAAAASUVORK5CYII=";
+const imageSlots = `<div class="flex w-full min-w-0 flex-row flex-wrap gap-2"><button type="button" aria-label="A city under twin moons" class="overflow-hidden rounded-2xl"><img data-mock-blob="${PICTURE}" alt="A city under twin moons" class="block max-h-96 object-contain"></button></div>`;
+
 const turnHtml = (c: MockGrokConversation | null, t: MockTurn) => {
   const user = `<div class="group/user flex flex-col items-end gap-2"><div class="relative flex max-w-[80%] flex-col items-end"><div class="text-primary rounded-chat bg-secondary px-4 py-2 wrap-anywhere whitespace-pre-wrap">${esc(t.question)}</div><div class="flex items-center"><button type="button" aria-label="Copy message"><svg></svg></button></div></div></div>`;
   const trace = t.streaming
@@ -202,7 +249,9 @@ const turnHtml = (c: MockGrokConversation | null, t: MockTurn) => {
     : `<div class="flex flex-col gap-3"><button type="button" aria-expanded="false"><span>Thought for 14s</span></button></div>`;
   const body = t.limited
     ? limitCard
-    : `${trace}<div><div class="text-[15px] leading-relaxed">${t.answer ?? ""}</div></div>${t.streaming ? "" : `<button type="button" aria-expanded="false"><span aria-hidden="true"><span>x</span></span><span class="truncate">5 sources</span></button>`}`;
+    : t.image === true
+      ? imageSlots
+      : `${trace}<div><div class="text-[15px] leading-relaxed">${t.answer ?? ""}</div></div>${t.streaming ? "" : `<button type="button" aria-expanded="false"><span aria-hidden="true"><span>x</span></span><span class="truncate">5 sources</span></button>`}`;
   const actions =
     t.streaming || t.limited
       ? ""
@@ -231,7 +280,10 @@ const historyPanel = (grok: MockGrok, current: string | null) => {
     grok.conversations.length === 0
       ? `<div role="status" class="flex flex-col items-center gap-1 px-3 py-12"><p>No conversations yet</p><p>Start a conversation to see your history here</p></div>`
       : "";
-  return `<div role="dialog" aria-label="History" data-mock-grok-panel class="dialog"><div class="flex min-h-0 w-full grow flex-col overflow-hidden"><div role="tablist" aria-label="History"><button role="tab" aria-selected="true">Chats</button><button role="tab" aria-selected="false">Media</button></div><header class="border-normal flex shrink-0 items-center gap-2 border-b px-3 py-3"><div class="min-w-0 flex-1"><input type="search" placeholder="Search…" aria-label="Search conversations" autocomplete="off"></div></header><div class="scrollbar-thin-custom min-h-0 flex-1 overflow-y-auto" aria-busy="false"><div class="w-full px-2 py-2">${empty}<ul class="flex flex-col">${list}</ul></div></div></div></div>`;
+  const media = grok.conversations.some((c) => c.turns.some((t) => t.image === true))
+    ? `<ul class="grid grid-cols-3 gap-1"><li><button type="button" aria-label="Open image 1"><img data-mock-blob="${PICTURE}" alt="" class="absolute inset-0 size-full object-cover"></button></li></ul>`
+    : `<div role="status"><p>No media yet</p><p>Images you create or upload appear here</p></div>`;
+  return `<div role="dialog" aria-label="History" data-mock-grok-panel class="dialog"><div class="flex min-h-0 w-full grow flex-col overflow-hidden"><div role="tablist" aria-label="History"><button role="tab" aria-selected="true" data-mock-grok="tab-chats">Chats</button><button role="tab" aria-selected="false" data-mock-grok="tab-media">Media</button></div><header class="border-normal flex shrink-0 items-center gap-2 border-b px-3 py-3"><div class="min-w-0 flex-1"><input type="search" placeholder="Search…" aria-label="Search conversations" autocomplete="off"></div></header><div class="scrollbar-thin-custom min-h-0 flex-1 overflow-y-auto" aria-busy="false"><div class="w-full px-2 py-2">${empty}<ul class="flex flex-col">${list}</ul></div></div></div><template data-mock-grok-media>${media}</template></div>`;
 };
 
 /** X's model menu (Base UI): X's radio rows, its upgrade rows as X's upsell link. */

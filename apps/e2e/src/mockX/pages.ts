@@ -144,7 +144,7 @@ function article(p: EnginePost, state: MockState, opts: { focal?: boolean; sort?
   <div class="row"><div data-testid="Tweet-User-Avatar"><a href="/${esc(p.author.handle)}">${avatar(p.avatarUrl, p.author.handle)}</a></div>
   <div class="body">
     <div class="head"><div data-testid="User-Name"><a href="/${esc(p.author.handle)}"><span>${esc(p.author.name)}</span></a> <a href="/${esc(p.author.handle)}"><span>@${esc(p.author.handle)}</span></a> · <a href="${esc(href)}"><time datetime="${p.createdAt}">${shortDate(p.createdAt)}</time></a></div>
-    <button data-testid="caret" aria-label="More" aria-haspopup="menu" aria-expanded="false" data-menu="post:${p.postId}">…</button></div>
+    <button aria-label="Grok actions" data-mock-grok-explain="${esc(p.author.handle)}/status/${p.postId}">⌀</button><button data-testid="caret" aria-label="More" aria-haspopup="menu" aria-expanded="false" data-menu="post:${p.postId}">…</button></div>
     ${replying}
     <div data-testid="tweetText" lang="en" id="t${p.postId}">${esc(text)}</div>
     ${translation}${media}${card}${p.poll === null ? "" : pollMarkup(p)}${quote}${note}

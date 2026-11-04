@@ -8,6 +8,7 @@ import {
   Heart,
   MessageCircle,
   MoreHorizontal,
+  CircleSlash2,
   PencilLine,
   Repeat2,
   Share,
@@ -21,6 +22,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
 import { askFollow, engineAtom, updateEngine, youFollow } from "../../state/engine";
 import {
@@ -36,6 +38,7 @@ import { fmt } from "../analyze/ui";
 import { useDropPost } from "../shell/drops";
 import { Menu, MenuItem } from "../ui/menu";
 import { useXPress } from "./useXPress";
+import { useExplainPost } from "./GrokExplain";
 import { FollowButton } from "./FollowButton";
 import { HoverCard } from "./HoverCard";
 import { viewerAtom } from "./MediaViewer";
@@ -513,6 +516,7 @@ export function XPostView({
   readonly under?: ReactNode;
 }) {
   const { blocked, pressRow, setToast } = useXPress();
+  const explain = useExplainPost();
   const drop = useDropPost();
   const navigate = useNavigate();
   // The author as X described them (badge colour, organisation shape, affiliate), when seen.
@@ -674,6 +678,30 @@ export function XPostView({
       <Affiliate user={author} />
     </span>
   );
+  // X's Grok button on a post, as X draws it beside the "...": Explain this post.
+  const grok = isElectron ? (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            aria-label="Explain this post"
+            className={cn(
+              "-m-2 grid size-[34px] shrink-0 cursor-pointer place-items-center rounded-full transition-colors duration-150 hover:bg-[#1d9bf0]/10 hover:text-[#1d9bf0]",
+              X_GRAY,
+            )}
+            onClick={(e) => {
+              e.stopPropagation();
+              void explain(post);
+            }}
+          />
+        }
+      >
+        <CircleSlash2 className="size-[17px]" />
+      </TooltipTrigger>
+      <TooltipPopup>Explain this post</TooltipPopup>
+    </Tooltip>
+  ) : null;
   const menu = (
     // React carries a click in the menu's portal up to the post, which would open it.
     <span className="contents" onClick={(e) => e.stopPropagation()}>
@@ -854,7 +882,10 @@ export function XPostView({
           {author !== undefined && youFollow(engine, author) ? null : (
             <FollowButton user={author} size="sm" />
           )}
-          {menu}
+          <span className="flex shrink-0 items-center gap-3">
+            {grok}
+            {menu}
+          </span>
         </div>
         <div className="mt-3 empty:hidden">
           <ReplyingTo handles={post.replyingTo} />
@@ -948,7 +979,10 @@ export function XPostView({
                   <TooltipPopup>{xStamp(post.createdAt)}</TooltipPopup>
                 </Tooltip>
               </span>
-              {menu}
+              <span className="ml-auto flex shrink-0 items-center gap-3">
+                {grok}
+                {menu}
+              </span>
             </>
           )}
         </div>

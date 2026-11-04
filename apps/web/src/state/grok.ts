@@ -2,7 +2,7 @@ import * as Atom from "effect/reactivity/Atom";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-import { xPressOver, xRun, xRunHeld } from "./x";
+import { xGo, xPressOver, xRun, xRunHeld } from "./x";
 
 /**
  * X's Grok through X's own page (bundle.GrokXWeb talks to grok.com, not X's GraphQL): read from
@@ -91,6 +91,8 @@ const History = Schema.Struct({
   status: Schema.NullOr(Schema.String),
   /** X has more to load past its last row. */
   more: Schema.Boolean,
+  /** X draws its Chats and Media tabs (behind X's switch for history media). */
+  media: Schema.Boolean,
 });
 
 /** One look at X's Grok page. A null part is one X does not draw now. */
@@ -135,7 +137,9 @@ export function readGrok(doc: Document, path: string): GrokRead {
   const text = (el: Element | null | undefined) => el?.textContent?.trim() ?? "";
   const icon = (el: Element, name: string) => el.querySelector(`svg[data-icon="${name}"]`) !== null;
   const onGrok = path === "/i/grok" || path.startsWith("/i/grok/");
-  const composer = doc.querySelector("fieldset[data-grok-composer]");
+  // X's page draws its own Grok; X's drawer, when X leaves it in the page, draws another.
+  const page_ = (el: Element) => !el.closest('[data-testid="GrokDrawer"]');
+  const composer = [...doc.querySelectorAll("fieldset[data-grok-composer]")].find(page_) ?? null;
   const field = composer?.querySelector<HTMLTextAreaElement | HTMLElement>(
     'textarea, [contenteditable="true"]',
   );
@@ -230,7 +234,10 @@ export function readGrok(doc: Document, path: string): GrokRead {
         if (src !== "") out.push({ kind: "img", src, alt: el.getAttribute("alt") ?? "" });
         return;
       }
-      if (tag === "BUTTON" || el.getAttribute("aria-hidden") === "true") return;
+      if (tag === "BUTTON" || el.getAttribute("aria-hidden") === "true") {
+        for (const img of el.querySelectorAll("img")) walk(img);
+        return;
+      }
       const children = [...el.children];
       // Words with only inline marks around them are a paragraph of their own.
       if (
@@ -281,6 +288,23 @@ export function readGrok(doc: Document, path: string): GrokRead {
         out.push({ kind: "p", runs: runs(part) });
         continue;
       }
+      // X's image slots: each image (opened from its own button), or X's "Generating image…".
+      if (
+        part.querySelector('img, [role="status"]') !== null &&
+        part.querySelector("p, li, pre, table, h1, h2, h3") === null
+      ) {
+        for (const slot of part.querySelectorAll('img, [role="status"]'))
+          out.push(
+            slot.tagName === "IMG"
+              ? {
+                  kind: "img",
+                  src: (slot as HTMLImageElement).currentSrc || (slot.getAttribute("src") ?? ""),
+                  alt: slot.getAttribute("alt") ?? "",
+                }
+              : { kind: "note", text: text(slot), link: null },
+          );
+        continue;
+      }
       out.push(...blocks(part));
     }
     const actions = [...el.querySelectorAll(":scope > div button, :scope > button")].filter(
@@ -303,7 +327,7 @@ export function readGrok(doc: Document, path: string): GrokRead {
       regenerate: regenerate !== undefined && !(regenerate as HTMLButtonElement).disabled,
     };
   };
-  const region = doc.querySelector('[role="region"]');
+  const region = [...doc.querySelectorAll('[role="region"]')].find(page_) ?? null;
   const turns = [...(region?.querySelectorAll("[data-turn-id]") ?? [])].map((t) => {
     const user = t.querySelector('[class~="group/user"] .whitespace-pre-wrap');
     const reply = t.querySelector("[data-quotable-message]");
@@ -535,7 +559,7 @@ const IN_GROK = `
       return check();
     };
     const icon = (el, name) => !!el?.querySelector('svg[data-icon="' + name + '"]');
-    const composer = () => document.querySelector("fieldset[data-grok-composer]");
+    const composer = () => [...document.querySelectorAll("fieldset[data-grok-composer]")].find((f) => !f.closest('[data-testid="GrokDrawer"]')) ?? null;
     const field = () => composer()?.querySelector('textarea, [contenteditable="true"]') ?? null;
     const head = () => document.querySelector('[data-testid="primaryColumn"]') ?? document.querySelector("main") ?? document.createElement("div");
     // React keeps a field's value itself: its native setter and an input event are a keystroke;
@@ -591,7 +615,7 @@ const READ_HISTORY = `(panel) => {
       }
       const status = [...panel.querySelectorAll('[role="status"]')].map((s) => [...s.querySelectorAll("p")].map(text).join(" ") || text(s)).filter((s) => s !== "")[0] ?? null;
       // X's sentinel past its last row, which loads its next page as it scrolls into view.
-      return { rows, status, more: !!panel.querySelector("[aria-busy] .h-px") };
+      return { rows, status, more: !!panel.querySelector("[aria-busy] .h-px"), media: panel.querySelectorAll('[role="tab"]').length > 1 };
     }`;
 
 const decodeHistory = Schema.decodeUnknownOption(History);
@@ -887,3 +911,155 @@ export const xGrokPress = async (
     asking,
     () => {},
   )) === true || null;
+
+const decodeMedia = Schema.decodeUnknownOption(
+  Schema.Struct({ images: Schema.Array(Schema.String), status: Schema.NullOr(Schema.String) }),
+);
+
+/**
+ * X's Media tab in its History panel: the images X lists there (copies of what X draws), or X's
+ * line in their place. X's tab is pressed and Chats pressed back before the panel closes, as a
+ * glance does; nothing changes. Null when X draws no Media tab.
+ */
+export const xGrokMedia = async () =>
+  Option.getOrNull(
+    decodeMedia(
+      await xRun(`(async () => {
+    ${IN_GROK}
+    if (!onGrok()) return null;
+    const shown = await openHistory();
+    if (!shown) return null;
+    const { panel, opened } = shown;
+    const tabs = [...panel.querySelectorAll('[role="tab"]')];
+    if (tabs.length < 2) return (closeHistory(opened), null);
+    tabs[1].click();
+    const grid = () => panel.querySelector("ul.grid");
+    const status = () => [...panel.querySelectorAll('[role="status"]')].map((s) => s.textContent.trim()).find((t) => t !== "" && !/…$/.test(t)) ?? null;
+    await wait(() => grid()?.querySelector("img") || status(), 50);
+    // X revokes its blobs once its panel closes: each picture is copied while X still draws it.
+    const pictures = [...(grid()?.querySelectorAll("img") ?? [])];
+    await wait(() => pictures.every((i) => i.complete && i.naturalWidth > 0), 30);
+    const copy = (img) => {
+      try {
+        const k = Math.min(1, 360 / Math.max(img.naturalWidth, img.naturalHeight));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.naturalWidth * k);
+        canvas.height = Math.round(img.naturalHeight * k);
+        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+        return canvas.toDataURL("image/jpeg", 0.8);
+      } catch { return ""; }
+    };
+    const images = pictures.filter((i) => i.naturalWidth > 0).map(copy).filter((s) => s.startsWith("data:image/"));
+    const answer = { images, status: images.length > 0 ? null : status() };
+    tabs[0].click();
+    closeHistory(opened);
+    return answer;
+  })()`),
+    ),
+  );
+
+/** Copies of X's own Grok images, by X's page's URL for them: X draws them from blobs of its page. */
+const images = new Map<string, Promise<string | null>>();
+
+/**
+ * One of X's Grok images as a picture the app page can draw: X fetches them with grok.com's
+ * credentials into its page's own blob URLs, so X's page draws a copy (at most 1280px) for Xtend.
+ * Null when X's page no longer holds it.
+ */
+export const xGrokImage = (src: string) => {
+  const known = images.get(src);
+  if (known !== undefined) return known;
+  const copy = xRun(`(async () => {
+    const src = ${JSON.stringify(src)};
+    if (!src.startsWith("blob:") && !src.startsWith("https://assets.grok.com/")) return null;
+    try {
+      const shown = [...document.images].find((i) => (i.currentSrc || i.src) === src && i.complete && i.naturalWidth > 0);
+      const picture = shown ?? (await createImageBitmap(await (await fetch(src)).blob()));
+      const w = shown ? shown.naturalWidth : picture.width;
+      const h = shown ? shown.naturalHeight : picture.height;
+      const k = Math.min(1, 1280 / Math.max(w, h));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(w * k);
+      canvas.height = Math.round(h * k);
+      canvas.getContext("2d").drawImage(picture, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL("image/jpeg", 0.85);
+    } catch { return null; }
+  })()`).then((url) => (typeof url === "string" && url.startsWith("data:image/") ? url : null));
+  images.set(src, copy);
+  // A copy X's page could not make is asked again the next time it shows.
+  void copy.then((url) => url === null && images.delete(src));
+  return copy;
+};
+
+/**
+ * Presses X's own Grok button on the post ("Grok actions", its first row when X offers more) for
+ * the user's click: X sends its analysis and opens its drawer or Grok page, and the engine then
+ * shows X's Grok page, as X's drawer's own full page button does. Null when X draws no such button.
+ */
+export const xGrokExplain = async (post: { readonly postId: string; readonly handle: string }) => {
+  if (!/^\d{1,25}$/.test(post.postId) || !/^[A-Za-z0-9_]{1,15}$/.test(post.handle)) return null;
+  const press = (tries: number) =>
+    xPressOver(
+      (mine) => `(async () => {
+    ${IN_GROK}
+    for (let i = 0; i < ${tries} && !document.querySelector("article"); i++) await new Promise((r) => setTimeout(r, 100));
+    const own = () => document.querySelector('article a[href$="/status/${post.postId}"] time, article a[href$="/status/${post.postId}/history"] time')?.closest("article") ?? null;
+    const button = await wait(() => own()?.querySelector('[aria-label="Grok actions"]'), ${tries});
+    if (!button || !${mine}) return null;
+    button.click();
+    // X's menu when it offers more than one Grok action: Explain this post is its first row.
+    const menu = await wait(() => document.querySelector('[role="menu"] [role="menuitem"]') || onGrok() || document.querySelector('[data-testid="GrokDrawer"] fieldset[data-grok-composer]'), 20);
+    if (menu instanceof Element && menu.getAttribute("role") === "menuitem") menu.click();
+    return (await wait(() => onGrok() || !!document.querySelector('[data-testid="GrokDrawer"] fieldset[data-grok-composer]'), 30)) ? "done" : null;
+  })()`,
+      asking,
+      () => {},
+    );
+  let answer = await press(10);
+  if (answer !== "done") {
+    // Not on the engine page: on the post's own page, through X's router.
+    await xGo(`https://x.com/${post.handle}/status/${post.postId}`);
+    answer = await press(100);
+  }
+  if (answer !== "done") return null;
+  if ((await xRun(`location.pathname.startsWith("/i/grok")`)) !== true)
+    await xGo("https://x.com/i/grok");
+  return answer;
+};
+
+/**
+ * X's Grok docked beside an X screen, as X's own drawer docks: where the engine was when it opened
+ * (it goes back there when the drawer closes) and the post it was opened on. Null when closed.
+ */
+export const grokDrawerAtom = Atom.make<{
+  readonly from: string;
+  readonly post: { readonly postId: string; readonly handle: string } | null;
+} | null>(null);
+
+/**
+ * X's Grok page with a new chat, for the user's click on Xtend's "Ask Grok": the engine goes to
+ * X's Grok page and presses X's own New chat there when X shows a conversation. True once X shows
+ * a new chat; null when X drew no Grok page.
+ */
+export const xGrokOpenNew = async () => {
+  await xGo("https://x.com/i/grok");
+  return (
+    (await xPressOver(
+      (mine) => `(async () => {
+    ${IN_GROK}
+    if (!(await wait(() => onGrok() && composer(), 50)) || !${mine}) return null;
+    const fresh = head().querySelector('a[href="/i/grok"]');
+    if (fresh) fresh.click();
+    return (await wait(() => !head().querySelector('a[href="/i/grok"]'), 30)) ? true : null;
+  })()`,
+      asking,
+      () => {},
+    )) === true || null
+  );
+};
+
+/** Takes the engine from X's Grok page back to `from`, once a docked Grok closes, if X is still there. */
+export const xGrokLeave = async (from: string) => {
+  if ((await xRun(`location.pathname.startsWith("/i/grok")`)) !== true) return;
+  if (!/^https:\/\/x\.com\/i\/grok/.test(from)) await xGo(from);
+};

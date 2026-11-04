@@ -1,4 +1,4 @@
-import { useAtomSet } from "@effect/atom-react";
+import { useAtom, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useRouter } from "@tanstack/react-router";
 import { ArrowDown, ChevronLeft, ChevronRight, Search } from "lucide-react";
 import {
@@ -24,8 +24,10 @@ import {
   WHEEL_PAUSE_MS,
 } from "../../lib/wheelGesture";
 import { type AnySurface, engineAtom, resetSurface, updateEngine } from "../../state/engine";
+import { grokDrawerAtom, xGrokLeave } from "../../state/grok";
 import { loadNewPosts, setScreenRefresh } from "../../state/x";
 import { DayGlance } from "../shell/HomeCompanion";
+import { GrokDrawer } from "./Grok";
 import { MediaViewer } from "./MediaViewer";
 import { QuoteComposer } from "./QuoteComposer";
 
@@ -164,6 +166,8 @@ export function XColumn({
 }) {
   const [scroller, setScroller] = useState<HTMLElement | null>(null);
   const setEngine = useAtomSet(engineAtom);
+  const engine = useAtomValue(engineAtom);
+  const [grok, setGrok] = useAtom(grokDrawerAtom);
   const latest = useRef(refresh);
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- keeps the latest refresh callback for the screen-refresh registration below, without re-registering.
   useEffect(() => {
@@ -226,13 +230,26 @@ export function XColumn({
           <MediaViewer />
           <QuoteComposer />
         </section>
-        <aside className="sticky top-0 flex h-fit w-[340px] shrink-0 flex-col gap-4 py-3 @max-[1000px]:hidden">
-          {rail}
-          {/* Xtend's day beside every X screen, where X keeps its own right column. */}
-          <section className="rounded-2xl border border-white/[0.12] px-4 pt-1 pb-0 [&>a:first-child]:border-t-0">
-            <DayGlance />
-          </section>
-        </aside>
+        {grok === null ? (
+          <aside className="sticky top-0 flex h-fit w-[340px] shrink-0 flex-col gap-4 py-3 @max-[1000px]:hidden">
+            {rail}
+            {/* Xtend's day beside every X screen, where X keeps its own right column. */}
+            <section className="rounded-2xl border border-white/[0.12] px-4 pt-1 pb-0 [&>a:first-child]:border-t-0">
+              <DayGlance />
+            </section>
+          </aside>
+        ) : (
+          // X's Grok docks over the rail, as X's drawer docks over its right column.
+          <aside className="sticky top-0 flex h-fit w-[360px] shrink-0 flex-col py-3">
+            <GrokDrawer
+              post={grok.post === null ? undefined : engine.posts.get(grok.post.postId)}
+              onClose={() => {
+                setGrok(null);
+                void xGrokLeave(grok.from);
+              }}
+            />
+          </aside>
+        )}
       </div>
       {GESTURES ? (
         <div

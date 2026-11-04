@@ -1,6 +1,6 @@
 import { expect, it } from "vite-plus/test";
 
-import { readGrok, xGrokHistory, xGrokHistoryPress, xGrokSend } from "./grok";
+import { readGrok, xGrokHistory, xGrokHistoryPress, xGrokMedia, xGrokSend } from "./grok";
 import { markXReady, registerXWebview, type XWebview } from "./x";
 
 // X's Grok page (bundle.GrokXWeb) as it draws: X's header in its column, the transcript region
@@ -222,4 +222,45 @@ it("presses a row the user found by search under that same search in X's panel",
   });
   expect(await xGrokHistoryPress("c3", "pin", "", "churn")).toBe("done");
   expect([pinned, search.value]).toEqual([["/i/grok/c/c3"], "churn"]);
+});
+
+// A 2x1 PNG, as X's page draws Grok's images from its own blobs.
+const PNG =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAEUlEQVR4nGP4z8DwHwQZYAwAOS0D/WkLu/AAAAAASUVORK5CYII=";
+
+it("reads X's image slots as images, and X's line while it still draws one", () => {
+  const slots = `<div class="group flex flex-col items-start gap-1" data-quotable-message="r3"><div class="flex w-full min-w-0 flex-col gap-3"><div class="flex w-full min-w-0 flex-row flex-wrap gap-2"><button type="button" aria-label="A city under twin moons"><img src="${PNG}" alt="A city under twin moons"></button><div class="relative"><span role="status">Generating image…</span></div></div></div></div>`;
+  using _x = drawX(page(turn("u3", "Draw a city", slots)));
+  expect(readGrok(document, "/i/grok").turns?.[0]?.answer?.blocks).toEqual([
+    { kind: "img", src: PNG, alt: "A city under twin moons" },
+    { kind: "note", text: "Generating image…", link: null },
+  ]);
+});
+
+it("copies X's Media tab images while X draws them, and leaves X's panel on Chats, closed", async () => {
+  using _x = drawX(page(""));
+  engineAt("/i/grok");
+  const button = document.querySelector<HTMLButtonElement>('[aria-haspopup="dialog"]')!;
+  const tabsPanel = HISTORY.replace(
+    "<header>",
+    '<div role="tablist"><button role="tab">Chats</button><button role="tab">Media</button></div><header>',
+  );
+  const pressed: Array<string> = [];
+  button.addEventListener("click", () => {
+    const open = document.querySelector('[role="dialog"]');
+    if (open !== null) return void (open.remove(), button.setAttribute("aria-expanded", "false"));
+    document.body.insertAdjacentHTML("beforeend", tabsPanel);
+    button.setAttribute("aria-expanded", "true");
+    const [chats, mediaTab] = document.querySelectorAll('[role="tab"]');
+    chats!.addEventListener("click", () => pressed.push("Chats"));
+    // X's Media tab swaps the list for its grid of the account's images.
+    mediaTab!.addEventListener("click", () => {
+      pressed.push("Media");
+      document.querySelector('[role="dialog"] ul')!.outerHTML =
+        `<ul class="grid grid-cols-3 gap-1"><li><button aria-label="Open image 1"><img src="${PNG}"></button></li></ul>`;
+    });
+  });
+  const media = await xGrokMedia();
+  expect(media?.images.map((src) => src.startsWith("data:image/jpeg"))).toEqual([true]);
+  expect([pressed, document.querySelector('[role="dialog"]')]).toEqual([["Media", "Chats"], null]);
 });
