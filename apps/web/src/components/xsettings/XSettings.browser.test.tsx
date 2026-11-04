@@ -6,6 +6,7 @@ import { expect, it } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
 import { installFakeBridge } from "../../../test/fakeBridge";
+import type { FakeService } from "../../../test/fakeService";
 import { render } from "../../../test/render";
 import type { XWebview } from "../../state/x";
 
@@ -60,7 +61,28 @@ const ui = (
   </div>
 );
 const probe = () => document.querySelector('[data-testid="probe"]')?.textContent ?? "";
-const service = { "accounts.list": () => Effect.succeed({ accounts: [], currentId: 1 }) };
+/** What the screen filed in the change log, as the service got it. */
+const filed: Array<{ readonly values: string; readonly pressed: string | null }> = [];
+const service: FakeService = {
+  "accounts.list": () => Effect.succeed({ accounts: [], currentId: 1 }),
+  "xSettings.seen": ({ values, pressed }) =>
+    Effect.sync(() => {
+      filed.push({ values: values.map((v) => `${v.label}=${v.value}`).join(", "), pressed });
+      return [];
+    }),
+  "xSettings.changes": () =>
+    Effect.succeed([
+      {
+        key: "/settings/notifications/filters Quality filter",
+        page: "Filters",
+        label: "Quality filter",
+        from: "On",
+        to: "Off",
+        at: "2026-11-02T09:00:00.000Z",
+        inXtend: false,
+      },
+    ]),
+};
 
 it("finds X's settings in Settings search beside Xtend's, and draws the one picked from X's page, pressing X's own checkbox", async () => {
   x.innerHTML = AUDIENCE;
@@ -87,6 +109,16 @@ it("finds X's settings in Settings search beside Xtend's, and draws the one pick
   await expect.poll(() => pressed).toEqual([true]);
   // X redraws its checkbox: Xtend shows X's word for it.
   await expect.element(screen.getByRole("checkbox", { name: /Protect your posts/ })).toBeChecked();
+  // The log gets what X's page drew, the press named as the user's; its rail shows X's flip elsewhere.
+  expect(filed.at(0)).toEqual({ values: "Protect your posts=Off", pressed: null });
+  await expect
+    .poll(() => filed.at(-1))
+    .toEqual({
+      values: "Protect your posts=On",
+      pressed: "/settings/audience_and_tagging Protect your posts",
+    });
+  // The rail folds away at this width, as it does beside a narrow main area.
+  await expect.element(screen.getByText(/not from Xtend · Filters/)).toBeInTheDocument();
 });
 
 it("keeps X's password page X's own: over the main area under Xtend's bar, nothing of it read", async () => {

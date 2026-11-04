@@ -94,7 +94,9 @@ finds its control by place and checks the label X draws there before clicking. X
 (bundle.Settings) is Xtend's list of X's pages, so Settings search loads none of them. A page
 that asks for typing (a password, a username), and the pages X keeps for itself (password,
 two-factor, passkeys, sessions, Premium, Monetization: `isXOnly`), show as X's page over the
-main area with Xtend's bar and its Back.
+main area with Xtend's bar and its Back. The rail's change log (`xsettings/XSettingsLog.ts`)
+keeps, per account, the last value of each toggle or pick Xtend saw and every flip, so a
+setting changed on the phone shows the next time its page is read; never what the user types.
 
 The read-only benchmark (`apps/desktop/scripts/engine-bench.mjs`) checks every surface against a
 dev desktop on the real account; its only write is a bookmark it removes again.
