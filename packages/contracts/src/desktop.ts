@@ -35,6 +35,19 @@ export const DesktopCommand = Schema.Union([
   Schema.Struct({ type: Schema.Literal("sessionLike"), postId: XId }),
   /** Sends a DM through X's own message composer in the session view; same setting as sessionPost. */
   Schema.Struct({ type: Schema.Literal("sessionDm"), userId: XId, text: Schema.String }),
+  /**
+   * Publishes an Article through X's own editor (same setting as sessionPost): X's create, the
+   * title typed, the cover through X's own upload, the body as one paste (`toPasteHtml`), then X's
+   * Publish and its dialog's, with who can reply and the caption set there.
+   */
+  Schema.Struct({
+    type: Schema.Literal("sessionArticle"),
+    title: Schema.String,
+    html: Schema.String,
+    coverPath: Schema.optional(Schema.String),
+    replySettings: Schema.optional(ReplySettings),
+    caption: Schema.optional(Schema.String),
+  }),
 ]);
 export type DesktopCommand = typeof DesktopCommand.Type;
 
@@ -49,6 +62,8 @@ export const DESKTOP_COMMAND_LIMIT_MS = {
   sessionPost: 180_000,
   sessionLike: 30_000,
   sessionDm: 45_000,
+  // X saves an Article's content a few seconds after the last change, and the cover uploads first.
+  sessionArticle: 180_000,
 } satisfies Record<DesktopCommand["type"], number>;
 
 export const DesktopCommandResult = Schema.Union([
@@ -57,6 +72,7 @@ export const DesktopCommandResult = Schema.Union([
   Schema.Struct({ type: Schema.Literal("sessionNavigate") }),
   Schema.Struct({ type: Schema.Literal("sessionLike") }),
   Schema.Struct({ type: Schema.Literal("sessionDm") }),
+  Schema.Struct({ type: Schema.Literal("sessionArticle"), postId: XId }),
 ]);
 export type DesktopCommandResult = typeof DesktopCommandResult.Type;
 
@@ -693,6 +709,26 @@ export interface EngineBatch {
     /** X's cursor for its next page; null at its end. */
     readonly next: string | null;
   };
+  /**
+   * The user's own Articles on x.com (bundle.TwitterArticles): a list X's Articles page asked for
+   * (ArticleEntitiesSlice, keyed `articles:Draft` or `articles:Published`), or the one Article its
+   * preview loaded (ArticleEntityResultByRestId, with its body).
+   */
+  readonly xArticles?: ReadonlyArray<EngineXArticle>;
+}
+
+/** One of the user's Articles as X's own Articles page lists it; `blocks` only once X sent its body. */
+export interface EngineXArticle {
+  /** X's id for the Article (its editor's `/compose/articles/edit/<id>`), not the post's. */
+  readonly id: string;
+  readonly title: string;
+  readonly preview: string;
+  readonly lifecycle: "Draft" | "Published";
+  readonly modifiedAt: string | null;
+  /** The post X made when it was published. */
+  readonly postId: string | null;
+  readonly coverUrl: string | null;
+  readonly blocks: ReadonlyArray<EngineArticleBlock> | null;
 }
 
 /** Counts by X's metric name (`Impressions`, `Likes`, `Retweets`, `Bookmark`, `Share`...). */

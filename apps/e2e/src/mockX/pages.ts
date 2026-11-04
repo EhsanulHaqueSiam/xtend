@@ -11,6 +11,7 @@ import type {
   EngineUser,
 } from "@xtend/contracts";
 
+import { articlesPage } from "./articles.ts";
 import { chatPage } from "./chat.ts";
 import { settingsPage } from "./settings.ts";
 import {
@@ -488,6 +489,10 @@ export function route(
   const lower = first.toLowerCase();
 
   if (lower === "i" && second === "radar" && fourth === undefined) return radarPage(state, third);
+  if (lower === "compose" && second === "articles") {
+    const page = articlesPage(state.articles, state.premium, url.pathname);
+    return { title: page.title, requests: page.requests, render: () => page.html };
+  }
   // X's settings pages, as X's components draw them (settings.ts).
   const settings =
     lower === "settings" ? settingsPage(state.settings, url.pathname, width) : undefined;

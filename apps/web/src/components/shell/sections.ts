@@ -44,6 +44,19 @@ export const SECTIONS = {
     },
     { id: "posted", label: "Posted", about: "On X, with their ids." },
   ],
+  "/articles": [
+    {
+      id: "drafts",
+      label: "Drafts",
+      about: "Your article drafts, and the ones you started on x.com, read only.",
+    },
+    {
+      id: "queued",
+      label: "Queued",
+      about: "Articles going out through the X API at a slot or time.",
+    },
+    { id: "published", label: "Published", about: "Your Articles on X." },
+  ],
   "/plan": [
     {
       id: "calendar",

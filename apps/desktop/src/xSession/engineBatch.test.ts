@@ -3332,3 +3332,92 @@ describe("renderEngineBatch for X's List writes", () => {
     ]).toEqual(["12", undefined, undefined]);
   });
 });
+
+describe("renderEngineBatch for the user's own X Articles", () => {
+  const entity = (lifecycle: string, extra: Record<string, unknown> = {}) => ({
+    rest_id: "1900",
+    title: "Two plans",
+    preview_text: "Last month we ran one test",
+    lifecycle_state: { lifecycle, modified_at_secs: 1_793_491_200 },
+    metadata: {
+      tweet_results: lifecycle === "Published" ? { result: { rest_id: "1950" } } : {},
+    },
+    ...extra,
+  });
+
+  it("lists X's drafts by lifecycle, and reads one Article's body from its preview", () => {
+    const list = renderEngineBatch(
+      "ArticleEntitiesSlice",
+      { userId: "5", lifecycle: "Draft" },
+      {
+        data: {
+          user: {
+            result: {
+              __typename: "User",
+              articles_article_mixer_slice: {
+                items: [
+                  { article_entity_results: { result: entity("Draft") } },
+                  { article_entity_results: { result: { rest_id: "not X's" } } },
+                ],
+                slice_info: {},
+              },
+            },
+          },
+        },
+      },
+    );
+    expect([list.key, hasEngineContent(list)]).toEqual(["articles:Draft", true]);
+    expect(list.xArticles).toEqual([
+      {
+        id: "1900",
+        title: "Two plans",
+        preview: "Last month we ran one test",
+        lifecycle: "Draft",
+        modifiedAt: "2026-11-01T00:00:00.000Z",
+        postId: null,
+        coverUrl: null,
+        blocks: null,
+      },
+    ]);
+    const one = renderEngineBatch(
+      "ArticleEntityResultByRestId",
+      { articleEntityId: "1900" },
+      {
+        data: {
+          article_result_by_rest_id: {
+            result: entity("Published", {
+              content_state: {
+                blocks: [
+                  {
+                    key: "a",
+                    type: "header-one",
+                    text: "Why",
+                    inlineStyleRanges: [],
+                    entityRanges: [],
+                    data: {},
+                  },
+                ],
+                entityMap: [],
+              },
+            }),
+          },
+        },
+      },
+    );
+    expect(one.xArticles?.[0]).toMatchObject({
+      lifecycle: "Published",
+      postId: "1950",
+      blocks: [
+        {
+          key: "a",
+          type: "header-one",
+          text: "Why",
+          styles: [],
+          links: [],
+          images: [],
+          markdown: null,
+        },
+      ],
+    });
+  });
+});

@@ -309,6 +309,8 @@ const SCRIPT = String.raw`
     closeLayers();
     // X's Radar asks afresh each time its page shows (network-only), so it is never cached.
     if (path.startsWith("/i/radar")) cache.delete(key);
+    // So do X's Articles pages: the editor and the lists read the Article afresh.
+    if (path.startsWith("/compose/articles")) cache.delete(key);
     let entry = cache.get(key);
     if (!entry) {
       const view = await load(path);
@@ -1062,6 +1064,126 @@ const SCRIPT = String.raw`
     } else go("/i/radar/" + el.dataset.radarRow, false);
   }, true);
 
+  // X's Articles: its pen makes a draft and opens X's editor. The editor saves its title, and its
+  // content a moment after each change (Publish stays off meanwhile); a cover goes up through X's
+  // crop dialog's Apply; Publish opens X's dialog, whose Publish publishes and opens the post.
+  // A step of X's editor (the crop, the Publish sheet): a dialog in X's layers, or in its compact
+  // layout the whole route, X's app bar on top (Back, the title as its h2, the step's own button)
+  // and the editor kept behind it.
+  const closeArticleSheet = () => {
+    for (const el of document.querySelectorAll("[data-article-sheet]")) el.remove();
+    const root = document.querySelector("[data-mock-article]");
+    if (root) root.hidden = false;
+  };
+  const articleSheet = (title, inner, primary) => {
+    closeLayers();
+    closeArticleSheet();
+    const box = document.createElement("div");
+    box.dataset.articleSheet = "";
+    // With __mockLateSheet the step's own button comes a moment after the rest, as X may draw it.
+    const late = window.__mockLateSheet && primary !== "";
+    const now = late ? "" : primary;
+    const later = (where) => { if (late) setTimeout(() => where.insertAdjacentHTML("beforeend", primary), 800); };
+    if (window.__mockCompact) {
+      box.innerHTML = '<div class="bar"><button type="button" data-testid="app-bar-back" aria-label="Back">←</button><h2>' + title + "</h2>" + now + "</div>" + inner;
+      later(box.querySelector(".bar"));
+      box.querySelector('[data-testid="app-bar-back"]').addEventListener("click", closeArticleSheet);
+      const root = document.querySelector("[data-mock-article]");
+      // With __mockReplaceOpener the editor stays on screen and its Publish is drawn anew.
+      if (window.__mockReplaceOpener) {
+        const opener = root.querySelector("[data-article-publish]");
+        opener.replaceWith(opener.cloneNode(true));
+      } else root.hidden = true;
+      root.after(box);
+    } else {
+      box.className = "dialog";
+      box.setAttribute("role", "dialog");
+      box.innerHTML = "<h2>" + title + "</h2>" + inner + now;
+      layers.append(box);
+      later(box);
+    }
+  };
+  const articleOp = (op, variables) => post("/i/api/graphql/" + window.__mockHash[op] + "/" + op, { variables });
+  const articleId = () => document.querySelector("[data-mock-article]")?.dataset.mockArticle;
+  const BLOCK_TYPES = { H1: "header-one", H2: "header-two", BLOCKQUOTE: "blockquote" };
+  let saving = 0;
+  const canPublish = () => {
+    const root = document.querySelector("[data-mock-article]");
+    const publish = root?.querySelector("[data-article-publish]");
+    if (!publish) return;
+    const ready = saving === 0 && root.querySelector("textarea").value.trim() !== "" && root.querySelector("[contenteditable]").textContent.trim() !== "";
+    publish.disabled = !ready;
+    publish.setAttribute("aria-disabled", String(!ready));
+    root.querySelector("[data-save]").textContent = saving > 0 ? "Saving..." : "Saved";
+  };
+  const save = (op, variables) => {
+    saving++;
+    canPublish();
+    setTimeout(() => void articleOp(op, variables).finally(() => { saving--; canPublish(); }), 400);
+  };
+  document.addEventListener("input", (event) => {
+    const field = event.target;
+    if (!(field instanceof HTMLTextAreaElement) || !field.closest("[data-mock-article]")) return;
+    save("ArticleEntityUpdateTitle", { articleEntityId: articleId(), title: field.value });
+  });
+  document.addEventListener("paste", (event) => {
+    const box = event.target instanceof Element ? event.target.closest('[data-testid="composer"] [contenteditable]') : null;
+    if (!box) return;
+    event.preventDefault();
+    const html = event.clipboardData.getData("text/html");
+    log("article:paste", html);
+    // X's editor keeps the paste's blocks and styles (convertFromHTML); the mock keeps the markup.
+    box.innerHTML = html;
+    const blocks = [...box.querySelectorAll(":scope > *, :scope > ul > li, :scope > ol > li")]
+      .filter((el) => el.tagName !== "UL" && el.tagName !== "OL")
+      .map((el) => ({ type: el.tagName === "LI" ? (el.parentElement.tagName === "OL" ? "ordered-list-item" : "unordered-list-item") : BLOCK_TYPES[el.tagName] ?? "unstyled", text: el.textContent }));
+    save("ArticleEntityUpdateContent", { article_entity: articleId(), content_state: { blocks, entityMap: [] } });
+  }, true);
+  document.addEventListener("change", (event) => {
+    const input = event.target;
+    if (!(input instanceof HTMLInputElement) || input.type !== "file" || !input.closest("[data-article-cover]")) return;
+    log("article:cover", input.files[0]?.name ?? "");
+    articleSheet("Edit media", "", '<button type="button" data-testid="applyButton" data-article-apply>Apply</button>');
+  });
+  document.addEventListener("click", (event) => {
+    const el = event.target instanceof Element ? event.target.closest("[data-article-create], [data-article-apply], [data-article-publish], [data-article-confirm]") : null;
+    if (!el) return;
+    event.stopPropagation();
+    const id = articleId();
+    if (el.dataset.articleCreate !== undefined) {
+      log("article:create");
+      void articleOp("ArticleEntityDraftCreate", { content_state: { blocks: [], entityMap: [] }, title: "" })
+        .then((r) => go("/compose/articles/edit/" + r.data.articleentity_create_draft.article_entity_results.result.rest_id, false));
+    } else if (el.dataset.articleApply !== undefined) {
+      log("article:apply");
+      closeArticleSheet();
+      const media = "1960000000000000001";
+      saving++;
+      canPublish();
+      void articleOp("ArticleEntityUpdateCoverMedia", { articleEntityId: id, coverMedia: { media_id: media, media_category: "DraftTweetImage" } }).then(() => {
+        document.querySelector("[data-article-cover]").innerHTML = '<img alt="" src="https://pbs.twimg.com/media/' + media + '.jpg">';
+        saving--;
+        canPublish();
+      });
+    } else if (el.dataset.articlePublish !== undefined) {
+      if (el.disabled) return;
+      log("article:publish");
+      articleSheet(
+        "Publish Article",
+        '<h3>Who can reply?</h3><select data-testid="convoControl"><option value="All">Everyone</option><option value="Community">Accounts you follow</option><option value="Verified">Verified accounts</option><option value="ByInvitation">Only accounts you mention</option></select><textarea name="articleTweetText" data-testid="articleTweetTextInput" placeholder="Provide a caption (optional)"></textarea>',
+        '<button type="button" data-article-confirm>Publish</button>',
+      );
+    } else {
+      const dialog = el.closest("[data-article-sheet]");
+      const mode = dialog.querySelector("select").value;
+      const caption = dialog.querySelector("textarea").value.trim();
+      log("article:confirm");
+      void articleOp("ArticleEntityPublish", { articleEntityId: id, visibilitySetting: "Public", ...(caption === "" ? {} : { tweetText: caption }), ...(mode === "All" ? {} : { conversationControl: { mode } }) }).then((r) => {
+        closeArticleSheet();
+        go("/you/status/" + r.data.articleentity_publish.article_entity_results.result.metadata.tweet_results.result.rest_id, false);
+      });
+    }
+  }, true);
   // X's settings checkboxes save each change at once, as X's page sends it (settings.ts); Protect
   // your posts stays off until X's confirm sheet's Protect.
   document.addEventListener("click", (event) => {
@@ -1107,7 +1229,7 @@ export function shell(state: MockState, hashes: Readonly<Record<string, string>>
 <main role="main"><div data-testid="primaryColumn"></div></main>
 <div id="layers"></div>
 </div>
-<script>window.__mockHash = ${JSON.stringify(hashes)}; window.__mockFormats = ${String(state.formats)};</script>
+<script>window.__mockHash = ${JSON.stringify(hashes)}; window.__mockFormats = ${String(state.formats)}; window.__mockCompact = ${String(state.compact)}; window.__mockLateSheet = ${String(state.lateSheetPublish)}; window.__mockReplaceOpener = ${String(state.replaceOpener)};</script>
 <script src="/__mock/client.js"></script>
 </body></html>`;
 }

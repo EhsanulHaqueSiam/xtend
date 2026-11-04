@@ -31,8 +31,13 @@ const crash = { on: false };
 const desktop = { answer: "ok" as "ok" | DesktopUnavailableError["reason"] };
 const desktopCalls: Array<DesktopCommand> = [];
 const unsure = { lost: "http", garbled: "decode" } as const;
-// How an article publish fails; unset, it dies, so a test that reaches it unasked fails.
-const article = { failure: null as XApiError | null };
+// How an article publish answers through the API: its failure, or what X published (counted);
+// with neither it dies, so a test that reaches it unasked fails.
+const article = {
+  failure: null as XApiError | null,
+  published: null as { readonly articleId: string; readonly postId: string } | null,
+  calls: 0,
+};
 // Completed by the next post X accepts, and by the next draft marked posted: a test whose caller
 // leaves mid-thread waits on these instead of on time.
 const next = {
@@ -60,9 +65,14 @@ const draftsWatched = Layer.effect(
 ).pipe(Layer.provide(DraftStore.layer));
 const articlesFake = Layer.succeed(Articles.Articles)({
   publish: () =>
-    article.failure === null
-      ? Effect.die("articles not stubbed for this test")
-      : Effect.fail(article.failure),
+    Effect.suspend(() => {
+      article.calls++;
+      return article.failure !== null
+        ? Effect.fail(article.failure)
+        : article.published !== null
+          ? Effect.succeed(article.published)
+          : Effect.die("articles not stubbed for this test");
+    }),
   generateCover: () => Effect.die("articles not stubbed for this test"),
   quote: { articleUsd: 0, coverUsd: 0, coverModel: "stub" },
 });
@@ -78,8 +88,8 @@ const layerTest = Publisher.layer.pipe(
       desktopStub(desktopCalls, (command) =>
         desktop.answer === "ok"
           ? (Effect.succeed(
-              command.type === "sessionPost"
-                ? { type: "sessionPost", postId: `${desktopCalls.length}0` }
+              command.type === "sessionPost" || command.type === "sessionArticle"
+                ? { type: command.type, postId: `${desktopCalls.length}0` }
                 : { type: command.type },
             ) as never)
           : Effect.fail(new DesktopUnavailableError({ reason: desktop.answer, detail: "test" })),
@@ -120,6 +130,8 @@ const reset = () => {
   crash.on = false;
   desktop.answer = "ok";
   article.failure = null;
+  article.published = null;
+  article.calls = 0;
   next.post = null;
   next.posted = null;
 };
@@ -413,6 +425,98 @@ describe("Publisher", () => {
         const out = yield* publisher.post(d.id, scheduled);
         expect(out.status).toBe("failed");
         expect(out.error).toContain("Post 1 may already be on X");
+      }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect(
+    "a clicked article goes through X's own editor as one paste, its caption with it, and never pays the API",
+    () =>
+      Effect.gen(function* () {
+        reset();
+        const drafts = yield* DraftStore.DraftStore;
+        const publisher = yield* Publisher.Publisher;
+        const d = yield* drafts.create({
+          kind: "article",
+          title: "Two plans",
+          body: "# Why\n\nIt **worked**",
+          replySettings: "following",
+        });
+        // The articles fake dies on publish, so the API lane would fail the test.
+        const out = yield* publisher.post(d.id, { ...postNow, clicked: true, caption: "Read it" });
+        expect(out.status).toBe("posted");
+        expect(out.postIds).toEqual(["10"]);
+        expect(desktopCalls).toEqual([
+          {
+            type: "sessionArticle",
+            title: "Two plans",
+            html: "<h1>Why</h1><p>It <strong>worked</strong></p>",
+            replySettings: "following",
+            caption: "Read it",
+          },
+        ]);
+      }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect(
+    "an article refuses, before X or treg sees it, what its lane cannot carry, in X's own words first",
+    () =>
+      Effect.gen(function* () {
+        reset();
+        const drafts = yield* DraftStore.DraftStore;
+        const publisher = yield* Publisher.Publisher;
+        const untitled = yield* drafts.create({ kind: "article", title: "", body: "text" });
+        expect((yield* publisher.post(untitled.id, { ...postNow, clicked: true })).error).toBe(
+          "Your Article needs a title before publishing.",
+        );
+        // X's paste drops a divider, so the free Publish now refuses it rather than lose it.
+        const divided = yield* drafts.create({ kind: "article", title: "T", body: "a\n\n---" });
+        expect(
+          (yield* publisher.post(divided.id, { ...postNow, clicked: true, sessionOnly: true }))
+            .error,
+        ).toContain("Insert menu");
+        expect(desktopCalls).toEqual([]);
+        // X's publish endpoint takes no reply setting.
+        const replies = yield* drafts.create({
+          kind: "article",
+          title: "T",
+          body: "a",
+          replySettings: "following",
+        });
+        expect((yield* publisher.post(replies.id, scheduled)).error).toContain(
+          "everyone can reply",
+        );
+      }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect(
+    "a click the session cannot carry takes the X API it was priced for; the free Publish now never pays",
+    () =>
+      Effect.gen(function* () {
+        reset();
+        article.published = { articleId: "5", postId: "81" };
+        const drafts = yield* DraftStore.DraftStore;
+        const publisher = yield* Publisher.Publisher;
+        const runNow = { purpose: "plan.runNow", retry: true, clicked: true } as const;
+        // Plan's Post now on a queued article whose code block X's paste would drop.
+        const coded = yield* drafts.create({
+          kind: "article",
+          title: "T",
+          body: "a\n\n```ts\nx\n```",
+        });
+        const viaApi = yield* publisher.post(coded.id, runNow);
+        expect([viaApi.status, viaApi.postIds, desktopCalls]).toEqual(["posted", ["81"], []]);
+        // No desktop: the session refuses before pressing anything, so the API lane.
+        desktop.answer = "no_desktop";
+        const plain = yield* drafts.create({ kind: "article", title: "T", body: "a" });
+        expect((yield* publisher.post(plain.id, runNow)).status).toBe("posted");
+        // The editor's free Publish now stays in the session.
+        const free = yield* drafts.create({ kind: "article", title: "T", body: "a" });
+        const refused = yield* publisher.post(free.id, {
+          ...postNow,
+          clicked: true,
+          sessionOnly: true,
+        });
+        expect([refused.status, article.calls]).toEqual(["failed", 2]);
       }).pipe(Effect.provide(layerTest)),
   );
 

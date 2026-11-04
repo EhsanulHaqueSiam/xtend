@@ -1,4 +1,5 @@
 import {
+  type ArticleAssistMode,
   Compose_METHODS,
   type DraftPatch,
   type MediaKind,
@@ -7,6 +8,7 @@ import {
   type ReplyTone,
 } from "@xtend/contracts";
 import * as Effect from "effect/Effect";
+import * as Atom from "effect/reactivity/Atom";
 
 import { clientRuntime, XtendClient } from "../rpc/client";
 import { eventsOfTypeAtom } from "./shell";
@@ -65,6 +67,39 @@ export const sessionPostNowAtom = clientRuntime.fn<{
       ...(gif === undefined ? {} : { gif }),
       ...(community === undefined ? {} : { community }),
     });
+  }),
+);
+
+/**
+ * Whether X's Articles page gives this account X's article composer, as the engine last saw it:
+ * false is X's "Page not found" (no Premium), null until the engine has looked.
+ */
+export const articlesAccessAtom = Atom.make<boolean | null>(null);
+
+/** Publish now for an Article: X's own editor and Publish, for the user's click, with its caption. */
+export const publishArticleAtom = clientRuntime.fn<{
+  readonly id: string;
+  readonly caption: string;
+}>()(
+  Effect.fnUntraced(function* ({ id, caption }) {
+    const client = yield* XtendClient;
+    return yield* client[Compose_METHODS.postNow]({
+      id,
+      sessionOnly: true,
+      ...(caption.trim() === "" ? {} : { caption }),
+    });
+  }),
+);
+
+export const assistArticleAtom = clientRuntime.fn<{
+  readonly mode: ArticleAssistMode;
+  readonly title: string;
+  readonly body: string;
+  readonly text?: string | undefined;
+}>()(
+  Effect.fnUntraced(function* (input) {
+    const client = yield* XtendClient;
+    return yield* client[Compose_METHODS.assistArticle](input);
   }),
 );
 

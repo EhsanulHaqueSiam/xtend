@@ -16,6 +16,7 @@ import type {
 } from "@xtend/contracts";
 
 import { synth } from "../../../web/src/components/xnative/engineFixtures.ts";
+import { createMockArticles } from "./articles.ts";
 import { createMockChat } from "./chat.ts";
 import { mockSettings } from "./settings.ts";
 import { encodeBody, encodeFolder, encodeList, encodeRestUser, encodeTweet } from "./graphql.ts";
@@ -130,6 +131,10 @@ export interface MockOptions {
   readonly photoEvery?: number;
   /** Whether @you has Premium (X's claims, folders, analytics); X's analytics draw its upsell without. */
   readonly premium?: boolean;
+  /** X's Publish sheet draws its caption first and its own Publish a moment later. */
+  readonly lateSheetPublish?: boolean;
+  /** Opening X's compact Publish sheet redraws the editor's app bar: its Publish is a new node. */
+  readonly replaceOpener?: boolean;
   /** False: X's page sends no claims at boot, as live X did not for one account (2026-11-03). */
   readonly sendsClaims?: boolean;
   /**
@@ -684,6 +689,7 @@ export function createMockState(options: MockOptions = {}) {
 
   // Bookmark folders, which X keeps to Premium: the fixtures' account has X's claim for them, and
   // a test can take it away. Each folder's posts newest first, with what X's dialogs did since.
+  const articles = createMockArticles();
   let premium =
     options.premium ?? fixture("GetUserClaims", null)?.claims?.includes(FOLDERS_CLAIM) === true;
   const listed = fixture("BookmarkFoldersSlice", null)?.bookmarkFolders;
@@ -1097,6 +1103,8 @@ export function createMockState(options: MockOptions = {}) {
 
   /** X's GraphQL answer to one request; writes go through `write`. */
   const respond = (op: string, variables: Json): Json => {
+    const article = articles.respond(op, variables, premium);
+    if (article !== undefined) return article;
     const b = batchFor(op, variables);
     return b === null ? { data: {} } : encodeBody(b, liveUsers(), variables);
   };
@@ -1222,6 +1230,8 @@ export function createMockState(options: MockOptions = {}) {
     const done = (field: string) => ({ data: { [field]: "Done" } });
     const list = writeList(name, input, id);
     if (list !== undefined) return list;
+    const article = articles.write(name, input);
+    if (article !== undefined) return article;
     switch (name) {
       case "FavoriteTweet":
         changePost(tweet, (p) => ({ liked: true, ...count(p, "likes", 1) }));
@@ -1545,6 +1555,8 @@ export function createMockState(options: MockOptions = {}) {
     chat: createMockChat(options.chatLocked === true, people),
     /** X's Radar: whether the account has Premium, X's query limit, and its queries. */
     radar,
+    /** The user's Articles on X; X gives its Articles pages only with Premium (`premium`). */
+    articles,
     setTrendHidden: (path: string, name: string, hidden: boolean) => {
       const names = hiddenTrends.get(path) ?? new Set<string>();
       if (hidden) names.add(name);
@@ -1580,8 +1592,10 @@ export function createMockState(options: MockOptions = {}) {
     /** Post ids of a feed page after the first. */
     feedPageIds: (feed: Feed, n: number) => feedPage(feed, n).order,
     fixture,
-    /** Whether X draws its compact layout (see `MockOptions.compact`). */
     compact: options.compact ?? false,
+    /** Whether X's Publish sheet draws its Publish after its caption (see `MockOptions`). */
+    lateSheetPublish: options.lateSheetPublish === true,
+    replaceOpener: options.replaceOpener === true,
     /** Whether X's page sends its claims at boot; some accounts' never do. */
     sendsClaims: options.sendsClaims ?? true,
     fixtures: () => fixtures,

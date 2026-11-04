@@ -86,6 +86,23 @@ composer node and the message ids X draws (each one conversation's own), checked
 press, then pins the one new message with its text; with no message drawn there is no identity,
 so a conversation's first message is written in X's page. One send at a time (`chatWriteAtom`).
 
+Articles are Xtend drafts written in Xtend's editor; X's own drafts are only read, off X's
+Articles page (ArticleEntitiesSlice) and its preview (ArticleEntityResultByRestId). X's editor
+is Draft.js and saves every change a few seconds after it (ArticleEntityUpdateContent), so
+anything typed into it is X's at once: Xtend never edits an X draft. Publish now
+(`articleThroughEditor` in the desktop's commands, for the click) presses X's pen for a fresh
+draft, types the title, puts the cover through X's own file input and crop dialog, and pastes
+the body once as HTML (`toPasteHtml`): X's paste handler keeps paragraphs, Heading, Subheading,
+quotes, lists, bold, italic, strikethrough and links, and drops atomic blocks, which is why a
+body with code, LaTeX, a divider or a post goes out through the API instead. Publish stays off
+until X has saved. X's two Publish buttons have no test id, only X's word. The engine is usually
+narrow, where X draws its compact layout: the crop step and the Publish sheet are whole routes, not
+dialogs, so their parts are found by their own names; the sheet's Publish is pressed only inside a
+sheet found for certain (its dialog, or the caption's container with X's reply select and none of
+X's editor), never the editor's Publish, and waited for; with no such sheet nothing is pressed. X gates the pages on
+`subscriptions_feature_article_composer`, which no claim the capture sees carries, and answers
+them with "Page not found" without it, so access is read from X's page: its pen, or none.
+
 X's settings are read from X's page too, not its traffic: X keeps them in its own store (its
 notification filters for four minutes in the browser's storage), so its router often shows a
 settings page without asking X again. `state/xSettings.ts` reads the open page only, X's words
