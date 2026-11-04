@@ -31,7 +31,7 @@ import {
   xGrokPress,
   xGrokSend,
 } from "../../state/grok";
-import { xOverAtom } from "../../state/x";
+import { xGo, xOverAtom } from "../../state/x";
 import { Menu, MenuItem } from "../ui/menu";
 import { useXPress } from "./useXPress";
 
@@ -103,6 +103,40 @@ function Runs({ runs }: { readonly runs: ReadonlyArray<GrokRun> }) {
   ));
 }
 
+/**
+ * X's own line in place of or under an answer (a usage limit, Stopped), its first line X's heading.
+ * X's link (its upgrade page) opens in X's page, where X shows its price; any other in the browser.
+ */
+function Note({ note }: { readonly note: Extract<GrokBlock, { kind: "note" }> }) {
+  const navigate = useNavigate();
+  const [head, ...rest] = note.text.split("\n");
+  const link = note.link;
+  const onX = link !== null && /^https:\/\/x\.com\//.test(link.href);
+  const button =
+    "mt-2 inline-block cursor-pointer rounded-full bg-foreground px-3 py-1 font-bold text-background";
+  return (
+    <div role="status" className="rounded-2xl border border-white/[0.12] px-4 py-3 text-[13px]">
+      <p className={rest.length > 0 ? "text-[15px] font-bold" : "text-[#71767b]"}>{head}</p>
+      {rest.length > 0 ? (
+        <p className="whitespace-pre-wrap text-[#71767b]">{rest.join("\n")}</p>
+      ) : null}
+      {link === null ? null : onX ? (
+        <button
+          type="button"
+          className={button}
+          onClick={() => void xGo(link.href).then(() => navigate({ to: "/x" }))}
+        >
+          {link.label}
+        </button>
+      ) : (
+        <a href={link.href} target="_blank" rel="noreferrer" className={button}>
+          {link.label}
+        </a>
+      )}
+    </div>
+  );
+}
+
 /** One block of X's answer, drawn as X's markdown draws it. */
 function Block({ block }: { readonly block: GrokBlock }) {
   switch (block.kind) {
@@ -164,21 +198,7 @@ function Block({ block }: { readonly block: GrokBlock }) {
     case "img":
       return <img src={block.src} alt={block.alt} className="max-h-[420px] rounded-xl" />;
     case "note":
-      return (
-        <div role="status" className="rounded-2xl border border-white/[0.12] px-4 py-3 text-[13px]">
-          <p className="whitespace-pre-wrap text-[#71767b]">{block.text}</p>
-          {block.link === null ? null : (
-            <a
-              href={block.link.href}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-2 inline-block rounded-full bg-foreground px-3 py-1 font-bold text-background"
-            >
-              {block.link.label}
-            </a>
-          )}
-        </div>
-      );
+      return <Note note={block} />;
   }
 }
 

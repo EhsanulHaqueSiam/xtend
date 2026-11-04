@@ -351,8 +351,9 @@ function GrokScreen() {
     if (!isGrokPath(`/i/grok/c/${encodeURIComponent(id)}`)) return;
     void navigate({ to: "/grok", search: { c: id } });
   };
-  const answers = (read?.turns ?? []).flatMap((t) => (t.answer === null ? [] : [t.answer]));
-  const named = read?.private === true || answers.length === 0 ? [] : namedHandles(answers.at(-1)!);
+  // Only a finished answer: a handle X is still streaming may be cut short.
+  const last = (read?.turns ?? []).findLast((t) => t.answer?.done === true)?.answer;
+  const named = read?.private === true || last == null ? [] : namedHandles(last);
 
   return (
     <div className="flex h-full min-h-0 bg-black">

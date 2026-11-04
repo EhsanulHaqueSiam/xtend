@@ -26,7 +26,7 @@ const PAGE = `<main><div data-testid="primaryColumn"><div><button aria-haspopup=
 </div></main>`;
 const row = (id: string, title: string) =>
   `<li><div><a href="/i/grok/c/${id}"><span>${title}</span></a><div class="grid"><span>1 hour ago</span><div><button aria-label="Pin">${icon("icon-pin")}</button><button aria-label="Rename">${icon("icon-edit-line")}</button><button aria-label="Delete">${icon("icon-trashcan")}</button></div></div></div></li>`;
-const HISTORY = `<div role="dialog"><input type="search"><div aria-busy="false"><div><ul><li role="presentation"><h2>Today</h2></li>${row("c1", "Two-plan pricing")}${row("c2", "Churn email")}</ul></div></div></div>`;
+let HISTORY = `<div role="dialog"><input type="search"><div aria-busy="false"><div><ul><li role="presentation"><h2>Today</h2></li>${row("c1", "Two-plan pricing")}${row("c2", "Churn email")}</ul></div></div></div>`;
 
 /** What X's own controls received, in order: the text typed into X's field, then each press. */
 const inX: Array<string> = [];
@@ -52,8 +52,19 @@ const drawX = () => {
     if (open === null) document.querySelector("#x")!.insertAdjacentHTML("beforeend", HISTORY);
     else open.remove();
     history.setAttribute("aria-expanded", String(open === null));
+    // X's Delete swaps the row's controls for X's confirm, whose Delete removes the row.
     for (const b of document.querySelectorAll('#x [role="dialog"] [aria-label="Delete"]'))
-      b.addEventListener("click", () => inX.push("delete"));
+      b.addEventListener("click", () => {
+        inX.push("delete");
+        const row = b.closest("li")!;
+        row.querySelector(".grid")!.outerHTML =
+          `<div><button aria-label="Cancel"><svg></svg></button><button aria-label="Delete"><svg></svg></button></div>`;
+        row.querySelectorAll("button")[1]!.addEventListener("click", () => {
+          inX.push("confirm");
+          HISTORY = HISTORY.replace(/<li><div><a href="\/i\/grok\/c\/c2">.*?<\/li>/, "");
+          row.remove();
+        });
+      });
   });
   return { [Symbol.dispose]: () => document.querySelector("#x")?.remove() };
 };
@@ -115,5 +126,7 @@ it("deletes a chat in X only once the user confirms it beside the row, as X asks
   await userEvent.click(rail.getByRole("button", { name: "Delete" }));
   expect(inX).toEqual([]);
   await userEvent.click(rail.getByRole("button", { name: "Delete" }));
-  await expect.poll(() => inX).toEqual(["delete"]);
+  await expect.poll(() => inX).toEqual(["delete", "confirm"]);
+  // X's history, read again, has the row no more.
+  await expect.element(rail.getByRole("button", { name: "Churn email" })).not.toBeInTheDocument();
 });

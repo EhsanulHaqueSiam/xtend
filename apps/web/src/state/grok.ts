@@ -162,7 +162,9 @@ export function readGrok(doc: Document, path: string): GrokRead {
           if (tag === "STRONG" || tag === "B") bold = true;
           if (tag === "EM" || tag === "I") italic = true;
           if (tag === "CODE") code = true;
-          if (tag === "A" && href === null) href = el.getAttribute("href");
+          // Resolved as X's page resolves it: X's own paths become x.com links.
+          if (tag === "A" && href === null && el.hasAttribute("href"))
+            href = (el as HTMLAnchorElement).href;
         }
         const last = out.at(-1);
         if (
@@ -252,7 +254,7 @@ export function readGrok(doc: Document, path: string): GrokRead {
     return {
       kind: "note",
       text: words.length > 0 ? words.join("\n") : text(el),
-      link: link === null ? null : { label: text(link), href: link.getAttribute("href") ?? "" },
+      link: link === null ? null : { label: text(link), href: (link as HTMLAnchorElement).href },
     };
   };
   const answer = (el: Element): GrokAnswer => {

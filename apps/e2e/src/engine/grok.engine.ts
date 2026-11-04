@@ -98,7 +98,9 @@ test("past X's free limit, X's own SuperGrok upsell shows in place of the answer
     await limited.app.getByRole("textbox", { name: "Ask Grok" }).fill("Summarize my week");
     await limited.app.getByRole("button", { name: "Send", exact: true }).click();
     await limited.app.getByText("You have reached your Grok usage limit").waitFor();
-    await limited.app.getByRole("link", { name: "Upgrade to SuperGrok" }).waitFor();
+    // X's upgrade page opens in X's own page, where X shows its price.
+    await limited.app.getByRole("button", { name: "Upgrade to SuperGrok" }).click();
+    await expect.poll(() => limited.engine<string>("location.pathname")).toBe("/i/premium_sign_up");
     expect(limited.mock.state.grok.writes).toEqual(["send t-c-new1-1"]);
   } finally {
     await limited.close();
