@@ -106,7 +106,12 @@ export function useMore(
     scroller.addEventListener("scroll", onScroll, { passive: true });
     return () => scroller.removeEventListener("scroll", onScroll);
   }, [scroller]);
-  return () => ask(true);
+  // Reaching the end asks without a scroll only while the column has nothing to scroll (a short
+  // list filling the screen); past that, only the reader's own scroll asks X for more.
+  return () => {
+    if (scroller !== null && scroller.scrollHeight > scroller.clientHeight + 1) return;
+    ask(true);
+  };
 }
 
 /**
