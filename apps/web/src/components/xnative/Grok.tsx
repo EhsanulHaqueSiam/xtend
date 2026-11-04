@@ -610,7 +610,7 @@ export function GrokConversation({
       {turns.map((turn) => (
         <div key={turn.id} data-x="grok-turn" className="flex flex-col gap-4">
           {turn.user === null ? null : (
-            <p className="max-w-[80%] self-end rounded-3xl bg-[#202327] px-4 py-2.5 text-[15px] whitespace-pre-wrap">
+            <p className="max-w-[80%] self-end rounded-3xl bg-[#202327] px-4 py-2.5 text-[15px] whitespace-pre-wrap [overflow-wrap:anywhere]">
               {turn.user}
             </p>
           )}
