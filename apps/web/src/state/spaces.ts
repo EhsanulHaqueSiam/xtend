@@ -252,7 +252,8 @@ export const xSpacePlay = (spaceId: string, title: string) =>
 
 /**
  * X's dock names no Space, only its title: one that held another Space before the press holds this
- * one once it shows this Space's title. With no title to tell them apart, only a dock drawn anew.
+ * one once X's title element there shows this Space's title. When the two share a title (or have
+ * none), only a change of X's dock after the press says so: drawn anew, or its player at 0:00.
  */
 const pressOnPage = async (
   spaceId: string,
@@ -269,11 +270,21 @@ const pressOnPage = async (
     const button = find();
     if (!button || !(${ON_PEEK(spaceId)}) || !${mine}) return null;
     const title = ${JSON.stringify(title.trim())};
-    const holds = (box) => (title === "" ? true : (box.textContent ?? "").includes(title));
+    // X's title in its dock is an element of its own; a caption that names it is no title.
+    const titled = (box) => [...box.querySelectorAll("*")].find((e) => e.childElementCount === 0 && e.closest('[role="listbox"]') === null && (e.textContent ?? "").trim() === title) ?? null;
+    const played = (box) => [...box.querySelectorAll("*")].map((e) => (e.childElementCount === 0 ? (e.textContent ?? "").trim() : "")).find((t) => /^\\d{1,2}(:\\d{2}){1,2}$/.test(t)) ?? null;
     const before = root(document);
-    const was = before !== null && (title === "" || holds(before.box));
+    const was = before === null ? null : { box: before.box, title: title === "" ? null : titled(before.box), at: played(before.box) };
     button.click();
-    const taken = () => { const now = root(document); return now !== null && !was && holds(now.box) && (title !== "" || before === null); };
+    const taken = () => {
+      const now = root(document);
+      if (now === null) return false;
+      if (was === null) return title === "" || titled(now.box) !== null;
+      // Another title: X's dock shows this one now.
+      if (title !== "" && was.title === null) return titled(now.box) !== null;
+      // The same title, or none: only X's dock drawn anew, or its player starting over, says so.
+      return now.box !== was.box || (title !== "" && titled(now.box) !== was.title) || (was.at !== null && was.at !== "0:00" && played(now.box) === "0:00");
+    };
     for (let i = 0; i < 50 && !taken(); i++) await new Promise((r) => setTimeout(r, 100));
     return taken() ? "joined" : null;
   })()`,
