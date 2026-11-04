@@ -370,22 +370,22 @@ function GrokScreen() {
   // X's grok.com account gate is X's page in transit: the engine goes on to the Grok page it names,
   // once per screen. Should X send it back there, X's gate is X's to answer, over the main area.
   const gated = read?.path.startsWith("/i/jf/grok") ?? false;
-  // The one attempt per screen, and whether it left the engine on X's gate.
+  // The one attempt per screen; once it is over, the engine on X's gate means X holds it there.
   const tried = useRef(false);
-  const [held, setHeld] = useState(false);
+  const [tryEnded, setTryEnded] = useState(false);
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- moves the engine (the session view) on from X's account gate to X's Grok page.
   useEffect(() => {
     if (!gated || tried.current) return;
     tried.current = true;
-    void xGrokPastEntry().then((ended) => setHeld(ended === "held"));
+    void xGrokPastEntry().finally(() => setTryEnded(true));
   }, [gated]);
-  // X's gate, while it holds the engine, is X's to answer: over the main area. X's older Grok
-  // page Xtend draws itself.
+  // X's gate after the one attempt is X's to answer: over the main area. X's older Grok page
+  // Xtend draws itself.
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- shows the engine over the main area while X holds it on its account gate.
   useEffect(() => {
-    setOver(held && gated);
+    setOver(tryEnded && gated);
     return () => setOver(false);
-  }, [held, gated, setOver]);
+  }, [tryEnded, gated, setOver]);
 
   const load = useCallback(
     (query: string, more = false) =>
