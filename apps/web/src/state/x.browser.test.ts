@@ -2353,3 +2353,49 @@ it("waits for X to turn a queue row after Keep, however long X's answer takes", 
     registerXWebview(null);
   }
 });
+
+it("ends a queue press whose read X's page never answers, once X loads anew or the user moves on", async () => {
+  using _clock = fakeTimers();
+  const start = location.pathname + location.search;
+  history.replaceState(null, "", "/i/communities/20/moderation/reported_tweets");
+  document.body.innerHTML = `<div><article><a href="/ann/status/50"><time></time></a></article><button>Keep</button></div>`;
+  // X's page goes away under the press's last read: that read never answers.
+  registerXWebview({
+    loadURL: async () => {},
+    getURL: () => `https://x.com${location.pathname}`,
+    executeJavaScript: (code: string) =>
+      code.includes("return find() === null;")
+        ? new Promise(() => {})
+        : Promise.resolve(new Function(`return ${code}`)()),
+  } as unknown as XWebview);
+  markXReady();
+  const keep = () => {
+    let ended = false;
+    void xPressRow(
+      "/i/communities/20/moderation/reported_tweets",
+      'a[href$="/status/50"] time',
+      "Keep",
+      () => true,
+      () => {},
+    ).then(() => (ended = true));
+    return () => ended;
+  };
+  try {
+    const reloaded = keep();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(reloaded()).toBe(false);
+    // X's page loads anew.
+    markXReady();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(reloaded()).toBe(true);
+    // The user opens another screen while it reads.
+    const left = keep();
+    await vi.advanceTimersByTimeAsync(2000);
+    xOverEnded();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(left()).toBe(true);
+  } finally {
+    history.replaceState(null, "", start);
+    registerXWebview(null);
+  }
+});

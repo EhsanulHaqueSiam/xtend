@@ -1021,11 +1021,16 @@ export const xProfileMenu = async (handle: string) =>
 export const xOverAtom = Atom.make(false);
 
 let overRun = 0;
+/** Ends the latest press's reads in X's page once a newer press (or a screen change) starts. */
+let runEnded = new AbortController();
 /** Starts a new press: the latest one, in Xtend and in X's page alike. */
 const nextRun = async () => {
   const run = ++overRun;
-  await xRun(
+  runEnded.abort();
+  runEnded = new AbortController();
+  await xRunHeld(
     `window.__xtendMenuRead = (window.__xtendMenuRead ?? 0) + 1, window.__xtendPress = ${run}, true`,
+    runEnded.signal,
   );
   return run;
 };
@@ -1480,10 +1485,12 @@ const holdUntilDrawn = async (
   drawn: (href: string) => boolean,
   over: (shown: boolean) => void,
 ) => {
+  // X's page loading anew, or a newer press, ends a read X's page would never answer.
+  const read = (code: string) => xRunHeld(code, runEnded.signal);
   over(true);
   // After the user confirms in X's sheet, X writes first and then leaves the page (Leave
   // moderation team, Delete Community): until it does, or 10 s pass, X is not done.
-  await xRun(`(() => {
+  await read(`(() => {
     window.__xtendConfirmed = null;
     if (!window.__xtendConfirmWatch)
       document.addEventListener("click", (e) => {
@@ -1498,7 +1505,7 @@ const holdUntilDrawn = async (
     away ||= looks > 0;
     await new Promise((r) => setTimeout(r, 500));
     if (run !== overRun) return null;
-    at = await xRun(
+    at = await read(
       `document.querySelector('[role="dialog"], [role="alertdialog"]') || (window.__xtendConfirmed === location.pathname && ${looks} < 20) ? null : location.href`,
     );
   }
@@ -1609,13 +1616,15 @@ const pressControl = async (
 ): Promise<{ readonly at: string; readonly gone: boolean } | false | null> => {
   if (element === null || !ready || !/^\/[\w/]+$/.test(page)) return false;
   const run = await nextRun();
+  const ended = runEnded.signal;
   // On a Community's own page (not its queues, whose rows say whose they are), its control alone.
   const community =
     within === undefined ? /^\/i\/communities\/(\d{1,25})(\/|$)/.exec(page)?.[1] : undefined;
   const find = `(() => (${xControl.toString()})(document, ${JSON.stringify(label)}, ${JSON.stringify(within)}, ${JSON.stringify(community)}))`;
   let tries = 10;
   const press = () =>
-    xRun(`(async () => {
+    xRunHeld(
+      `(async () => {
     const find = ${find};
     // X's page for this very page (this Community's), not one still drawn from the last.
     const here = () => location.pathname.replace(/\\/$/, "").toLowerCase() === ${JSON.stringify(page.toLowerCase())};
@@ -1625,7 +1634,9 @@ const pressControl = async (
     if (${JSON.stringify(checked ?? null)} !== null && control.checked !== ${JSON.stringify(checked ?? null)}) return null;
     control.click();
     return true;
-  })()`).then((done) => {
+  })()`,
+      ended,
+    ).then((done) => {
       tries = 50;
       return done === true ? true : null;
     });
@@ -1640,11 +1651,14 @@ const pressControl = async (
       // A write at the press (Keep, Approve) turns X's row once X answered: wait for it, up to
       // 10 s. Back from X's own flow (Hide, Ban), X has drawn the row as it left it.
       const looks = within === undefined || held.away ? 1 : 50;
-      const gone = await xRun(`(async () => {
+      const gone = await xRunHeld(
+        `(async () => {
         const find = ${find};
         for (let i = 1; i < ${looks} && find(); i++) await new Promise((r) => setTimeout(r, 200));
         return find() === null;
-      })()`);
+      })()`,
+        ended,
+      );
       settled = { at: held.at, gone: gone === true };
     },
     () => run === overRun,
