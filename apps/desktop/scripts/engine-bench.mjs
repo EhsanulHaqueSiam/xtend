@@ -2584,7 +2584,11 @@ const benchmarks = [
       await go("#/home?feed=following");
       if (
         !(await until(
-          async () => (await enginePath()) === "/home" && (await nativeIds()).length >= 1,
+          // X's own posts too: Xtend's list may be kept from before X's page loaded anew.
+          async () =>
+            (await enginePath()) === "/home" &&
+            (await nativeIds()).length >= 1 &&
+            (await engine(`document.querySelectorAll("article").length`)) >= 1,
           20_000,
         ))
       )
