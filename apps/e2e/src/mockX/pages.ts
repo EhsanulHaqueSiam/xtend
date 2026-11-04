@@ -12,6 +12,7 @@ import type {
 } from "@xtend/contracts";
 
 import { chatPage } from "./chat.ts";
+import { settingsPage } from "./settings.ts";
 import {
   type GraphqlRequest,
   INSPIRATION_FILTERS,
@@ -474,6 +475,10 @@ export function route(state: MockState, pathWithQuery: string, homeTab: string):
   const lower = first.toLowerCase();
 
   if (lower === "i" && second === "radar" && fourth === undefined) return radarPage(state, third);
+  // X's settings pages, as X's components draw them (settings.ts).
+  const settings = lower === "settings" ? settingsPage(state.settings, url.pathname) : undefined;
+  if (settings !== undefined)
+    return { title: "Settings / X", requests: [], render: () => settings };
   if (lower === "i" && second === "chat") {
     const page = chatPage(state.chat, url.pathname);
     return { title: page.title, requests: [], render: () => page.html };

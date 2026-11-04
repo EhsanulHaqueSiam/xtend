@@ -346,6 +346,7 @@ export const xSettingsPress = async (
     } else node.click();
     // X's confirm comes up a moment after the click, and a button may open X's own page.
     for (let i = 0; i < 10; i++) {
+      if (!${mine}) return "cancelled";
       if (document.querySelector(${JSON.stringify(ASKS)}) || location.pathname !== ${JSON.stringify(path)}) return "over";
       await new Promise((r) => setTimeout(r, 100));
     }

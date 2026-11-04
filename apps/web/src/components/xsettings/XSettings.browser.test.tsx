@@ -31,7 +31,10 @@ registerXWebview({
   getURL: () => `https://x.com${moves.at(-1) ?? "/home"}`,
   executeJavaScript: (code: string) => {
     const to = /history\.pushState\(null, "", "([^"]+)"\)/.exec(code)?.[1];
-    if (to !== undefined) return Promise.resolve(void moves.push(to) ?? true);
+    if (to !== undefined) {
+      moves.push(to);
+      return Promise.resolve(true);
+    }
     return Promise.resolve(
       new Function(
         `return ${code.replaceAll("location.pathname", JSON.stringify(moves.at(-1) ?? "/home"))}`,

@@ -20,7 +20,7 @@ import { XColumn, XTitle } from "../xnative/XColumn";
 import { isXOnly, searchXSettings, xSection, type XSectionId } from "./catalog";
 
 /** Where an X settings page lives in Xtend: its section's row, and X's path under it. */
-export const xSettingsHref = (section: XSectionId, path: string) =>
+const xSettingsHref = (section: XSectionId, path: string) =>
   `/settings?tab=${section}&x=${encodeURIComponent(path)}`;
 
 /** An x.com path from X's own href (a path, or a full x.com URL); null for a page off X. */
@@ -99,6 +99,8 @@ export function XSettingsScreen({
     xOnly || typing ? () => router.history.back() : () => setOpened(null),
   );
 
+  const setOver = useAtomSet(xOverAtom);
+  const setBar = useAtomSet(xPageBarAtom);
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- reads X's settings page (the session view) while it is open here.
   useEffect(() => {
     if (!isElectron || xOnly) return;
@@ -106,15 +108,25 @@ export function XSettingsScreen({
     watchXSettings(path, stop.signal, (next) =>
       setReads((all) => new Map(all).set(next.path, next)),
     );
-    return () => stop.abort();
-  }, [path, xOnly, setReads]);
+    return () => {
+      stop.abort();
+      // A press on the page being left ends with it, and X's answer to it is no longer shown.
+      xOverEnded();
+      setOver(false);
+      setBar(null);
+    };
+  }, [path, xOnly, setReads, setOver, setBar]);
 
   const [pressing, setPressing] = useState<number | null>(null);
-  const setOver = useAtomSet(xOverAtom);
   const press = (index: number, item: XSettingsItem, value?: string) => {
     if (pressing !== null) return;
     setPressing(index);
-    void xSettingsPress(path, index, item, setOver, value).finally(() => setPressing(null));
+    // X's answer (its confirm, or its own page a button opens) gets Xtend's bar and its Back.
+    const over = (shown: boolean) => {
+      setOver(shown);
+      setBar(shown ? { title, back: () => (xOverEnded(), setOver(false), setBar(null)) } : null);
+    };
+    void xSettingsPress(path, index, item, over, value).finally(() => setPressing(null));
   };
   const open = (href: string, label: string) => {
     const to = xPath(href);

@@ -969,6 +969,25 @@ const SCRIPT = String.raw`
     } else go("/i/radar/" + el.dataset.radarRow, false);
   }, true);
 
+  // X's settings checkboxes save each change at once, as X's page sends it (settings.ts); Protect
+  // your posts stays off until X's confirm sheet's Protect.
+  document.addEventListener("click", (event) => {
+    const box = event.target instanceof HTMLInputElement && event.target.dataset.mockWrite ? event.target : null;
+    if (!box) return;
+    const at = box.dataset.mockWrite.lastIndexOf(":");
+    const [path, field] = [box.dataset.mockWrite.slice(0, at), box.dataset.mockWrite.slice(at + 1)];
+    const save = (on) => {
+      box.checked = on;
+      log("setting:" + field);
+      void post(path, path.includes("/graphql/") ? { variables: { isAllowed: !on } } : { [field]: field === "universal_quality_filtering" ? (on ? "enabled" : "disabled") : on });
+    };
+    if (!box.checked || !box.dataset.mockConfirm) return save(box.checked);
+    event.preventDefault();
+    const ask = JSON.parse(box.dataset.mockConfirm);
+    dialog({ sheet: true, title: ask.title, body: ask.body, buttons: [{ label: ask.yes, testid: "confirmationSheetConfirm" }, { label: "Cancel", testid: "confirmationSheetCancel" }] });
+    document.querySelector('[data-testid="confirmationSheetConfirm"]').addEventListener("click", () => save(true));
+  });
+
   void show();
 })();
 `;

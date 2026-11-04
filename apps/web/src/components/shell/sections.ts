@@ -1,6 +1,6 @@
 import { useLocation } from "@tanstack/react-router";
 
-import { isXOnly, X_SECTIONS } from "../xsettings/catalog";
+import { isXOnly, X_SECTIONS } from "../xsettings/catalog.ts";
 
 /**
  * What each tool is, in one sentence a first visit shows under the header and
