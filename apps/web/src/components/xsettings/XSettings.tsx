@@ -8,6 +8,7 @@ import { isElectron } from "../../env";
 import { fmtWhen } from "../../lib/time";
 import { cn } from "../../lib/utils";
 import { engineAtom } from "../../state/engine";
+import { settingsAtom } from "../../state/settings";
 import { xGo, xOverAtom, xOverEnded } from "../../state/x";
 import {
   watchXSettings,
@@ -24,6 +25,7 @@ import {
 } from "../../state/xSettingsLog";
 import { Section } from "../ui/layout";
 import { Switch } from "../ui/switch";
+import { useXPress } from "../xnative/useXPress";
 import { XColumn, XTitle } from "../xnative/XColumn";
 import { isXOnly, searchXSettings, xSection, type XSectionId } from "./catalog";
 
@@ -55,10 +57,15 @@ function useXPage(path: string | null, title: string, onBack: () => void) {
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- shows X's own page (the session view) over the main area while this row is open on it.
   useEffect(() => {
     if (path === null) return;
-    void xGo(`https://x.com${path}`);
-    setOver(true);
-    setBar({ title, back: onBack });
+    let gone = false;
+    // Shown once X is there: AppShell's own reset for a new screen runs after this effect.
+    void xGo(`https://x.com${path}`).then(() => {
+      if (gone) return;
+      setOver(true);
+      setBar({ title, back: onBack });
+    });
     return () => {
+      gone = true;
       xOverEnded();
       setOver(false);
       setBar(null);
@@ -113,9 +120,11 @@ export function XSettingsScreen({
   const refreshChanges = useAtomRefresh(xSettingsChangesAtom);
   // The control the user last pressed here, so the log files its change as theirs.
   const pressed = useRef<string | null>(null);
+  const reading = isElectron && !xOnly && opened === null;
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- reads X's settings page (the session view) while it is open here.
   useEffect(() => {
-    if (!isElectron || xOnly) return;
+    // Not while one of X's own pages is open from here: the engine is on that page, not this one.
+    if (!reading) return;
     const stop = new AbortController();
     watchXSettings(path, stop.signal, (next) => {
       setReads((all) => new Map(all).set(next.path, next));
@@ -139,11 +148,16 @@ export function XSettingsScreen({
       setOver(false);
       setBar(null);
     };
-  }, [path, xOnly, setReads, setOver, setBar, seen, refreshChanges]);
+  }, [path, reading, setReads, setOver, setBar, seen, refreshChanges]);
 
   const [pressing, setPressing] = useState<number | null>(null);
+  const { blocked, setToast } = useXPress();
+  // Loaded with the screen, so a press finds whether session actions are on.
+  useAtomValue(settingsAtom);
   const press = (index: number, item: XSettingsItem, value?: string) => {
     if (pressing !== null) return;
+    const why = blocked();
+    if (why !== null) return setToast({ text: why });
     setPressing(index);
     if (item.kind === "check" || item.kind === "radio" || item.kind === "select")
       pressed.current = settingKey(path, item.kind === "radio" ? item.group : item.label);
