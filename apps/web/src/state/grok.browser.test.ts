@@ -485,3 +485,32 @@ it("ends an Explain when the user presses something else in X before it goes to 
   expect(await xGrokExplain({ postId: "17", handle: "ann" }, signal)).toBe("cancelled");
   expect(inX).toEqual([]);
 });
+
+it("ends an Explain closed while X's page answers whether it is still the user's, before any move", async () => {
+  using _x = drawX(`<main><article><a href="/bo/status/9"><time>1h</time></a></article></main>`);
+  const inX: Array<string> = [];
+  const left = new AbortController();
+  registerXWebview({
+    loadURL: async () => {},
+    getURL: () => "https://x.com/home",
+    executeJavaScript: (code: string) => {
+      const to = /history\.pushState\(null, "", "([^"]+)"\)/.exec(code)?.[1];
+      if (to !== undefined) {
+        inX.push(`go ${to}`);
+        return Promise.resolve(true);
+      }
+      // The ownership check: still the user's, but they close the drawer before the answer lands.
+      if (code.startsWith("(window.__xtendGrokExplain ===")) {
+        const answer = new Function(`return ${code}`)();
+        left.abort();
+        return Promise.resolve(answer);
+      }
+      return Promise.resolve(
+        new Function(`return ${code.replaceAll("location.pathname", '"/home"')}`)(),
+      );
+    },
+  } as unknown as XWebview);
+  markXReady();
+  expect(await xGrokExplain({ postId: "17", handle: "ann" }, left.signal)).toBe("cancelled");
+  expect(inX).toEqual([]);
+});

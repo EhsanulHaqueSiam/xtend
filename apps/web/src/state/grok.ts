@@ -1099,7 +1099,12 @@ export const xGrokExplain = async (
     return (await wait(() => onGrok() || !!document.querySelector('[data-testid="GrokDrawer"] fieldset[data-grok-composer]'), 30)) ? "done" : null;
   })()`);
   // Still this Explain, and still the user's latest press: checked before every move.
-  const owned = async () => !signal.aborted && (await xRun(mine)) === true;
+  // Checked again once X's page answers: the user may close or leave while it does.
+  const owned = async () => {
+    if (signal.aborted) return false;
+    const ours = (await xRun(mine)) === true;
+    return ours && !signal.aborted;
+  };
   let answer = await press(10);
   if (answer !== "done") {
     if (!(await owned())) return "cancelled";
