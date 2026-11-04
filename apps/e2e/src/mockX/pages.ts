@@ -364,9 +364,14 @@ const gameSides = (g: EngineGame) =>
 /** X's tabs on a game's page, switched in place on its one URL. */
 const GAME_TABS = ["Top", "Latest", "Highlights", "Stats", "Plays", "Chat"] as const;
 
-/** A full-page dialog X opens as its own route (Report, Send via Chat, the composer). */
-const routeDialog = (title: string, body: string) =>
-  `<div role="dialog" aria-modal="true" aria-labelledby="dialog-title" class="dialog route"><div class="bar"><button data-testid="app-bar-close" aria-label="Close">✕</button><h2 id="dialog-title">${esc(title)}</h2></div>${body}</div>`;
+/**
+ * A full-page dialog X opens as its own route (Report, Send via Chat, the composer). In X's
+ * compact layout (`compact`) the route is a page: its title in the app bar beside Back.
+ */
+const routeDialog = (title: string, body: string, compact = false) =>
+  compact
+    ? `${header(title)}<div class="route">${body}</div>`
+    : `<div role="dialog" aria-modal="true" aria-labelledby="dialog-title" class="dialog route"><div class="bar"><button data-testid="app-bar-close" aria-label="Close">✕</button><h2 id="dialog-title">${esc(title)}</h2></div>${body}</div>`;
 
 /**
  * X's Radar pages (ondemand.Insights): without Premium, X's upsell and no call, as on x.com. With
@@ -1003,6 +1008,130 @@ export function route(
         }`,
     };
   }
+  // X's Create a new Community (bundle.Communities), on its own route: name, purpose, then
+  // Membership, and the approval question for a Restricted one. Create opens the new Community.
+  if (lower === "i" && second === "communities" && third === "create" && fourth === undefined)
+    return {
+      title: "Create a new Community / X",
+      requests: [],
+      render: () =>
+        routeDialog(
+          "Create a new Community",
+          `<div data-x-form><div class="muted">Tell us a little about your Community. You can always change these details later.</div><input aria-label="Community name" name="name" maxlength="30"><textarea aria-label="Community purpose" name="description" maxlength="160"></textarea><h3>Membership</h3><label><input type="radio" name="joinPolicy" value="Open" checked> Open</label><div class="muted">Anyone can join and/or be invited to the Community.</div><label><input type="radio" name="joinPolicy" value="Restricted"> Restricted</label><div class="muted">People must ask to join, and the mod team must approve those requests. People invited by the mod team are automatically approved.</div><h3>Approval question (optional)</h3><input aria-label="Approval question (optional)" name="question"><button data-x-save="CreateCommunity">Create</button></div>`,
+          state.compact,
+        ),
+    };
+  // X's Premium upsell, where X's create button goes for an account X has not verified.
+  if (lower === "i" && second === "verified-get-verified")
+    return {
+      title: "Premium / X",
+      requests: [],
+      render: () =>
+        `${header("Premium")}<div class="empty"><h3>Get verified</h3><div>Subscribe to Premium to create a Community.</div><a href="/i/premium_sign_up">Subscribe</a></div>`,
+    };
+  // X's Admin tools (bundle.Communities), for a Community's admins and moderators only; X sends
+  // anyone else Home, and General settings is its admins' alone. Each tool is its own page.
+  if (
+    lower === "i" &&
+    second === "communities" &&
+    third !== undefined &&
+    (fourth === "tools" || fourth === "moderation")
+  ) {
+    const id = third;
+    const c = state.community(id);
+    const admin = state.communityAdmin(id);
+    const rest = parts.slice(4).join("/");
+    const base = `/i/communities/${id}`;
+    if (
+      c === undefined ||
+      admin === undefined ||
+      (rest.startsWith("settings") && c.role !== "Admin")
+    )
+      return { title: "Home / X", requests: [], redirect: "/home", render: () => "" };
+    const fetchOne = r("CommunitiesFetchOneQuery", { communityId: id });
+    const link = (label: string, href: string, description = "") =>
+      `<a href="${esc(href)}" role="link"><span>${esc(label)}</span>${description === "" ? "" : `<span class="muted"> ${esc(description)}</span>`}</a>`;
+    if (fourth === "tools" && rest === "")
+      return {
+        title: "Admin tools / X",
+        requests: [fetchOne, r("CommunityToolsScreenContainerQuery", { communityId: id })],
+        render: () =>
+          `${header(c.role === "Admin" ? "Admin tools" : "Moderator tools")}<h3>Review needed</h3>${link("Reported posts", `${base}/moderation/reported_tweets`)}${admin.requests === null ? "" : link("Member requests", `${base}/moderation/member_requests`)}${link("Moderation log", `${base}/moderation/moderation_log`)}<h3>Community management</h3>${c.role === "Admin" ? link("General settings", `${base}/tools/settings`, "Edit Community name, purpose, and more") : ""}${link("Members", `${base}/tools/members`)}${link("Rules", `${base}/tools/rules`)}${
+            c.role === "Moderator"
+              ? `<div role="button" tabindex="0" data-x-confirm="leave"><span>Leave moderation team</span></div>`
+              : ""
+          }`,
+      };
+    const settings = `${base}/tools/settings`;
+    if (rest === "settings")
+      return {
+        title: "Settings / X",
+        requests: [fetchOne],
+        render: () =>
+          `${header("Settings")}<h3>Community information</h3>${link("Name", `${settings}/name`, c.name)}${link("Purpose", `${settings}/purpose`, c.description ?? "")}${link("Approval question", `${settings}/question`, admin.question ?? "")}${link("Topic", `${settings}/topic`, c.topic ?? "")}${link("Search tags", `${settings}/searchtags`, (admin.searchTags ?? []).join(", "))}${link("Pinned hashtags", `${settings}/hashtags`)}<h3>Membership</h3>${link("Membership type", `${settings}/membership`, c.joinPolicy === "Open" ? "Open" : "Restricted")}<label><span>Adult Content (NSFW)</span><input type="checkbox" name="adultContentSetting" data-x-check="SettingsUpdateAdultContentMutation"${admin.nsfw === true ? " checked" : ""}></label><div class="muted">You must enable this setting if your community contains adult-sensitive content.</div>${
+            admin.deletable === true
+              ? `<div role="button" tabindex="0" data-x-confirm="delete"><span>Delete Community</span></div>`
+              : ""
+          }`,
+      };
+    // X's edit for each setting; Save sends X's call and goes back to Settings.
+    const edits: Readonly<Record<string, readonly [string, string, string, string]>> = {
+      "settings/name": ["Edit name", "CommunityEditName", "name", c.name],
+      "settings/purpose": [
+        "Edit purpose",
+        "CommunityEditPurpose",
+        "description",
+        c.description ?? "",
+      ],
+      "settings/question": [
+        "Approval question",
+        "CommunityEditQuestion",
+        "question",
+        admin.question ?? "",
+      ],
+    };
+    const editing = edits[rest];
+    if (editing !== undefined) {
+      const [title, op, field, value] = editing;
+      return {
+        title: `${title} / X`,
+        requests: [fetchOne],
+        render: () =>
+          `<div data-x-form>${header(title)}<input aria-label="${esc(title)}" name="${field}" value="${esc(value)}"><button data-x-save="${op}">Save</button></div>`,
+      };
+    }
+    // The tools Xtend leaves on X's own page: here, each its title and X's back.
+    const titles: Readonly<Record<string, string>> = {
+      "settings/topic": "Edit topic",
+      "settings/searchtags": "Edit search tags",
+      "settings/hashtags": "Pinned hashtags",
+      "settings/membership": "Membership",
+      spam_settings: "Spam settings",
+      members: "Members",
+      moderators: "Members",
+      rules: "Rules",
+      analytics: "Community Analytics",
+      lists: "Community list",
+      reported_tweets: "Reported posts",
+      member_requests: "Member requests",
+      moderation_log: "Moderation log",
+    };
+    const title = titles[rest];
+    if (title !== undefined)
+      return {
+        title: `${title} / X`,
+        requests: [fetchOne],
+        render: () => `${header(title)}<div class="empty"><h3>${esc(title)}</h3></div>`,
+      };
+  }
+  // X's Invite members, a checklist step: X's own page.
+  if (lower === "i" && second === "communities" && third !== undefined && fourth === "invite")
+    return {
+      title: "Invite members / X",
+      requests: [],
+      render: () =>
+        `${header("Invite members")}<input aria-label="Search for people to invite" placeholder="Search for people to invite">`,
+    };
   if (lower === "i" && second === "communities" && third !== undefined && fourth === "search") {
     const id = third;
     const query = q.get("q") ?? "";
@@ -1084,14 +1213,44 @@ export function route(
         const pin = state.communityPinned(id)
           ? "Unpin Community from Home screen"
           : "Pin Community";
-        return `<div class="bar"><button data-testid="app-bar-back" aria-label="Back">←</button><h2 role="heading">${esc(c.name)}</h2><a href="/i/communities/${id}/search" aria-label="Search Community">⌕</a><button aria-label="More">…</button></div><div data-testid="communityHeader"><img alt="" src="${esc(c.bannerUrl ?? "")}" class="banner-img"><h2>${esc(c.name)}</h2><a href="/i/communities/${c.communityId}/members"><b>${compact(c.members)}</b> Members</a><button aria-label="${pin}" data-community-pin="${id}">📌</button><button aria-label="Share Community">⤴</button>${joinButton(c, state.communityRequested(id))}</div>${tabs(
+        // X's gear to Admin tools for its admins and moderators, where others get "More".
+        const more =
+          c.role === "Admin" || c.role === "Moderator"
+            ? `<a href="/i/communities/${id}/tools" aria-label="${c.role === "Admin" ? "Admin tools" : "Moderator tools"}">⚙</a>`
+            : `<button aria-label="More">…</button>`;
+        // X's checklist for a Community the user made here, atop its posts on its own page only.
+        const done = state.checklist(id);
+        const steps = [
+          ["setup_clicked_rules", "Review your rules", `/i/communities/${id}/tools/rules`],
+          [
+            "setup_clicked_personalization",
+            "Personalize your Community",
+            `/i/communities/${id}/tools/settings`,
+          ],
+          ["setup_clicked_invite", "Invite members", `/i/communities/${id}/invite`],
+          ["setup_clicked_tweet", "Post your Community", "/compose/post"],
+        ] as const;
+        const checklist =
+          done === null || tab.path !== ""
+            ? ""
+            : `<div data-testid="communityChecklist"><h3>Community checklist</h3><button aria-label="Dismiss Checklist" data-x-step="dismiss">✕</button><div class="muted">Just a few things to get your Community in good shape for its debut ...</div><div role="list">${steps
+                .map(
+                  ([flag, title, to]) =>
+                    `<div role="listitem" data-x-step="${flag}:${to}"><b>${esc(title)}</b><svg aria-label="${done.has(flag) ? "Completed" : "Uncompleted"}" viewBox="0 0 1 1"></svg></div>`,
+                )
+                .join("")}</div></div>`;
+        // X's summary over a Community it just made.
+        const summary = q.has("show_creation_summary")
+          ? `<div ${state.compact ? 'class="route"' : 'role="dialog" aria-modal="true" class="dialog"'} data-x-summary><h2>About your new Community</h2><p>We start you out with some basic settings, but your Community is completely customizable. We’ll get into that next.</p><h3>Your Community is ${c.joinPolicy === "Open" ? "Open" : "Restricted"}</h3><h3>Your starter Community rules are</h3><ul>${(c.rules ?? []).map((rule) => `<li>${esc(rule.name)}</li>`).join("")}</ul><h3>Settings can be changed in Admin Tools</h3><p>Not feeling your settings? No problem. It’s easy enough to change.</p><button data-x-got-it>Got it</button></div>`
+          : "";
+        return `${summary}<div class="bar"><button data-testid="app-bar-back" aria-label="Back">←</button><h2 role="heading">${esc(c.name)}</h2><a href="/i/communities/${id}/search" aria-label="Search Community">⌕</a>${more}</div><div data-testid="communityHeader"><img alt="" src="${esc(c.bannerUrl ?? "")}" class="banner-img"><h2>${esc(c.name)}</h2><a href="/i/communities/${c.communityId}/members"><b>${compact(c.members)}</b> Members</a><button aria-label="${pin}" data-community-pin="${id}">📌</button><button aria-label="Share Community">⤴</button>${joinButton(c, state.communityRequested(id))}</div>${tabs(
           "Community",
           COMMUNITY_TABS.map((t) => ({
             label: t.label,
             href: `/i/communities/${id}${t.path}`,
             on: t === tab,
           })),
-        )}<section data-list>${
+        )}${checklist}<section data-list>${
           tab.label === "About"
             ? about
             : // X gives a Community's moderators their own rows on its posts' "...".
@@ -1124,6 +1283,7 @@ export function route(
                 `<div role="button" tabindex="0" data-hide-rule="${esc(rule)}">${esc(rule)}</div>`,
             )
             .join("")}`,
+          state.compact,
         ),
     };
   }
@@ -1450,17 +1610,22 @@ export function route(
         requests: [
           explore ? r("TopicCarouselQuery", {}) : r("CarouselQuery", {}),
           r(feed, { count: 20, withCommunity: true }),
+          r("CommunitiesCreateButtonQuery", {}),
           // X fetches a card for each Community its posts are from.
           ...state
             .hubCommunities(feed)
             .map((communityId) => r("CommunitiesFetchOneQuery", { communityId })),
         ],
         paged: 1,
+        // X's create button in its top bar: its form, or for an unverified account its upsell.
         render: ([carousel, b]) =>
-          `${header("Communities")}${tabs("Communities", [
-            { label: "Home", href: `/${first}/communities`, on: !explore },
-            { label: "Explore", href: `/${first}/communities/explore`, on: explore },
-          ])}${
+          `<div class="bar"><button data-testid="app-bar-back" aria-label="Back">←</button><h2 role="heading">Communities</h2><a href="/i/communities/suggested" aria-label="Search Communities">⌕</a><a href="${state.premium ? "/i/communities/create" : "/i/verified-get-verified"}" role="link"><svg aria-label="Create a new Community" viewBox="0 0 1 1"></svg></a></div>${tabs(
+            "Communities",
+            [
+              { label: "Home", href: `/${first}/communities`, on: !explore },
+              { label: "Explore", href: `/${first}/communities/explore`, on: explore },
+            ],
+          )}${
             explore
               ? "<h3>Discover new Communities</h3>"
               : `<h3>My Communities</h3><div data-testid="communitiesCarousel">${(
