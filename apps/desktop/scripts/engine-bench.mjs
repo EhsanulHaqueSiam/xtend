@@ -839,6 +839,15 @@ const benchmarks = [
         ),
       );
       if (!ids) return "no post with a Space on X's search now";
+      // Nothing here scrolls: X's search must not page on by itself (it did, hundreds of calls).
+      const listed = () => store(`at($.lists, ${JSON.stringify(`search:Latest:${q}`)}).length`);
+      const start = await listed();
+      const paged = async () => {
+        const grew = (await listed()) - start;
+        if (grew <= 40) return false;
+        console.error(`Spaces: X's search paged ${grew} more posts with no scroll; stop and look.`);
+        return true;
+      };
       const seen = [];
       for (const id of ids) {
         await app(
@@ -874,14 +883,14 @@ const benchmarks = [
         await app(
           `document.querySelector('[data-x="space-dock"] button[aria-label="Close"]')?.click(), true`,
         );
-        if (joined) return false;
+        if (joined || (await paged())) return false;
         if (xs === "space" && ours?.title)
           return `${id} (${state}): X's page shows "${ours.title}" and ${want}${seen.length ? `; before it ${seen.join(", ")}` : ""}`;
         // X's error on its page and Xtend's dock agreeing passes; the next card may be a live one.
         if (xs === "error" && ours?.error) seen.push(`${id}: X's error, and Xtend's dock says it`);
         else return false;
       }
-      return seen.join("; ");
+      return !(await paged()) && seen.join("; ");
     },
   ],
   [

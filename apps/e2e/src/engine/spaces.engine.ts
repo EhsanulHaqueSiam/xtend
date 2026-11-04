@@ -234,3 +234,40 @@ test("A Space X has none of shows X's own error in the dock, and Xtend asks X fo
   expect(asked()).toBe(once);
   await dock().getByRole("button", { name: "Close" }).click();
 });
+
+test("A search full of Space cards loads X's next page only for the reader's scroll: opening Spaces, X's pages for them and Back load none", async () => {
+  const pages = () =>
+    e.mock.reads.filter(
+      (r) => r.op === "SearchTimeline" && r.variables.rawQuery === "filter:spaces",
+    ).length;
+  await go(`/search?q=${encodeURIComponent("filter:spaces")}&f=latest`);
+  const cards = e.app.locator('main [data-x="space-card"]');
+  await expect.poll(() => cards.count()).toBeGreaterThan(1);
+  const first = pages();
+  // The bench's steps: a card, its dock, X's own page for the Space and Back, a second card.
+  for (const id of [LIVE_SPACE, GONE_SPACE]) {
+    await e.app.locator(`main [data-x="space-card"][data-space-id="${id}"]`).first().click();
+    await dock().waitFor();
+    await e.engine(
+      `(history.pushState(null, "", "/i/spaces/${id}/peek"), dispatchEvent(new PopStateEvent("popstate", { state: null })), true)`,
+    );
+    await expect.poll(enginePath).toBe(`/i/spaces/${id}/peek`);
+    await e.engine("history.back(), true");
+    await expect.poll(enginePath).toContain("/search");
+  }
+  // X's Space cards keep polling, resizing as their Spaces load or fail. Once the steps are done,
+  // X loads no page Xtend's list did not ask for, however long that goes on; and a handful at most.
+  // (X may fetch once more to fill its own screen as its cards shrink, then it stops.)
+  const polls = () => e.mock.reads.filter((r) => r.op === "AudioSpaceById").length;
+  const ours = () => e.engine<number>("window.__xtendScroll ?? 0");
+  const rounds = async (n: number) => {
+    const at = polls();
+    await expect.poll(polls, { timeout: 20_000 }).toBeGreaterThan(at + n);
+  };
+  await rounds(8);
+  const settled = { pages: pages(), asks: await ours() };
+  await rounds(12);
+  expect([pages(), await ours()]).toEqual([settled.pages, settled.asks]);
+  expect(pages() - first).toBeLessThanOrEqual(4);
+  await dock().getByRole("button", { name: "Close" }).click();
+});

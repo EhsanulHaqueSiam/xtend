@@ -218,6 +218,8 @@ export const watchSpaceDock = (signal: AbortSignal, onRead: (read: SpaceDockRead
 /** What X's own page for a Space says when X has no Space to show (ended, removed, an error). */
 export const SPACE_ERROR = "Something went wrong. Please try again later.";
 const readOnce = new Set<string>();
+/** The user opened the Space again (its card): X may be asked for it anew. */
+export const forgetSpaceRead = (spaceId: string) => void readOnce.delete(spaceId);
 
 // A Space id goes into scripts run in X's page.
 const validSpace = (id: string) => /^[A-Za-z0-9]{8,20}$/.test(id);
@@ -232,7 +234,8 @@ export const xSpaceRead = async (spaceId: string) => {
   // Once per Space: the dock mounts with every X screen, and X's answer (or its error) stays.
   if (!validSpace(spaceId) || readOnce.has(spaceId)) return;
   readOnce.add(spaceId);
-  if (!(await xGo(peekUrl(spaceId)))) return;
+  // A move that did not happen asked X nothing: the next mount may ask.
+  if (!(await xGo(peekUrl(spaceId)))) return void readOnce.delete(spaceId);
   await xRun(`(async () => {
     for (let i = 0; i < 40 && ${ON_PEEK(spaceId)} && !document.querySelector('[aria-label="Start listening"], [aria-label="Play recording"], [aria-label="Set reminder"]') && !document.body.innerText.includes(${JSON.stringify(SPACE_ERROR)}); i++)
       await new Promise((r) => setTimeout(r, 150));
