@@ -21,6 +21,9 @@ import type {
   EngineRadarCount,
   EngineRadarQuery,
   EngineSpace,
+  EngineSpaceCaption,
+  EngineSpaceRow,
+  EngineSpaceStats,
   EngineStory,
   EngineTrend,
   EngineUser,
@@ -469,6 +472,11 @@ export interface EngineState {
   readonly bookmarkFolders: ReadonlyArray<EngineBookmarkFolder> | null;
   /** X's Spaces by id, as X last described each (AudioSpaceById). */
   readonly spaces: ReadonlyMap<string, EngineSpace>;
+  /** Each Space recording's captions X fetched so far, in time order (see `mergeCaptions`). */
+  readonly spaceCaptions: ReadonlyMap<string, ReadonlyArray<EngineSpaceCaption>>;
+  /** X's Space analytics: the user's Spaces once X listed them, and each Space's numbers. */
+  readonly spaceList: ReadonlyArray<EngineSpaceRow> | null;
+  readonly spaceStats: ReadonlyMap<string, EngineSpaceStats>;
 }
 
 /** X's claim for its account analytics (GetUserClaims), Premium. */
@@ -592,6 +600,9 @@ export const emptyEngine: EngineState = {
   claims: null,
   bookmarkFolders: null,
   spaces: new Map(),
+  spaceCaptions: new Map(),
+  spaceList: null,
+  spaceStats: new Map(),
 };
 
 /** A surface's entries; a tab X has not sent yet has none. */
@@ -778,6 +789,22 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
       batch.spaces === undefined || batch.spaces.length === 0
         ? state.spaces
         : new Map([...state.spaces, ...batch.spaces.map((sp) => [sp.spaceId, sp] as const)]),
+    spaceCaptions:
+      batch.spaceCaptions === undefined || batch.key === null
+        ? state.spaceCaptions
+        : new Map(state.spaceCaptions).set(
+            batch.key,
+            mergeCaptions(state.spaceCaptions.get(batch.key) ?? [], batch.spaceCaptions),
+          ),
+    spaceList:
+      batch.spaceAnalytics?.kind === "list" ? batch.spaceAnalytics.spaces : state.spaceList,
+    spaceStats:
+      batch.spaceAnalytics?.kind === "space"
+        ? new Map(state.spaceStats).set(
+            batch.spaceAnalytics.space.spaceId,
+            batch.spaceAnalytics.space,
+          )
+        : state.spaceStats,
   };
   const listed = surfacesOf(batch).reduce(
     (state, surface) =>
@@ -799,6 +826,19 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
   // The response also carries the post it quotes, which stays where it was.
   const created = batch.posts.filter((p) => !batch.posts.some((q) => q.quotedId === p.postId));
   return created.reduce(placeCreated, listed);
+}
+
+/**
+ * A recording's captions with a page X fetched: X pages them by playback time, around wherever the
+ * user plays or seeks, so pages overlap and come in any order. One line per speaker and moment.
+ */
+function mergeCaptions(
+  known: ReadonlyArray<EngineSpaceCaption>,
+  page: ReadonlyArray<EngineSpaceCaption>,
+): ReadonlyArray<EngineSpaceCaption> {
+  const lines = new Map(known.map((c) => [`${c.at} ${c.periscopeId}`, c] as const));
+  for (const c of page) lines.set(`${c.at} ${c.periscopeId}`, c);
+  return [...lines.values()].toSorted((a, b) => a.at.localeCompare(b.at));
 }
 
 /** What the user asked X for, per List, less what X's answer (`said`) now agrees with. */

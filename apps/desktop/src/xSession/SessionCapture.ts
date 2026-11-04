@@ -17,9 +17,11 @@ import {
   hasEngineContent,
   isKnownFollowersUrl,
   isProfileSaveUrl,
+  isSpaceCaptionsUrl,
   renderEngineBatch,
   renderKnownFollowers,
   renderProfileSave,
+  renderSpaceCaptions,
   requestVariables,
 } from "./engineBatch.ts";
 
@@ -81,11 +83,13 @@ export function attachSessionCapture(
       const response = isRecord(params.response) ? params.response : undefined;
       const url = typeof response?.url === "string" ? response.url : "";
       const mime = typeof response?.mimeType === "string" ? response.mimeType : "";
-      // GraphQL, and X's REST answers the screens use: its count of followers you know, and the
-      // user's profile as X's own Edit profile saved it.
+      // GraphQL, and X's REST answers the screens use: its count of followers you know, the
+      // user's profile as X's own Edit profile saved it, and a Space recording's chat (captions,
+      // JSON lines under whatever type X sends).
       if (
-        !(isGraphqlUrl(url) || isKnownFollowersUrl(url) || isProfileSaveUrl(url)) ||
-        !mime.includes("json")
+        !isSpaceCaptionsUrl(url) &&
+        (!(isGraphqlUrl(url) || isKnownFollowersUrl(url) || isProfileSaveUrl(url)) ||
+          !mime.includes("json"))
       )
         return;
       pending.set(params.requestId, url);
@@ -115,9 +119,15 @@ export function attachSessionCapture(
         body: string;
         base64Encoded: boolean;
       };
-      body = JSON.parse(
-        result.base64Encoded ? Buffer.from(result.body, "base64").toString("utf8") : result.body,
-      );
+      const text = result.base64Encoded
+        ? Buffer.from(result.body, "base64").toString("utf8")
+        : result.body;
+      if (isSpaceCaptionsUrl(url)) {
+        const batch = renderSpaceCaptions(url, text);
+        if (batch !== null) options.onRender?.(batch);
+        return;
+      }
+      body = JSON.parse(text);
     } catch (error) {
       // Bodies for aborted or evicted requests are gone; nothing to record.
       options.log("response body unavailable", { url, error: String(error) });

@@ -4,6 +4,7 @@ import { expect, it } from "vite-plus/test";
 import {
   renderEngineBatch,
   renderKnownFollowers,
+  renderSpaceCaptions,
 } from "../../../desktop/src/xSession/engineBatch.ts";
 import { route } from "./pages.ts";
 import { createMockState } from "./state.ts";
@@ -55,6 +56,9 @@ const PAGES: ReadonlyArray<readonly [path: string, tab?: string]> = [
   ["/i/nba/players"],
   ["/sam_sato/status/700000000034"],
   ["/i/spaces/900000700001/peek"],
+  ["/i/spaces/900000700003/peek"],
+  ["/i/account_analytics/spaces"],
+  ["/i/account_analytics/spaces/900000700003"],
 ];
 
 it("answers every request X's pages make with the batch the made-up fixtures hold, as the capture reads it", () => {
@@ -71,7 +75,10 @@ it("answers every request X's pages make with the batch the made-up fixtures hol
         renderEngineBatch(op, variables, JSON.parse(JSON.stringify(state.respond(op, variables)))),
       );
 
-  const fixtures = Object.values(state.fixtures()).flatMap((f) => f.batches);
+  // A recording's captions come from X's recording chat, JSON lines no GraphQL call answers.
+  const fixtures = Object.values(state.fixtures())
+    .flatMap((f) => f.batches)
+    .filter((b) => b.op !== "LiveChatReplay");
   for (const want of fixtures) {
     const got = read.find((b) => b.op === want.op && b.key === want.key);
     expect(got, `${want.op} ${want.key}`).toBeDefined();
@@ -129,6 +136,15 @@ it("answers every request X's pages make with the batch the made-up fixtures hol
       ?.knownFollowers;
   };
   expect([known("sam_sato"), known("noor_lind")]).toEqual([5, 0]);
+
+  // X's recording chat for a Space reads back as the captions the fixture holds.
+  const chat = state.fixture("LiveChatReplay", "900000700003")!;
+  expect(
+    renderSpaceCaptions(
+      "https://x.com/live-chat?broadcastId=900000700003&sessionId=s1&replay=1&cursor=0",
+      state.spaces.replayChat("900000700003"),
+    )?.spaceCaptions,
+  ).toEqual(chat.spaceCaptions);
 });
 
 it("answers X's GIF search page by page, read back as the batch mock X draws its tiles from", () => {

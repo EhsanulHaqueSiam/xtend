@@ -145,6 +145,7 @@ export function XColumn({
   header,
   float,
   rail,
+  docked = true,
   refresh,
   children,
 }: {
@@ -162,11 +163,14 @@ export function XColumn({
   /** Floats just under the header while the column scrolls, as X's "Show N posts" does. */
   readonly float?: ReactNode;
   readonly rail?: ReactNode;
+  /** False where the screen is the Space itself, which the dock would only repeat. */
+  readonly docked?: boolean;
   readonly children: ReactNode;
 }) {
   const [scroller, setScroller] = useState<HTMLElement | null>(null);
   const setEngine = useAtomSet(engineAtom);
-  const space = useAtomValue(spaceDockAtom);
+  const dock = useAtomValue(spaceDockAtom);
+  const space = docked ? dock : null;
   const latest = useRef(refresh);
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- keeps the latest refresh callback for the screen-refresh registration below, without re-registering.
   useEffect(() => {

@@ -1081,7 +1081,7 @@ export const encodeFolder = (f: EngineBookmarkFolder): Json => ({
 function encodeSpace(sp: EngineSpace): Json {
   const ms = (iso: string | null) => (iso === null ? undefined : Date.parse(iso));
   const person = (p: EngineSpacePerson) => ({
-    periscope_user_id: `p${p.handle}`,
+    periscope_user_id: p.periscopeId ?? `p${p.handle}`,
     start: ms(sp.startedAt),
     twitter_screen_name: p.handle,
     display_name: p.name,
@@ -1168,6 +1168,79 @@ export function encodeBody(
     case "AudioSpaceById": {
       const space = batch.spaces?.[0];
       return space === undefined ? { data: {} } : encodeSpace(space);
+    }
+    // X's Space analytics (bundle.AccountAnalytics), in its Relay shapes.
+    case "spacesOverviewProviderQuery": {
+      const a = batch.spaceAnalytics;
+      const ms = (iso: string | null) => (iso === null ? null : Date.parse(iso));
+      return a?.kind !== "list"
+        ? { data: {} }
+        : {
+            data: {
+              viewer_v2: {
+                user_results: {
+                  result: {
+                    __typename: "User",
+                    created_spaces_slice: {
+                      slice_info: {},
+                      items: a.spaces.map((sp) => ({
+                        rest_id: sp.spaceId,
+                        state: sp.state === "Scheduled" ? "NotStarted" : sp.state,
+                        metadata: {
+                          title: sp.title,
+                          start: ms(sp.startedAt),
+                          ended_at: ms(sp.endedAt),
+                          scheduled_start: ms(sp.scheduledStart),
+                          total_live_listeners: sp.listening,
+                          total_replay_watched: sp.replays,
+                          is_space_available_for_replay: sp.recorded,
+                        },
+                        participants: {
+                          speakers: Array.from({ length: sp.speakers }, () => ({
+                            __typename: "ParticipantUser",
+                          })),
+                        },
+                      })),
+                    },
+                  },
+                },
+              },
+            },
+          };
+    }
+    case "spacesDetailsProviderQuery": {
+      const a = batch.spaceAnalytics;
+      if (a?.kind !== "space") return { data: {} };
+      const sp = a.space;
+      return {
+        data: {
+          audio_space_by_rest_id: {
+            rest_id: sp.spaceId,
+            state: sp.state,
+            metadata: {
+              title: sp.title,
+              start: sp.startedAt === null ? null : Date.parse(sp.startedAt),
+              ended_at: sp.endedAt === null ? null : Date.parse(sp.endedAt),
+              is_space_available_for_replay: sp.recorded,
+              total_participated: sp.participants,
+              total_replay_watched: sp.replays,
+              view_count_graph: sp.concurrent,
+            },
+            participants: {
+              speakers: sp.speakers.map((p) => ({
+                twitter_screen_name: p.handle,
+                user_results: {
+                  result: {
+                    __typename: "User",
+                    core: { screen_name: p.handle, name: p.name },
+                    avatar: { image_url: p.avatarUrl },
+                  },
+                },
+              })),
+            },
+          },
+        },
+      };
     }
     case "UserByScreenName": {
       const user = batch.users[0];

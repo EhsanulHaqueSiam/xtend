@@ -10,6 +10,7 @@ import { Overview } from "../components/analyze/Overview";
 import { Posts } from "../components/analyze/PostsTable";
 import { errorText } from "../components/analyze/ui";
 import { isXSection, XAnalyticsSection } from "../components/analyze/XAnalytics";
+import { XSpacesSection } from "../components/analyze/XSpaces";
 import { useSection } from "../components/shell/sections";
 import { Empty } from "../components/ui/layout";
 import { NoHandle } from "../components/ui/no-handle";
@@ -21,6 +22,7 @@ export function AnalyzeScreen() {
   const data = useAtomValue(analyzeDataAtom);
   // X's own analytics come from X's page through the session, not from the service.
   if (isXSection(section)) return <XAnalyticsSection key={section} section={section} />;
+  if (section === "x-spaces") return <XSpacesSection />;
   return AsyncResult.match(data, {
     onInitial: () => (
       <AnalyzePage data={null}>

@@ -218,7 +218,7 @@ Both need `pnpm build` first.
 
 `apps/e2e/src/mockX` is a local x.com for the engine: X's pages (Home with its tabs, an Article's reader, a post and its
 reply sorts, profiles, search tabs, Bookmarks, Notifications, Explore, Lists and a List's people,
-Post activity, your own post's Post Analytics, your account analytics with its range buttons, or X's paywall with `premium: false`, the Follow page, a news story and its tabs, the NBA league page, Communities with their search, a Community's tabs and search, a Space's page, Create your Space and X's Space dock) with X's markup and test ids, X's client-side routing and page
+Post activity, your own post's Post Analytics, your account analytics with its range buttons, or X's paywall with `premium: false`, the Follow page, a news story and its tabs, the NBA league page, Communities with their search, a Community's tabs and search, a Space's page, Create your Space, X's Space dock and a recording's player, Space analytics) with X's markup and test ids, X's client-side routing and page
 cache, and X's GraphQL answers built from the made-up people and posts of `synth()`. Presses
 change its state and land in a press log; nothing is sent anywhere, and its images are `data:`
 URLs. `XTEND_MOCK_X=<origin>` on an unpackaged desktop serves `https://x.com` from it on the

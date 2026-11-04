@@ -1359,6 +1359,42 @@ const benchmarks = [
     },
   ],
   [
+    "Analyze X Spaces: your Spaces as X's page lists them, or without Premium X's paywall as X's page shows it (dry)",
+    async () => {
+      // Reads only: X's Space analytics page and Xtend's list of it. Nothing is opened or played.
+      await go("#/analyze?tab=x-spaces");
+      const shown = await until(
+        () =>
+          app(
+            `(() => { if (document.querySelector("main")?.innerText.includes("Advanced analytics with Plus")) return "paywall"; const rows = [...document.querySelectorAll('main [data-x="space-row"] td:first-child span:first-child')].map((t) => t.textContent); if (rows.length > 0) return rows; return document.querySelector("main")?.innerText.includes("Spaces you host show here") ? [] : undefined; })()`,
+          ),
+        30_000,
+      );
+      if (!shown) return false;
+      if (shown === "paywall") {
+        const upgrade = await app(
+          `[...document.querySelectorAll("main a")].find((a) => a.textContent.trim() === "Upgrade")?.getAttribute("href")`,
+        );
+        const gated = await until(() =>
+          engine(
+            `location.pathname.startsWith("/i/premium_sign_up") || document.body.innerText.includes("Upgrade to continue")`,
+          ),
+        );
+        return (
+          upgrade === "https://x.com/i/premium_sign_up" &&
+          gated &&
+          `no Premium: X's page at ${await enginePath()} shows its upsell`
+        );
+      }
+      // Each Space Xtend lists, X's own page lists by the same title.
+      const titles = shown.slice(0, 5).filter((t) => t !== "Untitled");
+      const xs = await until(() =>
+        engine(`${JSON.stringify(titles)}.every((t) => document.body.innerText.includes(t))`),
+      );
+      return xs && `${shown.length} Spaces, the first ${titles.length} as X's page lists them`;
+    },
+  ],
+  [
     "Library Radar: X's upsell without Premium, else X's queries as X lists them (dry)",
     async () => {
       // Radar is Premium on X. Without it X's page is its upsell, and the section X's intro with

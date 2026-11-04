@@ -3054,6 +3054,124 @@ describe("renderEngineBatch for X's List writes", () => {
 });
 
 describe("renderEngineBatch for X's Spaces", () => {
+  it("reads X's Space analytics: the user's Spaces in X's order and words, and one Space's numbers", () => {
+    const list = renderEngineBatch(
+      "spacesOverviewProviderQuery",
+      { cursor: null, limit: 30 },
+      {
+        data: {
+          viewer_v2: {
+            user_results: {
+              result: {
+                __typename: "User",
+                created_spaces_slice: {
+                  slice_info: { next_cursor: "c2" },
+                  items: [
+                    {
+                      rest_id: "1YqKDqWqdPLGV",
+                      state: "Ended",
+                      metadata: {
+                        title: "Churn and pricing",
+                        start: 1793786400000,
+                        ended_at: 1793789300000,
+                        total_live_listeners: 226,
+                        total_replay_watched: 318,
+                        is_space_available_for_replay: true,
+                      },
+                      participants: { speakers: [{ __typename: "ParticipantUser" }, {}] },
+                    },
+                    {
+                      rest_id: "1OwGWwnoleRGQ",
+                      state: "NotStarted",
+                      metadata: { scheduled_start: 1794000000000 },
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+    );
+    expect(list.key).toBe("spaces");
+    expect(list.spaceAnalytics).toEqual({
+      kind: "list",
+      spaces: [
+        {
+          spaceId: "1YqKDqWqdPLGV",
+          title: "Churn and pricing",
+          state: "Ended",
+          startedAt: "2026-11-04T10:00:00.000Z",
+          endedAt: "2026-11-04T10:48:20.000Z",
+          scheduledStart: null,
+          listening: 226,
+          replays: 318,
+          recorded: true,
+          speakers: 2,
+        },
+        // X's list calls any state but Running and Ended Scheduled.
+        expect.objectContaining({
+          spaceId: "1OwGWwnoleRGQ",
+          state: "Scheduled",
+          scheduledStart: "2026-11-06T21:20:00.000Z",
+        }),
+      ],
+    });
+    // X's next pages, as its own list scrolls, are no first page.
+    expect(renderEngineBatch("spacesOverviewProviderQuery", { cursor: "c2" }, {}).key).toBeNull();
+
+    const one = renderEngineBatch(
+      "spacesDetailsProviderQuery",
+      { id: "1YqKDqWqdPLGV" },
+      {
+        data: {
+          audio_space_by_rest_id: {
+            rest_id: "1YqKDqWqdPLGV",
+            state: "Ended",
+            metadata: {
+              title: "Churn and pricing",
+              total_participated: 1412,
+              total_replay_watched: 318,
+              is_space_available_for_replay: true,
+              view_count_graph: [0, 12, 226, 80],
+            },
+            participants: {
+              speakers: [
+                {
+                  twitter_screen_name: "lena",
+                  user_results: {
+                    result: {
+                      core: { screen_name: "Lena", name: "Lena W" },
+                      avatar: { image_url: "https://pbs.twimg.com/a.jpg" },
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      },
+    );
+    expect([one.key, one.spaceAnalytics]).toEqual([
+      "1YqKDqWqdPLGV",
+      {
+        kind: "space",
+        space: {
+          spaceId: "1YqKDqWqdPLGV",
+          title: "Churn and pricing",
+          state: "Ended",
+          startedAt: null,
+          endedAt: null,
+          recorded: true,
+          participants: 1412,
+          replays: 318,
+          concurrent: [0, 12, 226, 80],
+          speakers: [{ handle: "lena", name: "Lena W", avatarUrl: "https://pbs.twimg.com/a.jpg" }],
+        },
+      },
+    ]);
+  });
+
   it("reads a post's Space card as its Space, and X's AudioSpaceById as the Space with its people in X's order", () => {
     const post = tweet(
       "5",
@@ -3146,6 +3264,7 @@ describe("renderEngineBatch for X's Spaces", () => {
       total: 214,
     });
     // The first admin hosts; a listener has no mic to mute, and a handle X cannot have is no one.
+    expect(space!.people[0]!.periscopeId).toBe("14");
     expect(space!.people.map((x) => [x.handle, x.role, x.muted, x.userId, x.verified])).toEqual([
       ["maya", "host", false, "11", true],
       ["dev", "cohost", true, "12", false],

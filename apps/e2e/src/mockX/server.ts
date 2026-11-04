@@ -249,7 +249,20 @@ export async function startMockX(
         return json({
           html: state.spaces.dockHtml(),
           graphql: dock === null ? [] : [httpRequest(spaceRequest(dock.spaceId))],
+          replayChat:
+            dock?.role === "replay" && dock.captions
+              ? `/live-chat?broadcastId=${dock.spaceId}&sessionId=s1&replay=1&cursor=${dock.at}`
+              : null,
         });
+      }
+      // X's recording chat for a Space: its captions as JSON lines.
+      case "/live-chat": {
+        const id = url.searchParams.get("broadcastId") ?? "";
+        reads.push({
+          op: "live-chat",
+          variables: { broadcastId: id, replay: url.searchParams.get("replay") },
+        });
+        return send(200, state.spaces.replayChat(id), "text/plain; charset=utf-8");
       }
       case "/__mock/chat-unlock":
         state.chat.unlock();

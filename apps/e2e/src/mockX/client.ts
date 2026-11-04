@@ -981,6 +981,8 @@ const SCRIPT = String.raw`
     document.querySelector("[data-mock-dock]")?.remove();
     if (view.html) document.getElementById("react-root").append(fragment(view.html).firstElementChild);
     await Promise.all(view.graphql.map(graphql));
+    // X's player pages its recording's captions in from X's recording chat while they are on.
+    if (view.replayChat) await fetch(view.replayChat).then((r) => r.text()).catch(() => {});
   }
   addEventListener("beforeunload", () => navigator.sendBeacon("/__mock/space", JSON.stringify({ kind: "unload" })));
   function spaceLayer(role, children) {
@@ -1005,7 +1007,7 @@ const SCRIPT = String.raw`
     return el;
   };
   document.addEventListener("click", (event) => {
-    const el = event.target instanceof Element ? event.target.closest("[data-space-listen], [data-space-start-now], [data-space-close], [data-space-word], [data-space-request], [data-space-mic], [data-space-more], [data-space-react], [data-space-share]") : null;
+    const el = event.target instanceof Element ? event.target.closest("[data-space-listen], [data-space-play], [data-space-start-now], [data-space-close], [data-space-word], [data-space-request], [data-space-mic], [data-space-more], [data-space-react], [data-space-share], [data-space-toggle], [data-space-skip], [data-space-seek], [data-space-speed], [data-space-captions]") : null;
     if (!el) return;
     event.stopPropagation();
     const dock = document.querySelector("[data-mock-dock]");
@@ -1013,6 +1015,15 @@ const SCRIPT = String.raw`
     if (el.dataset.spaceListen !== undefined) {
       log("space:Start listening", el.dataset.spaceListen);
       return void space({ kind: "listen", id: el.dataset.spaceListen }).then(drawDock).then(() => history.back());
+    }
+    if (el.dataset.spacePlay !== undefined) {
+      log("space:Play recording", el.dataset.spacePlay);
+      return void space({ kind: "play", id: el.dataset.spacePlay }).then(drawDock).then(() => history.back());
+    }
+    if (el.dataset.spaceSeek !== undefined) {
+      const box = el.getBoundingClientRect();
+      log("space:Seek slider", id);
+      return void space({ kind: "seek", id, fraction: (event.clientX - box.left) / box.width }).then(drawDock);
     }
     if (el.dataset.spaceStartNow !== undefined) {
       const title = el.closest("[data-space-start]").querySelector('input[name="title"]').value;
@@ -1022,7 +1033,7 @@ const SCRIPT = String.raw`
     if (el.dataset.spaceClose !== undefined) return void history.back();
     if (el.dataset.spaceWord !== undefined) {
       log("space:" + el.textContent);
-      if (el.textContent === "Leave") return void space({ kind: "leave", id }).then(drawDock);
+      if (el.textContent === "Leave" || el.textContent === "Close") return void space({ kind: "leave", id }).then(drawDock);
       const sheet = spaceLayer("alertdialog", [
         Object.assign(document.createElement("h2"), { textContent: "End Space?" }),
         Object.assign(document.createElement("p"), { textContent: "This will end the conversation for everyone." }),
@@ -1038,6 +1049,11 @@ const SCRIPT = String.raw`
     const label = el.getAttribute("aria-label");
     log("space:" + label, id);
     if (el.dataset.spaceRequest !== undefined) return void space({ kind: label === "Request sent" ? "cancel" : "request", id }).then(drawDock);
+    if (el.dataset.spaceToggle !== undefined) return void space({ kind: "toggle", id }).then(drawDock);
+    if (el.dataset.spaceSkip !== undefined) return void space({ kind: "skip", id, by: Number(el.dataset.spaceSkip) }).then(drawDock);
+    if (el.dataset.spaceCaptions !== undefined) return void space({ kind: "captions", id }).then(drawDock);
+    if (el.dataset.spaceSpeed !== undefined)
+      return void spaceLayer("menu", ["0.5x speed", "Normal", "1.5x speed", "2x speed"].map((row) => item("menuitem", "", row, () => space({ kind: "speed", id, row }).then(drawDock))));
     if (el.dataset.spaceMic !== undefined) return void space({ kind: label === "Mute" ? "mute" : "unmute", id }).then(drawDock);
     if (el.dataset.spaceMore !== undefined) {
       const on = !!dock?.querySelector('[role="listbox"]');

@@ -184,7 +184,7 @@ function useXAnalytics(section: XSection) {
 }
 
 /** X's own paywall for its analytics, as X's analytics page shows it to an account without Premium. */
-function Paywall() {
+export function Paywall() {
   return (
     <div className="flex flex-col items-center gap-2 px-6 py-12 text-center">
       <p className="text-[15px] font-semibold">Advanced analytics with Plus</p>

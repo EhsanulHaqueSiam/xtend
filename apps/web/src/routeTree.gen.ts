@@ -34,6 +34,7 @@ import { Route as ListsIndexRouteImport } from './routes/lists.index'
 import { Route as CommunitiesIndexRouteImport } from './routes/communities.index'
 import { Route as UHandleRouteImport } from './routes/u.$handle'
 import { Route as TrendingIdRouteImport } from './routes/trending.$id'
+import { Route as SpacesIdRouteImport } from './routes/spaces.$id'
 import { Route as PostIdRouteImport } from './routes/post.$id'
 import { Route as ListsIdRouteImport } from './routes/lists.$id'
 import { Route as CommunitiesIdRouteImport } from './routes/communities.$id'
@@ -169,6 +170,11 @@ const TrendingIdRoute = TrendingIdRouteImport.update({
   path: '/trending/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SpacesIdRoute = SpacesIdRouteImport.update({
+  id: '/spaces/$id',
+  path: '/spaces/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PostIdRoute = PostIdRouteImport.update({
   id: '/post/$id',
   path: '/post/$id',
@@ -240,6 +246,7 @@ export interface FileRoutesByFullPath {
   '/communities/$id': typeof CommunitiesIdRoute
   '/lists/$id': typeof ListsIdRoute
   '/post/$id': typeof PostIdRoute
+  '/spaces/$id': typeof SpacesIdRoute
   '/trending/$id': typeof TrendingIdRoute
   '/u/$handle': typeof UHandleRoute
   '/communities/': typeof CommunitiesIndexRoute
@@ -276,6 +283,7 @@ export interface FileRoutesByTo {
   '/communities/$id': typeof CommunitiesIdRoute
   '/lists/$id': typeof ListsIdRoute
   '/post/$id': typeof PostIdRoute
+  '/spaces/$id': typeof SpacesIdRoute
   '/trending/$id': typeof TrendingIdRoute
   '/u/$handle': typeof UHandleRoute
   '/communities': typeof CommunitiesIndexRoute
@@ -313,6 +321,7 @@ export interface FileRoutesById {
   '/communities/$id': typeof CommunitiesIdRoute
   '/lists/$id': typeof ListsIdRoute
   '/post/$id': typeof PostIdRoute
+  '/spaces/$id': typeof SpacesIdRoute
   '/trending/$id': typeof TrendingIdRoute
   '/u/$handle': typeof UHandleRoute
   '/communities/': typeof CommunitiesIndexRoute
@@ -351,6 +360,7 @@ export interface FileRouteTypes {
     | '/communities/$id'
     | '/lists/$id'
     | '/post/$id'
+    | '/spaces/$id'
     | '/trending/$id'
     | '/u/$handle'
     | '/communities/'
@@ -387,6 +397,7 @@ export interface FileRouteTypes {
     | '/communities/$id'
     | '/lists/$id'
     | '/post/$id'
+    | '/spaces/$id'
     | '/trending/$id'
     | '/u/$handle'
     | '/communities'
@@ -423,6 +434,7 @@ export interface FileRouteTypes {
     | '/communities/$id'
     | '/lists/$id'
     | '/post/$id'
+    | '/spaces/$id'
     | '/trending/$id'
     | '/u/$handle'
     | '/communities/'
@@ -460,6 +472,7 @@ export interface RootRouteChildren {
   CommunitiesIdRoute: typeof CommunitiesIdRoute
   ListsIdRoute: typeof ListsIdRoute
   PostIdRoute: typeof PostIdRoute
+  SpacesIdRoute: typeof SpacesIdRoute
   TrendingIdRoute: typeof TrendingIdRoute
   UHandleRoute: typeof UHandleRoute
   CommunitiesIndexRoute: typeof CommunitiesIndexRoute
@@ -649,6 +662,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TrendingIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/spaces/$id': {
+      id: '/spaces/$id'
+      path: '/spaces/$id'
+      fullPath: '/spaces/$id'
+      preLoaderRoute: typeof SpacesIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/post/$id': {
       id: '/post/$id'
       path: '/post/$id'
@@ -740,6 +760,7 @@ const rootRouteChildren: RootRouteChildren = {
   CommunitiesIdRoute: CommunitiesIdRoute,
   ListsIdRoute: ListsIdRoute,
   PostIdRoute: PostIdRoute,
+  SpacesIdRoute: SpacesIdRoute,
   TrendingIdRoute: TrendingIdRoute,
   UHandleRoute: UHandleRoute,
   CommunitiesIndexRoute: CommunitiesIndexRoute,

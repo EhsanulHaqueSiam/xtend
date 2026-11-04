@@ -656,6 +656,11 @@ export function createMockState(options: MockOptions = {}) {
       }
       case "TweetDetail":
         return threadOf(s(variables, "focalTweetId") ?? "", s(variables, "rankingMode"));
+      // X's Space analytics: only the account's own, and only its first page here.
+      case "spacesOverviewProviderQuery":
+        return fixture(op, "spaces") ?? null;
+      case "spacesDetailsProviderQuery":
+        return fixture(op, s(variables, "id") ?? "") ?? null;
       case "AudioSpaceById": {
         const id = s(variables, "id") ?? "";
         const space = spaces.space(id);

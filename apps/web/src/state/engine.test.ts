@@ -1316,3 +1316,33 @@ it("keeps X's Radar: its list in X's order, a query's days as X finishes countin
     at(radar.lists, surface),
   ]).toEqual([["5"], ["6", "5"], true, ["7"]]);
 });
+
+it("keeps each Space recording's captions once per speaker and moment, in time order, whatever order X pages them in", () => {
+  const line = (at: string, periscopeId: string, text: string) => ({ periscopeId, text, at });
+  const page = (key: string, spaceCaptions: ReturnType<typeof line>[]) =>
+    batch("LiveChatReplay", [], { key, spaceCaptions });
+  // The user seeks to 15:00 first, then back to the start; the pages overlap at 15:02.
+  const later = mergeBatch(
+    emptyEngine,
+    page("900000700003", [
+      line("2026-11-04T10:15:02.000Z", "p1", "The email that worked was three lines."),
+      line("2026-11-04T10:15:40.000Z", "p2", "How many replied?"),
+    ]),
+  );
+  const both = mergeBatch(
+    mergeBatch(
+      later,
+      page("900000700003", [
+        line("2026-11-04T10:06:12.000Z", "p1", "Welcome in."),
+        line("2026-11-04T10:15:02.000Z", "p1", "The email that worked was three lines."),
+      ]),
+    ),
+    page("900000700004", [line("2026-11-04T09:00:00.000Z", "p9", "Another Space.")]),
+  );
+  expect(both.spaceCaptions.get("900000700003")?.map((c) => c.text)).toEqual([
+    "Welcome in.",
+    "The email that worked was three lines.",
+    "How many replied?",
+  ]);
+  expect(both.spaceCaptions.get("900000700004")).toHaveLength(1);
+});

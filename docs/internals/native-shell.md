@@ -93,8 +93,10 @@ Xtend included; X leaves the Space when its page unloads. So while X's dock is u
 (`/i/spaces/<id>/peek`) and its cards only ask AudioSpaceById; the user is a public listener only
 once X's Start listening is pressed, which the engine does for that click alone. The dock has no
 test ids: its controls are found by X's labels inside the box around its Leave, End or Close
-beside its Collapse, and captions are the lines of X's own panel there (X reads them from its
-`api.x.com/live-chat` stream, which the capture never reads).
+beside its Collapse. A live Space's captions are the lines of X's own panel there. A recording's
+are X's own pages of its recording chat (`/live-chat?…&replay=1`, JSON lines), which X fetches by
+playback time, and only while its captions are on: the capture reads them (once X's page has
+read the body) and hands them to the app page alone, so a transcript fills in as it plays.
 
 The read-only benchmark (`apps/desktop/scripts/engine-bench.mjs`) checks every surface against a
 dev desktop on the real account; its only write is a bookmark it removes again.

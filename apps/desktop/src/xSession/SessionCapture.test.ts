@@ -64,6 +64,14 @@ class FakeDebugger extends NodeEvents.EventEmitter {
       response: { url, mimeType: "application/json" },
     });
   }
+  /** A body that is no one JSON value (X's JSON lines), under X's own type for it. */
+  receivedText(requestId: string, url: string, text: string, mimeType: string) {
+    this.bodies.set(requestId, { body: text, base64Encoded: false });
+    this.emit("message", {}, "Network.responseReceived", {
+      requestId,
+      response: { url, mimeType },
+    });
+  }
   finished(requestId: string) {
     this.emit("message", {}, "Network.loadingFinished", { requestId });
   }
@@ -77,9 +85,14 @@ let serviceUp: boolean;
 let serviceStatus: number;
 let detach: () => void;
 
-const start = (onCreatedPost?: (postId: string) => void, accountId = 1) => {
+const start = (
+  onCreatedPost?: (postId: string) => void,
+  accountId = 1,
+  onRender?: (batch: EngineBatch) => void,
+) => {
   const contents = { debugger: debug } as unknown as Electron.WebContents;
   detach = attachSessionCapture(contents, {
+    ...(onRender === undefined ? {} : { onRender }),
     serviceUrl: "http://127.0.0.1:4820",
     serviceToken: "tok",
     accountId,
@@ -141,6 +154,52 @@ it("sends the posts in GraphQL responses the window received, base64 bodies too,
   });
   debug.finished("5");
   await vi.waitFor(() => expect(created).toEqual(["9", "10"]));
+});
+
+it("hands a Space recording's captions from X's chat lines to the screens only, never the service", async () => {
+  const rendered: Array<EngineBatch> = [];
+  start(undefined, 1, (b) => rendered.push(b));
+  const line = (m: Record<string, unknown>) => JSON.stringify(m);
+  debug.receivedText(
+    "1",
+    "https://api.x.com/live-chat?broadcastId=900000700003&replay=1&cursor=1",
+    [
+      line({
+        chatType: 45,
+        final: true,
+        message: "Welcome in.",
+        userId: "p1",
+        ts: "1793786772000000000",
+      }),
+      // Words X has not settled, a reaction, and a line cut off: no captions.
+      line({
+        chatType: 45,
+        final: false,
+        message: "Welc",
+        userId: "p1",
+        ts: "1793786771000000000",
+      }),
+      line({ chatType: 2, message: "💯", userId: "p2", ts: "1793786773000000000" }),
+      '{"chatType":45,',
+    ].join("\n"),
+    "text/plain",
+  );
+  debug.finished("1");
+  await vi.waitFor(() => expect(rendered).toHaveLength(1));
+  expect([rendered[0]!.key, rendered[0]!.spaceCaptions]).toEqual([
+    "900000700003",
+    [{ periscopeId: "p1", text: "Welcome in.", at: "2026-11-04T10:06:12.000Z" }],
+  ]);
+  // A live Space's chat stream is the chat itself, not a recording's captions.
+  debug.receivedText(
+    "2",
+    "https://api.x.com/live-chat?broadcastId=900000700003",
+    line({ chatType: 45 }),
+    "text/plain",
+  );
+  debug.finished("2");
+  expect(debug.commands.filter((c) => c === "Network.getResponseBody")).toHaveLength(1);
+  expect(sent).toEqual([]);
 });
 
 it("keeps batches on disk while the service is down and replays them, past a corrupt file", async () => {
