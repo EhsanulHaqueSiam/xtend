@@ -6,6 +6,7 @@
 
 - a screen, or once you type, a section (Compose, Plan: Slots, …)
 - X's pages (Home, Notifications, Chat, Bookmarks, Grok, Explore, Follow, Communities)
+- **Admin tools: <Community>** for each Community you moderate
 - **Schedule this**: a new draft in Compose
 - `@handle`: report on the handle in Scores, or open the profile on X
 - run a Leads agent by name, with its price beside it
