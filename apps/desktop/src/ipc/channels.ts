@@ -19,6 +19,8 @@ export const BRIDGE_INFO_CHANNEL = "xtend:bridge-info";
 export const GLANCE_CHANNEL = "xtend:glance";
 /** main -> app: each response the X engine received, as posts to draw. */
 export const ENGINE_CHANNEL = "xtend:engine";
+/** main -> app: X's older Grok client's traffic (`GrokCapture`), for the window only. */
+export const GROK_CHANNEL = "xtend:grok";
 /** The enabled Clean X toggle ids (`XSkinToggle[]`); main rebuilds the skin CSS in the webview. */
 export const X_SKIN_CHANNEL = "xtend:x-skin";
 
