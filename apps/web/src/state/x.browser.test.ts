@@ -1,6 +1,8 @@
 import { expect, it, vi } from "vite-plus/test";
 
 import type { EngineBatch } from "@xtend/contracts";
+import { userEvent } from "vite-plus/test/browser";
+
 import { fakeTimers, stubGlobal } from "../../test/render";
 
 import {
@@ -814,6 +816,93 @@ it("puts X's page back once X shows it again, when the engine left it mid-way th
     dispatchEvent(new PopStateEvent("popstate"));
     await vi.advanceTimersByTimeAsync(500);
     expect(scrolls.mock.calls.at(-1)).toEqual(home(120));
+  } finally {
+    document.documentElement.scrollTop = 0;
+    history.replaceState(null, "", start);
+    registerXWebview(null);
+  }
+});
+
+/** X's page at `path`, a screen and more tall, scrolled to 120 before the engine asks for more. */
+const tallPage = (path: string) => {
+  history.replaceState(null, "", path);
+  document.body.innerHTML = `<div style="height:5000px"><article><a href="/theo/status/42"><time></time></a></article></div>`;
+  inThisPage();
+  window.scrollTo(0, 120);
+};
+const restored = (scrolls: { mock: { calls: Array<unknown> } }) =>
+  scrolls.mock.calls.some((c) => JSON.stringify(c) === JSON.stringify(home(120)));
+
+it("hands a restore to the scroll for more that supersedes it, so Back still puts X's page back after a trend lookup and a leave", async () => {
+  using _clock = fakeTimers();
+  const start = location.pathname + location.search;
+  tallPage("/explore");
+  using scrolls = scrollsTo(Infinity, () => {});
+  using _back = vi.spyOn(window, "scrollBy").mockImplementation(() => {});
+  try {
+    const first = xScrollMore();
+    await vi.advanceTimersByTimeAsync(100);
+    // A trend lookup takes the scroll, and the native list asks again while it does.
+    const reading = xTrendMenu("Missing");
+    await vi.advanceTimersByTimeAsync(0);
+    const second = xScrollMore();
+    await vi.advanceTimersByTimeAsync(200);
+    history.pushState(null, "", "/i/spaces/1/peek");
+    await vi.runAllTimersAsync();
+    expect([await first, await second, await reading]).toEqual([false, false, null]);
+    history.pushState(null, "", "/explore");
+    dispatchEvent(new PopStateEvent("popstate"));
+    await vi.advanceTimersByTimeAsync(500);
+    expect(scrolls.mock.calls.at(-1)).toEqual(home(120));
+  } finally {
+    document.documentElement.scrollTop = 0;
+    history.replaceState(null, "", start);
+    registerXWebview(null);
+  }
+});
+
+it("leaves X's page where the user scrolls it after Back: their own scrolling cancels the restore", async () => {
+  using _clock = fakeTimers();
+  const start = location.pathname + location.search;
+  tallPage("/search?q=spaces");
+  using scrolls = scrollsTo(1, () => history.pushState(null, "", "/i/spaces/1/peek"));
+  try {
+    const paging = xScrollMore();
+    await vi.runAllTimersAsync();
+    expect(await paging).toBe(false);
+    history.pushState(null, "", "/search?q=spaces");
+    dispatchEvent(new PopStateEvent("popstate"));
+    await vi.advanceTimersByTimeAsync(100);
+    // The user scrolls X's page in the side panel before the restore is due.
+    await userEvent.keyboard("{PageDown}");
+    await vi.advanceTimersByTimeAsync(500);
+    expect(restored(scrolls)).toBe(false);
+  } finally {
+    document.documentElement.scrollTop = 0;
+    history.replaceState(null, "", start);
+    registerXWebview(null);
+  }
+});
+
+it("never moves X's page under a trend lookup after Back, and leaves it where the lookup took it off its end", async () => {
+  using _clock = fakeTimers();
+  const start = location.pathname + location.search;
+  tallPage("/explore");
+  using scrolls = scrollsTo(1, () => history.pushState(null, "", "/i/spaces/1/peek"));
+  using _back = vi.spyOn(window, "scrollBy").mockImplementation(() => {});
+  try {
+    const paging = xScrollMore();
+    await vi.runAllTimersAsync();
+    expect(await paging).toBe(false);
+    history.pushState(null, "", "/explore");
+    dispatchEvent(new PopStateEvent("popstate"));
+    await vi.advanceTimersByTimeAsync(100);
+    const reading = xTrendMenu("Missing");
+    await vi.advanceTimersByTimeAsync(600);
+    expect(restored(scrolls)).toBe(false);
+    await vi.runAllTimersAsync();
+    expect(await reading).toBeNull();
+    expect(restored(scrolls)).toBe(false);
   } finally {
     document.documentElement.scrollTop = 0;
     history.replaceState(null, "", start);
