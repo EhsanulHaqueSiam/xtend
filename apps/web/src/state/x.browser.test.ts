@@ -1,6 +1,8 @@
 import { expect, it, vi } from "vite-plus/test";
 
 import type { EngineBatch } from "@xtend/contracts";
+import { userEvent } from "vite-plus/test/browser";
+
 import { fakeTimers, stubGlobal } from "../../test/render";
 
 import {
@@ -713,6 +715,21 @@ it("reads and presses only the dropdown opened by its caret when another menu ex
   expect(pressed).toEqual(["own"]);
 });
 
+/**
+ * Records X's page's scrolls without moving it, and runs `land` (X's next page arriving) once it
+ * has been sent to its end `at` times. `ends` counts the scrolls to its end.
+ */
+const scrollsTo = (at: number, land: () => void) => {
+  const ends = () =>
+    spy.mock.calls.filter((c) => c[1] === document.documentElement.scrollHeight).length;
+  const spy = vi.spyOn(window, "scrollTo").mockImplementation((...args) => {
+    if (args[1] === document.documentElement.scrollHeight && ends() === at) land();
+  });
+  return Object.assign(spy, { ends });
+};
+/** X's page put back at `top`. */
+const home = (top: number) => [{ top, behavior: "instant" }];
+
 it.each(["before", "during"])(
   "resumes paging requested %s a trend lookup without another native endReached",
   async (when) => {
@@ -720,12 +737,9 @@ it.each(["before", "during"])(
     const path = location.pathname + location.search;
     history.replaceState(null, "", "/explore");
     withMenu({});
-    let bottoms = 0;
-    using _scroll = vi.spyOn(window, "scrollTo").mockImplementation((...args) => {
-      if (typeof args[0] !== "number") return;
-      if (++bottoms === 2)
-        document.querySelector("article a")!.setAttribute("href", "/theo/status/43");
-    });
+    using scrolls = scrollsTo(2, () =>
+      document.querySelector("article a")!.setAttribute("href", "/theo/status/43"),
+    );
     using _back = vi.spyOn(window, "scrollBy").mockImplementation(() => {});
     try {
       const paging = when === "before" ? xScrollMore() : undefined;
@@ -734,7 +748,8 @@ it.each(["before", "during"])(
       await vi.runAllTimersAsync();
       expect(await reading).toBeNull();
       expect(await pending).toBe(true);
-      expect(bottoms).toBe(2);
+      expect(scrolls.mock.calls.at(-1)).toEqual(home(0));
+      expect(scrolls.ends()).toBe(2);
     } finally {
       history.replaceState(null, "", path);
       registerXWebview(null);
@@ -745,16 +760,15 @@ it.each(["before", "during"])(
 it("keeps paging while a post menu read waits for X's rows", async () => {
   using _clock = fakeTimers();
   withMenu({});
-  let bottoms = 0;
-  using _scroll = vi.spyOn(window, "scrollTo").mockImplementation(() => {
-    if (++bottoms === 2)
-      document.querySelector("article a")!.setAttribute("href", "/theo/status/43");
-  });
+  using scrolls = scrollsTo(2, () =>
+    document.querySelector("article a")!.setAttribute("href", "/theo/status/43"),
+  );
   const reading = xPostMenu(post42);
   const paging = xScrollMore();
   await vi.advanceTimersByTimeAsync(600);
-  expect(bottoms).toBe(2);
   expect(await paging).toBe(true);
+  expect(scrolls.ends()).toBe(2);
+  expect(scrolls.mock.calls.at(-1)).toEqual(home(0));
   await vi.runAllTimersAsync();
   await reading;
 });
@@ -763,19 +777,298 @@ it("sees X's next page of Community search results land and stops scrolling", as
   using _clock = fakeTimers();
   const cell = (id: string) =>
     `<div data-testid="cellInnerDiv"><a href="/i/communities/${id}">Community ${id}</a></div>`;
-  document.body.innerHTML = cell("1");
+  document.body.innerHTML = `<div style="height:5000px">${cell("1")}</div>`;
   inThisPage();
-  let bottoms = 0;
-  using _scroll = vi.spyOn(window, "scrollTo").mockImplementation(() => {
-    if (++bottoms === 2) document.body.insertAdjacentHTML("beforeend", cell("2"));
-  });
+  window.scrollTo(0, 120);
+  using scrolls = scrollsTo(2, () =>
+    document.body.firstElementChild!.insertAdjacentHTML("beforeend", cell("2")),
+  );
   using _back = vi.spyOn(window, "scrollBy").mockImplementation(() => {});
   try {
     const paging = xScrollMore();
     await vi.runAllTimersAsync();
     expect(await paging).toBe(true);
-    expect(bottoms).toBe(2);
+    expect(scrolls.ends()).toBe(2);
+    // Back where X's page was: parked at its end, X would go on fetching by itself.
+    expect(scrolls.mock.calls.at(-1)).toEqual(home(120));
   } finally {
+    document.documentElement.scrollTop = 0;
+    registerXWebview(null);
+  }
+});
+
+it("puts X's page back once X shows it again, when the engine left it mid-way through asking for more", async () => {
+  using _clock = fakeTimers();
+  const start = location.pathname + location.search;
+  history.replaceState(null, "", "/search?q=spaces");
+  document.body.innerHTML = `<div style="height:5000px"><article><a href="/theo/status/42"><time></time></a></article></div>`;
+  inThisPage();
+  window.scrollTo(0, 120);
+  // A Space card opened while X's page sat at its end: the engine moves to the Space's page.
+  using scrolls = scrollsTo(1, () => history.pushState(null, "", "/i/spaces/1/peek"));
+  try {
+    const paging = xScrollMore();
+    await vi.runAllTimersAsync();
+    expect(await paging).toBe(false);
+    expect(scrolls.mock.calls.at(-1)).not.toEqual(home(120));
+    // Back on the search, X restores its end; the page then goes back where it was.
+    history.pushState(null, "", "/search?q=spaces");
+    dispatchEvent(new PopStateEvent("popstate"));
+    await vi.advanceTimersByTimeAsync(500);
+    expect(scrolls.mock.calls.at(-1)).toEqual(home(120));
+  } finally {
+    document.documentElement.scrollTop = 0;
+    history.replaceState(null, "", start);
+    registerXWebview(null);
+  }
+});
+
+/** X's page at `path`, a screen and more tall, scrolled to 120 before the engine asks for more. */
+const tallPage = (path: string) => {
+  history.replaceState(null, "", path);
+  document.body.innerHTML = `<div style="height:5000px"><article><a href="/theo/status/42"><time></time></a></article></div>`;
+  inThisPage();
+  window.scrollTo(0, 120);
+};
+const restored = (scrolls: { mock: { calls: Array<unknown> } }) =>
+  scrolls.mock.calls.some((c) => JSON.stringify(c) === JSON.stringify(home(120)));
+
+it("releases a page's restore from a scroll for more that ends before scrolling, so Back still puts the page left earlier back", async () => {
+  using _clock = fakeTimers();
+  const start = location.pathname + location.search;
+  tallPage("/search?q=spaces");
+  // The engine leaves the search for Explore mid-way through asking for more.
+  using scrolls = scrollsTo(1, () => history.pushState(null, "", "/explore"));
+  using _back = vi.spyOn(window, "scrollBy").mockImplementation(() => {});
+  try {
+    const first = xScrollMore();
+    await vi.advanceTimersByTimeAsync(100);
+    // On Explore a trend lookup takes the scroll, and Explore's list asks for more while it does.
+    const reading = xTrendMenu("Missing");
+    await vi.advanceTimersByTimeAsync(0);
+    const second = xScrollMore();
+    await vi.advanceTimersByTimeAsync(200);
+    history.pushState(null, "", "/search?q=spaces");
+    dispatchEvent(new PopStateEvent("popstate"));
+    await vi.advanceTimersByTimeAsync(500);
+    expect(scrolls.mock.calls.at(-1)).toEqual(home(120));
+    await vi.runAllTimersAsync();
+    expect([await first, await second, await reading]).toEqual([false, false, null]);
+  } finally {
+    document.documentElement.scrollTop = 0;
+    history.replaceState(null, "", start);
+    registerXWebview(null);
+  }
+});
+
+it("leaves X's page where the user scrolls it after Back: their own scrolling cancels the restore", async () => {
+  using _clock = fakeTimers();
+  const start = location.pathname + location.search;
+  tallPage("/search?q=spaces");
+  using scrolls = scrollsTo(1, () => history.pushState(null, "", "/i/spaces/1/peek"));
+  try {
+    const paging = xScrollMore();
+    await vi.runAllTimersAsync();
+    expect(await paging).toBe(false);
+    history.pushState(null, "", "/search?q=spaces");
+    dispatchEvent(new PopStateEvent("popstate"));
+    await vi.advanceTimersByTimeAsync(100);
+    // The user scrolls X's page in the side panel before the restore is due. The browser's own
+    // smooth scroll would outlast the test, so only the key is kept.
+    const still = (event: KeyboardEvent) => event.preventDefault();
+    document.addEventListener("keydown", still);
+    await userEvent.keyboard("{PageDown}");
+    document.removeEventListener("keydown", still);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(restored(scrolls)).toBe(false);
+  } finally {
+    document.documentElement.scrollTop = 0;
+    history.replaceState(null, "", start);
+    registerXWebview(null);
+  }
+});
+
+it("never moves X's page under a trend lookup after Back, and leaves it where the lookup took it off its end", async () => {
+  using _clock = fakeTimers();
+  const start = location.pathname + location.search;
+  tallPage("/explore");
+  using scrolls = scrollsTo(1, () => history.pushState(null, "", "/i/spaces/1/peek"));
+  using _back = vi.spyOn(window, "scrollBy").mockImplementation(() => {});
+  try {
+    const paging = xScrollMore();
+    await vi.runAllTimersAsync();
+    expect(await paging).toBe(false);
+    history.pushState(null, "", "/explore");
+    dispatchEvent(new PopStateEvent("popstate"));
+    await vi.advanceTimersByTimeAsync(100);
+    const reading = xTrendMenu("Missing");
+    await vi.advanceTimersByTimeAsync(600);
+    expect(restored(scrolls)).toBe(false);
+    await vi.runAllTimersAsync();
+    expect(await reading).toBeNull();
+    expect(restored(scrolls)).toBe(false);
+  } finally {
+    document.documentElement.scrollTop = 0;
+    history.replaceState(null, "", start);
+    registerXWebview(null);
+  }
+});
+
+it("drops the restore of a page a trend lookup took, even a lookup done before the restore was due", async () => {
+  using _clock = fakeTimers();
+  const start = location.pathname + location.search;
+  tallPage("/explore");
+  using scrolls = scrollsTo(1, () => history.pushState(null, "", "/i/spaces/1/peek"));
+  using _back = vi.spyOn(window, "scrollBy").mockImplementation(() => {});
+  try {
+    const paging = xScrollMore();
+    await vi.runAllTimersAsync();
+    expect(await paging).toBe(false);
+    history.pushState(null, "", "/explore");
+    dispatchEvent(new PopStateEvent("popstate"));
+    const reading = xTrendMenu("T1");
+    await vi.advanceTimersByTimeAsync(150);
+    // X draws the trend: the lookup finds it at once, well before the restore is due.
+    const cell = document.createElement("div");
+    cell.dataset.testid = "trend";
+    cell.innerHTML = '<span style="font-weight:700">T1</span><button data-testid="caret"></button>';
+    const caret = cell.querySelector("button")!;
+    caret.addEventListener("click", () => drawMenu(caret, { "Not interested in this": () => {} }));
+    document.body.append(cell);
+    await vi.advanceTimersByTimeAsync(600);
+    expect(restored(scrolls)).toBe(false);
+    await vi.runAllTimersAsync();
+    expect(await reading).toEqual(["Not interested in this"]);
+    expect(restored(scrolls)).toBe(false);
+  } finally {
+    document.documentElement.scrollTop = 0;
+    history.replaceState(null, "", start);
+    registerXWebview(null);
+  }
+});
+
+it("puts X's page back after a trend lookup that comes and goes between its scrolls for more", async () => {
+  using _clock = fakeTimers();
+  const start = location.pathname + location.search;
+  tallPage("/explore");
+  // X's next page lands on the third scroll to its end, after the lookup is over.
+  using scrolls = scrollsTo(3, () =>
+    document.querySelector("article a")!.setAttribute("href", "/theo/status/43"),
+  );
+  using _back = vi.spyOn(window, "scrollBy").mockImplementation(() => {});
+  try {
+    const paging = xScrollMore();
+    await vi.advanceTimersByTimeAsync(10);
+    const reading = xTrendMenu("T1");
+    await vi.advanceTimersByTimeAsync(100);
+    // X draws the trend: the lookup finds it at its next look, within one wait of the scroll's.
+    const cell = document.createElement("div");
+    cell.dataset.testid = "trend";
+    cell.innerHTML = '<span style="font-weight:700">T1</span><button data-testid="caret"></button>';
+    const caret = cell.querySelector("button")!;
+    caret.addEventListener("click", () => drawMenu(caret, { "Not interested in this": () => {} }));
+    document.body.append(cell);
+    await vi.runAllTimersAsync();
+    expect([await paging, await reading]).toEqual([true, ["Not interested in this"]]);
+    expect(scrolls.mock.calls.at(-1)).toEqual(home(120));
+  } finally {
+    document.documentElement.scrollTop = 0;
+    history.replaceState(null, "", start);
+    registerXWebview(null);
+  }
+});
+
+it("asks for more only once a trend lookup is done, and puts X's page back where the lookup left it", async () => {
+  using _clock = fakeTimers();
+  const start = location.pathname + location.search;
+  history.replaceState(null, "", "/explore");
+  // X's trend cells end at 1250; its endless posts follow.
+  document.body.innerHTML = `<div style="height:50000px;position:relative">
+    <div data-testid="trend" style="position:absolute;top:1150px;height:100px"><span style="font-weight:700">Other</span></div>
+    <article style="position:absolute;top:49000px"><a href="/theo/status/42"><time></time></a></article></div>`;
+  inThisPage();
+  const real = window.scrollTo.bind(window);
+  let ends = 0;
+  using _scroll = vi.spyOn(window, "scrollTo").mockImplementation((...args: [number, number]) => {
+    real(...args);
+    if (args[1] === document.documentElement.scrollHeight && ++ends === 2)
+      document.querySelector("article a")!.setAttribute("href", "/theo/status/43");
+  });
+  try {
+    const reading = xTrendMenu("Missing");
+    await vi.advanceTimersByTimeAsync(200);
+    // The native list asks for more while the lookup still walks X's trends.
+    const paging = xScrollMore();
+    await vi.runAllTimersAsync();
+    expect([await reading, await paging]).toEqual([null, true]);
+    expect(window.scrollY).toBe(1250);
+  } finally {
+    document.documentElement.scrollTop = 0;
+    history.replaceState(null, "", start);
+    registerXWebview(null);
+  }
+});
+
+it("stops a scroll for more when a newer one starts on its page, putting X's page back first, so the newer finds it where it was", async () => {
+  using _clock = fakeTimers();
+  const start = location.pathname + location.search;
+  history.replaceState(null, "", "/home");
+  document.body.innerHTML = `<div style="height:50000px;position:relative">
+    <article style="position:absolute;top:49000px"><a href="/theo/status/42"><time></time></a></article></div>`;
+  inThisPage();
+  window.scrollTo(0, 120);
+  const real = window.scrollTo.bind(window);
+  let ends = 0;
+  using _scroll = vi.spyOn(window, "scrollTo").mockImplementation((...args: [number, number]) => {
+    real(...args);
+    // X's next page lands on the second scroll to its end (the newer scroll's first), and the next
+    // on the fifth.
+    if (args[1] === document.documentElement.scrollHeight && [2, 5].includes(++ends))
+      document.querySelector("article a")!.setAttribute("href", `/theo/status/${42 + ends}`);
+  });
+  try {
+    const first = xScrollMore();
+    await vi.advanceTimersByTimeAsync(100);
+    const second = xScrollMore();
+    await vi.runAllTimersAsync();
+    expect([await first, await second, window.scrollY]).toEqual([false, true, 120]);
+  } finally {
+    document.documentElement.scrollTop = 0;
+    history.replaceState(null, "", start);
+    registerXWebview(null);
+  }
+});
+
+it("waits out a trend lookup before a stopped scroll for more puts X's page back, and only then lets the newer one start", async () => {
+  using _clock = fakeTimers();
+  const start = location.pathname + location.search;
+  tallPage("/explore");
+  // X's page really moves; each time it is put back to 120, whether a trend lookup held the scroll.
+  const real = window.scrollTo.bind(window);
+  const backs: Array<number> = [];
+  using _scroll = vi.spyOn(window, "scrollTo").mockImplementation((...args: [number, number]) => {
+    if (JSON.stringify(args) === JSON.stringify(home(120)))
+      backs.push((window as { __xtendTrendLookups?: number }).__xtendTrendLookups ?? 0);
+    real(...args);
+  });
+  try {
+    const first = xScrollMore();
+    await vi.advanceTimersByTimeAsync(100);
+    // A trend lookup takes the scroll, and a newer scroll for more stops the first.
+    const reading = xTrendMenu("Missing");
+    await vi.advanceTimersByTimeAsync(0);
+    const second = xScrollMore();
+    await vi.runAllTimersAsync();
+    expect([await first, await reading, await second]).toEqual([false, null, false]);
+    // The newer scroll found X's page back at 120, and put it back there in turn.
+    expect([backs.length > 1, backs.every((held) => held === 0), window.scrollY]).toEqual([
+      true,
+      true,
+      120,
+    ]);
+  } finally {
+    document.documentElement.scrollTop = 0;
+    history.replaceState(null, "", start);
     registerXWebview(null);
   }
 });

@@ -167,42 +167,98 @@ export const xRun = (code: string): Promise<unknown> => {
 };
 
 /**
- * Near a native list's end, X scrolls its own page to fetch the next: it follows the bottom, a
- * screen back between tries (a jump can fetch nothing), until X's last post or person changes;
- * page height is no signal. X's page loading anew, or `signal` (the list going), ends it.
+ * Near a native list's end, X scrolls its own page to fetch the next, a screen back between tries,
+ * until X's last post or person changes (page height is no signal); X loading anew or `signal` ends
+ * it. Then X's page goes back where it was: parked at its end, X fetches page after page by itself
+ * as its cells resize (Space cards as X polls them), and restores that end on Back.
  */
 export const xScrollMore = (signal: AbortSignal = new AbortController().signal) =>
   xRunHeld(
     `(async () => {
     const path = location.pathname + location.search;
-    const run = window.__xtendScroll = (window.__xtendScroll ?? 0) + 1;
-    const current = () => window.__xtendScroll === run && location.pathname + location.search === path;
-    // Virtuoso asks once per length: keep its request alive while a trend lookup owns the scroll.
-    const resume = async () => {
-      for (let i = 0; i < 80 && current() && window.__xtendTrendLookups; i++)
-        await new Promise((r) => setTimeout(r, 100));
-      return current() && !window.__xtendTrendLookups;
-    };
-    if (!current() || (window.__xtendTrendLookups && !(await resume()))) return false;
-    // People lists and Community search results have no posts: without their rows this never sees
-    // X's next page land and keeps scrolling, so X fetches page after page.
-    const last = () => [...document.querySelectorAll('article a[href*="/status/"] time, [data-testid="UserCell"] a[href^="/"], [data-testid="cellInnerDiv"]:not(:has(article)) a[href^="/i/communities/"]')].at(-1)?.closest("a")?.getAttribute("href");
-    window.scrollTo(0, document.documentElement.scrollHeight);
-    await new Promise((r) => setTimeout(r, 300));
-    if (!current() || (window.__xtendTrendLookups && !(await resume()))) return false;
-    const before = last();
-    for (let attempt = 0; attempt < 4; attempt++) {
-      for (let i = 0; i < 15; i++) {
-        await new Promise((r) => setTimeout(r, 250));
-        if (!current() || (window.__xtendTrendLookups && !(await resume()))) return false;
-        window.scrollTo(0, document.documentElement.scrollHeight);
-        if (last() !== before) return true;
-      }
-      window.scrollBy(0, -window.innerHeight);
-      await new Promise((r) => setTimeout(r, 300));
-      if (!current() || (window.__xtendTrendLookups && !(await resume()))) return false;
+    const here = () => location.pathname + location.search === path;
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    // One scroll for more per page at a time: a newer one stops the one before it and waits for it
+    // to put X's page back, so where it finds X's page is never another's end.
+    const run = (window.__xtendScroll = (window.__xtendScroll ?? 0) + 1);
+    const latest = () => window.__xtendScroll === run;
+    const runs = window.__xtendScrollRuns ??= {};
+    // Pages the engine left mid-way, and where each was: X keeps such a page at its end and
+    // restores that on Back, so it goes back once X shows it again.
+    const homes = window.__xtendScrollHomes ??= {};
+    if (!window.__xtendScrollWatch) {
+      window.__xtendScrollWatch = true;
+      // shortcut: X restores a page's scroll a moment after its popstate; 500 ms outlasts that on
+      // the pages seen so far, move to X's own scroll-restored signal if one is found.
+      addEventListener("popstate", () => {
+        const page = location.pathname + location.search;
+        const home = homes[page];
+        if (home === undefined) return;
+        setTimeout(() => {
+          if (location.pathname + location.search !== page || homes[page] !== home || runs[page]) return;
+          delete homes[page];
+          window.scrollTo({ top: home, behavior: "instant" });
+        }, 500);
+      });
+      // The user's own scrolling of X's page (the side panel) is theirs to keep.
+      const keys = new Set(["PageDown", "PageUp", "ArrowDown", "ArrowUp", "Home", "End", " "]);
+      const own = (event) => {
+        if (event.isTrusted && (event.type !== "keydown" || keys.has(event.key)))
+          delete homes[location.pathname + location.search];
+      };
+      for (const type of ["wheel", "touchmove", "keydown"])
+        addEventListener(type, own, { capture: true, passive: true });
     }
-    return false;
+    const before = runs[path];
+    let done;
+    const mine = (runs[path] = new Promise((r) => (done = r)));
+    await before;
+    // A trend lookup owns the scroll while it runs: wait it out, up to its own limit.
+    const free = async () => {
+      for (let i = 0; i < 80 && here() && latest() && window.__xtendTrendLookups; i++) await wait(100);
+      return here() && latest() && !window.__xtendTrendLookups;
+    };
+    const step = async (ms) => (await wait(ms), await free());
+    // People lists and Community search results have no posts: without their rows this never
+    // sees X's next page land and keeps scrolling, so X fetches page after page.
+    const last = () => [...document.querySelectorAll('article a[href*="/status/"] time, [data-testid="UserCell"] a[href^="/"], [data-testid="cellInnerDiv"]:not(:has(article)) a[href^="/i/communities/"]')].at(-1)?.closest("a")?.getAttribute("href");
+    try {
+      if (!(await free())) return false;
+      // Back on a page left mid-way before X's restore was due: that restore goes first.
+      if (homes[path] !== undefined) window.scrollTo({ top: homes[path], behavior: "instant" });
+      delete homes[path];
+      const from = scrollY;
+      const stop = async () => {
+        if (!here()) homes[path] = from;
+        else if (!latest()) {
+          // Stopped by a newer scroll, which captures only once X's page is back: a trend lookup
+          // holding the scroll is waited out first, and X's page goes back only if still here.
+          for (let i = 0; i < 80 && here() && window.__xtendTrendLookups; i++) await wait(100);
+          if (here() && !window.__xtendTrendLookups) window.scrollTo({ top: from, behavior: "instant" });
+        }
+        return false;
+      };
+      window.scrollTo(0, document.documentElement.scrollHeight);
+      if (!(await step(300))) return await stop();
+      const seen = last();
+      for (let attempt = 0; attempt < 4; attempt++) {
+        for (let i = 0; i < 15; i++) {
+          if (!(await step(250))) return await stop();
+          window.scrollTo(0, document.documentElement.scrollHeight);
+          if (last() !== seen) {
+            window.scrollTo({ top: from, behavior: "instant" });
+            return true;
+          }
+        }
+        window.scrollBy(0, -window.innerHeight);
+        if (!(await step(300))) return await stop();
+      }
+      window.scrollTo({ top: from, behavior: "instant" });
+      return false;
+    } finally {
+      if (runs[path] === mine) delete runs[path];
+      done();
+    }
   })()`,
     signal,
   );
@@ -885,6 +941,8 @@ const trendMenuAt = (name: string): MenuAt => ({
     let trend = trendPath.startsWith("/explore") ? own() : null;
     if (!trend && trendPath.startsWith("/explore") && (${current})) {
       window.__xtendTrendLookups = (window.__xtendTrendLookups ?? 0) + 1;
+      // The lookup takes X's page off its end itself: putting it back later would leave the trend.
+      delete window.__xtendScrollHomes?.[trendPath];
       try {
         window.scrollTo({ top: 0, behavior: "instant" });
         let end = null, stalled = 0;
