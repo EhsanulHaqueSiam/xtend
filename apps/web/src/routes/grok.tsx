@@ -18,6 +18,7 @@ import {
   useGrokPress,
   useGrokWatch,
 } from "../components/xnative/Grok";
+import { GrokLegacy, GrokLegacyHistory } from "../components/xnative/GrokLegacy";
 import { MediaViewer } from "../components/xnative/MediaViewer";
 import { Avatar } from "../components/xnative/XPostView";
 import { isElectron } from "../env";
@@ -378,12 +379,13 @@ function GrokScreen() {
     tried.current = true;
     void xGrokPastEntry().finally(() => setTryEnded(true));
   }, [gated]);
-  // X's older Grok page, and X's gate after the attempt, are X's: over the main area.
-  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- shows the engine over the main area while X draws a Grok page Xtend does not read.
+  // X's gate after the one attempt is X's to answer: over the main area. X's older Grok page
+  // Xtend draws itself.
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- shows the engine over the main area while X holds it on its account gate.
   useEffect(() => {
-    setOver(page === "other" || (tryEnded && gated));
+    setOver(tryEnded && gated);
     return () => setOver(false);
-  }, [page, tryEnded, gated, setOver]);
+  }, [tryEnded, gated, setOver]);
 
   const load = useCallback(
     (query: string, more = false) =>
@@ -434,7 +436,9 @@ function GrokScreen() {
   return (
     <div className="flex h-full min-h-0 bg-black">
       <section aria-label="Grok" className="flex min-w-0 flex-1 flex-col">
-        {read === null || page !== "xweb" ? (
+        {page === "other" ? (
+          <GrokLegacy />
+        ) : read === null || page !== "xweb" ? (
           <>
             <div className="drag-region min-h-[53px]" />
             <Empty>Opening Grok in X.</Empty>
@@ -454,7 +458,11 @@ function GrokScreen() {
         aria-label="Grok rail"
         className="flex w-[360px] min-w-[300px] shrink-0 flex-col border-l border-border"
       >
-        <History grok={grok} open={c} onOpen={openRow} onLoad={load} />
+        {page === "other" ? (
+          <GrokLegacyHistory />
+        ) : (
+          <History grok={grok} open={c} onOpen={openRow} onLoad={load} />
+        )}
         {named.length === 0 ? null : (
           <section aria-label="In this answer" className="border-t border-border px-4 py-3">
             <h3 className="flex justify-between text-[12px] font-bold tracking-wide text-[#71767b] uppercase">

@@ -21,6 +21,7 @@ import {
   RECOVERY_RETRY_CHANNEL,
   type BridgeInfo,
   ENGINE_CHANNEL,
+  GROK_CHANNEL,
   GLANCE_CHANNEL,
   type Glance,
   OPEN_EXTERNAL_CHANNEL,
@@ -442,6 +443,7 @@ export function createMainWindow(options: MainWindowOptions) {
         commands.marks(batch.map((p) => ({ postId: p.postId, handle: p.author.handle })));
       },
       onRender: (batch) => toApp(ENGINE_CHANNEL, batch),
+      onGrok: (capture) => toApp(GROK_CHANNEL, capture),
       onCreatedPost: (postId) => {
         for (const listener of createdListeners) listener(postId);
         createdListeners.clear();
