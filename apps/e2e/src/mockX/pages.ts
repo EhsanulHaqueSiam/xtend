@@ -211,10 +211,11 @@ const COMMUNITIES_SEARCH_TABS = [
   { page: "latest", label: "Latest", op: "GlobalCommunitiesLatestPostSearchTimeline" },
 ] as const;
 
+/** A Community's tabs: X switches Top, Latest and Media in place on one URL; About is its own page. */
 const COMMUNITY_TABS = [
   { path: "", label: "Top" },
-  { path: "/latest", label: "Latest" },
-  { path: "/media", label: "Media" },
+  { path: "", label: "Latest" },
+  { path: "", label: "Media" },
   { path: "/about", label: "About" },
 ] as const;
 
@@ -1216,8 +1217,16 @@ export function route(
     };
   }
   if (lower === "i" && second === "communities" && third !== undefined) {
-    const tab = COMMUNITY_TABS.find((t) => t.path === (fourth === undefined ? "" : `/${fourth}`));
     const id = third;
+    // X opens on Latest for a member and Top otherwise, then on the tab last picked there
+    // (bundle.Communities).
+    const role = state.community(id)?.role;
+    const member = role === "Member" || role === "Moderator" || role === "Admin";
+    const tab =
+      fourth === undefined
+        ? (COMMUNITY_TABS.find((t) => t.path === "" && t.label === homeTab) ??
+          COMMUNITY_TABS[member ? 1 : 0])
+        : COMMUNITY_TABS.find((t) => t.path === `/${fourth}`);
     const timeline =
       tab === undefined
         ? null
@@ -1297,11 +1306,11 @@ export function route(
           : "";
         return `${summary}<div class="bar"><button data-testid="app-bar-back" aria-label="Back">←</button><h2 role="heading">${esc(c.name)}</h2><a href="/i/communities/${id}/search" aria-label="Search Community">⌕</a>${more}</div><div data-testid="communityHeader"><img alt="" src="${esc(c.bannerUrl ?? "")}" class="banner-img"><h2>${esc(c.name)}</h2><a href="/i/communities/${c.communityId}/members"><b>${compact(c.members)}</b> Members</a><button aria-label="${pin}" data-community-pin="${id}">📌</button><button aria-label="Share Community">⤴</button>${joinButton(c, state.communityRequested(id))}</div>${tabs(
           "Community",
-          COMMUNITY_TABS.map((t) => ({
-            label: t.label,
-            href: `/i/communities/${id}${t.path}`,
-            on: t === tab,
-          })),
+          COMMUNITY_TABS.map((t) =>
+            t.path === "" && tab.path === ""
+              ? { label: t.label, tab: t.label, on: t === tab }
+              : { label: t.label, href: `/i/communities/${id}${t.path}`, on: t === tab },
+          ),
         )}${checklist}<section data-list>${
           tab.label === "About"
             ? about

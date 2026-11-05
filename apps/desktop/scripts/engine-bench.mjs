@@ -63,6 +63,8 @@ let grokHistory = null;
 let grokHistoryRequest = null;
 /** X's API calls the engine page made while the bench watched it, for pacing. */
 let xCalls = 0;
+/** The latest X API calls' host and path (no query: no variables), for a failing check to show. */
+const xSeen = [];
 const X_API = /^https:\/\/(x\.com\/i\/api\/|api\.x\.com\/)/;
 async function session(match) {
   const all = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
@@ -83,7 +85,11 @@ async function session(match) {
     const message = JSON.parse(String(e.data));
     if (message.method === "Network.requestWillBeSent") {
       const url = message.params.request.url;
-      if (X_API.test(url)) xCalls++;
+      if (X_API.test(url)) {
+        xCalls++;
+        xSeen.push(`${message.params.request.method} ${url.split("?")[0]}`);
+        if (xSeen.length > 300) xSeen.shift();
+      }
       const kind = grokKind(url);
       if (kind !== null) grokSeen[kind]++;
       if (/\/graphql\/[^/]+\/GrokHistory(?:\?|$)/.test(url))
@@ -1106,9 +1112,38 @@ const benchmarks = [
         `(() => { const cs = [...$.communities.values()]; return (cs.find((c) => c.role === "NonMember") ?? cs.find((c) => c.role !== null))?.communityId; })()`,
       );
       if (!explore || !id) return false;
-      await reset(`community:${id}`);
+      // No reset: X shows a Community it loaded earlier in this page from its cache and sends
+      // nothing, so Xtend draws what it kept (or loads X's page anew when it kept none).
+      const callsBefore = xCalls;
       await go(`#/communities/${id}`);
-      const top = (await xTab("Top")) && (await same());
+      // X opens on Latest for a member and Top otherwise (or the tab last picked there); Xtend
+      // draws the tab X opened, and the other is one press of X's own tab away.
+      const ourTab = (label) =>
+        until(() =>
+          app(
+            `document.querySelector('main [role="tab"][aria-selected="true"]')?.textContent.trim() === ${JSON.stringify(label)}`,
+          ),
+        );
+      const opened = await until(() =>
+        engine(
+          `(() => { const t = document.querySelector('[role="tablist"]:has(a[href$="/about"]) [role="tab"][aria-selected="true"]')?.textContent.trim(); return ["Top", "Latest", "Media"].includes(t) && t; })()`,
+        ),
+      );
+      const first = opened && (await ourTab(opened)) && (await same());
+      // Why nothing drew: the Community calls X's page made, and what Xtend's store holds of it.
+      if (!first)
+        console.log(
+          `  Community ${id}: X opened ${opened}; X's Community calls:`,
+          xSeen.slice(-(xCalls - callsBefore) || xSeen.length).filter((c) => /Communit/.test(c)),
+          "store:",
+          await store(`Object.keys($.lists).filter((k) => k.includes(${JSON.stringify(id)}))`),
+        );
+      const other = opened === "Top" ? "Latest" : "Top";
+      await app(
+        `[...document.querySelectorAll('main [role="tab"]')].find((t) => t.textContent.trim() === ${JSON.stringify(other)})?.click(), true`,
+      );
+      const second = first && (await xTab(other)) && (await ourTab(other)) && (await same());
+      const top = second && `${opened} ${first}, ${other} ${second}`;
       // As Xtend presses it (communityButton in apps/web/src/state/x.ts): in the header that
       // links into this Community alone.
       const xs = await until(() =>
@@ -1116,9 +1151,12 @@ const benchmarks = [
           `(() => { const id = ${JSON.stringify(id)}; const join = [...document.querySelectorAll('button, [role="button"]')].filter((b) => /^(Join|Ask to join|Joined|Requested|Pending)$/.test(b.textContent.trim()) || /^(Join|Ask to join) /.test(b.getAttribute("aria-label") ?? "")); const mine = join.filter((b) => { for (let box = b.parentElement; box; box = box.parentElement) { const links = [...box.querySelectorAll('a[href*="/i/communities/"]')].map((a) => a.getAttribute("href").split("/i/communities/")[1]?.split(/[/?#]/)[0]); if (links.length > 0) return links.every((l) => l === id) && join.every((o) => o === b || !box.contains(o)); } return false; }); return mine.length === 1 ? mine[0].textContent.trim() : undefined; })()`,
         ),
       );
-      // Xtend's button says what X's does, from what X sent of the viewer's role.
+      // Xtend's button says what X's does, from what X sent of the viewer's role; Pin and Share
+      // before it have no words.
       const ours = await until(() =>
-        app(`document.querySelector('main [data-x="community"] button[aria-label]')?.textContent`),
+        app(
+          `[...document.querySelectorAll('main [data-x="community"] button')].map((b) => b.textContent.trim()).find((t) => /^(Join|Ask to join|Joined|Requested)$/.test(t))`,
+        ),
       );
       return (
         top &&

@@ -410,7 +410,8 @@ export function XTabs<Id extends string>({
 }: {
   readonly label: string;
   readonly tabs: ReadonlyArray<{ readonly id: Id; readonly label: string }>;
-  readonly value: Id;
+  /** Undefined while no tab is open yet. */
+  readonly value: Id | undefined;
   readonly onChange: (id: Id) => void;
 }) {
   return (

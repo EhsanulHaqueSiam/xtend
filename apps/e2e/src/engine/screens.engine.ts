@@ -599,6 +599,29 @@ test("Communities: the hub's Home and Explore, and a Community's tabs, read X's 
   // X labels each post with the Community it is from.
   await e.app.locator("main").getByText(explore.posts[0]!.context!.text).first().waitFor();
 
+  const tweets = (rankingMode: string, communityId: string) =>
+    read("CommunityTweetsTimeline", { communityId, rankingMode }).order;
+  const selected = () => e.app.locator('main [role="tab"][aria-selected="true"]').textContent();
+  const xSelected = () =>
+    e.engine(`document.querySelector('[role="tab"][aria-selected="true"]')?.textContent.trim()`);
+  // A Community the user is in opens on Latest on X, so Xtend draws Latest, and Top is X's tab.
+  const mine = read("CarouselQuery").communities[0]!.communityId;
+  await go(`/communities/${mine}`);
+  await expect.poll(enginePath).toBe(`/i/communities/${mine}`);
+  await expect.poll(selected).toBe("Latest");
+  await expect.poll(nativeIds).toEqual(tweets("Recency", mine));
+  await e.app.getByRole("tab", { name: "Top", exact: true }).click();
+  await expect.poll(xSelected).toBe("Top");
+  await expect.poll(nativeIds).toEqual(tweets("Relevance", mine));
+  // Back again after the hub: X shows the tab last picked from its cache, asking nothing, and
+  // Xtend draws what it kept.
+  await go("/communities");
+  await expect.poll(enginePath).toBe(hub);
+  await go(`/communities/${mine}`);
+  await expect.poll(enginePath).toBe(`/i/communities/${mine}`);
+  await expect.poll(selected).toBe("Top");
+  await expect.poll(nativeIds).toEqual(tweets("Relevance", mine));
+
   // The Community the fixtures give a page of its own.
   const community = e.mock.state
     .fixtures()
@@ -609,17 +632,19 @@ test("Communities: the hub's Home and Explore, and a Community's tabs, read X's 
   const header = e.app.locator('main [data-x="community"]');
   await header.getByText("Members").waitFor();
   expect(await header.innerText()).toContain(community.name);
-  const tweets = (rankingMode: string) =>
-    read("CommunityTweetsTimeline", { communityId: id, rankingMode }).order;
-  await expect.poll(nativeIds).toEqual(tweets("Relevance"));
+  // One the user is not in opens on Top.
+  await expect.poll(selected).toBe("Top");
+  await expect.poll(nativeIds).toEqual(tweets("Relevance", id));
 
-  const tab = async (label: string, path: string) => {
+  // X switches Top, Latest and Media in place, on one URL: Xtend presses X's own tab there.
+  const tab = async (label: string, path = "") => {
     await e.app.getByRole("tab", { name: label, exact: true }).click();
     await expect.poll(enginePath).toBe(`/i/communities/${id}${path}`);
+    if (path === "") await expect.poll(xSelected).toBe(label);
   };
-  await tab("Latest", "/latest");
-  await expect.poll(nativeIds).toEqual(tweets("Recency"));
-  await tab("Media", "/media");
+  await tab("Latest");
+  await expect.poll(nativeIds).toEqual(tweets("Recency", id));
+  await tab("Media");
   await expect.poll(nativeIds).toEqual(read("CommunityMediaTimeline", { communityId: id }).order);
   await tab("About", "/about");
   const about = read("CommunityAboutTimeline", { communityId: id });
@@ -1303,7 +1328,8 @@ test("X's Admin tools: a moderator's gear opens X's list natively, each tool X's
     await e.engine(`${confirm}.click()`);
     await expect.poll(pane).toBe("hidden");
     await expect.poll(presses).toContain(`write CommunityUpdateRole ${id}`);
-    await expect.poll(xtendHash).toBe(`#/communities/${id}`);
+    // The Community, on the tab X opened it on.
+    await expect.poll(xtendHash).toMatch(new RegExp(`^#/communities/${id}(\\?tab=\\w+)?$`));
   } finally {
     e.mock.state.setCommunityRole(id, community.role);
   }
@@ -1375,7 +1401,8 @@ test("Create a new Community: X's form over the main area, X's summary, then the
   expect(await pane()).toBe("main");
   await e.engine(`document.querySelector('[data-x-got-it]').click(), true`);
   await expect.poll(pane).toBe("hidden");
-  await expect.poll(xtendHash).toBe(`#/communities/${made}`);
+  // The Community, on the tab X opened it on.
+  await expect.poll(xtendHash).toMatch(new RegExp(`^#/communities/${made}(\\?tab=\\w+)?$`));
   expect(presses()).toContain(`write CreateCommunity`);
 
   // X's checklist drawn natively over X's empty state; a row presses X's own, which opens its step.
