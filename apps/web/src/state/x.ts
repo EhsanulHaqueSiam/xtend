@@ -182,7 +182,10 @@ export const xScrollMore = (signal: AbortSignal = new AbortController().signal) 
     const resume = async () => {
       for (let i = 0; i < 80 && current() && window.__xtendTrendLookups; i++)
         await new Promise((r) => setTimeout(r, 100));
-      return current() && !window.__xtendTrendLookups;
+      if (!current() || window.__xtendTrendLookups) return false;
+      // The lookup dropped this page's restore: it goes back where the lookup left it instead.
+      homes[path] ??= { from: scrollY };
+      return true;
     };
     // Where X's page was before the first scroll for more on it. A scroll that supersedes another
     // takes it over; a page left mid-way keeps it until X shows that page again.
@@ -190,13 +193,12 @@ export const xScrollMore = (signal: AbortSignal = new AbortController().signal) 
     if (!window.__xtendScrollWatch) {
       window.__xtendScrollWatch = true;
       // Puts the page back unless something else owns its scroll: a scroll for more, the user, or a
-      // trend lookup (after which only a page still at its end goes back).
-      window.__xtendScrollBack = (path, home, waited = false) => {
+      // trend lookup, which drops its own page's restore and is waited out on any other.
+      window.__xtendScrollBack = (path, home) => {
         if (!home || homes[path] !== home || location.pathname + location.search !== path || window.__xtendScrollLive) return;
-        if (window.__xtendTrendLookups) return void setTimeout(() => window.__xtendScrollBack(path, home, true), 100);
+        if (window.__xtendTrendLookups) return void setTimeout(() => window.__xtendScrollBack(path, home), 100);
         delete homes[path];
-        if (!waited || innerHeight + scrollY >= document.documentElement.scrollHeight - innerHeight)
-          window.scrollTo({ top: home.from, behavior: "instant" });
+        window.scrollTo({ top: home.from, behavior: "instant" });
       };
       // shortcut: X restores a page's scroll a moment after its popstate; 500 ms outlasts that on
       // the pages seen so far, move to X's own scroll-restored signal if one is found.
@@ -925,6 +927,8 @@ const trendMenuAt = (name: string): MenuAt => ({
     let trend = trendPath.startsWith("/explore") ? own() : null;
     if (!trend && trendPath.startsWith("/explore") && (${current})) {
       window.__xtendTrendLookups = (window.__xtendTrendLookups ?? 0) + 1;
+      // The lookup takes X's page off its end itself: putting it back later would leave the trend.
+      delete window.__xtendScrollHomes?.[trendPath];
       try {
         window.scrollTo({ top: 0, behavior: "instant" });
         let end = null, stalled = 0;
