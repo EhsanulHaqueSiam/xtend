@@ -60,7 +60,7 @@ const SCRIPT = String.raw`
   let shown = null;
   let token = 0;
   let booted = false;
-  let loadingMore = false;
+  let loadingMore = null;
   const here = () => location.pathname + location.search;
   // Pages that switch tabs in place, on one URL: Home's timelines, a Community search's orders,
   // a game's tabs.
@@ -357,29 +357,25 @@ const SCRIPT = String.raw`
   }
 
   /** X's next page once the user (or the engine) scrolls to the end of the list. */
-  async function more() {
+  function more() {
     const entry = shown;
-    if (!entry || !entry.next || loadingMore) return;
-    if (innerHeight + scrollY < document.documentElement.scrollHeight - 300) return;
-    loadingMore = true;
-    try {
+    if (loadingMore) return loadingMore;
+    if (!entry || !entry.next) return Promise.resolve();
+    if (innerHeight + scrollY < document.documentElement.scrollHeight - 300) return Promise.resolve();
+    loadingMore = (async () => {
       const view = await load(entry.path, entry.next);
       entry.el.querySelector("[data-list]")?.append(...fragment(view.html).childNodes);
       entry.next = view.next;
-    } finally {
-      loadingMore = false;
-    }
+    })().finally(() => { loadingMore = null; });
+    return loadingMore;
   }
   addEventListener("scroll", () => { drawTrends(); void more(); }, { passive: true });
-  // X's list checks its end again as its cells resize: parked at its end, it fetches by itself.
-  // Read on a timer, not observed: an engine off screen may not render for an observer to fire.
-  let cells = "";
-  setInterval(() => {
-    const now = column.offsetHeight + " " + column.getElementsByTagName("*").length;
-    if (now === cells || scrollY === 0) return;
-    cells = now;
-    void more();
-  }, 250);
+  // X's list checks its end again as its cells resize: parked at its end, it fetches by itself. A
+  // test that resizes cells runs that check, once any page in flight has landed.
+  window.__mockCellsResized = async () => {
+    await loadingMore;
+    await more();
+  };
 
   // X's GIF search runs what is typed in place, on its own route: its list starts over per query,
   // and each query searched is a history entry, so Back returns to the query before it.
