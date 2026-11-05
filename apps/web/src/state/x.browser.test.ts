@@ -833,27 +833,27 @@ const tallPage = (path: string) => {
 const restored = (scrolls: { mock: { calls: Array<unknown> } }) =>
   scrolls.mock.calls.some((c) => JSON.stringify(c) === JSON.stringify(home(120)));
 
-it("hands a restore to the scroll for more that supersedes it, so Back still puts X's page back after a trend lookup and a leave", async () => {
+it("releases a page's restore from a scroll for more that ends before scrolling, so Back still puts the page left earlier back", async () => {
   using _clock = fakeTimers();
   const start = location.pathname + location.search;
-  tallPage("/explore");
-  using scrolls = scrollsTo(Infinity, () => {});
+  tallPage("/search?q=spaces");
+  // The engine leaves the search for Explore mid-way through asking for more.
+  using scrolls = scrollsTo(1, () => history.pushState(null, "", "/explore"));
   using _back = vi.spyOn(window, "scrollBy").mockImplementation(() => {});
   try {
     const first = xScrollMore();
     await vi.advanceTimersByTimeAsync(100);
-    // A trend lookup takes the scroll, and the native list asks again while it does.
+    // On Explore a trend lookup takes the scroll, and Explore's list asks for more while it does.
     const reading = xTrendMenu("Missing");
     await vi.advanceTimersByTimeAsync(0);
     const second = xScrollMore();
     await vi.advanceTimersByTimeAsync(200);
-    history.pushState(null, "", "/i/spaces/1/peek");
-    await vi.runAllTimersAsync();
-    expect([await first, await second, await reading]).toEqual([false, false, null]);
-    history.pushState(null, "", "/explore");
+    history.pushState(null, "", "/search?q=spaces");
     dispatchEvent(new PopStateEvent("popstate"));
     await vi.advanceTimersByTimeAsync(500);
     expect(scrolls.mock.calls.at(-1)).toEqual(home(120));
+    await vi.runAllTimersAsync();
+    expect([await first, await second, await reading]).toEqual([false, false, null]);
   } finally {
     document.documentElement.scrollTop = 0;
     history.replaceState(null, "", start);
@@ -873,8 +873,12 @@ it("leaves X's page where the user scrolls it after Back: their own scrolling ca
     history.pushState(null, "", "/search?q=spaces");
     dispatchEvent(new PopStateEvent("popstate"));
     await vi.advanceTimersByTimeAsync(100);
-    // The user scrolls X's page in the side panel before the restore is due.
+    // The user scrolls X's page in the side panel before the restore is due. The browser's own
+    // smooth scroll would outlast the test, so only the key is kept.
+    const still = (event: KeyboardEvent) => event.preventDefault();
+    document.addEventListener("keydown", still);
     await userEvent.keyboard("{PageDown}");
+    document.removeEventListener("keydown", still);
     await vi.advanceTimersByTimeAsync(500);
     expect(restored(scrolls)).toBe(false);
   } finally {
@@ -902,6 +906,39 @@ it("never moves X's page under a trend lookup after Back, and leaves it where th
     expect(restored(scrolls)).toBe(false);
     await vi.runAllTimersAsync();
     expect(await reading).toBeNull();
+    expect(restored(scrolls)).toBe(false);
+  } finally {
+    document.documentElement.scrollTop = 0;
+    history.replaceState(null, "", start);
+    registerXWebview(null);
+  }
+});
+
+it("drops the restore of a page a trend lookup took, even a lookup done before the restore was due", async () => {
+  using _clock = fakeTimers();
+  const start = location.pathname + location.search;
+  tallPage("/explore");
+  using scrolls = scrollsTo(1, () => history.pushState(null, "", "/i/spaces/1/peek"));
+  using _back = vi.spyOn(window, "scrollBy").mockImplementation(() => {});
+  try {
+    const paging = xScrollMore();
+    await vi.runAllTimersAsync();
+    expect(await paging).toBe(false);
+    history.pushState(null, "", "/explore");
+    dispatchEvent(new PopStateEvent("popstate"));
+    const reading = xTrendMenu("T1");
+    await vi.advanceTimersByTimeAsync(150);
+    // X draws the trend: the lookup finds it at once, well before the restore is due.
+    const cell = document.createElement("div");
+    cell.dataset.testid = "trend";
+    cell.innerHTML = '<span style="font-weight:700">T1</span><button data-testid="caret"></button>';
+    const caret = cell.querySelector("button")!;
+    caret.addEventListener("click", () => drawMenu(caret, { "Not interested in this": () => {} }));
+    document.body.append(cell);
+    await vi.advanceTimersByTimeAsync(600);
+    expect(restored(scrolls)).toBe(false);
+    await vi.runAllTimersAsync();
+    expect(await reading).toEqual(["Not interested in this"]);
     expect(restored(scrolls)).toBe(false);
   } finally {
     document.documentElement.scrollTop = 0;

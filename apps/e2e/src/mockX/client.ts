@@ -374,9 +374,10 @@ const SCRIPT = String.raw`
   }
   addEventListener("scroll", () => { drawTrends(); void more(); }, { passive: true });
   // X's list checks its end again as its cells resize: parked at its end, it fetches by itself. A
-  // test that resizes cells runs that check, once any page in flight has landed.
-  window.__mockCellsResized = async () => {
+  // test resizes cells through this, once any page in flight has landed, and X then checks.
+  window.__mockCellsResized = async (resize) => {
     await loadingMore;
+    resize();
     await more();
   };
 
