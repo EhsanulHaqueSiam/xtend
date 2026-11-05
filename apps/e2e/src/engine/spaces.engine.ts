@@ -217,21 +217,22 @@ test("A Space X has none of shows X's own error in the dock, and Xtend asks X fo
     .fixtures()
     .spaces!.batches.find((b) => b.op === "TweetDetail" && b.posts[0]!.spaceId === GONE_SPACE)!
     .posts[0]!;
-  const asked = () =>
-    e.mock.reads.filter((r) => r.op === "AudioSpaceById" && r.variables.id === GONE_SPACE).length;
+  // Xtend asks X for a Space by opening X's page for it; X's card polls it by itself meanwhile.
+  const asked = () => e.mock.views.filter((p) => p === `/i/spaces/${GONE_SPACE}/peek`).length;
   const open = `/post/${gone.postId}?h=${gone.author.handle}`;
   await go(open);
   await expect.poll(enginePath).toBe(`/${gone.author.handle}/status/${gone.postId}`);
   await e.app.locator('main [data-x="space-card"]').click();
   await dock().getByText("Something went wrong. Please try again later.").waitFor();
-  const once = asked();
+  await expect.poll(asked).toBe(1);
+  await expect.poll(enginePath).toBe(`/${gone.author.handle}/status/${gone.postId}`);
   // Other screens with the dock beside them, and back: X is asked nothing more for it.
   await go("/bookmarks");
   await expect.poll(enginePath).toBe("/i/bookmarks");
   await go(open);
   await expect.poll(enginePath).toBe(`/${gone.author.handle}/status/${gone.postId}`);
   await dock().getByText("Something went wrong. Please try again later.").waitFor();
-  expect(asked()).toBe(once);
+  expect(asked()).toBe(1);
   await dock().getByRole("button", { name: "Close" }).click();
 });
 
