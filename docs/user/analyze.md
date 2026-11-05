@@ -52,7 +52,7 @@ their top posts. Watching is free; the list is shared with Scores' Watchlist. Ea
 
 ## X's own analytics
 
-**X overview**, **X content**, **X video** and **X audience** are X's own account analytics
+**X overview**, **X content**, **X video**, **X audience** and **X Spaces** are X's own account analytics
 (x.com's Analytics in Creator Studio), read from X's page through your session in the desktop
 app, free. X shows them only to Premium accounts: without Premium these sections show X's
 paywall, and **Upgrade** opens X's own Premium page.
@@ -64,6 +64,9 @@ paywall, and **Upgrade** opens X's own Premium page.
   type and sortable by column. A post opens its own Post Analytics.
 - **X video**: views, watch time, completion rate and average watch time, then your videos.
 - **X audience**: who engaged by gender, age, country and device, for one engagement at a time.
+- **X Spaces**: the Spaces you hosted with their state, length, listeners, replays and speakers.
+  A Space opens X's numbers for it (total participants, peak listeners at once, replays), its
+  listeners over time and its speakers; a recorded one opens its recording.
 
 A range picked here is X's own button pressed on X's page, so x.com shows the same range. Live
-and Spaces analytics stay on x.com.
+analytics stay on x.com.

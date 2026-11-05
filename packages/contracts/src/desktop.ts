@@ -288,6 +288,46 @@ export interface EngineSpacePerson {
   readonly role: "host" | "cohost" | "speaker" | "listener";
   /** A speaker's mic as X draws it, off by themselves or by the host; false for a listener. */
   readonly muted: boolean;
+  /** Their Periscope account, which names the speaker of each of X's captions. */
+  readonly periscopeId?: string;
+}
+
+/** One line of X's captions for a Space's recording: who said it (their Periscope id) and when. */
+export interface EngineSpaceCaption {
+  readonly periscopeId: string;
+  readonly text: string;
+  readonly at: string;
+}
+
+/** A Space the user hosted, as X's Space analytics list it (spacesOverviewProviderQuery). */
+export interface EngineSpaceRow {
+  readonly spaceId: string;
+  readonly title: string;
+  /** X's word for it on the list: "Running", "Ended", or "Scheduled" for any other. */
+  readonly state: string;
+  readonly startedAt: string | null;
+  readonly endedAt: string | null;
+  readonly scheduledStart: string | null;
+  readonly listening: number | null;
+  readonly replays: number | null;
+  readonly recorded: boolean;
+  readonly speakers: number;
+}
+
+/** X's analytics for one Space the user hosted (spacesDetailsProviderQuery). */
+export interface EngineSpaceStats {
+  readonly spaceId: string;
+  readonly title: string;
+  readonly state: string;
+  readonly startedAt: string | null;
+  readonly endedAt: string | null;
+  readonly recorded: boolean;
+  /** X's Total Participants (`total_participated`). */
+  readonly participants: number | null;
+  readonly replays: number | null;
+  /** Listeners at each second of the Space (`view_count_graph`); X's peak is its largest. */
+  readonly concurrent: ReadonlyArray<number>;
+  readonly speakers: ReadonlyArray<Pick<EngineSpacePerson, "handle" | "name" | "avatarUrl">>;
 }
 
 /** One X Space as X's AudioSpaceById answers: live, scheduled, ended or recorded. */
@@ -742,6 +782,12 @@ export interface EngineBatch {
   readonly pinnedLists?: ReadonlyArray<string>;
   /** The X Spaces the response describes (AudioSpaceById). */
   readonly spaces?: ReadonlyArray<EngineSpace>;
+  /** X's captions for the Space `key` names, from a page of its recording's chat X fetched. */
+  readonly spaceCaptions?: ReadonlyArray<EngineSpaceCaption>;
+  /** X's Space analytics: the user's Spaces, or one Space's numbers. */
+  readonly spaceAnalytics?:
+    | { readonly kind: "list"; readonly spaces: ReadonlyArray<EngineSpaceRow> }
+    | { readonly kind: "space"; readonly space: EngineSpaceStats };
   /** The Space X answered AudioSpaceById for with no Space (ended, removed, private, or an error). */
   readonly spaceUnavailable?: string;
   /** What the response told the moderators of each Community it names (`EngineCommunityAdmin`). */

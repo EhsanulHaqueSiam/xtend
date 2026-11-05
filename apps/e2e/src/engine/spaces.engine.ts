@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, expect, test } from "vite-plus/test";
 
-import { GONE_SPACE, LIVE_SPACE } from "../../../web/src/components/xnative/engineFixtures.ts";
+import {
+  GONE_SPACE,
+  LIVE_SPACE,
+  RECORDED_SPACE,
+} from "../../../web/src/components/xnative/engineFixtures.ts";
 import { STARTED_SPACE } from "../mockX/spaces.ts";
 import { type Engine, startEngine } from "./harness.ts";
 
@@ -106,6 +110,67 @@ test("Start a Space opens X's own Create your Space over the main area, and End 
   await expect.poll(enginePath).toBe("/home");
 });
 
+test("X's Space analytics show X's paywall to an account without Premium", async () => {
+  // X's claims come with a full load of its page.
+  e.mock.state.setPremium(false);
+  try {
+    await e.engine("location.reload(), true");
+    await go("/analyze?tab=x-spaces");
+    await e.app.getByText("Advanced analytics with Plus").waitFor();
+    expect(await e.app.getByRole("link", { name: "Upgrade" }).getAttribute("href")).toBe(
+      "https://x.com/i/premium_sign_up",
+    );
+  } finally {
+    e.mock.state.setPremium(true);
+    await e.engine("location.reload(), true");
+  }
+});
+
+test("A recording plays through X's own player and reads as X's captions; X's Space analytics list it with X's numbers", async () => {
+  const recorded = e.mock.state.spaces.space(RECORDED_SPACE)!;
+  const before = presses().length;
+  // From X's Space analytics, the user's recorded Space opens its recording.
+  await go("/analyze?tab=x-spaces");
+  await expect.poll(enginePath).toBe("/i/account_analytics/spaces");
+  const row = e.app.locator('[data-x="space-row"]').first();
+  await row.getByText(recorded.title).waitFor();
+  await row.click();
+  await expect.poll(enginePath).toBe(`/i/account_analytics/spaces/${RECORDED_SPACE}`);
+  await e.app.locator('[data-x-tile="Peak Concurrent Listeners"]').getByText("226").waitFor();
+  await e.app.getByRole("button", { name: "Open the recording" }).click();
+
+  const screen = e.app.locator('[data-x="space-recording"]');
+  await screen.getByText(recorded.title).waitFor();
+  expect(
+    presses()
+      .slice(before)
+      .filter((p) => p.includes("space:")),
+  ).toEqual([]);
+  await screen.getByRole("button", { name: "Play recording" }).click();
+  await expect.poll(presses).toContain(`write space:play ${RECORDED_SPACE}`);
+  await screen.getByText("0:00 / 48:20").waitFor();
+  // X sends the recording's captions only while they are on, from its recording chat.
+  await screen.getByRole("button", { name: "Show captions" }).click();
+  await expect.poll(() => screen.locator('[data-x="caption"]').count()).toBe(5);
+  await screen.getByRole("button", { name: "Skip forward 15 seconds" }).click();
+  await screen.getByText("0:15 / 48:20").waitFor();
+  // A line is a place in the recording: X's own seek slider goes there.
+  await screen.locator('[data-x="caption"]').nth(3).click();
+  await expect.poll(() => e.mock.state.spaces.dock?.at).toBeGreaterThan(890_000);
+  await screen.getByRole("button", { name: "1x" }).click();
+  await e.app.getByRole("menuitem", { name: "1.5x speed" }).click();
+  await screen.getByRole("button", { name: "1.5x" }).waitFor();
+  await screen.getByRole("button", { name: "Pause" }).click();
+  await screen.getByRole("button", { name: "Play", exact: true }).waitFor();
+
+  // Elsewhere the dock shows what X plays, and its Close stops it.
+  await go("/home?feed=following");
+  await expect.poll(enginePath).toBe("/home");
+  await dock().getByRole("button", { name: "Open the recording" }).waitFor();
+  await dock().getByRole("button", { name: "Close", exact: true }).click();
+  await expect.poll(() => e.mock.state.spaces.dock).toBeNull();
+});
+
 test("In X's compact layout (a narrow engine) X's Space pages are routes and End's confirm a sheet with no dialog role, and each still works", async () => {
   e.mock.state.spaces.setCompact(true);
   try {
@@ -152,21 +217,22 @@ test("A Space X has none of shows X's own error in the dock, and Xtend asks X fo
     .fixtures()
     .spaces!.batches.find((b) => b.op === "TweetDetail" && b.posts[0]!.spaceId === GONE_SPACE)!
     .posts[0]!;
-  const asked = () =>
-    e.mock.reads.filter((r) => r.op === "AudioSpaceById" && r.variables.id === GONE_SPACE).length;
+  // Xtend asks X for a Space by opening X's page for it; X's card polls it by itself meanwhile.
+  const asked = () => e.mock.views.filter((p) => p === `/i/spaces/${GONE_SPACE}/peek`).length;
   const open = `/post/${gone.postId}?h=${gone.author.handle}`;
   await go(open);
   await expect.poll(enginePath).toBe(`/${gone.author.handle}/status/${gone.postId}`);
   await e.app.locator('main [data-x="space-card"]').click();
   await dock().getByText("Something went wrong. Please try again later.").waitFor();
-  const once = asked();
+  await expect.poll(asked).toBe(1);
+  await expect.poll(enginePath).toBe(`/${gone.author.handle}/status/${gone.postId}`);
   // Other screens with the dock beside them, and back: X is asked nothing more for it.
   await go("/bookmarks");
   await expect.poll(enginePath).toBe("/i/bookmarks");
   await go(open);
   await expect.poll(enginePath).toBe(`/${gone.author.handle}/status/${gone.postId}`);
   await dock().getByText("Something went wrong. Please try again later.").waitFor();
-  expect(asked()).toBe(once);
+  expect(asked()).toBe(1);
   await dock().getByRole("button", { name: "Close" }).click();
 });
 

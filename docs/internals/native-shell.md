@@ -97,8 +97,10 @@ traffic; Xtend opens a Space's page itself at most once per Space, and shows X's
 no Space for it); the user is a public listener only
 once X's Start listening is pressed, which the engine does for that click alone. The dock has no
 test ids: its controls are found by X's labels inside the box around its Leave, End or Close
-beside its Collapse, and captions are the lines of X's own panel there (X reads them from its
-`api.x.com/live-chat` stream, which the capture never reads).
+beside its Collapse. A live Space's captions are the lines of X's own panel there. A recording's
+are X's own pages of its recording chat (`/live-chat?…&replay=1`, JSON lines), which X fetches by
+playback time, and only while its captions are on: the capture reads them (once X's page has
+read the body) and hands them to the app page alone, so a transcript fills in as it plays.
 
 Grok is read from X's page too. X serves two Grok clients at `/i/grok` (its routes pick by the
 `responsive_web_grok_xweb_replacement_enabled` switch and the account's grok.com link): the newer

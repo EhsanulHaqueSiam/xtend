@@ -148,6 +148,7 @@ export function XColumn({
   header,
   float,
   rail,
+  docked = true,
   refresh,
   children,
 }: {
@@ -165,25 +166,28 @@ export function XColumn({
   /** Floats just under the header while the column scrolls, as X's "Show N posts" does. */
   readonly float?: ReactNode;
   readonly rail?: ReactNode;
+  /** False where the screen is the Space itself, which the dock would only repeat. */
+  readonly docked?: boolean;
   readonly children: ReactNode;
 }) {
   const [scroller, setScroller] = useState<HTMLElement | null>(null);
   const setEngine = useAtomSet(engineAtom);
-  const space = useAtomValue(spaceDockAtom);
+  const dock = useAtomValue(spaceDockAtom);
+  const space = docked ? dock : null;
   const engine = useAtomValue(engineAtom);
   const [grok, setGrok] = useAtom(grokDrawerAtom);
   const router = useRouter();
-  const docked = useRef(grok);
+  const dockedGrok = useRef(grok);
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- keeps the docked Grok for the release below, without re-registering it.
   useEffect(() => {
-    docked.current = grok;
+    dockedGrok.current = grok;
   });
   // A docked Grok belongs to the screen it docked on: it goes with it, and the engine goes back
   // unless the next screen takes it.
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- releases the docked Grok (the engine's Grok page) when this screen goes.
   useEffect(
     () => () => {
-      const open = docked.current;
+      const open = dockedGrok.current;
       if (open === null) return;
       endExplain();
       setGrok(null);

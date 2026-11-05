@@ -1337,7 +1337,9 @@ function keyOf(op: string, variables: Json, exploreTabs: ReadonlyArray<EngineExp
   // A post's reposters and likers (X's Post activity).
   if (op === "Retweeters" || op === "Favoriters") return s("tweetId") ?? null;
   if (op === "TweetActivityQuery") return s("restId") ?? null;
-  if (op === "AudioSpaceById") return s("id") ?? null;
+  if (op === "AudioSpaceById" || op === "spacesDetailsProviderQuery") return s("id") ?? null;
+  // X's list of the user's Spaces, its first page; X's next pages as its own list scrolls.
+  if (op === "spacesOverviewProviderQuery") return s("cursor") === undefined ? "spaces" : null;
   const accountAnalytics = accountAnalyticsKey(op, variables);
   if (accountAnalytics !== undefined) return accountAnalytics;
   // A news story's page asks for it by its trend id.
@@ -1393,7 +1395,9 @@ function readSpacePerson(
   const handle = asString(p.twitter_screen_name);
   if (handle === undefined || !X_HANDLE.test(handle)) return undefined;
   const userId = asString(record(p.user_results).rest_id);
+  const periscopeId = asString(p.periscope_user_id);
   return {
+    ...(periscopeId === undefined ? {} : { periscopeId }),
     userId: userId !== undefined && X_ID.test(userId) ? userId : null,
     handle: handle.toLowerCase(),
     name: asString(p.display_name) ?? handle,
@@ -1440,6 +1444,125 @@ function readSpace(op: string, data: Json): EngineSpace | undefined {
     ],
     total: asCount(participants.total),
   };
+}
+
+/** X's Space analytics (bundle.AccountAnalytics): the user's Spaces, and one Space's numbers. */
+function readSpaceAnalytics(op: string, data: Json): Pick<EngineBatch, "spaceAnalytics"> {
+  const ms = (value: unknown) =>
+    typeof value === "number" && value > 0 ? new Date(value).toISOString() : null;
+  if (op === "spacesOverviewProviderQuery") {
+    const slice = record(result(record(data.viewer_v2).user_results).created_spaces_slice);
+    if (!Array.isArray(slice.items)) return {};
+    return {
+      spaceAnalytics: {
+        kind: "list",
+        spaces: slice.items.flatMap((item) => {
+          const space = record(item);
+          const meta = record(space.metadata);
+          const spaceId = asString(space.rest_id);
+          if (spaceId === undefined || !SPACE_ID.test(spaceId)) return [];
+          const state = asString(space.state);
+          return [
+            {
+              spaceId,
+              title: asString(meta.title) ?? "",
+              // X's list says Running or Ended, and Scheduled for any other state.
+              state: state === "Running" || state === "Ended" ? state : "Scheduled",
+              startedAt: ms(meta.start),
+              endedAt: ms(meta.ended_at),
+              scheduledStart: ms(meta.scheduled_start),
+              listening: asCount(meta.total_live_listeners),
+              replays: asCount(meta.total_replay_watched),
+              recorded: meta.is_space_available_for_replay === true,
+              speakers: arr(record(space.participants).speakers).length,
+            },
+          ];
+        }),
+      },
+    };
+  }
+  if (op !== "spacesDetailsProviderQuery") return {};
+  const space = record(data.audio_space_by_rest_id);
+  const meta = record(space.metadata);
+  const spaceId = asString(space.rest_id);
+  if (spaceId === undefined || !SPACE_ID.test(spaceId)) return {};
+  return {
+    spaceAnalytics: {
+      kind: "space",
+      space: {
+        spaceId,
+        title: asString(meta.title) ?? "",
+        state: asString(space.state) ?? "",
+        startedAt: ms(meta.start),
+        endedAt: ms(meta.ended_at),
+        recorded: meta.is_space_available_for_replay === true,
+        participants: asCount(meta.total_participated),
+        replays: asCount(meta.total_replay_watched),
+        concurrent: arr(meta.view_count_graph).flatMap((n) => (typeof n === "number" ? [n] : [])),
+        speakers: arr(record(space.participants).speakers).flatMap((p) => {
+          const user = result(record(p).user_results);
+          const core = record(user.core);
+          const handle = asString(core.screen_name) ?? asString(record(p).twitter_screen_name);
+          return handle === undefined || !X_HANDLE.test(handle)
+            ? []
+            : [
+                {
+                  handle: handle.toLowerCase(),
+                  name: asString(core.name) ?? handle,
+                  avatarUrl: asString(record(user.avatar).image_url) ?? null,
+                },
+              ];
+        }),
+      },
+    },
+  };
+}
+
+/** X's chat of a Space's recording, a page of which X fetches while its captions are on. */
+export const isSpaceCaptionsUrl = (url: string) => {
+  try {
+    // By path, as the capture's other matches go: X serves it from api.x.com.
+    const u = new URL(url);
+    return u.pathname === "/live-chat" && u.searchParams.get("replay") === "1";
+  } catch {
+    return false;
+  }
+};
+
+/** X's transcription lines (chat type 45) that X counts final; X's `ts` is in nanoseconds. */
+const TRANSCRIPTION = 45;
+
+/**
+ * A page of X's recording chat (JSON lines) as the Space's captions, keyed by the Space
+ * (`broadcastId`); null for a page with none.
+ */
+export function renderSpaceCaptions(url: string, text: string): EngineBatch | null {
+  const spaceId = new URL(url).searchParams.get("broadcastId") ?? "";
+  if (!SPACE_ID.test(spaceId)) return null;
+  const captions = text.split("\n").flatMap((line) => {
+    let m: Json;
+    try {
+      m = record(JSON.parse(line));
+    } catch {
+      return [];
+    }
+    const said = asString(m.message);
+    const who = asString(m.userId);
+    const ts = asString(m.ts);
+    if (
+      m.chatType !== TRANSCRIPTION ||
+      m.final !== true ||
+      !said ||
+      who === undefined ||
+      ts === undefined ||
+      !/^\d{7,}$/.test(ts)
+    )
+      return [];
+    return [{ periscopeId: who, text: said, at: new Date(Number(ts.slice(0, -6))).toISOString() }];
+  });
+  return captions.length === 0
+    ? null
+    : { ...renderEngineBatch("LiveChatReplay", {}, {}), key: spaceId, spaceCaptions: captions };
 }
 
 /** A profile's people pages (X's Followers, Following, Followers you know, Verified Followers). */
@@ -1683,6 +1806,7 @@ export function renderEngineBatch(op: string, variables: Json, body: unknown): E
     ...(listDeleted === undefined ? {} : { listDeleted }),
     ...(pinnedLists === undefined ? {} : { pinnedLists }),
     ...(space === undefined ? {} : { spaces: [space] }),
+    ...readSpaceAnalytics(op, data),
     ...(spaceUnavailable === undefined ? {} : { spaceUnavailable }),
     ...(communityAdmin.size === 0 ? {} : { communityAdmin: [...communityAdmin.values()] }),
     ...readCommunityCreate(op, data),
@@ -2290,6 +2414,8 @@ export const hasEngineContent = (b: EngineBatch) =>
   b.radarDeleted !== undefined ||
   b.listDeleted !== undefined ||
   b.spaces !== undefined ||
+  b.spaceCaptions !== undefined ||
+  b.spaceAnalytics !== undefined ||
   b.spaceUnavailable !== undefined ||
   b.communityAdmin !== undefined ||
   b.joinRequests !== undefined ||

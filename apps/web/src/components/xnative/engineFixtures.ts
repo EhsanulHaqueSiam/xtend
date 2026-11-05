@@ -422,6 +422,9 @@ const handleFor = (n: number) =>
 const SYNTH_AT = "2026-11-01T12:00:00.000Z";
 /** The made-up live Space a post's card opens. */
 export const LIVE_SPACE = "900000700001";
+/** The user's own made-up recorded Space, and one they scheduled. */
+export const RECORDED_SPACE = "900000700003";
+const SCHEDULED_SPACE = "900000700004";
 /** A made-up Space X answers with no Space, as for one ended and removed. */
 export const GONE_SPACE = "900000700007";
 /** The made-up news story the first Today's News row opens. */
@@ -566,6 +569,9 @@ const UNPAGED = new Set([
   "CommunityAboutTimeline",
   "TweetResultByRestId",
   "AudioSpaceById",
+  "LiveChatReplay",
+  "spacesOverviewProviderQuery",
+  "spacesDetailsProviderQuery",
 ]);
 /** A batch with the parts every response shares empty. */
 const batch = (
@@ -1670,6 +1676,7 @@ export function synth(): Readonly<Record<string, Fixture>> {
     verified: u.verified,
     role,
     muted,
+    periscopeId: u.userId,
   });
   const listeners = Array.from({ length: 40 }, (_, i) => person(30 + i));
   const liveSpace: EngineSpace = {
@@ -1698,17 +1705,112 @@ export function synth(): Readonly<Record<string, Fixture>> {
     12,
     { spaceId: LIVE_SPACE },
   );
+  // The user's own recorded Space: X's answer, the captions X pages in as it plays, and X's
+  // Space analytics for it beside the user's other Spaces.
+  const host = person(99, { handle: VIEWER.handle, name: VIEWER.name! });
+  const started = Date.parse(ago(26 * 60));
+  const recorded: EngineSpace = {
+    ...liveSpace,
+    spaceId: RECORDED_SPACE,
+    state: "Ended",
+    title: "Office hours: pricing pages",
+    startedAt: new Date(started).toISOString(),
+    endedAt: new Date(started + 48 * 60_000 + 20_000).toISOString(),
+    listening: 1094,
+    replays: 318,
+    people: [
+      spacePerson(host, "host"),
+      spacePerson(PEOPLE[2]!, "cohost"),
+      spacePerson(PEOPLE[3]!, "speaker"),
+      spacePerson(PEOPLE[5]!, "listener"),
+    ],
+    total: 1094,
+  };
+  const said = [
+    [host, 372, "Welcome in. We'll do twenty minutes on churn, then open the floor."],
+    [PEOPLE[2]!, 423, "Our biggest drop was month two. People set it up and never came back."],
+    [PEOPLE[3]!, 460, "Same. We added a week-one check-in and month two got better."],
+    [host, 902, "The email that worked was three lines, and a reply button. No discount."],
+    [PEOPLE[3]!, 940, "How many replied?"],
+  ] as const;
+  const captions = said.map(([u, second, text]) => ({
+    periscopeId: u.userId,
+    text,
+    at: new Date(started + second * 1000).toISOString(),
+  }));
+  const row = (sp: EngineSpace, state: string) => ({
+    spaceId: sp.spaceId,
+    title: sp.title,
+    state,
+    startedAt: sp.startedAt,
+    endedAt: sp.endedAt,
+    scheduledStart: sp.scheduledStart,
+    listening: sp.listening,
+    replays: sp.replays,
+    recorded: sp.recorded,
+    speakers: sp.people.filter((p) => p.role === "speaker").length,
+  });
   // A post whose Space X no longer has (ended and removed): X answers it with no Space.
   const gonePost = say(4, "Rewatch our launch Space from last month.", 600, {
     spaceId: GONE_SPACE,
   });
   const spaces: Fixture = {
-    meta: meta("spaces", "A post with a live Space's card, and X's answer for the Space", [
-      `/post/${spacePost.postId}`,
-    ]),
+    meta: meta(
+      "spaces",
+      "A post with a live Space's card and X's answer for it; your recorded Space with its captions and X's Space analytics",
+      [`/post/${spacePost.postId}`, `/spaces/${RECORDED_SPACE}`, "/analyze?tab=x-spaces"],
+    ),
     batches: [
       batch("TweetDetail", spacePost.postId, [spacePost], { users: PEOPLE, bottom: null }),
       batch("AudioSpaceById", LIVE_SPACE, [], { spaces: [liveSpace] }),
+      batch("AudioSpaceById", RECORDED_SPACE, [], { spaces: [recorded] }),
+      batch("LiveChatReplay", RECORDED_SPACE, [], { spaceCaptions: captions }),
+      batch("spacesOverviewProviderQuery", "spaces", [], {
+        spaceAnalytics: {
+          kind: "list",
+          spaces: [
+            row(recorded, "Ended"),
+            row(
+              {
+                ...recorded,
+                spaceId: SCHEDULED_SPACE,
+                title: "Launch week",
+                state: "NotStarted",
+                startedAt: null,
+                endedAt: null,
+                scheduledStart: new Date(Date.parse(SYNTH_AT) + 3 * 86_400_000).toISOString(),
+                listening: null,
+                replays: null,
+                recorded: false,
+              },
+              "Scheduled",
+            ),
+          ],
+        },
+      }),
+      batch("spacesDetailsProviderQuery", RECORDED_SPACE, [], {
+        spaceAnalytics: {
+          kind: "space",
+          space: {
+            spaceId: RECORDED_SPACE,
+            title: recorded.title,
+            state: "Ended",
+            startedAt: recorded.startedAt,
+            endedAt: recorded.endedAt,
+            recorded: true,
+            participants: 1412,
+            replays: 318,
+            concurrent: Array.from({ length: 2900 }, (_, i) =>
+              Math.round(226 * Math.sin((Math.PI * i) / 2900) ** 0.5),
+            ),
+            speakers: [PEOPLE[3]!].map((u) => ({
+              handle: u.handle,
+              name: u.name,
+              avatarUrl: u.avatarUrl,
+            })),
+          },
+        },
+      }),
       batch("TweetDetail", gonePost.postId, [gonePost], { users: PEOPLE, bottom: null }),
     ],
   };

@@ -85,6 +85,11 @@ on X; the Space then plays in X's own player while you move between Xtend's scre
 press **Leave**. Asking to speak, your mic, reactions, captions and sharing are X's own controls,
 and X asks for the microphone when you speak. **Start a Space** in the palette opens X's own
 Create your Space; as host, **End** asks in X's own confirm. All free, through your session.
+A recorded Space's **Play recording** opens it as a transcript: a row for each thing said, from
+X's own captions, with X's player under it (seek, 15 seconds back or ahead, speed). X sends a
+recording's captions as it plays with captions on, so rows fill in as you listen; click one to
+go there. Ticks on the bar mark where the people you track spoke. Without captions it shows the
+speakers and the player.
 
 Replying starts by reading the post: its text, its images and the thread above it. Xtend says
 what it thinks the post is ("Playful hot take") and why; if that is wrong, say what it is

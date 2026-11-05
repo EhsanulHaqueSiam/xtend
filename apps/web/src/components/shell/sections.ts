@@ -195,6 +195,12 @@ export const SECTIONS = {
       about:
         "Who engaged by gender, age, country and device, from X, free through your session; Premium on X.",
     },
+    {
+      id: "x-spaces",
+      label: "X Spaces",
+      about:
+        "Spaces you hosted with X's listeners, peak and replays, free through your session; Premium on X.",
+    },
   ],
   "/scores": [
     {

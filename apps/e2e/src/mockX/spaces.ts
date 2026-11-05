@@ -1,4 +1,10 @@
-import type { EngineBatch, EngineSpace, EngineSpacePerson, EngineViewer } from "@xtend/contracts";
+import type {
+  EngineBatch,
+  EngineSpace,
+  EngineSpaceCaption,
+  EngineSpacePerson,
+  EngineViewer,
+} from "@xtend/contracts";
 
 /**
  * X's Spaces on the mock: the fixtures' Spaces and one the user starts, X's pages for them, and X's
@@ -8,7 +14,12 @@ import type { EngineBatch, EngineSpace, EngineSpacePerson, EngineViewer } from "
 
 interface Dock {
   readonly spaceId: string;
-  readonly role: "host" | "speaker" | "listener";
+  /** "replay": X's player for a recording, not a live Space. */
+  readonly role: "host" | "speaker" | "listener" | "replay";
+  /** Where X's player is (ms), whether it plays, and its speed button's label. */
+  readonly at: number;
+  readonly playing: boolean;
+  readonly speed: string;
   readonly requested: boolean;
   readonly muted: boolean;
   readonly captions: boolean;
@@ -44,6 +55,21 @@ export function createMockSpaces(batches: ReadonlyArray<EngineBatch>, viewer: En
     compact
       ? `<div ${attrs}><div><div role="button" aria-label="Back" data-testid="app-bar-back" data-space-close>←</div><h2>${title}</h2></div>${body}</div>`
       : `<div class="dialog route" role="dialog" aria-modal="true" ${attrs}><div role="button" aria-label="Close" data-space-close>✕</div><h2>${title}</h2>${body}</div>`;
+  /** Each recording's captions, as X's recording chat holds them. */
+  const captions = new Map<string, ReadonlyArray<EngineSpaceCaption>>(
+    batches.flatMap((b) =>
+      b.op === "LiveChatReplay" && b.key !== null ? [[b.key, b.spaceCaptions ?? []] as const] : [],
+    ),
+  );
+  const fresh = { at: 0, playing: true, speed: "Speed 1x" };
+  const lengthOf = (s: EngineSpace) =>
+    s.startedAt === null || s.endedAt === null
+      ? 0
+      : Date.parse(s.endedAt) - Date.parse(s.startedAt);
+  const clock = (ms: number) => {
+    const t = Math.floor(ms / 1000);
+    return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`;
+  };
   /** What X says in a Space with captions on, by its first speakers. */
   const said = ["Welcome in. We'll do twenty minutes on churn, then open the floor."];
 
@@ -55,11 +81,13 @@ export function createMockSpaces(batches: ReadonlyArray<EngineBatch>, viewer: En
     verified: false,
     role,
     muted,
+    ...(viewer.userId === null ? {} : { periscopeId: viewer.userId }),
   });
   /** A Space as X answers for it now: the user among its people once they joined. */
   const space = (id: string): EngineSpace | undefined => {
     const s = spaces.get(id);
-    if (s === undefined || dock?.spaceId !== id || dock.role === "host") return s;
+    if (s === undefined || dock?.spaceId !== id || dock.role === "host" || dock.role === "replay")
+      return s;
     const listening = (s.listening ?? 0) + 1;
     return {
       ...s,
@@ -106,9 +134,27 @@ export function createMockSpaces(batches: ReadonlyArray<EngineBatch>, viewer: En
     ${button("Start now", "data-space-start-now", "Start now")}`,
     );
 
+  /** X's player for a recording: its Close, captions panel, seek slider and times, controls. */
+  const replayHtml = (d: Dock) => {
+    const s = spaces.get(d.spaceId)!;
+    const length = lengthOf(s);
+    const start = Date.parse(s.startedAt ?? "");
+    const lines = (captions.get(d.spaceId) ?? []).filter((c) => Date.parse(c.at) - start <= d.at);
+    const speaker = (c: EngineSpaceCaption) =>
+      s.people.find((p) => p.periscopeId === c.periscopeId);
+    return `<div data-mock-dock="${esc(d.spaceId)}">
+      <div>${button("Collapse", "", "⌄")}<div role="button" tabindex="0" data-space-word>Close</div></div>
+      <div>${esc(s.title)}</div>
+      ${d.captions ? `<div role="listbox">${lines.map((c) => `<div><div>${esc(speaker(c)?.name ?? "")}</div><div>@${esc(speaker(c)?.handle ?? "")}</div><div>${esc(c.text)}</div></div>`).join("")}</div>` : ""}
+      <div><div role="slider" aria-label="Seek slider" data-space-seek style="width:300px;height:10px;background:#333"></div><span>${clock(d.at)}</span><span>-${clock(length - d.at)}</span></div>
+      <div>${button(d.captions ? "Hide captions" : "Show captions", "data-space-captions", "CC")}${button(d.speed, "data-space-speed", d.speed)}${button("Skip backward 15 seconds", 'data-space-skip="-15000"', "↺")}${button(d.playing ? "Pause" : "Play", "data-space-toggle", d.playing ? "❚❚" : "▶")}${button("Skip forward 15 seconds", 'data-space-skip="15000"', "↻")}</div>
+    </div>`;
+  };
+
   /** X's dock for the Space the user is in: header, captions panel when on, then its footer. */
   const dockHtml = () => {
     if (dock === null) return "";
+    if (dock.role === "replay") return replayHtml(dock);
     const s = spaces.get(dock.spaceId);
     const word = dock.role === "host" ? "End" : "Leave";
     const captions = dock.captions
@@ -137,9 +183,50 @@ export function createMockSpaces(batches: ReadonlyArray<EngineBatch>, viewer: En
   const write = (body: Record<string, unknown>): boolean => {
     const id = typeof body.id === "string" ? body.id : "";
     switch (body.kind) {
+      case "play": {
+        const s = spaces.get(id);
+        if (dock !== null || s?.recorded !== true || s.state !== "Ended") return false;
+        dock = {
+          spaceId: id,
+          role: "replay",
+          requested: false,
+          muted: true,
+          captions: false,
+          ...fresh,
+        };
+        return true;
+      }
+      case "toggle":
+        if (dock?.role !== "replay") return false;
+        dock = { ...dock, playing: !dock.playing };
+        return true;
+      case "skip":
+      case "seek": {
+        if (dock?.role !== "replay") return false;
+        const length = lengthOf(spaces.get(dock.spaceId)!);
+        const to =
+          body.kind === "skip" ? dock.at + Number(body.by) : Number(body.fraction) * length;
+        if (!Number.isFinite(to)) return false;
+        dock = { ...dock, at: Math.round(Math.min(length, Math.max(0, to))) };
+        return true;
+      }
+      case "speed":
+        if (dock?.role !== "replay" || typeof body.row !== "string") return false;
+        dock = {
+          ...dock,
+          speed: `Speed ${body.row === "Normal" ? "1" : body.row.replace(/x speed$/, "")}x`,
+        };
+        return true;
       case "listen":
         if (dock !== null || spaces.get(id)?.state !== "Running") return false;
-        dock = { spaceId: id, role: "listener", requested: false, muted: true, captions: false };
+        dock = {
+          spaceId: id,
+          role: "listener",
+          requested: false,
+          muted: true,
+          captions: false,
+          ...fresh,
+        };
         return true;
       case "start": {
         if (dock !== null) return false;
@@ -164,6 +251,7 @@ export function createMockSpaces(batches: ReadonlyArray<EngineBatch>, viewer: En
           requested: false,
           muted: false,
           captions: false,
+          ...fresh,
         };
         return true;
       }
@@ -202,8 +290,23 @@ export function createMockSpaces(batches: ReadonlyArray<EngineBatch>, viewer: En
     }
   };
 
+  /** X's recording chat for a Space, as JSON lines: its captions, X's `ts` in nanoseconds. */
+  const replayChat = (id: string) =>
+    (captions.get(id) ?? [])
+      .map((c) =>
+        JSON.stringify({
+          chatType: 45,
+          final: true,
+          message: c.text,
+          userId: c.periscopeId,
+          ts: `${Date.parse(c.at)}000000`,
+        }),
+      )
+      .join("\n");
+
   return {
     space,
+    replayChat,
     peek,
     start,
     dockHtml,

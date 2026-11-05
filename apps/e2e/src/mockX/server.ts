@@ -115,6 +115,8 @@ export async function startMockX(
     options.latencyMs ? new Promise((r) => setTimeout(r, options.latencyMs)) : undefined;
   /** Every GraphQL read the page made, with its variables, in order. */
   const reads: Array<GraphqlRequest> = [];
+  /** Every page X's page script drew afresh (not its next pages), in order. */
+  const views: Array<string> = [];
   // X's composer asks its audience card's list itself, as a GET read.
   const ops = [...WRITES, ...POSTED, "CommunitiesMembershipsSlice"];
   const hashes = Object.fromEntries(ops.map((op) => [op, opHash(op)]));
@@ -178,6 +180,7 @@ export async function startMockX(
       case "/__mock/view": {
         const path = url.searchParams.get("path") ?? "/home";
         const cursor = url.searchParams.get("cursor");
+        if (cursor === null) views.push(path);
         const r = route(
           state,
           path,
@@ -296,7 +299,20 @@ export async function startMockX(
         return json({
           html: state.spaces.dockHtml(),
           graphql: dock === null ? [] : [httpRequest(spaceRequest(dock.spaceId))],
+          replayChat:
+            dock?.role === "replay" && dock.captions
+              ? `/live-chat?broadcastId=${dock.spaceId}&sessionId=s1&replay=1&cursor=${dock.at}`
+              : null,
         });
+      }
+      // X's recording chat for a Space: its captions as JSON lines.
+      case "/live-chat": {
+        const id = url.searchParams.get("broadcastId") ?? "";
+        reads.push({
+          op: "live-chat",
+          variables: { broadcastId: id, replay: url.searchParams.get("replay") },
+        });
+        return send(200, state.spaces.replayChat(id), "text/plain; charset=utf-8");
       }
       case "/__mock/chat-unlock":
         state.chat.unlock();
@@ -339,6 +355,7 @@ export async function startMockX(
     url: `http://127.0.0.1:${port}`,
     state,
     reads,
+    views,
     close: () =>
       new Promise<void>((resolve) => {
         server.close(() => resolve());

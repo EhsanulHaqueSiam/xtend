@@ -32,6 +32,7 @@ import {
   xSpaceDockPress,
   xSpaceLeavePage,
   xSpaceListen,
+  xSpacePlay,
   xSpaceReact,
   xSpaceReactions,
   xSpaceRead,
@@ -46,7 +47,7 @@ import { SPACE_PURPLE } from "./SpaceCard";
 import { useXPress } from "./useXPress";
 import { Avatar } from "./XPostView";
 
-const ROLE: Readonly<Record<EngineSpacePerson["role"], string>> = {
+export const ROLE: Readonly<Record<EngineSpacePerson["role"], string>> = {
   host: "Host",
   cohost: "Co-host",
   speaker: "Speaker",
@@ -54,10 +55,14 @@ const ROLE: Readonly<Record<EngineSpacePerson["role"], string>> = {
 };
 
 /** "9m ago", or the day for anything older than a day. */
-const ago = (iso: string) => {
+export const ago = (iso: string) => {
   const age = xAge(iso);
   return /^\d+[smh]$/.test(age) ? `${age} ago` : age;
 };
+
+/** X's dock names no Space: one of the same title may be another, so Xtend says so, claiming nothing. */
+const unsure = (title: string) =>
+  `X's player still shows ${title || "a Space"}; this may be the other recording.`;
 
 /** Faces the dock draws before X's "+N more", as X's 360px dock fits them. */
 const FACES = 11;
@@ -70,7 +75,7 @@ const trackedLabel = (lead: Person | undefined, target: boolean) =>
  * The account's leads and reply targets among the Space's people, each with its label: free, from
  * Xtend's own data for this account.
  */
-function useTracked(space: EngineSpace) {
+export function useTracked(space: EngineSpace) {
   const handles = space.people.map((p) => p.handle);
   const leads = AsyncResult.getOrElse(useAtomValue(trackedPeopleAtom(handles.join(" "))), () => []);
   const targets = AsyncResult.getOrElse(useAtomValue(spaceTargetsAtom), () => new Set<string>());
@@ -110,6 +115,12 @@ export function SpaceSync() {
     setLive((l) => ({ ...l, joined: hosted }));
     setDock(hosted);
   }, [hosted, setLive, setDock]);
+  // While X plays a Space the user started here, Xtend's dock shows it, so it can be left anywhere.
+  const playing = live.read !== null && dock === null ? live.joined : null;
+  // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- reopens the dock on the Space X's own dock still plays.
+  useEffect(() => {
+    if (playing !== null) setDock(playing);
+  }, [playing, setDock]);
   // oxlint-disable-next-line xtend/no-unreasoned-state-sync -- reads X's own dock in the session view while a Space is open or playing.
   useEffect(() => {
     if (!watching) return;
@@ -120,6 +131,35 @@ export function SpaceSync() {
     return () => stop.abort();
   }, [watching, setLive]);
   return null;
+}
+
+/**
+ * Plays a Space's recording for the user's click, through X's own Play recording; Xtend then
+ * reads X's player, and its dock holds the recording. False when X did not take it (or session actions are off, said in a toast).
+ */
+export function usePlayRecording() {
+  const setLive = useAtomSet(spaceLiveAtom);
+  const setDock = useAtomSet(spaceDockAtom);
+  const { blocked, setToast } = useXPress();
+  return async ({ spaceId, title }: Pick<EngineSpace, "spaceId" | "title">) => {
+    const why = blocked();
+    if (why !== null) return (setToast({ text: why }), false);
+    // A refusal leaves whatever X plays as it was, with its own dock.
+    const played = await xSpacePlay(spaceId, title);
+    if (played !== true) {
+      setToast({
+        text:
+          played === "unsure"
+            ? unsure(title)
+            : "X did not play the recording. Try again in a moment.",
+      });
+      return false;
+    }
+    setLive({ read: await xSpaceDockNow(), joined: spaceId });
+    // Off the recording's own screen, the dock shows what X plays.
+    setDock(spaceId);
+    return true;
+  };
 }
 
 /**
@@ -210,6 +250,7 @@ function SpaceDockBody({
   const setOver = useAtomSet(xOverAtom);
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
+  const playRecording = usePlayRecording();
   // X's dock plays this Space: the user joined it from here, and X still draws its dock.
   const read = live.joined === space.spaceId ? live.read : null;
   const more = Math.max(0, (space.total ?? space.people.length) - FACES);
@@ -228,9 +269,10 @@ function SpaceDockBody({
   };
   const listen = () =>
     press(async () => {
-      const joined = await xSpaceListen(space.spaceId);
+      const joined = await xSpaceListen(space.spaceId, space.title);
       if (joined === true) setLive((l) => ({ ...l, joined: space.spaceId }));
-      return joined === true;
+      if (joined === "unsure") setToast({ text: unsure(space.title) });
+      return joined !== null;
     });
   const dockPress = (label: Parameters<typeof xSpaceDockPress>[0]) =>
     press(async () => {
@@ -271,12 +313,12 @@ function SpaceDockBody({
           <button type="button" aria-label="Close" className={ICON} onClick={onClose}>
             <Close className="size-4" />
           </button>
-        ) : read.word === "Close" ? null : (
+        ) : (
           <button
             type="button"
             disabled={busy}
             className="cursor-pointer px-2 text-[15px] font-bold text-[#f4212e] disabled:opacity-50"
-            onClick={() => void dockPress(read.word === "End" ? "End" : "Leave")}
+            onClick={() => void dockPress(read.word)}
           >
             {read.word}
           </button>
@@ -355,6 +397,24 @@ function SpaceDockBody({
           )}
         </>
       )}
+      {phase === "recorded" ? (
+        <button
+          type="button"
+          disabled={busy || (read === null && window.desktopBridge === undefined)}
+          className="h-10 cursor-pointer rounded-full text-[15px] font-bold text-white transition-[filter] duration-150 hover:brightness-110 disabled:opacity-50"
+          style={{ background: SPACE_PURPLE }}
+          onClick={() => {
+            const open = () => void navigate({ to: "/spaces/$id", params: { id: space.spaceId } });
+            if (read !== null) return open();
+            setBusy(true);
+            void playRecording(space)
+              .then((played) => played && open())
+              .finally(() => setBusy(false));
+          }}
+        >
+          {read === null ? "Play recording" : "Open the recording"}
+        </button>
+      ) : null}
       {phase !== "live" ? null : window.desktopBridge === undefined ? (
         <p className="text-[13px] text-[#71767b]">X plays Spaces in the desktop app.</p>
       ) : read === null ? (

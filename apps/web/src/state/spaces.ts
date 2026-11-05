@@ -53,6 +53,16 @@ const SpaceDockRead = Schema.Struct({
   react: Schema.Boolean,
   /** X's captions panel, the lines X shows in it; null while captions are off. */
   captions: Schema.NullOr(Schema.Array(Caption)),
+  /** X's player for a recording: where it is and how long it runs (ms), from X's own times. */
+  player: Schema.NullOr(
+    Schema.Struct({
+      at: Schema.Number,
+      length: Schema.Number,
+      playing: Schema.Boolean,
+      /** X's speed button's label ("Speed 1.5x"). */
+      speed: Schema.NullOr(Schema.String),
+    }),
+  ),
 });
 export type SpaceDockRead = typeof SpaceDockRead.Type;
 
@@ -112,7 +122,29 @@ function readSpaceDock(doc: Document, root: typeof spaceDockRoot): SpaceDockRead
     }
   }
   const mic = labelled("Mute", "Unmute");
+  // X's seek slider writes the time played, then the time left with a minus.
+  const times = [...dock.box.querySelectorAll("*")].flatMap((e) => {
+    const t = e.childElementCount === 0 ? (e.textContent ?? "").trim() : "";
+    return /^-?\d{1,2}(:\d{2}){1,2}$/.test(t) ? [t] : [];
+  });
+  const ms = (t: string) =>
+    t
+      .replace("-", "")
+      .split(":")
+      .reduce((n, part) => n * 60 + Number(part), 0) * 1000;
+  const played = times.find((t) => !t.startsWith("-"));
+  const left = times.find((t) => t.startsWith("-"));
+  const speed = dock.box.querySelector('[aria-label^="Speed "]');
   return {
+    player:
+      played === undefined || left === undefined
+        ? null
+        : {
+            at: ms(played),
+            length: ms(played) + ms(left),
+            playing: labelled("Pause") !== null,
+            speed: speed?.getAttribute("aria-label") ?? null,
+          },
     word: dock.word,
     request: labelled("Request to speak", "Request sent", "Join as speaker"),
     mic: mic === "Mute" || mic === "Unmute" ? mic : null,
@@ -217,26 +249,70 @@ export const xSpaceRead = async (spaceId: string) => {
  * a listener, in public, as on X. Then the engine goes Back where it was; X's dock stays and plays.
  * True once X drew its dock; null when X offered no Start listening there (X's page says why).
  */
-export const xSpaceListen = async (spaceId: string) => {
+export const xSpaceListen = (spaceId: string, title: string) =>
+  pressOnPage(spaceId, title, "Start listening");
+
+/**
+ * Presses X's own Play recording on Space `spaceId`'s page for the user's click: X's player for the
+ * recording takes X's dock. True once X's dock holds it; null when X offered no recording there,
+ * or kept playing what it played.
+ */
+export const xSpacePlay = (spaceId: string, title: string) =>
+  pressOnPage(spaceId, title, "Play recording");
+
+/**
+ * X's dock names no Space, only its title: one that held another Space before the press holds this
+ * one once X's title element there shows this Space's title. When the two share a title (or have
+ * none), only X's player says so (starting over, or another length); without that, "unsure".
+ */
+const pressOnPage = async (
+  spaceId: string,
+  title: string,
+  label: "Start listening" | "Play recording",
+) => {
   if (!validSpace(spaceId)) return null;
   const moved = await xGo(peekUrl(spaceId));
   const answer = await xPressOver(
     (mine) => `(async () => {
     const root = ${spaceDockRoot.toString()};
-    const find = () => document.querySelector('[role="button"][aria-label="Start listening"], button[aria-label="Start listening"]');
+    const find = () => document.querySelector(${JSON.stringify(`[role="button"][aria-label="${label}"], button[aria-label="${label}"]`)});
     for (let i = 0; i < 50 && ${ON_PEEK(spaceId)} && !find(); i++) await new Promise((r) => setTimeout(r, 100));
     const button = find();
     if (!button || !(${ON_PEEK(spaceId)}) || !${mine}) return null;
+    const title = ${JSON.stringify(title.trim())};
+    // X's title in its dock is an element of its own; a caption that names it is no title.
+    const titled = (box) => [...box.querySelectorAll("*")].find((e) => e.childElementCount === 0 && e.closest('[role="listbox"]') === null && (e.textContent ?? "").trim() === title) ?? null;
+    // X's player writes the time played, then the time left with a minus: both in ms.
+    const times = (box) => [...box.querySelectorAll("*")].flatMap((e) => { const t = e.childElementCount === 0 ? (e.textContent ?? "").trim() : ""; return /^-?\\d{1,2}(:\\d{2}){1,2}$/.test(t) ? [t] : []; });
+    const ms = (t) => t.replace("-", "").split(":").reduce((n, p) => n * 60 + Number(p), 0) * 1000;
+    const player = (box) => { const t = times(box); const at = t.find((x) => !x.startsWith("-")); const left = t.find((x) => x.startsWith("-")); return at === undefined ? null : { at: ms(at), length: left === undefined ? null : ms(at) + ms(left) }; };
+    const before = root(document);
+    const was = before === null ? null : { title: title === "" ? null : titled(before.box), player: player(before.box) };
     button.click();
-    for (let i = 0; i < 50 && !root(document); i++) await new Promise((r) => setTimeout(r, 100));
-    return root(document) ? "joined" : null;
+    const taken = () => {
+      const now = root(document);
+      if (now === null) return false;
+      if (was === null) return title === "" || titled(now.box) !== null;
+      // Another title: X's dock shows this one now.
+      if (title !== "" && was.title === null) return titled(now.box) !== null;
+      // The same title, or none: X's dock names no recording, so only its player says it switched,
+      // starting over from well into the other one, or running another length (past the 2 s its
+      // two rounded clocks may drift). A dock drawn anew is no such sign.
+      const p = player(now.box);
+      return was.player !== null && p !== null && ((was.player.at > 15000 && p.at <= 5000) || (was.player.length !== null && p.length !== null && Math.abs(p.length - was.player.length) > 2000));
+    };
+    for (let i = 0; i < 50 && !taken(); i++) await new Promise((r) => setTimeout(r, 100));
+    if (taken()) return "joined";
+    // X's dock still shows a Space of this title: maybe this one, maybe the other. Never claimed.
+    const now = root(document);
+    return was !== null && now !== null && (title === "" || titled(now.box) !== null) ? "unsure" : null;
   })()`,
     "false",
     () => {},
   );
   // X closes its page as it joins; one still up (it refused) goes, back to where the engine was.
   if (moved) await xRun(`${ON_PEEK(spaceId)} && history.back(), true`);
-  return answer === "joined" ? true : null;
+  return answer === "joined" ? true : answer === "unsure" ? ("unsure" as const) : null;
 };
 
 /** Takes the engine off Space `spaceId`'s page, where X goes once its host ended it. */
@@ -253,12 +329,24 @@ const ASKING = `!!document.querySelector('[role="dialog"], [role="alertdialog"],
  * main area until the user answers it. "done" once pressed; null when X's dock draws no such control.
  */
 export const xSpaceDockPress = async (
-  label: "Leave" | "End" | "Request to speak" | "Request sent" | "Mute" | "Unmute" | "Share",
+  label:
+    | "Leave"
+    | "End"
+    | "Close"
+    | "Request to speak"
+    | "Request sent"
+    | "Mute"
+    | "Unmute"
+    | "Share"
+    | "Play"
+    | "Pause"
+    | "Skip backward 15 seconds"
+    | "Skip forward 15 seconds",
   over: (shown: boolean) => void,
   spaceId: string,
 ) => {
   if (!validSpace(spaceId)) return null;
-  const header = label === "Leave" || label === "End";
+  const header = label === "Leave" || label === "End" || label === "Close";
   // X's page for the ended Space, which X opens once End is confirmed, is no question for the user.
   // In X's compact layout (a narrow engine) End's confirm is a sheet with no dialog role: its own
   // "Yes, end" says it is up.
@@ -269,7 +357,8 @@ export const xSpaceDockPress = async (
     const button = ${header ? `dock?.word === ${JSON.stringify(label)} ? [...dock.box.querySelectorAll('[role="button"], button')].find((b) => !b.hasAttribute("aria-label") && b.textContent.trim() === ${JSON.stringify(label)}) : null` : `dock?.box.querySelector(${JSON.stringify(`[aria-label="${label}"]`)})`};
     if (!button || !${mine}) return null;
     button.click();
-    for (let i = 0; i < 10; i++) {
+    // Only End (its confirm) and Share (its sheet) answer with something for the user to answer.
+    for (let i = 0; i < ${label === "End" || label === "Share" ? 10 : 0}; i++) {
       await new Promise((r) => setTimeout(r, 100));
       if (${asking}) return "over";
     }
@@ -300,6 +389,9 @@ const dockMenuRow = (label: string) => `
 export const xSpaceCaptions = async (on: boolean) =>
   (await xPressOver(
     (mine) => `(async () => {
+    // A recording's player has its own captions button; a live Space has the row in its "...".
+    const own = (${spaceDockRoot.toString()})(document)?.box.querySelector(${JSON.stringify(`[aria-label="${on ? "Show captions" : "Hide captions"}"]`)});
+    if (own) return ${mine} ? (own.click(), "done") : null;
     ${dockMenuRow(on ? "Show captions" : "Hide captions")}
     if (!row || !${mine}) return (document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), null);
     row.click();
@@ -351,6 +443,50 @@ export const xSpaceReact = async (emoji: string) =>
     () => {},
   )) === "done" || null;
 
+/** X's speeds for a recording, as its speed menu names them. */
+export const SPACE_SPEEDS = ["0.5x speed", "Normal", "1.5x speed", "2x speed"] as const;
+
+/** Picks speed `row` in X's speed menu on its player for the user's click. Null when X has none. */
+export const xSpaceSpeed = async (row: (typeof SPACE_SPEEDS)[number]) =>
+  (await xPressOver(
+    (mine) => `(async () => {
+    const button = (${spaceDockRoot.toString()})(document)?.box.querySelector('[aria-label^="Speed "]');
+    if (!button || !${mine}) return null;
+    button.click();
+    let item = null;
+    for (let i = 0; i < 20 && !item; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      item = [...document.querySelectorAll('[role="menuitem"]')].find((m) => m.textContent.trim() === ${JSON.stringify(row)});
+    }
+    if (!item) return (document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), null);
+    item.click();
+    return "done";
+  })()`,
+    "false",
+    () => {},
+  )) === "done" || null;
+
+/**
+ * Moves X's player to `fraction` of the recording for the user's click, through X's own seek
+ * slider: a pointer's press and release at that point of it, as a click there is.
+ */
+export const xSpaceSeek = async (fraction: number) =>
+  Number.isFinite(fraction) &&
+  ((await xPressOver(
+    (mine) => `(async () => {
+    const slider = (${spaceDockRoot.toString()})(document)?.box.querySelector('[role="slider"]');
+    if (!slider || !${mine}) return null;
+    const box = slider.getBoundingClientRect();
+    const at = { clientX: box.left + box.width * ${Math.min(1, Math.max(0, fraction))}, clientY: box.top + box.height / 2, bubbles: true, button: 0 };
+    for (const [Kind, type] of [[PointerEvent, "pointerdown"], [MouseEvent, "mousedown"], [PointerEvent, "pointerup"], [MouseEvent, "mouseup"], [MouseEvent, "click"]])
+      slider.dispatchEvent(new Kind(type, { ...at, pointerId: 1, isPrimary: true }));
+    return "done";
+  })()`,
+    "false",
+    () => {},
+  )) === "done" ||
+    null);
+
 const START = "/i/spaces/start";
 
 /**
@@ -368,4 +504,27 @@ export const xSpaceStart = async (over: (shown: boolean) => void) => {
     over,
   );
   return answer === "over";
+};
+
+export const SPACES_ANALYTICS = "/i/account_analytics/spaces";
+
+/**
+ * What X's Space analytics page shows the account once X drew it: true for X's upsell (its
+ * "Upgrade to continue", or the Premium sign-up X sends to), false for X's list of Spaces, null
+ * when X shows neither in time. Reads only.
+ */
+export const xSpacesUpsell = async (loaded: Promise<unknown>, signal: AbortSignal) => {
+  await loaded;
+  const seen = await xRunHeld(
+    `(async () => {
+    for (let i = 0; i < 100; i++) {
+      if (location.pathname.startsWith("/i/premium_sign_up") || document.body.innerText.includes("Upgrade to continue")) return true;
+      if (location.pathname.startsWith(${JSON.stringify(SPACES_ANALYTICS)}) && (document.querySelector('[aria-label="Filter spaces"], a[href^="${SPACES_ANALYTICS}/"]') || document.body.innerText.includes("No spaces available for the selected filter"))) return false;
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    return null;
+  })()`,
+    signal,
+  );
+  return typeof seen === "boolean" ? seen : null;
 };

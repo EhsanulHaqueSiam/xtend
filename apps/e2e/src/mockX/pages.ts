@@ -839,6 +839,42 @@ export function route(
       },
     };
   }
+  // X's Space analytics (bundle.AccountAnalytics): its list of the user's Spaces, a Space's page,
+  // or without Premium X's upsell.
+  if (lower === "i" && second === "account_analytics" && third === "spaces") {
+    if (!state.premium) return route(state, "/i/account_analytics", homeTab);
+    if (fourth !== undefined)
+      return {
+        title: "Analytics / X",
+        requests: [r("spacesDetailsProviderQuery", { id: fourth })],
+        render: ([b]) => {
+          const a = b?.spaceAnalytics;
+          return `${header("Space Analytics")}${
+            a?.kind !== "space"
+              ? ""
+              : `<h2>${esc(a.space.title)}</h2><div>Space Stats</div><div>Total Participants <span>${a.space.participants ?? 0}</span></div><div>Peak Concurrent Listeners <span>${Math.max(0, ...a.space.concurrent)}</span></div>`
+          }`;
+        },
+      };
+    return {
+      title: "Analytics / X",
+      requests: [r("spacesOverviewProviderQuery", { cursor: null, limit: 30 })],
+      render: ([b]) => {
+        const a = b?.spaceAnalytics;
+        const rows = a?.kind === "list" ? a.spaces : [];
+        return `${header("Analytics")}<div role="button" aria-label="Filter spaces">All</div>${
+          rows.length === 0
+            ? "<p>No spaces available for the selected filter</p>"
+            : rows
+                .map(
+                  (sp) =>
+                    `<a href="/i/account_analytics/spaces/${esc(sp.spaceId)}" data-testid="space-analytics-row"><b>${esc(sp.title)}</b> <span>${esc(sp.state)}</span></a>`,
+                )
+                .join("")
+        }`;
+      },
+    };
+  }
   if (lower === "i" && second === "account_analytics") {
     const page = third ?? "overview";
     const labels = ANALYTICS_RANGES[page];

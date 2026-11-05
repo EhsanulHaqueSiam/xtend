@@ -15,6 +15,8 @@ const [thread, answer] = spaces!.batches;
 const post = thread!.posts[0]!;
 const space = answer!.spaces![0]!;
 const [host, cohost, speaker] = space.people;
+/** A script that presses X's Start listening. */
+const pressed = (code: string) => code.includes("Start listening") && code.includes(".click()");
 
 it("opens a post's Space in the dock with X's title, count and people and the people the account tracks, pressing X's Start listening only for the click", async () => {
   const bridge = installFakeBridge();
@@ -25,7 +27,7 @@ it("opens a post's Space in the dock with X's title, count and people and the pe
     executeJavaScript: (code: string) => {
       scripts.push(code);
       // X's Start listening, pressed, draws X's dock.
-      return Promise.resolve(code.includes('[aria-label="Start listening"]') ? "joined" : true);
+      return Promise.resolve(pressed(code) ? "joined" : true);
     },
   } as unknown as XWebview);
   markXReady();
@@ -98,7 +100,5 @@ it("opens a post's Space in the dock with X's title, count and people and the pe
   await expect
     .poll(() => scripts.some((s) => s.includes(`/i/spaces/${space.spaceId}/peek`)))
     .toBe(true);
-  await expect
-    .poll(() => scripts.filter((s) => s.includes('[aria-label="Start listening"]')).length)
-    .toBe(1);
+  await expect.poll(() => scripts.filter(pressed).length).toBe(1);
 });
