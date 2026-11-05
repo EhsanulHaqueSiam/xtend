@@ -3,7 +3,7 @@ import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
-import type { EngineBatch, ObservationBatch } from "@xtend/contracts";
+import type { EngineBatch, GrokCapture, ObservationBatch } from "@xtend/contracts";
 import type * as Electron from "electron";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 
@@ -34,6 +34,8 @@ class FakeDebugger extends NodeEvents.EventEmitter {
   /** Set while DevTools holds the target, so attach throws as Electron does. */
   held = false;
   readonly commands: Array<string> = [];
+  /** DevTools' answer to a streaming read: what it buffered before the read began. */
+  streamRead: Promise<{ bufferedData?: string }> = Promise.resolve({});
   private readonly bodies = new Map<string, { body: string; base64Encoded: boolean }>();
 
   attach() {
@@ -48,25 +50,27 @@ class FakeDebugger extends NodeEvents.EventEmitter {
   }
   async sendCommand(method: string, params?: { requestId?: string }) {
     this.commands.push(method);
+    if (method === "Network.streamResourceContent") return this.streamRead;
     if (method !== "Network.getResponseBody") return {};
     const body = this.bodies.get(params?.requestId ?? "");
     if (body === undefined) throw new Error("No resource with given identifier found");
     return body;
   }
   received(requestId: string, url: string, body: unknown, base64Encoded = false) {
-    const text = JSON.stringify(body);
+    this.receivedText(requestId, url, JSON.stringify(body), base64Encoded);
+  }
+  /** A body as text; `mimeType` is X's own type for one that is no one JSON value (JSON lines). */
+  receivedText(
+    requestId: string,
+    url: string,
+    text: string,
+    base64Encoded = false,
+    mimeType = "application/json",
+  ) {
     this.bodies.set(requestId, {
       body: base64Encoded ? Buffer.from(text).toString("base64") : text,
       base64Encoded,
     });
-    this.emit("message", {}, "Network.responseReceived", {
-      requestId,
-      response: { url, mimeType: "application/json" },
-    });
-  }
-  /** A body that is no one JSON value (X's JSON lines), under X's own type for it. */
-  receivedText(requestId: string, url: string, text: string, mimeType: string) {
-    this.bodies.set(requestId, { body: text, base64Encoded: false });
     this.emit("message", {}, "Network.responseReceived", {
       requestId,
       response: { url, mimeType },
@@ -182,6 +186,7 @@ it("hands a Space recording's captions from X's chat lines to the screens only, 
       line({ chatType: 2, message: "💯", userId: "p2", ts: "1793786773000000000" }),
       '{"chatType":45,',
     ].join("\n"),
+    false,
     "text/plain",
   );
   debug.finished("1");
@@ -195,6 +200,7 @@ it("hands a Space recording's captions from X's chat lines to the screens only, 
     "2",
     "https://api.x.com/live-chat?broadcastId=900000700003",
     line({ chatType: 45 }),
+    false,
     "text/plain",
   );
   debug.finished("2");
@@ -350,4 +356,203 @@ it("never reads X's Chat answers: nothing from chat's own GraphQL reaches the se
   // A finished response the capture takes asks for its body at once: these were never read.
   expect(debug.commands).not.toContain("Network.getResponseBody");
   expect([sent, rendered]).toEqual([[], []]);
+});
+
+it("hands X's older Grok client's answers to the window only: never an observation or an engine batch", async () => {
+  const heard: Array<GrokCapture> = [];
+  const rendered: Array<EngineBatch> = [];
+  detach = attachSessionCapture({ debugger: debug } as unknown as Electron.WebContents, {
+    serviceUrl: "http://127.0.0.1:4820",
+    serviceToken: "tok",
+    accountId: 1,
+    queueDir,
+    log: () => {},
+    onRender: (batch) => rendered.push(batch),
+    onGrok: (capture) => heard.push(capture),
+  });
+  // A Grok conversation, even one that holds a post X sent along with it.
+  const items = { message: "a private question", sender_type: "User", chat_item_id: "1" };
+  debug.received(
+    "1",
+    `${GRAPHQL}/GrokConversationItemsByRestId?variables=%7B%22restId%22%3A%22c1%22%7D`,
+    {
+      data: { grok_conversation_items_by_rest_id: { items: [items] }, post: tweet("9") },
+    },
+  );
+  debug.finished("1");
+  await vi.waitFor(() => expect(heard).toHaveLength(1));
+  expect(heard[0]).toMatchObject({
+    kind: "graphql",
+    op: "GrokConversationItemsByRestId",
+    variables: { restId: "c1" },
+  });
+  // X's streamed answer, one JSON line per chunk, a line split across two chunks.
+  debug.emit("message", {}, "Network.responseReceived", {
+    requestId: "2",
+    response: { url: "https://x.com/i/api/2/grok/add_response.json", mimeType: "text/plain" },
+  });
+  const chunk = (data: string) =>
+    debug.emit("message", {}, "Network.dataReceived", {
+      requestId: "2",
+      data: Buffer.from(data).toString("base64"),
+    });
+  chunk('{"result":{"message":"Repl');
+  chunk('ies"}}\n{"result":{"message":" split"}}\n');
+  debug.finished("2");
+  await vi.waitFor(() => expect(heard.at(-1)?.kind).toBe("end"));
+  expect(heard.slice(1)).toEqual([
+    { kind: "start", stream: "2", conversation: null },
+    { kind: "chunk", stream: "2", line: '{"result":{"message":"Replies"}}' },
+    { kind: "chunk", stream: "2", line: '{"result":{"message":" split"}}' },
+    { kind: "end", stream: "2" },
+  ]);
+  expect(debug.commands).toContain("Network.streamResourceContent");
+  // The next ordinary response goes to the service, and only its own post.
+  debug.received("3", `${GRAPHQL}/HomeTimeline?variables=%7B%7D`, { data: [tweet("8")] });
+  debug.finished("3");
+  await vi.waitFor(() => expect(sent).toHaveLength(1));
+  expect(sent.flatMap((b) => b.posts.map((p) => p.postId))).toEqual(["8"]);
+  expect(rendered.map((b) => b.op)).toEqual(["HomeTimeline"]);
+});
+
+const STREAM = "https://x.com/i/api/2/grok/add_response.json";
+/** The capture with X's Grok traffic heard, and what it logged. */
+const startGrok = () => {
+  const heard: Array<GrokCapture> = [];
+  const logged: Array<unknown> = [];
+  detach = attachSessionCapture({ debugger: debug } as unknown as Electron.WebContents, {
+    serviceUrl: "http://127.0.0.1:4820",
+    serviceToken: "tok",
+    accountId: 1,
+    queueDir,
+    log: (message, detail) => logged.push([message, detail]),
+    onGrok: (capture) => heard.push(capture),
+  });
+  const respond = (requestId: string) =>
+    debug.emit("message", {}, "Network.responseReceived", {
+      requestId,
+      response: { url: STREAM, mimeType: "text/plain" },
+    });
+  const chunk = (requestId: string, bytes: Buffer) =>
+    debug.emit("message", {}, "Network.dataReceived", {
+      requestId,
+      data: bytes.toString("base64"),
+    });
+  return { heard, logged, respond, chunk };
+};
+
+it("reads what DevTools buffered before X's later chunks, and ends X's answer once, after both", async () => {
+  const read = Promise.withResolvers<{ bufferedData?: string }>();
+  debug.streamRead = read.promise;
+  const { heard, respond, chunk } = startGrok();
+  respond("2");
+  chunk("2", Buffer.from('{"result":{"message":" later"}}\n'));
+  debug.finished("2");
+  read.resolve({
+    bufferedData: Buffer.from('{"result":{"message":"first"}}\n').toString("base64"),
+  });
+  await vi.waitFor(() => expect(heard.at(-1)?.kind).toBe("end"));
+  chunk("2", Buffer.from('{"result":{"message":" stray"}}\n'));
+  expect(heard).toEqual([
+    { kind: "start", stream: "2", conversation: null },
+    { kind: "chunk", stream: "2", line: '{"result":{"message":"first"}}' },
+    { kind: "chunk", stream: "2", line: '{"result":{"message":" later"}}' },
+    { kind: "end", stream: "2" },
+  ]);
+});
+
+it("keeps a character X split across chunks whole, including DevTools' buffered part", async () => {
+  const line = Buffer.from('{"result":{"message":"বাংলা"}}\n');
+  // Cut inside the first Bengali letter's three bytes, and again inside the next one.
+  const at = line.indexOf("ব") + 1;
+  debug.streamRead = Promise.resolve({ bufferedData: line.subarray(0, at).toString("base64") });
+  const { heard, respond, chunk } = startGrok();
+  respond("2");
+  chunk("2", line.subarray(at, at + 3));
+  chunk("2", line.subarray(at + 3));
+  debug.finished("2");
+  await vi.waitFor(() => expect(heard.at(-1)?.kind).toBe("end"));
+  expect(heard[1]).toEqual({ kind: "chunk", stream: "2", line: '{"result":{"message":"বাংলা"}}' });
+});
+
+it("ends X's answers in flight when DevTools lets go of the view, and reads nothing more of them", async () => {
+  const { heard, respond, chunk } = startGrok();
+  respond("2");
+  debug.emit("detach", {}, "target closed");
+  chunk("2", Buffer.from('{"result":{"message":"after"}}\n'));
+  debug.finished("2");
+  expect(heard).toEqual([
+    { kind: "start", stream: "2", conversation: null },
+    { kind: "end", stream: "2" },
+  ]);
+});
+
+it("logs only a fixed line for a Grok answer that is not JSON: no word of the user's chat", async () => {
+  const { heard, logged } = startGrok();
+  debug.receivedText(
+    "1",
+    `${GRAPHQL}/GrokConversationItemsByRestId?variables=%7B%22restId%22%3A%22c1%22%7D`,
+    // V8's parse error quotes the text around where it broke.
+    '{"data":{"items":[{"message":"a private question"}, x]}}',
+  );
+  debug.finished("1");
+  await vi.waitFor(() => expect(logged).toHaveLength(1));
+  expect(logged).toEqual([["grok response unavailable", undefined]]);
+  expect(heard).toEqual([]);
+});
+
+it("names the conversation X's Grok ask is for when its answer starts: from its body, or its query on a resume", () => {
+  const { heard, respond } = startGrok();
+  const ask = (requestId: string, url: string, postData?: string) =>
+    debug.emit("message", {}, "Network.requestWillBeSent", {
+      requestId,
+      request: { url, postData },
+    });
+  ask("2", STREAM, JSON.stringify({ responses: [{ message: "private" }], conversationId: "c1" }));
+  ask("3", `${STREAM}?conversationId=c2&responseToChatItemId=a1`);
+  respond("3");
+  respond("2");
+  expect(heard).toEqual([
+    { kind: "start", stream: "3", conversation: "c2" },
+    { kind: "start", stream: "2", conversation: "c1" },
+  ]);
+});
+
+it("reads none of X's other Grok traffic: no body, no log, no observation, no engine batch", async () => {
+  const { heard, logged } = startGrok();
+  const rendered: Array<EngineBatch> = [];
+  detach();
+  detach = attachSessionCapture({ debugger: debug } as unknown as Electron.WebContents, {
+    serviceUrl: "http://127.0.0.1:4820",
+    serviceToken: "tok",
+    accountId: 1,
+    queueDir,
+    log: (message, detail) => logged.push([message, detail]),
+    onRender: (batch) => rendered.push(batch),
+    onGrok: (capture) => heard.push(capture),
+  });
+  // V8's parse error would quote the text around where it broke.
+  debug.receivedText("1", `${GRAPHQL}/GrokHome?variables=%7B%7D`, '{"m":"secret chat text"}, x');
+  debug.received("2", `${GRAPHQL}/GrokShareConversation?variables=%7B%7D`, { data: tweet("9") });
+  debug.received("3", "https://x.com/i/api/2/grok/attachment.json", { data: tweet("7") });
+  debug.received("5", `${GRAPHQL}/ClearGrokConversations`, { data: tweet("6") });
+  for (const id of ["1", "2", "3", "5"]) debug.finished(id);
+  // An ordinary response after them is read, so theirs would have been by now.
+  debug.received("4", `${GRAPHQL}/HomeTimeline?variables=%7B%7D`, { data: [tweet("8")] });
+  debug.finished("4");
+  await vi.waitFor(() => expect(sent).toHaveLength(1));
+  expect(sent.flatMap((b) => b.posts.map((p) => p.postId))).toEqual(["8"]);
+  expect(rendered.map((b) => b.op)).toEqual(["HomeTimeline"]);
+  expect(debug.commands.filter((c) => c === "Network.getResponseBody")).toHaveLength(1);
+  expect([heard, logged]).toEqual([[], []]);
+});
+
+it("hands the window the conversation X creates for a new chat", async () => {
+  const { heard } = startGrok();
+  const created = { data: { create_grok_conversation: { conversation_id: "c-new" } } };
+  debug.received("1", `${GRAPHQL}/CreateGrokConversation`, created);
+  debug.finished("1");
+  await vi.waitFor(() =>
+    expect(heard).toMatchObject([{ kind: "graphql", op: "CreateGrokConversation", body: created }]),
+  );
 });

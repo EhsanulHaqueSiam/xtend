@@ -1,7 +1,7 @@
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
-import type { EngineBatch, ObservationBatch, ObservedPost } from "@xtend/contracts";
+import type { EngineBatch, GrokCapture, ObservationBatch, ObservedPost } from "@xtend/contracts";
 import type * as Electron from "electron";
 
 import {
@@ -52,6 +52,11 @@ export interface SessionCaptureOptions {
   readonly onRender?: (batch: EngineBatch) => void;
   /** The id x.com returned for a post the session just created (CreateTweet). */
   readonly onCreatedPost?: (postId: string) => void;
+  /**
+   * X's older Grok client's GraphQL answers and streamed answer lines, for the window only: they
+   * never reach the service, a log or an observation.
+   */
+  readonly onGrok?: (capture: GrokCapture) => void;
   /** The signed-in handle from X's nav, for sessions that never make the Viewer call. */
   readonly fallbackViewer?: () => string | null;
 }
@@ -61,8 +66,29 @@ export function attachSessionCapture(
   options: SessionCaptureOptions,
 ): () => void {
   const pending = new Map<string, string>();
+  // X's streamed Grok answers in flight, by request.
+  const streams = new Map<string, GrokStream>();
+  const streamBytes = (id: string, stream: GrokStream, base64: string, last = false) => {
+    const text = stream.decoder.decode(Buffer.from(base64, "base64"), { stream: !last });
+    const lines = (stream.rest + text + (last ? "\n" : "")).split("\n");
+    stream.rest = lines.pop() ?? "";
+    for (const line of lines)
+      if (line.trim() !== "") options.onGrok?.({ kind: "chunk", stream: id, line });
+  };
+  const endStream = (id: string, stream: GrokStream) => {
+    streams.delete(id);
+    streamBytes(id, stream, "", true);
+    options.onGrok?.({ kind: "end", stream: id });
+  };
+  // DevTools let go of the view, or the capture stopped: X's answers in flight will never finish.
+  const dropStreams = () => {
+    for (const id of streams.keys()) options.onGrok?.({ kind: "end", stream: id });
+    streams.clear();
+  };
   // A POST's body (X sends HomeTimeline as one) holds the variables that say which Home tab it is for.
   const postData = new Map<string, string>();
+  // The conversation each of X's Grok asks names, by request, until its answer starts.
+  const streamChats = new Map<string, string | null>();
   const debug = contents.debugger;
   // Learned from x.com's own Viewer call; null until the session has loaded once.
   let viewerHandle: string | null = null;
@@ -73,15 +99,56 @@ export function attachSessionCapture(
     if (!isRecord(params) || typeof params.requestId !== "string") return;
     if (method === "Network.requestWillBeSent") {
       const request = isRecord(params.request) ? params.request : undefined;
-      if (typeof request?.postData === "string" && isGraphqlUrl(String(request.url))) {
+      const url = String(request?.url);
+      if (typeof request?.postData === "string" && isGraphqlUrl(url)) {
         postData.set(params.requestId, request.postData);
         if (postData.size > MAX_PENDING) postData.delete(postData.keys().next().value!);
+      }
+      if (isGrokStreamUrl(url)) {
+        streamChats.set(params.requestId, grokConversation(url, request?.postData));
+        if (streamChats.size > MAX_PENDING) streamChats.delete(streamChats.keys().next().value!);
+      }
+      return;
+    }
+    // X's streamed Grok answer: each chunk as it arrives, through DevTools' own streaming read.
+    const stream = streams.get(params.requestId);
+    if (method === "Network.dataReceived" && stream !== undefined) {
+      if (typeof params.data === "string") {
+        if (stream.held === null) streamBytes(params.requestId, stream, params.data);
+        else stream.held.push(params.data);
       }
       return;
     }
     if (method === "Network.responseReceived") {
       const response = isRecord(params.response) ? params.response : undefined;
       const url = typeof response?.url === "string" ? response.url : "";
+      if (options.onGrok !== undefined && isGrokStreamUrl(url)) {
+        const id = params.requestId;
+        const started: GrokStream = {
+          decoder: new TextDecoder(),
+          rest: "",
+          held: [],
+          finished: false,
+        };
+        streams.set(id, started);
+        options.onGrok({ kind: "start", stream: id, conversation: streamChats.get(id) ?? null });
+        streamChats.delete(id);
+        // What X sent before the read began comes first, then the chunks held meanwhile.
+        const ready = (buffered: string | undefined) => {
+          if (streams.get(id) !== started) return;
+          const held = started.held ?? [];
+          started.held = null;
+          for (const data of buffered ? [buffered, ...held] : held) streamBytes(id, started, data);
+          if (started.finished) endStream(id, started);
+        };
+        void debug
+          .sendCommand("Network.streamResourceContent", { requestId: id })
+          .then((result: { bufferedData?: string }) => ready(result.bufferedData))
+          .catch(() => ready(undefined));
+        return;
+      }
+      // The rest of X's Grok traffic is the user's chats too, and no screen reads it.
+      if (isGrokUrl(url) && !GROK_OPS.has(grokOp(url) ?? "")) return;
       const mime = typeof response?.mimeType === "string" ? response.mimeType : "";
       // GraphQL, and X's REST answers the screens use: its count of followers you know, the
       // user's profile as X's own Edit profile saved it, and a Space recording's chat (captions,
@@ -95,6 +162,14 @@ export function attachSessionCapture(
       pending.set(params.requestId, url);
       // Maps iterate in insertion order, so the first key is the oldest request.
       if (pending.size > MAX_PENDING) pending.delete(pending.keys().next().value!);
+      return;
+    }
+    if (
+      (method === "Network.loadingFinished" || method === "Network.loadingFailed") &&
+      stream !== undefined
+    ) {
+      if (stream.held === null) endStream(params.requestId, stream);
+      else stream.finished = true;
       return;
     }
     if (method === "Network.loadingFailed") {
@@ -113,6 +188,30 @@ export function attachSessionCapture(
   };
 
   const captureBody = async (requestId: string, url: string, sent: string | undefined) => {
+    // /i/api/graphql/<queryId>/<Operation>?variables=...
+    const op = new URL(url).pathname.split("/").at(-1) ?? "";
+    // X's older Grok client's answers are the user's chats: the window's only, never an observation
+    // or a log (a parse error can quote the body).
+    if (isGrokUrl(url)) {
+      try {
+        const result = (await debug.sendCommand("Network.getResponseBody", { requestId })) as {
+          body: string;
+          base64Encoded: boolean;
+        };
+        const text = result.base64Encoded
+          ? Buffer.from(result.body, "base64").toString("utf8")
+          : result.body;
+        options.onGrok?.({
+          kind: "graphql",
+          op,
+          variables: requestVariables(url, sent),
+          body: JSON.parse(text),
+        });
+      } catch {
+        options.log("grok response unavailable");
+      }
+      return;
+    }
     let body: unknown;
     try {
       const result = (await debug.sendCommand("Network.getResponseBody", { requestId })) as {
@@ -144,8 +243,6 @@ export function attachSessionCapture(
       return;
     }
     if (options.onRender !== undefined) {
-      // /i/api/graphql/<queryId>/<Operation>?variables=...
-      const op = new URL(url).pathname.split("/").at(-1) ?? "";
       const batch = renderEngineBatch(op, requestVariables(url, sent), body);
       if (hasEngineContent(batch)) options.onRender(batch);
     }
@@ -261,6 +358,7 @@ export function attachSessionCapture(
   const onDetach = (_event: Electron.Event, reason: string) => {
     pending.clear();
     postData.clear();
+    dropStreams();
     if (stopped) return;
     options.log("debugger detached, reattaching", { reason });
     reattachTimer = setTimeout(attach, REATTACH_MS);
@@ -278,8 +376,56 @@ export function attachSessionCapture(
     debug.off("detach", onDetach);
     if (debug.isAttached()) debug.detach();
     pending.clear();
+    dropStreams();
   };
 }
+
+/** One of X's streamed Grok answers as the capture reads it. */
+interface GrokStream {
+  /** One decoder for the whole answer, so a character X split across chunks stays whole. */
+  readonly decoder: TextDecoder;
+  /** The part of a line not yet ended. */
+  rest: string;
+  /** Chunks that came before DevTools' streaming read answered; null once it has. */
+  held: Array<string> | null;
+  /** X's answer finished before that read answered. */
+  finished: boolean;
+}
+
+/**
+ * X's older Grok client's GraphQL operations the window reads: its history, pins, a conversation's
+ * items and the id X creates for a new chat.
+ */
+const GROK_OPS = new Set([
+  "GrokHistory",
+  "GrokPinnedConversations",
+  "GrokConversationItemsByRestId",
+  "CreateGrokConversation",
+]);
+
+/** Any of X's Grok traffic, by its URL alone: a GraphQL operation naming Grok, or X's /2/grok/ API. */
+const isGrokUrl = (url: string) =>
+  /\/graphql\/[^/?]+\/[^/?]*Grok[^/?]*(?:\?|$)|\/2\/grok\//.test(url);
+const grokOp = (url: string) => /\/graphql\/[^/?]+\/([^/?]*Grok[^/?]*)(?:\?|$)/.exec(url)?.[1];
+
+/** The conversation one of X's Grok asks is for: in its JSON body, or its query when X resumes one. */
+const grokConversation = (url: string, body: unknown) => {
+  let named: unknown = null;
+  try {
+    named =
+      typeof body === "string"
+        ? (JSON.parse(body) as { conversationId?: unknown }).conversationId
+        : null;
+  } catch {
+    // The user's own words: never logged.
+  }
+  named = typeof named === "string" ? named : new URL(url).searchParams.get("conversationId");
+  return typeof named === "string" && named !== "" ? named : null;
+};
+
+/** X's streamed Grok answer, on x.com's API or X's Grok host. */
+const isGrokStreamUrl = (url: string) =>
+  /^https:\/\/(?:x\.com\/i\/api|grok\.x\.com)\/2\/grok\/add_response\.json(?:\?|$)/.test(url);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;

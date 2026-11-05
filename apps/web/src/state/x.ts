@@ -202,9 +202,10 @@ export const xRun = (code: string): Promise<unknown> => {
 };
 
 /**
- * Near a native list's end, X scrolls its own page to fetch the next: it follows the bottom, a
- * screen back between tries (a jump can fetch nothing), until X's last post or person changes;
- * page height is no signal. X's page loading anew, or `signal` (the list going), ends it.
+ * Near a native list's end, X scrolls its own page to fetch the next, a screen back between tries,
+ * until X's last post or person changes (page height is no signal); X loading anew or `signal` ends
+ * it. Then X's page goes back where it was: parked at its end, X fetches page after page by itself
+ * as its cells resize (Space cards as X polls them), and restores that end on Back.
  */
 export const xScrollMore = (signal: AbortSignal = new AbortController().signal) =>
   xRunHeld(
@@ -222,22 +223,48 @@ export const xScrollMore = (signal: AbortSignal = new AbortController().signal) 
     // People lists and Community search results have no posts: without their rows this never sees
     // X's next page land and keeps scrolling, so X fetches page after page.
     const last = () => [...document.querySelectorAll('article a[href*="/status/"] time, [data-testid="UserCell"] a[href^="/"], [data-testid="cellInnerDiv"]:not(:has(article)) a[href^="/i/communities/"]')].at(-1)?.closest("a")?.getAttribute("href");
+    // Where X's page was before the first of the scrolls in flight on it; a page left mid-way
+    // keeps it until X shows that page again.
+    const homes = window.__xtendScrollHomes ??= {};
+    const from = homes[path] ??= scrollY;
+    window.__xtendScrollAt = path;
+    if (!window.__xtendScrollWatch) {
+      window.__xtendScrollWatch = true;
+      // shortcut: X restores a page's scroll a moment after its popstate; 500 ms outlasts that on
+      // the pages seen so far, move to X's own scroll-restored signal if one is found.
+      addEventListener("popstate", () => setTimeout(() => {
+        const here = location.pathname + location.search;
+        const home = window.__xtendScrollHomes[here];
+        if (home === undefined || window.__xtendScrollAt === here) return;
+        delete window.__xtendScrollHomes[here];
+        window.scrollTo({ top: home, behavior: "instant" });
+      }, 500));
+    }
+    const back = (done) => {
+      if (window.__xtendScroll !== run) return done;
+      window.__xtendScrollAt = null;
+      if (location.pathname + location.search !== path) return done;
+      delete homes[path];
+      // A trend lookup owns the scroll now, and has taken X's page off its end already.
+      if (!window.__xtendTrendLookups) window.scrollTo({ top: from, behavior: "instant" });
+      return done;
+    };
     window.scrollTo(0, document.documentElement.scrollHeight);
     await new Promise((r) => setTimeout(r, 300));
-    if (!current() || (window.__xtendTrendLookups && !(await resume()))) return false;
+    if (!current() || (window.__xtendTrendLookups && !(await resume()))) return back(false);
     const before = last();
     for (let attempt = 0; attempt < 4; attempt++) {
       for (let i = 0; i < 15; i++) {
         await new Promise((r) => setTimeout(r, 250));
-        if (!current() || (window.__xtendTrendLookups && !(await resume()))) return false;
+        if (!current() || (window.__xtendTrendLookups && !(await resume()))) return back(false);
         window.scrollTo(0, document.documentElement.scrollHeight);
-        if (last() !== before) return true;
+        if (last() !== before) return back(true);
       }
       window.scrollBy(0, -window.innerHeight);
       await new Promise((r) => setTimeout(r, 300));
-      if (!current() || (window.__xtendTrendLookups && !(await resume()))) return false;
+      if (!current() || (window.__xtendTrendLookups && !(await resume()))) return back(false);
     }
-    return false;
+    return back(false);
   })()`,
     signal,
   );
