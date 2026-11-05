@@ -42,7 +42,9 @@ test("X's page goes back where it was after the engine asks it for more, so X st
   // nothing more however its cells resize.
   await e.app.evaluate(() => void (location.hash = "#/scores"));
   await e.app.locator("main article[data-post]").first().waitFor({ state: "detached" });
-  await expect.poll(() => e.engine<boolean>("!window.__xtendScrollLive")).toBe(true);
+  await expect
+    .poll(() => e.engine<boolean>("Object.keys(window.__xtendScrollRuns ?? {}).length === 0"))
+    .toBe(true);
   expect(await e.engine<string>("location.pathname")).toBe("/home");
   const asked = nextPages();
   await resize(4);
