@@ -713,6 +713,21 @@ it("reads and presses only the dropdown opened by its caret when another menu ex
   expect(pressed).toEqual(["own"]);
 });
 
+/**
+ * Records X's page's scrolls without moving it, and runs `land` (X's next page arriving) once it
+ * has been sent to its end `at` times. `ends` counts the scrolls to its end.
+ */
+const scrollsTo = (at: number, land: () => void) => {
+  const ends = () =>
+    spy.mock.calls.filter((c) => c[1] === document.documentElement.scrollHeight).length;
+  const spy = vi.spyOn(window, "scrollTo").mockImplementation((...args) => {
+    if (args[1] === document.documentElement.scrollHeight && ends() === at) land();
+  });
+  return Object.assign(spy, { ends });
+};
+/** X's page put back at `top`. */
+const home = (top: number) => [{ top, behavior: "instant" }];
+
 it.each(["before", "during"])(
   "resumes paging requested %s a trend lookup without another native endReached",
   async (when) => {
@@ -720,12 +735,9 @@ it.each(["before", "during"])(
     const path = location.pathname + location.search;
     history.replaceState(null, "", "/explore");
     withMenu({});
-    let bottoms = 0;
-    using _scroll = vi.spyOn(window, "scrollTo").mockImplementation((...args) => {
-      if (typeof args[0] !== "number") return;
-      if (++bottoms === 2)
-        document.querySelector("article a")!.setAttribute("href", "/theo/status/43");
-    });
+    using scrolls = scrollsTo(2, () =>
+      document.querySelector("article a")!.setAttribute("href", "/theo/status/43"),
+    );
     using _back = vi.spyOn(window, "scrollBy").mockImplementation(() => {});
     try {
       const paging = when === "before" ? xScrollMore() : undefined;
@@ -734,7 +746,8 @@ it.each(["before", "during"])(
       await vi.runAllTimersAsync();
       expect(await reading).toBeNull();
       expect(await pending).toBe(true);
-      expect(bottoms).toBe(2);
+      expect(scrolls.mock.calls.at(-1)).toEqual(home(0));
+      expect(scrolls.ends()).toBe(2);
     } finally {
       history.replaceState(null, "", path);
       registerXWebview(null);
@@ -745,16 +758,15 @@ it.each(["before", "during"])(
 it("keeps paging while a post menu read waits for X's rows", async () => {
   using _clock = fakeTimers();
   withMenu({});
-  let bottoms = 0;
-  using _scroll = vi.spyOn(window, "scrollTo").mockImplementation(() => {
-    if (++bottoms === 2)
-      document.querySelector("article a")!.setAttribute("href", "/theo/status/43");
-  });
+  using scrolls = scrollsTo(2, () =>
+    document.querySelector("article a")!.setAttribute("href", "/theo/status/43"),
+  );
   const reading = xPostMenu(post42);
   const paging = xScrollMore();
   await vi.advanceTimersByTimeAsync(600);
-  expect(bottoms).toBe(2);
   expect(await paging).toBe(true);
+  expect(scrolls.ends()).toBe(2);
+  expect(scrolls.mock.calls.at(-1)).toEqual(home(0));
   await vi.runAllTimersAsync();
   await reading;
 });
@@ -763,19 +775,48 @@ it("sees X's next page of Community search results land and stops scrolling", as
   using _clock = fakeTimers();
   const cell = (id: string) =>
     `<div data-testid="cellInnerDiv"><a href="/i/communities/${id}">Community ${id}</a></div>`;
-  document.body.innerHTML = cell("1");
+  document.body.innerHTML = `<div style="height:5000px">${cell("1")}</div>`;
   inThisPage();
-  let bottoms = 0;
-  using _scroll = vi.spyOn(window, "scrollTo").mockImplementation(() => {
-    if (++bottoms === 2) document.body.insertAdjacentHTML("beforeend", cell("2"));
-  });
+  window.scrollTo(0, 120);
+  using scrolls = scrollsTo(2, () =>
+    document.body.firstElementChild!.insertAdjacentHTML("beforeend", cell("2")),
+  );
   using _back = vi.spyOn(window, "scrollBy").mockImplementation(() => {});
   try {
     const paging = xScrollMore();
     await vi.runAllTimersAsync();
     expect(await paging).toBe(true);
-    expect(bottoms).toBe(2);
+    expect(scrolls.ends()).toBe(2);
+    // Back where X's page was: parked at its end, X would go on fetching by itself.
+    expect(scrolls.mock.calls.at(-1)).toEqual(home(120));
   } finally {
+    document.documentElement.scrollTop = 0;
+    registerXWebview(null);
+  }
+});
+
+it("puts X's page back once X shows it again, when the engine left it mid-way through asking for more", async () => {
+  using _clock = fakeTimers();
+  const start = location.pathname + location.search;
+  history.replaceState(null, "", "/search?q=spaces");
+  document.body.innerHTML = `<div style="height:5000px"><article><a href="/theo/status/42"><time></time></a></article></div>`;
+  inThisPage();
+  window.scrollTo(0, 120);
+  // A Space card opened while X's page sat at its end: the engine moves to the Space's page.
+  using scrolls = scrollsTo(1, () => history.pushState(null, "", "/i/spaces/1/peek"));
+  try {
+    const paging = xScrollMore();
+    await vi.runAllTimersAsync();
+    expect(await paging).toBe(false);
+    expect(scrolls.mock.calls.at(-1)).not.toEqual(home(120));
+    // Back on the search, X restores its end; the page then goes back where it was.
+    history.pushState(null, "", "/search?q=spaces");
+    dispatchEvent(new PopStateEvent("popstate"));
+    await vi.advanceTimersByTimeAsync(500);
+    expect(scrolls.mock.calls.at(-1)).toEqual(home(120));
+  } finally {
+    document.documentElement.scrollTop = 0;
+    history.replaceState(null, "", start);
     registerXWebview(null);
   }
 });
