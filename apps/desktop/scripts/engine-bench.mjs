@@ -1571,6 +1571,17 @@ const benchmarks = [
     "Analyze X Spaces: your Spaces as X's page lists them, or without Premium X's paywall as X's page shows it (dry)",
     async () => {
       // Reads only: X's Space analytics page and Xtend's list of it. Nothing is opened or played.
+      // From X's Home first: on that page already (a run before), X draws nothing new to read.
+      await go("#/home?feed=following");
+      if (
+        !(await until(
+          async () =>
+            (await enginePath()) === "/home" &&
+            (await engine(`document.querySelectorAll("article").length`)) >= 1,
+          20_000,
+        ))
+      )
+        return undefined;
       await go("#/analyze?tab=x-spaces");
       const shown = await until(
         () =>
