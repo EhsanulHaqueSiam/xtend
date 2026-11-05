@@ -263,17 +263,22 @@ export const xScrollMore = (signal: AbortSignal = new AbortController().signal) 
       if (homes[path] !== undefined) window.scrollTo({ top: homes[path], behavior: "instant" });
       delete homes[path];
       const from = scrollY;
-      const stop = () => {
+      const stop = async () => {
         if (!here()) homes[path] = from;
-        else if (!latest()) window.scrollTo({ top: from, behavior: "instant" });
+        else if (!latest()) {
+          // Stopped by a newer scroll, which captures only once X's page is back: a trend lookup
+          // holding the scroll is waited out first, and X's page goes back only if still here.
+          for (let i = 0; i < 80 && here() && window.__xtendTrendLookups; i++) await wait(100);
+          if (here() && !window.__xtendTrendLookups) window.scrollTo({ top: from, behavior: "instant" });
+        }
         return false;
       };
       window.scrollTo(0, document.documentElement.scrollHeight);
-      if (!(await step(300))) return stop();
+      if (!(await step(300))) return await stop();
       const seen = last();
       for (let attempt = 0; attempt < 4; attempt++) {
         for (let i = 0; i < 15; i++) {
-          if (!(await step(250))) return stop();
+          if (!(await step(250))) return await stop();
           window.scrollTo(0, document.documentElement.scrollHeight);
           if (last() !== seen) {
             window.scrollTo({ top: from, behavior: "instant" });
@@ -281,7 +286,7 @@ export const xScrollMore = (signal: AbortSignal = new AbortController().signal) 
           }
         }
         window.scrollBy(0, -window.innerHeight);
-        if (!(await step(300))) return stop();
+        if (!(await step(300))) return await stop();
       }
       window.scrollTo({ top: from, behavior: "instant" });
       return false;
