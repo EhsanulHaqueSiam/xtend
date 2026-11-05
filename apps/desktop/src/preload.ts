@@ -1,4 +1,4 @@
-import type { EngineBatch, XSkinToggle } from "@xtend/contracts";
+import type { EngineBatch, GrokCapture, XSkinToggle } from "@xtend/contracts";
 import { contextBridge, ipcRenderer } from "electron";
 
 import {
@@ -8,6 +8,7 @@ import {
   type BridgeInfo,
   EMOJI_PANEL_CHANNEL,
   ENGINE_CHANNEL,
+  GROK_CHANNEL,
   GLANCE_CHANNEL,
   type Glance,
   OPEN_EXTERNAL_CHANNEL,
@@ -75,6 +76,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   getUpdate: (): Promise<UpdateState> => ipcRenderer.invoke(UPDATE_GET_CHANNEL),
   onUpdate: listen<UpdateState>(UPDATE_STATE_CHANNEL),
   onEngine: engine.listen,
+  onGrok: listen<GrokCapture>(GROK_CHANNEL),
   checkUpdate: () => ipcRenderer.send(UPDATE_CHECK_CHANNEL),
   setUpdateChannel: (channel: UpdateChannel) =>
     ipcRenderer.send(UPDATE_CHANNEL_SET_CHANNEL, channel),

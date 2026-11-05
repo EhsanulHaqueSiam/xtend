@@ -374,6 +374,15 @@ const SCRIPT = String.raw`
     }
   }
   addEventListener("scroll", () => { drawTrends(); void more(); }, { passive: true });
+  // X's list checks its end again as its cells resize: parked at its end, it fetches by itself.
+  // Read on a timer, not observed: an engine off screen may not render for an observer to fire.
+  let cells = "";
+  setInterval(() => {
+    const now = column.offsetHeight + " " + column.getElementsByTagName("*").length;
+    if (now === cells || scrollY === 0) return;
+    cells = now;
+    void more();
+  }, 250);
 
   // X's GIF search runs what is typed in place, on its own route: its list starts over per query,
   // and each query searched is a history entry, so Back returns to the query before it.

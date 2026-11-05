@@ -308,6 +308,18 @@ export async function startMockX(
       case "/favicon.ico":
         return send(204, "", "image/x-icon");
     }
+    // X's older Grok client's answer: one JSON line per chunk, a moment apart, as X streams it.
+    if (req.method === "POST" && url.pathname === "/i/api/2/grok/add_response.json") {
+      // X's ask: `{ responses: [{ message, sender: 1, ... }], conversationId, ... }`.
+      const asked = await readBody(req);
+      const [first] = Array.isArray(asked.responses) ? asked.responses : [];
+      res.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
+      for (const line of state.grok.streamFor(String(first?.message ?? ""))) {
+        res.write(`${JSON.stringify(line)}\n`);
+        await new Promise((r) => setTimeout(r, state.grok.chunkMs));
+      }
+      return void res.end();
+    }
     if (req.method !== "GET" || url.pathname.startsWith("/i/api/"))
       return send(404, "{}", "application/json");
     return send(200, shell(state, hashes), "text/html; charset=utf-8");
