@@ -11,7 +11,7 @@ import {
   subscribeDialog,
   unfollowSheet,
 } from "./menus.ts";
-import { pollMarkup, postsOf, route } from "./pages.ts";
+import { pollMarkup, postsOf, route, spaceRequest } from "./pages.ts";
 import { settingWrite, writeSetting } from "./settings.ts";
 import { createMockState, type GraphqlRequest, type Json, type MockOptions } from "./state.ts";
 
@@ -268,6 +268,36 @@ export async function startMockX(
       }
       case "/__mock/presses":
         return json(state.presses);
+      // X's Space controls: each press X would send to its Spaces services, then X's dock as it is.
+      case "/__mock/space": {
+        const body = await readBody(req);
+        const ok = state.spaces.write(body);
+        if (ok)
+          state.presses.push({
+            kind: "write",
+            name: `space:${String(body.kind)}`,
+            target:
+              typeof body.emoji === "string" ? body.emoji : String(body.id ?? body.title ?? ""),
+            path: from,
+          });
+        return json({ ok });
+      }
+      // X's Space cards poll AudioSpaceById for their Spaces (every 15 s on X, faster here).
+      case "/__mock/space-poll":
+        return json(
+          (url.searchParams.get("ids") ?? "")
+            .split(",")
+            .filter((id) => id !== "")
+            .map((id) => httpRequest(spaceRequest(id))),
+        );
+      // X's dock, and the AudioSpaceById it polls for the Space in it.
+      case "/__mock/space-dock": {
+        const dock = state.spaces.dock;
+        return json({
+          html: state.spaces.dockHtml(),
+          graphql: dock === null ? [] : [httpRequest(spaceRequest(dock.spaceId))],
+        });
+      }
       case "/__mock/chat-unlock":
         state.chat.unlock();
         return json({ ok: true });

@@ -6,6 +6,7 @@ import {
   AtSign,
   Bot,
   Gauge,
+  Mic,
   Search,
   Settings,
   SquarePen,
@@ -23,6 +24,7 @@ import { paletteOpenAtom } from "../../state/shell";
 import { toastAtom } from "../ui/toast";
 import { isXRoute, lastToolRoute, xNavigate, xPanelOpenAtom } from "../../state/x";
 import { agentRunCost } from "../leads/ui";
+import { useSpaceStart } from "../xnative/SpaceDock";
 import { SCREENS } from "./commands";
 import { SECTIONS } from "./sections";
 
@@ -89,6 +91,7 @@ function PaletteBody({
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
   const list = useRef<HTMLUListElement>(null);
+  const startSpace = useSpaceStart();
 
   const commands = useMemo((): ReadonlyArray<Command> => {
     const to = (href: string) => () => go(href);
@@ -182,6 +185,13 @@ function PaletteBody({
       ...(isElectron
         ? [
             {
+              id: "x:start-space",
+              group: "X" as const,
+              label: "Start a Space",
+              icon: Mic,
+              run: () => void startSpace(),
+            },
+            {
               id: "x-panel",
               group: "X" as const,
               label: panelOpen && !isXRoute(pathname) ? "Hide X panel" : "Show X panel",
@@ -255,6 +265,7 @@ function PaletteBody({
     running,
     search,
     setPanel,
+    startSpace,
   ]);
 
   const pick = (command: Command) => {

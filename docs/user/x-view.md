@@ -78,6 +78,14 @@ session actions are on, and a formatted post goes through your session, free. On
 without Premium they show X's own offer, which opens X's Subscribe page. Posts written in bold or
 italic on X show that way in Xtend.
 
+A post with a Space opens it beside the screen you are reading, in the right column: its title,
+host, speakers, listeners and the people you track among them (your leads with their stage, and
+the people you reply under). Opening it joins nothing. **Start listening** joins it in public, as
+on X; the Space then plays in X's own player while you move between Xtend's screens, until you
+press **Leave**. Asking to speak, your mic, reactions, captions and sharing are X's own controls,
+and X asks for the microphone when you speak. **Start a Space** in the palette opens X's own
+Create your Space; as host, **End** asks in X's own confirm. All free, through your session.
+
 Replying starts by reading the post: its text, its images and the thread above it. Xtend says
 what it thinks the post is ("Playful hot take") and why; if that is wrong, say what it is
 instead. **Angles** are replies written for that post, **With help** reworks your own words

@@ -24,6 +24,7 @@ import type {
   EngineRadarCount,
   EngineXArticle,
   EngineRadarQuery,
+  EngineSpace,
   EngineStory,
   EngineTrend,
   EngineUser,
@@ -491,6 +492,10 @@ export interface EngineState {
   readonly claims: ReadonlySet<string> | null;
   /** The user's bookmark folders in X's order; null until X listed them, which it does for Premium. */
   readonly bookmarkFolders: ReadonlyArray<EngineBookmarkFolder> | null;
+  /** X's Spaces by id, as X last described each (AudioSpaceById). */
+  readonly spaces: ReadonlyMap<string, EngineSpace>;
+  /** Spaces X answered with no Space (see `EngineBatch.spaceUnavailable`), until X sends one. */
+  readonly spacesUnavailable: ReadonlySet<string>;
 }
 
 /** X's claim for its account analytics (GetUserClaims), Premium. */
@@ -621,6 +626,8 @@ export const emptyEngine: EngineState = {
   cursors: {},
   claims: null,
   bookmarkFolders: null,
+  spaces: new Map(),
+  spacesUnavailable: new Set(),
 };
 
 /** A surface's entries; a tab X has not sent yet has none. */
@@ -807,6 +814,20 @@ export function mergeBatch(state: EngineState, batch: EngineBatch): EngineState 
     bookmarkFolders: foldersOf(state.bookmarkFolders, batch),
     ...folderPost(state, batch),
     radar: mergeRadar(state.radar, batch),
+    spaces:
+      batch.spaces === undefined || batch.spaces.length === 0
+        ? state.spaces
+        : new Map([...state.spaces, ...batch.spaces.map((sp) => [sp.spaceId, sp] as const)]),
+    spacesUnavailable:
+      batch.spaceUnavailable !== undefined
+        ? new Set(state.spacesUnavailable).add(batch.spaceUnavailable)
+        : batch.spaces?.some((sp) => state.spacesUnavailable.has(sp.spaceId)) === true
+          ? new Set(
+              [...state.spacesUnavailable].filter(
+                (id) => !batch.spaces!.some((sp) => sp.spaceId === id),
+              ),
+            )
+          : state.spacesUnavailable,
     xArticles: mergeXArticles(state.xArticles, batch),
   };
   const listed = surfacesOf(batch).reduce(

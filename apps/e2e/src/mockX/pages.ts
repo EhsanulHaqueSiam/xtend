@@ -141,7 +141,7 @@ function article(p: EnginePost, state: MockState, opts: { focal?: boolean; sort?
     opts.sort === undefined
       ? ""
       : `<div class="sort"><div><button aria-haspopup="menu" aria-expanded="false" data-menu="sort:${p.postId}">${esc(opts.sort)}</button></div><a href="/${esc(p.author.handle)}/status/${p.postId}/quotes">View quotes ›</a></div>`;
-  return `<article data-testid="tweet" role="article" tabindex="${opts.focal === true ? "-1" : "0"}" aria-labelledby="t${p.postId}">
+  return `<article data-testid="tweet" role="article" tabindex="${opts.focal === true ? "-1" : "0"}" aria-labelledby="t${p.postId}"${p.spaceId === undefined ? "" : ` data-space-card="${esc(p.spaceId)}"`}>
   ${context}
   <div class="row"><div data-testid="Tweet-User-Avatar"><a href="/${esc(p.author.handle)}">${avatar(p.avatarUrl, p.author.handle)}</a></div>
   <div class="body">
@@ -475,6 +475,15 @@ function radarPage(state: MockState, page: string | undefined): Route {
   };
 }
 
+/** A search whose every result carries a Space's card, with page after page of them. */
+const SPACES_QUERY = "filter:spaces";
+
+/** X's AudioSpaceById for a Space, as its peek, its card and its dock ask it. */
+export const spaceRequest = (id: string): GraphqlRequest => ({
+  op: "AudioSpaceById",
+  variables: { id, isMetatagsQuery: false, withReplays: true, withListeners: true },
+});
+
 /** The route for an x.com path (with its query), and Home's picked tab. */
 export function route(
   state: MockState,
@@ -491,6 +500,19 @@ export function route(
   const lower = first.toLowerCase();
 
   if (lower === "i" && second === "radar" && fourth === undefined) return radarPage(state, third);
+  // X's Spaces (bundle.AudioSpacePeek, AudioSpaceStart): /i/spaces/<id> opens its peek.
+  if (lower === "i" && second === "spaces" && third !== undefined) {
+    if (third === "start")
+      return { title: "Create your Space / X", requests: [], render: () => state.spaces.start() };
+    if (fourth === undefined)
+      return { title: "X", requests: [], redirect: `/i/spaces/${third}/peek`, render: () => "" };
+    if (fourth === "peek")
+      return {
+        title: "Space / X",
+        requests: [spaceRequest(third)],
+        render: () => state.spaces.peek(third),
+      };
+  }
   if (lower === "i" && second === "grok" && third === "history") {
     const page = grokHistoryPage(state.grok);
     return { title: page.title, requests: [], render: () => page.html };
@@ -701,6 +723,8 @@ export function route(
           product: tab.product,
         }),
       ],
+      // X's search pages on as it scrolls; mock X's Spaces search has page after page.
+      ...(query === SPACES_QUERY ? { paged: 0 } : {}),
       render: ([b]) =>
         `<div class="bar"><button data-testid="app-bar-back" aria-label="Back">←</button><input data-testid="SearchBox_Search_Input" aria-label="Search query" value="${esc(query)}"><button aria-label="More" aria-haspopup="menu" aria-expanded="false" data-menu="search">…</button></div>${tabs(
           "Search",
@@ -1670,6 +1694,10 @@ export function route(
             with_rux_injections: false,
             includePromotedContent: true,
           }),
+          // X's Space card asks X for its Space.
+          ...(state.post(id)?.spaceId === undefined
+            ? []
+            : [spaceRequest(state.post(id)!.spaceId!)]),
         ],
         render: ([b]) => {
           if (b === null || b === undefined)

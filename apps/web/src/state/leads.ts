@@ -30,6 +30,18 @@ export const peopleAtom = Atom.family((listId: number | null) =>
   }),
 );
 
+/** The account's people among `handles` (space separated, as one key per set of handles). */
+export const trackedPeopleAtom = Atom.family((handles: string) =>
+  clientRuntime.atom(
+    Effect.gen(function* () {
+      const client = yield* XtendClient;
+      return yield* client[Leads_METHODS.peopleByHandles]({
+        handles: handles.split(" ").filter((h) => h !== ""),
+      });
+    }),
+  ),
+);
+
 /** The user's Leads row for `handle`, if they have one: its stage and score. Free, stored. */
 export const leadAtom = Atom.family((handle: string) =>
   clientRuntime.atom(

@@ -106,6 +106,10 @@ export class PeopleStore extends Context.Service<
   {
     readonly list: (query?: PeopleQuery) => Effect.Effect<PeoplePage, LeadsError>;
     readonly get: (id: number) => Effect.Effect<Person, LeadsError>;
+    /** The account's people among `handles`, any case. */
+    readonly byHandles: (
+      handles: ReadonlyArray<string>,
+    ) => Effect.Effect<ReadonlyArray<Person>, LeadsError>;
     readonly activity: (personId: number) => Effect.Effect<ReadonlyArray<Activity>, LeadsError>;
     /** Insert or return the existing row for the handle; appends a "found" activity on insert. */
     readonly add: (input: PersonAdd) => Effect.Effect<Person, LeadsError>;
@@ -205,6 +209,17 @@ const make = Effect.gen(function* () {
   );
 
   const get = Effect.fn("PeopleStore.get")(byId, Effect.mapError(fail("get")));
+
+  const byHandles = Effect.fn("PeopleStore.byHandles")(
+    function* (handles: ReadonlyArray<string>) {
+      if (handles.length === 0) return [];
+      const rows = yield* sql<PersonRow>`SELECT * FROM people
+        WHERE account_id = ${sql.literal(CURRENT_ACCOUNT)}
+        AND handle IN ${sql.in([...new Set(handles.map((h) => h.toLowerCase()))])}`;
+      return rows.map(toPerson);
+    },
+    Effect.mapError(fail("byHandles")),
+  );
 
   const activity = Effect.fn("PeopleStore.activity")(
     function* (personId: number) {
@@ -459,6 +474,7 @@ const make = Effect.gen(function* () {
   return PeopleStore.of({
     list,
     get,
+    byHandles,
     activity,
     add,
     addMany,

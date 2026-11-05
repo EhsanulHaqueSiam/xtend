@@ -15,12 +15,17 @@ import type {
   EngineUser,
 } from "@xtend/contracts";
 
-import { synth } from "../../../web/src/components/xnative/engineFixtures.ts";
+import {
+  GONE_SPACE,
+  LIVE_SPACE,
+  synth,
+} from "../../../web/src/components/xnative/engineFixtures.ts";
 import { createMockArticles } from "./articles.ts";
 import { createMockChat } from "./chat.ts";
 import { createMockGrok } from "./grok.ts";
 import { mockSettings } from "./settings.ts";
 import { encodeBody, encodeFolder, encodeList, encodeRestUser, encodeTweet } from "./graphql.ts";
+import { createMockSpaces } from "./spaces.ts";
 
 /**
  * What mock X knows: the people and posts of the made-up engine fixtures (`synth()`), the pages
@@ -185,6 +190,8 @@ export function createMockState(options: MockOptions = {}) {
   const fixture = (op: string, k: string | null) => snapshot.get(key(op, k));
   const home = fixtures.home!.batches;
   const viewer = home.find((b) => b.viewer !== null)!.viewer!;
+  const spaces = createMockSpaces(batches, viewer);
+  const spacePages: Array<ReadonlyArray<EnginePost>> = [];
 
   const basePosts = new Map<string, EnginePost>();
   const baseUsers = new Map<string, EngineUser>();
@@ -254,7 +261,7 @@ export function createMockState(options: MockOptions = {}) {
       Array.from({ length: pageSize }, (_, i) => make(500 + page * 600 + i * 45)),
     ),
   };
-  const pinnedTopic = Array.from({ length: 4 }, (_, i) => make(30 + i * 20));
+  const pinnedTopic = Array.from({ length: 10 }, (_, i) => make(30 + i * 20));
   const focal = fixture("TweetDetail", fixtures.post!.batches[0]!.key)!;
   // Quotes of the post the fixtures' quote quotes, so its Post activity lists more than one.
   const quotedId = following.posts.find((p) => p.quotedId !== null)!.quotedId!;
@@ -431,8 +438,20 @@ export function createMockState(options: MockOptions = {}) {
     return page(op, u.userId, unique);
   };
 
-  const search = (product: string, rawQuery: string): EngineBatch => {
+  const search = (product: string, rawQuery: string, cursor?: string): EngineBatch => {
     const k = `${product}:${rawQuery}`;
+    // Page after page of posts carrying Space cards, live and gone, as X's filter:spaces has.
+    if (rawQuery === "filter:spaces") {
+      const n = Number(/^spaces-(\d+)$/.exec(cursor ?? "")?.[1] ?? 0);
+      const posts = (spacePages[n] ??= Array.from({ length: 4 }, (_, i) =>
+        make(5 + n * 60 + i * 5, { spaceId: i % 2 === 0 ? LIVE_SPACE : GONE_SPACE }),
+      ));
+      return {
+        ...page("SearchTimeline", k, posts),
+        cursor: cursor ?? null,
+        bottom: `spaces-${n + 1}`,
+      };
+    }
     const own = fixture("SearchTimeline", k);
     if (own !== undefined) return live(own);
     const quoted = /^quoted_tweet_id:(\d+)/.exec(rawQuery)?.[1];
@@ -738,6 +757,13 @@ export function createMockState(options: MockOptions = {}) {
       }
       case "TweetDetail":
         return threadOf(s(variables, "focalTweetId") ?? "", s(variables, "rankingMode"));
+      case "AudioSpaceById": {
+        const id = s(variables, "id") ?? "";
+        const space = spaces.space(id);
+        return space === undefined
+          ? null
+          : page(op, id, [], { top: null, bottom: null, spaces: [space] });
+      }
       case "TweetResultByRestId": {
         // Only the fixtures' Articles have a reader page.
         const id = s(variables, "tweetId");
@@ -765,7 +791,11 @@ export function createMockState(options: MockOptions = {}) {
         );
       }
       case "SearchTimeline":
-        return search(s(variables, "product") ?? "Top", s(variables, "rawQuery") ?? "");
+        return search(
+          s(variables, "product") ?? "Top",
+          s(variables, "rawQuery") ?? "",
+          s(variables, "cursor"),
+        );
       case "Bookmarks": {
         const b = fixture("Bookmarks", "bookmarks")!;
         const posts = bookmarks.flatMap((id) => {
@@ -1552,6 +1582,8 @@ export function createMockState(options: MockOptions = {}) {
       fixture("ConnectTabTimeline", "connect:creators")!.people.includes(userId),
     /** Everything pressed and written, in order. */
     presses,
+    /** X's Spaces: who is in them, and X's dock for the one the user is in. */
+    spaces,
     /** X's settings values, by X's field names (settings.ts). */
     settings: mockSettings(),
     /** X's Chat: conversations, requests, the pages X opened, and its passcode lock. */

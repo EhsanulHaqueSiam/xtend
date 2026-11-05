@@ -25,12 +25,14 @@ import {
 } from "../../lib/wheelGesture";
 import { type AnySurface, engineAtom, resetSurface, updateEngine } from "../../state/engine";
 import { grokDrawerAtom, xGrokLeave, xGrokRelease } from "../../state/grok";
-import { loadNewPosts, setScreenRefresh } from "../../state/x";
+import { spaceDockAtom } from "../../state/spaces";
+import { loadNewPosts, setScreenRefresh, xKeepsPage } from "../../state/x";
 import { DayGlance } from "../shell/HomeCompanion";
 import { GrokDrawer } from "./Grok";
 import { endExplain } from "./GrokExplain";
 import { MediaViewer } from "./MediaViewer";
 import { QuoteComposer } from "./QuoteComposer";
+import { SpaceDock } from "./SpaceDock";
 
 /** The element that scrolls an X screen; lists inside virtualize against it. */
 const ScrollParent = createContext<HTMLElement | null>(null);
@@ -138,7 +140,7 @@ function useWheelGestures(
 
 /**
  * X's own reading shape: one 600px column between hairlines, and Xtend's rail beside it (the
- * screen's own panels, then the day at a glance). The
+ * screen's own panels, then the day at a glance, or the Space the user opened). The
  * whole area scrolls, as X's page does, so the wheel works over the rail too; the column header
  * and the rail stay put. When the main area is narrower than both, the rail folds away.
  */
@@ -167,6 +169,7 @@ export function XColumn({
 }) {
   const [scroller, setScroller] = useState<HTMLElement | null>(null);
   const setEngine = useAtomSet(engineAtom);
+  const space = useAtomValue(spaceDockAtom);
   const engine = useAtomValue(engineAtom);
   const [grok, setGrok] = useAtom(grokDrawerAtom);
   const router = useRouter();
@@ -202,7 +205,9 @@ export function XColumn({
       if (r === undefined) return;
       scroller?.scrollTo({ top: 0 });
       if (mode === "new" && r.showNew?.() === true) return;
-      setEngine(updateEngine((s) => r.surfaces.reduce(resetSurface, s)));
+      // While X plays a Space X's page is not loaded anew (see `xNavigate`), so the lists keep
+      // what they hold and take what X's own refresh sends.
+      if (!xKeepsPage()) setEngine(updateEngine((s) => r.surfaces.reduce(resetSurface, s)));
       r.load();
     });
   }, [refreshes, scroller, setEngine]);
@@ -252,11 +257,18 @@ export function XColumn({
         </section>
         {grok === null ? (
           <aside className="sticky top-0 flex h-fit w-[340px] shrink-0 flex-col gap-4 py-3 @max-[1000px]:hidden">
-            {rail}
-            {/* Xtend's day beside every X screen, where X keeps its own right column. */}
-            <section className="rounded-2xl border border-white/[0.12] px-4 pt-1 pb-0 [&>a:first-child]:border-t-0">
-              <DayGlance />
-            </section>
+            {/* X docks an open Space in its right column, in place of what the column holds. */}
+            {space === null ? (
+              <>
+                {rail}
+                {/* Xtend's day beside every X screen, where X keeps its own right column. */}
+                <section className="rounded-2xl border border-white/[0.12] px-4 pt-1 pb-0 [&>a:first-child]:border-t-0">
+                  <DayGlance />
+                </section>
+              </>
+            ) : (
+              <SpaceDock spaceId={space} />
+            )}
           </aside>
         ) : (
           // X's Grok docks over the rail, as X's drawer docks over its right column.

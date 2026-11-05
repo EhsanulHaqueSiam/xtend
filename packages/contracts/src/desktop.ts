@@ -272,6 +272,45 @@ export interface EnginePost extends ObservedPost {
     readonly entities: EngineEntities;
     readonly from: string;
   } | null;
+  /** The X Space the post's card is (X's `audiospace` card), by its id; absent for none. */
+  readonly spaceId?: string;
+}
+
+/** Someone in an X Space, as X's AudioSpaceById lists them. */
+export interface EngineSpacePerson {
+  /** Their X user id; null where X names only their Periscope account. */
+  readonly userId: string | null;
+  readonly handle: string;
+  readonly name: string;
+  readonly avatarUrl: string | null;
+  readonly verified: boolean;
+  /** X's first admin is the host, its other admins co-hosts. */
+  readonly role: "host" | "cohost" | "speaker" | "listener";
+  /** A speaker's mic as X draws it, off by themselves or by the host; false for a listener. */
+  readonly muted: boolean;
+}
+
+/** One X Space as X's AudioSpaceById answers: live, scheduled, ended or recorded. */
+export interface EngineSpace {
+  readonly spaceId: string;
+  /** X's own state: "NotStarted" (scheduled), "Running" (live), "Ended", "Canceled", "TimedOut". */
+  readonly state: string;
+  readonly title: string;
+  readonly scheduledStart: string | null;
+  readonly startedAt: string | null;
+  readonly endedAt: string | null;
+  /** X's count of who listens now (`total_live_listeners`). */
+  readonly listening: number | null;
+  /** X's count of replays (`total_replay_watched`). */
+  readonly replays: number | null;
+  /** X keeps a recording to play (`is_space_available_for_replay`). */
+  readonly recorded: boolean;
+  /** The Community it is in, when X names one. */
+  readonly community: { readonly communityId: string; readonly name: string } | null;
+  /** Hosts, speakers and the listeners X lists, in X's order. */
+  readonly people: ReadonlyArray<EngineSpacePerson>;
+  /** Everyone in it by X's count (`participants.total`); more than X lists in a big Space. */
+  readonly total: number | null;
 }
 
 /** A person as X lists them (search People, Who to follow, a profile's header). */
@@ -701,6 +740,10 @@ export interface EngineBatch {
    * tab read. A partial answer has none, so what it leaves out says nothing.
    */
   readonly pinnedLists?: ReadonlyArray<string>;
+  /** The X Spaces the response describes (AudioSpaceById). */
+  readonly spaces?: ReadonlyArray<EngineSpace>;
+  /** The Space X answered AudioSpaceById for with no Space (ended, removed, private, or an error). */
+  readonly spaceUnavailable?: string;
   /** What the response told the moderators of each Community it names (`EngineCommunityAdmin`). */
   readonly communityAdmin?: ReadonlyArray<EngineCommunityAdmin>;
   /**

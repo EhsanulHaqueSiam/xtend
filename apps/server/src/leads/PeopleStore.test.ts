@@ -80,6 +80,10 @@ describe("PeopleStore", () => {
       expect(theirs.stage).toBe("new");
       expect(yield* people.addMany([candidate("Alice")], "agent:x")).toEqual([null]);
       expect((yield* people.list()).people.map((p) => p.id)).toEqual([theirs.id]);
+      // A Space's people, by X's handles in any case: only this account's own row answers.
+      expect((yield* people.byHandles(["ALICE", "nobody"])).map((p) => [p.id, p.stage])).toEqual([
+        [theirs.id, "new"],
+      ]);
 
       yield* switchAccount(1);
       expect((yield* people.list()).people.map((p) => [p.id, p.stage])).toEqual([

@@ -14,6 +14,8 @@ import type {
   EnginePost,
   EnginePrompt,
   EngineRadarQuery,
+  EngineSpace,
+  EngineSpacePerson,
   EngineTrend,
   EngineUser,
   EngineViewer,
@@ -218,6 +220,17 @@ function encodeCard(p: EnginePost): Json {
       },
     };
   }
+  // X's Space card names only the Space; X's page asks AudioSpaceById for the rest.
+  if (p.spaceId !== undefined)
+    return {
+      card: {
+        rest_id: `card://${p.postId}`,
+        legacy: {
+          name: "3691233323:audiospace",
+          binding_values: [str("id", p.spaceId), str("card_url", `https://t.co/${p.spaceId}`)],
+        },
+      },
+    };
   const card = p.card;
   if (card === null) return {};
   if (card.kind === "article")
@@ -1096,6 +1109,54 @@ export const encodeFolder = (f: EngineBookmarkFolder): Json => ({
  * it; `everyone` names the authors the batch does not, and `variables` are the request's. Calls no
  * screen lists answer `{ data: {} }`.
  */
+/** One Space as X's AudioSpaceById answers, its people under X's three roles. */
+function encodeSpace(sp: EngineSpace): Json {
+  const ms = (iso: string | null) => (iso === null ? undefined : Date.parse(iso));
+  const person = (p: EngineSpacePerson) => ({
+    periscope_user_id: `p${p.handle}`,
+    start: ms(sp.startedAt),
+    twitter_screen_name: p.handle,
+    display_name: p.name,
+    avatar_url: p.avatarUrl,
+    is_verified: p.verified,
+    is_muted_by_admin: false,
+    is_muted_by_guest: p.muted,
+    ...when(p.userId !== null, () => ({ user_results: { rest_id: p.userId } })),
+  });
+  const of = (...roles: ReadonlyArray<EngineSpacePerson["role"]>) =>
+    sp.people.filter((p) => roles.includes(p.role)).map(person);
+  return {
+    data: {
+      audioSpace: {
+        metadata: {
+          rest_id: sp.spaceId,
+          state: sp.state,
+          title: sp.title,
+          media_key: `28_${sp.spaceId}`,
+          created_at: ms(sp.startedAt ?? sp.scheduledStart),
+          ...when(sp.scheduledStart !== null, () => ({ scheduled_start: ms(sp.scheduledStart) })),
+          ...when(sp.startedAt !== null, () => ({ started_at: ms(sp.startedAt) })),
+          ...when(sp.endedAt !== null, () => ({ ended_at: String(ms(sp.endedAt)) })),
+          is_space_available_for_replay: sp.recorded,
+          ...when(sp.listening !== null, () => ({ total_live_listeners: sp.listening })),
+          ...when(sp.replays !== null, () => ({ total_replay_watched: sp.replays })),
+          ...when(sp.community !== null, () => ({
+            community_results: {
+              result: { rest_id: sp.community!.communityId, name: sp.community!.name },
+            },
+          })),
+        },
+        participants: {
+          total: sp.total,
+          admins: of("host", "cohost"),
+          speakers: of("speaker"),
+          listeners: of("listener"),
+        },
+      },
+    },
+  };
+}
+
 export function encodeBody(
   batch: EngineBatch,
   everyone: ReadonlyMap<string, EngineUser> = new Map(),
@@ -1136,6 +1197,10 @@ export function encodeBody(
       };
     case "TweetDetail":
       return { data: { threaded_conversation_with_injections_v2: timeline() } };
+    case "AudioSpaceById": {
+      const space = batch.spaces?.[0];
+      return space === undefined ? { data: {} } : encodeSpace(space);
+    }
     case "UserByScreenName": {
       const user = batch.users[0];
       return { data: { user: user === undefined ? {} : { result: encodeUser(user) } } };

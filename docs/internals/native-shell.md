@@ -86,6 +86,20 @@ composer node and the message ids X draws (each one conversation's own), checked
 press, then pins the one new message with its text; with no message drawn there is no identity,
 so a conversation's first message is written in X's page. One send at a time (`chatWriteAtom`).
 
+Spaces play in X's own page. X's dock sits in X's app layout beside its main column, so it and
+its audio (X's player, HLS into a `<video>`) live across X's router moves, the engine parked under
+Xtend included; X leaves the Space when its page unloads. So while X's dock is up
+(`watchSpaceDock`) a full load (`xNavigate`) moves through X's router instead, and ⌘R on the page
+X already shows presses X's own nav link for it (X's refresh), the lists keeping what they hold. X's Space page
+(`/i/spaces/<id>/peek`) and its cards only ask AudioSpaceById (X's cards poll it every 15 s
+while a Space is live or not loaded, retrying errors, so a page of Space cards is X's own heavy
+traffic; Xtend opens a Space's page itself at most once per Space, and shows X's error when X has
+no Space for it); the user is a public listener only
+once X's Start listening is pressed, which the engine does for that click alone. The dock has no
+test ids: its controls are found by X's labels inside the box around its Leave, End or Close
+beside its Collapse, and captions are the lines of X's own panel there (X reads them from its
+`api.x.com/live-chat` stream, which the capture never reads).
+
 Grok is read from X's page too. X serves two Grok clients at `/i/grok` (its routes pick by the
 `responsive_web_grok_xweb_replacement_enabled` switch and the account's grok.com link): the newer
 one (`bundle.GrokXWeb`) calls grok.com's REST and streams from there, which the capture never

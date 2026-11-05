@@ -3333,6 +3333,125 @@ describe("renderEngineBatch for X's List writes", () => {
   });
 });
 
+describe("renderEngineBatch for X's Spaces", () => {
+  it("reads a post's Space card as its Space, and X's AudioSpaceById as the Space with its people in X's order", () => {
+    const post = tweet(
+      "5",
+      {
+        full_text: "Going live now https://t.co/sp",
+        entities: {
+          urls: [{ url: "https://t.co/sp", expanded_url: "https://x.com/i/spaces/1YqKDqWqdPLGV" }],
+        },
+      },
+      {
+        card: {
+          rest_id: "https://t.co/sp",
+          legacy: {
+            name: "3691233323:audiospace",
+            binding_values: [
+              binding("id", { string_value: "1YqKDqWqdPLGV" }),
+              binding("card_url", { string_value: "https://t.co/sp" }),
+            ],
+          },
+        },
+      },
+    );
+    const [p] = renderEngineBatch("HomeTimeline", {}, { data: [item(post)] }).posts;
+    // X draws the Space as the card, so its link has no place in the text.
+    expect([p!.spaceId, p!.card, p!.text]).toEqual(["1YqKDqWqdPLGV", null, "Going live now"]);
+
+    const person = (handle: string, extra: Record<string, unknown> = {}) => ({
+      periscope_user_id: `1${handle.length}`,
+      start: 1793786400000,
+      twitter_screen_name: handle,
+      display_name: handle.toUpperCase(),
+      avatar_url: `https://pbs.twimg.com/profile_images/${handle}.jpg`,
+      is_verified: false,
+      is_muted_by_admin: false,
+      is_muted_by_guest: true,
+      ...extra,
+    });
+    const batch = renderEngineBatch(
+      "AudioSpaceById",
+      { id: "1YqKDqWqdPLGV", isMetatagsQuery: false, withReplays: true, withListeners: true },
+      {
+        data: {
+          audioSpace: {
+            metadata: {
+              rest_id: "1YqKDqWqdPLGV",
+              state: "Running",
+              title: "Churn and pricing",
+              media_key: "28_1793786400",
+              created_at: 1793786300000,
+              started_at: 1793786400000,
+              is_space_available_for_replay: true,
+              total_live_listeners: 214,
+              total_replay_watched: 0,
+            },
+            participants: {
+              total: 214,
+              admins: [
+                person("maya", {
+                  is_verified: true,
+                  is_muted_by_guest: false,
+                  user_results: { rest_id: "11" },
+                }),
+                person("dev", { user_results: { rest_id: "12" } }),
+              ],
+              speakers: [person("lena", { is_muted_by_guest: false })],
+              listeners: [
+                person("ana", { is_muted_by_guest: true }),
+                { twitter_screen_name: "no spaces" },
+              ],
+            },
+          },
+        },
+      },
+    );
+    expect(batch.key).toBe("1YqKDqWqdPLGV");
+    expect(hasEngineContent(batch)).toBe(true);
+    expect(batch.spaceUnavailable).toBeUndefined();
+    // X answers an ended, removed or private Space with an error and no Space: X's page then shows
+    // only its error, and so does Xtend. An answer for another call names no Space at all.
+    for (const body of [
+      { errors: [{ message: "Not found", code: 34 }], data: {} },
+      { data: { audioSpace: {} } },
+    ]) {
+      const gone = renderEngineBatch("AudioSpaceById", { id: "1OwGWwnoleRGQ" }, body);
+      expect([gone.spaces, gone.spaceUnavailable, hasEngineContent(gone)]).toEqual([
+        undefined,
+        "1OwGWwnoleRGQ",
+        true,
+      ]);
+    }
+    expect(
+      renderEngineBatch("AudioSpaceById", { id: "not an id!" }, { data: {} }).spaceUnavailable,
+    ).toBeUndefined();
+    const [space] = batch.spaces!;
+    expect({ ...space!, people: [] }).toEqual({
+      spaceId: "1YqKDqWqdPLGV",
+      state: "Running",
+      title: "Churn and pricing",
+      scheduledStart: null,
+      startedAt: "2026-11-04T10:00:00.000Z",
+      endedAt: null,
+      listening: 214,
+      replays: 0,
+      recorded: true,
+      community: null,
+      people: [],
+      total: 214,
+    });
+    // The first admin hosts; a listener has no mic to mute, and a handle X cannot have is no one.
+    expect(space!.people.map((x) => [x.handle, x.role, x.muted, x.userId, x.verified])).toEqual([
+      ["maya", "host", false, "11", true],
+      ["dev", "cohost", true, "12", false],
+      ["lena", "speaker", false, null, false],
+      ["ana", "listener", false, null, false],
+    ]);
+  });
+});
+
 describe("renderEngineBatch for the user's own X Articles", () => {
   const entity = (lifecycle: string, extra: Record<string, unknown> = {}) => ({
     rest_id: "1900",
