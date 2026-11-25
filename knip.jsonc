@@ -2,6 +2,8 @@
   "$schema": "https://unpkg.com/knip@6/schema.json",
   // A shell builtin in the desktop `dist` script, not a package binary.
   "ignoreBinaries": ["unset"],
+  // The Workers runtime's own `cloudflare:workers` module, not a package.
+  "ignoreDependencies": ["cloudflare"],
   // TypeScript finds these types beside ci-changes.cjs by name; nothing imports them.
   "ignoreFiles": [".github/scripts/ci-changes.d.cts"],
   "workspaces": {

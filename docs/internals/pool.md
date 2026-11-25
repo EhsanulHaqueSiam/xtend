@@ -18,8 +18,15 @@ reading.
 
 The service never holds the pool's credentials: a connection string in a desktop app leaks.
 A Cloudflare Worker (`apps/pool`) holds it through Hyperdrive, issues install ids
-(`pool_register`), rate limits per address and per install, and calls
-`pool_push(install, batch)`, one statement per batch. Hyperdrive's query cache is off for this
+(`pool_register`) and rate limits per address and per install.
+
+Neon's free plan bills compute by the minute it is awake, and it stays awake five minutes after
+any query, so a database touched by every push is awake whenever anyone browses. Pushes
+therefore queue in one Durable Object (`PoolBuffer`), stamped with the worker's clock, and the
+hourly cron sends them in chunks to `pool_flush`, which calls `pool_push(install, batch, seen)`
+per push. Trends are served from a snapshot the same run takes, so reads never wake Neon either.
+An install `pool_flush` does not know is remembered in the object and its next push gets a 401,
+which is how the service learns to register again. Hyperdrive's query cache is off for this
 config: both functions are selects with side effects, and a cached select would skip them. The
 schema is `apps/server/src/pool/schema.sql`; it re-applies in place.
 
@@ -27,7 +34,8 @@ schema is `apps/server/src/pool/schema.sql`; it re-applies in place.
 
 Because the worker is the only client, the function is where the shared table protects itself:
 
-- Sightings are stamped with the server clock; a client cannot move a post in time.
+- Sightings are stamped with the worker's clock when the push arrived; a client cannot move a
+  post in time, and an hour in the buffer does not either.
 - Ids, handles, text lengths and metric signs are checked per item; a bad item is skipped, not
   the batch; a batch is capped.
 - An author's handle, name and verified flag freeze at first sight; only followers update.
