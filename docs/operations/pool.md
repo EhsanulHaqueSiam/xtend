@@ -40,8 +40,8 @@ no pushes does not wake Neon. Logs and errors are in Workers observability.
 Neon's free plan gives 100 CU-hours a month and suspends compute five minutes after the last
 query, so cost is minutes awake, not rows: an hourly flush is about 24 wakes of six minutes at
 0.25 CU, about 18 CU-hours a month, whatever the traffic. Keep the compute's max size at 0.25 CU
-in Neon so a refresh cannot scale it up. Registrations still wake Neon (about 0.02 CU-hours
-each). The ceilings that remain are Neon's 0.5 GB of storage and Cloudflare's 100,000 Worker and
+in Neon so a refresh cannot scale it up. Registrations, and the first push from an install the buffer has not seen, still wake Neon
+(about 0.02 CU-hours each). The ceilings that remain are Neon's 0.5 GB of storage and Cloudflare's 100,000 Worker and
 Durable Object requests a day (one each per push or trends read).
 
 ## Operating it

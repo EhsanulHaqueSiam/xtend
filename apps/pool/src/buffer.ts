@@ -20,6 +20,15 @@ export const TRENDS_LIMIT = 100;
 type Row = Record<string, string | number | null>;
 type Snapshot = { posts: number; installs: number; hot: Row[]; rising: Row[] };
 
+type FlushResult = { accepted: number; failed: number; unknown: string[] };
+
+/** A storage value holds 2 MB; at up to 3 UTF-8 bytes a character this stays under it. */
+const MAX_SNAPSHOT_CHARS = 600_000;
+
+/** Postgres refused the data itself (class 22, or 54 for nesting too deep), not the connection. */
+const isDataError = (error: unknown) =>
+  error instanceof postgres.PostgresError && /^(22|54)/.test(error.code);
+
 /** One connection per use; Hyperdrive pools behind it. */
 export const db = (env: Env) =>
   postgres(env.POOL.connectionString, { max: 1, prepare: false, fetch_types: false });
@@ -39,16 +48,22 @@ export class PoolBuffer extends DurableObject<Env> {
     sql.exec(`create table if not exists pushes (
       id integer primary key, install text not null, at text not null,
       body text not null, bytes integer not null)`);
-    // Installs the pool turned away at a flush; their next push gets a 401 so they register again.
-    sql.exec("create table if not exists forgotten (install text primary key)");
+    // Installs Neon confirmed. Anything else is checked there before it may queue, so a forged id
+    // is refused up front; one the pool forgets at a flush leaves and must register again.
+    sql.exec("create table if not exists known (install text primary key)");
     sql.exec("create table if not exists snapshot (id integer primary key, json text not null)");
   }
 
-  /** Queues one validated push body (`{ items: [...] }`), stamped with this clock. */
-  add(install: string, body: string): "queued" | "unknown" | "full" {
+  /**
+   * Queues one validated push body (`{ items: [...] }`), stamped with this clock. `registered`
+   * says the caller just confirmed the install in Neon; without it an install not yet known is
+   * "unchecked" and nothing is queued.
+   */
+  add(install: string, body: string, registered = false): "queued" | "unchecked" | "full" {
     const sql = this.ctx.storage.sql;
-    if (sql.exec("select 1 from forgotten where install = ?", install).toArray().length > 0)
-      return "unknown";
+    if (registered) this.know(install);
+    else if (sql.exec("select 1 from known where install = ?", install).toArray().length === 0)
+      return "unchecked";
     this.bytes ??= sql
       .exec<{ n: number }>("select coalesce(sum(bytes), 0) as n from pushes")
       .one().n;
@@ -62,6 +77,10 @@ export class PoolBuffer extends DurableObject<Env> {
     );
     this.bytes += body.length;
     return "queued";
+  }
+
+  know(install: string) {
+    this.ctx.storage.sql.exec("insert or ignore into known (install) values (?)", install);
   }
 
   /** The last snapshot, taken now if there is none yet. */
@@ -101,13 +120,33 @@ export class PoolBuffer extends DurableObject<Env> {
           .exec<Pending>("select install, at, body from pushes where id <= ? order by id", last)
           .toArray();
         // Through text: a jsonb parameter would be JSON-encoded again by postgres.js.
-        const [row] = await sql<
-          { result: { accepted: number; failed: number; unknown: string[] } }[]
-        >`
-          select pool_flush(${entriesJson(rows)}::text::jsonb) as result`;
-        const result = row!.result;
+        const send = async (chunk: ReadonlyArray<Pending>) => {
+          const [row] = await sql<{ result: FlushResult }[]>`
+            select pool_flush(${entriesJson(chunk)}::text::jsonb) as result`;
+          return row!.result;
+        };
+        let result: FlushResult;
+        try {
+          result = await send(rows);
+        } catch (error) {
+          if (!isDataError(error)) throw error;
+          // JSON that Postgres refuses (a \u0000, a number past numeric) fails the whole chunk:
+          // send it again one push at a time and drop only the one it refuses.
+          result = { accepted: 0, failed: 0, unknown: [] };
+          for (const one of rows) {
+            const r = await send([one]).catch((e: unknown) => {
+              if (!isDataError(e)) throw e;
+              return { accepted: 0, failed: 1, unknown: [] };
+            });
+            result = {
+              accepted: result.accepted + r.accepted,
+              failed: result.failed + r.failed,
+              unknown: [...result.unknown, ...r.unknown],
+            };
+          }
+        }
         for (const install of result.unknown)
-          local.exec("insert or ignore into forgotten (install) values (?)", install);
+          local.exec("delete from known where install = ?", install);
         local.exec("delete from pushes where id <= ?", last);
         this.bytes = undefined;
         if (result.failed > 0) console.warn("pool flush dropped pushes", result);
@@ -127,10 +166,14 @@ export class PoolBuffer extends DurableObject<Env> {
       const [counts] = await sql<{ posts: number; installs: number }[]>`
         select (select count(*) from pool_posts)::int as posts,
                (select count(*) from pool_installs)::int as installs`;
-      local.exec(
-        "insert or replace into snapshot (id, json) values (1, ?)",
-        JSON.stringify({ ...counts!, hot, rising } satisfies Snapshot),
-      );
+      // Escaped text can outgrow the cut: drop the coldest hot posts until it fits.
+      const snapshot = (): string => JSON.stringify({ ...counts!, hot, rising } satisfies Snapshot);
+      let json = snapshot();
+      while (json.length > MAX_SNAPSHOT_CHARS && hot.length > 0) {
+        hot.pop();
+        json = snapshot();
+      }
+      local.exec("insert or replace into snapshot (id, json) values (1, ?)", json);
     } finally {
       await sql.end();
     }

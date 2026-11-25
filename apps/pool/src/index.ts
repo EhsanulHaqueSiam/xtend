@@ -21,6 +21,17 @@ const TRENDS_CACHE = "public, max-age=300";
 
 const buffer = (env: Env) => env.BUFFER.getByName("pool");
 
+const registered = async (env: Env, install: string) => {
+  const sql = db(env);
+  try {
+    const [row] = await sql<{ known: boolean }[]>`
+      select exists (select 1 from pool_installs where install_id = ${install}::uuid) as known`;
+    return row!.known;
+  } finally {
+    await sql.end();
+  }
+};
+
 async function handle(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const ip = request.headers.get("cf-connecting-ip") ?? "unknown";
@@ -31,6 +42,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
     const sql = db(env);
     try {
       const [row] = await sql<{ pool_register: string }[]>`select pool_register()`;
+      await buffer(env).know(row!.pool_register);
       return json({ installId: row!.pool_register });
     } finally {
       await sql.end();
@@ -62,8 +74,12 @@ async function handle(request: Request, env: Env): Promise<Response> {
     }
     const batch = readBatch(body);
     if ("error" in batch) return json(batch, 400);
-    const queued = await buffer(env).add(install, text);
-    if (queued === "unknown") return json({ error: "unknown install" }, 401);
+    const pool = buffer(env);
+    let queued = await pool.add(install, text);
+    // First push from an install the buffer has not seen: Neon says whether it exists, once.
+    if (queued === "unchecked" && (await registered(env, install)))
+      queued = await pool.add(install, text, true);
+    if (queued === "unchecked") return json({ error: "unknown install" }, 401);
     if (queued === "full") return json({ error: "pool is catching up" }, 503);
     return json({ queued: batch.items.length }, 202);
   }

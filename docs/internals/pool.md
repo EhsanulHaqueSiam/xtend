@@ -25,8 +25,11 @@ any query, so a database touched by every push is awake whenever anyone browses.
 therefore queue in one Durable Object (`PoolBuffer`), stamped with the worker's clock, and the
 hourly cron sends them in chunks to `pool_flush`, which calls `pool_push(install, batch, seen)`
 per push. Trends are served from a snapshot the same run takes, so reads never wake Neon either.
-An install `pool_flush` does not know is remembered in the object and its next push gets a 401,
-which is how the service learns to register again. Hyperdrive's query cache is off for this
+The object queues only installs it knows: `/register` adds them, and an id it has not seen is
+looked up in Neon once, so a forged id is still refused before it takes buffer space. An install
+`pool_flush` reports unknown leaves the set, its next push gets a 401, and the service registers
+again. A push Postgres cannot read fails its chunk; that chunk is resent one push at a time and
+only the bad push is dropped, so it cannot block the queue. Hyperdrive's query cache is off for this
 config: both functions are selects with side effects, and a cached select would skip them. The
 schema is `apps/server/src/pool/schema.sql`; it re-applies in place.
 
