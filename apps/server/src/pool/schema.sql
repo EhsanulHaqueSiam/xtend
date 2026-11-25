@@ -84,16 +84,20 @@ begin
   return id;
 end $$;
 
--- One call per batch from the worker. `batch` is a JSON array of
+-- One call per buffered push, through pool_flush. `batch` is a JSON array of
 -- {post:{postId,text,lang,createdAt,isReply,hasMedia,hasLink,author:{userId,handle,name,followers,verified}},
 --  metrics:{views,likes,reposts,replies,quotes,bookmarks}}.
--- Sightings are stamped with the server clock, so a client cannot move a post in time.
+-- `seen` is when the worker received the push, so a client cannot move a post in time and an
+-- hour in the buffer does not either.
 -- Items that fail the shape checks are skipped, not the batch. Author identity is frozen at
 -- first sight apart from followers; a later install cannot rename or verify someone.
 -- shortcut: post text, author identity and metrics are taken as reported, until per-install claims
 -- with a quorum (majority text, median metrics) exist; the sightings >= 3 floor on the views and the
 -- hourly throttle keep a lone install out of trends meanwhile.
-create or replace function pool_push(install uuid, batch jsonb) returns integer
+-- The two-argument form predates the buffer; left in place it would make every call ambiguous.
+drop function if exists pool_push(uuid, jsonb);
+create or replace function pool_push(install uuid, batch jsonb, seen timestamptz default now())
+returns integer
 language plpgsql as $$
 declare
   n integer := 0;
@@ -102,7 +106,8 @@ declare
   author jsonb;
   m jsonb;
 begin
-  update pool_installs set last_push = now(), pushes = pushes + 1 where install_id = install;
+  seen := least(seen, now());
+  update pool_installs set last_push = seen, pushes = pushes + 1 where install_id = install;
   if not found then
     raise exception 'unknown install' using errcode = '28000';
   end if;
@@ -118,7 +123,7 @@ begin
       or author->>'handle' !~ '^[A-Za-z0-9_]{1,15}$'
       or length(coalesce(post->>'text', '')) > 10000
       or length(coalesce(author->>'name', '')) > 100
-      or (post->>'createdAt')::timestamptz > now() + interval '5 minutes'
+      or (post->>'createdAt')::timestamptz > seen + interval '5 minutes'
       or coalesce((m->>'likes')::bigint, -1) < 0 or coalesce((m->>'reposts')::bigint, -1) < 0
       or coalesce((m->>'replies')::bigint, -1) < 0 or coalesce((m->>'quotes')::bigint, -1) < 0
       or coalesce((m->>'bookmarks')::bigint, -1) < 0 or coalesce((m->>'views')::bigint, 0) < 0
@@ -127,31 +132,57 @@ begin
       values (author->>'userId', author->>'handle', coalesce(author->>'name', ''),
               (author->>'followers')::integer, coalesce((author->>'verified')::boolean, false))
       on conflict (user_id) do update set
-        followers = coalesce(excluded.followers, pool_authors.followers), last_seen = now();
+        followers = coalesce(excluded.followers, pool_authors.followers), last_seen = seen;
     insert into pool_posts (post_id, author_id, text, lang, created_at, is_reply, has_media, has_link)
       values (post->>'postId', author->>'userId', coalesce(post->>'text', ''), post->>'lang',
               (post->>'createdAt')::timestamptz,
               coalesce((post->>'isReply')::boolean, false),
               coalesce((post->>'hasMedia')::boolean, false),
               coalesce((post->>'hasLink')::boolean, false))
-      on conflict (post_id) do update set last_seen = now();
+      on conflict (post_id) do update set last_seen = seen;
     insert into pool_sightings (install_id, post_id, last_metrics_at)
-      values (install, post->>'postId', now())
-      on conflict (install_id, post_id) do update set last_metrics_at = now()
+      values (install, post->>'postId', seen)
+      on conflict (install_id, post_id) do update set last_metrics_at = seen
       where pool_sightings.last_metrics_at is null
-         or pool_sightings.last_metrics_at < now() - interval '1 hour';
+         or pool_sightings.last_metrics_at < seen - interval '1 hour';
     continue when not found;
     update pool_posts set sightings = sightings + 1
       where post_id = post->>'postId'
         and (select count(*) from pool_sightings s where s.post_id = post->>'postId') > sightings;
     insert into pool_metrics (post_id, observed_at, views, likes, reposts, replies, quotes, bookmarks)
-      values (post->>'postId', now(), (m->>'views')::bigint, (m->>'likes')::integer,
+      values (post->>'postId', seen, (m->>'views')::bigint, (m->>'likes')::integer,
               (m->>'reposts')::integer, (m->>'replies')::integer, (m->>'quotes')::integer,
               (m->>'bookmarks')::integer)
       on conflict do nothing;
     n := n + 1;
   end loop;
   return n;
+end $$;
+
+-- The worker's hourly flush: [{install, at, body: {items}}] oldest first, one call per chunk so
+-- the database wakes once an hour however many people push. Each push is its own
+-- subtransaction: an unknown install is reported back so the worker can refuse its next push
+-- (the service then registers again), and any other bad push is dropped without the rest.
+create or replace function pool_flush(entries jsonb) returns jsonb
+language plpgsql as $$
+declare
+  e jsonb;
+  accepted integer := 0;
+  failed integer := 0;
+  unknown text[] := '{}';
+begin
+  for e in select * from jsonb_array_elements(entries) loop
+    begin
+      accepted := accepted
+        + pool_push((e->>'install')::uuid, e->'body'->'items', (e->>'at')::timestamptz);
+    exception
+      when sqlstate '28000' then unknown := unknown || (e->>'install');
+      when others then
+        failed := failed + 1;
+        raise warning 'pool_flush dropped a push: %', sqlerrm;
+    end;
+  end loop;
+  return jsonb_build_object('accepted', accepted, 'failed', failed, 'unknown', to_jsonb(unknown));
 end $$;
 
 -- Trends. Hot posts: views gained over the last 24 hours, from the first and last sighting in

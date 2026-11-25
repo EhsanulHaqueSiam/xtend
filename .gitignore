@@ -17,3 +17,4 @@ dist-electron/
 apps/desktop/release/
 dist-cli/
 .t3/
+.wrangler/

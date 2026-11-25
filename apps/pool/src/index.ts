@@ -1,18 +1,14 @@
-import postgres, { type JSONValue } from "postgres";
-
 import { isInstallId, MAX_BODY_BYTES, readBatch } from "./batch.ts";
+import { db, type Env, TRENDS_LIMIT } from "./buffer.ts";
+
+export { PoolBuffer } from "./buffer.ts";
 
 /**
  * The only client of the shared pool. The service pushes what its session saw
  * and reads trends; this worker holds the database, issues install ids and
- * limits each caller. Everything it accepts is checked again by `pool_push`.
+ * limits each caller. Pushes queue in the PoolBuffer object and reach Neon on
+ * the hourly flush, where `pool_push` checks every item again.
  */
-interface Env {
-  readonly POOL: Hyperdrive;
-  readonly REGISTER: RateLimit;
-  readonly PUSH: RateLimit;
-  readonly PUSH_ADDRESS: RateLimit;
-}
 
 const json = (value: unknown, status = 200, headers: Record<string, string> = {}) =>
   new Response(JSON.stringify(value), {
@@ -20,11 +16,21 @@ const json = (value: unknown, status = 200, headers: Record<string, string> = {}
     headers: { "content-type": "application/json", ...headers },
   });
 
-const TRENDS_CACHE = "public, max-age=60";
+// The snapshot changes once an hour.
+const TRENDS_CACHE = "public, max-age=300";
 
-/** One connection per request; Hyperdrive pools behind it. */
-const db = (env: Env) =>
-  postgres(env.POOL.connectionString, { max: 1, prepare: false, fetch_types: false });
+const buffer = (env: Env) => env.BUFFER.getByName("pool");
+
+const registered = async (env: Env, install: string) => {
+  const sql = db(env);
+  try {
+    const [row] = await sql<{ known: boolean }[]>`
+      select exists (select 1 from pool_installs where install_id = ${install}::uuid) as known`;
+    return row!.known;
+  } finally {
+    await sql.end();
+  }
+};
 
 async function handle(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
@@ -36,6 +42,7 @@ async function handle(request: Request, env: Env): Promise<Response> {
     const sql = db(env);
     try {
       const [row] = await sql<{ pool_register: string }[]>`select pool_register()`;
+      await buffer(env).know(row!.pool_register);
       return json({ installId: row!.pool_register });
     } finally {
       await sql.end();
@@ -66,42 +73,30 @@ async function handle(request: Request, env: Env): Promise<Response> {
     }
     const batch = readBatch(body);
     if ("error" in batch) return json(batch, 400);
-    const sql = db(env);
-    try {
-      const [row] = await sql<{ pool_push: number }[]>`
-        select pool_push(${install}::uuid, ${sql.json(batch.items as JSONValue)})`;
-      return json({ accepted: row!.pool_push });
-    } catch (error) {
-      // Only the function's own refusals reach the caller; anything else stays in the logs.
-      const message = error instanceof Error ? error.message : String(error);
-      if (message.includes("unknown install")) return json({ error: "unknown install" }, 401);
-      if (message.includes("batch too large")) return json({ error: "batch too large" }, 413);
-      // Rethrown: the platform logs it to observability and answers with its own error page.
-      throw error;
-    } finally {
-      await sql.end();
-    }
+    const pool = buffer(env);
+    // The cleaned items are what queue, never the raw body.
+    const clean = JSON.stringify({ items: batch.items });
+    let queued = await pool.add(install, clean);
+    // First push from an install the buffer has not seen: Neon says whether it exists, once.
+    if (queued === "unchecked" && (await registered(env, install)))
+      queued = await pool.add(install, clean, true);
+    if (queued === "unchecked") return json({ error: "unknown install" }, 401);
+    if (queued === "full") return json({ error: "pool is catching up" }, 503);
+    return json({ queued: batch.items.length }, 202);
   }
 
   if (
     request.method === "GET" &&
     (url.pathname === "/trends/hot" || url.pathname === "/trends/rising")
   ) {
-    const limit = Math.min(Math.max(Number(url.searchParams.get("limit") ?? 100), 1), 500);
-    const sql = db(env);
-    try {
-      const rows =
-        url.pathname === "/trends/hot"
-          ? await sql`select post_id, handle, text, created_at, sightings, views_24h, likes_24h, reposts_24h
-                      from pool_hot_posts limit ${limit}`
-          : await sql`select word, today, per_day_before, lift from pool_rising_terms limit ${limit}`;
-      const [meta] = await sql<{ posts: number; installs: number }[]>`
-        select (select count(*) from pool_posts)::int as posts,
-               (select count(*) from pool_installs)::int as installs`;
-      return json({ ...meta, rows }, 200, { "cache-control": TRENDS_CACHE });
-    } finally {
-      await sql.end();
-    }
+    const limit = Math.min(Math.max(Number(url.searchParams.get("limit") ?? 100), 1), TRENDS_LIMIT);
+    const snapshot = await buffer(env).trends();
+    const rows = url.pathname === "/trends/hot" ? snapshot.hot : snapshot.rising;
+    return json(
+      { posts: snapshot.posts, installs: snapshot.installs, rows: rows.slice(0, limit) },
+      200,
+      { "cache-control": TRENDS_CACHE },
+    );
   }
 
   if (request.method === "GET" && url.pathname === "/health") return json({ ok: true });
@@ -111,14 +106,6 @@ async function handle(request: Request, env: Env): Promise<Response> {
 export default {
   // An unexpected failure surfaces as the platform's own error and lands in observability.
   fetch: (request: Request, env: Env) => handle(request, env),
-  /** Every ten minutes: the two trend views, concurrently so reads keep working. */
-  scheduled: async (_controller: ScheduledController, env: Env) => {
-    const sql = db(env);
-    try {
-      await sql`refresh materialized view concurrently pool_hot_posts`;
-      await sql`refresh materialized view concurrently pool_rising_terms`;
-    } finally {
-      await sql.end();
-    }
-  },
+  /** Hourly: the buffered pushes into Neon, then fresh trend views and snapshot. */
+  scheduled: (_controller: ScheduledController, env: Env) => buffer(env).flush(),
 } satisfies ExportedHandler<Env>;

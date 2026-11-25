@@ -92,7 +92,7 @@ function PoolViews({ value }: { readonly value: PoolTrends }) {
       <Empty>
         {value.installs < 3
           ? `Trends start once three installs share for a day; ${value.installs} of 3 so far.`
-          : "Nothing gained views in the last day yet. The pool refreshes every 10 minutes."}
+          : "Nothing gained views in the last day yet. The pool refreshes every hour."}
       </Empty>
     );
   return (

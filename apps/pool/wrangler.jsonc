@@ -12,5 +12,9 @@
     { "name": "PUSH", "namespace_id": "1002", "simple": { "limit": 30, "period": 60 } },
     { "name": "PUSH_ADDRESS", "namespace_id": "1003", "simple": { "limit": 60, "period": 60 } },
   ],
-  "triggers": { "crons": ["*/10 * * * *"] },
+  // Pushes wait in one SQLite-backed object (free plan) until the hourly flush.
+  "durable_objects": { "bindings": [{ "name": "BUFFER", "class_name": "PoolBuffer" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PoolBuffer"] }],
+  // Neon bills by the minute awake and sleeps 5 minutes after the last query: one wake an hour.
+  "triggers": { "crons": ["0 * * * *"] },
 }
