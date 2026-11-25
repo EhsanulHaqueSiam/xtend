@@ -1003,17 +1003,17 @@ function encodeAccountAnalytics(a: EngineAccountAnalytics | undefined, variables
       });
       return viewerV2({
         ...when(a.verifiedFollowers !== null, () => ({
-          verified_follower_count: a.verifiedFollowers,
+          verified_follower_count: String(a.verifiedFollowers),
           author_follower_metrics: { active_followers: 0, active_verified_followers: 0 },
         })),
         relationship_counts: { followers: a.followers },
         current_time_series: a.daily.flatMap((m, i) => rows(m, from + i * DAY_MS)),
         previous_totals: rows(a.previous, from - a.days * DAY_MS),
         hourly_backfill: [],
-        legacy_current_follow_metrics: a.daily.flatMap((m, i) =>
+        legacy_current_metrics: a.daily.flatMap((m, i) =>
           m.Follows === undefined ? [] : [follows(m, from + i * DAY_MS)],
         ),
-        legacy_previous_follow_metrics: [follows(a.previous, from - a.days * DAY_MS)],
+        legacy_previous_metrics: [follows(a.previous, from - a.days * DAY_MS)],
       });
     }
     case "content":

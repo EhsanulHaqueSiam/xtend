@@ -1312,12 +1312,24 @@ const benchmarks = [
       const shown = await until(
         () =>
           app(
-            `(() => { if (document.querySelector("main")?.innerText.includes("Advanced analytics with Plus")) return "paywall"; return ${ours} ? "numbers" : undefined; })()`,
+            `(() => { const main = document.querySelector("main")?.innerText ?? ""; if (main.includes("Advanced analytics with Plus")) return "paywall"; if (main.includes("once you reach 50 followers")) return "few"; return ${ours} ? "numbers" : undefined; })()`,
           ),
         30_000,
       );
       if (!shown) return false;
       const claims = await store(`String($.accountAnalytics.access)`);
+      if (shown === "few") {
+        // Under 50 followers X's page has no ranges, only its line and verified followers.
+        const tile = await app(
+          `document.querySelector('main [data-x-tile="Verified followers"] .font-mono')?.textContent`,
+        );
+        const same = await until(() =>
+          engine(
+            `document.body.innerText.includes("once you reach 50 followers") && document.body.innerText.replace(/\\s+/g, " ").includes(${JSON.stringify(tile ?? "none")})`,
+          ),
+        );
+        return same && `under 50 followers: X's line, verified followers ${tile} as X's page`;
+      }
       if (shown === "paywall") {
         // Xtend's Upgrade is X's page, and X's own page shows its upsell, not the numbers.
         const upgrade = await app(
@@ -2300,10 +2312,11 @@ const benchmarks = [
         async () => (await store(`$.formatting`)) === (drawn === "formats"),
         10_000,
       );
-      // Xtend's own box only: nothing is typed into X's composer or sent.
+      // Xtend's own box only: nothing is typed into X's composer or sent. A window in the background
+      // sends no focusin, and React reads a selection on keyup: both as a user's typing sends them.
       const fill = (text) =>
         app(
-          `(() => { const t = document.querySelector('main textarea[aria-label="Post text"]'); t.focus(); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(t, ${JSON.stringify(text)}); t.dispatchEvent(new Event("input", { bubbles: true })); t.setSelectionRange(0, ${text.length}); return true; })()`,
+          `(() => { const t = document.querySelector('main textarea[aria-label="Post text"]'); t.dispatchEvent(new FocusEvent("focusin", { bubbles: true })); t.focus(); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(t, ${JSON.stringify(text)}); t.dispatchEvent(new Event("input", { bubbles: true })); t.setSelectionRange(0, ${text.length}); t.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true })); return true; })()`,
         );
       const bold = `document.querySelector('main button[aria-label="Bold"]')`;
       await fill("bench");

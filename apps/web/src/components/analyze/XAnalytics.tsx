@@ -40,7 +40,7 @@ import { XEmpty } from "../xnative/XRows";
 import { insetTable, LineChart } from "./ui";
 
 /** X's range buttons by their label, in days. */
-const DAYS = { "7D": 7, "2W": 14, "4W": 28, "28D": 28, "3M": 90, "1Y": 365 } as const;
+const DAYS = { "48H": 2, "7D": 7, "2W": 14, "4W": 28, "28D": 28, "3M": 90, "1Y": 365 } as const;
 type Range = keyof typeof DAYS;
 type Kind = EngineAccountAnalytics["kind"];
 
@@ -59,7 +59,7 @@ const PAGES = {
   "x-video": {
     kind: "video",
     path: "/i/account_analytics/video",
-    ranges: ["7D", "2W", "4W", "3M", "1Y"],
+    ranges: ["48H", "7D", "2W", "4W", "3M", "1Y"],
   },
   "x-audience": {
     kind: "audience",
@@ -92,7 +92,11 @@ function useXAnalytics(section: XSection) {
   const { access, answers } = analytics;
   const setEngine = useAtomSet(engineAtom);
   const days = analyticsRange(analytics, page.kind);
-  const answer = days === undefined ? undefined : answers.get(`${page.kind}:${days}`);
+  // Under 50 followers X's overview draws no range buttons: the one range X answered is its range.
+  const only = [...answers.keys()].filter((k) => k.startsWith(`${page.kind}:`));
+  const key =
+    days === undefined ? (only.length === 1 ? only[0] : undefined) : `${page.kind}:${days}`;
+  const answer = key === undefined ? undefined : answers.get(key);
   const loaded = useRef<Promise<unknown>>(Promise.resolve());
   const live = useRef(new AbortController());
   // The range X's page shows, from its selected range button: on open and with each answer.

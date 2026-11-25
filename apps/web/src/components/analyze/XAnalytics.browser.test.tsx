@@ -25,14 +25,15 @@ const claims = (access: boolean): EngineBatch => {
 
 /**
  * One section on a fresh store, the engine a fake webview whose scripts the test reads. `upsell`
- * is what X's page shows: its upsell (true), its analytics (false), or neither yet (null).
+ * is what X's page shows: its upsell (true), its analytics (false), or neither yet (null);
+ * `range` its selected range button, null when it draws none.
  */
-async function open(section: XSection, upsell: boolean | null = null) {
+async function open(section: XSection, upsell: boolean | null = null, range: string | null = "7D") {
   updateEngine(() => emptyEngine);
   const bridge = installFakeBridge();
   const scripts: Array<string> = [];
   // X's page opens on 7D; a test can make reading its selected range fail, or hold the next read.
-  let shown: string | null = "7D";
+  let shown = range;
   let readFails = false;
   let held: ((label: string) => void) | null = null;
   let holdNext = false;
@@ -156,6 +157,27 @@ it("draws X's overview for the range X's page shows, and a pick presses X's own 
     .element(x.screen.getByRole("tab", { name: "7D" }))
     .toHaveAttribute("aria-selected", "true");
   expect(tile("Impressions")).toBe("Impressions3,150↑200%");
+});
+
+it("under 50 followers, where X's page has no range buttons, shows the one range X answered", async () => {
+  await using x = await open("x-overview", false, null);
+  const sent = answer("overview:7");
+  x.bridge.emitEngine(claims(true));
+  x.bridge.emitEngine({
+    ...sent,
+    accountAnalytics: { ...sent.accountAnalytics!, followers: 16, verifiedFollowers: 6 },
+  } as EngineBatch);
+  await expect
+    .element(
+      x.screen.getByText(
+        "Detailed engagement metrics become available once you reach 50 followers.",
+      ),
+    )
+    .toBeVisible();
+  await expect
+    .poll(() => x.screen.container.querySelector('[data-x-tile="Verified followers"]')?.textContent)
+    .toBe("Verified followers6 / 16");
+  await expect.element(x.screen.getByRole("tab", { name: "7D" })).not.toBeInTheDocument();
 });
 
 it("lets a pick go with its section: back on X's 4W, the old 7D read changes nothing", async () => {

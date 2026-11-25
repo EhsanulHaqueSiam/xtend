@@ -1946,8 +1946,10 @@ function readAccountAnalytics(
         const hours = backfill.get(from + i * DAY_MS);
         if (hours !== undefined) daily[i] = countRows(hours);
       }
-      const follows = followsByDay(viewer.legacy_current_follow_metrics);
-      const previousFollows = [...followsByDay(viewer.legacy_previous_follow_metrics).values()];
+      const follows = followsByDay(viewer.legacy_current_metrics);
+      const previousFollows = [...followsByDay(viewer.legacy_previous_metrics).values()];
+      // X sends it as a string ("6").
+      const verified = Number(viewer.verified_follower_count ?? Number.NaN);
       return {
         accountAnalytics: {
           kind: "overview",
@@ -1963,10 +1965,7 @@ function readAccountAnalytics(
             Unfollows: previousFollows.reduce((n, d) => n + (d.Unfollows ?? 0), 0),
           },
           followers: asNumber(record(viewer.relationship_counts).followers),
-          verifiedFollowers:
-            typeof viewer.verified_follower_count === "number"
-              ? viewer.verified_follower_count
-              : null,
+          verifiedFollowers: Number.isFinite(verified) ? verified : null,
         },
       };
     }

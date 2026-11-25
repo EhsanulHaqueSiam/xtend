@@ -1534,6 +1534,7 @@ describe("renderEngineBatch around posts", () => {
       metric_values: [
         { metric_type: "Follows", metric_value: Follows },
         { metric_type: "Unfollows", metric_value: Unfollows },
+        { metric_type: "MediaViews", metric_value: 7 },
       ],
     });
     const overview = renderEngineBatch(
@@ -1545,7 +1546,7 @@ describe("renderEngineBatch around posts", () => {
             user_results: {
               result: {
                 __typename: "User",
-                verified_follower_count: 4,
+                verified_follower_count: "4",
                 relationship_counts: { followers: 120 },
                 current_time_series: [
                   row(0, "Displayed", 300),
@@ -1562,8 +1563,8 @@ describe("renderEngineBatch around posts", () => {
                   { timestamp: day(1), engagement_type: "Displayed", count: 999 },
                 ],
                 previous_totals: [row(-3, "Displayed", 250), row(-3, "Reply", 3)],
-                legacy_current_follow_metrics: [follows(0, 2, 1)],
-                legacy_previous_follow_metrics: [follows(-3, 1, 0), follows(-2, 1, 1)],
+                legacy_current_metrics: [follows(0, 2, 1)],
+                legacy_previous_metrics: [follows(-3, 1, 0), follows(-2, 1, 1)],
               },
             },
           },
