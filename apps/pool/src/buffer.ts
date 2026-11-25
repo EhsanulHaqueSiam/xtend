@@ -25,9 +25,9 @@ type FlushResult = { accepted: number; failed: number; unknown: string[] };
 /** A storage value holds 2 MB; at up to 3 UTF-8 bytes a character this stays under it. */
 const MAX_SNAPSHOT_CHARS = 600_000;
 
-/** Postgres refused the data itself (class 22, or 54 for nesting too deep), not the connection. */
+/** Postgres refused the data itself (bad value, broken constraint, too deep), not the connection. */
 const isDataError = (error: unknown) =>
-  error instanceof postgres.PostgresError && /^(22|54)/.test(error.code);
+  error instanceof postgres.PostgresError && /^(22|23|54)/.test(error.code);
 
 /** One connection per use; Hyperdrive pools behind it. */
 export const db = (env: Env) =>

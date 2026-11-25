@@ -65,20 +65,21 @@ async function handle(request: Request, env: Env): Promise<Response> {
     if (length > MAX_BODY_BYTES) return json({ error: "body too large" }, 413);
     const bytes = await request.arrayBuffer();
     if (bytes.byteLength > MAX_BODY_BYTES) return json({ error: "body too large" }, 413);
-    const text = new TextDecoder().decode(bytes);
     let body: unknown;
     try {
-      body = JSON.parse(text);
+      body = JSON.parse(new TextDecoder().decode(bytes));
     } catch {
       return json({ error: "body must be JSON" }, 400);
     }
     const batch = readBatch(body);
     if ("error" in batch) return json(batch, 400);
     const pool = buffer(env);
-    let queued = await pool.add(install, text);
+    // The cleaned items are what queue, never the raw body.
+    const clean = JSON.stringify({ items: batch.items });
+    let queued = await pool.add(install, clean);
     // First push from an install the buffer has not seen: Neon says whether it exists, once.
     if (queued === "unchecked" && (await registered(env, install)))
-      queued = await pool.add(install, text, true);
+      queued = await pool.add(install, clean, true);
     if (queued === "unchecked") return json({ error: "unknown install" }, 401);
     if (queued === "full") return json({ error: "pool is catching up" }, 503);
     return json({ queued: batch.items.length }, 202);

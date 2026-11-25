@@ -17,8 +17,8 @@ export const chunkEnd = (head: ReadonlyArray<{ id: number; bytes: number }>) => 
 };
 
 /**
- * pool_flush's argument, built as text: bodies were validated JSON when they were queued, so
- * they are spliced in rather than parsed again inside the worker's CPU budget.
+ * pool_flush's argument, built as text: bodies were serialized by the worker when they were
+ * queued, so they are spliced in rather than parsed again.
  */
 export const entriesJson = (rows: ReadonlyArray<Pending>) =>
   `[${rows.map((r) => `{"install":${JSON.stringify(r.install)},"at":${JSON.stringify(r.at)},"body":${r.body}}`).join(",")}]`;
